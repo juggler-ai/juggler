@@ -241,7 +241,8 @@ func (w *ConversationWorker) buildMessages(contexts []ItemContext) []map[string]
 
 	items := w.getTargetItems()
 
-	for _, item := range items {
+	for i := 0; i < len(items); i++ {
+		item := items[i]
 		switch item.Type {
 		case ItemTypeUser:
 			messages = append(messages, buildUserMessageMap(item))
@@ -253,53 +254,80 @@ func (w *ConversationWorker) buildMessages(contexts []ItemContext) []map[string]
 			messages = append(messages, map[string]any{"type": "thinking", "content": item.Content})
 
 		case ItemTypeToolAction:
-			if item.ToolUseID == "" || item.ToolName == "" {
-				w.log.Error("[Worker] WARNING: Tool action skipped - ToolUseID=%q, ToolName=%q", item.ToolUseID, item.ToolName)
-				continue
+			// Collect consecutive tool-action items so tool_use
+			// messages are batched before tool_result messages.
+			// transformMessages groups consecutive tool_use items
+			// into one assistant message (with reasoning_content
+			// replayed via EchoReasoningContent). Interleaving
+			// tool_use/tool_result pairs would produce separate
+			// assistant messages — only the first gets the
+			// reasoning_content, causing DeepSeek's thinking mode
+			// to 400: "The reasoning_content ... must be passed
+			// back to the API."
+			end := i + 1
+			for end < len(items) && items[end].Type == ItemTypeToolAction {
+				end++
+			}
+			toolActions := items[i:end]
+
+			// Emit all tool_use messages first.
+			for _, ta := range toolActions {
+				if ta.ToolUseID == "" || ta.ToolName == "" {
+					w.log.Error("[Worker] WARNING: Tool action skipped - ToolUseID=%q, ToolName=%q", ta.ToolUseID, ta.ToolName)
+					continue
+				}
+				messages = append(messages, buildToolUseMap(ta))
 			}
 
-			messages = append(messages, buildToolUseMap(item))
+			// Emit tool_result messages.
+			for _, ta := range toolActions {
+				if ta.ToolUseID == "" || ta.ToolName == "" {
+					continue
+				}
+				// Tool may not have finished yet if auto-continue raced ahead
+				// of tool execution completing. Emit an explicit isError
+				// tool-result so the LLM treats it as a failure rather than
+				// fabricating reasoning from a misleading "in progress" body.
+				// The strategy loop will re-trigger when the tool finishes;
+				// shipping a lying success body here is the worse outcome.
+				if ta.State != StateCompleted && ta.State != StateCancelled {
+					w.log.Error("WARNING: Tool %s has no result yet — emitting isError tool-result (auto-continue may have raced ahead of execution)", ta.ToolUseID)
+					messages = append(messages, map[string]any{
+						"type":      "tool-result",
+						"toolUseId": ta.ToolUseID,
+						"content":   "[internal] Tool execution did not complete before message build. Do not fabricate output — wait for the actual result.",
+						"isError":   true,
+					})
+					// We just delivered a (placeholder) result for a tool still in
+					// state=running. Stamp the current turn so a mid-turn engine reattach
+					// does NOT reset+re-execute it — the resultFedTurn CURE that removes the
+					// duplicate re-feed at source (doc.go's "Tool-delivery desync" section,
+					// claudecode provider). The stamp self-expires (a later turn carries a
+					// higher turnCounter), so a genuinely-stuck tool can still be recovered
+					// by a future reattach. Store as int: y-crdt's YMap.Set accepts Number
+					// (=int), and convertToYcrdt leaves an int64 untyped for it (see its
+					// float64 case). resetRunningToolsForReattach reads it back numerically.
+					w.doc.UpdateToolActionFieldsRecursive(ta.ToolUseID, map[string]any{
+						"resultFedTurn": int(w.docTurnCounter()),
+					})
+					continue
+				}
 
-			// Tool may not have finished yet if auto-continue raced ahead
-			// of tool execution completing. Emit an explicit isError
-			// tool-result so the LLM treats it as a failure rather than
-			// fabricating reasoning from a misleading "in progress" body.
-			// The strategy loop will re-trigger when the tool finishes;
-			// shipping a lying success body here is the worse outcome.
-			if item.State != StateCompleted && item.State != StateCancelled {
-				w.log.Error("WARNING: Tool %s has no result yet — emitting isError tool-result (auto-continue may have raced ahead of execution)", item.ToolUseID)
-				messages = append(messages, map[string]any{
-					"type":      "tool-result",
-					"toolUseId": item.ToolUseID,
-					"content":   "[internal] Tool execution did not complete before message build. Do not fabricate output — wait for the actual result.",
-					"isError":   true,
-				})
-				// We just delivered a (placeholder) result for a tool still in
-				// state=running. Stamp the current turn so a mid-turn engine reattach
-				// does NOT reset+re-execute it — the resultFedTurn CURE that removes the
-				// duplicate re-feed at source (doc.go's "Tool-delivery desync" section,
-				// claudecode provider). The stamp self-expires (a later turn carries a
-				// higher turnCounter), so a genuinely-stuck tool can still be recovered
-				// by a future reattach. Store as int: y-crdt's YMap.Set accepts Number
-				// (=int), and convertToYcrdt leaves an int64 untyped for it (see its
-				// float64 case). resetRunningToolsForReattach reads it back numerically.
-				w.doc.UpdateToolActionFieldsRecursive(item.ToolUseID, map[string]any{
-					"resultFedTurn": int(w.docTurnCounter()),
-				})
-				continue
+				if rm := buildToolResultMap(ta); rm != nil {
+					messages = append(messages, rm)
+				} else {
+					w.log.Error("FATAL: Tool %s Result unmarshal failed", ta.ToolUseID)
+					messages = append(messages, map[string]any{
+						"type":      "tool-result",
+						"toolUseId": ta.ToolUseID,
+						"content":   "ERROR: Invalid result JSON",
+						"isError":   true,
+					})
+				}
 			}
 
-			if rm := buildToolResultMap(item); rm != nil {
-				messages = append(messages, rm)
-			} else {
-				w.log.Error("FATAL: Tool %s Result unmarshal failed", item.ToolUseID)
-				messages = append(messages, map[string]any{
-					"type":      "tool-result",
-					"toolUseId": item.ToolUseID,
-					"content":   "ERROR: Invalid result JSON",
-					"isError":   true,
-				})
-			}
+			// Advance past the batch we just consumed (-1 because the loop increments).
+			i = end - 1
 
 		case ItemTypeThread:
 			messages = appendThreadMessages(messages, item)

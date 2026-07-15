@@ -18,6 +18,21 @@ GOARCH_HOST := arm64
 else
 GOARCH_HOST := $(UNAME_M)
 endif
+# Executable suffix for native (non-cross-compiled) builds on this host. Native
+# Windows reports Windows_NT via $OS regardless of shell (uname -s instead
+# returns MSYS_NT-.../MINGW64_NT-... under Git Bash, inconsistent to match
+# on). This matters beyond cosmetics: `go build -o path` never auto-appends
+# .exe when given an explicit filename, but the desktop app's serverBinPath()
+# (cmd/juggler-app/server_spawn.go) looks for a sibling literally named
+# juggler.exe on Windows — without this suffix here, go-build silently
+# produces a server binary the app can never find, and it falls back to
+# whatever juggler.exe happens to be on PATH instead (e.g. a stale installed
+# build) with no error.
+ifeq ($(OS),Windows_NT)
+BIN_EXT := .exe
+else
+BIN_EXT :=
+endif
 MAC_APP_DIR=$(BUILD_DIR)/Juggler.app
 # The clickable bundle executable is the desktop app (juggler-app); the headless
 # server binary (juggler) sits alongside it in MacOS/ so the app's serverBinPath
@@ -125,10 +140,10 @@ ifeq ($(UNAME_S),Darwin)
 	@ln -sfn Juggler.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
 else
-	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/juggler
-	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/juggler-app ./cmd/juggler-app
+	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)$(BIN_EXT) ./cmd/juggler
+	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/juggler-app$(BIN_EXT) ./cmd/juggler-app
 endif
-	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/juggler-test ./cmd/juggler-test
+	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/juggler-test$(BIN_EXT) ./cmd/juggler-test
 	@echo "✓ built juggler, juggler-app, juggler-test ($(VERSION))"
 
 ## release-build: Build juggler with -tags production. Excludes test handlers
@@ -150,9 +165,9 @@ ifeq ($(UNAME_S),Darwin)
 	@ln -sfn Juggler.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
 else
-	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/juggler
+	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)$(BIN_EXT) ./cmd/juggler
 	@echo "Building juggler-app $(VERSION) [release]..."
-	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/juggler-app ./cmd/juggler-app
+	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/juggler-app$(BIN_EXT) ./cmd/juggler-app
 endif
 
 ## build-windows: Cross-compile the Windows .exe binaries from any host. Wails
@@ -519,12 +534,12 @@ test-full: lint test
 ## benchmark: Run LLM benchmarks (requires API keys, e.g. ARGS="--task bugfix-001")
 benchmark: build
 	@echo "Running LLM benchmarks..."
-	@$(BUILD_DIR)/juggler-test $(ARGS)
+	@$(BUILD_DIR)/juggler-test$(BIN_EXT) $(ARGS)
 
 ## dev: Run in development mode with hot reload
 dev: build
 	@echo "Running in development mode..."
-	@$(BUILD_DIR)/$(BINARY_NAME) --assets-from-disk --verbose
+	@$(BUILD_DIR)/$(BINARY_NAME)$(BIN_EXT) --assets-from-disk --verbose
 
 ## clean: Clean build artifacts
 clean:

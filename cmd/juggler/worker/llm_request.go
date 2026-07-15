@@ -249,6 +249,9 @@ func (w *ConversationWorker) buildMessages(contexts []ItemContext) []map[string]
 		case ItemTypeAssistant:
 			messages = append(messages, map[string]any{"type": "assistant", "content": item.Content})
 
+		case ItemTypeThinking:
+			messages = append(messages, map[string]any{"type": "thinking", "content": item.Content})
+
 		case ItemTypeToolAction:
 			if item.ToolUseID == "" || item.ToolName == "" {
 				w.log.Error("[Worker] WARNING: Tool action skipped - ToolUseID=%q, ToolName=%q", item.ToolUseID, item.ToolName)

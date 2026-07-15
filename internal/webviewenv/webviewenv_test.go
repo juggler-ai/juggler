@@ -5,9 +5,13 @@
 package webviewenv
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
+
+// errNotFound stands in for exec.LookPath's not-found error in fakes.
+var errNotFound = errors.New("not found")
 
 func TestPreflight(t *testing.T) {
 	tests := []struct {
@@ -105,23 +109,75 @@ func TestSandboxRestrictedFrom(t *testing.T) {
 func TestMessagePerOS(t *testing.T) {
 	const reason = "the engine webview did not initialise in time"
 	// Each OS's message must lead with the reason and carry the fix specific to
-	// that platform, so a user on any host gets actionable guidance.
+	// that platform, so a user on any host gets actionable guidance. On Linux
+	// the fix is additionally tailored to the host: an exact install command
+	// when a known package manager is present and xvfb is missing, or the bare
+	// xvfb-run invocation when it is already installed.
 	cases := []struct {
+		name     string
 		goos     string
+		host     linuxHost
 		contains []string
+		excludes []string
 	}{
-		{"linux", []string{reason, "xvfb-run", "WEBKIT_DISABLE", "libwebkit2gtk", "apparmor_restrict_unprivileged_userns", "WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS"}},
-		{"darwin", []string{reason, "Aqua", "LaunchAgent"}},
-		{"windows", []string{reason, "WebView2", "interactive user session"}},
-		{"plan9", []string{reason, "webview runtime"}},
+		{"linux apt without xvfb", "linux", linuxHost{pm: "apt-get"},
+			[]string{reason, "sudo apt-get install -y xvfb", "xvfb-run -a juggler", "WEBKIT_DISABLE", "apparmor_restrict_unprivileged_userns", "WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS"},
+			nil},
+		{"linux dnf without xvfb", "linux", linuxHost{pm: "dnf"},
+			[]string{"sudo dnf install -y xorg-x11-server-Xvfb"}, nil},
+		{"linux xvfb already installed skips the install step", "linux", linuxHost{pm: "apt-get", hasXvfb: true},
+			[]string{"xvfb-run -a juggler"},
+			[]string{"install -y xvfb"}},
+		{"linux unknown package manager gets generic advice", "linux", linuxHost{},
+			[]string{"Xvfb package", "xvfb-run -a juggler"},
+			[]string{"install -y"}},
+		{"darwin", "darwin", linuxHost{}, []string{reason, "Aqua", "LaunchAgent"}, nil},
+		{"windows", "windows", linuxHost{}, []string{reason, "WebView2", "interactive user session"}, nil},
+		{"plan9", "plan9", linuxHost{}, []string{reason, "webview runtime"}, nil},
 	}
 	for _, tc := range cases {
-		t.Run(tc.goos, func(t *testing.T) {
-			msg := message(tc.goos, reason)
+		t.Run(tc.name, func(t *testing.T) {
+			msg := message(tc.goos, reason, tc.host)
 			for _, want := range tc.contains {
 				if !strings.Contains(msg, want) {
-					t.Errorf("message(%q) missing %q; got:\n%s", tc.goos, want, msg)
+					t.Errorf("message(%q, %+v) missing %q; got:\n%s", tc.goos, tc.host, want, msg)
 				}
+			}
+			for _, unwanted := range tc.excludes {
+				if strings.Contains(msg, unwanted) {
+					t.Errorf("message(%q, %+v) unexpectedly contains %q; got:\n%s", tc.goos, tc.host, unwanted, msg)
+				}
+			}
+		})
+	}
+}
+
+func TestDetectLinuxHost(t *testing.T) {
+	lookPathFrom := func(present ...string) func(string) (string, error) {
+		return func(name string) (string, error) {
+			for _, p := range present {
+				if p == name {
+					return "/usr/bin/" + name, nil
+				}
+			}
+			return "", errNotFound
+		}
+	}
+	cases := []struct {
+		name    string
+		goos    string
+		present []string
+		want    linuxHost
+	}{
+		{"apt host without xvfb", "linux", []string{"apt-get"}, linuxHost{pm: "apt-get"}},
+		{"dnf host with xvfb", "linux", []string{"dnf", "xvfb-run"}, linuxHost{pm: "dnf", hasXvfb: true}},
+		{"nothing recognised", "linux", nil, linuxHost{}},
+		{"non-linux is always the zero value", "darwin", []string{"apt-get", "xvfb-run"}, linuxHost{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := detectLinuxHost(tc.goos, lookPathFrom(tc.present...)); got != tc.want {
+				t.Errorf("detectLinuxHost(%q, %v) = %+v, want %+v", tc.goos, tc.present, got, tc.want)
 			}
 		})
 	}

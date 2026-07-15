@@ -18,6 +18,7 @@ package webviewenv
 
 import (
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 )
@@ -134,16 +135,61 @@ func sandboxRestrictedFrom(read func(string) (string, bool)) bool {
 	return false
 }
 
+// linuxHost carries the host facts that tailor the Linux remediation message:
+// which package manager is installed (so the fix can be one exact command
+// instead of generic advice) and whether xvfb-run is already available.
+type linuxHost struct {
+	pm      string // package-manager binary: "apt-get", "dnf", "pacman", "zypper", or ""
+	hasXvfb bool   // xvfb-run is on PATH
+}
+
+// detectLinuxHost probes PATH for the package manager and for xvfb-run. Only
+// meaningful on Linux; every other platform gets the zero value.
+func detectLinuxHost(goos string, lookPath func(string) (string, error)) linuxHost {
+	if goos != "linux" {
+		return linuxHost{}
+	}
+	var h linuxHost
+	if _, err := lookPath("xvfb-run"); err == nil {
+		h.hasXvfb = true
+	}
+	for _, pm := range []string{"apt-get", "dnf", "pacman", "zypper"} {
+		if _, err := lookPath(pm); err == nil {
+			h.pm = pm
+			break
+		}
+	}
+	return h
+}
+
+// xvfbInstallCommand returns the exact command that installs the Xvfb virtual
+// framebuffer for the detected package manager (the package name differs per
+// distro family), or "" when no known package manager was found.
+func xvfbInstallCommand(pm string) string {
+	switch pm {
+	case "apt-get":
+		return "sudo apt-get install -y xvfb"
+	case "dnf":
+		return "sudo dnf install -y xorg-x11-server-Xvfb"
+	case "pacman":
+		return "sudo pacman -S --needed xorg-server-xvfb"
+	case "zypper":
+		return "sudo zypper install -y xvfb-run"
+	default:
+		return ""
+	}
+}
+
 // UnavailableMessage builds the multi-line diagnostic printed when the webview
 // cannot be brought up. reason is a short lead describing how the failure was
 // detected (a Preflight finding, or "the … did not initialise within 30s"); the
 // body is the per-OS list of things to check.
 func UnavailableMessage(reason string) string {
-	return message(runtime.GOOS, reason)
+	return message(runtime.GOOS, reason, detectLinuxHost(runtime.GOOS, exec.LookPath))
 }
 
 // message is the testable core of UnavailableMessage.
-func message(goos, reason string) string {
+func message(goos, reason string, host linuxHost) string {
 	var b strings.Builder
 	b.WriteString("Juggler cannot start: ")
 	b.WriteString(reason)
@@ -151,19 +197,37 @@ func message(goos, reason string) string {
 	b.WriteString("Juggler runs its agent engine inside a webview, so it needs a graphical\n")
 	b.WriteString("display and a system webview runtime even when running headless (no window).\n\n")
 	b.WriteString("To fix this:\n")
-	b.WriteString(remediation(goos))
+	b.WriteString(remediation(goos, host))
 	return b.String()
 }
 
 // remediation returns the per-OS bullet list of fixes.
-func remediation(goos string) string {
+func remediation(goos string, host linuxHost) string {
 	switch goos {
 	case "linux":
-		return "" +
-			"  • Install a WebKitGTK runtime (e.g. libwebkit2gtk-4.1-0, or webkit2gtk4.1).\n" +
-			"  • Make a display available by setting DISPLAY or WAYLAND_DISPLAY. In a\n" +
-			"    container, CI runner, or over SSH with no desktop, run under a virtual\n" +
-			"    framebuffer — e.g. `xvfb-run -a juggler`.\n" +
+		// This process is running, so the GTK/WebKitGTK libraries it links are
+		// demonstrably present — a missing runtime fails at the dynamic loader
+		// before any of this code executes. What can be wrong here is the
+		// display (most commonly: a headless host) or WebKit's own
+		// subprocesses/sandbox, so that is what the bullets address.
+		b := "  • Make a display available by setting DISPLAY or WAYLAND_DISPLAY.\n"
+		switch {
+		case host.hasXvfb:
+			b += "" +
+				"  • On a headless machine (container, CI runner, or SSH with no desktop),\n" +
+				"    run under a virtual framebuffer: `xvfb-run -a juggler`.\n"
+		case xvfbInstallCommand(host.pm) != "":
+			b += "" +
+				"  • On a headless machine (container, CI runner, or SSH with no desktop),\n" +
+				"    run under a virtual framebuffer — install it with\n" +
+				"    `" + xvfbInstallCommand(host.pm) + "`, then run `xvfb-run -a juggler`.\n"
+		default:
+			b += "" +
+				"  • On a headless machine (container, CI runner, or SSH with no desktop),\n" +
+				"    run under a virtual framebuffer — install your distro's Xvfb package\n" +
+				"    (usually called `xvfb`), then run `xvfb-run -a juggler`.\n"
+		}
+		return b +
 			"  • If a display exists but the webview still won't start, try setting\n" +
 			"    WEBKIT_DISABLE_DMABUF_RENDERER=1 and WEBKIT_DISABLE_COMPOSITING_MODE=1.\n" +
 			"  • On Ubuntu 23.10+ the sandbox WebKitGTK uses (bubblewrap) can be blocked\n" +

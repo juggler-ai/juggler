@@ -34,6 +34,7 @@ import (
 	"juggler/cmd/juggler/providers/openrouter"
 	"juggler/cmd/juggler/providers/zai"
 	"juggler/cmd/juggler/server"
+	"juggler/internal/webviewenv"
 	"juggler/web"
 )
 
@@ -81,6 +82,15 @@ func Run(cfg Config) int {
 		fmt.Printf("juggler %s (commit: %s, built: %s)\n",
 			core.Version, core.Commit, core.BuildDate)
 		return 0
+	}
+
+	// A headless Linux host (no DISPLAY/WAYLAND_DISPLAY) cannot bring up the
+	// hidden engine webview, but a virtual framebuffer satisfies it completely.
+	// When xvfb-run is installed, re-exec under it instead of failing the
+	// engine preflight later (JUGGLER_NO_XVFB=1 opts out). This must run before
+	// any lock, port, or GTK state exists — on success it never returns.
+	if note := webviewenv.MaybeRelaunchUnderXvfb(); note != "" {
+		fmt.Fprintln(os.Stderr, note)
 	}
 
 	// --assets-from-disk is a developer flag that serves the web/ tree off disk;

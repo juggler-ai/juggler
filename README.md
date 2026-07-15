@@ -37,7 +37,7 @@ The desktop app, browser tabs (on local or remote machines) can all be clients v
 
 - **macOS** — download the `.dmg`, open it, and drag Juggler to Applications, then launch it. The app and its server are bundled together, so the server starts automatically. The first time you open it, macOS Gatekeeper may block the download: right-click (or Control-click) the app → **Open** → **Open**, or go to **System Settings → Privacy & Security → Open Anyway**. After the first launch it opens normally.
 - **Windows** — download `Juggler-<version>-setup.exe` and run it. It installs the desktop app and the matching `juggler.exe` command-line server together in one directory (and can add `juggler` to your PATH), so the two never drift apart.
-- **Linux** — download the `juggler` server binary and run it from a terminal, then connect with a browser or the desktop app.
+- **Linux** — download the `juggler` server binary and run it from a terminal, then connect with a browser or the desktop app. For servers, containers, and CI machines with no display, see [`docs/headless-linux.md`](docs/headless-linux.md).
 
 The desktop app and the server always ship and install as one unit — see [`docs/distribution.md`](docs/distribution.md).
 

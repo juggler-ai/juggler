@@ -57,10 +57,22 @@ func host() string {
 
 // normaliseHost trims whitespace + trailing slashes and prepends http:// if the
 // caller gave a bare host:port. Returns "" for empty/whitespace input.
+//
+// It also repairs the common "missing //" typo (`http:host:port`,
+// `https:host`): written verbatim that yields a bogus `http://http:host:port`
+// URL that never connects, so the malformed scheme prefix is rewritten to the
+// proper `scheme://` form before the bare-host fallback runs.
 func normaliseHost(raw string) string {
 	h := strings.TrimSpace(raw)
 	if h == "" {
 		return ""
+	}
+	// Repair `http:host` / `https:host` (scheme colon but no `//`).
+	for _, scheme := range []string{"http", "https"} {
+		if strings.HasPrefix(h, scheme+":") && !strings.HasPrefix(h, scheme+"://") {
+			h = scheme + "://" + strings.TrimPrefix(h, scheme+":")
+			break
+		}
 	}
 	if !strings.HasPrefix(h, "http://") && !strings.HasPrefix(h, "https://") {
 		h = "http://" + h

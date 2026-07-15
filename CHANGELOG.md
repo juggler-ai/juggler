@@ -5,6 +5,10 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Fix for deepseek thinking, and Ollama
+- Headless Linux servers now auto-relaunch under xvfb-run when no display exists
+- Linux no-display errors now give exact, distro-specific install commands
+
 ## [0.3.7] - 2026-07-14
 
 - Recovered locked project sessions safely and explained unrecoverable lock conflicts.

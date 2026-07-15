@@ -20,6 +20,7 @@ import (
 // claudecode.BinaryPathCredKey) — the frontend posts these literal names.
 const (
 	ollamaHostKey           = "ollama_host"
+	llamacppHostKey         = "llamacpp_host"
 	claudecodeBinaryPathKey = "claudecode_binary_path"
 )
 
@@ -99,6 +100,7 @@ func (c *ConfigAPI) HandleGetConfig(w http.ResponseWriter, r *http.Request) {
 			"port": cfg.Server.Port,
 		},
 		"ollamaHost":           c.credStore.GetRawKey(ollamaHostKey),
+		"llamacppHost":         c.credStore.GetRawKey(llamacppHostKey),
 		"claudecodeBinaryPath": c.credStore.GetRawKey(claudecodeBinaryPathKey),
 	}
 
@@ -158,6 +160,16 @@ func (c *ConfigAPI) HandleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		if hostStr, ok := hostValue.(string); ok {
 			if err := c.credStore.SetRawKey(ollamaHostKey, hostStr); err != nil {
 				jlog.Error("Failed to save Ollama host: %v", err)
+			}
+		}
+	}
+
+	// Handle llama-server host override (raw credential), same shape as the
+	// Ollama one above.
+	if hostValue, ok := req[llamacppHostKey]; ok {
+		if hostStr, ok := hostValue.(string); ok {
+			if err := c.credStore.SetRawKey(llamacppHostKey, hostStr); err != nil {
+				jlog.Error("Failed to save llama.cpp host: %v", err)
 			}
 		}
 	}

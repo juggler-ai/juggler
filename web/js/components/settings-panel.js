@@ -890,7 +890,28 @@ class SettingsPanel extends HTMLElement {
     // restarting the app. Saved as the `ollama_host` raw
     // credential; backend re-fetches the model list on change.
     if (provider.name === 'ollama') {
-      controlColumn.appendChild(this._buildOllamaHostRow());
+      controlColumn.appendChild(this._buildHostRow({
+        inputId: 'ollama-host-input',
+        placeholder: 'http://localhost:11434',
+        configField: 'ollamaHost',
+        configKey: 'ollama_host',
+        defaultLabel: 'http://localhost:11434',
+      }));
+    }
+
+    // llama.cpp: expose the llama-server host so users can point at a
+    // non-default (LAN / remote / custom port) instance without restarting
+    // the app. Saved as the `llamacpp_host` raw credential; backend
+    // re-fetches the model list (and its context window, queried live from
+    // the server's /props) on change.
+    if (provider.name === 'llamacpp') {
+      controlColumn.appendChild(this._buildHostRow({
+        inputId: 'llamacpp-host-input',
+        placeholder: 'http://127.0.0.1:8080',
+        configField: 'llamacppHost',
+        configKey: 'llamacpp_host',
+        defaultLabel: 'http://127.0.0.1:8080',
+      }));
     }
 
     // Claude Code: let users point at the `claude` CLI explicitly for obscure
@@ -1168,14 +1189,15 @@ class SettingsPanel extends HTMLElement {
   }
 
   /**
-   * Build the host-URL input row for the Ollama provider. Loads the
-   * current value from `this.config.ollamaHost`; saves via /api/config on
-   * blur or Enter. Empty value clears the override (falls back to env var
-   * or default localhost:11434 on the server).
+   * Build a host-URL input row for a keyless local-server provider (Ollama,
+   * llama.cpp). Loads the current value from `this.config[configField]`;
+   * saves via /api/config on blur or Enter. Empty value clears the override
+   * (falls back to env var or the server-side default).
+   * @param {{inputId: string, placeholder: string, configField: string, configKey: string, defaultLabel: string}} opts
    * @returns {HTMLElement} The row element to append to the control column.
    * @private
    */
-  _buildOllamaHostRow() {
+  _buildHostRow({ inputId, placeholder, configField, configKey, defaultLabel }) {
     // Wrapper is a no-op fragment-like div so the caller can append a
     // single child; visual layout comes from the parent `.provider-control`
     // column (`flex-direction: column; gap: 0.375rem`).
@@ -1188,13 +1210,13 @@ class SettingsPanel extends HTMLElement {
 
     const input = document.createElement('input');
     input.type = 'text';
-    input.id = 'ollama-host-input';
-    input.placeholder = 'http://localhost:11434';
+    input.id = inputId;
+    input.placeholder = placeholder;
     input.autocomplete = 'off';
     input.setAttribute('autocorrect', 'off');
     input.setAttribute('autocapitalize', 'off');
     input.spellcheck = false;
-    input.value = /** @type {any} */ (this.config).ollamaHost || '';
+    input.value = /** @type {any} */ (this.config)[configField] || '';
     inputWrapper.appendChild(input);
     row.appendChild(inputWrapper);
 
@@ -1204,21 +1226,21 @@ class SettingsPanel extends HTMLElement {
 
     const save = async () => {
       const value = input.value.trim();
-      if (value === (/** @type {any} */ (this.config).ollamaHost || '')) return;
+      if (value === (/** @type {any} */ (this.config)[configField] || '')) return;
       status.textContent = 'Saving…';
       try {
         const response = await fetch('/api/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ollama_host: value }),
+          body: JSON.stringify({ [configKey]: value }),
         });
         if (!response.ok) throw new Error(`Server returned ${response.status}`);
-        /** @type {any} */ (this.config).ollamaHost = value;
+        /** @type {any} */ (this.config)[configField] = value;
         status.textContent = value
           ? `Saved. Pointing at ${value}.`
-          : 'Saved. Using default (http://localhost:11434).';
+          : `Saved. Using default (${defaultLabel}).`;
       } catch (err) {
-        console.error('[SettingsPanel] Failed to save Ollama host:', err);
+        console.error(`[SettingsPanel] Failed to save host for ${configField}:`, err);
         status.textContent = 'Failed to save.';
       }
     };

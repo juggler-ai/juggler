@@ -30,6 +30,7 @@ import (
 	"juggler/cmd/juggler/providers/claudecode"
 	"juggler/cmd/juggler/providers/deepseek"
 	"juggler/cmd/juggler/providers/gemini"
+	"juggler/cmd/juggler/providers/moonshot"
 	"juggler/cmd/juggler/providers/ollama"
 	"juggler/cmd/juggler/providers/openai"
 	"juggler/cmd/juggler/providers/openaicodex"
@@ -52,6 +53,7 @@ func registerProviders() {
 	claudecode.Register()
 	deepseek.Register()
 	gemini.Register()
+	moonshot.Register()
 	ollama.Register()
 	openai.Register()
 	openaicodex.Register()

@@ -241,7 +241,12 @@ type admissionConversation struct {
 	contract     BudgetContract
 }
 
-func contextSafetyReserve(window int64) int64 {
+// ContextSafetyReserve derives the output reserve for a known context window
+// when the model exposes no output limit of its own: a flat 20k for very
+// large windows, otherwise a fifth of the window. Exported so providers that
+// set their own wire output cap can charge the identical reserve (the wire
+// value and the admission reserve must never diverge).
+func ContextSafetyReserve(window int64) int64 {
 	if window > 200_000 {
 		return 20_000
 	}
@@ -261,7 +266,7 @@ func (cv *admissionConversation) Submit(ctx context.Context, req MessageRequest,
 		return nil, &UnknownContextLimitError{ContextWindowTokens: window, OutputReserveTokens: reserve}
 	}
 	if reserve <= 0 {
-		reserve = contextSafetyReserve(window)
+		reserve = ContextSafetyReserve(window)
 	}
 	if reserve >= window {
 		return nil, &InvalidOutputReserveError{

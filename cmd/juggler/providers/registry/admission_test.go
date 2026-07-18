@@ -248,8 +248,8 @@ func TestAdmissionDerivesOutputReserveFromKnownContext(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := contextSafetyReserve(test.window); got != test.reserve {
-				t.Fatalf("contextSafetyReserve(%d) = %d, want %d", test.window, got, test.reserve)
+			if got := ContextSafetyReserve(test.window); got != test.reserve {
+				t.Fatalf("ContextSafetyReserve(%d) = %d, want %d", test.window, got, test.reserve)
 			}
 			wrapped, conversation := openAdmissionTestConversation(t, Config{
 				ModelCapabilities: ModelCapabilities{ContextWindowTokens: test.window},

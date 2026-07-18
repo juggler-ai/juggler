@@ -25,6 +25,7 @@ of changes; this project follows semantic versioning.
 - Made sure .md files are previewed as markdown, not syntax-highlighted text
 - Prevented oversized model requests with enforced context-window admission
 - Summarized oversized compact and handoff histories within bounded model calls
+- Enforced Ollama's real serving context window instead of model training maximums
 - Followed XDG Base Directory spec for config/cache on Linux
 
 ## [0.3.8] - 2026-07-15

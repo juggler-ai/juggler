@@ -67,25 +67,37 @@ func (w *ConversationWorker) tryBoundedCompaction(limitErr *provider.ContextLimi
 		},
 		dispatcher: w,
 		cancelled:  w.compactionCancelled,
+		hooks:      w.compactionTapeHooks(compactionKindFolded),
 	}
 
+	w.recordCompactionStart(compactionKindFolded, limitErr.ContextWindowTokens, limitErr.OutputReserveTokens, limitErr.Breakdown.ProviderOverheadTokens)
 	result, err := reducer.run(records)
 	if err != nil {
 		if errors.Is(err, errBoundedCompactionCancelled) {
+			w.recordCompactionOutcome(compactionKindFolded, "cancelled", result, nil)
 			return true, &BoundedCompactionCancelledError{Result: result}
 		}
+		reason := "error"
+		var bounded *BoundedCompactionError
+		if errors.As(err, &bounded) {
+			reason = string(bounded.Reason)
+		}
+		w.recordCompactionOutcome(compactionKindFolded, "error", result, map[string]any{"reason": reason})
 		return true, err
 	}
 	if w.compactionCancelled() {
+		w.recordCompactionOutcome(compactionKindFolded, "cancelled", result, nil)
 		return true, &BoundedCompactionCancelledError{Result: result}
 	}
-	if !w.writeBoundedCompactionResult(threadID, result.Summary) {
+	if !w.writeBoundedCompactionResult(threadID, result) {
+		w.recordCompactionOutcome(compactionKindFolded, "error", result, map[string]any{"reason": string(BoundedCompactionSourceChanged)})
 		return true, &BoundedCompactionError{
 			Reason: BoundedCompactionSourceChanged, Message: "bounded compaction thread disappeared before result commit",
 			Pass: result.Passes, Calls: result.Calls, Spend: result.EstimatedSpend,
 			MaxSpend: reducer.budget.maxSpend, Window: reducer.budget.window, Usage: result.Usage,
 		}
 	}
+	w.recordCompactionOutcome(compactionKindFolded, "result", result, nil)
 	return true, nil
 }
 
@@ -146,7 +158,10 @@ func (w *ConversationWorker) dispatchHiddenCompaction(encoded json.RawMessage) (
 	return response, err
 }
 
-func (w *ConversationWorker) writeBoundedCompactionResult(threadID, result string) bool {
+// writeBoundedCompactionResult commits the final summary onto the folded
+// thread's Y.Map along with the operation's durable accounting. Returns false
+// when the thread disappeared mid-reduce.
+func (w *ConversationWorker) writeBoundedCompactionResult(threadID string, result CompactionResult) bool {
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
 	m := findThreadYMap(w.doc.getItems(), threadID)
@@ -156,7 +171,11 @@ func (w *ConversationWorker) writeBoundedCompactionResult(threadID, result strin
 	if existing, _ := m.Get("result").(string); existing != "" {
 		return true
 	}
-	w.doc.doc.Transact(func(_ *ycrdt.Transaction) { m.Set("result", result) }, w.doc.authorID)
+	accounting := convertToYcrdt(compactionAccountingMap(result))
+	w.doc.doc.Transact(func(_ *ycrdt.Transaction) {
+		m.Set("result", result.Summary)
+		m.Set("compactionAccounting", accounting)
+	}, w.doc.authorID)
 	return true
 }
 

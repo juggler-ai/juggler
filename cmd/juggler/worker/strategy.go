@@ -353,6 +353,11 @@ strategyLoop:
 				errorData["provider"] = mc.Provider
 				errorData["model"] = mc.Model
 			}
+			// A failed bounded compaction / context recovery still leaves its
+			// partial accounting on the durable error item.
+			for k, v := range compactionErrorData(err) {
+				errorData[k] = v
+			}
 			// currentTxnID is still set, so insertTargetMessage stamps the
 			// error item with txnID — the View Transaction button opens the
 			// blob saved above.

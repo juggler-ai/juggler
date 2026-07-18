@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	provider "juggler/cmd/juggler/providers/registry"
 )
@@ -57,14 +58,16 @@ type CompactionUsage struct {
 // can persist partial accounting; Summary is set only on success. Calls and
 // EstimatedSpend include the rejected original request attempt. Passes counts
 // completed reduction (map) passes, so a one-call finalization reports zero.
-// Cost is intentionally absent: LLMResponse/StreamResult carry no provider
-// cost today, so there is nothing to accumulate.
+// DurationMs is the wall-clock time inside run. Cost is intentionally absent:
+// LLMResponse/StreamResult carry no provider cost today, so there is nothing
+// to accumulate.
 type CompactionResult struct {
 	Summary           string          `json:"summary,omitempty"`
 	Passes            int             `json:"passes"`
 	Calls             int             `json:"calls"`
 	EstimatedSpend    int64           `json:"estimatedSpend"`
 	Usage             CompactionUsage `json:"usage"`
+	DurationMs        int64           `json:"durationMs"`
 	SourceFingerprint string          `json:"sourceFingerprint,omitempty"`
 }
 
@@ -163,6 +166,7 @@ type boundedReducer struct {
 // failures additionally snapshot accounting onto BoundedCompactionError, and
 // cancellation returns errBoundedCompactionCancelled with the partial result.
 func (r *boundedReducer) run(records []string) (result CompactionResult, err error) {
+	started := time.Now()
 	result = CompactionResult{
 		Calls:             r.budget.calls,
 		EstimatedSpend:    r.budget.spend,
@@ -174,6 +178,7 @@ func (r *boundedReducer) run(records []string) (result CompactionResult, err err
 		result.Calls = r.budget.calls
 		result.EstimatedSpend = r.budget.spend
 		result.Usage = r.budget.usage
+		result.DurationMs = time.Since(started).Milliseconds()
 	}()
 
 	if r.budget.spend > r.budget.maxSpend {

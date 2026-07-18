@@ -445,7 +445,7 @@ func TestBoundedCompactionFinalWriteMergesWithFoldUndoGroup(t *testing.T) {
 		t.Fatalf("fold undo index = %d, want group after history", mergeFrom)
 	}
 	w.tracker.StopCapturing()
-	if !w.writeBoundedCompactionResult(threadID, "final result") {
+	if !w.writeBoundedCompactionResult(threadID, CompactionResult{Summary: "final result"}) {
 		t.Fatal("final result was not written")
 	}
 	if got, _ := w.doc.GetThreadYMap(threadID).Get("result").(string); got != "final result" {

@@ -13,6 +13,7 @@ of changes; this project follows semantic versioning.
 - Sent derived output reserves to providers when models report context limits only
 - Oversized conversations now summarize their oldest history and retry instead of failing
 - Tool results too large for the model context are summarized in place, keeping tool pairs intact
+- Recorded context-recovery token usage and duration on summaries and error items
 
 ## [0.4.1] - 2026-07-17
 

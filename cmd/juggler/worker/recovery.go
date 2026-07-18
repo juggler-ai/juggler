@@ -71,6 +71,7 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 	}
 
 	w.sendStatus("compacting", "Summarizing earlier conversation to fit the context window")
+	w.recordCompactionStart(compactionKindRecovery, window, reserve, envelope)
 
 	// A trailing tool-result payload too large for the suffix budget can never
 	// be folded — folding would destroy the live tool pair. Shrink oversized
@@ -149,16 +150,25 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 		},
 		dispatcher: w,
 		cancelled:  w.compactionCancelled,
+		hooks:      w.compactionTapeHooks(compactionKindRecovery),
 	}
 
 	result, err := reducer.run(prefixRecords)
 	if err != nil {
 		if errors.Is(err, errBoundedCompactionCancelled) {
+			w.recordCompactionOutcome(compactionKindRecovery, "cancelled", result, nil)
 			return &BoundedCompactionCancelledError{Result: result}
 		}
+		reason := "error"
+		var bounded *BoundedCompactionError
+		if errors.As(err, &bounded) {
+			reason = string(bounded.Reason)
+		}
+		w.recordCompactionOutcome(compactionKindRecovery, "error", result, map[string]any{"reason": reason})
 		return err
 	}
 	if w.compactionCancelled() {
+		w.recordCompactionOutcome(compactionKindRecovery, "cancelled", result, nil)
 		return &BoundedCompactionCancelledError{Result: result}
 	}
 
@@ -168,6 +178,7 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 	current := w.getTargetItems()
 	currentRecords, encErr := canonicalCompactionRecords(current, recoveryPromptSentinel)
 	if encErr != nil || compactionSourceFingerprint(currentRecords) != fingerprint {
+		w.recordCompactionOutcome(compactionKindRecovery, "error", result, map[string]any{"reason": string(BoundedCompactionSourceChanged)})
 		return &BoundedCompactionError{
 			Reason: BoundedCompactionSourceChanged, Message: "conversation changed during context recovery; nothing was folded",
 			Calls: result.Calls, Spend: result.EstimatedSpend, MaxSpend: reducer.budget.maxSpend,
@@ -182,7 +193,13 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 		Content:   result.Summary,
 		Summary:   fmt.Sprintf("Summarized %d earlier items to fit the context window", prefixEnd-prefixStart),
 	}
+	// Persist the operation's accounting durably on the summary item itself —
+	// the doc is the inspectable record of what the fold cost.
+	summaryItem.Data, _ = json.Marshal(compactionAccountingMap(result))
 	w.doc.FoldPrefixIntoSummary(w.getTargetItemsYArray(), prefixStart, prefixEnd-prefixStart, summaryItem)
+	w.recordCompactionOutcome(compactionKindRecovery, "fold", result, map[string]any{
+		"foldedItems": prefixEnd - prefixStart, "suffixTokens": suffixEst, "window": reducerWindow,
+	})
 	w.log.Info("[recovery] folded %d items into a compaction summary (passes=%d calls=%d spend=%d window=%d suffix=%d tokens)",
 		prefixEnd-prefixStart, result.Passes, result.Calls, result.EstimatedSpend, reducerWindow, suffixEst)
 	return nil
@@ -248,15 +265,19 @@ func (w *ConversationWorker) shrinkOversizedTrailingToolResults(limitErr *provid
 			},
 			dispatcher: w,
 			cancelled:  w.compactionCancelled,
+			hooks:      w.compactionTapeHooks(compactionKindShrink),
 		}
 		shrunk, err := reducer.run([]string{resultPayload.Content})
 		if err != nil {
 			if errors.Is(err, errBoundedCompactionCancelled) {
+				w.recordCompactionOutcome(compactionKindShrink, "cancelled", shrunk, map[string]any{"toolUseId": item.ToolUseID})
 				return &BoundedCompactionCancelledError{Result: shrunk}
 			}
+			w.recordCompactionOutcome(compactionKindShrink, "error", shrunk, map[string]any{"toolUseId": item.ToolUseID})
 			return err
 		}
 		if w.compactionCancelled() {
+			w.recordCompactionOutcome(compactionKindShrink, "cancelled", shrunk, map[string]any{"toolUseId": item.ToolUseID})
 			return &BoundedCompactionCancelledError{Result: shrunk}
 		}
 		if err := w.updateTargetItemByID(item.ItemID, "result", map[string]any{
@@ -268,6 +289,7 @@ func (w *ConversationWorker) shrinkOversizedTrailingToolResults(limitErr *provid
 				Calls: shrunk.Calls, Spend: shrunk.EstimatedSpend, Window: reducer.budget.window, Usage: shrunk.Usage,
 			}
 		}
+		w.recordCompactionOutcome(compactionKindShrink, "shrink", shrunk, map[string]any{"toolUseId": item.ToolUseID})
 		w.log.Info("[recovery] summarized oversized tool result %s in place (calls=%d spend=%d)",
 			item.ToolUseID, shrunk.Calls, shrunk.EstimatedSpend)
 	}

@@ -103,6 +103,8 @@ That means you can run the server where the code lives — local workstation, de
 
 Juggler connects to the usual suspects: Claude Code (via CLI or API), OpenAI (codex plan or API), Gemini, Ollama, OpenRouter, Z.AI, Deepseek, etc. It's easy to add more providers, so if yours is missing, ask your friendly neighbourhood LLM to add it as a PR.
 
+How Juggler keeps every request inside the model's context window — limits, admission, and automatic history recovery: [`docs/context-window.md`](docs/context-window.md).
+
 ----------
 
 ## Building from source

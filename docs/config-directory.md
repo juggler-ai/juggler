@@ -13,7 +13,7 @@ delete.
 ├── commands/               user-defined slash commands (see custom-commands.md)
 └── cache/                  regenerable — safe to delete
     ├── recents.json        recently-opened projects (MRU list)
-    └── claudecode-model-info.json   learned model context-window sizes
+    └── claudecode-model-info.json   learned model context-window sizes (see context-window.md)
 ```
 
 ## Durable vs. cache

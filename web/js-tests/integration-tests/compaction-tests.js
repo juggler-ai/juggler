@@ -61,7 +61,13 @@ export const compactionBasicTest = {
   expectedDocument: {
     items: [
       { type: 'system-prompt', itemId: '$ITEM_1' },
-      { type: 'thread', result: SUMMARY_TEXT, itemId: '$ITEM_2' }
+      {
+        type: 'thread',
+        result: SUMMARY_TEXT,
+        boundedCompaction: true,
+        compactionPromptItemId: '$ITEM_3',
+        itemId: '$ITEM_2'
+      }
     ]
   }
 };

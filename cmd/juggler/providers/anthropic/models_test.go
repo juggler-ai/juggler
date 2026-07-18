@@ -49,7 +49,16 @@ func TestGetMaxOutputTokens(t *testing.T) {
 	}
 }
 
-// TestBuildMessageParamsMaxTokensPerModel pins that the request's MaxTokens is
+func TestBuildMessageParamsUsesAdmissionCapability(t *testing.T) {
+	c := &Client{model: "claude-sonnet-4-5-20250929", maxOutputTokens: 12345}
+	params := c.buildMessageParams(provider.MessageRequest{
+		Messages: []provider.Message{{Type: "user", Content: "hi"}},
+	})
+	if params.MaxTokens != 12345 {
+		t.Fatalf("MaxTokens = %d, want admission capability 12345", params.MaxTokens)
+	}
+}
+
 // derived from the model, not a fixed 8192 — in particular that a Claude 3 Opus
 // request stays at its 4096 ceiling (the value the API rejected before) and a
 // Sonnet 4.5 request is allowed its full 64000.

@@ -5,6 +5,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -127,9 +128,13 @@ type Server struct {
 	// mutation; consumed by handleProviders / handleGetContextWindow and
 	// broadcast to all clients via the providers-update WS event.
 	providersList atomic.Pointer[[]ProviderStatus]
-	// refreshToken is a size-1 token that coalesces refreshes — a burst of
-	// credential edits collapses into a single recompute.
-	refreshToken chan struct{}
+	// refreshRequests is the provider-refresh actor's size-1 dirty latch. A burst
+	// coalesces while idle or computing; a request accepted during a computation
+	// remains queued and therefore guarantees one subsequent computation.
+	refreshRequests chan struct{}
+	// computeProvidersFunc is an immutable test seam for deterministic refresh
+	// coordination. Production leaves it nil and uses computeProviders.
+	computeProvidersFunc func(context.Context) []ProviderStatus
 	// providersReady is closed once the first provider refresh completes.
 	// Lookups that derive their answer from the live provider list (the
 	// implicit default-model selection) wait on it so a conversation created
@@ -300,7 +305,7 @@ func New(cfg Config) (*Server, error) {
 	s.workerManager = wm
 	s.sessionAPI = sessionAPI
 	s.conversationCache = newConversationCache()
-	s.refreshToken = make(chan struct{}, 1)
+	s.refreshRequests = make(chan struct{}, 1)
 	s.providersReady = make(chan struct{})
 	s.switchToken = make(chan struct{}, 1)
 	s.switchToken <- struct{}{}
@@ -328,6 +333,7 @@ func New(cfg Config) (*Server, error) {
 	s.setupRoutes()
 
 	s.wireWorkerManager()
+	go s.runProviderRefreshActor()
 
 	return s, nil
 }

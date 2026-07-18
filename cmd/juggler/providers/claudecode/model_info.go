@@ -33,12 +33,35 @@ func displayName(id string) string {
 // registry at package-init time via Register() in session_manager.go.
 func Info() provider.ProviderInfo {
 	return provider.ProviderInfo{
-		Name:          "claudecode",
-		DisplayName:   "Anthropic (Claude Code CLI)",
-		Description:   "Processes requests by invoking the claude CLI tool (so you can use a Max/Pro plan). For better results use the Anthropic API via a key.",
-		ConfigKeyName: "", // No API key needed - uses CLI's OAuth
-		AutoDetect:    detectClaudeCLI,
+		Name:                     "claudecode",
+		DisplayName:              "Anthropic (Claude Code CLI)",
+		Description:              "Processes requests by invoking the claude CLI tool (so you can use a Max/Pro plan). For better results use the Anthropic API via a key.",
+		ConfigKeyName:            "", // No API key needed - uses CLI's OAuth
+		AutoDetect:               detectClaudeCLI,
+		ResolveModelCapabilities: conservativeAliasCapabilities,
 	}
+}
+
+const (
+	conservativeContextWindowTokens = 200000
+	claudeCodeOverheadTokens        = 40000
+)
+
+func conservativeAliasCapabilities(model string) (provider.ModelCapabilities, bool) {
+	maxOutputTokens := map[string]int64{
+		"opus":   32000,
+		"sonnet": 64000,
+		"haiku":  32000,
+		"fable":  64000,
+	}[model]
+	if maxOutputTokens == 0 {
+		return provider.ModelCapabilities{}, false
+	}
+	return provider.ModelCapabilities{
+		ContextWindowTokens:    conservativeContextWindowTokens,
+		MaxOutputTokens:        maxOutputTokens,
+		ProviderOverheadTokens: claudeCodeOverheadTokens,
+	}, true
 }
 
 // ListModelsWithInfo returns available Claude models. We don't hardcode a

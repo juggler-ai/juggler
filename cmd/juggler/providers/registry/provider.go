@@ -7,6 +7,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"time"
 )
 
@@ -283,26 +284,47 @@ func EstimateTokens(text string) int {
 }
 
 // flatImageTokenEstimate is the per-image token cost assumed when an image's
-// pixel dimensions are unknown (e.g. webp, which the stdlib can't decode). It
-// is a deliberately generous round number so a missing dimension never
-// under-counts a normal screenshot.
-const flatImageTokenEstimate = 1300
+// pixel dimensions are unknown. The byte-based estimate below can raise it for
+// large payloads.
+const flatImageTokenEstimate int64 = 1300
 
-// EstimateImageTokens estimates the prompt-token cost of one image MediaPart.
-// It follows Anthropic's published heuristic — tokens ≈ (width*height)/750 —
-// when the pixel dimensions are known, and falls back to a flat per-image
-// constant when they are not. Non-image parts contribute nothing. This is only
-// a fallback for providers that don't report real usage; raw image bytes are
-// never marshaled (MediaPart.Data is json:"-"), so this is the sole way image
-// cost enters a token estimate.
+// EstimateImageTokens conservatively estimates the prompt-token cost of one
+// image MediaPart. It charges the greatest of the dimension heuristic, a
+// nonzero image floor, and one token per attached byte. The byte charge keeps
+// resolved images proportional to server-observed data even when dimensions
+// are missing or client-authored. One token per raw byte intentionally favors
+// false-positive admission rejection over sending an over-context request.
 func EstimateImageTokens(p MediaPart) int {
+	estimate := estimateImageTokens64(p)
+	if estimate > int64(^uint(0)>>1) {
+		return int(^uint(0) >> 1)
+	}
+	return int(estimate)
+}
+
+func estimateImageTokens64(p MediaPart) int64 {
 	if p.Type != "image" {
 		return 0
 	}
+
+	estimate := int64(1)
 	if p.Width > 0 && p.Height > 0 {
-		return (p.Width * p.Height) / 750
+		width := int64(p.Width)
+		height := int64(p.Height)
+		if width > math.MaxInt64/height {
+			estimate = math.MaxInt64
+		} else if pixels := width * height; pixels/750 > estimate {
+			estimate = pixels / 750
+		}
+	} else {
+		estimate = flatImageTokenEstimate
 	}
-	return flatImageTokenEstimate
+
+	byteEstimate := int64(len(p.Data))
+	if byteEstimate > estimate {
+		return byteEstimate
+	}
+	return estimate
 }
 
 // StreamChunk represents a chunk of streaming content with type information
@@ -511,12 +533,33 @@ type Conversation interface {
 	Close() error
 }
 
+// ModelCapabilities is the immutable model-limit snapshot used when a provider
+// is initialized. Callers should populate it from trusted model metadata rather
+// than from request content.
+type ModelCapabilities struct {
+	ContextWindowTokens    int64
+	MaxOutputTokens        int64
+	ProviderOverheadTokens int64
+}
+
+// BudgetContract defines how shared admission reserves room for a response.
+// A positive OutputReserveTokens overrides MaxOutputTokens. A known context with
+// neither uses a conservative derived reserve. Unknown context fails closed
+// unless AllowUnknownLimits is explicitly set.
+type BudgetContract struct {
+	OutputReserveTokens int64
+	AllowUnknownLimits  bool
+}
+
 // Config contains provider configuration
 type Config struct {
 	APIKey      string
 	BearerToken string
 	Headers     map[string]string
 	Model       string
+
+	ModelCapabilities ModelCapabilities
+	BudgetContract    BudgetContract
 }
 
 // AuthType describes how a provider becomes available.
@@ -546,6 +589,16 @@ type ProviderInfo struct {
 	// CLI subprocess or local daemon). Consumers should treat empty/nil as
 	// "models discovered elsewhere", not as "no models".
 	ModelContextWindows map[string]int
+	// ResolveModelCapabilities optionally supplies static admission capabilities
+	// that cannot be represented by ModelContextWindows alone. The bool is false
+	// for unknown model ids so custom aliases continue to fail closed.
+	ResolveModelCapabilities func(model string) (ModelCapabilities, bool)
+	// AllowUnknownLimits opts the provider out of fail-closed admission when a
+	// model's context window is unknown. Set only for providers that cannot
+	// expose limits and already enforce a safe boundary themselves (e.g.
+	// external agent protocols); their requests dispatch with no admission
+	// check rather than dying with UnknownContextLimitError.
+	AllowUnknownLimits bool
 }
 
 // EffectiveAuthType preserves the legacy convention where an empty

@@ -35,7 +35,19 @@ func InitializeProvider(name string, cfg Config) (Provider, error) {
 		return nil, fmt.Errorf("no initializer registered for provider: %s", name)
 	}
 
-	return initializer(cfg)
+	initialized, err := initializer(cfg)
+	if err != nil {
+		return nil, err
+	}
+	wrapped := &admissionProvider{
+		Provider:     initialized,
+		capabilities: cfg.ModelCapabilities,
+		contract:     cfg.BudgetContract,
+	}
+	if usage, ok := initialized.(UsageStatsProvider); ok {
+		return &admissionUsageProvider{admissionProvider: wrapped, usage: usage}, nil
+	}
+	return wrapped, nil
 }
 
 // ListAvailableProviders returns a list of registered provider names

@@ -15,7 +15,43 @@ import (
 	provider "juggler/cmd/juggler/providers/registry"
 )
 
-// TestRequestUsesConfiguredMaxOutputTokens proves the per-request output cap
+func TestResponsesRequestUsesConfiguredMaxOutputTokens(t *testing.T) {
+	var got float64
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		var payload map[string]any
+		_ = json.Unmarshal(body, &payload)
+		got, _ = payload["max_output_tokens"].(float64)
+		header := make(http.Header)
+		header.Set("Content-Type", "text/event-stream")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     header,
+			Body:       io.NopCloser(strings.NewReader(sseBody(`{"type":"response.output_text.delta","delta":"hi","item_id":"m1","output_index":0,"content_index":0,"sequence_number":1}`))),
+			Request:    r,
+		}, nil
+	})}
+	c, err := NewClient(Config{
+		APIKey:          "test",
+		Model:           "gpt-5-codex",
+		BaseURL:         "https://example.test",
+		HTTPClient:      httpClient,
+		MaxOutputTokens: 32768,
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	_, err = c.streamMessage(context.Background(), provider.MessageRequest{
+		Messages: []provider.Message{{Type: "user", Content: "hello"}},
+	}, func(provider.StreamChunk) (*provider.ToolResult, error) { return nil, nil })
+	if err != nil {
+		t.Fatalf("streamMessage: %v", err)
+	}
+	if got != 32768 {
+		t.Fatalf("max_output_tokens = %v, want 32768", got)
+	}
+}
+
 // tracks the model's configured max-output-tokens instead of a hardcoded 8192.
 // Reasoning models (GLM, DeepSeek-R1) spend output budget on chain-of-thought
 // before the answer; an 8192 cap throttles the reasoning itself, producing

@@ -32,5 +32,10 @@ func Info() provider.ProviderInfo {
 		Description: "Drives external Agent Client Protocol (ACP) agents over stdio (e.g. Gemini CLI, Zed agents). Add agents in the \"ACP agents\" settings tab; each appears as a model.",
 		AuthType:    provider.AuthTypeToggle,
 		AutoDetect:  anyAgentConfigured,
+		// ACP agents are black boxes: the protocol carries no context-window or
+		// output-limit metadata, and each agent's own backend enforces its
+		// limits. Without this, fail-closed admission would reject every ACP
+		// turn with UnknownContextLimitError.
+		AllowUnknownLimits: true,
 	}
 }

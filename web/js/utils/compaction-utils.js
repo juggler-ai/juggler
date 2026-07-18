@@ -192,6 +192,11 @@ export function foldConversationIntoSummaryThread(
   Object.assign(threadMsg, threadExtra);
 
   const userMsg = createUserMessage(defaultSummarizationPrompt());
+  mt._ensureItemId(userMsg);
+  // Mark worker-owned bounded fallback threads and pin the orchestration prompt
+  // so canonical history excludes it even if more messages are later appended.
+  threadMsg.boundedCompaction = true;
+  threadMsg.compactionPromptItemId = userMsg.itemId;
 
   // Insert where the first content item was, so the thread lands among the
   // content rather than before the preserved leading context items.

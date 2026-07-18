@@ -258,6 +258,8 @@ strategyLoop:
 		w.currentTxnID = txnID
 
 		llmRequest := w.buildLLMRequest(ctxResult, tools, txnID)
+		var originalRequest hiddenLLMRequest
+		_ = json.Unmarshal(llmRequest, &originalRequest)
 
 		// Stamp the originating user message before the call. The transaction
 		// blob is written below regardless of outcome, so on LLM failure the
@@ -307,6 +309,22 @@ strategyLoop:
 				w.currentTxnID = ""
 				return
 			}
+
+			var contextLimit *provider.ContextLimitExceededError
+			if errors.As(err, &contextLimit) {
+				handled, compactErr := w.tryBoundedCompaction(contextLimit, originalRequest.ModelConfig)
+				if handled {
+					w.currentTxnID = ""
+					if compactErr == nil {
+						return
+					}
+					if errors.Is(compactErr, errBoundedCompactionCancelled) {
+						return
+					}
+					err = fmt.Errorf("bounded compaction failed: %w", compactErr)
+				}
+			}
+
 			w.log.Error("❌ LLM error: %s", err.Error())
 			errorData := map[string]any{
 				"duration": duration.Milliseconds(),
@@ -568,8 +586,15 @@ func (w *ConversationWorker) findUnstampedUserMsgID() string {
 // Chunks are streamed via the worker's Send method for UI updates.
 // In mock mode, returns the next scripted response instead of calling real LLM.
 func (w *ConversationWorker) callLLM(request json.RawMessage) (*LLMResponse, error) {
+	return w.callLLMWithSink(request, w.queueStreamChunk)
+}
+
+// callLLMWithSink is the transport primitive shared by visible turns and hidden
+// worker operations. A nil sink discards stream chunks while preserving the
+// normal server/cache/provider/admission path and cancellation semantics.
+func (w *ConversationWorker) callLLMWithSink(request json.RawMessage, sink func(StreamChunk)) (*LLMResponse, error) {
 	if w.mock != nil {
-		return w.callLLMMock()
+		return w.callLLMMockWithSink(sink)
 	}
 
 	if w.llmCallFunc == nil {
@@ -593,38 +618,50 @@ func (w *ConversationWorker) callLLM(request json.RawMessage) (*LLMResponse, err
 	go func() {
 		defer cancel()
 		response, err := w.llmCallFunc(ctx, request, func(chunk StreamChunk) {
-			w.queueStreamChunk(chunk)
+			if sink != nil {
+				sink(chunk)
+			}
 		})
-		if err != nil {
-			w.deliverLLMResponse(&LLMResponse{Error: err.Error()})
-			return
-		}
-		w.deliverLLMResponse(response)
+		w.deliverLLMResponse(response, err)
 	}()
 
 	response, err := w.waitForLLMResponse(LLMTimeout)
 	if err != nil {
-		return nil, err
-	}
-
-	if response.Error != "" {
+		var delivered *deliveredLLMError
+		if !errors.As(err, &delivered) {
+			return nil, err
+		}
 		// A system-wake cancelled this call: the connection was dropped while
 		// the machine slept. Surface a clear, retryable message instead of the
 		// provider's raw "context canceled".
 		if w.llmWakeInterrupt.Load() {
 			return nil, fmt.Errorf("LLM request interrupted: the system resumed from sleep and the connection was dropped — please resend")
 		}
-		msg := response.Error
-		switch {
-		case isRateLimitMsg(msg):
-			return nil, &RateLimitError{Wait: parseRetryWaitFromMsg(msg), Message: "LLM error: " + msg}
-		case isTransientMsg(msg):
-			return nil, &TransientError{Wait: TransientRetryWait, Message: "LLM error: " + msg}
-		}
-		return nil, fmt.Errorf("LLM error: %s", msg)
+		return nil, classifyLLMError(err.Error(), err)
+	}
+
+	if response.Error != "" {
+		return nil, classifyLLMError(response.Error, nil)
 	}
 
 	return response, nil
+}
+
+// classifyLLMError retains legacy message-based rate-limit and transient
+// classification while preserving an in-process provider error as the cause.
+// Wire and scripted responses have no concrete cause and continue to use their
+// LLMResponse.Error text.
+func classifyLLMError(msg string, cause error) error {
+	switch {
+	case isRateLimitMsg(msg):
+		return &RateLimitError{Wait: parseRetryWaitFromMsg(msg), Message: "LLM error: " + msg, Cause: cause}
+	case isTransientMsg(msg):
+		return &TransientError{Wait: TransientRetryWait, Message: "LLM error: " + msg, Cause: cause}
+	case cause != nil:
+		return fmt.Errorf("LLM error: %w", cause)
+	default:
+		return fmt.Errorf("LLM error: %s", msg)
+	}
 }
 
 // processLLMResponse handles the LLM response blocks.

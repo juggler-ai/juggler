@@ -292,12 +292,13 @@ func NewClientFromProviderConfig(cfg provider.Config, baseURL string, quirks Qui
 	}
 
 	return NewClient(Config{
-		APIKey:      cfg.APIKey,
-		BearerToken: cfg.BearerToken,
-		Headers:     cfg.Headers,
-		Model:       cfg.Model,
-		BaseURL:     baseURL,
-		Quirks:      quirks,
+		APIKey:          cfg.APIKey,
+		BearerToken:     cfg.BearerToken,
+		Headers:         cfg.Headers,
+		Model:           cfg.Model,
+		BaseURL:         baseURL,
+		Quirks:          quirks,
+		MaxOutputTokens: int(cfg.ModelCapabilities.MaxOutputTokens),
 	})
 }
 
@@ -420,6 +421,13 @@ func transformMessagesToResponsesInput(messages []provider.Message) responses.Re
 // ContextWindowFn.
 const fallbackMaxOutputTokens = 8192
 
+func (c *Client) effectiveMaxOutputTokens() int {
+	if c.maxOutputTokens > 0 {
+		return c.maxOutputTokens
+	}
+	return fallbackMaxOutputTokens
+}
+
 // defaultResponsesInstructions is injected when ForceResponsesAPI is set and
 // the system prompt is blank: those Responses-only catalogs require non-empty
 // instructions on the request.
@@ -459,8 +467,9 @@ func (c *Client) streamMessageResponses(ctx context.Context, req provider.Messag
 
 	// Build request params - Model is a string type
 	params := responses.ResponseNewParams{
-		Model: c.model,
-		Input: transformMessagesToResponsesInput(req.Messages),
+		Model:           c.model,
+		Input:           transformMessagesToResponsesInput(req.Messages),
+		MaxOutputTokens: openai.Int(int64(c.effectiveMaxOutputTokens())),
 	}
 	if !c.quirks.ForceResponsesAPI {
 		params.Temperature = openai.Float(1.0)
@@ -1053,10 +1062,7 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 	// default only when it's unset. Not a floor — a model that legitimately
 	// caps below the default (e.g. ollama's 4096) must send its own value, or
 	// ModelInfo.MaxOutputTokens would be a lie relative to the wire.
-	maxTokens := c.maxOutputTokens
-	if maxTokens <= 0 {
-		maxTokens = fallbackMaxOutputTokens
-	}
+	maxTokens := c.effectiveMaxOutputTokens()
 
 	// Provider-boundary liveness: guard the SDK stream (no read deadline of its
 	// own) with an idle watchdog that cancels streamCtx if the upstream goes

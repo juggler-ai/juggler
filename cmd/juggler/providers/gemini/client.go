@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"slices"
@@ -33,10 +34,11 @@ func Register() {
 
 // Client implements provider.Provider for Google Gemini
 type Client struct {
-	client     *genai.Client
-	model      string
-	apiKey     string
-	httpClient *http.Client
+	client          *genai.Client
+	model           string
+	apiKey          string
+	httpClient      *http.Client
+	maxOutputTokens int32
 }
 
 // NewClient creates a new Gemini provider
@@ -46,6 +48,14 @@ func NewClient(cfg provider.Config) (provider.Provider, error) {
 	}
 	if cfg.Model == "" {
 		return nil, fmt.Errorf("model is required")
+	}
+	if cfg.ModelCapabilities.MaxOutputTokens > math.MaxInt32 {
+		return nil, fmt.Errorf("max output tokens %d exceeds Gemini limit %d", cfg.ModelCapabilities.MaxOutputTokens, int64(math.MaxInt32))
+	}
+
+	maxOutputTokens := int32(0)
+	if cfg.ModelCapabilities.MaxOutputTokens > 0 {
+		maxOutputTokens = int32(cfg.ModelCapabilities.MaxOutputTokens)
 	}
 
 	ctx := context.Background()
@@ -75,10 +85,11 @@ func NewClient(cfg provider.Config) (provider.Provider, error) {
 	}
 
 	return &Client{
-		client:     client,
-		model:      cfg.Model,
-		apiKey:     cfg.APIKey,
-		httpClient: httpClient,
+		client:          client,
+		model:           cfg.Model,
+		apiKey:          cfg.APIKey,
+		httpClient:      httpClient,
+		maxOutputTokens: maxOutputTokens,
 	}, nil
 }
 
@@ -90,6 +101,9 @@ func (c *Client) Name() string {
 // prepareRequest builds the common request components for both SendMessage and StreamMessage
 func (c *Client) prepareRequest(req provider.MessageRequest) (*genai.GenerateContentConfig, []*genai.Content, error) {
 	config := buildGeminiConfig(req.Tools, req.ToolChoice)
+	if c.maxOutputTokens > 0 {
+		config.MaxOutputTokens = c.maxOutputTokens
+	}
 
 	if req.SystemPrompt != "" {
 		config.SystemInstruction = &genai.Content{

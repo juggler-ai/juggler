@@ -63,7 +63,7 @@ func (w *ConversationWorker) setMockResponses(r []MockResponse) {
 // "mock-paused" status, and waits for releaseCh before delivering the final
 // response. This lets tests inject actions (e.g. cancel) at a deterministic
 // moment between stream and return.
-func (w *ConversationWorker) popMockResponse() (*LLMResponse, error) {
+func (w *ConversationWorker) popMockResponse(sink func(StreamChunk)) (*LLMResponse, error) {
 	if len(w.mock.responses) == 0 {
 		w.tape.Record("mock-pop", map[string]any{"exhausted": true})
 		return nil, fmt.Errorf("mock responses exhausted")
@@ -96,17 +96,20 @@ func (w *ConversationWorker) popMockResponse() (*LLMResponse, error) {
 
 	go func() {
 		for _, block := range mock.Blocks {
+			if sink == nil {
+				continue
+			}
 			switch block.Type {
 			case provider.ContentBlockTypeText:
 				if block.Content != "" {
-					w.queueStreamChunk(StreamChunk{Type: provider.ContentBlockTypeText, Content: block.Content})
+					sink(StreamChunk{Type: provider.ContentBlockTypeText, Content: block.Content})
 				}
 			case provider.ContentBlockTypeThinking:
 				if block.Thinking != "" {
-					w.queueStreamChunk(StreamChunk{Type: provider.ContentBlockTypeThinking, Content: block.Thinking})
+					sink(StreamChunk{Type: provider.ContentBlockTypeThinking, Content: block.Thinking})
 				}
 			case provider.ContentBlockTypeToolUse:
-				w.queueStreamChunk(StreamChunk{Type: provider.ContentBlockTypeToolUse})
+				sink(StreamChunk{Type: provider.ContentBlockTypeToolUse})
 			}
 		}
 
@@ -119,7 +122,7 @@ func (w *ConversationWorker) popMockResponse() (*LLMResponse, error) {
 			}
 		}
 
-		w.deliverLLMResponse(response)
+		w.deliverLLMResponse(response, nil)
 	}()
 
 	return w.waitForLLMResponse(LLMTimeout)
@@ -127,10 +130,10 @@ func (w *ConversationWorker) popMockResponse() (*LLMResponse, error) {
 
 // callLLMMock is the mock branch of callLLM. Returns the next scripted
 // response, or an error if responses are exhausted.
-func (w *ConversationWorker) callLLMMock() (*LLMResponse, error) {
+func (w *ConversationWorker) callLLMMockWithSink(sink func(StreamChunk)) (*LLMResponse, error) {
 	if len(w.mock.responses) > 0 {
 		jlog.Info("[callLLM] conv=%s thread=%q mockLeft=%d", w.conversationID, w.thread.itemID, len(w.mock.responses))
-		response, err := w.popMockResponse()
+		response, err := w.popMockResponse(sink)
 		if err != nil {
 			return nil, err
 		}

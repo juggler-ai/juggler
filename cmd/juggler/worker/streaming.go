@@ -30,17 +30,18 @@ func (w *ConversationWorker) queueStreamChunk(chunk StreamChunk) {
 	w.streamChunkChan <- chunk
 }
 
-// deliverLLMResponse hands a response to waitForLLMResponse via the 1-buffered
+// deliverLLMResponse hands a result to waitForLLMResponse via the 1-buffered
 // llmResponseChan. Resilient to the cancel-during-rerun race: if a previously-
-// cancelled LLM goroutine deposits a stale response after the new call has
+// cancelled LLM goroutine deposits a stale result after the new call has
 // drained the channel, our send would block forever (1-slot full) and the
-// new response would never reach waitForLLMResponse. The select drains any
+// new result would never reach waitForLLMResponse. The select drains any
 // stale value as a third case so the next iteration's send wins. No default
 // branch — we block until exactly one of {send, shutdown, drain} fires.
-func (w *ConversationWorker) deliverLLMResponse(response *LLMResponse) {
+func (w *ConversationWorker) deliverLLMResponse(response *LLMResponse, err error) {
+	result := llmCallResult{Response: response, Err: err}
 	for {
 		select {
-		case w.llmResponseChan <- response:
+		case w.llmResponseChan <- result:
 			return
 		case <-w.done:
 			return
@@ -309,14 +310,17 @@ func (w *ConversationWorker) waitForLLMResponse(timeout time.Duration) (*LLMResp
 
 	for {
 		select {
-		case response := <-w.llmResponseChan:
+		case result := <-w.llmResponseChan:
 			// Drain remaining stream chunks before returning
 			for {
 				select {
 				case chunk := <-w.streamChunkChan:
 					w.processStreamChunk(chunk)
 				default:
-					return response, nil
+					if result.Err != nil {
+						return result.Response, &deliveredLLMError{err: result.Err}
+					}
+					return result.Response, nil
 				}
 			}
 		case chunk := <-w.streamChunkChan:

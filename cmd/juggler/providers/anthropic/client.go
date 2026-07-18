@@ -138,8 +138,9 @@ func Register() {
 
 // Client implements provider.Provider for Anthropic Claude
 type Client struct {
-	client *anthropicsdk.Client
-	model  string
+	client          *anthropicsdk.Client
+	model           string
+	maxOutputTokens int64
 }
 
 // NewClient creates a new Anthropic provider
@@ -156,8 +157,9 @@ func NewClient(cfg provider.Config) (provider.Provider, error) {
 	)
 
 	return &Client{
-		client: &client,
-		model:  cfg.Model,
+		client:          &client,
+		model:           cfg.Model,
+		maxOutputTokens: cfg.ModelCapabilities.MaxOutputTokens,
 	}, nil
 }
 
@@ -267,9 +269,13 @@ func (c *Client) buildMessageParams(req provider.MessageRequest) anthropicsdk.Me
 	messages := transformMessages(req.Messages)
 	setRollingCacheBreakpoint(messages)
 
+	maxTokens := c.maxOutputTokens
+	if maxTokens <= 0 {
+		maxTokens = int64(GetMaxOutputTokens(c.model))
+	}
 	params := anthropicsdk.MessageNewParams{
 		Model:     anthropicsdk.Model(c.model),
-		MaxTokens: int64(GetMaxOutputTokens(c.model)),
+		MaxTokens: maxTokens,
 		Messages:  messages,
 	}
 

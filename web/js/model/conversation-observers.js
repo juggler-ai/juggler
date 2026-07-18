@@ -201,6 +201,14 @@ export function setupYjsObservers(c) {
       }
     }
 
+    if (event.keysChanged.has('processingState') && c.processingState?.status === 'idle' && isViewer()) {
+      // The items observer sees the final assistant write while the worker is
+      // still busy, so maybeAutoCompact deliberately declines there. Retry on
+      // the authoritative idle transition; otherwise no later item mutation may
+      // occur and the next user turn can resend an already-full context.
+      maybeAutoCompact(c);
+    }
+
     if (event.keysChanged.has('currentStrategyId')) {
       const newStrategyId = c.getMetadata('currentStrategyId');
       const root = c._rootMessageThread;

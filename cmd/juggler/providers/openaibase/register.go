@@ -111,6 +111,19 @@ func Register(d Descriptor) {
 		AutoDetect:          d.AutoDetect,
 		ModelContextWindows: d.ContextWindows,
 	}
+	if d.ContextWindowFn != nil {
+		info.ResolveModelCapabilities = func(model string) (provider.ModelCapabilities, bool) {
+			contextWindow, maxOutputTokens := d.ContextWindowFn(model)
+			capabilities := provider.ModelCapabilities{}
+			if contextWindow > 0 {
+				capabilities.ContextWindowTokens = int64(contextWindow)
+			}
+			if maxOutputTokens > 0 {
+				capabilities.MaxOutputTokens = int64(maxOutputTokens)
+			}
+			return capabilities, capabilities != (provider.ModelCapabilities{})
+		}
+	}
 
 	initializer := func(cfg provider.Config) (provider.Provider, error) {
 		if cfg.APIKey == "" && d.APIKeyDefault != "" {
@@ -128,15 +141,6 @@ func Register(d Descriptor) {
 		base, err := NewClientFromProviderConfig(cfg, baseURL, d.Quirks)
 		if err != nil {
 			return nil, err
-		}
-		// Carry the model's real output cap onto the per-turn request so
-		// reasoning models aren't throttled mid-thought by the fallback. The
-		// descriptor already knows it via ContextWindowFn (the same source the
-		// model list advertises).
-		if d.ContextWindowFn != nil {
-			if _, maxOut := d.ContextWindowFn(cfg.Model); maxOut > 0 {
-				base.maxOutputTokens = maxOut
-			}
 		}
 		// Resolve this model's reasoning-effort support once, so the per-turn
 		// request builder can map req.ThinkingLevel without re-classifying.

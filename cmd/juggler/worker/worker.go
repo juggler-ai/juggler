@@ -91,7 +91,7 @@ type ConversationWorker struct {
 	stopped  chan struct{}
 
 	// Response channels for request/response correlation
-	llmResponseChan        chan *LLMResponse
+	llmResponseChan        chan llmCallResult
 	contextResultChan      chan json.RawMessage
 	toolsResultChan        chan json.RawMessage
 	strategyHookResultChan chan json.RawMessage
@@ -406,7 +406,7 @@ func NewConversationWorker(conversationID, authorID string) *ConversationWorker 
 		streamChunkChan:           make(chan StreamChunk, 4096),
 		done:                      make(chan struct{}),
 		stopped:                   make(chan struct{}),
-		llmResponseChan:           make(chan *LLMResponse, 1),
+		llmResponseChan:           make(chan llmCallResult, 1),
 		contextResultChan:         make(chan json.RawMessage, 1),
 		toolsResultChan:           make(chan json.RawMessage, 1),
 		strategyHookResultChan:    make(chan json.RawMessage, 1),

@@ -334,6 +334,12 @@ function normalizeItem(item, normalizer) {
   // into the sub-thread — without this, a test only sees `result` and
   // can't tell if items were lost or duplicated.
   if (type === 'thread') {
+    const boundedCompaction = item.get('boundedCompaction');
+    if (boundedCompaction !== undefined) normalized.boundedCompaction = boundedCompaction;
+    const compactionPromptItemId = item.get('compactionPromptItemId');
+    if (compactionPromptItemId) {
+      normalized.compactionPromptItemId = normalizer.normalizeItemId(compactionPromptItemId);
+    }
     const nested = item.get('items');
     if (nested && typeof nested.toArray === 'function') {
       normalized.items = nested.toArray().map(

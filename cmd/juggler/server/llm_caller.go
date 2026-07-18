@@ -70,6 +70,14 @@ func (s *Server) createLLMCaller() worker.LLMCallFunc {
 			return nil, fmt.Errorf("failed to parse LLM request: %w", err)
 		}
 
+		// Initial model discovery runs asynchronously. Wait before doing dispatch
+		// work so this turn cannot bind its conversation to incomplete startup
+		// metadata. The gate honors the turn context and provider-startup timeout.
+		s.awaitProvidersReady(ctx)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		// Resolve image attachments: the worker→caller JSON carries only an
 		// asset reference (AssetID + mime + dims), never the bytes. Load the
 		// bytes from the per-conversation asset store here, in memory, just
@@ -111,7 +119,8 @@ func (s *Server) createLLMCaller() worker.LLMCallFunc {
 		// model switch closes the old handle and opens a fresh one. The
 		// turn's ThreadID rides on the MessageRequest below — a stateful
 		// provider (claudecode) keys its per-thread session off it.
-		conv, err := s.conversationCache.GetOrOpen(ctx, req.ConversationID, req.ModelConfig.Provider, req.ModelConfig.Model, credential)
+		capabilities := s.resolveModelCapabilities(req.ModelConfig.Provider, req.ModelConfig.Model)
+		conv, err := s.conversationCache.GetOrOpen(ctx, req.ConversationID, req.ModelConfig.Provider, req.ModelConfig.Model, credential, capabilities)
 		if err != nil {
 			return nil, fmt.Errorf("open conversation: %w", err)
 		}

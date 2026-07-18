@@ -217,11 +217,10 @@ func (s *Server) fetchUsageStats(ctx context.Context, providerName string, cred 
 	return &stats, nil
 }
 
-// RefreshProviders recomputes the provider list and broadcasts it via WS.
-// Safe to call from any goroutine; the heavy computation is serialised via
-// refreshToken so a flurry of credential changes coalesces into one refresh.
-// In test mode this is a no-op — tests use mock LLM callers and the live
-// model-list calls would hold open enough TLS sockets to exhaust fd limits.
+// RefreshProviders queues a provider-list recomputation. Safe to call from any
+// goroutine. refreshRequests is a dirty latch: bursts coalesce to one queued
+// request, including while a computation is in flight. A request accepted during
+// a computation remains queued for the actor's next pass.
 func (s *Server) RefreshProviders() {
 	if s.testMode {
 		// Tests mock the provider list; nothing will ever populate the cache, so
@@ -231,27 +230,35 @@ func (s *Server) RefreshProviders() {
 		return
 	}
 	select {
-	case s.refreshToken <- struct{}{}:
+	case s.refreshRequests <- struct{}{}:
 	default:
-		// A refresh is already queued; this one's effect will be covered by it.
-		return
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		list := s.computeProviders(ctx)
-		<-s.refreshToken
-		s.providersList.Store(&list)
-		s.markProvidersReady()
-		s.broadcastToAll(map[string]any{
-			"type":      "providers-update",
-			"providers": list,
-			// This snapshot is the settled, post-compute list — clients that gate
-			// startup decisions (e.g. first-run onboarding) on real provider
-			// availability should trust it, not the pre-compute connect seed.
-			"ready": true,
-		})
-	}()
+}
+
+func (s *Server) runProviderRefreshActor() {
+	for {
+		select {
+		case <-s.shutdownChan:
+			return
+		case <-s.refreshRequests:
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			compute := s.computeProvidersFunc
+			if compute == nil {
+				compute = s.computeProviders
+			}
+			list := compute(ctx)
+			cancel()
+			s.providersList.Store(&list)
+			s.markProvidersReady()
+			s.broadcastToAll(map[string]any{
+				"type":      "providers-update",
+				"providers": list,
+				// This snapshot is the settled, post-compute list — clients that gate
+				// startup decisions on real provider availability should trust it.
+				"ready": true,
+			})
+		}
+	}
 }
 
 // markProvidersReady opens the providers-ready gate exactly once. Called when
@@ -440,6 +447,46 @@ func (s *Server) cachedProviders() []ProviderStatus {
 		return *p
 	}
 	return []ProviderStatus{}
+}
+
+// resolveModelCapabilities returns one immutable capability snapshot for an
+// exact provider/model pair. Published positive live values win. A provider's
+// static capability resolver can fill values that are still unknown before
+// runtime discovery; the context-only map remains the final fallback.
+func (s *Server) resolveModelCapabilities(providerName, model string) provider.ModelCapabilities {
+	info, hasInfo := provider.GetProviderInfo(providerName)
+	capabilities := provider.ModelCapabilities{}
+	if hasInfo {
+		if info.ResolveModelCapabilities != nil {
+			if resolved, found := info.ResolveModelCapabilities(model); found {
+				capabilities = resolved
+			}
+		}
+		if capabilities.ContextWindowTokens <= 0 {
+			if contextWindow, found := info.ModelContextWindows[model]; found && contextWindow > 0 {
+				capabilities.ContextWindowTokens = int64(contextWindow)
+			}
+		}
+	}
+
+	for _, status := range s.cachedProviders() {
+		if status.Name != providerName {
+			continue
+		}
+		for _, candidate := range status.ModelsWithContext {
+			if candidate.ID == model {
+				if candidate.ContextWindow > 0 {
+					capabilities.ContextWindowTokens = int64(candidate.ContextWindow)
+				}
+				if candidate.MaxOutputTokens > 0 {
+					capabilities.MaxOutputTokens = int64(candidate.MaxOutputTokens)
+				}
+				return capabilities
+			}
+		}
+		break
+	}
+	return capabilities
 }
 
 // handleProviders returns the cached provider/model list. The list is

@@ -76,9 +76,11 @@ type retryableError interface {
 type RateLimitError struct {
 	Wait    time.Duration
 	Message string
+	Cause   error
 }
 
 func (e *RateLimitError) Error() string            { return e.Message }
+func (e *RateLimitError) Unwrap() error            { return e.Cause }
 func (e *RateLimitError) retryWait() time.Duration { return e.Wait }
 func (e *RateLimitError) retryStatus(a, max int) string {
 	return fmt.Sprintf("Rate limited, retrying (%d/%d)", a, max)
@@ -92,9 +94,11 @@ func (e *RateLimitError) retryStatus(a, max int) string {
 type TransientError struct {
 	Wait    time.Duration
 	Message string
+	Cause   error
 }
 
 func (e *TransientError) Error() string            { return e.Message }
+func (e *TransientError) Unwrap() error            { return e.Cause }
 func (e *TransientError) retryWait() time.Duration { return e.Wait }
 func (e *TransientError) retryStatus(a, max int) string {
 	return fmt.Sprintf("Connection dropped, retrying (%d/%d)", a, max)
@@ -230,6 +234,21 @@ type StreamChunk struct {
 	CachedTokens int   `json:"cachedTokens,omitempty"`
 	CacheTTLMs   int64 `json:"cacheTTLMs,omitempty"`
 }
+
+// llmCallResult is the in-process completion delivered from the provider
+// goroutine. Err remains concrete so callers can inspect provider error types;
+// LLMResponse.Error remains available for scripted and wire-compatible failures.
+type llmCallResult struct {
+	Response *LLMResponse
+	Err      error
+}
+
+type deliveredLLMError struct {
+	err error
+}
+
+func (e *deliveredLLMError) Error() string { return e.err.Error() }
+func (e *deliveredLLMError) Unwrap() error { return e.err }
 
 // LLMResponse represents a complete LLM response
 type LLMResponse struct {
@@ -611,8 +630,10 @@ type ConversationItem struct {
 	Cancelled       bool            `json:"cancelled,omitempty"`       // Whether tool was cancelled
 	Result          json.RawMessage `json:"result,omitempty"`          // Tool result or thread result (omitted when null/empty)
 	// Thread-specific fields
-	Goal  string          `json:"goal,omitempty"`  // Thread goal description
-	Items json.RawMessage `json:"items,omitempty"` // Nested items for thread messages (preserved for undo/redo)
+	Goal                   string          `json:"goal,omitempty"`                   // Thread goal description
+	Items                  json.RawMessage `json:"items,omitempty"`                  // Nested items for thread messages (preserved for undo/redo)
+	BoundedCompaction      bool            `json:"boundedCompaction,omitempty"`      // Enables bounded fallback after registry context rejection
+	CompactionPromptItemID string          `json:"compactionPromptItemId,omitempty"` // Orchestration prompt excluded from canonical source history
 
 	// Context-item specific fields
 	PreventUserDeletion bool   `json:"preventUserDeletion,omitempty"` // Whether context item cannot be deleted by user

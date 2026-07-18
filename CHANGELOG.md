@@ -28,6 +28,7 @@ of changes; this project follows semantic versioning.
 - Enforced Ollama's real serving context window instead of model training maximums
 - Stopped custom model aliases from inheriting provider default context limits
 - Let custom Claude Code model aliases complete a first turn to learn limits
+- Sent derived output reserves to providers when models report context limits only
 - Followed XDG Base Directory spec for config/cache on Linux
 
 ## [0.3.8] - 2026-07-15

@@ -453,6 +453,12 @@ func (s *Server) cachedProviders() []ProviderStatus {
 // exact provider/model pair. Published positive live values win. A provider's
 // static capability resolver can fill values that are still unknown before
 // runtime discovery; the context-only map remains the final fallback.
+//
+// The snapshot always carries one effective output limit when the context
+// window is known: model-reported or catalogued limits win, otherwise the
+// shared derived safety reserve is filled in here. Admission charges a
+// reserve from the same snapshot fields, so the reserve and the value placed
+// on the wire can never diverge.
 func (s *Server) resolveModelCapabilities(providerName, model string) provider.ModelCapabilities {
 	info, hasInfo := provider.GetProviderInfo(providerName)
 	capabilities := provider.ModelCapabilities{}
@@ -481,10 +487,19 @@ func (s *Server) resolveModelCapabilities(providerName, model string) provider.M
 				if candidate.MaxOutputTokens > 0 {
 					capabilities.MaxOutputTokens = int64(candidate.MaxOutputTokens)
 				}
-				return capabilities
+				return normalizeOutputLimit(capabilities)
 			}
 		}
 		break
+	}
+	return normalizeOutputLimit(capabilities)
+}
+
+// normalizeOutputLimit fills the derived safety reserve when the window is
+// known but no output limit resolved from any source.
+func normalizeOutputLimit(capabilities provider.ModelCapabilities) provider.ModelCapabilities {
+	if capabilities.MaxOutputTokens <= 0 && capabilities.ContextWindowTokens > 0 {
+		capabilities.MaxOutputTokens = provider.ContextSafetyReserve(capabilities.ContextWindowTokens)
 	}
 	return capabilities
 }

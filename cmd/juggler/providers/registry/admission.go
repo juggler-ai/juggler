@@ -52,7 +52,7 @@ type UnknownContextLimitError struct {
 }
 
 func (e *UnknownContextLimitError) Error() string {
-	return fmt.Sprintf("cannot admit request with unknown model limits (context window %d, output reserve %d)", e.ContextWindowTokens, e.OutputReserveTokens)
+	return fmt.Sprintf("cannot admit request: context limits are unknown for this model (context window %d, output reserve %d). Check the model id is one the provider reports, or refresh the provider's model list in settings", e.ContextWindowTokens, e.OutputReserveTokens)
 }
 
 // Retryable allows generic error classifiers to identify this as terminal.

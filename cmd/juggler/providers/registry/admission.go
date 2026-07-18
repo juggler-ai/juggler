@@ -84,6 +84,14 @@ func saturatingAdd(a, b int64) int64 {
 // approximateTokenCount is deliberately conservative across common BPE
 // tokenizers. Natural ASCII runs receive modest compression, while punctuation,
 // long opaque strings, CJK, and symbols are charged at their denser rates.
+//
+// Calibrated against a cl100k golden corpus (admission_golden_test.go). Two
+// rates are provable upper bounds for byte-level BPE tokenizers, which can
+// emit at most one token per input byte: non-ASCII runes are charged their
+// UTF-8 byte length, and long ASCII alphanumeric runs one token per byte.
+// The remaining rates (short words, whitespace) carry a bounded absolute
+// error — a handful of tokens on realistic content — which the output
+// reserve absorbs.
 func approximateTokenCount(text string) int64 {
 	var counter approximateTokenCounter
 	for _, r := range text {
@@ -123,11 +131,9 @@ func (c *approximateTokenCounter) add(r rune) {
 	}
 
 	c.flushRun()
-	if r < utf8.RuneSelf || unicode.IsLetter(r) || unicode.IsNumber(r) {
-		c.tokens = saturatingAdd(c.tokens, 1)
-		return
-	}
-	// Emoji and symbols can decompose into multiple byte-level BPE tokens.
+	// Every non-ASCII rune costs its UTF-8 byte length: the provable maximum
+	// for byte-level BPE (measured: common CJK ~1.75 tokens/char, rare glyphs
+	// ~2.5, emoji ~2–3, of a 3–4 byte ceiling).
 	c.tokens = saturatingAdd(c.tokens, int64(utf8.RuneLen(r)))
 }
 
@@ -138,16 +144,21 @@ func (c *approximateTokenCounter) flushRun() {
 	var tokens int64
 	switch {
 	case c.runKind == 1 && c.runLength <= 16:
+		// Prose words: modest compression. Opaque runs this short (pasted
+		// ids, keys) are under-counted by a bounded absolute amount the
+		// output reserve absorbs.
 		tokens = saturatingAdd(c.runLength, 2) / 3
 	case c.runKind == 1:
-		// Hashes, base64, random IDs, and minified data tokenize densely.
-		if c.runLength > (math.MaxInt64-3)/3 {
-			tokens = math.MaxInt64
-		} else {
-			tokens = (c.runLength*3 + 3) / 4
-		}
+		// Hashes, base64, random IDs, and minified data: adversarial
+		// alphanumeric content reaches one token per byte in real BPE
+		// tokenizers (measured "x9"×2000 and random alnum at exactly 1.0 in
+		// cl100k), so charge the provable maximum rather than a density
+		// guess.
+		tokens = c.runLength
 	default:
-		tokens = saturatingAdd(c.runLength, 3) / 4
+		// Whitespace: pure runs merge almost entirely in BPE, but
+		// alternating mixes measured 0.33 tokens/char in cl100k.
+		tokens = saturatingAdd(c.runLength, 1) / 2
 	}
 	c.tokens = saturatingAdd(c.tokens, tokens)
 	c.runLength = 0

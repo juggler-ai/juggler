@@ -394,3 +394,32 @@ func TestEstimateMessageRequestTokensSaturates(t *testing.T) {
 		t.Fatalf("estimate = %d, want saturation at %d", got, int64(math.MaxInt64))
 	}
 }
+
+// TestAdmissionRejectsOversizedImageBeforeDispatch covers the media path: an
+// attachment whose pixel estimate alone busts the window must be refused
+// locally, with the image charge visible in the breakdown — the provider
+// never sees the request.
+func TestAdmissionRejectsOversizedImageBeforeDispatch(t *testing.T) {
+	wrapped, conversation := openAdmissionTestConversation(t, Config{
+		ModelCapabilities: ModelCapabilities{ContextWindowTokens: 4_000},
+		BudgetContract:    BudgetContract{OutputReserveTokens: 300},
+	})
+	_, err := conversation.Submit(context.Background(), MessageRequest{Messages: []Message{{
+		Type:    "user",
+		Content: "what is in this image?",
+		Parts:   []MediaPart{{Type: "image", Mime: "image/png", Width: 8_000, Height: 6_000}},
+	}}}, nil)
+	var limitErr *ContextLimitExceededError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("error = %T %v, want ContextLimitExceededError", err, err)
+	}
+	if want := int64(8_000*6_000) / 750; limitErr.Breakdown.ImageTokens != want {
+		t.Fatalf("image tokens = %d, want pixel estimate %d", limitErr.Breakdown.ImageTokens, want)
+	}
+	if limitErr.EstimatedInputTokens < limitErr.Breakdown.ImageTokens {
+		t.Fatalf("estimated input %d does not cover the image charge %d", limitErr.EstimatedInputTokens, limitErr.Breakdown.ImageTokens)
+	}
+	if wrapped.submits != 0 {
+		t.Fatalf("submits = %d, want the request stopped before dispatch", wrapped.submits)
+	}
+}

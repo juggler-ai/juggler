@@ -36,7 +36,9 @@ func recoveryTestItems() []ConversationItem {
 	for i := 0; i < 4; i++ {
 		items = append(items, ConversationItem{
 			Type: ItemTypeUser, ItemID: fmt.Sprintf("old-%d", i),
-			Content: strings.Repeat("x", 2600),
+			// Sized through the estimator (~2300 tokens each): the suffix
+			// walk keeps old-3 plus the recents and folds exactly old-0..2.
+			Content: strings.Repeat("x", 2300),
 		})
 	}
 	for i := 0; i < 3; i++ {
@@ -474,7 +476,7 @@ func TestContextRecoveryShrinksOversizedTrailingToolResult(t *testing.T) {
 	w.storeState(StateProcessing)
 	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
 
-	giantResult, _ := json.Marshal(map[string]any{"content": strings.Repeat("r", 20_000), "isError": false})
+	giantResult, _ := json.Marshal(map[string]any{"content": strings.Repeat("r", 15_000), "isError": false})
 	items := recoveryTestItems()[:3]
 	items = append(items, ConversationItem{
 		Type: ItemTypeToolAction, ItemID: "ta-giant", ToolUseID: "tu-giant", ToolName: "read_file",
@@ -520,7 +522,7 @@ func TestContextRecoveryShrinksOversizedTrailingToolResult(t *testing.T) {
 	if !strings.Contains(payload.Content, "recovered prefix summary") {
 		t.Fatalf("shrunk result lacks the reducer summary: %.120q", payload.Content)
 	}
-	if strings.Contains(payload.Content, strings.Repeat("r", 20_000)) {
+	if strings.Contains(payload.Content, strings.Repeat("r", 15_000)) {
 		t.Fatal("shrunk result still carries the original oversized payload")
 	}
 	if payload.IsError {
@@ -663,7 +665,7 @@ func TestToolResultPushingNextCallOverContextRecovers(t *testing.T) {
 	if err := w.doc.UpdateItemByToolUseID("tu-1", "state", StateCompleted); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.doc.UpdateItemByToolUseID("tu-1", "result", map[string]any{"content": strings.Repeat("r", 20_000), "isError": false}); err != nil {
+	if err := w.doc.UpdateItemByToolUseID("tu-1", "result", map[string]any{"content": strings.Repeat("r", 15_000), "isError": false}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -719,5 +721,38 @@ func drainExecuteIDs(ch chan string) []string {
 		default:
 			return ids
 		}
+	}
+}
+
+// TestContextRecoveryTerminalWhenNewestImageAloneExceeds mirrors the text
+// giant case for media: when the newest item's image attachment alone busts
+// the window, recovery cannot fold anything and fails terminally without a
+// single hidden call.
+func TestContextRecoveryTerminalWhenNewestImageAloneExceeds(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.storeState(StateProcessing)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+	w.doc.InsertMessage(0,
+		ConversationItem{Type: ItemTypeUser, ItemID: "old-0", Content: "small old question"},
+		ConversationItem{
+			Type: ItemTypeUser, ItemID: "img", Content: "what is in this image?",
+			Attachments: []AssetRef{{ID: "asset-1", Mime: "image/png", Width: 8_000, Height: 6_000}},
+		},
+	)
+	pinned := &ModelConfig{Provider: "test", Model: "test"}
+	calls, stub := newRecoveryStub(t, pinned)
+	w.llmCallFunc = stub
+
+	err := w.tryContextRecovery(recoveryLimitErr(), pinned)
+	var bounded *BoundedCompactionError
+	if !errors.As(err, &bounded) || bounded.Reason != BoundedCompactionContextBound {
+		t.Fatalf("error = %#v, want context_bound", err)
+	}
+	if *calls != 0 {
+		t.Fatalf("hidden calls = %d, want none for an unrecoverable suffix", *calls)
+	}
+	if items := w.doc.GetItems(); len(items) != 2 {
+		t.Fatalf("items = %d, want the untouched original two", len(items))
 	}
 }

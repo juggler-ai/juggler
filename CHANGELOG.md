@@ -14,6 +14,7 @@ of changes; this project follows semantic versioning.
 - Oversized conversations now summarize their oldest history and retry instead of failing
 - Tool results too large for the model context are summarized in place, keeping tool pairs intact
 - Recorded context-recovery token usage and duration on summaries and error items
+- Stopped under-counting CJK and dense opaque text in context-window estimates
 
 ## [0.4.1] - 2026-07-17
 

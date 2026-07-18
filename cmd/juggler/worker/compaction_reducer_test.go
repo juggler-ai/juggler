@@ -126,7 +126,7 @@ func TestBoundedReducerOneCallFinalization(t *testing.T) {
 }
 
 func TestBoundedReducerMultiChunkMapAndMultiPassReduce(t *testing.T) {
-	records := reducerTestRecords(t, strings.Repeat("abcdefghij", 610))
+	records := reducerTestRecords(t, strings.Repeat("abcdefghij", 457))
 	stub := &stubCompactionDispatcher{}
 	sawMap, sawFinal := 0, 0
 	stub.handle = func(_ int, req hiddenLLMRequest) (*LLMResponse, error) {
@@ -216,7 +216,7 @@ func TestBoundedReducerPassBoundPreservesPartialAccounting(t *testing.T) {
 	// pass-bound mechanics under test.
 	records := make([]string, 3)
 	for i := range records {
-		records[i] = fmt.Sprintf("<record>%d%s</record>", i, strings.Repeat("x", 9000))
+		records[i] = fmt.Sprintf("<record>%d%s</record>", i, strings.Repeat("x", 6750))
 	}
 	stub := &stubCompactionDispatcher{}
 	stub.handle = func(call int, req hiddenLLMRequest) (*LLMResponse, error) {
@@ -253,7 +253,7 @@ func TestBoundedReducerPassBoundPreservesPartialAccounting(t *testing.T) {
 }
 
 func TestBoundedReducerProviderFailurePreservesPartialAccounting(t *testing.T) {
-	records := reducerTestRecords(t, strings.Repeat("abcdefghij", 610))
+	records := reducerTestRecords(t, strings.Repeat("abcdefghij", 457))
 	boom := errors.New("provider boom")
 	stub := &stubCompactionDispatcher{}
 	stub.handle = func(call int, _ hiddenLLMRequest) (*LLMResponse, error) {
@@ -386,7 +386,7 @@ func TestBoundedReducerTreatsTranscriptAsInertData(t *testing.T) {
 }
 
 func TestBoundedReducerHooksReportProgress(t *testing.T) {
-	records := reducerTestRecords(t, strings.Repeat("abcdefghij", 610))
+	records := reducerTestRecords(t, strings.Repeat("abcdefghij", 457))
 	stub := &stubCompactionDispatcher{}
 	stub.handle = func(_ int, req hiddenLLMRequest) (*LLMResponse, error) {
 		if len(req.Tools) > 0 {

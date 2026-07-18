@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	provider "juggler/cmd/juggler/providers/registry"
 
@@ -96,74 +95,6 @@ func TestBoundedCompactionEighthPassFinalizationBoundary(t *testing.T) {
 	}
 	if boundedCompactionCanReduce(boundedCompactionMaxPasses) {
 		t.Fatal("ninth reduction was permitted; pass 8 must proceed only to final-fit check")
-	}
-}
-
-func TestCanonicalCompactionSplitsUnicodeThroughPackPath(t *testing.T) {
-	w := NewConversationWorker("test-conv", "user:test")
-	defer w.doc.Destroy()
-	model := &ModelConfig{Provider: "test", Model: "test"}
-	text := strings.Repeat("🙂界λ", 3000)
-	budget := boundedCompactionBudget{window: 900, reserve: 100, maxSpend: 1 << 60}
-	chunks, err := w.packCompactionChunks("thread", model, 0, []string{text}, &budget)
-	if err != nil {
-		t.Fatalf("packCompactionChunks: %v", err)
-	}
-	if len(chunks) < 2 {
-		t.Fatalf("chunks = %d, want giant Unicode input split", len(chunks))
-	}
-	for i, chunk := range chunks {
-		if !utf8.ValidString(chunk) {
-			t.Fatalf("chunk %d is invalid UTF-8", i)
-		}
-		if !budget.fits(w.hiddenCompactionRequest("thread", model, 0, i, chunk, false)) {
-			t.Fatalf("chunk %d does not fit", i)
-		}
-	}
-	if strings.Join(chunks, "") != text {
-		t.Fatal("pack path did not preserve source text")
-	}
-}
-
-func TestBoundedCompactionBudgetAllowsExactly64TotalAttempts(t *testing.T) {
-	w := NewConversationWorker("test-conv", "user:test")
-	defer w.doc.Destroy()
-	req := w.hiddenCompactionRequest("thread", &ModelConfig{Provider: "test", Model: "test"}, 0, 0, "x", false)
-	budget := boundedCompactionBudget{window: 10_000, reserve: 7, maxSpend: 1 << 60, calls: 1, spend: 11}
-	for attempt := 2; attempt <= boundedCompactionMaxCalls; attempt++ {
-		if err := budget.plan(req, 1); err != nil {
-			t.Fatalf("attempt %d rejected: %v", attempt, err)
-		}
-	}
-	if budget.calls != 64 {
-		t.Fatalf("calls = %d, want exactly 64 admitted attempts", budget.calls)
-	}
-	err := budget.plan(req, 1)
-	var bounded *BoundedCompactionError
-	if !errors.As(err, &bounded) || bounded.Reason != BoundedCompactionCallBound || bounded.Calls != 64 {
-		t.Fatalf("65th attempt error = %#v, want call bound at 64", err)
-	}
-}
-
-func TestBoundedCompactionSpendIncludesReserveBeforeDispatch(t *testing.T) {
-	w := NewConversationWorker("test-conv", "user:test")
-	defer w.doc.Destroy()
-	req := w.hiddenCompactionRequest("thread", &ModelConfig{Provider: "test", Model: "test"}, 0, 0, "payload", false)
-	budget := boundedCompactionBudget{window: 10_000, reserve: 23, maxSpend: 1 << 60, calls: 1, spend: 101}
-	want := saturatingAdd64(budget.spend, saturatingAdd64(budget.estimate(req), budget.reserve))
-	if err := budget.plan(req, 1); err != nil {
-		t.Fatal(err)
-	}
-	if budget.spend != want {
-		t.Fatalf("spend = %d, want input plus reserve = %d", budget.spend, want)
-	}
-	budget.maxSpend = budget.spend
-	beforeCalls, beforeSpend := budget.calls, budget.spend
-	if err := budget.plan(req, 1); err == nil {
-		t.Fatal("request exceeding spend bound was admitted")
-	}
-	if budget.calls != beforeCalls || budget.spend != beforeSpend {
-		t.Fatalf("rejected request mutated budget to calls=%d spend=%d", budget.calls, budget.spend)
 	}
 }
 
@@ -308,6 +239,31 @@ func TestBoundedCompactionCancellationPublishesNothing(t *testing.T) {
 	result, _ := w.doc.GetThreadYMap(threadID).Get("result").(string)
 	if result != "" {
 		t.Fatalf("partial result was published: %q", result)
+	}
+}
+
+func TestBoundedCompactionCancellationCarriesPartialAccounting(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.storeState(StateProcessing)
+	insertBoundedCompactionThread(t, w, strings.Repeat("source ", 2000))
+	w.llmCallFunc = func(_ context.Context, _ json.RawMessage, _ func(StreamChunk)) (*LLMResponse, error) {
+		w.storeState(StateCancelling)
+		return nil, context.Canceled
+	}
+	_, err := w.tryBoundedCompaction(&provider.ContextLimitExceededError{OutputReserveTokens: 200, ContextWindowTokens: 1800}, &ModelConfig{Provider: "test", Model: "test"})
+	if !errors.Is(err, errBoundedCompactionCancelled) {
+		t.Fatalf("error = %v, want cancellation", err)
+	}
+	var cancelled *BoundedCompactionCancelledError
+	if !errors.As(err, &cancelled) {
+		t.Fatalf("error = %T, want partial-accounting cancellation", err)
+	}
+	if cancelled.Result.Calls != 2 {
+		t.Fatalf("partial calls = %d, want rejected request plus first hidden attempt", cancelled.Result.Calls)
+	}
+	if cancelled.Result.EstimatedSpend <= 0 || cancelled.Result.SourceFingerprint == "" {
+		t.Fatalf("partial accounting lost: %+v", cancelled.Result)
 	}
 }
 

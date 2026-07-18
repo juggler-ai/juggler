@@ -835,19 +835,23 @@ func (w *ConversationWorker) addMetaToolResult(toolUseID, toolName string, toolI
 
 var idCounter atomic.Int64
 
+// IDs carry a fixed-width counter so the estimated size of a request envelope
+// is stable for a given logical request: admission packing, budget preflight,
+// and dispatch each regenerate IDs, and an unpadded counter changes the
+// estimate by a token whenever it crosses a power of ten.
 func generateItemID() string {
 	id := idCounter.Add(1)
-	return fmt.Sprintf("msg_%d_%d", time.Now().UnixMilli(), id)
+	return fmt.Sprintf("msg_%d_%09d", time.Now().UnixMilli(), id)
 }
 
 func generateRequestID() string {
 	id := idCounter.Add(1)
-	return fmt.Sprintf("req_%d_%d", time.Now().UnixMilli(), id)
+	return fmt.Sprintf("req_%d_%09d", time.Now().UnixMilli(), id)
 }
 
 func generateTransactionID() string {
 	id := idCounter.Add(1)
-	return fmt.Sprintf("txn_%d_%d", time.Now().UnixMilli(), id)
+	return fmt.Sprintf("txn_%d_%09d", time.Now().UnixMilli(), id)
 }
 
 // toolSummary extracts a concise one-line summary from tool input JSON for the

@@ -98,6 +98,29 @@ func TestThinkingSpec(t *testing.T) {
 	}
 }
 
+// TestCapabilitiesFailClosedOnUncataloguedModel pins the admission contract:
+// catalogued ids resolve statically, live-listed-but-uncatalogued ids get
+// their limits from the live list instead, and user-invented aliases fail
+// closed rather than inheriting the provider defaults.
+func TestCapabilitiesFailClosedOnUncataloguedModel(t *testing.T) {
+	Register()
+	info, found := provider.GetProviderInfo("moonshot")
+	if !found || info.ResolveModelCapabilities == nil {
+		t.Fatal("moonshot registration has no capability resolver")
+	}
+	got, found := info.ResolveModelCapabilities("kimi-k3")
+	want := provider.ModelCapabilities{ContextWindowTokens: 1000000, MaxOutputTokens: 131072}
+	if !found || got != want {
+		t.Fatalf("kimi-k3 capabilities = (%+v, %v), want (%+v, true)", got, found, want)
+	}
+	if _, found := info.ResolveModelCapabilities("kimi-latest"); found {
+		t.Fatal("kimi-latest resolved statically — uncatalogued ids must come from the live list")
+	}
+	if got, found := info.ResolveModelCapabilities("my-custom-kimi"); found || got != (provider.ModelCapabilities{}) {
+		t.Fatalf("custom alias capabilities = (%+v, %v), want zero, false", got, found)
+	}
+}
+
 // TestIsChatModel admits the kimi-* / moonshot-* chat lines and rejects
 // embeddings and foreign ids.
 func TestIsChatModel(t *testing.T) {

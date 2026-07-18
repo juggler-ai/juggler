@@ -22,3 +22,17 @@ func TestModelCapsNilOverrides(t *testing.T) {
 		t.Errorf("Lookup with nil overrides = %d, want 42 (default)", got)
 	}
 }
+
+func TestModelCapsLookupKnown(t *testing.T) {
+	caps := ModelCaps{Default: 100, Overrides: map[string]int{"a": 200}}
+	if v, known := caps.LookupKnown("a"); !known || v != 200 {
+		t.Errorf("LookupKnown(a) = (%d, %v), want (200, true)", v, known)
+	}
+	if v, known := caps.LookupKnown("b"); known || v != 0 {
+		t.Errorf("LookupKnown(b) = (%d, %v), want (0, false) — the default is not a match", v, known)
+	}
+	defaultsOnly := ModelCaps{Default: 42}
+	if _, known := defaultsOnly.LookupKnown("anything"); known {
+		t.Error("LookupKnown with nil overrides matched, want no match")
+	}
+}

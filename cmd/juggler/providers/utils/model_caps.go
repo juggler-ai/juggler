@@ -26,3 +26,17 @@ func (c ModelCaps) Lookup(model string) int {
 	}
 	return c.Default
 }
+
+// LookupKnown reports whether model has an explicit catalog entry, returning
+// its override. Unlike Lookup, Default is not a match: defaults exist to
+// enrich provider-reported model ids (e.g. a newly released model on a live
+// list), never to vouch for an id the provider itself never catalogued —
+// those must fail closed rather than inherit a fabricated limit.
+func (c ModelCaps) LookupKnown(model string) (int, bool) {
+	if c.Overrides != nil {
+		if v, ok := c.Overrides[model]; ok {
+			return v, true
+		}
+	}
+	return 0, false
+}

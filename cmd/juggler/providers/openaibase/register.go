@@ -89,11 +89,13 @@ func Register(d Descriptor) {
 	// Data-driven caps: synthesise the per-model (context, maxOutput) lookup and
 	// the static context map from ContextWindowCaps/MaxOutputCaps when the
 	// provider didn't supply the function/map forms directly.
+	capsSynthesised := false
 	if d.ContextWindowFn == nil && (capsConfigured(d.ContextWindowCaps) || capsConfigured(d.MaxOutputCaps)) {
 		cw, mo := d.ContextWindowCaps, d.MaxOutputCaps
 		d.ContextWindowFn = func(model string) (int, int) {
 			return cw.Lookup(model), mo.Lookup(model)
 		}
+		capsSynthesised = true
 	}
 	if d.ContextWindows == nil {
 		d.ContextWindows = d.ContextWindowCaps.Overrides
@@ -111,7 +113,32 @@ func Register(d Descriptor) {
 		AutoDetect:          d.AutoDetect,
 		ModelContextWindows: d.ContextWindows,
 	}
-	if d.ContextWindowFn != nil {
+	switch {
+	case capsSynthesised:
+		// Static admission resolution vouches only for ids the provider
+		// catalogued in an override; a Default alone never resolves. Defaults
+		// still apply to catalogued ids (and to provider-reported live lists
+		// via ContextWindowFn), but an uncatalogued id — typically a
+		// user-invented alias — fails closed instead of inheriting a
+		// fabricated limit.
+		cw, mo := d.ContextWindowCaps, d.MaxOutputCaps
+		info.ResolveModelCapabilities = func(model string) (provider.ModelCapabilities, bool) {
+			_, cwKnown := cw.LookupKnown(model)
+			_, moKnown := mo.LookupKnown(model)
+			if !cwKnown && !moKnown {
+				return provider.ModelCapabilities{}, false
+			}
+			contextWindow, maxOutputTokens := cw.Lookup(model), mo.Lookup(model)
+			capabilities := provider.ModelCapabilities{}
+			if contextWindow > 0 {
+				capabilities.ContextWindowTokens = int64(contextWindow)
+			}
+			if maxOutputTokens > 0 {
+				capabilities.MaxOutputTokens = int64(maxOutputTokens)
+			}
+			return capabilities, capabilities != (provider.ModelCapabilities{})
+		}
+	case d.ContextWindowFn != nil:
 		info.ResolveModelCapabilities = func(model string) (provider.ModelCapabilities, bool) {
 			contextWindow, maxOutputTokens := d.ContextWindowFn(model)
 			capabilities := provider.ModelCapabilities{}

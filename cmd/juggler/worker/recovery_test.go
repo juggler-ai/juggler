@@ -756,3 +756,120 @@ func TestContextRecoveryTerminalWhenNewestImageAloneExceeds(t *testing.T) {
 		t.Fatalf("items = %d, want the untouched original two", len(items))
 	}
 }
+
+// TestFoldPrefixIntoSummaryIfUnchangedAbortsOnConcurrentEdit proves the context
+// recovery fold closes its check-then-write race: a doc mutation landing between
+// the fingerprint snapshot and the fold must abort (leaving the array intact)
+// rather than splice at now-stale indices. Before the guard was moved inside the
+// lock, the fingerprint compare and the Delete/Insert ran under separate ycrdtMu
+// acquisitions, so a concurrent ApplySyncUpdate could invalidate start/count in
+// between and the fold would delete the wrong items.
+func TestFoldPrefixIntoSummaryIfUnchangedAbortsOnConcurrentEdit(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.doc.InsertMessage(0, recoveryTestItems()...)
+	arr := w.getTargetItemsYArray()
+
+	// Snapshot the fingerprint the recovery path captures before it reduces.
+	records, err := canonicalCompactionRecords(w.getTargetItems(), recoveryPromptSentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := compactionSourceFingerprint(records)
+	summary := ConversationItem{Type: ItemTypeCompactionSummary, ItemID: "sum", Content: "folded"}
+
+	// A concurrent browser edit lands after the snapshot (prepends an item), so
+	// the captured start/count no longer describe the intended prefix.
+	w.doc.InsertMessage(0, ConversationItem{Type: ItemTypeUser, ItemID: "raced-in", Content: "concurrent edit"})
+
+	if w.doc.FoldPrefixIntoSummaryIfUnchanged(arr, 0, 3, summary, recoveryPromptSentinel, fingerprint) {
+		t.Fatal("fold committed against a changed array; TOCTOU not closed")
+	}
+	if got := w.doc.GetItems(); len(got) != 8 || got[0].ItemID != "raced-in" {
+		t.Fatalf("aborted fold mutated the array: len=%d first=%q, want 8 with the raced-in edit intact", len(got), got[0].ItemID)
+	}
+
+	// Positive control: against the current (unchanged) fingerprint the fold commits.
+	records2, err := canonicalCompactionRecords(w.getTargetItems(), recoveryPromptSentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !w.doc.FoldPrefixIntoSummaryIfUnchanged(arr, 0, 3, summary, recoveryPromptSentinel, compactionSourceFingerprint(records2)) {
+		t.Fatal("fold aborted against an unchanged array")
+	}
+	if after := w.doc.GetItems(); len(after) != 6 || after[0].Type != ItemTypeCompactionSummary {
+		t.Fatalf("fold outcome = %d items (first %q), want 3 folded into a summary plus 5 remaining", len(after), after[0].Type)
+	}
+}
+
+// TestContextRecoveryShrinkOnlySucceedsWithoutFold covers the shrink-only path:
+// when summarizing an oversized trailing tool result in place brings the whole
+// conversation back under the window, recovery must succeed with NO prefix fold
+// (no summary item) so the caller's retry proceeds against the smaller history.
+// Regression for the branch that previously returned a spurious context_bound
+// error once the suffix walk had consumed every unit. The assertions prove the
+// shrink happened AND that nothing was folded, which is what distinguishes this
+// path from an ordinary fold.
+func TestContextRecoveryShrinkOnlySucceedsWithoutFold(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.storeState(StateProcessing)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+
+	// Small older history that fits verbatim on its own, plus one giant tool
+	// result that busts the window but shrinks to a short summary in place. After
+	// the in-place shrink the whole conversation fits, so recovery must not fold.
+	giantResult, _ := json.Marshal(map[string]any{"content": strings.Repeat("r", 15_000), "isError": false})
+	items := []ConversationItem{
+		{Type: ItemTypeUser, ItemID: "old-0", Content: "first small question"},
+		{Type: ItemTypeUser, ItemID: "old-1", Content: "second small question"},
+		{
+			Type: ItemTypeToolAction, ItemID: "ta-giant", ToolUseID: "tu-giant", ToolName: "read_file",
+			ToolInput: json.RawMessage(`{"path":"/tmp/big.txt"}`),
+			State:     StateCompleted, Result: giantResult, TransactionID: "txn-giant",
+		},
+	}
+	w.doc.InsertMessage(0, items...)
+	pinned := &ModelConfig{Provider: "test", Model: "test"}
+	calls, stub := newRecoveryStub(t, pinned)
+	w.llmCallFunc = stub
+
+	if err := w.tryContextRecovery(recoveryLimitErr(), pinned); err != nil {
+		t.Fatalf("shrink-only recovery must succeed, got: %v", err)
+	}
+	if *calls == 0 {
+		t.Fatal("expected hidden calls summarizing the oversized result")
+	}
+
+	got := w.doc.GetItems()
+	// No fold: the three originals remain and no summary item was inserted.
+	if len(got) != 3 {
+		t.Fatalf("items = %d, want the three originals with nothing folded", len(got))
+	}
+	for _, item := range got {
+		if item.Type == ItemTypeCompactionSummary {
+			t.Fatal("a compaction summary was inserted; shrink-only must not fold the prefix")
+		}
+	}
+	if got[0].ItemID != "old-0" || got[1].ItemID != "old-1" {
+		t.Fatalf("older history not preserved verbatim: %q, %q", got[0].ItemID, got[1].ItemID)
+	}
+	// The trailing result was shrunk in place, which is what made the turn fit.
+	tool := got[2]
+	if tool.ItemID != "ta-giant" || tool.State != StateCompleted {
+		t.Fatalf("tool pair not intact: %+v", tool)
+	}
+	var payload struct {
+		Content string `json:"content"`
+		IsError bool   `json:"isError"`
+	}
+	if err := json.Unmarshal(tool.Result, &payload); err != nil {
+		t.Fatalf("shrunk result does not unmarshal: %v", err)
+	}
+	if !strings.HasPrefix(payload.Content, recoveryShrunkResultMarker) {
+		t.Fatalf("trailing result was not shrunk in place: %.80q", payload.Content)
+	}
+	if strings.Contains(payload.Content, strings.Repeat("r", 15_000)) {
+		t.Fatal("shrunk result still carries the oversized payload")
+	}
+}

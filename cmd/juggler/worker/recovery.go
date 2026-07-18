@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -124,10 +125,16 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 		}
 	}
 	if k <= skip {
-		return &BoundedCompactionError{
-			Reason: BoundedCompactionContextBound, Window: window,
-			Message: "context recovery cannot help: nothing foldable precedes the verbatim recent history",
-		}
+		// Every foldable unit already fits verbatim within the window. Because
+		// admission only rejects requests that do not fit, this state is only
+		// reachable once shrinkOversizedTrailingToolResults above brought an
+		// oversized trailing result under budget: the request now fits without a
+		// prefix fold, so succeed and let the caller's retry proceed against the
+		// smaller history rather than summarizing history that no longer needs
+		// it. Admission on the retry is the backstop if this estimate is optimistic.
+		w.recordCompactionOutcome(compactionKindRecovery, "shrink-only", CompactionResult{}, map[string]any{"suffixTokens": suffixEst})
+		w.log.Info("[recovery] trailing-result shrink sufficed; no history fold needed (suffix=%d tokens)", suffixEst)
+		return nil
 	}
 
 	prefixStart := units[skip].start
@@ -172,20 +179,6 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 		return &BoundedCompactionCancelledError{Result: result}
 	}
 
-	// Commit only against the exact snapshot the reducer consumed: any
-	// concurrent doc change (user edit, queued-message promotion) aborts the
-	// fold rather than clobbering unsummarized items.
-	current := w.getTargetItems()
-	currentRecords, encErr := canonicalCompactionRecords(current, recoveryPromptSentinel)
-	if encErr != nil || compactionSourceFingerprint(currentRecords) != fingerprint {
-		w.recordCompactionOutcome(compactionKindRecovery, "error", result, map[string]any{"reason": string(BoundedCompactionSourceChanged)})
-		return &BoundedCompactionError{
-			Reason: BoundedCompactionSourceChanged, Message: "conversation changed during context recovery; nothing was folded",
-			Calls: result.Calls, Spend: result.EstimatedSpend, MaxSpend: reducer.budget.maxSpend,
-			Window: reducer.budget.window, Usage: result.Usage,
-		}
-	}
-
 	summaryItem := ConversationItem{
 		Type:      ItemTypeCompactionSummary,
 		ItemID:    generateItemID(),
@@ -196,7 +189,20 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 	// Persist the operation's accounting durably on the summary item itself —
 	// the doc is the inspectable record of what the fold cost.
 	summaryItem.Data, _ = json.Marshal(compactionAccountingMap(result))
-	w.doc.FoldPrefixIntoSummary(w.getTargetItemsYArray(), prefixStart, prefixEnd-prefixStart, summaryItem)
+
+	// Commit only against the exact snapshot the reducer consumed. The
+	// fingerprint recheck and the fold run under one ycrdtMu hold inside
+	// FoldPrefixIntoSummaryIfUnchanged, so a concurrent doc change (user edit,
+	// queued-message promotion) that lands between check and write cannot leave
+	// the fold splicing at stale indices — it aborts rather than clobbering.
+	if !w.doc.FoldPrefixIntoSummaryIfUnchanged(w.getTargetItemsYArray(), prefixStart, prefixEnd-prefixStart, summaryItem, recoveryPromptSentinel, fingerprint) {
+		w.recordCompactionOutcome(compactionKindRecovery, "error", result, map[string]any{"reason": string(BoundedCompactionSourceChanged)})
+		return &BoundedCompactionError{
+			Reason: BoundedCompactionSourceChanged, Message: "conversation changed during context recovery; nothing was folded",
+			Calls: result.Calls, Spend: result.EstimatedSpend, MaxSpend: reducer.budget.maxSpend,
+			Window: reducer.budget.window, Usage: result.Usage,
+		}
+	}
 	w.recordCompactionOutcome(compactionKindRecovery, "fold", result, map[string]any{
 		"foldedItems": prefixEnd - prefixStart, "suffixTokens": suffixEst, "window": reducerWindow,
 	})
@@ -382,13 +388,20 @@ func estimateItemsWireTokens(items []ConversationItem) int64 {
 			}
 		}
 	}
+	// A well-formed items slice always round-trips; on the (essentially
+	// impossible) encode failure, charge a large-but-non-overflowing sentinel so
+	// the unit is treated as too big to keep verbatim (forced into the fold)
+	// rather than free. MaxInt32 dwarfs any real context window yet stays far
+	// below MaxInt64, so the downstream non-saturating suffix arithmetic cannot
+	// overflow.
+	const unestimableUnitTokens = int64(math.MaxInt32)
 	raw, err := json.Marshal(messages)
 	if err != nil {
-		return 0
+		return unestimableUnitTokens
 	}
 	var pmsgs []provider.Message
 	if err := json.Unmarshal(raw, &pmsgs); err != nil {
-		return 0
+		return unestimableUnitTokens
 	}
 	return provider.EstimateMessageRequestTokenBreakdown(provider.MessageRequest{Messages: pmsgs}, 0).Total
 }

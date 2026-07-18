@@ -301,22 +301,39 @@ func (cd *ConversationDocument) DeleteMessages(indices []int) {
 	cd.deleteMessages(indices)
 }
 
-// FoldPrefixIntoSummary atomically replaces count items starting at index
-// start with one summary item, in a single Yjs transaction, so observers never
-// see a half-folded array. Used by context-window recovery on the worker's
-// target array (root or a sub-thread's nested array). It deliberately bypasses
-// the OperationTracker: the fold is a system-initiated history rewrite, not a
-// user edit, and undo/redo semantics for it are out of scope.
-func (cd *ConversationDocument) FoldPrefixIntoSummary(arr *ycrdt.YArray, start, count int, summary ConversationItem) {
+// FoldPrefixIntoSummaryIfUnchanged atomically replaces count items starting at
+// index start with one summary item, in a single Yjs transaction, so observers
+// never see a half-folded array. Used by context-window recovery on the
+// worker's target array (root or a sub-thread's nested array). It deliberately
+// bypasses the OperationTracker: the fold is a system-initiated history
+// rewrite, not a user edit, and undo/redo semantics for it are out of scope.
+//
+// The fold commits only if the array's canonical fingerprint still equals
+// expectedFingerprint. Crucially, that recheck and the fold happen under a
+// single ycrdtMu hold, so a concurrent doc mutation (a browser edit via
+// ApplySyncUpdate, a queued-message promotion) cannot slip between the check
+// and the write and leave start/count pointing at stale positions — the same
+// resolve-and-write-under-one-lock discipline SetThreadField uses. Returns true
+// only when the fold committed.
+func (cd *ConversationDocument) FoldPrefixIntoSummaryIfUnchanged(arr *ycrdt.YArray, start, count int, summary ConversationItem, promptID, expectedFingerprint string) bool {
 	if arr == nil || count <= 0 {
-		return
+		return false
 	}
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
+	current := cd.getItemsFromArrayLocked(arr)
+	records, err := canonicalCompactionRecords(current, promptID)
+	if err != nil || compactionSourceFingerprint(records) != expectedFingerprint {
+		return false
+	}
+	if start < 0 || start+count > len(current) {
+		return false
+	}
 	cd.doc.Transact(func(_ *ycrdt.Transaction) {
 		arr.Delete(ycrdt.Number(start), ycrdt.Number(count))
 		arr.Insert(ycrdt.Number(start), ycrdt.ArrayAny{conversationItemToYMap(summary)})
 	}, cd.txOrigin())
+	return true
 }
 
 func (cd *ConversationDocument) deleteMessages(indices []int) {

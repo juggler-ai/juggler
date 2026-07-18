@@ -64,8 +64,8 @@ func (w *ConversationWorker) recordCompactionStart(kind string, window, reserve,
 }
 
 // recordCompactionOutcome tapes and logs one completed (or aborted) operation
-// with its full accounting. outcome is "fold", "shrink", "result", "error",
-// or "cancelled".
+// with its full accounting. outcome is "fold", "shrink", "shrink-only",
+// "result", "error", or "cancelled".
 func (w *ConversationWorker) recordCompactionOutcome(kind, outcome string, result CompactionResult, extra map[string]any) {
 	summary := map[string]any{
 		"kind": kind, "thread": w.thread.itemID, "outcome": outcome,

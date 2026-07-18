@@ -83,9 +83,19 @@ await installEngineLoaderHooks(origin, apiToken);
  * @param {string} token
  */
 async function installEngineLoaderHooks(serverOrigin, token) {
-  const { register } = await import('node:module');
-  register('./engine-loader-hooks.mjs', import.meta.url, {
-    data: { origin: serverOrigin, token },
+  const { registerHooks } = await import('node:module');
+  let hookModule = null;
+  registerHooks({
+    initialize: async () => {
+      hookModule = await import('./engine-loader-hooks.mjs');
+      await hookModule.initialize({ origin: serverOrigin, token });
+    },
+    resolve: async (specifier, context, nextResolve) => {
+      return hookModule.resolve(specifier, context, nextResolve);
+    },
+    load: async (url, context, nextLoad) => {
+      return hookModule.load(url, context, nextLoad);
+    }
   });
 }
 

@@ -22,7 +22,7 @@
  * returns already has its own imports rewritten to `/worker-module?url=…`
  * form, so nested extension imports flow back through these same hooks.
  *
- * Registered from engine-host-node.mjs via `module.register` before the engine
+ * Registered from engine-host-node.mjs via `module.registerHooks` before the engine
  * graph is imported. Hooks run on a dedicated loader thread; the server origin
  * and token arrive through the `initialize` data channel.
  */
@@ -31,7 +31,7 @@
 /** @type {string} */ let token = '';
 
 /**
- * Receive the server origin + API token from `module.register(..., { data })`.
+ * Receive the server origin + API token from `module.registerHooks(...)`.
  * @param {{ origin?: string, token?: string }} [data]
  */
 export async function initialize(data) {

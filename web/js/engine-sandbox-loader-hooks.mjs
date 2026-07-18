@@ -26,7 +26,7 @@
 /** @type {string} */ let token = '';
 
 /**
- * Receive the server origin + API token from `module.register(..., { data })`.
+ * Receive the server origin + API token from `module.registerHooks(...)`.
  * @param {{ origin?: string, token?: string }} [data]
  */
 export async function initialize(data) {

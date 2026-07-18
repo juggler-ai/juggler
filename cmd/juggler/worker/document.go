@@ -301,6 +301,24 @@ func (cd *ConversationDocument) DeleteMessages(indices []int) {
 	cd.deleteMessages(indices)
 }
 
+// FoldPrefixIntoSummary atomically replaces count items starting at index
+// start with one summary item, in a single Yjs transaction, so observers never
+// see a half-folded array. Used by context-window recovery on the worker's
+// target array (root or a sub-thread's nested array). It deliberately bypasses
+// the OperationTracker: the fold is a system-initiated history rewrite, not a
+// user edit, and undo/redo semantics for it are out of scope.
+func (cd *ConversationDocument) FoldPrefixIntoSummary(arr *ycrdt.YArray, start, count int, summary ConversationItem) {
+	if arr == nil || count <= 0 {
+		return
+	}
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	cd.doc.Transact(func(_ *ycrdt.Transaction) {
+		arr.Delete(ycrdt.Number(start), ycrdt.Number(count))
+		arr.Insert(ycrdt.Number(start), ycrdt.ArrayAny{conversationItemToYMap(summary)})
+	}, cd.txOrigin())
+}
+
 func (cd *ConversationDocument) deleteMessages(indices []int) {
 	sortedIndices := make([]int, len(indices))
 	copy(sortedIndices, indices)

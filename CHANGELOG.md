@@ -5,6 +5,14 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Prevented oversized model requests with enforced context-window admission
+- Summarized oversized compact and handoff histories within bounded model calls
+- Enforced Ollama's real serving context window instead of model training maximums
+- Stopped custom model aliases from inheriting provider default context limits
+- Let custom Claude Code model aliases complete a first turn to learn limits
+- Sent derived output reserves to providers when models report context limits only
+- Oversized conversations now summarize their oldest history and retry instead of failing
+
 ## [0.4.1] - 2026-07-17
 
 - Added a Skills marketplace to discover and install Agent Skills from GitHub registries
@@ -23,12 +31,6 @@ of changes; this project follows semantic versioning.
 - Added workarounds for some Firefox bugs when using the WAN client
 - Fixed failure to save settings in the generic openAI provider
 - Made sure .md files are previewed as markdown, not syntax-highlighted text
-- Prevented oversized model requests with enforced context-window admission
-- Summarized oversized compact and handoff histories within bounded model calls
-- Enforced Ollama's real serving context window instead of model training maximums
-- Stopped custom model aliases from inheriting provider default context limits
-- Let custom Claude Code model aliases complete a first turn to learn limits
-- Sent derived output reserves to providers when models report context limits only
 - Followed XDG Base Directory spec for config/cache on Linux
 
 ## [0.3.8] - 2026-07-15

@@ -160,6 +160,10 @@ func (w *ConversationWorker) runStrategyLoop(userText string, isContinuation boo
 	}
 
 	barrenTurns := 0
+	// recoveryAttempted caps context-window recovery at one fold+retry per
+	// strategy run: if the rebuilt request still does not fit, the error is
+	// terminal rather than a summarize-retry loop.
+	recoveryAttempted := false
 
 strategyLoop:
 	for {
@@ -322,6 +326,22 @@ strategyLoop:
 						return
 					}
 					err = fmt.Errorf("bounded compaction failed: %w", compactErr)
+				} else if !recoveryAttempted {
+					// Ordinary root / subthread turn: summarize the oldest
+					// foldable history into the doc, then rebuild and retry the
+					// rejected turn once (the loop-top rebuild re-runs admission
+					// on the folded request).
+					recoveryAttempted = true
+					if recErr := w.tryContextRecovery(contextLimit, originalRequest.ModelConfig); recErr != nil {
+						if errors.Is(recErr, errBoundedCompactionCancelled) {
+							w.currentTxnID = ""
+							return
+						}
+						err = fmt.Errorf("context recovery failed: %w", recErr)
+					} else {
+						w.currentTxnID = ""
+						continue strategyLoop
+					}
 				}
 			}
 

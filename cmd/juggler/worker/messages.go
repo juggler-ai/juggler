@@ -691,6 +691,11 @@ const (
 	// role (provider.MessageTypeToRole); buildMessages emits them verbatim.
 	ItemTypeSystemReminder = "system-reminder"
 	ItemTypeGuidance       = "guidance"
+	// ItemTypeCompactionSummary is the folded product of context-window
+	// recovery: one item replacing a summarized prefix of the conversation.
+	// buildMessages emits it as a single user message with an inert-data
+	// header; it is conversational (and re-foldable by a later recovery).
+	ItemTypeCompactionSummary = "compaction-summary"
 )
 
 // isConversationalItemType reports whether an item type is conversation history
@@ -703,7 +708,7 @@ func isConversationalItemType(t string) bool {
 	switch t {
 	case ItemTypeUser, ItemTypeAssistant, ItemTypeThinking, ItemTypeToolAction,
 		ItemTypeThread, ItemTypeMetaToolResult, ItemTypeError,
-		ItemTypeSystemReminder, ItemTypeGuidance:
+		ItemTypeSystemReminder, ItemTypeGuidance, ItemTypeCompactionSummary:
 		return true
 	default:
 		return false

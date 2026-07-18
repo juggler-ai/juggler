@@ -372,6 +372,14 @@ func (w *ConversationWorker) buildMessages(contexts []ItemContext) []map[string]
 			if item.Content != "" {
 				messages = append(messages, map[string]any{"type": item.Type, "content": item.Content})
 			}
+
+		case ItemTypeCompactionSummary:
+			// Folded product of context-window recovery. One user-role message
+			// with an inert-data header so the model treats the summary as a
+			// record, never as instructions to follow.
+			if item.Content != "" {
+				messages = append(messages, map[string]any{"type": "user", "content": compactionSummaryWireHeader + item.Content})
+			}
 		}
 	}
 

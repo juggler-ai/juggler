@@ -301,7 +301,7 @@ func (c *Client) buildMessageParams(req provider.MessageRequest) anthropicsdk.Me
 	// "any") together with thinking — a hard 400 — so a forced-tool turn (e.g.
 	// /compact forcing return_result) wins and drops thinking for that turn.
 	// Temperature is never set here, which thinking also requires.
-	if budget, ok := thinkingBudgetForLevel(c.model, req.ThinkingLevel); ok && !forcesTool(req.ToolChoice) {
+	if budget, ok := thinkingBudgetForLevel(c.model, req.ThinkingLevel, maxTokens); ok && !forcesTool(req.ToolChoice) {
 		params.Thinking = anthropicsdk.ThinkingConfigParamOfEnabled(budget)
 	}
 
@@ -319,13 +319,16 @@ func forcesTool(tc *provider.ToolChoice) bool {
 // budget_tokens value for the given model. It returns (budget, true) when
 // thinking should be enabled for this turn, or (0, false) for "off"/absent/
 // unknown levels and models that don't support extended thinking. The budget is
-// clamped to stay a safe margin (~4k answer headroom) below the model's
-// max_tokens ceiling, since Anthropic requires budget_tokens < max_tokens.
-func thinkingBudgetForLevel(model, level string) (int64, bool) {
+// clamped to stay a safe margin (~4k answer headroom) below the effective
+// max_tokens going on the wire, since Anthropic requires budget_tokens <
+// max_tokens. The wire value is passed in rather than re-derived from the
+// static catalog so a capability snapshot carrying a lower output limit can
+// never push budget_tokens above max_tokens (a hard 400).
+func thinkingBudgetForLevel(model, level string, maxTokens int64) (int64, bool) {
 	if !SupportsThinking(model) {
 		return 0, false
 	}
-	var budget int
+	var budget int64
 	switch provider.NormalizeThinkingLevel(level) {
 	case provider.ThinkingLow:
 		budget = 2048
@@ -338,15 +341,15 @@ func thinkingBudgetForLevel(model, level string) (int64, bool) {
 	default: // "off", absent, or unknown ⇒ no thinking param (current behaviour)
 		return 0, false
 	}
-	const answerHeadroom = 4096
-	maxBudget := GetMaxOutputTokens(model) - answerHeadroom
+	const answerHeadroom int64 = 4096
+	maxBudget := maxTokens - answerHeadroom
 	if maxBudget < 1024 { // Anthropic requires budget_tokens ≥ 1024
 		return 0, false
 	}
 	if budget > maxBudget {
 		budget = maxBudget
 	}
-	return int64(budget), true
+	return budget, true
 }
 
 // setRollingCacheBreakpoint places an ephemeral cache_control breakpoint on the

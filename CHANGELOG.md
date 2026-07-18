@@ -12,6 +12,7 @@ of changes; this project follows semantic versioning.
 - Let custom Claude Code model aliases complete a first turn to learn limits
 - Sent derived output reserves to providers when models report context limits only
 - Oversized conversations now summarize their oldest history and retry instead of failing
+- Tool results too large for the model context are summarized in place, keeping tool pairs intact
 
 ## [0.4.1] - 2026-07-17
 

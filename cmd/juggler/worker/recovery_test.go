@@ -462,3 +462,262 @@ func TestContextRecoveryRetriesRejectedTurnOnce(t *testing.T) {
 		t.Fatalf("items have %d summaries and %d assistants, want exactly one of each", summaries, assistants)
 	}
 }
+
+// TestContextRecoveryShrinksOversizedTrailingToolResult covers the active
+// tool-loop case: a provider tool result so large the next call can never fit
+// — here larger than one compaction input budget, so the reducer must split
+// it across map calls. The result is summarized in place (the tool pair stays
+// intact and visible), the older history folds, and recovery succeeds.
+func TestContextRecoveryShrinksOversizedTrailingToolResult(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.storeState(StateProcessing)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+
+	giantResult, _ := json.Marshal(map[string]any{"content": strings.Repeat("r", 20_000), "isError": false})
+	items := recoveryTestItems()[:3]
+	items = append(items, ConversationItem{
+		Type: ItemTypeToolAction, ItemID: "ta-giant", ToolUseID: "tu-giant", ToolName: "read_file",
+		ToolInput: json.RawMessage(`{"path":"/tmp/big.txt"}`),
+		State:     StateCompleted, Result: giantResult, TransactionID: "txn-giant",
+	})
+	w.doc.InsertMessage(0, items...)
+	pinned := &ModelConfig{Provider: "test", Model: "test"}
+	calls, stub := newRecoveryStub(t, pinned)
+	w.llmCallFunc = stub
+
+	if err := w.tryContextRecovery(recoveryLimitErr(), pinned); err != nil {
+		t.Fatal(err)
+	}
+	if *calls < 4 {
+		t.Fatalf("hidden calls = %d, want split shrink maps plus prefix maps plus finals", *calls)
+	}
+
+	got := w.doc.GetItems()
+	if len(got) != 3 {
+		t.Fatalf("items = %d, want prefix summary plus old-2 plus the intact tool batch", len(got))
+	}
+	if got[0].Type != ItemTypeCompactionSummary || !strings.Contains(got[0].Summary, "2 earlier items") {
+		t.Fatalf("items[0] = %q (%q), want the two oldest items folded", got[0].Type, got[0].Summary)
+	}
+	if got[1].ItemID != "old-2" {
+		t.Fatalf("items[1] = %q, want verbatim suffix item old-2", got[1].ItemID)
+	}
+	tool := got[2]
+	if tool.ItemID != "ta-giant" || tool.ToolUseID != "tu-giant" || tool.State != StateCompleted {
+		t.Fatalf("tool item = %+v, want the original completed pair intact", tool)
+	}
+	var payload struct {
+		Content string `json:"content"`
+		IsError bool   `json:"isError"`
+	}
+	if err := json.Unmarshal(tool.Result, &payload); err != nil {
+		t.Fatalf("shrunk result does not unmarshal: %v", err)
+	}
+	if !strings.HasPrefix(payload.Content, recoveryShrunkResultMarker) {
+		t.Fatalf("shrunk result lacks the marker: %.80q", payload.Content)
+	}
+	if !strings.Contains(payload.Content, "recovered prefix summary") {
+		t.Fatalf("shrunk result lacks the reducer summary: %.120q", payload.Content)
+	}
+	if strings.Contains(payload.Content, strings.Repeat("r", 20_000)) {
+		t.Fatal("shrunk result still carries the original oversized payload")
+	}
+	if payload.IsError {
+		t.Fatal("shrunk result must preserve isError=false")
+	}
+}
+
+// TestContextRecoveryTrailingToolBatchGiantInputStaysTerminal is the negative
+// case: the trailing batch is oversized by its tool INPUT, not its result, so
+// in-place result summarization has nothing to shrink and recovery stays a
+// concise terminal error.
+func TestContextRecoveryTrailingToolBatchGiantInputStaysTerminal(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.storeState(StateProcessing)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+
+	giantInput, _ := json.Marshal(map[string]any{"command": strings.Repeat("c", 20_000)})
+	smallResult, _ := json.Marshal(map[string]any{"content": "ok", "isError": false})
+	items := recoveryTestItems()[:3]
+	items = append(items, ConversationItem{
+		Type: ItemTypeToolAction, ItemID: "ta-giant-in", ToolUseID: "tu-giant-in", ToolName: "bash",
+		ToolInput: giantInput, State: StateCompleted, Result: smallResult, TransactionID: "txn-giant-in",
+	})
+	w.doc.InsertMessage(0, items...)
+	pinned := &ModelConfig{Provider: "test", Model: "test"}
+	calls, stub := newRecoveryStub(t, pinned)
+	w.llmCallFunc = stub
+
+	err := w.tryContextRecovery(recoveryLimitErr(), pinned)
+	var bounded *BoundedCompactionError
+	if !errors.As(err, &bounded) || bounded.Reason != BoundedCompactionContextBound {
+		t.Fatalf("error = %#v, want context_bound", err)
+	}
+	if *calls != 0 {
+		t.Fatalf("hidden calls = %d, want none — nothing shrinkable", *calls)
+	}
+	if got := w.doc.GetItems(); len(got) != 4 {
+		t.Fatalf("items = %d, want the untouched original four", len(got))
+	}
+}
+
+// TestToolResultPushingNextCallOverContextRecovers drives the active tool
+// loop end to end: turn one runs a tool, its oversized result makes the
+// continuation request inadmissible, recovery shrinks the result and folds
+// the old history, and the SAME loop continues to completion — with the tool
+// executed exactly once.
+func TestToolResultPushingNextCallOverContextRecovers(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	initPayload, _ := json.Marshal(InitMessage{
+		Type:         "init",
+		Conversation: SerializedConversation{ID: "test-conv", CurrentStrategyID: "default"},
+		Config:       WorkerConfig{ProjectPath: t.TempDir()},
+	})
+	w.handleInit(initPayload)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+
+	executes := make(chan string, 8)
+	w.SetCallback("engine", func(b []byte) {
+		var m ToolCommand
+		if json.Unmarshal(b, &m) == nil && m.Type == "execute-tool" {
+			executes <- m.ToolUseID
+		}
+	})
+	w.SetEngineClientID("engine")
+
+	w.storeState(StateProcessing)
+	w.doc.InsertMessage(0, recoveryTestItems()[:3]...)
+
+	go func() {
+		ctxResp, _ := json.Marshal(map[string]any{
+			"type": "render-context-items-response", "systemPrompt": "sys", "contexts": []any{},
+		})
+		toolsResp, _ := json.Marshal(map[string]any{"type": "tools-result", "tools": []any{}})
+		for {
+			select {
+			case <-w.done:
+				return
+			case w.contextResultChan <- ctxResp:
+			}
+			select {
+			case <-w.done:
+				return
+			case w.toolsResultChan <- toolsResp:
+			}
+		}
+	}()
+
+	realCalls := 0
+	w.llmCallFunc = func(_ context.Context, raw json.RawMessage, sink func(StreamChunk)) (*LLMResponse, error) {
+		var req hiddenLLMRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(req.ThreadID, ":bounded:") {
+			if len(req.Tools) > 0 {
+				return &LLMResponse{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeToolUse, Name: "return_result", Input: json.RawMessage(`{"result":"recovered prefix summary"}`)}}}, nil
+			}
+			return &LLMResponse{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeText, Content: "condensed fragment"}}}, nil
+		}
+		realCalls++
+		switch realCalls {
+		case 1:
+			return &LLMResponse{
+				Blocks:     []LLMResponseBlock{{Type: "tool_use", ID: "tu-1", Name: "bash", Input: json.RawMessage(`{"command":"cat /tmp/big"}`)}},
+				StopReason: "tool_use",
+			}, nil
+		case 2:
+			// Precondition: the giant tool result really pushed this request
+			// past the window — otherwise the fixture is not exercising
+			// recovery at all.
+			estimate := provider.EstimateMessageRequestTokenBreakdown(providerRequest(req), 0).Total
+			if estimate+300 <= 4_000 {
+				t.Fatalf("continuation request fits (%d + 300 <= 4000); the fixture is not oversized", estimate)
+			}
+			return nil, recoveryLimitErr()
+		default:
+			estimate := provider.EstimateMessageRequestTokenBreakdown(providerRequest(req), 0).Total
+			if estimate+300 > 4_000 {
+				t.Fatalf("retried request still does not fit: %d + 300 > 4000", estimate)
+			}
+			sink(StreamChunk{Type: provider.ContentBlockTypeText, Content: "continued after recovery"})
+			return &LLMResponse{
+				Blocks:     []LLMResponseBlock{{Type: "text", Content: "continued after recovery"}},
+				StopReason: "end_turn",
+			}, nil
+		}
+	}
+
+	// Turn 1: the model calls bash; the async tool-action parks the loop after
+	// an evaluate-tool command. The engine's approval verdict lands as a sync…
+	w.runStrategyLoop("run the tool", false)
+	if err := w.doc.UpdateItemByToolUseID("tu-1", "state", StateApproved); err != nil {
+		t.Fatal(err)
+	}
+	// …the next drive tick commands the execution (counted by the callback)…
+	w.driveToolActions()
+	// …and the engine writes the oversized result back when it finishes.
+	if err := w.doc.UpdateItemByToolUseID("tu-1", "state", StateCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.doc.UpdateItemByToolUseID("tu-1", "result", map[string]any{"content": strings.Repeat("r", 20_000), "isError": false}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Continuation: rejected, recovered, retried — inline, as the reducer's
+	// dispatchCallLLMOnThread would drive it.
+	w.runStrategyLoop("", true)
+
+	if realCalls != 3 {
+		t.Fatalf("real calls = %d, want tool turn, rejected continuation, retried continuation", realCalls)
+	}
+	if got := drainExecuteIDs(executes); len(got) != 1 || got[0] != "tu-1" {
+		t.Fatalf("execute-tool dispatches = %v, want exactly one (tu-1); tools must not repeat", got)
+	}
+
+	items := w.doc.GetItems()
+	var summaries, assistants, toolActions int
+	for _, item := range items {
+		switch item.Type {
+		case ItemTypeCompactionSummary:
+			summaries++
+		case ItemTypeAssistant:
+			assistants++
+			if item.Content != "continued after recovery" {
+				t.Fatalf("assistant content = %q", item.Content)
+			}
+		case ItemTypeToolAction:
+			toolActions++
+			if item.ToolUseID != "tu-1" || item.State != StateCompleted {
+				t.Fatalf("tool item = %+v, want tu-1 completed", item)
+			}
+			var payload struct {
+				Content string `json:"content"`
+			}
+			if err := json.Unmarshal(item.Result, &payload); err != nil ||
+				!strings.HasPrefix(payload.Content, recoveryShrunkResultMarker) {
+				t.Fatalf("tool result was not shrunk in place: %.80q", payload.Content)
+			}
+		case ItemTypeError:
+			t.Fatalf("unexpected error item after recovery: %q", item.Content)
+		}
+	}
+	if summaries != 1 || assistants != 1 || toolActions != 1 {
+		t.Fatalf("summaries=%d assistants=%d toolActions=%d, want one of each", summaries, assistants, toolActions)
+	}
+}
+
+func drainExecuteIDs(ch chan string) []string {
+	var ids []string
+	for {
+		select {
+		case id := <-ch:
+			ids = append(ids, id)
+		default:
+			return ids
+		}
+	}
+}

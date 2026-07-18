@@ -63,6 +63,24 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 		return &BoundedCompactionError{Reason: BoundedCompactionContextBound, Message: "context recovery requires a known context window", Window: window}
 	}
 
+	// Everything admission counted that is not per-message content is the
+	// fixed envelope (system prompt, tools, framing, ids, provider overhead).
+	envelope := limitErr.Breakdown.Total - limitErr.Breakdown.MessageTokens - limitErr.Breakdown.ImageTokens
+	if envelope < 0 {
+		envelope = 0
+	}
+
+	w.sendStatus("compacting", "Summarizing earlier conversation to fit the context window")
+
+	// A trailing tool-result payload too large for the suffix budget can never
+	// be folded — folding would destroy the live tool pair. Shrink oversized
+	// results in place to reducer-generated summaries first; the pair stays
+	// intact on the wire and in the visible doc (the full result survives in
+	// its transaction blob).
+	if err := w.shrinkOversizedTrailingToolResults(limitErr, &pinnedModel, envelope); err != nil {
+		return err
+	}
+
 	items := w.getTargetItems()
 	records, err := canonicalCompactionRecords(items, recoveryPromptSentinel)
 	if err != nil {
@@ -72,13 +90,6 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 		return &BoundedCompactionError{Reason: BoundedCompactionEmptySource, Message: "context recovery source is empty"}
 	}
 	fingerprint := compactionSourceFingerprint(records)
-
-	// Everything admission counted that is not per-message content is the
-	// fixed envelope (system prompt, tools, framing, ids, provider overhead).
-	envelope := limitErr.Breakdown.Total - limitErr.Breakdown.MessageTokens - limitErr.Breakdown.ImageTokens
-	if envelope < 0 {
-		envelope = 0
-	}
 
 	units := recoveryAtomicUnits(items)
 	// Leading non-conversational items (rules, plans, other standing context)
@@ -140,7 +151,6 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 		cancelled:  w.compactionCancelled,
 	}
 
-	w.sendStatus("compacting", "Summarizing earlier conversation to fit the context window")
 	result, err := reducer.run(prefixRecords)
 	if err != nil {
 		if errors.Is(err, errBoundedCompactionCancelled) {
@@ -175,6 +185,92 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 	w.doc.FoldPrefixIntoSummary(w.getTargetItemsYArray(), prefixStart, prefixEnd-prefixStart, summaryItem)
 	w.log.Info("[recovery] folded %d items into a compaction summary (passes=%d calls=%d spend=%d window=%d suffix=%d tokens)",
 		prefixEnd-prefixStart, result.Passes, result.Calls, result.EstimatedSpend, reducerWindow, suffixEst)
+	return nil
+}
+
+// recoveryShrunkResultMarker prefixes a tool result that was replaced by a
+// reducer-generated summary because it could never fit the model context.
+const recoveryShrunkResultMarker = "[tool result exceeded the model context window and was summarized]\n\n"
+
+// shrinkOversizedTrailingToolResults handles the active-tool-loop case: the
+// newest history unit is a tool-action batch whose result payload alone busts
+// the suffix budget, so the suffix walk could never keep it and folding it
+// would destroy the live tool pair. Each oversized result in that trailing
+// batch is summarized in place with the bounded reducer (the reducer rune-
+// splits a single result larger than one map budget across calls); the tool
+// call and its (now summarized) result stay paired on the wire and in the
+// visible doc. No-op when the trailing unit fits or is not a tool batch.
+func (w *ConversationWorker) shrinkOversizedTrailingToolResults(limitErr *provider.ContextLimitExceededError, pinnedModel *ModelConfig, envelope int64) error {
+	window := limitErr.ContextWindowTokens
+	reserve := limitErr.OutputReserveTokens
+
+	items := w.getTargetItems()
+	units := recoveryAtomicUnits(items)
+	if len(units) == 0 {
+		return nil
+	}
+	trailing := units[len(units)-1]
+	if items[trailing.start].Type != ItemTypeToolAction {
+		return nil
+	}
+	if window-envelope-trailing.est >= reserve+recoverySummaryFloorTokens {
+		return nil // the trailing batch fits the suffix budget as-is
+	}
+
+	for i := trailing.start; i < trailing.end; i++ {
+		item := items[i]
+		var resultPayload struct {
+			Content string `json:"content"`
+			IsError bool   `json:"isError"`
+		}
+		if err := json.Unmarshal(item.Result, &resultPayload); err != nil || resultPayload.Content == "" {
+			continue
+		}
+		contentEst := provider.EstimateMessageRequestTokenBreakdown(provider.MessageRequest{
+			Messages: []provider.Message{{Type: "user", Content: resultPayload.Content}},
+		}, 0).Total
+		if contentEst <= recoverySummaryFloorTokens {
+			continue
+		}
+
+		// The summary must land inside the same headroom the suffix walk
+		// reserves for folded output, so the shrunk batch fits where the
+		// original could not.
+		reducer := &boundedReducer{
+			conversationID: w.conversationID,
+			threadID:       w.thread.itemID,
+			modelConfig:    *pinnedModel,
+			budget: boundedCompactionBudget{
+				window:           reserve + recoverySummaryFloorTokens,
+				reserve:          reserve,
+				providerOverhead: limitErr.Breakdown.ProviderOverheadTokens,
+				maxSpend:         minSaturating(mulSaturating(contentEst, 4), mulSaturating(window, 8)),
+			},
+			dispatcher: w,
+			cancelled:  w.compactionCancelled,
+		}
+		shrunk, err := reducer.run([]string{resultPayload.Content})
+		if err != nil {
+			if errors.Is(err, errBoundedCompactionCancelled) {
+				return &BoundedCompactionCancelledError{Result: shrunk}
+			}
+			return err
+		}
+		if w.compactionCancelled() {
+			return &BoundedCompactionCancelledError{Result: shrunk}
+		}
+		if err := w.updateTargetItemByID(item.ItemID, "result", map[string]any{
+			"content": recoveryShrunkResultMarker + shrunk.Summary,
+			"isError": resultPayload.IsError,
+		}); err != nil {
+			return &BoundedCompactionError{
+				Reason: BoundedCompactionSourceChanged, Message: "tool result disappeared during context recovery: " + err.Error(),
+				Calls: shrunk.Calls, Spend: shrunk.EstimatedSpend, Window: reducer.budget.window, Usage: shrunk.Usage,
+			}
+		}
+		w.log.Info("[recovery] summarized oversized tool result %s in place (calls=%d spend=%d)",
+			item.ToolUseID, shrunk.Calls, shrunk.EstimatedSpend)
+	}
 	return nil
 }
 

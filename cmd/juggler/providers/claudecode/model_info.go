@@ -39,6 +39,13 @@ func Info() provider.ProviderInfo {
 		ConfigKeyName:            "", // No API key needed - uses CLI's OAuth
 		AutoDetect:               detectClaudeCLI,
 		ResolveModelCapabilities: conservativeAliasCapabilities,
+		// Learn-on-first-turn: a verbatim custom model id resolves no static
+		// capabilities, and the CLI only reports its real window/output limits
+		// after it runs once. Without this, fail-closed admission would reject
+		// that first turn and the live values could never populate; the
+		// Anthropic API behind the CLI remains the enforcing backstop. The
+		// known aliases above keep static+live limits and stay fully admitted.
+		AllowUnknownLimits: true,
 	}
 }
 

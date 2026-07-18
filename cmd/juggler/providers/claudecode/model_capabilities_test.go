@@ -29,3 +29,12 @@ func TestConservativeAliasCapabilities(t *testing.T) {
 		t.Fatalf("unknown alias capabilities = %+v, %v; want zero, false", got, ok)
 	}
 }
+
+// TestInfoAllowsUnknownLimitsForLearnOnFirstTurn pins the escape hatch: a
+// verbatim custom model id can only discover its real limits by running the
+// CLI once, which fail-closed admission would otherwise prevent.
+func TestInfoAllowsUnknownLimitsForLearnOnFirstTurn(t *testing.T) {
+	if !Info().AllowUnknownLimits {
+		t.Fatal("claudecode Info must allow unknown limits (learn-on-first-turn for custom aliases)")
+	}
+}

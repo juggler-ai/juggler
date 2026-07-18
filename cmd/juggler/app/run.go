@@ -27,8 +27,10 @@ import (
 	"juggler/cmd/juggler/providers/acp"
 	"juggler/cmd/juggler/providers/anthropic"
 	"juggler/cmd/juggler/providers/claudecode"
+	"juggler/cmd/juggler/providers/copilot"
 	"juggler/cmd/juggler/providers/deepseek"
 	"juggler/cmd/juggler/providers/gemini"
+	"juggler/cmd/juggler/providers/llamacpp"
 	"juggler/cmd/juggler/providers/moonshot"
 	"juggler/cmd/juggler/providers/ollama"
 	"juggler/cmd/juggler/providers/openai"
@@ -146,8 +148,10 @@ func registerProviders() {
 	acp.Register()
 	anthropic.Register()
 	claudecode.Register()
+	copilot.Register()
 	deepseek.Register()
 	gemini.Register()
+	llamacpp.Register()
 	moonshot.Register()
 	ollama.Register()
 	openai.Register()

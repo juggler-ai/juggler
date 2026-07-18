@@ -65,6 +65,32 @@ func (s *Server) readWorkerModule(moduleURL string) ([]byte, error) {
 	}
 	path = strings.TrimPrefix(path, "/")
 
+	// User extensions live on disk under ExtensionsAPI.UserExtensionDir(), served
+	// to the viewer by the /user-extensions/ static route (http.Dir). The engine
+	// worker has no import map, so it fetches the SAME capability URLs through
+	// this loader — which otherwise only sees embedded/static assets, so a
+	// discovered /user-extensions/ module 404'd and never loaded in the engine
+	// (issue #34). Resolve those URLs against the container here, matching
+	// http.Dir's semantics exactly so the two loaders agree: reject lexical ".."
+	// traversal, then read while FOLLOWING symlinks — `juggler ext link` symlinks
+	// an extension's whole subdir out of the container, and both routes must load
+	// it identically.
+	const userExtPrefix = "user-extensions/"
+	if strings.HasPrefix(path, userExtPrefix) {
+		var userDir string
+		if s.extensionsAPI != nil {
+			userDir = s.extensionsAPI.UserExtensionDir()
+		}
+		if userDir == "" {
+			return nil, fmt.Errorf("user extension directory is unavailable")
+		}
+		rel := strings.TrimPrefix(path, userExtPrefix)
+		if rel == "" || hasDotDotSegment(rel) {
+			return nil, fmt.Errorf("invalid user extension module path: %q", rel)
+		}
+		return os.ReadFile(filepath.Join(userDir, filepath.FromSlash(rel)))
+	}
+
 	if s.assetsFromDisk {
 		if staticDir, err := s.findStaticDir(); err == nil {
 			if content, err := os.ReadFile(filepath.Join(staticDir, filepath.FromSlash(path))); err == nil {
@@ -73,6 +99,19 @@ func (s *Server) readWorkerModule(moduleURL string) ([]byte, error) {
 		}
 	}
 	return web.Files.ReadFile(path)
+}
+
+// hasDotDotSegment reports whether a slash-separated path contains a ".."
+// component, mirroring net/http's containsDotDot used by http.Dir. A filename
+// that merely contains ".." (e.g. "a..b.js") is allowed; only a standalone ".."
+// segment can traverse.
+func hasDotDotSegment(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) rewriteWorkerModuleImports(moduleURL, source string) string {

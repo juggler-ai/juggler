@@ -1380,6 +1380,14 @@ export default class MessageThread {
    */
   getAllowedPaths() { return permissionsHelpers.getAllowedPaths(this); }
 
+  /**
+   * Explicit (user-added) allowed roots, WITHOUT the implicit project root.
+   * Sent to read/search/tree backend ops, which are already rooted at the
+   * server's live project path — see getExplicitAllowedPaths.
+   * @returns {string[]} Explicit allowed roots
+   */
+  getExplicitAllowedPaths() { return permissionsHelpers.getExplicitAllowedPaths(this); }
+
   /** @param {string[]} paths New allowed-paths list */
   setAllowedPaths(paths) { permissionsHelpers.setAllowedPaths(this, paths); }
 

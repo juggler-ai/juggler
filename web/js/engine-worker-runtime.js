@@ -91,9 +91,15 @@ const pendingSandbox = new Map();
     name,
     callable: typeof cap === 'function'
   }));
+  // The project root the sandbox exposes as `projectRoot` comes from the live
+  // engine value (updated on a runtime project switch — see session.js
+  // _applyEngineProjectRoot), NOT the frozen sandbox.html template. This realm
+  // (the engine worker) is where the session runs and keeps it current; the
+  // main-thread iframe host can't read this worker's global, so pass it across.
+  const projectRoot = /** @type {any} */ (globalThis).__jugglerProjectRoot;
   return new Promise((resolve, reject) => {
     pendingSandbox.set(id, { resolve, reject, capabilities });
-    self.postMessage({ type: 'sandbox-run', id, code, timeoutMs, descriptors });
+    self.postMessage({ type: 'sandbox-run', id, code, timeoutMs, descriptors, projectRoot });
   });
 };
 

@@ -90,6 +90,43 @@ func (s *RecentsStore) Add(path string) error {
 	return s.save(out)
 }
 
+// Prune drops entries whose folder no longer exists (or is no longer a
+// directory), persists the result when anything changed, and returns the
+// surviving list in most-recent order. A path that fails to stat for any
+// reason other than "not found" — e.g. an offline network mount or a
+// permission error — is kept, so a temporarily-unreachable project isn't
+// forgotten; only definitively-absent folders are dropped.
+func (s *RecentsStore) Prune() ([]string, error) {
+	paths, err := s.Load()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(paths))
+	changed := false
+	for _, p := range paths {
+		info, statErr := os.Stat(p)
+		if statErr != nil {
+			if os.IsNotExist(statErr) {
+				changed = true // folder is gone — drop it
+				continue
+			}
+			out = append(out, p) // transient error — keep it
+			continue
+		}
+		if !info.IsDir() {
+			changed = true // exists but is a file now — can't be a project
+			continue
+		}
+		out = append(out, p)
+	}
+	if changed {
+		if err := s.save(out); err != nil {
+			return out, err
+		}
+	}
+	return out, nil
+}
+
 // Remove drops path from the list if present.
 func (s *RecentsStore) Remove(path string) error {
 	paths, err := s.Load()

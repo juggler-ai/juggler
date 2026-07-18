@@ -155,7 +155,9 @@ func (api *ProjectAPI) HandleDeleteProject(w http.ResponseWriter, r *http.Reques
 func (api *ProjectAPI) HandleGetRecents(w http.ResponseWriter, r *http.Request) {
 	paths := []string{}
 	if api.recents != nil {
-		if loaded, err := api.recents.Load(); err == nil {
+		// Prune folders that have since been deleted/moved so the picker never
+		// offers a dead path (and the persisted list self-heals over time).
+		if loaded, err := api.recents.Prune(); err == nil {
 			paths = loaded
 		}
 	}

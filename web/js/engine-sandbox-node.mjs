@@ -46,11 +46,17 @@ async function runInWorkerSandbox(code, capabilities, timeoutMs, env) {
     callable: typeof cap === 'function',
   }));
 
+  // Read the LIVE project root (kept current across a runtime project switch by
+  // session.js _applyEngineProjectRoot), falling back to the boot value from the
+  // delegate closure. The Node engine runs on this same thread, so the global is
+  // in step with the loaded project.
+  const liveProjectRoot = /** @type {any} */ (globalThis).__jugglerProjectRoot ?? env.projectRoot;
+
   const worker = new Worker(new URL('./engine-sandbox-worker.mjs', import.meta.url), {
     workerData: {
       origin: env.origin,
       token: env.token,
-      projectRoot: env.projectRoot,
+      projectRoot: liveProjectRoot,
       code,
       timeoutMs,
       descriptors,

@@ -44,6 +44,7 @@ type ProviderStatus struct {
 	Description       string             `json:"description"`
 	AuthType          provider.AuthType  `json:"authType"`
 	AuthSource        string             `json:"authSource,omitempty"`
+	SignInMethod      string             `json:"signInMethod,omitempty"`
 	AuthHint          string             `json:"authHint,omitempty"`
 	ConfigKeyName     string             `json:"configKeyName"`
 	EnvVarName        string             `json:"envVarName"`
@@ -159,6 +160,7 @@ func (s *Server) computeProviders(ctx context.Context) []ProviderStatus {
 				Description:       pInfo.Description,
 				AuthType:          authType,
 				AuthSource:        pInfo.AuthSource,
+				SignInMethod:      pInfo.SignInMethod,
 				AuthHint:          authHint,
 				ConfigKeyName:     pInfo.ConfigKeyName,
 				EnvVarName:        pInfo.EnvVarName,

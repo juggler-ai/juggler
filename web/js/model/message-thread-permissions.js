@@ -275,6 +275,25 @@ export function getAllowedPaths(mt) {
   return getAllowedPathEntries(mt).map(p => p.path);
 }
 
+/**
+ * The explicit (user-added) allowed-path grants only — session- and
+ * conversation-scoped entries WITHOUT the implicit project-root entry.
+ *
+ * This is what travels to the non-approval-gated read/search/tree backend ops
+ * as `allowedPaths`. Those ops build their PathScope rooted at the server's
+ * LIVE project path (handlers.NewOpsAPI(s.ProjectPath)), so the project root is
+ * already supplied authoritatively server-side and re-sending a client copy is
+ * redundant — and, after a runtime project switch, unsafe: the engine is
+ * persistent across SwitchProject and keeps its boot-time `session.projectPath`,
+ * so the implicit root here would be the PREVIOUS project and would re-authorise
+ * reads/globs/greps across the old tree. Sending explicit grants only keeps the
+ * server the sole authority for the project boundary.
+ * @param {any} mt @returns {string[]}
+ */
+export function getExplicitAllowedPaths(mt) {
+  return getAllowedPathEntries(mt).filter(p => !p.implicit).map(p => p.path);
+}
+
 /** @param {any} mt @param {AllowedPathEntry[]} paths */
 function saveConversationPathEntries(mt, paths) {
   mt.conversation.setMetadata(CONVERSATION_PATHS_KEY, paths.map(p => normalizePathEntry(p, SCOPE_CONVERSATION)));

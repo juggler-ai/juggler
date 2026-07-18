@@ -66,6 +66,65 @@ func TestBearerTokenClientUsesAuthorizationHeader(t *testing.T) {
 	}
 }
 
+// TestChatCompletionsSendsCustomHeaders proves that Config.Headers (e.g. the
+// GitHub Copilot Editor-Version / X-Initiator headers) actually reach the
+// POST /chat/completions request — not just /models. A missing header here is
+// what makes Copilot reject every model with 400 model_not_supported.
+func TestChatCompletionsSendsCustomHeaders(t *testing.T) {
+	var gotEditor, gotInitiator, gotIntegration, gotModel string
+	sse := "data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		gotEditor = r.Header.Get("Editor-Version")
+		gotInitiator = r.Header.Get("X-Initiator")
+		gotIntegration = r.Header.Get("Copilot-Integration-Id")
+		var reqBody struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		gotModel = reqBody.Model
+		header := make(http.Header)
+		header.Set("Content-Type", "text/event-stream")
+		return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(strings.NewReader(sse))}, nil
+	})}
+
+	client, err := NewClient(Config{
+		BearerToken: "bearer",
+		Headers: map[string]string{
+			"Editor-Version":         "vscode/1.99.3",
+			"X-Initiator":            "user",
+			"Copilot-Integration-Id": "vscode-chat",
+		},
+		Model:      "gpt-4o",
+		BaseURL:    "https://example.test",
+		HTTPClient: httpClient,
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	_, err = client.streamMessage(context.Background(), provider.MessageRequest{
+		Messages: []provider.Message{{Type: "user", Content: "hi"}},
+	}, func(provider.StreamChunk) (*provider.ToolResult, error) { return nil, nil })
+	if err != nil {
+		t.Fatalf("streamMessage: %v", err)
+	}
+	if gotModel != "gpt-4o" {
+		t.Fatalf("model on the wire = %q, want gpt-4o", gotModel)
+	}
+	if gotEditor != "vscode/1.99.3" {
+		t.Fatalf("Editor-Version = %q, want it forwarded to /chat/completions", gotEditor)
+	}
+	if gotInitiator != "user" {
+		t.Fatalf("X-Initiator = %q, want it forwarded to /chat/completions", gotInitiator)
+	}
+	if gotIntegration != "vscode-chat" {
+		t.Fatalf("Copilot-Integration-Id = %q, want it forwarded", gotIntegration)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {

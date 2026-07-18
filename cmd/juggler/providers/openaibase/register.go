@@ -23,6 +23,7 @@ type Descriptor struct {
 	Description   string // Human-readable blurb shown in the settings UI. May be empty.
 	AuthType      provider.AuthType
 	AuthSource    string
+	SignInMethod  string // e.g. "github_device"; enables in-app Sign in / Sign out UI
 	ConfigKeyName string
 	EnvVarName    string
 	APIKeyURL     string
@@ -107,6 +108,7 @@ func Register(d Descriptor) {
 		Description:         d.Description,
 		AuthType:            d.AuthType,
 		AuthSource:          d.AuthSource,
+		SignInMethod:        d.SignInMethod,
 		ConfigKeyName:       d.ConfigKeyName,
 		EnvVarName:          d.EnvVarName,
 		APIKeyURL:           d.APIKeyURL,

@@ -18,6 +18,22 @@ GOARCH_HOST := arm64
 else
 GOARCH_HOST := $(UNAME_M)
 endif
+# Executable suffix for native (non-cross-compiled) builds on this host. Native
+# Windows reports Windows_NT via $(OS) regardless of shell (uname -s instead
+# returns MSYS_NT-.../MINGW64_NT-... under Git Bash, inconsistent to match on).
+# This matters beyond cosmetics: `go build -o path` never auto-appends .exe when
+# given an explicit filename, but the desktop app's serverBinPath()
+# (cmd/juggler-app/server_spawn.go) looks for a sibling literally named
+# juggler.exe on Windows — without this suffix here, a native go-build silently
+# produces a server binary the app can never find, so it falls back to whatever
+# juggler.exe happens to be on PATH (e.g. a stale installed build) with no error.
+# The cross-compile targets (build-windows) hardcode .exe already, so this only
+# affects a native `make build` on Windows.
+ifeq ($(OS),Windows_NT)
+BIN_EXT := .exe
+else
+BIN_EXT :=
+endif
 MAC_APP_DIR=$(BUILD_DIR)/Juggler.app
 # The clickable bundle executable is the desktop app (juggler-app); the headless
 # server binary (juggler) sits alongside it in MacOS/ so the app's serverBinPath
@@ -125,10 +141,10 @@ ifeq ($(UNAME_S),Darwin)
 	@ln -sfn Juggler.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
 else
-	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/juggler
-	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/juggler-app ./cmd/juggler-app
+	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)$(BIN_EXT) ./cmd/juggler
+	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/juggler-app$(BIN_EXT) ./cmd/juggler-app
 endif
-	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/juggler-test ./cmd/juggler-test
+	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/juggler-test$(BIN_EXT) ./cmd/juggler-test
 	@echo "✓ built juggler, juggler-app, juggler-test ($(VERSION))"
 
 ## release-build: Build juggler with -tags production. Excludes test handlers
@@ -150,9 +166,9 @@ ifeq ($(UNAME_S),Darwin)
 	@ln -sfn Juggler.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
 else
-	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/juggler
+	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)$(BIN_EXT) ./cmd/juggler
 	@echo "Building juggler-app $(VERSION) [release]..."
-	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/juggler-app ./cmd/juggler-app
+	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/juggler-app$(BIN_EXT) ./cmd/juggler-app
 endif
 
 ## build-windows: Cross-compile the Windows .exe binaries from any host. Wails
@@ -341,12 +357,18 @@ app-icon-embed:
 ## wails-runtime-embed: Sync the Wails v3 runtime.js bundle into the server
 ## package so go:embed can pick it up (it can't follow symlinks or `..`).
 ## Served at /wails/runtime.js for every client — see wails_runtime.go.
+## The source is an untracked wails build artifact and carries CRLF endings on
+## Windows; we strip CRs so the committed LF copy is byte-identical on every OS
+## (otherwise the build rewrites it and it shows as perpetually modified).
 WAILS_RUNTIME_SRC=3rdparty/wails/v3/internal/assetserver/bundledassets/runtime.js
 WAILS_RUNTIME_EMBED=cmd/juggler/server/wails_runtime.js
 wails-runtime-embed:
-	@if [ -f "$(WAILS_RUNTIME_SRC)" ] && ! cmp -s "$(WAILS_RUNTIME_SRC)" "$(WAILS_RUNTIME_EMBED)" 2>/dev/null; then \
-		cp "$(WAILS_RUNTIME_SRC)" "$(WAILS_RUNTIME_EMBED)"; \
-		echo "Synced $(WAILS_RUNTIME_EMBED) ← $(WAILS_RUNTIME_SRC)"; \
+	@if [ -f "$(WAILS_RUNTIME_SRC)" ]; then \
+		tr -d '\r' < "$(WAILS_RUNTIME_SRC)" > "$(WAILS_RUNTIME_EMBED).tmp"; \
+		if ! cmp -s "$(WAILS_RUNTIME_EMBED).tmp" "$(WAILS_RUNTIME_EMBED)" 2>/dev/null; then \
+			mv "$(WAILS_RUNTIME_EMBED).tmp" "$(WAILS_RUNTIME_EMBED)"; \
+			echo "Synced $(WAILS_RUNTIME_EMBED) ← $(WAILS_RUNTIME_SRC)"; \
+		else rm -f "$(WAILS_RUNTIME_EMBED).tmp"; fi; \
 	fi
 
 ## win-icon: Compile $(APP_ICON_PNG) into a Windows .syso resource for BOTH the
@@ -519,12 +541,12 @@ test-full: lint test
 ## benchmark: Run LLM benchmarks (requires API keys, e.g. ARGS="--task bugfix-001")
 benchmark: build
 	@echo "Running LLM benchmarks..."
-	@$(BUILD_DIR)/juggler-test $(ARGS)
+	@$(BUILD_DIR)/juggler-test$(BIN_EXT) $(ARGS)
 
 ## dev: Run in development mode with hot reload
 dev: build
 	@echo "Running in development mode..."
-	@$(BUILD_DIR)/$(BINARY_NAME) --assets-from-disk --verbose
+	@$(BUILD_DIR)/$(BINARY_NAME)$(BIN_EXT) --assets-from-disk --verbose
 
 ## clean: Clean build artifacts
 clean:

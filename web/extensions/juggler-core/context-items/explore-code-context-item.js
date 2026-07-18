@@ -98,7 +98,7 @@ class ExploreCodeContextItem extends ContextItem {
     const code = /** @type {string} */ (params.code);
     const timeoutMs = params.timeout ? Number(params.timeout) : 120000;
 
-    const fs = new ReadOnlyFileSystem(this.getAllowedPaths());
+    const fs = new ReadOnlyFileSystem(this.getToolAllowedRoots());
     const { grep, glob } = this._createSearchHelpers();
 
     const result = await runInSandbox(code, {
@@ -119,7 +119,7 @@ class ExploreCodeContextItem extends ContextItem {
     // they run. Forwarding the signal makes the sandbox's grep/glob calls
     // cancellable along with the rest of the explore_code action.
     const signal = this.signal;
-    const allowedPaths = this.getAllowedPaths();
+    const allowedPaths = this.getToolAllowedRoots();
     return {
       /**
        * Search file contents (ripgrep-style).

@@ -573,11 +573,17 @@ const (
 
 // ProviderInfo contains metadata about a provider
 type ProviderInfo struct {
-	Name          string
-	DisplayName   string
-	Description   string // Human-readable blurb shown in the settings UI. May be empty.
-	AuthType      AuthType
-	AuthSource    string // Optional source name for non-key auth (e.g., a CLI-owned login).
+	Name        string
+	DisplayName string
+	Description string // Human-readable blurb shown in the settings UI. May be empty.
+	AuthType    AuthType
+	AuthSource  string // Optional source name for non-key auth (e.g., a CLI-owned login).
+	// SignInMethod names an interactive, in-app sign-in the provider supports
+	// (currently "github_device" — GitHub OAuth device flow). Empty means the
+	// provider has no in-app sign-in (an OAuth provider then relies on an
+	// external login, like Codex reading the Codex CLI's token file). The
+	// settings UI shows Sign in / Sign out controls only when this is set.
+	SignInMethod  string
 	ConfigKeyName string // e.g., "anthropic_api_key" - key name in config file
 	EnvVarName    string // e.g., "ANTHROPIC_API_KEY" - environment variable to check as fallback
 	APIKeyURL     string // URL where users can create/manage API keys for this provider

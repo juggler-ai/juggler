@@ -2,7 +2,7 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package ollama
+package openaibase
 
 import "testing"
 
@@ -25,8 +25,8 @@ func TestNormaliseHost(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := normaliseHost(tc.in); got != tc.want {
-				t.Errorf("normaliseHost(%q) = %q, want %q", tc.in, got, tc.want)
+			if got := NormaliseHost(tc.in); got != tc.want {
+				t.Errorf("NormaliseHost(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}

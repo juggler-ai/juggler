@@ -14,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,7 +39,7 @@ type fakeRepo struct {
 	symlinks  map[string]bool   // paths served with mode 120000
 	sizes     map[string]int64  // tree-reported size override (advisory, pre-fetch caps)
 	dirShas   map[string]string // per-directory tree sha override (update-detection signal)
-	requests  int               // count of served requests (rate-limit assertions)
+	requests  atomic.Int64      // count of served requests (rate-limit assertions)
 }
 
 func newFakeRepo(repo string) *fakeRepo {
@@ -93,7 +94,7 @@ func (fr *fakeRepo) treeEntries() []treeEntry {
 
 func (fr *fakeRepo) handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		fr.requests++
+		fr.requests.Add(1)
 		p := r.URL.Path
 		switch {
 		case strings.HasPrefix(p, "/raw/"+fr.repo+"/"):
@@ -664,7 +665,7 @@ func TestCatalogUsesDiskCacheWithinTTL(t *testing.T) {
 	fr := superpowers().add("skills/tdd/SKILL.md", skillMD("TDD"))
 	api := newTestRegistryAPI(t, "", fr)
 	getCatalog(t, api, true) // initial fetch populates disk cache
-	after := fr.requests
+	after := fr.requests.Load()
 	if after == 0 {
 		t.Fatalf("expected requests during warm-up")
 	}
@@ -672,7 +673,7 @@ func TestCatalogUsesDiskCacheWithinTTL(t *testing.T) {
 	getCatalog(t, api, false)
 	// The unfixtured seeds (anthropic + mattpocock, no fixture) still 404 each
 	// call, so allow one resolve request apiece; superpowers must add none.
-	if delta := fr.requests - after; delta > 2 {
+	if delta := fr.requests.Load() - after; delta > 2 {
 		t.Errorf("expected ≤2 extra requests (the unfixtured seeds), got %d", delta)
 	}
 }

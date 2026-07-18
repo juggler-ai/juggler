@@ -16,6 +16,13 @@ of changes; this project follows semantic versioning.
 - Recorded context-recovery token usage and duration on summaries and error items
 - Stopped under-counting CJK and dense opaque text in context-window estimates
 
+## [0.4.2] - 2026-07-18
+
+- Added moonshot/KIMI, Copilot and llama.cpp providers, refactored and fixed other providers like ollama, codex
+- Made it possible to disable auto-update
+- Fixes for some MCP and extension loading bugs
+- Fixed a bug where changing the project folder would leave a stale folder in the javascript that the explore_code uses
+
 ## [0.4.1] - 2026-07-17
 
 - Added a Skills marketplace to discover and install Agent Skills from GitHub registries

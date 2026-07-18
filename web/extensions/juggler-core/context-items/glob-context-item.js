@@ -104,7 +104,7 @@ class GlobContextItem extends ContextItem {
    */
   async execute(params) {
     const globParams = /** @type {GlobParams} */ (params);
-    return await glob(globParams, this.signal, this.getAllowedPaths());
+    return await glob(globParams, this.signal, this.getToolAllowedRoots());
   }
 
   /**

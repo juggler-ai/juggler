@@ -144,9 +144,7 @@ class SettingsPanel extends HTMLElement {
                 <main class="settings-content">
                     <section class="settings-tab-content active" id="tab-providers">
                         <p class="settings-description">
-                            To set a new API key, enter it below and click "Save API Keys".
-                            <br/>
-                            These are stored in <code>~/.juggler/credentials.json</code>.
+                            Provider keys are stored in <code>~/.juggler/credentials.json</code>.
                         </p>
 
                         <div class="settings-form" id="provider-form">

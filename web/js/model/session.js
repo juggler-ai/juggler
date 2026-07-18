@@ -549,12 +549,19 @@ class Session {
 
       // When the server changes its loaded project, every connected client
       // must reload to repopulate session state from the new project.
-      this._projectChangedHandler = () => {
-      // Use a hard reload — the worker manager, conversation tabs,
-      // context items, and Yjs documents are all keyed off the old
-      // project's state and would need teardown/rebuild that mirrors
-      // a fresh page load anyway. The engine worker has no page to reload;
-      // the desktop viewers handle the reload, so this is viewer-only.
+      this._projectChangedHandler = (/** @type {unknown} */ data) => {
+        // The engine is persistent across a runtime project switch and, unlike
+        // viewers, never reloads (it has no page to reload). It must still
+        // repoint its project root: otherwise the explore_code sandbox keeps
+        // exposing the PREVIOUS project's root to the model, which then reads /
+        // globs the old tree while the header bar shows the new project.
+        if (isEngine()) {
+          this._applyEngineProjectRoot(/** @type {{projectPath?: string}} */ (data)?.projectPath);
+          return;
+        }
+        // Viewers: hard reload — the worker manager, conversation tabs, context
+        // items, and Yjs documents are all keyed off the old project's state and
+        // need the teardown/rebuild a fresh page load performs anyway.
         if (typeof window !== 'undefined') window.location.reload();
       };
       services.wsService.on('project-changed', this._projectChangedHandler);
@@ -576,6 +583,24 @@ class Session {
       };
       services.wsService.on('providers-update', this._providersUpdateHandler);
     }
+  }
+
+  /**
+   * Repoint the engine's project root after a runtime project switch.
+   *
+   * The engine host captures its project root once at boot (Node: the
+   * JUGGLER_PROJECT_ROOT env var; webview: the sandbox HTML template) and,
+   * being persistent across SwitchProject, never reloads to pick up a new one.
+   * This updates both `session.projectPath` and the live
+   * `globalThis.__jugglerProjectRoot` that the explore_code sandbox delegates
+   * read per run, so a switched project stops leaking the previous root to the
+   * model. No-op-safe for viewers (they hard-reload instead); only the engine
+   * realm calls this.
+   * @param {string} [newPath] - The switched-to project root ("" = no project)
+   */
+  _applyEngineProjectRoot(newPath) {
+    this.projectPath = newPath || '';
+    /** @type {any} */ (globalThis).__jugglerProjectRoot = this.projectPath;
   }
 
   /**
@@ -922,6 +947,14 @@ class Session {
       // suggestion engine offers to add the very rule the user already has.
       if (data.projectPath) {
         this.projectPath = data.projectPath;
+        // Seed the live project root the explore_code sandbox delegates read.
+        // The engine's boot-time root (env / sandbox template) is authoritative
+        // until this point; keeping the global in step here means a later
+        // project switch (_applyEngineProjectRoot) is the only thing that moves
+        // it, and the sandbox never lags the loaded project.
+        if (isEngine()) {
+          /** @type {any} */ (globalThis).__jugglerProjectRoot = data.projectPath;
+        }
       }
       if (data.platform) {
         this.platform = data.platform;

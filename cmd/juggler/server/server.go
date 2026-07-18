@@ -33,7 +33,7 @@ const (
 	// ProviderInitTimeout bounds a single upstream model-list call. Kept short
 	// so that a slow / hung upstream cannot accumulate live TLS connections
 	// across repeated UI-driven /api/providers requests.
-	ProviderInitTimeout = 10 * time.Second
+	ProviderInitTimeout = 30 * time.Second
 
 	// ProvidersReadyTimeout bounds how long a default-model lookup waits for the
 	// first provider refresh to populate the cache before deriving an answer

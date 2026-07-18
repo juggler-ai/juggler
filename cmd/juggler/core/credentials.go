@@ -26,10 +26,11 @@ import (
 type KeySource string
 
 const (
-	KeySourceNone        KeySource = ""            // No key found
-	KeySourceCredentials KeySource = "credentials" // From ~/.juggler/credentials.json
-	KeySourceEnvVar      KeySource = "env"         // From environment variable
-	KeySourceCodexCLI    KeySource = "codex_cli"   // From ~/.codex/auth.json
+	KeySourceNone        KeySource = ""               // No key found
+	KeySourceCredentials KeySource = "credentials"    // From ~/.juggler/credentials.json
+	KeySourceEnvVar      KeySource = "env"            // From environment variable
+	KeySourceCodexCLI    KeySource = "codex_cli"      // From ~/.codex/auth.json
+	KeySourceCopilot     KeySource = "github_copilot" // Exchanged from the editor's Copilot OAuth login
 )
 
 // ProviderCredential is the resolved credential material for one provider.
@@ -507,25 +508,11 @@ func (s *CredentialsStore) GetProviderCredential(providerName string) (ProviderC
 		return ProviderCredential{AuthHint: "Enabled"}, nil
 
 	case provider.AuthTypeOAuthBearer:
-		switch providerInfo.AuthSource {
-		case "codex_cli":
-			token, accountID, err := loadCodexCLIAccessToken()
-			if err != nil {
-				return ProviderCredential{AuthHint: err.Error()}, err
-			}
-			headers := map[string]string(nil)
-			if accountID != "" {
-				headers = map[string]string{"ChatGPT-Account-Id": accountID}
-			}
-			return ProviderCredential{
-				BearerToken: token,
-				Headers:     headers,
-				KeySource:   KeySourceCodexCLI,
-				AuthHint:    "Signed in via Codex app/CLI",
-			}, nil
-		default:
+		resolver, ok := lookupOAuthBearerSource(providerInfo.AuthSource)
+		if !ok {
 			return ProviderCredential{}, fmt.Errorf("unsupported OAuth bearer source for provider %s: %s", providerName, providerInfo.AuthSource)
 		}
+		return resolver()
 
 	case provider.AuthTypeAPIKey:
 		apiKey, err := s.GetAPIKey(providerName)

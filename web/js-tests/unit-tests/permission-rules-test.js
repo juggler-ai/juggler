@@ -223,6 +223,36 @@ export async function runTests() {
     assert(mt.addAllowedPath(session.projectPath) === false, 'no duplicate project root');
   });
 
+  // Regression: the tool-transport allowed-roots list must OMIT the implicit
+  // project root. Read/search/tree backend ops are rooted at the server's LIVE
+  // project path, so re-sending a client project root is redundant — and, after
+  // a runtime project switch, unsafe: the persistent engine keeps its boot-time
+  // session.projectPath, so an implicit root here would be the PREVIOUS project
+  // and would re-authorise reads across the old tree. Explicit grants still flow.
+  await t('explicit allowed paths omit the implicit project root but keep grants', async () => {
+    const c = await createTestConversation(session);
+    const mt = c.rootMessageThread;
+    mt.setAllowedPaths([]);
+    for (const e of mt.getAllowedPathEntries()) {
+      if (e.scope === 'session' && !e.implicit) mt.removeAllowedPath(e.id);
+    }
+    mt.addAllowedPath('~/grant-a');
+    mt.addAllowedPath('~/grant-b', { scope: 'session' });
+
+    const full = mt.getAllowedPaths();
+    const explicit = mt.getExplicitAllowedPaths();
+    // Display list carries the implicit project root; the tool-transport list
+    // does NOT — the server supplies the root authoritatively from live state.
+    assert(full.includes(session.projectPath), 'display list includes project root');
+    assert(!explicit.includes(session.projectPath), 'explicit list omits project root');
+    assert(explicit.includes('~/grant-a'), 'conversation grant survives');
+    assert(explicit.includes('~/grant-b'), 'session grant survives');
+    assert(explicit.length === full.length - 1, 'explicit = full minus the implicit root');
+
+    // Clean up the session-scoped grant (lives in shared backend metadata).
+    mt.removeAllowedPath('~/grant-b');
+  });
+
   await t('session scoped allowed path is merged and movable', async () => {
     const c = await createTestConversation(session);
     const mt = c.rootMessageThread;

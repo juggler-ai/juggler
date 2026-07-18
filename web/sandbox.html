@@ -291,6 +291,13 @@ self.addEventListener('message', (event) => {
             const hostPort = event.ports[0];
             if (!hostPort) return;
             const { code, timeoutMs, capabilities } = event.data;
+            // The engine passes its live project root so `projectRoot` tracks a
+            // runtime project switch; fall back to the serve-time template value
+            // (PROJECT_ROOT) when the host doesn't supply one.
+            const effectiveProjectRoot =
+                typeof event.data.projectRoot === 'string' && event.data.projectRoot
+                    ? event.data.projectRoot
+                    : PROJECT_ROOT;
 
             let worker;
             try {
@@ -353,7 +360,7 @@ self.addEventListener('message', (event) => {
             };
 
             worker.postMessage(
-                { type: 'init', code, timeoutMs, capabilities, projectRoot: PROJECT_ROOT, origin: ORIGIN },
+                { type: 'init', code, timeoutMs, capabilities, projectRoot: effectiveProjectRoot, origin: ORIGIN },
                 [channel.port2]
             );
         });

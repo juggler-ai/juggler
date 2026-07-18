@@ -71,6 +71,10 @@ function getSandboxFrame() {
  *   sandbox also injects the built-ins `path` and `projectRoot`.
  * @property {number} [timeoutMs] - Reject if the code runs longer than this
  *   (default 30000).
+ * @property {string} [projectRoot] - Override for the `projectRoot` built-in.
+ *   When omitted, the iframe falls back to its serve-time template value. The
+ *   engine passes its live root here so the binding tracks a runtime project
+ *   switch instead of the frozen boot value.
  */
 
 /**
@@ -81,7 +85,7 @@ function getSandboxFrame() {
  * @returns {Promise<unknown>} The code's return value (null if it returned
  *   undefined).
  */
-export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000 } = {}) {
+export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000, projectRoot = undefined } = {}) {
   // Engine worker: no `document`, so this realm can't create the isolation
   // iframe. Delegate to the main-thread host (engine-worker-main), which runs
   // the SAME iframe sandbox and forwards each capability call back here to be
@@ -137,7 +141,7 @@ export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000 
   const contentWindow = iframe.contentWindow;
   if (!contentWindow) throw new Error('sandbox iframe has no contentWindow');
   const descriptors = Object.entries(capabilities).map(([name, cap]) => ({ name, callable: typeof cap === 'function' }));
-  contentWindow.postMessage({ type: 'sandbox-execute', code, timeoutMs, capabilities: descriptors }, '*', [channel.port2]);
+  contentWindow.postMessage({ type: 'sandbox-execute', code, timeoutMs, capabilities: descriptors, projectRoot }, '*', [channel.port2]);
 
   return Promise.race([done, timer]);
 }

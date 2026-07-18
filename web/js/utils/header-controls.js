@@ -94,7 +94,17 @@ export function setupHeaderControls(session) {
       pathDisplay.classList.add('is-empty');
     } else {
       pathLabel.textContent = projectPath;
-      if (pathChip) pathChip.title = `Current project: ${projectPath} — click to change`;
+      if (pathChip) {
+        // On the desktop app, opening another project spawns a new window and
+        // leaves this one untouched; in a browser/PWA it switches in place
+        // (each folder carries its own tabs).
+        const inWindowMode = document.documentElement.dataset.windowMode === '1';
+        pathChip.title = inWindowMode
+          ? `Current project folder: ${projectPath}\n`
+            + 'Click to open another project in a new window — this one stays put.'
+          : `Current project folder: ${projectPath}\n`
+            + 'Click to switch to a different project folder';
+      }
       pathDisplay.classList.remove('is-empty');
     }
   };

@@ -43,7 +43,7 @@ function callWorkerCapability(id, name, method, args) {
 
 /**
  * Run a sandbox request from the worker in the iframe sandbox.
- * @param {{id: string, code: string, timeoutMs: number, descriptors: Array<{name: string, callable: boolean}>}} data - Request
+ * @param {{id: string, code: string, timeoutMs: number, descriptors: Array<{name: string, callable: boolean}>, projectRoot?: string}} data - Request
  */
 function runSandboxForWorker(data) {
   /** @type {Record<string, any>} */
@@ -56,7 +56,10 @@ function runSandboxForWorker(data) {
           (/** @type {unknown[]} */ ...args) => callWorkerCapability(data.id, name, method, args)
       });
   }
-  runInSandbox(data.code, { capabilities, timeoutMs: data.timeoutMs })
+  // Forward the engine's live project root (from the worker realm) so the
+  // sandbox binding tracks a runtime project switch instead of the frozen
+  // sandbox.html template value.
+  runInSandbox(data.code, { capabilities, timeoutMs: data.timeoutMs, projectRoot: data.projectRoot })
     .then((result) => worker.postMessage({ type: 'sandbox-result', id: data.id, ok: true, result }))
     .catch((err) => worker.postMessage({
       type: 'sandbox-result', id: data.id, ok: false,

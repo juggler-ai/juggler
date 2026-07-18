@@ -26,9 +26,11 @@ import { focusWhenShown } from '../utils/focus.js';
  *   currentPath?: string,
  *   showCancel?: boolean,
  *   title?: string,
+ *   subtitle?: string,
  *   placeholder?: string,
  *   dirsOnly?: boolean,
  *   confirmLabel?: string,
+ *   confirmOpensNewWindow?: boolean,
  *   validate?: ValidateFn | null,
  *   onNewWindow?: ((path: string) => void) | null,
  *   newWindowLabel?: string
@@ -50,9 +52,14 @@ export function buildPickerPanel({
   currentPath = '',
   showCancel = true,
   title = 'Open project folder',
+  subtitle = '',
   placeholder = 'Path to project folder…',
   dirsOnly = true,
   confirmLabel = 'Open',
+  // When true, the primary confirm button launches the chosen folder in a new
+  // window (via onNewWindow) instead of resolving a path for an in-place load,
+  // and the separate secondary new-window button is suppressed as redundant.
+  confirmOpensNewWindow = false,
   validate = null,
   onNewWindow = null,
   newWindowLabel = 'Open in new window',
@@ -66,6 +73,7 @@ export function buildPickerPanel({
   panel.innerHTML = `
     <div class="pp-header">
       <span class="pp-title">${title}</span>
+      ${subtitle ? `<span class="pp-subtitle">${subtitle}</span>` : ''}
     </div>
     <div class="pp-body">
       <div class="pp-input-row">
@@ -77,7 +85,7 @@ export function buildPickerPanel({
     </div>
     <div class="pp-footer">
       ${showCancel ? '<button class="pp-btn pp-btn-cancel">Cancel</button>' : ''}
-      ${onNewWindow ? `<button class="pp-btn pp-btn-newwindow" disabled>${newWindowLabel}</button>` : ''}
+      ${onNewWindow && !confirmOpensNewWindow ? `<button class="pp-btn pp-btn-newwindow" disabled>${newWindowLabel}</button>` : ''}
       <button class="pp-btn pp-btn-open" disabled>${confirmLabel}</button>
     </div>
   `;
@@ -114,7 +122,7 @@ export function buildPickerPanel({
     recentsEl.removeAttribute('hidden');
     const label = document.createElement('div');
     label.className = 'pp-recents-label';
-    label.textContent = 'Recent';
+    label.textContent = 'Recent folders';
     recentsEl.appendChild(label);
     for (const path of filtered) {
       const btn = document.createElement('button');
@@ -272,12 +280,15 @@ export function buildPickerPanel({
     resolve(null);
   }
 
-  openBtn.addEventListener('click', doOpen);
+  // The primary button either loads in place or opens a new window, depending
+  // on the caller's mode; the secondary button (when present) always opens new.
+  const confirmAction = confirmOpensNewWindow ? doNewWindow : doOpen;
+  openBtn.addEventListener('click', confirmAction);
   if (newWindowBtn) newWindowBtn.addEventListener('click', doNewWindow);
   pathInputEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !openBtn.disabled) {
-      // Only trigger open when the completion dropdown is not visible.
-      if (!document.querySelector('.completions-menu')) doOpen();
+      // Only trigger the confirm action when the completion dropdown is hidden.
+      if (!document.querySelector('.completions-menu')) confirmAction();
     }
   });
 
@@ -354,15 +365,35 @@ export async function openProjectPicker(currentPath, session) {
       return [];
     });
 
-  // In native window mode, offer "Open in new window" — spawns the chosen
-  // project in its own process, leaving this window's project untouched.
   const inWindowMode = document.documentElement.dataset.windowMode === '1';
+  const switching = !!currentPath;
+  // On the native desktop app, switching to a *different* project no longer
+  // tears this window down: the chosen folder opens in its own new window, so
+  // the current project and its tabs stay exactly where they are and nothing
+  // the user is looking at vanishes. In-place load survives only where a new
+  // window isn't an option — (a) filling an empty no-project window, and
+  // (b) browser / PWA / phone clients, which can't spawn a window and so must
+  // reuse this one (the picker copy explains the tab-set change there).
+  const newWindowOnly = inWindowMode && switching;
   const { element, promise, cancel } = buildPickerPanel({
     recents,
     currentPath,
+    title: newWindowOnly ? 'Open project folder'
+      : switching ? 'Switch project folder'
+        : 'Open project folder',
+    confirmLabel: newWindowOnly ? 'Open'
+      : switching ? 'Switch' : 'Open',
+    subtitle: newWindowOnly
+      ? ''
+      : switching
+        ? 'The tabs in a juggler session are stored inside the project folder. Switching '
+          + 'to a different folder will reload the tabs from that folder (or create a '
+          + 'new empty session in it).'
+        : '',
     // Dismissal is the surface's job (outside-click / Esc / scrim / drag),
     // so the panel needs no in-body Cancel button.
     showCancel: false,
+    confirmOpensNewWindow: newWindowOnly,
     validate: (path) => apiService.checkProject(path),
     onNewWindow: inWindowMode ? openInNewWindow : null,
   });

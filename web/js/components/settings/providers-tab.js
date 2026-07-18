@@ -9,6 +9,16 @@
 //   warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the LICENSE file or
 //   <https://www.gnu.org/licenses/agpl-3.0.html> for full terms.
 
+import { openExternalURL } from '../../../sdk/lib/window-control.js';
+import wsService from '../../services/websocket.js';
+import providersCache from '../../services/providers-cache.js';
+
+// Standard refresh glyph for the OAuth "re-check sign-in" button. Fill is left to
+// CSS (currentColor) so it tracks the button's theme colour.
+const OAUTH_REFRESH_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true">' +
+  '<path d="M482-160q-134 0-228-93t-94-227v-7l-64 64-56-56 160-160 160 160-56 56-64-64v7q0 100 70.5 170T482-240q26 0 51-6t49-18l60 60q-38 22-78 33t-82 11Zm278-161L600-481l56-56 64 64v-7q0-100-70.5-170T478-720q-26 0-51 6t-49 18l-60-60q38-22 78-33t82-11q134 0 228 93t94 227v7l64-64 56 56-160 160Z"/></svg>';
+
 /**
  * "Provider API Keys" tab: one field per registered provider — OAuth (bearer),
  * keyless (toggle), or API-key (input + save/delete) — plus the OpenAI-compatible
@@ -108,15 +118,254 @@ export class ProvidersTab {
 
     const status = document.createElement('div');
     status.className = 'key-source-hint';
+    status.id = `${provider.name}-oauth-status`;
     status.style.display = 'block';
     status.textContent = provider.available
       ? (provider.authHint || 'Signed in')
       : (provider.authHint || 'Sign in to continue');
     controlColumn.appendChild(status);
 
+    const buttonGroup = document.createElement('div');
+    buttonGroup.className = 'provider-buttons';
+
+    // Providers with an in-app sign-in (currently GitHub Copilot's device flow)
+    // get Sign in / Sign out controls; others rely on the refresh button alone.
+    if (provider.signInMethod === 'github_device') {
+      if (provider.available) {
+        const signOutBtn = document.createElement('button');
+        signOutBtn.type = 'button';
+        signOutBtn.className = 'settings-btn danger small';
+        signOutBtn.textContent = 'Sign out';
+        signOutBtn.title = 'Sign out of the GitHub login stored by Juggler';
+        signOutBtn.addEventListener('click', () => this._copilotSignOut(provider, signOutBtn));
+        buttonGroup.appendChild(signOutBtn);
+      } else {
+        const signInBtn = document.createElement('button');
+        signInBtn.type = 'button';
+        signInBtn.className = 'settings-btn primary small';
+        signInBtn.textContent = 'Sign in with GitHub';
+        signInBtn.addEventListener('click', () => this._copilotSignIn(provider, signInBtn));
+        buttonGroup.appendChild(signInBtn);
+      }
+    }
+
+    // Every OAuth provider gets a refresh button: the login it depends on lives in
+    // an external app/CLI (or another editor), so re-checking picks up a fresh or
+    // expired sign-in without relaunching Juggler.
+    buttonGroup.appendChild(this._buildOAuthRefreshButton(provider));
+    controlColumn.appendChild(buttonGroup);
+
     fieldGroup.appendChild(infoColumn);
     fieldGroup.appendChild(controlColumn);
     container.appendChild(fieldGroup);
+  }
+
+  /**
+   * Build the refresh (re-check sign-in) button shared by every OAuth provider.
+   * @param {any} provider - Provider info object
+   * @returns {HTMLButtonElement} The refresh button to append to the button group.
+   * @private
+   */
+  _buildOAuthRefreshButton(provider) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'settings-btn icon';
+    btn.title = 'Re-check sign-in';
+    btn.setAttribute('aria-label', `Re-check ${provider.displayName} sign-in`);
+    btn.innerHTML = OAUTH_REFRESH_ICON;
+    btn.addEventListener('click', () => this._refreshOAuthProvider(provider, btn));
+    return btn;
+  }
+
+  /**
+   * Re-check an OAuth provider's external login without relaunching. Asks the
+   * server to recompute providers (which re-reads the CLI token file / re-probes
+   * the editor login) and waits for the settled `providers-update`, then
+   * re-renders this tab so the status line and Sign in/out controls reflect the
+   * fresh availability. Also refreshes the model selector so newly-available
+   * models appear.
+   * @param {any} provider
+   * @param {HTMLButtonElement} button
+   * @private
+   */
+  async _refreshOAuthProvider(provider, button) {
+    const status = /** @type {HTMLElement|null} */ (this.host.querySelector(`#${provider.name}-oauth-status`));
+    const originalStatus = status ? status.textContent : '';
+    button.disabled = true;
+    button.classList.add('spinning');
+    if (status) status.textContent = 'Checking sign-in\u2026';
+    try {
+      const fresh = await this._recheckOAuthProvider(provider.name);
+      if (fresh) {
+        const idx = this.providers.findIndex((p) => p.name === provider.name);
+        if (idx !== -1) this.providers[idx] = fresh;
+      }
+      // Re-render rebuilds this button (dropping the spinning state) and the
+      // status line, so no manual cleanup is needed on the success path.
+      this.renderProviderFields();
+      this.updateAllButtons();
+      const modelSelector = /** @type {any} */ (document.querySelector('model-selector'));
+      if (modelSelector && modelSelector.refresh) {
+        await modelSelector.refresh();
+      }
+    } catch (err) {
+      button.disabled = false;
+      button.classList.remove('spinning');
+      if (status) status.textContent = originalStatus;
+      if (window.showAlert) {
+        await window.showAlert(err instanceof Error ? err.message : 'Refresh failed', provider.displayName);
+      }
+    }
+  }
+
+  /**
+   * Trigger a server provider refresh and resolve with the named provider's fresh
+   * entry from the settled `providers-update`. Resolves with the current cached
+   * list if no push arrives within the timeout, so the caller never hangs.
+   * @param {string} providerName
+   * @returns {Promise<any|undefined>} The provider's fresh entry, or undefined if absent.
+   * @private
+   */
+  async _recheckOAuthProvider(providerName) {
+    const next = new Promise((resolve) => {
+      /** @type {ReturnType<typeof setTimeout>|null} */
+      let timer = null;
+      /** @param {unknown} data */
+      const handler = (data) => {
+        if (timer) clearTimeout(timer);
+        wsService.off('providers-update', handler);
+        resolve(Array.isArray(data) ? data : this.providers);
+      };
+      wsService.on('providers-update', handler);
+      timer = setTimeout(() => {
+        wsService.off('providers-update', handler);
+        resolve(this.providers);
+      }, 4000);
+    });
+    await providersCache.refresh();
+    const list = /** @type {any[]} */ (await next);
+    return list.find((p) => p.name === providerName);
+  }
+
+  /**
+   * Run the GitHub OAuth device flow: start it, open the verification page with
+   * the user code (copied to the clipboard), then poll until GitHub authorizes.
+   * On success re-syncs the settings panel and the model selector.
+   * @param {any} provider
+   * @param {HTMLButtonElement} button
+   * @private
+   */
+  async _copilotSignIn(provider, button) {
+    const status = /** @type {HTMLElement|null} */ (this.host.querySelector(`#${provider.name}-oauth-status`));
+    const setStatus = (/** @type {string} */ t) => { if (status) status.textContent = t; };
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Starting\u2026';
+    try {
+      const res = await fetch('/api/providers/copilot/device/start', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to start sign-in');
+
+      const { userCode, verificationUri, deviceCode, interval } = data;
+      try { await navigator.clipboard.writeText(userCode); } catch { /* clipboard is best-effort */ }
+      if (verificationUri) openExternalURL(verificationUri);
+      button.textContent = 'Waiting\u2026';
+      setStatus(`Enter code ${userCode} at ${verificationUri} (opened in your browser, copied to clipboard). Waiting for authorization\u2026`);
+
+      await this._pollCopilotLogin(deviceCode, Number(interval) || 5);
+      setStatus('Signed in with GitHub');
+      await this._refreshAfterAuthChange(provider, true);
+    } catch (err) {
+      setStatus(provider.authHint || 'Sign in to continue');
+      button.disabled = false;
+      button.textContent = originalText;
+      if (window.showAlert) {
+        await window.showAlert(err instanceof Error ? err.message : 'Sign-in failed', 'GitHub Copilot');
+      }
+    }
+  }
+
+  /**
+   * Poll the device-login endpoint until it resolves. Resolves on authorization;
+   * throws on expiry, denial, error, or timeout.
+   * @param {string} deviceCode
+   * @param {number} interval - seconds between polls (GitHub-provided)
+   * @private
+   */
+  async _pollCopilotLogin(deviceCode, interval) {
+    let delayMs = Math.max(2, interval) * 1000;
+    const deadline = Date.now() + 15 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, delayMs));
+      const res = await fetch('/api/providers/copilot/device/poll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceCode }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Sign-in check failed');
+      switch (data.status) {
+        case 'authorized': return;
+        case 'pending': break;
+        case 'slow_down': delayMs += 5000; break;
+        case 'expired': throw new Error('The code expired before you authorized. Please try again.');
+        case 'denied': throw new Error('Access was denied on GitHub.');
+        default: throw new Error('Unexpected sign-in status from GitHub.');
+      }
+    }
+    throw new Error('Timed out waiting for authorization.');
+  }
+
+  /**
+   * Sign out of the GitHub login Juggler stored (leaves any editor login alone).
+   * @param {any} provider
+   * @param {HTMLButtonElement} button
+   * @private
+   */
+  async _copilotSignOut(provider, button) {
+    const confirmFn = /** @type {any} */ (window).showConfirm;
+    if (typeof confirmFn === 'function') {
+      const ok = await confirmFn(
+        'Sign out of the GitHub login stored by Juggler? Copilot becomes unavailable until you sign in again (any editor Copilot login on this machine will still be used).',
+        'Sign out',
+        {}
+      );
+      if (!ok) return;
+    }
+    button.disabled = true;
+    try {
+      const res = await fetch('/api/providers/copilot/signout', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Sign out failed');
+      await this._refreshAfterAuthChange(provider, false);
+    } catch (err) {
+      button.disabled = false;
+      if (window.showAlert) {
+        await window.showAlert(err instanceof Error ? err.message : 'Sign out failed', 'GitHub Copilot');
+      }
+    }
+  }
+
+  /**
+   * Re-sync after a sign in/out. Optimistically flips this provider's cached
+   * availability and re-renders the fields so the Sign in/out control updates
+   * immediately (the backend's queued RefreshProviders broadcasts the settled
+   * state shortly after via `providers-update`). Re-rendering is non-destructive:
+   * API-key inputs always render empty and are reconciled by updateAllButtons.
+   * Also refreshes the model selector so the new provider's models appear.
+   * @param {any} provider
+   * @param {boolean} available
+   * @private
+   */
+  async _refreshAfterAuthChange(provider, available) {
+    provider.available = available;
+    provider.authHint = available ? 'Signed in with GitHub' : '';
+    this.renderProviderFields();
+    this.updateAllButtons();
+    const modelSelector = /** @type {any} */ (document.querySelector('model-selector'));
+    if (modelSelector && modelSelector.refresh) {
+      await modelSelector.refresh();
+    }
   }
 
   /**
@@ -175,7 +424,27 @@ export class ProvidersTab {
     // restarting the app. Saved as the `ollama_host` raw
     // credential; backend re-fetches the model list on change.
     if (provider.name === 'ollama') {
-      controlColumn.appendChild(this._buildOllamaHostRow());
+      controlColumn.appendChild(this._buildHostRow({
+        inputId: 'ollama-host-input',
+        placeholder: 'http://localhost:11434',
+        configField: 'ollamaHost',
+        configKey: 'ollama_host',
+        defaultLabel: 'http://localhost:11434',
+      }));
+    }
+
+    // llama.cpp: expose the llama-server host so users can point at a
+    // non-default (LAN / remote / custom port) instance without restarting the
+    // app. Saved as the `llamacpp_host` raw credential; backend re-fetches the
+    // model list (and its context window, queried live from /props) on change.
+    if (provider.name === 'llamacpp') {
+      controlColumn.appendChild(this._buildHostRow({
+        inputId: 'llamacpp-host-input',
+        placeholder: 'http://127.0.0.1:8080',
+        configField: 'llamacppHost',
+        configKey: 'llamacpp_host',
+        defaultLabel: 'http://127.0.0.1:8080',
+      }));
     }
 
     // Claude Code: let users point at the `claude` CLI explicitly for obscure
@@ -441,14 +710,18 @@ export class ProvidersTab {
   }
 
   /**
-   * Build the host-URL input row for the Ollama provider. Loads the
-   * current value from `this.config.ollamaHost`; saves via /api/config on
-   * blur or Enter. Empty value clears the override (falls back to env var
-   * or default localhost:11434 on the server).
+   * Build a host-URL input row for a keyless local-server provider (Ollama,
+   * llama.cpp). Loads the current value from `this.config[configField]`; saves
+   * via /api/config on blur or Enter. Empty value clears the override (falls
+   * back to the env var or the server-side default).
+   * @param {{inputId: string, placeholder: string, configField: string, configKey: string, defaultLabel: string}} opts
+   *   inputId/placeholder for the input; configField is the /api/config field
+   *   this value round-trips through; configKey is the raw credential key the
+   *   PUT body posts; defaultLabel is shown when the override is cleared.
    * @returns {HTMLElement} The row element to append to the control column.
    * @private
    */
-  _buildOllamaHostRow() {
+  _buildHostRow({ inputId, placeholder, configField, configKey, defaultLabel }) {
     // Wrapper is a no-op fragment-like div so the caller can append a
     // single child; visual layout comes from the parent `.provider-control`
     // column (`flex-direction: column; gap: 0.375rem`).
@@ -461,15 +734,15 @@ export class ProvidersTab {
 
     const input = document.createElement('input');
     input.type = 'text';
-    input.id = 'ollama-host-input';
+    input.id = inputId;
     // Non-secret persisted value: keep visible across close/reopen (see close()).
     input.className = 'settings-value-input';
-    input.placeholder = 'http://localhost:11434';
+    input.placeholder = placeholder;
     input.autocomplete = 'off';
     input.setAttribute('autocorrect', 'off');
     input.setAttribute('autocapitalize', 'off');
     input.spellcheck = false;
-    input.value = /** @type {any} */ (this.config).ollamaHost || '';
+    input.value = /** @type {any} */ (this.config)[configField] || '';
     inputWrapper.appendChild(input);
     row.appendChild(inputWrapper);
 
@@ -479,21 +752,21 @@ export class ProvidersTab {
 
     const save = async () => {
       const value = input.value.trim();
-      if (value === (/** @type {any} */ (this.config).ollamaHost || '')) return;
+      if (value === (/** @type {any} */ (this.config)[configField] || '')) return;
       status.textContent = 'Saving…';
       try {
         const response = await fetch('/api/config', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ollama_host: value }),
+          body: JSON.stringify({ [configKey]: value }),
         });
         if (!response.ok) throw new Error(`Server returned ${response.status}`);
-        /** @type {any} */ (this.config).ollamaHost = value;
+        /** @type {any} */ (this.config)[configField] = value;
         status.textContent = value
           ? `Saved. Pointing at ${value}.`
-          : 'Saved. Using default (http://localhost:11434).';
+          : `Saved. Using default (${defaultLabel}).`;
       } catch (err) {
-        console.error('[SettingsPanel] Failed to save Ollama host:', err);
+        console.error(`[SettingsPanel] Failed to save host for ${configField}:`, err);
         status.textContent = 'Failed to save.';
       }
     };

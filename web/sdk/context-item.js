@@ -326,6 +326,21 @@ class ContextItem {
     return this.messageThread?.getAllowedPaths?.() || [];
   }
 
+  /**
+   * The allowed roots to send to read/search/tree backend ops as
+   * `params.allowedPaths`. Unlike {@link getAllowedPaths} (which prepends the
+   * implicit project root, e.g. for display), this omits the project root: the
+   * backend PathScope is already rooted at the server's LIVE project path, so
+   * the root is supplied authoritatively server-side and must NOT be re-sent by
+   * the engine — which, being persistent across a project switch, may still
+   * hold the previous project's path and would otherwise re-authorise reads
+   * across the old tree. See message-thread-permissions.getExplicitAllowedPaths.
+   * @returns {string[]} Explicit allowed roots (no implicit project root).
+   */
+  getToolAllowedRoots() {
+    return this.messageThread?.getExplicitAllowedPaths?.() || [];
+  }
+
   // ============================================================================
   // TITLES AND SUMMARIES
   // ============================================================================

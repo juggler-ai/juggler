@@ -512,12 +512,12 @@ class ExecuteContextItem extends ContextItem {
     // Handle background execution
     if (runInBackground) {
       const result = await shellBackground(
-        {
+        this._withConv({
           command,
           timeout: params.timeout ? Number(params.timeout) : undefined,
           conv_id: this.conversation.id,
           tool_use_id: this.toolUseId
-        }
+        })
       );
 
       // Return result indicating background execution
@@ -581,7 +581,7 @@ class ExecuteContextItem extends ContextItem {
     // Try streaming execution first, fall back to blocking if WebSocket unavailable
     try {
       const result = await shellStreaming(
-        /** @type {import('../../../js/services/ops-api.js').ShellExecuteParams} */ (params),
+        this._withConv(params),
         (chunk) => {
           // Check for cancellation during streaming
           if (this.signal?.aborted) {
@@ -649,7 +649,7 @@ class ExecuteContextItem extends ContextItem {
 
       // If streaming fails due to WebSocket issues, fall back to blocking execution
       if (streamError instanceof Error && streamError.message.includes('WebSocket')) {
-        const result = await shell(params);
+        const result = await shell(this._withConv(params));
 
         if (this.signal?.aborted) {
           const error = new Error('Command execution cancelled');

@@ -106,6 +106,36 @@ Key invariants:
   maintain it in a reactive observer, not in click handlers.
 - **Window geometry is per-project session state**, stored server-side in the
   session and exposed at `GET/PUT /api/session/window-state`.
+- **One process → one project, but each conversation gets its own worktree of
+  every repo it touches.** The engine is a single, engine-wide tool executor
+  shared by every conversation (side-tab), so two tabs each running an agent
+  would otherwise edit one shared checkout and clobber each other. To isolate
+  them, each **(conversation, repository)** pair gets its own dedicated linked
+  **git worktree** on a `juggler/conv-<id>` branch — because one conversation may
+  span several repos (a folder of services, a repo with nested submodules), each
+  is isolated independently (`cmd/juggler/core/conv_worktree.go` — a
+  channel-based `ConvWorktrees` actor; git plumbing in `worktree.go`). The
+  mechanism is a **path remap**, not a whole-session re-root: a tool call carries
+  a `conversationId` (JS side: every file/search/tree/shell op tags its params
+  via `ContextItem._withConv`, hoisted to the transport by
+  `callOp`/`sendShellStart`), and the Go `PathScope` (`ops/validation.go`)
+  **validates each path in real-project space** (the security boundary is
+  unchanged) then **redirects the resolved path into the conversation's worktree
+  of whichever repo the path belongs to** (`Server.repoRemapper`). Ops
+  (`ops_api.go`), the streaming shell (`websocket_loop.go`), and the git-status
+  card (`git_status_api.go` + `?conversationId=`, scanning each discovered repo
+  in the conversation's checkout) all flow through the remap. Search/tree ops
+  search the worktree but report **project-relative** paths so the agent's reads
+  remap back consistently. Worktrees live under
+  `ConfigDir()/worktrees/<repo>-<hash>/conv-<id>`; a conversation re-adopts its
+  worktrees across restarts, a permanent delete prunes each only if pristine, and
+  a worktree-local `.juggler/.gitignore` keeps metadata out of the diff. A path
+  in no repo under the project (a loose file), an empty convID, a non-git
+  project, or the feature disabled ⇒ the real path unchanged, so nothing changes
+  for those. Toggle with `project.worktree` in config or
+  `--worktree`/`--no-worktree` (test mode forces it off for a stable root).
+  Project-shared state (the memory file) and viewer-only file previews
+  deliberately stay on the base project root.
 
 ## Paths
 

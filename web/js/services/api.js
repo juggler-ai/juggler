@@ -450,10 +450,14 @@ class APIService {
    * Summarise the working tree of every git repo under the project (root repo
    * plus nested subrepos/submodules). Best-effort: repos whose status can't be
    * read are omitted, and an empty repo list means no git repository was found.
+   * @param {string} [conversationId] - Visible conversation, so the summary
+   *   reflects that conversation's dedicated git worktree rather than the base
+   *   project root (per-conversation worktree isolation). Omitted ⇒ base project.
    * @returns {Promise<{root: string, repos: GitRepoStatus[]}>} Project root and per-repo status.
    */
-  async getGitStatus() {
-    return await this.request('/git/status');
+  async getGitStatus(conversationId) {
+    const qs = conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : '';
+    return await this.request(`/git/status${qs}`);
   }
 
   /**

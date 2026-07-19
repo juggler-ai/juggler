@@ -227,7 +227,7 @@ class SearchContextItem extends ContextItem {
     if (params.noIgnore !== undefined) searchParams.noIgnore = params.noIgnore;
 
     // @ts-ignore - params validated above
-    return await grep(searchParams, this.signal, this.getToolAllowedRoots());
+    return await grep(this._withConv(searchParams), this.signal, this.getToolAllowedRoots());
   }
 
   /**

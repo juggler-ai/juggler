@@ -150,7 +150,7 @@ class ReplaceTextContextItem extends EditBase {
     let result;
     try {
       result = await editFile(
-        /** @type {import('../../../js/services/ops-api.js').ReadFileEditParams} */ ({ ...params, dryRun: true })
+        this._withConv({ ...params, dryRun: true })
       );
     } catch (err) {
       // If string not found, check if size was the likely cause and give helpful error
@@ -229,7 +229,7 @@ class ReplaceTextContextItem extends EditBase {
 
     // Call typed ops API
     const result = await editFile(
-      /** @type {import('../../../js/services/ops-api.js').ReadFileEditParams} */ (sendParams),
+      this._withConv(sendParams),
       this.signal,
       allowedPaths
     );

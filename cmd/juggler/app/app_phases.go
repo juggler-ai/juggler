@@ -29,6 +29,10 @@ import (
 // launch with no --project), the app starts in no-project mode using a
 // default in-memory config; the user picks a project later via the UI.
 // Runs before logging is initialised, so failures go to stderr directly.
+//
+// Per-conversation git worktree isolation is NOT applied here: the project root
+// stays the base repository, and each conversation is re-rooted into its own
+// worktree at tool-execution time by the server (see core.ConvWorktrees).
 func (a *App) loadConfig() error {
 	projectPath, err := a.resolveStartupProject()
 	if err != nil {
@@ -50,6 +54,23 @@ func (a *App) loadConfig() error {
 		return err
 	}
 	a.cfg = cfg
+	return nil
+}
+
+// worktreeOverride translates the launch flags into the server's
+// per-conversation worktree override: test mode forces isolation OFF (the
+// harness needs a deterministic project root); an explicit
+// --worktree/--no-worktree forces the chosen value; otherwise nil lets each
+// project's config decide (default on).
+func (a *App) worktreeOverride() *bool {
+	if a.flags.testMode {
+		off := false
+		return &off
+	}
+	if a.flags.worktreeSet {
+		v := a.flags.worktree
+		return &v
+	}
 	return nil
 }
 
@@ -247,14 +268,15 @@ func (a *App) initServer() error {
 	}
 
 	srv, err := server.New(server.Config{
-		SessionManager: a.session,
-		Host:           a.cfg.Server.Host,
-		Port:           port,
-		DevMode:        a.devModeEnabled(),
-		AssetsFromDisk: assetsFromDisk,
-		ProjectPath:    a.projectPath,
-		BootLock:       a.lock,
-		ExtraRoutes:    a.config.ExtraRoutes,
+		SessionManager:   a.session,
+		Host:             a.cfg.Server.Host,
+		Port:             port,
+		DevMode:          a.devModeEnabled(),
+		AssetsFromDisk:   assetsFromDisk,
+		ProjectPath:      a.projectPath,
+		BootLock:         a.lock,
+		WorktreeOverride: a.worktreeOverride(),
+		ExtraRoutes:      a.config.ExtraRoutes,
 	})
 	if err != nil {
 		jlog.Error("Failed to create server: %v", err)

@@ -23,12 +23,18 @@ import (
 // provider func so a runtime project switch transparently retargets the scan.
 type GitStatusAPI struct {
 	pathProvider func() string
+	// worktreeForRepo resolves a conversation's dedicated worktree for one
+	// repository toplevel, so the status card reports each repo as the visible
+	// conversation's agent is actually editing it (per-repo isolation). Nil ⇒
+	// always scan the real repos.
+	worktreeForRepo func(convID, repoTop string) string
 }
 
 // NewGitStatusAPI creates a new GitStatusAPI. pathProvider must return the
 // current project path on each call ("" when no project is loaded).
-func NewGitStatusAPI(pathProvider func() string) *GitStatusAPI {
-	return &GitStatusAPI{pathProvider: pathProvider}
+// worktreeForRepo resolves a conversation's per-repo worktree (may be nil).
+func NewGitStatusAPI(pathProvider func() string, worktreeForRepo func(convID, repoTop string) string) *GitStatusAPI {
+	return &GitStatusAPI{pathProvider: pathProvider, worktreeForRepo: worktreeForRepo}
 }
 
 // Repo-discovery bounds. The walk is deliberately shallow — a git repo lives at
@@ -61,6 +67,11 @@ type gitStatusResponse struct {
 // simply omitted rather than failing the whole response.
 func (a *GitStatusAPI) HandleGitStatus(w http.ResponseWriter, r *http.Request) {
 	root := a.pathProvider()
+	// Repos are discovered under the REAL project so the layout the user sees is
+	// preserved; each repo's status is then read from the visible conversation's
+	// worktree of THAT repo (per-repo isolation), so a conversation touching
+	// several repos shows each one's own edits.
+	convID := r.URL.Query().Get("conversationId")
 	resp := gitStatusResponse{Root: root, Repos: []gitRepoStatus{}}
 	if root == "" {
 		WriteJSON(w, r, 0, resp)
@@ -71,7 +82,13 @@ func (a *GitStatusAPI) HandleGitStatus(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	for _, dir := range discoverRepos(ctx, root) {
-		changed, staged, ok := repoStatus(ctx, dir)
+		scanDir := dir
+		if convID != "" && a.worktreeForRepo != nil {
+			if wt := a.worktreeForRepo(convID, dir); wt != "" {
+				scanDir = wt
+			}
+		}
+		changed, staged, ok := repoStatus(ctx, scanDir)
 		if !ok {
 			continue
 		}

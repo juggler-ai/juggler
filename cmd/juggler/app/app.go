@@ -21,6 +21,8 @@ type appFlags struct {
 	window         bool
 	project        string              // explicit --project value (raw, may be relative)
 	projectSet     bool                // true if --project was passed
+	worktree       bool                // resolved --worktree/--no-worktree value (meaningful only when worktreeSet); toggles per-conversation worktree isolation
+	worktreeSet    bool                // true if --worktree or --no-worktree was passed (overrides project config)
 	hasTerminal    bool                // true if launched with a controlling TTY
 	port           int                 // --port overrides config port (0 = OS-assigned)
 	portSet        bool                // true if --port was passed (allows --port 0 = OS-assigned)

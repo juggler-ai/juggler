@@ -785,6 +785,16 @@ class JugglerApp {
   }
 
   /**
+   * The id of the conversation currently shown, or '' if none. Used by passive,
+   * module-scoped UI (e.g. the git-status card) to scope its query to the
+   * visible conversation's dedicated git worktree.
+   * @returns {string} Visible conversation id, or ''.
+   */
+  getVisibleConversationId() {
+    return this._connectionManager?.getSession?.()?.visibleConversationId || '';
+  }
+
+  /**
    * Cancel the current LLM operation.
    *
    * Vantage-aware. Stopping from a sub-thread's OWN vantage (Escape while

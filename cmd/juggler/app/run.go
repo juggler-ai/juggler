@@ -193,6 +193,8 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 	killExisting := flag.Bool("kill-existing", false, "If another instance holds the lock, kill it instead of prompting")
 	window := flag.Bool("window", false, "Open a native window instead of printing the server URL")
 	project := flag.String("project", "", "Project folder to open (defaults to cwd in terminal, none in window/app mode)")
+	worktreeOn := flag.Bool("worktree", false, "Force per-conversation git worktree isolation on for this launch, overriding config")
+	worktreeOff := flag.Bool("no-worktree", false, "Disable per-conversation git worktree isolation for this launch, running every conversation in the checkout")
 	port := flag.Int("port", 0, "Override config port (0 = use config value)")
 	testMode := flag.Bool("test", false, "Enable test API routes and print JUGGLER_ADDR to stdout")
 	testIframes := flag.Int("test-iframes", 0, "Test-mode only: open the viewer window at /test-pool?n=N (tiled iframes acting as parallel test lanes) instead of the production UI")
@@ -220,9 +222,13 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 	portSet := false
 	publicSet := false
 	logFileSet := false
+	worktreeSet := false
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == "project" {
 			projectSet = true
+		}
+		if f.Name == "worktree" || f.Name == "no-worktree" {
+			worktreeSet = true
 		}
 		if f.Name == "port" {
 			portSet = true
@@ -257,6 +263,8 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 		window:         *window,
 		project:        *project,
 		projectSet:     projectSet,
+		worktree:       *worktreeOn && !*worktreeOff, // --no-worktree wins if both are passed
+		worktreeSet:    worktreeSet,
 		hasTerminal:    hasTerminal,
 		port:           *port,
 		portSet:        portSet,

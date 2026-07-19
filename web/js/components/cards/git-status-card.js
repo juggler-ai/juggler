@@ -172,7 +172,10 @@ export const gitStatusCard = {
       if (inFlight || disposed || !focused()) return;
       inFlight = true;
       try {
-        const data = await api.getGitStatus();
+        // Scope the status to the visible conversation's git worktree so the
+        // card reflects the checkout its agent is editing, not the base repo.
+        const convId = /** @type {any} */ (globalThis).jugglerApp?.getVisibleConversationId?.() || '';
+        const data = await api.getGitStatus(convId);
         if (disposed) return;
         lastSnapshot = {
           root: (data && data.root) || '',

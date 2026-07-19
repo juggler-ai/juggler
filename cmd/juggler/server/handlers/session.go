@@ -38,6 +38,10 @@ type SessionAPI struct {
 	// run an LLM-call pipeline.
 	closeConversation   func(conversationID string)
 	resolveDefaultModel func(ctx context.Context) (core.ModelRef, bool)
+	// releaseConvWorktree lets a deleted conversation's dedicated git worktree
+	// be pruned (only when permanent and pristine — see core.ConvWorktrees).
+	// Set by the server; nil is a no-op.
+	releaseConvWorktree func(conversationID string, permanent bool)
 
 	// Test-mode conversation-ownership hooks (all nil in production). In the
 	// multi-lane test pool every lane shares one session, so creates tagged
@@ -48,6 +52,13 @@ type SessionAPI struct {
 	recordConvOwner  func(convID, lane, reason string)
 	checkConvDelete  func(convID, lane string) error
 	releaseConvOwner func(convID string)
+}
+
+// SetConvWorktreeHook wires the per-conversation worktree release hook, called
+// when a conversation is deleted so its dedicated worktree can be pruned if
+// pristine. Nil (the default) disables worktree cleanup.
+func (api *SessionAPI) SetConvWorktreeHook(release func(conversationID string, permanent bool)) {
+	api.releaseConvWorktree = release
 }
 
 // SetConvOwnershipHooks wires the test-mode ownership ledger. Production
@@ -610,6 +621,12 @@ func (api *SessionAPI) HandleDeleteConversation(w http.ResponseWriter, r *http.R
 	if err := api.manager().DeleteConversation(convID, permanent); err != nil {
 		writeError(w, r, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	// Prune the conversation's dedicated git worktree (permanent + pristine only;
+	// a bin keeps it so a restore can reuse it, and any unmerged work is kept).
+	if api.releaseConvWorktree != nil {
+		api.releaseConvWorktree(convID, permanent)
 	}
 
 	// The conversation is gone; release its ownership so the suite-end leak

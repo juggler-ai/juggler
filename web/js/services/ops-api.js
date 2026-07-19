@@ -342,14 +342,22 @@ export const MAX_EXEC_TIMEOUT_MS = 1200000;
  * @throws {Error} If operation fails or parameters are invalid
  */
 async function callOp(toolId, operation, params, signal, allowedPaths) {
-  /** @type {{toolId: string, operation: string, params: object, allowedPaths?: string[]}} */
+  // A conversationId injected into params (see ContextItem._withConv) is a
+  // transport field, not an op parameter: lift it to the top level so the
+  // backend can route the op into that conversation's dedicated git worktree,
+  // and strip it from the params the op handler sees.
+  const { conversationId, ...opParams } = /** @type {Record<string, any>} */ (params || {});
+  /** @type {{toolId: string, operation: string, params: object, allowedPaths?: string[], conversationId?: string}} */
   const requestBody = {
     toolId,
     operation,
-    params
+    params: opParams
   };
   if (allowedPaths !== undefined) {
     requestBody.allowedPaths = allowedPaths;
+  }
+  if (conversationId) {
+    requestBody.conversationId = conversationId;
   }
 
   const headers = /** @type {Record<string, string>} */ ({ 'Content-Type': 'application/json' });
@@ -858,12 +866,15 @@ export async function shellExecuteStreaming(params, onOutput, signal) {
       });
     }, timeoutMs);
 
-    // Send shell-start request
+    // Send shell-start request. A conversationId injected into params (see
+    // ContextItem._withConv) routes the shell into that conversation's git
+    // worktree; undefined ⇒ the base project root.
     const sent = wsService.sendShellStart(
       shellId,
       command,
       params.cwd,
-      params.timeout
+      params.timeout,
+      /** @type {any} */ (params).conversationId
     );
 
     if (!sent) {

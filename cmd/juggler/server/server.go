@@ -84,14 +84,18 @@ func unmarshalWS[T any](data []byte, label string) (T, bool) {
 
 // Server represents the HTTP server
 type Server struct {
-	router            *mux.Router
-	upgrader          websocket.Upgrader
-	addr              string
-	listener          net.Listener // Bound listener (set after BindPort())
-	devMode           bool         // Inspector / right-click menu + front-end JUGGLER_DEV_MODE (no source checkout needed)
-	assetsFromDisk    bool         // Serve web assets from the on-disk web/ tree with live reload (requires a source checkout)
-	testMode          bool         // Set when test routes are registered; disables network calls in provider listing
-	bootProjectPath   string
+	router          *mux.Router
+	upgrader        websocket.Upgrader
+	addr            string
+	listener        net.Listener // Bound listener (set after BindPort())
+	devMode         bool         // Inspector / right-click menu + front-end JUGGLER_DEV_MODE (no source checkout needed)
+	assetsFromDisk  bool         // Serve web assets from the on-disk web/ tree with live reload (requires a source checkout)
+	testMode        bool         // Set when test routes are registered; disables network calls in provider listing
+	bootProjectPath string
+	// worktreeOverride is the launch-time --worktree/--no-worktree decision:
+	// non-nil forces per-conversation worktree isolation on/off regardless of
+	// project config; nil ⇒ each project's config decides (default on).
+	worktreeOverride  *bool
 	opsAPI            *handlers.OpsAPI
 	completionsAPI    *handlers.CompletionsAPI
 	gitStatusAPI      *handlers.GitStatusAPI
@@ -192,6 +196,10 @@ type Config struct {
 	AssetsFromDisk bool               // If true, serve static files from the on-disk web/ tree with live reload; requires a source checkout
 	ProjectPath    string             // Project root path (for resolving static files when AssetsFromDisk is set)
 	BootLock       *core.InstanceLock // Optional boot-time instance lock; ownership transfers to server.
+	// WorktreeOverride forces per-conversation git worktree isolation on/off
+	// from the launch flags (--worktree/--no-worktree), overriding project
+	// config. Nil ⇒ each project's config decides (default on).
+	WorktreeOverride *bool
 	// ExtraRoutes, if set, is called at the end of setupRoutes with the
 	// server's router, so a wrapping distribution can register additional
 	// HTTP routes without editing this package. Routes registered here pass
@@ -238,6 +246,8 @@ func New(cfg Config) (*Server, error) {
 			cc.CloseConversation(convID)
 		}
 	}, s.resolveDefaultModel)
+	// Prune a deleted conversation's dedicated worktree (permanent + pristine).
+	sessionAPI.SetConvWorktreeHook(s.releaseConvWorktree)
 
 	configAPI, err := handlers.NewConfigAPI(s.ProjectPath, s.RefreshProviders, func() {
 		s.broadcastToAll(map[string]any{"type": "plugin-changed", "path": "config/plugins"})
@@ -275,15 +285,16 @@ func New(cfg Config) (*Server, error) {
 	s.devMode = cfg.DevMode
 	s.assetsFromDisk = cfg.AssetsFromDisk
 	s.bootProjectPath = cfg.ProjectPath
+	s.worktreeOverride = cfg.WorktreeOverride
 	s.extraRoutes = cfg.ExtraRoutes
-	s.opsAPI = handlers.NewOpsAPI(s.ProjectPath)
+	s.opsAPI = handlers.NewOpsAPI(s.ProjectPath, s.repoRemapper)
 	s.completionsAPI = handlers.NewCompletionsAPI(s.ProjectPath, func() ops.PathSearcher {
 		if fw := s.FileWatcher(); fw != nil {
 			return fw.Index()
 		}
 		return nil
 	})
-	s.gitStatusAPI = handlers.NewGitStatusAPI(s.ProjectPath)
+	s.gitStatusAPI = handlers.NewGitStatusAPI(s.ProjectPath, s.worktreeForRepo)
 	s.extensionsAPI = extensionsAPI
 	s.userCommandsAPI = handlers.NewUserCommandsAPI(s.ProjectPath)
 	s.skillsAPI = handlers.NewSkillsAPI(s.ProjectPath)

@@ -13,7 +13,15 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/internal/jlog"
+	"juggler/internal/userpaths"
 )
+
+// worktreesHome is the directory under which per-repository worktree groups
+// live — beside Juggler's other per-user data, never scattered next to the
+// user's repositories.
+func worktreesHome() string {
+	return filepath.Join(userpaths.ConfigDir(), "worktrees")
+}
 
 // projectState holds the per-project resources that get swapped wholesale
 // when the user opens a different project at runtime. Reads are lock-free
@@ -30,6 +38,75 @@ type projectState struct {
 	// map, and shell cancel map. Project-scoped so a SwitchProject cleanly
 	// cancels in-flight work tied to the old project.
 	viewers *viewerGroup
+
+	// convWorktrees maps each conversation to its dedicated git worktree so
+	// parallel conversations (side-tabs) never share a working tree. Nil in
+	// no-project mode; when worktree isolation is disabled or the project is
+	// not a git repo, every lookup resolves to projectPath (see
+	// core.ConvWorktrees). Project-scoped, so a SwitchProject builds a fresh
+	// one for the new repo and Closes the old.
+	convWorktrees *core.ConvWorktrees
+}
+
+// repoRemapper returns a path remapper for a conversation: a function that
+// redirects an already-validated real path into that conversation's dedicated
+// git worktree of whichever repository the path belongs to (see
+// core.ConvWorktrees.Remap). Returns nil (⇒ no redirect) in no-project mode,
+// when isolation is disabled, or for an empty convID — so ops keep operating on
+// the real project path. This is how every conversation-aware surface (ops, the
+// streaming shell) routes into the right per-(conversation, repo) worktree.
+func (s *Server) repoRemapper(convID string) func(string) string {
+	st := s.projectState.Load()
+	if st == nil || st.convWorktrees == nil || convID == "" {
+		return nil
+	}
+	cw := st.convWorktrees
+	return func(absPath string) string { return cw.Remap(convID, absPath) }
+}
+
+// worktreeForRepo resolves a conversation's worktree for one repository toplevel
+// (used by the git-status card to scan each discovered repo in the
+// conversation's checkout). "" when isolation doesn't apply.
+func (s *Server) worktreeForRepo(convID, repoTop string) string {
+	st := s.projectState.Load()
+	if st == nil || st.convWorktrees == nil {
+		return ""
+	}
+	return st.convWorktrees.WorktreeForRepo(convID, repoTop)
+}
+
+// releaseConvWorktree prunes a deleted conversation's worktrees (permanent +
+// pristine only). Safe no-op in no-project mode or when isolation is disabled.
+func (s *Server) releaseConvWorktree(convID string, permanent bool) {
+	st := s.projectState.Load()
+	if st != nil && st.convWorktrees != nil {
+		st.convWorktrees.Release(convID, permanent)
+	}
+}
+
+// newConvWorktrees builds the per-conversation worktree registry for a project
+// path. It returns nil in no-project mode. Whether isolation is actually active
+// is decided inside core.ConvWorktrees from the enabled flag (worktreeEnabledFor)
+// and whether the path is a git repo.
+func (s *Server) newConvWorktrees(path string) *core.ConvWorktrees {
+	if path == "" {
+		return nil
+	}
+	return core.NewConvWorktrees(path, worktreesHome(), s.worktreeEnabledFor(path))
+}
+
+// worktreeEnabledFor decides whether per-conversation worktree isolation is on
+// for path: an explicit --worktree/--no-worktree launch flag wins; otherwise the
+// project's own config decides, defaulting to on.
+func (s *Server) worktreeEnabledFor(path string) bool {
+	if s.worktreeOverride != nil {
+		return *s.worktreeOverride
+	}
+	cfg, err := core.LoadConfig(path)
+	if err != nil {
+		return true // config unreadable — fall back to the default (on)
+	}
+	return cfg.Project.WorktreeEnabled()
 }
 
 // SessionManager returns the current per-project SessionManager (always non-nil).
@@ -146,6 +223,7 @@ func (s *Server) SwitchProject(newPath string) error {
 		lock:           newLock,
 		fileChangesCh:  make(chan struct{}),
 		viewers:        newViewerGroup(),
+		convWorktrees:  s.newConvWorktrees(newPath),
 	}
 
 	// Atomic swap.
@@ -175,6 +253,9 @@ func (s *Server) SwitchProject(newPath string) error {
 			}
 			if prev.sessionManager != nil {
 				prev.sessionManager.Shutdown()
+			}
+			if prev.convWorktrees != nil {
+				prev.convWorktrees.Close()
 			}
 			if prev.lock != nil {
 				_ = prev.lock.Release()

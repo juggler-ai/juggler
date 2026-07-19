@@ -73,6 +73,7 @@ func (s *Server) seedProjectState(cfg Config) {
 		sessionManager: cfg.SessionManager,
 		lock:           cfg.BootLock,
 		viewers:        newViewerGroup(),
+		convWorktrees:  s.newConvWorktrees(initialProjectPath),
 	})
 }
 

@@ -114,10 +114,13 @@ func (ops *TreeOperations) getTree(params map[string]any) (any, error) {
 		return nil, fmt.Errorf("path does not exist: %w", err)
 	}
 
-	// Load .gitignore patterns (unless showAll is true)
+	// Load .gitignore patterns (unless showAll is true) from the tree base we
+	// actually walk — absPath is already redirected into the conversation's
+	// worktree, so relative-path/gitignore matching must key off it, not the real
+	// project root.
 	var gitignorePatterns []string
 	if !showAll {
-		gitignorePatterns = loadGitignorePatterns(ops.scope.Root())
+		gitignorePatterns = loadGitignorePatterns(absPath)
 	}
 
 	// Build tree with token budget awareness
@@ -130,7 +133,7 @@ func (ops *TreeOperations) getTree(params map[string]any) (any, error) {
 		maxDepth:       depth,
 		showAll:        showAll,
 		gitignore:      gitignorePatterns,
-		workingDir:     ops.scope.Root(),
+		workingDir:     absPath,
 	}
 
 	stats := &treeStats{}

@@ -56,6 +56,18 @@ type ContextConfig struct {
 type ProjectConfig struct {
 	Exclude     []string `json:"exclude"`       // Patterns to exclude
 	MaxFileSize int64    `json:"max_file_size"` // Maximum file size to process
+	// Worktree controls per-instance git worktree isolation. When nil (the
+	// default) or true, opening a git repository runs Juggler inside a
+	// dedicated linked worktree on its own branch, so parallel instances don't
+	// collide in the same working tree. Set false to operate directly in the
+	// checkout. Ignored for non-git folders and repositories with no commits.
+	Worktree *bool `json:"worktree,omitempty"`
+}
+
+// WorktreeEnabled reports whether per-instance git worktree isolation is on.
+// It defaults to true, so a config that omits the field opts in.
+func (p ProjectConfig) WorktreeEnabled() bool {
+	return p.Worktree == nil || *p.Worktree
 }
 
 // LoggingConfig tunes log retention and the on/off switch. The log file path is

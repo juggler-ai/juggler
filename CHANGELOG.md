@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Each conversation now runs in its own git worktree of every repo it touches, so parallel agents don't collide (disable with `--no-worktree`)
+
 ## [0.4.2] - 2026-07-18
 
 - Added moonshot/KIMI, Copilot and llama.cpp providers, refactored and fixed other providers like ollama, codex

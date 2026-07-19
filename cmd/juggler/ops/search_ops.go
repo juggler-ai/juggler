@@ -97,24 +97,33 @@ func (ops *SearchOperations) grep(ctx context.Context, params map[string]any) (a
 		return nil, fmt.Errorf("invalid regex pattern: %w", err)
 	}
 
-	// Get search path (default to working directory)
-	// Supports glob patterns like "src/**/*.go"
-	searchPath := ""
+	// Resolve the search base. We search the conversation's worktree (execBase)
+	// but report matches relative to the REAL project root, so the agent's reads
+	// of those paths remap back to the same worktree files. realBaseRel is the
+	// real search base relative to the project root (e.g. "" for the whole
+	// project, "repoB" for a nested repo), which is prefixed onto each match's
+	// path-relative-to-execBase to reconstruct the project-relative report path.
+	// Supports glob patterns like "src/**/*.go".
+	execBase := ""
+	realBaseRel := ""
+	globPattern := ""
 	pathIsGlob := false
 	if path, ok := params["path"].(string); ok && path != "" {
 		if containsGlobChars(path) {
-			searchPath = path
+			execBase = ops.scope.BaseDir()
+			globPattern = path
 			pathIsGlob = true
 		} else {
-			// Validate path is within working directory (or an allowed root)
-			pathResult, err := ops.scope.Resolve(path)
+			// Validate path in real-project space, then search its worktree.
+			realResult, err := ops.scope.ResolveReal(path)
 			if err != nil {
 				return nil, fmt.Errorf("invalid path: %w", err)
 			}
-			searchPath = pathResult.AbsPath
+			realBaseRel = relToRoot(ops.scope.Root(), realResult.AbsPath)
+			execBase = ops.scope.Remap(realResult.AbsPath)
 		}
 	} else {
-		searchPath = ops.scope.Root()
+		execBase = ops.scope.BaseDir()
 	}
 
 	// Get max results limit (support both old and new param names)
@@ -142,10 +151,10 @@ func (ops *SearchOperations) grep(ctx context.Context, params map[string]any) (a
 		noIgnore = ni
 	}
 
-	// Load .gitignore patterns (unless noIgnore is true)
+	// Load .gitignore patterns from the worktree we actually search.
 	var gitignorePatterns []string
 	if !noIgnore {
-		gitignorePatterns = loadGitignorePatterns(ops.scope.Root())
+		gitignorePatterns = loadGitignorePatterns(execBase)
 	}
 
 	// Perform search
@@ -154,9 +163,9 @@ func (ops *SearchOperations) grep(ctx context.Context, params map[string]any) (a
 
 	if pathIsGlob {
 		// Use glob to find matching files, then search in each
-		matches, truncated = ops.searchGlobFiles(ctx, searchPath, re, maxResults, gitignorePatterns, noIgnore)
+		matches, truncated = ops.searchGlobFiles(ctx, execBase, realBaseRel, globPattern, re, maxResults, gitignorePatterns, noIgnore)
 	} else {
-		matches, truncated = ops.searchFiles(ctx, searchPath, re, maxResults, filePattern, gitignorePatterns, noIgnore)
+		matches, truncated = ops.searchFiles(ctx, execBase, realBaseRel, re, maxResults, filePattern, gitignorePatterns, noIgnore)
 	}
 	fileCount := countUniqueFiles(matches)
 
@@ -179,13 +188,41 @@ func containsGlobChars(path string) bool {
 	return strings.ContainsAny(path, "*?[")
 }
 
-// searchGlobFiles searches files matching a glob pattern
-func (ops *SearchOperations) searchGlobFiles(ctx context.Context, globPattern string, pattern *regexp.Regexp, maxResults int, gitignorePatterns []string, noIgnore bool) ([]map[string]any, bool) {
+// relToRoot returns abs relative to root as a forward-slashed path, or "" when
+// abs IS root (or the relation can't be computed). Used to record where a search
+// base sits under the real project root so match paths can be reported
+// project-relative.
+func relToRoot(root, abs string) string {
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == "." {
+		return ""
+	}
+	return filepath.ToSlash(rel)
+}
+
+// joinReportPath composes a project-relative report path from a base's
+// project-relative prefix and a file's path within that base (both
+// forward-slashed).
+func joinReportPath(prefix, rel string) string {
+	switch {
+	case prefix == "":
+		return rel
+	case rel == "" || rel == ".":
+		return prefix
+	default:
+		return prefix + "/" + rel
+	}
+}
+
+// searchGlobFiles searches files matching a glob pattern. execBase is the
+// (worktree-redirected) directory to glob within; realBaseRel is that base's
+// path relative to the real project root, prefixed onto reported match paths.
+func (ops *SearchOperations) searchGlobFiles(ctx context.Context, execBase, realBaseRel, globPattern string, pattern *regexp.Regexp, maxResults int, gitignorePatterns []string, noIgnore bool) ([]map[string]any, bool) {
 	matches := make([]map[string]any, 0, maxResults)
 	truncated := false
 
 	// Use doublestar to expand glob pattern
-	files, err := doublestar.Glob(os.DirFS(ops.scope.Root()), globPattern)
+	files, err := doublestar.Glob(os.DirFS(execBase), globPattern)
 	if err != nil {
 		return matches, false
 	}
@@ -195,7 +232,7 @@ func (ops *SearchOperations) searchGlobFiles(ctx context.Context, globPattern st
 		if ctx.Err() != nil {
 			return matches, truncated
 		}
-		absPath := filepath.Join(ops.scope.Root(), relFile)
+		absPath := filepath.Join(execBase, relFile)
 
 		// Skip directories
 		info, err := os.Stat(absPath)
@@ -216,7 +253,7 @@ func (ops *SearchOperations) searchGlobFiles(ctx context.Context, globPattern st
 		}
 
 		// Search within file
-		fileMatches := ops.searchInFile(absPath, ops.scope.Root(), pattern, maxResults-len(matches))
+		fileMatches := ops.searchInFile(absPath, execBase, realBaseRel, pattern, maxResults-len(matches))
 		matches = append(matches, fileMatches...)
 
 		if len(matches) >= maxResults {
@@ -228,13 +265,15 @@ func (ops *SearchOperations) searchGlobFiles(ctx context.Context, globPattern st
 	return matches, truncated
 }
 
-// searchFiles performs native Go file search with early termination
-func (ops *SearchOperations) searchFiles(ctx context.Context, searchPath string, pattern *regexp.Regexp, maxResults int, filePattern string, gitignorePatterns []string, noIgnore bool) ([]map[string]any, bool) {
+// searchFiles performs native Go file search with early termination. execBase is
+// the (worktree-redirected) directory to walk; realBaseRel is that base's path
+// relative to the real project root, prefixed onto reported match paths.
+func (ops *SearchOperations) searchFiles(ctx context.Context, execBase, realBaseRel string, pattern *regexp.Regexp, maxResults int, filePattern string, gitignorePatterns []string, noIgnore bool) ([]map[string]any, bool) {
 	matches := make([]map[string]any, 0, maxResults)
 	truncated := false
 
 	// Walk directory tree
-	err := filepath.WalkDir(searchPath, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(execBase, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // Skip errors, continue walking
 		}
@@ -246,8 +285,8 @@ func (ops *SearchOperations) searchFiles(ctx context.Context, searchPath string,
 			return ctx.Err()
 		}
 
-		// Get relative path for gitignore matching
-		relPath, _ := filepath.Rel(ops.scope.Root(), path)
+		// Get relative path (to the search base) for gitignore matching
+		relPath, _ := filepath.Rel(execBase, path)
 
 		// Skip directories
 		if d.IsDir() {
@@ -308,7 +347,7 @@ func (ops *SearchOperations) searchFiles(ctx context.Context, searchPath string,
 		}
 
 		// Search within file
-		fileMatches := ops.searchInFile(path, searchPath, pattern, maxResults-len(matches))
+		fileMatches := ops.searchInFile(path, execBase, realBaseRel, pattern, maxResults-len(matches))
 		matches = append(matches, fileMatches...)
 
 		// Early termination when we hit max results
@@ -326,8 +365,12 @@ func (ops *SearchOperations) searchFiles(ctx context.Context, searchPath string,
 	return matches, truncated
 }
 
-// searchInFile searches for pattern within a single file
-func (ops *SearchOperations) searchInFile(filePath, basePath string, pattern *regexp.Regexp, maxMatches int) []map[string]any {
+// searchInFile searches for pattern within a single file. execBase is the
+// directory the file was found under (a worktree when isolation is on);
+// realBaseRel is execBase's location relative to the real project root, so the
+// reported path is project-relative and the agent's subsequent reads of it
+// redirect back to this same worktree file.
+func (ops *SearchOperations) searchInFile(filePath, execBase, realBaseRel string, pattern *regexp.Regexp, maxMatches int) []map[string]any {
 	matches := make([]map[string]any, 0)
 
 	file, err := os.Open(filePath)
@@ -336,14 +379,14 @@ func (ops *SearchOperations) searchInFile(filePath, basePath string, pattern *re
 	}
 	defer file.Close()
 
-	// Get relative path for display (always relative to workingDir, not search path).
-	// EvalSymlinks both sides so macOS's /var ↔ /private/var symlink doesn't
-	// produce a multi-".." rel path (filepath.Rel takes symlinks literally
-	// and a workingDir stored as /var/folders/... vs a filePath surfaced as
-	// /private/var/folders/... would otherwise diverge at the root).
-	// filepath.Rel yields OS separators (\ on Windows); tool results are always
-	// POSIX-style, so normalise back to forward slashes.
-	relPath := filepath.ToSlash(filepathRelEvalSymlinks(ops.scope.Root(), filePath))
+	// Report the match path relative to the REAL project root: the file's path
+	// relative to the (worktree) search base, prefixed with that base's real
+	// project-relative location. EvalSymlinks both sides so macOS's /var ↔
+	// /private/var symlink doesn't produce a multi-".." rel path. filepath.Rel
+	// yields OS separators (\ on Windows); tool results are always POSIX-style,
+	// so normalise back to forward slashes.
+	relInBase := filepath.ToSlash(filepathRelEvalSymlinks(execBase, filePath))
+	relPath := joinReportPath(realBaseRel, relInBase)
 
 	scanner := bufio.NewScanner(file)
 	lineNum := 1
@@ -404,8 +447,9 @@ func (ops *SearchOperations) findSymbol(ctx context.Context, params map[string]a
 	var allResults []map[string]any
 	maxResults := 100
 
-	// Load .gitignore patterns for symbol search
-	gitignorePatterns := loadGitignorePatterns(ops.scope.Root())
+	// Load .gitignore patterns for symbol search from the searched worktree.
+	symbolBase := ops.scope.BaseDir()
+	gitignorePatterns := loadGitignorePatterns(symbolBase)
 
 	for _, patternStr := range patterns {
 		pattern, err := regexp.Compile(patternStr)
@@ -413,7 +457,7 @@ func (ops *SearchOperations) findSymbol(ctx context.Context, params map[string]a
 			continue
 		}
 
-		matches, _ := ops.searchFiles(ctx, ops.scope.Root(), pattern, maxResults-len(allResults), "", gitignorePatterns, false)
+		matches, _ := ops.searchFiles(ctx, symbolBase, "", pattern, maxResults-len(allResults), "", gitignorePatterns, false)
 		allResults = append(allResults, matches...)
 
 		if len(allResults) >= maxResults {

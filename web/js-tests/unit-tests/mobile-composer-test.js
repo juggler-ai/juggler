@@ -14,6 +14,11 @@
  *      existing handlers: the New Thread row dispatches the /thread command and
  *      the Attach image row triggers the hidden file input. Opening the sheet
  *      and picking a row closes it.
+ *   4. The strategy selector — hidden from the inline control row on touch — is
+ *      relocated into that sheet as a working control: bound to the
+ *      conversation's thread it offers every strategy (incl. YOLO), and picking
+ *      one pins it via MessageThread.setStrategy. This is how a phone user
+ *      switches from the Default strategy to YOLO without a desktop.
  *
  * The touch decision normally reads `matchMedia('(hover: none) and
  * (pointer: coarse)')`, which the headless harness cannot drive. So the test
@@ -23,7 +28,9 @@
  */
 
 import { initializeRegistries, assert } from '../utilities/test-helpers.js';
+import strategyRegistry from '../../js/registries/strategy-registry.js';
 import '../../js/components/input-box.js';
+import '../../js/components/strategy-selector.js';
 
 /**
  * Mount an <input-box>, force touch mode, and bind its listeners synchronously.
@@ -203,6 +210,60 @@ export async function runTests() {
     } catch (e) {
       failed++;
       errors.push('actions-sheet-attach: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      /** @type {any} */ (box)._closeActionsSheet?.();
+      container.remove();
+    }
+  }
+
+  // ── Test 5: switch strategy (Default → YOLO) from the "+" sheet ────────────
+  // The relocation only earns its keep if the moved selector still WORKS. Prove
+  // the end a phone user cares about: the sheet's strategy-selector is bound to
+  // the conversation's thread, lists YOLO, and picking it pins YOLO via
+  // MessageThread.setStrategy — the Default→YOLO switch, driven entirely from
+  // the touch composer. (The dropdown's open state is reproduced deterministically
+  // rather than via toggleDropdown's rAF, which the hidden test window can't pump —
+  // the same approach strategy-menu-refresh-test uses.)
+  {
+    const { box, container } = mountTouchComposer();
+    try {
+      if (!strategyRegistry.isInitialized()) await strategyRegistry.init();
+      assert(strategyRegistry.getAllManifests().some((m) => m.id === 'yolo'),
+        'YOLO must be a registered strategy offerable from the mobile sheet');
+
+      await /** @type {any} */ (box)._openActionsSheet();
+      const sheet = /** @type {HTMLElement|null} */ (document.querySelector('.actions-sheet'));
+      assert(!!sheet, 'the "+" button must open an .actions-sheet');
+
+      const selector = /** @type {any} */ (sheet.querySelector('strategy-selector'));
+      assert(!!selector && typeof selector.setMessageThread === 'function',
+        'an upgraded strategy-selector must be relocated into the open sheet');
+
+      // Bind a thread starting on the Default strategy; capture the switch the
+      // selector makes (MessageThread.setStrategy is the real pin path).
+      /** @type {string|null} */
+      let pinned = null;
+      selector.setMessageThread({
+        currentStrategyId: 'default',
+        setStrategy: (/** @type {string} */ id) => { pinned = id; },
+      });
+      assert(selector._currentStrategyId === 'default',
+        'selector must start on the Default strategy before the switch');
+
+      // Open the dropdown's end-state and pick YOLO.
+      selector._dropdownOpen = true;
+      selector.render();
+      const yoloItem = /** @type {HTMLElement|null} */ (
+        selector.querySelector('.strategy-item[data-strategy-id="yolo"]'));
+      assert(!!yoloItem, 'the relocated selector must offer a YOLO item');
+
+      /** @type {HTMLElement} */ (yoloItem).click();
+      assert(pinned === 'yolo',
+        `picking YOLO in the sheet must pin it via setStrategy, got ${JSON.stringify(pinned)}`);
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push('actions-sheet-strategy-switch: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       /** @type {any} */ (box)._closeActionsSheet?.();
       container.remove();

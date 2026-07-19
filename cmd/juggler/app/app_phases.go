@@ -358,7 +358,21 @@ func (a *App) printInteractiveBanner() {
 	}
 	lines = append(lines, "", "Ctrl+C  - Quit")
 	a.server.PrintSessionInfo(lines...)
+	a.printDirectP2PQRCode()
 	if a.server.IsPublicMode() {
 		a.server.PrintLANStatus(true)
 	}
+}
+
+// printDirectP2PQRCode prints the direct peer-to-peer connection link — the
+// local session URL, a direct browser-to-agent connection with no cloud relay
+// in between — together with a compact ASCII QR code for it. This lets the
+// session be opened by scanning from a phone or another device without first
+// opening the connectivity settings tab, and mirrors the QR-code conventions
+// used by PrintLANStatus and the tunnel status box. A registered WAN tunnel,
+// when started, prints its own shareable URL and QR separately (see
+// printTunnelStatus), so this stays focused on the always-present direct link.
+func (a *App) printDirectP2PQRCode() {
+	url := a.serverURL()
+	core.PrintLabeledQRCode("Direct P2P — "+url, url)
 }

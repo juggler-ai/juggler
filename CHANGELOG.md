@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Render user messages as Markdown (links, formatting, code) instead of plain text
+
 ## [0.4.2] - 2026-07-18
 
 - Added moonshot/KIMI, Copilot and llama.cpp providers, refactored and fixed other providers like ollama, codex

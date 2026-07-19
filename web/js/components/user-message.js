@@ -6,11 +6,17 @@ import BaseMessage from './base-message.js';
 import apiService from '../services/api.js';
 import { openImageLightbox } from '../utils/image-lightbox.js';
 import { applyCollapsible } from '../utils/collapsible.js';
+import { renderMarkdownWrapped, decorateCodeBlocks } from '../../sdk/lib/markdown.js';
 
 /**
  * User message component - simple text bubble without icon layout. When the
  * user item carries image attachments, a thumbnail grid is rendered below the
  * text (or alone, for an image-only message).
+ *
+ * The text is rendered as Markdown (same renderer/sanitizer as assistant
+ * messages, `escapeXml: true`) so links, emphasis, lists and code the user
+ * typed or pasted render nicely instead of as raw source — while any literal
+ * `<...>` the user typed is shown as inert text rather than parsed as HTML.
  */
 class UserMessage extends BaseMessage {
   // Re-render on attachments changes too (immutable in practice, but keeps the
@@ -38,7 +44,8 @@ class UserMessage extends BaseMessage {
     if (this.content) {
       text = document.createElement('div');
       text.className = 'user-message-text';
-      text.textContent = this.content;
+      text.innerHTML = renderMarkdownWrapped(this.content, { escapeXml: true });
+      decorateCodeBlocks(text);
       article.appendChild(text);
     }
 

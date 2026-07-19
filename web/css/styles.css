@@ -1962,7 +1962,6 @@ user-message article.user {
     font-size: 0.875rem;
     overflow-wrap: break-word;
     position: relative;
-    white-space: pre-wrap;
     margin-left: auto;
     max-width: 85%;
 }
@@ -1978,15 +1977,29 @@ user-message.conversation-item.selected article.user {
         var(--bubble-user-bg, #2d333b);
 }
 
+/* The text is rendered Markdown (see user-message.js), so line breaks and
+   paragraph spacing come from the rendered `<br>`/`<p>` elements rather than
+   preserved whitespace — no `white-space: pre-wrap` here. */
+user-message .user-message-text {
+    overflow-wrap: break-word;
+}
+
+/* Tighten the shared .markdown rhythm to fit the bubble: no top/bottom margin
+   on the first/last block so short messages don't grow the bubble beyond a
+   single-line-of-padding feel, matching the old plain-text bubble. */
+user-message .user-message-text > .markdown > :first-child {
+    margin-top: 0;
+}
+
+user-message .user-message-text > .markdown > :last-child {
+    margin-bottom: 0;
+}
+
 /* Attached images inside a user message. The text (when present) sits in its
    own block; the grid wraps a row of thumbnails below it. Each thumbnail scales
    down to a sensible max while preserving its intrinsic aspect ratio (the
    width/height attributes set on the <img>), and click-expands via the
    lightbox. */
-user-message .user-message-text {
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-}
 
 /* Collapse/expand for oversized conversation items (an extremely long user
    message, a long thread summary). Applied by utils/collapsible.js only past a

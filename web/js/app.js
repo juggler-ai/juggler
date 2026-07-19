@@ -22,6 +22,7 @@ import { registerConversationShortcuts } from './services/shortcut-bindings.js';
 import { markSeen } from './services/tips-manager.js';
 import { updateWindowTitle } from './utils/window-title.js';
 import { initAttention } from './utils/attention-manager.js';
+import { initAutoNamer } from './services/auto-namer.js';
 import scheduledSendService from './services/scheduled-send-service.js';
 import { initViewportFit } from './utils/viewport-fit.js';
 import { openExternalURL, externalURLFromHref } from '../sdk/lib/window-control.js';
@@ -255,6 +256,10 @@ class JugglerApp {
     // Alert (chime + tab flash + dock/tab notification) when a conversation needs
     // attention while unwatched.
     initAttention(session);
+
+    // Auto-name fresh conversations from their opening exchange (AI-generated
+    // tab titles), replacing the "Task N" placeholder once the first turn rests.
+    initAutoNamer(session);
 
     // Poll every conversation for a due scheduled send ("send after a delay")
     // and fire it — regardless of which thread is currently on screen.

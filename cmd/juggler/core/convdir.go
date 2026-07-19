@@ -56,12 +56,25 @@ func GenerateConvID() string {
 // convDirSeparator separates the sanitized name from the id in folder names.
 const convDirSeparator = "--"
 
-// SanitizedNameMaxRunes caps the sanitized name length to leave headroom
-// under the 255-byte filename limits on most filesystems even when
-// characters expand to 4-byte UTF-8 sequences. The full folder name is
-// "<name><sep><conv_<9-char id>>" so the cap also keeps Windows MAX_PATH
-// happy for reasonable project paths.
-const SanitizedNameMaxRunes = 50
+// SanitizedNameMaxRunes caps the sanitized name length in RUNES — the
+// user-facing "how many characters fit in a tab name" limit. It is the
+// filesystem-side counterpart of the UI's MAX_CONVERSATION_NAME_LENGTH
+// (web/js/utils/constants.js), and is kept a couple of runes ABOVE it so a
+// name the UI accepts is never silently truncated when the folder is written.
+//
+// Runes alone don't bound filesystem safety, though: a rune can expand to a
+// 4-byte UTF-8 sequence (emoji), so a 74-rune name could reach ~296 bytes and
+// blow the 255-byte filename limit ext4/APFS enforce. sanitizedNameMaxBytes is
+// the second, independent clamp that guarantees the full folder name
+// "<name><sep><conv_id>" stays comfortably under 255 bytes even for an
+// all-emoji name. Both caps apply; whichever binds first wins.
+const SanitizedNameMaxRunes = 74
+
+// sanitizedNameMaxBytes caps the sanitized name's UTF-8 byte length. With the
+// "--<conv_id>" suffix (~16 bytes) this keeps the whole folder name well under
+// the 255-byte filename limit on every supported filesystem, and keeps Windows
+// MAX_PATH happy for reasonable project paths. See SanitizedNameMaxRunes.
+const sanitizedNameMaxBytes = 200
 
 var (
 	// forbiddenCharRe matches characters that are unsafe in filenames on at
@@ -116,10 +129,17 @@ func SanitizeName(raw string) string {
 		s += "_"
 	}
 
-	// Truncate to rune cap. Trim trailing whitespace/dots again in case the
-	// truncation landed on a problematic character.
-	if rs := []rune(s); len(rs) > SanitizedNameMaxRunes {
-		s = strings.TrimRight(string(rs[:SanitizedNameMaxRunes]), ". ")
+	// Truncate to the rune cap first (display length), then to the byte cap
+	// (filesystem safety) on a rune boundary. Trim trailing whitespace/dots
+	// again in case the truncation landed on a problematic character.
+	if rs := []rune(s); len(rs) > SanitizedNameMaxRunes || len(s) > sanitizedNameMaxBytes {
+		if len(rs) > SanitizedNameMaxRunes {
+			rs = rs[:SanitizedNameMaxRunes]
+		}
+		for len(rs) > 0 && len(string(rs)) > sanitizedNameMaxBytes {
+			rs = rs[:len(rs)-1]
+		}
+		s = strings.TrimRight(string(rs), ". ")
 		if s == "" {
 			return "Untitled"
 		}

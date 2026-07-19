@@ -161,6 +161,12 @@ func (s *Server) setupSessionRoutes(sessionAPI *handlers.SessionAPI) {
 	api.HandleFunc("/session/conversations/{convId}", sessionAPI.HandleUpdateConversation).Methods("PUT")
 	api.HandleFunc("/session/conversations/{convId}", sessionAPI.HandleDeleteConversation).Methods("DELETE")
 	api.HandleFunc("/session/conversations/{convId}/name", sessionAPI.HandleRenameConversation).Methods("PATCH")
+	// AI auto-naming: turn a conversation's opening exchange into a suggested
+	// title via an isolated one-shot completion. Server-package handler: it
+	// needs provider access (credentials + InitializeProvider), which handlers
+	// must not import. Returns {name}; the frontend applies it via the rename
+	// endpoint above only if the tab is still auto-named.
+	api.HandleFunc("/session/conversations/{convId}/generate-name", s.handleGenerateConversationName).Methods("POST")
 	// Content-addressed binary assets (attached images, etc.) streamed from
 	// <convDir>/assets/<sha>.<ext>. {sha} is validated as 64-char lowercase hex.
 	api.HandleFunc("/session/conversations/{convId}/assets/{sha}", sessionAPI.HandleGetAsset).Methods("GET")

@@ -61,6 +61,7 @@ import { runTests as runExecuteActionTests } from '../unit-tests/execute-action-
 import { runTests as runFileSystemApiTests } from '../unit-tests/filesystem-api-test.js';
 import { runTests as runGlobActionTests } from '../unit-tests/glob-action-test.js';
 import { runTests as runAskUserQuestionDetailsTests } from '../unit-tests/ask-user-question-details-test.js';
+import { runTests as runAutoNamerTests } from '../unit-tests/auto-namer-test.js';
 import { runTests as runItemAccessorTests } from '../unit-tests/item-accessor-test.js';
 import { runTests as runMessageTypeGuardTests } from '../unit-tests/message-type-guard-test.js';
 import { runTests as runModelFilterTests } from '../unit-tests/model-filter-test.js';
@@ -289,6 +290,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:chime-recovery', run: runChimeRecoveryTests },
   { name: 'unit:context-menu', run: runContextMenuTests },
   { name: 'unit:ask-user-question-details', run: runAskUserQuestionDetailsTests },
+  { name: 'unit:auto-namer', run: runAutoNamerTests },
   { name: 'unit:extension-registry', run: runExtensionRegistryTests },
   { name: 'unit:sdk-facade-parity', run: runSdkFacadeParityTests },
   { name: 'unit:extension-collision', run: runExtensionCollisionTests },

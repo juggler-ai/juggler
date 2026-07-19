@@ -251,6 +251,24 @@ class APIService {
   }
 
   /**
+   * Ask the backend to generate a short, descriptive title for a conversation
+   * from its opening exchange. Runs an ISOLATED one-shot completion server-side
+   * (never touching the live conversation's provider session) and returns a
+   * suggested name — it does NOT rename the conversation. The caller decides
+   * whether to apply it (e.g. only while the tab is still auto-named).
+   * @param {string} conversationId
+   * @param {{ model: {provider?: string, model?: string, thinking?: string}, prompt: string, response: string }} payload
+   * @returns {Promise<{name: string}>} the suggested (server-sanitized) name
+   * @throws {Error} on 400 (bad input), 5xx (provider/credential failure)
+   */
+  async generateConversationName(conversationId, payload) {
+    return await this.request(`/session/conversations/${encodeURIComponent(conversationId)}/generate-name`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  /**
    * Update a single conversation within a session
    * @param {string} conversationId
    * @param {object} conversationData - Full conversation object

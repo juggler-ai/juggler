@@ -5,6 +5,9 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Conversations are now auto-named by AI from their opening exchange (the first prompt + first reply), replacing the "Task N" placeholder — the naming runs as an isolated one-shot completion that never touches the live conversation's provider session, and never overwrites a title you set yourself
+- Increased the maximum conversation/tab name length (48 → 72 characters)
+
 ## [0.4.2] - 2026-07-18
 
 - Added moonshot/KIMI, Copilot and llama.cpp providers, refactored and fixed other providers like ollama, codex

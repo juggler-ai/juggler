@@ -23,7 +23,7 @@
  */
 
 import { assert } from '../utilities/test-helpers.js';
-import { wakeContext, isContextWedged, rearmAudio, recoverThenSchedule } from '../../js/utils/chime-synth.js';
+import { wakeContext, isContextWedged, rearmAudio, recoverThenSchedule, keepAudioContextWarm, shouldAutoResume } from '../../js/utils/chime-synth.js';
 
 /**
  * @typedef {object} TestResult
@@ -211,6 +211,37 @@ export async function runTests() {
     await settle();
     assert(scheduled.length === 0, 'no rebuild available → nothing to schedule on');
     assert(ac.resumeCalls === 0, 'a closed context is wedged — rebuilt (and failed), never resumed');
+  });
+
+  // ── idle-suspend: park the context when the app goes quiet (non-Apple) ──────
+  // shouldAutoResume is the guard the automatic wake paths (onstatechange,
+  // rearmAudio) consult so a context WE parked for idleness is left parked,
+  // while an OS/policy park is still recovered.
+
+  await run('shouldAutoResume: never resumes an already-running context', () => {
+    assert(shouldAutoResume('running', false) === false, 'running never needs resume');
+    assert(shouldAutoResume('running', true) === false, 'running never needs resume even if flagged');
+  });
+
+  await run('shouldAutoResume: leaves a deliberately idle-parked context suspended', () => {
+    assert(shouldAutoResume('suspended', true) === false, 'our own idle-park must not be auto-resumed');
+  });
+
+  await run('shouldAutoResume: resumes an OS/autoplay suspend we did not set', () => {
+    assert(shouldAutoResume('suspended', false) === true, 'a suspend we did not cause should be resumed');
+  });
+
+  await run('shouldAutoResume: always recovers interrupted/closed, idle-flag notwithstanding', () => {
+    assert(shouldAutoResume('interrupted', false) === true, 'interrupted is an OS park — resume');
+    assert(shouldAutoResume('interrupted', true) === true, 'interrupted is never our idle-park — still resume');
+    assert(shouldAutoResume('closed', true) === true, 'closed → attempt resume (rejects, handled elsewhere)');
+  });
+
+  await run('keepAudioContextWarm: true on Apple platforms (macOS/iOS), false elsewhere', () => {
+    assert(keepAudioContextWarm('MacIntel', '') === true, 'macOS keeps the context warm');
+    assert(keepAudioContextWarm('', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)') === true, 'iOS keeps the context warm');
+    assert(keepAudioContextWarm('Linux x86_64', 'X11; Linux x86_64') === false, 'Linux parks when idle');
+    assert(keepAudioContextWarm('Win32', 'Windows NT 10.0') === false, 'Windows parks when idle');
   });
 
   return { passed, failed, errors };

@@ -2780,6 +2780,15 @@ juggler-spinner .js-pivot {
     top: 50%;
     width: 0;
     height: 0;
+
+    /* Promote each animated node to its own compositing layer so the per-frame
+       transform is a cheap layer transform, not a repaint of the surrounding
+       UI. This matters most under software compositing (WebviewGpuPolicyNever,
+       and any host without a usable GPU), where an un-layered transform forces
+       WebKit to re-rasterise the region every frame on the main thread — the
+       spinner is the dominant always-running animation, so confining its
+       repaint to a few tiny layers is the biggest win available there. */
+    will-change: transform;
     animation: juggler-spinner-orbit var(--duration) linear infinite;
 }
 
@@ -2792,6 +2801,9 @@ juggler-spinner .js-club {
     height: var(--js-club-h);
     left: calc(var(--js-club-w) / -2);
     top: calc((var(--js-radius) + var(--js-club-h) / 2) * -1);
+
+    /* Own compositing layer — see the note on .js-pivot above. */
+    will-change: transform;
     animation: juggler-spinner-spin var(--duration) linear infinite;
 }
 
@@ -2841,6 +2853,22 @@ juggler-spinner .js-club svg {
    wanted here, override the --duration *variable* (not animation-duration) so
    the calc()'d per-club phase delays scale with it and the clubs stay 120°
    apart — overriding animation-duration alone bunches them. */
+
+/* Pause ALL CSS animations while the document is hidden — minimised, fully
+   occluded, or on another virtual desktop. A hidden window paints nothing a
+   user can see, yet its continuously-running indicators (the busy spinner, the
+   tab/icon pulses) keep the WebProcess re-rasterising frames every refresh tick
+   — pure waste, and expensive under software compositing where each frame is a
+   CPU repaint. `data-doc-hidden` is toggled on <html> by the Page Visibility
+   hook in app.js; animations resume instantly on the next paint when the window
+   becomes visible again. Scoped high enough (attribute selector) to override
+   the per-element animation shorthands, and !important guards against any
+   equally-specific rule. */
+:root[data-doc-hidden] *,
+:root[data-doc-hidden] *::before,
+:root[data-doc-hidden] *::after {
+    animation-play-state: paused !important;
+}
 
 /* Model Selector - Hint when no providers configured */
 .menu-item-hint {

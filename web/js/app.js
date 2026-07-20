@@ -75,6 +75,26 @@ class JugglerApp {
     });
   }
 
+  /**
+   * Pause CSS animations while the document is hidden (window minimised, fully
+   * occluded, or on another virtual desktop). Reflects `document.hidden` onto a
+   * `data-doc-hidden` attribute on <html>, which the stylesheet keys off to set
+   * `animation-play-state: paused` everywhere. A hidden window paints nothing a
+   * user can see, yet its continuously-running indicators (the busy spinner, the
+   * tab/icon pulses) would otherwise keep the WebProcess re-rasterising unseen
+   * frames every refresh tick — wasteful in general, and a whole CPU core under
+   * software compositing. Animations resume on the next paint when the window
+   * becomes visible again.
+   * @private
+   */
+  _initDocumentVisibilityPause() {
+    const sync = () => {
+      document.documentElement.toggleAttribute('data-doc-hidden', document.hidden);
+    };
+    document.addEventListener('visibilitychange', sync);
+    sync(); // reflect the initial state immediately
+  }
+
   /** @private */
   async setup() {
     // Get component references. contextPanel, conversationArea, and
@@ -114,6 +134,10 @@ class JugglerApp {
     // on-screen keyboard opens by fitting <app-container> to the visual viewport
     // instead of letting the browser scroll the whole page up.
     initViewportFit();
+
+    // Pause CSS animations when this window is hidden, so its always-running
+    // indicators don't burn CPU re-rasterising frames nobody can see.
+    this._initDocumentVisibilityPause();
 
     // External-link safety net. Markdown-rendered content (LLM and message
     // output) emits bare <a href> anchors at many render sites; a plain

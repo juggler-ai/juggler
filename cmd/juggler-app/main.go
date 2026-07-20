@@ -53,6 +53,12 @@ func main() {
 	if note := webviewenv.PrepareLinuxWebKit(); note != "" {
 		logf("%s", note)
 	}
+	// Resolve the visible-window GPU policy once at startup and log the decision
+	// (and why). The per-window sites call linuxWebviewGpuPolicy() → the same
+	// webviewenv decision; logging it here keeps the reasoning in one place.
+	if _, note := webviewenv.LinuxWebviewGpuAcceleration(); note != "" {
+		logf("%s", note)
+	}
 	app := newAppState(devMode)
 
 	// Build the application — and acquire the single-instance lock — BEFORE

@@ -41,6 +41,20 @@ var themeColours = map[string]application.RGBA{
 	"light": {Red: 255, Green: 255, Blue: 255, Alpha: 255},
 }
 
+// linuxWebviewGpuPolicy maps the webviewenv GPU decision to the Wails policy for
+// the *visible* viewer windows. It stays WebviewGpuPolicyNever (software
+// rendering) unless there is positive evidence a working GL stack is present
+// (see webviewenv.LinuxWebviewGpuAcceleration), in which case it returns
+// WebviewGpuPolicyAlways so WebKitGTK composites the UI's continuous animations
+// on the GPU instead of re-rasterising every frame on the main thread. The
+// engine window (off-screen, paints nothing) keeps its own hard-coded Never.
+func linuxWebviewGpuPolicy() application.WebviewGpuPolicy {
+	if accel, _ := webviewenv.LinuxWebviewGpuAcceleration(); accel {
+		return application.WebviewGpuPolicyAlways
+	}
+	return application.WebviewGpuPolicyNever
+}
+
 // winEntry tracks one open window and the server URL it views. Geometry is NOT
 // stored here — it lives server-side in the session (see window_state_client.go);
 // this only carries the window's workspace identity (spec) and the live frame
@@ -599,7 +613,7 @@ func (a *appState) buildLockedProjectWindow(spec windowSpec, message, inheritedT
 		Frameless:        platformFrameless,
 		BackgroundColour: themeColours[bgTheme],
 		Mac:              application.MacWindow{TitleBar: application.MacTitleBar{AppearsTransparent: true, HideTitle: true, HideToolbarSeparator: true, FullSizeContent: true}},
-		Linux:            application.LinuxWindow{WebviewGpuPolicy: application.WebviewGpuPolicyNever},
+		Linux:            application.LinuxWindow{WebviewGpuPolicy: linuxWebviewGpuPolicy()},
 		Windows:          application.WindowsWindow{DisableFramelessWindowDecorations: false},
 	})
 	if win == nil {
@@ -712,15 +726,18 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *ex
 				FullSizeContent:      true,
 			},
 		},
-		// WebviewGpuPolicy defaults to the zero value WebviewGpuPolicyAlways, which
-		// forces WebKitGTK's hardware-accelerated compositing path. On a broken or
-		// absent GL stack (VM software GL, no DRI, headless) that path fails during
-		// webview realisation, the native window widget never comes up, and the
-		// window never becomes visible (the startup watchdog then FATALs). Never
-		// maps to webkit_settings_set_hardware_acceleration_policy(NEVER) — software
-		// compositing, which this text UI doesn't miss — so the window always paints.
+		// WebviewGpuPolicy: hardware-accelerated compositing when a working GL
+		// stack is detected, else software (Never). Forcing acceleration on a
+		// broken/absent GL stack (VM software GL, no DRI, headless) fails during
+		// webview realisation, the native window never comes up, and the startup
+		// watchdog FATALs — so linuxWebviewGpuPolicy only returns Always on
+		// positive evidence (DRI render node + display, non-NVIDIA-proprietary),
+		// and JUGGLER_WEBVIEW_GPU overrides it. Software rendering re-rasterises
+		// the UI's continuous animations (the busy spinner) on the main thread
+		// every frame, pinning a CPU core while work is in flight; acceleration
+		// composites them on the GPU and frees the main thread.
 		Linux: application.LinuxWindow{
-			WebviewGpuPolicy: application.WebviewGpuPolicyNever,
+			WebviewGpuPolicy: linuxWebviewGpuPolicy(),
 		},
 		Windows: application.WindowsWindow{DisableFramelessWindowDecorations: false},
 	})

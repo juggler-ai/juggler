@@ -182,3 +182,69 @@ func TestDetectLinuxHost(t *testing.T) {
 		})
 	}
 }
+
+func TestGpuOverride(t *testing.T) {
+	cases := []struct {
+		in   string
+		want gpuOverrideMode
+	}{
+		{"always", gpuForceOn},
+		{"ON", gpuForceOn},
+		{"1", gpuForceOn},
+		{"true", gpuForceOn},
+		{" Yes ", gpuForceOn},
+		{"never", gpuForceOff},
+		{"off", gpuForceOff},
+		{"0", gpuForceOff},
+		{"false", gpuForceOff},
+		{"no", gpuForceOff},
+		{"auto", gpuAuto},
+		{"", gpuAuto},
+		{"garbage", gpuAuto},
+	}
+	for _, tc := range cases {
+		if got := gpuOverride(tc.in); got != tc.want {
+			t.Errorf("gpuOverride(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestLinuxWebviewGpuAcceleration(t *testing.T) {
+	yes := func() bool { return true }
+	no := func() bool { return false }
+	cases := []struct {
+		name             string
+		goos             string
+		override         string
+		display, wayland string
+		renderNode       func() bool
+		nvidia           func() bool
+		wantEnabled      bool
+		wantNote         bool // whether a (non-empty) note is expected
+	}{
+		// Autodetect: a normal desktop GPU (render node, display, non-NVIDIA).
+		{"linux desktop GPU auto-enables", "linux", "", ":0", "", yes, no, true, true},
+		{"linux wayland desktop GPU auto-enables", "linux", "", "", "wayland-0", yes, no, true, true},
+		// Autodetect negatives — all must stay software (crash-safe).
+		{"linux headless stays software silently", "linux", "", "", "", yes, no, false, false},
+		{"linux no render node stays software", "linux", "", ":0", "", no, no, false, true},
+		{"linux nvidia proprietary stays software", "linux", "", ":0", "", yes, yes, false, true},
+		// Override wins over autodetection, in both directions.
+		{"force on overrides headless", "linux", "always", "", "", no, yes, true, true},
+		{"force off overrides a good GPU", "linux", "never", ":0", "", yes, no, false, true},
+		// Off Linux: never accelerated, never a note (field is ignored there).
+		{"darwin is (false, \"\")", "darwin", "always", ":0", "", yes, no, false, false},
+		{"windows is (false, \"\")", "windows", "always", ":0", "", yes, no, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enabled, note := linuxWebviewGpuAcceleration(tc.goos, tc.override, tc.display, tc.wayland, tc.renderNode, tc.nvidia)
+			if enabled != tc.wantEnabled {
+				t.Errorf("enabled = %v, want %v", enabled, tc.wantEnabled)
+			}
+			if (note != "") != tc.wantNote {
+				t.Errorf("note = %q, want non-empty=%v", note, tc.wantNote)
+			}
+		})
+	}
+}

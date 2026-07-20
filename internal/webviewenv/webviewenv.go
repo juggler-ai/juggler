@@ -19,6 +19,7 @@ package webviewenv
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -133,6 +134,116 @@ func sandboxRestrictedFrom(read func(string) (string, bool)) bool {
 		}
 	}
 	return false
+}
+
+// gpuOverrideEnv lets the user force the Linux WebKitGTK webview's hardware
+// acceleration policy, bypassing autodetection. Case-insensitive values:
+// "always"/"on"/"1"/"true"/"yes" force acceleration; "never"/"off"/"0"/"false"/
+// "no" force software rendering; "auto"/"" (or any unrecognised value)
+// autodetect.
+const gpuOverrideEnv = "JUGGLER_WEBVIEW_GPU"
+
+// gpuOverrideMode is the parsed intent of gpuOverrideEnv.
+type gpuOverrideMode int
+
+const (
+	gpuAuto gpuOverrideMode = iota
+	gpuForceOn
+	gpuForceOff
+)
+
+// gpuOverride parses the JUGGLER_WEBVIEW_GPU value into an intent.
+func gpuOverride(v string) gpuOverrideMode {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "always", "on", "1", "true", "yes":
+		return gpuForceOn
+	case "never", "off", "0", "false", "no":
+		return gpuForceOff
+	default:
+		return gpuAuto
+	}
+}
+
+// LinuxWebviewGpuAcceleration decides whether the *visible* Linux WebKitGTK
+// viewer window should use hardware-accelerated compositing (which the caller
+// maps to application.WebviewGpuPolicyAlways) rather than software rendering
+// (WebviewGpuPolicyNever). It returns the decision and a one-line note for the
+// caller to log — the same idiom as PrepareLinuxWebKit.
+//
+// Why this is decided rather than a constant: forcing acceleration on a broken
+// or absent GL stack (VM software GL, no DRI render node, headless) makes
+// WebKitGTK's webview realisation fail and the window never appears — which is
+// why the safe historical default was software. But software compositing
+// re-rasterises every animated frame on the CPU, and Juggler's UI animates
+// continuously while a conversation runs (the busy spinner), so on a machine
+// that genuinely has a working GPU that pins a CPU core near saturation for the
+// whole time work is in flight and stalls the UI. This enables acceleration
+// only when there is positive evidence the GL stack can support it — a DRI
+// render node exists, a display is present, and it is not the crash-prone
+// NVIDIA-proprietary case — and never in the headless/CI case, so the
+// crash-safety that motivated the software default is preserved. The
+// JUGGLER_WEBVIEW_GPU env var overrides the decision either way.
+//
+// Off Linux the return is (false, ""): the LinuxWindow policy field is ignored
+// on other platforms, and the engine window (off-screen, paints nothing) keeps
+// its own hard-coded Never regardless.
+func LinuxWebviewGpuAcceleration() (enabled bool, note string) {
+	return linuxWebviewGpuAcceleration(
+		runtime.GOOS,
+		os.Getenv(gpuOverrideEnv),
+		os.Getenv("DISPLAY"),
+		os.Getenv("WAYLAND_DISPLAY"),
+		hasDRIRenderNode,
+		nvidiaProprietaryPresent,
+	)
+}
+
+// linuxWebviewGpuAcceleration is the testable core of LinuxWebviewGpuAcceleration:
+// the OS, the override value, the two display env vars, and the two host probes
+// are all injected so every branch is reachable from any host.
+func linuxWebviewGpuAcceleration(goos, override, display, wayland string, hasRenderNode, nvidiaProprietary func() bool) (bool, string) {
+	if goos != "linux" {
+		return false, ""
+	}
+	switch gpuOverride(override) {
+	case gpuForceOn:
+		return true, "webview GPU acceleration forced ON via " + gpuOverrideEnv
+	case gpuForceOff:
+		return false, "webview GPU acceleration forced OFF via " + gpuOverrideEnv + " — using software rendering"
+	}
+	// Autodetect. Every negative branch is also the crash-safe branch, so
+	// software rendering is chosen whenever acceleration might fail to come up.
+	if display == "" && wayland == "" {
+		// Headless: Preflight already reports the missing display, so stay
+		// software without an extra (redundant) log line.
+		return false, ""
+	}
+	if !hasRenderNode() {
+		return false, "no DRI render node (/dev/dri/renderD*) detected — using software rendering for the webview"
+	}
+	if nvidiaProprietary() {
+		return false, "NVIDIA proprietary driver detected — using software rendering for the webview (set " + gpuOverrideEnv + "=always to override)"
+	}
+	return true, "GPU acceleration enabled for the webview (DRI render node present)"
+}
+
+// hasDRIRenderNode reports whether the kernel exposes at least one DRM render
+// node (/dev/dri/renderD*), the interface WebKitGTK's accelerated compositor
+// draws through. Absent on headless CI runners and pure-software-GL setups,
+// which is exactly where forcing acceleration would fail to realise a window.
+func hasDRIRenderNode() bool {
+	m, _ := filepath.Glob("/dev/dri/renderD*")
+	return len(m) > 0
+}
+
+// nvidiaProprietaryPresent reports whether the NVIDIA proprietary driver is
+// loaded — the open `nouveau` driver does not create this file. The proprietary
+// driver is the well-known crash/instability case for WebKitGTK's DMABUF and
+// accelerated-compositing path, so autodetection keeps it on software rendering
+// unless the user forces acceleration via JUGGLER_WEBVIEW_GPU=always.
+func nvidiaProprietaryPresent() bool {
+	_, err := os.Stat("/proc/driver/nvidia/version")
+	return err == nil
 }
 
 // linuxHost carries the host facts that tailor the Linux remediation message:

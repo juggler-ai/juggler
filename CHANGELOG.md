@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Pasting an image now works in the WebKit desktop app: the paste handler falls back to the async Clipboard API when the paste event carries no image file synchronously
+
 ## [0.4.2] - 2026-07-18
 
 - Added moonshot/KIMI, Copilot and llama.cpp providers, refactored and fixed other providers like ollama, codex

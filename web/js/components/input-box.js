@@ -417,20 +417,58 @@ class InputBox extends HTMLElement {
 
     // Paste image data (screenshot, copied image) — upload it and suppress the
     // default paste of those image items (avoids also pasting a filename).
+    //
+    // Two paths, because clipboard engines differ:
+    //   1. Synchronous — Chromium/WebView2 populate `clipboardData.items` with
+    //      the image as a `File`, readable straight off the paste event.
+    //   2. Asynchronous — WebKit (WebKitGTK on Linux, WKWebView on macOS — i.e.
+    //      the Wails desktop app) routinely exposes only text on the synchronous
+    //      paste event and hands the image out solely through the async Clipboard
+    //      API (`navigator.clipboard.read()`). Without the fallback below,
+    //      pasting a screenshot into the desktop app silently does nothing while
+    //      text paste works — exactly the drag/drop asymmetry the Wails override
+    //      above was added to fix, but for paste.
+    // The async read is gated to pastes that actually signal an image (or carry
+    // no text at all), so a plain-text paste in a browser never trips a
+    // clipboard-read permission prompt.
     textarea.addEventListener('paste', (e) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
+      const dt = e.clipboardData;
       /** @type {File[]} */
       const imageFiles = [];
-      for (const item of Array.from(items)) {
-        if (item.kind === 'file' && item.type.startsWith('image/')) {
-          const file = item.getAsFile();
-          if (file) imageFiles.push(file);
+      // Reading `items`/`getAsFile()` can throw on some engines when the event
+      // isn't a trusted user paste — never let that abort the handler before
+      // the async fallback below gets its turn.
+      try {
+        for (const item of Array.from(dt?.items || [])) {
+          if (item.kind === 'file' && item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) imageFiles.push(file);
+          }
         }
+      } catch { /* fall through to the async fallback */ }
+      if (imageFiles.length > 0) {
+        e.preventDefault();
+        this._handleFiles(imageFiles);
+        return;
       }
-      if (imageFiles.length === 0) return;
-      e.preventDefault();
-      this._handleFiles(imageFiles);
+      // Nothing usable synchronously. Only reach for the async Clipboard API
+      // when this paste plausibly carries an image: either the event advertises
+      // an image (some WebKit builds surface the type in `types`/"Files" but no
+      // File) or it carries no text at all (WebKit image-only paste, where the
+      // event exposes nothing synchronously). A plain-text paste — text present,
+      // no image signal — skips it, so browsers never see a permission prompt.
+      //
+      // Both `types` and `getData` are read defensively: WebKit restricts
+      // `getData` to trusted paste events and throws otherwise, and a throw here
+      // must not stop us from consulting the async clipboard.
+      let types = /** @type {string[]} */ ([]);
+      try { types = Array.from(dt?.types || []); } catch { /* ignore */ }
+      const hasImageSignal = types.some((t) => t.startsWith('image/')) || types.includes('Files');
+      let hasText = false;
+      try { hasText = !!(dt && dt.getData('text/plain')); } catch { /* getData may be restricted */ }
+      if (hasImageSignal || !hasText) {
+        void this._pasteImagesFromAsyncClipboard();
+      }
     });
 
     // Drag-and-drop image files anywhere onto the message box. The listeners
@@ -1240,6 +1278,47 @@ class InputBox extends HTMLElement {
       || null;
     const provider = cfg && cfg.provider ? cfg.provider : '';
     return PROVIDER_MAX_IMAGE_BYTES[provider] || MAX_ATTACHMENT_BYTES;
+  }
+
+  /**
+   * Fallback image paste for engines whose synchronous `paste` event omits the
+   * image file — notably WebKit (WebKitGTK/WKWebView), i.e. the Wails desktop
+   * app. Reads the async Clipboard API, materialises any image entries as
+   * `File`s, and routes them through the same {@link _handleFiles} path as
+   * synchronous paste / drop / picker (which validates size and uploads).
+   *
+   * Best-effort by design: a missing API, an insecure context, a denied
+   * permission, or a clipboard with no image all resolve to a silent no-op —
+   * the same outcome as before this fallback existed, so it can only ever add
+   * successful pastes, never break an existing one.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _pasteImagesFromAsyncClipboard() {
+    const clipboard = navigator.clipboard;
+    if (!clipboard || typeof clipboard.read !== 'function') return;
+    let clipboardItems;
+    try {
+      clipboardItems = await clipboard.read();
+    } catch {
+      // No permission, insecure context, or nothing readable — nothing to do.
+      return;
+    }
+    /** @type {File[]} */
+    const files = [];
+    for (const item of clipboardItems) {
+      const type = Array.from(item.types || []).find((t) => t.startsWith('image/'));
+      if (!type) continue;
+      try {
+        const blob = await item.getType(type);
+        const ext = type.split('/')[1] || 'png';
+        // Distinct name per image so a multi-image clipboard doesn't collide.
+        files.push(new window.File([blob], `pasted-image-${Date.now()}-${files.length + 1}.${ext}`, { type }));
+      } catch {
+        // Skip an entry we can't materialise; keep any others.
+      }
+    }
+    if (files.length > 0) this._handleFiles(files);
   }
 
   /**

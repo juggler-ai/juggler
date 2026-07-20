@@ -381,9 +381,111 @@ export const imageOnlySendTest = {
   }
 };
 
+/**
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+export const pasteAsyncClipboardFallbackTest = {
+  name: 'paste-async-clipboard-fallback',
+  description: 'When the synchronous paste event carries no image file (the WebKit / Wails desktop-app case), the paste handler falls back to the async Clipboard API (navigator.clipboard.read) and routes the image blob through _handleFiles. Part A drives the fallback method directly; Part B drives it through a paste event whose synchronous data has no image.',
+  fixture: 'unit-test-fixture',
+  llmResponses: [],
+  operations: [],
+
+  async customAssertions(conversation) {
+    const tab = /** @type {any} */ (conversation.getTabElement());
+    const inputBox = tab?.getInputBox?.();
+    if (!inputBox) return; // headless — no UI to drive
+    const textarea = inputBox.querySelector('textarea');
+    if (!textarea) throw new Error('input box has no textarea');
+
+    // Stub the async Clipboard API to return exactly one PNG image. Defined as
+    // an own property on `navigator` so it shadows the prototype getter; if the
+    // environment forbids that, skip rather than fail.
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]); // PNG signature
+    const fakeItem = {
+      types: ['image/png'],
+      getType: async (/** @type {string} */ t) => new Blob([pngBytes], { type: t })
+    };
+    const hadOwn = Object.prototype.hasOwnProperty.call(navigator, 'clipboard');
+    const originalDescriptor = hadOwn ? Object.getOwnPropertyDescriptor(navigator, 'clipboard') : null;
+    try {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { read: async () => [fakeItem] },
+        configurable: true
+      });
+    } catch {
+      return; // Can't stub the clipboard here — nothing to assert.
+    }
+
+    const originalHandleFiles = inputBox._handleFiles;
+    const originalFallback = inputBox._pasteImagesFromAsyncClipboard;
+    try {
+      // ── Part A: the async fallback method itself materialises the clipboard
+      //    image and routes it through _handleFiles (read → getType → File). ──
+      /** @type {any[]} */
+      const captured = [];
+      inputBox._handleFiles = (/** @type {FileList|File[]} */ files) => {
+        for (const f of Array.from(files)) captured.push(f);
+      };
+      await inputBox._pasteImagesFromAsyncClipboard();
+      if (captured.length === 0) {
+        throw new Error('async fallback did not deliver any file to _handleFiles');
+      }
+      const file = captured[0];
+      if (!file || typeof file.type !== 'string' || !file.type.startsWith('image/')) {
+        throw new Error(`async fallback delivered a non-image; got ${JSON.stringify(file)}`);
+      }
+      if (!(file.size > 0)) {
+        throw new Error(`pasted image File has no bytes; size=${file && file.size}`);
+      }
+
+      // ── Part B: a paste event that carries no synchronous image (the WebKit
+      //    case) consults the async fallback. A paste event with no
+      //    clipboardData image and no text is exactly the "no synchronous image,
+      //    no text" shape that triggers it. (A synthetic ClipboardEvent isn't
+      //    dispatched to listeners in WebKit, so a plain Event of type 'paste' —
+      //    which yields clipboardData === undefined — is used to drive the
+      //    handler's gate.) ─────────────────────────────────────────────────
+      // The input box wires its listeners in a requestAnimationFrame after
+      // render; in this headless test-pool the frame may not have run for this
+      // box yet (event-driven paths aren't exercised by the other attachment
+      // tests, which call methods directly). Ensure the paste listener is bound
+      // before driving it — this mirrors what the real app's rAF does.
+      if (!inputBox._completions) inputBox.setupListeners();
+      captured.length = 0; // reset; the real fallback (below) should refill it
+      textarea.dispatchEvent(new Event('paste', { bubbles: true, cancelable: true }));
+      try {
+        await waitFor(
+          () => captured.length > 0,
+          2000,
+          'paste event with no synchronous image consulted the async clipboard fallback'
+        );
+      } catch (err) {
+        throw new Error(
+          `${err.message} [DIAG _completions=${!!inputBox._completions} ` +
+          `sameTextarea=${textarea === inputBox.querySelector('textarea')}]`
+        );
+      }
+      if (!captured[0] || !String(captured[0].type).startsWith('image/')) {
+        throw new Error(`paste-driven fallback delivered a non-image; got ${JSON.stringify(captured[0])}`);
+      }
+    } finally {
+      inputBox._handleFiles = originalHandleFiles;
+      inputBox._pasteImagesFromAsyncClipboard = originalFallback;
+      if (originalDescriptor) {
+        Object.defineProperty(navigator, 'clipboard', originalDescriptor);
+      } else {
+        // No own property existed before — remove ours to unshadow the getter.
+        delete (/** @type {any} */ (navigator)).clipboard;
+      }
+    }
+  }
+};
+
 export const tests = [
   compactionAttachmentStandinTest,
   rewindRestoresAttachmentsTest,
   propertiesPanelShowsAttachmentsTest,
-  imageOnlySendTest
+  imageOnlySendTest,
+  pasteAsyncClipboardFallbackTest
 ];

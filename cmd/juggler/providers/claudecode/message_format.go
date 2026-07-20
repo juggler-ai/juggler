@@ -122,6 +122,12 @@ func (c *Client) commonArgs(systemPrompt string) []string {
 		args = append(args, "--system-prompt", systemPrompt)
 	}
 	args = append(args, "--model", c.modelAlias())
+	// Without an explicit flag the CLI resolves its permission mode from
+	// settings files shared with the user's own interactive sessions in the
+	// same folder (e.g. a plan mode persisted in .claude/settings.local.json),
+	// which would strand the spawned CLI with every tool blocked. A CLI arg
+	// outranks all settings sources, so pin it to default.
+	args = append(args, "--permission-mode", "default")
 
 	if mcpConfig, err := c.buildMCPConfig(); err == nil && mcpConfig != "" {
 		args = append(args, "--mcp-config", mcpConfig)

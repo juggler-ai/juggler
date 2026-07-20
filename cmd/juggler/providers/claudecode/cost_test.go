@@ -350,6 +350,24 @@ func TestCommonArgs_NoBetas(t *testing.T) {
 	}
 }
 
+// TestCommonArgs_PinsDefaultPermissionMode verifies that `--permission-mode
+// default` is always emitted — without it the CLI resolves its permission
+// mode from settings files shared with the user's interactive sessions in
+// the same folder, so a persisted plan mode would block every tool.
+func TestCommonArgs_PinsDefaultPermissionMode(t *testing.T) {
+	c := &Client{model: "sonnet"}
+	args := c.commonArgs("")
+	for i, a := range args {
+		if a == "--permission-mode" {
+			if i+1 >= len(args) || args[i+1] != "default" {
+				t.Fatalf("--permission-mode must be followed by \"default\"; got %v", args)
+			}
+			return
+		}
+	}
+	t.Fatalf("--permission-mode default must appear; got %v", args)
+}
+
 // TestListModels_OffersBaseFamilyOnly verifies that the model list is exactly
 // the base family (sonnet / opus / haiku / fable) with no `-1m` siblings.
 func TestListModels_OffersBaseFamilyOnly(t *testing.T) {

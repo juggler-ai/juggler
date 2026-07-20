@@ -125,7 +125,15 @@ func (s *Server) acceptWebRTCOffer(ctx context.Context, offer webrtc.SessionDesc
 }
 
 func (s *Server) acceptWebRTCOfferWithICEConfig(ctx context.Context, offer webrtc.SessionDescription, iceConfig webrtcICEConfig) (*webrtc.SessionDescription, error) {
-	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{ICEServers: iceConfig.Servers})
+	cfg := webrtc.Configuration{ICEServers: iceConfig.Servers}
+	// Present the persistent identity so this peer's DTLS fingerprint is stable
+	// across restarts (and across every connection within a run). When it is
+	// nil — a first run whose identity could not be persisted — pion mints an
+	// ephemeral certificate per connection, the pre-persistence behaviour.
+	if s.webrtcCert != nil {
+		cfg.Certificates = []webrtc.Certificate{*s.webrtcCert}
+	}
+	pc, err := webrtc.NewPeerConnection(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create peer connection: %w", err)
 	}

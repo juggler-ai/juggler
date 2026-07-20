@@ -58,6 +58,10 @@ func (s *Server) handleGetConnectivity(w http.ResponseWriter, r *http.Request) {
 	// One descriptor per connected viewer (this client included). The UI excludes
 	// itself by id to show how many OTHER clients share the session.
 	clients := s.hub.viewerClients()
+	// The persistent WebRTC identity fingerprint (stable across restarts), or ""
+	// when the server is using ephemeral per-connection certificates. Exposed so
+	// the UI can show a stable device identity and a remote client can pin it.
+	peerIdentity, _ := s.PeerIdentityFingerprint()
 	handlers.WriteJSON(w, r, 0, map[string]any{
 		"lanEnabled":    s.publicMode.Load(),
 		"lanURLs":       lanURLs,
@@ -68,6 +72,7 @@ func (s *Server) handleGetConnectivity(w http.ResponseWriter, r *http.Request) {
 		"wanModes":      wanModes,
 		"clientCount":   len(clients),
 		"clients":       clients,
+		"peerIdentity":  peerIdentity,
 	})
 }
 

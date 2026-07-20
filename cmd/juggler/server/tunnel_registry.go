@@ -29,6 +29,14 @@ type TunnelHost interface {
 	// traffic to a private loopback listener serve it with this, so the LAN
 	// gate admits their traffic while the engine WS role still refuses it.
 	NewIngressHTTPServer(kind string) *http.Server
+	// PeerIdentityFingerprint returns the SHA-256 DTLS fingerprint of the
+	// server's persistent WebRTC identity, and true when one is available. It is
+	// stable across restarts (see webrtc_identity.go), so a provider that mints a
+	// shareable link — e.g. a Direct P2P rendezvous URL — can derive a stable
+	// address from it (or have the remote client pin it), keeping the same link
+	// valid after the server is stopped and started again. Returns "", false
+	// when the server is using ephemeral per-connection certificates.
+	PeerIdentityFingerprint() (string, bool)
 }
 
 // tunnelHost adapts *Server to the TunnelHost capability interface. A separate
@@ -50,6 +58,10 @@ func (h tunnelHost) NewIngressHTTPServer(kind string) *http.Server {
 		inner.ServeHTTP(w, MarkRemoteIngress(r, kind))
 	})
 	return srv
+}
+
+func (h tunnelHost) PeerIdentityFingerprint() (string, bool) {
+	return h.s.PeerIdentityFingerprint()
 }
 
 // TunnelModeSpec describes one registrable WAN tunnel mode: its identity, the

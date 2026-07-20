@@ -20,7 +20,7 @@ import { hasNativeHost, pickDirectory } from '../../sdk/lib/window-control.js';
 import { focusWhenShown } from '../utils/focus.js';
 
 /**
- * @typedef {(path: string) => Promise<{valid: boolean, path?: string, error?: string}>} ValidateFn
+ * @typedef {(path: string) => Promise<{valid: boolean, path?: string, error?: string, current?: boolean}>} ValidateFn
  * @typedef {{
  *   recents?: string[] | Promise<string[]>,
  *   currentPath?: string,
@@ -148,7 +148,7 @@ export function buildPickerPanel({
           const result = await validate(path);
           if (gen !== validationGen) return;
           if (result.valid) {
-            setStatus('valid', result.path || path);
+            setStatus('valid', result.current ? 'This is the current project' : (result.path || path));
             doOpen();
           } else {
             setStatus('invalid', result.error || 'Invalid path');
@@ -218,7 +218,7 @@ export function buildPickerPanel({
       const result = await validate(val);
       if (gen !== validationGen) return;
       if (result.valid) {
-        setStatus('valid', result.path || val);
+        setStatus('valid', result.current ? 'This is the current project' : (result.path || val));
       } else {
         setStatus('invalid', result.error || 'Invalid path');
       }

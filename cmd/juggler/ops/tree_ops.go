@@ -117,7 +117,7 @@ func (ops *TreeOperations) getTree(params map[string]any) (any, error) {
 	// Load .gitignore patterns (unless showAll is true)
 	var gitignorePatterns []string
 	if !showAll {
-		gitignorePatterns = loadGitignorePatterns(ops.scope.Root())
+		gitignorePatterns = loadGitignorePatterns(ops.scope.BaseDir())
 	}
 
 	// Build tree with token budget awareness
@@ -130,7 +130,7 @@ func (ops *TreeOperations) getTree(params map[string]any) (any, error) {
 		maxDepth:       depth,
 		showAll:        showAll,
 		gitignore:      gitignorePatterns,
-		workingDir:     ops.scope.Root(),
+		workingDir:     ops.scope.BaseDir(),
 	}
 
 	stats := &treeStats{}

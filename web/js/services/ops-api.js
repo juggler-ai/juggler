@@ -342,14 +342,22 @@ export const MAX_EXEC_TIMEOUT_MS = 1200000;
  * @throws {Error} If operation fails or parameters are invalid
  */
 async function callOp(toolId, operation, params, signal, allowedPaths) {
-  /** @type {{toolId: string, operation: string, params: object, allowedPaths?: string[]}} */
+  // A conversationId injected into params (see ContextItem._withConv) is a
+  // transport field, not an op parameter: lift it to the top level so the
+  // backend can route the op into that conversation's bound workspace,
+  // and strip it from the params the op handler sees.
+  const { conversationId, ...opParams } = /** @type {Record<string, any>} */ (params || {});
+  /** @type {{toolId: string, operation: string, params: object, allowedPaths?: string[], conversationId?: string}} */
   const requestBody = {
     toolId,
     operation,
-    params
+    params: opParams
   };
   if (allowedPaths !== undefined) {
     requestBody.allowedPaths = allowedPaths;
+  }
+  if (conversationId) {
+    requestBody.conversationId = conversationId;
   }
 
   const headers = /** @type {Record<string, string>} */ ({ 'Content-Type': 'application/json' });
@@ -858,12 +866,15 @@ export async function shellExecuteStreaming(params, onOutput, signal) {
       });
     }, timeoutMs);
 
-    // Send shell-start request
+    // Send shell-start request. A conversationId injected into params (see
+    // ContextItem._withConv) routes the shell into that conversation's bound
+    // workspace; undefined ⇒ the base project root.
     const sent = wsService.sendShellStart(
       shellId,
       command,
       params.cwd,
-      params.timeout
+      params.timeout,
+      /** @type {any} */ (params).conversationId
     );
 
     if (!sent) {
@@ -1292,4 +1303,62 @@ export async function acpGetConfig(signal) {
  */
 export async function acpSetConfig(params, signal) {
   return callOp('acp', 'setConfig', params, signal);
+}
+
+// ============================================================================
+// Workspace binding — the extension-facing execution-root indirection
+// ============================================================================
+
+/**
+ * POST a JSON body to a plain server endpoint (not the /api/ops/call router),
+ * carrying the per-instance token. Shared by the workspace-binding calls.
+ * @param {string} path - API path under /api (e.g. "/workspace/bind")
+ * @param {object} body - JSON request body
+ * @returns {Promise<any>} Parsed JSON response
+ * @throws {Error} On a non-OK HTTP status
+ * @private
+ */
+async function postApi(path, body) {
+  const headers = /** @type {Record<string, string>} */ ({ 'Content-Type': 'application/json' });
+  const token = /** @type {{__jugglerToken?: string}} */ (globalThis).__jugglerToken;
+  if (token) {
+    headers['X-Juggler-Token'] = token;
+  }
+  const response = await fetch(`/api${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Bind a conversation's execution root to `root`. While bound, that
+ * conversation's file/shell/search/tree ops run under `root` instead of the
+ * project directory — with every path still validated in real-project space, so
+ * the security boundary is unchanged.
+ *
+ * This is the core primitive that lets an EXTENSION add worktree-style workflows
+ * without core knowing anything about them: the extension prepares an alternate
+ * root by whatever means (a git worktree, a devcontainer mount, a sandbox),
+ * then binds it here. See the worktrees extension for a worked example. Pair
+ * with {@link unbindWorkspace} on teardown.
+ * @param {string} conversationId - The conversation to bind.
+ * @param {string} root - Absolute path of the alternate execution root.
+ * @returns {Promise<{ok: boolean, root?: string, error?: string}>} Bind result.
+ */
+export async function bindWorkspace(conversationId, root) {
+  return postApi('/workspace/bind', { conversationId, root });
+}
+
+/**
+ * Clear a conversation's workspace binding; its ops revert to the project root.
+ * @param {string} conversationId - The conversation to unbind.
+ * @returns {Promise<{ok: boolean, error?: string}>} Unbind result.
+ */
+export async function unbindWorkspace(conversationId) {
+  return postApi('/workspace/unbind', { conversationId });
 }

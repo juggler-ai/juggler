@@ -23,6 +23,12 @@ type OperationRequest struct {
 	Operation    string         `json:"operation"`
 	Params       map[string]any `json:"params"`
 	AllowedPaths []string       `json:"allowedPaths,omitempty"`
+	// ConversationID identifies the conversation whose tool this is, so the op
+	// runs under that conversation's bound workspace (an extension-chosen
+	// alternate execution root — see server.WorkspaceRegistry) rather than the
+	// project root. Empty ⇒ the project root, so nothing changes for a
+	// conversation with no workspace bound (the default).
+	ConversationID string `json:"conversationId,omitempty"`
 }
 
 // OperationResponse represents the response from a native operation
@@ -36,13 +42,20 @@ type OperationResponse struct {
 // looked up via a provider func so runtime project switches retarget ops.
 type OpsAPI struct {
 	pathProvider func() string
+	// remapperFor returns a path remapper for a conversation: a function that
+	// redirects an already-validated real path into that conversation's bound
+	// workspace (see server.WorkspaceRegistry). Returns nil (identity) when no
+	// workspace is bound. remapperFor itself may be nil, in which case every op
+	// uses the project path unchanged.
+	remapperFor func(convID string) func(string) string
 	// Operation handlers are stateless and recreated per request.
 }
 
-// NewOpsAPI creates a new operations API handler. pathProvider must return
-// the current project path on each call.
-func NewOpsAPI(pathProvider func() string) *OpsAPI {
-	return &OpsAPI{pathProvider: pathProvider}
+// NewOpsAPI creates a new operations API handler. pathProvider must return the
+// current project path on each call. remapperFor supplies a conversation's
+// bound-workspace remapper (may be nil).
+func NewOpsAPI(pathProvider func() string, remapperFor func(convID string) func(string) string) *OpsAPI {
+	return &OpsAPI{pathProvider: pathProvider, remapperFor: remapperFor}
 }
 
 // HandleOperationCall is the unified entry point for all native operations
@@ -60,10 +73,19 @@ func (api *OpsAPI) HandleOperationCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build this conversation's workspace remapper. The scope stays rooted at
+	// the REAL project (so containment/authorization are unchanged), and the
+	// remapper redirects each resolved path into the conversation's bound
+	// workspace, if any. nil ⇒ no redirect (ops run in the project).
+	var remap func(string) string
+	if api.remapperFor != nil && req.ConversationID != "" {
+		remap = api.remapperFor(req.ConversationID)
+	}
+
 	// Route to appropriate operation handler. r.Context() is cancelled when the
 	// client aborts the request (browser aborts the op fetch on Escape), so
 	// long-running ops can stop early instead of running to completion.
-	result, err := api.routeOperation(r.Context(), req.ToolID, req.Operation, req.Params, projectPath, req.AllowedPaths)
+	result, err := api.routeOperation(r.Context(), req.ToolID, req.Operation, req.Params, projectPath, req.AllowedPaths, remap)
 	if err != nil {
 		// Return operation errors as success=false in the response body with HTTP 200
 		// This allows the frontend to handle the error gracefully
@@ -78,7 +100,7 @@ func (api *OpsAPI) HandleOperationCall(w http.ResponseWriter, r *http.Request) {
 // routeOperation routes the operation to the appropriate handler based on tool ID
 // Uses the operations registry for dynamic handler lookup
 // Creates a new handler instance for each request with the session's project path
-func (api *OpsAPI) routeOperation(ctx context.Context, toolID, operation string, params map[string]any, projectPath string, allowedPaths []string) (any, error) {
+func (api *OpsAPI) routeOperation(ctx context.Context, toolID, operation string, params map[string]any, projectPath string, allowedPaths []string, remap func(string) string) (any, error) {
 	// Get factory from registry
 	factory, err := ops.GetGlobal(toolID)
 	if err != nil {
@@ -86,9 +108,10 @@ func (api *OpsAPI) routeOperation(ctx context.Context, toolID, operation string,
 	}
 
 	// Create handler instance bound to the request's path boundary: the
-	// session's project path widened by the caller's allowed-paths grant.
+	// session's project path widened by the caller's allowed-paths grant, with
+	// resolved paths redirected into the conversation's bound workspace.
 	// No caching - operations are stateless.
-	scope := ops.NewPathScope(projectPath, allowedPaths)
+	scope := ops.NewPathScope(projectPath, allowedPaths).WithRemap(remap)
 	handler := factory(scope)
 
 	// Execute the operation

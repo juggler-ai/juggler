@@ -73,6 +73,7 @@ func (s *Server) seedProjectState(cfg Config) {
 		sessionManager: cfg.SessionManager,
 		lock:           cfg.BootLock,
 		viewers:        newViewerGroup(),
+		workspaces:     newWorkspaceRegistry(initialProjectPath),
 	})
 }
 
@@ -358,6 +359,10 @@ func (s *Server) setupRoutes() {
 	api.HandleFunc("/completions/path", s.completionsAPI.HandlePathCompletions).Methods("GET")
 	api.HandleFunc("/completions/exists", s.completionsAPI.HandlePathExists).Methods("GET")
 	api.HandleFunc("/git/status", s.gitStatusAPI.HandleGitStatus).Methods("GET")
+	// Extension-facing workspace binding: a capability (e.g. the worktrees
+	// extension) binds/unbinds a conversation's alternate execution root here.
+	api.HandleFunc("/workspace/bind", s.handleWorkspaceBind).Methods("POST")
+	api.HandleFunc("/workspace/unbind", s.handleWorkspaceUnbind).Methods("POST")
 	api.HandleFunc("/providers", s.handleProviders).Methods("GET")
 	api.HandleFunc("/providers/refresh", s.handleRefreshProviders).Methods("POST")
 	api.HandleFunc("/providers/usage", s.handleProviderUsageStats).Methods("GET")

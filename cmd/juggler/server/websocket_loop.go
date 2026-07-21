@@ -134,7 +134,12 @@ func (s *Server) processShellRequest(
 
 	// Create shell operations rooted at the project path. The requested cwd is
 	// validated against that root inside ExecuteStreaming.
-	shellOps := ops.NewShellOperations(ops.NewPathScope(s.SessionManager().GetProjectPath(), nil))
+	// Root the shell at the REAL project path, with paths redirected into the
+	// requesting conversation's bound workspace (if any). The requested cwd is
+	// validated against the real root, then redirected, inside ExecuteStreaming.
+	shellOps := ops.NewShellOperations(
+		ops.NewPathScope(s.SessionManager().GetProjectPath(), nil).WithRemap(s.workspaceRemapper(req.ConversationID)),
+	)
 
 	// Create output channel for streaming chunks
 	outputChan := make(chan ops.ShellStreamChunk, 100)

@@ -41,6 +41,16 @@ type PathValidationResult struct {
 type PathScope struct {
 	root         string
 	allowedRoots []string
+	// remap, when set, translates an already-validated real absolute path into
+	// the path the op should actually touch. It is the single mechanism by which
+	// a conversation's file/shell ops are redirected into an alternate execution
+	// root (a git worktree, a devcontainer mount, a sandbox) chosen by an
+	// EXTENSION, not by core — core knows nothing about what the remap points at.
+	// It is applied to the OUTPUT of Resolve/Sanitize, so containment and
+	// out-of-scope-write authorization still run in real-project space (the
+	// security boundary is unchanged) while execution is redirected. nil ⇒
+	// identity (the conversation runs directly in the project, today's default).
+	remap func(string) string
 }
 
 // NewPathScope builds a PathScope for a working directory widened by an
@@ -55,17 +65,65 @@ func NewPathScope(root string, allowedRoots []string) PathScope {
 	return PathScope{root: root, allowedRoots: roots}
 }
 
-// Root returns the working directory this scope is anchored at.
+// WithRemap returns a copy of the scope whose resolved paths are redirected by
+// fn (see the remap field). fn is applied to already-validated real paths;
+// passing nil yields an identity scope. This is how the server binds a
+// conversation's extension-chosen workspace root into the op layer.
+func (s PathScope) WithRemap(fn func(string) string) PathScope {
+	s.remap = fn
+	return s
+}
+
+// applyRemap redirects a real absolute path into the bound workspace when a
+// remap is set, else returns it unchanged.
+func (s PathScope) applyRemap(abs string) string {
+	if s.remap == nil {
+		return abs
+	}
+	return s.remap(abs)
+}
+
+// Root returns the real project working directory this scope is anchored at.
+// It is the security/validation anchor; for the directory an op should actually
+// operate in (redirected into the conversation's bound workspace) use BaseDir.
 func (s PathScope) Root() string {
 	return s.root
+}
+
+// BaseDir is the working directory an op should default to when no explicit
+// path is given (grep/tree search base, shell cwd) — the real root redirected
+// into the conversation's bound workspace, or the real root unchanged when no
+// workspace is bound.
+func (s PathScope) BaseDir() string {
+	return s.applyRemap(s.root)
+}
+
+// Remap redirects an already-validated real absolute path into the bound
+// workspace. Exposed for ops (shell cwd) that validate a path against the real
+// root and then need the workspace location to execute in.
+func (s PathScope) Remap(absPath string) string {
+	return s.applyRemap(absPath)
 }
 
 // Resolve validates a requested path for a read/search/tree op, enforcing
 // containment within the working directory OR any allowed root. These ops are
 // NOT approval-gated, so the scope is the policy boundary and must self-enforce
 // containment (including the allowed-roots grant). Write/edit ops use Sanitize
-// instead — see the contrast below.
+// instead — see the contrast below. The returned AbsPath is redirected into the
+// bound workspace (containment having been checked in real-project space).
 func (s PathScope) Resolve(requestedPath string) (*PathValidationResult, error) {
+	result, err := ValidateFilePathWithRoots(s.root, s.allowedRoots, requestedPath)
+	if err == nil && result != nil && result.IsValid {
+		result.AbsPath = s.applyRemap(result.AbsPath)
+	}
+	return result, err
+}
+
+// ResolveReal is Resolve WITHOUT the workspace redirect: it validates containment
+// and returns the real (pre-remap) absolute path. Search/tree ops use it to learn
+// the real location a path maps to, so they can search the redirected workspace
+// yet still report matches relative to the real project root.
+func (s PathScope) ResolveReal(requestedPath string) (*PathValidationResult, error) {
 	return ValidateFilePathWithRoots(s.root, s.allowedRoots, requestedPath)
 }
 
@@ -74,9 +132,15 @@ func (s PathScope) Resolve(requestedPath string) (*PathValidationResult, error) 
 // (the user has already OK'd the write by the time the request lands), so the
 // backend executes faithfully rather than re-imposing a sandbox that would also
 // reject the legitimate out-of-project write the user just approved. Contrast
-// Resolve, which is the gate for the non-approval-gated reads/search/tree.
+// Resolve, which is the gate for the non-approval-gated reads/search/tree. The
+// returned path is redirected into the bound workspace; the real path is still
+// what AuthorizeOutOfScopeWrite validates.
 func (s PathScope) Sanitize(requestedPath string) (string, error) {
-	return SanitizeAbsolutePath(s.root, requestedPath)
+	abs, err := SanitizeAbsolutePath(s.root, requestedPath)
+	if err != nil {
+		return "", err
+	}
+	return s.applyRemap(abs), nil
 }
 
 // ResolveUserInitiated resolves a path for a non-approval-gated read/tree op,
@@ -100,13 +164,17 @@ func (s PathScope) ResolveUserInitiated(requestedPath string, userInitiated bool
 	if err != nil {
 		return "", err
 	}
-	rootAbs, err := filepath.Abs(s.root)
-	if err == nil {
-		if real, e := filepath.EvalSymlinks(rootAbs); e == nil {
-			rootAbs = real
-		}
-		if !pathWithinRoot(abs, rootAbs) {
-			jlog.Info("ops: user-initiated out-of-workdir access: %s", abs)
+	// Audit the out-of-workdir case using the REAL path — abs may have been
+	// redirected into a bound workspace, which is legitimately outside the
+	// project root and must not be logged as an escape.
+	if realAbs, e := SanitizeAbsolutePath(s.root, requestedPath); e == nil {
+		if rootAbs, e2 := filepath.Abs(s.root); e2 == nil {
+			if real, e3 := filepath.EvalSymlinks(rootAbs); e3 == nil {
+				rootAbs = real
+			}
+			if !pathWithinRoot(realAbs, rootAbs) {
+				jlog.Info("ops: user-initiated out-of-workdir access: %s", realAbs)
+			}
 		}
 	}
 	return abs, nil
@@ -371,13 +439,22 @@ func (s PathScope) withinScope(absPath string) bool {
 // Approved out-of-scope writes are logged for the audit trail (mirroring
 // ResolveUserInitiated). kind is "write" or "edit", used only in the message.
 func (s PathScope) AuthorizeOutOfScopeWrite(absPath, requestedPath, kind string, approved bool) error {
-	if s.withinScope(absPath) {
+	// Validate the REAL path, not absPath: Sanitize may have redirected absPath
+	// into a bound workspace (which lives OUTSIDE the project root), so checking
+	// it directly would spuriously demand approval for every ordinary in-project
+	// write. Re-derive the real target from requestedPath so the boundary is
+	// enforced in real-project space, exactly as before workspaces existed.
+	real, err := SanitizeAbsolutePath(s.root, requestedPath)
+	if err != nil {
+		real = absPath // can't re-derive — fall back to the given path
+	}
+	if s.withinScope(real) {
 		return nil
 	}
 	if !approved {
 		return fmt.Errorf("%s outside project scope requires explicit approval: %q", kind, requestedPath)
 	}
-	jlog.Info("ops: out-of-scope %s approved: %s", kind, absPath)
+	jlog.Info("ops: out-of-scope %s approved: %s", kind, real)
 	return nil
 }
 

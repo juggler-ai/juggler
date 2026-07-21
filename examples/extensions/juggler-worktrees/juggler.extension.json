@@ -1,0 +1,13 @@
+{
+  "id": "@juggler/worktrees",
+  "name": "Git Worktrees",
+  "version": "0.1.0",
+  "author": "Juggler community",
+  "homepage": "https://github.com/juggler-ai/juggler/issues/51",
+  "license": "AGPL-3.0-or-later",
+  "engineApi": "^1.0.0",
+  "permissions": ["shell.exec", "filesystem.write"],
+  "provides": {
+    "strategies": ["strategies/*-strategy-type.js"]
+  }
+}

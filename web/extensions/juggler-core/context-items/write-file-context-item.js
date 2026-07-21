@@ -135,7 +135,7 @@ class WriteFileContextItem extends EditBase {
     /** @type {string|undefined} */
     let existingContent;
     try {
-      const result = await readFile({ path });
+      const result = await readFile(this._withConv({ path }));
       if (result.exists && result.content !== undefined) {
         existingContent = result.content;
       }
@@ -148,7 +148,7 @@ class WriteFileContextItem extends EditBase {
     // …) before we ask the user to approve. If it can't, fail at validation
     // and skip the approval modal entirely — mirrors replace-text.
     try {
-      await writeFile({ path, content: params.content, dryRun: true });
+      await writeFile(this._withConv({ path, content: params.content, dryRun: true }));
     } catch (err) {
       return {
         valid: false,
@@ -224,7 +224,7 @@ class WriteFileContextItem extends EditBase {
     // backend's defence-in-depth check admits the write.
     const { params: sendParams, allowedPaths } = this._authorizeWrite(writeParams);
     const result = await writeFile(
-      /** @type {import('../../../js/services/ops-api.js').ReadFileWriteParams} */ (sendParams),
+      this._withConv(sendParams),
       this.signal,
       allowedPaths
     );

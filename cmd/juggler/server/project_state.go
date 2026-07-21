@@ -30,6 +30,59 @@ type projectState struct {
 	// map, and shell cancel map. Project-scoped so a SwitchProject cleanly
 	// cancels in-flight work tied to the old project.
 	viewers *viewerGroup
+
+	// workspaces maps each conversation to an extension-chosen alternate
+	// execution root (see WorkspaceRegistry). Nil in no-project mode. When a
+	// conversation has no workspace bound (the default), its ops run directly in
+	// the project. Project-scoped, so a SwitchProject starts fresh and Closes the
+	// old registry.
+	workspaces *WorkspaceRegistry
+}
+
+// workspaceRemapper returns the path-remap for a conversation's bound workspace,
+// or nil when none is bound (⇒ ops run in the project root). This is the single
+// resolver every conversation-aware op surface routes through.
+func (s *Server) workspaceRemapper(convID string) func(string) string {
+	st := s.projectState.Load()
+	if st == nil || st.workspaces == nil || convID == "" {
+		return nil
+	}
+	return st.workspaces.Remapper(convID)
+}
+
+// bindWorkspace records a conversation's extension-chosen execution root. Safe
+// no-op in no-project mode.
+func (s *Server) bindWorkspace(convID, root string) {
+	if st := s.projectState.Load(); st != nil && st.workspaces != nil {
+		st.workspaces.Bind(convID, root)
+	}
+}
+
+// unbindWorkspace clears a conversation's workspace binding (ops revert to the
+// project root). Called by an extension on teardown and by the server when a
+// conversation is deleted.
+func (s *Server) unbindWorkspace(convID string) {
+	if st := s.projectState.Load(); st != nil && st.workspaces != nil {
+		st.workspaces.Unbind(convID)
+	}
+}
+
+// workspaceRoot returns the workspace root bound to convID, or "" when none.
+func (s *Server) workspaceRoot(convID string) string {
+	st := s.projectState.Load()
+	if st == nil || st.workspaces == nil {
+		return ""
+	}
+	return st.workspaces.Root(convID)
+}
+
+// newWorkspaceRegistry builds the per-conversation workspace registry for a
+// project path, or nil in no-project mode.
+func newWorkspaceRegistry(path string) *WorkspaceRegistry {
+	if path == "" {
+		return nil
+	}
+	return NewWorkspaceRegistry(path)
 }
 
 // SessionManager returns the current per-project SessionManager (always non-nil).
@@ -146,6 +199,7 @@ func (s *Server) SwitchProject(newPath string) error {
 		lock:           newLock,
 		fileChangesCh:  make(chan struct{}),
 		viewers:        newViewerGroup(),
+		workspaces:     newWorkspaceRegistry(newPath),
 	}
 
 	// Atomic swap.
@@ -175,6 +229,9 @@ func (s *Server) SwitchProject(newPath string) error {
 			}
 			if prev.sessionManager != nil {
 				prev.sessionManager.Shutdown()
+			}
+			if prev.workspaces != nil {
+				prev.workspaces.Close()
 			}
 			if prev.lock != nil {
 				_ = prev.lock.Release()

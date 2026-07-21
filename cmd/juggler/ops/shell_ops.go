@@ -591,7 +591,7 @@ func (ops *ShellOperations) startBackground(params map[string]any) (any, error) 
 		// Build command
 		cmd := newShellCmd(ctx, command)
 		setProcGroup(cmd)
-		cmd.Dir = ops.scope.Root()
+		cmd.Dir = ops.scope.BaseDir()
 
 		updateShellCmd(shellID, cmd)
 
@@ -731,14 +731,16 @@ func (ops *ShellOperations) execute(ctx context.Context, params map[string]any) 
 	// Get timeout from params (defaults to defaultExecTimeoutMs, capped at maxExecTimeoutMs)
 	timeout := timeoutFromParams(params, defaultExecTimeoutMs)
 
-	// Get working directory from params (default: session's project path)
-	workingDir := ops.scope.Root()
+	// Working directory (default: the conversation's bound workspace, else the
+	// project). A given cwd is validated against the REAL project root, then
+	// redirected into the bound workspace.
+	workingDir := ops.scope.BaseDir()
 	if cwd, ok := params["cwd"].(string); ok && cwd != "" {
 		resolved, err := validateCwd(ops.scope.Root(), cwd)
 		if err != nil {
 			return nil, err
 		}
-		workingDir = resolved
+		workingDir = ops.scope.Remap(resolved)
 	}
 
 	// Bound the command by both the caller's context and the timeout. Deriving
@@ -814,7 +816,7 @@ func (ops *ShellOperations) executePythonCode(ctx context.Context, code string, 
 	// Using "-" tells python to read from stdin. On Unix this is python3; on
 	// Windows it is routed through WSL (see newPythonCmd).
 	cmd := newPythonCmd(ctx)
-	cmd.Dir = ops.scope.Root()
+	cmd.Dir = ops.scope.BaseDir()
 	cmd.Stdin = strings.NewReader(code)
 
 	output := newCappedBuffer(outputHeadLimit, outputTailLimit)
@@ -890,7 +892,8 @@ func (ops *ShellOperations) ExecuteStreaming(
 	}
 	timeout := capTimeout(timeoutMs)
 
-	// Working directory, validated to stay within the project root.
+	// Working directory, validated against the REAL project root, then redirected
+	// into the conversation's bound workspace.
 	workingDir, err := validateCwd(ops.scope.Root(), cwd)
 	if err != nil {
 		output <- ShellStreamChunk{
@@ -900,6 +903,7 @@ func (ops *ShellOperations) ExecuteStreaming(
 		}
 		return
 	}
+	workingDir = ops.scope.Remap(workingDir)
 
 	// Create timeout context
 	ctx, cancel := context.WithTimeout(ctx, timeout)

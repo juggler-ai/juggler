@@ -625,9 +625,11 @@ class WebSocketService {
    * @param {string} command - Shell command to execute
    * @param {string} [cwd] - Working directory (optional)
    * @param {number} [timeout] - Timeout in milliseconds (optional)
+   * @param {string} [conversationId] - Owning conversation, so the shell runs in
+   *   that conversation's git worktree (empty/omitted ⇒ base project root)
    * @returns {boolean} True if sent successfully
    */
-  sendShellStart(shellId, command, cwd, timeout) {
+  sendShellStart(shellId, command, cwd, timeout, conversationId) {
     if (!this.connected || !this._transport) {
       console.error(`[ESSENTIAL] [WebSocket] Not connected, cannot send shell-start`);
       return false;
@@ -639,7 +641,8 @@ class WebSocketService {
         shellId,
         command,
         cwd,
-        timeout
+        timeout,
+        conversationId
       });
       this._sendTransport(payload);
       return true;

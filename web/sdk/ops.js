@@ -51,6 +51,9 @@ export {
   // Web
   webFetch,
   webSearch,
+  // Workspace binding — redirect a conversation's execution root (worktrees etc.)
+  bindWorkspace,
+  unbindWorkspace,
   // OS integration
   osOpenPath as openPath,
   osRevealPath as revealPath,

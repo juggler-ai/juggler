@@ -341,6 +341,36 @@ class ContextItem {
     return this.messageThread?.getExplicitAllowedPaths?.() || [];
   }
 
+  /**
+   * The conversation this tool belongs to, passed to file/search/tree/shell
+   * backend ops so they run inside that conversation's bound workspace
+   * (per-conversation isolation — see core.ConvWorktrees) rather than the shared
+   * project root. Returns '' when unbound, which the backend treats as "use the
+   * base project path", so non-git projects and unbound calls behave as before.
+   * Deliberately NOT used for project-shared state (e.g. the memory file) or
+   * viewer-only file previews, which must resolve against the base project.
+   * @returns {string} Conversation id, or '' when unbound.
+   */
+  getConversationId() {
+    return this.conversation?.id || this.messageThread?.conversationId || '';
+  }
+
+  /**
+   * Tag an op's params with this tool's conversation id so the backend routes
+   * the op into that conversation's bound workspace. callOp (HTTP ops)
+   * and shellExecuteStreaming (the streaming shell) both lift `conversationId`
+   * off the params to the transport and strip it from the op params. A no-op
+   * (returns params unchanged) when unbound, so nothing is added for non-git
+   * projects or contexts without a conversation.
+   * @template T
+   * @param {T} params - Op parameters
+   * @returns {any} params, tagged with conversationId when bound
+   */
+  _withConv(params) {
+    const cid = this.getConversationId();
+    return cid ? { ...params, conversationId: cid } : params;
+  }
+
   // ============================================================================
   // TITLES AND SUMMARIES
   // ============================================================================

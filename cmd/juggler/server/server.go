@@ -237,6 +237,9 @@ func New(cfg Config) (*Server, error) {
 		if cc := s.conversationCache; cc != nil {
 			cc.CloseConversation(convID)
 		}
+		// Clear any workspace binding for the deleted conversation (safety net;
+		// the extension owns tearing down the underlying workspace itself).
+		s.unbindWorkspace(convID)
 	}, s.resolveDefaultModel)
 
 	configAPI, err := handlers.NewConfigAPI(s.ProjectPath, s.RefreshProviders, func() {
@@ -276,14 +279,14 @@ func New(cfg Config) (*Server, error) {
 	s.assetsFromDisk = cfg.AssetsFromDisk
 	s.bootProjectPath = cfg.ProjectPath
 	s.extraRoutes = cfg.ExtraRoutes
-	s.opsAPI = handlers.NewOpsAPI(s.ProjectPath)
+	s.opsAPI = handlers.NewOpsAPI(s.ProjectPath, s.workspaceRemapper)
 	s.completionsAPI = handlers.NewCompletionsAPI(s.ProjectPath, func() ops.PathSearcher {
 		if fw := s.FileWatcher(); fw != nil {
 			return fw.Index()
 		}
 		return nil
 	})
-	s.gitStatusAPI = handlers.NewGitStatusAPI(s.ProjectPath)
+	s.gitStatusAPI = handlers.NewGitStatusAPI(s.ProjectPath, s.workspaceRoot)
 	s.extensionsAPI = extensionsAPI
 	s.userCommandsAPI = handlers.NewUserCommandsAPI(s.ProjectPath)
 	s.skillsAPI = handlers.NewSkillsAPI(s.ProjectPath)

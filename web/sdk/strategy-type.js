@@ -117,6 +117,7 @@
  */
 
 import { submitPendingRequest } from '../js/services/thread-orchestrator.js';
+import { bindWorkspace, unbindWorkspace } from './ops.js';
 
 // ============================================================================
 // Approval Policy Constants
@@ -383,6 +384,29 @@ class StrategyType {
     await submitPendingRequest(this.messageThread, 'continue', (reqMap) => {
       if (threadItemId !== null && threadItemId !== undefined) reqMap.set('threadItemId', threadItemId);
     }, this._abortController?.signal);
+  }
+
+  /**
+   * Bind this conversation's execution root to `root`. While bound, the
+   * conversation's file/shell/search/tree ops run under `root` instead of the
+   * project directory (paths are still validated in real-project space, so the
+   * security boundary is unchanged). This is how a strategy adds a worktree-style
+   * workflow: prepare an alternate root (e.g. `git worktree add` via the `shell`
+   * op), then bind it here — typically from {@link onActivate}. Pair with
+   * {@link unbindWorkspace} on teardown.
+   * @param {string} root - Absolute path of the alternate execution root.
+   * @returns {Promise<{ok: boolean, root?: string, error?: string}>} Bind result.
+   */
+  async bindWorkspace(root) {
+    return bindWorkspace(this.messageThread.conversationId, root);
+  }
+
+  /**
+   * Clear this conversation's workspace binding; ops revert to the project root.
+   * @returns {Promise<{ok: boolean, error?: string}>} Unbind result.
+   */
+  async unbindWorkspace() {
+    return unbindWorkspace(this.messageThread.conversationId);
   }
 
   /**

@@ -179,12 +179,12 @@ class MonitorContextItem extends ContextItem {
       ? MAX_EXEC_TIMEOUT_MS
       : (params.timeout_ms !== undefined ? Math.min(Number(params.timeout_ms), MAX_EXEC_TIMEOUT_MS) : undefined);
 
-    const result = await shellBackground({
+    const result = await shellBackground(this._withConv({
       command,
       timeout: timeoutMs,
       conv_id: this.conversation.id,
       tool_use_id: this.toolUseId
-    });
+    }));
 
     // Ask the worker (via the generic task-output delivery binding) to stream
     // this task's stdout into the conversation. Fire-and-forget: the binding

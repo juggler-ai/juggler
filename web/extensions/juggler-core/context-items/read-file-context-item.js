@@ -164,7 +164,7 @@ class ReadFileContextItem extends ContextItem {
    */
   async execute(params) {
     const readParams = /** @type {ReadFileParams} */ (params);
-    return await readFile(readParams, this.signal, this.getToolAllowedRoots());
+    return await readFile(this._withConv(readParams), this.signal, this.getToolAllowedRoots());
   }
 
   /**

@@ -98,7 +98,7 @@ class ExploreCodeContextItem extends ContextItem {
     const code = /** @type {string} */ (params.code);
     const timeoutMs = params.timeout ? Number(params.timeout) : 120000;
 
-    const fs = new ReadOnlyFileSystem(this.getToolAllowedRoots());
+    const fs = new ReadOnlyFileSystem(this.getToolAllowedRoots(), this.getConversationId());
     const { grep, glob } = this._createSearchHelpers();
 
     const result = await runInSandbox(code, {
@@ -120,6 +120,14 @@ class ExploreCodeContextItem extends ContextItem {
     // cancellable along with the rest of the explore_code action.
     const signal = this.signal;
     const allowedPaths = this.getToolAllowedRoots();
+    // Route the sandbox's grep/glob into this conversation's bound workspace (see
+    // callOp); '' ⇒ base project root.
+    const conversationId = this.getConversationId();
+    /**
+     * @param {Record<string, unknown>} p - Op params
+     * @returns {any} params tagged with conversationId when bound
+     */
+    const withConv = (p) => (conversationId ? { ...p, conversationId } : p);
     return {
       /**
        * Search file contents (ripgrep-style).
@@ -134,7 +142,7 @@ class ExploreCodeContextItem extends ContextItem {
         if (options?.glob) params.include = options.glob;
         if (options?.maxResults) params.maxResults = options.maxResults;
         if (options?.ignoreCase !== undefined) params.ignoreCase = options.ignoreCase;
-        const result = await grepOp(/** @type {any} */ (params), signal, allowedPaths);
+        const result = await grepOp(withConv(params), signal, allowedPaths);
         return result.matches || [];
       },
       /**
@@ -147,7 +155,7 @@ class ExploreCodeContextItem extends ContextItem {
         /** @type {Record<string, unknown>} */
         const params = { pattern };
         if (options?.cwd) params.path = options.cwd;
-        const result = await globOp(/** @type {any} */ (params), signal, allowedPaths);
+        const result = await globOp(withConv(params), signal, allowedPaths);
         const files = result.files || [];
         if (!options?.cwd) return files;
 

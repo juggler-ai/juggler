@@ -114,7 +114,7 @@ func (ops *SearchOperations) grep(ctx context.Context, params map[string]any) (a
 			searchPath = pathResult.AbsPath
 		}
 	} else {
-		searchPath = ops.scope.Root()
+		searchPath = ops.scope.BaseDir()
 	}
 
 	// Get max results limit (support both old and new param names)
@@ -145,7 +145,7 @@ func (ops *SearchOperations) grep(ctx context.Context, params map[string]any) (a
 	// Load .gitignore patterns (unless noIgnore is true)
 	var gitignorePatterns []string
 	if !noIgnore {
-		gitignorePatterns = loadGitignorePatterns(ops.scope.Root())
+		gitignorePatterns = loadGitignorePatterns(ops.scope.BaseDir())
 	}
 
 	// Perform search
@@ -185,7 +185,7 @@ func (ops *SearchOperations) searchGlobFiles(ctx context.Context, globPattern st
 	truncated := false
 
 	// Use doublestar to expand glob pattern
-	files, err := doublestar.Glob(os.DirFS(ops.scope.Root()), globPattern)
+	files, err := doublestar.Glob(os.DirFS(ops.scope.BaseDir()), globPattern)
 	if err != nil {
 		return matches, false
 	}
@@ -195,7 +195,7 @@ func (ops *SearchOperations) searchGlobFiles(ctx context.Context, globPattern st
 		if ctx.Err() != nil {
 			return matches, truncated
 		}
-		absPath := filepath.Join(ops.scope.Root(), relFile)
+		absPath := filepath.Join(ops.scope.BaseDir(), relFile)
 
 		// Skip directories
 		info, err := os.Stat(absPath)
@@ -216,7 +216,7 @@ func (ops *SearchOperations) searchGlobFiles(ctx context.Context, globPattern st
 		}
 
 		// Search within file
-		fileMatches := ops.searchInFile(absPath, ops.scope.Root(), pattern, maxResults-len(matches))
+		fileMatches := ops.searchInFile(absPath, ops.scope.BaseDir(), pattern, maxResults-len(matches))
 		matches = append(matches, fileMatches...)
 
 		if len(matches) >= maxResults {
@@ -247,7 +247,7 @@ func (ops *SearchOperations) searchFiles(ctx context.Context, searchPath string,
 		}
 
 		// Get relative path for gitignore matching
-		relPath, _ := filepath.Rel(ops.scope.Root(), path)
+		relPath, _ := filepath.Rel(ops.scope.BaseDir(), path)
 
 		// Skip directories
 		if d.IsDir() {
@@ -343,7 +343,7 @@ func (ops *SearchOperations) searchInFile(filePath, basePath string, pattern *re
 	// /private/var/folders/... would otherwise diverge at the root).
 	// filepath.Rel yields OS separators (\ on Windows); tool results are always
 	// POSIX-style, so normalise back to forward slashes.
-	relPath := filepath.ToSlash(filepathRelEvalSymlinks(ops.scope.Root(), filePath))
+	relPath := filepath.ToSlash(filepathRelEvalSymlinks(ops.scope.BaseDir(), filePath))
 
 	scanner := bufio.NewScanner(file)
 	lineNum := 1
@@ -405,7 +405,7 @@ func (ops *SearchOperations) findSymbol(ctx context.Context, params map[string]a
 	maxResults := 100
 
 	// Load .gitignore patterns for symbol search
-	gitignorePatterns := loadGitignorePatterns(ops.scope.Root())
+	gitignorePatterns := loadGitignorePatterns(ops.scope.BaseDir())
 
 	for _, patternStr := range patterns {
 		pattern, err := regexp.Compile(patternStr)
@@ -413,7 +413,7 @@ func (ops *SearchOperations) findSymbol(ctx context.Context, params map[string]a
 			continue
 		}
 
-		matches, _ := ops.searchFiles(ctx, ops.scope.Root(), pattern, maxResults-len(allResults), "", gitignorePatterns, false)
+		matches, _ := ops.searchFiles(ctx, ops.scope.BaseDir(), pattern, maxResults-len(allResults), "", gitignorePatterns, false)
 		allResults = append(allResults, matches...)
 
 		if len(allResults) >= maxResults {

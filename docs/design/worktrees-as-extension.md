@@ -241,10 +241,56 @@ beside the strategy selector.
 
 ## Open questions for maintainers
 
-1. **Axis shape.** This models Environment closely on Strategy (per-conversation
-   `currentEnvironmentId`, its own selector, `onActivate`/`onDeactivate`/
-   `onTeardown`). Is a full capability type the right weight, or would you prefer
-   a lighter "lifecycle-subscriber" module? (Both drive the same core remap.)
+### 1. Axis shape — full capability type, or a lighter lifecycle module?
+
+Both drive the *same* core remap (`bindWorkspace` + `WorkspaceRegistry` +
+`WithRemap`); they differ only in how the extension is packaged and how a
+conversation opts in. Three points on the spectrum:
+
+**(a) Environment capability type (this PoC).** Manifest `provides.environments`,
+a registry, per-conversation `currentEnvironmentId`, an `environment-selector`
+UI, and selection-keyed worker→engine dispatch. Heaviest, but gives a
+first-class, per-conversation, user-visible mode.
+
+**(b) A lifecycle-subscriber module (lighter — and feasible today).** Modelled on
+the existing `provides.systemPrompt`, which is already a *plain module* (not a
+class) the host loads and calls. Add `provides.lifecycle: "lifecycle.js"` whose
+default export is a hooks object the engine invokes:
+
+```js
+export default {
+  async onConversationActivated({ conversationId, projectRoot, shell, bindWorkspace }) { /* worktree + bind */ },
+  async onConversationDeleted({ conversationId, unbindWorkspace }) { /* teardown */ },
+};
+```
+
+The substrate exists — the engine already receives conversation `created`/
+`deleted` (`conversations-changed`). This **drops the selector UI,
+`currentEnvironmentId`, and selection-keyed dispatch** — genuinely lighter.
+
+**The one real tradeoff is opt-in granularity, not code size.** A subscriber
+fires for *every* conversation, so on its own it means **per-project** opt-in
+(enable the extension / a config flag) rather than **per-conversation** — which
+loses "isolate these tabs but not that one." So:
+- If "all conversations in this project run in worktrees" is acceptable → the
+  lifecycle module is strictly lighter and sufficient.
+- If per-conversation choice with a selector is wanted → you need roughly (a).
+
+**(c) Hybrid (per-conversation, still no capability type).** A `/worktree`
+*command* whose only side-effect is the (legitimate, declarative)
+`setConversationMetadata` — it just sets a per-conversation flag — plus a
+lifecycle module (b) that reads that flag in `onConversationActivated` and binds.
+This keeps per-conversation opt-in while reusing Commands + a lifecycle module,
+avoiding a new capability type and a bespoke selector. Slightly less discoverable
+than a first-class selector.
+
+A `Command` alone cannot do it: commands are viewer-side and declarative
+("never perform these operations directly — declare intent, the host
+dispatches"), so they can't call `shell`/`bindWorkspace` themselves.
+
+Recommendation: if per-conversation opt-in matters, **(a)** or **(c)**; if
+per-project is fine, **(b)** is the least new surface. All three reuse the core
+remap unchanged.
 2. **Teardown/persistence.** `onTeardown` gives environments a real
    conversation-deleted hook. Two things still to decide: whether bindings should
    **persist** (survive a reload/server restart, where `onActivate` won't re-fire)

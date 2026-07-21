@@ -41,15 +41,17 @@ var themeColours = map[string]application.RGBA{
 	"light": {Red: 255, Green: 255, Blue: 255, Alpha: 255},
 }
 
-// linuxWebviewGpuPolicy maps the webviewenv GPU decision to the Wails policy for
-// the *visible* viewer windows. It stays WebviewGpuPolicyNever (software
-// rendering) unless there is positive evidence a working GL stack is present
-// (see webviewenv.LinuxWebviewGpuAcceleration), in which case it returns
-// WebviewGpuPolicyAlways so WebKitGTK composites the UI's continuous animations
-// on the GPU instead of re-rasterising every frame on the main thread. The
-// engine window (off-screen, paints nothing) keeps its own hard-coded Never.
-func linuxWebviewGpuPolicy() application.WebviewGpuPolicy {
-	if accel, _ := webviewenv.LinuxWebviewGpuAcceleration(); accel {
+// linuxGpuPolicy maps the resolved webviewenv GPU decision (see
+// webviewenv.LinuxWebviewGpuAcceleration) to the Wails policy for the *visible*
+// viewer windows: WebviewGpuPolicyAlways when there is positive evidence a
+// working GL stack is present, so WebKitGTK composites the UI's continuous
+// animations on the GPU instead of re-rasterising every frame on the main
+// thread; WebviewGpuPolicyNever (software rendering) otherwise. Pure mapping —
+// the decision itself is resolved once in newAppState and stored on
+// appState.gpuPolicy. The engine window (off-screen, paints nothing) keeps its
+// own hard-coded Never.
+func linuxGpuPolicy(enabled bool) application.WebviewGpuPolicy {
+	if enabled {
 		return application.WebviewGpuPolicyAlways
 	}
 	return application.WebviewGpuPolicyNever
@@ -119,14 +121,28 @@ type appState struct {
 	ctlPort   int
 	workspace *workspaceStore
 
+	// gpuPolicy is the WebKitGTK hardware-acceleration policy applied to every
+	// visible viewer window; gpuNote is the one-line reason to log at startup.
+	// Both are resolved ONCE here in newAppState (webviewenv.LinuxWebviewGpuAcceleration
+	// reads the env override and probes /dev/dri + /proc), so every window gets
+	// the same policy and the logged reason provably matches what the windows
+	// applied — instead of each window and the startup log independently
+	// re-evaluating the decision (which also did that filesystem I/O on every
+	// window open, on macOS/Windows too).
+	gpuPolicy application.WebviewGpuPolicy
+	gpuNote   string
+
 	regOps chan func(*regState)
 	ids    chan string
 }
 
 func newAppState(devMode int) *appState {
+	gpuEnabled, gpuNote := webviewenv.LinuxWebviewGpuAcceleration()
 	a := &appState{
 		devMode:   devMode != 0,
 		workspace: newWorkspaceStore(),
+		gpuPolicy: linuxGpuPolicy(gpuEnabled),
+		gpuNote:   gpuNote,
 		regOps:    make(chan func(*regState), 32),
 		ids:       make(chan string),
 	}
@@ -613,7 +629,7 @@ func (a *appState) buildLockedProjectWindow(spec windowSpec, message, inheritedT
 		Frameless:        platformFrameless,
 		BackgroundColour: themeColours[bgTheme],
 		Mac:              application.MacWindow{TitleBar: application.MacTitleBar{AppearsTransparent: true, HideTitle: true, HideToolbarSeparator: true, FullSizeContent: true}},
-		Linux:            application.LinuxWindow{WebviewGpuPolicy: linuxWebviewGpuPolicy()},
+		Linux:            application.LinuxWindow{WebviewGpuPolicy: a.gpuPolicy},
 		Windows:          application.WindowsWindow{DisableFramelessWindowDecorations: false},
 	})
 	if win == nil {
@@ -727,17 +743,18 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *ex
 			},
 		},
 		// WebviewGpuPolicy: hardware-accelerated compositing when a working GL
-		// stack is detected, else software (Never). Forcing acceleration on a
+		// stack is detected, else software (Never) — resolved once and stored on
+		// appState.gpuPolicy (see newAppState). Forcing acceleration on a
 		// broken/absent GL stack (VM software GL, no DRI, headless) fails during
 		// webview realisation, the native window never comes up, and the startup
-		// watchdog FATALs — so linuxWebviewGpuPolicy only returns Always on
-		// positive evidence (DRI render node + display, non-NVIDIA-proprietary),
-		// and JUGGLER_WEBVIEW_GPU overrides it. Software rendering re-rasterises
-		// the UI's continuous animations (the busy spinner) on the main thread
-		// every frame, pinning a CPU core while work is in flight; acceleration
+		// watchdog FATALs — so the decision only returns Always on positive
+		// evidence (DRI render node + display, non-NVIDIA-proprietary), and
+		// JUGGLER_WEBVIEW_GPU overrides it. Software rendering re-rasterises the
+		// UI's continuous animations (the busy spinner) on the main thread every
+		// frame, pinning a CPU core while work is in flight; acceleration
 		// composites them on the GPU and frees the main thread.
 		Linux: application.LinuxWindow{
-			WebviewGpuPolicy: linuxWebviewGpuPolicy(),
+			WebviewGpuPolicy: a.gpuPolicy,
 		},
 		Windows: application.WindowsWindow{DisableFramelessWindowDecorations: false},
 	})

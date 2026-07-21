@@ -53,13 +53,14 @@ func main() {
 	if note := webviewenv.PrepareLinuxWebKit(); note != "" {
 		logf("%s", note)
 	}
-	// Resolve the visible-window GPU policy once at startup and log the decision
-	// (and why). The per-window sites call linuxWebviewGpuPolicy() → the same
-	// webviewenv decision; logging it here keeps the reasoning in one place.
-	if _, note := webviewenv.LinuxWebviewGpuAcceleration(); note != "" {
-		logf("%s", note)
-	}
 	app := newAppState(devMode)
+	// The visible-window GPU policy is resolved exactly once, in newAppState, and
+	// stored on appState. Log that same resolved reason here so the startup line
+	// provably matches the policy every window actually applied (no independent
+	// re-evaluation that could drift from it).
+	if app.gpuNote != "" {
+		logf("%s", app.gpuNote)
+	}
 
 	// Build the application — and acquire the single-instance lock — BEFORE
 	// resolving any server. If another juggler-app is already running, this call

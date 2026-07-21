@@ -189,29 +189,29 @@ flowchart TD
   classDef core fill:#eef,stroke:#66c,color:#006;
 ```
 
-### Runtime sequence — the worktree strategy (multi-repo)
+### Runtime sequence — the worktree lifecycle module (multi-repo)
 
 ```mermaid
 sequenceDiagram
-  participant W as Worker (Go)
-  participant X as Worktree lifecycle module (ext)
-  participant S as Server ops/workspace (Go)
+  participant W as Worker
+  participant X as Worktree module
+  participant S as Server ops+workspace
   participant G as git
 
-  W->>X: runExtensionLifecycleHook onConversationActivated(convId)
-  X->>S: shell "find .git … ; git worktree add (per repo)"  (project root)
-  S->>G: git worktree add -b juggler/conv-<id> <wtA> HEAD   (repoA)
-  S->>G: git worktree add -b juggler/conv-<id> <wtB> HEAD   (repoB)
-  S-->>X: stdout: "repoA<TAB>wtA" / "repoB<TAB>wtB"
+  W->>X: onConversationActivated convId
+  X->>S: shell — discover repos + git worktree add, at project root
+  S->>G: worktree add -b juggler/conv-ID wtA HEAD  [repoA]
+  S->>G: worktree add -b juggler/conv-ID wtB HEAD  [repoB]
+  S-->>X: stdout — repoA TAB wtA, repoB TAB wtB
   loop per repo
-    X->>S: POST /api/workspace/bind {convId, sourceRoot, workspaceRoot}
-    S->>S: WorkspaceRegistry.Bind(convId, sourceRoot, workspaceRoot)
+    X->>S: POST /api/workspace/bind convId, sourceRoot, workspaceRoot
+    S->>S: WorkspaceRegistry.Bind
   end
-  X-->>W: onActivate resolves
-  Note over W,S: subsequent tool calls carry conversationId
-  W->>S: /api/ops/call {conversationId, path=repoB/x.go}
-  S->>S: WithRemap → longest-prefix(repoB) → <wtB>/x.go
-  S-->>W: op runs inside repoB's worktree
+  X-->>W: activation resolves
+  Note over W,S: later tool calls carry conversationId
+  W->>S: /api/ops/call — convId, path repoB/x.go
+  S->>S: WithRemap longest-prefix repoB to wtB/x.go
+  S-->>W: op runs inside repoB worktree
 ```
 
 ## How the pieces map to code

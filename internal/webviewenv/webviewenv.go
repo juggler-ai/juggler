@@ -136,33 +136,12 @@ func sandboxRestrictedFrom(read func(string) (string, bool)) bool {
 	return false
 }
 
-// gpuOverrideEnv lets the user force the Linux WebKitGTK webview's hardware
-// acceleration policy, bypassing autodetection. Case-insensitive values:
-// "always"/"on"/"1"/"true"/"yes" force acceleration; "never"/"off"/"0"/"false"/
-// "no" force software rendering; "auto"/"" (or any unrecognised value)
-// autodetect.
+// gpuOverrideEnv lets the user override the Linux WebKitGTK webview's hardware
+// acceleration autodetection. Recognised values (case-insensitive, surrounding
+// whitespace ignored): "always" forces acceleration, "never" forces software
+// rendering, and "auto" — the default when unset — autodetects. Any other value
+// is treated as "auto".
 const gpuOverrideEnv = "JUGGLER_WEBVIEW_GPU"
-
-// gpuOverrideMode is the parsed intent of gpuOverrideEnv.
-type gpuOverrideMode int
-
-const (
-	gpuAuto gpuOverrideMode = iota
-	gpuForceOn
-	gpuForceOff
-)
-
-// gpuOverride parses the JUGGLER_WEBVIEW_GPU value into an intent.
-func gpuOverride(v string) gpuOverrideMode {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "always", "on", "1", "true", "yes":
-		return gpuForceOn
-	case "never", "off", "0", "false", "no":
-		return gpuForceOff
-	default:
-		return gpuAuto
-	}
-}
 
 // LinuxWebviewGpuAcceleration decides whether the *visible* Linux WebKitGTK
 // viewer window should use hardware-accelerated compositing (which the caller
@@ -205,10 +184,13 @@ func linuxWebviewGpuAcceleration(goos, override, display, wayland string, hasRen
 	if goos != "linux" {
 		return false, ""
 	}
-	switch gpuOverride(override) {
-	case gpuForceOn:
+	// JUGGLER_WEBVIEW_GPU overrides autodetection. Only the two documented
+	// forcing values are recognised; "auto" (the third documented value), unset,
+	// or anything else falls through to autodetection below.
+	switch strings.ToLower(strings.TrimSpace(override)) {
+	case "always":
 		return true, "webview GPU acceleration forced ON via " + gpuOverrideEnv
-	case gpuForceOff:
+	case "never":
 		return false, "webview GPU acceleration forced OFF via " + gpuOverrideEnv + " — using software rendering"
 	}
 	// Autodetect. Every negative branch is also the crash-safe branch, so

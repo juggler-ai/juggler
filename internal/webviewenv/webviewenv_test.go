@@ -183,32 +183,6 @@ func TestDetectLinuxHost(t *testing.T) {
 	}
 }
 
-func TestGpuOverride(t *testing.T) {
-	cases := []struct {
-		in   string
-		want gpuOverrideMode
-	}{
-		{"always", gpuForceOn},
-		{"ON", gpuForceOn},
-		{"1", gpuForceOn},
-		{"true", gpuForceOn},
-		{" Yes ", gpuForceOn},
-		{"never", gpuForceOff},
-		{"off", gpuForceOff},
-		{"0", gpuForceOff},
-		{"false", gpuForceOff},
-		{"no", gpuForceOff},
-		{"auto", gpuAuto},
-		{"", gpuAuto},
-		{"garbage", gpuAuto},
-	}
-	for _, tc := range cases {
-		if got := gpuOverride(tc.in); got != tc.want {
-			t.Errorf("gpuOverride(%q) = %v, want %v", tc.in, got, tc.want)
-		}
-	}
-}
-
 func TestLinuxWebviewGpuAcceleration(t *testing.T) {
 	yes := func() bool { return true }
 	no := func() bool { return false }
@@ -232,6 +206,12 @@ func TestLinuxWebviewGpuAcceleration(t *testing.T) {
 		// Override wins over autodetection, in both directions.
 		{"force on overrides headless", "linux", "always", "", "", no, yes, true, true},
 		{"force off overrides a good GPU", "linux", "never", ":0", "", yes, no, false, true},
+		// "always"/"never" are case-insensitive and whitespace-tolerant.
+		{"force on is case/space-insensitive", "linux", " Always ", "", "", no, yes, true, true},
+		// The other documented value ("auto") and any unrecognised value fall
+		// through to autodetection rather than forcing anything.
+		{"auto autodetects (good GPU → on)", "linux", "auto", ":0", "", yes, no, true, true},
+		{"unknown value autodetects (headless → software, silent)", "linux", "garbage", "", "", yes, no, false, false},
 		// Off Linux: never accelerated, never a note (field is ignored there).
 		{"darwin is (false, \"\")", "darwin", "always", ":0", "", yes, no, false, false},
 		{"windows is (false, \"\")", "windows", "always", ":0", "", yes, no, false, false},

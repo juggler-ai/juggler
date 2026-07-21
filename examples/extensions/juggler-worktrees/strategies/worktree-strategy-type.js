@@ -7,51 +7,60 @@
  *
  * Reference extension for issue #51 — "worktrees as an extension, not baked
  * into the core app." It demonstrates the ONE new core primitive this needs:
- * `this.bindWorkspace(root)` (SDK: `juggler/ops` → `bindWorkspace`), which
- * redirects a conversation's file/shell/search/tree ops into an alternate
- * execution root the extension prepares. Core knows nothing about git worktrees;
- * all of that policy lives here.
+ * `this.bindWorkspace(sourceRoot, workspaceRoot)` (SDK: `juggler/ops` →
+ * `bindWorkspace`), which redirects a conversation's file/shell/search/tree ops
+ * on a path under `sourceRoot` into `workspaceRoot`. Core knows nothing about
+ * git worktrees; all of that policy lives here.
  *
- * Selecting the "Worktree" strategy for a conversation makes that conversation
- * work inside its own dedicated `git worktree` on a `juggler/conv-<id>` branch,
- * so two conversations (side-tabs) editing the same repo never clobber each
- * other. The same primitive would let someone write a devcontainer, remote-dev,
- * or ephemeral-sandbox extension — the workflow the maintainer wanted to enable
- * without hard-coding worktrees.
+ * Selecting the "Worktree" strategy makes the conversation work inside a
+ * dedicated `git worktree` (branch `juggler/conv-<id>`) for EVERY git repository
+ * found under the project — the root repo plus any nested repos/submodules — so
+ * two conversations editing the same repos never clobber each other. Binding one
+ * source→workspace pair per repo is what lets a single conversation span more
+ * than one repository, each in its own worktree; t3code's single whole-session
+ * cwd cannot express that.
  */
 
 import StrategyType from 'juggler/strategy-type';
 import { shell } from 'juggler/ops';
 
 /**
- * Build the shell script that ensures a per-conversation worktree exists and
- * prints its absolute path on the last stdout line. Idempotent: re-selecting the
- * strategy (or a reload) reuses the existing worktree for this conversation.
+ * Shell script that discovers every git repository under the project, ensures a
+ * per-conversation worktree for each, and prints one `sourceRoot<TAB>worktree`
+ * line per repo. Runs in the PROJECT root (no workspace is bound yet), so
+ * discovery and `git worktree add` operate on the real repositories. Idempotent:
+ * re-selecting the strategy (or a reload) reuses existing worktrees.
  * @param {string} convShort - Short conversation id (branch/dir suffix).
  * @returns {string} A `sh` script.
  */
-function ensureWorktreeScript(convShort) {
-  // Runs in the PROJECT root (no workspace is bound yet), so `git worktree add`
-  // operates on the main repository. A self-contained .juggler/.gitignore keeps
-  // Juggler's own metadata out of the worktree's diff.
+function ensureWorktreesScript(convShort) {
   return `
 set -e
-top=$(git rev-parse --show-toplevel)
-name=$(basename "$top")
-base="$HOME/.juggler/worktrees/$name"
-wt="$base/conv-${convShort}"
-branch="juggler/conv-${convShort}"
-mkdir -p "$base"
-if [ ! -d "$wt" ]; then
-  if git -C "$top" show-ref --verify --quiet "refs/heads/$branch"; then
-    git -C "$top" worktree add "$wt" "$branch"
-  else
-    git -C "$top" worktree add -b "$branch" "$wt" HEAD
-  fi
-fi
-mkdir -p "$wt/.juggler"
-printf '*\\n' > "$wt/.juggler/.gitignore"
-printf '%s\\n' "$wt"
+proj=$(pwd)
+# Discover repo toplevels under the project (root repo + nested repos/submodules),
+# bounded in depth and pruned of heavy dirs. A .git entry (dir or file) marks a repo root.
+find "$proj" -maxdepth 4 -name .git \\
+  -not -path '*/node_modules/*' -not -path '*/vendor/*' -not -path '*/.juggler/*' 2>/dev/null \\
+  | while IFS= read -r g; do dirname "$g"; done | sort -u \\
+  | while IFS= read -r top; do
+      [ -n "$top" ] || continue
+      name=$(basename "$top")
+      h=$(printf '%s' "$top" | cksum | cut -d' ' -f1)
+      base="$HOME/.juggler/worktrees/$name-$h"
+      wt="$base/conv-${convShort}"
+      branch="juggler/conv-${convShort}"
+      mkdir -p "$base"
+      if [ ! -d "$wt" ]; then
+        if git -C "$top" show-ref --verify --quiet "refs/heads/$branch"; then
+          git -C "$top" worktree add "$wt" "$branch" >/dev/null 2>&1 || continue
+        else
+          git -C "$top" worktree add -b "$branch" "$wt" HEAD >/dev/null 2>&1 || continue
+        fi
+      fi
+      mkdir -p "$wt/.juggler"
+      printf '*\\n' > "$wt/.juggler/.gitignore"
+      printf '%s\\t%s\\n' "$top" "$wt"
+    done
 `;
 }
 
@@ -61,7 +70,7 @@ class WorktreeStrategyType extends StrategyType {
     name: 'Worktree',
     version: '0.1.0',
     description:
-      'Run this conversation inside its own git worktree so parallel conversations never clobber each other.',
+      'Run this conversation in its own git worktree of every repo under the project, so parallel conversations never clobber each other.',
     author: 'Juggler community',
     icon: '🌳',
     // Autonomy is unchanged from Default — this strategy only relocates where
@@ -70,9 +79,9 @@ class WorktreeStrategyType extends StrategyType {
   };
 
   /**
-   * When this strategy becomes active on a conversation, ensure a dedicated git
-   * worktree exists and bind the conversation's execution root to it. From here
-   * on every file/shell/search/tree op in this conversation runs in the
+   * When this strategy becomes active, ensure a dedicated git worktree exists for
+   * every repository under the project and bind each one, so from here on every
+   * file/shell/search/tree op in this conversation runs in the matching
    * worktree, while paths are still validated against the real project root.
    * @returns {Promise<void>}
    */
@@ -80,17 +89,22 @@ class WorktreeStrategyType extends StrategyType {
     const convId = this.messageThread.conversationId;
     const convShort = String(convId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'conv';
 
-    let worktreePath = '';
+    let pairs = [];
     try {
-      const res = await shell({ command: ensureWorktreeScript(convShort), timeout: 60000 });
+      const res = await shell({ command: ensureWorktreesScript(convShort), timeout: 120000 });
       if (!res || res.success === false) {
         this.injectGuidance(
-          `WORKTREE: could not create a git worktree (${res?.error || res?.stderr || 'unknown error'}). ` +
+          `WORKTREE: could not set up git worktrees (${res?.error || res?.stderr || 'unknown error'}). ` +
             `Working directly in the project instead.`
         );
         return;
       }
-      worktreePath = String(res.stdout || '').trim().split('\n').filter(Boolean).pop() || '';
+      pairs = String(res.stdout || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => line.split('\t'))
+        .filter((parts) => parts.length === 2 && parts[0] && parts[1]);
     } catch (err) {
       this.injectGuidance(
         `WORKTREE: git worktree setup failed (${err instanceof Error ? err.message : String(err)}). ` +
@@ -99,14 +113,20 @@ class WorktreeStrategyType extends StrategyType {
       return;
     }
 
-    if (!worktreePath) return;
+    if (pairs.length === 0) return;
 
-    const bound = await this.bindWorkspace(worktreePath);
-    if (bound && bound.ok) {
+    const bound = [];
+    for (const [sourceRoot, worktreeRoot] of pairs) {
+      const res = await this.bindWorkspace(sourceRoot, worktreeRoot);
+      if (res && res.ok) bound.push(sourceRoot);
+    }
+
+    if (bound.length > 0) {
       this.injectGuidance(
-        `WORKTREE MODE: this conversation runs in an isolated git worktree at ${worktreePath} ` +
-          `(branch juggler/conv-${convShort}). Edits here don't touch other conversations' work. ` +
-          `Merge back with: git -C <repo> merge juggler/conv-${convShort}.`
+        `WORKTREE MODE: this conversation runs in isolated git worktrees on branch ` +
+          `juggler/conv-${convShort} for ${bound.length} repo(s): ${bound.join(', ')}. ` +
+          `Edits here don't touch other conversations' work. Merge a repo back with: ` +
+          `git -C <repo> merge juggler/conv-${convShort}.`
       );
     }
   }

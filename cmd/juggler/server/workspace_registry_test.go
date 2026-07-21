@@ -9,40 +9,63 @@ import (
 	"testing"
 )
 
-func newReg(t *testing.T, root string) *WorkspaceRegistry {
+func newReg(t *testing.T) *WorkspaceRegistry {
 	t.Helper()
-	r := NewWorkspaceRegistry(root)
+	r := NewWorkspaceRegistry("/proj")
 	t.Cleanup(r.Close)
 	return r
 }
 
 func TestWorkspaceRegistry_UnboundIsIdentity(t *testing.T) {
-	r := newReg(t, "/proj")
-	if got := r.Root("conv-a"); got != "" {
-		t.Errorf("unbound Root = %q, want empty", got)
-	}
+	r := newReg(t)
 	if r.Remapper("conv-a") != nil {
 		t.Error("unbound Remapper should be nil (identity)")
+	}
+	if len(r.Bindings("conv-a")) != 0 {
+		t.Error("unbound conversation should have no bindings")
 	}
 }
 
 func TestWorkspaceRegistry_BindRemapRedirects(t *testing.T) {
-	root := "/proj"
+	src := "/proj"
 	ws := "/home/u/.juggler/worktrees/proj/conv-a"
-	r := newReg(t, root)
-	r.Bind("conv-a", ws)
+	r := newReg(t)
+	r.Bind("conv-a", src, ws)
 
-	if got := r.Root("conv-a"); got != ws {
-		t.Fatalf("Root = %q, want %q", got, ws)
-	}
 	remap := r.Remapper("conv-a")
 	if remap == nil {
 		t.Fatal("bound Remapper is nil")
 	}
 	cases := map[string]string{
-		filepath.Join(root, "src", "main.go"): filepath.Join(ws, "src", "main.go"), // under project → redirected
-		root:                                  ws,                                  // the root itself
-		"/etc/passwd":                         "/etc/passwd",                       // outside project → unchanged
+		filepath.Join(src, "src", "main.go"): filepath.Join(ws, "src", "main.go"), // under source → redirected
+		src:                                  ws,                                  // the source itself
+		"/etc/passwd":                        "/etc/passwd",                       // outside any source → unchanged
+	}
+	for in, want := range cases {
+		if got := remap(in); got != want {
+			t.Errorf("remap(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The load-bearing multi-repo case: a conversation binds a repo AND a nested
+// repo, and each path routes to its own workspace by longest-prefix match — the
+// thing t3code's single-cwd model cannot express.
+func TestWorkspaceRegistry_MultiRepoLongestPrefix(t *testing.T) {
+	r := newReg(t)
+	proj := "/proj"
+	nested := "/proj/vendored"
+	wsProj := "/wt/proj-a"
+	wsNested := "/wt/vendored-a"
+	r.Bind("conv-a", proj, wsProj)
+	r.Bind("conv-a", nested, wsNested)
+
+	remap := r.Remapper("conv-a")
+	cases := map[string]string{
+		"/proj/src/a.go":      "/wt/proj-a/src/a.go",  // parent repo
+		"/proj/vendored/x.go": "/wt/vendored-a/x.go",  // nested repo → its OWN workspace
+		"/proj/vendored":      "/wt/vendored-a",       // nested repo root
+		"/proj/README.md":     "/wt/proj-a/README.md", // parent-only file
 	}
 	for in, want := range cases {
 		if got := remap(in); got != want {
@@ -52,43 +75,51 @@ func TestWorkspaceRegistry_BindRemapRedirects(t *testing.T) {
 }
 
 func TestWorkspaceRegistry_PerConversationDistinct(t *testing.T) {
-	r := newReg(t, "/proj")
-	r.Bind("conv-a", "/wt/a")
-	r.Bind("conv-b", "/wt/b")
+	r := newReg(t)
+	r.Bind("conv-a", "/proj", "/wt/a")
+	r.Bind("conv-b", "/proj", "/wt/b")
 	if r.Remapper("conv-a")("/proj/x") == r.Remapper("conv-b")("/proj/x") {
 		t.Error("two conversations must remap to distinct roots")
 	}
 }
 
-func TestWorkspaceRegistry_Unbind(t *testing.T) {
-	r := newReg(t, "/proj")
-	r.Bind("conv-a", "/wt/a")
-	r.Unbind("conv-a")
-	if r.Root("conv-a") != "" {
-		t.Error("Root should be empty after Unbind")
+func TestWorkspaceRegistry_UnbindOneAndAll(t *testing.T) {
+	r := newReg(t)
+	r.Bind("conv-a", "/proj", "/wt/a")
+	r.Bind("conv-a", "/proj/vendored", "/wt/v")
+
+	r.Unbind("conv-a", "/proj/vendored")
+	if _, ok := r.Bindings("conv-a")["/proj/vendored"]; ok {
+		t.Error("nested binding should be gone after Unbind")
+	}
+	if _, ok := r.Bindings("conv-a")["/proj"]; !ok {
+		t.Error("parent binding should remain")
+	}
+
+	r.UnbindAll("conv-a")
+	if len(r.Bindings("conv-a")) != 0 {
+		t.Error("UnbindAll should clear every binding")
 	}
 	if r.Remapper("conv-a") != nil {
-		t.Error("Remapper should be nil after Unbind")
+		t.Error("Remapper should be nil after UnbindAll")
 	}
 }
 
 func TestWorkspaceRegistry_Rebind(t *testing.T) {
-	r := newReg(t, "/proj")
-	r.Bind("conv-a", "/wt/first")
-	r.Bind("conv-a", "/wt/second")
-	if got := r.Root("conv-a"); got != "/wt/second" {
-		t.Errorf("re-bind Root = %q, want /wt/second", got)
+	r := newReg(t)
+	r.Bind("conv-a", "/proj", "/wt/first")
+	r.Bind("conv-a", "/proj", "/wt/second")
+	if got := r.WorkspaceFor("conv-a", "/proj"); got != "/wt/second" {
+		t.Errorf("re-bind = %q, want /wt/second", got)
 	}
 }
 
 func TestWorkspaceRegistry_EmptyArgsIgnored(t *testing.T) {
-	r := newReg(t, "/proj")
-	r.Bind("", "/wt/a")
-	r.Bind("conv-a", "")
-	if len(r.Tracked()) != 0 {
-		t.Errorf("empty-arg binds must be ignored, tracked=%v", r.Tracked())
-	}
-	if r.Root("") != "" {
-		t.Error("empty convID Root must be empty")
+	r := newReg(t)
+	r.Bind("", "/proj", "/wt/a")
+	r.Bind("conv-a", "", "/wt/a")
+	r.Bind("conv-a", "/proj", "")
+	if len(r.Bindings("conv-a")) != 0 {
+		t.Errorf("empty-arg binds must be ignored, bindings=%v", r.Bindings("conv-a"))
 	}
 }

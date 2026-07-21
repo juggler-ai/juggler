@@ -1336,29 +1336,38 @@ async function postApi(path, body) {
 }
 
 /**
- * Bind a conversation's execution root to `root`. While bound, that
- * conversation's file/shell/search/tree ops run under `root` instead of the
- * project directory — with every path still validated in real-project space, so
- * the security boundary is unchanged.
+ * Bind a conversation's execution root for one source directory. While bound,
+ * that conversation's file/shell/search/tree ops on a path under `sourceRoot`
+ * run under `workspaceRoot` instead — with every path still validated in
+ * real-project space, so the security boundary is unchanged.
+ *
+ * Call this once per repository a conversation should isolate: a conversation
+ * may bind several sources at once, and each path is routed to the workspace of
+ * the most specific (longest-prefix) bound source that contains it. That is how
+ * a single conversation can work across MORE THAN ONE git repository, each in
+ * its own worktree — the case t3code's single whole-session cwd cannot express.
  *
  * This is the core primitive that lets an EXTENSION add worktree-style workflows
  * without core knowing anything about them: the extension prepares an alternate
- * root by whatever means (a git worktree, a devcontainer mount, a sandbox),
- * then binds it here. See the worktrees extension for a worked example. Pair
- * with {@link unbindWorkspace} on teardown.
+ * root by whatever means (a git worktree, a devcontainer mount, a sandbox) and
+ * binds it here. See the worktrees extension for a worked example. Pair with
+ * {@link unbindWorkspace} on teardown.
  * @param {string} conversationId - The conversation to bind.
- * @param {string} root - Absolute path of the alternate execution root.
- * @returns {Promise<{ok: boolean, root?: string, error?: string}>} Bind result.
+ * @param {string} sourceRoot - Absolute path of the real source directory (e.g. a git repo toplevel).
+ * @param {string} workspaceRoot - Absolute path of the alternate execution root for `sourceRoot`.
+ * @returns {Promise<{ok: boolean, sourceRoot?: string, workspaceRoot?: string, error?: string}>} Bind result.
  */
-export async function bindWorkspace(conversationId, root) {
-  return postApi('/workspace/bind', { conversationId, root });
+export async function bindWorkspace(conversationId, sourceRoot, workspaceRoot) {
+  return postApi('/workspace/bind', { conversationId, sourceRoot, workspaceRoot });
 }
 
 /**
- * Clear a conversation's workspace binding; its ops revert to the project root.
+ * Clear a conversation's workspace binding for one source directory, or all of
+ * them when `sourceRoot` is omitted; its ops revert to the real paths.
  * @param {string} conversationId - The conversation to unbind.
+ * @param {string} [sourceRoot] - The source to unbind; omit to clear all.
  * @returns {Promise<{ok: boolean, error?: string}>} Unbind result.
  */
-export async function unbindWorkspace(conversationId) {
-  return postApi('/workspace/unbind', { conversationId });
+export async function unbindWorkspace(conversationId, sourceRoot) {
+  return postApi('/workspace/unbind', { conversationId, sourceRoot });
 }

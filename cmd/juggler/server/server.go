@@ -237,9 +237,9 @@ func New(cfg Config) (*Server, error) {
 		if cc := s.conversationCache; cc != nil {
 			cc.CloseConversation(convID)
 		}
-		// Clear any workspace binding for the deleted conversation (safety net;
-		// the extension owns tearing down the underlying workspace itself).
-		s.unbindWorkspace(convID)
+		// Clear all workspace bindings for the deleted conversation (safety net;
+		// the extension owns tearing down the underlying workspaces themselves).
+		s.unbindAllWorkspaces(convID)
 	}, s.resolveDefaultModel)
 
 	configAPI, err := handlers.NewConfigAPI(s.ProjectPath, s.RefreshProviders, func() {
@@ -286,7 +286,7 @@ func New(cfg Config) (*Server, error) {
 		}
 		return nil
 	})
-	s.gitStatusAPI = handlers.NewGitStatusAPI(s.ProjectPath, s.workspaceRoot)
+	s.gitStatusAPI = handlers.NewGitStatusAPI(s.ProjectPath, s.workspaceForRepo)
 	s.extensionsAPI = extensionsAPI
 	s.userCommandsAPI = handlers.NewUserCommandsAPI(s.ProjectPath)
 	s.skillsAPI = handlers.NewSkillsAPI(s.ProjectPath)

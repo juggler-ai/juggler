@@ -9,18 +9,25 @@ import (
 	"strings"
 )
 
-// WorkspaceRegistry maps a conversation to an alternate execution root — its
-// "workspace" — chosen by an EXTENSION, not by core. Core knows nothing about
-// what a workspace is or how it is created: a git worktree, a devcontainer
-// mount, an ephemeral sandbox, a remote checkout. It only knows that while a
-// conversation has a workspace bound, that conversation's file/shell/search/tree
-// ops should execute under the workspace root instead of the project root, with
-// paths still validated in real-project space (see ops.PathScope.WithRemap).
+// WorkspaceRegistry maps a conversation's source directories to alternate
+// execution roots — "workspaces" — chosen by an EXTENSION, not by core. Core
+// knows nothing about what a workspace is or how it is created: a git worktree,
+// a devcontainer mount, an ephemeral sandbox. It only knows that while a
+// conversation has one or more source→workspace bindings, that conversation's
+// file/shell/search/tree ops on a path under a bound source directory should
+// execute under the corresponding workspace root, with the path still validated
+// in real-project space (see ops.PathScope.WithRemap).
 //
-// This is the whole core-side contribution to the "worktrees as an extension"
-// design (issue #51): a per-conversation execution-root indirection plus a bind
-// API. The policy — deciding a workspace exists, creating it, tearing it down —
-// lives in an extension (see web/extensions/juggler-worktrees/).
+// A conversation may bind SEVERAL source directories at once — one per git
+// repository it works with. This is the crucial difference from t3code, which
+// binds a single whole-session cwd per thread and so cannot isolate more than
+// one repo: here, a path is routed to a workspace by LONGEST-PREFIX match over
+// the conversation's bound sources, so repoA and its nested repoB each map to
+// their own worktree. Core does pure prefix routing; the extension owns
+// discovering repositories and deciding their roots (see the worktrees
+// extension). This is the whole core-side contribution to "worktrees as an
+// extension" (issue #51): a per-(conversation, source) execution-root
+// indirection plus a bind API.
 //
 // It is a channel-based actor (the repo lint forbids sync.Mutex/RWMutex): all
 // map access runs on one goroutine. It is project-scoped (hangs off
@@ -28,98 +35,116 @@ import (
 type WorkspaceRegistry struct {
 	reqCh  chan wsReq
 	quitCh chan struct{}
-	root   string // real project root; workspaces are alternate roots for it
 }
 
 type wsReqKind int
 
 const (
-	wsBind wsReqKind = iota
-	wsUnbind
-	wsGet
-	wsList
+	wsBind      wsReqKind = iota
+	wsUnbind              // unbind one source for a conversation
+	wsUnbindAll           // unbind every source for a conversation
+	wsSnapshot            // all (source→workspace) bindings for a conversation
 )
 
 type wsReq struct {
-	kind   wsReqKind
-	convID string
-	root   string
-	resp   chan wsResp
+	kind       wsReqKind
+	convID     string
+	sourceRoot string
+	workspace  string
+	resp       chan wsResp
 }
 
 type wsResp struct {
-	root string
-	list map[string]string
+	bindings map[string]string // sourceRoot → workspace
 }
 
-// NewWorkspaceRegistry builds a registry for a project root. root is the real
-// project path; a bound workspace is treated as an alternate root for the whole
-// project subtree. The actor goroutine runs until Close.
-func NewWorkspaceRegistry(projectRoot string) *WorkspaceRegistry {
+// NewWorkspaceRegistry builds an empty registry. The actor goroutine runs until
+// Close. projectRoot is accepted for symmetry/no-project checks by the caller;
+// the registry itself is path-agnostic (it routes by the bound source prefixes).
+func NewWorkspaceRegistry(_ string) *WorkspaceRegistry {
 	r := &WorkspaceRegistry{
 		reqCh:  make(chan wsReq),
 		quitCh: make(chan struct{}),
-		root:   filepath.Clean(projectRoot),
 	}
 	go r.run()
 	return r
 }
 
-// Bind records that convID's ops should execute under workspaceRoot. Idempotent;
-// a re-bind replaces the previous root.
-func (r *WorkspaceRegistry) Bind(convID, workspaceRoot string) {
-	if convID == "" || workspaceRoot == "" {
+// Bind records that, for convID, real paths under sourceRoot execute under
+// workspaceRoot instead. Idempotent; a re-bind of the same source replaces its
+// workspace. Both paths are cleaned to absolute-comparable form.
+func (r *WorkspaceRegistry) Bind(convID, sourceRoot, workspaceRoot string) {
+	if convID == "" || sourceRoot == "" || workspaceRoot == "" {
 		return
 	}
-	r.ask(wsReq{kind: wsBind, convID: convID, root: filepath.Clean(workspaceRoot)})
+	r.ask(wsReq{kind: wsBind, convID: convID, sourceRoot: filepath.Clean(sourceRoot), workspace: filepath.Clean(workspaceRoot)})
 }
 
-// Unbind clears any workspace binding for convID (ops revert to the project
-// root). Called by an extension on teardown, and by the server when a
-// conversation is deleted.
-func (r *WorkspaceRegistry) Unbind(convID string) {
+// Unbind clears the binding for one source directory of convID.
+func (r *WorkspaceRegistry) Unbind(convID, sourceRoot string) {
+	if convID == "" || sourceRoot == "" {
+		return
+	}
+	r.ask(wsReq{kind: wsUnbind, convID: convID, sourceRoot: filepath.Clean(sourceRoot)})
+}
+
+// UnbindAll clears every workspace binding for convID (all its ops revert to the
+// real paths). Called by the server when a conversation is deleted.
+func (r *WorkspaceRegistry) UnbindAll(convID string) {
 	if convID == "" {
 		return
 	}
-	r.ask(wsReq{kind: wsUnbind, convID: convID})
+	r.ask(wsReq{kind: wsUnbindAll, convID: convID})
 }
 
-// Root returns the workspace root bound to convID, or "" when none is bound.
-func (r *WorkspaceRegistry) Root(convID string) string {
+// Bindings returns a snapshot of convID's source→workspace bindings (empty when
+// none). Used by the git-status card to remap each discovered repo.
+func (r *WorkspaceRegistry) Bindings(convID string) map[string]string {
 	if convID == "" {
-		return ""
+		return map[string]string{}
 	}
-	return r.ask(wsReq{kind: wsGet, convID: convID}).root
+	return r.ask(wsReq{kind: wsSnapshot, convID: convID}).bindings
 }
 
-// Remapper returns a path-remap function for convID, or nil when no workspace is
-// bound (⇒ the ops layer runs the conversation directly in the project). The
-// returned function redirects a real absolute path that lives under the project
-// root into the workspace, preserving its project-relative location; paths
-// outside the project root (e.g. an allowed-paths grant elsewhere) are returned
-// unchanged, so a workspace never captures out-of-project access.
+// Remapper returns a path-remap function for convID, or nil when it has no
+// bindings (⇒ the ops layer runs the conversation directly in the project). The
+// returned function redirects a real absolute path into the workspace of the
+// most specific (longest-prefix) bound source directory that contains it,
+// preserving its location within that source; a path under no bound source is
+// returned unchanged.
 func (r *WorkspaceRegistry) Remapper(convID string) func(string) string {
-	ws := r.Root(convID)
-	if ws == "" {
+	bindings := r.Bindings(convID)
+	if len(bindings) == 0 {
 		return nil
 	}
-	root := r.root
 	return func(abs string) string {
 		abs = filepath.Clean(abs)
-		rel, err := filepath.Rel(root, abs)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-			return abs // outside the project subtree — not remapped
+		bestSrc, bestWs, bestLen := "", "", -1
+		for src, ws := range bindings {
+			rel, err := filepath.Rel(src, abs)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+				continue // abs is not under this source
+			}
+			if len(src) > bestLen {
+				bestSrc, bestWs, bestLen = src, ws, len(src)
+			}
 		}
+		if bestLen < 0 {
+			return abs // under no bound source
+		}
+		rel, _ := filepath.Rel(bestSrc, abs)
 		if rel == "." {
-			return ws
+			return bestWs
 		}
-		return filepath.Join(ws, rel)
+		return filepath.Join(bestWs, rel)
 	}
 }
 
-// Tracked returns a snapshot of convID → workspace root (diagnostics/tests).
-func (r *WorkspaceRegistry) Tracked() map[string]string {
-	return r.ask(wsReq{kind: wsList}).list
+// WorkspaceFor returns the workspace bound to an exact source directory for
+// convID, or "" when that source is not bound. Used by git-status to show each
+// repo's checkout for the visible conversation.
+func (r *WorkspaceRegistry) WorkspaceFor(convID, sourceRoot string) string {
+	return r.Bindings(convID)[filepath.Clean(sourceRoot)]
 }
 
 // Close stops the actor goroutine.
@@ -137,12 +162,13 @@ func (r *WorkspaceRegistry) ask(req wsReq) wsResp {
 	case r.reqCh <- req:
 		return <-req.resp
 	case <-r.quitCh:
-		return wsResp{list: map[string]string{}}
+		return wsResp{bindings: map[string]string{}}
 	}
 }
 
 func (r *WorkspaceRegistry) run() {
-	roots := map[string]string{} // convID → workspace root
+	// convID → (sourceRoot → workspaceRoot)
+	byConv := map[string]map[string]string{}
 	for {
 		select {
 		case <-r.quitCh:
@@ -150,19 +176,30 @@ func (r *WorkspaceRegistry) run() {
 		case req := <-r.reqCh:
 			switch req.kind {
 			case wsBind:
-				roots[req.convID] = req.root
+				m := byConv[req.convID]
+				if m == nil {
+					m = map[string]string{}
+					byConv[req.convID] = m
+				}
+				m[req.sourceRoot] = req.workspace
 				req.resp <- wsResp{}
 			case wsUnbind:
-				delete(roots, req.convID)
+				if m := byConv[req.convID]; m != nil {
+					delete(m, req.sourceRoot)
+					if len(m) == 0 {
+						delete(byConv, req.convID)
+					}
+				}
 				req.resp <- wsResp{}
-			case wsGet:
-				req.resp <- wsResp{root: roots[req.convID]}
-			case wsList:
-				out := make(map[string]string, len(roots))
-				for k, v := range roots {
+			case wsUnbindAll:
+				delete(byConv, req.convID)
+				req.resp <- wsResp{}
+			case wsSnapshot:
+				out := map[string]string{}
+				for k, v := range byConv[req.convID] {
 					out[k] = v
 				}
-				req.resp <- wsResp{list: out}
+				req.resp <- wsResp{bindings: out}
 			}
 		}
 	}

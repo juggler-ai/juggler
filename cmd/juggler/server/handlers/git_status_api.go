@@ -23,17 +23,19 @@ import (
 // provider func so a runtime project switch transparently retargets the scan.
 type GitStatusAPI struct {
 	pathProvider func() string
-	// workspaceRoot resolves a conversation's bound workspace root (else ""), so
-	// the diff/status card reflects the working tree the visible conversation's
-	// agent is actually editing. Nil ⇒ always scan the project root.
-	workspaceRoot func(convID string) string
+	// workspaceForRepo resolves the workspace bound to an exact repository
+	// directory for a conversation (else ""), so the diff/status card reflects
+	// the working tree the visible conversation's agent is actually editing — per
+	// repo, since a conversation may isolate several. Nil ⇒ always scan the real
+	// repos.
+	workspaceForRepo func(convID, repoRoot string) string
 }
 
 // NewGitStatusAPI creates a new GitStatusAPI. pathProvider must return the
 // current project path on each call ("" when no project is loaded).
-// workspaceRoot resolves a conversation's bound workspace root (may be nil).
-func NewGitStatusAPI(pathProvider func() string, workspaceRoot func(convID string) string) *GitStatusAPI {
-	return &GitStatusAPI{pathProvider: pathProvider, workspaceRoot: workspaceRoot}
+// workspaceForRepo resolves a conversation's per-repo workspace (may be nil).
+func NewGitStatusAPI(pathProvider func() string, workspaceForRepo func(convID, repoRoot string) string) *GitStatusAPI {
+	return &GitStatusAPI{pathProvider: pathProvider, workspaceForRepo: workspaceForRepo}
 }
 
 // Repo-discovery bounds. The walk is deliberately shallow — a git repo lives at
@@ -66,13 +68,11 @@ type gitStatusResponse struct {
 // simply omitted rather than failing the whole response.
 func (a *GitStatusAPI) HandleGitStatus(w http.ResponseWriter, r *http.Request) {
 	root := a.pathProvider()
-	// Scope the scan to the visible conversation's bound workspace when one is
-	// passed, so each tab's diff card reflects its own checkout.
-	if convID := r.URL.Query().Get("conversationId"); convID != "" && a.workspaceRoot != nil {
-		if ws := a.workspaceRoot(convID); ws != "" {
-			root = ws
-		}
-	}
+	// Repos are discovered under the real project (so the layout the user sees is
+	// preserved); each repo's status is then read from the visible conversation's
+	// workspace of THAT repo, if bound — so a conversation isolating several
+	// repos shows each one's own edits.
+	convID := r.URL.Query().Get("conversationId")
 	resp := gitStatusResponse{Root: root, Repos: []gitRepoStatus{}}
 	if root == "" {
 		WriteJSON(w, r, 0, resp)
@@ -83,7 +83,13 @@ func (a *GitStatusAPI) HandleGitStatus(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	for _, dir := range discoverRepos(ctx, root) {
-		changed, staged, ok := repoStatus(ctx, dir)
+		scanDir := dir
+		if convID != "" && a.workspaceForRepo != nil {
+			if ws := a.workspaceForRepo(convID, dir); ws != "" {
+				scanDir = ws
+			}
+		}
+		changed, staged, ok := repoStatus(ctx, scanDir)
 		if !ok {
 			continue
 		}

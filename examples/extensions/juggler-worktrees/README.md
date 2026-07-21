@@ -4,24 +4,28 @@ Reference extension for [issue #51](https://github.com/juggler-ai/juggler/issues
 worktrees implemented **as an extension**, not baked into the core app.
 
 Selecting the **Worktree** strategy for a conversation makes that conversation
-work inside its own dedicated `git worktree` on a `juggler/conv-<id>` branch, so
-two conversations (side-tabs) editing the same repository never clobber each
-other's files or index.
+work inside its own dedicated `git worktree` (branch `juggler/conv-<id>`) for
+**every git repository under the project** — the root repo plus any nested
+repos/submodules — so two conversations (side-tabs) editing the same repos never
+clobber each other's files or index.
 
 ## How it works
 
 It relies on a single small primitive that this branch adds to the extension
-API — `this.bindWorkspace(root)` (also `juggler/ops` → `bindWorkspace`). The
-strategy:
+API — `this.bindWorkspace(sourceRoot, workspaceRoot)` (also `juggler/ops` →
+`bindWorkspace`). The strategy:
 
-1. On activation, runs `git worktree add` (via the `shell` op) to create a
-   per-conversation worktree.
-2. Calls `bindWorkspace(worktreePath)` to redirect the conversation's
-   file/shell/search/tree ops into that worktree.
+1. On activation, discovers every repo under the project and runs
+   `git worktree add` (via the `shell` op) for each.
+2. Calls `bindWorkspace(repoRoot, worktreePath)` once per repo. Core routes each
+   file/shell/search/tree op to the worktree of whichever repo the path belongs
+   to (longest-prefix match), so a conversation spanning several repos gets each
+   one isolated.
 
-Core never learns what a "worktree" is: it only remaps the conversation's
-execution root. The same primitive would let someone write a devcontainer,
-remote-dev, or ephemeral-sandbox extension.
+Core never learns what a "worktree" is: it only remaps paths per bound source.
+The same primitive would let someone write a devcontainer, remote-dev, or
+ephemeral-sandbox extension. Binding *per source directory* (rather than one
+session cwd, as t3code does) is what makes the multi-repo case work.
 
 See `docs/design/worktrees-as-extension.md` for the full design and diagrams.
 

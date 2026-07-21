@@ -50,30 +50,39 @@ func (s *Server) workspaceRemapper(convID string) func(string) string {
 	return st.workspaces.Remapper(convID)
 }
 
-// bindWorkspace records a conversation's extension-chosen execution root. Safe
-// no-op in no-project mode.
-func (s *Server) bindWorkspace(convID, root string) {
+// bindWorkspace records that, for a conversation, real paths under sourceRoot
+// execute under workspaceRoot. An extension calls this once per repository it
+// isolates. Safe no-op in no-project mode.
+func (s *Server) bindWorkspace(convID, sourceRoot, workspaceRoot string) {
 	if st := s.projectState.Load(); st != nil && st.workspaces != nil {
-		st.workspaces.Bind(convID, root)
+		st.workspaces.Bind(convID, sourceRoot, workspaceRoot)
 	}
 }
 
-// unbindWorkspace clears a conversation's workspace binding (ops revert to the
-// project root). Called by an extension on teardown and by the server when a
-// conversation is deleted.
-func (s *Server) unbindWorkspace(convID string) {
+// unbindWorkspace clears one source binding for a conversation (its ops on that
+// source revert to the real path).
+func (s *Server) unbindWorkspace(convID, sourceRoot string) {
 	if st := s.projectState.Load(); st != nil && st.workspaces != nil {
-		st.workspaces.Unbind(convID)
+		st.workspaces.Unbind(convID, sourceRoot)
 	}
 }
 
-// workspaceRoot returns the workspace root bound to convID, or "" when none.
-func (s *Server) workspaceRoot(convID string) string {
+// unbindAllWorkspaces clears every workspace binding for a conversation. Called
+// when a conversation is deleted.
+func (s *Server) unbindAllWorkspaces(convID string) {
+	if st := s.projectState.Load(); st != nil && st.workspaces != nil {
+		st.workspaces.UnbindAll(convID)
+	}
+}
+
+// workspaceForRepo returns the workspace bound to an exact repository directory
+// for convID, or "" when none. Used by the git-status card.
+func (s *Server) workspaceForRepo(convID, repoRoot string) string {
 	st := s.projectState.Load()
 	if st == nil || st.workspaces == nil {
 		return ""
 	}
-	return st.workspaces.Root(convID)
+	return st.workspaces.WorkspaceFor(convID, repoRoot)
 }
 
 // newWorkspaceRegistry builds the per-conversation workspace registry for a

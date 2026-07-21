@@ -32,13 +32,15 @@ type Provides struct {
 	ContextItems []string `json:"contextItems,omitempty"`
 	Strategies   []string `json:"strategies,omitempty"`
 	Commands     []string `json:"commands,omitempty"`
-	// Environments declares "where does this conversation's work physically
-	// happen" capabilities — git worktrees, devcontainers, remote/sandbox roots.
-	// This is a SEPARATE axis from Strategies (which govern loop autonomy:
-	// read-only / default / yolo): a conversation picks one environment AND one
-	// strategy independently, so "run in a worktree" composes with any autonomy
-	// level. Files end in `*-environment-type.js`.
-	Environments []string `json:"environments,omitempty"`
+	// Lifecycle is a single module path (not a glob) whose default export is an
+	// object of async hooks the host invokes on conversation lifecycle events —
+	// `onConversationActivated` / `onConversationDeleted`. It lets an extension
+	// run project-scoped setup/teardown that the capability types can't express:
+	// notably, moving each of a project's git repositories into a per-conversation
+	// worktree (via `bindWorkspace` — see `juggler/ops`). It is orthogonal to
+	// Strategies (loop autonomy); an enabled lifecycle module applies to every
+	// conversation in the project (per-project opt-in, by enabling the extension).
+	Lifecycle string `json:"lifecycle,omitempty"`
 	// SystemPrompt is a single module path (not a glob) whose default export
 	// `({enabledPluginIds}) => string` contributes terse, durable guidance to
 	// the system prompt — the extension's voice on how to use its tools. It is
@@ -88,7 +90,7 @@ func Validate(m Manifest, engineVersion string) error {
 	if len(m.Provides.ContextItems) == 0 &&
 		len(m.Provides.Strategies) == 0 &&
 		len(m.Provides.Commands) == 0 &&
-		len(m.Provides.Environments) == 0 &&
+		strings.TrimSpace(m.Provides.Lifecycle) == "" &&
 		strings.TrimSpace(m.Provides.SystemPrompt) == "" {
 		return fmt.Errorf("manifest %q provides no capabilities", m.ID)
 	}

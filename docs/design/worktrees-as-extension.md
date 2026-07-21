@@ -19,15 +19,16 @@ repository**, and each repo it touches should get its own dedicated worktree.
 **TL;DR.** Zero API change is impossible — no extension surface can change
 *where* a conversation's file/shell ops physically execute. The missing
 abstraction is small and general: a **per-(conversation, source-directory)
-execution-root binding**, routed by longest-prefix match, exposed through a new
-**Environment** capability axis that is orthogonal to Strategy (so "run in a
-worktree" composes with any autonomy level). Core gains one indirection (a path
-remap) plus a bind API and stays completely ignorant of git; the entire worktree
-policy lives in an ordinary extension (`examples/extensions/juggler-worktrees/`,
-an Environment). The multi-repo requirement forces the per-source binding over
-t3code's single-cwd model; the orthogonality forces a new axis rather than
-overloading Strategy. The same primitive enables devcontainer / remote-dev /
-sandbox environments.
+execution-root binding**, routed by longest-prefix match. It is driven by a
+lightweight **lifecycle module** (manifest `provides.lifecycle`, the same
+"plain module the host loads and calls" shape as `systemPrompt`) — *not* a
+Strategy, since where-work-happens is orthogonal to loop autonomy. Core gains one
+indirection (a path remap) plus a bind API and stays completely ignorant of git;
+the entire worktree policy lives in an ordinary extension
+(`examples/extensions/juggler-worktrees/`). The multi-repo requirement forces the
+per-source binding over t3code's single-cwd model. Opt-in is **per project**
+(enable the extension). The same primitive enables devcontainer / remote-dev /
+sandbox lifecycle modules.
 
 ## How t3code does it (and why we diverge)
 
@@ -85,46 +86,55 @@ Core provides only:
 3. **SDK surface.** `juggler/ops` exports
    `bindWorkspace(convId, sourceRoot, workspaceRoot)` / `unbindWorkspace(convId,
    sourceRoot?)`.
-4. **A new `Environment` capability axis (NOT Strategy).** See below.
+4. **A lifecycle module (NOT a Strategy).** See below.
 
 The worktree **policy** — discovering the repos under the project, creating a
 worktree per repo, naming branches, teardown — lives entirely in an extension
 (`examples/extensions/juggler-worktrees/`). Core stays ignorant of git; it only
 does prefix routing over bindings the extension supplies.
 
-## Environment is a separate axis from Strategy
+## Driven by a lifecycle module, not a Strategy
 
 Worktrees are **not** a Strategy. A Strategy governs *loop autonomy* — read-only
 vs. default vs. yolo — and a conversation has exactly one (`currentStrategyId`,
-one `strategy-selector`). "Where the work physically happens" (project checkout
-vs. worktree vs. devcontainer vs. remote sandbox) is **orthogonal**: you might
-want a yolo worktree, a read-only worktree, or yolo with no worktree at all.
-Bundling worktrees into a Strategy would consume the single strategy slot and
-force "isolated" and "yolo/read-only" to be one choice — a category error.
+one `strategy-selector`). "Where the work physically happens" is **orthogonal**:
+you might want a yolo worktree, a read-only worktree, or yolo with no worktree at
+all. Bundling worktrees into a Strategy would consume the single strategy slot
+and force "isolated" and "yolo/read-only" to be one choice — a category error.
 
-So this adds a distinct **Environment** capability axis, selected independently:
+So the driver is a lightweight **lifecycle module**, the same "plain module the
+host loads and calls" shape as the existing `systemPrompt` contribution — *not* a
+new capability type with its own selector. Chosen over a full capability type
+because per-**project** opt-in is enough here (see the "Axis shape" discussion in
+Open questions): a capability type would add a registry, a `currentEnvironmentId`,
+selection-keyed dispatch, and a selector UI, none of which per-project opt-in
+needs.
 
-- Manifest `provides.environments` (`*-environment-type.js`); SDK base class
-  `juggler/environment-type` (`web/sdk/environment-type.js`).
-- Lifecycle hooks mirroring (but independent of) Strategy's:
-  `onActivate` (prepare + `bindWorkspace` per repo), `onDeactivate` (unbind on
-  switch), `onTeardown({permanent})` (remove worktrees on conversation delete).
-  This axis is also where the teardown/re-bind lifecycle naturally lives.
-- A conversation carries a `currentEnvironmentId` beside `currentStrategyId`,
-  chosen from its own selector.
+- Manifest `provides.lifecycle: "lifecycle.js"` (a single module path, like
+  `systemPrompt`). SDK contract: `juggler/lifecycle` (`web/sdk/lifecycle.js`,
+  JSDoc typedefs only).
+- Default export = a hooks object the host invokes per conversation:
+  `onConversationActivated(ctx)` (discover repos + `bindWorkspace` per repo),
+  `onConversationDeleted(ctx)` (remove worktrees + `unbindWorkspace`). The delete
+  hook is the real conversation-teardown signal.
+- Host loader: `runExtensionLifecycleHook(hook, ctx)` in
+  `web/js/services/extensions.js`, mirroring `buildExtensionSystemPromptContributions`.
+- **Opt-in is per project** — enabling the extension applies it to every
+  conversation in the project. It stays orthogonal to Strategy, so it composes
+  with any autonomy level.
 
 ```mermaid
 flowchart LR
   conv["Conversation"]
-  subgraph axes["two independent selections"]
-    strat["Strategy axis (autonomy)<br/>read-only · default · yolo"]
-    env["Environment axis (where)<br/>project · worktree · devcontainer …"]
+  subgraph axes["orthogonal, independent"]
+    strat["Strategy (autonomy)<br/>read-only · default · yolo · per-conversation"]
+    env["Lifecycle module (where)<br/>worktree · devcontainer …· per-project (enable ext)"]
   end
   conv --> strat
   conv --> env
   strat -->|"filterTools · approvalPolicy"| loop["agentic loop"]
   env -->|"bindWorkspace → WithRemap"| root["execution root(s)"]
-  note["e.g. {yolo} × {worktree}, or {read-only} × {project} — any combination"]:::n
+  note["e.g. {yolo} × {worktree}, or {read-only} × {no worktree} — any combination"]:::n
   axes -.-> note
   classDef n fill:#efe,stroke:#6a6,color:#060;
 ```
@@ -156,7 +166,7 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph engine["Engine (JS)"]
-    env["Worktree ENVIRONMENT (extension) · onActivate()"]
+    env["Worktree LIFECYCLE MODULE (extension) · onConversationActivated()"]
     shellop["shell: discover repos + git worktree add (per repo)"]
     bind["bindWorkspace(convId, repoRoot, worktreeRoot) · once per repo"]
     ops["juggler/ops (later tool calls)"]
@@ -184,11 +194,11 @@ flowchart TD
 ```mermaid
 sequenceDiagram
   participant W as Worker (Go)
-  participant X as Worktree environment (ext)
+  participant X as Worktree lifecycle module (ext)
   participant S as Server ops/workspace (Go)
   participant G as git
 
-  W->>X: run-environment-hook onActivate(convId)
+  W->>X: runExtensionLifecycleHook onConversationActivated(convId)
   X->>S: shell "find .git … ; git worktree add (per repo)"  (project root)
   S->>G: git worktree add -b juggler/conv-<id> <wtA> HEAD   (repoA)
   S->>G: git worktree add -b juggler/conv-<id> <wtB> HEAD   (repoB)
@@ -214,17 +224,20 @@ sequenceDiagram
 | Registry (`(conv, source)→workspace`, longest-prefix) | `server/workspace_registry.go` | core, policy-free |
 | Bind API | `server/workspace_api.go`, `POST /api/workspace/{bind,unbind}` | core |
 | Bind SDK | `web/sdk/ops.js` (`bindWorkspace`/`unbindWorkspace`) | core |
-| **Environment capability axis** | manifest `provides.environments` (`extmanifest.go`); SDK `web/sdk/environment-type.js` | core |
-| **Worktree policy (discover repos, worktree each, bind each)** | `examples/extensions/juggler-worktrees/` (an Environment) | **extension** |
+| **Lifecycle module** | manifest `provides.lifecycle` (`extmanifest.go`) + served URL (`handlers/extensions.go`); SDK contract `web/sdk/lifecycle.js`; host loader `runExtensionLifecycleHook` (`web/js/services/extensions.js`) | core |
+| **Worktree policy (discover repos, worktree each, bind each)** | `examples/extensions/juggler-worktrees/lifecycle.js` | **extension** |
 
 ### Remaining wiring (WIP)
 
-The core mechanism, the SDK `EnvironmentType`, and manifest support are done and
-verified. Still to wire (needs the engine/UI, hence not in this PoC): the
-worker→engine dispatch of environment lifecycle hooks (`run-environment-hook`,
-analogous to `worker/strategy_hooks.go`), registry registration of environment
-capabilities, `currentEnvironmentId` in the doc, and an `environment-selector` UI
-beside the strategy selector.
+The core mechanism, the manifest field + served URL, the SDK `juggler/lifecycle`
+contract, and the host loader `runExtensionLifecycleHook` are done and verified.
+The one remaining piece needs the running engine: the **call site** that invokes
+`runExtensionLifecycleHook('onConversationActivated', {conversationId,
+projectRoot})` when the engine first activates a conversation, and
+`'onConversationDeleted'` on delete. The substrate exists — the engine already
+receives conversation `created`/`deleted` (`conversations-changed`, handled in
+`web/js/engine-app.js`) — so this is a small, well-located addition, left out
+here only because it can't be exercised without the live engine.
 
 ## Alternatives considered
 
@@ -234,27 +247,36 @@ beside the strategy selector.
   their own axis.
 - **A single per-conversation root (t3code-style).** Rejected: a single session
   cwd cannot express >1 repo per conversation.
-- **Chosen: a new `Environment` capability axis** driving per-(conversation,
-  source) `bindWorkspace` with longest-prefix routing. Orthogonal to Strategy,
-  supports multi-repo, and the core remap it drives is small and reusable by
-  other environment kinds (devcontainer, remote, sandbox).
+- **A full `Environment` capability type** (own manifest kind, registry,
+  `currentEnvironmentId`, selector UI, selection-keyed dispatch). Correct axis,
+  but heavier than needed once per-**project** opt-in is accepted.
+- **Chosen: a lightweight lifecycle module** (`provides.lifecycle`) driving
+  per-(conversation, source) `bindWorkspace` with longest-prefix routing.
+  Orthogonal to Strategy, supports multi-repo, per-project opt-in, and reuses the
+  established plain-module (`systemPrompt`) loading pattern — the least new
+  surface. The same module shape serves devcontainer / remote / sandbox.
 
 ## Open questions for maintainers
 
 ### 1. Axis shape — full capability type, or a lighter lifecycle module?
 
-Both drive the *same* core remap (`bindWorkspace` + `WorkspaceRegistry` +
-`WithRemap`); they differ only in how the extension is packaged and how a
-conversation opts in. Three points on the spectrum:
+**Decision (this PoC): the lifecycle module (b), with per-project opt-in.** The
+options below are kept for the record; all drive the *same* core remap
+(`bindWorkspace` + `WorkspaceRegistry` + `WithRemap`) and differ only in
+packaging and opt-in granularity. Revisit (a)/(c) if per-conversation selection
+is later wanted.
 
-**(a) Environment capability type (this PoC).** Manifest `provides.environments`,
+Both drive the *same* core remap; they differ only in how the extension is
+packaged and how a conversation opts in. Three points on the spectrum:
+
+**(a) Environment capability type.** Manifest `provides.environments`,
 a registry, per-conversation `currentEnvironmentId`, an `environment-selector`
 UI, and selection-keyed worker→engine dispatch. Heaviest, but gives a
 first-class, per-conversation, user-visible mode.
 
-**(b) A lifecycle-subscriber module (lighter — and feasible today).** Modelled on
-the existing `provides.systemPrompt`, which is already a *plain module* (not a
-class) the host loads and calls. Add `provides.lifecycle: "lifecycle.js"` whose
+**(b) A lifecycle-subscriber module (chosen — lighter, feasible today).** Modelled
+on the existing `provides.systemPrompt`, which is already a *plain module* (not a
+class) the host loads and calls. `provides.lifecycle: "lifecycle.js"` whose
 default export is a hooks object the engine invokes:
 
 ```js
@@ -291,8 +313,8 @@ dispatches"), so they can't call `shell`/`bindWorkspace` themselves.
 Recommendation: if per-conversation opt-in matters, **(a)** or **(c)**; if
 per-project is fine, **(b)** is the least new surface. All three reuse the core
 remap unchanged.
-2. **Teardown/persistence.** `onTeardown` gives environments a real
-   conversation-deleted hook. Two things still to decide: whether bindings should
+2. **Teardown/persistence.** The module's `onConversationDeleted` hook is a real
+   conversation-deleted teardown signal. Two things still to decide: whether bindings should
    **persist** (survive a reload/server restart, where `onActivate` won't re-fire)
    or be re-established by an on-resume hook; and the default worktree-cleanup
    policy (prune-if-clean vs. keep). Today core clears the *mappings* on delete

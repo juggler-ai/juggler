@@ -3,29 +3,26 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * @module juggler-worktrees/worktree-environment-type
+ * @module juggler-worktrees/lifecycle
  *
- * Reference extension for issue #51 — "worktrees as an extension, not baked
- * into the core app." Worktree isolation is an **Environment**, not a Strategy:
- * it answers "where does this conversation's work physically happen," which is
- * orthogonal to loop autonomy (read-only / default / yolo). So you can run a
- * worktree with ANY strategy — the two are independent selections.
+ * Reference extension for issue #51 — "worktrees as an extension, not baked into
+ * the core app." Implemented as a **lifecycle module** (manifest
+ * `provides.lifecycle`): a plain module whose default export is a hooks object
+ * the host invokes per conversation. This is lighter than a capability type — no
+ * class, no selector, no per-conversation id — and opt-in is **per project**
+ * (enable this extension). It is orthogonal to the Strategy axis (loop autonomy),
+ * so it composes with read-only / default / yolo alike.
  *
- * It demonstrates the one new core primitive this needs:
- * `this.bindWorkspace(sourceRoot, workspaceRoot)` (SDK: `juggler/ops` →
- * `bindWorkspace`), which redirects a conversation's file/shell/search/tree ops
- * on a path under `sourceRoot` into `workspaceRoot`. Core knows nothing about
- * git worktrees; all of that policy lives here.
- *
- * Selecting the "Worktree" environment makes the conversation work inside a
- * dedicated `git worktree` (branch `juggler/conv-<id>`) for EVERY git repository
- * under the project — the root repo plus any nested repos/submodules. Binding one
- * source→workspace pair per repo is what lets a single conversation span more
- * than one repository, each in its own worktree; a single session cwd cannot.
+ * On conversation activation it gives the conversation its own dedicated `git
+ * worktree` (branch `juggler/conv-<id>`) for EVERY git repository under the
+ * project — the root repo plus any nested repos/submodules. It binds one
+ * source→workspace pair per repo (`juggler/ops` → `bindWorkspace`), which is what
+ * lets one conversation span more than one repository, each isolated; a single
+ * session cwd cannot. Core knows nothing about git — it only remaps ops onto the
+ * bound roots.
  */
 
-import EnvironmentType from 'juggler/environment-type';
-import { shell } from 'juggler/ops';
+import { shell, bindWorkspace, unbindWorkspace } from 'juggler/ops';
 
 /**
  * @param {string} convShort - Short conversation id (branch/dir suffix).
@@ -67,8 +64,8 @@ find "$proj" -maxdepth 4 -name .git \\
  * @returns {string} A `sh` script.
  */
 function removeWorktreesScript(convShort) {
-  // Best-effort teardown: remove each per-conversation worktree that is clean
-  // (no --force, so worktrees holding uncommitted work are kept).
+  // Best-effort teardown: remove each clean per-conversation worktree (no
+  // --force, so worktrees holding uncommitted work are kept).
   return `
 proj=$(pwd)
 find "$proj" -maxdepth 4 -name .git \\
@@ -83,53 +80,51 @@ find "$proj" -maxdepth 4 -name .git \\
 `;
 }
 
-class WorktreeEnvironmentType extends EnvironmentType {
-  static MANIFEST = {
-    id: 'worktree',
-    name: 'Worktree',
-    version: '0.1.0',
-    description:
-      'Work in a dedicated git worktree per repo under the project, so parallel conversations never clobber each other.',
-    author: 'Juggler community',
-    icon: '🌳'
-  };
+/**
+ * @param {string} conversationId - Full conversation id.
+ * @returns {string} A filesystem-safe short id.
+ */
+function shortId(conversationId) {
+  return String(conversationId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'conv';
+}
 
+/** @type {import('juggler/lifecycle').LifecycleModule} */
+export default {
   /**
    * Ensure a worktree exists for every repo under the project and bind each, so
    * every file/shell/search/tree op in this conversation runs in the matching
    * worktree. Paths are still validated against the real project root.
+   * @param {import('juggler/lifecycle').LifecycleContext} ctx - Hook context.
    * @returns {Promise<void>}
    */
-  async onActivate() {
-    const convShort = String(this.messageThread.conversationId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'conv';
+  async onConversationActivated(ctx) {
+    const convShort = shortId(ctx.conversationId);
     let pairs = [];
     try {
       const res = await shell({ command: ensureWorktreesScript(convShort), timeout: 120000 });
       if (!res || res.success === false) return;
       pairs = String(res.stdout || '')
         .split('\n').map((l) => l.trim()).filter(Boolean)
-        .map((l) => l.split('\t')).filter((p) => p.length === 2 && p[0] && p[1]);
+        .map((l) => l.split('\t')).filter((pp) => pp.length === 2 && pp[0] && pp[1]);
     } catch {
       return; // fall back to the project checkout
     }
     for (const [sourceRoot, worktreeRoot] of pairs) {
-      await this.bindWorkspace(sourceRoot, worktreeRoot);
+      await bindWorkspace(ctx.conversationId, sourceRoot, worktreeRoot);
     }
-  }
+  },
 
   /**
    * On conversation delete, unbind and best-effort remove the clean worktrees.
+   * @param {import('juggler/lifecycle').LifecycleDeleteContext} ctx - Hook context.
    * @returns {Promise<void>}
    */
-  async onTeardown() {
-    const convShort = String(this.messageThread.conversationId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'conv';
+  async onConversationDeleted(ctx) {
     try {
-      await shell({ command: removeWorktreesScript(convShort), timeout: 60000 });
+      await shell({ command: removeWorktreesScript(shortId(ctx.conversationId)), timeout: 60000 });
     } catch {
       // best effort — leave worktrees for manual `git worktree prune`
     }
-    await this.unbindWorkspace();
+    await unbindWorkspace(ctx.conversationId);
   }
-}
-
-export default WorktreeEnvironmentType;
+};

@@ -34,6 +34,7 @@ import { whenRegistriesReady } from '../registries/registry-ready.js';
  * @property {string[]} strategies - Served URLs of strategy modules
  * @property {string[]} commands - Served URLs of command modules
  * @property {string} [systemPrompt] - Served URL of the extension's system-prompt contribution module (omitted when none declared)
+ * @property {string} [lifecycle] - Served URL of the extension's lifecycle module (omitted when none declared)
  */
 
 /**
@@ -225,6 +226,43 @@ export async function buildExtensionSystemPromptContributions() {
     }
   }
   return parts.join('\n\n');
+}
+
+/**
+ * Invoke a lifecycle hook on every enabled extension that declares a `lifecycle`
+ * module. Each such module's default export is a hooks object (see
+ * `juggler/lifecycle`); the named hook is called with `ctx`. Extensions disabled
+ * at the extension level are skipped. A hook that throws (or a module that fails
+ * to import) is logged and skipped — it never breaks conversation handling.
+ *
+ * This is the host-side dispatch that makes worktree-style, project-scoped
+ * setup/teardown possible as an extension: the hook body calls
+ * `bindWorkspace`/`unbindWorkspace`/`shell` from `juggler/ops`. It fires for
+ * every conversation in the project (per-project opt-in via enabling the
+ * extension), independent of the strategy axis.
+ * @param {'onConversationActivated'|'onConversationDeleted'} hook - Hook name.
+ * @param {import('../../sdk/lifecycle.js').LifecycleContext | import('../../sdk/lifecycle.js').LifecycleDeleteContext} ctx - Hook context.
+ * @returns {Promise<void>} Resolves once every module's hook has settled.
+ */
+export async function runExtensionLifecycleHook(hook, ctx) {
+  await whenRegistriesReady();
+  const extensions = await fetchExtensions();
+  const disabled = await fetchDisabledPluginIds();
+  for (const ext of extensions) {
+    if (ext.error) continue;
+    const extId = ext.manifest?.id;
+    if (extId && disabled.has(extId)) continue; // extension disabled → no lifecycle
+    const url = ext.capabilities?.lifecycle;
+    if (!url) continue;
+    try {
+      const mod = await importModuleUrl(resolveAssetUrl(url));
+      const fn = mod?.default?.[hook];
+      if (typeof fn !== 'function') continue;
+      await fn(ctx);
+    } catch (err) {
+      console.warn(`[Extensions] lifecycle ${hook} failed:`, url, err);
+    }
+  }
 }
 
 /**

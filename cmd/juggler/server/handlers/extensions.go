@@ -34,6 +34,9 @@ type ExtensionCapabilities struct {
 	// SystemPrompt is the single served URL of the extension's system-prompt
 	// contribution module (empty when the manifest declares none).
 	SystemPrompt string `json:"systemPrompt,omitempty"`
+	// Lifecycle is the single served URL of the extension's lifecycle module
+	// (empty when the manifest declares none).
+	Lifecycle string `json:"lifecycle,omitempty"`
 }
 
 // Extension is one entry in the GET /api/extensions response. A manifest that
@@ -300,11 +303,23 @@ func expandCapabilities(root extensionRoot, p ExtensionProvides) (ExtensionCapab
 			systemPrompt = spURLs[0]
 		}
 	}
+	// lifecycle is likewise a single module path.
+	var lifecycle string
+	if strings.TrimSpace(p.Lifecycle) != "" {
+		lcURLs, err := expandGlobs(root, []string{p.Lifecycle}, files)
+		if err != nil {
+			return ExtensionCapabilities{}, nil, err
+		}
+		if len(lcURLs) > 0 {
+			lifecycle = lcURLs[0]
+		}
+	}
 	return ExtensionCapabilities{
 		ContextItems: contextItems,
 		Strategies:   strategies,
 		Commands:     commands,
 		SystemPrompt: systemPrompt,
+		Lifecycle:    lifecycle,
 	}, files, nil
 }
 

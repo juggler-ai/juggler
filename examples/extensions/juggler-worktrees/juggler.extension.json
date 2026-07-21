@@ -8,6 +8,6 @@
   "engineApi": "^1.0.0",
   "permissions": ["shell.exec", "filesystem.write"],
   "provides": {
-    "environments": ["environments/*-environment-type.js"]
+    "lifecycle": "lifecycle.js"
   }
 }

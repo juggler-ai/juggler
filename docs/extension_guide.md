@@ -23,11 +23,12 @@ An extension bundles any mix of three capability types — each a class you
 | **Strategy** | Controls how the agentic loop runs — turns, tools, stopping | `juggler/strategy-type` | `default`, `read-only`, `yolo` |
 | **Command** | A user-invoked slash command (`/clear`, `/compact`) | `juggler/command-type` | `clear`, `compact`, `thread` |
 
-An extension may **also** contribute a **system-prompt contribution** — not a
-class but a single module whose default export adds terse, durable guidance to
-the system prompt (see [System-prompt contribution](#system-prompt-contribution)
-below). An extension that provides *only* a system-prompt contribution (a
-"prompt pack") is valid.
+An extension may **also** contribute two non-class, single-module capabilities:
+a **system-prompt contribution** (default export adds terse, durable guidance to
+the system prompt — see [System-prompt contribution](#system-prompt-contribution))
+and a **lifecycle module** (default export is a hooks object the host invokes on
+conversation lifecycle events — see [Lifecycle module](#lifecycle-module)). An
+extension that provides *only* one of these is valid.
 
 Juggler ships its own built-ins as one core extension, `@juggler/core`
 (`web/extensions/juggler-core/`), loaded through the **exact same path** as any
@@ -105,7 +106,8 @@ core extension does (`context-items/edit/`, `context-items/execute/`).
     "contextItems": ["context-items/*-context-item.js"],
     "strategies":   ["strategies/*-strategy-type.js"],
     "commands":     ["commands/*-command-type.js"],
-    "systemPrompt": "system-prompt-contribution.js"   // optional; single module path
+    "systemPrompt": "system-prompt-contribution.js",  // optional; single module path
+    "lifecycle":    "lifecycle.js"                    // optional; single module path
   }
 }
 ```
@@ -114,7 +116,7 @@ core extension does (`context-items/edit/`, `context-items/execute/`).
 |-------|----------|-------|
 | `id` | Yes | Scoped, e.g. `@you/name`. The unit of enable/disable. |
 | `name`, `version` | Yes | Display name and semver. |
-| `provides` | Yes | At least one capability. `contextItems`/`strategies`/`commands` are root-relative globs; `systemPrompt` is a single module path (see [System-prompt contribution](#system-prompt-contribution)). Neither may escape the extension root. |
+| `provides` | Yes | At least one capability. `contextItems`/`strategies`/`commands` are root-relative globs; `systemPrompt` and `lifecycle` are single module paths (see [System-prompt contribution](#system-prompt-contribution) and [Lifecycle module](#lifecycle-module)). None may escape the extension root. |
 | `engineApi` | Recommended | Semver range (`^1.0.0`, `1.2.3`, or `*`). Omitting it disables the compat check and earns a validation warning. The host SDK version lives in `web/sdk/version.js`. |
 | `permissions` | As needed | **Declares** the host access this extension's code uses. Surfaced to the user in the catalog and the install prompt — a disclosure, not a sandbox (see [Trust model](#trust-model)). Known values: `filesystem.read`, `filesystem.write`, `shell.exec`, `web.fetch`. |
 | `author`, `homepage` | Optional | Metadata. |
@@ -169,8 +171,10 @@ you'll reach for:
 import ContextItem from 'juggler/context-item';
 import StrategyType, { APPROVAL_POLICY } from 'juggler/strategy-type';
 import CommandType from 'juggler/command-type';
-import { readFile, writeFile, glob, grep, shell, webFetch } from 'juggler/ops';
+import { readFile, writeFile, glob, grep, shell, webFetch, bindWorkspace } from 'juggler/ops';
 import { smartTruncate, createElement } from 'juggler/ui';
+// (a lifecycle module annotates its default export with the type below)
+/** @typedef {import('juggler/lifecycle').LifecycleModule} LifecycleModule */
 ```
 
 - **`juggler/ops`** is the privileged host-operations layer — filesystem, shell,
@@ -183,7 +187,13 @@ import { smartTruncate, createElement } from 'juggler/ui';
   names are a clean vocabulary (`readFile`, `writeFile`, `editFile`, `stat`,
   `mkdir`, `glob`, `getTree`, `grep`, `findSymbol`, `shell`, `shellBackground`,
   `webFetch`, `webSearch`, `openPath`, `revealPath`, plus
-  `FileSystem`/`ReadOnlyFileSystem` and `OpsError`). See `web/sdk/ops.js`.
+  `FileSystem`/`ReadOnlyFileSystem` and `OpsError`). It also exports
+  `bindWorkspace`/`unbindWorkspace`, which redirect a conversation's execution
+  root — the primitive a [lifecycle module](#lifecycle-module) uses for
+  worktree-style workflows. See `web/sdk/ops.js`.
+- **`juggler/lifecycle`** is the typedef contract for a [lifecycle
+  module](#lifecycle-module) (`LifecycleModule` and its hook-context types). See
+  `web/sdk/lifecycle.js`.
 - **`juggler/ui`** holds render/format helpers (`smartTruncate`, `createElement`,
   `FormattingHelpers`, …). See `web/sdk/ui.js`.
 
@@ -390,6 +400,44 @@ export default function systemPromptContribution({ enabledPluginIds }) {
 
 Reference: `web/extensions/juggler-core/system-prompt-contribution.js`; the
 aggregation contract is in `web/sdk/lib/system-prompt-registry.js`.
+
+### Lifecycle module
+
+Run project-scoped setup/teardown on conversation lifecycle events. Not a class:
+a **single module** named by the manifest's `provides.lifecycle` (a plain path,
+not a glob). Its **default export** is a hooks object — the `LifecycleModule`
+type in `juggler/lifecycle`. The host invokes each hook, in the engine, for every
+conversation in the project, so opt-in is **per project** (enabling the
+extension). It is orthogonal to strategies: a lifecycle module composes with any
+autonomy level.
+
+Its purpose is the class of "where does the work physically happen" workflows the
+capability types can't express — most notably moving each of a project's git
+repositories into a per-conversation **worktree**, by calling
+`bindWorkspace(conversationId, sourceRoot, workspaceRoot)` from `juggler/ops`
+(which redirects that conversation's file/shell/search/tree ops under
+`workspaceRoot`, paths still validated in real-project space). The same shape
+serves devcontainer / remote / sandbox workflows.
+
+```javascript
+// lifecycle.js
+import { shell, bindWorkspace, unbindWorkspace } from 'juggler/ops';
+
+/** @type {import('juggler/lifecycle').LifecycleModule} */
+export default {
+  async onConversationActivated({ conversationId, projectRoot }) {
+    // prepare an alternate root (e.g. `git worktree add`) then bind it:
+    // await bindWorkspace(conversationId, repoRoot, worktreePath);
+  },
+  async onConversationDeleted({ conversationId }) {
+    await unbindWorkspace(conversationId);
+  }
+};
+```
+
+Hooks are optional; a throwing hook is logged and skipped (it never breaks
+conversation handling). Reference: `web/sdk/lifecycle.js` (the typedef contract)
+and `examples/extensions/juggler-worktrees/lifecycle.js` (a worked example).
 
 ## Talking to the conversation
 

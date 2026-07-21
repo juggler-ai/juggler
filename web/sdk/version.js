@@ -20,7 +20,7 @@
  *
  * IN scope — changes here follow the bump rules above:
  * - The named exports of each `juggler/*` facade (`context-item`, `strategy-type`,
- *   `command-type`, `ops`, `ui`, `registry`, `version`).
+ *   `command-type`, `lifecycle`, `ops`, `ui`, `registry`, `version`).
  * - The documented `static MANIFEST` fields for each capability type, and the
  *   `provides` manifest fields (see `docs/extension_guide.md`).
  * - The MessageThread methods marked **`@plugin-api`** in
@@ -34,7 +34,7 @@
  *   `juggler/registry` default export, core-only MANIFEST fields).
  * Reaching past the documented surface works today but can break at any release.
  */
-export const ENGINE_API_VERSION = '1.0.0';
+export const ENGINE_API_VERSION = '1.1.0';
 
 /**
  * Test whether `version` satisfies an `engineApi` range. Supports the small

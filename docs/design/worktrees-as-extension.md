@@ -214,6 +214,59 @@ sequenceDiagram
   S-->>W: op runs inside repoB worktree
 ```
 
+## Changes to the existing extension API
+
+The extension-facing surface — the part the `engineApi` semver in
+`web/sdk/version.js` promises, i.e. the `juggler/*` module exports and the
+manifest `provides` schema — gains **three small, additive changes**. All are
+backward-compatible: no existing export, capability type, or manifest field is
+changed or removed, so every extension that exists today keeps loading and
+running unchanged.
+
+**1. Manifest: new optional `provides.lifecycle`.** A single module path (not a
+glob), exactly mirroring the existing `provides.systemPrompt`.
+
+```jsonc
+// before — a valid manifest today
+{ "id": "@you/ext", "name": "…", "version": "1.0.0", "engineApi": "^1.0.0",
+  "provides": { "contextItems": ["context-items/*-context-item.js"] } }
+
+// after — the new field an extension MAY add (nothing else changes)
+{ "id": "@you/ext", "name": "…", "version": "1.0.0", "engineApi": "^1.1.0",
+  "provides": { "lifecycle": "lifecycle.js" } }
+```
+
+Parsed/validated by `extmanifest.Provides.Lifecycle` (`cmd/juggler/extmanifest`)
+and expanded to a served URL by `handlers/extensions.go`
+(`ExtensionCapabilities.Lifecycle`).
+
+**2. New SDK module `juggler/lifecycle`** (`web/sdk/lifecycle.js`) — JSDoc
+typedefs only (`LifecycleModule`, `LifecycleContext`, `LifecycleDeleteContext`),
+added to the import map in `web/index.html` and `web/engine.html`. A lifecycle
+module's `export default` is a `LifecycleModule` (hooks object). No new base
+class — it follows the plain-module shape of a `systemPrompt` contribution.
+
+**3. New `juggler/ops` exports: `bindWorkspace` / `unbindWorkspace`.** The only
+new *callable* API. Everything else a lifecycle module needs (`shell`, …) is
+already exported.
+
+**Version impact.** These are all covered-surface additions, so the host SDK
+`ENGINE_API_VERSION` bumps **minor**: `1.0.0 → 1.1.0` (`web/sdk/version.js`).
+Because it is additive, extensions declaring `engineApi: "^1.0.0"` still satisfy
+a 1.1.0 host; an extension that *uses* the lifecycle capability should declare
+`engineApi: "^1.1.0"` so an older host rejects it with a clear diagnostic rather
+than a missing-import failure.
+
+**Docs.** `docs/extension_guide.md` gains a short "Lifecycle module" entry
+(capability table row + one example) alongside the existing capabilities.
+
+**NOT part of the extension API** (internal core, outside the `engineApi`
+promise — extension authors never touch these): `WorkspaceRegistry`,
+`PathScope.WithRemap`, the `POST /api/workspace/{bind,unbind}` transport, the
+`runExtensionLifecycleHook` host loader, and the `conversationId` threading on
+tool calls. They are how the primitive is implemented, not how an extension uses
+it.
+
 ## How the pieces map to code
 
 | Concern | Location | Policy? |

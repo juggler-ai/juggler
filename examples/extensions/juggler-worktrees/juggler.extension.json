@@ -5,7 +5,7 @@
   "author": "Juggler community",
   "homepage": "https://github.com/juggler-ai/juggler/issues/51",
   "license": "AGPL-3.0-or-later",
-  "engineApi": "^1.0.0",
+  "engineApi": "^1.1.0",
   "permissions": ["shell.exec", "filesystem.write"],
   "provides": {
     "lifecycle": "lifecycle.js"

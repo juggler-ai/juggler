@@ -748,7 +748,8 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *ex
 		// broken/absent GL stack (VM software GL, no DRI, headless) fails during
 		// webview realisation, the native window never comes up, and the startup
 		// watchdog FATALs — so the decision only returns Always on positive
-		// evidence (DRI render node + display, non-NVIDIA-proprietary), and
+		// evidence (a usable DRI render node + display; only a machine whose sole
+		// render node is the NVIDIA proprietary driver stays software), and
 		// JUGGLER_WEBVIEW_GPU overrides it. Software rendering re-rasterises the
 		// UI's continuous animations (the busy spinner) on the main thread every
 		// frame, pinning a CPU core while work is in flight; acceleration

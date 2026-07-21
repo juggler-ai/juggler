@@ -117,7 +117,6 @@
  */
 
 import { submitPendingRequest } from '../js/services/thread-orchestrator.js';
-import { bindWorkspace, unbindWorkspace } from './ops.js';
 
 // ============================================================================
 // Approval Policy Constants
@@ -386,33 +385,6 @@ class StrategyType {
     }, this._abortController?.signal);
   }
 
-  /**
-   * Bind this conversation's execution root for one source directory. While
-   * bound, ops on a path under `sourceRoot` run under `workspaceRoot` instead
-   * (paths are still validated in real-project space, so the security boundary
-   * is unchanged). Call once per repository the conversation should isolate — a
-   * conversation may bind several, and each path routes to the workspace of the
-   * most specific bound source, so one conversation can span more than one git
-   * repository, each in its own worktree. This is how a strategy adds a
-   * worktree-style workflow: prepare an alternate root (e.g. `git worktree add`
-   * via the `shell` op), then bind it here — typically from {@link onActivate}.
-   * @param {string} sourceRoot - Absolute path of the real source directory (e.g. a git repo toplevel).
-   * @param {string} workspaceRoot - Absolute path of the alternate execution root for `sourceRoot`.
-   * @returns {Promise<{ok: boolean, sourceRoot?: string, workspaceRoot?: string, error?: string}>} Bind result.
-   */
-  async bindWorkspace(sourceRoot, workspaceRoot) {
-    return bindWorkspace(this.messageThread.conversationId, sourceRoot, workspaceRoot);
-  }
-
-  /**
-   * Clear this conversation's workspace binding for one source directory, or all
-   * of them when `sourceRoot` is omitted; ops revert to the real paths.
-   * @param {string} [sourceRoot] - The source to unbind; omit to clear all.
-   * @returns {Promise<{ok: boolean, error?: string}>} Unbind result.
-   */
-  async unbindWorkspace(sourceRoot) {
-    return unbindWorkspace(this.messageThread.conversationId, sourceRoot);
-  }
 
   /**
    * Inject situational guidance into the conversation as a durable

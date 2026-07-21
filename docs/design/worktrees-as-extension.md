@@ -19,12 +19,15 @@ repository**, and each repo it touches should get its own dedicated worktree.
 **TL;DR.** Zero API change is impossible — no extension surface can change
 *where* a conversation's file/shell ops physically execute. The missing
 abstraction is small and general: a **per-(conversation, source-directory)
-execution-root binding**, routed by longest-prefix match. Core gains one
-indirection (a path remap) plus a bind API and stays completely ignorant of git;
-the entire worktree policy lives in an ordinary extension
-(`examples/extensions/juggler-worktrees/`). The multi-repo requirement is what
-forces this shape over t3code's simpler one (below). The same primitive enables
-devcontainer / remote-dev / sandbox extensions.
+execution-root binding**, routed by longest-prefix match, exposed through a new
+**Environment** capability axis that is orthogonal to Strategy (so "run in a
+worktree" composes with any autonomy level). Core gains one indirection (a path
+remap) plus a bind API and stays completely ignorant of git; the entire worktree
+policy lives in an ordinary extension (`examples/extensions/juggler-worktrees/`,
+an Environment). The multi-repo requirement forces the per-source binding over
+t3code's single-cwd model; the orthogonality forces a new axis rather than
+overloading Strategy. The same primitive enables devcontainer / remote-dev /
+sandbox environments.
 
 ## How t3code does it (and why we diverge)
 
@@ -81,13 +84,50 @@ Core provides only:
    `POST /api/workspace/{bind,unbind}`.
 3. **SDK surface.** `juggler/ops` exports
    `bindWorkspace(convId, sourceRoot, workspaceRoot)` / `unbindWorkspace(convId,
-   sourceRoot?)`, and `StrategyType` gets `this.bindWorkspace(sourceRoot,
-   workspaceRoot)` / `this.unbindWorkspace(sourceRoot?)` conveniences.
+   sourceRoot?)`.
+4. **A new `Environment` capability axis (NOT Strategy).** See below.
 
 The worktree **policy** — discovering the repos under the project, creating a
 worktree per repo, naming branches, teardown — lives entirely in an extension
 (`examples/extensions/juggler-worktrees/`). Core stays ignorant of git; it only
 does prefix routing over bindings the extension supplies.
+
+## Environment is a separate axis from Strategy
+
+Worktrees are **not** a Strategy. A Strategy governs *loop autonomy* — read-only
+vs. default vs. yolo — and a conversation has exactly one (`currentStrategyId`,
+one `strategy-selector`). "Where the work physically happens" (project checkout
+vs. worktree vs. devcontainer vs. remote sandbox) is **orthogonal**: you might
+want a yolo worktree, a read-only worktree, or yolo with no worktree at all.
+Bundling worktrees into a Strategy would consume the single strategy slot and
+force "isolated" and "yolo/read-only" to be one choice — a category error.
+
+So this adds a distinct **Environment** capability axis, selected independently:
+
+- Manifest `provides.environments` (`*-environment-type.js`); SDK base class
+  `juggler/environment-type` (`web/sdk/environment-type.js`).
+- Lifecycle hooks mirroring (but independent of) Strategy's:
+  `onActivate` (prepare + `bindWorkspace` per repo), `onDeactivate` (unbind on
+  switch), `onTeardown({permanent})` (remove worktrees on conversation delete).
+  This axis is also where the teardown/re-bind lifecycle naturally lives.
+- A conversation carries a `currentEnvironmentId` beside `currentStrategyId`,
+  chosen from its own selector.
+
+```mermaid
+flowchart LR
+  conv["Conversation"]
+  subgraph axes["two independent selections"]
+    strat["Strategy axis (autonomy)<br/>read-only · default · yolo"]
+    env["Environment axis (where)<br/>project · worktree · devcontainer …"]
+  end
+  conv --> strat
+  conv --> env
+  strat -->|"filterTools · approvalPolicy"| loop["agentic loop"]
+  env -->|"bindWorkspace → WithRemap"| root["execution root(s)"]
+  note["e.g. {yolo} × {worktree}, or {read-only} × {project} — any combination"]:::n
+  axes -.-> note
+  classDef n fill:#efe,stroke:#6a6,color:#060;
+```
 
 ### Before — every conversation resolves at the one project root
 
@@ -116,12 +156,12 @@ flowchart TD
 ```mermaid
 flowchart TD
   subgraph engine["Engine (JS)"]
-    strat["Worktree strategy (EXTENSION) · onActivate()"]
+    env["Worktree ENVIRONMENT (extension) · onActivate()"]
     shellop["shell: discover repos + git worktree add (per repo)"]
     bind["bindWorkspace(convId, repoRoot, worktreeRoot) · once per repo"]
     ops["juggler/ops (later tool calls)"]
-    strat -->|"1 create"| shellop
-    strat -->|"2 bind each"| bind
+    env -->|"1 create"| shellop
+    env -->|"2 bind each"| bind
   end
   subgraph server["Server (Go)"]
     wsapi["/api/workspace/bind"]
@@ -144,11 +184,11 @@ flowchart TD
 ```mermaid
 sequenceDiagram
   participant W as Worker (Go)
-  participant X as Worktree strategy (ext)
+  participant X as Worktree environment (ext)
   participant S as Server ops/workspace (Go)
   participant G as git
 
-  W->>X: run-strategy-hook onActivate(convId)
+  W->>X: run-environment-hook onActivate(convId)
   X->>S: shell "find .git … ; git worktree add (per repo)"  (project root)
   S->>G: git worktree add -b juggler/conv-<id> <wtA> HEAD   (repoA)
   S->>G: git worktree add -b juggler/conv-<id> <wtB> HEAD   (repoB)
@@ -173,38 +213,48 @@ sequenceDiagram
 | conversationId on tool calls | `web/sdk/context-item.js` `_withConv`, `web/js/services/ops-api.js`, `fs.js`, per-tool call sites | core |
 | Registry (`(conv, source)→workspace`, longest-prefix) | `server/workspace_registry.go` | core, policy-free |
 | Bind API | `server/workspace_api.go`, `POST /api/workspace/{bind,unbind}` | core |
-| SDK | `web/sdk/ops.js`, `web/sdk/strategy-type.js` | core |
-| **Worktree policy (discover repos, worktree each, bind each)** | `examples/extensions/juggler-worktrees/` | **extension** |
+| Bind SDK | `web/sdk/ops.js` (`bindWorkspace`/`unbindWorkspace`) | core |
+| **Environment capability axis** | manifest `provides.environments` (`extmanifest.go`); SDK `web/sdk/environment-type.js` | core |
+| **Worktree policy (discover repos, worktree each, bind each)** | `examples/extensions/juggler-worktrees/` (an Environment) | **extension** |
+
+### Remaining wiring (WIP)
+
+The core mechanism, the SDK `EnvironmentType`, and manifest support are done and
+verified. Still to wire (needs the engine/UI, hence not in this PoC): the
+worker→engine dispatch of environment lifecycle hooks (`run-environment-hook`,
+analogous to `worker/strategy_hooks.go`), registry registration of environment
+capabilities, `currentEnvironmentId` in the doc, and an `environment-selector` UI
+beside the strategy selector.
 
 ## Alternatives considered
 
-- **New `Workspace`/`Environment` capability type** with `prepare`/`teardown`.
-  Most self-describing; models devcontainers/remote cleanly. But it's a whole new
-  capability kind (manifest, loader, registry, precedence) — heavier than a first
-  cut needs, and can be layered later over the *same* core remap.
-- **A single per-conversation root (t3code-style, PR #54 v1).** Rejected: cannot
-  express >1 repo per conversation.
-- **Chosen: per-(conversation, source) `bindWorkspace` on the existing Strategy
-  surface, longest-prefix routing.** Smallest new API, reuses the strategy
-  lifecycle that already exists, supports the multi-repo requirement, and the
-  core mechanism it drives is exactly what a future `Workspace` capability would
-  drive too. Nothing is foreclosed.
+- **On the Strategy axis (PR #54 v1–v2).** Rejected: Strategy is single-select
+  (loop autonomy), so a "Worktree strategy" steals the slot you'd use for
+  read-only/default/yolo. Worktrees are orthogonal to autonomy — they must be
+  their own axis.
+- **A single per-conversation root (t3code-style).** Rejected: a single session
+  cwd cannot express >1 repo per conversation.
+- **Chosen: a new `Environment` capability axis** driving per-(conversation,
+  source) `bindWorkspace` with longest-prefix routing. Orthogonal to Strategy,
+  supports multi-repo, and the core remap it drives is small and reusable by
+  other environment kinds (devcontainer, remote, sandbox).
 
 ## Open questions for maintainers
 
-1. **Home of the API.** Keep `bindWorkspace` on `StrategyType` (+ raw
-   `juggler/ops`), or promote to a first-class `Workspace` capability type?
-2. **Lifecycle hooks (the real gap).** An extension has no
-   **conversation-deleted** hook to tear worktrees down, and no
-   **conversation-resumed** hook to re-bind after a reload/server restart
-   (`onActivate` fires once; bindings are in-memory). Add these hooks, or persist
-   bindings? Today core clears the *mappings* on delete (safety net) and leaves
-   worktrees for manual `git worktree prune`.
-3. **Repo discovery cost.** The sample extension discovers repos eagerly with a
-   bounded `find` on activation. A lazy "bind on first touch of an unbound repo"
-   model would avoid worktrees for untouched repos but needs a core→extension
-   callback on an unmatched path — a larger surface. Eager is fine for a first
-   cut.
+1. **Axis shape.** This models Environment closely on Strategy (per-conversation
+   `currentEnvironmentId`, its own selector, `onActivate`/`onDeactivate`/
+   `onTeardown`). Is a full capability type the right weight, or would you prefer
+   a lighter "lifecycle-subscriber" module? (Both drive the same core remap.)
+2. **Teardown/persistence.** `onTeardown` gives environments a real
+   conversation-deleted hook. Two things still to decide: whether bindings should
+   **persist** (survive a reload/server restart, where `onActivate` won't re-fire)
+   or be re-established by an on-resume hook; and the default worktree-cleanup
+   policy (prune-if-clean vs. keep). Today core clears the *mappings* on delete
+   and the sample removes only clean worktrees.
+3. **Repo discovery cost.** The sample discovers repos eagerly with a bounded
+   `find` on activation. A lazy "bind on first touch of an unbound repo" model
+   would avoid worktrees for untouched repos but needs a core→extension callback
+   on an unmatched path — a larger surface. Eager is fine for a first cut.
 
 ## Status
 

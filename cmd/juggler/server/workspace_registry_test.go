@@ -5,13 +5,15 @@
 package server
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
 
 func newReg(t *testing.T) *WorkspaceRegistry {
 	t.Helper()
-	r := NewWorkspaceRegistry("/proj")
+	// Persist under a temp project so mutations exercise the on-disk path.
+	r := NewWorkspaceRegistry(t.TempDir())
 	t.Cleanup(r.Close)
 	return r
 }
@@ -111,6 +113,74 @@ func TestWorkspaceRegistry_Rebind(t *testing.T) {
 	r.Bind("conv-a", "/proj", "/wt/second")
 	if got := r.WorkspaceFor("conv-a", "/proj"); got != "/wt/second" {
 		t.Errorf("re-bind = %q, want /wt/second", got)
+	}
+}
+
+func TestWorkspaceRegistry_PersistsAcrossReload(t *testing.T) {
+	proj := t.TempDir()
+	r1 := NewWorkspaceRegistry(proj)
+	r1.Bind("conv-a", "/proj/repoA", "/wt/a")
+	r1.Bind("conv-a", "/proj/repoB", "/wt/b")
+	r1.Bind("conv-c", "/proj/repoA", "/wt/c")
+	r1.Close()
+
+	// The file exists under .juggler/.
+	if _, err := os.Stat(filepath.Join(proj, ".juggler", "workspaces.json")); err != nil {
+		t.Fatalf("persistence file missing: %v", err)
+	}
+
+	// A fresh registry (a restart) reloads the bindings.
+	r2 := NewWorkspaceRegistry(proj)
+	defer r2.Close()
+	if got := r2.WorkspaceFor("conv-a", "/proj/repoB"); got != "/wt/b" {
+		t.Errorf("reloaded conv-a repoB = %q, want /wt/b", got)
+	}
+	if got := r2.WorkspaceFor("conv-c", "/proj/repoA"); got != "/wt/c" {
+		t.Errorf("reloaded conv-c repoA = %q, want /wt/c", got)
+	}
+	// And the remap still works after reload.
+	if got := r2.Remapper("conv-a")("/proj/repoA/x.go"); got != "/wt/a/x.go" {
+		t.Errorf("reloaded remap = %q, want /wt/a/x.go", got)
+	}
+}
+
+func TestWorkspaceRegistry_UnbindPersists(t *testing.T) {
+	proj := t.TempDir()
+	r1 := NewWorkspaceRegistry(proj)
+	r1.Bind("conv-a", "/proj", "/wt/a")
+	r1.UnbindAll("conv-a")
+	r1.Close()
+
+	r2 := NewWorkspaceRegistry(proj)
+	defer r2.Close()
+	if len(r2.Bindings("conv-a")) != 0 {
+		t.Error("unbind did not persist across reload")
+	}
+}
+
+// The cleanup-after-shutdown case: a binding whose conversation no longer exists
+// (deleted while down) is surfaced as an orphan on the next launch.
+func TestWorkspaceRegistry_Orphans(t *testing.T) {
+	proj := t.TempDir()
+	r1 := NewWorkspaceRegistry(proj)
+	r1.Bind("conv-live", "/proj/repoA", "/wt/live")
+	r1.Bind("conv-gone", "/proj/repoA", "/wt/gone")
+	r1.Bind("conv-gone", "/proj/repoB", "/wt/gone-b")
+	r1.Close()
+
+	// Simulate a restart where conv-live still exists but conv-gone was deleted.
+	r2 := NewWorkspaceRegistry(proj)
+	defer r2.Close()
+	orphans := r2.Orphans(map[string]bool{"conv-live": true})
+	if _, ok := orphans["conv-live"]; ok {
+		t.Error("live conversation must not be an orphan")
+	}
+	g, ok := orphans["conv-gone"]
+	if !ok {
+		t.Fatal("deleted conversation should be an orphan")
+	}
+	if g["/proj/repoA"] != "/wt/gone" || g["/proj/repoB"] != "/wt/gone-b" {
+		t.Errorf("orphan bindings wrong: %v", g)
 	}
 }
 

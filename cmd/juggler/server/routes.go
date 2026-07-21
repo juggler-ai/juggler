@@ -363,6 +363,7 @@ func (s *Server) setupRoutes() {
 	// extension) binds/unbinds a conversation's alternate execution root here.
 	api.HandleFunc("/workspace/bind", s.handleWorkspaceBind).Methods("POST")
 	api.HandleFunc("/workspace/unbind", s.handleWorkspaceUnbind).Methods("POST")
+	api.HandleFunc("/workspace/orphans", s.handleWorkspaceOrphans).Methods("GET")
 	api.HandleFunc("/providers", s.handleProviders).Methods("GET")
 	api.HandleFunc("/providers/refresh", s.handleRefreshProviders).Methods("POST")
 	api.HandleFunc("/providers/usage", s.handleProviderUsageStats).Methods("GET")

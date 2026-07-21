@@ -84,3 +84,27 @@ func (s *Server) handleWorkspaceUnbind(w http.ResponseWriter, r *http.Request) {
 	jlog.Info("workspace: unbound conv=%s source=%q", req.ConversationID, req.SourceRoot)
 	handlers.WriteJSON(w, r, 0, map[string]any{"ok": true})
 }
+
+// workspaceOrphan is one entry in the GET /api/workspace/orphans response.
+type workspaceOrphan struct {
+	ConversationID string   `json:"conversationId"`
+	SourceRoots    []string `json:"sourceRoots"`
+}
+
+// handleWorkspaceOrphans lists persisted workspace bindings whose conversation
+// no longer exists (permanently deleted, possibly while the server was down). An
+// extension polls this on project open and tears each one down — this is how
+// worktrees get cleaned up across shutdowns. After teardown the extension calls
+// /api/workspace/unbind to drop the (now stale) binding.
+func (s *Server) handleWorkspaceOrphans(w http.ResponseWriter, r *http.Request) {
+	orphans := s.workspaceOrphans()
+	out := make([]workspaceOrphan, 0, len(orphans))
+	for convID, m := range orphans {
+		srcs := make([]string, 0, len(m))
+		for src := range m {
+			srcs = append(srcs, src)
+		}
+		out = append(out, workspaceOrphan{ConversationID: convID, SourceRoots: srcs})
+	}
+	handlers.WriteJSON(w, r, 0, map[string]any{"orphans": out})
+}

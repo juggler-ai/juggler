@@ -261,11 +261,36 @@ than a missing-import failure.
 (capability table row + one example) alongside the existing capabilities.
 
 **NOT part of the extension API** (internal core, outside the `engineApi`
-promise — extension authors never touch these): `WorkspaceRegistry`,
-`PathScope.WithRemap`, the `POST /api/workspace/{bind,unbind}` transport, the
-`runExtensionLifecycleHook` host loader, and the `conversationId` threading on
-tool calls. They are how the primitive is implemented, not how an extension uses
-it.
+promise — extension authors never touch these): `WorkspaceRegistry` and its
+`.juggler/workspaces.json` persistence, `PathScope.WithRemap`, the
+`POST /api/workspace/{bind,unbind}` and `GET /api/workspace/orphans` transport,
+the `runExtensionLifecycleHook` host loader, and the `conversationId` threading
+on tool calls. They are how the primitive is implemented, not how an extension
+uses it.
+
+## Persistence & cleanup across restarts
+
+Worktrees are durable on-disk resources, so their cleanup must survive a
+shutdown — a conversation deleted while the server is down, or a teardown that
+never completed, must not leak a worktree forever. The bindings are therefore
+**persisted**, not just in-memory:
+
+- `WorkspaceRegistry` writes `(convID → source → workspace)` to
+  `<project>/.juggler/workspaces.json` (atomic rewrite on every bind/unbind,
+  loaded on construction). So a restart reloads the bindings — the remap keeps
+  working, and core retains the record of which conversations own worktrees.
+- **Orphan sweep on project open.** Core compares the persisted bindings against
+  the conversations that still exist — active (`ConvNames`) plus binned
+  (`ListBinnedConversations`, so a restorable conversation is never swept). Any
+  binding whose conversation exists in neither is an **orphan** (permanently
+  deleted, possibly during downtime) and is surfaced at
+  `GET /api/workspace/orphans`. The lifecycle module drains it on project open,
+  running its `onConversationDeleted` teardown per orphan, then unbinding (which
+  rewrites the persisted file). The extension's teardown re-derives worktree
+  paths from the conversation id, so it works even if a binding is stale.
+
+Net effect: at every project open, worktrees belonging to conversations that no
+longer exist are cleaned up, regardless of how or when they were deleted.
 
 ## How the pieces map to code
 
@@ -274,23 +299,28 @@ it.
 | Execution-root remap | `ops/validation.go` — `PathScope.WithRemap`/`BaseDir`/`Remap`/`ResolveReal` | core, policy-free |
 | Ops honour the remap | `ops/{search,tree,shell}_ops.go`, `server/handlers/ops_api.go` | core |
 | conversationId on tool calls | `web/sdk/context-item.js` `_withConv`, `web/js/services/ops-api.js`, `fs.js`, per-tool call sites | core |
-| Registry (`(conv, source)→workspace`, longest-prefix) | `server/workspace_registry.go` | core, policy-free |
-| Bind API | `server/workspace_api.go`, `POST /api/workspace/{bind,unbind}` | core |
+| Registry (`(conv, source)→workspace`, longest-prefix) + persistence (`.juggler/workspaces.json`) + orphan detection | `server/workspace_registry.go` | core, policy-free |
+| Bind API + orphan listing | `server/workspace_api.go`, `POST /api/workspace/{bind,unbind}`, `GET /api/workspace/orphans` | core |
 | Bind SDK | `web/sdk/ops.js` (`bindWorkspace`/`unbindWorkspace`) | core |
 | **Lifecycle module** | manifest `provides.lifecycle` (`extmanifest.go`) + served URL (`handlers/extensions.go`); SDK contract `web/sdk/lifecycle.js`; host loader `runExtensionLifecycleHook` (`web/js/services/extensions.js`) | core |
 | **Worktree policy (discover repos, worktree each, bind each)** | `examples/extensions/juggler-worktrees/lifecycle.js` | **extension** |
 
 ### Remaining wiring (WIP)
 
-The core mechanism, the manifest field + served URL, the SDK `juggler/lifecycle`
-contract, and the host loader `runExtensionLifecycleHook` are done and verified.
-The one remaining piece needs the running engine: the **call site** that invokes
-`runExtensionLifecycleHook('onConversationActivated', {conversationId,
-projectRoot})` when the engine first activates a conversation, and
-`'onConversationDeleted'` on delete. The substrate exists — the engine already
-receives conversation `created`/`deleted` (`conversations-changed`, handled in
-`web/js/engine-app.js`) — so this is a small, well-located addition, left out
-here only because it can't be exercised without the live engine.
+The core mechanism, persistence, orphan detection, the manifest field + served
+URL, the SDK `juggler/lifecycle` contract, and the host loader
+`runExtensionLifecycleHook` are done and verified. What remains needs the running
+engine — three well-located call sites into `runExtensionLifecycleHook`:
+
+1. **`onConversationActivated`** when the engine first activates a conversation.
+2. **`onConversationDeleted`** on a live delete.
+3. **Orphan sweep on project open:** `GET /api/workspace/orphans`, then
+   `onConversationDeleted` per orphan, then `POST /api/workspace/unbind`.
+
+The substrate exists — the engine already receives conversation `created`/
+`deleted` (`conversations-changed`, handled in `web/js/engine-app.js`) and a
+project-load signal — so these are small additions, left out here only because
+they can't be exercised without the live engine.
 
 ## Alternatives considered
 
@@ -366,16 +396,22 @@ dispatches"), so they can't call `shell`/`bindWorkspace` themselves.
 Recommendation: if per-conversation opt-in matters, **(a)** or **(c)**; if
 per-project is fine, **(b)** is the least new surface. All three reuse the core
 remap unchanged.
-2. **Teardown/persistence.** The module's `onConversationDeleted` hook is a real
-   conversation-deleted teardown signal. Two things still to decide: whether bindings should
-   **persist** (survive a reload/server restart, where `onActivate` won't re-fire)
-   or be re-established by an on-resume hook; and the default worktree-cleanup
-   policy (prune-if-clean vs. keep). Today core clears the *mappings* on delete
-   and the sample removes only clean worktrees.
-3. **Repo discovery cost.** The sample discovers repos eagerly with a bounded
-   `find` on activation. A lazy "bind on first touch of an unbound repo" model
-   would avoid worktrees for untouched repos but needs a core→extension callback
-   on an unmatched path — a larger surface. Eager is fine for a first cut.
+### 2. Teardown & persistence — resolved
+
+Bindings are now **persisted** to `<project>/.juggler/workspaces.json` (see
+"Persistence & cleanup across restarts"), so they survive a restart and a
+conversation deleted while down is swept as an orphan on the next project open.
+The remaining sub-decision is only the default worktree-cleanup **policy**: the
+sample removes a worktree only if it is clean (`git worktree remove` without
+`--force`), keeping any with uncommitted work; prune-if-clean vs. keep-always vs.
+prompt is a taste call left to the extension.
+
+### 3. Repo discovery cost
+
+The sample discovers repos eagerly with a bounded `find` on activation. A lazy
+"bind on first touch of an unbound repo" model would avoid worktrees for
+untouched repos but needs a core→extension callback on an unmatched path — a
+larger surface. Eager is fine for a first cut.
 
 ## Status
 

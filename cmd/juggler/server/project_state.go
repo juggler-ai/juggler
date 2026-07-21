@@ -85,6 +85,28 @@ func (s *Server) workspaceForRepo(convID, repoRoot string) string {
 	return st.workspaces.WorkspaceFor(convID, repoRoot)
 }
 
+// workspaceOrphans returns persisted workspace bindings (convID → source →
+// workspace) whose conversation no longer exists — neither active nor binned.
+// These are conversations that were permanently deleted, including while the
+// server was down; an extension sweeps their worktrees on project open (see
+// GET /api/workspace/orphans). Returns an empty map in no-project mode.
+func (s *Server) workspaceOrphans() map[string]map[string]string {
+	st := s.projectState.Load()
+	if st == nil || st.workspaces == nil {
+		return map[string]map[string]string{}
+	}
+	live := map[string]bool{}
+	if sm := st.sessionManager; sm != nil {
+		for id := range sm.ConvNames() {
+			live[id] = true
+		}
+		for _, b := range sm.ListBinnedConversations() {
+			live[b.ID] = true
+		}
+	}
+	return st.workspaces.Orphans(live)
+}
+
 // newWorkspaceRegistry builds the per-conversation workspace registry for a
 // project path, or nil in no-project mode.
 func newWorkspaceRegistry(path string) *WorkspaceRegistry {

@@ -53,13 +53,16 @@ git project then runs in worktrees, at any strategy.
 **WIP / proof-of-concept.** What's done vs. remaining:
 
 - **Done & verified:** the core primitive (`bindWorkspace` + `WorkspaceRegistry`
-  + `PathScope.WithRemap`, incl. multi-repo longest-prefix routing), the SDK
-  lifecycle contract (`juggler/lifecycle`), manifest `provides.lifecycle`, and
-  the host-side loader `runExtensionLifecycleHook`.
-- **Remaining (WIP, needs the running engine):** the single call-site that
-  invokes `runExtensionLifecycleHook('onConversationActivated', …)` when the
-  engine first activates a conversation (and `'onConversationDeleted'` on delete).
-  Until that call is wired, the binding is exercised via the core mechanism/tests
-  rather than the live engine.
+  + `PathScope.WithRemap`, incl. multi-repo longest-prefix routing), **persistent
+  bindings** (`.juggler/workspaces.json`) with **orphan detection** so worktrees
+  are cleaned up across shutdowns, the SDK lifecycle contract
+  (`juggler/lifecycle`), manifest `provides.lifecycle`, and the host loader
+  `runExtensionLifecycleHook`.
+- **Remaining (WIP, needs the running engine):** the call sites that invoke
+  `runExtensionLifecycleHook('onConversationActivated', …)` on activation,
+  `'onConversationDeleted'` on delete, and — on project open — the orphan sweep
+  (`GET /api/workspace/orphans` → `onConversationDeleted` per orphan → unbind).
+  Until those are wired, the binding + persistence are exercised via the core
+  mechanism/tests rather than the live engine.
 
 See `docs/design/worktrees-as-extension.md`.

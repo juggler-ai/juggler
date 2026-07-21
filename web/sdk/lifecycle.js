@@ -50,7 +50,11 @@
  *   `bindWorkspace`).
  * @property {(ctx: LifecycleDeleteContext) => (void | Promise<void>)} [onConversationDeleted]
  *   Called when a conversation is deleted. Tear down and `unbindWorkspace`.
- *   `permanent` is false for a bin (soft) delete.
+ *   `permanent` is false for a bin (soft) delete. Also called on **project open**
+ *   for any conversation that was permanently deleted while the host was down
+ *   (an "orphan" — the host persists bindings so these survive a shutdown), so a
+ *   teardown missed during downtime still runs. Make teardown idempotent: it may
+ *   run for a conversation whose worktrees are already gone.
  */
 
 export {};

@@ -88,6 +88,9 @@ func expandProject(project string) string {
 //   - else "juggler" on PATH.
 func serverBinPath() (string, error) {
 	if env := os.Getenv("JUGGLER_SERVER_BIN"); env != "" {
+		if st, err := os.Stat(env); err != nil || st.IsDir() {
+			return "", fmt.Errorf("JUGGLER_SERVER_BIN=%q: not a regular file", env)
+		}
 		return env, nil
 	}
 	name := "juggler"
@@ -120,6 +123,11 @@ func spawnServer(project string) (string, *exec.Cmd, error) {
 	if err != nil {
 		return "", nil, err
 	}
+	// Resolve to an absolute path so exec.Command receives a fully qualified,
+	// verified binary path rather than a bare name subject to PATH manipulation.
+	if resolved, lookErr := exec.LookPath(bin); lookErr == nil {
+		bin = resolved
+	}
 
 	// --exit-with-parent ties the server's lifetime to ours: if this app quits
 	// or crashes, the server self-terminates instead of lingering as an orphan.
@@ -131,7 +139,7 @@ func spawnServer(project string) (string, *exec.Cmd, error) {
 	if project != "" {
 		args = append(args, "--project", project)
 	}
-	cmd := exec.Command(bin, args...)
+	cmd := exec.Command(bin, args...) // #nosec G204 -- bin is resolved via serverBinPath which validates file existence
 	// The server discards its console when launched without a terminal, so its
 	// stderr carries only genuine panics / pre-jlog output. Capture that to this
 	// project's per-server crash file (single writer — no interleave with other

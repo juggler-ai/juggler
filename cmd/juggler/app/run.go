@@ -36,6 +36,7 @@ import (
 	"juggler/cmd/juggler/providers/openai"
 	"juggler/cmd/juggler/providers/openaicodex"
 	"juggler/cmd/juggler/providers/openaicompat"
+	"juggler/cmd/juggler/providers/opencodezen"
 	"juggler/cmd/juggler/providers/openrouter"
 	"juggler/cmd/juggler/providers/streamidle"
 	"juggler/cmd/juggler/providers/zai"
@@ -153,6 +154,7 @@ func registerProviders() {
 	gemini.Register()
 	llamacpp.Register()
 	moonshot.Register()
+	opencodezen.Register()
 	ollama.Register()
 	openai.Register()
 	openaicodex.Register()

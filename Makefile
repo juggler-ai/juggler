@@ -1,4 +1,4 @@
-.PHONY: build test test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-types lint-css fix fix-files fix-fmt fix-go fix-js fix-css node-deps help mac-app install-mac app-icon-embed wails-runtime-embed win-icon release-build-mac mac-dmg mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack mac-codesign
+.PHONY: build test test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-types lint-css fix fix-files fix-fmt fix-go fix-js fix-css node-deps help mac-app install-mac app-icon-embed wails-runtime-embed win-icon release-build-mac release-build-mac-universal mac-dmg mac-dmg-universal mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack mac-codesign
 
 # Binary name
 BINARY_NAME=juggler
@@ -18,6 +18,7 @@ GOARCH_HOST := arm64
 else
 GOARCH_HOST := $(UNAME_M)
 endif
+MAC_ARCH ?= arm64
 # Executable suffix for native (non-cross-compiled) builds on this host. Native
 # Windows reports Windows_NT via $(OS) regardless of shell (uname -s instead
 # returns MSYS_NT-.../MINGW64_NT-... under Git Bash, inconsistent to match on).
@@ -213,16 +214,19 @@ build-windows: app-icon-embed wails-runtime-embed
 # from outside this module — only the finished binary is injected.
 SERVER_BIN ?=
 
-## release-build-mac: Build the arm64 (Apple Silicon) Juggler.app for
-## distribution. Both the server (juggler) and app (juggler-app) are built for
-## arm64; the bundle stays one unit. macOS only. Use `make mac-dmg` to wrap the
-## result in a drag-to-Applications DMG. Set SERVER_BIN to inject a prebuilt
-## server into the slot instead of building ./cmd/juggler.
+## release-build-mac: Build the Juggler.app for distribution, targeting
+## $(MAC_ARCH) (default arm64 / Apple Silicon). Override MAC_ARCH=amd64 for an
+## Intel-only build. Both the server (juggler) and app (juggler-app) are built
+## for the same arch; the bundle stays one unit. macOS only. Use
+## `make release-build-mac-universal` for a fat arm64+amd64 binary.
+## Use `make mac-dmg` to wrap the result in a drag-to-Applications DMG.
+## Set SERVER_BIN to inject a prebuilt server into the slot instead of
+## building ./cmd/juggler.
 release-build-mac: app-icon-embed wails-runtime-embed
 ifneq ($(UNAME_S),Darwin)
 	@echo "release-build-mac is only supported on macOS."; exit 1
 endif
-	@echo "Building Juggler.app $(VERSION) [release, arm64]..."
+	@echo "Building Juggler.app $(VERSION) [release, $(MAC_ARCH)]..."
 	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_RES)
 	@# Clear a possible leftover universal (fat) binary from an older release so
 	@# `go build -o` doesn't refuse to overwrite it (see go-build).
@@ -231,22 +235,62 @@ endif
 		echo "  → juggler (from $(SERVER_BIN))"; \
 		cp "$(SERVER_BIN)" "$(MAC_APP_BIN)"; \
 	else \
-		echo "  → juggler (arm64)"; \
-		CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(MAC_APP_BIN) ./cmd/juggler || exit 1; \
+		echo "  → juggler ($(MAC_ARCH))"; \
+		CGO_ENABLED=1 GOOS=darwin GOARCH=$(MAC_ARCH) $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(MAC_APP_BIN) ./cmd/juggler || exit 1; \
 	fi
-	@echo "  → juggler-app (arm64)"
-	@CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(MAC_APP_APP_BIN) ./cmd/juggler-app || exit 1
+	@echo "  → juggler-app ($(MAC_ARCH))"
+	@CGO_ENABLED=1 GOOS=darwin GOARCH=$(MAC_ARCH) $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(MAC_APP_APP_BIN) ./cmd/juggler-app || exit 1
 	@$(MAKE) --no-print-directory mac-app-meta
 	@$(MAKE) --no-print-directory mac-codesign
 	@ln -sfn Juggler.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
-	@echo "→ $(MAC_APP_DIR) (arm64: $$(lipo -archs $(MAC_APP_APP_BIN)))"
+	@echo "→ $(MAC_APP_DIR) ($(MAC_ARCH): $$(lipo -archs $(MAC_APP_APP_BIN)))"
 
-## mac-dmg: Build a distributable .dmg containing the arm64 Juggler.app with
+## release-build-mac-universal: Build a universal (fat) Juggler.app for
+## distribution containing both arm64 (Apple Silicon) and amd64 (Intel) slices.
+## Each inner binary is built twice (once per arch) and merged with lipo, so
+## one .app runs natively on both. macOS only — lipo is macOS-only. Uses
+## SERVER_BIN for the arm64 server slice only; the amd64 server slice is always
+## built from ./cmd/juggler. Wraps with `make mac-dmg` for a universal DMG.
+release-build-mac-universal: app-icon-embed wails-runtime-embed
+ifneq ($(UNAME_S),Darwin)
+	@echo "release-build-mac-universal is only supported on macOS."; exit 1
+endif
+	@echo "Building Juggler.app $(VERSION) [release, universal arm64+amd64]..."
+	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_RES)
+	@tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	echo "  → juggler (arm64)"; \
+	if [ -n "$(SERVER_BIN)" ]; then cp "$(SERVER_BIN)" "$$tmp/juggler-arm64"; \
+	else CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o "$$tmp/juggler-arm64" ./cmd/juggler || exit 1; fi; \
+	echo "  → juggler (amd64)"; \
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o "$$tmp/juggler-amd64" ./cmd/juggler || exit 1; \
+	lipo -create -output "$(MAC_APP_BIN)" "$$tmp/juggler-arm64" "$$tmp/juggler-amd64"; \
+	echo "  → juggler-app (arm64)"; \
+	CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o "$$tmp/app-arm64" ./cmd/juggler-app || exit 1; \
+	echo "  → juggler-app (amd64)"; \
+	CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o "$$tmp/app-amd64" ./cmd/juggler-app || exit 1; \
+	lipo -create -output "$(MAC_APP_APP_BIN)" "$$tmp/app-arm64" "$$tmp/app-amd64"; \
+	rm -rf "$$tmp"; \
+	echo "  → universal slices: $$(lipo -archs $(MAC_APP_BIN)) + $$(lipo -archs $(MAC_APP_APP_BIN))"
+	@$(MAKE) --no-print-directory mac-app-meta
+	@$(MAKE) --no-print-directory mac-codesign
+	@ln -sfn Juggler.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
+	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
+	@echo "→ $(MAC_APP_DIR) (universal: $$(lipo -archs $(MAC_APP_APP_BIN)))"
+
+## mac-dmg: Build a distributable .dmg containing the Juggler.app with
 ## the standard drag-to-Applications layout. Requires create-dmg
 ## (brew install create-dmg). Output: bin/Juggler-$(VERSION).dmg.
+## Builds the default arm64 app; use `make mac-dmg-universal` for a
+## universal arm64+amd64 DMG.
 DMG_NAME=$(BUILD_DIR)/Juggler-$(VERSION).dmg
 mac-dmg: release-build-mac mac-dmg-pack
+
+## mac-dmg-universal: Build a distributable .dmg containing the universal
+## (arm64+amd64) Juggler.app. Requires create-dmg.
+## Output: bin/Juggler-$(VERSION).dmg.
+mac-dmg-universal: release-build-mac-universal mac-dmg-pack
 
 ## mac-dmg-pack: Wrap the already-assembled $(MAC_APP_DIR) into the DMG, WITHOUT
 ## rebuilding it. mac-dmg = release-build-mac + this; kept separate so a caller

@@ -89,7 +89,9 @@ import { runTests as runReadFileActionTests } from '../unit-tests/read-file-acti
 import { runTests as runPathInputQuotesTests } from '../unit-tests/path-input-quotes-test.js';
 import { runTests as runSearchActionTests } from '../unit-tests/search-action-test.js';
 import { runTests as runToolCancellationTests } from '../unit-tests/tool-cancellation-test.js';
+import { runTests as runToolExecutionOrderTests } from '../unit-tests/tool-execution-order-test.js';
 import { runTests as runToolActionRenderTests } from '../unit-tests/tool-action-render-test.js';
+import { runTests as runExploreCodeFormatTests } from '../unit-tests/explore-code-format-test.js';
 import { runTests as runSubmitPlanActionTests } from '../unit-tests/submit-plan-action-test.js';
 import { runTests as runPlanApprovalTests } from '../unit-tests/plan-approval-test.js';
 import { runTests as runWebFetchTests } from '../unit-tests/test-webfetch.js';
@@ -140,6 +142,7 @@ import { runTests as runClipboardTests } from '../unit-tests/clipboard-test.js';
 import { runTests as runConnectivityTests } from '../unit-tests/connectivity-test.js';
 import { runTests as runLogsTests } from '../unit-tests/logs-test.js';
 import { runTests as runUpdatesSettingsTests } from '../unit-tests/updates-settings-test.js';
+import { runTests as runNetworkSettingsTests } from '../unit-tests/network-settings-test.js';
 import { runTests as runReconnectPolicyTests } from '../unit-tests/reconnect-policy-test.js';
 import { runTests as runPopupBackButtonTests } from '../unit-tests/popup-back-button-test.js';
 import { runTests as runModelDisplayTests } from '../unit-tests/model-display-test.js';
@@ -281,7 +284,9 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:slash-completion', run: runSlashCompletionTests },
   { name: 'unit:search-action', run: runSearchActionTests },
   { name: 'unit:tool-cancellation', run: runToolCancellationTests },
+  { name: 'unit:tool-execution-order', run: runToolExecutionOrderTests },
   { name: 'unit:tool-action-render', run: runToolActionRenderTests },
+  { name: 'unit:explore-code-format', run: runExploreCodeFormatTests },
   { name: 'unit:submit-plan-action', run: runSubmitPlanActionTests },
   { name: 'unit:plan-approval', run: runPlanApprovalTests },
   { name: 'unit:webfetch', run: runWebFetchTests },
@@ -324,6 +329,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:connectivity', run: runConnectivityTests },
   { name: 'unit:logs', run: runLogsTests },
   { name: 'unit:updates-settings', run: runUpdatesSettingsTests },
+  { name: 'unit:network-settings', run: runNetworkSettingsTests },
   { name: 'unit:reconnect-policy', run: runReconnectPolicyTests },
   { name: 'unit:popup-back-button', run: runPopupBackButtonTests },
   { name: 'unit:model-display', run: runModelDisplayTests },

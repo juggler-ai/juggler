@@ -26,6 +26,16 @@ const (
 	maxContextRecoveryAttempts = 4
 )
 
+// recoverySignature captures the objective structural shape of the target
+// items so advance can tell a fold that made real progress from one that
+// changed nothing. It measures item count, serialized size, and the id of the
+// leading compaction boundary: a fresh fold creates a new summary thread whose
+// id lands here, marking genuine progress that count and size can coincidentally
+// match across two different attempts (e.g. a shrink-only pass landing on the
+// same wire size as the prior fold). Keying off the summary id is safe because
+// recoveryUnitFoldable pins existing summaries out of the fold range — the id
+// only moves when brand-new history is summarized, never when an existing
+// summary is re-wrapped (that can no longer happen).
 type recoverySignature struct {
 	retainedItems int
 	foldBoundary  string
@@ -191,6 +201,20 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 	if k == len(units) {
 		return contextRecoveryOutcome(before, items), nil
 	}
+	// The suffix walk stops at the first pinned unit from the back, but another
+	// pinned unit (an earlier compaction summary) can still sit deeper inside
+	// [skip, k) with fresh, foldable history on both sides of it. The fold is a
+	// single contiguous range, so folding across that summary would swallow and
+	// nest it. Clamp k to the first pinned unit at or after skip, so the fold
+	// covers only the leading contiguous run of fresh history and leaves the
+	// prior summary (and everything after it) untouched — later passes fold the
+	// runs beyond it. units[skip] is foldable by construction, so k stays > skip.
+	for p := skip; p < k; p++ {
+		if !recoveryUnitFoldable(items[units[p].start]) {
+			k = p
+			break
+		}
+	}
 	if k <= skip {
 		// Every foldable unit already fits verbatim within the window. Because
 		// admission only rejects requests that do not fit, this state is only
@@ -267,10 +291,12 @@ func (w *ConversationWorker) tryContextRecovery(limitErr *provider.ContextLimitE
 
 	// Commit only against the exact snapshot the reducer consumed. The
 	// fingerprint recheck and the fold run under one ycrdtMu hold inside
-	// FoldPrefixIntoSummaryIfUnchanged, so a concurrent doc change (user edit,
+	// foldPrefixIntoSummaryTracked, so a concurrent doc change (user edit,
 	// queued-message promotion) that lands between check and write cannot leave
-	// the fold splicing at stale indices — it aborts rather than clobbering.
-	if !w.doc.FoldPrefixIntoSummaryIfUnchanged(w.getTargetItemsYArray(), prefixStart, prefixEnd-prefixStart, summaryItem, promptID, fingerprint) {
+	// the fold splicing at stale indices — it aborts rather than clobbering. The
+	// tracked variant captures the whole delete+insert as one undo group, so a
+	// single undo reverses the fold (parity with the browser /compact fold).
+	if !w.foldPrefixIntoSummaryTracked(w.getTargetItemsYArray(), prefixStart, prefixEnd-prefixStart, summaryItem, promptID, fingerprint) {
 		w.recordCompactionOutcome(compactionKindRecovery, "error", result, map[string]any{"reason": string(BoundedCompactionSourceChanged)})
 		return contextRecoveryResult{}, &BoundedCompactionError{
 			Reason: BoundedCompactionSourceChanged, Message: "conversation changed during context recovery; nothing was folded",
@@ -376,7 +402,16 @@ func (w *ConversationWorker) shrinkOversizedTrailingToolResults(limitErr *provid
 // recoveryUnitFoldable reports whether an item may join the summarized prefix
 // or the verbatim suffix: conversational items only. Standing context items
 // (rules, plans, system prompts) are pinned in place.
+//
+// An existing compaction summary thread is also pinned. Re-folding one would
+// nest summaries inside summaries and re-summarize already-summarized history —
+// each recovery pass deeper and more expensive than the last. Recovery folds
+// only fresh, never-summarized history; a prior summary renders on the wire as
+// its compact result text and stays put.
 func recoveryUnitFoldable(item ConversationItem) bool {
+	if item.Type == ItemTypeThread && item.BoundedCompaction {
+		return false
+	}
 	return isConversationalItemType(item.Type)
 }
 

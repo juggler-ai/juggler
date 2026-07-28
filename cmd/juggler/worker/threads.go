@@ -115,6 +115,15 @@ func (w *ConversationWorker) createThread(opts CreateThreadOptions) (string, err
 		}
 	}
 
+	// A thread creation is one undo unit: the thread container, its stamped
+	// fields, the cloned seed context, and the seed prompt all collapse into a
+	// single group so one undo removes the whole child (no orphaned seeds or seed
+	// prompt left behind). Close the prior capture window and snapshot the stack
+	// height; every tracked write below lands at or after this index, and
+	// MergeFromIndex folds them together once creation completes.
+	w.tracker.StopCapturing()
+	createMergeFrom := w.tracker.UndoStackLen()
+
 	// Create thread item with nested Y.Array (in the current target array).
 	// Use the tracker (authorID origin) so the insertion is tracked by the
 	// UndoManager and can be undone independently.
@@ -179,7 +188,7 @@ func (w *ConversationWorker) createThread(opts CreateThreadOptions) (string, err
 	// array, each with a fresh id. targetArr is the parent array (root array
 	// when creating at root scope). Continuations already carry their seeds.
 	if !opts.IsContinuation {
-		w.doc.SeedThreadFromParent(targetArr, nestedItems)
+		w.tracker.SeedThreadFromParent(targetArr, nestedItems)
 	}
 
 	// Insert user message into the child thread's items array, AFTER the seeds
@@ -198,8 +207,14 @@ func (w *ConversationWorker) createThread(opts CreateThreadOptions) (string, err
 			Content:   content,
 			Timestamp: time.Now().Format(time.RFC3339),
 		}
-		w.doc.InsertMessageIntoArray(nestedItems, w.doc.GetItemsLengthFromArray(nestedItems), msg)
+		w.tracker.InsertMessageIntoArray(nestedItems, w.doc.GetItemsLengthFromArray(nestedItems), msg)
 	}
+
+	// Collapse the container insert, field stamps, seeds, and seed prompt into one
+	// undo group, then close it so any subsequent dispatch or turn content forms
+	// its own separate groups.
+	w.tracker.MergeFromIndex(createMergeFrom)
+	w.tracker.StopCapturing()
 
 	if opts.ExternalDispatch {
 		w.requestLLM(threadItemID)

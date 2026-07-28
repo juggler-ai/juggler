@@ -132,7 +132,10 @@ class ToolExecutor {
 
   /**
    * Execute multiple tool calls with category-aware parallel/sequential logic.
-   * Read/meta tools run in parallel, write tools run sequentially.
+   * The default mode preserves the order the model emitted: runs of consecutive
+   * read/meta calls fire in parallel, but a write flushes any pending reads and
+   * runs sequentially — so a read the model placed *after* a write never runs
+   * before it (e.g. "write a file, then read it back" stays correct).
    * @param {ToolCall[]} toolCalls - Tool calls to execute
    * @param {import('./response-handler.js').default} responseHandler - ResponseHandler instance for execution
    * @param {import('../model/message-thread.js').MessageThread} messageThread - Message thread
@@ -172,68 +175,87 @@ class ToolExecutor {
       return this._executeAllSequential(toolCalls, responseHandler, messageThread);
     }
 
-    // 'default' mode: read/meta tools in parallel, write tools sequentially
-    // Get tool categories for parallel/sequential execution
+    // 'default' mode: preserve emitted order, parallelizing only runs of
+    // consecutive read/meta calls. A write (or unknown-category) call flushes the
+    // pending read run and executes sequentially, so a read placed after a write
+    // never runs before it.
     const toolCategories = await this._buildCategoryMap(options.toolDefinitions);
 
-    // Separate tools by category
-    const indexedTools = toolCalls.map((toolCall, index) => ({
-      index,
-      toolCall,
-      category: toolCategories.get(resolveToolName(toolCall.name))
-    }));
+    /**
+     * @param {ToolCall} toolCall
+     * @returns {boolean} True for read/meta tools (safe to batch in parallel).
+     */
+    const isReadLike = (toolCall) => {
+      const category = toolCategories.get(resolveToolName(toolCall.name));
+      return category === 'read' || category === 'meta';
+    };
 
-    const readTools = indexedTools.filter(t => t.category === 'read' || t.category === 'meta');
-    const writeTools = indexedTools.filter(t => t.category === 'write' || t.category === undefined);
-
-    // Execute read/meta tools in parallel
-    const readPromises = readTools.map(async (t) => {
-      try {
-        const resolvedName = resolveToolName(t.toolCall.name);
-        const result = await this._executeSingleTool(t.toolCall, resolvedName, responseHandler, messageThread);
-        return { index: t.index, result };
-      } catch (error) {
-        return {
-          index: t.index,
-          result: this._createErrorResult(t.toolCall, error)
-        };
-      }
-    });
-    const readResults = await Promise.all(readPromises);
-
-    // Execute write tools SEQUENTIALLY to enforce approval order
     /** @type {Array<{index: number, result: ToolOutcome}>} */
-    const writeResults = [];
-    for (let wi = 0; wi < writeTools.length; wi++) {
-      const t = /** @type {{index: number, toolCall: ToolCall}} */ (writeTools[wi]);
-      try {
-        const resolvedName = resolveToolName(t.toolCall.name);
-        const result = await this._executeSingleTool(t.toolCall, resolvedName, responseHandler, messageThread);
-        writeResults.push({ index: t.index, result });
+    const collected = [];
+    // Buffer of consecutive read/meta calls awaiting a parallel flush.
+    /** @type {Array<{index: number, toolCall: ToolCall}>} */
+    let readRun = [];
+    // Once a call reports cancellation, every remaining call in the batch is
+    // synthesized as cancelled rather than executed.
+    let cancelled = false;
 
-        // If cancelled, synthesize cancelled outcomes for the remaining write tools
-        if (result.resultStatus === 'cancelled') {
-          for (let wj = wi + 1; wj < writeTools.length; wj++) {
-            const remaining = /** @type {{index: number, toolCall: ToolCall}} */ (writeTools[wj]);
-            writeResults.push({ index: remaining.index, result: this._cancelledOutcome(remaining.toolCall) });
-          }
-          break;
+    // Fire the buffered read run in parallel and collect its outcomes. A cancelled
+    // read aborts the rest of the batch, mirroring the write path.
+    const flushReadRun = async () => {
+      if (readRun.length === 0) return;
+      const run = readRun;
+      readRun = [];
+      const results = await Promise.all(run.map(async (t) => {
+        try {
+          const resolvedName = resolveToolName(t.toolCall.name);
+          const result = await this._executeSingleTool(t.toolCall, resolvedName, responseHandler, messageThread);
+          return { index: t.index, result };
+        } catch (error) {
+          return { index: t.index, result: this._createErrorResult(t.toolCall, error) };
         }
+      }));
+      collected.push(...results);
+      if (results.some((r) => r.result.resultStatus === 'cancelled')) cancelled = true;
+    };
+
+    for (let i = 0; i < toolCalls.length; i++) {
+      const toolCall = /** @type {ToolCall} */ (toolCalls[i]);
+
+      if (cancelled) {
+        collected.push({ index: i, result: this._cancelledOutcome(toolCall) });
+        continue;
+      }
+
+      if (isReadLike(toolCall)) {
+        readRun.push({ index: i, toolCall });
+        continue;
+      }
+
+      // Write/unknown: everything the model emitted before it must finish first,
+      // then run it sequentially to enforce approval order.
+      await flushReadRun();
+      if (cancelled) {
+        collected.push({ index: i, result: this._cancelledOutcome(toolCall) });
+        continue;
+      }
+      try {
+        const resolvedName = resolveToolName(toolCall.name);
+        const result = await this._executeSingleTool(toolCall, resolvedName, responseHandler, messageThread);
+        collected.push({ index: i, result });
+        if (result.resultStatus === 'cancelled') cancelled = true;
       } catch (error) {
-        writeResults.push({
-          index: t.index,
-          result: this._createErrorResult(t.toolCall, error)
-        });
+        collected.push({ index: i, result: this._createErrorResult(toolCall, error) });
       }
     }
+    // Flush a trailing read run (batch ended without a write after it).
+    await flushReadRun();
 
     // Merge results in original order. Look each tool's category up by its own
     // recorded index (not the post-sort array position) so the correlation holds
     // regardless of how reads/writes interleaved.
-    const allResults = [...readResults, ...writeResults];
-    allResults.sort((a, b) => a.index - b.index);
+    collected.sort((a, b) => a.index - b.index);
 
-    return allResults.map((r) => ({
+    return collected.map((r) => ({
       ...r.result,
       category: toolCategories.get(resolveToolName(/** @type {ToolCall} */ (toolCalls[r.index]).name))
     }));

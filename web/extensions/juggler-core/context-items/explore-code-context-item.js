@@ -264,8 +264,202 @@ class ExploreCodeContextItem extends ContextItem {
     if (input.description) {
       helpers.addLlmDescription(wrapper, 'Description', String(input.description));
     }
-    const code = input.code !== null && input.code !== undefined ? String(input.code) : '';
+    const rawCode = input.code !== null && input.code !== undefined ? String(input.code) : '';
+    const code = ExploreCodeContextItem._prettyPrintCode(rawCode);
     helpers.addSubsection(wrapper, 'Code', code, 'properties-panel-code', { language: 'javascript' });
+  }
+
+  /**
+   * Best-effort pretty-print for display of a crammed, single-line explore_code
+   * script. This is deliberately NOT a real formatter — no parser, no
+   * dependency. It only engages when the script has no line structure of its
+   * own (already-multi-line scripts are returned untouched), inserts newlines
+   * and indentation around top-level `{`/`}`/`;`, and skips over string,
+   * template, comment and regex spans so it never breaks inside them. Object
+   * literals (`{...}` in expression position, e.g. a `glob(p, {cwd})` argument)
+   * stay inline. On any surprise it returns the original text, so the worst
+   * case is "no change", never mangled code.
+   * @param {string} src - Raw script text
+   * @returns {string} Reformatted text, or the original when already multi-line or on failure
+   */
+  static _prettyPrintCode(src) {
+    return prettyPrintExploreScript(src);
+  }
+}
+
+// Words after which a `{` opens an expression (object literal), not a block.
+const EXPR_KEYWORDS = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'yield', 'await', 'case'
+]);
+// Words after which a `{` opens a statement block.
+const BLOCK_KEYWORDS = new Set(['else', 'try', 'finally', 'do']);
+// After a `}` block close, these characters continue the same line (no break).
+const CLOSE_CONTINUATIONS = ')];,.';
+// After a `}` block close, these keywords stay on the same line (`} else {`).
+const CLOSE_KEYWORD_RE = /^(else|catch|finally|while)\b/;
+
+/**
+ * @see ExploreCodeContextItem._prettyPrintCode
+ * @param {string} src - Raw script text
+ * @returns {string} Reformatted text, or the original when already multi-line or on failure
+ */
+function prettyPrintExploreScript(src) {
+  if (typeof src !== 'string' || src === '') return src;
+  // Already multi-line → the model laid it out; leave it exactly as-is.
+  if (src.split('\n').filter((l) => l.trim() !== '').length !== 1) return src;
+  // Nothing structural to gain a line break from.
+  if (!/[{};]/.test(src)) return src;
+
+  try {
+    const INDENT = '  ';
+    const n = src.length;
+    let out = '';
+    let indent = 0;
+    let parenDepth = 0; // () and []: suppress `;` breaks inside for(...)/[...]
+    /** @type {Array<'block'|'obj'>} */
+    const braceStack = [];
+    let i = 0;
+
+    const atLineStart = () => out === '' || out.endsWith('\n');
+    const pushIndent = () => { if (atLineStart()) out += INDENT.repeat(Math.max(0, indent)); };
+    const newline = () => { out = out.replace(/[ \t]+$/, ''); if (!atLineStart()) out += '\n'; };
+    const lastSignificant = () => {
+      for (let k = out.length - 1; k >= 0; k--) {
+        const ch = out.charAt(k);
+        if (!/\s/.test(ch)) return ch;
+      }
+      return '';
+    };
+    const lastWord = () => {
+      let k = out.length - 1;
+      while (k >= 0 && /\s/.test(out.charAt(k))) k--;
+      const end = k;
+      while (k >= 0 && /[A-Za-z0-9$_]/.test(out.charAt(k))) k--;
+      return out.slice(k + 1, end + 1);
+    };
+    // Copy a quoted string / template verbatim (honouring escapes) so its
+    // contents never drive indentation.
+    const copyQuoted = (/** @type {string} */ quote) => {
+      out += src[i]; i++;
+      while (i < n) {
+        const ch = src[i];
+        out += ch;
+        if (ch === '\\') { if (i + 1 < n) { out += src[i + 1]; i += 2; continue; } i++; continue; }
+        i++;
+        if (ch === quote) break;
+      }
+    };
+
+    while (i < n) {
+      const c = src[i];
+      const next = src[i + 1];
+
+      if (c === '/' && next === '/') { // line comment
+        pushIndent();
+        while (i < n && src[i] !== '\n') { out += src[i]; i++; }
+        continue;
+      }
+      if (c === '/' && next === '*') { // block comment
+        pushIndent();
+        out += '/*'; i += 2;
+        while (i < n && !(src[i] === '*' && src[i + 1] === '/')) { out += src[i]; i++; }
+        out += '*/'; i += 2;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === '`') { // string / template literal
+        pushIndent();
+        copyQuoted(c);
+        continue;
+      }
+      if (c === '/') { // regex vs. division, by the previous token
+        const p = lastSignificant();
+        if (p === '' || '(,=:[!&|?{};+-*%^~<>'.includes(p)) {
+          pushIndent();
+          out += '/'; i++;
+          let inClass = false;
+          while (i < n) {
+            const ch = src[i];
+            out += ch;
+            if (ch === '\\') { if (i + 1 < n) { out += src[i + 1]; i += 2; continue; } i++; continue; }
+            if (ch === '[') inClass = true;
+            else if (ch === ']') inClass = false;
+            else if (ch === '/' && !inClass) { i++; break; }
+            i++;
+          }
+          while (i < n && /[a-z]/i.test(src.charAt(i))) { out += src.charAt(i); i++; } // flags
+          continue;
+        }
+      }
+
+      if (c === '{') {
+        const p = lastSignificant();
+        const w = lastWord();
+        const isObject = EXPR_KEYWORDS.has(w) ? true
+          : BLOCK_KEYWORDS.has(w) ? false
+            : (!!p && '([,:=?|&!+-*/%^~<'.includes(p));
+        pushIndent();
+        out += '{';
+        if (isObject) {
+          braceStack.push('obj');
+        } else {
+          braceStack.push('block');
+          indent++;
+          newline();
+        }
+        i++;
+        continue;
+      }
+      if (c === '}') {
+        const kind = braceStack.pop() || 'block';
+        if (kind === 'obj') { pushIndent(); out += '}'; i++; continue; }
+        newline();
+        indent = Math.max(0, indent - 1);
+        pushIndent();
+        out += '}';
+        i++;
+        let j = i;
+        while (j < n && (src[j] === ' ' || src[j] === '\t')) j++;
+        i = j;
+        const rest = src.slice(i);
+        if (CLOSE_KEYWORD_RE.test(rest)) {
+          out += ' ';
+        } else {
+          const after = src[i];
+          if (after && after !== '\n' && !CLOSE_CONTINUATIONS.includes(after)) newline();
+        }
+        continue;
+      }
+      if (c === '(' || c === '[') { pushIndent(); out += c; parenDepth++; i++; continue; }
+      if (c === ')' || c === ']') { pushIndent(); out += c; parenDepth = Math.max(0, parenDepth - 1); i++; continue; }
+      if (c === ';') {
+        pushIndent();
+        out += ';';
+        i++;
+        if (parenDepth === 0) newline();
+        continue;
+      }
+
+      if (c === '\n' || c === '\r') { i++; continue; }
+      if ((c === ' ' || c === '\t') && atLineStart()) { i++; continue; }
+
+      pushIndent();
+      out += c;
+      i++;
+    }
+
+    const result = out
+      .split('\n')
+      .map((l) => l.replace(/[ \t]+$/, ''))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    // Guard against a pathological transform (e.g. mismatched quotes swallowing
+    // most of the text): fall back to the original rather than show garbage.
+    if (!result || result.length < src.trim().length / 2) return src;
+    return result;
+  } catch {
+    return src;
   }
 }
 

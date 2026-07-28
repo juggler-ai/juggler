@@ -41,6 +41,34 @@ func TestRegisterPublishesDescriptorCapabilities(t *testing.T) {
 	}
 }
 
+func TestRegisterMapsForcedToolChoiceQuirkToCapability(t *testing.T) {
+	cases := []struct {
+		name            string
+		supported       bool
+		wantUnsupported bool
+	}{
+		{name: "supports forced tool choice", supported: true, wantUnsupported: false},
+		{name: "does not support forced tool choice", supported: false, wantUnsupported: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			name := "openaibase-forced-tool-" + t.Name()
+			Register(Descriptor{
+				Name:            name,
+				ContextWindowFn: func(string) (int, int) { return 2000, 200 },
+				Quirks:          Quirks{ForcedToolChoiceSupported: tc.supported},
+			})
+			info, found := provider.GetProviderInfo(name)
+			if !found {
+				t.Fatal("provider not registered")
+			}
+			if info.ForcedToolChoiceUnsupported != tc.wantUnsupported {
+				t.Fatalf("ForcedToolChoiceUnsupported = %v, want %v", info.ForcedToolChoiceUnsupported, tc.wantUnsupported)
+			}
+		})
+	}
+}
+
 func TestRegisterCapsResolverVouchesOnlyForCataloguedModels(t *testing.T) {
 	name := "openaibase-caps-resolver-" + t.Name()
 	Register(Descriptor{

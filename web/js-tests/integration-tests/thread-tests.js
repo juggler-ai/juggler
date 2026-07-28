@@ -791,16 +791,19 @@ export const threadReturnResultNoThinkingItemTest = {
 /**
  * After undoing and redoing a completed thread, its result is preserved.
  *
- * Regression test for the threadResult/result key mismatch: conversationItemToYMap
- * was writing "threadResult" key but JS reads "result" key, so threads restored
- * via redo showed as "running" with no summary.
+ * Regression test for the threadResult/result key mismatch: the thread-item
+ * serializer wrote a "threadResult" key but JS reads the "result" key, so
+ * threads restored via redo showed as "running" with no summary.
  *
- * Undo groups (3 separate undo steps):
- *   1. assistant continuation
- *   2. thread item (with completed result)
- *   3. user message
+ * Sub-thread turn content is tracked on the undo stack per turn, so a completed
+ * thread peels apart in three undo groups (most-recent first):
+ *   1. the root assistant continuation
+ *   2. the sub-thread's return_result turn (clears the thread's result field,
+ *      leaving the thread container in place)
+ *   3. the thread creation (removes the thread entirely)
  *
- * The critical assertion is after redo step 2 — the thread must have result='Task done'.
+ * The critical assertion is the redo that restores the return_result turn — the
+ * thread must come back with result='Task done', not as a running thread.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
 export const threadUndoRedoPreservesResultTest = {
@@ -828,7 +831,7 @@ export const threadUndoRedoPreservesResultTest = {
         ]
       }
     },
-    // Undo 1: removes assistant continuation
+    // Undo 1: removes the root assistant continuation
     { type: 'undo' },
     { type: 'wait-for-state', condition: { itemCount: 3 } },
     {
@@ -841,7 +844,21 @@ export const threadUndoRedoPreservesResultTest = {
         ]
       }
     },
-    // Undo 2: removes thread
+    // Undo 2: reverts the sub-thread's return_result turn — the thread's result
+    // is cleared but the thread container remains in place.
+    { type: 'undo' },
+    { type: 'wait-for-state', condition: { completedThreadCount: 0, hasThreadItem: true } },
+    {
+      type: 'assert-document',
+      expected: {
+        items: [
+          { type: 'system-prompt', itemId: '$ITEM_1' },
+          { type: 'user', content: 'Start' },
+          { type: 'thread', itemId: '$ITEM_3' }
+        ]
+      }
+    },
+    // Undo 3: removes the thread creation entirely
     { type: 'undo' },
     { type: 'wait-for-state', condition: { hasThreadItem: false } },
     {
@@ -853,7 +870,20 @@ export const threadUndoRedoPreservesResultTest = {
         ]
       }
     },
-    // Redo 1: restores thread — result MUST be preserved (regression)
+    // Redo 1: restores the thread, still without its result
+    { type: 'redo' },
+    { type: 'wait-for-state', condition: { hasThreadItem: true, completedThreadCount: 0 } },
+    {
+      type: 'assert-document',
+      expected: {
+        items: [
+          { type: 'system-prompt', itemId: '$ITEM_1' },
+          { type: 'user', content: 'Start' },
+          { type: 'thread', itemId: '$ITEM_3' }
+        ]
+      }
+    },
+    // Redo 2: restores the return_result turn — result MUST be preserved (regression)
     { type: 'redo' },
     { type: 'wait-for-state', condition: { completedThreadCount: 1 } },
     {
@@ -866,7 +896,7 @@ export const threadUndoRedoPreservesResultTest = {
         ]
       }
     },
-    // Redo 2: restores assistant
+    // Redo 3: restores the assistant continuation
     { type: 'redo' },
     { type: 'wait-for-state', condition: { itemCount: 4 } }
   ],
@@ -904,7 +934,9 @@ export const threadUndoRedoDeleteInterleaveTest = {
   operations: [
     { type: 'send-message', message: 'Start' },
     // send-message calls waitForTurnComplete — conversation is fully settled here.
-    // Undo assistant and thread
+    // Three undos peel a completed thread: assistant continuation, the
+    // return_result turn (clears the result), then the thread creation itself.
+    { type: 'undo' },
     { type: 'undo' },
     { type: 'undo' },
     { type: 'wait-for-state', condition: { hasThreadItem: false } },
@@ -917,7 +949,9 @@ export const threadUndoRedoDeleteInterleaveTest = {
         ]
       }
     },
-    // Redo restores thread — combined goal+constraint exits as soon as thread is complete
+    // Two redos restore the thread and then its result — combined goal+constraint
+    // exits as soon as the thread is complete, and never more than one thread.
+    { type: 'redo' },
     { type: 'redo' },
     { type: 'wait-for-state', condition: { completedThreadCount: 1, atMostThreadCount: 1 } },
     {

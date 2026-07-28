@@ -11,6 +11,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/laurent22/go-trash v0.0.0-20250304161307-725f51160fe4
+	github.com/mattn/go-ieproxy v0.0.12
 	github.com/mattn/go-isatty v0.0.22
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/modelcontextprotocol/go-sdk v1.6.1
@@ -18,6 +19,7 @@ require (
 	github.com/pion/webrtc/v4 v4.2.16
 	github.com/skyterra/y-crdt v0.0.0-20260605035931-e8e6d95bd5ff
 	github.com/wailsapp/wails/v3 v3.0.0-alpha2.103
+	golang.org/x/net v0.57.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0
 	golang.org/x/text v0.40.0
@@ -82,7 +84,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.6 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
-	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/time v0.15.0 // indirect

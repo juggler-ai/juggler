@@ -258,21 +258,35 @@ class ConversationArea extends HTMLElement {
       // is its in-flight animated height) before the content update lands.
       const fromHeights = growEls.map((el) => /** @type {HTMLElement} */ (el).offsetHeight);
 
+      // Reader anchor: when scrolled up to read (not pinned), record where the
+      // top-visible message sits BEFORE the token lands, so we can hold it there
+      // after. Column-reverse anchors the bottom edge, so a tail bubble growing
+      // below the viewport otherwise shoves the read content up and off the top —
+      // a drift the reader can't escape while text streams. Skipped when pinned
+      // (native bottom-anchoring is what we want there) and on structural changes
+      // (those are handled by the FLIP path + onItemsInserted).
+      const anchorEl = (!pinned && !structural && scroller) ? this._topVisibleMessageElement() : null;
+      const anchorTopBefore = anchorEl ? anchorEl.getBoundingClientRect().top : 0;
+
       this._notifyChangedElements(events, conversation);
 
       growEls.forEach((el, i) => {
         this._animateStreamingResize(/** @type {HTMLElement} */ (el), fromHeights[i] ?? 0);
       });
 
-      // Pure content growth (a streaming token extending an existing bubble) must
-      // NEVER move the scroll position. If the user is pinned to the bottom, the
-      // column-reverse layout keeps the newest content in view natively (and the
-      // height glide above smooths it); if they've scrolled up to read — or to
-      // inspect a selected item that happens to be streaming — dragging them back
-      // down is exactly the scroll-fighting bug this path used to cause. Auto-
-      // follow belongs only to state changes the user wants surfaced: a new item,
-      // a pending approval, a busy-status change. Those scroll from onItemsInserted
-      // and showBusy, never from here.
+      // Re-anchor the reader: nudge scrollTop by however far the anchor drifted so
+      // the lines under their eyes stay put. The nudge is relative, rect-derived,
+      // and instant — sign-agnostic across the reversed scroller (matching
+      // _scrollElementIntoView) and never glides. When pinned we take neither
+      // branch: native column-reverse anchoring keeps the newest text in view (and
+      // the height glide above smooths it). Auto-follow of new items / approvals /
+      // busy-status still comes from onItemsInserted and showBusy, never here.
+      if (anchorEl && scroller) {
+        const shift = anchorEl.getBoundingClientRect().top - anchorTopBefore;
+        if (Math.abs(shift) > 0.5) {
+          scroller.scrollTo({ top: scroller.scrollTop + shift, behavior: 'instant' });
+        }
+      }
     };
     const container = /** @type {import('../model/message-thread.js').MessageThread} */ (this._messageThread).container;
     this._observedContainer = container;
@@ -1676,12 +1690,13 @@ class ConversationArea extends HTMLElement {
   }
 
   /**
-   * Id of the topmost message element whose top edge is at or below the
-   * viewport top. Used as the anchor for element-based restore.
+   * The topmost message element still touching the viewport (its bottom edge is
+   * at or below the viewport top). Used as the anchor for element-based scroll
+   * restore and for holding the reader's place while the tail bubble streams.
    * @private
-   * @returns {string|null} Anchor item id, or null if the list is empty.
+   * @returns {HTMLElement|null} Anchor element, or null if the list is empty.
    */
-  _getTopVisibleItemId() {
+  _topVisibleMessageElement() {
     const messageList = this.querySelector('#message-list');
     if (!messageList) return null;
     const content = this.querySelector('#message-list-inner');
@@ -1691,10 +1706,21 @@ class ConversationArea extends HTMLElement {
       if (!MESSAGE_TAGS.has(el.tagName)) continue;
       const rect = el.getBoundingClientRect();
       if (rect.bottom > listTop) {
-        return el.getAttribute('message-id');
+        return /** @type {HTMLElement} */ (el);
       }
     }
     return null;
+  }
+
+  /**
+   * Id of the topmost message element whose top edge is at or below the
+   * viewport top. Used as the anchor for element-based restore.
+   * @private
+   * @returns {string|null} Anchor item id, or null if the list is empty.
+   */
+  _getTopVisibleItemId() {
+    const el = this._topVisibleMessageElement();
+    return el ? el.getAttribute('message-id') : null;
   }
 
   /**

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 )
 
@@ -74,7 +75,11 @@ func hostAllowed(r *http.Request) bool {
 	if host == "localhost" {
 		return true
 	}
-	return net.ParseIP(host) != nil
+	// netip.ParseAddr (unlike net.ParseIP) accepts a zoned IPv6 literal such as
+	// fe80::1%en0 — the form a same-subnet client sends over a link-local
+	// address. It still rejects DNS names, so the rebinding defense holds.
+	_, err := netip.ParseAddr(host)
+	return err == nil
 }
 
 // isAssetGetRequest reports whether r is a GET for a content-addressed asset

@@ -13,6 +13,7 @@ import { markPopupOpen } from '../utils/popup-manager.js';
 import { ProvidersTab } from './settings/providers-tab.js';
 import { DefaultModelTab } from './settings/default-model-tab.js';
 import { ConnectivityTab } from './settings/connectivity-tab.js';
+import { NetworkTab } from './settings/network-tab.js';
 import { NotificationsTab } from './settings/notifications-tab.js';
 import { ShortcutsTab } from './settings/shortcuts-tab.js';
 import { InfoCardsTab } from './settings/info-cards-tab.js';
@@ -75,6 +76,7 @@ class SettingsPanel extends HTMLElement {
       providers: new ProvidersTab(this),
       'default-model': new DefaultModelTab(this),
       connectivity: new ConnectivityTab(this),
+      network: new NetworkTab(this),
       mcp: new McpTab(this),
       acp: new AcpTab(this),
       skills: new SkillsTab(this),
@@ -125,6 +127,7 @@ class SettingsPanel extends HTMLElement {
                         <button class="settings-tab active" data-tab="providers">Provider API Keys</button>
                         <button class="settings-tab" data-tab="default-model">Provider settings</button>
                         <button class="settings-tab" data-tab="connectivity">Connectivity</button>
+                        <button class="settings-tab" data-tab="network">Network</button>
                         <button class="settings-tab" data-tab="extensions">Extensions</button>
                         <button class="settings-tab" data-tab="skills">Skills</button>
                         <button class="settings-tab" data-tab="mcp">MCP servers</button>
@@ -206,6 +209,14 @@ class SettingsPanel extends HTMLElement {
                         </p>
                         <div class="settings-form" id="connectivity-form">
                         </div>
+                    </section>
+
+                    <section class="settings-tab-content" id="tab-network">
+                        <p class="settings-description">
+                            Route Juggler's outbound connections through a proxy. Local
+                            addresses (localhost / 127.0.0.1) always bypass the proxy.
+                        </p>
+                        <div class="settings-form" id="network-form"></div>
                     </section>
 
                     <section class="settings-tab-content" id="tab-notifications">

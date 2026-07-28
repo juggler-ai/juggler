@@ -267,21 +267,43 @@ export function registerOpenPopup({ id, onClose, insideSelectors }) {
     return releaseCore;
   }
 
+  /**
+   * @param {Element|null} target
+   * @returns {boolean} whether target sits within any "inside" surface
+   */
+  const isInside = (target) =>
+    !!(target && insideSelectors.some((sel) => target.closest?.(sel)));
+
+  // Track where the pressed gesture BEGAN. A native `click` fires on the nearest
+  // common ancestor of the mousedown and mouseup targets, so selecting text
+  // inside the popup and releasing the button outside it produces a click whose
+  // target is <body> — outside every "inside" surface. Keying dismissal off the
+  // press location too keeps such a drag-out from closing the popup.
+  let pressStartedInside = false;
+  /** @param {MouseEvent} e */
+  const onPressStart = (e) => {
+    pressStartedInside = isInside(/** @type {Element|null} */ (e.target));
+  };
+
   /** @param {MouseEvent} e */
   const onOutsideClick = (e) => {
-    const target = /** @type {Element|null} */ (e.target);
-    // A click whose target is inside any "inside" surface leaves the popup
-    // open; closest is absent on non-element targets, so it falls through.
-    if (target && insideSelectors.some((sel) => target.closest?.(sel))) return;
+    const startedInside = pressStartedInside;
+    pressStartedInside = false;
+    // A click whose target — or whose originating press — is inside any "inside"
+    // surface leaves the popup open; closest is absent on non-element targets,
+    // so it falls through.
+    if (startedInside || isInside(/** @type {Element|null} */ (e.target))) return;
     onClose();
   };
     // Capture phase matches the existing dropdowns: the close listener is added
     // during the opening click's bubble phase, after that click's capture pass
     // has already left document — so it never self-dismisses on the open click.
+  document.addEventListener('mousedown', onPressStart, true);
   document.addEventListener('click', onOutsideClick, true);
 
   return () => {
     releaseCore();
+    document.removeEventListener('mousedown', onPressStart, true);
     document.removeEventListener('click', onOutsideClick, true);
   };
 }

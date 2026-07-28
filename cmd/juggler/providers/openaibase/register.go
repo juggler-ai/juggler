@@ -130,6 +130,10 @@ func Register(d Descriptor) {
 		ContextAdmission:    d.ContextAdmission,
 		ModelContextWindows: d.ContextWindows,
 		CheapModel:          d.CheapModel,
+		// A provider that does not opt into forced tool choice cannot reliably
+		// honor the return_result tool on bounded compaction's final call, so it
+		// is routed to the tool-free plain-text final instead.
+		ForcedToolChoiceUnsupported: !d.Quirks.ForcedToolChoiceSupported,
 	}
 	switch {
 	case capsSynthesised:

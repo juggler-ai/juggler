@@ -124,6 +124,89 @@ func TestLoadGlobalSettingsConnectivityOnlyKeepsUpdateDefault(t *testing.T) {
 	}
 }
 
+func TestSaveLoadGlobalSettingsNetworkRoundTrip(t *testing.T) {
+	userpathstest.Isolate(t)
+	in := &GlobalSettings{
+		Updates: UpdateSettings{Mode: UpdateModeOff},
+		Network: NetworkSettings{Proxy: ProxySettings{Mode: ProxyModeManual, URL: "http://127.0.0.1:7890"}},
+	}
+	if err := SaveGlobalSettings(in); err != nil {
+		t.Fatalf("SaveGlobalSettings: %v", err)
+	}
+	gs, err := LoadGlobalSettings()
+	if err != nil {
+		t.Fatalf("LoadGlobalSettings: %v", err)
+	}
+	if gs.Network.Proxy.Mode != ProxyModeManual || gs.Network.Proxy.URL != "http://127.0.0.1:7890" {
+		t.Fatalf("proxy round-trip = %+v, want {manual, http://127.0.0.1:7890}", gs.Network.Proxy)
+	}
+	// Sections survive side by side.
+	if gs.Updates.Mode != UpdateModeOff {
+		t.Fatalf("updates alongside network = %q, want off", gs.Updates.Mode)
+	}
+}
+
+func TestLoadGlobalSettingsMissingFileProxyDefault(t *testing.T) {
+	userpathstest.Isolate(t)
+	gs, err := LoadGlobalSettings()
+	if err != nil {
+		t.Fatalf("LoadGlobalSettings: %v", err)
+	}
+	if gs.Network.Proxy.Mode != ProxyModeSystem {
+		t.Fatalf("missing file proxy mode = %q, want %q", gs.Network.Proxy.Mode, ProxyModeSystem)
+	}
+}
+
+func TestLoadGlobalSettingsEmptyProxyModeNormalises(t *testing.T) {
+	userpathstest.Isolate(t)
+	if err := os.MkdirAll(userpaths.ConfigDir(), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// A network section present but with an empty proxy mode normalises to system.
+	if err := os.WriteFile(filepath.Join(userpaths.ConfigDir(), "settings.json"),
+		[]byte(`{"network":{"proxy":{"url":"http://p:8080"}}}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	gs, err := LoadGlobalSettings()
+	if err != nil {
+		t.Fatalf("LoadGlobalSettings: %v", err)
+	}
+	if gs.Network.Proxy.Mode != ProxyModeSystem {
+		t.Fatalf("empty proxy mode = %q, want %q", gs.Network.Proxy.Mode, ProxyModeSystem)
+	}
+	if gs.Network.Proxy.URL != "http://p:8080" {
+		t.Fatalf("proxy url not read: %q", gs.Network.Proxy.URL)
+	}
+}
+
+func TestNormalizeProxyMode(t *testing.T) {
+	cases := map[string]string{
+		"":        ProxyModeSystem,
+		"system":  ProxyModeSystem,
+		"none":    ProxyModeNone,
+		"manual":  ProxyModeManual,
+		"garbage": ProxyModeSystem,
+	}
+	for in, want := range cases {
+		if got := NormalizeProxyMode(in); got != want {
+			t.Errorf("NormalizeProxyMode(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestIsKnownProxyMode(t *testing.T) {
+	for _, m := range []string{ProxyModeSystem, ProxyModeNone, ProxyModeManual} {
+		if !IsKnownProxyMode(m) {
+			t.Errorf("IsKnownProxyMode(%q) = false, want true", m)
+		}
+	}
+	for _, m := range []string{"", "garbage", "SYSTEM"} {
+		if IsKnownProxyMode(m) {
+			t.Errorf("IsKnownProxyMode(%q) = true, want false", m)
+		}
+	}
+}
+
 func TestNormalizeUpdateMode(t *testing.T) {
 	cases := map[string]string{
 		"":          UpdateModeAutomatic,

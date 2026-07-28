@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"juggler/internal/httpx"
 )
 
 // WebFetchOperations handles web content fetching
@@ -144,7 +146,8 @@ func (ops *WebFetchOperations) fetch(ctx context.Context, params map[string]any)
 
 	// Fetch the URL
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout:   30 * time.Second,
+		Transport: httpx.Transport(),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// Allow up to 10 redirects
 			if len(via) >= 10 {

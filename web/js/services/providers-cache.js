@@ -12,7 +12,7 @@
 
 import wsService from './websocket.js';
 
-/** @typedef {{ id: string, contextWindow: number, maxOutputTokens: number, fromAPI: boolean, inputModalities?: string[] }} ModelWithContext */
+/** @typedef {{ id: string, contextWindow: number, maxOutputTokens: number, fromAPI: boolean, inputModalities?: string[], streamsLiveUsage?: boolean }} ModelWithContext */
 /** @typedef {{ name: string, displayName: string, description: string, authType: string, authSource?: string, authHint?: string, configKeyName: string, envVarName: string, apiKeyURL: string, keySource: string, available: boolean, modelsWithContext: ModelWithContext[] }} Provider */
 
 /** @type {Provider[]} */

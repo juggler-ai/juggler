@@ -37,6 +37,17 @@ func TestOllamaPublishesSilentTruncationGuard(t *testing.T) {
 	}
 }
 
+func TestOllamaRoutesCompactionToPlainTextFinal(t *testing.T) {
+	Register()
+	info, found := provider.GetProviderInfo("ollama")
+	if !found {
+		t.Fatal("Ollama provider was not registered")
+	}
+	if !info.ForcedToolChoiceUnsupported {
+		t.Fatal("Ollama should be marked ForcedToolChoiceUnsupported so bounded compaction uses the tool-free final call")
+	}
+}
+
 func TestParseNumCtx(t *testing.T) {
 	cases := []struct {
 		name string

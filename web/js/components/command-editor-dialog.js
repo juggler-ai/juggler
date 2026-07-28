@@ -12,7 +12,7 @@
  * @module components/command-editor-dialog
  */
 
-import { writeUserCommand, deleteUserCommand, fetchUserCommands, USER_COMMAND_NAME_RE } from '../services/user-commands.js';
+import { writeUserCommand, deleteUserCommand, fetchUserCommands, resetUserCommandsCache, USER_COMMAND_NAME_RE } from '../services/user-commands.js';
 import { expandTemplate } from '../plugins/user-command-factory.js';
 import { reloadRegistries } from '../registries/reload-registries.js';
 import slashCommandHandler from '../services/slash-command-handler.js';
@@ -33,6 +33,26 @@ function builtinCommandIds() {
     if (!cmd.userDefined) ids.add(cmd.name);
   }
   return ids;
+}
+
+/**
+ * Apply a command write/delete to the live registries after the file is already
+ * on disk. Resets the user-commands cache synchronously (so the very next
+ * {@link fetchUserCommands} re-reads the change) and kicks the registry rebuild
+ * off WITHOUT awaiting it.
+ *
+ * `reloadRegistries()` defers its rebuild to local quiescence — it never
+ * resolves while a conversation is mid-turn, and can reject if a plugin's
+ * init() throws. Awaiting it would leave the dialog stuck open and the manager
+ * re-reading a stale cache, so the just-saved edit appears lost. The rebuild
+ * still applies live once quiescent; the UI just doesn't block on it. Mirrors
+ * skills-tab's `_afterMutation`.
+ */
+function refreshRegistries() {
+  resetUserCommandsCache();
+  reloadRegistries().catch((err) => {
+    console.warn('[Commands] registry reload after mutation failed:', err);
+  });
 }
 
 /**
@@ -141,7 +161,7 @@ export function openCommandEditor(options = {}) {
     runRadios.forEach((r) => r.addEventListener('change', updateRunUI));
     overlay.querySelectorAll('input[name="cmd-scope"]').forEach((r) => r.addEventListener('change', updatePathHint));
 
-    $('#cmd-cancel').addEventListener('click', () => close(null));
+    $('#cmd-close').addEventListener('click', () => close(null));
     overlay.querySelector('.command-editor-backdrop')?.addEventListener('click', () => close(null));
 
     if (editing) {
@@ -152,7 +172,7 @@ export function openCommandEditor(options = {}) {
           `Delete the /${def?.name} command?`, 'Delete command', { danger: true, confirmText: 'Delete' });
         if (!ok) return;
         await deleteUserCommand(/** @type {any} */ (def?.scope), /** @type {any} */ (def?.name));
-        await reloadRegistries();
+        refreshRegistries();
         close({ deleted: /** @type {string} */ (def?.name) });
       });
     }
@@ -179,7 +199,7 @@ export function openCommandEditor(options = {}) {
         if (editing && def && (def.name !== name || def.scope !== scope)) {
           await deleteUserCommand(/** @type {any} */ (def.scope), def.name);
         }
-        await reloadRegistries();
+        refreshRegistries();
         close(name);
         return;
       }
@@ -214,13 +234,15 @@ export function openCommandManager() {
     overlay.innerHTML = `
       <div class="command-editor-backdrop"></div>
       <div class="command-editor-panel" role="dialog" aria-modal="true" aria-label="Slash commands">
-        <header class="command-editor-header"><h2>Slash commands</h2></header>
+        <header class="command-editor-header">
+          <h2>Slash commands</h2>
+          <button id="cmd-close" class="close-button command-editor-close" title="Close" aria-label="Close">×</button>
+        </header>
         <div class="command-editor-body" id="cmd-manager-body"></div>
         <footer class="command-editor-footer">
           <div class="command-editor-path"></div>
           <div class="command-editor-actions">
             <button id="cmd-manager-new" class="modal-button primary">New command…</button>
-            <button id="cmd-manager-close" class="modal-button secondary">Close</button>
           </div>
         </footer>
       </div>`;
@@ -243,7 +265,7 @@ export function openCommandManager() {
     };
 
     overlay.querySelector('.command-editor-backdrop')?.addEventListener('click', close);
-    overlay.querySelector('#cmd-manager-close')?.addEventListener('click', close);
+    overlay.querySelector('#cmd-close')?.addEventListener('click', close);
     overlay.querySelector('#cmd-manager-new')?.addEventListener('click', async () => {
       await openCommandEditor({});
       render();
@@ -328,7 +350,7 @@ function userGroup(title, defs, refresh) {
         `Delete the /${def.name} command?`, 'Delete command', { danger: true, confirmText: 'Delete' });
       if (!ok) return;
       await deleteUserCommand(/** @type {any} */ (def.scope), def.name);
-      await reloadRegistries();
+      refreshRegistries();
       refresh();
     });
     actions.append(edit, del);
@@ -382,6 +404,7 @@ function buildMarkup(v) {
     <div class="command-editor-panel" role="dialog" aria-modal="true" aria-label="Command editor">
       <header class="command-editor-header">
         <h2>${v.editing ? 'Edit command' : 'New command'}</h2>
+        <button id="cmd-close" class="close-button command-editor-close" title="Close" aria-label="Close">×</button>
       </header>
       <div class="command-editor-body">
         <label class="command-editor-label">Name
@@ -446,7 +469,6 @@ function buildMarkup(v) {
         <div id="cmd-path-hint" class="command-editor-path"></div>
         <div class="command-editor-actions">
           <button id="cmd-delete" class="modal-button danger hidden">Delete</button>
-          <button id="cmd-cancel" class="modal-button secondary">Cancel</button>
           <button id="cmd-save" class="modal-button primary">Save</button>
         </div>
       </footer>

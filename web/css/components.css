@@ -1334,23 +1334,6 @@ strategy-selector {
     flex-shrink: 0;
 }
 
-/* Chevron icon — shared arrow_drop_down shape (see DROPDOWN_ARROW_SVG) */
-.strategy-selector-button .strategy-chevron {
-    display: inline-flex;
-    align-items: center;
-    transition: transform 150ms ease;
-}
-
-.strategy-selector-button .strategy-chevron svg {
-    width: 1.125rem;
-    height: 1.125rem;
-    fill: currentcolor;
-}
-
-.strategy-selector-button.open .strategy-chevron {
-    transform: rotate(180deg);
-}
-
 /* Strategy Dropdown */
 .strategy-dropdown {
     min-width: 22rem;
@@ -3394,12 +3377,6 @@ input-box .strategy-selector-button[data-has-color="true"] .strategy-icon {
     color: var(--strategy-color);
 }
 
-/* Chevron in input-box strategy selector */
-input-box .strategy-selector-button .strategy-chevron svg {
-    width: 1rem;
-    height: 1rem;
-}
-
 /* Input controls row. Three unbreakable clusters — config (permission /
    strategy / model), actions (the icon buttons), send — laid out in one source
    order everywhere: config, actions, send. `container-type: inline-size` makes
@@ -3826,6 +3803,7 @@ input-box .send-btn.is-empty {
         flex-basis: auto;
         flex-wrap: nowrap;
         min-width: 0;
+        flex-shrink: 1;
         gap: 0.375rem;
     }
 
@@ -6214,7 +6192,7 @@ action-confirmation:focus {
     width: 100%;
     box-sizing: border-box;
     padding: 0.5rem 0;
-    color: var(--accent-orange);
+    color: var(--accent-blue);
     font-family: var(--font-mono);
     font-size: 1rem;
     font-weight: var(--font-weight-normal);
@@ -7966,6 +7944,10 @@ update-button .update-btn--attention {
 }
 
 .command-editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
     padding: 0.9rem 1.1rem;
     border-bottom: 1px solid var(--border-divider, var(--border-color));
 }
@@ -7973,6 +7955,11 @@ update-button .update-btn--attention {
 .command-editor-header h2 {
     margin: 0;
     font-size: 1.05rem;
+}
+
+.command-editor-close {
+    font-size: 1.6rem;
+    margin: -0.4rem -0.3rem;
 }
 
 .command-editor-body {

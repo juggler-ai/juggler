@@ -22,6 +22,26 @@ import (
 type GlobalSettings struct {
 	Updates      UpdateSettings       `json:"updates"`
 	Connectivity ConnectivitySettings `json:"connectivity"`
+	Network      NetworkSettings      `json:"network"`
+}
+
+// NetworkSettings holds outbound-HTTP preferences. Unlike Connectivity (applied
+// only on a GUI launch), these apply on every launch — terminal included — and
+// at runtime, so a proxy change takes effect without a restart. Additive; like
+// GlobalSettings, unknown keys are tolerated on read.
+type NetworkSettings struct {
+	Proxy ProxySettings `json:"proxy"`
+}
+
+// ProxySettings selects how outbound requests reach the network.
+type ProxySettings struct {
+	// Mode is one of ProxyModeSystem / ProxyModeNone / ProxyModeManual. An
+	// empty value normalises to system (the shipped default), so an absent file
+	// or an untouched setting honours the OS/env proxy and degrades to direct.
+	Mode string `json:"mode,omitempty"`
+	// URL is the proxy used when Mode == ProxyModeManual, e.g.
+	// "http://127.0.0.1:7890" or "socks5://host:port". Ignored in other modes.
+	URL string `json:"url,omitempty"`
 }
 
 // ConnectivitySettings holds launch-time connectivity preferences. They are
@@ -60,6 +80,39 @@ const (
 	UpdateModeOff = "off"
 )
 
+// Proxy-mode values persisted in ProxySettings.Mode. They match the string
+// constants in internal/httpx (httpx.Mode*), so the saved mode passes straight
+// through to httpx.SetConfig.
+const (
+	// ProxyModeSystem honours the proxy env vars and the OS system proxy,
+	// degrading to direct when neither is set (default).
+	ProxyModeSystem = "system"
+	// ProxyModeNone forces every request direct.
+	ProxyModeNone = "none"
+	// ProxyModeManual routes through ProxySettings.URL.
+	ProxyModeManual = "manual"
+)
+
+// NormalizeProxyMode maps any value to a known proxy mode, defaulting anything
+// unrecognised (including "") to system. Use this on read and before comparing.
+func NormalizeProxyMode(mode string) string {
+	switch mode {
+	case ProxyModeNone:
+		return ProxyModeNone
+	case ProxyModeManual:
+		return ProxyModeManual
+	default:
+		return ProxyModeSystem
+	}
+}
+
+// IsKnownProxyMode reports whether mode is one of the three recognised values.
+// The API validator uses this to reject a hand-posted or typo'd mode; the empty
+// string is NOT known (callers that accept "as default" check for "" first).
+func IsKnownProxyMode(mode string) bool {
+	return mode == ProxyModeSystem || mode == ProxyModeNone || mode == ProxyModeManual
+}
+
 // NormalizeUpdateMode maps any value to a known mode, defaulting anything
 // unrecognised (including the empty string) to automatic. Use this on read and
 // before comparing modes, so callers never have to special-case "".
@@ -83,7 +136,10 @@ func IsKnownUpdateMode(mode string) bool {
 
 // defaultGlobalSettings returns the settings a fresh install (no file) uses.
 func defaultGlobalSettings() *GlobalSettings {
-	return &GlobalSettings{Updates: UpdateSettings{Mode: UpdateModeAutomatic}}
+	return &GlobalSettings{
+		Updates: UpdateSettings{Mode: UpdateModeAutomatic},
+		Network: NetworkSettings{Proxy: ProxySettings{Mode: ProxyModeSystem}},
+	}
 }
 
 // globalSettingsPath is the on-disk location of the settings document.
@@ -110,6 +166,7 @@ func LoadGlobalSettings() (*GlobalSettings, error) {
 		return defaultGlobalSettings(), fmt.Errorf("failed to parse settings: %w", err)
 	}
 	gs.Updates.Mode = NormalizeUpdateMode(gs.Updates.Mode)
+	gs.Network.Proxy.Mode = NormalizeProxyMode(gs.Network.Proxy.Mode)
 	return gs, nil
 }
 
@@ -121,6 +178,7 @@ func SaveGlobalSettings(gs *GlobalSettings) error {
 		gs = defaultGlobalSettings()
 	}
 	gs.Updates.Mode = NormalizeUpdateMode(gs.Updates.Mode)
+	gs.Network.Proxy.Mode = NormalizeProxyMode(gs.Network.Proxy.Mode)
 
 	dir := userpaths.ConfigDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

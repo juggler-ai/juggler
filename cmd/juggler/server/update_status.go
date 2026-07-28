@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"time"
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/server/handlers"
+	"juggler/internal/httpx"
 	"juggler/internal/jlog"
 	"juggler/internal/updatecheck"
 )
@@ -33,6 +35,8 @@ func (s *Server) newUpdateChecker() *updatecheck.Checker {
 		CurrentVersion: core.Version,
 		OS:             runtime.GOOS,
 		Arch:           runtime.GOARCH,
+		// Proxy-aware so update checks work from behind a proxy.
+		Client: httpx.Client(10 * time.Second),
 		OnChange: func(st updatecheck.Status) {
 			s.broadcastToAll(updateStatusMsg{Type: "update-status", Status: st})
 		},

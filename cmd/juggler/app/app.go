@@ -87,6 +87,7 @@ func (a *App) startupPhases() []struct {
 		{"logging", a.initLogging},
 		{"migrate user dir", a.migrateUserDir},
 		{"instance lock", a.acquireInstance},
+		{"network", a.initNetwork},
 		{"providers", a.logProviders},
 		{"session", a.initSession},
 		{"server", a.initServer},

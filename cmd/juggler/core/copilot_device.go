@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"juggler/internal/httpx"
 )
 
 // GitHub OAuth device flow for Copilot sign-in. Users without an editor Copilot
@@ -195,7 +197,7 @@ func copilotPostForm(ctx context.Context, endpoint string, form url.Values, dst 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", copilotUserAgent)
 
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := httpx.Client(30 * time.Second).Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}

@@ -196,14 +196,18 @@ func TestGetOutput_ReturnsDeltaNotCumulative(t *testing.T) {
 	}
 }
 
-// TestNormalizeCommandNewlines pins the two distinct multi-line shapes the
+// TestNormalizeCommandNewlines pins the three distinct multi-line shapes the
 // model sends. (1) A command-per-line list — several independent commands
 // separated by bare newlines — is deliberately joined with " && " for fail-fast
 // display/semantics. (2) A SINGLE multi-line command whose newlines live inside
 // a quote, backtick, here-document, or a backslash continuation must survive
-// verbatim: those newlines are data, not command separators. The pre-fix code
-// conflated the two and mangled every case (2) into broken " && " fragments —
-// squashing multi-line git commit messages, python -c scripts and heredocs.
+// verbatim: those newlines are data, not command separators. (3) A multi-line
+// command containing comments or shell control-flow (for/if/case/functions,
+// trailing pipes) must also survive verbatim — " && " cannot be spliced between
+// those segments without producing broken shell. Cases (2) and (3) are the
+// traps: a naive newline→" && " rewrite shreds them into broken fragments —
+// squashing multi-line git commit messages and python -c scripts, and turning
+// loops into `for f in a; && do`.
 func TestNormalizeCommandNewlines(t *testing.T) {
 	cases := []struct {
 		name string
@@ -261,6 +265,77 @@ func TestNormalizeCommandNewlines(t *testing.T) {
 			name: "backslash line continuation preserved",
 			in:   "echo one \\\ntwo",
 			want: "echo one \\\ntwo",
+		},
+		// --- case (3): comments and shell control-flow are left verbatim ---
+		// " && " cannot be spliced between these segments without producing
+		// broken shell, so the multi-line command passes through unchanged.
+		{
+			name: "comment lines between commands preserved verbatim",
+			in:   "echo \"step 1\"\n# comment line\necho \"step 2\"",
+			want: "echo \"step 1\"\n# comment line\necho \"step 2\"",
+		},
+		{
+			name: "inline trailing comment preserved verbatim",
+			in:   "echo hi # note\necho bye",
+			want: "echo hi # note\necho bye",
+		},
+		{
+			name: "for loop preserved verbatim",
+			in:   "for f in a b c;\ndo\n  echo \"item: $f\"\ndone",
+			want: "for f in a b c;\ndo\n  echo \"item: $f\"\ndone",
+		},
+		{
+			name: "if block preserved verbatim",
+			in:   "if true;\nthen\n  echo yes\nfi",
+			want: "if true;\nthen\n  echo yes\nfi",
+		},
+		{
+			name: "function definition preserved verbatim",
+			in:   "myfunc() {\n  echo hi\n}\nmyfunc",
+			want: "myfunc() {\n  echo hi\n}\nmyfunc",
+		},
+		{
+			name: "case statement preserved verbatim",
+			in:   "case $x in\n  a) echo match;;\n  *) echo other;;\nesac",
+			want: "case $x in\n  a) echo match;;\n  *) echo other;;\nesac",
+		},
+		{
+			name: "trailing pipe continuation preserved verbatim",
+			in:   "curl -s url |\ntail -3",
+			want: "curl -s url |\ntail -3",
+		},
+		{
+			name: "background job then command preserved verbatim",
+			in:   "sleep 10 &\necho next",
+			want: "sleep 10 &\necho next",
+		},
+		{
+			name: "hash inside quotes is not a comment, still joins",
+			in:   "echo \"a # b\"\necho c",
+			want: "echo \"a # b\" && echo c",
+		},
+		{
+			// `echo a; && echo b` is a bash syntax error; verbatim runs fine.
+			name: "trailing bare semicolon preserved verbatim",
+			in:   "echo a;\necho b",
+			want: "echo a;\necho b",
+		},
+		{
+			// An escaped \; is find's -exec terminator, not a separator, so
+			// `... \; && echo done` is valid and still joins.
+			name: "escaped semicolon (find -exec) still joins",
+			in:   "find . -maxdepth 0 -exec echo {} \\;\necho done",
+			want: "find . -maxdepth 0 -exec echo {} \\; && echo done",
+		},
+		{
+			name: "leading pipe continuation preserved verbatim",
+			in:   "cat hostname\n| grep x",
+			want: "cat hostname\n| grep x",
+		},
+		{
+			name: "leading && continuation preserved verbatim",
+			in:   "echo a\n&& echo b",
+			want: "echo a\n&& echo b",
 		},
 	}
 	for _, tc := range cases {

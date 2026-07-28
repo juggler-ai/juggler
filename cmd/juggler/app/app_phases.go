@@ -19,6 +19,7 @@ import (
 	provider "juggler/cmd/juggler/providers/registry"
 	"juggler/cmd/juggler/server"
 	jugglertest "juggler/cmd/juggler/testing"
+	"juggler/internal/httpx"
 	"juggler/internal/jlog"
 	"juggler/internal/logpaths"
 	"juggler/internal/userpaths"
@@ -206,6 +207,25 @@ func (a *App) logProviders() error {
 	} else {
 		jlog.Info("⚠️  No LLM providers available")
 	}
+	return nil
+}
+
+// initNetwork applies the saved proxy policy to the shared HTTP layer. Unlike
+// the connectivity prefs (GUI-launch only), proxy settings apply on every launch
+// — terminal included — and must be set before any provider client, model-list
+// probe, or update check runs, hence this early phase. Test mode never reads a
+// developer's real settings.json; there httpx keeps its env-based default (and
+// loopback traffic bypasses the proxy regardless). A load failure is non-fatal:
+// LoadGlobalSettings still returns normalised defaults (system) to apply.
+func (a *App) initNetwork() error {
+	if a.flags.testMode {
+		return nil
+	}
+	gs, err := core.LoadGlobalSettings()
+	if err != nil {
+		jlog.Debug("Network: settings load failed, applying default proxy policy: %v", err)
+	}
+	httpx.SetConfig(httpx.Config{Mode: gs.Network.Proxy.Mode, URL: gs.Network.Proxy.URL})
 	return nil
 }
 

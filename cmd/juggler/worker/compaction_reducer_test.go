@@ -47,7 +47,8 @@ func newStubBoundedReducer(_ []string, window, reserve, initialSpend int64, stub
 			spend:   initialSpend,
 			calls:   1,
 		},
-		dispatcher: stub,
+		dispatcher:    stub,
+		finalUsesTool: true,
 	}
 }
 
@@ -640,5 +641,115 @@ func TestBoundedReducerSeededSpendNeverGatesDispatch(t *testing.T) {
 	}
 	if result.EstimatedSpend <= seededSpend {
 		t.Fatalf("spend = %d, want seed %d plus the hidden call", result.EstimatedSpend, seededSpend)
+	}
+}
+
+// TestBoundedReducerFinalToolEmptyOutputFallsBackToPlainText pins the fix for
+// the reported failure "bounded compaction final call returned empty output":
+// a tool-incapable model (e.g. a local Ollama build) accepts the return_result
+// tool but emits neither a tool call nor text. The reducer must retry the final
+// call tool-free and finalize from the plain-text summary instead of failing.
+func TestBoundedReducerFinalToolEmptyOutputFallsBackToPlainText(t *testing.T) {
+	records := reducerTestRecords(t, strings.Repeat("history ", 200))
+	stub := &stubCompactionDispatcher{}
+	toolFinals, plainFinals := 0, 0
+	stub.handle = func(_ int, req hiddenLLMRequest) (*LLMResponse, error) {
+		if len(req.Tools) > 0 {
+			toolFinals++
+			return &LLMResponse{}, nil // accepted the tool, produced nothing usable
+		}
+		if req.SystemPrompt != boundedCompactionFinalTextPrompt {
+			t.Fatalf("tool-free retry prompt = %q, want the plain-text final prompt", req.SystemPrompt)
+		}
+		plainFinals++
+		return compactionTextResponse("plain summary", 12, 4), nil
+	}
+	result, err := newStubBoundedReducer(records, 10_000, 100, 0, stub).run(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Summary != "plain summary" {
+		t.Fatalf("summary = %q, want the tool-free fallback summary", result.Summary)
+	}
+	if toolFinals != 1 || plainFinals != 1 {
+		t.Fatalf("tool finals = %d, plain finals = %d, want one tool attempt then one plain-text retry", toolFinals, plainFinals)
+	}
+	if result.Usage != (CompactionUsage{InputTokens: 12, OutputTokens: 4}) {
+		t.Fatalf("usage = %+v, want only the completed plain-text call", result.Usage)
+	}
+}
+
+// TestBoundedReducerFinalToolErrorFallsBackToPlainText covers the other
+// manifestation of the same root cause: a model that hard-rejects the tools
+// array ("does not support tools"). The rejection is not a context overflow, so
+// the reducer retries the final call tool-free rather than surfacing the error.
+func TestBoundedReducerFinalToolErrorFallsBackToPlainText(t *testing.T) {
+	records := reducerTestRecords(t, strings.Repeat("history ", 200))
+	toolRejected := errors.New("model does not support tools")
+	stub := &stubCompactionDispatcher{}
+	toolFinals, plainFinals := 0, 0
+	stub.handle = func(_ int, req hiddenLLMRequest) (*LLMResponse, error) {
+		if len(req.Tools) > 0 {
+			toolFinals++
+			return nil, toolRejected
+		}
+		plainFinals++
+		return compactionTextResponse("plain summary", 9, 3), nil
+	}
+	result, err := newStubBoundedReducer(records, 10_000, 100, 0, stub).run(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Summary != "plain summary" || toolFinals != 1 || plainFinals != 1 {
+		t.Fatalf("result = %+v (tool finals %d, plain finals %d), want a single tool-free retry", result, toolFinals, plainFinals)
+	}
+}
+
+// TestBoundedReducerFinalEmptyBothAttemptsErrors pins that the fallback is one
+// extra attempt, not an escape hatch: when the tool-free retry is also empty the
+// reducer still fails with the empty-output reason.
+func TestBoundedReducerFinalEmptyBothAttemptsErrors(t *testing.T) {
+	records := reducerTestRecords(t, strings.Repeat("history ", 200))
+	stub := &stubCompactionDispatcher{}
+	stub.handle = func(_ int, _ hiddenLLMRequest) (*LLMResponse, error) {
+		return &LLMResponse{}, nil
+	}
+	_, err := newStubBoundedReducer(records, 10_000, 100, 0, stub).run(records)
+	var bounded *BoundedCompactionError
+	if !errors.As(err, &bounded) || bounded.Reason != BoundedCompactionEmptyOutput {
+		t.Fatalf("error = %#v, want empty-output failure after the tool-free retry", err)
+	}
+	if stub.calls != 2 {
+		t.Fatalf("dispatches = %d, want the tool attempt plus one tool-free retry", stub.calls)
+	}
+}
+
+// TestBoundedReducerPlainTextFinalSkipsTool pins the provider gate: a reducer for
+// a provider that cannot force a tool choice (finalUsesTool=false, e.g. Ollama)
+// sends the final call tool-free from the start — no tools, the plain-text final
+// prompt, and no wasted tool attempt — rather than trying the tool and falling
+// back.
+func TestBoundedReducerPlainTextFinalSkipsTool(t *testing.T) {
+	records := reducerTestRecords(t, strings.Repeat("history ", 200))
+	stub := &stubCompactionDispatcher{}
+	finals := 0
+	stub.handle = func(_ int, req hiddenLLMRequest) (*LLMResponse, error) {
+		if len(req.Tools) != 0 || req.ToolChoice != nil {
+			t.Fatalf("final call carried tools=%d choice=%v, want a tool-free final", len(req.Tools), req.ToolChoice)
+		}
+		if req.SystemPrompt != boundedCompactionFinalTextPrompt {
+			t.Fatalf("final prompt = %q, want the plain-text final prompt", req.SystemPrompt)
+		}
+		finals++
+		return compactionTextResponse("plain summary", 10, 3), nil
+	}
+	reducer := newStubBoundedReducer(records, 10_000, 100, 0, stub)
+	reducer.finalUsesTool = false
+	result, err := reducer.run(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Summary != "plain summary" || finals != 1 || stub.calls != 1 {
+		t.Fatalf("result = %+v (finals %d, calls %d), want a single tool-free final call", result, finals, stub.calls)
 	}
 }

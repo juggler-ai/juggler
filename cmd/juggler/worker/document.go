@@ -291,6 +291,35 @@ func (cd *ConversationDocument) insertMessage(index int, messages ...Conversatio
 	}, origin)
 }
 
+// insertItemWithNested inserts a single message into the LIVE Y.Array arr at
+// index within the current transaction. For a thread carrying nested Items the
+// parent map is inserted first with an EMPTY (now-live) items array, then each
+// nested item is appended into that live array one-by-one. Populating the nested
+// array only after it is live avoids the PrelimContent reversal
+// YArray.Integrate applies to a batch-populated prelim array — the same reversal
+// insertMessage sidesteps for its own nested items. Callers must be inside an
+// active Transact and hold ycrdtMu.
+func insertItemWithNested(arr *ycrdt.YArray, index int, msg ConversationItem) {
+	if msg.Type != ItemTypeThread || msg.Items == nil {
+		arr.Insert(ycrdt.Number(index), ycrdt.ArrayAny{conversationItemToYMap(msg)})
+		return
+	}
+	stripped := msg
+	stripped.Items = nil
+	ymap := conversationItemToYMap(stripped)
+	yarr := ycrdt.NewYArray()
+	ymap.Set("items", yarr)
+	arr.Insert(ycrdt.Number(index), ycrdt.ArrayAny{ymap})
+
+	var nested []ConversationItem
+	if err := json.Unmarshal(msg.Items, &nested); err != nil {
+		return
+	}
+	for j, item := range nested {
+		yarr.Insert(ycrdt.Number(j), ycrdt.ArrayAny{conversationItemToYMap(item)})
+	}
+}
+
 // DeleteMessages deletes messages at specific indices.
 func (cd *ConversationDocument) DeleteMessages(indices []int) {
 	if len(indices) == 0 {
@@ -305,8 +334,10 @@ func (cd *ConversationDocument) DeleteMessages(indices []int) {
 // index start with one summary item, in a single Yjs transaction, so observers
 // never see a half-folded array. Used by context-window recovery on the
 // worker's target array (root or a sub-thread's nested array). It deliberately
-// bypasses the OperationTracker: the fold is a system-initiated history
-// rewrite, not a user edit, and undo/redo semantics for it are out of scope.
+// bypasses the OperationTracker: it splices under the internal (untracked)
+// origin. The worker's recovery path folds through foldPrefixIntoSummaryTracked
+// instead, which reuses the same recheck-and-splice helpers under the author
+// origin so the fold is a single undoable group.
 //
 // The fold commits only if the array's canonical fingerprint still equals
 // expectedFingerprint. Crucially, that recheck and the fold happen under a
@@ -321,19 +352,36 @@ func (cd *ConversationDocument) FoldPrefixIntoSummaryIfUnchanged(arr *ycrdt.YArr
 	}
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
+	if !cd.foldFingerprintUnchangedLocked(arr, start, count, promptID, expectedFingerprint) {
+		return false
+	}
+	cd.doc.Transact(func(_ *ycrdt.Transaction) {
+		spliceSummaryIntoPrefix(arr, start, count, summary)
+	}, cd.txOrigin())
+	return true
+}
+
+// foldFingerprintUnchangedLocked reports whether arr still matches
+// expectedFingerprint (the canonical source the reducer consumed) and start/count
+// still address a valid prefix. Callers MUST hold ycrdtMu, so the recheck and the
+// subsequent splice form one atomic critical section. Shared by the untracked
+// (FoldPrefixIntoSummaryIfUnchanged) and tracked (foldPrefixIntoSummaryTracked)
+// fold paths.
+func (cd *ConversationDocument) foldFingerprintUnchangedLocked(arr *ycrdt.YArray, start, count int, promptID, expectedFingerprint string) bool {
 	current := cd.getItemsFromArrayLocked(arr)
 	records, err := canonicalCompactionRecords(current, promptID)
 	if err != nil || compactionSourceFingerprint(records) != expectedFingerprint {
 		return false
 	}
-	if start < 0 || start+count > len(current) {
-		return false
-	}
-	cd.doc.Transact(func(_ *ycrdt.Transaction) {
-		arr.Delete(ycrdt.Number(start), ycrdt.Number(count))
-		arr.Insert(ycrdt.Number(start), ycrdt.ArrayAny{conversationItemToYMap(summary)})
-	}, cd.txOrigin())
-	return true
+	return start >= 0 && start+count <= len(current)
+}
+
+// spliceSummaryIntoPrefix replaces count items at start with the single summary
+// item, preserving the summary's nested-item order via insertItemWithNested.
+// Callers must be inside an active Transact and hold ycrdtMu.
+func spliceSummaryIntoPrefix(arr *ycrdt.YArray, start, count int, summary ConversationItem) {
+	arr.Delete(ycrdt.Number(start), ycrdt.Number(count))
+	insertItemWithNested(arr, start, summary)
 }
 
 func (cd *ConversationDocument) deleteMessages(indices []int) {
@@ -807,19 +855,27 @@ func threadArrayHasSystemPromptItem(arr *ycrdt.YArray) bool {
 // itemId, preserving order. No-op when the parent has no seed items. Callers
 // MUST hold ycrdtMu.
 func (cd *ConversationDocument) seedThreadFromParentLocked(parentArr, childArr *ycrdt.YArray) {
-	if parentArr == nil || childArr == nil {
-		return
-	}
-	seeds := collectSeedItemMaps(parentArr)
-	if len(seeds) == 0 {
+	if parentArr == nil || childArr == nil || len(collectSeedItemMaps(parentArr)) == 0 {
 		return
 	}
 	cd.doc.Transact(func(_ *ycrdt.Transaction) {
-		for i, src := range seeds {
-			clone := cloneContextItemYMap(src, generateItemID())
-			childArr.Insert(ycrdt.Number(i), ycrdt.ArrayAny{clone})
-		}
+		cd.seedThreadFromParentInTx(parentArr, childArr)
 	}, cd.txOrigin())
+}
+
+// seedThreadFromParentInTx performs the seed-clone inserts within the caller's
+// active transaction, taking the origin the caller established (untracked for
+// seedThreadFromParentLocked, authorID for the tracked create-thread path). Each
+// clone gets a fresh itemId; order is preserved. Callers MUST hold ycrdtMu and
+// be inside a Transact.
+func (cd *ConversationDocument) seedThreadFromParentInTx(parentArr, childArr *ycrdt.YArray) {
+	if parentArr == nil || childArr == nil {
+		return
+	}
+	for i, src := range collectSeedItemMaps(parentArr) {
+		clone := cloneContextItemYMap(src, generateItemID())
+		childArr.Insert(ycrdt.Number(i), ycrdt.ArrayAny{clone})
+	}
 }
 
 // SeedThreadFromParent clones parentArr's starting-context items into the head

@@ -33,8 +33,11 @@ func (w *ConversationWorker) getTargetItemsLength() int {
 	return w.doc.GetItemsLength()
 }
 
-// insertTargetMessage inserts message(s) into the thread or root items array.
-// For root: uses OperationTracker (undo support). For thread: direct insert (no undo tracking).
+// insertTargetMessage inserts message(s) into the thread or root items array via
+// the OperationTracker (authorID origin) in both cases, so a sub-thread turn's
+// content is captured for undo/redo exactly like a root turn's. Turn boundaries
+// are the single global StopCapturing fired at every turn-idle (worker.go), so a
+// sub-thread run groups per turn the same way root does.
 //
 // If a round-trip is in flight (currentTxnID != "") and the caller did not set
 // TransactionID explicitly, the current txn id is stamped onto each item — so
@@ -48,7 +51,7 @@ func (w *ConversationWorker) insertTargetMessage(index int, msgs ...Conversation
 		}
 	}
 	if w.thread.itemsArray != nil {
-		w.doc.InsertMessageIntoArray(w.thread.itemsArray, index, msgs...)
+		w.tracker.InsertMessageIntoArray(w.thread.itemsArray, index, msgs...)
 	} else {
 		w.tracker.InsertMessage(index, msgs...)
 	}

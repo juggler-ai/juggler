@@ -5,8 +5,11 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Added proxy support — uses your system/env proxy by default, with a manual override in Settings → Network
 - Fixed the Claude Code CLI re-opening its login page in the background when it wasn't the active provider
 - Fixed YOLO auto-approving AskUserQuestion — questions now still wait for your answer
+- Fixed various UI niggles, including some mobile layout problems
+- Fixed some more multi-line bash parsing edge-cases
 
 ## [0.5.0] - 2026-07-26
 

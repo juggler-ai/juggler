@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"juggler/internal/httpx"
 	"juggler/internal/jlog"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -422,14 +423,15 @@ func (m *Manager) buildTransport(name string, cfg ServerConfig) (mcp.Transport, 
 	}
 }
 
-// httpClientWithHeaders returns an *http.Client that injects the given static
-// headers (e.g. Authorization) on every request. It returns nil when there are
-// no headers, so the SDK falls back to its default client.
+// httpClientWithHeaders returns a proxy-aware *http.Client that injects the
+// given static headers (e.g. Authorization) on every request, so remote MCP
+// servers are reachable through a configured proxy. With no headers it returns
+// a plain proxy-aware client rather than nil.
 func httpClientWithHeaders(headers map[string]string) *http.Client {
 	if len(headers) == 0 {
-		return nil
+		return httpx.Client(0)
 	}
-	return &http.Client{Transport: &headerRoundTripper{headers: headers, base: http.DefaultTransport}}
+	return &http.Client{Transport: &headerRoundTripper{headers: headers, base: httpx.Transport()}}
 }
 
 // headerRoundTripper is an http.RoundTripper that sets static headers on each

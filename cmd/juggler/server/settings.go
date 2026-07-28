@@ -8,10 +8,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/server/handlers"
+	"juggler/internal/httpx"
 	"juggler/internal/jlog"
 	"juggler/internal/updatecheck"
 )
@@ -87,7 +90,20 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		gs = s.settings.get()
 	}
 	gs.Updates.Mode = core.NormalizeUpdateMode(gs.Updates.Mode)
+	gs.Network.Proxy.Mode = core.NormalizeProxyMode(gs.Network.Proxy.Mode)
 	handlers.WriteJSON(w, r, 0, gs)
+}
+
+// validProxyURL reports whether raw is a usable proxy URL (non-empty, parseable,
+// with a host). Mirrors the manual-mode acceptance in internal/httpx so the API
+// rejects a URL the resolver would silently drop to direct.
+func validProxyURL(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	return err == nil && u.Host != ""
 }
 
 // handlePutSettings validates and persists the posted settings. An unknown
@@ -118,13 +134,26 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		handlers.WriteJSON(w, r, http.StatusBadRequest, map[string]string{"error": "invalid WAN launch mode"})
 		return
 	}
+	// A non-empty proxy mode must be recognised; manual mode needs a usable URL.
+	if incoming.Network.Proxy.Mode != "" && !core.IsKnownProxyMode(incoming.Network.Proxy.Mode) {
+		handlers.WriteJSON(w, r, http.StatusBadRequest, map[string]string{"error": "invalid proxy mode"})
+		return
+	}
+	if incoming.Network.Proxy.Mode == core.ProxyModeManual && !validProxyURL(incoming.Network.Proxy.URL) {
+		handlers.WriteJSON(w, r, http.StatusBadRequest, map[string]string{"error": "invalid proxy URL"})
+		return
+	}
 	prevMode := s.updateMode()
 	incoming.Updates.Mode = core.NormalizeUpdateMode(incoming.Updates.Mode)
+	incoming.Network.Proxy.Mode = core.NormalizeProxyMode(incoming.Network.Proxy.Mode)
 	if err := s.settings.set(incoming); err != nil {
 		jlog.Error("settings: save failed: %v", err)
 		handlers.WriteJSON(w, r, http.StatusInternalServerError, map[string]string{"error": "failed to save settings"})
 		return
 	}
+	// Apply the proxy policy live so a change takes effect without a restart; the
+	// atomic resolver makes already-built clients pick it up on their next request.
+	httpx.SetConfig(httpx.Config{Mode: incoming.Network.Proxy.Mode, URL: incoming.Network.Proxy.URL})
 	if prevMode == core.UpdateModeOff && incoming.Updates.Mode != core.UpdateModeOff {
 		s.kickUpdateCheck()
 	}

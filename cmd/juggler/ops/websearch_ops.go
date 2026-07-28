@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"juggler/internal/httpx"
 )
 
 // WebSearchOperations handles web search functionality
@@ -72,8 +74,8 @@ func (ops *WebSearchOperations) search(ctx context.Context, params map[string]an
 	req.Header.Set("User-Agent", "Juggler/1.0 (AI Coding Assistant)")
 	req.Header.Set("Accept", "application/json, text/html, */*")
 
-	// Execute request (like webfetch does)
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Execute request (like webfetch does), proxy-aware.
+	client := httpx.Client(30 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch failed: %w", err)

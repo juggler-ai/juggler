@@ -37,6 +37,12 @@ type ModelWithContext struct {
 	// DefaultThinkingLevel is the level the provider uses when a turn carries
 	// none — presentation only, lets the UI label "Default (medium)".
 	DefaultThinkingLevel string `json:"defaultThinkingLevel,omitempty"`
+	// StreamsLiveUsage is true when this model's provider reports authoritative
+	// per-step input usage mid-turn (see provider.ProviderInfo.StreamsLiveUsage).
+	// The footer meter grows against the live count only for models that set it;
+	// others keep the end-of-turn blob anchor. Provider-declared, surfaced per
+	// model so the client reads it off the model config.
+	StreamsLiveUsage bool `json:"streamsLiveUsage,omitempty"`
 }
 
 // ProviderStatus is one provider's published state.
@@ -68,9 +74,10 @@ func modelContextFallbacks(pInfo provider.ProviderInfo) []ModelWithContext {
 	models := make([]ModelWithContext, 0, len(ids))
 	for _, id := range ids {
 		models = append(models, ModelWithContext{
-			ID:            id,
-			ContextWindow: pInfo.ModelContextWindows[id],
-			FromAPI:       false,
+			ID:               id,
+			ContextWindow:    pInfo.ModelContextWindows[id],
+			FromAPI:          false,
+			StreamsLiveUsage: pInfo.StreamsLiveUsage,
 		})
 	}
 	return models
@@ -159,6 +166,7 @@ func (s *Server) computeProviders(ctx context.Context) []ProviderStatus {
 							InputModalities:      modelInfo.InputModalities,
 							ThinkingLevels:       modelInfo.ThinkingLevels,
 							DefaultThinkingLevel: modelInfo.DefaultThinkingLevel,
+							StreamsLiveUsage:     pInfo.StreamsLiveUsage,
 						})
 					}
 				} else {

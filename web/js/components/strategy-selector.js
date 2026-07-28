@@ -5,7 +5,6 @@
 import strategyRegistry from '../registries/strategy-registry.js';
 import { REGISTRIES_RELOADED } from '../registries/reload-registries.js';
 import { presentPopup } from '../utils/popup-surface.js';
-import { DROPDOWN_ARROW_SVG } from '../utils/icons.js';
 import CycleBuffer from '../services/cycle-buffer.js';
 
 /**
@@ -431,7 +430,6 @@ class StrategySelector extends HTMLElement {
             <button class="strategy-selector-button input-ctrl-btn ${this._dropdownOpen ? 'open' : ''}" id="strategy-button" tabindex="-1" title="Select Strategy" ${colorStyle} ${hasColorAttr}>
                 ${buttonIconHtml}
                 <span class="strategy-name">${strategyName}</span>
-                <span class="strategy-chevron">${DROPDOWN_ARROW_SVG}</span>
             </button>
             ${dropdownHtml}
         `;

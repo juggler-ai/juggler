@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"juggler/internal/httpx"
 )
 
 // JSONGetOptions configures GetJSON: how to authenticate, which headers to send,
@@ -62,7 +64,9 @@ func GetJSON(ctx context.Context, url string, opts JSONGetOptions, dst any) erro
 
 	client := opts.Client
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		// The proxy-aware default so live model-list probes reach providers from
+		// behind a proxy; callers may still inject their own client.
+		client = httpx.Client(30 * time.Second)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

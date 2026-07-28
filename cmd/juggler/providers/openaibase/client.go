@@ -16,6 +16,7 @@ import (
 
 	provider "juggler/cmd/juggler/providers/registry"
 	"juggler/cmd/juggler/providers/utils"
+	"juggler/internal/httpx"
 	"juggler/internal/jlog"
 
 	"github.com/openai/openai-go/v3"
@@ -293,9 +294,13 @@ func NewClient(cfg Config) (*Client, error) {
 	if cfg.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 	}
-	if cfg.HTTPClient != nil {
-		opts = append(opts, option.WithHTTPClient(cfg.HTTPClient))
+	// Default to the proxy-aware shared client. No client-level timeout —
+	// streaming inference needs long-lived connections and relies on transport
+	// and context deadlines. Callers (and tests) may inject their own client.
+	if cfg.HTTPClient == nil {
+		cfg.HTTPClient = httpx.Client(0)
 	}
+	opts = append(opts, option.WithHTTPClient(cfg.HTTPClient))
 
 	// Drop empty/whitespace-only SSE frames (proxy keep-alives, empty data
 	// heartbeats) before the SDK's decoder json.Unmarshals them and hard-fails

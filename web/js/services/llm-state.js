@@ -161,6 +161,31 @@ class LLMState {
   }
 
   /**
+   * Live per-step input usage for the in-flight turn, or null.
+   *
+   * Returns the running prompt-token total the worker has stamped into the Yjs
+   * processingState (input plus its cached portion) while the conversation is
+   * processing and at least one usage chunk has arrived. Callers that want a
+   * meter to grow through the turn read this; it is null when the conversation
+   * is idle or before the provider has reported any usage. Only meaningful for
+   * models whose provider sets streamsLiveUsage — other providers may report a
+   * number here that isn't fit for the context meter, so gate on that flag.
+   * @param {string} conversationId - Conversation ID
+   * @returns {{inputTokens: number, cachedTokens: number}|null} Live usage, or null when idle or no usage reported yet.
+   */
+  getLiveInputUsage(conversationId) {
+    if (!this.isConversationProcessing(conversationId)) return null;
+    const data = this._statusData.get(conversationId);
+    const inputTokens = data?.inputTokens;
+    if (typeof inputTokens !== 'number' || inputTokens <= 0) return null;
+    const cached = data?.cachedTokens;
+    return {
+      inputTokens,
+      cachedTokens: typeof cached === 'number' && cached > 0 ? cached : 0,
+    };
+  }
+
+  /**
    * Start LLM processing for a specific conversation
    * - Sets status message (this IS the processing state)
    * - Shows busy indicator for this conversation's tab

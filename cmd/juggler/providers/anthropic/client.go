@@ -13,6 +13,7 @@ import (
 
 	provider "juggler/cmd/juggler/providers/registry"
 	"juggler/cmd/juggler/providers/utils"
+	"juggler/internal/httpx"
 	"juggler/internal/jlog"
 
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
@@ -152,8 +153,11 @@ func NewClient(cfg provider.Config) (provider.Provider, error) {
 		return nil, fmt.Errorf("model is required")
 	}
 
+	// httpx.Client(0) carries the proxy policy with no client-level timeout —
+	// streaming responses need long-lived connections.
 	client := anthropicsdk.NewClient(
 		option.WithAPIKey(cfg.APIKey),
+		option.WithHTTPClient(httpx.Client(0)),
 	)
 
 	return &Client{
@@ -767,5 +771,9 @@ func Info() provider.ProviderInfo {
 		// against the live Models API list (which returns dated ids such as
 		// claude-haiku-4-5-20251001), so this need not be an exact id.
 		CheapModel: "claude-haiku-4-5",
+		// message_delta carries per-call authoritative prompt-token usage (see the
+		// transient `usage` chunk emitted in the stream handler), so the footer
+		// meter can grow against it live through a turn.
+		StreamsLiveUsage: true,
 	}
 }

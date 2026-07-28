@@ -1115,6 +1115,14 @@ func (ops *ShellOperations) ExecuteStreaming(
 // preserved verbatim — so a single multi-line command (a multi-line git commit
 // message, a `python3 -c '...'` script, a heredoc) survives intact instead of
 // being shredded into broken " && " fragments.
+//
+// " && " joining is only valid between standalone simple commands. When any
+// segment is a comment, a shell control-flow construct (for/while/if/case,
+// their do/then/in/else/fi/done/esac keywords, function bodies, { } grouping),
+// or ends in a continuation operator, inserting " && " would produce broken
+// shell — e.g. `for f in a b c; && do`. In that case the command is left
+// verbatim: sh -c runs the multi-line form correctly, so we forgo the cosmetic
+// single-line join rather than corrupt the command.
 func normalizeCommandNewlines(command string) string {
 	if !strings.Contains(command, "\n") {
 		return command
@@ -1126,7 +1134,108 @@ func normalizeCommandNewlines(command string) string {
 			nonEmpty = append(nonEmpty, trimmed)
 		}
 	}
+	if !canJoinWithAnd(nonEmpty) {
+		return command
+	}
 	return strings.Join(nonEmpty, " && ")
+}
+
+// compoundKeywords are reserved words that open, continue, or close a shell
+// compound command. A segment whose first word is one of these (or a bare block
+// delimiter) is part of a multi-line construct, not a standalone command, so the
+// segment list must not be " && "-joined.
+var compoundKeywords = map[string]bool{
+	"for": true, "while": true, "until": true, "do": true, "done": true,
+	"if": true, "then": true, "elif": true, "else": true, "fi": true,
+	"case": true, "esac": true, "select": true, "function": true,
+	"{": true, "}": true, "(": true, ")": true,
+}
+
+// trailingContinuations are tokens that, as the last word of a line, mean the
+// command continues on the following line. Splicing " && " onto such a line
+// (`... in && a) echo`, `... && | tail`) is invalid shell.
+var trailingContinuations = map[string]bool{
+	"do": true, "then": true, "else": true, "in": true,
+	"{": true, "(": true, "|": true, "||": true, "&&": true, "&": true,
+}
+
+// canJoinWithAnd reports whether the segments (already trimmed, non-empty) are
+// all standalone simple commands and can therefore be safely joined with " && ".
+// A single segment is always joinable (nothing is spliced). It returns false the
+// moment any segment looks like a comment or part of a compound command, so the
+// caller falls back to running the command verbatim.
+func canJoinWithAnd(segments []string) bool {
+	if len(segments) < 2 {
+		return true
+	}
+	for _, s := range segments {
+		if hasUnquotedComment(s) {
+			return false
+		}
+		// A segment opening with a continuation operator is only valid as the
+		// tail of the previous physical line; the newline separator already broke
+		// that, so `echo a && | grep x` / `... && && echo b` are syntax errors.
+		switch s[0] {
+		case '|', '&', ';':
+			return false
+		}
+		// A bare trailing `;` is a command separator: splicing " && " after it
+		// (`echo a; && echo b`) is a syntax error. An escaped `\;` (a find -exec
+		// terminator) is a literal argument, not a separator, so it joins fine.
+		if s[len(s)-1] == ';' && !strings.HasSuffix(s, "\\;") {
+			return false
+		}
+		fields := strings.Fields(s)
+		if len(fields) == 0 {
+			continue
+		}
+		if compoundKeywords[strings.TrimSuffix(fields[0], ";")] {
+			return false
+		}
+		if trailingContinuations[fields[len(fields)-1]] {
+			return false
+		}
+		switch s[len(s)-1] {
+		case '|', '&', '{', '(':
+			return false
+		}
+	}
+	return true
+}
+
+// hasUnquotedComment reports whether s contains a `#` that begins a shell
+// comment — one at the start of a word (start of string or after whitespace)
+// and outside any quote. Splicing " && " after such a segment would land the
+// operator inside the comment, silently discarding every later command. `#`
+// inside quotes or mid-word (a fragment identifier, `$#`) is not a comment.
+func hasUnquotedComment(s string) bool {
+	var quote byte // 0, '\'', '"', or '`'
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if quote != 0 {
+			if quote == '\'' {
+				if c == '\'' {
+					quote = 0
+				}
+			} else if c == '\\' && i+1 < len(s) {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"', '`':
+			quote = c
+		case '\\':
+			i++
+		case '#':
+			if i == 0 || s[i-1] == ' ' || s[i-1] == '\t' || s[i-1] == '\n' {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // heredocSpec is a pending here-document whose body has not been consumed yet.

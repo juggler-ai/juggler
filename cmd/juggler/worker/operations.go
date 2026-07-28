@@ -96,6 +96,44 @@ func (t *OperationTracker) refreshScopeIfNeeded() {
 	t.ensureUndoManager()
 }
 
+// itemsArrayReachableFromRoot reports whether arr is a thread `items` Y.Array
+// reachable from the root items array through nested thread Y.Maps at any depth.
+// It climbs arr → wrapping item → thread map → wrapping item → containing array,
+// repeating until it reaches root (allow) or hits a boundary it cannot traverse
+// (reject). The ParentSub == "items" guard excludes sibling arrays such as
+// pendingItems, whose elements must never be tombstoned by undo/redo.
+func itemsArrayReachableFromRoot(arr ycrdt.IAbstractType, root *ycrdt.YArray) bool {
+	for {
+		arrItem := arr.GetItem() // Y.Item wrapping this nested array
+		if arrItem == nil {
+			return false
+		}
+		if arrItem.ParentSub != "items" {
+			return false // e.g. a pendingItems array — not conversation content
+		}
+		ownerMap, ok := arrItem.Parent.(ycrdt.IAbstractType) // the thread Y.Map
+		if !ok {
+			return false
+		}
+		mapItem := ownerMap.GetItem() // Y.Item wrapping the thread Y.Map
+		if mapItem == nil {
+			return false
+		}
+		grand, ok := mapItem.Parent.(ycrdt.IAbstractType) // array holding the thread map
+		if !ok {
+			return false
+		}
+		if grand == root {
+			return true // thread map sits directly in the root items array
+		}
+		next, ok := grand.(*ycrdt.YArray)
+		if !ok {
+			return false
+		}
+		arr = next // climb one level and repeat
+	}
+}
+
 // ensureUndoManager initializes the UndoManager if needed. Called under ycrdtMu.
 func (t *OperationTracker) ensureUndoManager() *ycrdt.UndoManager {
 	if t.undoManager != nil {
@@ -123,46 +161,32 @@ func (t *OperationTracker) ensureUndoManager() *ycrdt.UndoManager {
 		// token updates (many rapid writes) likewise want to coalesce into one undo.
 		250,
 		func(item *ycrdt.Item) bool {
-			// Only allow tombstoning:
-			// (a) root-level items (direct children of the root items Y.Array),
-			// (b) items in the thread.items nested Y.Array (one level deep), and
-			// (c) Y.Map field entries within root-level items (at any depth).
-			// This prevents redo from tombstoning Y.Array elements in deeply
-			// nested arrays while allowing Y.Map fields (e.g. resultSpec,
-			// data.content) to be properly restored by undo/redo.
+			// Only allow tombstoning items that live within the conversation
+			// `items` scope:
+			// (a) elements of the root items Y.Array,
+			// (b) elements of a nested thread.items Y.Array at any depth, and
+			// (c) Y.Map field entries (e.g. resultSpec, data.content) inside
+			//     a root- or thread-level item at any depth.
+			// Everything else — notably elements of sibling arrays such as
+			// pendingItems — must not be tombstoned by undo/redo.
 			parent, ok := item.Parent.(ycrdt.IAbstractType)
 			if !ok {
 				return true
 			}
 			if parent == items {
-				return true
+				return true // (a) element of the root items array
 			}
 			if item.ParentSub == "" {
-				// item is an element of a nested Y.Array (e.g. a subthread item).
-				// Allow tombstoning if the nested array is a field of a Y.Map that
-				// is itself a direct child of the root items array.
-				parentItem := parent.GetItem() // Y.Item wrapping the nested Y.Array
-				if parentItem == nil {
-					return false
-				}
-				threadMap, ok2 := parentItem.Parent.(ycrdt.IAbstractType) // thread Y.Map
-				if !ok2 {
-					return false
-				}
-				threadMapItem := threadMap.GetItem() // Y.Item wrapping the thread Y.Map
-				if threadMapItem == nil {
-					return false
-				}
-				ggType, ok3 := threadMapItem.Parent.(ycrdt.IAbstractType) // root items Y.Array
-				if !ok3 {
-					return false
-				}
-				return ggType == items
+				// (b) element of a nested Y.Array. Allow iff that array is a
+				// thread.items array reachable from root items through nested
+				// thread maps at any depth.
+				return itemsArrayReachableFromRoot(parent, items)
 			}
-			// item is a Y.Map field entry. Allow tombstoning if the field's
-			// containing Y.Map (and any further containing Y.Maps) ultimately
-			// lives inside a root-level item. Walk up the chain until we reach
-			// the root items Y.Array or a non-root Y.Array boundary.
+			// (c) Y.Map field entry. Walk up through containing Y.Maps until we
+			// reach the root items Y.Array (allow) or a Y.Array boundary. A
+			// Y.Array boundary is allowed iff it is a thread.items array
+			// reachable from root — so fields inside sub-thread items at any
+			// depth are reversible, but fields inside non-items arrays are not.
 			cur := parent
 			for {
 				parentItem := cur.GetItem()
@@ -176,11 +200,8 @@ func (t *OperationTracker) ensureUndoManager() *ycrdt.UndoManager {
 				if gp == items {
 					return true
 				}
-				// Stop if we hit a Y.Array that is not the root items array
-				// (e.g. thread.items) — don't allow tombstoning fields inside
-				// subthread items.
-				if _, isArr := gp.(*ycrdt.YArray); isArr {
-					return false
+				if arr, isArr := gp.(*ycrdt.YArray); isArr {
+					return itemsArrayReachableFromRoot(arr, items)
 				}
 				cur = gp
 			}
@@ -215,6 +236,43 @@ func (t *OperationTracker) InsertMessage(index int, messages ...ConversationItem
 	}
 	ycrdt.Transact(t.doc.doc, func(_ *ycrdt.Transaction) {
 		t.doc.insertMessage(index, messages...)
+	}, t.doc.authorID, true)
+}
+
+// InsertMessageIntoArray inserts messages at index into a nested thread items
+// Y.Array under the tracked (authorID) origin, so sub-thread turn content is
+// captured by the UndoManager exactly like root content. Grouping mirrors
+// InsertMessage: non-auxiliary types start a new undo group, auxiliary types
+// (streaming tool/thinking content) merge with the current group. Thread items
+// carrying nested Items are inserted via insertItemWithNested so their child
+// array is populated in source order.
+func (t *OperationTracker) InsertMessageIntoArray(arr *ycrdt.YArray, index int, messages ...ConversationItem) {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	um := t.ensureUndoManager()
+	if !allAuxiliary(messages) {
+		um.StopCapturing()
+	}
+	ycrdt.Transact(t.doc.doc, func(_ *ycrdt.Transaction) {
+		for i, msg := range messages {
+			insertItemWithNested(arr, index+i, msg)
+		}
+	}, t.doc.authorID, true)
+}
+
+// SeedThreadFromParent clones the parent's starting-context items into the head
+// of a freshly created child thread's array under the tracked (authorID) origin,
+// so the seeded context is captured as part of the create-thread undo group
+// (callers collapse the whole creation into one group via MergeFromIndex). No
+// StopCapturing: the seed attaches to the surrounding creation group rather than
+// forming its own. No-op when the parent has no seed items (an empty transaction
+// records no undo entry).
+func (t *OperationTracker) SeedThreadFromParent(parentArr, childArr *ycrdt.YArray) {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	t.ensureUndoManager()
+	ycrdt.Transact(t.doc.doc, func(_ *ycrdt.Transaction) {
+		t.doc.seedThreadFromParentInTx(parentArr, childArr)
 	}, t.doc.authorID, true)
 }
 

@@ -638,6 +638,12 @@ class ConversationTab extends HTMLElement {
         switch (e.key) {
           case 'Delete':
           case 'Backspace': {
+            // ⌘/Ctrl+Backspace is the bin-conversation chord (KeyShortcutManager).
+            // Both listeners sit on document, and stopPropagation() doesn't stop
+            // same-target listeners, so this handler still sees the chord — but it
+            // must not delete the selected item under it. When binning is refused
+            // (a running turn), the chord should do nothing, not fall through here.
+            if (e.metaKey || e.ctrlKey) break;
             let propsPanel = null;
             if (activeCol.tagName === 'PROPERTIES-PANEL') {
               propsPanel = activeCol;

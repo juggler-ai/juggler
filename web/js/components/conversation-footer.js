@@ -27,6 +27,7 @@
  * on every items-array event.
  */
 import { findLastAssistantTxnId } from '../utils/transaction-anchor.js';
+import providersCache from '../services/providers-cache.js';
 
 const TOKEN_UPDATE_DEBOUNCE_MS = 2000;
 
@@ -35,6 +36,14 @@ class ConversationFooter extends HTMLElement {
   _messageThread = /** @type {any} */ (null);
   /** @type {(() => void)|null} */
   _unsubscribe = null;
+  /**
+   * Unsubscribe from the LLMState status-observer feed. Separate from
+   * `_unsubscribe` (session events): the status observer fires on every
+   * mid-turn usage update, driving the live-growing meter without the 2s
+   * event debounce.
+   * @type {(() => void)|null}
+   */
+  _statusUnsubscribe = null;
 
   /**
    * Cache of resolved transaction-blob token totals, keyed by
@@ -66,6 +75,7 @@ class ConversationFooter extends HTMLElement {
 
   disconnectedCallback() {
     if (this._unsubscribe) { this._unsubscribe(); this._unsubscribe = null; }
+    if (this._statusUnsubscribe) { this._statusUnsubscribe(); this._statusUnsubscribe = null; }
     this._cancelDeferredTokenDisplayUpdate();
   }
 
@@ -75,6 +85,7 @@ class ConversationFooter extends HTMLElement {
    */
   setMessageThread(mt) {
     if (this._unsubscribe) { this._unsubscribe(); this._unsubscribe = null; }
+    if (this._statusUnsubscribe) { this._statusUnsubscribe(); this._statusUnsubscribe = null; }
     this._cancelDeferredTokenDisplayUpdate();
     // Defensive: if this element is recycled across threads (or across
     // conversations) the per-txnID cache from the previous thread is no
@@ -96,8 +107,38 @@ class ConversationFooter extends HTMLElement {
           }
         }));
       }
+      // Mid-turn usage updates arrive on the LLMState status feed (one tick per
+      // usage chunk). For a provider that streams authoritative per-step usage
+      // we refresh the meter immediately — not through the 2s event debounce —
+      // so the bar visibly grows as the turn proceeds. The callback is cheap
+      // when nothing changed (token-display.setUsage no-ops on equal input).
+      const llmState = conversation?._llmState;
+      if (llmState && typeof llmState.addStatusObserver === 'function') {
+        this._statusUnsubscribe = /** @type {() => void} */ (llmState.addStatusObserver((/** @type {string} */ id) => {
+          // Only models that stream authoritative per-step usage drive the meter
+          // from this feed; for the rest the meter stays on the blob anchor
+          // refreshed by the (debounced) session events, so skip the per-tick work.
+          if (id === conversation.id && this._modelStreamsLiveUsage()) this._updateTokenDisplay();
+        }));
+      }
     }
     this._updateTokenDisplay();
+  }
+
+  /**
+   * Whether the visible conversation's model streams authoritative per-step
+   * input usage (provider capability, surfaced per model on the WS-pushed
+   * provider list). Only such models drive the live-growing meter; others keep
+   * the end-of-turn blob anchor.
+   * @returns {boolean} True when the current model reports live per-step usage.
+   * @private
+   */
+  _modelStreamsLiveUsage() {
+    const cfg = this._messageThread?.conversation?.modelConfig;
+    if (!cfg?.provider || !cfg?.model) return false;
+    const providerEntry = providersCache.get().find((/** @type {any} */ p) => p?.name === cfg.provider);
+    const model = providerEntry?.modelsWithContext?.find((/** @type {any} */ m) => m?.id === cfg.model);
+    return !!model?.streamsLiveUsage;
   }
 
   /**
@@ -170,6 +211,25 @@ class ConversationFooter extends HTMLElement {
     const conv = thread.conversation;
     const budget = Number(conv?.contextWindow) || 0;
     const processing = !!conv?.isProcessing;
+
+    // Live path: while a provider that reports authoritative per-step usage is
+    // streaming, grow the meter against the running input total the worker has
+    // stamped into the Yjs processingState, rather than the frozen previous-turn
+    // blob anchor. Falls through to the anchor before the first usage chunk
+    // arrives (getLiveInputUsage null) and once the turn ends (processing false),
+    // so the end-of-turn number takes over seamlessly.
+    if (processing && this._modelStreamsLiveUsage()) {
+      const live = conv?._llmState?.getLiveInputUsage?.(conv.id);
+      if (live) {
+        /** @type {any} */ (tokenDisplay).setUsage({
+          total: live.inputTokens,
+          cached: live.cachedTokens,
+          budget,
+          processing: true,
+        });
+        return;
+      }
+    }
 
     // Anchor cache hit → render synchronously. Miss → kick a background
     // fetch and leave the existing display alone; clearing to zero while the

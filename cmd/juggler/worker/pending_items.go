@@ -139,7 +139,10 @@ func (w *ConversationWorker) promotePendingItems(threadItemID string) int {
 		if target == nil {
 			return 0
 		}
-		w.doc.InsertMessageIntoArray(target, w.doc.GetItemsLengthFromArray(target), pending...)
+		// Tracker insert, mirroring the root branch: a promotion into a sub-thread
+		// is undoable just like a normal user send. (The pending-queue clear above
+		// stays untracked — queuing is not conversation content.)
+		w.tracker.InsertMessageIntoArray(target, w.doc.GetItemsLengthFromArray(target), pending...)
 	}
 
 	w.tape.Record("pending-promote", map[string]any{

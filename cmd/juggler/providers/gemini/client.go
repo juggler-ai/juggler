@@ -20,6 +20,7 @@ import (
 
 	provider "juggler/cmd/juggler/providers/registry"
 	"juggler/cmd/juggler/providers/utils"
+	"juggler/internal/httpx"
 	"juggler/internal/jlog"
 
 	"google.golang.org/api/googleapi"
@@ -61,9 +62,13 @@ func NewClient(cfg provider.Config) (provider.Provider, error) {
 	}
 
 	ctx := context.Background()
+	// A fresh proxy-aware client per construction: genai layers its own auth
+	// middleware onto whatever *http.Client it's given, so this must not be a
+	// shared singleton. Its transport carries the proxy policy for inference.
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  cfg.APIKey,
-		Backend: genai.BackendGeminiAPI,
+		APIKey:     cfg.APIKey,
+		Backend:    genai.BackendGeminiAPI,
+		HTTPClient: httpx.Client(0),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Gemini client: %w", err)
@@ -73,6 +78,7 @@ func NewClient(cfg provider.Config) (provider.Provider, error) {
 	httpClient := &http.Client{
 		Timeout: 90 * time.Second,
 		Transport: &http.Transport{
+			Proxy: httpx.Proxy,
 			DialContext: (&net.Dialer{
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,

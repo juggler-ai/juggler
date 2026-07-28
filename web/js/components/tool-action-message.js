@@ -259,7 +259,7 @@ class ToolActionMessage extends HTMLElement {
     const row = document.createElement('div');
     row.className = 'approval-review-status';
     const spinner = document.createElement('juggler-spinner');
-    spinner.setAttribute('style', '--size: 1.35rem');
+    spinner.setAttribute('style', '--size: 1.5rem');
     spinner.setAttribute('aria-hidden', 'true');
     const text = document.createElement('span');
     text.className = 'approval-review-status-label';

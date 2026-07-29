@@ -76,7 +76,12 @@ func TestSummarizationPromptMatchesJSFallback(t *testing.T) {
 		t.Fatalf("read %s: %v", jsPath, err)
 	}
 
-	prompt, err := extractDefaultSummarizationPromptJS(string(raw))
+	// Normalize CRLF → LF: on a Windows autocrlf checkout the JS file gains \r
+	// bytes, while the Go raw string literal keeps LF only (the Go spec discards
+	// carriage returns from raw string literals). Compare line endings apples to
+	// apples so the parity check reflects prompt content, not checkout policy.
+	src := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	prompt, err := extractDefaultSummarizationPromptJS(src)
 	if err != nil {
 		t.Fatalf("extract JS prompt from %s: %v", jsPath, err)
 	}

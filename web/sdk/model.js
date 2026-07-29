@@ -43,5 +43,5 @@ export {
   isCompactionPending,
   startCompaction,
   endCompaction,
-  foldConversationIntoSummaryThread,
+  compactConversation,
 } from '../js/utils/compaction-utils.js';

@@ -138,6 +138,15 @@ func (w *ConversationWorker) runStrategyLoop(userText string, isContinuation boo
 				return
 			}
 
+			// Proactive compaction: if the settled root turn's anchored input
+			// usage crossed the threshold, fold the root here and hand off to the
+			// summarizer. When it folds, the pickup runs the fold thread to
+			// completion — which dispatches its own idle hook — so return without
+			// a second dispatch.
+			if w.maybeAutoCompactAtSettle() {
+				return
+			}
+
 			// Root conversation went idle — let the strategy drive any
 			// post-idle work (e.g. plan execution) in the engine. Fire-and-
 			// forget: its effects re-enter via doc sync + reconcile.
@@ -179,6 +188,28 @@ strategyLoop:
 		if w.consumePolitePending() {
 			w.promotePendingItems(w.thread.itemID)
 			return
+		}
+
+		// A browser-folded /compact (or /handoff) thread is summarized by the
+		// bounded reducer, not a return_result strategy turn: probe the whole
+		// transcript once and, on a provider overflow, map/reduce it. This is the
+		// single summarizer, committing through writeBoundedCompactionResult. The
+		// turn ends here; the deferred cleanup drives idle, which collapses the
+		// fold + summary into one undo group (compactionMergeFromIdx).
+		if w.thread.itemID != "" && w.isBoundedCompactionThread(w.thread.itemID) && !w.threadHasResult(w.thread.itemID) {
+			handled, compactErr := w.runFoldedThreadCompaction(w.resolveModelConfig())
+			if handled {
+				if compactErr != nil && !errors.Is(compactErr, errBoundedCompactionCancelled) {
+					w.log.Error("❌ compaction error: %s", compactErr.Error())
+					errorData := map[string]any{}
+					for k, v := range compactionErrorData(compactErr) {
+						errorData[k] = v
+					}
+					w.sendErrorWithData(compactErr.Error(), "", errorData)
+				}
+				w.currentTxnID = ""
+				return
+			}
 		}
 
 		// Drain any messages queued while this turn was in flight (or while the
@@ -329,104 +360,38 @@ strategyLoop:
 
 			var advisory *provider.ContextCompactionAdvisory
 			var contextLimit *provider.ContextLimitExceededError
+			var limit *provider.ContextLimitExceededError
+			isAdvisory := false
 			if errors.As(err, &advisory) {
-				// The request-local fallback is single-shot. Registry admission honors
-				// the bypass before transport, so seeing another advisory here means a
-				// broken caller/provider contract; stop without ever publishing the
-				// estimate as a terminal user error.
-				if bypassContextGuard {
-					w.log.Error("[context guard] advisory repeated after fallback bypass; stopping without a terminal estimate error")
+				// A silent-truncation guard is an estimate-based request to
+				// compact, never a terminal error; normalize it to the same
+				// overflow shape the provider-rejection path uses.
+				limit = contextLimitFromAdvisory(advisory)
+				isAdvisory = true
+			} else if errors.As(err, &contextLimit) {
+				limit = contextLimit
+			}
+			if limit != nil {
+				// Parse the original request only now that it is needed (a
+				// context-limit overflow), not on every successful turn.
+				var originalRequest hiddenLLMRequest
+				_ = json.Unmarshal(llmRequest, &originalRequest)
+				switch v := w.handleContextOverflow(limit, isAdvisory, bypassContextGuard, &contextRecovery, originalRequest.ModelConfig, err); v.verdict {
+				case overflowStop:
 					w.currentTxnID = ""
 					return
-				}
-				// A silent-truncation guard is an estimate-based request to compact,
-				// never a terminal error. Reuse the bounded objective recovery state;
-				// when it cannot progress, rebuild once with a request-local bypass.
-				var originalRequest hiddenLLMRequest
-				_ = json.Unmarshal(llmRequest, &originalRequest)
-				limit := contextLimitFromAdvisory(advisory)
-				handled, compactErr := w.tryBoundedCompaction(limit, originalRequest.ModelConfig)
-				if handled {
-					w.currentTxnID = ""
-					if compactErr == nil || errors.Is(compactErr, errBoundedCompactionCancelled) {
-						return
-					}
-					// Hidden reducer requests bypass the guard, so any error here is a
-					// real bounded/provider failure rather than the advisory escaping.
-					err = fmt.Errorf("bounded compaction failed: %w", compactErr)
-				} else if contextRecovery.canAttempt() {
-					result, recErr := w.tryContextRecovery(limit, originalRequest.ModelConfig)
-					if errors.Is(recErr, errBoundedCompactionCancelled) {
-						w.currentTxnID = ""
-						return
-					}
-					if recErr != nil {
-						// A concrete recovery failure (reducer call, concurrent source
-						// change, persistence) is surfaced as its own terminal error —
-						// a silent stop here would look like a dead conversation. Only
-						// the advisory estimate itself must never become terminal.
-						err = fmt.Errorf("context recovery failed: %w", recErr)
-					} else if retry, _ := contextRecovery.advance(result, err); retry {
-						w.currentTxnID = ""
-						continue strategyLoop
-					} else {
-						bypassContextGuard = true
-						w.log.Info("[context guard] estimate=%d reserve=%d window=%d; dispatching one irreducible fallback", advisory.EstimatedInputTokens, advisory.OutputReserveTokens, advisory.ContextWindowTokens)
-						w.currentTxnID = ""
-						continue strategyLoop
-					}
-				} else {
-					bypassContextGuard = true
-					w.log.Info("[context guard] recovery attempt bound reached; estimate=%d reserve=%d window=%d; dispatching one fallback", advisory.EstimatedInputTokens, advisory.OutputReserveTokens, advisory.ContextWindowTokens)
+				case overflowRetry:
 					w.currentTxnID = ""
 					continue strategyLoop
-				}
-				// Any err synthesized above (compaction/recovery failure) is
-				// terminal as-is: it must not re-enter overflow handling below in
-				// the same iteration, even when it wraps a provider overflow.
-			} else if errors.As(err, &contextLimit) {
-				// Parse the original request only now that it is needed (a context
-				// limit rejection), not on every successful turn.
-				var originalRequest hiddenLLMRequest
-				_ = json.Unmarshal(llmRequest, &originalRequest)
-				handled, compactErr := w.tryBoundedCompaction(contextLimit, originalRequest.ModelConfig)
-				if handled {
+				case overflowBypassAndRetry:
+					bypassContextGuard = true
 					w.currentTxnID = ""
-					if compactErr == nil {
-						return
-					}
-					if errors.Is(compactErr, errBoundedCompactionCancelled) {
-						return
-					}
-					err = fmt.Errorf("bounded compaction failed: %w", compactErr)
-				} else if !contextRecovery.canAttempt() {
-					// Preserve and expose the last provider-authored overflow; do
-					// not replace it with a local estimate or retry-limit error.
-					err = providerAuthoredContextError(err)
-					w.log.Info("[recovery] stopped after %d progressive attempts", contextRecovery.attempts)
-				} else {
-					// Ordinary root / subthread turn: summarize or shrink durable
-					// history, then rebuild and retry only when its objective shape
-					// changed. Advisory token estimates do not prove progress.
-					result, recErr := w.tryContextRecovery(contextLimit, originalRequest.ModelConfig)
-					if recErr != nil {
-						if errors.Is(recErr, errBoundedCompactionCancelled) {
-							w.currentTxnID = ""
-							return
-						}
-						err = fmt.Errorf("context recovery failed: %w", recErr)
-						if contextLimit.Cause != nil {
-							err = fmt.Errorf("%w (provider: %s)", err, contextLimit.Cause.Error())
-						}
-					} else if retry, terminalErr := contextRecovery.advance(result, err); retry {
-						w.currentTxnID = ""
-						continue strategyLoop
-					} else {
-						err = providerAuthoredContextError(terminalErr)
-						// No durable structural progress: surface the latest provider
-						// overflow unchanged so errors.Is/As reach its Cause.
-						w.log.Info("[recovery] stopped because the request structure did not change")
-					}
+					continue strategyLoop
+				case overflowTerminal:
+					// Report v.err below. A synthesized terminal error must not
+					// re-enter overflow handling in the same iteration, even when
+					// it wraps a provider overflow.
+					err = v.err
 				}
 			}
 

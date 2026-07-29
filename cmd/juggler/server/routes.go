@@ -80,6 +80,7 @@ func (s *Server) seedProjectState(cfg Config) {
 // and path/persistence callbacks.
 func (s *Server) wireWorkerManager() {
 	s.workerManager.SetLLMCaller(s.createLLMCaller())
+	s.workerManager.SetWindowResolver(s.createWindowResolver())
 
 	// Out-of-band tab auto-naming: the worker fires this on a conversation's
 	// first user message; the server resolves a cheap model and renames the tab.

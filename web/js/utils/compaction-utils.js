@@ -8,9 +8,7 @@
  */
 
 import {
-  createUserMessage,
-  createThreadMessage,
-  isConversationalItemType
+  createUserMessage
 } from '../../sdk/lib/message.js';
 
 /**
@@ -19,10 +17,36 @@ import {
  */
 
 /**
- * Default summarization prompt used by the compact commands.
+ * The Go worker owns the canonical summarization prompt and ships it to the
+ * browser in the "ready" bootstrap (setBootstrapSummarizationPrompt). Until that
+ * arrives — and for callers running outside a connected worker, e.g. extensions
+ * in the engine realm — defaultSummarizationPrompt() returns the byte-identical
+ * fallback below. A Go parity test asserts the fallback matches the Go constant,
+ * so the two can never drift.
+ * @type {string|null}
+ */
+let bootstrapSummarizationPrompt = null;
+
+/**
+ * Record the worker-owned summarization prompt received in the "ready"
+ * bootstrap. Idempotent; the value is a server-wide constant.
+ * @param {string} prompt - Prompt text from the worker
+ */
+export function setBootstrapSummarizationPrompt(prompt) {
+  if (typeof prompt === 'string' && prompt.length > 0) {
+    bootstrapSummarizationPrompt = prompt;
+  }
+}
+
+/**
+ * Default summarization prompt used by the compact commands. Prefers the
+ * worker-provided text (Go is authoritative); falls back to the baked-in copy.
  * @returns {string} Summarization prompt text
  */
 export function defaultSummarizationPrompt() {
+  if (bootstrapSummarizationPrompt !== null) {
+    return bootstrapSummarizationPrompt;
+  }
   return `You are creating a handoff summary of the conversation so far. Another instance of yourself will use ONLY this summary (plus the most recent messages) to continue the work seamlessly, so completeness matters more than brevity — never drop information you cannot reconstruct later.
 
 First, in <analysis> tags, walk the conversation chronologically: note each user request, each significant action you took, every error hit and how it was resolved, and what is in flight right now. This is your scratchpad.
@@ -120,107 +144,29 @@ export function endCompaction(conversationId) {
 }
 
 /**
- * Fold a message thread's conversational history into a single summarization
- * sub-thread — the shared primitive behind /compact and /handoff.
+ * Fold a conversation's history into a summarization sub-thread — the shared
+ * entry point behind /compact and /handoff. The fold itself is performed by the
+ * worker (the single Go fold, shared with the proactive auto-compaction
+ * trigger): this sends the `compact` op and resolves with the worker's result
+ * once the fast fold has committed. The worker relocates the conversational
+ * history into a new bounded-compaction thread (leaving the leading standing
+ * context — agents files, memory, the sticky system prompt — at the parent),
+ * summarises it, and merges fold + summary into one undo group.
  *
- * Every content item (messages, tool actions, thinking, AND dynamic context
- * items the LLM produced) is moved into a new thread carrying a summarization
- * prompt; the LEADING run of standing context items (agents files, memory, the
- * sticky system prompt) stays at the parent so the conversation keeps its
- * working context. The thread is seeded with `needsStrategyRun` +
- * `forceTool: 'return_result'`, so the worker answers the prompt and its
- * `result` becomes the summary. The whole move is one Yjs transaction, so undo
- * reverses it atomically.
- *
- * The blocklist-by-persistence rule and leading-context reasoning are described
- * in detail at the /compact call site; this function is the extraction of that
- * body so /handoff can reuse it verbatim (with a `handoffPromote` marker in
- * `threadExtra`). Callers must first settle the conversation
- * (cancelAndSettle) and guard against concurrent compactions
- * (isCompactionPending) — this function only performs the document mutation.
- * @param {MessageThread} mt - Message thread to fold
+ * Callers must first settle the conversation (cancelAndSettle) and guard against
+ * concurrent compactions (isCompactionPending); the command framework does both
+ * for `mutatesConversation` commands, and also closes the undo capture window so
+ * the fold starts a fresh group.
+ * @param {string} conversationId - Conversation whose worker performs the fold
  * @param {object} [opts]
- * @param {string} [opts.goal] - Thread tile label
- * @param {object} [opts.threadExtra] - Extra fields merged onto the thread
- *   message (e.g. `{ handoffPromote: true }`)
- * @returns {{ threadId: string } | null} The new summary thread's id, or null
- *   when there was nothing to fold.
+ * @param {boolean} [opts.handoffPromote] - Tag the fold so the browser promotes
+ *   its result into a continued tab's parked first message (/handoff)
+ * @returns {Promise<{ folded: boolean, error?: string }>} The worker's outcome:
+ *   `folded` is false when there was nothing to fold.
  */
-export function foldConversationIntoSummaryThread(
-  mt,
-  { goal = 'Compacted conversation history', threadExtra = {} } = {}
-) {
-  const items = mt.items;
-
-  /** @type {object[]} */
-  const snapshots = [];
-  /** @type {number[]} */
-  const indicesToDelete = [];
-  let inLeadingContext = true;
-  items.forEach((item, idx) => {
-    if (!item || typeof item.toJSON !== 'function') return;
-    // Sticky parent-level items (today only the SYSTEM_1 system prompt) stay
-    // put and are transparent to the leading run.
-    if (item.get?.('preventUserDeletion') === true) return;
-    const type = item.get?.('type');
-    if (inLeadingContext) {
-      if (isConversationalItemType(type)) {
-        // First conversational item ends the starting-context run.
-        inLeadingContext = false;
-      } else if (item.get?.('itemId') && !item.get?.('toolUseId')) {
-        // A leading standing context item — keep it at the parent.
-        return;
-      }
-    }
-    // Defensive: a thread we ourselves just inserted is content by type but
-    // must not be re-swallowed.
-    if (item.get?.('noAutoSelect') && type === 'thread' && !item.get?.('result')) return;
-    snapshots.push(item.toJSON());
-    indicesToDelete.push(idx);
-  });
-
-  if (snapshots.length === 0) return null;
-
-  const threadMsg = /** @type {any} */ (createThreadMessage({ goal }));
-  threadMsg.needsStrategyRun = true;
-  // The user did not ask to drill into the new thread.
-  threadMsg.noAutoSelect = true;
-  // This thread is populated by RELOCATING the parent's items into it (below),
-  // and this fold deliberately leaves the leading standing-context run — the
-  // sticky system prompt, agents files, memory — at the parent. So the thread
-  // already owns exactly the context it should; the worker must NOT auto-seed
-  // starting context into it (SeedThreadIfUnseeded), which would re-inject the
-  // very items we kept at the parent. This is the general "moved items into a
-  // sub-thread" invariant, independent of noAutoSelect (a tab-selection concern)
-  // — any future move/fold-into-thread operation should set it too.
-  threadMsg.noContextSeed = true;
-  // Force the summarization turn to call return_result rather than replying in
-  // plain text (providers without forced-tool support fall back to the
-  // plain-text → writeThreadResult path).
-  threadMsg.forceTool = 'return_result';
-  Object.assign(threadMsg, threadExtra);
-
-  const userMsg = createUserMessage(defaultSummarizationPrompt());
-  mt._ensureItemId(userMsg);
-  // Mark worker-owned bounded fallback threads and pin the orchestration prompt
-  // so canonical history excludes it even if more messages are later appended.
-  threadMsg.boundedCompaction = true;
-  threadMsg.compactionPromptItemId = userMsg.itemId;
-
-  // Insert where the first content item was, so the thread lands among the
-  // content rather than before the preserved leading context items.
-  const insertAt = /** @type {number} */ (indicesToDelete[0]);
-
-  // Single Yjs transaction so undo reverses everything atomically.
-  mt.transact(() => {
-    const threadYMap = mt.buildThreadYMap(threadMsg, [...snapshots, userMsg]);
-    for (let i = indicesToDelete.length - 1; i >= 0; i--) {
-      mt.deleteAt(/** @type {number} */ (indicesToDelete[i]));
-    }
-    mt.insertAt(insertAt, threadYMap);
-  });
-
-  return { threadId: threadMsg.itemId };
+export async function compactConversation(conversationId, { handoffPromote = false } = {}) {
+  const { default: workerManager } = await import('../services/worker-manager.js');
+  return workerManager.compact(conversationId, { handoffPromote });
 }
 
 /** Guards against a single client double-promoting the same handoff thread. */

@@ -5,6 +5,10 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-29
+
+- Reading files with very long lines (e.g. one-paragraph-per-line Markdown) no longer truncates mid-character or too eagerly
+- Editing a long prose paragraph no longer gets bounced to the write tool
 - Added proxy support — uses your system/env proxy by default, with a manual override in Settings → Network
 - Fixed the Claude Code CLI re-opening its login page in the background when it wasn't the active provider
 - Fixed YOLO auto-approving AskUserQuestion — questions now still wait for your answer

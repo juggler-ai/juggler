@@ -39,6 +39,19 @@ func toLLMResponseBlocks(blocks []provider.ContentBlock) []worker.LLMResponseBlo
 	return out
 }
 
+// createWindowResolver returns the read-only window resolver injected into every
+// worker (worker.WindowResolverFunc). It maps a model identity to its context
+// window and output reserve through the same resolveModelCapabilities path the
+// LLM caller uses for admission, so the proactive compaction trigger divides the
+// worker-owned anchored input usage by exactly the window admission would apply.
+// Returns (0, 0) for an unknown model, which the worker reads as "no threshold".
+func (s *Server) createWindowResolver() worker.WindowResolverFunc {
+	return func(mc worker.ModelConfig) (int, int) {
+		caps := s.resolveModelCapabilities(mc.Provider, mc.Model)
+		return int(caps.ContextWindowTokens), int(caps.MaxOutputTokens)
+	}
+}
+
 // createLLMCaller creates a function that workers can use to call the
 // LLM directly. The closure captures the per-server conversationCache so
 // Conversation handles are reused across turns for the same (convID,

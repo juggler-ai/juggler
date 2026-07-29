@@ -630,9 +630,8 @@ class InputBox extends HTMLElement {
     // if its target has passed, fire) it now that the controls exist.
     this._syncScheduledSendFromDraft();
 
-    // Touch-only Send button (CSS reveals it on a coarse pointer). Send-only —
-    // cancelling a running turn is the footer Stop button's job, so this never
-    // morphs into a Stop control.
+    // Send button (always visible). Send-only — cancelling a running turn is
+    // the footer Stop button's job, so this never morphs into a Stop control.
     const sendBtn = this.querySelector('#send-button');
     if (sendBtn) {
       sendBtn.addEventListener('click', (e) => {
@@ -2133,11 +2132,12 @@ class InputBox extends HTMLElement {
   }
 
   /**
-   * Build and present the "+" actions sheet: every slash command as a row,
-   * followed by Attach image and New Thread. On a narrow viewport presentPopup
-   * renders it as a bottom sheet (drag-to-dismiss); on a wider one it anchors
-   * to the "+" button. The rows reuse the same handlers as the inline controls,
-   * so nothing nests a second popup.
+   * Build and present the "+" actions sheet. Essential controls lead — Strategy,
+   * Attach image, New Thread — so they never scroll off behind a long slash-
+   * command list; a divider then separates them from every slash command. On a
+   * narrow viewport presentPopup renders it as a bottom sheet (drag-to-dismiss);
+   * on a wider one it anchors to the "+" button. The rows reuse the same handlers
+   * as the inline controls, so nothing nests a second popup.
    * @private
    * @returns {Promise<void>}
    */
@@ -2163,7 +2163,7 @@ class InputBox extends HTMLElement {
       if (action) item.dataset.action = action;
       const icon = document.createElement('span');
       icon.className = 'actions-sheet-icon';
-
+      icon.innerHTML = iconSvg;
       item.appendChild(icon);
       const text = document.createElement('span');
       text.className = 'actions-sheet-label';
@@ -2176,6 +2176,35 @@ class InputBox extends HTMLElement {
       menu.appendChild(item);
     };
 
+    // Essentials lead the sheet so they never scroll off behind a long command
+    // list. Relocate the live strategy selector in first — on touch it is hidden
+    // from the inline row to keep that row single-line. Re-parenting preserves
+    // its messageThread (a plain property, untouched by disconnect/reconnect),
+    // so it keeps working; _closeActionsSheet returns it to its inline home
+    // before the sheet surface is torn down. It renders its own button +
+    // dropdown, so it works at any viewport width (unlike clicking a hidden
+    // inline anchor, which would mis-anchor on wide tablets).
+    const strategySel = /** @type {HTMLElement|null} */ (this.querySelector('strategy-selector'));
+    if (strategySel) {
+      const row = document.createElement('li');
+      row.className = 'menu-item actions-sheet-item actions-sheet-strategy';
+      const label = document.createElement('span');
+      label.className = 'actions-sheet-label';
+      label.textContent = 'Strategy';
+      row.appendChild(label);
+      row.appendChild(strategySel); // moves the element out of the inline row
+      menu.appendChild(row);
+      this._relocatedStrategy = strategySel;
+    }
+
+    addRow('Attach image', IMAGE_ATTACH_SVG, () => {
+      /** @type {HTMLInputElement|null} */
+      (this.querySelector('.attach-file-input'))?.click();
+    });
+    addRow('New Thread', THREAD_ARROW_SVG, () => this._createThread(), 'new-thread');
+    this._updateNewThreadControls();
+
+    // Slash commands follow the essentials, fenced off by a divider.
     const commands = slashCommandHandler.getCommands();
     const ORDER = ['new', 'duplicate', 'thread', 'clear', 'compact'];
     commands.sort((a, b) => {
@@ -2183,6 +2212,11 @@ class InputBox extends HTMLElement {
       const bi = ORDER.indexOf(b.name);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
+    if (commands.length) {
+      const divider = document.createElement('li');
+      divider.className = 'menu-divider';
+      menu.appendChild(divider);
+    }
     for (const cmd of commands) {
       const displayLabel = cmd.label || cmd.name.charAt(0).toUpperCase() + cmd.name.slice(1);
       const row = document.createElement('li');
@@ -2200,33 +2234,6 @@ class InputBox extends HTMLElement {
         this._executeSlashCommand(cmd.name);
       });
       menu.appendChild(row);
-    }
-
-    addRow('Attach image', IMAGE_ATTACH_SVG, () => {
-      /** @type {HTMLInputElement|null} */
-      (this.querySelector('.attach-file-input'))?.click();
-    });
-    addRow('New Thread', THREAD_ARROW_SVG, () => this._createThread(), 'new-thread');
-    this._updateNewThreadControls();
-
-    // Relocate the live strategy selector into the sheet — on touch it is
-    // hidden from the inline row to keep that row single-line. Re-parenting
-    // preserves its messageThread (a plain property, untouched by
-    // disconnect/reconnect), so it keeps working; _closeActionsSheet returns it
-    // to its inline home before the sheet surface is torn down. It renders its
-    // own button + dropdown, so it works at any viewport width (unlike clicking
-    // a hidden inline anchor, which would mis-anchor on wide tablets).
-    const strategySel = /** @type {HTMLElement|null} */ (this.querySelector('strategy-selector'));
-    if (strategySel) {
-      const row = document.createElement('li');
-      row.className = 'menu-item actions-sheet-item actions-sheet-strategy';
-      const label = document.createElement('span');
-      label.className = 'actions-sheet-label';
-      label.textContent = 'Strategy';
-      row.appendChild(label);
-      row.appendChild(strategySel); // moves the element out of the inline row
-      menu.appendChild(row);
-      this._relocatedStrategy = strategySel;
     }
 
     this._actionsSheet = menu;

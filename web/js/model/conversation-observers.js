@@ -18,15 +18,7 @@ import workerManager from '../services/worker-manager.js';
 import { isViewer } from '../../sdk/lib/client-role.js';
 import { recordTape } from '../utils/event-tape.js';
 import { bytesToBase64 } from '../utils/base64.js';
-import { isCompactionPending, maybePromoteHandoffThread } from '../utils/compaction-utils.js';
-import { findLastAssistantTxnId } from '../utils/transaction-anchor.js';
-
-/**
- * Auto-compact threshold: when provider input-token usage, or an explicitly
- * marked fallback estimate, reaches this fraction of the model's context
- * window, request advisory early compaction.
- */
-const AUTO_COMPACT_THRESHOLD = 0.85;
+import { maybePromoteHandoffThread } from '../utils/compaction-utils.js';
 
 /**
  * Wire up the items and metadata observers on the conversation's Yjs doc.
@@ -150,14 +142,12 @@ export function setupYjsObservers(c) {
         c._session.notifyConversationChange('context-items:changed', null);
       }
 
-      // Auto-compact: viewer-only. maybeAutoCompact reads the last
-      // assistant's transaction blob and fires /compact when its provider
-      // usage or explicitly approximate fallback crosses the threshold.
+      // /handoff completion: when this tab's handoff summary thread finishes,
+      // promote its result into the parked first user message. Cheap scan,
+      // fires both live (worker writes result) and on reload hydration.
+      // Auto-compaction itself is now worker-side (turn-settle trigger), so the
+      // browser no longer measures usage or fires /compact.
       if (isViewer()) {
-        maybeAutoCompact(c);
-        // /handoff completion: when this tab's handoff summary thread finishes,
-        // promote its result into the parked first user message. Cheap scan,
-        // fires both live (worker writes result) and on reload hydration.
         maybePromoteHandoffThread(c._rootMessageThread);
       }
     } catch (err) {
@@ -178,6 +168,27 @@ export function setupYjsObservers(c) {
   // the rename API), not in Yjs metadata.
   c._yjsMetadataObserver = (/** @type {{keysChanged: Set<string>}} */ event) => {
     if (!event.keysChanged) return;
+
+    // Refresh cached derived state BEFORE any notify below. The general
+    // conversation:changed is delivered synchronously (session._notify is a
+    // plain listener loop) and drives a conversation-tab column rebuild that
+    // repaints the bound strategy selector from root.currentStrategyId. That
+    // cached field must already hold the new id, or the rebuild reads the stale
+    // value, the selector's incoming===current guard skips its render, and a
+    // remote strategy switch never shows until the next unrelated doc change.
+    if (event.keysChanged.has('currentStrategyId')) {
+      const newStrategyId = c.getMetadata('currentStrategyId');
+      const root = c._rootMessageThread;
+      if (newStrategyId && newStrategyId !== root.currentStrategyId) {
+        // Track the active strategy and (re)build its instance so the UI — and
+        // the engine, which shares this observer — operate on the right
+        // strategy. The onActivate lifecycle hook is NOT fired here: session-
+        // wide flow runs only in the engine, driven by the worker at turn-start
+        // (run-strategy-hook), never in an elected viewer.
+        root.currentStrategyId = newStrategyId;
+        root.strategy = strategyRegistry.createStrategy(newStrategyId, root);
+      }
+    }
 
     // Check all relevant metadata keys
     const relevantKeys = ['defaultModelConfig', 'currentStrategyId', 'conversationPermissionRules', 'conversationAllowedPaths', 'processingState', 'completedTurns', 'undoState'];
@@ -203,29 +214,10 @@ export function setupYjsObservers(c) {
       }
     }
 
-    if (event.keysChanged.has('processingState') && c.processingState?.status === 'idle' && isViewer()) {
-      // The items observer sees the final assistant write while the worker is
-      // still busy, so maybeAutoCompact deliberately declines there. Retry on
-      // the authoritative idle transition; otherwise no later item mutation may
-      // occur and the next user turn can resend an already-full context.
-      maybeAutoCompact(c);
-    }
-
     if (event.keysChanged.has('currentStrategyId')) {
-      const newStrategyId = c.getMetadata('currentStrategyId');
-      const root = c._rootMessageThread;
-      if (newStrategyId && newStrategyId !== root.currentStrategyId) {
-        // Track the active strategy and (re)build its instance so the UI — and
-        // the engine, which shares this observer — operate on the right
-        // strategy. The onActivate lifecycle hook is NOT fired here: session-
-        // wide flow runs only in the engine, driven by the worker at turn-start
-        // (run-strategy-hook), never in an elected viewer.
-        root.currentStrategyId = newStrategyId;
-        root.strategy = strategyRegistry.createStrategy(newStrategyId, root);
-      }
       c._session.notifyConversationChange('conversation:strategy-changed', {
         conversation: c,
-        strategyId: newStrategyId
+        strategyId: c.getMetadata('currentStrategyId')
       });
     }
 
@@ -288,73 +280,6 @@ function hasNonUserInsertion(c, insertedItemIds) {
     if (type && type !== 'user') return true;
   }
   return false;
-}
-
-/**
- * Fire /compact when the most recent root-thread turn's prompt size
- * crosses the advisory auto-compact threshold. The transaction blob records
- * whether inputTokens is provider-reported or an approximate fallback. Both may
- * trigger early compaction here; neither is used to reject an LLM request.
- *
- * The fetch is debounced by transactionId on the conversation
- * instance so back-to-back items-observer ticks don't stack
- * duplicate requests.
- * @param {any} c - Conversation instance
- * @returns {void}
- */
-function maybeAutoCompact(c) {
-  try {
-    if (!c?.id) return;
-    if (isCompactionPending(c.id)) return;
-
-    const root = c._rootMessageThread;
-    const txnId = findLastAssistantTxnId(root?.items);
-    if (!txnId) return;
-
-    const budget = Number(root?.contextWindow) || 0;
-    if (budget <= 0) return;
-
-    // Don't compact mid-turn — wait for the worker to settle so the
-    // compaction transaction lands on a stable conversation. The
-    // check is here rather than after the fetch so we don't even
-    // ask for a blob we'd ignore. Read processingState directly (the
-    // durable worker-written signal), via the normalising getter.
-    const status = c.processingState?.status;
-    if (status && status !== 'idle') return;
-
-    // Debounce per-txnId. If we've already evaluated this anchor
-    // (compacted or under-threshold) skip the round-trip.
-    if (c._autoCompactCheckedTxnId === txnId) return;
-    c._autoCompactCheckedTxnId = txnId;
-
-    import('../services/worker-manager.js').then(({ default: workerManager }) => {
-      return workerManager.getTransaction(c.id, txnId);
-    }).then((/** @type {any} */ blob) => {
-      if (!shouldAutoCompactInputUsage(blob, budget)) return;
-      return import('../services/slash-command-handler.js').then(({ default: handler }) => {
-        handler.execute('/compact', root).catch(() => { /* surfaced as a status message */ });
-      });
-    }).catch(() => { /* best-effort */ });
-  } catch (err) {
-    // Auto-compact is best-effort: a failure here must never break
-    // the items observer. Log and move on.
-    console.warn('[auto-compact] skipped:', err);
-  }
-}
-
-/**
- * Decide whether the latest input-usage anchor warrants advisory compaction.
- * `inputTokensApproximate` deliberately does not disqualify the anchor: a local
- * fallback may compact early, but this UI path has no terminal admission power.
- * Exported for focused provenance/auto-compaction tests.
- * @param {any} blob - Transaction blob
- * @param {number} budget - Model context window
- * @returns {boolean} True when advisory compaction should run
- */
-export function shouldAutoCompactInputUsage(blob, budget) {
-  const anchored = Number(blob?.inputTokens) || 0;
-  const windowTokens = Number(budget) || 0;
-  return anchored > 0 && windowTokens > 0 && anchored / windowTokens >= AUTO_COMPACT_THRESHOLD;
 }
 
 /**

@@ -66,6 +66,7 @@ import { runTests as runMessageTypeGuardTests } from '../unit-tests/message-type
 import { runTests as runModelFilterTests } from '../unit-tests/model-filter-test.js';
 import { runTests as runMonitorToolsTests } from '../unit-tests/monitor-tools-test.js';
 import { runTests as runMcpToolTests } from '../unit-tests/mcp-tool-test.js';
+import { runTests as runMcpApprovalToolNameTests } from '../unit-tests/mcp-approval-toolname-test.js';
 import { runTests as runMcpSettingsTests } from '../unit-tests/mcp-settings-test.js';
 import { runTests as runAcpSettingsTests } from '../unit-tests/acp-settings-test.js';
 import { runTests as runMemoryFormatTests } from '../unit-tests/memory-format-test.js';
@@ -133,6 +134,7 @@ import { runTests as runSdkFacadeParityTests } from '../unit-tests/sdk-facade-pa
 import { runTests as runExtensionCollisionTests } from '../unit-tests/extension-collision-test.js';
 import { runTests as runExtensionCatalogTests } from '../unit-tests/extension-catalog-test.js';
 import { runTests as runUserCommandFactoryTests } from '../unit-tests/user-command-factory-test.js';
+import { runTests as runCloseCommandTests } from '../unit-tests/close-command-test.js';
 import { runTests as runEngineApiVectorTests } from '../unit-tests/engineapi-vectors-test.js';
 import { runTests as runStrategyFallbackTests } from '../unit-tests/strategy-fallback-test.js';
 import { runTests as runStrategyOrderTests } from '../unit-tests/strategy-order-test.js';
@@ -259,6 +261,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:model-filter', run: runModelFilterTests },
   { name: 'unit:monitor-tools', run: runMonitorToolsTests },
   { name: 'unit:mcp-tool', run: runMcpToolTests },
+  { name: 'unit:mcp-approval-toolname', run: runMcpApprovalToolNameTests },
   { name: 'unit:mcp-settings', run: runMcpSettingsTests },
   { name: 'unit:acp-settings', run: runAcpSettingsTests },
   { name: 'unit:memory-format', run: runMemoryFormatTests },
@@ -320,6 +323,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:extension-collision', run: runExtensionCollisionTests },
   { name: 'unit:extension-catalog', run: runExtensionCatalogTests },
   { name: 'unit:user-command-factory', run: runUserCommandFactoryTests },
+  { name: 'unit:close-command', run: runCloseCommandTests },
   { name: 'unit:engineapi-vectors', run: runEngineApiVectorTests },
   { name: 'unit:strategy-fallback', run: runStrategyFallbackTests },
   { name: 'unit:strategy-order', run: runStrategyOrderTests },

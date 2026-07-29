@@ -267,11 +267,10 @@ export const compactionSweepsAllItemsTest = {
           { type: 'user', content: 'Message 5' },
           { type: 'assistant', content: 'Response 5.' },
           // Compaction plugin appends a user message asking for a
-          // summary; the worker then records the return_result
-          // meta-tool call inside the thread. (return_result emits
-          // no thinking item — the summary lives on the thread tile.)
-          { type: 'user' },
-          { type: 'meta-tool-result' }
+          // summary; the bounded reducer summarizes it with a hidden
+          // call (no visible item), so the summary lives on the thread
+          // tile's result — no meta-tool-result inside the thread.
+          { type: 'user' }
         ]
       }
     ]
@@ -324,10 +323,10 @@ export const compactionSweepsToolActionsTest = {
           { type: 'assistant', content: 'Searching JS.' },
           { type: 'tool-action', toolName: 'glob' },
           { type: 'assistant', content: 'Found JS.' },
-          // Compaction's summarization prompt + worker reply
-          // (return_result records a meta-tool-result, no thinking item).
-          { type: 'user' },
-          { type: 'meta-tool-result' }
+          // Compaction's summarization prompt; the bounded reducer
+          // summarizes via a hidden call, so no meta-tool-result lands
+          // inside the thread — the summary is the thread's result.
+          { type: 'user' }
         ]
       }
     ]
@@ -392,8 +391,7 @@ export const compactionPreservesLeadingAgentsFilesTest = {
           { type: 'assistant', content: 'Response 1.' },
           { type: 'user', content: 'Message 2' },
           { type: 'assistant', content: 'Response 2.' },
-          { type: 'user' },
-          { type: 'meta-tool-result' }
+          { type: 'user' }
         ]
       }
     ]

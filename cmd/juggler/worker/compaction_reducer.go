@@ -185,6 +185,13 @@ type boundedReducer struct {
 	// OpenAI-compatible gateways whose forced tool calls come back empty,
 	// malformed, or rejected.
 	finalUsesTool bool
+	// finalPrompt, when non-empty, overrides the terse final-summary system
+	// prompt for both the tool-bearing and plain-text final calls. The folded
+	// /compact orchestrator sets it to the rich DefaultSummarizationPrompt so a
+	// one-pass summary matches the structured handoff the return_result strategy
+	// turn used to produce. Map-pass prompts are unaffected (they still compress
+	// fragments). Empty preserves the recovery/shrink orchestrators' behavior.
+	finalPrompt string
 }
 
 // run reduces records to a final summary. Every exit path returns the partial
@@ -301,6 +308,68 @@ func (r *boundedReducer) run(records []string) (result CompactionResult, err err
 	}
 }
 
+// probeFinal attempts to summarize the whole transcript in one final-summary
+// call. It returns the summarized result when the provider accepts the request;
+// a non-nil overflow (the provider-reported context limit) when the transcript
+// is too large for one call, so the caller can map/reduce with the reported
+// window; or errBoundedCompactionCancelled on cancellation. It mirrors run's
+// pass-0 final-call handling — including the empty-output and tool-rejection
+// plain-text retries — but never chunks: chunking is the caller's follow-up
+// through the bounded reducer once the window is known. result carries the
+// accumulated accounting on every path.
+func (r *boundedReducer) probeFinal(records []string) (result CompactionResult, overflow *provider.ContextLimitExceededError, err error) {
+	started := time.Now()
+	result = CompactionResult{
+		Calls:             r.budget.calls,
+		EstimatedSpend:    r.budget.spend,
+		SourceFingerprint: compactionSourceFingerprint(records),
+	}
+	defer func() {
+		result.Calls = r.budget.calls
+		result.EstimatedSpend = r.budget.spend
+		result.Usage = r.budget.usage
+		result.DurationMs = time.Since(started).Milliseconds()
+	}()
+
+	if r.isCancelled() {
+		return result, nil, errBoundedCompactionCancelled
+	}
+	joined := strings.Join(records, "\n")
+	response, callErr := r.dispatch(r.finalRequest(0, joined), 0)
+	if callErr == nil {
+		summary := strings.TrimSpace(compactionResponseText(response))
+		if summary == "" && r.finalUsesTool {
+			recovered, retryErr := r.dispatchPlainFinal(0, joined)
+			if retryErr != nil {
+				return result, nil, retryErr
+			}
+			summary = recovered
+		}
+		if summary == "" {
+			return result, nil, r.budget.err(BoundedCompactionEmptyOutput, 0, "bounded compaction final call returned empty output", nil)
+		}
+		result.Summary = summary
+		return result, nil, nil
+	}
+	var contextLimit *provider.ContextLimitExceededError
+	if errors.As(callErr, &contextLimit) {
+		// Too large for one call: hand the reported window back so the caller
+		// can map/reduce. No summary yet.
+		return result, contextLimit, nil
+	}
+	if r.finalUsesTool {
+		// A non-overflow failure of the tool-bearing final call (e.g. a model
+		// that rejects the tools array). The tool is only an optimization, so
+		// retry once tool-free before surfacing the original error.
+		recovered, retryErr := r.dispatchPlainFinal(0, joined)
+		if retryErr == nil && recovered != "" {
+			result.Summary = recovered
+			return result, nil, nil
+		}
+	}
+	return result, nil, callErr
+}
+
 func (r *boundedReducer) isCancelled() bool {
 	return r.cancelled != nil && r.cancelled()
 }
@@ -316,7 +385,11 @@ func (r *boundedReducer) hiddenCompactionRequest(pass, index int, transcript str
 // forced tool call comes back empty, malformed, or rejected.
 func (r *boundedReducer) finalRequest(pass int, transcript string) hiddenLLMRequest {
 	if r.finalUsesTool {
-		return r.hiddenCompactionRequest(pass, 0, transcript, true)
+		req := r.hiddenCompactionRequest(pass, 0, transcript, true)
+		if r.finalPrompt != "" {
+			req.SystemPrompt = r.finalPrompt
+		}
+		return req
 	}
 	return r.plainFinalRequest(pass, transcript)
 }
@@ -327,9 +400,13 @@ func (r *boundedReducer) finalRequest(pass int, transcript string) hiddenLLMRequ
 // final it stays uncapped (MaxOutputTokens 0) so the handoff summary is never
 // truncated, and bypasses the silent-truncation guard like every hidden call.
 func (r *boundedReducer) plainFinalRequest(pass int, transcript string) hiddenLLMRequest {
+	prompt := boundedCompactionFinalTextPrompt
+	if r.finalPrompt != "" {
+		prompt = r.finalPrompt
+	}
 	return hiddenLLMRequest{
 		Type:               "message",
-		SystemPrompt:       boundedCompactionFinalTextPrompt,
+		SystemPrompt:       prompt,
 		Messages:           []provider.Message{{Type: "user", Content: transcript}},
 		ConversationID:     r.conversationID,
 		ThreadID:           fmt.Sprintf("%s:bounded:%d:0:%s", r.threadID, pass, generateRequestID()),

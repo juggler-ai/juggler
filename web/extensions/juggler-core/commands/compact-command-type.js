@@ -5,20 +5,20 @@
 
 import CommandType from 'juggler/command-type';
 import {
-  getContentMessages,
   isCompactionPending,
   startCompaction,
   endCompaction,
-  foldConversationIntoSummaryThread
+  compactConversation
 } from 'juggler/model';
 
 /**
  * Compact command — collapse the entire conversation into a sub-thread.
  *
- * Every content item is moved into a new thread; the thread carries a
- * summarization user message that the worker's strategy loop answers via
- * `return_result`. The conversation then contains exactly one thread tile
- * whose `result` is the summary. Standard Yjs undo reverses the transaction.
+ * The fold is performed worker-side (the single Go fold, shared with
+ * auto-compaction): every content item is moved into a new bounded-compaction
+ * thread that the worker summarises via `return_result`. The conversation then
+ * contains exactly one thread tile whose `result` is the summary. Standard undo
+ * reverses fold + summary as one group.
  */
 class CompactCommandType extends CommandType {
   static MANIFEST = {
@@ -46,23 +46,18 @@ class CompactCommandType extends CommandType {
       return { handled: true, message: 'Compaction already in progress', error: true };
     }
 
-    const contentCount = getContentMessages(mt).length;
-    if (contentCount === 0) {
-      return { handled: true, message: 'Nothing to compact', error: true };
-    }
-
     startCompaction(mt.conversationId);
 
     try {
-      // The heavy lifting — the blocklist-by-persistence classification, the
-      // leading-context-preservation rule, and the atomic fold-into-thread
-      // transaction — lives in foldConversationIntoSummaryThread so /handoff
-      // can reuse it verbatim. See that function for the full reasoning on why
-      // standing context items (agents files, memory, system prompt) are kept
-      // at the parent while all conversation history is swept into the thread.
-      const folded = foldConversationIntoSummaryThread(mt, {
-        goal: 'Compacted conversation history'
-      });
+      // The fold is worker-side now (the single Go fold): the worker relocates
+      // conversational history into a bounded-compaction thread, keeps the
+      // leading standing context (agents files, memory, system prompt) at the
+      // parent, and summarises it. `folded` is false when there was nothing to
+      // fold; `error` carries a worker-side failure reason.
+      const { folded, error } = await compactConversation(mt.conversationId);
+      if (error) {
+        return { handled: true, message: `Compaction failed: ${error}`, error: true };
+      }
       if (!folded) {
         return { handled: true, message: 'Nothing to compact', error: true };
       }

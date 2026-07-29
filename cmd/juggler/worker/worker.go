@@ -131,6 +131,10 @@ type ConversationWorker struct {
 
 	// LLM calling
 	llmCallFunc LLMCallFunc
+	// windowResolver maps the conversation's effective model to its context
+	// window and output reserve for the proactive compaction trigger. Nil
+	// (tests / not wired) ⇒ the trigger stays dormant. See WindowResolverFunc.
+	windowResolver WindowResolverFunc
 	// autoNameFunc is the injected server callback fired once, on the first user
 	// message of the root conversation, to auto-name the tab out-of-band. Nil
 	// (tests / not wired) ⇒ no auto-naming. See AutoNameFunc.
@@ -336,6 +340,13 @@ type ConversationWorker struct {
 	// LLM turn + result) undoes as one user action. -1 means "no
 	// compaction in flight."
 	compactionMergeFromIdx int
+
+	// autoCompactAnchorTxnID is the last root assistant-turn transaction id the
+	// proactive compaction trigger has already evaluated (folded or found under
+	// threshold). It debounces the turn-settle check so an unchanged anchor is
+	// never re-folded on every idle tick — the worker-side equivalent of the
+	// browser's _autoCompactCheckedTxnId. Set/read only on the run() goroutine.
+	autoCompactAnchorTxnID string
 
 	// undoCoalesceFromIdx, when >= 0, is the UndoStack index captured at the
 	// start of a browser-driven multi-step command (e.g. /clear: wipe history +
@@ -608,6 +619,13 @@ func (w *ConversationWorker) pushStateToEngine() {
 // SetLLMCaller sets the function used to call the LLM provider directly.
 func (w *ConversationWorker) SetLLMCaller(fn LLMCallFunc) {
 	w.llmCallFunc = fn
+}
+
+// SetWindowResolver injects the read-only context-window resolver the proactive
+// compaction trigger uses to turn the model into a token denominator. See
+// WindowResolverFunc.
+func (w *ConversationWorker) SetWindowResolver(fn WindowResolverFunc) {
+	w.windowResolver = fn
 }
 
 // SetAutoNamer registers the out-of-band tab auto-naming callback. See
@@ -1072,6 +1090,9 @@ func (w *ConversationWorker) dispatchMessage(msg workerMessage) {
 	case "get-transaction":
 		w.handleGetTransaction(msg.Payload)
 
+	case "compact":
+		w.handleCompact(msg.Payload)
+
 	default:
 		w.log.Error("Unknown message type: %s", msg.Type)
 	}
@@ -1288,13 +1309,17 @@ func (w *ConversationWorker) sendStatusWithCode(status, message, code string) {
 }
 
 func (w *ConversationWorker) sendReady() {
-	w.send(map[string]string{"type": "ready"})
+	w.send(map[string]any{
+		"type":                "ready",
+		"summarizationPrompt": DefaultSummarizationPrompt,
+	})
 }
 
 func (w *ConversationWorker) sendReadyWithMetadata(metadata map[string]any) {
 	msg := map[string]any{
-		"type":     "ready",
-		"metadata": metadata,
+		"type":                "ready",
+		"metadata":            metadata,
+		"summarizationPrompt": DefaultSummarizationPrompt,
 	}
 	w.send(msg)
 }

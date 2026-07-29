@@ -2056,6 +2056,12 @@ class ConversationArea extends HTMLElement {
   _canContinue() {
     const mt = this._messageThread;
     if (!mt) return false;
+    // While the conversation is busy driving ANY thread, continueThread() bails
+    // (its `conversation.isProcessing` guard). This thread's own column can look
+    // idle from its vantage — e.g. a sibling sub-thread is the live one and this
+    // one is "Waiting for its turn…", so `hasBusyItems()` below is false — yet
+    // Continue would be a silent no-op. Hide it rather than offer a dead button.
+    if (mt.isProcessing) return false;
     const hasEffective = mt.getMessages().some(m => isUserMessage(m) || isAssistantMessage(m) || isToolActionMessage(m) || isThreadMessage(m));
     if (!hasEffective) return false;
     // Completed/cancelled threads cannot be continued (use "Reopen" instead)

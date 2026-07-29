@@ -153,18 +153,24 @@ class ReplaceTextContextItem extends EditBase {
         /** @type {import('../../../js/services/ops-api.js').ReadFileEditParams} */ ({ ...params, dryRun: true })
       );
     } catch (err) {
-      // If string not found, check if size was the likely cause and give helpful error
+      // If string not found, check if size was the likely cause and give helpful error.
+      // The caps are deliberately generous: a single prose paragraph (one long
+      // line of Markdown) is a legitimate, common edit target, so a paragraph-
+      // sized old_str must NOT be waved off to the write tool — the backend
+      // matcher (exact → flexible-whitespace → regex) handles blocks this size
+      // fine. Only a genuinely huge multi-paragraph block is better rewritten
+      // wholesale, so the "use write" advice fires only past that.
       const oldContentLines = params.old_str.split('\n').length;
       const oldContentChars = params.old_str.length;
-      const MAX_LINES = 3;
-      const MAX_CHARS = 150;
+      const MAX_LINES = 40;
+      const MAX_CHARS = 4000;
 
       if (oldContentLines > MAX_LINES || oldContentChars > MAX_CHARS) {
         return {
           valid: false,
-          error: `The old_str is too large (${oldContentLines} lines, ${oldContentChars} characters). ` +
-                        `replace-text only works reliably for tiny, surgical edits (≤${MAX_LINES} lines, ≤${MAX_CHARS} characters). ` +
-                        `Use the write tool to rewrite the file instead.`
+          error: `The old_str is very large (${oldContentLines} lines, ${oldContentChars} characters) and did not match. ` +
+                        `For a block this big, the write tool is usually more reliable than reproducing it exactly. ` +
+                        `Otherwise re-read the file and copy the exact text (including whitespace) for a smaller, unique old_str.`
         };
       }
       // String was small enough but still didn't match - return validation error

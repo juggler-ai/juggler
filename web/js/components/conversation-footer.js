@@ -211,6 +211,7 @@ class ConversationFooter extends HTMLElement {
     const conv = thread.conversation;
     const budget = Number(conv?.contextWindow) || 0;
     const processing = !!conv?.isProcessing;
+    const streamsLive = this._modelStreamsLiveUsage();
 
     // Live path: while a provider that reports authoritative per-step usage is
     // streaming, grow the meter against the running input total the worker has
@@ -218,7 +219,7 @@ class ConversationFooter extends HTMLElement {
     // blob anchor. Falls through to the anchor before the first usage chunk
     // arrives (getLiveInputUsage null) and once the turn ends (processing false),
     // so the end-of-turn number takes over seamlessly.
-    if (processing && this._modelStreamsLiveUsage()) {
+    if (processing && streamsLive) {
       const live = conv?._llmState?.getLiveInputUsage?.(conv.id);
       if (live) {
         /** @type {any} */ (tokenDisplay).setUsage({
@@ -229,6 +230,16 @@ class ConversationFooter extends HTMLElement {
         });
         return;
       }
+    }
+
+    // A provider that does not stream live per-step usage has no trustworthy
+    // running count mid-turn — its only anchor is the previous turn's frozen
+    // blob, which would sit visibly stale for the whole turn. Hide the meter
+    // while such a turn runs; it reappears with the fresh count the moment the
+    // turn ends (processing false → the anchor path below renders it).
+    if (processing && !streamsLive) {
+      /** @type {any} */ (tokenDisplay).clear();
+      return;
     }
 
     // Anchor cache hit → render synchronously. Miss → kick a background

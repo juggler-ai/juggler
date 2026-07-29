@@ -19,6 +19,7 @@ type managerOpKind int
 
 const (
 	mgrSetLLMCaller managerOpKind = iota
+	mgrSetWindowResolver
 	mgrSetEngineClient
 	mgrClearEngineClient
 	mgrGetOrCreate
@@ -70,6 +71,7 @@ type managerOp struct {
 	payload        json.RawMessage
 	sendCallback   func(msg []byte)
 	llmCallFunc    LLMCallFunc
+	windowResolver WindowResolverFunc
 	autoNameFunc   AutoNameFunc
 	engineCallback func(convID string, msg []byte)
 	pathProvider   PathProviderFunc
@@ -120,6 +122,7 @@ func (m *Manager) run() {
 	workers := make(map[string]*ConversationWorker)         // conversationID -> worker
 	clientConversations := make(map[string]map[string]bool) // clientID -> set of conversationIDs
 	var llmCallFunc LLMCallFunc
+	var windowResolver WindowResolverFunc
 	var autoNameFunc AutoNameFunc
 	var engineClientID string
 	var engineCallback func(convID string, msg []byte)
@@ -153,6 +156,9 @@ func (m *Manager) run() {
 		if llmCallFunc != nil {
 			w.SetLLMCaller(llmCallFunc)
 		}
+		if windowResolver != nil {
+			w.SetWindowResolver(windowResolver)
+		}
 		if autoNameFunc != nil {
 			w.SetAutoNamer(autoNameFunc)
 		}
@@ -182,6 +188,12 @@ func (m *Manager) run() {
 		switch op.kind {
 		case mgrSetLLMCaller:
 			llmCallFunc = op.llmCallFunc
+
+		case mgrSetWindowResolver:
+			windowResolver = op.windowResolver
+			for _, w := range workers {
+				w.SetWindowResolver(windowResolver)
+			}
 
 		case mgrSetAutoNamer:
 			autoNameFunc = op.autoNameFunc
@@ -399,6 +411,12 @@ func (m *Manager) run() {
 // SetLLMCaller sets the function used by all workers to call the LLM provider directly.
 func (m *Manager) SetLLMCaller(fn LLMCallFunc) {
 	m.ops <- managerOp{kind: mgrSetLLMCaller, llmCallFunc: fn}
+}
+
+// SetWindowResolver sets the context-window resolver applied to every existing
+// worker and any worker created later. See WindowResolverFunc.
+func (m *Manager) SetWindowResolver(fn WindowResolverFunc) {
+	m.ops <- managerOp{kind: mgrSetWindowResolver, windowResolver: fn}
 }
 
 // SetAutoNamer sets the out-of-band tab auto-naming callback applied to every

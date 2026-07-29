@@ -303,10 +303,10 @@ export async function runTests(_ctx) {
     errors.push(`large file truncation: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // Test 6: Long line truncation (> 2000 chars)
+  // Test 6: Long line truncation (line longer than MaxLineLength)
   // NOTE: Uses behavioral assertions instead of golden data because the content
-  // is 2000+ chars which would be impractical to define as a constant. This test
-  // verifies the truncation BEHAVIOR (line gets cut, "..." marker added).
+  // is >10000 chars which would be impractical to define as a constant. This test
+  // verifies the truncation BEHAVIOR (line gets cut, "[line truncated:" marker added).
   try {
     const conversation = await createTestConversation(session);
     const toolCall = createToolCall('read', { file_path: 'long-lines.txt' });
@@ -326,11 +326,12 @@ export async function runTests(_ctx) {
     const toolResult = /** @type {{content?: string}} */ (context.messages[2]);
     const content = toolResult.content || '';
 
-    // The 2500-char line should be truncated - should NOT contain all 2500 A's
-    const fullLongLine = 'A'.repeat(2500);
+    // The 12000-char line should be truncated - should NOT contain all 12000 A's
+    const fullLongLine = 'A'.repeat(12000);
     assert(!content.includes(fullLongLine), 'Long line should be truncated');
-    // Should have truncation marker
-    assert(content.includes('...'), 'Truncated line should have ... marker');
+    // Should have the explicit truncation marker (not a bare ellipsis), so the
+    // model treats the line as deliberately truncated rather than corrupted.
+    assert(content.includes('[line truncated:'), 'Truncated line should have "[line truncated:" marker');
 
     passed++;
   } catch (e) {

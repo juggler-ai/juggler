@@ -15,6 +15,7 @@ import { recordTape } from '../utils/event-tape.js';
 import { bytesToBase64, base64ToBytes } from '../utils/base64.js';
 import { isEngine } from '../../sdk/lib/client-role.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
+import { setBootstrapSummarizationPrompt } from '../utils/compaction-utils.js';
 
 // ============================================================================
 // Type Definitions
@@ -61,6 +62,7 @@ import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
  * @property {boolean} [canUndo] - Whether undo is available (for undo-state messages)
  * @property {boolean} [canRedo] - Whether redo is available (for undo-state messages)
  * @property {object} [metadata] - Metadata extracted from Yjs (for ready messages when loading existing conversations)
+ * @property {string} [summarizationPrompt] - Worker-owned canonical summarization prompt (for ready messages)
  */
 
 /**
@@ -807,6 +809,11 @@ class WorkerManager {
 
     switch (data.type) {
       case 'ready':
+        // The worker owns the canonical summarization prompt and ships it with
+        // every "ready" (server-wide constant, independent of this entry).
+        if (data.summarizationPrompt) {
+          setBootstrapSummarizationPrompt(data.summarizationPrompt);
+        }
         if (entry) {
           // If this entry was spawned with loadFromDisk:true, a ready message
           // without metadata came from another client's init (e.g. the viewer
@@ -1093,6 +1100,26 @@ class WorkerManager {
       transactionId
     });
     return result ?? null;
+  }
+
+  /**
+   * Fold the conversation into a compaction summary thread worker-side — the
+   * single Go fold shared by /compact, /handoff, and the proactive
+   * auto-compaction trigger. The worker performs the fold on its authoritative
+   * doc, summarises it, and merges fold + summary into one undo group. Resolves
+   * with the worker's result once the (fast) fold has committed; the summary
+   * generates afterward and streams in via the normal doc sync.
+   * @param {string} conversationId - Conversation whose worker performs the fold
+   * @param {{ handoffPromote?: boolean }} [opts]
+   * @returns {Promise<{ folded: boolean, error?: string }>} The worker's outcome
+   *   (`folded` false when there was nothing to fold)
+   */
+  async compact(conversationId, { handoffPromote = false } = {}) {
+    const result = await this._sendWithAck(conversationId, {
+      type: 'compact',
+      handoffPromote
+    });
+    return result ?? { folded: false };
   }
 
   /**

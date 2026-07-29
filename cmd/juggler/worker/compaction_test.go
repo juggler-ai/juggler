@@ -41,6 +41,91 @@ func insertBoundedCompactionThread(t *testing.T, w *ConversationWorker, content 
 	return threadID
 }
 
+// TestRunFoldedThreadCompactionOnePassUsesRichPrompt pins Phase 3's probe:
+// when the whole transcript fits one call, runFoldedThreadCompaction commits
+// that one-pass summary directly, and the folded final call carries the rich
+// Go-owned DefaultSummarizationPrompt (not the terse reducer prompt), matching
+// the structured handoff the retired return_result strategy turn produced.
+func TestRunFoldedThreadCompactionOnePassUsesRichPrompt(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.storeState(StateProcessing)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+	threadID := insertBoundedCompactionThread(t, w, "a short conversation history to summarize")
+
+	calls := 0
+	var sawPrompt string
+	w.llmCallFunc = func(_ context.Context, raw json.RawMessage, _ func(StreamChunk)) (*LLMResponse, error) {
+		calls++
+		var req hiddenLLMRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			t.Fatal(err)
+		}
+		sawPrompt = req.SystemPrompt
+		return &LLMResponse{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeToolUse, Name: "return_result", Input: json.RawMessage(`{"result":"the handoff summary"}`)}}}, nil
+	}
+
+	handled, err := w.runFoldedThreadCompaction(&ModelConfig{Provider: "test", Model: "test"})
+	if !handled || err != nil {
+		t.Fatalf("runFoldedThreadCompaction = (%v, %v), want handled success", handled, err)
+	}
+	if calls != 1 {
+		t.Fatalf("hidden calls = %d, want a single one-pass probe", calls)
+	}
+	if sawPrompt != DefaultSummarizationPrompt {
+		t.Fatalf("folded final prompt = %q, want the rich DefaultSummarizationPrompt", sawPrompt)
+	}
+	thread := w.doc.GetThreadYMap(threadID)
+	if got, _ := thread.Get("result").(string); got != "the handoff summary" {
+		t.Fatalf("thread result = %q, want %q", got, "the handoff summary")
+	}
+}
+
+// TestRunFoldedThreadCompactionProbeOverflowChunks pins the probe-then-reduce
+// fallback: when the one-pass probe is rejected as too large, the reported
+// window seeds the bounded reducer to map/reduce, and the final summary is still
+// committed.
+func TestRunFoldedThreadCompactionProbeOverflowChunks(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.storeState(StateProcessing)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+	threadID := insertBoundedCompactionThread(t, w, strings.Repeat("large history λ🙂 ", 500))
+
+	const window int64 = 2400
+	const reserve int64 = 300
+	calls := 0
+	w.llmCallFunc = func(_ context.Context, raw json.RawMessage, _ func(StreamChunk)) (*LLMResponse, error) {
+		calls++
+		var req hiddenLLMRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			t.Fatal(err)
+		}
+		estimate := provider.EstimateMessageRequestTokenBreakdown(providerRequest(req), 0).Total
+		if estimate+reserve > window {
+			// The probe (whole transcript) and any oversized map chunk are
+			// rejected with the real window, driving the reducer to split.
+			return nil, &provider.ContextLimitExceededError{EstimatedInputTokens: estimate, OutputReserveTokens: reserve, ContextWindowTokens: window}
+		}
+		if len(req.Tools) > 0 {
+			return &LLMResponse{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeToolUse, Name: "return_result", Input: json.RawMessage(`{"result":"final compact summary"}`)}}}, nil
+		}
+		return &LLMResponse{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeText, Content: "condensed fragment"}}}, nil
+	}
+
+	handled, err := w.runFoldedThreadCompaction(&ModelConfig{Provider: "test", Model: "test"})
+	if !handled || err != nil {
+		t.Fatalf("runFoldedThreadCompaction = (%v, %v), want handled success after overflow", handled, err)
+	}
+	if calls < 3 {
+		t.Fatalf("hidden calls = %d, want probe overflow plus map(s) plus final", calls)
+	}
+	thread := w.doc.GetThreadYMap(threadID)
+	if got, _ := thread.Get("result").(string); got != "final compact summary" {
+		t.Fatalf("thread result = %q, want %q", got, "final compact summary")
+	}
+}
+
 func TestBoundedCompactionMapsReducesAndPublishesOnlyFinalResult(t *testing.T) {
 	w := NewConversationWorker("test-conv", "user:test")
 	defer w.doc.Destroy()

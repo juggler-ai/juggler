@@ -33,7 +33,7 @@ const CONTEXT_SYNC_WAIT_MS = 3000;
 const CONTEXT_SYNC_POLL_MS = 100;
 import contextItemRegistry from '../registries/context-item-registry.js';
 import { FormattingHelpers } from '../../sdk/lib/formatting-helpers.js';
-import { generateToolDefinitions } from '../services/tool-generator.js';
+import { generateToolDefinitions, resolveToolName } from '../services/tool-generator.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { buildApprovalButtons } from '../services/approval-options.js';
 import { assembleSystemPrompt, systemPositionItems as systemPositionItemsOf } from '../services/system-prompt-builder.js';
@@ -103,7 +103,7 @@ function allowDenyOptions() {
  * @param {string} conversationId - Conversation the request targets
  * @returns {Promise<void>} Resolves once approval options are written (or the action is auto-approved)
  */
-async function handleApprovalRequest(session, request, conversationId) {
+export async function handleApprovalRequest(session, request, conversationId) {
   /** @type {{toolUseId: string, toolName: string, toolInput: object, config?: object}} */
   const req = /** @type {*} */ (request);
   const conv = session.conversations.get(conversationId);
@@ -134,7 +134,11 @@ async function handleApprovalRequest(session, request, conversationId) {
       session,
       conversation: conv,
       messageThread,
-      toolUseId: req.toolUseId
+      toolUseId: req.toolUseId,
+      // Lets a multi-tool class (e.g. the MCP bridge) route validate/approval to
+      // the invoked tool. Omitting it makes such a class validate with an empty
+      // name and reject its own call.
+      toolName: resolveToolName(req.toolName)
     };
     const action = new ActionClass(actionContext);
 
@@ -361,7 +365,10 @@ export function setupWorkerCallbacks(session) {
         session,
         conversation: conv,
         messageThread,
-        toolUseId: req.toolUseId
+        toolUseId: req.toolUseId,
+        // Lets a multi-tool class route validate/buildSubthreadSpec to the
+        // invoked tool (see the approval handler above).
+        toolName: resolveToolName(req.toolName)
       };
       const item = new (/** @type {any} */ (ItemClass))(itemContext);
       const toolInput = /** @type {Record<string, unknown>} */ (req.toolInput || {});
@@ -408,7 +415,9 @@ export function setupWorkerCallbacks(session) {
         id: req.requestId,
         session,
         conversation: conv,
-        messageThread: conv.rootMessageThread
+        messageThread: conv.rootMessageThread,
+        // Lets a multi-tool class route onSubthreadError to the invoked tool.
+        toolName: resolveToolName(req.toolName)
       };
       const item = new (/** @type {any} */ (ItemClass))(itemContext);
       if (typeof item.onSubthreadError !== 'function') {

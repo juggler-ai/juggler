@@ -62,6 +62,22 @@ class StrategySelector extends HTMLElement {
     this._liveDropdown = null;
     /** @type {(() => void)|null} @private */
     this._boundRegistriesReloaded = null;
+    /**
+     * Metadata observer on the bound thread's conversation, so a REMOTE strategy
+     * switch repaints the button on its own — without waiting for a
+     * conversation-tab column rebuild to re-push us. Mirrors how
+     * permission-controls self-observes. Null when unbound.
+     * @type {((event: {keysChanged: Set<string>}) => void)|null} @private
+     */
+    this._metadataObserver = null;
+    /**
+     * The conversation `_metadataObserver` is currently registered on, so we
+     * re-bind only when it actually changes (root reuses one MessageThread;
+     * sub-threads mint a fresh wrapper on every doc update for the SAME
+     * conversation, so keying off the conversation avoids per-tick churn).
+     * @type {import('../model/conversation.js').default|null} @private
+     */
+    this._observedConversation = null;
   }
 
   connectedCallback() {
@@ -75,6 +91,7 @@ class StrategySelector extends HTMLElement {
       document.removeEventListener(REGISTRIES_RELOADED, this._boundRegistriesReloaded);
       this._boundRegistriesReloaded = null;
     }
+    this._bindMetadataObserver(null);
     // Tear down the open dropdown (surface, scrim, observer, dismissal wiring).
     if (this._popupRelease) {
       this._popupRelease();
@@ -98,6 +115,10 @@ class StrategySelector extends HTMLElement {
    */
   setMessageThread(messageThread) {
     this._messageThread = messageThread;
+    // Self-observe the bound conversation's metadata (before the display guards
+    // below, which can early-return) so a remote strategy switch repaints us
+    // directly rather than relying on a conversation-tab rebuild re-pushing.
+    this._bindMetadataObserver(messageThread ? messageThread.conversation : null);
     // The CycleBuffer owns the two guards this used to hand-roll: while a gesture
     // buffers, it rejects everything (the preview owns the display); after a
     // commit it pins the landing id and rejects the transient sync bounce until
@@ -117,6 +138,33 @@ class StrategySelector extends HTMLElement {
     if (incoming === this._currentStrategyId) return;
     this._currentStrategyId = incoming;
     this.render();
+  }
+
+  /**
+   * Register (or move) the metadata observer that keeps the button live under a
+   * remote strategy switch. Re-binds only when the conversation changes.
+   * @param {import('../model/conversation.js').default|null} conversation
+   * @private
+   */
+  _bindMetadataObserver(conversation) {
+    if (conversation === this._observedConversation) return;
+    if (this._metadataObserver && this._observedConversation) {
+      this._observedConversation.unobserveMetadata(this._metadataObserver);
+    }
+    this._metadataObserver = null;
+    this._observedConversation = conversation;
+    if (!conversation) return;
+    this._metadataObserver = (event) => {
+      if (!event.keysChanged?.has?.('currentStrategyId')) return;
+      // Re-run the bound-thread sync. The conversation's own metadata observer
+      // (setupYjsObservers) refreshes root.currentStrategyId before this fires,
+      // so re-reading the thread yields the new id; the CycleBuffer guard inside
+      // keeps an in-flight local hold-to-cycle gesture from being clobbered by
+      // the echo of its own commit. Re-binding is a no-op here (same
+      // conversation), so this never recurses.
+      this.setMessageThread(this._messageThread);
+    };
+    conversation.observeMetadata(this._metadataObserver);
   }
 
   /** @private */

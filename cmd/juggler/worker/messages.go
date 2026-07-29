@@ -120,6 +120,15 @@ func (e *TransientError) retryStatus(a, max int) string {
 // Returns the complete response when streaming finishes.
 type LLMCallFunc func(ctx context.Context, request json.RawMessage, chunkHandler func(StreamChunk)) (*LLMResponse, error)
 
+// WindowResolverFunc resolves a model's context window and output reserve (in
+// tokens) from its identity alone, with no provider round-trip. Injected
+// alongside the LLM caller so the worker can evaluate the proactive compaction
+// threshold (anchored input usage ÷ window) at turn-settle — the numerator is
+// already worker-owned (the saved transaction blob), only the denominator was
+// missing. Returns (0, 0) when the model is unknown; a non-positive window means
+// "no threshold" to callers.
+type WindowResolverFunc func(modelConfig ModelConfig) (windowTokens, reserveTokens int)
+
 // AutoNameFunc is an injected server callback the worker fires exactly once, on
 // the FIRST user message of the root conversation, so the server can derive a
 // short tab title out-of-band. The worker only signals (convID, the first
@@ -546,6 +555,17 @@ type GetTransactionMessage struct {
 	TransactionID string `json:"transactionId"`
 }
 
+// CompactMessage is the browser /compact + /handoff request: fold the
+// conversation into an unsummarized bounded-compaction thread worker-side (the
+// single Go fold, shared with the proactive auto-compaction trigger), then let
+// the existing pickup summarize it. HandoffPromote tags the thread so the browser
+// promotes its result into the continued tab's parked first message.
+type CompactMessage struct {
+	Type           string `json:"type"` // "compact"
+	AckID          string `json:"ackId"`
+	HandoffPromote bool   `json:"handoffPromote,omitempty"`
+}
+
 // SetMockResponsesMessage injects mock LLM responses for testing.
 // When mock responses are set, callLLM() pops and returns them instead of calling real LLM.
 type SetMockResponsesMessage struct {
@@ -659,6 +679,22 @@ type ConversationItem struct {
 	Items                  json.RawMessage `json:"items,omitempty"`                  // Nested items for thread messages (preserved for undo/redo)
 	BoundedCompaction      bool            `json:"boundedCompaction,omitempty"`      // Enables bounded fallback after registry context rejection
 	CompactionPromptItemID string          `json:"compactionPromptItemId,omitempty"` // Orchestration prompt excluded from canonical source history
+
+	// Thread-run control fields, set by a fold that produces an UNSUMMARIZED
+	// bounded-compaction thread (the /compact shape the browser fold also
+	// builds). checkForNewThreads picks up NeedsStrategyRun and runs the thread
+	// through the folded-compaction summarizer; NoAutoSelect keeps the fold off
+	// the active tab and marks it for one-undo-group merge; NoContextSeed stops
+	// starting-context re-injection into a thread already populated by
+	// relocation; ForceTool pins the summarization turn to return_result.
+	// HandoffPromote tags a /handoff fold so the browser promotes its result into
+	// the parked first message of the continued tab. All omitempty so ordinary
+	// items and already-summarized recovery folds stay byte-identical.
+	NeedsStrategyRun bool   `json:"needsStrategyRun,omitempty"`
+	NoAutoSelect     bool   `json:"noAutoSelect,omitempty"`
+	NoContextSeed    bool   `json:"noContextSeed,omitempty"`
+	ForceTool        string `json:"forceTool,omitempty"`
+	HandoffPromote   bool   `json:"handoffPromote,omitempty"`
 
 	// Context-item specific fields
 	PreventUserDeletion bool   `json:"preventUserDeletion,omitempty"` // Whether context item cannot be deleted by user

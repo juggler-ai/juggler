@@ -2728,6 +2728,11 @@ type threadOpts struct {
 	llmCreated       bool   // If set, marks the thread as LLM tool-created
 	canSpawnThreads  bool   // If set, thread's LLM may itself use create_thread
 	delegated        bool   // If set, marks the thread as delegatesToSubthread-spawned
+	// boundedCompaction, if set, marks the thread as a browser /compact fold: it
+	// carries the boundedCompaction flag and a compactionPromptItemId pointing at
+	// an appended summarization-prompt item, so the worker summarizes it with the
+	// bounded reducer instead of a return_result strategy turn.
+	boundedCompaction bool
 }
 
 // insertThreadWithOpts creates a thread in the doc in a single transaction
@@ -2739,6 +2744,12 @@ func insertThreadWithOpts(w *ConversationWorker, opts threadOpts) string {
 			Type:   ItemTypeThread,
 			ItemID: threadItemID,
 			Goal:   opts.goal,
+		}
+		compactionPromptID := ""
+		if opts.boundedCompaction {
+			compactionPromptID = generateItemID()
+			item.BoundedCompaction = true
+			item.CompactionPromptItemID = compactionPromptID
 		}
 		ymap := conversationItemToYMap(item)
 		yarr := ycrdt.NewYArray()
@@ -2771,6 +2782,11 @@ func insertThreadWithOpts(w *ConversationWorker, opts threadOpts) string {
 				Content: opts.userMessage,
 			}
 			yarr.Push(ycrdt.ArrayAny{conversationItemToYMap(userItem)})
+		}
+		if compactionPromptID != "" {
+			yarr.Push(ycrdt.ArrayAny{conversationItemToYMap(ConversationItem{
+				Type: ItemTypeUser, ItemID: compactionPromptID, Content: "Summarize this conversation",
+			})})
 		}
 		w.doc.ensureItems().Push(ycrdt.ArrayAny{ymap})
 	}, w.doc.authorID)
@@ -3052,9 +3068,11 @@ func TestCompactionSubthread_DrainsRootQueueOnCompletion(t *testing.T) {
 	w.storeState(StateIdle)
 	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
 
-	// Two turns: (1) the compaction summarization returns via return_result;
-	// (2) the queued root follow-up gets answered. If the root queue is never
-	// drained, turn 2 never runs and its scripted response is left unconsumed.
+	// Two calls through the shared transport (callLLMWithSink pops the mock queue
+	// in order): (1) the bounded reducer's hidden compaction probe takes
+	// return_result and becomes the thread summary; (2) the queued root follow-up
+	// is answered by a normal strategy turn. If the root queue is never drained,
+	// the follow-up is never answered and its scripted response is left unconsumed.
 	w.setMockResponses([]MockResponse{
 		{Blocks: []LLMResponseBlock{
 			{Type: "tool_use", ID: "tu-compact", Name: "return_result",
@@ -3096,8 +3114,8 @@ func TestCompactionSubthread_DrainsRootQueueOnCompletion(t *testing.T) {
 	// runs the whole compaction loop (and its completion defer) synchronously.
 	threadID := insertThreadWithOpts(w, threadOpts{
 		goal: "Compacted conversation history", needsStrategyRun: true,
-		noAutoSelect: true, forceTool: "return_result",
-		userMessage: "Summarize this conversation",
+		noAutoSelect: true, boundedCompaction: true,
+		userMessage: "prior conversation history to summarize",
 	})
 
 	// Drive reconcile as the event loop would, in case the completion path

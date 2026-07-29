@@ -13,14 +13,18 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // Read tool limits
 const (
 	// DefaultMaxLines is the maximum number of lines returned when no limit is specified
 	DefaultMaxLines = 2000
-	// MaxLineLength is the maximum characters per line before truncation
-	MaxLineLength = 2000
+	// MaxLineLength is the maximum bytes of a single line the LLM-facing read
+	// returns before it is truncated. Sized to pass any real prose paragraph
+	// through untouched while still bounding minified/generated single-line
+	// files that would otherwise flood the context.
+	MaxLineLength = 10000
 )
 
 // FileOperations handles file I/O operations
@@ -55,6 +59,24 @@ func (ops *FileOperations) Execute(_ context.Context, operation string, params m
 	default:
 		return nil, fmt.Errorf("unknown operation: %s", operation)
 	}
+}
+
+// truncateLineForContext shortens a single over-long line for the LLM-facing
+// read. It cuts at or below MaxLineLength on a UTF-8 rune boundary — never
+// mid-character, so the result is always valid UTF-8 — and appends a marker
+// naming how many characters were shown versus elided, so the model treats the
+// line as deliberately truncated rather than corrupted content to reconstruct.
+func truncateLineForContext(line string) string {
+	cut := MaxLineLength
+	// Back off to the start of the rune straddling the cut so a multi-byte
+	// character is never split. Runes are at most 4 bytes, so this steps back
+	// at most 3 times.
+	for cut > 0 && !utf8.RuneStart(line[cut]) {
+		cut--
+	}
+	shown := utf8.RuneCountInString(line[:cut])
+	total := utf8.RuneCountInString(line)
+	return fmt.Sprintf("%s… [line truncated: %d of %d characters shown]", line[:cut], shown, total)
 }
 
 // loadFile loads a file's content with various modes
@@ -145,16 +167,20 @@ func (ops *FileOperations) loadFile(params map[string]any) (any, error) {
 	// DefaultMaxLines cap. Sandboxed exploration code (explore_code's read-only
 	// filesystem) processes files programmatically — JSON.parse, hashing, line
 	// counting — so the context-trimming that keeps minified files out of the
-	// LLM prompt would instead corrupt the data (a truncated line + injected
-	// "..." makes JSON.parse fail right at MaxLineLength). Only the LLM-facing
-	// read tool wants the trimmed view.
+	// LLM prompt would instead corrupt the data (a truncated line + an injected
+	// truncation marker makes JSON.parse fail at the cut point). Only the
+	// LLM-facing read tool wants the trimmed view.
 	raw, _ := params["raw"].(bool)
 
-	// Truncate lines that exceed MaxLineLength (prevents context bloat from minified files)
+	// Truncate over-long lines (keeps minified/generated files from flooding the
+	// context). truncateLineForContext cuts on a UTF-8 rune boundary — a raw
+	// byte slice at MaxLineLength can split a multi-byte character and emit an
+	// invalid rune the model then wastes turns trying to "repair" — and marks
+	// how much was elided so the line reads as truncated, not corrupted.
 	if !raw {
 		for i, line := range lines {
 			if len(line) > MaxLineLength {
-				lines[i] = line[:MaxLineLength] + "..."
+				lines[i] = truncateLineForContext(line)
 			}
 		}
 		// Rebuild fullContent after potential line truncation

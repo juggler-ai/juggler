@@ -5,7 +5,7 @@
 
 import CommandType from 'juggler/command-type';
 import { extractErrorMessage } from 'juggler/ui';
-import { foldConversationIntoSummaryThread, isCompactionPending } from 'juggler/model';
+import { compactConversation, isCompactionPending } from 'juggler/model';
 
 /**
  * Handoff command — hand this conversation off to a fresh "(continued)" tab that
@@ -89,13 +89,13 @@ class HandoffCommandType extends CommandType {
     }
 
     try {
-      // Fold the copied history into a summary thread. `handoffPromote` is the
-      // marker maybePromoteHandoffThread keys on to turn the finished result
-      // into the parked first user message.
-      const folded = foldConversationIntoSummaryThread(cloneMt, {
-        goal: 'Handoff summary',
-        threadExtra: { handoffPromote: true }
-      });
+      // Fold the clone's copied history worker-side (the single Go fold).
+      // `handoffPromote` tags the thread so maybePromoteHandoffThread turns the
+      // finished result into the parked first user message of the continued tab.
+      const { folded, error } = await compactConversation(cloneMt.conversationId, { handoffPromote: true });
+      if (error) {
+        return { handled: true, message: `Handoff failed: ${error}`, error: true };
+      }
       if (!folded) {
         // Empty source — nothing to summarise. Leave the (empty) continued tab
         // in place for the user to start typing in.

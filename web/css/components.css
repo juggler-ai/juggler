@@ -3686,11 +3686,12 @@ input-box .more-actions-btn .more-actions-icon {
     height: 0.875rem;
 }
 
-/* Touch-only Send button — a circular accent control. On desktop Enter sends,
-   so it is hidden there; the coarse-pointer block reveals it. Send-only:
-   cancelling a running turn is the footer Stop button's job. */
+/* Send button — a circular accent control, always visible. On desktop Enter
+   also sends; on touch (where Enter inserts a newline) this is the send
+   affordance. Send-only: cancelling a running turn is the footer Stop button's
+   job. */
 input-box .send-btn {
-    display: none;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 2rem;
@@ -3762,9 +3763,20 @@ input-box .send-btn.is-empty {
    and the secondary actions collapse into the "+" sheet to keep the controls
    row single-line. Desktop keeps the full visible row. */
 @media (hover: none) and (pointer: coarse) {
-    input-box .send-btn,
     input-box .more-actions-btn {
         display: inline-flex;
+    }
+
+    /* Touch has no true hover, but tapping the "+" leaves a sticky :hover/:focus
+       that paints the ghost fill until you tap elsewhere — so it looked stuck-
+       highlighted while its sheet was open, unlike its neighbours. Keep it
+       transparent at rest here; :active still gives press feedback. Permission
+       and model keep their fill via their own .open state, so they're untouched. */
+    input-box .more-actions-btn:hover:not(:disabled),
+    input-box .more-actions-btn:focus:not(:disabled) {
+        background: transparent;
+        border-color: transparent;
+        color: var(--text-secondary);
     }
 
     /* Focusing the textarea pops the onscreen keyboard, and the browser scrolls

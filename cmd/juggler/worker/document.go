@@ -913,8 +913,8 @@ func (cd *ConversationDocument) SeedThreadIfUnseeded(threadItemID string) {
 	// Threads populated by RELOCATING a parent's existing items into them opt
 	// out of seeding via noContextSeed. Such a thread already owns a complete,
 	// curated item set that deliberately decided what standing context to keep
-	// and what to move down (foldConversationIntoSummaryThread leaves the leading
-	// run — system prompt, agents files, memory — at the parent). Seeding would
+	// and what to move down (the compaction fold leaves the leading run — system
+	// prompt, agents files, memory — at the parent). Seeding would
 	// re-inject exactly that context, duplicating it. This is the general
 	// fold/move-into-thread invariant, not a compaction special case: /compact
 	// and /handoff are today's callers, but any future op that moves items into a

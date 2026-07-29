@@ -213,16 +213,16 @@ build-windows: app-icon-embed wails-runtime-embed
 # from outside this module — only the finished binary is injected.
 SERVER_BIN ?=
 
-## release-build-mac: Build the arm64 (Apple Silicon) Juggler.app for
-## distribution. Both the server (juggler) and app (juggler-app) are built for
-## arm64; the bundle stays one unit. macOS only. Use `make mac-dmg` to wrap the
+## release-build-mac: Build the Juggler.app for distribution.
+## Both the server (juggler) and app (juggler-app) are built based on the
+## system arch. macOS only. Use `make mac-dmg` to wrap the
 ## result in a drag-to-Applications DMG. Set SERVER_BIN to inject a prebuilt
 ## server into the slot instead of building ./cmd/juggler.
 release-build-mac: app-icon-embed wails-runtime-embed
 ifneq ($(UNAME_S),Darwin)
 	@echo "release-build-mac is only supported on macOS."; exit 1
 endif
-	@echo "Building Juggler.app $(VERSION) [release, arm64]..."
+	@echo "Building Juggler.app $(VERSION) [release, $(GOARCH_HOST)]..."
 	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_RES)
 	@# Clear a possible leftover universal (fat) binary from an older release so
 	@# `go build -o` doesn't refuse to overwrite it (see go-build).
@@ -231,18 +231,18 @@ endif
 		echo "  → juggler (from $(SERVER_BIN))"; \
 		cp "$(SERVER_BIN)" "$(MAC_APP_BIN)"; \
 	else \
-		echo "  → juggler (arm64)"; \
-		CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(MAC_APP_BIN) ./cmd/juggler || exit 1; \
+		echo "  → juggler ($(GOARCH_HOST))"; \
+		CGO_ENABLED=1 GOOS=darwin GOARCH=$(GOARCH_HOST) $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(MAC_APP_BIN) ./cmd/juggler || exit 1; \
 	fi
-	@echo "  → juggler-app (arm64)"
-	@CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(MAC_APP_APP_BIN) ./cmd/juggler-app || exit 1
+	@echo "  → juggler-app ($(GOARCH_HOST))"
+	@CGO_ENABLED=1 GOOS=darwin GOARCH=$(GOARCH_HOST) $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(MAC_APP_APP_BIN) ./cmd/juggler-app || exit 1
 	@$(MAKE) --no-print-directory mac-app-meta
 	@$(MAKE) --no-print-directory mac-codesign
 	@ln -sfn Juggler.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
-	@echo "→ $(MAC_APP_DIR) (arm64: $$(lipo -archs $(MAC_APP_APP_BIN)))"
+	@echo "→ $(MAC_APP_DIR) ($(GOARCH_HOST): $$(lipo -archs $(MAC_APP_APP_BIN)))"
 
-## mac-dmg: Build a distributable .dmg containing the arm64 Juggler.app with
+## mac-dmg: Build a distributable .dmg containing the Juggler.app with
 ## the standard drag-to-Applications layout. Requires create-dmg
 ## (brew install create-dmg). Output: bin/Juggler-$(VERSION).dmg.
 DMG_NAME=$(BUILD_DIR)/Juggler-$(VERSION).dmg

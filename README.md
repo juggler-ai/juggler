@@ -129,7 +129,7 @@ If you already cloned without `--recurse-submodules`, fetch them with:
 git submodule update --init --recursive
 ```
 
-Windows binaries cross-compile from any host with `make build-windows`; the Linux desktop app must be built natively.
+Windows binaries cross-compile from any host with `make build-windows`; the Linux desktop app must be built natively. If you want to build for a `x86/amd64` Intel Mac, you can build that locally.
 
 ## Tech stack
 

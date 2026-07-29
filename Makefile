@@ -1,4 +1,4 @@
-.PHONY: build test test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-types lint-css fix fix-files fix-fmt fix-go fix-js fix-css node-deps help mac-app install-mac app-icon-embed wails-runtime-embed win-icon release-build-mac release-build-mac-intel mac-dmg mac-dmg-intel mac-dmg-intel-pack mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack mac-codesign
+.PHONY: build test test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-types lint-css fix fix-files fix-fmt fix-go fix-js fix-css node-deps help mac-app install-mac app-icon-embed wails-runtime-embed win-icon release-build-mac mac-dmg mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack mac-codesign
 
 # Binary name
 BINARY_NAME=juggler
@@ -242,35 +242,6 @@ endif
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
 	@echo "→ $(MAC_APP_DIR) (arm64: $$(lipo -archs $(MAC_APP_APP_BIN)))"
 
-## release-build-mac-intel: Build the amd64 (Intel Mac) Juggler.app for
-## distribution. Mirrors release-build-mac but targets x86_64. macOS only.
-## Use `make mac-dmg-intel` to wrap the result in a drag-to-Applications DMG.
-## Set SERVER_BIN to inject a prebuilt server into the slot instead of building
-## ./cmd/juggler.
-release-build-mac-intel: app-icon-embed wails-runtime-embed
-ifneq ($(UNAME_S),Darwin)
-	@echo "release-build-mac-intel is only supported on macOS."; exit 1
-endif
-	@echo "Building Juggler.app $(VERSION) [release, amd64]..."
-	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_RES)
-	@# Clear a possible leftover arm64 or universal (fat) binary from an older
-	@# build so `go build -o` doesn't refuse to overwrite it (see go-build).
-	@rm -f $(MAC_APP_BIN) $(MAC_APP_APP_BIN)
-	@if [ -n "$(SERVER_BIN)" ]; then \
-		echo "  → juggler (from $(SERVER_BIN))"; \
-		cp "$(SERVER_BIN)" "$(MAC_APP_BIN)"; \
-	else \
-		echo "  → juggler (amd64)"; \
-		CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(MAC_APP_BIN) ./cmd/juggler || exit 1; \
-	fi
-	@echo "  → juggler-app (amd64)"
-	@CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(MAC_APP_APP_BIN) ./cmd/juggler-app || exit 1
-	@$(MAKE) --no-print-directory mac-app-meta
-	@$(MAKE) --no-print-directory mac-codesign
-	@ln -sfn Juggler.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
-	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
-	@echo "→ $(MAC_APP_DIR) (amd64: $$(lipo -archs $(MAC_APP_APP_BIN)))"
-
 ## mac-dmg: Build a distributable .dmg containing the arm64 Juggler.app with
 ## the standard drag-to-Applications layout. Requires create-dmg
 ## (brew install create-dmg). Output: bin/Juggler-$(VERSION).dmg.
@@ -306,37 +277,6 @@ mac-dmg-pack:
 	@# staple` on the finished DMG. Built without an identity the DMG is only
 	@# ad-hoc-signed, so a browser download is Gatekeeper-blocked as
 	@# "unidentified developer" (recoverable via right-click → Open).
-
-DMG_NAME_INTEL=$(BUILD_DIR)/Juggler-$(VERSION)-intel.dmg
-
-## mac-dmg-intel: Build a distributable .dmg containing the amd64 Juggler.app
-## with the standard drag-to-Applications layout. Requires create-dmg
-## (brew install create-dmg). Output: bin/Juggler-$(VERSION)-intel.dmg.
-mac-dmg-intel: release-build-mac-intel mac-dmg-intel-pack
-
-## mac-dmg-intel-pack: Wrap the already-assembled $(MAC_APP_DIR) into the
-## Intel DMG, WITHOUT rebuilding it. mac-dmg-intel = release-build-mac-intel +
-## this; kept separate so a caller that has already assembled the .app by other
-## means (e.g. a bundle carrying a different server binary) can package it
-## without a redundant release-build-mac-intel.
-mac-dmg-intel-pack:
-	@command -v create-dmg >/dev/null 2>&1 || { echo "create-dmg not found — run: brew install create-dmg"; exit 1; }
-	@[ -d "$(MAC_APP_DIR)" ] || { echo "no $(MAC_APP_DIR) to package — build the app first"; exit 1; }
-	@rm -f "$(DMG_NAME_INTEL)"
-	@stage=$$(mktemp -d); \
-	cp -R "$(MAC_APP_DIR)" "$$stage/Juggler.app"; \
-	create-dmg \
-		--volname "Juggler" \
-		--window-pos 200 120 \
-		--window-size 600 360 \
-		--icon-size 100 \
-		--icon "Juggler.app" 150 180 \
-		--hide-extension "Juggler.app" \
-		--app-drop-link 450 180 \
-		"$(DMG_NAME_INTEL)" "$$stage" \
-		|| { code=$$?; [ -f "$(DMG_NAME_INTEL)" ] || { rm -rf "$$stage"; echo "create-dmg failed ($$code)"; exit $$code; }; }; \
-		rm -rf "$$stage"
-	@echo "→ $(DMG_NAME_INTEL)"
 
 ## win-installer: Build the Windows installer (Inno Setup) wrapping both .exe
 ## binaries into one install dir. Requires the Inno Setup compiler (iscc) and a

@@ -131,17 +131,6 @@ git submodule update --init --recursive
 
 Windows binaries cross-compile from any host with `make build-windows`; the Linux desktop app must be built natively.
 
-#### Building for Intel Mac
-
-The default `make build` targets the host architecture. To build a Juggler.app for Intel Macs (x86_64):
-
-```bash
-make release-build-mac-intel        # build bin/Juggler.app as amd64
-make mac-dmg-intel                  # build + package bin/Juggler-<version>-intel.dmg
-```
-
-Both require an Intel Mac (or a macOS host with the Xcode command-line tools and an Intel SDK). The resulting `.app` runs natively on Intel hardware; it is not a universal binary.
-
 ## Tech stack
 
 Juggler is a simple native app without baggage. The backend is Go, using Wails for windowing. The UI is HTML/JS served by the Go backend. Session documents are stored and synchronised with Yjs. Extensions are JavaScript. It doesn't use electron.

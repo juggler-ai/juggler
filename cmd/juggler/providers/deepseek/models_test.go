@@ -34,6 +34,14 @@ func TestDeepSeekContextWindow(t *testing.T) {
 	if got := contextWindowCaps.Lookup("deepseek-reasoner"); got != 128000 {
 		t.Errorf("context window(deepseek-reasoner) = %d, want 128000", got)
 	}
+	// The v4 API models advertise a 1M-token window (DeepSeek API docs,
+	// Models & Pricing) — without these entries they'd fall to the 128k
+	// default and conversations would be compacted ~8x too early.
+	for _, model := range []string{"deepseek-v4-flash", "deepseek-v4-pro"} {
+		if got := contextWindowCaps.Lookup(model); got != 1000000 {
+			t.Errorf("context window(%s) = %d, want 1000000", model, got)
+		}
+	}
 	if got := contextWindowCaps.Lookup("deepseek-vNext"); got != DefaultContextWindow {
 		t.Errorf("context window(unknown) = %d, want default %d", got, DefaultContextWindow)
 	}

@@ -7,10 +7,13 @@ package deepseek
 import "juggler/cmd/juggler/providers/utils"
 
 // ModelContextWindows maps DeepSeek model names to context window sizes (tokens).
+// The v4 API models carry a 1M-token window (DeepSeek API docs, Models & Pricing).
 var ModelContextWindows = map[string]int{
-	"deepseek-chat":     128000,
-	"deepseek-reasoner": 128000,
-	"deepseek-coder":    128000,
+	"deepseek-chat":       128000,
+	"deepseek-reasoner":   128000,
+	"deepseek-coder":      128000,
+	"deepseek-v4-flash":   1000000,
+	"deepseek-v4-pro":     1000000,
 }
 
 // DefaultContextWindow is used for unknown DeepSeek models.

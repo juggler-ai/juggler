@@ -968,7 +968,12 @@ func transformMessages(messages []provider.Message, useDeveloperRole, echoReason
 
 	// Track assistant message accumulation (text + tool calls grouped together).
 	// pendingReasoning holds the turn's chain-of-thought, replayed back to the
-	// API when echoReasoning is set (see Quirks.EchoReasoningContent).
+	// API when echoReasoning is set (see Quirks.EchoReasoningContent). It is
+	// reset at turn boundaries only (a user/context message, or a new thinking
+	// block): a turn that produces several assistant messages on the wire (e.g.
+	// delegated tool calls emitted as thread items, each a use/result pair)
+	// must carry the turn's reasoning on EVERY assistant tool_use message —
+	// DeepSeek rejects a tool-call assistant message without it.
 	var pendingAssistantText strings.Builder
 	var pendingReasoning strings.Builder
 	var pendingToolCalls []openai.ChatCompletionMessageToolCallUnionParam
@@ -996,8 +1001,10 @@ func transformMessages(messages []provider.Message, useDeveloperRole, echoReason
 			})
 		}
 		pendingAssistantText.Reset()
-		pendingReasoning.Reset()
 		pendingToolCalls = nil
+		// Note: pendingReasoning deliberately survives the flush — see the
+		// reasoning comment above. It is cleared by the user/context branch
+		// and replaced by the next thinking block.
 	}
 
 	for _, msg := range messages {
@@ -1010,6 +1017,9 @@ func transformMessages(messages []provider.Message, useDeveloperRole, echoReason
 		case "user", "context-item", "context-item-updated", "guidance", "system-reminder":
 			// Flush any pending assistant content first
 			flushAssistant()
+			// Turn boundary: the reasoning was already replayed on the turn's
+			// assistant message(s); do not leak it into the next turn.
+			pendingReasoning.Reset()
 			// Skip empty user messages with no images - some APIs (e.g., Z.AI)
 			// reject empty content.
 			if userMsg, ok := buildChatUserMessage(msg); ok {
@@ -1025,6 +1035,9 @@ func transformMessages(messages []provider.Message, useDeveloperRole, echoReason
 			// thinking mode requires the reasoning be replayed on the next
 			// request, so accumulate it when echoReasoning is set.
 			if echoReasoning {
+				// A new block starts a new turn's chain-of-thought; replace
+				// any reasoning left over from the previous turn.
+				pendingReasoning.Reset()
 				pendingReasoning.WriteString(msg.Content)
 			}
 

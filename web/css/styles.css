@@ -1330,6 +1330,60 @@ conversation-message-list-wrapper {
     margin-bottom: auto;
 }
 
+/* Let WebKit skip rendering work for transcript rows scrolled out of view.
+
+   The transcript is fully materialised: every item a conversation has ever
+   produced stays in the DOM (there is no windowing layer, and nothing prunes
+   old rows). WebKit's rendering update walks the render tree, so the cost of
+   style recalc + layout + paint scales with the WHOLE conversation rather than
+   with what's on screen. On a long thread that pins the WebProcess main thread
+   near saturation for as long as anything keeps invalidating — and something
+   always does while a turn is in flight (the busy spinner animates
+   continuously) — and because the GTK shell has to composite each of those
+   frames, one heavy window makes every window in the app stutter.
+
+   Accelerated compositing does not fix this: it moves rasterisation to the GPU,
+   but the render-tree traversal and geometry stay on the main thread.
+
+   content-visibility:auto lets the engine skip style, layout and paint for rows
+   outside the viewport (plus its own margin), so per-frame cost tracks what is
+   visible instead of how long the conversation has grown. It changes only
+   *rendering* — the DOM is untouched — so the things that read the transcript
+   keep working unchanged:
+     - find-controller walks text nodes into Ranges and filters visibility on
+       the `hidden`/`aria-hidden` attributes, never on offsetParent or layout,
+       so off-screen matches are still found; its scrollIntoView renders the row
+       on the way to it, and the Custom Highlight paints once it does.
+     - tooltips and popup surfaces are appended to document.body, so the paint
+       containment content-visibility implies cannot clip them. Nothing inside a
+       message row paints outside its own box.
+     - selection and copy follow DOM order, which is unchanged.
+
+   Deliberately NOT excluding the newest rows (e.g. :not(:nth-last-child(-n+N))
+   to keep the streaming bubble out of it): a structural pseudo-class on a list
+   this long makes every insertion invalidate sibling style, which is the very
+   per-item cost this rule exists to remove. It isn't needed anyway — the rows
+   being streamed into sit at the bottom, on screen, so they render normally;
+   and the FLIP height read (offsetHeight) forces layout on demand regardless.
+
+   contain-intrinsic-size supplies placeholder geometry for rows the engine has
+   not laid out yet. The `auto` keyword makes it remember each row's last real
+   size, so scrollbar geometry settles once a row has been seen — which matters
+   in this reversed, bottom-anchored scroller, where an estimate that changed
+   while scrolling up would shift content under the pointer. The 6rem fallback
+   is a typical short bubble; it only ever applies to a row not yet rendered
+   once. */
+.conversation-message-list-inner > user-message,
+.conversation-message-list-inner > assistant-message,
+.conversation-message-list-inner > thinking-message,
+.conversation-message-list-inner > tool-action-message,
+.conversation-message-list-inner > thread-message,
+.conversation-message-list-inner > context-item-message,
+.conversation-message-list-inner > error-message {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 6rem;
+}
+
 .conversation-message-list::-webkit-scrollbar {
     width: 0.375rem;
 }

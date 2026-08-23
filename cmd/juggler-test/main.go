@@ -288,6 +288,10 @@ func main() {
 // Windows are hidden by default; set JUGGLER_TEST_SHOW_WINDOW=1 to make them
 // visible (helpful when watching a benchmark run interactively).
 func startJugglerSubprocess(jugglerBinary, fixture string) (*exec.Cmd, string, error) {
+	jugglerBinary = filepath.Clean(jugglerBinary)
+	if !filepath.IsAbs(jugglerBinary) {
+		return nil, "", fmt.Errorf("jugglerBinary must be an absolute path: %q", jugglerBinary)
+	}
 	args := []string{"--test", "--assets-from-disk", "--port", "0", "--project", fixture}
 	if os.Getenv("JUGGLER_TEST_SHOW_WINDOW") == "1" {
 		args = append(args, "--window")

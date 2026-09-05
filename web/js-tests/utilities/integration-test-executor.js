@@ -128,6 +128,8 @@ import { runTests as runYjsCompatTests } from '../unit-tests/yjs-compat-test.js'
 import { runTests as runBase64Tests } from '../unit-tests/base64-test.js';
 import { runTests as runWSChunkTests } from '../unit-tests/ws-chunk-test.js';
 import { runTests as runRenderPerformanceTests } from '../unit-tests/render-performance-tests.js';
+import { runTests as runTestBudgetTests } from '../unit-tests/test-budget-test.js';
+import { runTests as runEngineAutoloadTests } from '../unit-tests/engine-autoload-test.js';
 import { runTests as runSyncBatchBackoffTests } from '../unit-tests/sync-batch-backoff-test.js';
 import { runTests as runSyncFaultIsolationTests } from '../unit-tests/sync-fault-isolation-test.js';
 import { runTests as runThinkingStreamTests } from '../unit-tests/thinking-stream-test.js';
@@ -247,6 +249,7 @@ import {
   deleteOwnConversationsCreatedSince,
   setCurrentTestName
 } from './conversation-claims.js';
+import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
 
 // Action progress events fire in the engine WebviewWindow's document; without
 // a bridge they are invisible to the test page. action-executor broadcasts
@@ -443,6 +446,8 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:base64', run: runBase64Tests },
   { name: 'unit:ws-chunk', run: runWSChunkTests },
   { name: 'unit:render-performance', run: runRenderPerformanceTests },
+  { name: 'unit:test-budget', run: runTestBudgetTests },
+  { name: 'unit:engine-autoload', run: runEngineAutoloadTests },
   { name: 'unit:sync-batch-backoff', run: runSyncBatchBackoffTests },
   { name: 'unit:sync-fault-isolation', run: runSyncFaultIsolationTests },
   { name: 'unit:thinking-stream', run: runThinkingStreamTests },
@@ -635,6 +640,23 @@ export async function runTests(ctx) {
 }
 
 /**
+ * How long a unit suite may run for.
+ *
+ * The Go harness stops polling for this test's result at 60s, so the number to
+ * pick is the largest that still leaves the failure reported HERE, naming the
+ * suite, rather than there as a bare poll timeout naming nothing. 45s leaves
+ * the result POST (itself retried for up to 10s) and the suite's conversation
+ * cleanup room to finish inside that window.
+ *
+ * It buys nothing on a passing suite — the slowest of them is a couple of
+ * seconds, and about six under a saturated machine.
+ */
+const UNIT_SUITE_BUDGET_MS = 45000;
+
+/** Sentinel distinguishing "the budget expired" from a suite's own result. */
+const SUITE_TIMED_OUT = Symbol('unit-suite-timed-out');
+
+/**
  * Run one unit suite, then permanently delete every conversation it created
  * (diffed via this lane's claim registry, which is lane-local and therefore
  * immune to sibling lanes' concurrent creations). Without this, unit tests
@@ -647,6 +669,15 @@ export async function runTests(ctx) {
  */
 async function runUnitSuiteWithConvCleanup(suite, ctx) {
   setCurrentTestName(suite.name);
+  // Arm the budget every wait in this suite rides, and bound the suite itself.
+  //
+  // Without the deadline, a unit suite's waits fall back to nominal timeouts
+  // chosen when a lane had the pool to itself — the reason a full run kept
+  // losing one arbitrary unit suite to load. Without the hard bound, a suite
+  // that wedges never posts a result at all and the Go side reports a bare
+  // "timeout polling /api/test/result after 1m0s" naming nothing; here it at
+  // least says which suite stopped and when.
+  setTestDeadline(Date.now() + UNIT_SUITE_BUDGET_MS);
   // Unit suites share one document, so a modal a prior suite left open leaks
   // into this one. The confirm/alert/notice host is a reused <modal-dialog>
   // singleton (see modal-dialog.js): showConfirm/showAlert only resolve on a
@@ -658,8 +689,29 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
   neutralizeStrayModals();
   const before = snapshotOwnConversationIds();
   try {
-    return await suite.run(ctx);
+    /** @type {ReturnType<typeof setTimeout>|undefined} */
+    let timer;
+    const timedOut = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(SUITE_TIMED_OUT), UNIT_SUITE_BUDGET_MS);
+    });
+    // A timeout is reported as a failed result rather than thrown, so one
+    // wedged suite fails alone instead of ending the lane's whole run.
+    const outcome = await Promise.race([
+      suite.run(ctx).finally(() => clearTimeout(timer)),
+      timedOut
+    ]);
+    if (outcome === SUITE_TIMED_OUT) {
+      return {
+        passed: 0,
+        failed: 1,
+        errors: [`${suite.name}: unit suite timed out after ${UNIT_SUITE_BUDGET_MS}ms — it stopped making progress and never returned a result`]
+      };
+    }
+    return /** @type {{passed: number, failed: number, errors: string[]}} */ (outcome);
   } finally {
+    // Disarm before cleanup: the deadline belongs to the suite, and cleanup
+    // running under an expired one would give every wait in it a zero budget.
+    clearTestDeadline();
     neutralizeStrayModals();
     // A suite that saved a command, a skill or a plugin toggle left a registry
     // rebuild running behind it — those call sites deliberately don't await one

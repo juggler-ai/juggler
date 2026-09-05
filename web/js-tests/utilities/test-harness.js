@@ -26,6 +26,7 @@ import { waitForTurnComplete, observeUntil, findItemRecursive, hasIncompleteAppr
 // cross-lane operations treat claimed conversations as untouchable. Harnesses
 // register every conversation they create so both hold.
 import { registerOwnConversation as _registerOwnConversation } from './conversation-claims.js';
+import { deadlineFor } from './test-deadline.js';
 
 
 /**
@@ -92,6 +93,18 @@ export class IntegrationTestHarness {
      * @type {number} @private
      */
     this._perTestDeadlineMs = 0;
+
+    /**
+     * The deadline a wait should be bounded by: this test's own when the
+     * runner set one, otherwise one derived from the deadline armed for the
+     * suite in progress (see test-deadline.js). A unit suite drives this
+     * harness directly and the runner sets nothing on it, which is how these
+     * waits came to run on their nominal timeouts alone.
+     * @param {number} fallbackMs - The wait's nominal timeout
+     * @returns {number} A deadline, or 0 when the wait should use its nominal
+     * @private
+     */
+    this._deadline = (fallbackMs) => deadlineFor(fallbackMs, this._perTestDeadlineMs);
 
     /**
      * Per-test AbortController signal, set by the runner. When the per-test
@@ -442,7 +455,7 @@ export class IntegrationTestHarness {
     }
     await waitForTurnComplete(this._conversation, {
       sinceTurn,
-      deadlineMs: this._perTestDeadlineMs,
+      deadlineMs: this._deadline(6000),
       signal: this._abortSignal,
       label: 'turn complete'
     });
@@ -717,7 +730,7 @@ export class IntegrationTestHarness {
       throw new Error('Conversation not initialized');
     }
     await waitForTurnComplete(this._conversation, {
-      deadlineMs: this._perTestDeadlineMs,
+      deadlineMs: this._deadline(timeoutMs),
       signal: this._abortSignal,
       timeoutMs,
       label: 'idle'
@@ -744,7 +757,7 @@ export class IntegrationTestHarness {
     // sub-timeout) but never past it (so a wait started late can't overrun the
     // budget). The caller's timeoutMs is the fallback when no deadline is set.
     await observeUntil(this._conversation, predicate, {
-      deadlineMs: this._perTestDeadlineMs,
+      deadlineMs: this._deadline(timeoutMs),
       signal: this._abortSignal,
       timeoutMs,
       label
@@ -904,7 +917,7 @@ export class IntegrationTestHarness {
     // does not exist until the worker's first yjs-sync creates it. Observing
     // the array directly would silently register nothing and miss that sync.
     await observeUntil(conv, (items) => items.length >= expectedCount, {
-      deadlineMs: this._perTestDeadlineMs,
+      deadlineMs: this._deadline(timeout),
       signal: this._abortSignal,
       timeoutMs: timeout,
       label: `${expectedCount} items to sync in ${conversationId}`

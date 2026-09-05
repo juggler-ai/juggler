@@ -16,6 +16,16 @@ import (
 	"time"
 )
 
+// loginShellProbeTimeout bounds the login-shell probe: a shell that has not
+// answered by then is SIGKILLed and PATH is left untouched. Sized for a real
+// login shell sourcing a user's rc files (a slow one here is ~40ms).
+//
+// A var rather than a const so a test can buy patience it proves nothing
+// about: a test's probe execs a script written moments earlier and pays macOS
+// first-exec scanning for it, a cost belonging to the machine rather than to
+// anything the test asserts.
+var loginShellProbeTimeout = 4 * time.Second
+
 // repairPathForGUILaunch merges the user's login-shell $PATH into this process's
 // PATH so every child it later spawns (the bash tool, git, the claude/codex CLIs)
 // resolves tools the way a terminal launch would. A Finder/Dock launch inherits a
@@ -42,7 +52,7 @@ func repairPathForGUILaunch(hasTerminal bool) {
 //
 // Setsid is load-bearing: it puts the shell in a new session with no controlling
 // terminal, so an interactive shell can't grab our tty's foreground group or
-// leave it in raw mode — which, when the 4s timeout SIGKILLs a slow shell before
+// leave it in raw mode — which, when the timeout SIGKILLs a slow shell before
 // it restores the terminal, would background us (SIGTTIN → "suspended (tty
 // input)") and corrupt the terminal. Stdin is /dev/null by default.
 func loginShellPath() string {
@@ -50,7 +60,7 @@ func loginShellPath() string {
 	if shell == "" {
 		return ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), loginShellProbeTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, shell, "-l", "-i", "-c", "printf %s \"$PATH\"")

@@ -35,6 +35,7 @@ import contextItemRegistry from '../../js/registries/context-item-registry.js';
 import actionExecutor from '../../js/services/action-executor.js';
 import workerManager from '../../js/services/worker-manager.js';
 import apiService from '../../js/services/api.js';
+import { budgetFor } from '../utilities/test-deadline.js';
 
 const PROBE_ID = 'conversation-release-probe';
 
@@ -126,7 +127,7 @@ async function startHangingTool(session, conversation, toolUseId) {
   // it rejecting with nobody attached. Claim it here so an abandoned probe can
   // never surface as an unhandled rejection in the lane.
   run.catch(() => {});
-  const deadline = Date.now() + 4000;
+  const deadline = Date.now() + budgetFor(4000);
   while (actionExecutor.executingSetFor(conversation.id).every((e) => e.toolUseId !== toolUseId)) {
     if (Date.now() > deadline) throw new Error(`the probe for ${toolUseId} never reached the executor`);
     await new Promise((r) => { setTimeout(r, 5); });

@@ -69,6 +69,24 @@ async function seed(pins) {
 const order = (pins) => pins.map((/** @type {any} */ p) => p.id).join(',');
 
 /**
+ * The board edits among a stub's calls. `stubFetch` replaces `window.fetch`
+ * wholesale, so it records every request the realm makes while it is installed,
+ * not only the one under test. That is harmless where a stub lives for a
+ * microtask and wrong where one is held open — a viewer reloads its board
+ * whenever the session tells it to, and such a reload is not this removal.
+ * @param {{calls: {url: string, opts: any}[]}} stub - A stub from `stubFetch`.
+ * @returns {{url: string, opts: any}[]} Only the operations POSTs.
+ */
+const boardWrites = (stub) => stub.calls.filter((c) => c.url.includes('/pinboard/operations'));
+
+/**
+ * Every call a stub saw, for an assertion that has to say what else turned up.
+ * @param {{calls: {url: string, opts: any}[]}} stub - A stub from `stubFetch`.
+ * @returns {string} One line naming each call, or `none`.
+ */
+const callList = (stub) => stub.calls.map((c) => `${c.opts?.method ?? 'GET'} ${c.url}`).join(', ') || 'none';
+
+/**
  * @param {object} _ctx - Test context (unused).
  * @returns {Promise<TestResult>} Aggregated results.
  */
@@ -591,7 +609,7 @@ export async function runTests(_ctx) {
         `the release hook must get the normalized config: ${JSON.stringify(released[0].config)}`);
       assert(released[0].options.active?.conversation?.id === 'conv_1',
         'the release hook must get the active context the panel had');
-      assert(stub.calls.length === 1, 'the pin must still have been removed');
+      assert(boardWrites(stub).length === 1, `the pin must still have been removed (${callList(stub)})`);
     });
 
     await run('a release that throws does not keep the pin', async () => {
@@ -605,26 +623,51 @@ export async function runTests(_ctx) {
         pinboardItemRegistry.reset();
         pinboardView.reset();
       }
-      assert(stub.calls.length === 1, 'a pin the user asked to be rid of goes whatever its type thinks');
+      assert(boardWrites(stub).length === 1,
+        `a pin the user asked to be rid of goes whatever its type thinks (${callList(stub)})`);
       assert(pinboardStore.get().length === 0, 'the board must have been adopted from the response');
     });
 
     await run('a release that never finishes does not hold the removal open', async () => {
       // The real wait is the point: a Remove button an extension can make hang
       // is not a Remove button, so the removal has to go ahead on its own. This
-      // case therefore sits out the release deadline once.
+      // case therefore sits out the release deadline once — and that makes it the
+      // one place in the suite where `window.fetch` is stubbed for two whole
+      // seconds while the realm carries on being a live viewer. A board reload is
+      // one broadcast or one periodic poll away at any moment and lands as a GET
+      // inside that window, so one is performed deliberately here: whatever else
+      // turns up, exactly one board write is the removal.
       await seed([{ id: 'pin_r', type: 'test-release-pin', config: {} }]);
       registerReleaseProbe(() => new Promise(() => {}));
       const stub = stubFetch(() => ({ ok: true, json: async () => ({ pins: [] }) }));
       try {
-        await pinboardView.remove('pin_r');
+        const removal = pinboardView.remove('pin_r');
+        // Called directly rather than provoked with the `project-changed`
+        // broadcast that is one of its real causes: that event is also handled by
+        // session.js, which answers it with `window.location.reload()`, and
+        // firing it here would take the lane's whole realm down with it.
+        await pinboardStore.load();
+        await removal;
       } finally {
         stub.restore();
         pinboardItemRegistry.reset();
         pinboardView.reset();
       }
-      assert(stub.calls.length === 1, 'the removal must go ahead without the type that would not finish');
-      assert(pinboardStore.get().length === 0, 'and the board must be the one the server sent back');
+      assert(
+        stub.calls.length > boardWrites(stub).length,
+        `the reload must land inside the release window or this case proves nothing: ${callList(stub)}`
+      );
+      // Board writes, not raw fetches. The count still reports, and names every
+      // call, because zero would mean the release deadline never fired at all.
+      assert(
+        boardWrites(stub).length === 1,
+        `the removal must go ahead without the type that would not finish; the board was written `
+        + `${boardWrites(stub).length} times (calls during the release window: ${callList(stub)})`
+      );
+      assert(
+        pinboardStore.get().length === 0,
+        `and the board must be the one the server sent back; it holds ${pinboardStore.get().length} pins`
+      );
     });
   }
 

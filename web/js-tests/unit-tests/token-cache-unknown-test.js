@@ -19,6 +19,7 @@
 import { assert } from '../utilities/test-helpers.js';
 import '../../js/components/conversation-footer.js';
 import '../../js/components/token-display.js';
+import { budgetFor } from '../utilities/test-deadline.js';
 
 const BUDGET = 200000;
 
@@ -48,7 +49,7 @@ function anchoredItems(txnId) {
  * @returns {Promise<void>} Resolves once the predicate holds
  */
 async function waitFor(predicate, label) {
-  const deadline = Date.now() + 2000;
+  const deadline = Date.now() + budgetFor(2000);
   while (Date.now() < deadline) {
     if (predicate()) return;
     await new Promise(r => setTimeout(r, 10));

@@ -27,6 +27,7 @@ import {
 import workerManager from '../../js/services/worker-manager.js';
 import { TOOL_STATES } from '../../sdk/lib/message.js';
 import logger from '../utilities/test-logger.js';
+import { budgetFor } from '../utilities/test-deadline.js';
 
 // =============================================================================
 // Test Helper Functions
@@ -2469,10 +2470,21 @@ export async function runTests(_ctx) {
   const errors = [];
 
   for (const test of tests) {
+    // Per-case guard, riding the suite's budget. Its job is attribution — so a
+    // wedged case is reported by name instead of surfacing as the whole suite
+    // timing out — which means it must sit ABOVE the waits inside the case,
+    // not below them: a guard tighter than its own contents would fire first
+    // and undo their patience.
+    const caseBudgetMs = budgetFor(15000);
+    if (caseBudgetMs <= 0) {
+      failed++;
+      errors.push(`${test.name}: not run — an earlier case in this suite spent the whole budget`);
+      continue;
+    }
     try {
       logger.info(`[undo-redo-test] Running: ${test.name}`);
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`Timeout after 15s`)), 15000));
+        setTimeout(() => reject(new Error(`Timeout after ${caseBudgetMs}ms`)), caseBudgetMs));
       const result = await Promise.race([test.fn(session), timeoutPromise]);
       passed += result.passed;
       failed += result.failed;

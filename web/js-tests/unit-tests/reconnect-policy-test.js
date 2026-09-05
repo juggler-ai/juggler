@@ -433,6 +433,52 @@ export async function runTests(_ctx) {
     assert(Math.max(...spread(60)) < Math.min(...spread(200)), 'the 2s tier stays under the 5s tier');
   });
 
+  await run('a link that opens and dies straight back does not stay pinned at the first tier', async () => {
+    const svc = new WebSocketService();
+    svc._reestablish = () => {};
+    /** @type {number[]} */
+    const delays = [];
+    svc.on('reconnect-attempt', (/** @type {any} */ d) => { delays.push(d.delayMs); });
+
+    // A flap: the handshake completes and the link settles, then the socket is
+    // gone again before it has proven anything. Five in a row — a server that
+    // accepts the upgrade and immediately drops it, which is what a restarting
+    // one and a saturated test pool both look like from here.
+    for (let i = 0; i < 5; i++) {
+      svc._settleOpen(undefined);
+      svc.connected = false;
+      svc._reconnect();
+    }
+    svc._intentionalDisconnect = true;
+    svc._stopLinkWatchdog();
+
+    assert(delays.length === 5, `each flap arms exactly one retry; got ${delays.length}`);
+    // The first tier is 300ms ±25%, so anything at or under 375ms is still it.
+    const later = delays.slice(1);
+    assert(
+      Math.max(...later) > 375,
+      `a link that keeps dying must ease off rather than reconnect at the first tier forever; delays were ${delays.join('ms, ')}ms`
+    );
+  });
+
+  await run('a link that stays up long enough earns its fast first retry back', async () => {
+    const svc = new WebSocketService();
+    svc._reestablish = () => {};
+    svc._reconnectAttempts = 7; // it took a while to get here
+    svc._settleOpen(undefined);
+    assert(
+      svc._reconnectAttempts === 7,
+      'settling alone proves nothing — a link that dies immediately would reset the backoff it earned'
+    );
+    svc._proveLinkStable();
+    assert(
+      svc._reconnectAttempts === 0,
+      `a link that survives is a good one and starts fresh; got ${svc._reconnectAttempts}`
+    );
+    svc._intentionalDisconnect = true;
+    svc._stopLinkWatchdog();
+  });
+
   await run('a page that becomes visible retries at once instead of waiting out the backoff', async () => {
     const svc = new WebSocketService();
     let reestablished = 0;
@@ -658,7 +704,12 @@ export async function runTests(_ctx) {
     assert(reloads() === 0, `the same server must not cost a reload; got ${reloads()}`);
     assert(opens() === 1, `open released once the server matched; got ${opens()}`);
     assert(svc.connected === true, 'the link is up');
-    assert(svc._reconnectAttempts === 0, 'the backoff counter is reset by settling');
+    // NOT reset here. Settling means the socket opened, which a server that is
+    // restarting does on every attempt while dropping each one a moment later;
+    // crediting the open itself pinned the backoff at its first tier and turned
+    // that into three reconnects a second. The counter is forgiven by a link
+    // that lasts (see the flap cases above), not by one that merely arrives.
+    assert(svc._reconnectAttempts > 0, 'settling alone must not forgive the backoff');
     // 'open' IS the catch-up: ConnectionManager's open handler is what runs the
     // state-vector resync. The live case at the end of this file drives that
     // whole chain against the real server.

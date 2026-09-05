@@ -23,6 +23,7 @@ import { ITEM_TYPE_TO_TAG } from './test-assertions.js';
 import logger from './test-logger.js';
 import { dumpTape, clearTape } from '../../js/utils/event-tape.js';
 import { snapshotOwnConversationIds, deleteOwnConversationsCreatedSince, setCurrentTestName } from './conversation-claims.js';
+import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
 
 /**
  * Race a promise against a timeout so a wedged/slow server can never hang the
@@ -779,6 +780,9 @@ export async function runIntegrationTest(testDef, ctx) {
   // test's observers don't leak past the deadline and starve sibling lanes.
   harness._perTestDeadlineMs = Date.now() + perTestTimeoutMs;
   harness._abortSignal = ac.signal;
+  // The same deadline, where the waits that have no harness to ask can find
+  // it — `waitFor` is a free function called from hundreds of sites.
+  setTestDeadline(harness._perTestDeadlineMs);
 
   /** @type {RunTrace} */
   const trace = { stage: 'setup', opIndex: -1, opsCompleted: [] };
@@ -827,6 +831,10 @@ export async function runIntegrationTest(testDef, ctx) {
     return { passed: false, error: errorWithDiag, durationMs };
 
   } finally {
+    // Disarm before cleanup: the deadline belongs to the test, and cleanup
+    // running under an expired one would give every wait in it a zero budget.
+    clearTestDeadline();
+
     // Close any second-viewer WebSockets a test opened (open-second-viewer).
     // These are extra real server clients; closing them lets the server's
     // ClientDisconnected unregister their per-worker callbacks so they don't

@@ -28,6 +28,7 @@ import { REGISTRIES_RELOADED } from '../../js/registries/reload-registries.js';
 import { __resetPopupManagerForTests, isAnyPopupOpen } from '../../js/utils/popup-manager.js';
 import PinboardItemType from 'juggler/pinboard-item-type';
 import '../../js/components/pinboard-shell.js';
+import { budgetFor } from '../utilities/test-deadline.js';
 
 /**
  * @typedef {object} TestResult
@@ -1298,11 +1299,18 @@ export async function runTests(_ctx) {
         // drawer's scrim and the z-index tokens every layer is ordered by are in
         // styles.css, and measuring before it lands reads every one of them as
         // `auto`.
-        const deadline = Date.now() + 4000;
+        const deadline = Date.now() + budgetFor(4000);
         const loaded = (/** @type {string} */ name) => [...doc.styleSheets]
           .some((s) => (s.href || '').includes(name));
-        while (Date.now() < deadline) {
-          if (loaded('components.css') && loaded('styles.css')) break;
+        while (!(loaded('components.css') && loaded('styles.css'))) {
+          // Say so rather than measuring on: every geometry assertion below
+          // reads `auto` without these, and reports a z-index mismatch for
+          // what is really a stylesheet that never arrived.
+          if (Date.now() > deadline) {
+            throw new Error(
+              `the probe document's stylesheets never loaded (components.css: ${loaded('components.css')}, styles.css: ${loaded('styles.css')})`
+            );
+          }
           await new Promise((r) => { setTimeout(r, 20); });
         }
 

@@ -10,6 +10,7 @@
  */
 
 import { getMessageSelector } from './test-assertions.js';
+import { budgetFor } from './test-deadline.js';
 
 /**
  * @typedef {object} RenderedMessage
@@ -54,8 +55,11 @@ class UIDriver {
    * @private
    */
   _budget(fallbackMs) {
-    if (!this._perTestDeadlineMs) return fallbackMs;
-    return Math.max(0, this._perTestDeadlineMs - Date.now() + 1000);
+    // A driver built without an explicit deadline — every unit suite builds
+    // its own — falls back to the one armed for the test in progress, so those
+    // waits ride the budget too instead of reverting to a nominal chosen when
+    // a lane had the pool to itself.
+    return budgetFor(fallbackMs, this._perTestDeadlineMs);
   }
 
   // =========================================================================

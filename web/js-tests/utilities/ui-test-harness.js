@@ -12,6 +12,7 @@
 import { IntegrationTestHarness } from './test-harness.js';
 import { waitForTurnComplete } from './turn-sync.js';
 import UIDriver from './ui-driver.js';
+import { deadlineFor } from './test-deadline.js';
 
 /**
  * @typedef {import('./test-harness.js').TestHarnessOptions} TestHarnessOptions
@@ -210,7 +211,7 @@ export class UITestHarness {
   async waitForTurnComplete(timeoutMs = 6000, sinceTurn = undefined) {
     await waitForTurnComplete(this.conversation, {
       sinceTurn: sinceTurn ?? this.conversation.completedTurns,
-      deadlineMs: this._perTestDeadlineMs,
+      deadlineMs: deadlineFor(timeoutMs, this._perTestDeadlineMs),
       signal: this._abortSignal,
       timeoutMs
     });

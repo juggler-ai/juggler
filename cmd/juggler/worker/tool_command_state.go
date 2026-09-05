@@ -75,6 +75,11 @@ type toolCommandState struct {
 	// maxToolCommandAttempts the tool is escalated to a terminal error. Reset to 1
 	// whenever the demanded state changes (a fresh delivery phase).
 	attempts int
+
+	// heldNoted records that this delivery phase has already announced itself as
+	// held past the attempts cap, so the announcement is made once rather than on
+	// every re-drive. Cleared with the phase.
+	heldNoted bool
 }
 
 // toolCommandTracker owns the tool-command bookkeeping. Every access happens on
@@ -110,6 +115,18 @@ func (t *toolCommandTracker) resetAll() {
 // never-dispatched.
 func (t *toolCommandTracker) clear(id string) { delete(t.byID, id) }
 
+// noteHeld reports whether this is the first time in the current delivery phase
+// that id has been found held past the attempts cap, so the hold is announced
+// once rather than on every re-drive.
+func (t *toolCommandTracker) noteHeld(id string) bool {
+	s := t.entry(id)
+	if s.heldNoted {
+		return false
+	}
+	s.heldNoted = true
+	return true
+}
+
 // shouldRedrive reports whether id needs a command dispatched for state now. A
 // never-dispatched id — or one whose demanded state changed since its last
 // dispatch — is dispatched immediately; a re-dispatch at the SAME state is
@@ -133,6 +150,7 @@ func (t *toolCommandTracker) recordDispatch(id, state string, now time.Time) int
 	if !s.dispatchedStateSet || s.dispatchedState != state {
 		s.dispatchedState, s.dispatchedStateSet, s.attempts = state, true, 1
 		s.firstDispatchedAt = now
+		s.heldNoted = false
 	} else {
 		s.attempts++
 	}

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMergePath_LoginEntriesFirstThenCurrent(t *testing.T) {
@@ -116,6 +117,16 @@ func TestRepairPathForGUILaunch_NoopForTerminalLaunch(t *testing.T) {
 // host's rc files.
 func writeFakeShell(t *testing.T, script string) string {
 	t.Helper()
+	// Production's 4s budget is sized for a real login shell sourcing rc files.
+	// What it buys here is macOS's first-exec scan of a script written
+	// microseconds ago — a cost belonging to the machine, and one that has come
+	// within a few hundred milliseconds of the budget under load. Every test
+	// that writes a fake shell is about to exec it, so the patience goes here
+	// where it cannot be forgotten.
+	previous := loginShellProbeTimeout
+	loginShellProbeTimeout = 30 * time.Second
+	t.Cleanup(func() { loginShellProbeTimeout = previous })
+
 	shell := filepath.Join(t.TempDir(), "fakeshell")
 	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
 		t.Fatal(err)

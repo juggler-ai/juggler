@@ -94,9 +94,30 @@ import { fetchJson } from './http.js';
 const WORKER_READY_TIMEOUT_MS = 60000;
 
 /**
+ * How long to wait after a failed auto-load before trying that conversation
+ * again, and the ceiling that wait grows to.
+ *
+ * An auto-load is triggered by a yjs-sync for a conversation this realm does
+ * not know, and the worker pushes state ahead of every tool dispatch and every
+ * redrive — so while anything is happening the trigger arrives continuously. A
+ * conversation that keeps failing to load therefore retries at round-trip
+ * cadence indefinitely, working hardest exactly when whatever is stopping it
+ * loading is at its worst.
+ *
+ * Backing off rather than capping is deliberate: a conversation that never
+ * loads is one whose tools can never run, so there is no attempt count at which
+ * giving up is the right answer. The delay doubles to the ceiling and stays
+ * there, which costs two attempts a minute for a conversation that is never
+ * coming back and nothing at all for the common case, where the first retry
+ * succeeds.
+ */
+const AUTO_LOAD_RETRY_BASE_MS = 500;
+const AUTO_LOAD_RETRY_MAX_MS = 30000;
+
+/**
  * Manages conversation workers
  */
-class WorkerManager {
+export class WorkerManager {
   constructor() {
     /**
      * Map of conversation ID to worker entry
@@ -171,6 +192,15 @@ class WorkerManager {
      * @private
      */
     this._pendingAutoLoads = new Map();
+
+    /**
+     * Auto-load failures per conversation, so a repeated one backs off instead
+     * of retrying on every sync (conversationId -> {failures, lastAttemptAt}).
+     * Cleared for a conversation the moment one of its loads succeeds.
+     * @type {Map<string, {failures: number, lastAttemptAt: number}>}
+     * @private
+     */
+    this._autoLoadFailures = new Map();
 
     /**
      * Pending strategy-driven thread creation requests
@@ -441,6 +471,7 @@ class WorkerManager {
     this._creating.clear();
     this._spawning.clear();
     this._pendingAutoLoads.clear();
+    this._autoLoadFailures.clear();
 
     // Reject outstanding thread requests so their awaiters unwind instead of
     // hanging forever, then drop them.
@@ -1882,6 +1913,22 @@ class WorkerManager {
   }
 
   /**
+   * How long a conversation must be left alone after `failures` consecutive
+   * failed auto-loads: doubling from the base, up to the ceiling.
+   * @param {number} failures - Consecutive failed loads for this conversation.
+   * @returns {number} Milliseconds to wait before the next attempt.
+   * @private
+   */
+  _autoLoadRetryDelayMs(failures) {
+    // The first failure is the documented race — the worker's first-init
+    // 'ready' arriving before it has processed our init — and the next sync is
+    // exactly when it will have. Retry that one immediately; only a SECOND
+    // failure says something is actually wrong.
+    if (failures <= 1) return 0;
+    return Math.min(AUTO_LOAD_RETRY_MAX_MS, AUTO_LOAD_RETRY_BASE_MS * 2 ** (failures - 2));
+  }
+
+  /**
    * Auto-load a conversation that the engine doesn't know about yet.
    * Queues yjs-sync bytes and applies them after load completes.
    * Deduplicates concurrent loads for the same conversation.
@@ -1904,6 +1951,14 @@ class WorkerManager {
       return;
     }
 
+    // A conversation that has just failed to load is left alone until its
+    // backoff elapses. The bytes go with it: they are an update to a document
+    // this realm does not have, and the load itself is what brings the state.
+    const failure = this._autoLoadFailures.get(conversationId);
+    if (failure && Date.now() - failure.lastAttemptAt < this._autoLoadRetryDelayMs(failure.failures)) {
+      return;
+    }
+
     /** @type {string[]} */
     const queuedBytes = base64Bytes === undefined ? [] : [base64Bytes];
 
@@ -1912,13 +1967,21 @@ class WorkerManager {
         if (!this._session) return;
         console.log(`[WorkerManager] Auto-loading unknown conversation ${conversationId}`);
         const conversation = await this.loadExistingConversation(conversationId, this._session);
+        // It loaded: whatever was wrong has passed, so the next unrelated blip
+        // gets the fast first retry rather than an inherited backoff.
+        this._autoLoadFailures.delete(conversationId);
 
         // Apply all queued yjs-sync updates
         for (const b64 of queuedBytes) {
           conversation.handleYjsSyncMessage(base64ToBytes(b64));
         }
       } catch (err) {
-        console.error(`[WorkerManager] Failed to auto-load conversation ${conversationId}:`, err);
+        const failures = (this._autoLoadFailures.get(conversationId)?.failures ?? 0) + 1;
+        this._autoLoadFailures.set(conversationId, { failures, lastAttemptAt: Date.now() });
+        console.error(
+          `[WorkerManager] Failed to auto-load conversation ${conversationId} (attempt ${failures}, next no sooner than ${this._autoLoadRetryDelayMs(failures)}ms):`,
+          err
+        );
         // The engine's console is invisible in headless runs, and a repeated
         // auto-load failure means no tool execution for the conversation —
         // worth a server-side trace. The endpoint only exists in test mode, so

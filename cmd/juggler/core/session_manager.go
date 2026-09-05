@@ -42,9 +42,10 @@ type SessionManager struct {
 	writeChan    chan sessionTask
 	shutdownChan chan struct{}
 	shutdownOnce sync.Once
-	// goroutines counts the actor and the background helpers started with the
-	// manager, so Shutdown can wait for the last of them to stop touching the
-	// project directory before it returns.
+	// goroutines counts the actor, the background helpers started with the
+	// manager, and any later work handed to goBackground, so Shutdown can wait
+	// for the last of them to stop touching the project directory before it
+	// returns.
 	goroutines  sync.WaitGroup
 	scratchDir  string // non-empty in no-project mode; removed on Shutdown
 	projectPath string
@@ -127,6 +128,28 @@ func startManager(store *FileSessionStore, projectPath, scratchDir string) *Sess
 	go func() { defer m.goroutines.Done(); m.runBinSizeMonitor(store) }()
 	go func() { defer m.goroutines.Done(); m.sweepOrphanedEmptyingDirs(store) }()
 	return m
+}
+
+// backgroundTrash is the OS-trash step EmptyBin defers to a background
+// goroutine. Indirected so a test can hold it open and ask what Shutdown does
+// while it runs.
+var backgroundTrash = trashOrRemove
+
+// goBackground runs fn off the actor, on a goroutine Shutdown waits for — so
+// work an actor task defers is still ordered before the barrier, and the
+// project directory is quiet by the time the project's lock is released.
+//
+// It must be called ON the actor goroutine, which is what makes it safe
+// without a lock: the actor is itself counted and cannot return mid-task, so
+// this Add always lands with the counter at two or more and strictly before
+// the actor's own Done. A concurrent Shutdown therefore cannot finish waiting
+// without also waiting for fn.
+func (m *SessionManager) goBackground(fn func()) {
+	m.goroutines.Add(1)
+	go func() {
+		defer m.goroutines.Done()
+		fn()
+	}()
 }
 
 // sweepOrphanedEmptyingDirs trashes any .juggler/trash.emptying-* directories
@@ -611,21 +634,29 @@ func (m *SessionManager) EmptyBin() ([]string, error) {
 	}
 	r, err := runWrite(m, func(s *sessionState) (emptied, error) {
 		ids, trashPath, e := s.store.emptyBinDeferred()
+		if e == nil && trashPath != "" {
+			m.trashAside(trashPath)
+		}
 		return emptied{ids: ids, trashPath: trashPath}, e
 	})
 	if err != nil {
 		return nil, err
 	}
-	if r.trashPath != "" {
-		go func(path string) {
-			if e := trashOrRemove(path); e != nil {
-				jlog.Error("[session] empty bin: failed to trash %q: %v", path, e)
-			}
-			m.kickBinSizeRecompute()
-		}(r.trashPath)
-	}
 	m.kickBinSizeRecompute()
 	return r.ids, nil
+}
+
+// trashAside OS-trashes a staging directory the actor has just moved the
+// emptied conversations into, on a goroutine so a multi-GB bin neither stalls
+// other session writes nor plays one "moved to trash" sound per conversation.
+// Called on the actor, so Shutdown covers it (see goBackground).
+func (m *SessionManager) trashAside(path string) {
+	m.goBackground(func() {
+		if err := backgroundTrash(path); err != nil {
+			jlog.Error("[session] empty bin: failed to trash %q: %v", path, err)
+		}
+		m.kickBinSizeRecompute()
+	})
 }
 
 // EmptyBinOlderThan is EmptyBin restricted to binned conversations whose last
@@ -640,18 +671,13 @@ func (m *SessionManager) EmptyBinOlderThan(days int) ([]string, error) {
 	}
 	r, err := runWrite(m, func(s *sessionState) (emptied, error) {
 		ids, trashPath, e := s.store.emptySelectionDeferred(cutoff)
+		if e == nil && trashPath != "" {
+			m.trashAside(trashPath)
+		}
 		return emptied{ids: ids, trashPath: trashPath}, e
 	})
 	if err != nil {
 		return nil, err
-	}
-	if r.trashPath != "" {
-		go func(path string) {
-			if e := trashOrRemove(path); e != nil {
-				jlog.Error("[session] empty bin: failed to trash %q: %v", path, e)
-			}
-			m.kickBinSizeRecompute()
-		}(r.trashPath)
 	}
 	m.kickBinSizeRecompute()
 	return r.ids, nil

@@ -5,6 +5,9 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- A connection that keeps dropping now eases off instead of reconnecting three times a second
+- Emptying the bin no longer races a project switch with its background delete
+
 ## [0.6.0] - 2026-09-04
 
 - New Pinboard feature, accessible from a header bar button. This shows pinned files, plan, todos, memory, git, changed files and running tasks. Multiple pinboards can be detached in windows or browser tabs

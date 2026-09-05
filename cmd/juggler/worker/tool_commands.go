@@ -160,6 +160,7 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 			// later tool. Keep re-driving instead until the hold ceiling, giving the
 			// engine's own recovery (eviction → reconnect → reload) time to land.
 			if w.engineUnproven(c.id, now) {
+				w.noteHeldToolCommand(c.id, n)
 				toDispatch = append(toDispatch, c)
 				continue
 			}
@@ -367,6 +368,37 @@ func (w *ConversationWorker) engineUnproven(id string, now time.Time) bool {
 		return false // the engine is answering for this tool; it really is stuck
 	}
 	return now.Sub(phaseStart) < engineUnprovenHold
+}
+
+// noteHeldToolCommand announces, once per delivery phase, that a tool has passed
+// the attempts cap and is being kept alive by the unproven/unreachable hold
+// rather than escalated.
+//
+// The holds are 60s and 90s, which outlast every browser test's budget, so
+// escalation — and with it the engine-liveness summary that says WHY a tool is
+// stuck — never runs inside a test. Without this line the tape of a wedged run
+// is indistinguishable from a slow one: the same `tool-command` repeating every
+// few seconds and nothing to say whether the engine is absent, alive but silent
+// on this tool, or answering to decline it. That distinction is the whole
+// content of engineLivenessSummary, and it is worth having before the ceiling
+// rather than only after it.
+func (w *ConversationWorker) noteHeldToolCommand(id string, attempts int) {
+	if !w.tools.noteHeld(id) {
+		return
+	}
+	engine, lastTrace, toolTrace := w.engineLivenessSummary(id)
+	unreachable, reason := w.tools.unreachableSincePrevDispatch(id)
+	w.tape.Record("tool-command-held", map[string]any{
+		"id":          id,
+		"attempts":    attempts,
+		"engine":      engine,
+		"lastTrace":   lastTrace,
+		"toolTrace":   toolTrace,
+		"unreachable": unreachable,
+		"reason":      reason,
+	})
+	w.log.Info("[worker] tool %s held past %d attempts (engine=%s, last engine trace %s, last trace for this tool %s)",
+		id, maxToolCommandAttempts, engine, lastTrace, toolTrace)
 }
 
 // engineLivenessSummary describes, for a diagnostic log line, who the worker

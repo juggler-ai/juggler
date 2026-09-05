@@ -754,6 +754,15 @@ export async function waitForPendingApproval(conversation, toolUseId, timeoutMs 
  * `timeoutMs` on slow ones, so the wait scales with the machine rather than a
  * guessed constant. Prefer this (or a domain-specific waiter like
  * {@link waitForPendingApproval}) over any load-bearing sleep.
+ * `timeoutMs` deliberately does NOT ride the per-test deadline, though the
+ * harness's own waits do. Making it patient was measured and reverted: the
+ * browser suite went from 3 clean `test-all` runs in 3 to 1 in 3, losing a
+ * different unit suite each time (`unit:pinboard`, `unit:popup-back-button`),
+ * neither reproducible alone. No call site treats a timeout as an expected
+ * outcome, so the cost is not extra waiting on a passing run — the suspicion is
+ * that stretching the most-used wait in the suite reshuffles how a lane's work
+ * interleaves with its two siblings'. Worth understanding before trying again;
+ * see the 2026-09-05 entry in scratch/flaky-tests.md.
  * @param {() => boolean} predicate - Condition to wait for; polled until truthy.
  * @param {{timeoutMs?: number, intervalMs?: number, description?: string}} [opts]
  * @returns {Promise<void>} Resolves when predicate is truthy; rejects on timeout.

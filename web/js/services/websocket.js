@@ -78,6 +78,21 @@ const RECONNECT_FIRST_DELAY_MS = 300;
 const RECONNECT_JITTER = 0.25;
 
 /**
+ * How long a link must stay up before the backoff it cost is forgiven.
+ *
+ * Opening is not the same as working. A server that accepts the upgrade and
+ * drops the socket a moment later — restarting, overloaded, or refusing a token
+ * it no longer recognises — produces an unbroken run of successful opens, and
+ * crediting each of them resets the backoff to its first tier every time. The
+ * viewer then reconnects three times a second for as long as the far end keeps
+ * doing it, which is load applied exactly when the server can least afford it.
+ *
+ * Ten seconds is well past a handshake and well short of anything a user would
+ * call a session, so a link that clears it has demonstrably carried traffic.
+ */
+const LINK_STABLE_AFTER_MS = 10000;
+
+/**
  * @typedef {'open'|'close'|'error'|'message'|'session'|'file-change'|'project-changed'|'plugin-changed'|'retry'|'streaming-error'|'providers-update'|'providers-ready'|'shell-output'|'reconnect-attempt'|'engine-bridge'|'update-status'|'clients-changed'|'pinboard-changed'|'pinboard-reveal'|'viewer-relay'} WSEventType
  */
 
@@ -207,6 +222,8 @@ class WebSocketService {
     this._connecting = false;
     /** @type {any} @private - The link watchdog's interval, or null while it is not running. */
     this._linkTimer = null;
+    /** @type {any} @private - Pending timer that will forgive the backoff if this link lasts. */
+    this._stabilityTimer = null;
     /** @type {any} @private - The pending backoff timer; at most one exists at a time. */
     this._retryTimer = null;
     /** @type {boolean} @private - Whether the visibility/online listeners are installed (once per service). */
@@ -1270,7 +1287,9 @@ class WebSocketService {
   _settleOpen(event) {
     this._reconnectPending = false;
     this._heldOpenEvent = undefined;
-    this._reconnectAttempts = 0;
+    // The backoff is forgiven by a link that LASTS, not by one that opens — see
+    // _armStabilityCheck.
+    this._armStabilityCheck();
     this._connecting = false;
     // A fresh link must not inherit the dead one's stamps, or the watchdog
     // condemns it on its first tick.
@@ -1402,6 +1421,36 @@ class WebSocketService {
   _stopLinkWatchdog() {
     if (this._linkTimer) clearInterval(this._linkTimer);
     this._linkTimer = null;
+    this._cancelStabilityCheck();
+  }
+
+  /**
+   * Start the clock on a newly settled link. If it is still up when the clock
+   * runs out the link has proven itself and the backoff starts fresh; if it
+   * dies first, the attempts it cost stand and the next retry eases off.
+   * @private
+   */
+  _armStabilityCheck() {
+    this._cancelStabilityCheck();
+    this._stabilityTimer = setTimeout(() => {
+      this._stabilityTimer = null;
+      this._proveLinkStable();
+    }, LINK_STABLE_AFTER_MS);
+  }
+
+  /** @private */
+  _cancelStabilityCheck() {
+    if (this._stabilityTimer) clearTimeout(this._stabilityTimer);
+    this._stabilityTimer = null;
+  }
+
+  /**
+   * This link has lasted: forgive the backoff so the next drop, whenever it
+   * comes, gets the fast first retry a one-off blip deserves.
+   * @private
+   */
+  _proveLinkStable() {
+    this._reconnectAttempts = 0;
   }
 
   /**
@@ -1603,6 +1652,8 @@ class WebSocketService {
   }
 
   _reconnect() {
+    // Whatever link we had is gone, so it never earned its reprieve.
+    this._cancelStabilityCheck();
     this._reconnectAttempts++;
     const delay = this._backoffDelay(this._reconnectAttempts);
 

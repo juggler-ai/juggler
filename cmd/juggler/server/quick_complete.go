@@ -46,6 +46,16 @@ const (
 // (HTTP 429), never as a turn failure.
 var ErrQuickCompleteBusy = errors.New("quick-complete concurrency limit reached")
 
+// ErrQuickCompleteTimeout is returned when this request's own wall-clock bound
+// elapsed before the model answered. It is a distinct sentinel because a slow
+// model and a broken one need opposite responses — one is worth another go, the
+// other needs the user to go and fix something — and every caller that could
+// tell them apart was previously left string-matching a provider's prose.
+//
+// It wraps context.DeadlineExceeded, so a caller may classify it either as this
+// sentinel or as an ordinary deadline.
+var ErrQuickCompleteTimeout = fmt.Errorf("quick complete: the model did not answer in time: %w", context.DeadlineExceeded)
+
 // QuickCompleteRequest is one bounded, out-of-band single-turn completion. The
 // caller pre-resolves Model to a concrete {provider, model, thinking}.
 type QuickCompleteRequest struct {
@@ -78,8 +88,10 @@ type QuickCompleteResult struct {
 // Guardrails: an output budget floored for reasoning headroom and capped
 // (MaxOutputTokens), a wall-clock timeout, and a server-wide concurrency
 // limiter. Over-cap callers get ErrQuickCompleteBusy
-// immediately rather than queueing. Missing credentials, a submit error, or a
-// timeout are returned to the caller to handle (the auto-namer swallows them).
+// immediately rather than queueing, and a request that outlives its own bound
+// gets ErrQuickCompleteTimeout; both are retryable by construction. Missing
+// credentials and provider failures are returned as they arrive, for the caller
+// to handle (the auto-namer swallows them).
 func (s *Server) QuickComplete(ctx context.Context, req QuickCompleteRequest) (QuickCompleteResult, error) {
 	if req.Model.Provider == "" || req.Model.Model == "" {
 		return QuickCompleteResult{}, fmt.Errorf("quick complete: model not specified")
@@ -193,6 +205,14 @@ func (s *Server) QuickComplete(ctx context.Context, req QuickCompleteRequest) (Q
 
 	result, err := conv.Submit(callCtx, mreq, cb)
 	if err != nil {
+		// Classified from the deadline itself rather than from the returned error:
+		// a provider is free to wrap, re-word or wholly replace the error of a
+		// request cancelled underneath it, so callCtx is the only reliable witness
+		// that OUR bound is what fired. A caller whose own ctx ended gets the raw
+		// error — that expiry is theirs to interpret, not ours to rename.
+		if callCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+			return QuickCompleteResult{}, ErrQuickCompleteTimeout
+		}
 		return QuickCompleteResult{}, err
 	}
 

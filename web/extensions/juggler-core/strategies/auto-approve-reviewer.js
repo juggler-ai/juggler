@@ -332,6 +332,28 @@ export function parseVerdict(text) {
 const BUSY_STATUS = 429;
 
 /**
+ * HTTP status the server uses when its own wall-clock bound elapsed before the
+ * model answered (ErrQuickCompleteTimeout → 504). Distinct from the 502 that
+ * carries every other failure, because a slow model is worth another go while a
+ * missing credential is worth telling the user about.
+ * @type {number}
+ */
+const TIMEOUT_STATUS = 504;
+
+/**
+ * The bound this reviewer asks for, in ms.
+ *
+ * Shorter than the server's own default, and deliberately so: the approval
+ * buttons are live throughout, so a verdict that arrives late has already been
+ * overtaken by the human. Spending the same wall-clock as two shorter attempts
+ * beats one long one — a slow first call is usually a slow *call*, not a slow
+ * model — and it stops one review holding a shared pool slot while its siblings
+ * are refused.
+ * @type {number}
+ */
+export const REVIEW_TIMEOUT_MS = 15000;
+
+/**
  * Whether a failed completion was the shared out-of-band pool refusing a slot,
  * rather than a real failure. Keyed on the HTTP status carried by `OpsError`,
  * never on the message text: the message is prose written for the user and is
@@ -341,6 +363,17 @@ const BUSY_STATUS = 429;
  */
 export function isBusyRejection(err) {
   return /** @type {any} */ (err)?.status === BUSY_STATUS;
+}
+
+/**
+ * Whether a failed completion was the request's bound elapsing rather than
+ * anything being wrong. Keyed on the status for the same reason as
+ * {@link isBusyRejection}.
+ * @param {unknown} err - Whatever the completion call threw
+ * @returns {boolean} True when the model was merely too slow
+ */
+export function isTimeoutRejection(err) {
+  return /** @type {any} */ (err)?.status === TIMEOUT_STATUS;
 }
 
 /**
@@ -356,21 +389,56 @@ export function isBusyRejection(err) {
 const BUSY_BACKOFF_MS = [600, 1200, 2400];
 
 /**
- * The delay before re-attempting a busy review, or -1 once the schedule is
- * exhausted and the call should be left parked.
+ * Backoff schedule for re-attempting a review the model was too slow to answer.
+ *
+ * One re-attempt, where the busy schedule has three, because the two failures
+ * cost completely different amounts: a refused slot means the model was never
+ * asked, so trying again costs a moment, while an elapsed bound means it was
+ * asked and spent the entire budget. One more go covers the slow call; a second
+ * would just queue behind the same slow model, and by then whoever was watching
+ * has clicked.
+ * @type {number[]}
+ */
+const TIMEOUT_BACKOFF_MS = [1000];
+
+/**
+ * One jittered delay from a fixed schedule, or -1 once it is spent.
  *
  * The delay is jittered across 50–100% of its slot. Jitter is the point, not a
- * detail: a batch of parked calls is rejected at the same instant, so a fixed
- * backoff would march them all into the pool together again and reproduce the
- * collision at every step.
+ * detail: a batch of parked calls fails at the same instant, so a fixed backoff
+ * would march them all into the pool together again and reproduce the collision
+ * at every step.
+ * @param {number[]} schedule - The backoff slots, in ms
+ * @param {number} attempt - 0-based count of attempts already spent
+ * @param {() => number} random - RNG
+ * @returns {number} Delay in ms, or -1 when no retry remains
+ */
+function jitteredDelay(schedule, attempt, random) {
+  const base = schedule[attempt];
+  if (base === undefined) return -1;
+  return Math.round(base * (0.5 + 0.5 * random()));
+}
+
+/**
+ * The delay before re-attempting a busy review, or -1 once the schedule is
+ * exhausted and the call should be left parked.
  * @param {number} attempt - 0-based count of attempts already refused
  * @param {() => number} [random] - Injectable RNG (tests)
  * @returns {number} Delay in ms, or -1 when no retry remains
  */
 export function busyRetryDelay(attempt, random = Math.random) {
-  const base = BUSY_BACKOFF_MS[attempt];
-  if (base === undefined) return -1;
-  return Math.round(base * (0.5 + 0.5 * random()));
+  return jitteredDelay(BUSY_BACKOFF_MS, attempt, random);
+}
+
+/**
+ * The delay before re-attempting a review that timed out, or -1 once the
+ * schedule is exhausted and the call should be left parked.
+ * @param {number} attempt - 0-based count of attempts already timed out
+ * @param {() => number} [random] - Injectable RNG (tests)
+ * @returns {number} Delay in ms, or -1 when no retry remains
+ */
+export function timeoutRetryDelay(attempt, random = Math.random) {
+  return jitteredDelay(TIMEOUT_BACKOFF_MS, attempt, random);
 }
 
 /**
@@ -400,4 +468,30 @@ export function describeReviewFailure(err) {
   return text.length > MAX_FAILURE_CHARS
     ? `${text.slice(0, MAX_FAILURE_CHARS - 1).trimEnd()}…`
     : text;
+}
+
+/**
+ * Opening of every failure note, so the card always says which feature is
+ * talking before it says what went wrong.
+ * @type {string}
+ */
+const FAILURE_LEAD = "Auto-approve couldn't run —";
+
+/**
+ * The line left on the approval card when a review could not be completed.
+ *
+ * The two failures the strategy retries get their own words, because by the time
+ * one is reported the retries are spent and the underlying message would be
+ * neither true nor useful: a saturated pool's prose describes a single refused
+ * slot, and a timeout's is `context deadline exceeded`, which is a Go internal
+ * and no kind of explanation. Everything else keeps its own text via
+ * {@link describeReviewFailure} — an unclassified failure is exactly the case
+ * where the server knows more than we do.
+ * @param {unknown} err - Whatever the completion call threw
+ * @returns {string} A single plain-text line for the approval card
+ */
+export function reviewFailureNote(err) {
+  if (isBusyRejection(err)) return `${FAILURE_LEAD} too many reviews in flight`;
+  if (isTimeoutRejection(err)) return `${FAILURE_LEAD} the reviewer took too long`;
+  return `${FAILURE_LEAD} ${describeReviewFailure(err)}`;
 }

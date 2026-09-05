@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Auto-approve retries a review its model was too slow to answer, and says so in plain English
+- Plugins can bound a generateText call with timeoutMs; a timed-out call now reports 504, not 502
 - A connection that keeps dropping now eases off instead of reconnecting three times a second
 - Emptying the bin no longer races a project switch with its background delete
 

@@ -22,8 +22,12 @@ import {
   parseReview,
   parseVerdict,
   describeReviewFailure,
+  reviewFailureNote,
   isBusyRejection,
-  busyRetryDelay
+  busyRetryDelay,
+  isTimeoutRejection,
+  timeoutRetryDelay,
+  REVIEW_TIMEOUT_MS
 } from '../strategies/auto-approve-reviewer.js';
 
 /**
@@ -421,6 +425,87 @@ export async function runTests(_ctx) {
     const hi = busyRetryDelay(0, () => 0.999);
     assert(hi > lo, `attempt 0 should span a range, got ${lo}..${hi}`);
     assert(lo > 0, 'even the lowest jitter must still wait');
+  });
+
+  // =========================================================================
+  // slow-model retry — a bound that elapsed is not a broken reviewer
+  // =========================================================================
+  await run('isTimeoutRejection: recognises 504 and nothing else', () => {
+    const slow = /** @type {any} */ (new Error("The model didn't answer in time"));
+    slow.status = 504;
+    assert(isTimeoutRejection(slow) === true, 'a 504 is the retryable timeout rejection');
+    // The two retryable failures must stay distinct: they wait for different
+    // things and are worth different numbers of attempts.
+    assert(isBusyRejection(slow) === false, 'a timeout must not read as a busy pool');
+    for (const s of [400, 429, 500, 502, undefined]) {
+      const e = /** @type {any} */ (new Error('nope'));
+      e.status = s;
+      assert(isTimeoutRejection(e) === false, `status ${s} must not read as a timeout`);
+    }
+    assert(isTimeoutRejection(undefined) === false, 'a missing error is not a timeout');
+  });
+
+  await run('timeoutRetryDelay: terminates, and far sooner than the busy schedule', () => {
+    for (const rnd of [() => 0, () => 0.999]) {
+      /** @type {number[]} */
+      const schedule = [];
+      for (let a = 0; ; a++) {
+        const d = timeoutRetryDelay(a, rnd);
+        if (d < 0) break;
+        schedule.push(d);
+        assert(a < 10, 'the schedule must terminate, not retry forever');
+      }
+      // Re-attempting a timeout costs the whole bound again, so the schedule is
+      // deliberately shorter than the busy one, where the model was never asked.
+      assert(schedule.length >= 1, 'a slow model deserves at least one more go');
+      assert(schedule.length < 3, `a timeout must not be retried repeatedly, got ${JSON.stringify(schedule)}`);
+      assert(schedule.every((d) => d > 0), `every delay must be positive, got ${JSON.stringify(schedule)}`);
+    }
+    assert(timeoutRetryDelay(0, () => 0.999) > timeoutRetryDelay(0, () => 0),
+      'collided timeouts must be spread by jitter, exactly as busy ones are');
+  });
+
+  await run('the whole review budget still fits inside one old-style attempt', () => {
+    // The retry is not extra patience: the reviewer asks for a shorter bound and
+    // spends the same wall-clock as two tries instead of one long wait. If this
+    // ever exceeds the server default a slow review would hold a shared pool slot
+    // for longer than it did before the retry existed.
+    let backoff = 0;
+    for (let a = 0; ; a++) {
+      const d = timeoutRetryDelay(a, () => 0.999);
+      if (d < 0) break;
+      backoff += d;
+    }
+    const attempts = 2;
+    const total = attempts * REVIEW_TIMEOUT_MS + backoff;
+    assert(REVIEW_TIMEOUT_MS > 5000, `the bound must leave a cheap model room to answer, got ${REVIEW_TIMEOUT_MS}ms`);
+    assert(total <= 32000, `the whole budget must stay near the 30s it replaced, got ${total}ms`);
+  });
+
+  // =========================================================================
+  // reviewFailureNote — the line left on the approval card
+  // =========================================================================
+  await run('reviewFailureNote: names the failure, distinctly per cause', () => {
+    const withStatus = (/** @type {number} */ status) => {
+      const e = /** @type {any} */ (new Error('server prose'));
+      e.status = status;
+      return e;
+    };
+    const busy = reviewFailureNote(withStatus(429));
+    const slow = reviewFailureNote(withStatus(504));
+    const dead = reviewFailureNote(new Error('HTTP 400: no cheap model available'));
+    for (const note of [busy, slow, dead]) {
+      assert(/^Auto-approve couldn't run/.test(note), `every note names the feature, got ${JSON.stringify(note)}`);
+    }
+    assert(/too many reviews/i.test(busy), `a busy pool should describe the queue, got ${JSON.stringify(busy)}`);
+    assert(/too long/i.test(slow), `a timeout should say it was slow, got ${JSON.stringify(slow)}`);
+    // No Go internals on an approval card: "context deadline exceeded" is what
+    // this whole classification exists to stop leaking into the UI.
+    assert(!/context deadline|deadline exceeded/i.test(slow),
+      `a timeout must read as English, got ${JSON.stringify(slow)}`);
+    assert(busy !== slow, 'the two retryable failures must not read identically');
+    assert(dead.includes('no cheap model available'),
+      `an unclassified failure must keep its cause, got ${JSON.stringify(dead)}`);
   });
 
   await run('describeReviewFailure: caps a runaway body (e.g. an HTML error page)', () => {

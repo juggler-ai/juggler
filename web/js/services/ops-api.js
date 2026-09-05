@@ -1094,6 +1094,10 @@ export async function webSearch(params, signal) {
  *   Which model to use. "cheap" (default) uses the resolved cheap model,
  *   "default" the default model, or an explicit {provider, model} pair.
  * @property {number} [maxTokens] - Output cap (server-clamped to a ceiling).
+ * @property {number} [timeoutMs] - Wall-clock bound on the call. Omitted leaves
+ *   the server's own default; a supplied value is clamped into a sane band. Ask
+ *   for less when a late answer is worth nothing (the out-of-band pool is a few
+ *   slots wide and shared, so a patient call is one another task cannot have).
  */
 
 /**
@@ -1117,6 +1121,12 @@ export async function webSearch(params, signal) {
  * (see server/quick_complete.go): output is capped, wall-clock bounded, and
  * server-side concurrency-limited. Intended for micro-tasks (titles, labels,
  * one-line summaries), not for driving a conversation.
+ *
+ * A failure throws an `OpsError` carrying the HTTP status, and the status is
+ * what to classify on: 429 the shared pool was momentarily saturated, 504 the
+ * bound elapsed before the model answered, 400 the request or model was wrong,
+ * 502 anything else. The first two are worth another attempt; the rest want a
+ * human. Don't match on the message — it is prose, and it changes.
  * @param {GenerateTextParams} params
  * @param {AbortSignal} [signal] - Abort signal for cancellation
  * @returns {Promise<GenerateTextResult>} The generated text and usage
@@ -1137,7 +1147,8 @@ export async function generateText(params, signal) {
     system: params.system,
     // Default to the cheap model when the caller doesn't specify one.
     model: params.model ?? 'cheap',
-    maxTokens: params.maxTokens
+    maxTokens: params.maxTokens,
+    timeoutMs: params.timeoutMs
   };
 
   const response = await fetch('/api/llm/complete', {

@@ -10,9 +10,12 @@ import {
   POLICY_PROMPT,
   buildReviewerPrompt,
   parseReview,
-  describeReviewFailure,
+  reviewFailureNote,
   isBusyRejection,
-  busyRetryDelay
+  busyRetryDelay,
+  isTimeoutRejection,
+  timeoutRetryDelay,
+  REVIEW_TIMEOUT_MS
 } from './auto-approve-reviewer.js';
 import { WRITE_FILE_ITEM_TYPE, isFileEditingAllowed } from '../../../js/services/file-editing-permission.js';
 
@@ -171,12 +174,19 @@ export default class AutoApproveStrategyType extends DefaultStrategyType {
     );
     const model = /** @type {any} */ (this.state)?.reviewerModel ?? 'cheap';
 
-    for (let attempt = 0; ; attempt++) {
+    // Re-attempts are counted per cause. Being refused a slot and being answered
+    // too slowly wait for different things and are worth different numbers of
+    // tries, so one shared counter would let whichever failure came first spend
+    // the other's schedule.
+    let busyAttempts = 0;
+    let timeoutAttempts = 0;
+
+    for (;;) {
       try {
         // Budget: the verdict word plus a ~12-word reason. The verdict comes
         // first by prompt design, so even a truncated answer parses correctly.
         const { text } = await this._complete(
-          { system: POLICY_PROMPT, prompt, model, maxTokens: 48 },
+          { system: POLICY_PROMPT, prompt, model, maxTokens: 48, timeoutMs: REVIEW_TIMEOUT_MS },
           this._abortController?.signal
         );
         const { verdict, reason } = parseReview(text);
@@ -200,15 +210,24 @@ export default class AutoApproveStrategyType extends DefaultStrategyType {
         // indicator rather than reporting their own cancel back at them.
         if (/** @type {any} */ (err)?.name === 'AbortError') return;
 
-        // The out-of-band completion pool is small and shared, and a turn that
-        // parks several tool calls at once asks every one of them to review
-        // simultaneously — so being refused a slot is the ordinary condition of
-        // a batch, not a failure. The server documents it as retryable and the
-        // auto-namer already re-attempts it; treating it as fatal is what made
-        // this feature quietly stop working on any multi-tool turn. Give up
-        // only once the schedule is spent, or once the call is no longer parked
-        // (the human beat us to it, so there is nothing left to approve).
-        const delay = isBusyRejection(err) ? busyRetryDelay(attempt) : -1;
+        // Two failures say "not now" rather than "no", and both are ordinary
+        // conditions of a turn that parks several calls at once — every one of
+        // them asks a four-slot pool for a review simultaneously.
+        //
+        //   429 — refused a slot. The model was never asked, so another go costs
+        //         a moment. Treating this as fatal is what made the feature
+        //         quietly stop working on any multi-tool turn.
+        //   504 — asked, and slower than our bound. One more go, on its own
+        //         shorter schedule, since this one costs the budget again.
+        //
+        // Give up once the relevant schedule is spent, or once the call is no
+        // longer parked (the human beat us to it, so there is nothing to
+        // approve and a re-attempt would spend a slot on a settled question).
+        const delay = isBusyRejection(err)
+          ? busyRetryDelay(busyAttempts++)
+          : isTimeoutRejection(err)
+            ? timeoutRetryDelay(timeoutAttempts++)
+            : -1;
         if (delay >= 0 && this._stillParked(toolUseId)) {
           await this._wait(delay);
           continue;
@@ -219,11 +238,7 @@ export default class AutoApproveStrategyType extends DefaultStrategyType {
         // different fixes, and a bare "unavailable" is both unactionable and
         // indistinguishable from a considered deny.
         console.error('[auto-approve] review failed, leaving parked:', err);
-        return {
-          note: isBusyRejection(err)
-            ? "Auto-approve couldn't run — too many reviews in flight"
-            : `Auto-approve couldn't run — ${describeReviewFailure(err)}`
-        };
+        return { note: reviewFailureNote(err) };
       }
     }
   }

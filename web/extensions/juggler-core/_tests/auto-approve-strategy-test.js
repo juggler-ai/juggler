@@ -23,6 +23,7 @@
 
 import { assert } from '../../../js-tests/utilities/test-helpers.js';
 import AutoApproveStrategyType from '../strategies/auto-approve-strategy-type.js';
+import { REVIEW_TIMEOUT_MS } from '../strategies/auto-approve-reviewer.js';
 
 /**
  * @typedef {object} TestResult
@@ -86,6 +87,18 @@ function busyError() {
   const err = /** @type {any} */ (new Error('Too many concurrent completions, try again'));
   err.name = 'OpsError';
   err.status = 429;
+  return err;
+}
+
+/**
+ * A rejection shaped like the server's "my own bound elapsed" response: OpsError
+ * carries HTTP 504, which marks it retryable but on a shorter schedule than 429.
+ * @returns {Error & {status: number}} The timeout rejection
+ */
+function timeoutError() {
+  const err = /** @type {any} */ (new Error("The model didn't answer in time"));
+  err.name = 'OpsError';
+  err.status = 504;
   return err;
 }
 
@@ -241,6 +254,59 @@ export async function runTests(_ctx) {
     assert(note.length > 0, 'the outcome is still reported');
   });
 
+  // =========================================================================
+  // a slow model is retried too — same principle, its own schedule
+  // =========================================================================
+  await run('a timed-out review is retried and the verdict still lands', async () => {
+    let calls = 0;
+    const { strategy, resolveCalls, completeCalls, waits } = makeStrategy(async () => {
+      calls++;
+      if (calls < 2) throw timeoutError();
+      return { text: 'allow' };
+    });
+    await strategy.onToolPending({ ...PENDING });
+    assert(completeCalls.length === 2, `expected one timeout then a verdict, got ${completeCalls.length} calls`);
+    assert(resolveCalls.length === 1, `the review should still approve, got ${resolveCalls.length} resolves`);
+    assert(waits.length === 1 && waits[0] > 0, `expected one non-zero backoff, got ${JSON.stringify(waits)}`);
+  });
+
+  await run('a reviewer that is always too slow gives up and says so in English', async () => {
+    const { strategy, resolveCalls, completeCalls } = makeStrategy(async () => { throw timeoutError(); });
+    const note = (await strategy.onToolPending({ ...PENDING }))?.note ?? '';
+    assert(resolveCalls.length === 0, 'an exhausted review must leave the call parked');
+    // Bounded, and more tightly than the busy schedule: each attempt costs the
+    // whole bound, so this must not become a minute of silent retrying.
+    assert(completeCalls.length === 2, `a timeout is worth exactly one more go, got ${completeCalls.length} attempts`);
+    assert(/took too long/i.test(note), `the note should say it was slow, got ${JSON.stringify(note)}`);
+    assert(!/deadline exceeded/i.test(note),
+      `Go internals must never reach the approval card, got ${JSON.stringify(note)}`);
+  });
+
+  await run('the retry schedules are per cause, not one shared counter', async () => {
+    // A call refused a slot and then answered too slowly has spent one attempt of
+    // each. Sharing a counter would let the busy schedule silently consume the
+    // timeout's only re-attempt (or the reverse).
+    const failures = [busyError(), timeoutError()];
+    const { strategy, completeCalls } = makeStrategy(async () => {
+      const err = failures.shift();
+      if (err) throw err;
+      return { text: 'allow' };
+    });
+    await strategy.onToolPending({ ...PENDING });
+    assert(completeCalls.length === 3,
+      `each cause keeps its own attempts, expected 3 calls, got ${completeCalls.length}`);
+  });
+
+  await run('a timed-out review is abandoned once the human resolves the call', async () => {
+    const { strategy, completeCalls, toolState } = makeStrategy(async () => {
+      toolState.state = 'approved';
+      throw timeoutError();
+    });
+    await strategy.onToolPending({ ...PENDING });
+    assert(completeCalls.length === 1,
+      `a settled call must not be re-reviewed, got ${completeCalls.length} attempts`);
+  });
+
   await run('a non-busy failure is never retried', async () => {
     const { strategy, completeCalls } = makeStrategy(async () => {
       throw new Error('HTTP 400: no cheap model available');
@@ -373,6 +439,11 @@ export async function runTests(_ctx) {
       'the prompt must include the action-under-review block');
     assert(params.maxTokens && params.maxTokens <= 512,
       `maxTokens should be small and within the server ceiling, got ${params.maxTokens}`);
+    // The review asks for its own bound rather than inheriting the server's
+    // default: a reviewer that deliberates longer than the human is worthless,
+    // and an unbounded one holds a shared pool slot against every sibling call.
+    assert(params.timeoutMs === REVIEW_TIMEOUT_MS,
+      `the review must carry its own bound, got ${params.timeoutMs}`);
   });
 
   // =========================================================================

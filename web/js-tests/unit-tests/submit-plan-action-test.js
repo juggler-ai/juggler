@@ -14,6 +14,7 @@ import {
   initializeRegistries,
   createTestSession,
   createTestConversation,
+  releaseTestConversation,
   executeToolsAndGetContext,
   createToolCall,
   assert,
@@ -21,6 +22,42 @@ import {
 } from '../utilities/test-helpers.js';
 import contextItemRegistry from '../../js/registries/context-item-registry.js';
 
+/**
+ * The conversation the previous case created, still to be released.
+ * @type {string|null}
+ */
+let previousConversationId = null;
+
+/**
+ * Give this case a conversation of its own, releasing the case before it.
+ *
+ * Every case here creates one and none of them look back at an earlier one, so
+ * only one ever needs to exist. Holding all twenty-one until the suite-end
+ * sweep would not just cost this lane: every lane in the pool loads this same
+ * project, and a session load builds a stub — and in time a Yjs document — for
+ * every conversation in it.
+ * @param {any} session - Session under test
+ * @returns {Promise<any>} A conversation for this case
+ */
+async function freshConversation(session) {
+  await releasePreviousConversation(session);
+  const conversation = await createTestConversation(session);
+  previousConversationId = conversation.id;
+  return conversation;
+}
+
+/**
+ * Release the conversation the last case created, if it still exists.
+ * @param {any} session - Session under test
+ * @returns {Promise<void>}
+ */
+async function releasePreviousConversation(session) {
+  const id = previousConversationId;
+  previousConversationId = null;
+  if (id) {
+    await releaseTestConversation(session, id, 'submit-plan-action:case-cleanup');
+  }
+}
 
 /**
  * @typedef {object} TestContext
@@ -54,7 +91,7 @@ export async function runTests(ctx) {
 
   // Test 1: submit_plan returns breakLoop=true and creates plan context item
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const toolCall = createToolCall('plan', {
       action: 'submit',
       title: 'Test Plan',
@@ -113,7 +150,7 @@ export async function runTests(ctx) {
 
   // Test 2: submit_plan keeps strategy as 'plan' (no longer switches to execute)
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const strategyBefore = conversation.rootMessageThread.currentStrategyId;
 
     const toolCall = createToolCall('plan', {
@@ -162,7 +199,7 @@ export async function runTests(ctx) {
 
   // Test 3: Plan items with mixed statuses
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const toolCall = createToolCall('plan', {
       action: 'submit',
       title: 'Mixed Status Plan',
@@ -219,7 +256,7 @@ export async function runTests(ctx) {
 
   // Test 4: Plan items normalized (missing status defaults to pending)
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const toolCall = createToolCall('plan', {
       action: 'submit',
       title: 'Normalization Test',
@@ -278,7 +315,7 @@ export async function runTests(ctx) {
 
   // Test 5: Multiple submit_plan calls show history in context
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
 
     const toolCall1 = createToolCall('plan', {
       action: 'submit',
@@ -349,7 +386,7 @@ export async function runTests(ctx) {
 
   // Test 6: Conversation items contain tool-use and tool-result
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const toolCall = createToolCall('plan', {
       action: 'submit',
       title: 'Items Test',
@@ -400,7 +437,7 @@ export async function runTests(ctx) {
 
   // Test 7: Plan with markdown content
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const toolCall = createToolCall('plan', {
       action: 'submit',
       title: 'Markdown Plan',
@@ -446,7 +483,7 @@ export async function runTests(ctx) {
 
   // Test 8: Single item plan
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const toolCall = createToolCall('plan', {
       action: 'submit',
       title: 'Single Item',
@@ -486,7 +523,7 @@ export async function runTests(ctx) {
 
   // Test 9: submit_plan ignores irrelevant optional fields emitted with defaults
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const toolCall = createToolCall('plan', {
       action: 'submit',
       index: 0,
@@ -520,7 +557,7 @@ export async function runTests(ctx) {
 
   // Test 10: start_step action marks step as in_progress
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
 
     // First submit a plan
     const submitCall = createToolCall('plan', {
@@ -555,7 +592,7 @@ export async function runTests(ctx) {
 
   // Test 11: complete_step action marks step as completed with result
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
 
     // Submit a plan
     const submitCall = createToolCall('plan', {
@@ -589,7 +626,7 @@ export async function runTests(ctx) {
 
   // Test 12: fail_step and skip_step actions
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
 
     // Submit a plan with 3 steps
     const submitCall = createToolCall('plan', {
@@ -641,7 +678,7 @@ export async function runTests(ctx) {
 
   // Test 13: submit tolerates `steps` alias for the `items` param
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const toolCall = createToolCall('plan', {
       action: 'submit',
       title: 'Steps Alias',
@@ -671,7 +708,7 @@ export async function runTests(ctx) {
 
   // Test 14: submit tolerates content field aliases (description/text/task)
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const toolCall = createToolCall('plan', {
       action: 'submit',
       title: 'Content Aliases',
@@ -705,7 +742,7 @@ export async function runTests(ctx) {
 
   // Test 15: submit defaults a missing title rather than rejecting
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const toolCall = createToolCall('plan', {
       action: 'submit',
       items: [{ content: 'Untitled step', status: 'pending' }]
@@ -738,7 +775,7 @@ export async function runTests(ctx) {
   // registry, then create a plan item the way execution does. The pre-fix code
   // (registry lookup) throws here; the fix constructs from `this.constructor`.
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const mt = conversation.rootMessageThread;
 
     const PlanClass = contextItemRegistry.get('plan');
@@ -776,7 +813,7 @@ export async function runTests(ctx) {
   // identical step contents and return true, so requiresApproval() &&
   // !isPermitted() is false.
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const mt = conversation.rootMessageThread;
 
     // Seed the current plan via a normal submit.
@@ -823,7 +860,7 @@ export async function runTests(ctx) {
   // sanity check removes the spurious approval; the data overwrite is
   // unchanged by design.
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const mt = conversation.rootMessageThread;
 
     const seedCall = createToolCall('plan', {
@@ -870,7 +907,7 @@ export async function runTests(ctx) {
 
   // Test 19: A submit that changes step contents (or count) still prompts.
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const mt = conversation.rootMessageThread;
 
     const seedCall = createToolCall('plan', {
@@ -924,7 +961,7 @@ export async function runTests(ctx) {
   // Test 20: First-ever submit (no existing plan) always prompts — the
   // sanity-check must not auto-approve when there is nothing to compare to.
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const mt = conversation.rootMessageThread;
 
     const planCI = mt.contextItems.find(f => f.type === 'plan');
@@ -951,7 +988,7 @@ export async function runTests(ctx) {
   // JSON-string items value — otherwise an aliased-but-identical submission
   // would wrongly prompt.
   try {
-    const conversation = await createTestConversation(session);
+    const conversation = await freshConversation(session);
     const mt = conversation.rootMessageThread;
 
     const seedCall = createToolCall('plan', {
@@ -985,6 +1022,9 @@ export async function runTests(ctx) {
     failed++;
     errors.push(`alias-aware match: ${e instanceof Error ? e.message : String(e)}`);
   }
+
+  // The last case has no successor to release it.
+  await releasePreviousConversation(session);
 
   return { passed, failed, errors };
 }

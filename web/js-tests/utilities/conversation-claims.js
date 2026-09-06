@@ -71,6 +71,17 @@ export function registerOwnConversation(convId) {
   w.__ownConversationIds.add(convId);
 }
 
+/**
+ * Drop this lane's claim on a conversation it has already deleted. The
+ * suite-end sweep deletes everything still claimed, so a test that releases a
+ * conversation of its own accord says so here — otherwise the sweep spends a
+ * DELETE apiece chasing ids that are already gone.
+ * @param {string} convId
+ */
+export function forgetOwnConversation(convId) {
+  /** @type {any} */ (window).__ownConversationIds?.delete(convId);
+}
+
 let _installed = false;
 
 /**

@@ -21,8 +21,10 @@ import {
   initializeRegistries,
   createTestSession,
   createTestConversation,
+  releaseTestConversation,
   waitForWorkerReady
 } from '../utilities/test-helpers.js';
+import { snapshotOwnConversationIds } from '../utilities/conversation-claims.js';
 
 import workerManager from '../../js/services/worker-manager.js';
 import { TOOL_STATES } from '../../sdk/lib/message.js';
@@ -2402,6 +2404,80 @@ async function testForwardOrderDeletionOrdering(session) {
 }
 
 // =============================================================================
+// Conversation budget
+// =============================================================================
+
+/**
+ * How many conversations this suite may hold open at once. Every case creates
+ * its own, so one is the working number and two is slack for a case that
+ * overlaps a create with the release of its predecessor.
+ */
+const MAX_HELD_CONVERSATIONS = 2;
+
+/**
+ * The most conversations this suite was holding when a case ended, and the size
+ * of the lane's session map at the same moment. Sampled per case, so a run
+ * reports the peak rather than whatever the last case happened to leave.
+ */
+let heldConversationPeak = 0;
+let sessionMapPeak = 0;
+
+/**
+ * Record what this suite is holding, at a case boundary.
+ * @param {import('../../model/session.js').default} session - Session under test
+ * @param {Set<string>} claimsAtSuiteStart - Claims this lane held before the suite began
+ * @returns {void}
+ */
+function noteConversationPeak(session, claimsAtSuiteStart) {
+  const held = [...snapshotOwnConversationIds()].filter((id) => !claimsAtSuiteStart.has(id));
+  heldConversationPeak = Math.max(heldConversationPeak, held.length);
+  sessionMapPeak = Math.max(sessionMapPeak, session.conversations.size);
+}
+
+/**
+ * Delete the conversations one case created, and release this lane's claims on
+ * them. Best-effort: cleanup after a failing case must never replace the error
+ * that case is reporting.
+ * @param {import('../../model/session.js').default} session - Session under test
+ * @param {Set<string>} claimsBeforeCase - Claims this lane held before the case ran
+ * @param {string} testName - Case name, for the server's delete attribution
+ * @returns {Promise<void>}
+ */
+async function releaseCaseConversations(session, claimsBeforeCase, testName) {
+  const created = [...snapshotOwnConversationIds()].filter((id) => !claimsBeforeCase.has(id));
+  for (const id of created) {
+    try {
+      await releaseTestConversation(session, id, `undo-redo:${testName}`);
+    } catch (error) {
+      logger.warn(`[undo-redo-test] Couldn't release ${id}: ${error}`);
+    }
+  }
+}
+
+/**
+ * The suite holds one conversation at a time.
+ *
+ * This is a fact about the whole run, not about undo/redo. Every lane in the
+ * browser pool loads the same project on disk, and a session load stubs and
+ * queues a Yjs hydration for every conversation in it — so a suite that creates
+ * one conversation per case and keeps them all is charging every sibling lane
+ * for its own history. Runs last, once every case has been sampled.
+ * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
+ */
+async function testSuiteHoldsOneConversationAtATime() {
+  if (heldConversationPeak > MAX_HELD_CONVERSATIONS) {
+    throw new Error(
+      `This suite held ${heldConversationPeak} conversations at once ` +
+			`(the lane's session map peaked at ${sessionMapPeak}), over the budget of ` +
+			`${MAX_HELD_CONVERSATIONS}. Every lane in the pool loads this same project and ` +
+			`hydrates a document per conversation in it, so each case must release the ` +
+			`conversation it created.`
+    );
+  }
+  return { passed: 1, failed: 0, errors: [] };
+}
+
+// =============================================================================
 // Main Test Runner
 // =============================================================================
 
@@ -2463,11 +2539,16 @@ export async function runTests(_ctx) {
     // Deletion ordering tests
     { name: 'Reverse-Order Deletion Undo Ordering', fn: testReverseOrderDeletionOrdering },
     { name: 'Forward-Order Deletion Undo Ordering', fn: testForwardOrderDeletionOrdering },
+    // Last: reports on the cases above, so it has to follow all of them.
+    { name: 'Suite Holds One Conversation At A Time', fn: testSuiteHoldsOneConversationAtATime },
   ];
 
   let passed = 0;
   let failed = 0;
   const errors = [];
+  heldConversationPeak = 0;
+  sessionMapPeak = 0;
+  const claimsAtSuiteStart = snapshotOwnConversationIds();
 
   for (const test of tests) {
     // Per-case guard, riding the suite's budget. Its job is attribution — so a
@@ -2481,6 +2562,7 @@ export async function runTests(_ctx) {
       errors.push(`${test.name}: not run — an earlier case in this suite spent the whole budget`);
       continue;
     }
+    const claimsBeforeCase = snapshotOwnConversationIds();
     try {
       logger.info(`[undo-redo-test] Running: ${test.name}`);
       const timeoutPromise = new Promise((_, reject) =>
@@ -2497,6 +2579,10 @@ export async function runTests(_ctx) {
       errors.push(`${test.name}: ${msg}`);
       logger.error(`[undo-redo-test] ✗ ${test.name}: ${msg}`);
       if (stack) logger.error(`[undo-redo-test]   Stack: ${stack}`);
+    } finally {
+      // Sample before the release, so the peak is what the case actually held.
+      noteConversationPeak(session, claimsAtSuiteStart);
+      await releaseCaseConversations(session, claimsBeforeCase, test.name);
     }
   }
 

@@ -30,6 +30,7 @@ import workerManager from '../../js/services/worker-manager.js';
 import { plainToYMap } from '../../js/model/item-accessor.js';
 import toolExecutor from '../../js/services/tool-executor.js';
 import { noteProjectSize } from './project-size.js';
+import { forgetOwnConversation } from './conversation-claims.js';
 
 
 /**
@@ -207,6 +208,37 @@ export async function createTestConversation(session) {
   await waitForWorkerReady(convId);
 
   return conversation;
+}
+
+/**
+ * Release a conversation a test created: tear it down in this lane, then
+ * delete it from the shared project.
+ *
+ * A conversation kept until the suite-end sweep is not free company. Every lane
+ * in the pool loads the SAME project, and Session.load() builds a stub — and in
+ * time a hydrated Yjs doc — for every conversation in it. A suite that creates
+ * one per case and holds them all therefore raises what every sibling lane's
+ * load costs, for as long as it runs. A case that is finished with its
+ * conversation says so here.
+ *
+ * Local teardown first (releaseConversation cancels the load, destroys the
+ * worker and drops the map entry) so the folder is free before the backend
+ * removes it — the order Session.deleteConversation uses. The delete is
+ * permanent: binning would fill the bin over a run and nothing restores it.
+ * @param {Session} session - Session that owns the conversation
+ * @param {string} conversationId - Conversation to release
+ * @param {string} reason - Attribution tag the server logs with the delete
+ * @returns {Promise<void>}
+ */
+export async function releaseTestConversation(session, conversationId, reason) {
+  const apiService = (await import('../../js/services/api.js')).default;
+  await session.releaseConversation(conversationId);
+  try {
+    await apiService.deleteConversation(conversationId, { permanent: true, reason });
+  } catch (err) {
+    console.error(`[test-helpers] Couldn't delete ${conversationId}:`, err);
+  }
+  forgetOwnConversation(conversationId);
 }
 
 /**

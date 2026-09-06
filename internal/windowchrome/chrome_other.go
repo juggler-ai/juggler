@@ -5,19 +5,12 @@
 //go:build !darwin
 
 // Package windowchrome paints a Wails window's native chrome to match the page
-// theme. Everything it does is macOS-specific: the Wails native window
-// background suffices on Windows and Linux, and the desktop app handles the OS
-// colour scheme there in its own platform files. These no-ops exist so the
-// package still builds everywhere rather than being import-guarded per caller.
+// theme. Everything it does is macOS-specific, so off macOS the package is
+// empty and nothing imports it: each host's own platform files say what happens
+// there instead — the desktop app (cmd/juggler-app) watches the OS colour
+// scheme over D-Bus on Linux and trusts the page's guess on Windows, and the
+// server's test-pool window (cmd/juggler/app) does nothing either place. This
+// file carries no declarations; it exists so the directory is still a buildable
+// package everywhere, which is what keeps it inside the ./internal/... vet,
+// lint and deadcode patterns.
 package windowchrome
-
-import "github.com/wailsapp/wails/v3/pkg/application"
-
-// Apply is a no-op off macOS.
-func Apply(_ *application.WebviewWindow, _ application.RGBA) {}
-
-// PaintSystem is a no-op off macOS: there is no forced NSWindow appearance to
-// clear, so the page's own guess stands.
-func PaintSystem(_ *application.WebviewWindow, pageColour application.RGBA, pageTheme string, _, _ application.RGBA) (application.RGBA, string) {
-	return pageColour, pageTheme
-}

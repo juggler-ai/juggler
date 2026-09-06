@@ -104,11 +104,11 @@ func TestCheckOnce(t *testing.T) {
 	if err := c.CheckOnce(context.Background()); err != nil {
 		t.Fatalf("CheckOnce: %v", err)
 	}
-	// Self-describing query params reached the server.
-	for _, want := range []string{"v=v0.0.8", "os=darwin", "arch=arm64"} {
-		if !contains(gotQuery, want) {
-			t.Errorf("query %q missing %q", gotQuery, want)
-		}
+	// The whole query, not just the parts we expect: the request describes the
+	// build and carries nothing else, so anything added here has to be
+	// deliberate enough to update this line.
+	if want := "arch=arm64&os=darwin&v=v0.0.8"; gotQuery != want {
+		t.Errorf("query = %q, want %q", gotQuery, want)
 	}
 	st := c.Current()
 	if !st.UpdateAvailable || st.Notice == nil || st.Notice.ID != "upgrade-0.1.0" {
@@ -227,11 +227,108 @@ func TestCheckOnceGateDisabled(t *testing.T) {
 	}
 }
 
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
+// markStub supplies a fixed mark and records how it was used.
+type markStub struct {
+	mark     int
+	calls    int
+	released int
+}
+
+func (s *markStub) fn() (int, func()) {
+	s.calls++
+	return s.mark, func() { s.released++ }
+}
+
+func TestCheckOnceMark(t *testing.T) {
+	const manifest = `{"schema":"juggler-version","schemaVersion":1,"latest":"v0.1.0"}`
+	// serve returns a checker wired to stub, plus a pointer to the last query.
+	serve := func(t *testing.T, stub *markStub, enabled bool, h http.HandlerFunc) (*Checker, *string) {
+		got := new(string)
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			*got = r.URL.RawQuery
+			h(w, r)
+		}))
+		t.Cleanup(srv.Close)
+		return New(Config{
+			URL:            srv.URL,
+			CurrentVersion: "v0.0.8",
+			OS:             "darwin",
+			Arch:           "arm64",
+			Mark:           stub.fn,
+			Enabled:        func() bool { return enabled },
+		}), got
 	}
-	return false
+	ok := func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(manifest)) }
+
+	t.Run("the mark rides on the scheduled check", func(t *testing.T) {
+		stub := &markStub{mark: 3}
+		c, got := serve(t, stub, true, ok)
+		if err := c.CheckOnce(context.Background()); err != nil {
+			t.Fatalf("CheckOnce: %v", err)
+		}
+		if want := "arch=arm64&countme=3&os=darwin&v=v0.0.8"; *got != want {
+			t.Errorf("query = %q, want %q", *got, want)
+		}
+		if stub.released != 0 {
+			t.Errorf("release ran %d times after a good check, want 0", stub.released)
+		}
+	})
+
+	t.Run("nothing to claim sends no param", func(t *testing.T) {
+		stub := &markStub{mark: 0}
+		c, got := serve(t, stub, true, ok)
+		if err := c.CheckOnce(context.Background()); err != nil {
+			t.Fatalf("CheckOnce: %v", err)
+		}
+		if want := "arch=arm64&os=darwin&v=v0.0.8"; *got != want {
+			t.Errorf("query = %q, want %q (no countme=0)", *got, want)
+		}
+	})
+
+	t.Run("manual and gated checks never consult the claim", func(t *testing.T) {
+		// CheckNow deliberately ignores the Enabled gate, so it must not reach
+		// for a mark at all rather than merely dropping it.
+		stub := &markStub{mark: 3}
+		c, got := serve(t, stub, false, ok)
+		if err := c.CheckNow(context.Background()); err != nil {
+			t.Fatalf("CheckNow: %v", err)
+		}
+		if want := "arch=arm64&os=darwin&v=v0.0.8"; *got != want {
+			t.Errorf("manual query = %q, want %q", *got, want)
+		}
+		if err := c.CheckOnce(context.Background()); err != nil {
+			t.Fatalf("CheckOnce (gated): %v", err)
+		}
+		if stub.calls != 0 {
+			t.Errorf("claim consulted %d times off the scheduled path, want 0", stub.calls)
+		}
+	})
+
+	t.Run("a request that never arrives gives the claim back", func(t *testing.T) {
+		stub := &markStub{mark: 3}
+		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		srv.Close() // nothing listening
+		c := New(Config{URL: srv.URL, CurrentVersion: "v0.0.8", Mark: stub.fn})
+		if err := c.CheckOnce(context.Background()); err == nil {
+			t.Fatal("expected a transport error")
+		}
+		if stub.released != 1 {
+			t.Errorf("release ran %d times, want 1", stub.released)
+		}
+	})
+
+	t.Run("an error response keeps the claim", func(t *testing.T) {
+		// The request arrived and was recorded at the other end before the
+		// version lookup failed, so handing it back would report twice.
+		stub := &markStub{mark: 3}
+		c, _ := serve(t, stub, true, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusBadGateway)
+		})
+		if err := c.CheckOnce(context.Background()); err == nil {
+			t.Fatal("expected an error for a 502")
+		}
+		if stub.released != 0 {
+			t.Errorf("release ran %d times after a 502, want 0", stub.released)
+		}
+	})
 }

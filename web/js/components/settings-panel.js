@@ -257,7 +257,8 @@ class SettingsPanel extends HTMLElement {
                     <section class="settings-tab-content" id="tab-updates">
                         <p class="settings-description">
                             Control whether Juggler checks for and downloads new versions, and
-                            check for one now.
+                            check for one now. A check sends this build's version, OS and
+                            architecture, and counts each install once a day.
                         </p>
                         <div class="settings-form" id="updates-form"></div>
                     </section>

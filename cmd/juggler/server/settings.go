@@ -65,13 +65,22 @@ func (s *settingsStore) get() core.GlobalSettings {
 func (s *settingsStore) set(next core.GlobalSettings) error {
 	resp := make(chan error, 1)
 	s.reqs <- func(cur *core.GlobalSettings) *core.GlobalSettings {
-		n := next
-		if err := core.SaveGlobalSettings(&n); err != nil {
+		// Merge onto the document as it stands on disk rather than replacing it:
+		// another project's server may have written since this one loaded, and
+		// the four sections below are the whole of what the API owns.
+		stored, err := core.UpdateGlobalSettings(func(gs *core.GlobalSettings) bool {
+			gs.Updates.Mode = next.Updates.Mode
+			gs.Connectivity = next.Connectivity
+			gs.Network = next.Network
+			gs.Models = next.Models
+			return true
+		})
+		if err != nil {
 			resp <- err
 			return nil // keep the old in-memory state on a failed write
 		}
 		resp <- nil
-		return &n
+		return stored
 	}
 	return <-resp
 }

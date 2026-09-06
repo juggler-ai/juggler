@@ -255,9 +255,7 @@ func compileLine(raw string) (rule, bool) {
 	// A slash anywhere other than a stripped trailing slash anchors the pattern
 	// to the containing directory. A leading slash only anchors.
 	anchored := strings.Contains(line, "/")
-	if strings.HasPrefix(line, "/") {
-		line = line[1:]
-	}
+	line = strings.TrimPrefix(line, "/")
 	if line == "" {
 		return rule{}, false
 	}

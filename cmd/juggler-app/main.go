@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	"juggler/internal/jlog"
-	"juggler/internal/userpaths"
 	"juggler/internal/webviewenv"
 )
 
@@ -41,11 +40,6 @@ func main() {
 	initAppLogging()
 	defer jlog.Close()
 	logf("start: url=%q project=%q args=%v", *urlFlag, *project, os.Args)
-	// One-time XDG relocation of a legacy ~/.juggler tree, before anything reads
-	// the per-user config dir (workspace.json et al). Idempotent and race-safe
-	// with any server this process later spawns; a no-op off Linux.
-	// MIGRATION(xdg, remove-by v0.6.0): delete this call when userpaths.Migrate goes away.
-	userpaths.Migrate(logf)
 	// Before any GTK/WebKit init: on a Linux host that blocks the unprivileged
 	// user namespaces WebKitGTK's bwrap sandbox needs, disable that sandbox so
 	// the window can come up instead of aborting with a cgo SIGTRAP. No-op off

@@ -10,12 +10,13 @@
 // manifest — the next poll reflects it.
 //
 // The request carries the running version, OS and arch as query params
-// (?v=&os=&arch=). On static hosting (GitHub Pages) these are ignored and the
+// (?v=&os=&arch=), plus a mark on the day's first scheduled check (see
+// Config.Mark). On static hosting (GitHub Pages) these are ignored and the
 // version comparison happens here; once juggler.studio gains a real backend the
 // same params let it target responses and gather analytics without any client
 // change. The manifest also reserves a `downloads` block (per os/arch artifact
-// URLs + integrity fields) for a future auto-updater; it is parsed but unused
-// by the notice path today.
+// URLs + integrity fields) for a future auto-updater; it is parsed but unused by
+// the notice path today.
 package updatecheck
 
 import (
@@ -184,6 +185,13 @@ type Config struct {
 	// Status (the user has turned automatic checking off). A nil Enabled means
 	// always-on. The manual path (CheckNow) bypasses this gate entirely.
 	Enabled func() bool
+	// Mark supplies the countme value for a scheduled check, plus a release
+	// called at most once — when the request never reached a server — so the
+	// caller can take the mark back. Zero sends no param; a nil Mark never does.
+	//
+	// Consulted only on the gated scheduled path. CheckNow runs regardless of
+	// the Enabled gate, so it must not spend a mark the user has opted out of.
+	Mark func() (mark int, release func())
 }
 
 // Checker polls the manifest and holds the latest computed Status in memory.
@@ -258,19 +266,27 @@ func (c *Checker) CheckOnce(ctx context.Context) error {
 	if c.cfg.Enabled != nil && !c.cfg.Enabled() {
 		return nil
 	}
-	return c.checkOnce(ctx)
+	mark, release := 0, func() {}
+	if c.cfg.Mark != nil {
+		mark, release = c.cfg.Mark()
+	}
+	return c.checkOnce(ctx, mark, release)
 }
 
 // CheckNow performs a manual check that always runs, bypassing the Enabled gate
-// — an explicit user "Check for updates" overrides the automatic-off policy.
+// — an explicit user "Check for updates" overrides the automatic-off policy. It
+// never carries a mark; see Config.Mark.
 func (c *Checker) CheckNow(ctx context.Context) error {
-	return c.checkOnce(ctx)
+	return c.checkOnce(ctx, 0, func() {})
 }
 
 // checkOnce is the ungated fetch-and-recompute shared by CheckOnce and CheckNow.
-func (c *Checker) checkOnce(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.requestURL(), nil)
+// release runs only when the request never reached a server: any response at
+// all, an error status included, was recorded at the other end already.
+func (c *Checker) checkOnce(ctx context.Context, mark int, release func()) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.requestURL(mark), nil)
 	if err != nil {
+		release()
 		return err
 	}
 	req.Header.Set("User-Agent", "juggler/"+c.cfg.CurrentVersion)
@@ -281,6 +297,7 @@ func (c *Checker) checkOnce(ctx context.Context) error {
 
 	resp, err := c.cfg.Client.Do(req)
 	if err != nil {
+		release()
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -325,7 +342,8 @@ func (c *Checker) checkOnce(ctx context.Context) error {
 
 // requestURL appends the self-describing query params to the configured URL.
 // Malformed base URLs fall back to the raw string so a poll is still attempted.
-func (c *Checker) requestURL() string {
+// A zero mark is omitted rather than sent as "countme=0".
+func (c *Checker) requestURL(mark int) string {
 	u, err := url.Parse(c.cfg.URL)
 	if err != nil {
 		return c.cfg.URL
@@ -337,6 +355,9 @@ func (c *Checker) requestURL() string {
 	}
 	if c.cfg.Arch != "" {
 		q.Set("arch", c.cfg.Arch)
+	}
+	if mark > 0 {
+		q.Set("countme", strconv.Itoa(mark))
 	}
 	u.RawQuery = q.Encode()
 	return u.String()

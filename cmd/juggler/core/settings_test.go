@@ -5,6 +5,7 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -277,6 +278,103 @@ func TestLoadGlobalSettingsMissingFileNoHiddenModels(t *testing.T) {
 	}
 	if gs.IsModelHidden("mistral", "mistral-large-latest") {
 		t.Fatal("nothing is hidden on a fresh install")
+	}
+}
+
+func TestUpdateGlobalSettingsMergesOntoDisk(t *testing.T) {
+	userpathstest.Isolate(t)
+	if err := SaveGlobalSettings(&GlobalSettings{
+		Updates: UpdateSettings{Mode: UpdateModeNotify},
+		Network: NetworkSettings{Proxy: ProxySettings{Mode: ProxyModeManual, URL: "http://127.0.0.1:7890"}},
+	}); err != nil {
+		t.Fatalf("SaveGlobalSettings: %v", err)
+	}
+	// A second process changes one field. It must not revert the rest, which is
+	// what writing back its own copy of the document would have done.
+	stored, err := UpdateGlobalSettings(func(gs *GlobalSettings) bool {
+		gs.Connectivity.LANOnLaunch = true
+		return true
+	})
+	if err != nil {
+		t.Fatalf("UpdateGlobalSettings: %v", err)
+	}
+	if !stored.Connectivity.LANOnLaunch {
+		t.Fatal("returned document missing the change")
+	}
+	gs, err := LoadGlobalSettings()
+	if err != nil {
+		t.Fatalf("LoadGlobalSettings: %v", err)
+	}
+	if !gs.Connectivity.LANOnLaunch {
+		t.Fatal("change not persisted")
+	}
+	if gs.Updates.Mode != UpdateModeNotify {
+		t.Fatalf("mode = %q, want it untouched at %q", gs.Updates.Mode, UpdateModeNotify)
+	}
+	if gs.Network.Proxy.URL != "http://127.0.0.1:7890" {
+		t.Fatalf("proxy url = %q, want it untouched", gs.Network.Proxy.URL)
+	}
+}
+
+func TestUpdateGlobalSettingsSkipsWriteWhenUnchanged(t *testing.T) {
+	userpathstest.Isolate(t)
+	if err := SaveGlobalSettings(&GlobalSettings{Updates: UpdateSettings{Mode: UpdateModeNotify}}); err != nil {
+		t.Fatalf("SaveGlobalSettings: %v", err)
+	}
+	path := filepath.Join(userpaths.ConfigDir(), "settings.json")
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	// Returning false means "nothing to do" — a poller that runs every few
+	// hours and changes a field once a day must not rewrite the file each time.
+	if _, err := UpdateGlobalSettings(func(*GlobalSettings) bool { return false }); err != nil {
+		t.Fatalf("UpdateGlobalSettings: %v", err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if !before.ModTime().Equal(after.ModTime()) {
+		t.Fatal("file rewritten despite mutate reporting no change")
+	}
+}
+
+func TestUpdateGlobalSettingsSerialisesConcurrentWriters(t *testing.T) {
+	userpathstest.Isolate(t)
+	// One machine, several project servers, all waking at once. Every increment
+	// must survive: a lost update here is one writer silently reverting another.
+	const writers = 8
+	start := make(chan struct{})
+	done := make(chan error, writers)
+	for i := 0; i < writers; i++ {
+		id := fmt.Sprintf("model-%d", i)
+		go func() {
+			<-start
+			_, err := UpdateGlobalSettings(func(gs *GlobalSettings) bool {
+				if gs.Models.Hidden == nil {
+					gs.Models.Hidden = map[string][]string{}
+				}
+				gs.Models.Hidden["p"] = append(gs.Models.Hidden["p"], id)
+				return true
+			})
+			done <- err
+		}()
+	}
+	close(start)
+	for i := 0; i < writers; i++ {
+		if err := <-done; err != nil {
+			t.Fatalf("writer %d: %v", i, err)
+		}
+	}
+	gs, err := LoadGlobalSettings()
+	if err != nil {
+		t.Fatalf("LoadGlobalSettings: %v", err)
+	}
+	// Distinct ids, so de-duplication can't mask a lost update: all eight have
+	// to be there. Without the lock the last writer's copy wins and most vanish.
+	if got := len(gs.Models.Hidden["p"]); got != writers {
+		t.Fatalf("%d of %d concurrent writes survived: %v", got, writers, gs.Models.Hidden["p"])
 	}
 }
 

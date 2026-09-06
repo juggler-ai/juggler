@@ -195,6 +195,15 @@ the dialog — that operation is blocked on the answer, so it can never reach a
 later step. `assert-confirm-shown` waits for the dialog to have appeared (failing
 if it never did) and clears the arm.
 
+Because the arm goes first, its clock is already running while the operation
+does its own work — loading registries, cancelling a live turn — before the
+dialog is raised. That is why the watcher rides the test's deadline rather than a
+fixed timeout: the production confirm resolves on a click and on nothing else, so
+a watcher that gives up early does not fail the test, it strands it, and the
+failure arrives much later naming only the operation it was in. If that ever
+happens the failure block says `ARMED CONFIRM GAVE UP` and what it was waiting
+for.
+
 ```javascript
 { type: 'expect-confirm', answer: false },
 { type: 'run-command-no-wait', command: 'compact' },

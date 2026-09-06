@@ -5,13 +5,18 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/gofrs/flock"
+
+	"juggler/internal/jlog"
 	"juggler/internal/userpaths"
 )
 
@@ -130,6 +135,11 @@ type UpdateSettings struct {
 	// An empty value normalises to automatic (the shipped default), so an
 	// absent file or an untouched setting behaves exactly as before.
 	Mode string `json:"mode,omitempty"`
+	// Bookkeeping for the update check: the UTC day ("2006-01-02") and month
+	// ("2006-01") it last reported on. Server-owned — the settings API never
+	// posts these, and nothing outside the update check reads them.
+	LastCountedDay   string `json:"lastCountedDay,omitempty"`
+	LastCountedMonth string `json:"lastCountedMonth,omitempty"`
 }
 
 // Update-mode values persisted in UpdateSettings.Mode.
@@ -235,27 +245,120 @@ func LoadGlobalSettings() (*GlobalSettings, error) {
 	return gs, nil
 }
 
-// SaveGlobalSettings writes gs as indented JSON (0644), creating the config
-// directory if needed. The mode is normalised before writing so the file always
-// holds a canonical value.
-func SaveGlobalSettings(gs *GlobalSettings) error {
-	if gs == nil {
-		gs = defaultGlobalSettings()
-	}
-	gs.Updates.Mode = NormalizeUpdateMode(gs.Updates.Mode)
-	gs.Network.Proxy.Mode = NormalizeProxyMode(gs.Network.Proxy.Mode)
-	normalizeModelSettings(&gs.Models)
+// settingsLockPath is the cross-process lock guarding writes to the settings
+// document. Reads are unlocked: a write lands by rename, so a reader sees
+// either the whole old document or the whole new one, never a mix.
+func settingsLockPath() string {
+	return filepath.Join(userpaths.ConfigDir(), "settings.lock")
+}
 
+// settingsLockTimeout bounds the wait for the settings lock. Writes are short
+// and rare, so reaching this means a stuck holder rather than contention; the
+// caller reports the failure instead of blocking a poll loop indefinitely.
+const settingsLockTimeout = 5 * time.Second
+
+// withSettingsLock runs fn holding an exclusive lock on the settings document.
+// A machine runs one juggler server per open project, so "load, change one
+// field, write it back" is genuinely concurrent across processes and has to be
+// serialised or one writer silently reverts another.
+func withSettingsLock(fn func() error) error {
 	dir := userpaths.ConfigDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
+	l := flock.New(settingsLockPath())
+	ctx, cancel := context.WithTimeout(context.Background(), settingsLockTimeout)
+	defer cancel()
+	locked, err := l.TryLockContext(ctx, 20*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("failed to lock settings: %w", err)
+	}
+	if !locked {
+		return fmt.Errorf("timed out waiting for the settings lock")
+	}
+	defer func() {
+		if err := l.Unlock(); err != nil {
+			jlog.Error("[settings] failed to release the settings lock: %v", err)
+		}
+	}()
+	return fn()
+}
+
+// writeSettings normalises and writes gs. It must be called with the settings
+// lock held. The write goes to a temp file in the same directory and is renamed
+// into place, so an interrupted write leaves the previous document intact
+// rather than a truncated one that would reset every preference to its default.
+func writeSettings(gs *GlobalSettings) error {
+	gs.Updates.Mode = NormalizeUpdateMode(gs.Updates.Mode)
+	gs.Network.Proxy.Mode = NormalizeProxyMode(gs.Network.Proxy.Mode)
+	normalizeModelSettings(&gs.Models)
+
 	data, err := json.MarshalIndent(gs, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
-	if err := os.WriteFile(globalSettingsPath(), data, 0o644); err != nil {
+
+	dir := userpaths.ConfigDir()
+	tmp, err := os.CreateTemp(dir, "settings-*.json.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to write settings: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }() // no-op once the rename succeeds
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to write settings: %w", err)
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to write settings: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("failed to write settings: %w", err)
+	}
+	if err := os.Rename(tmpPath, globalSettingsPath()); err != nil {
 		return fmt.Errorf("failed to write settings: %w", err)
 	}
 	return nil
+}
+
+// SaveGlobalSettings writes gs as indented JSON (0644), creating the config
+// directory if needed. The mode is normalised before writing so the file always
+// holds a canonical value.
+//
+// It replaces the whole document, so it is only safe when the caller owns every
+// field. To change part of one, use UpdateGlobalSettings.
+func SaveGlobalSettings(gs *GlobalSettings) error {
+	if gs == nil {
+		gs = defaultGlobalSettings()
+	}
+	return withSettingsLock(func() error { return writeSettings(gs) })
+}
+
+// UpdateGlobalSettings applies mutate to the settings document and saves the
+// result, all under the settings lock. mutate is handed the document as it is
+// on disk right now — never a copy the caller has been holding — and reports
+// whether it changed anything; false skips the write. The stored document is
+// returned either way.
+//
+// This is how anything long-running should change a setting. A machine runs one
+// juggler server per open project, so two of them writing whole documents from
+// their own copies will silently revert each other: change the proxy in one
+// window and hide a model in another, and whichever saves last wins outright.
+func UpdateGlobalSettings(mutate func(*GlobalSettings) bool) (*GlobalSettings, error) {
+	var gs *GlobalSettings
+	err := withSettingsLock(func() error {
+		var err error
+		if gs, err = LoadGlobalSettings(); err != nil {
+			// Defaults, matching LoadGlobalSettings' documented tolerance: a
+			// hand-edit typo must not wedge every later write.
+			jlog.Info("settings: reading before update: %v", err)
+		}
+		if !mutate(gs) {
+			return nil
+		}
+		return writeSettings(gs)
+	})
+	return gs, err
 }

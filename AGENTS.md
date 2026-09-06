@@ -95,8 +95,19 @@ line you already had and cuts the assertion that says what broke.
   heap, one main thread. Raising iframes while dropping windows to 1 serialises
   the suite onto that thread and produces cascades of arbitrary timeouts.
 - Suite timings are load-sensitive. A browser test that fails in a full run and
-  passes alone is a load artefact, not a regression — re-run the exact subtest
-  in isolation before investigating it.
+  passes alone is not a regression in the code it asserts on — re-run the exact
+  subtest in isolation before investigating it. It is not automatically "just
+  load" either: that shape has twice turned out to be a real harness fault that
+  only a busy machine reaches.
+- **Every wait in a test rides the per-test deadline** (`budgetFor` /
+  `deadlineFor` in `web/js-tests/utilities/test-deadline.js`), never a bare
+  nominal timeout of its own. A number chosen when a lane had the pool to itself
+  measures the pool rather than the code once nine lanes share a machine.
+  `unit:test-budget` asserts this contract; add a case to it when you add a wait.
+- A wait whose expiry does not itself fail the test — one that answers a dialog
+  or a prompt something else is blocked on — must record why it gave up. Silence
+  there turns a missed deadline into a hang that gets reported much later,
+  against whatever was in flight at the time.
 
 ## Git commits
 

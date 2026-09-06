@@ -549,7 +549,8 @@ build: lint go-build
 ## needed). Skips lint for a fast inner loop. Use `make build` (or
 ## `make test-full`) before opening a PR to run lint + tests.
 ##
-## Runs the Go package unit tests (`./cmd/...`, incl. the claudecode provider
+## Runs the Go package unit tests (`./cmd/...`, `./internal/...`, `./web/...`,
+## incl. the claudecode provider
 ## and worker) first, then the integration/browser suite — as distinct lines so
 ## a failure names which layer broke.
 ##
@@ -580,14 +581,15 @@ test: test-go
 		exit $$rc'
 
 ## test-go: Run Go package unit tests (claudecode provider, worker, etc.).
-## Scope is all of `./cmd/...` (~75s under -race; claudecode ~55s) — and
+## Scope is every first-party tree — `./cmd/...`, `./internal/...`, `./web/...`
+## (~75s under -race; claudecode ~55s) — and
 ## includes the tool-delivery permutation harness, which `make test` otherwise
 ## only compiled (via lint) and never executed.
 test-go: go-build
 	@mkdir -p $(BUILD_DIR)
 	@echo "── Go package tests ──"
 	@bash -c 'set -o pipefail; \
-		$(GOTEST) -count=1 $(RACE) -timeout 5m $(GOTEST_RUN) ./cmd/... 2>&1 $(QUIET_UNMATCHED) | tee $(BUILD_DIR)/test-go.log; \
+		$(GOTEST) -count=1 $(RACE) -timeout 5m $(GOTEST_RUN) ./cmd/... ./internal/... ./web/... 2>&1 $(QUIET_UNMATCHED) | tee $(BUILD_DIR)/test-go.log; \
 		rc=$${PIPESTATUS[0]}; \
 		if [ $$rc -eq 0 ]; then echo "✓ Go package tests passed"; else echo "✗ the Go package tests failed — their output is above"; fi; \
 		exit $$rc'
@@ -681,11 +683,11 @@ lint-fmt:
 # lint — or a deleted/stale embed file fails the typecheck (the generated copies
 # are therefore disposable, not hand-maintained).
 lint-go: app-icon-embed wails-runtime-embed
-	@$(GOVET) ./cmd/... ./tests/... ./web/...
+	@$(GOVET) ./cmd/... ./internal/... ./tests/... ./web/...
 	@GOLANGCI_LINT_VERSION="$(GOLANGCI_LINT_VERSION)" scripts/ensure-golangci-lint
-	@$(subst \,/,$(shell go env GOPATH))/bin/golangci-lint run --timeout=5m ./cmd/... ./tests/... ./web/...
+	@$(subst \,/,$(shell go env GOPATH))/bin/golangci-lint run --timeout=5m ./cmd/... ./internal/... ./tests/... ./web/...
 
-## lint-deadcode: Find unreachable Go functions in cmd/ (production code).
+## lint-deadcode: Find unreachable Go functions in first-party code.
 ## Test helpers and benchmark fixtures are excluded; mock methods in _test.go
 ## are filtered because they satisfy interfaces via dynamic dispatch that
 ## deadcode's conservative analysis cannot prove reachable.
@@ -693,13 +695,15 @@ lint-go: app-icon-embed wails-runtime-embed
 ## Package patterns are scoped explicitly to our own dirs — using ./... would
 ## sweep into tooling/node_modules/, which on a fresh `npm install` ships Go
 ## files (e.g. flatted/golang/pkg/flatted/) that are unrelated to this
-## module and tank the analysis with bogus "unreachable" hits.
+## module and tank the analysis with bogus "unreachable" hits. It would also
+## pull in 3rdparty/, the vendored wails fork, whose own suite is not ours to
+## run: hundreds of platform-specific and live-network tests.
 lint-deadcode: app-icon-embed wails-runtime-embed
 	@if [ ! -x "$(subst \,/,$(shell go env GOPATH))/bin/deadcode" ]; then \
 		echo "Installing deadcode..."; \
 		go install golang.org/x/tools/cmd/deadcode@latest; \
 	fi
-	@out=$$($(subst \,/,$(shell go env GOPATH))/bin/deadcode -test ./cmd/... ./tests/... ./web/... \
+	@out=$$($(subst \,/,$(shell go env GOPATH))/bin/deadcode -test ./cmd/... ./internal/... ./tests/... ./web/... \
 		| tr '\134' '/' \
 		| grep -v '_test\.go:' \
 		| grep -v '^tests/helpers/' \
@@ -766,7 +770,7 @@ fix-fmt:
 ## lint-go; embeds regenerated first so the fixers typecheck against the real build.
 fix-go: app-icon-embed wails-runtime-embed
 	@GOLANGCI_LINT_VERSION="$(GOLANGCI_LINT_VERSION)" scripts/ensure-golangci-lint
-	@$(subst \,/,$(shell go env GOPATH))/bin/golangci-lint run --fix --timeout=5m ./cmd/... ./tests/... ./web/...
+	@$(subst \,/,$(shell go env GOPATH))/bin/golangci-lint run --fix --timeout=5m ./cmd/... ./internal/... ./tests/... ./web/...
 
 ## fix-js: eslint --fix (same globs, config, and ignore patterns as lint-js).
 fix-js: node-deps

@@ -22,7 +22,6 @@ import (
 	"juggler/internal/httpx"
 	"juggler/internal/jlog"
 	"juggler/internal/logpaths"
-	"juggler/internal/userpaths"
 )
 
 // loadConfig determines the project path (from --project, cwd, or none) and
@@ -182,19 +181,6 @@ func (a *App) initLogging() error {
 	if n := logpaths.SweepOldLogs(logpaths.LogDir(), maxAge, time.Now()); n > 0 {
 		jlog.Debug("🧹 Removed %d stale log file(s) from %s", n, logpaths.LogDir())
 	}
-	return nil
-}
-
-// migrateUserDir performs the one-time XDG relocation of a legacy ~/.juggler
-// tree into the platform config/cache directories (Linux only; a no-op on
-// macOS/Windows and when JUGGLER_CONFIG_DIR is set). It runs after logging is up
-// but before any per-user state — credentials, sessions, recents — is read, so
-// every consumer sees the migrated content at its new home.
-//
-// MIGRATION(xdg, remove-by v0.6.0): delete this phase (and its entry in
-// startupPhases) when userpaths.Migrate goes away.
-func (a *App) migrateUserDir() error {
-	userpaths.Migrate(jlog.Info)
 	return nil
 }
 

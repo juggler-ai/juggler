@@ -250,6 +250,7 @@ import {
   setCurrentTestName
 } from './conversation-claims.js';
 import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
+import { fetchProjectSize, projectSizeLines } from './project-size.js';
 
 // Action progress events fire in the engine WebviewWindow's document; without
 // a bridge they are invisible to the test page. action-executor broadcasts
@@ -704,10 +705,21 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
       return {
         passed: 0,
         failed: 1,
-        errors: [`${suite.name}: unit suite timed out after ${UNIT_SUITE_BUDGET_MS}ms — it stopped making progress and never returned a result`]
+        errors: [
+          `${suite.name}: unit suite timed out after ${UNIT_SUITE_BUDGET_MS}ms — it stopped making progress and never returned a result`,
+          ...projectSizeLines(await fetchProjectSize())
+        ]
       };
     }
-    return /** @type {{passed: number, failed: number, errors: string[]}} */ (outcome);
+    const result = /** @type {{passed: number, failed: number, errors: string[]}} */ (outcome);
+    // Every lane shares one project, so how many conversations were in it is a
+    // property of the run rather than of this suite — and a suite that fails
+    // only under a full pool is the one case where that number is the evidence.
+    // Integration tests carry the same two lines (see projectSizeLines).
+    if (result.failed > 0) {
+      result.errors = [...result.errors, ...projectSizeLines(await fetchProjectSize())];
+    }
+    return result;
   } finally {
     // Disarm before cleanup: the deadline belongs to the suite, and cleanup
     // running under an expired one would give every wait in it a zero budget.

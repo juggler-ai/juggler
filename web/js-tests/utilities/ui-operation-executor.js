@@ -19,6 +19,7 @@ import {
 } from './test-assertions.js';
 import { threadRunSettled } from '../../js/model/run-records.js';
 import { SecondViewer } from './second-viewer.js';
+import { budgetFor } from './test-deadline.js';
 
 /**
  * @typedef {import('./integration-test-runner.js').TestOperation} TestOperation
@@ -44,8 +45,28 @@ import { SecondViewer } from './second-viewer.js';
  */
 let armedConfirm = null;
 
+/**
+ * Why the armed confirmation watcher last stopped waiting, or null if it has
+ * not.
+ *
+ * The operation that raises a dialog is blocked on the production confirm
+ * promise, which resolves on a click and on nothing else — so a watcher that
+ * gives up does not fail the test, it strands it, and the test dies later at
+ * the runner's hard timeout naming only the operation it was in. Keeping the
+ * give-up means that failure can say what actually happened.
+ * @type {string|null}
+ */
+let confirmGiveUp = null;
+
+/**
+ * @returns {string|null} Why the armed confirmation watcher gave up, if it did.
+ */
+export function lastConfirmGiveUp() {
+  return confirmGiveUp;
+}
+
 /** Stop watching for a confirmation, if one is armed. */
-function disarmConfirm() {
+export function disarmConfirm() {
   armedConfirm?.cancel();
   armedConfirm = null;
 }
@@ -849,7 +870,16 @@ export async function executeUIOperation(harness, op) {
       // A previous test in this lane's realm may have died holding an arm; its
       // watcher must not answer this test's dialog.
       disarmConfirm();
-      const pending = waitForConfirmDialog(wanted, op.timeoutMs || 5000);
+      confirmGiveUp = null;
+      // Rides the test's deadline rather than a bare nominal, and for a
+      // sharper reason than the other waits: the watcher is armed before the
+      // operation that raises the dialog, so its clock is already running
+      // while that operation loads registries and cancels the live turn. A
+      // watcher that gives up first cannot fail the test — nothing else will
+      // ever answer the dialog, so the operation blocks until the runner kills
+      // it. Patience here costs nothing, because the wait is in the background
+      // and the test's own timeout is the real bound either way.
+      const pending = waitForConfirmDialog(wanted, budgetFor(op.timeoutMs || 5000));
       const waiter = pending.promise
         .then(({ modal, button }) => {
           /** @type {SeenConfirmation} */
@@ -864,8 +894,14 @@ export async function executeUIOperation(harness, op) {
         });
       // Awaited by assert-confirm-shown, which sees any rejection. Swallowed
       // here as well so a test that dies before consuming its arm fails on its
-      // own error rather than on an unhandled rejection.
-      waiter.catch(() => {});
+      // own error rather than on an unhandled rejection — but recorded on the
+      // way past, because the operation this arm exists to answer is blocked on
+      // a promise nothing else will settle. Being superseded is the ordinary
+      // end of an arm and says nothing about a hang, so only a give-up counts.
+      waiter.catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes('superseded')) confirmGiveUp = message;
+      });
       armedConfirm = { promise: waiter, cancel: pending.cancel };
       break;
     }

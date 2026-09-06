@@ -24,6 +24,8 @@ import logger from './test-logger.js';
 import { dumpTape, clearTape } from '../../js/utils/event-tape.js';
 import { snapshotOwnConversationIds, deleteOwnConversationsCreatedSince, setCurrentTestName } from './conversation-claims.js';
 import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
+import { fetchProjectSize, projectSizeLines } from './project-size.js';
+import { lastConfirmGiveUp } from './ui-operation-executor.js';
 
 /**
  * Race a promise against a timeout so a wedged/slow server can never hang the
@@ -449,6 +451,10 @@ async function _fetchWorkerTape(convId) {
  */
 async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeoutMs, trace, operations, harness }) {
   const ident = _captureIframeIdentity();
+  // Start the shared-project size probe now and read it at the end: it is an
+  // HTTP round-trip like the tape fetches below, and overlapping it with them
+  // keeps it free inside the diagnostics build's own 5s budget.
+  const projectSize = fetchProjectSize();
   const totalOps = operations?.length ?? 0;
   const completedTypes = trace.opsCompleted.slice(-8).join(' → ') || '(none)';
 
@@ -462,6 +468,12 @@ async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeo
   }
 
   const snapshot = _renderDocSnapshot(harness?.conversation);
+
+  // An operation that raises a confirmation is blocked on a promise only a
+  // click settles, so a watcher that gave up explains a hang that otherwise
+  // arrives as a bare "timed out mid-op" with nothing in any tape.
+  const gaveUp = lastConfirmGiveUp();
+  const confirmLines = gaveUp ? [`  ARMED CONFIRM GAVE UP: ${gaveUp}`] : [];
 
   // Gather every tape source the failure block needs. The convIds we care
   // about are the ones this iframe owns — they are the affected
@@ -521,6 +533,8 @@ async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeo
     ...jsErrorLines,
     `  duration: ${durationMs}ms (per-test timeout: ${perTestTimeoutMs}ms)`,
     `  iframe: ${ident.iframe}  visible-conv: ${ident.visibleConversationId || 'none'}  own: [${ident.ownConversationIds.join(', ')}]`,
+    ...projectSizeLines(await projectSize),
+    ...confirmLines,
     `  ${opLine}`,
     `  ops completed (last 8 of ${trace.opsCompleted.length}): ${completedTypes}`,
     `  doc snapshot:`,

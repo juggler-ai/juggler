@@ -346,7 +346,7 @@ func runOneBrowserTest(t *testing.T, srv testServerEntry) {
 		if death := poolDeath(srv); death != "" {
 			t.Fatalf("waiting for test result: %v\n%s", err, death)
 		}
-		t.Fatalf("waiting for test result: %v\n%s", err, queueAudit(srv.addr, name))
+		t.Fatalf("waiting for test result: %v\n%s%s", err, queueAudit(srv.addr, name), projectSize(srv.addr))
 	}
 
 	if !result.Passed {
@@ -575,6 +575,38 @@ func queueAudit(addr, testName string) string {
 			"harness was polling a key the result was not filed under.\n", agoString(a.ResultPostedAgeMs))
 	}
 	return b.String()
+}
+
+// projectSize reports how many conversations the lanes' shared project held at
+// the moment a test was given up on.
+//
+// Every lane in the pool works inside one session on disk, and each lane
+// rebuilds a Yjs document per conversation in it on every session load, so that
+// count is the run's background load. A test lost with the project at a handful
+// of conversations and one lost with it near MAX_CONVERSATIONS are different
+// failures wanting opposite fixes, and until this line existed nothing recorded
+// which had happened. Browser-side failures carry the same number themselves;
+// this covers the case where no result comes back at all. Best-effort: the
+// probe is a diagnostic and must never replace the failure it annotates.
+func projectSize(addr string) string {
+	client := &http.Client{Timeout: harnessHTTPTimeout}
+	resp, err := client.Get("http://" + addr + "/api/session")
+	if err != nil {
+		return fmt.Sprintf("PROJECT SIZE: unavailable (%v)", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Sprintf("PROJECT SIZE: endpoint returned %d", resp.StatusCode)
+	}
+	var sess struct {
+		ConversationOrder []string `json:"conversationOrder"`
+		BinnedCount       int      `json:"binnedCount"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&sess); err != nil {
+		return fmt.Sprintf("PROJECT SIZE: undecodable (%v)", err)
+	}
+	return fmt.Sprintf("PROJECT SIZE: %d conversation(s), %d binned — [%s]",
+		len(sess.ConversationOrder), sess.BinnedCount, strings.Join(sess.ConversationOrder, ", "))
 }
 
 func copyDir(src, dst string) error {

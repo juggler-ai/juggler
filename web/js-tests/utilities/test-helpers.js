@@ -29,6 +29,7 @@ import {
 import workerManager from '../../js/services/worker-manager.js';
 import { plainToYMap } from '../../js/model/item-accessor.js';
 import toolExecutor from '../../js/services/tool-executor.js';
+import { noteProjectSize } from './project-size.js';
 
 
 /**
@@ -163,6 +164,10 @@ export async function createTestSession() {
 
   // Load session data from backend
   await session.load();
+
+  // Record the size of the shared project this load saw, so a failure later in
+  // the lane can report the trajectory as well as the size at the failure.
+  noteProjectSize(session.conversations.size);
 
   return session;
 }

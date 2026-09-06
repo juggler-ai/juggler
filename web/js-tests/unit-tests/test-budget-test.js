@@ -19,8 +19,9 @@
  */
 
 import { assert, waitFor } from '../utilities/test-helpers.js';
-import { budgetFor, testDeadlineMs } from '../utilities/test-deadline.js';
+import { budgetFor, testDeadlineMs, setTestDeadline } from '../utilities/test-deadline.js';
 import UIDriver from '../utilities/ui-driver.js';
+import { executeUIOperation, lastConfirmGiveUp, disarmConfirm } from '../utilities/ui-operation-executor.js';
 
 /**
  * @typedef {object} TestContext
@@ -132,6 +133,42 @@ export async function runTests(_ctx) {
   } catch (e) {
     failed++;
     errors.push(`waitFor stays bounded and names its condition: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // `expect-confirm` is the one wait in the harness whose nominal timeout, when
+  // missed, does not produce a failure at all. It arms a watcher BEFORE the
+  // operation that raises the dialog, because that operation blocks on the
+  // production confirm promise — and that promise has no timeout of its own
+  // (modal-dialog.js resolves it on a click and on nothing else). So a watcher
+  // that gives up early leaves nobody to answer the dialog, and the operation
+  // hangs until the runner kills the whole test. Both halves are covered here:
+  // the watcher must ride the deadline like every other wait, and when it does
+  // give up it must leave a record, so the hang that follows names its cause
+  // instead of arriving as an anonymous timeout.
+  try {
+    const armedDeadline = testDeadlineMs();
+    try {
+      // A deadline already spent collapses budgetFor to nothing, so a watcher
+      // riding it gives up at once while one pinned to its nominal 5s does not.
+      setTestDeadline(Date.now() - 4900);
+      await executeUIOperation(/** @type {any} */ ({}), { type: 'expect-confirm', answer: true });
+      await waitFor(() => lastConfirmGiveUp() !== null, {
+        timeoutMs: 1000,
+        description: 'the armed confirmation watcher to give up and say so'
+      });
+      const giveUp = lastConfirmGiveUp() || '';
+      assert(
+        giveUp.includes('no confirmation'),
+        `the recorded give-up must say what the watcher was waiting for, got: ${giveUp}`
+      );
+    } finally {
+      disarmConfirm();
+      setTestDeadline(armedDeadline);
+    }
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`the armed confirmation watcher rides the deadline and records giving up: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   return { passed, failed, errors };

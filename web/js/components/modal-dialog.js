@@ -182,6 +182,14 @@ class ModalDialog extends HTMLElement {
       clearTimeout(this._noticeTimer);
       this._noticeTimer = null;
     }
+    // Answer the call this one displaces. It has lost the panel, so no click can
+    // ever reach it, and a caller left awaiting a promise nothing will settle
+    // stops mid-flow with nothing on screen to say so. `null` is the value every
+    // other dismissal path uses.
+    if (this.resolvePromise) {
+      this.resolvePromise(null);
+      this.resolvePromise = null;
+    }
 
     // Snapshot the pre-show focus so close() can hand the keyboard back. Guard
     // against our own elements: a second show() over an open dialog would
@@ -452,22 +460,31 @@ customElements.define('modal-dialog', ModalDialog);
  * @property {boolean} [danger] - Use danger styling for confirm button
  */
 
+/**
+ * The element every `showModal` call presents in, held by reference rather than
+ * found by selector. A notice is a `<modal-dialog>` too, so a search of the
+ * document can return one — and a notice removes its own element when it is
+ * dismissed, taking any dialog presented in it down as well.
+ * @type {any}
+ */
+let singletonModal = null;
+
 // The one presenter every dialog below goes through, and the only place the
-// singleton `<modal-dialog>` is located or created. It stays on `window`
-// deliberately: extensions reach it by name, and a test that stands in for it
-// intercepts every dialog in the app, however the caller asked for one.
+// singleton `<modal-dialog>` is created. It stays on `window` deliberately:
+// extensions reach it by name, and a test that stands in for it intercepts
+// every dialog in the app, however the caller asked for one.
 // @ts-ignore - Extending window object
 window.showModal = async function(/** @type {ModalOptions} */ options) {
-  let modal = document.querySelector('modal-dialog');
-  if (!modal) {
-    modal = document.createElement('modal-dialog');
+  // Something else may have taken it out of the document (a view replacing
+  // <body>, a test tearing down): an orphaned element is not worth showing in.
+  if (!singletonModal || !singletonModal.isConnected) {
+    singletonModal = document.createElement('modal-dialog');
   }
   // Re-append so the dialog is last in <body>; at equal z-index this puts it
   // above any other modal-level element (e.g. bin-modal) that was opened
   // first and would otherwise stack on top.
-  document.body.appendChild(modal);
-  // @ts-ignore - modal-dialog element has show method
-  return await modal.show(options);
+  document.body.appendChild(singletonModal);
+  return await singletonModal.show(options);
 };
 
 // Convenience methods. The view layer imports these directly rather than
@@ -560,8 +577,10 @@ let activeNotice = null;
  * Unlike the `showModal`-backed helpers above, this creates a FRESH
  * `<modal-dialog>` per call and removes it once dismissed, so a notice fired
  * while a `showConfirm`/`showPrompt` singleton is open can never clobber that
- * dialog or its unresolved promise. A new notice replaces any still-showing
- * notice rather than stacking. Dismisses on: auto-timeout (default 5s),
+ * dialog or its unresolved promise. The reverse holds because `showModal` keeps
+ * its own element: a dialog raised while a notice is on screen presents beside
+ * it, not in it, and so survives the notice's dismissal. A new notice replaces
+ * any still-showing notice rather than stacking. Dismisses on: auto-timeout (default 5s),
  * backdrop click, Escape, or the browser/mobile Back button (the last two via
  * the modal-dialog's existing `markPopupOpen` wiring).
  * @param {string} message - Notice text to display.

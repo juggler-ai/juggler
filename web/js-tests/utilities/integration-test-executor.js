@@ -106,6 +106,7 @@ import { runTests as runPathInputQuotesTests } from '../unit-tests/path-input-qu
 import { runTests as runSearchActionTests } from '../unit-tests/search-action-test.js';
 import { runTests as runToolCancellationTests } from '../unit-tests/tool-cancellation-test.js';
 import { runTests as runUnboundedAwaitTests } from '../unit-tests/unbounded-await-test.js';
+import { runTests as runModalSupersedeTests } from '../unit-tests/modal-supersede-test.js';
 import { runTests as runConversationReleaseTests } from '../unit-tests/conversation-release-test.js';
 import { runTests as runLoadQueueRecycleTests } from '../unit-tests/load-queue-recycle-test.js';
 import { runTests as runUnloadedTabHydrationTests } from '../unit-tests/unloaded-tab-hydration-test.js';
@@ -425,6 +426,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:search-action', run: runSearchActionTests },
   { name: 'unit:tool-cancellation', run: runToolCancellationTests },
   { name: 'unit:unbounded-await', run: runUnboundedAwaitTests },
+  { name: 'unit:modal-supersede', run: runModalSupersedeTests },
   { name: 'unit:conversation-release', run: runConversationReleaseTests },
   { name: 'unit:load-queue-recycle', run: runLoadQueueRecycleTests },
   { name: 'unit:unloaded-tab-hydration', run: runUnloadedTabHydrationTests },

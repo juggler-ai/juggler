@@ -171,5 +171,32 @@ export async function runTests(_ctx) {
     errors.push(`the armed confirmation watcher rides the deadline and records giving up: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  // Underneath every budget is a timer, and a hidden window's timers are not
+  // the ones a suite thinks it is scheduling: WebKit and WebKitGTK both snap a
+  // hidden page's DOM timers to a 1s grid once a chain passes its nesting
+  // limit. The pool window is permanently hidden, so it switches that alignment
+  // off at startup (unthrottleHiddenPageTimers, cmd/juggler/app) — and when
+  // that does not take, a suite awaiting eighty timers takes eighty seconds and
+  // is reported as a suite that stopped making progress. Nothing else would
+  // notice: the tax is spread a tick at a time across every wait in the run.
+  try {
+    // Past the ten-deep nesting the alignment applies from, and short enough
+    // to cost nothing when the timers are the ones we asked for.
+    const links = 16;
+    const started = Date.now();
+    for (let i = 0; i < links; i++) {
+      await new Promise((resolve) => { setTimeout(resolve, 0); });
+    }
+    const elapsed = Date.now() - started;
+    assert(
+      elapsed < 3000,
+      `${links} chained zero-delay timers took ${elapsed}ms; unthrottled they cost a few ms each, and this is what a 1s grid looks like — the pool window's hidden-page timer alignment is still on, and every wait in every suite is being charged a tick`
+    );
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`the pool's timers are the ones the suite asked for: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   return { passed, failed, errors };
 }

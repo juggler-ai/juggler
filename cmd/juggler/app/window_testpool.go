@@ -108,6 +108,42 @@ func (a *windowApp) startup() {
 	a.win.Show()
 }
 
+// unthrottleWhenReady switches the pool window's hidden-page timer alignment
+// off as soon as there is a web view to configure, and says so if it never
+// takes: a pool that kept the alignment fires every timer a suite waits on a
+// second apart, which reads from the test output as a suite that stopped rather
+// than one that is being taxed a tick at a time.
+//
+// Attempted more than once because the switch needs the window's web view and
+// this runs at application start, which on GTK4 is where the widget is still
+// being built — WebviewWindow.Run sets the window's impl and only then, after
+// activation, creates the widget. macOS has it on the first attempt.
+//
+// Scoped to the two ports that align a hidden page's timers at all. WebView2
+// keeps the pool's controller visible instead, so there is nothing there to
+// switch and nothing to report.
+func unthrottleWhenReady(win *application.WebviewWindow) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return
+	}
+	const attempts = 40
+	const between = 100 * time.Millisecond
+	var attempt func(left int)
+	attempt = func(left int) {
+		application.InvokeAsync(func() {
+			if unthrottleHiddenPageTimers(win) {
+				return
+			}
+			if left <= 1 {
+				jlog.Error("[test-pool] hidden-page timer alignment is still on: every timer a suite waits on fires on a ~1s grid")
+				return
+			}
+			time.AfterFunc(between, func() { attempt(left - 1) })
+		})
+	}
+	attempt(attempts)
+}
+
 // currentState captures the window's current geometry/state. Must be called
 // on the main thread — the tracker reads live native state, which Wails only
 // answers correctly there. See windowgeom.Tracker.Capture for when it declines
@@ -376,7 +412,8 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 		// coarsely their timers fire once they are. That second half is the
 		// hidden-page timer alignment, switched off separately once the window
 		// exists — see unthrottleHiddenPageTimers, called from the startup hook
-		// below, and note it buys macOS only.
+		// below. WebKitGTK aligns a hidden page the same way and is dealt with
+		// there too; WebView2 has no equivalent grid.
 		macWindow.WebviewPreferences = application.MacWebviewPreferences{
 			KeepRunningWhenHidden: application.Enabled,
 		}
@@ -475,7 +512,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 			// watching, so there is nothing to save by coarsening their timers.
 			// A production window that goes idle when hidden is behaving
 			// correctly and must keep doing so.
-			application.InvokeAsync(func() { unthrottleHiddenPageTimers(win) })
+			unthrottleWhenReady(win)
 		}
 		wa.startup()
 	})

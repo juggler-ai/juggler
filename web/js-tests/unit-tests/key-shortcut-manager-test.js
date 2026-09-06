@@ -106,16 +106,48 @@ export async function runTests(_ctx) {
     assert(new Set(cats).size === cats.length, 'each category should appear once');
   });
 
-  await run('prev/next-tab are macOS-only and bound to ⌥⌘↑/↓', () => {
+  // prev/next-tab pair a mac-only chord with a key that ships everywhere, so the
+  // command itself is no longer platform-restricted — only one of its keys is.
+  await run('prev/next-tab pair the mac-only ⌥⌘↑/↓ chord with Page Up/Down', () => {
     const ids = keyShortcutManager.all().map((d) => d.id);
     assert(ids.includes('prev-tab') && ids.includes('next-tab'), 'tab-nav commands present');
-    const prev = keyShortcutManager.getBinding('prev-tab');
-    const next = keyShortcutManager.getBinding('next-tab');
-    assert(prev.mod && prev.alt && prev.key === 'ArrowUp', 'prev-tab is Mod+Alt+ArrowUp');
-    assert(next.mod && next.alt && next.key === 'ArrowDown', 'next-tab is Mod+Alt+ArrowDown');
-    // Rendered for macOS regardless of host, since the binding only ships there.
-    assert(formatBindingForPlatform(prev, true) === '⌥⌘↑', `prev-tab mac label wrong: ${formatBindingForPlatform(prev, true)}`);
-    assert(formatBindingForPlatform(next, true) === '⌥⌘↓', `next-tab mac label wrong: ${formatBindingForPlatform(next, true)}`);
+    // Asked for an EXPLICIT platform, so these hold whatever host runs the suite.
+    const macPrev = keyShortcutManager.getBindings('prev-tab', true);
+    const macNext = keyShortcutManager.getBindings('next-tab', true);
+    assert(macPrev.length === 2 && macPrev[0].mod && macPrev[0].alt && macPrev[0].key === 'ArrowUp',
+      'mac prev-tab leads with Mod+Alt+ArrowUp');
+    assert(macNext.length === 2 && macNext[0].mod && macNext[0].alt && macNext[0].key === 'ArrowDown',
+      'mac next-tab leads with Mod+Alt+ArrowDown');
+    assert(macPrev[1].key === 'PageUp' && macNext[1].key === 'PageDown',
+      'the Page keys follow the chord on macOS');
+    // Off macOS the ⌥⌘ chord isn't shipped (Ctrl+Alt+Up collides with screen
+    // rotation), so the Page key is all there is — and it is now the advertised one.
+    const winPrev = keyShortcutManager.getBindings('prev-tab', false);
+    const winNext = keyShortcutManager.getBindings('next-tab', false);
+    assert(winPrev.length === 1 && winPrev[0].key === 'PageUp', 'off macOS prev-tab is PageUp alone');
+    assert(winNext.length === 1 && winNext[0].key === 'PageDown', 'off macOS next-tab is PageDown alone');
+    // The advertised binding follows the host platform.
+    assert(keyShortcutManager.getBinding('prev-tab').key === (mac ? 'ArrowUp' : 'PageUp'),
+      'the advertised prev-tab key suits the host');
+    assert(formatBindingForPlatform(macPrev[0], true) === '⌥⌘↑', `prev-tab mac label wrong: ${formatBindingForPlatform(macPrev[0], true)}`);
+    assert(formatBindingForPlatform(macNext[0], true) === '⌥⌘↓', `next-tab mac label wrong: ${formatBindingForPlatform(macNext[0], true)}`);
+    assert(formatBindingForPlatform(macPrev[1], true) === '⇞', `PageUp mac glyph wrong: ${formatBindingForPlatform(macPrev[1], true)}`);
+    assert(formatBindingForPlatform(winNext[0], false) === 'Page Down', `PageDown label wrong: ${formatBindingForPlatform(winNext[0], false)}`);
+  });
+
+  // The Page keys are bare, so every modifier has to disqualify them: Shift+Page
+  // selects a page of text in the composer, and the command modifier is free for
+  // anything else to claim.
+  await run('a bare Page key switches conversation, a modified one does not', () => {
+    const prev = keyShortcutManager.getBindings('prev-tab', mac).find((b) => b.key === 'PageUp');
+    const next = keyShortcutManager.getBindings('next-tab', mac).find((b) => b.key === 'PageDown');
+    assert(eventMatchesBinding(prev, evt({ key: 'PageUp' })), 'PageUp should match prev-tab');
+    assert(eventMatchesBinding(next, evt({ key: 'PageDown' })), 'PageDown should match next-tab');
+    assert(!eventMatchesBinding(prev, evt({ key: 'PageDown' })), 'PageDown must not step backwards');
+    assert(!eventMatchesBinding(prev, evt({ shiftKey: true, key: 'PageUp' })),
+      'Shift+PageUp is a text selection, not a conversation switch');
+    assert(!eventMatchesBinding(prev, evt({ ...modProp, key: 'PageUp' })), 'Mod+PageUp is left alone');
+    assert(!eventMatchesBinding(prev, evt({ altKey: true, key: 'PageUp' })), 'Alt+PageUp is left alone');
   });
 
   await run('toggle-tool-grouping is Mod+Alt+G and survives the ⌥ glyph remap', () => {
@@ -133,16 +165,18 @@ export async function runTests(_ctx) {
       'bare Mod+G (find-next) must not toggle grouping');
   });
 
-  await run('byCategoryForPlatform hides macOS-only commands off macOS', () => {
+  await run('byCategoryForPlatform lists a command wherever it has a key', () => {
     const idsIn = (groups) => groups.flatMap((g) => g.shortcuts.map((s) => s.id));
     const onMac = idsIn(keyShortcutManager.byCategoryForPlatform(true));
     const offMac = idsIn(keyShortcutManager.byCategoryForPlatform(false));
-    assert(onMac.includes('prev-tab') && onMac.includes('next-tab'), 'mac listing includes tab-nav');
-    assert(!offMac.includes('prev-tab') && !offMac.includes('next-tab'), 'non-mac listing omits tab-nav');
-    // Non-platform commands appear on both.
+    // Tab-nav keeps a key on both platforms (the Page keys), so both listings show
+    // it — with the platform-restricted chord dropped from the non-mac one.
+    assert(onMac.includes('prev-tab') && offMac.includes('prev-tab'), 'tab-nav is listed on both platforms');
     assert(onMac.includes('undo') && offMac.includes('undo'), 'unrestricted commands appear on both');
+    assert(keyShortcutManager.getBindings('prev-tab', false).length === 1,
+      'the non-mac listing shows only the keys that ship there');
     // byCategory() (unfiltered) still lists everything.
-    assert(idsIn(keyShortcutManager.byCategory()).includes('prev-tab'), 'byCategory keeps platform commands');
+    assert(idsIn(keyShortcutManager.byCategory()).includes('prev-tab'), 'byCategory lists every command');
   });
 
   // ── Binding matching (platform-aware) ───────────────────────────────

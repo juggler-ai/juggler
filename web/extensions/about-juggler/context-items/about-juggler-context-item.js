@@ -38,7 +38,9 @@ function shortcutsMarkdownFor(mac) {
     for (const def of group.shortcuts) {
       // Aliases are listed too (a command may answer to more than one key), so
       // the manual can name a key that actually works on the asker's surface.
-      const combos = keyShortcutManager.getBindings(def.id)
+      // Asked for the asker's platform rather than this window's, so a key bound
+      // only on the other one is never offered.
+      const combos = keyShortcutManager.getBindings(def.id, mac)
         .map((binding) => formatBindingForPlatform(binding, mac));
       lines.push(`- ${combos.join(' or ') || '(unbound)'} — ${def.label}: ${def.description}`);
     }

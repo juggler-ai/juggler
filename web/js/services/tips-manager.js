@@ -17,7 +17,7 @@
  * @module services/tips-manager
  */
 
-import keyShortcutManager, { isMac } from './key-shortcut-manager.js';
+import keyShortcutManager from './key-shortcut-manager.js';
 import { readPref, writePref, notifyPrefChanged } from './ui-pref-store.js';
 
 /** localStorage key holding `{ seen: string[] }`. */
@@ -119,10 +119,11 @@ export function allTips() {
   const shortcuts = [];
   for (const entry of SHORTCUT_TIPS) {
     const def = keyShortcutManager.all().find((d) => d.id === entry.id);
-    // Drop a dangling id, and any command restricted to a platform we're not on —
-    // e.g. the mac-only ⌥⌘↑/↓ tab shortcuts, which are deliberately unbound on
-    // Windows/Linux, so we never advertise a key that does nothing there.
-    if (!def || (def.platform && (def.platform === 'mac') !== isMac())) continue;
+    // Drop a dangling id, and any command with no key on this platform — a tip
+    // exists to teach a keystroke, so one we deliberately left unbound here has
+    // nothing to teach. (The card renders the binding live, so a command that
+    // keeps a different key here still gets its tip, showing that key.)
+    if (!def || keyShortcutManager.getBindings(entry.id).length === 0) continue;
     shortcuts.push({ id: entry.id, kind: 'shortcut', title: def.label, body: entry.body, shortcutId: entry.id });
   }
   return [...shortcuts, ...FEATURE_TIPS];

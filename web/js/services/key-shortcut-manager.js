@@ -41,6 +41,11 @@ import { isAnyPopupOpen } from '../utils/popup-manager.js';
  *   (single letters lower-case; named keys like 'Backspace'/'Tab' verbatim).
  * @property {string} [displayKey] - Overrides the glyph shown to the user
  *   (e.g. '+' for the '=' key).
+ * @property {'mac'} [platform] - Restrict this KEY to a platform family. A
+ *   command is bound where its keys are: on any other platform this binding is
+ *   not dispatched, not listed and not advertised, so a key we deliberately
+ *   left unbound there is never shown. A command whose every binding is
+ *   restricted this way disappears from that platform's listings entirely.
  */
 
 /**
@@ -68,11 +73,6 @@ import { isAnyPopupOpen } from '../utils/popup-manager.js';
  *   manager still lists it (settings, tooltips) but never dispatches it — the
  *   owner reads {@link KeyShortcutManager#getBinding} and matches itself via
  *   {@link eventMatchesBinding}.
- * @property {'mac'} [platform] - Restrict this command to a platform family. When
- *   set, the manager only dispatches it there, and platform-aware listings
- *   ({@link KeyShortcutManager#byCategoryForPlatform}) hide it elsewhere so it is
- *   never shown with a binding it does not actually have. Omit for all-platform
- *   commands.
  */
 
 /** @returns {boolean} True on macOS-family platforms (⌘ is the command modifier). */
@@ -149,6 +149,7 @@ export function eventMatchesBinding(binding, e) {
 const MAC_KEY_GLYPHS = {
   Backspace: '⌫', Delete: '⌦', Tab: '⇥', Enter: '↵', Return: '↵',
   Escape: '⎋', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+  PageUp: '⇞', PageDown: '⇟',
   ' ': 'Space', Space: 'Space',
 };
 
@@ -159,7 +160,19 @@ const MAC_KEY_GLYPHS = {
 const NAMED_KEY_LABELS = {
   ' ': 'Space', Space: 'Space', ArrowUp: 'Up', ArrowDown: 'Down',
   ArrowLeft: 'Left', ArrowRight: 'Right',
+  PageUp: 'Page Up', PageDown: 'Page Down',
 };
+
+/**
+ * Does a binding ship on the given platform? A binding without a `platform` is
+ * every platform's.
+ * @param {KeyBinding} binding
+ * @param {boolean} mac - True to ask about macOS, false about Windows/Linux.
+ * @returns {boolean} True when the binding is bound there.
+ */
+function bindingShipsOn(binding, mac) {
+  return !binding.platform || (binding.platform === 'mac') === mac;
+}
 
 /**
  * The glyph/label for a binding's key on an explicit platform. Pure.
@@ -250,17 +263,27 @@ const SHORTCUT_DEFS = [
     label: 'Previous conversation',
     description: 'Switch to the conversation above in the tab list (wraps around).',
     category: 'Conversations',
-    // macOS only: ⌥⌘↑/↓ is the established "move between tabs" gesture on the Mac
-    // (Discord, others). The Windows/Linux twin, Ctrl+Alt+Up/Down, collides with
-    // Intel's screen-rotation hotkeys (and some Linux workspace switching), so we
-    // leave it unbound off macOS until a non-conflicting combo is chosen. The
-    // `platform` field keeps this out of the dispatcher and the shortcut listings
-    // on other platforms, so it is never advertised with a key it lacks.
-    defaultBinding: { mod: true, alt: true, key: 'ArrowUp' },
-    platform: 'mac',
-    // Works while typing: ⌥⌘↑ has no native text-editing meaning (plain ⌘↑ jumps
-    // to document start, but the Option makes it distinct), so switching tabs
-    // straight from the composer never steals a cursor movement.
+    // ⌥⌘↑/↓ is the established "move between tabs" gesture on the Mac (Discord,
+    // others), and macOS is the only place it ships: the Windows/Linux twin,
+    // Ctrl+Alt+Up/Down, collides with Intel's screen-rotation hotkeys (and some
+    // Linux workspace switching). The binding's `platform` keeps that chord out
+    // of the dispatcher and the listings elsewhere, so it is never advertised
+    // where it does nothing.
+    defaultBinding: { mod: true, alt: true, key: 'ArrowUp', platform: 'mac' },
+    // Page Up/Down is the cross-platform key, and off macOS the only one — which
+    // is why the command is bound everywhere while that chord is not. Nothing
+    // else in the app uses the Page keys: the transcript scroller isn't
+    // focusable, so outside a text field they do nothing at all.
+    //
+    // shift:false is load-bearing (an omitted shift is *tolerant*, see
+    // eventMatchesBinding): ⇧⇞ selects a page of text in the composer and stays
+    // native. Plain ⇞ there does not — see allowInInput below.
+    aliasBindings: [{ shift: false, key: 'PageUp' }],
+    // Works while typing. ⌥⌘↑ has no native text-editing meaning (plain ⌘↑ jumps
+    // to document start, but the Option makes it distinct), so it never steals a
+    // cursor movement; the Page key does take paging away from a long draft, and
+    // that trade is deliberate — the composer holds focus almost all the time, so
+    // a tab-switch key that stood down there would be a key that never fires.
     allowInInput: true,
   },
   {
@@ -268,8 +291,8 @@ const SHORTCUT_DEFS = [
     label: 'Next conversation',
     description: 'Switch to the conversation below in the tab list (wraps around).',
     category: 'Conversations',
-    defaultBinding: { mod: true, alt: true, key: 'ArrowDown' },
-    platform: 'mac',
+    defaultBinding: { mod: true, alt: true, key: 'ArrowDown', platform: 'mac' },
+    aliasBindings: [{ shift: false, key: 'PageDown' }],
     allowInInput: true,
   },
   {
@@ -541,15 +564,17 @@ class KeyShortcutManager {
   }
 
   /**
-   * Like {@link byCategory}, but drops commands restricted to a different
-   * platform (a `platform: 'mac'` command is omitted when `mac` is false), so a
-   * listing never shows a command with a binding it doesn't actually have on the
-   * target platform. Used by the settings tab and the About-Juggler help corpus.
+   * Like {@link byCategory}, but drops commands that have no key at all on the
+   * target platform, so a listing never shows a command with a binding it doesn't
+   * actually have there. Derived from the bindings rather than declared: a
+   * command keeps its row as long as one of its keys ships on that platform (the
+   * tab-nav pair keeps Page Up/Down off macOS, having given up ⌥⌘↑/↓). Used by
+   * the settings tab and the About-Juggler help corpus.
    * @param {boolean} mac - True to build the macOS listing, false for Windows/Linux.
    * @returns {Array<{category: string, shortcuts: ShortcutDef[]}>} Groups in declaration order.
    */
   byCategoryForPlatform(mac) {
-    const defs = [...this._defs.values()].filter((d) => !d.platform || (d.platform === 'mac') === mac);
+    const defs = [...this._defs.values()].filter((d) => this.getBindings(d.id, mac).length > 0);
     return this._groupByCategory(defs);
   }
 
@@ -571,31 +596,34 @@ class KeyShortcutManager {
   }
 
   /**
-   * The effective binding for a command — a user override if one exists (future),
-   * else the shipped default.
+   * The binding a command is *advertised* by — the one tooltips, tips and the
+   * lead keycap show. A user override if one exists (future), else the first
+   * shipped key that exists on this platform, so a command whose primary chord is
+   * macOS-only advertises its cross-platform key elsewhere instead of a chord
+   * that does nothing.
    * @param {string} id
-   * @returns {KeyBinding|null} The effective binding, or null if the id is unknown.
+   * @returns {KeyBinding|null} The advertised binding, or null when the command has no key here.
    */
   getBinding(id) {
-    if (this._overrides.has(id)) return /** @type {KeyBinding} */ (this._overrides.get(id));
-    const def = this._defs.get(id);
-    return def ? def.defaultBinding : null;
+    return this.getBindings(id)[0] ?? null;
   }
 
   /**
-   * Every key that triggers a command: its effective binding followed by any
-   * shipped aliases. This is what the dispatcher matches against — {@link
-   * getBinding} stays the single binding a command is *advertised* by. A user
-   * override replaces the command's keys outright, so an overridden command has
-   * no aliases: the keys the user chose are the keys the command answers to.
+   * Every key that triggers a command on a platform: its default binding followed
+   * by any shipped aliases, minus those bound on the other platform only. This is
+   * what the dispatcher matches against — {@link getBinding} stays the single
+   * binding a command is advertised by. A user override replaces the command's
+   * keys outright, so an overridden command has no aliases and no platform
+   * filtering: the key the user chose is the key the command answers to.
    * @param {string} id
+   * @param {boolean} [mac] - Which platform to ask about; defaults to the running one.
    * @returns {KeyBinding[]} All triggering bindings, or [] if the id is unknown.
    */
-  getBindings(id) {
+  getBindings(id, mac = isMac()) {
     if (this._overrides.has(id)) return [/** @type {KeyBinding} */ (this._overrides.get(id))];
     const def = this._defs.get(id);
     if (!def) return [];
-    return [def.defaultBinding, ...(def.aliasBindings ?? [])];
+    return [def.defaultBinding, ...(def.aliasBindings ?? [])].filter((b) => bindingShipsOn(b, mac));
   }
 
   /**
@@ -690,9 +718,6 @@ class KeyShortcutManager {
     const editable = isEditableTarget(e.target);
     for (const def of this._defs.values()) {
       if (def.external) continue;
-      // A platform-restricted command is inert off its platform, so its binding
-      // (e.g. ⌥⌘↑) never fires where we deliberately left it unbound.
-      if (def.platform === 'mac' && !isMac()) continue;
       const handler = this._handlers.get(def.id);
       if (!handler) continue;
       if (editable) {
@@ -702,7 +727,9 @@ class KeyShortcutManager {
         if (def.allowInInput === 'empty' && !isEditableEmpty(e.target)) continue;
       }
       // Any of the command's keys fires it — the advertised binding or a shipped
-      // alias for surfaces where that binding never arrives.
+      // alias for surfaces where that binding never arrives. getBindings() is
+      // scoped to the running platform, so a chord we left unbound here (⌥⌘↑ off
+      // macOS) is not among them.
       if (!this.getBindings(def.id).some((binding) => eventMatchesBinding(binding, e))) continue;
       const acted = handler(e);
       if (acted) {

@@ -1,132 +1,135 @@
 # Juggler
 
-Yes, it's another AI coding agent. The industry definitely needed one more.
+**See and control your coding agent — locally or remotely.**
 
-If Juggler has an angle, it's that it's for people who want to be more hands-on over what the LLM is doing to their codebase. It gives you a visual workbench: inspectable tool calls, branching threads, editable context.
+Juggler is a visual workbench for AI coding agents. Launch the desktop app and work locally; when the code is on a dev box or server, run Juggler there and open the same live session from the app or a browser.
 
-It's built by the developer behind [JUCE](https://juce.com), [Tracktion](https://www.tracktion.com) and [Cmajor](https://cmajor.dev). It's free and open-source, with no signup: just download the Go binary and run it.
+Conversations are persistent trees rather than scrolling transcripts. Tool calls open into proper views, and every model transaction can be inspected to show what the model received and returned.
 
-More blurb on the website: [https://juggler.studio](https://juggler.studio) — and there's a [Discord](https://discord.gg/HyqZwKvSMd) if you want to come and say hello.
+Use Claude Code, OpenAI Codex, GitHub Copilot, Gemini, Ollama and other providers through one interface. Juggler is free to download, its core is open source, and it needs no account of its own: bring a subscription you already pay for or your own API keys.
+
+**[Download Juggler](https://github.com/juggler-ai/juggler/releases)** for macOS, Windows or Linux · [Visit the website](https://juggler.studio) · [Join the Discord](https://discord.gg/HyqZwKvSMd)
 
 <p align="center">
-  <img src="https://juggler.studio/assets/screenshot-main.webp" alt="Juggler's Miller-column workbench: tool calls, item properties and nested sub-threads" width="880">
+  <img src="https://juggler.studio/assets/screenshot-main.webp" alt="Juggler's Miller-column workbench showing tool calls, item properties and nested sub-threads" width="880">
 </p>
-<p align="center"><em>Tool calls, item properties and nested sub-threads laid out in a Finder-style Miller column view.</em></p>
+<p align="center"><em>The session is a tree. Select anything to inspect it; branch whenever the work needs somewhere else to go.</em></p>
 
-And here's the TL;DR:
+## Why Juggler?
 
-- **It is a proper GUI.** Using a code agent means editing big chunks of multi-line text and getting hosed with information you need to absorb — I find a terminal horrible for that. Juggler is all about visual navigation, inspection, and control.
-- **The session is a tree, not a doom-scroll.** It's a Yjs document, not a transcript. Create sub-threads, drill down, backtrack, compare, and edit.
-- **Sessions are persistent and stateful.** Because a session is a document on disk, you can quit or relaunch and it resumes every conversation exactly where you left it. That even includes states such as an agent waiting for user approval. You can restart, reconnect, and the approval dialog will be there waiting for you.
-- **Everything is inspectable.** Tool calls, approvals, thread structure, item properties, raw context — laid out in Finder-style Miller columns for fast navigation. Select System Prompt to see exactly what the model is told and which tools it can call; click the footer's token count to read back what a past turn actually sent.
-- **It's plugins all the way down.** Context items, slash commands, LLM loop strategies, and their UIs are JavaScript extensions you can inspect, fork, or replace. MCP servers and skills plug into the same model: point Juggler at an [MCP server](docs/mcp.md) and its tools arrive as inspectable, approvable items like any other.
-- **It runs locally, remotely, or both at once.** Use the same session with the same UI in the native desktop app, and/or browsers. Multiple clients can attach to the same session.
-- **It talks to the usual model zoo.** Claude Code (via CLI or API), OpenAI (Codex plan or API), GitHub Copilot, Gemini, Mistral, Z.ai, Ollama, OpenRouter, Deepseek, etc. Bring the subscription you already pay for, or your own API keys.
+Juggler is for developers who want the context, model calls and tool execution visible while an agent works.
 
-----------
+- **Keep the agent where the code is.** Run Juggler on your workstation, a dev box or a server, then use the same live session from the desktop app or a browser. Several clients can stay connected at once.
+- **Use a real desktop interface.** Miller columns make large sessions navigable, with tool calls, context and properties opening into their own views.
+- **See what the model actually saw.** Open any recorded LLM transaction to inspect its system prompt, messages, tool definitions, output blocks, token use, cache use, stop reason and timing.
+- **Operate on context.** Fold selected history into a thread, move or copy items between branches, edit the prompt identity and undo structural changes. Context is part of the workspace, not plumbing hidden behind the chat box.
+- **Branch without polluting the main conversation.** Create nested threads for tangents, delegated research or competing approaches. A child thread does its work in isolation and returns the result to its parent.
+- **Resume the session, not merely the chat log.** Conversations live on disk. Quit, reconnect or come back tomorrow and the document is still there, including approvals waiting for you.
+
+Juggler is built by [Julian Storer](https://github.com/julianstorer), the developer behind [JUCE](https://juce.com), [Tracktion](https://www.tracktion.com) and [Cmajor](https://cmajor.dev).
 
 ## Getting started
 
-Download a build from the [Releases](https://github.com/juggler-ai/juggler/releases) page or via [juggler.studio](https://juggler.studio).
+Download the latest build from [GitHub Releases](https://github.com/juggler-ai/juggler/releases) or [juggler.studio](https://juggler.studio).
 
-Each download contains the same two moving parts:
+Each download contains two parts that always ship together:
 
-- **Juggler app** — the native desktop app. Works like you'd expect it to.
-- **`juggler`** — the headless command-line server. Run this from a terminal for long-lived, remote, or network-accessible sessions. It has no window of its own, but you can type `w` into its terminal to open the desktop app, or use the browser URL it prints.
+- **Juggler app** — the native desktop interface. Launch it and start working.
+- **`juggler`** — the headless command-line server for long-lived, remote or network-accessible sessions. It has no window of its own, but you can type `w` in its terminal to open the desktop app or use the browser URL it prints.
 
-The desktop app, browser tabs (on local or remote machines) can all be clients viewing the same server session.
+The desktop app and browser tabs are clients of the same server, so several views can share one live session.
 
-#### Installing
+### Installing
 
-- **macOS** — download the `.dmg`, open it, and drag Juggler to Applications, then launch it. The app and its server are bundled together, so the server starts automatically. The first time you open it, macOS Gatekeeper may block the download: right-click (or Control-click) the app → **Open** → **Open**, or go to **System Settings → Privacy & Security → Open Anyway**. After the first launch it opens normally.
-- **Windows** — download `Juggler-<version>-setup.exe` and run it. It installs the desktop app and the matching `juggler.exe` command-line server together in one directory (and can add `juggler` to your PATH), so the two never drift apart.
-- **Linux** — download the `juggler` server binary and run it from a terminal, then connect with a browser or the desktop app. For servers, containers, and CI machines with no display, see [`docs/headless-linux.md`](docs/headless-linux.md).
+- **macOS** — download the `.dmg`, open it and drag Juggler to Applications. On first launch, if Gatekeeper blocks it, right-click (or Control-click) the app → **Open** → **Open**, or use **System Settings → Privacy & Security → Open Anyway**.
+- **Windows** — download `Juggler-<version>-setup.exe` and run it. The installer keeps the desktop app and matching `juggler.exe` server together, and can add `juggler` to your PATH.
+- **Linux** — download the tarball for your architecture. It contains `juggler`, the terminal server, and `juggler-app`, the GTK desktop client. Run either from a terminal; for machines with no display, see [`docs/headless-linux.md`](docs/headless-linux.md).
 
-The desktop app and the server always ship and install as one unit — see [`docs/distribution.md`](docs/distribution.md).
+See [`docs/distribution.md`](docs/distribution.md) for the complete app/server layout.
 
-#### Running the server directly
-
-For a headless session, just run:
+### Running the server directly
 
 ```bash
-juggler     # prints everything you need to connect from a browser
+juggler
 ```
 
-By default, the server opens a web UI and prints its URL plus a QR code for easy connection.
+The server serves the web UI and prints its URL and a QR code. Type `b` and press Enter to open it in your browser.
 
-The server is localhost-only by default — nothing off your machine can reach it. To let other devices on your network connect, press `p` in the terminal (or launch with `--public`). LAN access has no password: anyone who can reach the address can drive the agent, so only enable it on networks you trust.
+It listens on localhost by default, so nothing off your machine can reach it. Press `p` in the terminal, or launch with `--public`, to accept connections from your LAN. LAN access has no password: enable it only on networks you trust.
 
-Access from beyond your LAN isn't built into this repository: a build from this source is local + LAN only. The official Juggler binaries from [juggler.studio](https://juggler.studio) additionally include WAN access modes for reaching your server across the internet (see [LICENSING.md](LICENSING.md) on components not in this repo).
+A build made from this repository supports local and LAN access. The official binaries from [juggler.studio](https://juggler.studio) also include WAN modes for reaching your server over the internet; see [LICENSING.md](LICENSING.md) for the boundary between this repository and those additional components.
 
 ----------
 
-## What makes it different?
+## Run it where the code lives
 
-#### Your conversation is an editable tree, not a chat history
-
-Most agents give you a single linear transcript and if you're lucky you can rewind it.
-
-Juggler gives you a **tree**. Any point can branch into a sub-thread. Sub-threads can branch again. You can navigate, inspect, and edit the structure directly.
-
-The UI uses **Miller columns**: root on the left, selected items expanding into properties and children to the right. (If you've used Finder's column view, you already understand the basic move).
-
-#### Your session survives being closed — approvals and all
-
-Because the whole session is a document, and the server is a state machine that modifies it, nothing is lost when you close the app. Quit, relaunch, lose the connection, come back tomorrow — it rehydrates exactly where it was.
-
-Crucially, that includes workflow that's *waiting on you*. When the agent pauses for user intervention — to run a command, apply an edit, take the next step — that paused state is part of the document. You can shut everything down, reopen it later on the same machine or a different one, and the agent is still parked at the same decision, ready to resume the moment you say yes.
-
-#### Everything is an extension
-
-The core app manages the document and orchestration. Almost all the objects that make up the document are defined by JavaScript extensions:
-
-- **Context items** — every item type in a conversation (`read-file`, `replace-text`, `bash`, …) controls both how it talks to the LLM and how it appears in the UI.
-- **Strategies** — high-level LLM loops such as `plan`, `research`, or your own fever-dream inventions are plugins too.
-- **Commands** — slash commands like `/clear` and `/compact` are all just plugins that manipulate the session document.
-
-Every tool, even basics like read/write/bash, is a plugin you can swap out. MCP servers and skills plug into the same document: an MCP server's tools become context items indistinguishable from the built-in ones. Juggler keeps its own config for both rather than reading another agent's, so you declare your servers once — see [`docs/mcp.md`](docs/mcp.md).
-
-Not every LLM workflow wants to live as a headless Python script skulking in a terminal. If an orchestration idea needs its own UI, controls, or visualisation, Juggler is a platform for that.
+The server owns the session and runs on the machine that has the project. The desktop app and browsers are synchronised clients, so the interface can be wherever it is useful—another monitor, another computer or a phone. Several clients can share the same live session.
 
 <p align="center">
-  <img src="https://juggler.studio/assets/screenshot-extensions.webp" alt="Juggler's LLM-facing tools defined as extensions" width="760">
+  <img src="https://juggler.studio/assets/screenshot-browser.webp" alt="One Juggler session open in multiple synchronised clients" width="760">
 </p>
-<p align="center"><em>Everything's a plugin — even the read/write/bash tools are defined in extensions you can inspect, fork, or replace.</em></p>
-
-#### A desktop app with a multi-client architecture
-
-Juggler looks like a native desktop app, but underneath it is a local webserver serving a live collaborative session. The app is just one client. A browser tab can be another. A different machine can be another.
-
-That means you can run the server where the code lives — local workstation, dev box, server farm - and attach views from wherever is convenient.
-
-<p align="center">
-  <img src="https://juggler.studio/assets/screenshot-browser.webp" alt="One Juggler session with multiple synced clients" width="760">
-</p>
-<p align="center"><em>One session, many clients — the desktop app and browser views stay in sync.</em></p>
+<p align="center"><em>One session, many clients.</em></p>
 
 <p align="center">
   <img src="https://juggler.studio/assets/screenshot-large.webp" alt="Juggler on a large desktop screen" width="600">
   <img src="https://juggler.studio/assets/screenshot-mobile.webp" alt="Juggler in a phone browser" width="170">
 </p>
-<p align="center"><em>Big screen or pocket-sized: the same live session, whether it's the desktop app or a remote browser on your phone.</em></p>
 
-#### Model support
+## The Context Surgeon
 
-Juggler connects to the usual suspects: Claude Code (via CLI or API), OpenAI (Codex plan or API), GitHub Copilot, Gemini, Mistral, Z.ai, Ollama, OpenRouter, Deepseek, etc. Bring the subscription you already pay for, or your own API keys. It's easy to add more providers, so if yours is missing, ask your friendly neighbourhood LLM to add it as a PR.
+An agent's context should not be a sealed container.
 
-How Juggler keeps every request inside the model's context window — limits, admission, and automatic history recovery: [`docs/context-window.md`](docs/context-window.md).
+Juggler represents the conversation as typed items inside a navigable tree. You can inspect the assembled system prompt and available tools, fold a section of history into a new thread, move or copy items, expand a branch back into its parent, and undo the operation if it was a bad idea. Delegated threads keep their intermediate work out of the parent context and return only the result requested.
 
-----------
+The result is more deliberate than endlessly appending instructions to a transcript and hoping the model pays attention to the right bit.
 
-## Status and roadmap
+## Every model transaction, opened up
 
-Juggler is still very new, and since its release I've churned out hundreds of changes in response to feedback from people trying it out: some big new features, lots of stability fixes, and lots of UX nitpicks. The big features coming next:
+Select **System Prompt** to inspect the prompt and tool inventory being assembled now. Select the token count on any completed turn to open the recorded transaction: input messages, system prompt, tool schemas, model output, usage, timing and stop reason.
 
-- **A "workspace" abstraction.** The filesystem and execution environment a task runs in becomes an abstraction, so plugins can add worktrees, remote SSH to build machines, sandboxing, and other exotic environments.
-- **Recursive Language Models.** Juggler's thread-folding architecture already does the hard part, so I just need the remaining plumbing to let a model search its own history.
-- **The terminal app becomes a real server.** One machine, many clients, many projects, plus (optional!) user accounts, so you can log in anywhere and enumerate your own servers.
+This record helps separate an unexpected prompt, missing tool, stop condition or context limit from the model's own behaviour.
 
-Constructive feedback is welcome — come and say hello on the [Discord](https://discord.gg/HyqZwKvSMd). But be gentle! This isn't being developed by a huge team at a trillion-dollar AI company; it's a one-man side-hustle.
+## Extensions, not a sealed product
+
+Most capabilities that make up a Juggler conversation are JavaScript extensions using the same public SDK as the bundled ones:
+
+- **Context items** define tools such as `read`, `write` and `bash`, including their model schema, execution and UI.
+- **Strategies** define the LLM loop and which capabilities it can use.
+- **Commands** add slash-command workflows.
+- **Cards, Pinboard tabs and file viewers** add project-specific UI and visualisation.
+
+MCP servers and skills enter through the same extension system. You can scaffold an extension from the CLI, link it into Juggler and see changes hot-reload without rebuilding the app. The SDK, bundled extensions and examples are Apache-2.0, so closed-source extensions are allowed without a copyleft obligation.
+
+<p align="center">
+  <img src="https://juggler.studio/assets/screenshot-extensions.webp" alt="Juggler showing LLM-facing tools defined as extensions" width="760">
+</p>
+
+Start with [`docs/extension_tutorial.md`](docs/extension_tutorial.md), then use [`docs/extension_guide.md`](docs/extension_guide.md) as the reference.
+
+## The MCP postman
+
+If you build MCP tools, Juggler gives you somewhere to see what happened rather than infer it from the model's behaviour.
+
+Point Juggler at a local or remote MCP server and its tools join the built-in toolset. You can follow the whole handoff—the schema offered to the model, the arguments it generated, the approval decision, and the result returned to the conversation. Juggler also lets you:
+
+- see the tools and schemas offered to the model on the current turn;
+- open a past model transaction to confirm exactly which tool definitions it received;
+- inspect server status and logs, restart it, and see malformed schemas that were rejected;
+- allow or deny individual tools, set fixed default arguments, and see their approximate context cost.
+
+That makes Juggler useful not only as an MCP client, but as a workbench for testing and debugging MCP servers across different models. See [`docs/mcp.md`](docs/mcp.md) for configuration, transports and authentication.
+
+## Model support
+
+Juggler supports Anthropic and Claude Code, OpenAI and Codex, GitHub Copilot, Google Gemini, Mistral, Z.AI, Ollama, OpenRouter, DeepSeek and other OpenAI-compatible providers. Switch models and thinking levels without changing the rest of your workflow.
+
+Juggler measures the complete request before each call, leaves room for the answer, and automatically compacts old history when a conversation outgrows the model's window. The full behaviour is documented in [`docs/context-window.md`](docs/context-window.md).
+
+## Try it
+
+**[Download the latest release](https://github.com/juggler-ai/juggler/releases)** for macOS, Windows or Linux. Open the app, choose a project and connect a model provider; no Juggler account is required.
+
+Constructive feedback is welcome on [Discord](https://discord.gg/HyqZwKvSMd).
 
 ----------
 
@@ -227,24 +230,24 @@ WSL2 also works, but it builds Linux binaries linked against GTK/WebKitGTK, not 
 
 ### Development commands
 
-`make go-build` only compiles the Go code. `make build` runs the linters first and is the target to use before opening a PR; it also requires Node and installs the JS/CSS toolchain into `tooling/` on first run. `make test` runs the entire test suite without needing API keys. Run `make help` to list every target.
+`make go-build` compiles the Go code without linting. `make test` runs the complete test suite. Before opening a PR, run `make test-full`, which runs the linters and tests; it requires Node and installs the JS/CSS toolchain into `tooling/` on first use. Run `make help` to list every target.
 
-CI is a sanity gate for linting, builds, and tests. It deliberately publishes no artifacts, so there are no per-commit builds to download; official signed builds come from a separate release pipeline.
+CI is a sanity gate for linting, builds and tests. It deliberately publishes no artifacts, so there are no per-commit builds to download; official release builds come from a separate pipeline.
 
 ## Tech stack
 
-Juggler is a simple native app without baggage — no node, no electron, no dependencies to install. The backend is Go, using Wails for windowing. The UI is HTML/JS served by the Go backend. Session documents are stored and synchronised with Yjs. Extensions are JavaScript.
+The backend is Go, using Wails for windowing. The UI is HTML and type-checked JavaScript served by the Go backend; there is no Electron shell or frontend compilation step. Session documents are stored and synchronised with Yjs. Extensions are JavaScript.
 
-The frontend is type-checked JavaScript rather than TypeScript: types live in JSDoc and are enforced in CI with strict static linting. There's no build step between source and what ships.
+Frontend types live in JSDoc and are enforced in CI with strict static linting. The files in the repository are the files the app serves.
 
 ----------
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, test commands, and project conventions. For security issues, please use the private channel described in [`SECURITY.md`](SECURITY.md) rather than the public issue tracker.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, test commands and project conventions. For security issues, use the private channel described in [`SECURITY.md`](SECURITY.md) rather than the public issue tracker.
 
 ## License
 
-Juggler's application code is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE). The extension SDK (`web/sdk/`) and the bundled extensions (`web/extensions/`) are licensed under [Apache-2.0](web/sdk/LICENSE), so you can build extensions — including closed-source ones — with no copyleft obligation. See [`LICENSING.md`](LICENSING.md) for the full map.
+Juggler's application code is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE). The extension SDK (`web/sdk/`), bundled extensions (`web/extensions/`) and examples (`examples/`) are licensed under Apache-2.0, so you can build extensions—including closed-source ones—with no copyleft obligation. See [`LICENSING.md`](LICENSING.md) for the full map and for additional components included in official builds.
 
-For the AGPL parts you're free to use, modify, and redistribute — but any modified version you distribute or host as a service must also be released under the AGPLv3. If you want to do something closed-source with it, contact me to discuss commercial licensing.
+For the AGPL parts, you are free to use, modify and redistribute the code, but a modified version distributed or hosted as a service must also be released under the AGPLv3. Contact the author to discuss commercial licensing for uses that require different terms.

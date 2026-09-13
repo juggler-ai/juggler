@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- An SVG or HTML block in a reply now finishes drawing as it streams, instead of stalling part-way
+
 ## [0.6.3] - 2026-09-12
 
 - The Git pin is now a review: read each changed file's diff, comment on lines, paste the lot into the prompt

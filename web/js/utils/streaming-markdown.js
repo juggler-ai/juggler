@@ -14,13 +14,18 @@
  * it grows. Each update then costs O(tail), and a tail is one paragraph.
  *
  * A boundary is only taken where appending more text cannot change what has
- * already been rendered: a blank line, outside any open fence, whose preceding
- * block is not one that more text could continue (a list, a blockquote, a
- * table, an indented code block). Text with no such boundary — one very long
- * unbroken paragraph — simply never seals, and degrades to re-parsing the
- * whole thing, exactly as before. Link reference definitions reach backwards
- * (a `[x]: url` line can change a link rendered paragraphs earlier), so the
- * first one seen turns sealing off for the rest of the stream.
+ * already been rendered: a blank line, outside any open fence and any open raw
+ * HTML element, whose preceding block is not one that more text could continue
+ * (a list, a blockquote, a table, an indented code block). Text with no such
+ * boundary — one very long unbroken paragraph, or an SVG still arriving —
+ * simply never seals, and degrades to re-parsing the whole thing, exactly as
+ * before. Link reference definitions reach backwards (a `[x]: url` line can
+ * change a link rendered paragraphs earlier), so the first one seen turns
+ * sealing off for the rest of the stream.
+ *
+ * Each segment is parsed on its own, so a boundary inside raw HTML is not a
+ * split that a later segment can heal: the parser closes whatever the first
+ * segment left open, and the children in the second land outside it.
  *
  * The text is assumed to only ever GROW at the end. A rewrite of the sealed
  * prefix is detected by fingerprint and answered with a full re-render.
@@ -49,6 +54,47 @@ const CONTINUABLE_RE = /^ {0,3}(?:[-*+]|\d+[.)])[ \t]|^ {0,3}>|^ {0,3}\||^(?:\t|
 
 /** A link reference definition, whose effect reaches back over the whole document. */
 const REF_DEF_RE = /^ {0,3}\[[^\]\n]+\]:/;
+
+/** The start of a `<style>` block, whose CSS reaches the markup around it. */
+const STYLE_OPEN_RE = /<style\b/i;
+
+/** A tag, as it appears on a line of the raw HTML a reply writes for itself. */
+const TAG_RE = /<(\/?)([a-zA-Z][-\w]*)(?:\s[^>]*?)?(\/?)>/g;
+
+/** Elements written without a closing tag, which therefore hold nothing open. */
+const VOID_ELEMENTS = new Set([
+  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source',
+  'track', 'wbr',
+]);
+
+/**
+ * How many raw-HTML elements are still open after `line`.
+ *
+ * Only lines that BEGIN with a tag are counted, so a paragraph mentioning
+ * `<div>` in passing — or naming one in a backtick span, which this scan is too
+ * early to know about — leaves the count alone. A block is only allowed to open
+ * at up to three spaces of indentation, matching where CommonMark will read one;
+ * deeper than that with nothing open is an indented code block, whose tags are
+ * text. Inside an element that is already open, indentation means nothing and
+ * every line counts.
+ * @param {string} line - One line of the text, without its newline.
+ * @param {number} depth - Elements open before it.
+ * @returns {number} Elements open after it.
+ */
+function htmlDepthAfter(line, depth) {
+  const body = line.trimStart();
+  if (!body.startsWith('<')) return depth;
+  if (depth === 0 && line.length - body.length > 3) return depth;
+
+  let open = depth;
+  for (const [, closing, name, selfClosing] of body.matchAll(TAG_RE)) {
+    if (selfClosing || VOID_ELEMENTS.has((name || '').toLowerCase())) continue;
+    // Floor at zero: a stray closing tag is the reply's mistake to make, not a
+    // reason for this to start counting backwards.
+    open = closing ? Math.max(0, open - 1) : open + 1;
+  }
+  return open;
+}
 
 /** Characters of already-sealed text kept to detect a rewritten prefix. */
 const FINGERPRINT_LEN = 64;
@@ -92,16 +138,20 @@ function endsInsideFence(text) {
  * revisited, searching from `from` (which must be at a line start).
  * @param {string} text - The full accumulated text.
  * @param {number} from - Index to scan from; everything before it is sealed.
- * @returns {{seal: number, refDef: boolean}} New seal point (>= from), and
- *   whether a link reference definition appeared in the scanned region.
+ * @returns {{seal: number, nonLocal: boolean}} New seal point (>= from), and
+ *   whether the scanned region held a construct whose effect reaches outside
+ *   the segment it sits in — a link reference definition, or a `<style>` block.
  */
 export function findSealPoint(text, from) {
   /** The marker that opened the fence we are inside, or '' when outside one. */
   let fence = '';
-  let refDef = false;
+  let nonLocal = false;
   let seal = from;
   let lastContentLine = '';
   let i = from;
+  // Raw-HTML elements still open. Starts at zero on every scan because a seal is
+  // only ever taken where nothing is open, so `from` is always such a point.
+  let htmlDepth = 0;
 
   while (i < text.length) {
     const nl = text.indexOf('\n', i);
@@ -119,16 +169,27 @@ export function findSealPoint(text, from) {
       continue;
     }
     if (fence) continue;
-    if (REF_DEF_RE.test(line)) refDef = true;
+    if (REF_DEF_RE.test(line)) nonLocal = true;
+    // Authored CSS is scoped to a box minted per parse, so a <style> sealed
+    // away from the markup it names is scoped to a box that markup is not in,
+    // and styles nothing. Same test as the depth count: a line that starts with
+    // a tag, so prose naming the element is left alone.
+    if (line.trimStart().startsWith('<') && STYLE_OPEN_RE.test(line)) nonLocal = true;
+    htmlDepth = htmlDepthAfter(line, htmlDepth);
 
     if (line.trim() === '') {
-      if (lastContentLine && !CONTINUABLE_RE.test(lastContentLine)) seal = i;
+      // A blank line inside an open element is a blank line between an SVG's
+      // shapes or a card's paragraphs. Sealing there would parse the opening tag
+      // as a fragment of its own — where the parser closes it — and drop every
+      // child that arrives afterwards into a second fragment, outside the
+      // element they belong to.
+      if (!htmlDepth && lastContentLine && !CONTINUABLE_RE.test(lastContentLine)) seal = i;
     } else {
       lastContentLine = line;
     }
   }
 
-  return { seal, refDef };
+  return { seal, nonLocal };
 }
 
 /**
@@ -158,8 +219,8 @@ export function createStreamingMarkdown(host, options = {}) {
   let sealedUpTo = 0;
   /** Tail of the sealed text, to catch a prefix that was rewritten. */
   let fingerprint = '';
-  /** Set once a link reference definition is seen; sealing stops for good. */
-  let refDefSeen = false;
+  /** Set once a construct reaching beyond its segment is seen; sealing stops for good. */
+  let nonLocalSeen = false;
   /** Marker separating the sealed nodes from the re-parsed tail. */
   /** @type {Comment|null} */
   let marker = null;
@@ -194,7 +255,7 @@ export function createStreamingMarkdown(host, options = {}) {
     mode = null;
     sealedUpTo = 0;
     fingerprint = '';
-    refDefSeen = false;
+    nonLocalSeen = false;
     marker = null;
     detectedUpTo = 0;
     disarmSettle();
@@ -305,12 +366,13 @@ export function createStreamingMarkdown(host, options = {}) {
       const live = /** @type {Comment} */ (marker);
       while (live.nextSibling) live.nextSibling.remove();
 
-      if (!refDefSeen) {
-        const { seal, refDef } = findSealPoint(text, sealedUpTo);
-        if (refDef) {
-          // A definition can retarget a link rendered long before it, so what
-          // was sealed may now be wrong: re-parse the lot, and stop sealing.
-          refDefSeen = true;
+      if (!nonLocalSeen) {
+        const { seal, nonLocal } = findSealPoint(text, sealedUpTo);
+        if (nonLocal) {
+          // A definition can retarget a link rendered long before it, and a
+          // <style> block styles markup on both sides of it, so what was sealed
+          // may now be wrong: re-parse the lot, and stop sealing.
+          nonLocalSeen = true;
           renderWhole(text);
           armSettle();
           return;

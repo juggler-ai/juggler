@@ -76,9 +76,10 @@ export async function runTests(_ctx) {
    * plus how much text the Markdown parser was handed in total.
    * @param {string} text - Full text to stream.
    * @param {number} steps - Number of updates to split it into.
+   * @param {object} [options] - Passed to createStreamingMarkdown.
    * @returns {{html: string, parsedChars: number}} Result of the stream.
    */
-  const stream = (text, steps) => {
+  const stream = (text, steps, options = { escapeXml: true }) => {
     const host = mount();
     // marked's own `parse` is a read-only property, so the meter goes on a
     // stand-in global; renderMarkdown reads window.marked afresh each call.
@@ -96,7 +97,7 @@ export async function runTests(_ctx) {
       },
     });
     try {
-      const s = createStreamingMarkdown(host, { escapeXml: true });
+      const s = createStreamingMarkdown(host, options);
       for (let i = 1; i <= steps; i++) {
         s.update(text.slice(0, Math.round((text.length * i) / steps)));
       }
@@ -113,12 +114,13 @@ export async function runTests(_ctx) {
   /**
    * The markup a single all-at-once render produces for the same text.
    * @param {string} text - Full text.
+   * @param {object} [options] - Passed to createStreamingMarkdown.
    * @returns {string} Reference markup.
    */
-  const oneShot = (text) => {
+  const oneShot = (text, options = { escapeXml: true }) => {
     const host = mount();
     try {
-      const s = createStreamingMarkdown(host, { escapeXml: true });
+      const s = createStreamingMarkdown(host, options);
       s.update(text);
       s.settle();
       return markup(host);
@@ -131,10 +133,11 @@ export async function runTests(_ctx) {
    * @param {string} label - What the text is, for the failure message.
    * @param {string} text - Full text.
    * @param {number} [steps] - Number of updates.
+   * @param {object} [options] - Passed to createStreamingMarkdown.
    */
-  const assertSameAsOneShot = (label, text, steps = 12) => {
-    const { html } = stream(text, steps);
-    const expected = oneShot(text);
+  const assertSameAsOneShot = (label, text, steps = 12, options = { escapeXml: true }) => {
+    const { html } = stream(text, steps, options);
+    const expected = oneShot(text, options);
     assert(html === expected, `${label}: streamed DOM diverged\n  got:      ${html}\n  expected: ${expected}`);
   };
 
@@ -296,6 +299,101 @@ export async function runTests(_ctx) {
       assert(host.querySelectorAll('pre code')[1]?.querySelector('.token') !== null,
         'settling should colour the trailing block');
     } finally { host.remove(); }
+  });
+
+  // An assistant reply renders its own inline HTML (escapeXml: false), so a
+  // blank line inside an SVG or a <div> is a blank line inside an element whose
+  // children are still arriving. Sealing there parses the opening tag as a
+  // fragment of its own — where innerHTML closes it — and every later child into
+  // a second fragment, which lands outside it. The one-shot render cannot go
+  // wrong that way, so these compare against it.
+  const raw = { escapeXml: false, detect: false };
+
+  await run('a blank line inside an SVG is not a seal point', () => {
+    const text = [
+      'Here is the chart:',
+      '',
+      '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">',
+      '  <rect x="0" y="0" width="100" height="100" fill="#111"/>',
+      '',
+      '  <circle cx="50" cy="50" r="40" fill="#e33"/>',
+      '</svg>',
+      '',
+      'That should do it.',
+      '',
+    ].join('\n');
+    assertSameAsOneShot('svg with a blank line', text, 12, raw);
+
+    const { html } = stream(text, 12, raw);
+    // The symptom, stated in its own terms: the circle has to be INSIDE the svg.
+    // Split across two fragments it is an unknown HTML element sitting after the
+    // picture, which occupies no space and paints nothing — the reply appears to
+    // stop rendering halfway through the image.
+    const host = mount();
+    try {
+      host.innerHTML = html;
+      const svg = host.querySelector('svg');
+      assert(!!svg, 'the svg element must survive the stream');
+      assert(!!svg?.querySelector('circle'),
+        'the child after the blank line must land inside the svg, not after it');
+      assert(svg?.querySelectorAll('rect, circle').length === 2,
+        'every shape belongs to the one picture');
+    } finally { host.remove(); }
+  });
+
+  await run('a blank line inside an open HTML block is not a seal point', () => {
+    const text = [
+      '<div class="card">',
+      '  <p>First.</p>',
+      '',
+      '  <p>Second.</p>',
+      '</div>',
+      '',
+      'Done.',
+      '',
+    ].join('\n');
+    assertSameAsOneShot('div with a blank line', text, 10, raw);
+    assert(findSealPoint(text, 0).seal === text.indexOf('Done.'),
+      'an unclosed HTML element must not be sealed into');
+  });
+
+  await run('CSS a reply brings still reaches the markup it styles', () => {
+    // Authored CSS is scoped to a box minted per parse (see markdown.js's
+    // boxAuthoredHtml), so a <style> parsed in one segment and the markup it
+    // names parsed in another are scoped to two different boxes and the styling
+    // silently does nothing — until a reload renders the lot in one pass.
+    const text = [
+      '<style>',
+      '.card { color: red; }',
+      '</style>',
+      '',
+      '<div class="card">Styled.</div>',
+      '',
+      'Done.',
+      '',
+    ].join('\n');
+    const { html } = stream(text, 10, raw);
+    const host = mount();
+    try {
+      host.innerHTML = html;
+      const scope = host.querySelector('[data-markdown-scope]');
+      assert(!!scope, 'authored CSS must still be boxed');
+      assert(!!scope?.querySelector('.card'),
+        'the styled markup must sit inside the scope its CSS was written for');
+    } finally { host.remove(); }
+  });
+
+  await run('a tag named in prose does not stop the stream sealing', () => {
+    // The cheapness half of the bargain: suspending sealing for raw HTML must
+    // key on a block that actually opened, not on any `<` the prose mentions.
+    const text = [
+      'The `<div>` element wraps it, and <span> is inline.',
+      '',
+      ...Array.from({ length: 20 }, (_, i) => `**Step ${i}** weighing the options.\n`),
+    ].join('\n');
+    const { parsedChars } = stream(text, 20, raw);
+    assert(parsedChars < text.length * 4,
+      `prose naming a tag must not disable sealing, parsed ${parsedChars} chars for ${text.length} of text`);
   });
 
   await run('a rewritten prefix is re-rendered rather than appended to', () => {

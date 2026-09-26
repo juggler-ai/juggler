@@ -179,6 +179,7 @@ import { runTests as runWorkspaceCreateDialogTests } from '../unit-tests/workspa
 import { runTests as runWorkspaceBoxDragTests } from '../unit-tests/workspace-box-drag-test.js';
 import { runTests as runWorkspaceSelectionTests } from '../unit-tests/workspace-selection-test.js';
 import { runTests as runWorkspaceRenameTests } from '../unit-tests/workspace-rename-test.js';
+import { runTests as runConversationRenameTests } from '../unit-tests/conversation-rename-test.js';
 import { runTests as runWorkspacePanelTests } from '../unit-tests/workspace-panel-test.js';
 import { runTests as runBinUndoToastTests } from '../unit-tests/bin-undo-toast-test.js';
 import { runTests as runBinGhostResurrectionTests } from '../unit-tests/bin-ghost-resurrection-test.js';
@@ -581,6 +582,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:workspace-box-drag', run: runWorkspaceBoxDragTests },
   { name: 'unit:workspace-selection', run: runWorkspaceSelectionTests },
   { name: 'unit:workspace-rename', run: runWorkspaceRenameTests },
+  { name: 'unit:conversation-rename', run: runConversationRenameTests },
   { name: 'unit:workspace-panel', run: runWorkspacePanelTests },
   // Exclusive: it asserts on document.activeElement, which every lane in the
   // shared origin can move.

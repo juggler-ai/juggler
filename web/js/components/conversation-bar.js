@@ -1981,7 +1981,6 @@ class ConversationBar extends JugglerElement {
       commit: async (newName) => {
         try {
           await /** @type {NonNullable<typeof this._session>} */ (this._session).renameConversation(conv.id, newName);
-          this.render();
           return '';
         } catch (e) {
           const code = /** @type {any} */ (e)?.code;
@@ -2032,12 +2031,20 @@ class ConversationBar extends JugglerElement {
         return autoNameBtn;
       },
 
-      // Hand off to the visible conversation's composer-box so the user can type
-      // straight after naming. We look it up through the conversation-tab
+      // A tab being renamed is left alone by every repaint (_renderOrUpdateTab
+      // will not write a name under an open field), so the tab is still showing
+      // the old name until a render lands after the editor has gone. This is
+      // that render: every way out of the editor ends here, and the renders
+      // during the rename — this bar's own, and the server's echo of the
+      // broadcast — all landed while the field was still over the tab.
+      //
+      // Then hand off to the visible conversation's composer-box so the user can
+      // type straight after naming. We look it up through the conversation-tab
       // element registered with the bar rather than a global query, so the
       // lookup stays correct even when multiple conversation-tabs are mounted
       // side-by-side.
       onClose: () => {
+        this.render();
         const tabEl = this._tabElements.get(conversationId);
         const textarea = /** @type {HTMLTextAreaElement|null} */ (
           tabEl?.querySelector('composer-box textarea') || null

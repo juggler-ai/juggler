@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"juggler/internal/machineload"
 	"juggler/tests/helpers"
 )
 
@@ -346,7 +347,10 @@ func runOneBrowserTest(t *testing.T, srv testServerEntry) {
 		if death := poolDeath(srv); death != "" {
 			t.Fatalf("waiting for test result: %v\n%s", err, death)
 		}
-		t.Fatalf("waiting for test result: %v\n%s%s", err, queueAudit(srv.addr, name), projectSize(srv.addr))
+		// The machine reading is ours to take here: no result came back, so the
+		// lane never assembled a failure block to carry one of its own.
+		t.Fatalf("waiting for test result: %v\n%s%s\n%s", err,
+			queueAudit(srv.addr, name), projectSize(srv.addr), machineload.Line())
 	}
 
 	if !result.Passed {

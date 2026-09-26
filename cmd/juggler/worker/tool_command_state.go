@@ -191,17 +191,40 @@ var engineUnreachableReasons = map[string]bool{
 // engine's document contains (handleEngineTrace → engineDocVector).
 const engineReasonConvNotLoaded = "conv-not-loaded"
 
+// engineLivenessOnlyEvents are engine traces that prove the engine received a
+// command and nothing more. They are stamped as liveness — the engine is alive
+// and running handlers — but must NOT count as engagement with the tool.
+//
+// The distinction is the 60-second unproven hold. Engagement means the engine
+// reached this tool and is working on it, which is what licenses the worker to
+// stop holding and fail the tool at the attempt cap. A trace emitted on ARRIVAL
+// proves only that the command landed; the engine may then spend a minute inside
+// its own preamble, waiting on a conversation load, having reached no tool at
+// all. Counting arrival as engagement would remove the hold for every tool in
+// the system and fail tools that were about to run.
+var engineLivenessOnlyEvents = map[string]bool{
+	// Emitted at the top of handleEvaluateTool/handleExecuteTool, before the
+	// preamble. Its whole purpose is to timestamp arrival separately from work.
+	"command-recv": true,
+	// Emitted from inside the preamble, reporting that it is slow. An engine
+	// still loading has by definition not reached the tool.
+	"preamble-slow": true,
+}
+
 // recordTrace stamps the arrival of an engine-trace naming id, classifying it by
-// the trace's `reason` field ("" for the acting traces, which carry none). Only
-// ids already under command are stamped: a trace for anything else is
+// the trace's event and `reason` field ("" for the acting traces, which carry
+// none). Only ids already under command are stamped: a trace for anything else is
 // diagnostic-only, and creating an entry for it would leak one map entry per
 // tool ever traced.
-func (t *toolCommandTracker) recordTrace(id, reason string, now time.Time) {
+func (t *toolCommandTracker) recordTrace(id, event, reason string, now time.Time) {
 	s := t.byID[id]
 	if s == nil {
 		return
 	}
 	s.lastTracedAt = now
+	if engineLivenessOnlyEvents[event] {
+		return
+	}
 	if engineUnreachableReasons[reason] {
 		s.unreachableAtDispatch, s.lastUnreachableReason = s.dispatches, reason
 		return

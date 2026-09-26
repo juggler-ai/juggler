@@ -25,6 +25,7 @@ import { dumpTape, clearTape } from '../../js/utils/event-tape.js';
 import { snapshotOwnConversationIds, deleteOwnConversationsCreatedSince, setCurrentTestName } from './conversation-claims.js';
 import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
+import { fetchMachineLoad, measureTimerGrid, machineLoadLines } from './machine-load.js';
 import { lastConfirmGiveUp } from './ui-operation-executor.js';
 
 /**
@@ -455,6 +456,11 @@ async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeo
   // HTTP round-trip like the tape fetches below, and overlapping it with them
   // keeps it free inside the diagnostics build's own 5s budget.
   const projectSize = fetchProjectSize();
+  // Same trick for the machine readings: the load average is another round-trip
+  // and the grid probe is a chain of timers, so both ride alongside the fetches
+  // above instead of adding their own wait to the diagnostics build.
+  const machineLoad = fetchMachineLoad();
+  const timerGrid = measureTimerGrid().catch(() => null);
   const totalOps = operations?.length ?? 0;
   const completedTypes = trace.opsCompleted.slice(-8).join(' → ') || '(none)';
 
@@ -534,6 +540,7 @@ async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeo
     `  duration: ${durationMs}ms (per-test timeout: ${perTestTimeoutMs}ms)`,
     `  iframe: ${ident.iframe}  visible-conv: ${ident.visibleConversationId || 'none'}  own: [${ident.ownConversationIds.join(', ')}]`,
     ...projectSizeLines(await projectSize),
+    ...machineLoadLines(await machineLoad, await timerGrid),
     ...confirmLines,
     `  ${opLine}`,
     `  ops completed (last 8 of ${trace.opsCompleted.length}): ${completedTypes}`,

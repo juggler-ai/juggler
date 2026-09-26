@@ -258,7 +258,46 @@ func TestPortFromAddr(t *testing.T) {
 const (
 	envExecChild = "JUGGLER_EXEC_ROUNDTRIP_CHILD"
 	envExecOut   = "JUGGLER_EXEC_ROUNDTRIP_OUT"
+	envExecFD    = "JUGGLER_EXEC_ROUNDTRIP_FD"
 )
+
+// rebindWindow is how long the re-exec'd image keeps trying to take its port
+// back. The port is in the ephemeral range, so between the exec closing the
+// listener and this bind the kernel is free to hand it to any process opening an
+// outbound connection — which, on a machine running this suite, is a great many.
+// A few attempts separate that from a handoff that is genuinely broken, where the
+// port is held by a socket of ours and never comes back at all.
+const rebindWindow = 2 * time.Second
+
+// listenerSurvivedExec reports whether fd is still a socket bound to port, which
+// is the definitive statement of a broken handoff: the listening socket outlived
+// the execve that was supposed to close it.
+//
+// Asked of the fd directly rather than inferred from a failed bind, because those
+// are different facts. A bind can fail because somebody else holds the port, which
+// says nothing about our own socket; only the fd can say whether OUR listener is
+// still there. EBADF is the healthy answer. A different port on the same number is
+// healthy too — the runtime reuses fd numbers freely after exec, and what matters
+// is that our socket is gone, not that the number is unused.
+func listenerSurvivedExec(fd int, port string) bool {
+	if fd <= 0 {
+		return false
+	}
+	sa, err := syscall.Getsockname(fd)
+	if err != nil {
+		return false
+	}
+	var bound int
+	switch a := sa.(type) {
+	case *syscall.SockaddrInet4:
+		bound = a.Port
+	case *syscall.SockaddrInet6:
+		bound = a.Port
+	default:
+		return false
+	}
+	return strconv.Itoa(bound) == port
+}
 
 func TestMain(m *testing.M) {
 	if os.Getenv(envExecChild) != "" {
@@ -286,6 +325,15 @@ func execRoundtripChild() {
 		_ = ln // keep open across exec; CLOEXEC frees it on execve
 		appendLine(out, fmt.Sprintf("pid0=%d port=%s", os.Getpid(), port))
 
+		// The listener's own descriptor number, carried to the next image so it can
+		// ask whether the socket survived. Read through SyscallConn rather than
+		// File(), which would hand back a duplicate and put the original into
+		// blocking mode.
+		listenFD := 0
+		if raw, err := ln.(*net.TCPListener).SyscallConn(); err == nil {
+			_ = raw.Control(func(fd uintptr) { listenFD = int(fd) })
+		}
+
 		exe, err := os.Executable()
 		if err != nil {
 			appendLine(out, fmt.Sprintf("ERR phase0 exe: %v", err))
@@ -293,6 +341,7 @@ func execRoundtripChild() {
 		}
 		argv := relaunchArgs(os.Args, port)
 		env := envWith(os.Environ(), relaunchGenEnv, "1")
+		env = envWith(env, envExecFD, strconv.Itoa(listenFD))
 		if err := syscall.Exec(exe, argv, env); err != nil {
 			appendLine(out, fmt.Sprintf("ERR phase0 exec: %v", err))
 			os.Exit(2)
@@ -300,14 +349,37 @@ func execRoundtripChild() {
 		return // unreachable
 	}
 
-	// gen >= 1: re-exec'd image. Re-bind the same port to prove the handoff.
-	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", port))
-	if err != nil {
-		appendLine(out, fmt.Sprintf("ERR phase1 rebind: %v", err))
+	// gen >= 1: the re-exec'd image. The handoff is proven by the listening socket
+	// being gone, which is asked of the descriptor; taking the port back is the
+	// visible consequence and is attempted second, because it depends on the rest
+	// of the machine leaving an ephemeral port alone for a moment.
+	inheritedFD, _ := strconv.Atoi(os.Getenv(envExecFD))
+	if listenerSurvivedExec(inheritedFD, port) {
+		appendLine(out, fmt.Sprintf("ERR phase1 handoff: fd %d is still bound to port %s after execve, so CLOEXEC did not close the listener", inheritedFD, port))
 		os.Exit(3)
 	}
-	_ = ln.Close()
-	appendLine(out, fmt.Sprintf("pid1=%d gen=%d rebound=ok", os.Getpid(), gen))
+
+	deadline := time.Now().Add(rebindWindow)
+	var lastErr error
+	for {
+		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", port))
+		if err == nil {
+			_ = ln.Close()
+			appendLine(out, fmt.Sprintf("pid1=%d gen=%d rebound=ok", os.Getpid(), gen))
+			os.Exit(0)
+		}
+		lastErr = err
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Our listener is provably gone, so the port is held by something that is not
+	// ours and there is nothing here to fail: the property under test held, and the
+	// machine took the port in the gap. Said plainly so the parent reports a skip
+	// rather than a fault nobody can act on.
+	appendLine(out, fmt.Sprintf("SKIP phase1 rebind: port %s taken by another process after the handoff: %v", port, lastErr))
 	os.Exit(0)
 }
 
@@ -365,6 +437,13 @@ func TestRelaunchExecRoundTrip(t *testing.T) {
 	}
 	if pid0 != pid1 {
 		t.Fatalf("same-PID re-exec violated: pid0=%s pid1=%s\n%s", pid0, pid1, data)
+	}
+	// The child proves the handoff from its own descriptor before it tries the
+	// port, so a port it could not take back — with the socket provably closed — is
+	// the machine's doing and not a fault. Skipping says so; failing would put a
+	// name in the flaky queue that belongs to whatever else was opening sockets.
+	if strings.Contains(data, "SKIP phase1 rebind:") {
+		t.Skipf("the handoff held, but the port could not be taken back:\n%s", data)
 	}
 	if !strings.Contains(data, "rebound=ok") {
 		t.Fatalf("port was not re-bound after exec (CLOEXEC handoff failed):\n%s", data)

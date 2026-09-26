@@ -47,6 +47,21 @@ import { openSettings } from '../services/settings-launcher.js';
 const TOKEN_UPDATE_DEBOUNCE_MS = 2000;
 
 /**
+ * The longest a run of events may postpone the render they are coalescing.
+ *
+ * The debounce above is restarted by every event that reaches the meter, and
+ * during a turn that is every status frame — so without a ceiling the render is
+ * not delayed but abandoned, and the meter shows the previous turn's number for
+ * as long as the conversation stays busy. Bounding it at twice the debounce keeps
+ * the coalescing (one render per two seconds of quiet, one per four of noise)
+ * while making the staleness finite, which is the part that was missing.
+ *
+ * Exported because a test asserts the ceiling is honoured, and a copy of the
+ * number in the test is a copy that drifts.
+ */
+export const TOKEN_UPDATE_MAX_WAIT_MS = 2 * TOKEN_UPDATE_DEBOUNCE_MS;
+
+/**
  * How long to wait before asking again for a transaction blob that was not on
  * disk yet, and how many times. The worker stamps `transactionId` on the
  * streaming assistant item before it saves the blob at end-of-turn, so the
@@ -156,6 +171,14 @@ class ConversationFooter extends HTMLElement {
    * @private
    */
   _tokenUpdateTimer = undefined;
+
+  /**
+   * When the burst of events currently being coalesced began, so that later ones
+   * can delay the render up to TOKEN_UPDATE_MAX_WAIT_MS and no further.
+   * @type {number|undefined}
+   * @private
+   */
+  _tokenUpdateBurstStartedAt = undefined;
 
   /**
    * Status-only mode: the footer is reduced to the status line (see the class
@@ -437,11 +460,20 @@ class ConversationFooter extends HTMLElement {
    * @private
    */
   _scheduleTokenDisplayUpdate() {
+    const now = Date.now();
+    if (this._tokenUpdateTimer === undefined) this._tokenUpdateBurstStartedAt = now;
     this._cancelDeferredTokenDisplayUpdate();
+    // What is left of the ceiling. Events arriving closer together than the
+    // debounce may keep pushing the render back, but only to here — past that the
+    // burst has had its coalescing and the meter is owed a number.
+    const remaining = TOKEN_UPDATE_MAX_WAIT_MS - (now - (this._tokenUpdateBurstStartedAt ?? now));
+    const delay = Math.max(0, Math.min(TOKEN_UPDATE_DEBOUNCE_MS, remaining));
     this._tokenUpdateTimer = window.setTimeout(() => {
+      // Cleared first, so the next event opens a new burst rather than inheriting
+      // a ceiling this one has already spent.
       this._tokenUpdateTimer = undefined;
       this._updateTokenDisplay();
-    }, TOKEN_UPDATE_DEBOUNCE_MS);
+    }, delay);
   }
 
   /**

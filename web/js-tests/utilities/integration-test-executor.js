@@ -308,6 +308,7 @@ import {
 } from './conversation-claims.js';
 import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
+import { machineLoadReport } from './machine-load.js';
 
 // Action progress events fire in the engine WebviewWindow's document; without
 // a bridge they are invisible to the test page. action-executor broadcasts
@@ -867,7 +868,8 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
         failed: 1,
         errors: [
           `${suite.name}: unit suite timed out after ${UNIT_SUITE_BUDGET_MS}ms — it stopped making progress and never returned a result`,
-          ...projectSizeLines(await fetchProjectSize())
+          ...projectSizeLines(await fetchProjectSize()),
+          ...await machineLoadReport()
         ]
       };
     }
@@ -877,7 +879,11 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
     // only under a full pool is the one case where that number is the evidence.
     // Integration tests carry the same two lines (see projectSizeLines).
     if (result.failed > 0) {
-      result.errors = [...result.errors, ...projectSizeLines(await fetchProjectSize())];
+      result.errors = [
+        ...result.errors,
+        ...projectSizeLines(await fetchProjectSize()),
+        ...await machineLoadReport()
+      ];
     }
     return result;
   } finally {

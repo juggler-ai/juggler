@@ -35,7 +35,7 @@ import {
 import { budgetFor } from '../utilities/test-deadline.js';
 import workerManager from '../../js/services/worker-manager.js';
 import MessageThread from '../../js/model/message-thread.js';
-import '../../js/components/conversation-footer.js';
+import { TOKEN_UPDATE_MAX_WAIT_MS } from '../../js/components/conversation-footer.js';
 import '../../js/components/token-display.js';
 
 /** A blob reporting a measured prompt, most of it served from cache. */
@@ -225,6 +225,44 @@ export async function runTests(_ctx) {
     workerManager.getTransaction = realGetTransaction;
     mounted?.footer.remove();
     if (conversation) await releaseTestConversation(session, conversation.id, 'token-meter-3');
+  }
+
+  // =========================================================================
+  // 4: a conversation that never goes quiet still gets its coalesced render
+  // =========================================================================
+  //
+  // The coalescer alone, with no thread and a stubbed render. Deliberately
+  // isolated: with a thread attached, the blob fetch's own `finally` renders the
+  // meter too, so a spy on _updateTokenDisplay counts that instead and the case
+  // passes with the fault still in place — which is what the first draft of this
+  // one did. Stubbing the render before anything is attached leaves the settling
+  // timer as the only thing that can satisfy it.
+  //
+  // The fault it pins: a settling timer that every event restarts has no floor.
+  // While events keep arriving closer together than the debounce, the render is
+  // not delayed but abandoned, and during a turn every status frame is one of
+  // those events.
+  try {
+    const footer = /** @type {any} */ (document.createElement('conversation-footer'));
+    document.body.appendChild(footer);
+    let renders = 0;
+    footer._updateTokenDisplay = () => { renders++; };
+
+    const busy = setInterval(() => footer._scheduleTokenDisplayUpdate(), 50);
+    try {
+      await waitFor(() => renders > 0, {
+        timeoutMs: budgetFor(TOKEN_UPDATE_MAX_WAIT_MS + 2000),
+        description: `a coalesced render inside ${TOKEN_UPDATE_MAX_WAIT_MS}ms of events that never stop`
+      });
+    } finally {
+      clearInterval(busy);
+      footer.remove();
+    }
+
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`renders while the conversation never goes quiet: ${msg(e)}`);
   }
 
   return { passed, failed, errors };

@@ -59,7 +59,11 @@ func driveToEscalation(h *reattachHarness, traceReason string) {
 			// dispatching an engine-trace message, so the test is coupled to the
 			// liveness signal rather than to the trace payload shape —
 			// TestEngineTrace_StampsThePerToolReceipt covers the payload.
-			h.w.tools.recordTrace("tu-1", traceReason, time.Now())
+			event := "evaluate-noact"
+			if traceReason == "" {
+				event = "evaluate-done" // an acting trace carries no reason
+			}
+			h.w.tools.recordTrace("tu-1", event, traceReason, time.Now())
 		}
 		h.w.driveToolActions()
 		if it, ok := findToolItem(h.w.currentRun().getTargetItems(), "tu-1"); ok && it.State == StateCompleted {
@@ -178,7 +182,7 @@ func TestEngineWentSilentMidPhase_ToolIsNotBlamed(t *testing.T) {
 	// One trace, answering the first command, then silence for good. A sibling
 	// tool still executing would keep the conversation-wide signal just as warm.
 	h.w.driveToolActions()
-	h.w.tools.recordTrace("tu-1", "", time.Now())
+	h.w.tools.recordTrace("tu-1", "evaluate-done", "", time.Now())
 	h.w.lastEngineTraceAt = time.Now()
 
 	for i := 0; i <= maxToolCommandAttempts+1; i++ {
@@ -223,6 +227,50 @@ func TestEngineTrace_StampsThePerToolReceipt(t *testing.T) {
 	}
 }
 
+// TestCommandArrival_IsNotEngagement pins the one thing that separates "the
+// command landed" from "the engine reached the tool", because a diagnostic that
+// blurs them silently deletes the 60-second unproven hold for every tool.
+//
+// command-recv is emitted the instant a command arrives, BEFORE the engine's
+// preamble — and that preamble can sit for a minute awaiting a conversation load,
+// having reached no tool at all. recordTrace's default is engagement (the acting
+// traces carry no reason), so an arrival trace counts as an answer unless it is
+// classified out, and the tool is then failed at the attempt cap instead of held
+// while the engine finishes loading. That is the exact user-visible fault the hold
+// exists to prevent: a tool blamed for an engine that was about to run it.
+func TestCommandArrival_IsNotEngagement(t *testing.T) {
+	tick := time.Now()
+	tr := newToolCommandTracker()
+
+	tr.recordDispatch("tu-1", StateApproved, tick)
+	tr.recordTrace("tu-1", "command-recv", "", tick)
+	tr.recordDispatch("tu-1", StateApproved, tick)
+
+	if tr.answeredSincePrevDispatch("tu-1") {
+		t.Error("a command-recv trace counted as the engine ENGAGING with the tool. " +
+			"It is emitted on arrival, before the engine has looked at anything, so " +
+			"this removes the unproven hold for every tool in the system and fails " +
+			"tools that were about to run. Classify it in engineLivenessOnlyEvents")
+	}
+	// It is still liveness: the command demonstrably reached a handler, which is
+	// what distinguishes a mute engine from a slow one.
+	if tr.lastTracedAt("tu-1").IsZero() {
+		t.Error("a command-recv trace did not stamp the tool's receipt at all; " +
+			"arrival is the strongest evidence there is that the engine is alive")
+	}
+
+	// The slow-preamble trace says the same thing more loudly — an engine still
+	// inside its preamble has by definition not reached the tool.
+	tr2 := newToolCommandTracker()
+	tr2.recordDispatch("tu-2", StateApproved, tick)
+	tr2.recordTrace("tu-2", "preamble-slow", "", tick)
+	tr2.recordDispatch("tu-2", StateApproved, tick)
+	if tr2.answeredSincePrevDispatch("tu-2") {
+		t.Error("a preamble-slow trace counted as engagement — it reports the engine " +
+			"still loading, which is the opposite of having reached the tool")
+	}
+}
+
 // TestEngineAnswered_IsNotDecidedByTheClock pins that the engine-answered tests
 // order traces against commands by counting dispatches, never by comparing
 // timestamps. Every event below carries the SAME instant, which is what a
@@ -236,14 +284,14 @@ func TestEngineAnswered_IsNotDecidedByTheClock(t *testing.T) {
 	tr := newToolCommandTracker()
 
 	tr.recordDispatch("tu-1", StateApproved, tick)
-	tr.recordTrace("tu-1", "", tick)
+	tr.recordTrace("tu-1", "evaluate-done", "", tick)
 	tr.recordDispatch("tu-1", StateApproved, tick)
 	if !tr.answeredSincePrevDispatch("tu-1") {
 		t.Fatal("an engine that engaged with the previous command reads as mute when " +
 			"the trace and that command share one clock tick")
 	}
 
-	tr.recordTrace("tu-1", "conv-not-loaded", tick)
+	tr.recordTrace("tu-1", "evaluate-noact", "conv-not-loaded", tick)
 	tr.recordDispatch("tu-1", StateApproved, tick)
 	unreachable, reason := tr.unreachableSincePrevDispatch("tu-1")
 	if !unreachable || reason != "conv-not-loaded" {

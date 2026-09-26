@@ -233,7 +233,7 @@ export async function handleRenderContextItemsRequest(wm, conversationId, data) 
   // items). Without this the callback's "requested context-item not in local
   // view" guard bails without responding — and, context being engine-only, that
   // wedges the turn.
-  await loadAndFlush(wm, conversationId);
+  await loadAndFlush(wm, conversationId, 'render-context-items');
   wm._onContextRequest(data, conversationId);
 }
 
@@ -304,7 +304,7 @@ export function sendToolsResult(wm, conversationId, requestId, tools) {
  */
 export async function handleBuildSubthreadSpec(wm, conversationId, data) {
   if (!wm._onSubthreadSpecRequest) return;
-  await loadAndFlush(wm, conversationId);
+  await loadAndFlush(wm, conversationId, 'build-subthread-spec');
   wm._onSubthreadSpecRequest(data, conversationId);
 }
 
@@ -560,6 +560,23 @@ async function runContextHookGuarded(ItemClass, hook, ctx, conversationId) {
 }
 
 /**
+ * How long the preamble may take before it is worth a trace of its own.
+ *
+ * The preamble is invisible by construction: a command's first trace is emitted
+ * after it, so a worker tape showing `tool-command` at T and `evaluate-start` at
+ * T+3s says only that three seconds went somewhere. Every timestamped sighting in
+ * scratch/flaky-tests.md brackets exactly that gap, and the gap has never been
+ * split into the four things inside it — transit, an awaited auto-load, a load
+ * from disk, and the sync flush.
+ *
+ * Only a slow one is traced. A preamble that costs nothing is the normal case and
+ * a trace per command would bury the interesting one; a quarter second is far
+ * past anything the healthy path does and far below the seconds these sightings
+ * report.
+ */
+const PREAMBLE_SLOW_MS = 250;
+
+/**
  * Ensure the engine's copy of a conversation is loaded, then flush its batched-
  * but-unapplied syncs so any state the worker pushed ahead of this command is
  * visible. The shared preamble for every worker-driven engine command
@@ -576,11 +593,27 @@ async function runContextHookGuarded(ItemClass, hook, ctx, conversationId) {
  * state ahead of the command; the engine applies pending syncs before acting).
  * @param {any} wm - WorkerManager instance
  * @param {string} conversationId
+ * @param {string} [command] - Which command is waiting on it, for the slow-preamble trace.
  * @returns {Promise<any>} The loaded conversation, or null
  */
-async function loadAndFlush(wm, conversationId) {
-  const c = await ensureEngineConversationLoaded(wm, conversationId);
+async function loadAndFlush(wm, conversationId, command = 'command') {
+  const started = Date.now();
+  /** @type {{awaitedAutoLoad: boolean, loadedFromDisk: boolean}} */
+  const notes = { awaitedAutoLoad: false, loadedFromDisk: false };
+  const c = await ensureEngineConversationLoaded(wm, conversationId, notes);
+  const loadMs = Date.now() - started;
   c?.flushPendingSyncs?.();
+  const elapsedMs = Date.now() - started;
+  if (elapsedMs >= PREAMBLE_SLOW_MS) {
+    sendEngineTrace(wm, conversationId, 'preamble-slow', {
+      command,
+      elapsedMs,
+      loadMs,
+      awaitedAutoLoad: notes.awaitedAutoLoad,
+      loadedFromDisk: notes.loadedFromDisk,
+      found: Boolean(c)
+    });
+  }
   return c;
 }
 
@@ -676,7 +709,13 @@ export async function handleEvaluateTool(wm, conversationId, toolUseId) {
   // the tool at all" must be listed there, or the engine's loading window is
   // reported to the user as a tool that never carried out its command. A Go test
   // reads this file and fails on any reason string it has never heard of.
-  const c = await loadAndFlush(wm, conversationId);
+  // Emitted before the preamble, so the worker's `tool-command` line and this one
+  // bracket the transit alone. Everything the engine then does before
+  // evaluate-start is inside loadAndFlush, which traces itself when slow — so a
+  // gap that used to be one unattributable number is now three: worker→engine,
+  // load, and the evaluation itself.
+  sendEngineTrace(wm, conversationId, 'command-recv', { toolUseId, command: 'evaluate-tool' });
+  const c = await loadAndFlush(wm, conversationId, 'evaluate-tool');
   if (!c) { sendEngineTrace(wm, conversationId, 'evaluate-noact', { toolUseId, reason: 'conv-not-loaded' }); return false; }
   const mt = findThreadForTool(c, toolUseId);
   if (!mt) { sendEngineTrace(wm, conversationId, 'evaluate-noact', { toolUseId, reason: 'no-thread' }); return false; }
@@ -737,7 +776,10 @@ export async function handleExecuteTool(wm, conversationId, toolUseId) {
   // false → could not act (conv/tool not loaded yet); the worker re-drives this
   // tool from its unchanged doc state. Once claimRunning moves it to running,
   // driveToolActions no longer selects it, so a re-driven command is a no-op.
-  const c = await loadAndFlush(wm, conversationId);
+  // See handleEvaluateTool: this is the anchor that separates transit from the
+  // engine's own preamble.
+  sendEngineTrace(wm, conversationId, 'command-recv', { toolUseId, command: 'execute-tool' });
+  const c = await loadAndFlush(wm, conversationId, 'execute-tool');
   if (!c) { sendEngineTrace(wm, conversationId, 'execute-noact', { toolUseId, reason: 'conv-not-loaded' }); return false; }
   const mt = findThreadForTool(c, toolUseId);
   if (!mt) { sendEngineTrace(wm, conversationId, 'execute-noact', { toolUseId, reason: 'no-thread' }); return false; }
@@ -856,7 +898,7 @@ export async function handleCancelTool(wm, conversationId, toolUseId, runningEpo
   if (!isEngine()) {
     throw new Error('cancel-tool received in a viewer — tool execution runs only in the engine');
   }
-  const c = await loadAndFlush(wm, conversationId);
+  const c = await loadAndFlush(wm, conversationId, 'cancel-tool');
   if (!c) { sendEngineTrace(wm, conversationId, 'cancel-noconv', { toolUseId }); return; }
   // outcome disambiguates the three cases: 'hit' — a real execution was aborted;
   // 'miss' — this engine had NO registered in-flight execution for the id (the
@@ -891,11 +933,16 @@ export function sendStrategyHookResponse(wm, conversationId, requestId, guidance
  * arrives. Returns null if it cannot be loaded.
  * @param {any} wm
  * @param {string} conversationId
+ * @param {{awaitedAutoLoad: boolean, loadedFromDisk: boolean}} [notes] - Filled in
+ *   with which of the two waits this call actually did. Both are unbounded and
+ *   neither is otherwise visible, so a caller timing the preamble can say which
+ *   one it spent its time in rather than reporting a bare total.
  * @returns {Promise<any>} The loaded conversation, or null
  */
-async function ensureEngineConversationLoaded(wm, conversationId) {
+async function ensureEngineConversationLoaded(wm, conversationId, notes = undefined) {
   const pending = wm._pendingAutoLoads?.get(conversationId);
   if (pending) {
+    if (notes) notes.awaitedAutoLoad = true;
     try {
       await pending.promise;
     } catch {
@@ -904,6 +951,7 @@ async function ensureEngineConversationLoaded(wm, conversationId) {
   }
   let conversation = wm._session?.conversations.get(conversationId);
   if (wm._session && (!conversation || conversation.loadState !== 'loaded')) {
+    if (notes) notes.loadedFromDisk = true;
     try {
       conversation = await wm.loadExistingConversation(conversationId, wm._session);
     } catch (err) {

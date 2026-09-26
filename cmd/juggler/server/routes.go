@@ -409,6 +409,7 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 		HandleGetNames(w http.ResponseWriter, r *http.Request)
 		HandleJSTrace(w http.ResponseWriter, r *http.Request)
 		HandleAudit(w http.ResponseWriter, r *http.Request)
+		HandleMachine(w http.ResponseWriter, r *http.Request)
 	}
 	rapi, ok := testAPI.(runAPI)
 	mustMatch(ok, "run-API")
@@ -424,6 +425,9 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 	// lost. Both the queue and the result buffer are destructive reads, so this
 	// is the only record that outlives the loss.
 	api.HandleFunc("/audit", rapi.HandleAudit).Methods("GET")
+	// The machine's load average, read by a failing lane so its failure block
+	// says whether anything was running. A page has no way to ask.
+	api.HandleFunc("/machine", rapi.HandleMachine).Methods("GET")
 
 	// Engine connection status — used by the JS test executor to wait for engine.
 	s.router.HandleFunc("/api/engine/status", s.handleEngineStatus).Methods("GET")

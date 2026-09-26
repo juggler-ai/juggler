@@ -1060,7 +1060,7 @@ func (w *ConversationWorker) handleEngineTrace(payload json.RawMessage) {
 	}
 	decoded := json.Unmarshal(payload, &probe) == nil
 	if decoded && probe.ToolUseID != "" {
-		w.tools.recordTrace(probe.ToolUseID, probe.Reason, now)
+		w.tools.recordTrace(probe.ToolUseID, probe.Event, probe.Reason, now)
 	}
 	if decoded {
 		// On the tape, because this is the only account of what the engine did

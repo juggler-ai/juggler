@@ -35,6 +35,22 @@ const DEFAULT_PATH = '.juggler/MEMORY.md';
 const REFRESH_DEBOUNCE_MS = 150;
 
 /**
+ * The longest a burst may postpone the read it is settling.
+ *
+ * A settling timer that every event restarts has no floor: while events keep
+ * arriving closer together than the settling period, the read is deferred for
+ * ever and the pin shows the previous file indefinitely rather than late. That is
+ * not a slow pin, it is a wrong one, and it needs no unusual load to reach — any
+ * conversation writing context items in a loop does it.
+ *
+ * So the first event of a burst starts a clock the rest cannot rewind: later
+ * events may delay the read up to this ceiling and no further. Generous, because
+ * the coalescing is worth having and a second of staleness is not worth a round
+ * trip per event — but finite, which is the whole point.
+ */
+const REFRESH_MAX_WAIT_MS = 1000;
+
+/**
  * Which file this pin reads. `config.path` overrides the project's own memory,
  * mirroring the memory context item's `data.path` and existing for the same
  * reason: a second pin over a different memory file — a global one, say — is
@@ -122,6 +138,13 @@ class MemoryPin extends PinboardItemType {
     /** @type {ReturnType<typeof setTimeout>|undefined} The settling period before a read. */
     let pending;
 
+    /**
+     * When the burst currently settling began, so that later events can delay the
+     * read but never postpone it past REFRESH_MAX_WAIT_MS. Zero when no burst is
+     * in flight.
+     */
+    let burstStartedAt = 0;
+
     /** The file as it was last drawn, so an unchanged file redraws nothing. */
     let drawn = /** @type {string|null} */ (null);
 
@@ -198,8 +221,19 @@ class MemoryPin extends PinboardItemType {
 
     /** @returns {void} */
     const refresh = () => {
+      const now = Date.now();
+      if (pending === undefined) burstStartedAt = now;
+      // What is left of the ceiling, so a burst that keeps restarting the timer
+      // still reads at REFRESH_MAX_WAIT_MS rather than never.
+      const remaining = REFRESH_MAX_WAIT_MS - (now - burstStartedAt);
+      const delay = Math.max(0, Math.min(REFRESH_DEBOUNCE_MS, remaining));
       clearTimeout(pending);
-      pending = setTimeout(() => { void render(); }, REFRESH_DEBOUNCE_MS);
+      pending = setTimeout(() => {
+        // Cleared before the read so the next event begins a new burst, rather
+        // than inheriting a ceiling this one has already spent.
+        pending = undefined;
+        void render();
+      }, delay);
     };
 
     const stopWatching = context.services.contextItems.onChange(refresh);

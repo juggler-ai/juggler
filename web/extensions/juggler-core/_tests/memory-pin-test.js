@@ -320,6 +320,28 @@ export async function runTests(ctx) {
     m.teardown();
   });
 
+  await test('a burst of changes cannot hold the read off for ever', async () => {
+    const path = await writeMemory('burst', '# Memory\n\n- [2026-06-14] Before the burst\n');
+    const m = mount(path);
+    await settled(m.body);
+
+    await writeFileOp({ path, content: '# Memory\n\n- [2026-06-14] After the burst\n' });
+
+    // Signal faster than the settling period and never stop. A settling timer
+    // that every event restarts has no floor: while the events keep coming the
+    // read is postponed for ever, and the pin shows the old file indefinitely
+    // rather than late. A busy conversation looks exactly like this from here,
+    // and so does anything that writes context items in a loop — which is why
+    // this case signals continuously instead of in a tidy burst.
+    const nudging = setInterval(m.fireChange, 20);
+    try {
+      await until(m.body, (t) => t.includes('After the burst'), 4000);
+    } finally {
+      clearInterval(nudging);
+      m.teardown();
+    }
+  });
+
   await test('teardown stops listening', async () => {
     const path = await writeMemory('teardown', TWO_FACTS);
     const m = mount(path);

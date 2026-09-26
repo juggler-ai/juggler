@@ -620,7 +620,11 @@ export async function runTests() {
 
         // The project keeps its protection too. It is the tree the conversation
         // came from and every other conversation is still working in, so moving
-        // into a worktree must not make wiping it an ordinary delete.
+        // into a worktree must not make wiping it an ordinary delete. Named in
+        // the session's own spelling — on Windows that is the native
+        // backslash form the model is handed, which a POSIX shell reads as
+        // escapes, so the floor has to recognise a path the tokenizer has
+        // collapsed.
         assert(isShellCommandCatastrophic(`rm -rf ${session.projectPath}`, { messageThread, session }),
           'the project is still protected from a conversation working elsewhere');
 
@@ -632,7 +636,11 @@ export async function runTests() {
         // Reads of the main tree do not start asking. The server widens a bound
         // request's read boundary with the project, so a command naming a path
         // in it is as approvable from the worktree as it was from the project.
-        assert(isShellCommandPermitted(`cat ${session.projectPath}/package.json`, { messageThread, session }),
+        // Forward-slashed: a command carrying a native Windows path is held back
+        // for the human whatever tree it names, since the POSIX shell that will
+        // run it reads those separators as escapes.
+        const posix = (/** @type {string} */ p) => p.replace(/\\/g, '/');
+        assert(isShellCommandPermitted(`cat ${posix(session.projectPath)}/package.json`, { messageThread, session }),
           'a bound conversation can still read the tree it branched from without asking');
       } finally {
         session.workspaces = saved;

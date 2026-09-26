@@ -21,9 +21,10 @@ import {
 } from './golden-comparator.js';
 import { ITEM_TYPE_TO_TAG } from './test-assertions.js';
 import logger from './test-logger.js';
-import { dumpTape, clearTape } from '../../js/utils/event-tape.js';
+import { dumpTape, clearTape, lastTapeTs } from '../../js/utils/event-tape.js';
 import { snapshotOwnConversationIds, deleteOwnConversationsCreatedSince, setCurrentTestName } from './conversation-claims.js';
 import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
+import { askForMoreTime, resetPatience, patienceGranted, whyGivingUp } from './test-patience.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
 import { fetchMachineLoad, measureTimerGrid, machineLoadLines } from './machine-load.js';
 import { lastConfirmGiveUp } from './ui-operation-executor.js';
@@ -70,6 +71,97 @@ function _withDeadline(promise, ms, fallback, label) {
       }
     );
   });
+}
+
+/**
+ * How often the stall watchdog looks for progress. Fine enough that the moment
+ * a test goes quiet is pinned to within a quarter second, coarse enough to be
+ * invisible next to the work it is watching.
+ */
+const STALL_TICK_MS = 250;
+
+/**
+ * Watch a running test and fail it only once it has stopped getting anywhere.
+ *
+ * The bound used to be the test's whole runtime: 25 seconds from the first
+ * operation, whatever happened in them. That fails a test for the machine's
+ * sins — the worker tape of a run killed this way shows deltas still landing
+ * and tool commands still being answered at the instant of death — and the
+ * failure block would say as much, print the load average that proved it, and
+ * fail the build anyway.
+ *
+ * What the bound should mean is "this test is not getting anywhere", so that is
+ * what it measures. Two progress signals, both already recorded and both in
+ * this realm:
+ *
+ *   - the runner's own trace, which advances as each operation completes;
+ *   - this lane's event tape, filtered to the conversations the lane owns,
+ *     which advances on every socket message, document update and render.
+ *
+ * Either one moving is proof the test is alive, and resets the clock. Neither
+ * moving for the whole window is a stall — and even then the machine gets asked
+ * whether it was serving the lane at all (`./test-patience.js`), because a
+ * saturated machine can starve a lane into silence without anything being
+ * wrong. A wedge on a quiet machine still fails in one window, with the tapes
+ * and the trace it always had.
+ * @param {RunTrace} trace - The runner's live trace for this test.
+ * @param {number} windowMs - How long a test may make no progress at all.
+ * @param {(deadlineMs: number) => void} onExtend - Called with the new deadline whenever the window moves, so in-test waits can follow it.
+ * @returns {{stalled: Promise<never>, stop: () => void, stalls: () => string}} The rejection to race, its off switch, and a one-line account for the failure block.
+ */
+function _watchForStall(trace, windowMs, onExtend) {
+  let stop = () => {};
+  let lastProgressAt = Date.now();
+  let allowanceMs = windowMs;
+  let lastStamp = '';
+  let quietestMs = 0;
+
+  const stalled = new Promise((_, reject) => {
+    let stopped = false;
+    let checking = false;
+    const tick = async () => {
+      if (stopped || checking) return;
+      // Everything that says this test is still alive, as one comparable value.
+      const convIds = Array.from(snapshotOwnConversationIds());
+      const stamp = `${trace.stage}|${trace.opIndex}|${trace.opsCompleted.length}|${trace.currentOpType || ''}|${lastTapeTs(convIds)}`;
+      if (stamp !== lastStamp) {
+        lastStamp = stamp;
+        lastProgressAt = Date.now();
+        allowanceMs = windowMs;
+        onExtend(lastProgressAt + allowanceMs);
+        return;
+      }
+      const quietMs = Date.now() - lastProgressAt;
+      if (quietMs > quietestMs) quietestMs = quietMs;
+      if (quietMs < allowanceMs) return;
+      // Out of window. Ask the machine for its account before believing it.
+      checking = true;
+      const more = await askForMoreTime(windowMs);
+      checking = false;
+      if (stopped) return;
+      if (more) {
+        allowanceMs += more.extendByMs;
+        onExtend(lastProgressAt + allowanceMs);
+        return;
+      }
+      stopped = true;
+      clearInterval(timer);
+      reject(new Error(
+        `Test made no progress for ${Math.round(quietMs / 1000)}s (window ${Math.round(windowMs / 1000)}s) — ${await whyGivingUp()}`
+      ));
+    };
+    const timer = setInterval(tick, STALL_TICK_MS);
+    stop = () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  });
+
+  return {
+    stalled: /** @type {Promise<never>} */ (stalled),
+    stop,
+    stalls: () => `longest quiet stretch ${Math.round(quietestMs / 1000)}s of an allowed ${Math.round(allowanceMs / 1000)}s`
+  };
 }
 
 // Set the per-iframe trace flag so event-tape.js starts recording. The flag
@@ -445,12 +537,13 @@ async function _fetchWorkerTape(convId) {
  * @param {string} args.rawMsg
  * @param {number} args.durationMs
  * @param {number} args.perTestTimeoutMs
+ * @param {string} [args.stalls] - The stall watchdog's account of the quiet stretches it saw.
  * @param {RunTrace} args.trace
  * @param {TestOperation[]} args.operations
  * @param {any} args.harness
  * @returns {Promise<string>} the assembled multi-line failure message
  */
-async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeoutMs, trace, operations, harness }) {
+async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeoutMs, stalls, trace, operations, harness }) {
   const ident = _captureIframeIdentity();
   // Start the shared-project size probe now and read it at the end: it is an
   // HTTP round-trip like the tape fetches below, and overlapping it with them
@@ -480,6 +573,14 @@ async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeo
   // arrives as a bare "timed out mid-op" with nothing in any tape.
   const gaveUp = lastConfirmGiveUp();
   const confirmLines = gaveUp ? [`  ARMED CONFIRM GAVE UP: ${gaveUp}`] : [];
+
+  // A test that was given extra time says so, even when it then failed for an
+  // unrelated reason: the reader needs to know the clock was not the one the
+  // nominal timeouts describe.
+  const patienceLines = () => {
+    const granted = patienceGranted();
+    return granted.line ? [granted.line] : [];
+  };
 
   // Gather every tape source the failure block needs. The convIds we care
   // about are the ones this iframe owns — they are the affected
@@ -537,10 +638,11 @@ async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeo
   const header = [
     `[${testName}] ${rawMsg}`,
     ...jsErrorLines,
-    `  duration: ${durationMs}ms (per-test timeout: ${perTestTimeoutMs}ms)`,
+    `  duration: ${durationMs}ms (no-progress window: ${perTestTimeoutMs}ms${stalls ? `, ${stalls}` : ''})`,
     `  iframe: ${ident.iframe}  visible-conv: ${ident.visibleConversationId || 'none'}  own: [${ident.ownConversationIds.join(', ')}]`,
     ...projectSizeLines(await projectSize),
     ...machineLoadLines(await machineLoad, await timerGrid),
+    ...patienceLines(),
     ...confirmLines,
     `  ${opLine}`,
     `  ops completed (last 8 of ${trace.opsCompleted.length}): ${completedTypes}`,
@@ -783,49 +885,52 @@ export async function runIntegrationTest(testDef, ctx) {
   };
 
   const harness = new UITestHarness(harnessOptions);
-  // The default budget for one test, and through `_perTestDeadlineMs` below the
-  // bound on every wait inside it. It buys nothing on a passing test and is
-  // spent only by a failing one, so the number to pick is the largest that
-  // still leaves the failure reported HERE, with its operation trace and event
-  // tapes, rather than as the Go harness's bare 60s result-poll timeout: 25s of
-  // test plus the 5s diagnostics build. The nine lanes of the pool share one
-  // machine and now genuinely run at once, so the work a lane is waiting on can
-  // be sitting behind eight siblings' — a budget tight enough to notice that is
-  // measuring the pool, not the code.
+  // How long this test may make NO progress — not how long it may run. A test
+  // that is still completing operations, still moving its document and still
+  // being answered by its worker is working, however loaded the machine it is
+  // working on, and the bound has no business ending it. The number to pick is
+  // therefore the longest a healthy test could plausibly go silent, with the
+  // same margin as before against the Go harness's result poll: a window of
+  // silence plus the 5s diagnostics build, so the failure is still reported
+  // HERE, with its operation trace and event tapes.
   const perTestTimeoutMs = testDef.timeoutMs || 25000;
   const ac = new AbortController();
   // In-test condition waits stay patient up to this deadline instead of
-  // pre-empting it with their own shorter sub-timeouts. The per-test hard
-  // timeout below remains the single fail-fast for a genuinely stuck test —
-  // and its abort tears the patient waits down immediately so a failing
-  // test's observers don't leak past the deadline and starve sibling lanes.
+  // pre-empting it with their own shorter sub-timeouts. The stall watchdog
+  // below remains the single fail-fast for a genuinely stuck test — and its
+  // abort tears the patient waits down immediately so a failing test's
+  // observers don't leak past the deadline and starve sibling lanes.
   harness._perTestDeadlineMs = Date.now() + perTestTimeoutMs;
   harness._abortSignal = ac.signal;
   // The same deadline, where the waits that have no harness to ask can find
   // it — `waitFor` is a free function called from hundreds of sites.
   setTestDeadline(harness._perTestDeadlineMs);
+  resetPatience();
 
   /** @type {RunTrace} */
   const trace = { stage: 'setup', opIndex: -1, opsCompleted: [] };
 
-  let timeoutId;
+  // The window travels with the test's progress, and the deadline the in-test
+  // waits ride travels with it, so a test that is being served slowly is not
+  // cut off by a bound armed before it started.
+  const watchdog = _watchForStall(trace, perTestTimeoutMs, (deadlineMs) => {
+    harness._perTestDeadlineMs = deadlineMs;
+    // The same test moving its own deadline, so its waits keep their generation
+    // and are not mistaken for orphans of a test that has ended.
+    setTestDeadline(deadlineMs, { sameTest: true });
+  });
 
   try {
     await Promise.race([
       _runTestBody(harness, testDef, trace),
-      new Promise((_, reject) => {
-        timeoutId = setTimeout(() => {
-          ac.abort();
-          reject(new Error(`Test timed out after ${perTestTimeoutMs}ms`));
-        }, perTestTimeoutMs);
-      })
+      watchdog.stalled.catch((stall) => { ac.abort(); throw stall; })
     ]);
-    clearTimeout(timeoutId);
+    watchdog.stop();
 
     return { passed: true, durationMs: Date.now() - startTime };
 
   } catch (error) {
-    clearTimeout(timeoutId);
+    watchdog.stop();
     ac.abort();
     const rawMsg = error instanceof Error ? error.message : String(error);
     const durationMs = Date.now() - startTime;
@@ -841,6 +946,7 @@ export async function runIntegrationTest(testDef, ctx) {
         rawMsg,
         durationMs,
         perTestTimeoutMs,
+        stalls: watchdog.stalls(),
         trace,
         operations: testDef.operations,
         harness

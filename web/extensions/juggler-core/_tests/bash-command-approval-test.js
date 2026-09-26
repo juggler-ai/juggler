@@ -2202,6 +2202,54 @@ export async function runTests() {
       errors.push(`catastrophic/${c.name}: threw ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  // -- Windows: one tree, every spelling ------------------------------------
+  // The project path reaches the browser (and the model) OS-native, so that is
+  // the spelling a delete of it arrives in — and a POSIX shell eats those
+  // backslashes, leaving the analyser a word that names nowhere. Every spelling
+  // of the same directory has to measure the same radius: native, forward-slash
+  // drive, and MSYS.
+  const WIN_ROOT = 'D:\\a\\juggler\\juggler';
+  const WIN_HOME = 'C:\\Users\\runneradmin';
+  /** @type {Array<{name: string, command: string, expected: boolean, cwd?: string, root?: string}>} */
+  const WINDOWS_CATASTROPHIC_CASES = [
+    { name: 'native project root, backslashes eaten by the shell', command: `rm -rf ${WIN_ROOT}`, expected: true },
+    { name: 'native project root, quoted', command: `rm -rf "${WIN_ROOT}"`, expected: true },
+    { name: 'forward-slash drive spelling of the project root', command: 'rm -rf D:/a/juggler/juggler', expected: true },
+    { name: 'MSYS spelling of the project root', command: 'rm -rf /d/a/juggler/juggler', expected: true },
+    { name: 'native ancestor of the project root', command: 'rm -rf D:\\a\\juggler', expected: true },
+    { name: 'native home dir', command: `rm -rf ${WIN_HOME}`, expected: true },
+    { name: 'MSYS home dir', command: 'rm -rf /c/users/runneradmin', expected: true },
+    { name: 'home via tilde with a native home', command: 'rm -rf ~', expected: true },
+    { name: 'home via $HOME with a native home', command: 'rm -rf $HOME', expected: true },
+    { name: 'whole drive', command: "rm -rf 'D:\\'", expected: true },
+    { name: 'native cd to the project root then delete cwd', command: 'cd D:\\a\\juggler\\juggler && rm -rf .', expected: true },
+    { name: 'case-insensitive spelling of the project root', command: 'rm -rf d:\\A\\JUGGLER\\juggler', expected: true },
+    // A subdir of the project stays the reviewer's call, in every spelling.
+    { name: 'native subdir of the project', command: `rm -rf ${WIN_ROOT}\\web`, expected: false },
+    { name: 'MSYS subdir of the project', command: 'rm -rf /d/a/juggler/juggler/web', expected: false },
+    // An escaped space is an escaped space: the word is one filename, not two
+    // segments, and `my/ files` is not a tree anyone has.
+    { name: 'escaped space is not a path separator', command: 'rm -rf my\\ files', expected: false },
+    { name: 'relative build dir from the workspace cwd', command: 'rm -rf ./build', expected: false, cwd: '/tmp/work-tree' },
+    // The workspace the conversation works in is the other protected tree; the
+    // floor is asked once per tree, so a POSIX cwd and a native root coexist.
+    { name: 'deleting the cwd when it is the protected root', command: 'rm -rf .', expected: true, cwd: '/tmp/work-tree', root: '/tmp/work-tree' },
+  ];
+  for (const c of WINDOWS_CATASTROPHIC_CASES) {
+    try {
+      const got = isCatastrophicDeletion(c.command, {
+        platform: 'windows', home: WIN_HOME, projectRoot: c.root || WIN_ROOT, cwd: c.cwd || '/tmp/work-tree'
+      });
+      if (got !== c.expected) {
+        failed++;
+        errors.push(`catastrophic-windows/${c.name}: want ${c.expected} for "${c.command}", got ${got}`);
+      } else passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`catastrophic-windows/${c.name}: threw ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   // No project root known → nothing to protect, always false (even for `rm -rf /`).
   {
     const got = isCatastrophicDeletion('rm -rf /', { platform: 'linux', home: CATASTROPHIC_HOME, projectRoot: '' });

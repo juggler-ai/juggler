@@ -307,6 +307,7 @@ import {
   setCurrentTestName
 } from './conversation-claims.js';
 import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
+import { racePatiently, resetPatience, patienceGranted } from './test-patience.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
 import { machineLoadReport } from './machine-load.js';
 
@@ -811,9 +812,6 @@ export async function runTests(ctx) {
  */
 const UNIT_SUITE_BUDGET_MS = 45000;
 
-/** Sentinel distinguishing "the budget expired" from a suite's own result. */
-const SUITE_TIMED_OUT = Symbol('unit-suite-timed-out');
-
 /**
  * Run one unit suite, then permanently delete every conversation it created
  * (diffed via this lane's claim registry, which is lane-local and therefore
@@ -836,6 +834,11 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
   // "timeout polling /api/test/result after 1m0s" naming nothing; here it at
   // least says which suite stopped and when.
   setTestDeadline(Date.now() + UNIT_SUITE_BUDGET_MS, { shared: true });
+  // A fresh patience ledger per suite, for the same reason the deadline is
+  // re-armed per suite: without it, one loaded suite's extensions are charged to
+  // its successors, and the suite that eventually fails reports time it was
+  // never given.
+  resetPatience();
   // Unit suites share one document AND one popup-manager registry, so an
   // overlay a prior suite left open leaks into this one. The confirm/alert host
   // is a reused <modal-dialog> singleton (see modal-dialog.js): showConfirm and
@@ -851,29 +854,28 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
   neutralizeStrayOverlays();
   const before = snapshotOwnConversationIds();
   try {
-    /** @type {ReturnType<typeof setTimeout>|undefined} */
-    let timer;
-    const timedOut = new Promise((resolve) => {
-      timer = setTimeout(() => resolve(SUITE_TIMED_OUT), UNIT_SUITE_BUDGET_MS);
-    });
     // A timeout is reported as a failed result rather than thrown, so one
     // wedged suite fails alone instead of ending the lane's whole run.
-    const outcome = await Promise.race([
-      suite.run(ctx).finally(() => clearTimeout(timer)),
-      timedOut
-    ]);
-    if (outcome === SUITE_TIMED_OUT) {
+    //
+    // The budget is a floor, not a ceiling: a suite still being served by a
+    // machine that is merely slow buys more of it (`./test-patience.js`), so the
+    // "stopped making progress" this reports on expiry is now something it has
+    // actually established rather than a wall-clock reading of a busy laptop.
+    const settled = await racePatiently(suite.run(ctx), UNIT_SUITE_BUDGET_MS);
+    if (!settled) {
+      const granted = patienceGranted();
       return {
         passed: 0,
         failed: 1,
         errors: [
-          `${suite.name}: unit suite timed out after ${UNIT_SUITE_BUDGET_MS}ms — it stopped making progress and never returned a result`,
+          `${suite.name}: unit suite timed out after ${UNIT_SUITE_BUDGET_MS}ms${granted.totalMs ? ` plus ${Math.round(granted.totalMs / 1000)}s granted for load` : ''} — it stopped making progress and never returned a result`,
           ...projectSizeLines(await fetchProjectSize()),
-          ...await machineLoadReport()
+          ...await machineLoadReport(),
+          ...(granted.line ? [granted.line] : [])
         ]
       };
     }
-    const result = /** @type {{passed: number, failed: number, errors: string[]}} */ (outcome);
+    const result = settled.value;
     // Every lane shares one project, so how many conversations were in it is a
     // property of the run rather than of this suite — and a suite that fails
     // only under a full pool is the one case where that number is the evidence.

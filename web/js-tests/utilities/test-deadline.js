@@ -68,25 +68,59 @@ const SHARED_DEADLINE_SLACK = 6;
 const MAX_SHARE_OF_SHARED_BUDGET = 1 / 3;
 
 /**
+ * Which test the armed deadline belongs to, counted up every time one is armed
+ * or disarmed.
+ *
+ * A lane abandons a failed test's body where it stands — the runner aborts, the
+ * result is posted, and the next test starts — but the waits inside that body
+ * are ordinary promises and nobody is holding them. They go on polling, and what
+ * they poll for will never happen, so they run to their bound and then ask for
+ * more time out of a budget that now belongs to the test that came after them.
+ * On a loaded machine a few hundred of those turn a red run into an endless one.
+ *
+ * A wait cannot hold a reference to its test — that is the whole reason this
+ * module is module state — so it holds the generation instead, and gives up the
+ * moment it does not match. One number, read in the same breath as the deadline.
+ * @type {number}
+ */
+let generation = 0;
+
+/**
  * Arm the deadline for the test now starting.
  *
  * `shared` says the deadline covers a whole suite of cases rather than one
  * test, which is what makes a single wait's share of it worth capping.
+ *
+ * Re-arming for the SAME test — which the stall watchdog does every time the
+ * test makes progress — must not orphan that test's own waits, so the caller
+ * says whether this is a new test or the same one moving its deadline.
  * @param {number} deadlineMs - Absolute Date.now()-based timestamp.
- * @param {{shared?: boolean}} [options] - Whether many cases ride this deadline.
+ * @param {{shared?: boolean, sameTest?: boolean}} [options] - Whether many cases ride this deadline, and whether this is a re-arm rather than a new test.
  */
-export function setTestDeadline(deadlineMs, { shared = false } = {}) {
+export function setTestDeadline(deadlineMs, { shared = false, sameTest = false } = {}) {
   currentDeadlineMs = deadlineMs;
   sharedBudgetMs = shared ? Math.max(0, deadlineMs - Date.now()) : 0;
+  if (!sameTest) generation++;
 }
 
 /**
  * Disarm it, so anything running between tests (cleanup, the lane loop) falls
- * back to its own nominal timeouts rather than to a deadline that has passed.
+ * back to its own nominal timeouts rather than to a deadline that has passed —
+ * and so every wait still running from the test just finished knows it has been
+ * abandoned and stops.
  */
 export function clearTestDeadline() {
   currentDeadlineMs = 0;
   sharedBudgetMs = 0;
+  generation++;
+}
+
+/**
+ * The token a wait holds to tell its own test from its successor.
+ * @returns {number} The current generation.
+ */
+export function testGeneration() {
+  return generation;
 }
 
 /**

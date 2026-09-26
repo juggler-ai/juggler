@@ -32,6 +32,7 @@ import toolExecutor from '../../js/services/tool-executor.js';
 import { closeAllPopups, __resetPopupManagerForTests } from '../../js/utils/popup-manager.js';
 import { noteProjectSize } from './project-size.js';
 import { forgetOwnConversation } from './conversation-claims.js';
+import { pollPatiently, racePatiently, whyGivingUp } from './test-patience.js';
 
 
 /**
@@ -243,15 +244,13 @@ export async function styledProbeFrame(width, height = 600, timeout = 4000) {
   doc.close();
 
   const wanted = doc.querySelectorAll('link[rel="stylesheet"]').length;
-  const deadline = Date.now() + timeout;
-  while (doc.styleSheets.length < wanted) {
-    // Say so rather than measuring on: without the sheets every geometry
-    // assertion reads `auto`, and reports a layout mismatch for what is really
-    // a stylesheet that never arrived.
-    if (Date.now() > deadline) {
-      throw new Error(`the probe document loaded ${doc.styleSheets.length} of its ${wanted} stylesheets`);
-    }
-    await new Promise((r) => { setTimeout(r, 20); });
+  const loaded = await pollPatiently(() => doc.styleSheets.length >= wanted,
+    { nominalMs: timeout, intervalMs: 20 });
+  // Say so rather than measuring on: without the sheets every geometry
+  // assertion reads `auto`, and reports a layout mismatch for what is really
+  // a stylesheet that never arrived.
+  if (!loaded) {
+    throw new Error(`the probe document loaded ${doc.styleSheets.length} of its ${wanted} stylesheets — ${await whyGivingUp()}`);
   }
   return { doc, frame };
 }
@@ -370,14 +369,10 @@ export async function releaseTestConversation(session, conversationId, reason) {
 // that budget so this poll loop can't outlive an aborted test and pile load
 // onto the next one.
 export async function waitForWorkerReady(conversationId, timeout = 10000) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    if (workerManager.isWorkerReady(conversationId)) {
-      return;
-    }
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  throw new Error(`Worker not ready after ${timeout}ms for ${conversationId}`);
+  const ready = await pollPatiently(() => workerManager.isWorkerReady(conversationId),
+    { nominalMs: timeout, intervalMs: 50 });
+  if (ready) return;
+  throw new Error(`Worker not ready after ${timeout}ms for ${conversationId} — ${await whyGivingUp()}`);
 }
 
 // getProxy() removed - tests use conversation directly
@@ -508,9 +503,9 @@ export async function executeToolsAndGetContext(conversation, session, toolCalls
   for (const tc of toolCalls) {
     const toolCall = { id: tc.id, name: tc.name, input: tc.input };
     const execPromise = toolExecutor.executeToolCall(toolCall, conversation._responseHandler, conversation.rootMessageThread);
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`[${tc.name}] tool execution timeout (10s)`)), 10000));
-    await Promise.race([execPromise, timeoutPromise]);
+    if (!await racePatiently(execPromise, 10000)) {
+      throw new Error(`[${tc.name}] tool execution timeout (10s) — ${await whyGivingUp()}`);
+    }
   }
 
   // Add assistant done message (normally added by strategy)
@@ -875,8 +870,7 @@ export async function executeToolUntilApproval(conversation, _session, toolCall,
  * @returns {Promise<import('../../model/message.js').ToolActionMessage>} The pending message
  */
 export async function waitForPendingApproval(conversation, toolUseId, timeoutMs = 2000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
+  const pending = await pollPatiently(() => {
     // Iterate items to find matching tool-action
     for (const item of conversation.rootItems) {
       // Check for tool-action with pending approval
@@ -889,9 +883,10 @@ export async function waitForPendingApproval(conversation, toolUseId, timeoutMs 
         }
       }
     }
-    await new Promise(r => setTimeout(r, 10));
-  }
-  throw new Error(`Timeout waiting for pending approval: ${toolUseId}`);
+    return null;
+  }, { nominalMs: timeoutMs });
+  if (pending) return pending;
+  throw new Error(`Timeout waiting for pending approval: ${toolUseId} — ${await whyGivingUp()}`);
 }
 
 /**
@@ -907,28 +902,28 @@ export async function waitForPendingApproval(conversation, toolUseId, timeoutMs 
  * guessed constant. Prefer this (or a domain-specific waiter like
  * {@link waitForPendingApproval}) over any load-bearing sleep.
  * `timeoutMs` deliberately does NOT ride the per-test deadline, though the
- * harness's own waits do. Making it patient was measured and reverted: the
- * browser suite went from 3 clean `test-all` runs in 3 to 1 in 3, losing a
+ * harness's own waits do. Making it ride the deadline was measured and reverted:
+ * the browser suite went from 3 clean `test-all` runs in 3 to 1 in 3, losing a
  * different unit suite each time (`unit:pinboard`, `unit:popup-back-button`),
  * neither reproducible alone. No call site treats a timeout as an expected
- * outcome, so the cost is not extra waiting on a passing run — the suspicion is
+ * outcome, so the cost was not extra waiting on a passing run — the suspicion is
  * that stretching the most-used wait in the suite reshuffles how a lane's work
- * interleaves with its two siblings'. Worth understanding before trying again;
- * see the 2026-09-05 entry in scratch/flaky-tests.md.
+ * interleaves with its two siblings'. Read the 2026-09-05 entry in
+ * scratch/flaky-tests.md before giving this wait a bigger number again.
+ *
+ * What it does do is refuse to fail for a reason that isn't the code's fault:
+ * reaching `timeoutMs` is not the end but a question, and a machine that was not
+ * serving this lane buys another slice (`./test-patience.js`). On a quiet machine
+ * that question is answered "no" and this behaves exactly as it always did,
+ * failing on the nominal — which is what keeps the 2026-09-05 measurement from
+ * applying to it.
  * @param {() => boolean} predicate - Condition to wait for; polled until truthy.
  * @param {{timeoutMs?: number, intervalMs?: number, description?: string}} [opts]
  * @returns {Promise<void>} Resolves when predicate is truthy; rejects on timeout.
  */
 export async function waitFor(predicate, { timeoutMs = 5000, intervalMs = 10, description = 'condition' } = {}) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (predicate()) return;
-    await new Promise(r => setTimeout(r, intervalMs));
-  }
-  // Final check so a condition that becomes true exactly at the deadline still
-  // passes rather than racing the loop guard.
-  if (predicate()) return;
-  throw new Error(`Timeout after ${timeoutMs}ms waiting for ${description}`);
+  if (await pollPatiently(predicate, { nominalMs: timeoutMs, intervalMs })) return;
+  throw new Error(`Timeout after ${timeoutMs}ms waiting for ${description} — ${await whyGivingUp()}`);
 }
 
 /**
@@ -971,12 +966,9 @@ export function createOrphanedApproval(conversation, toolUseId, toolName, toolIn
  * @returns {Promise<T>} The promise result or throws on timeout
  */
 export async function withTimeout(promise, timeoutMs, description) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout: ${description} (${timeoutMs}ms)`)), timeoutMs)
-    )
-  ]);
+  const settled = await racePatiently(promise, timeoutMs);
+  if (settled) return settled.value;
+  throw new Error(`Timeout: ${description} (${timeoutMs}ms) — ${await whyGivingUp()}`);
 }
 
 // Re-export message factories for convenience in tests

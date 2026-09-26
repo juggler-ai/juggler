@@ -87,6 +87,32 @@ export function dumpTape(filterConvIds) {
 }
 
 /**
+ * When something last happened on any of `convIds` — the signal a stall
+ * watchdog rides, so a test is bounded by how long it has gone without making
+ * progress rather than by how long it has been running.
+ *
+ * Filtering by conversation is not an optimisation, it is the whole point: every
+ * lane's broadcasts land in every iframe's ring, so an unfiltered "last entry"
+ * is kept permanently fresh by the eight other lanes and would never report a
+ * stall. Scans the ring in place rather than materialising it like
+ * {@link dumpTape} does, because this runs on a timer for the whole of every
+ * test instead of once while a failure is being assembled.
+ * @param {string[]} convIds - The conversations this test owns.
+ * @returns {number} The newest matching entry's timestamp, or 0 when there is none.
+ */
+export function lastTapeTs(convIds) {
+  if (!convIds || convIds.length === 0) return 0;
+  const set = new Set(convIds);
+  let newest = 0;
+  for (let i = 0; i < _size; i++) {
+    const entry = _tape[i];
+    if (!entry || entry.convId === null) continue;
+    if (entry.ts > newest && set.has(entry.convId)) newest = entry.ts;
+  }
+  return newest;
+}
+
+/**
  * Clear the tape. The test runner calls this at the start of each test so
  * one test's events don't leak into another's failure dump.
  */

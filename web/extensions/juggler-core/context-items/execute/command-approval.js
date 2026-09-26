@@ -63,6 +63,7 @@ import {
   resolveAgainstCwd,
   canonicalRoot,
   isGrantableRoot,
+  windowsToComparable,
 } from 'juggler/utils/path-containment';
 import { checkedAt, tokenize, SUBST_SENTINEL, TOP_LEVEL_SPLIT_OPS } from './shell-tokenizer.js';
 import { COMMAND_HANDLERS, pathAllowed } from './command-handlers.js';
@@ -750,11 +751,15 @@ export function isCommandAutoApproved(command, opts = {}) {
  * probabilistic reviewer rather than judged here. `~`/`~/x` expand against
  * `home`; a relative target resolves against the effective `cwd`; `.`/`./`
  * collapse to `cwd`.
+ *
+ * `fold` is applied after the expansions and before the rooted/relative
+ * decision, so a Windows drive path is rooted by the time that decision is made
+ * — and `$HOME` is still recognised in the spelling the shell would.
  * @param {string} text raw target token text
- * @param {{home: string, cwd: string}} ctx resolution context
+ * @param {{home: string, cwd: string, fold?: (p: string) => string}} ctx resolution context
  * @returns {string|null} normalised absolute path (POSIX, no trailing slash), or null
  */
-function resolveDeletionTarget(text, { home, cwd }) {
+function resolveDeletionTarget(text, { home, cwd, fold = (p) => p }) {
   if (!text) return null;
   let p = text;
   if (p === '$HOME' || p === '${HOME}') {
@@ -772,6 +777,7 @@ function resolveDeletionTarget(text, { home, cwd }) {
     if (!home) return null;
     p = (home.endsWith('/') ? home.slice(0, -1) : home) + '/' + p.slice(2);
   }
+  p = fold(p);
   if (!p.startsWith('/')) {
     p = (cwd.endsWith('/') ? cwd.slice(0, -1) : cwd) + '/' + p;
   }
@@ -817,16 +823,43 @@ export function isCatastrophicDeletion(command, opts = {}) {
   const tokens = tokenize(command);
   if (!tokens || tokens.length === 0) return false;
 
-  // Windows (git-bash) paths compare case-insensitively and may mix separators;
-  // fold both sides before comparing. Best-effort: MSYS `/c/…` vs `C:\…` drive
-  // spellings aren't unified here, so a missed match simply falls back to the
-  // reviewer (never a false catastrophic-allow).
+  // Every Windows spelling of a directory — native `C:\proj`, forward-slash
+  // `C:/proj`, MSYS `/c/proj` — folds to one comparable `/c/proj`, case included
+  // (Windows filesystems are case-insensitive). Both sides go through it, so a
+  // delete matches the tree it names however either was written, and a drive
+  // path arrives rooted rather than looking relative.
   const fold = (/** @type {string} */ p) =>
-    platform === 'windows' ? p.replace(/\\/g, '/').toLowerCase() : p;
+    platform === 'windows' ? windowsToComparable(p) : p;
   const stripSlash = (/** @type {string} */ p) =>
     p.endsWith('/') && p !== '/' ? p.slice(0, -1) : p;
-  const R = fold(posixNormalize(stripSlash(projectRoot)));
-  const H = home ? fold(posixNormalize(stripSlash(home))) : '';
+  const canon = (/** @type {string} */ p) => posixNormalize(stripSlash(fold(p)));
+  const R = canon(projectRoot);
+  const H = home ? canon(home) : '';
+
+  /**
+   * The paths a word could be naming. Ordinarily the one the shell will pass to
+   * `rm` — but a POSIX shell eats an unquoted backslash, so on Windows
+   * `rm -rf C:\proj` arrives here as the meaningless word `C:proj` and the tree
+   * it plainly names would be measured against nothing. The word as written is
+   * read as a second spelling, every `\` taken for a separator.
+   *
+   * The bias is the floor's: a spelling that was never a path costs one approval
+   * prompt, and the model is told the project path in that native form, so it is
+   * the spelling a delete of the project is most likely to arrive in.
+   *
+   * Order decides which reading a `cd` walks, so it goes by what the word opens
+   * with. A drive letter makes it a path and nothing else — the shell's reading
+   * of `C:\proj` is `C:proj`, which names nowhere. Anything else keeps the
+   * shell's reading first: `my\ file` is an escaped space far more often than a
+   * directory called `my/ file`.
+   * @param {WordToken} w word token
+   * @returns {string[]} the paths to judge this word as, best reading first
+   */
+  const spellingsOf = (w) => {
+    if (platform !== 'windows' || !w.raw.includes('\\')) return [w.text];
+    const written = w.raw.replace(/^(['"])([\s\S]*)\1$/, '$2');
+    return /^[A-Za-z]:[\\/]/.test(written) ? [written, w.text] : [w.text, written];
+  };
 
   /**
    * Is `anc` at or above `desc` in the tree (equal, or a strict ancestor)?
@@ -839,7 +872,7 @@ export function isCatastrophicDeletion(command, opts = {}) {
   const segments = splitOnOps(tokens, TOP_LEVEL_SPLIT_OPS);
   // Effective cwd, adjusted by a leading `cd` chain. Defaults to the project
   // root; an explicit `opts.cwd` overrides it.
-  let cwd = opts.cwd ? fold(posixNormalize(stripSlash(opts.cwd))) : R;
+  let cwd = opts.cwd ? canon(opts.cwd) : R;
 
   for (const seg of segments) {
     const words = /** @type {WordToken[]} */ (seg.filter((t) => t.type === 'word'));
@@ -848,10 +881,12 @@ export function isCatastrophicDeletion(command, opts = {}) {
 
     // Track `cd` so a relative `rm` target after `cd sub` resolves correctly.
     if (head === 'cd') {
-      const arg = words.slice(1).map((w) => w.text).find((t) => !t.startsWith('-'));
+      const arg = words.slice(1).find((w) => !w.text.startsWith('-'));
       if (arg) {
-        const resolved = resolveDeletionTarget(arg, { home, cwd });
-        if (resolved) cwd = fold(resolved);
+        for (const spelling of spellingsOf(arg)) {
+          const resolved = resolveDeletionTarget(spelling, { home: H, cwd, fold });
+          if (resolved) { cwd = resolved; break; }
+        }
       }
       continue;
     }
@@ -863,10 +898,11 @@ export function isCatastrophicDeletion(command, opts = {}) {
     // target, not an option.
     let recursiveOrForce = false;
     let optionsEnded = false;
-    /** @type {string[]} */
+    /** @type {WordToken[]} */
     const targets = [];
     for (let k = 1; k < words.length; k++) {
-      const w = checkedAt(words, k).text;
+      const word = checkedAt(words, k);
+      const w = word.text;
       if (!optionsEnded && w === '--') { optionsEnded = true; continue; }
       if (!optionsEnded && w.startsWith('--')) {
         if (w === '--recursive' || w === '--force') recursiveOrForce = true;
@@ -876,18 +912,19 @@ export function isCatastrophicDeletion(command, opts = {}) {
         if (/[rRf]/.test(w.slice(1))) recursiveOrForce = true;
         continue;
       }
-      targets.push(w);
+      targets.push(word);
     }
     if (!recursiveOrForce) continue;
 
     for (const t of targets) {
-      const resolved = resolveDeletionTarget(t, { home, cwd });
-      if (!resolved) continue;
-      const T = fold(resolved);
-      const segs = T.split('/').filter(Boolean);
-      if (T.startsWith('/') && segs.length < 2) return true; // `/` or a bare top-level
-      if (isAtOrAbove(T, R)) return true;      // project root or an ancestor of it
-      if (H && isAtOrAbove(T, H)) return true; // home dir or an ancestor of it
+      for (const spelling of spellingsOf(t)) {
+        const T = resolveDeletionTarget(spelling, { home: H, cwd, fold });
+        if (!T) continue;
+        const segs = T.split('/').filter(Boolean);
+        if (T.startsWith('/') && segs.length < 2) return true; // `/` or a bare top-level
+        if (isAtOrAbove(T, R)) return true;      // project root or an ancestor of it
+        if (H && isAtOrAbove(T, H)) return true; // home dir or an ancestor of it
+      }
     }
   }
   return false;

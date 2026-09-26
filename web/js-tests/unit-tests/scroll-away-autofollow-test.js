@@ -22,7 +22,8 @@ import {
   initializeRegistries,
   createTestSession,
   createApprovalTestConversation,
-  assert
+  assert,
+  waitFor
 } from '../utilities/test-helpers.js';
 import {
   createUserMessage,
@@ -112,9 +113,26 @@ export async function runTests() {
     assert(!!rootCol, 'root conversation column should exist');
     const list = /** @type {HTMLElement} */ (rootCol.querySelector('#message-list'));
     assert(!!list, 'the column should have a message list');
-    assert(list.scrollHeight - list.clientHeight > 400,
-      `test setup: the list must overflow to be scrollable, got ` +
-      `${list.scrollHeight - list.clientHeight}px of travel`);
+
+    /** @returns {number} How far this scroller can currently be scrolled. */
+    const travel = () => list.scrollHeight - list.clientHeight;
+
+    // Everything below is scroll arithmetic, so it needs the content to have
+    // stopped changing height first. A row whose text has not yet been wrapped at
+    // this width is not the height it will end up, and thirty of them settling
+    // shrinks the scroller's travel by hundreds of pixels — after which the
+    // browser silently clamps the scroll position to the new limit, and an
+    // assertion that the view moved further from the end reads the clamp instead.
+    // Three readings the same is the condition; a busy machine merely takes more
+    // of them, which is the point of waiting for a fact rather than sleeping.
+    let stable = 0;
+    let lastTravel = -1;
+    await waitFor(() => {
+      const now = travel();
+      stable = now === lastTravel ? stable + 1 : 0;
+      lastTravel = now;
+      return stable >= 3 && now > 700;
+    }, { description: `the message list's height to settle above 700px of travel (at ${travel()}px)` });
 
     // Scroll up to read. The scroller is column-reverse, where the end of the
     // conversation sits at scrollTop 0 and scrolling up runs negative (WebKit);
@@ -126,6 +144,9 @@ export async function runTests() {
     if (Math.abs(list.scrollTop) <= 320) list.scrollTo({ top: 600, behavior: 'instant' });
     assert(Math.abs(list.scrollTop) > 320,
       `test setup: should be scrolled clear of the near-bottom band, got ${list.scrollTop}`);
+    assert(Math.abs(list.scrollTop) >= 600,
+      `test setup: the baseline must be the position asked for, not a clamp — ` +
+      `asked for 600, got ${Math.abs(list.scrollTop)} with ${travel()}px of travel`);
 
     const selectedBefore = rootCol.getSelectedItemId();
     // Probe a row the reader can actually see: the reader's place is defined by
@@ -153,7 +174,9 @@ export async function runTests() {
     const drift = /** @type {HTMLElement} */ (anchorEl).getBoundingClientRect().top - anchorTopBefore;
     assert(Math.abs(list.scrollTop) > Math.abs(scrollBefore),
       `the anchor should have scrolled further from the end to absorb the ` +
-      `inserted row, went ${scrollBefore} → ${list.scrollTop}`);
+      `inserted row, went ${scrollBefore} → ${list.scrollTop} with ${travel()}px ` +
+      `of travel (if that travel is under ${Math.abs(scrollBefore)}, the content ` +
+      `column shrank and the position was clamped, not hauled)`);
     assert(Math.abs(drift) <= 34,
       `the read content must stay put as items are appended below it, drifted ${drift}px`);
     // The bound is the insert itself, not the settled layout. A row that keeps

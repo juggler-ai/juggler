@@ -313,10 +313,21 @@ func listBrowserTests(srv testServerEntry) (names, exclusive []string, err error
 func runOneBrowserTest(t *testing.T, srv testServerEntry) {
 	name := t.Name()[len("TestBrowser/"):]
 
-	// Per-test timeout enforced here; fail the test quickly rather than hanging.
-	// A browser test normally completes in well under a second — anything still
-	// running at a minute is wedged, not slow, so fail fast instead of hanging.
-	const testTimeout = 60 * time.Second
+	// Backstop, not the bound. The lane in the browser is the authority on when a
+	// test has failed: it fails one that has made no progress for its window
+	// (`perTestTimeoutMs`, 25s), having first asked the machine whether it was
+	// being served at all and taken at most `MAX_TEST_EXTENSION_MS` (30s) more if
+	// it was not — then spends up to 5s building the failure block. That is a
+	// little under a minute of lane-side worst case, all of it ending in a posted
+	// result with tapes and a trace attached.
+	//
+	// This timeout exists for the case where no result is posted at all: the lane
+	// itself died, or the server stopped answering. So it has to sit clear of the
+	// lane's worst case rather than cut into it — a poll that expires first turns
+	// every honestly-slow test into a bare "timeout polling /api/test/result"
+	// naming nothing, which is the one failure with no diagnostics in it.
+	// See web/js-tests/utilities/test-patience.js for the two constants above.
+	const testTimeout = 120 * time.Second
 
 	// Outer watchdog: dumps goroutines if the inner polling deadline somehow
 	// doesn't fire (e.g. the goroutine running this test is itself stuck).

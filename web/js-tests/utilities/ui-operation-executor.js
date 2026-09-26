@@ -20,6 +20,7 @@ import {
 import { threadRunSettled } from '../../js/model/run-records.js';
 import { SecondViewer } from './second-viewer.js';
 import { budgetFor } from './test-deadline.js';
+import { askForMoreTime, whyGivingUp } from './test-patience.js';
 
 /**
  * @typedef {import('./integration-test-runner.js').TestOperation} TestOperation
@@ -97,6 +98,9 @@ function waitForConfirmDialog(buttonSelector, timeoutMs) {
   /** @type {() => void} */
   let cancel = () => {};
   const promise = new Promise((resolve, reject) => {
+    /** @type {ReturnType<typeof setTimeout>|undefined} */
+    let timer;
+    let done = false;
     const observer = new MutationObserver(() => {
       const hit = find();
       if (hit) {
@@ -105,18 +109,30 @@ function waitForConfirmDialog(buttonSelector, timeoutMs) {
       }
     });
     const stop = () => {
+      done = true;
       observer.disconnect();
       clearTimeout(timer);
     };
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-    const timer = setTimeout(() => {
+    // Out of time is a question, not a verdict: a machine that was not serving
+    // this lane buys another slice rather than failing a dialog that simply had
+    // not been painted yet.
+    const expire = async () => {
+      const more = await askForMoreTime(timeoutMs);
+      if (done) return;
+      if (more) {
+        timer = setTimeout(expire, more.extendByMs);
+        return;
+      }
       stop();
       const shown = document.querySelector('modal-dialog.show');
       reject(new Error(
         `expect-confirm: no confirmation with a '${buttonSelector}' button appeared within ${timeoutMs}ms` +
-				(shown ? ` (a dialog titled "${shown.querySelector('.modal-title')?.textContent || ''}" was showing)` : '')
+					(shown ? ` (a dialog titled "${shown.querySelector('.modal-title')?.textContent || ''}" was showing)` : '') +
+					` — ${await whyGivingUp()}`
       ));
-    }, timeoutMs);
+    };
+    timer = setTimeout(expire, timeoutMs);
     cancel = () => {
       stop();
       reject(new Error('expect-confirm: superseded before the dialog appeared'));

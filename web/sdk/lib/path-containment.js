@@ -62,10 +62,15 @@ export function posixNormalize(p) {
  * Called ONLY when the conversation's platform is Windows. On POSIX platforms
  * `/c/foo` is a real absolute path and a bare `C:` could be a filename, so this
  * reinterpretation must never run there — every caller gates on `platform`.
+ *
+ * The rooting is as much of the point as the comparing: a drive path becomes a
+ * `/`-rooted one, so a caller that decides absolute-versus-relative by a leading
+ * slash reads `C:/proj` as the absolute path it is instead of gluing it onto the
+ * working directory.
  * @param {string} p input path in any Windows spelling
  * @returns {string} canonical POSIX-shaped, lower-cased path
  */
-function windowsToComparable(p) {
+export function windowsToComparable(p) {
   if (!p) return p;
   let s = p.replace(/\\/g, '/');
   s = s.replace(/^\/cygdrive\/([A-Za-z])(?=\/|$)/, (_m, d) => '/' + d);

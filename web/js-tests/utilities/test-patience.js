@@ -50,8 +50,7 @@ import { testGeneration } from './test-deadline.js';
 /**
  * Per-CPU load above which the machine is not serving this lane properly.
  *
- * The same figure `scripts/test-preflight` refuses to start a run at, and the
- * same one the failure block calls busy, so one number means one thing
+ * The same figure the failure block calls busy, so one number means one thing
  * everywhere: at 0.9 runnable threads per core there is already someone else's
  * work in front of ours.
  */

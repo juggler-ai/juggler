@@ -14,6 +14,7 @@
 package hostcheck
 
 import (
+	"fmt"
 	"net"
 	"net/netip"
 	"strings"
@@ -43,4 +44,27 @@ func NamesThisMachine(host string) bool {
 	// address. It still rejects DNS names, so the rebinding defense holds.
 	_, err := netip.ParseAddr(host)
 	return err == nil
+}
+
+// RefusalMessage is the body a 403 carries when NamesThisMachine refused the
+// request's Host. It names the hostname that was refused — the one piece of
+// information that identifies the actual mistake, and one the user typed into
+// their address bar — states which names are served, gives the reason (so the
+// rule reads as a defence rather than a bug), and closes on the remedy for the
+// common case, a caller reaching a server by hostname over the LAN.
+//
+// Deliberately no "Forbidden:" prefix: the HTTP layer adds its own status
+// alongside this body, so the two together would read "HTTP 403: Forbidden: …".
+// Shared from here because the rule is spelled once (see the package doc), so
+// its refusal should not be re-worded at each of the three sites that apply it.
+//
+// The values are quoted rather than wrapped in code formatting: this is
+// text/plain and is also read by JS, which folds it into its own error
+// message, and %q escapes a hostile hostname for that reader.
+func RefusalMessage(host string) string {
+	return fmt.Sprintf(
+		"Refused the hostname %q. This server only answers to localhost, "+
+			"a *.localhost name, or an IP address — any other hostname could "+
+			"be pointed at this machine by a site you visit. Open it by IP "+
+			"address instead.", host)
 }

@@ -110,11 +110,11 @@ export async function runTests() {
     bar.render();
 
     const session = bar._session;
-    const nav = bar.querySelector('nav.conversation-bar');
+    const footer = bar.querySelector('nav.conversation-bar > .conversation-bar-footer');
     const undoBtn = /** @type {HTMLButtonElement|null} */ (bar.querySelector('.conversation-bin-undo'));
     assert(!!undoBtn, 'no bin Undo button in the rendered bar');
     assert(undoBtn?.tagName === 'BUTTON', 'the Undo offer is not itself a button');
-    assert(!!nav && undoBtn?.parentElement === nav, 'the Undo is not docked in the bar itself');
+    assert(!!footer && undoBtn?.parentElement === footer, 'the Undo is not docked in the bar\'s footer');
     assert(undoBtn?.hidden === true, 'the Undo is showing before anything was binned');
 
     // --- 1: a bin shows it, directly above the Bin --------------------------

@@ -108,7 +108,7 @@ const UNDO_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 9
 // Keys in `_cachedElements` that name the bar's own furniture rather than a
 // conversation tab, so render()'s cleanup pass leaves them alone.
 const CHROME_ELEMENT_KEYS = new Set([
-  'nav', 'tabs-viewport', 'tabs-menu', 'add-button', 'new-workspace', 'bin-button', 'bin-undo', 'info-rail'
+  'nav', 'tabs-viewport', 'tabs-menu', 'add-button', 'new-workspace', 'bin-button', 'bin-undo', 'info-rail', 'footer'
 ]);
 
 // The rows of the strip that make something rather than hold something: the "+"
@@ -985,6 +985,17 @@ class ConversationBar extends JugglerElement {
     }
     infoRail.setSession(this._session);
 
+    // Footer holding the Restore offer and the Bin. It draws the divider along
+    // its top, so the pair reads as one unit set apart from the cards above —
+    // and from the tab list when no card is showing.
+    let footer = /** @type {HTMLElement|null} */ (this._cachedElements.get('footer'));
+    if (!footer) {
+      footer = document.createElement('div');
+      footer.className = 'conversation-bar-footer';
+      this._cachedElements.set('footer', footer);
+      nav.appendChild(footer);
+    }
+
     // Restore button, docked directly above the Bin — the conversation it
     // restores went in there, so that's where the way back belongs. It names
     // the Bin rather than offering a bare "Undo" for two reasons: nothing was
@@ -1005,7 +1016,7 @@ class ConversationBar extends JugglerElement {
       undoToast.innerHTML = `${UNDO_ICON_SVG}<span>Restore from Bin</span>`;
       undoToast.addEventListener('click', () => this._undoBin());
       this._cachedElements.set('bin-undo', undoToast);
-      nav.appendChild(undoToast);
+      footer.appendChild(undoToast);
     }
 
     // Bottom-of-bar "Bin" button — opens the bin modal.
@@ -1018,7 +1029,7 @@ class ConversationBar extends JugglerElement {
       binBtn.innerHTML = `${BIN_ICON_SVG}<span class="conversation-bin-label">Bin</span><span class="conversation-bin-size" hidden></span><span class="conversation-bin-count" hidden></span>`;
       binBtn.addEventListener('click', () => this._openBinModal());
       this._cachedElements.set('bin-button', binBtn);
-      nav.appendChild(binBtn);
+      footer.appendChild(binBtn);
     }
 
     // Refresh the count badge + size hint from session state on every render.
@@ -1032,17 +1043,16 @@ class ConversationBar extends JugglerElement {
       if (countEl.textContent !== countText) countEl.textContent = countText;
       countEl.hidden = count <= 0;
     }
-    // Approximate folder size, shown only when there's something in the bin
-    // and the server has reported a non-zero tally (it refreshes lazily).
+    // Approximate folder size, on the row only once the bin is large. Below
+    // that it is in the tooltip and the modal: a second bare number beside the
+    // count reads as noise. Nothing empties the bin on a timer, so a large one
+    // is only ever noticed if a warning-coloured size appears where none was.
     const sizeEl = /** @type {HTMLElement|null} */ (binBtn.querySelector('.conversation-bin-size'));
     if (sizeEl) {
-      const showSize = count > 0 && sizeBytes > 0;
+      const showSize = count > 0 && sizeBytes >= BIN_LARGE_BYTES;
       const sizeText = showSize ? formatBytes(sizeBytes) : '';
       if (sizeEl.textContent !== sizeText) sizeEl.textContent = sizeText;
       sizeEl.hidden = !showSize;
-      // Nothing empties the bin on a timer, so a large one is only ever noticed
-      // if the number stops looking like a label.
-      sizeEl.classList.toggle('is-large', showSize && sizeBytes >= BIN_LARGE_BYTES);
     }
     let binTitle = 'View binned conversations';
     if (count > 0) {

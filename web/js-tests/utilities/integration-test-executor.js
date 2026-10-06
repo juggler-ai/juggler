@@ -197,6 +197,7 @@ import { runTests as runWorkspaceRenameTests } from '../unit-tests/workspace-ren
 import { runTests as runConversationRenameTests } from '../unit-tests/conversation-rename-test.js';
 import { runTests as runWorkspacePanelTests } from '../unit-tests/workspace-panel-test.js';
 import { runTests as runBinUndoToastTests } from '../unit-tests/bin-undo-toast-test.js';
+import { runTests as runBinFooterTests } from '../unit-tests/bin-footer-test.js';
 import { runTests as runBinGhostResurrectionTests } from '../unit-tests/bin-ghost-resurrection-test.js';
 import { runTests as runBinEmptyMenuTests } from '../unit-tests/bin-empty-menu-test.js';
 import { runTests as runBinSizeNoticeTests } from '../unit-tests/bin-size-notice-test.js';
@@ -643,6 +644,7 @@ const UNIT_TEST_SUITES = [
   // Exclusive: it asserts on document.activeElement, which every lane in the
   // shared origin can move.
   { name: 'unit:bin-undo-toast', run: runBinUndoToastTests },
+  { name: 'unit:bin-footer', run: runBinFooterTests },
   { name: 'unit:bin-ghost-resurrection', run: runBinGhostResurrectionTests },
   { name: 'unit:bin-empty-menu', run: runBinEmptyMenuTests },
   { name: 'unit:bin-size-notice', run: runBinSizeNoticeTests },

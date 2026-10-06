@@ -24,6 +24,7 @@ of changes; this project follows semantic versioning.
 - A crash inside one turn now stops that turn with an error, not the whole app
 - Adding AI assistant files now says what it added, or that nothing was new
 - Tips moved from a sidebar card to new conversations, with ‹ › to browse them
+- Maximised or fullscreen windows on Linux and Windows no longer show resize edges
 - In the desktop app, Add context item → File Content opens the native file chooser directly
 - Popped-out pinboards no longer count as other connected clients
 - A pinboard pop-out the app fails to open now says so instead of doing nothing

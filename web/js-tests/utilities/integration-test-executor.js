@@ -214,6 +214,7 @@ import { runTests as runComposerRestoreMessageTests } from '../unit-tests/compos
 import { apiUrl } from '../../js/utils/api-url.js';
 import { runTests as runPendingMessageRestoreTests } from '../unit-tests/pending-message-restore-test.js';
 import { runTests as runWindowResizeCursorTests } from '../unit-tests/window-resize-cursor-test.js';
+import { runTests as runWindowEdgeResizeTests } from '../unit-tests/window-edge-resize-test.js';
 import { runTests as runScheduledSendTests } from '../unit-tests/scheduled-send-test.js';
 import { runTests as runSidebarDrawerTests } from '../unit-tests/sidebar-drawer-test.js';
 import { runTests as runSwipeDismissTests } from '../unit-tests/swipe-dismiss-test.js';
@@ -537,6 +538,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:composer-restore-message', run: runComposerRestoreMessageTests },
   { name: 'unit:pending-message-restore', run: runPendingMessageRestoreTests },
   { name: 'unit:window-resize-cursor', run: runWindowResizeCursorTests },
+  { name: 'unit:window-edge-resize', run: runWindowEdgeResizeTests },
   { name: 'unit:scheduled-send', run: runScheduledSendTests },
   { name: 'unit:sidebar-drawer', run: runSidebarDrawerTests },
   { name: 'unit:swipe-dismiss', run: runSwipeDismissTests },

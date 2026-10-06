@@ -401,6 +401,19 @@ column-viewport.overflow-end {
     margin-bottom: 6px;
 }
 
+/* Frameless Linux has no native band at all: the edge resize is the Wails
+   runtime's own hit-test, an 8px band (resizeHandleEdgePx in
+   cmd/juggler-app/app_state.go) as tall as this scrollbar, so the bar sits
+   wholly inside it and a drag on it resizes the window instead of scrolling.
+   Lift it clear of the band — only while the band is live
+   (utils/window-edge-resize.js): a maximised or fullscreen window has no
+   resize edge, and the gap would be a dead strip. The gate is a condition, not
+   weight, so it sits in :where(); nothing else sets this margin. */
+:where(:root[data-window-platform="linux"][data-window-edge-resize] .window-mode) column-container {
+    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
+    margin-bottom: 8px;
+}
+
 /* The columns that stand where a conversation stands: the conversation itself,
    and the workspace panel shown instead of one when a box in the tab strip
    holds the selection. One rule, because they are one width — the panel opens

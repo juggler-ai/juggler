@@ -27,11 +27,12 @@ import { openSettings } from '../services/settings-launcher.js';
 import tooltipManager from '../services/tooltip-manager.js';
 import { CONTEXT_CACHE_IMPACT_CHANGED } from '../services/context-cache-impact.js';
 import { isDesktopWindow } from '../../sdk/lib/window-control.js';
-import { MESSAGE_TYPES, TOOL_STATES, isConversationalItemType } from '../../sdk/lib/message.js';
+import { isConversationalItemType } from '../../sdk/lib/message.js';
 import {
   COMPOSER_IDLE_MS,
   COMPOSER_LONG_THREAD_ITEMS,
   pickComposerPlaceholder,
+  trailingTurnOutcome,
 } from '../utils/composer-placeholders.js';
 import { expandPasteTokens } from '../utils/paste-tokens.js';
 import {
@@ -856,10 +857,8 @@ class Composer extends HTMLElement {
    * the last turn ENDED outranks anything about the thread as a whole, because
    * it is the more recent and more actionable fact.
    *
-   * How a turn ended is read from the items themselves rather than from a
-   * flag, because no durable "the last turn was cancelled" or "…errored" state
-   * exists on the conversation. The scan walks back from the end and stops at
-   * the user message that started the turn, so only the trailing turn counts.
+   * How the trailing turn ended is read from the items themselves — see
+   * trailingTurnOutcome for where that turn begins.
    * @returns {string} A key of COMPOSER_PLACEHOLDERS
    * @private
    */
@@ -882,15 +881,8 @@ class Composer extends HTMLElement {
     const status = this._conversation?.processingState?.status;
     if (status === 'error' || status === 'validation-error') return 'error';
 
-    for (let i = items.length - 1; i >= 0; i--) {
-      const item = items[i];
-      const type = item?.get?.('type');
-      if (type === MESSAGE_TYPES.USER) break;
-      if (type === MESSAGE_TYPES.ERROR) return 'error';
-      if (type === MESSAGE_TYPES.TOOL_ACTION && item.get('state') === TOOL_STATES.CANCELLED) {
-        return 'cancelled';
-      }
-    }
+    const outcome = trailingTurnOutcome(items);
+    if (outcome) return outcome;
 
     const lastActivityAt = thread ? thread.lastActivityAt : 0;
     if (lastActivityAt && Date.now() - lastActivityAt > COMPOSER_IDLE_MS) return 'idle';

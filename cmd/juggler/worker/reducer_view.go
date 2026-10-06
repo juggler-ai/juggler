@@ -22,7 +22,8 @@ import (
 // miss ContextTimeout waiting its turn.
 //
 // The reducer decides on none of it. decideNextAction, effectiveItems and the
-// walk-down read types, tool states, aliases and run records, and the
+// walk-down read types, tool states, aliases, run records and the round-trip
+// that produced each item (currentBatch's boundary), and the
 // run-record readers (threadRunRecords, runSettlement, trailingRunOutcome,
 // runRecordByItemID) read a child transcript's items for their own run-record
 // fields and a fold's foldedRuns — never a child's grandchildren. This view
@@ -64,6 +65,7 @@ func yMapToReducerItemShallow(m *ycrdt.YMap) ConversationItem {
 		Continuation:      yMapBool(m, "continuation"),
 		RunItemID:         yMapString(m, "runItemId"),
 		RunResultFed:      yMapBool(m, "runResultFed"),
+		TransactionID:     yMapString(m, "transactionId"),
 	}
 	// A thread's result is its run summary, which hasThreadResult reads; any
 	// other item's result is tool output, which nothing here does.

@@ -595,6 +595,76 @@ func TestCurrentBatch_MixesToolsAndThreads(t *testing.T) {
 	}
 }
 
+// inTxn stamps an item with the round-trip that produced it, as
+// appendTargetMessage does for everything a turn inserts.
+func inTxn(item ConversationItem, txnID string) ConversationItem {
+	item.TransactionID = txnID
+	return item
+}
+
+// TestCurrentBatch_StopsAtEarlierRoundTrip: a turn that answers with tool calls
+// alone inserts no assistant item, so its tools sit directly after the previous
+// turn's. The batch is this round-trip's work only — an earlier turn's tool
+// already went to the model and is not waited on or judged again.
+func TestCurrentBatch_StopsAtEarlierRoundTrip(t *testing.T) {
+	items := []ConversationItem{
+		userMsg("hi"),
+		assistantMsg("a1"),
+		inTxn(toolAction("t1", StateCancelled), "txn-1"),
+		inTxn(toolAction("t2", StateCompleted), "txn-2"),
+		inTxn(toolAction("t3", StateCompleted), "txn-2"),
+	}
+	batch := currentBatch(items)
+	if len(batch) != 2 || batch[0].ToolUseID != "t2" || batch[1].ToolUseID != "t3" {
+		t.Fatalf("expected batch [t2 t3], got %+v", batch)
+	}
+}
+
+// TestCurrentBatch_ReceiptDoesNotBoundTheBatch: a receipt is appended after the
+// batch by a run nobody here asked for, so whatever round-trip it carries says
+// nothing about where this turn's work begins.
+func TestCurrentBatch_ReceiptDoesNotBoundTheBatch(t *testing.T) {
+	items := []ConversationItem{
+		userMsg("delegate this"),
+		assistantMsg("on it"),
+		inTxn(threadMsg("thread-1", "first result"), "txn-1"),
+		inTxn(toolAction("t1", StateCompleted), "txn-1"),
+		inTxn(ConversationItem{Type: ItemTypeThread, ItemID: "receipt-1", AliasOf: "thread-1", RunItemID: "human-run-1"}, "txn-9"),
+	}
+	if batch := currentBatch(items); len(batch) != 3 {
+		t.Fatalf("expected the thread, the tool and the receipt in the batch, got %d: %+v", len(batch), batch)
+	}
+}
+
+// TestDecideNextAction_CancelledToolFromEarlierTurnDoesNotStopLoop: the user
+// stopped a hung tool, then pressed Continue. Continue inserts no user item and
+// the model replied with a tool call alone, so the cancelled tool and the new
+// one are adjacent. The new round-trip's tool finishing must resume the loop;
+// the earlier cancellation was already answered by the Continue.
+func TestDecideNextAction_CancelledToolFromEarlierTurnDoesNotStopLoop(t *testing.T) {
+	items := []ConversationItem{
+		userMsg("rebase it"),
+		assistantMsg("checking remotes"),
+		inTxn(toolAction("hung", StateCancelled), "txn-1"),
+		inTxn(toolAction("next", StateCompleted), "txn-2"),
+	}
+	if got := decideNextAction(items, ActivityAwaitingLLM, true, false); got != ActionCallLLM {
+		t.Errorf("expected CallLLM, got %s", got)
+	}
+}
+
+// TestReducerViewCarriesTransactionID: the batch boundary is read from the
+// reducer's view of the document, not from the full item, so the view must
+// carry the round-trip id or the boundary never forms outside these tests.
+func TestReducerViewCarriesTransactionID(t *testing.T) {
+	doc := NewConversationDocument("test-conv", "user:test")
+	doc.AppendMessage(inTxn(toolAction("t1", StateCompleted), "txn-1"))
+	items := doc.GetReducerItems()
+	if len(items) != 1 || items[0].TransactionID != "txn-1" {
+		t.Fatalf("expected the reducer view to carry transactionId txn-1, got %+v", items)
+	}
+}
+
 // TestDecideNextAction_WaitsForEverySibling is the property that broke when
 // read-only children started running side by side: a parent parked on several
 // sub-agents must wait for ALL of them, and the one that answers first is not

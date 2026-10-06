@@ -16,6 +16,8 @@
  * @module utils/composer-placeholders
  */
 
+import { MESSAGE_TYPES, TOOL_STATES } from '../../sdk/lib/message.js';
+
 /**
  * How quiet a thread must have been for its composer to read as returning to an
  * old conversation rather than carrying on a live one (milliseconds).
@@ -86,6 +88,42 @@ export const COMPOSER_PLACEHOLDERS = Object.freeze({
     "Quite an epic, this. What's your next move?",
   ]),
 });
+
+/**
+ * How the trailing turn of a thread ended, read from its items — no durable
+ * "the last turn was cancelled" or "…errored" state exists on the conversation.
+ *
+ * The scan walks back from the end and stops where the trailing turn began:
+ * at the user message that started it, or at an item stamped by an earlier LLM
+ * round-trip. The second boundary matters because neither Continue nor a reply
+ * made of tool calls alone inserts a message, so a turn resumed after a Stop
+ * sits directly after the tool that Stop cancelled — and without it, that one
+ * cancellation would colour every turn until the user next typed something.
+ * It is the boundary the worker's reducer draws its tool batch by. An item
+ * with no transactionId draws no boundary, and neither does a receipt (a thread
+ * item standing for a run nobody here called), which is appended later.
+ * @param {ReadonlyArray<any>} items - The thread's items (Y.Maps)
+ * @returns {'cancelled'|'error'|''} How the trailing turn ended; '' for normally
+ */
+export function trailingTurnOutcome(items) {
+  let txnId = '';
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    const type = item?.get?.('type');
+    if (type === MESSAGE_TYPES.USER) break;
+    const itemTxnId = item?.get?.('transactionId') || '';
+    const isReceipt = type === MESSAGE_TYPES.THREAD && !!item.get('runItemId') && !item.get('runToolUseId');
+    if (itemTxnId && !isReceipt) {
+      if (!txnId) txnId = itemTxnId;
+      else if (itemTxnId !== txnId) break;
+    }
+    if (type === MESSAGE_TYPES.ERROR) return 'error';
+    if (type === MESSAGE_TYPES.TOOL_ACTION && item.get('state') === TOOL_STATES.CANCELLED) {
+      return 'cancelled';
+    }
+  }
+  return '';
+}
 
 /**
  * Pick a placeholder line for a conversation state. An unknown state, or a

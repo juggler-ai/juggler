@@ -236,10 +236,29 @@ func effectiveItems(items []ConversationItem) []ConversationItem {
 // Children run side by side, so the last-spawned child need not be the last to
 // settle, and asking only about the final item would resume the parent on
 // whichever child happened to be quickest, discarding the rest.
+//
+// The suffix is also bounded by round-trip. A turn that answers with tool calls
+// alone inserts no assistant item, and neither does an explicit Continue, so
+// that turn's work sits directly after the previous turn's — and a member left
+// cancelled by an earlier Stop would otherwise be judged with every batch after
+// it, resting the loop each time. Members carry the TransactionID of the
+// round-trip that produced them (the same key buildMessagesFromItems groups
+// tool_use blocks by), so the walk stops at a member stamped by a different
+// one. A member with no TransactionID bounds nothing, and neither does a
+// receipt: it is appended after the batch by a run nobody here asked for.
 func currentBatch(items []ConversationItem) []ConversationItem {
 	end := len(items)
 	start := end
+	txnID := ""
 	for start > 0 && isBatchMember(items[start-1]) {
+		member := items[start-1]
+		if member.TransactionID != "" && !isReceiptItem(member) {
+			if txnID == "" {
+				txnID = member.TransactionID
+			} else if member.TransactionID != txnID {
+				break
+			}
+		}
 		start--
 	}
 	if start == end {

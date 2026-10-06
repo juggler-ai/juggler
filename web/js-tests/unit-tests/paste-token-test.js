@@ -536,17 +536,42 @@ export async function runTests() {
   });
 
   /**
+   * Make an edit through the editing pipeline the way a native one (a
+   * keystroke, autocorrect, Cmd/Ctrl+Z) arrives: the edit lands on the undo
+   * stack, then the reconciler sees it with no command in flight. Reconciling
+   * inside the test's own execCommand instead would make every repair or
+   * history step a NESTED execCommand, which Blink refuses outright (WebKit
+   * allows it) — the repair would fall back to a value write that wipes the
+   * undo stack, a path no native edit takes.
+   * @param {any} box
+   * @param {HTMLTextAreaElement} textarea
+   * @param {string} command - The execCommand to issue.
+   * @param {string} inputType - The `inputType` the native edit would carry.
+   * @param {string} [value]
+   */
+  function nativeEdit(box, textarea, command, inputType, value) {
+    box._pasteRepairing = true; // the composer's own input listener stands aside
+    try {
+      document.execCommand(command, false, value);
+    } finally {
+      box._pasteRepairing = false;
+    }
+    box._reconcileTokens(textarea, inputType);
+  }
+
+  /**
    * Undo until the box reads `target` or the history runs dry, recording every
    * value the undo passes through.
+   * @param {any} box
    * @param {HTMLTextAreaElement} textarea
    * @param {string} target
    * @returns {string[]} The values seen after each undo.
    */
-  function undoUntil(textarea, target) {
+  function undoUntil(box, textarea, target) {
     /** @type {string[]} */
     const seen = [];
     for (let i = 0; i < 6 && textarea.value !== target; i++) {
-      document.execCommand('undo');
+      nativeEdit(box, textarea, 'undo', 'historyUndo');
       seen.push(textarea.value);
     }
     return seen;
@@ -565,9 +590,9 @@ export async function runTests() {
       // A path that dodged the interceptors (autocorrect, dictation) writes
       // into the label through the editing pipeline, firing a real input.
       textarea.setSelectionRange(tok.start + 4, tok.start + 5);
-      document.execCommand('insertText', false, 'X');
+      nativeEdit(box, textarea, 'insertText', 'insertReplacementText', 'X');
       assert(textarea.value === good, `the damaging edit must be reverted: ${JSON.stringify(textarea.value)}`);
-      const seen = undoUntil(textarea, '');
+      const seen = undoUntil(box, textarea, '');
       assert(textarea.value === '', `undo must still walk back to the empty box, saw ${JSON.stringify(seen)}`);
       for (const v of seen) {
         assert(stripStrayDelimiters(v, box._pasteBlobs) === v, `no undo step may surface a broken token: ${JSON.stringify(v)}`);
@@ -583,9 +608,9 @@ export async function runTests() {
       const textarea = setValue(box, '');
       textarea.focus();
       document.execCommand('insertText', false, 'hi');
-      document.execCommand('insertText', false, PASTE_TOKEN_OPEN);
+      nativeEdit(box, textarea, 'insertText', 'insertText', PASTE_TOKEN_OPEN);
       assert(textarea.value === 'hi', `the stray delimiter must be stripped: ${JSON.stringify(textarea.value)}`);
-      const seen = undoUntil(textarea, '');
+      const seen = undoUntil(box, textarea, '');
       assert(textarea.value === '', `undo must still walk back to the empty box, saw ${JSON.stringify(seen)}`);
     } finally {
       container.remove();

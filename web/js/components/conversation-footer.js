@@ -363,7 +363,7 @@ class ConversationFooter extends HTMLElement {
   }
 
   /**
-   * Offer to undo a delete that just removed a span of items from this column.
+   * Offer to undo a delete that just removed items from this column.
    *
    * The offer is a promise about ONE undo entry, but `undo()` pops whatever is
    * on top of a stack the worker owns and every client of this conversation
@@ -387,7 +387,7 @@ class ConversationFooter extends HTMLElement {
     if (!row || !conversation) return;
 
     const label = this.querySelector('.footer-undo-text');
-    if (label) label.textContent = `${removed} items removed`;
+    if (label) label.textContent = `${removed} item${removed === 1 ? '' : 's'} removed`;
     row.classList.remove('hidden');
     this._undoOfferSeq = null;
 

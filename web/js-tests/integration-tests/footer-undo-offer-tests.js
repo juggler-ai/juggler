@@ -5,7 +5,7 @@
 /**
  * Integration tests for the conversation-footer's Undo offer.
  *
- * Deleting a span of items (rewind, "Delete from here", "Delete up to here")
+ * Deleting items (rewind, "Delete from here", "Delete up to here")
  * routes through `conversation._deleteWithCleanup`, which announces
  * `conversation:items-removed`. The footer of the column the items came from
  * shows an Undo offer until one of three things happens: the button is
@@ -161,15 +161,18 @@ export const footerOffersUndoAfterSpanDeleteTest = {
 };
 
 // ============================================================================
-// TEST 2: A single-item delete is not worth an offer.
+// TEST 2: A single-item delete is offered too.
 // ============================================================================
 
 /**
+ * Rewinding to a last message that never got its reply removes exactly one
+ * item, and a rewind with no confirmation reads as one that did nothing — or
+ * did something it can't take back.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerNoUndoOfferForSingleItemTest = {
-  name: 'footer-no-undo-offer-for-single-item',
-  description: 'Removing one item does not raise the footer Undo offer — only a span delete does.',
+export const footerUndoOfferForSingleItemTest = {
+  name: 'footer-undo-offer-for-single-item',
+  description: 'Removing one item raises the footer Undo offer, worded in the singular.',
   fixture: 'unit-test-fixture',
 
   llmResponses: [
@@ -197,9 +200,10 @@ export const footerNoUndoOfferForSingleItemTest = {
       throw new Error(`Expected 1 item removed, got ${removed}`);
     }
 
-    await new Promise(r => setTimeout(r, 100));
-    if (offerVisible(footer)) {
-      throw new Error('Undo offer raised for a single-item delete');
+    await waitFor(() => offerVisible(footer), 1000, 'undo offer appears for one item');
+    const text = footer.querySelector('.footer-undo-text')?.textContent || '';
+    if (text !== '1 item removed') {
+      throw new Error(`Expected "1 item removed", got ${JSON.stringify(text)}`);
     }
   }
 };
@@ -257,6 +261,6 @@ export const footerUndoOfferSurvivesRewindOverRunningTurnTest = {
 
 export const tests = [
   footerOffersUndoAfterSpanDeleteTest,
-  footerNoUndoOfferForSingleItemTest,
+  footerUndoOfferForSingleItemTest,
   footerUndoOfferSurvivesRewindOverRunningTurnTest
 ];

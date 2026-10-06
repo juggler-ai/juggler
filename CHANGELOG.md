@@ -29,6 +29,7 @@ of changes; this project follows semantic versioning.
 - In the desktop app, Add context item → File Content opens the native file chooser directly
 - Popped-out pinboards no longer count as other connected clients
 - A pinboard pop-out the app fails to open now says so instead of doing nothing
+- Rewinding or deleting a single item now offers Undo too
 - Undo keeps working after a delete or autocorrect next to a pasted-text pill
 
 ## [0.7.4] - 2026-10-02

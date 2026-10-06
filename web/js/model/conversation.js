@@ -76,15 +76,6 @@ const CANCEL_POLL_MS = 16;
 const CANCEL_CEILING_MS = 5000;
 
 /**
- * How many items a single delete must remove before it announces itself as
- * undoable (`conversation:items-removed` → the column footer's Undo offer).
- * Removing one item is a small, obvious edit whose effect is visible in the
- * spot the user was already looking at; removing a span is the case where the
- * conversation changes shape faster than it can be read.
- */
-const UNDO_OFFER_MIN_ITEMS = 2;
-
-/**
  * The share of the model's context window a single tool result may occupy.
  * {@link DEFAULT_TRUNCATION_BUDGET} against a 200k window, so a model of that
  * size is bounded exactly as the flat constant bounded it.
@@ -568,7 +559,10 @@ class Conversation {
     const removed = deleteFn();
     workerManager.stopUndoCapturing(this.id);
 
-    if (removed >= UNDO_OFFER_MIN_ITEMS) {
+    // Every delete that took something out is offered back, one item included:
+    // rewinding to a last message that never got its reply removes exactly
+    // one, and a rewind with no confirmation reads as one that did nothing.
+    if (removed > 0) {
       this._session?.notifyConversationChange?.('conversation:items-removed', {
         conversation: this,
         messageThread,

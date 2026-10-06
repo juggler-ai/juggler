@@ -23,7 +23,11 @@
  * Rung 5 is AppKit's own meaning of Escape, which the native window has handed
  * to the page (`DisableEscapeExitsFullscreen`) precisely so that it sits BELOW
  * the rest: left to AppKit, the press that stopped a turn also threw the window
- * out of fullscreen. It is guarded twice, because Escape is a key people hit
+ * out of fullscreen. The window refuses every Escape-driven exit, including the
+ * one WebKit runs for a key the page did not preventDefault, so this rung is
+ * the only way Escape leaves fullscreen. (Claiming the key with preventDefault
+ * would not do instead: several handlers read `defaultPrevented` as "someone
+ * else took this press" and would stand down.) It is guarded twice, because Escape is a key people hit
  * several times in a row:
  *   - It never follows another Escape within {@link ESCAPE_QUIET_MS}: the
  *     second press of a burst is the user still backing out of the first thing,

@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-10-06
+
 - Improved the file attach icon and made non-images join as text snapshots
 - Hovering a cut-off conversation or workspace name in the sidebar shows it in full
 - Every menu, right-click ones included, shares one tighter, less rounded style

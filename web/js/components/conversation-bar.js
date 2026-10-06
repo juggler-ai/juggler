@@ -2552,6 +2552,9 @@ class ConversationBar extends JugglerElement {
       ghostHost: this,
       scrollContainer: tabsMenu,
       axis: 'y',
+      // Where the tab lands follows the tab being carried, not where on it the
+      // pointer happened to take hold.
+      readCentre: true,
       dropPlaceAt: (clientX, clientY) => this._dropPlaceAt(clientX, clientY, tab),
       prepareGhost: (clone) => {
         // A copy of a tab is not a tab: render()'s reconciliation and the
@@ -2666,6 +2669,9 @@ class ConversationBar extends JugglerElement {
       ghostHost: this,
       scrollContainer,
       axis: 'y',
+      // A box is tall, and read from the pointer it would land by wherever on
+      // it the pointer took hold: its middle is what the eye follows.
+      readCentre: true,
       dropPlaceAt: (clientX, clientY) => {
         for (const slot of this._dropSlots(tabsMenu, box)) {
           const rect = settledRect(slot);

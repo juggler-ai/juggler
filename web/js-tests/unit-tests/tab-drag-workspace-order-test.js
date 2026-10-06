@@ -791,8 +791,13 @@ export async function runTests() {
       /** @type {any} */ (header).releasePointerCapture = () => {};
       const from = header.getBoundingClientRect();
       const x = from.left + 10;
-      const above = boxFor(bar, 'w1').getBoundingClientRect().top + 1;
-      bar._startBoxDrag({ clientX: x, clientY: from.top + from.height / 2, pointerId: 1 }, box);
+      const pressY = from.top + from.height / 2;
+      // The drop is read from the middle of the box being carried, which rides
+      // below a pointer holding its header: put that middle just inside w1.
+      const whole = box.getBoundingClientRect();
+      const middleBelowPointer = whole.top + whole.height / 2 - pressY;
+      const above = boxFor(bar, 'w1').getBoundingClientRect().top + 1 - middleBelowPointer;
+      bar._startBoxDrag({ clientX: x, clientY: pressY, pointerId: 1 }, box);
       movePointer(x, above);
       document.dispatchEvent(new PointerEvent('pointerup', {
         pointerId: 1, pointerType: 'touch', clientX: x, clientY: above, bubbles: true

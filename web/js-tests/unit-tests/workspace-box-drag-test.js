@@ -120,21 +120,38 @@ function tabFor(bar, id) {
 }
 
 /**
- * Press a box's header, drag it to a height, and let go.
+ * Press a box by the middle of its header, and say how far the middle of the
+ * box sits below that pointer. A drop is read from the middle of what is being
+ * carried, so that distance is what turns a height the box should reach into
+ * where the pointer has to go.
  * @param {any} bar - The mounted bar.
- * @param {HTMLElement} box - The box to drag.
- * @param {number} clientY - Where to let go.
- * @returns {void}
+ * @param {HTMLElement} box - The box to press.
+ * @returns {{x: number, below: number}} The pointer's x, and how far below it the box's middle rides.
  */
-function dragBoxToY(bar, box, clientY) {
+function pressBox(bar, box) {
   const header = /** @type {HTMLElement} */ (box.querySelector('.conversation-box-header'));
   /** @type {any} */ (header).setPointerCapture = () => {};
   /** @type {any} */ (header).releasePointerCapture = () => {};
   /** @type {any} */ (box).setPointerCapture = () => {};
   /** @type {any} */ (box).releasePointerCapture = () => {};
   const from = header.getBoundingClientRect();
+  const whole = box.getBoundingClientRect();
   const x = from.left + 10;
-  bar._startBoxDrag({ clientX: x, clientY: from.top + from.height / 2, pointerId: 1 }, box);
+  const pressY = from.top + from.height / 2;
+  bar._startBoxDrag({ clientX: x, clientY: pressY, pointerId: 1 }, box);
+  return { x, below: whole.top + whole.height / 2 - pressY };
+}
+
+/**
+ * Press a box's header, drag it until its middle is at a height, and let go.
+ * @param {any} bar - The mounted bar.
+ * @param {HTMLElement} box - The box to drag.
+ * @param {number} middleY - Where the box's middle is let go.
+ * @returns {void}
+ */
+function dragBoxToY(bar, box, middleY) {
+  const { x, below } = pressBox(bar, box);
+  const clientY = middleY - below;
   document.dispatchEvent(new PointerEvent('pointermove', {
     pointerId: 1, buttons: 1, pointerType: 'touch', clientX: x, clientY, bubbles: true
   }));
@@ -144,26 +161,21 @@ function dragBoxToY(bar, box, clientY) {
 }
 
 /**
- * Press a box's header and drag it to a height, without letting go.
+ * Press a box's header and drag it until its middle is at a height, without
+ * letting go.
  * @param {any} bar - The mounted bar.
  * @param {HTMLElement} box - The box to drag.
- * @param {number} clientY - Where to drag it to.
- * @returns {(y?: number) => void} Let go, optionally somewhere else.
+ * @param {number} middleY - Where to bring the box's middle.
+ * @returns {() => void} Let go.
  */
-function holdBoxAtY(bar, box, clientY) {
-  const header = /** @type {HTMLElement} */ (box.querySelector('.conversation-box-header'));
-  /** @type {any} */ (header).setPointerCapture = () => {};
-  /** @type {any} */ (header).releasePointerCapture = () => {};
-  /** @type {any} */ (box).setPointerCapture = () => {};
-  /** @type {any} */ (box).releasePointerCapture = () => {};
-  const from = header.getBoundingClientRect();
-  const x = from.left + 10;
-  bar._startBoxDrag({ clientX: x, clientY: from.top + from.height / 2, pointerId: 1 }, box);
+function holdBoxAtY(bar, box, middleY) {
+  const { x, below } = pressBox(bar, box);
+  const clientY = middleY - below;
   document.dispatchEvent(new PointerEvent('pointermove', {
     pointerId: 1, buttons: 1, pointerType: 'touch', clientX: x, clientY, bubbles: true
   }));
-  return (y = clientY) => document.dispatchEvent(new PointerEvent('pointerup', {
-    pointerId: 1, pointerType: 'touch', clientX: x, clientY: y, bubbles: true
+  return () => document.dispatchEvent(new PointerEvent('pointerup', {
+    pointerId: 1, pointerType: 'touch', clientX: x, clientY, bubbles: true
   }));
 }
 
@@ -334,29 +346,23 @@ export async function runTests() {
     );
     try {
       const box = boxFor(bar, 'ws_a');
-      const header = /** @type {HTMLElement} */ (box.querySelector('.conversation-box-header'));
-      /** @type {any} */ (header).setPointerCapture = () => {};
-      /** @type {any} */ (header).releasePointerCapture = () => {};
-      /** @type {any} */ (box).setPointerCapture = () => {};
-      /** @type {any} */ (box).releasePointerCapture = () => {};
-      const from = header.getBoundingClientRect();
-      const x = from.left + 10;
       const above = tabFor(bar, 'c1').getBoundingClientRect().top + 1;
 
-      bar._startBoxDrag({ clientX: x, clientY: from.top + from.height / 2, pointerId: 1 }, box);
+      const { x, below } = pressBox(bar, box);
       document.dispatchEvent(new PointerEvent('pointermove', {
-        pointerId: 1, buttons: 1, pointerType: 'touch', clientX: x, clientY: above, bubbles: true
+        pointerId: 1, buttons: 1, pointerType: 'touch', clientX: x, clientY: above - below, bubbles: true
       }));
       // Where the box now is — it is the one thing a shift does not animate — so
-      // this is a pointer inside the box it is dragging, asking for the place
-      // the box already has.
+      // this is the box's middle inside its own placeholder, asking for the
+      // place the box already has.
       const resting = box.getBoundingClientRect();
+      const inside = resting.bottom - 2 - below;
       document.dispatchEvent(new PointerEvent('pointermove', {
         pointerId: 1, buttons: 1, pointerType: 'touch',
-        clientX: x, clientY: resting.bottom - 2, bubbles: true
+        clientX: x, clientY: inside, bubbles: true
       }));
       document.dispatchEvent(new PointerEvent('pointerup', {
-        pointerId: 1, pointerType: 'touch', clientX: x, clientY: resting.bottom - 2, bubbles: true
+        pointerId: 1, pointerType: 'touch', clientX: x, clientY: inside, bubbles: true
       }));
 
       assert(JSON.stringify(calls) === JSON.stringify([['box', 'ws_a', 'head'], ['order', 'c2,c1']]),

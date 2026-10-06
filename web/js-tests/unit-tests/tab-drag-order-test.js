@@ -222,5 +222,54 @@ export async function runTests(_ctx) {
     }
   }
 
+  // Test 4: the drop is read from the middle of the tab being carried, not from
+  // the pointer. A tab picked up by its top edge rides below the pointer, so it
+  // has passed a neighbour's midpoint while the pointer is still short of it.
+  {
+    const { bar, tabs, calls, teardown } = mountBar(['a', 'b', 'c']);
+    try {
+      const aBox = /** @type {HTMLElement} */ (tabs[0]).getBoundingClientRect();
+      const bBox = /** @type {HTMLElement} */ (tabs[1]).getBoundingClientRect();
+      const grabY = aBox.top + 2;
+      const below = aBox.height / 2 - 2;
+      bar._startDrag({ clientX: 100, clientY: grabY, pointerId: 1 }, tabs[0]);
+      const pointerY = bBox.top + bBox.height / 2 - below + 2;
+      assert(pointerY < bBox.top + bBox.height / 2, 'the pointer must stay short of b\'s midpoint for this to test anything');
+      movePointerTo(pointerY);
+      release();
+      assert(calls.length === 1 && calls[0][1] === 'b,a,c',
+        `a tab whose middle passed b's must land after it: ${JSON.stringify(calls)}`);
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`the drop reads the carried tab's middle (passing): ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      release();
+      teardown();
+    }
+  }
+
+  // Test 5: and the other way — picked up by its bottom edge, the pointer passes
+  // a neighbour's midpoint first, and that alone moves nothing.
+  {
+    const { bar, tabs, calls, teardown } = mountBar(['a', 'b', 'c']);
+    try {
+      const aBox = /** @type {HTMLElement} */ (tabs[0]).getBoundingClientRect();
+      const bBox = /** @type {HTMLElement} */ (tabs[1]).getBoundingClientRect();
+      bar._startDrag({ clientX: 100, clientY: aBox.bottom - 2, pointerId: 1 }, tabs[0]);
+      movePointerTo(bBox.top + bBox.height / 2 + 2);
+      release();
+      assert(calls.length === 0,
+        `a tab whose middle is short of b's must stay put: ${JSON.stringify(calls)}, drawn as ${stripOrder(bar)}`);
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`the drop reads the carried tab's middle (short): ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      release();
+      teardown();
+    }
+  }
+
   return { passed, failed, errors };
 }

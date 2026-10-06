@@ -166,6 +166,7 @@ export function settledRect(element) {
  * @property {HTMLElement|null} [scrollContainer] - The strip's scroll box, for edge auto-scrolling. Omit for a strip that does not scroll.
  * @property {'x'|'y'|'xy'} [axis] - Which way the clone follows the pointer, and which distance arms the threshold. Default `'y'`.
  * @property {boolean} [wrap] - Whether the strip wraps onto more than one row, which decides how a drop position is read. Default `false`.
+ * @property {boolean} [readCentre] - Read the drop from the middle of the clone rather than from the pointer, along the axes it travels, so that where the item was picked up does not move where it lands. Default `false`.
  * @property {(clientX: number, clientY: number) => {parent: HTMLElement|null, anchor: Element|null}|null} [dropPlaceAt] - Where a pointer here would drop, for a strip the items alone do not describe: nested lists the pointer is inside or outside of, or slots that are not items. Returning null falls back to reading the items along the axis, which is also what happens when this is not given.
  * @property {number} [thresholdPx] - How far to move before this is a drag.
  * @property {{ghost?: string, source?: string, dragging?: string}} [classes] - Class for the clone, for the placeholder left behind, and for the strip while a drag is live.
@@ -202,6 +203,7 @@ export function startReorderDrag(event, options) {
     scrollContainer = null,
     axis = 'y',
     wrap = false,
+    readCentre = false,
     dropPlaceAt,
     thresholdPx = DEFAULT_THRESHOLD_PX,
     hold,
@@ -253,6 +255,9 @@ export function startReorderDrag(event, options) {
   let autoScrollRaf = null;
   let lastClientX = event.clientX;
   let lastClientY = event.clientY;
+  /** From the pointer to the middle of the clone, for `readCentre`; set when the clone is made. */
+  let centreOffsetX = 0;
+  let centreOffsetY = 0;
 
   // The hold. `pending` is a press waiting to lift; `lifted` is one that has.
   const holding = !!hold && (event.pointerType === 'touch' || event.pointerType === 'pen');
@@ -334,6 +339,13 @@ export function startReorderDrag(event, options) {
     clone.style.top = `${rect.top - origin.top}px`;
     ghost = clone;
     item.classList.add(sourceClass);
+    // The clone travels by the pointer's delta from the press, so its middle
+    // stays this far from the pointer for the whole gesture — on the axes it
+    // travels. On one it is held to, the pointer is read as it is.
+    if (readCentre) {
+      if (axis !== 'y') centreOffsetX = rect.left + rect.width / 2 - event.clientX;
+      if (axis !== 'x') centreOffsetY = rect.top + rect.height / 2 - event.clientY;
+    }
   };
 
   /**
@@ -465,11 +477,14 @@ export function startReorderDrag(event, options) {
   };
 
   /**
-   * Read the drop position, and rearrange if it has changed.
-   * @param {number} clientX - Pointer x in client coordinates.
-   * @param {number} clientY - Pointer y in client coordinates.
+   * Read the drop position, and rearrange if it has changed. The pointer is
+   * moved to the middle of the clone first when the strip reads from there.
+   * @param {number} pointerX - Pointer x in client coordinates.
+   * @param {number} pointerY - Pointer y in client coordinates.
    */
-  const recompute = (clientX, clientY) => {
+  const recompute = (pointerX, pointerY) => {
+    const clientX = pointerX + centreOffsetX;
+    const clientY = pointerY + centreOffsetY;
     const asked = dropPlaceAt?.(clientX, clientY) ?? null;
     const index = asked ? indexOfPlace(asked) : indexAt(clientX, clientY);
     const place = asked ?? placeAt(index);

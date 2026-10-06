@@ -5,6 +5,7 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Improved the file attach icon and made non-images join as text snapshots
 - Hovering a cut-off conversation or workspace name in the sidebar shows it in full
 - Every menu, right-click ones included, shares one tighter, less rounded style
 - Right-clicking a tab group offers Ungroup and Delete group

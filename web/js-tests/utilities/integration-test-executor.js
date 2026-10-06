@@ -252,6 +252,7 @@ import { runTests as runNoProjectOnboardingTests } from '../unit-tests/no-projec
 import { runTests as runProjectPickerExternalTests } from '../unit-tests/project-picker-external-test.js';
 import { runTests as runStarterPromptsTests } from '../unit-tests/starter-prompts-test.js';
 import { runTests as runColumnFileDropTests } from '../unit-tests/column-file-drop-test.js';
+import { runTests as runComposerAttachButtonTests } from '../unit-tests/composer-attach-button-test.js';
 import { runTests as runColumnNavigationTests } from '../unit-tests/column-navigation-test.js';
 import { runTests as runDeleteSelectionNeighbourTests } from '../unit-tests/delete-selection-neighbour-test.js';
 import { runTests as runControlClickRevealTests } from '../unit-tests/control-click-reveal-test.js';
@@ -686,6 +687,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:project-picker-external', run: runProjectPickerExternalTests },
   { name: 'unit:starter-prompts', run: runStarterPromptsTests },
   { name: 'unit:column-file-drop', run: runColumnFileDropTests },
+  { name: 'unit:composer-attach-button', run: runComposerAttachButtonTests },
   { name: 'unit:column-navigation', run: runColumnNavigationTests },
   // Exclusive for the shared origin: one case writes the tool-grouping
   // localStorage preference, which every lane's renderer reads.

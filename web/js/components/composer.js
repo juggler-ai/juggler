@@ -21,7 +21,7 @@ import {
   extractSkillMentions,
   renderSkillMenuItem,
 } from './skill-mention-provider.js';
-import { THREAD_ARROW_SVG, IMAGE_ATTACH_SVG, SEND_ARROW_SVG, KEBAB_SVG, CLOCK_SVG } from '../utils/icons.js';
+import { THREAD_ARROW_SVG, PAPERCLIP_SVG, SEND_ARROW_SVG, KEBAB_SVG, CLOCK_SVG } from '../utils/icons.js';
 import { showNotice } from './modal-dialog.js';
 import { openSettings } from '../services/settings-launcher.js';
 import tooltipManager from '../services/tooltip-manager.js';
@@ -37,7 +37,7 @@ import {
 import { expandPasteTokens } from '../utils/paste-tokens.js';
 import {
   isFileDrag,
-  splitDroppedFiles,
+  splitFiles,
   installFileDropGuard,
   markFileDropAccepted,
 } from '../utils/file-drop.js';
@@ -466,10 +466,13 @@ class Composer extends HTMLElement {
       });
     }
 
-    // Image attachments: file-picker button, paste, and drag-and-drop. All
-    // three funnel image files through _handleFiles, which validates size /
-    // capability and uploads to the asset store.
-    const attachBtn = this.querySelector('#attach-image-button');
+    // Attachments: the file-picker button, paste, and drag-and-drop. The
+    // picker takes any file and routes it exactly as a drop would
+    // (acceptFiles): images through _handleFiles, which validates size /
+    // capability and uploads to the asset store, and everything else through
+    // _handleTextFiles as a text snapshot. A browser picker reads the CLIENT's
+    // disk, which is the right machine whether or not the server is local.
+    const attachBtn = this.querySelector('#attach-button');
     const fileInput = /** @type {HTMLInputElement|null} */ (this.querySelector('.attach-file-input'));
     if (attachBtn && fileInput) {
       attachBtn.addEventListener('click', (e) => {
@@ -478,7 +481,7 @@ class Composer extends HTMLElement {
         fileInput.click();
       });
       fileInput.addEventListener('change', () => {
-        if (fileInput.files) this._handleFiles(fileInput.files);
+        this.acceptFiles(fileInput.files);
         // Reset so selecting the same file again re-fires change.
         fileInput.value = '';
       });
@@ -1971,22 +1974,31 @@ class Composer extends HTMLElement {
   }
 
   /**
-   * Stage the files from a drop, whatever surface caught it: the box itself, or
-   * the column around it. Images upload to the asset store as bytes and
-   * everything else is inlined as a text snapshot, so a mixed drop is routed one
+   * Stage files however they arrived — dropped on the box or the column around
+   * it, or chosen in the attach button's picker — so the two can never treat
+   * the same file differently. Images upload to the asset store as bytes and
+   * everything else is inlined as a text snapshot, so a mixed set is routed one
    * kind at a time.
-   *
+   * @param {FileList|File[]|null|undefined} fileList - The files to stage.
+   * @returns {boolean} True when files were taken.
+   */
+  acceptFiles(fileList) {
+    const { images, texts } = splitFiles(fileList);
+    if (images.length === 0 && texts.length === 0) return false;
+    if (images.length > 0) this._handleFiles(images);
+    if (texts.length > 0) this._handleTextFiles(texts);
+    return true;
+  }
+
+  /**
+   * Stage the files from a drop, whatever surface caught it ({@link acceptFiles}).
    * The caller cancels the event iff this took something, leaving a drag that
    * carried nothing to the document-level guard.
    * @param {DataTransfer|null|undefined} dataTransfer - The drop's payload.
    * @returns {boolean} True when files were taken.
    */
   acceptDroppedFiles(dataTransfer) {
-    const { images, texts } = splitDroppedFiles(dataTransfer);
-    if (images.length === 0 && texts.length === 0) return false;
-    if (images.length > 0) this._handleFiles(images);
-    if (texts.length > 0) this._handleTextFiles(texts);
-    return true;
+    return this.acceptFiles(dataTransfer?.files);
   }
 
   /**
@@ -2429,9 +2441,10 @@ class Composer extends HTMLElement {
   }
 
   /**
-   * Build and present the "⋮" actions sheet. Essential controls lead — Strategy,
-   * Attach image, Send later, New Thread — always visible so they never
-   * scroll off behind a long list. Below them, slash commands and skills each get their own
+   * Build and present the "⋮" actions sheet. Essential controls lead — Send
+   * later, New Thread — always visible so they never scroll off behind a long
+   * list. (Attach files is not among them: it stays inline beside Send on touch
+   * too, where it can be found.) Below them, slash commands and skills each get their own
    * closed-by-default collapsible section (standing in for the inline `/` and `$`
    * buttons, which are hidden on touch), so the sheet opens short and each list is
    * one tap away. On a narrow viewport presentPopup renders it as a bottom sheet
@@ -2478,12 +2491,7 @@ class Composer extends HTMLElement {
     // Essentials lead the sheet so they never scroll off behind a long command
     // list. Strategy is not among them: on touch it is on show in the config
     // strip, which is both a display of the current strategy and the control
-    // that changes it.
-    addRow('Attach image', IMAGE_ATTACH_SVG, () => {
-      /** @type {HTMLInputElement|null} */
-      (this.querySelector('.attach-file-input'))?.click();
-    });
-
+    // that changes it. Nor is Attach files, which stays inline beside Send.
     // Schedule-send ("send later") is a rarely-used control, so on touch it
     // lives here rather than on the inline row. The row opens the same picker as
     // the inline clock button (which stays visible only while armed).
@@ -2619,7 +2627,7 @@ class Composer extends HTMLElement {
                     spellcheck="false"
                     enterkeyhint="enter"
                 ></textarea>
-                <input type="file" class="attach-file-input" accept="image/*" multiple hidden />
+                <input type="file" class="attach-file-input" multiple hidden />
                 <input-controls>
                     <input-controls-config>
                         <strategy-selector></strategy-selector>
@@ -2636,11 +2644,6 @@ class Composer extends HTMLElement {
                                 title="Load a skill ($)"
                                 aria-label="Load a skill">
                             <span class="skill-glyph" aria-hidden="true">$</span>
-                        </button>
-                        <button class="attach-image-btn input-ctrl-btn" id="attach-image-button"
-                                title="Attach image"
-                                aria-label="Attach image">
-                            <span class="attach-image-icon">${IMAGE_ATTACH_SVG}</span>
                         </button>
                         <button class="more-actions-btn input-ctrl-btn" id="more-actions-button"
                                 title="More actions"
@@ -2663,6 +2666,11 @@ class Composer extends HTMLElement {
                                 title="Items in the conversation have changed, so the next message will cause a cache-miss"
                                 aria-label="Items in the conversation have changed, so the next message will cause a cache-miss">
                             <span class="icon-warning" aria-hidden="true"></span>
+                        </button>
+                        <button class="attach-btn input-ctrl-btn" id="attach-button"
+                                title="Attach files — or drop or paste them here"
+                                aria-label="Attach files">
+                            <span class="attach-icon">${PAPERCLIP_SVG}</span>
                         </button>
                         <button class="send-btn is-empty" id="send-button"
                                 title="Send message"

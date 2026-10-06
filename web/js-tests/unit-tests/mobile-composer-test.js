@@ -10,10 +10,11 @@
  *      can no longer accidentally fire the message by pressing return.
  *   2. The touch-only Send button DOES dispatch send-message with the typed
  *      text — it is the send affordance that replaces Enter.
- *   3. The "+" overflow button opens the actions sheet, whose rows reuse the
- *      existing handlers: the New Thread row dispatches the /thread command and
- *      the Attach image row triggers the hidden file input. Opening the sheet
- *      and picking a row closes it.
+ *   3. The "⋮" overflow button opens the actions sheet, whose rows reuse the
+ *      existing handlers: the New Thread row dispatches the /thread command.
+ *      Opening the sheet and picking a row closes it. Attach files is NOT in
+ *      the sheet: the paperclip stays inline beside Send, where it can be
+ *      found, and triggers the hidden file input.
  *   4. The strategy menu opened from inside that sheet is dismissible. It is the
  *      one row that presents a popup of its own, which closes the sheet
  *      mid-presentation and re-parents the selector — a cascade that must still
@@ -193,22 +194,26 @@ export async function runTests() {
     }
   }
 
-  // ── Test 4: the "+" sheet's Attach image row triggers the file picker ─────
+  // ── Test 4: the paperclip stays inline on touch and opens the picker ──────
   {
     const { box, container } = mountTouchComposer();
     try {
-      await /** @type {any} */ (box)._openActionsSheet();
-      const attachRow = Array.from(document.querySelectorAll('.actions-sheet-item'))
-        .find((r) => r.textContent?.includes('Attach image'));
-      assert(!!attachRow, 'actions sheet must have an "Attach image" row');
+      const attachBtn = /** @type {HTMLElement|null} */ (box.querySelector('#attach-button'));
+      assert(!!attachBtn, 'touch composer must render an #attach-button');
+      assert(attachBtn.getBoundingClientRect().width > 0,
+        'the attach button must stay visible on touch, not collapse into the sheet');
 
       const fileInput = /** @type {HTMLInputElement} */ (box.querySelector('.attach-file-input'));
       let pickerOpened = false;
       fileInput.click = () => { pickerOpened = true; };
-      /** @type {HTMLElement} */ (attachRow).click();
-      assert(pickerOpened, 'Attach image row must trigger the file picker');
-      assert(!document.querySelector('.actions-sheet'),
-        'picking the Attach image row must close the sheet');
+      attachBtn.click();
+      assert(pickerOpened, 'the attach button must trigger the file picker');
+
+      // One way to it, not two: the sheet carries no attach row.
+      await /** @type {any} */ (box)._openActionsSheet();
+      const attachRow = Array.from(document.querySelectorAll('.actions-sheet-item'))
+        .find((r) => /attach/i.test(r.textContent || ''));
+      assert(!attachRow, 'the actions sheet must not duplicate the inline attach button');
       passed++;
     } catch (e) {
       failed++;
@@ -375,9 +380,9 @@ export async function runTests() {
       assert(stripRect.height <= tallest + 1,
         `the config strip must stay on one line (height ${Math.round(stripRect.height)} vs segment ${Math.round(tallest)})`);
 
-      // And the row that is left over holds the two controls that matter, both
+      // And the row that is left over holds the three controls that matter, all
       // inside the bubble.
-      for (const id of ['more-actions-button', 'send-button']) {
+      for (const id of ['more-actions-button', 'attach-button', 'send-button']) {
         const btn = /** @type {HTMLElement|null} */ (box.querySelector('#' + id));
         assert(!!btn, `the touch controls row must render #${id}`);
         const rect = /** @type {HTMLElement} */ (btn).getBoundingClientRect();

@@ -341,16 +341,25 @@ composer-box .skill-button .skill-glyph {
     line-height: 1;
 }
 
-/* Attach-image button — icon-only, matching the commands button. */
-composer-box .attach-image-btn {
+/* Attach-files button — a paperclip beside Send, where the eye already goes.
+   The same 2rem circle as its send-cluster neighbours, but a ghost (no fill)
+   so the accent send stays the one primary control. The glyph is larger than
+   the row's other icons: this is the button people go looking for.
+
+   Qualified with .input-ctrl-btn, the co-class it carries for the shared
+   hover wash and press scale, so the circle outranks that utility's pill. */
+composer-box .attach-btn.input-ctrl-btn {
     justify-content: center;
-    padding: 0.125rem 0.5rem;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border-radius: 50%;
 }
 
-composer-box .attach-image-btn .attach-image-icon {
+composer-box .attach-btn .attach-icon {
     display: flex;
-    width: 0.875rem;
-    height: 0.875rem;
+    width: 1.125rem;
+    height: 1.125rem;
 }
 
 composer-box textarea:focus {
@@ -532,7 +541,7 @@ composer-box .strategy-selector-button .strategy-name {
    stays bottom-right).
 
    The threshold is set ABOVE the one-line fit width (config ~25rem + actions
-   ~9rem + send ~9.5rem ≈ 44rem at the floors), NOT at some smaller value. If it
+   ~6.5rem + send ~12rem ≈ 44rem at the floors), NOT at some smaller value. If it
    sat below the fit width, the 40–44rem band would be above the fold but below
    the fit, so flexbox would NATURALLY wrap instead — and because the send
    cluster is last with margin-left:auto, it wraps alone onto row 2, leaving a
@@ -903,8 +912,8 @@ composer-box .context-cache-warning-btn .icon-warning {
     color: #3d2c00;
 }
 
-/* "⋮" actions sheet: a simple vertical list (commands, attach image, send after
-   a delay, new thread). presentPopup renders it as a bottom sheet on a narrow
+/* "⋮" actions sheet: a simple vertical list (commands, send after a delay, new
+   thread). presentPopup renders it as a bottom sheet on a narrow
    viewport. */
 .actions-sheet.show {
     display: flex;
@@ -913,7 +922,7 @@ composer-box .context-cache-warning-btn .icon-warning {
 }
 
 /* Every sheet row shares one comfortable tap height with the section headers, so
-   the essentials (attach image, new thread, strategy) and the command/skill rows
+   the essentials (send later, new thread) and the command/skill rows
    line up as a single consistent list rather than a mix of heights. */
 .actions-sheet .actions-sheet-item {
     display: flex;
@@ -943,7 +952,8 @@ composer-box .context-cache-warning-btn .icon-warning {
 
 /* Touch composer layout: Enter inserts a newline, so a Send button is the send
    affordance, the secondary actions collapse into the "⋮" sheet, and the config
-   controls move up to the text strip. What is left on the row is [⋮] … [send].
+   controls move up to the text strip. What is left on the row is
+   [⋮] … [attach][send].
    Desktop keeps the full visible row.
 
    Selected on a class, NOT on `@media (hover: none) and (pointer: coarse)`,
@@ -993,18 +1003,29 @@ composer-box.touch-composer textarea {
 }
 
 /* These live in the "⋮" actions sheet: the commands (`/`) and skill (`$`)
-   buttons collapse into its Slash-commands and Skills sections, and attach
-   image / new thread each become a row. */
+   buttons collapse into its Slash-commands and Skills sections, and new thread
+   becomes a row. Attach files is not among them — it stays on the row. */
 composer-box.touch-composer .commands-button,
 composer-box.touch-composer .skill-button,
-composer-box.touch-composer .attach-image-btn,
 composer-box.touch-composer .new-thread-btn {
     display: none;
 }
 
+/* On touch the paperclip takes the "⋮" button's filled circle, so the row
+   reads as three peers — [⋮] … [attach][send] — and, with no hover there to
+   reveal a ghost, it looks tappable at rest. Sticky hover/focus pinned to the
+   resting fill, as for "⋮". */
+composer-box.touch-composer .attach-btn.input-ctrl-btn,
+composer-box.touch-composer .attach-btn.input-ctrl-btn:hover:not(:disabled),
+composer-box.touch-composer .attach-btn.input-ctrl-btn:focus:not(:disabled) {
+    background: var(--overlay-light-30);
+    border-color: transparent;
+    color: var(--text-primary);
+}
+
 /* One row, never wrapping — and with the three config controls living in the
-   strip above, all that is left on it is [⋮] … [send]. Two fixed circles and
-   the elastic gap between them fit any width we support, so there is nothing
+   strip above, all that is left on it is [⋮] … [attach][send]. Three fixed
+   circles and the elastic gap fit any width we support, so there is nothing
    here that can be pushed off the edge and nothing to fold: the narrow-column
    fold is neutralised, and the now-empty config cluster collapses rather than
    contributing a stray gap. */

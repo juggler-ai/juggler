@@ -26,14 +26,14 @@ export function isFileDrag(dataTransfer) {
 }
 
 /**
- * Split a drop's files by how they are staged: images upload to the asset store
- * as bytes, and everything else is inlined as a text snapshot. A mixed drop
- * therefore has to be routed one kind at a time.
- * @param {DataTransfer|null|undefined} dataTransfer - The drop's payload.
+ * Split files by how they are staged: images upload to the asset store as
+ * bytes, and everything else is inlined as a text snapshot. A mixed set —
+ * dropped or picked — therefore has to be routed one kind at a time.
+ * @param {FileList|File[]|null|undefined} fileList - The files to stage.
  * @returns {{images: File[], texts: File[]}} The files, split by kind.
  */
-export function splitDroppedFiles(dataTransfer) {
-  const files = Array.from(dataTransfer?.files || []);
+export function splitFiles(fileList) {
+  const files = Array.from(fileList || []);
   return {
     images: files.filter((f) => f.type.startsWith('image/')),
     texts: files.filter((f) => !f.type.startsWith('image/')),

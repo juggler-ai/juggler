@@ -205,5 +205,27 @@ export async function runTests() {
     }
   });
 
+  await check('a click on the open tab renames only from its name, not the empty row beside it', async () => {
+    const session = makeSession('Old name');
+    session.selection = { kind: 'conversation', id: 'c1' };
+    const { bar, teardown } = mountBar(session);
+    try {
+      const tab = /** @type {HTMLElement} */ (bar.querySelector('.conversation-tab[data-conversation-id="c1"]'));
+      const box = tab.getBoundingClientRect();
+      // Well past the end of a short name, short of the bin at the row's end:
+      // the stretch of row a click on the strip's "whitespace" lands in.
+      const blank = document.elementFromPoint(box.left + box.width * 0.7, box.top + box.height / 2);
+      assert(!!blank && tab.contains(blank), `the probe point is not on the tab, got ${blank?.className}`);
+      /** @type {HTMLElement} */ (blank).click();
+      assert(!field(), `a click on the empty row (${/** @type {HTMLElement} */ (blank).className}) opened the rename editor`);
+
+      /** @type {HTMLElement} */ (tab.querySelector('.conversation-tab-name')).click();
+      assert(!!field(), 'a click on the open tab\'s name did not open the rename editor');
+      await typeAnd(/** @type {HTMLInputElement} */ (field()), 'Old name', 'Escape');
+    } finally {
+      teardown();
+    }
+  });
+
   return { passed, failed, errors };
 }

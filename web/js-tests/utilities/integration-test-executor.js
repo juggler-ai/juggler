@@ -250,6 +250,7 @@ import { runTests as runEmptyConversationHintTests } from '../unit-tests/empty-c
 import { runTests as runNoConversationsOnboardingTests } from '../unit-tests/no-conversations-onboarding-test.js';
 import { runTests as runNoProjectOnboardingTests } from '../unit-tests/no-project-onboarding-test.js';
 import { runTests as runProjectPickerExternalTests } from '../unit-tests/project-picker-external-test.js';
+import { runTests as runProjectPickerRecentsTests } from '../unit-tests/project-picker-recents-test.js';
 import { runTests as runStarterPromptsTests } from '../unit-tests/starter-prompts-test.js';
 import { runTests as runColumnFileDropTests } from '../unit-tests/column-file-drop-test.js';
 import { runTests as runComposerAttachButtonTests } from '../unit-tests/composer-attach-button-test.js';
@@ -685,6 +686,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:no-conversations-onboarding', run: runNoConversationsOnboardingTests },
   { name: 'unit:no-project-onboarding', run: runNoProjectOnboardingTests },
   { name: 'unit:project-picker-external', run: runProjectPickerExternalTests },
+  { name: 'unit:project-picker-recents', run: runProjectPickerRecentsTests },
   { name: 'unit:starter-prompts', run: runStarterPromptsTests },
   { name: 'unit:column-file-drop', run: runColumnFileDropTests },
   { name: 'unit:composer-attach-button', run: runComposerAttachButtonTests },

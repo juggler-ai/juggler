@@ -14,8 +14,8 @@
  *      <no-project-overlay> owns, or the two would stack. It hides the tab
  *      column (via `body.no-conversations`) but NOT the sidebar, which holds
  *      the button it points at.
- *   2. The conversation bar's "+" carries its name while the list is empty and
- *      reverts to the bare glyph once a tab exists.
+ *   2. The conversation bar's "+" always carries its name, and is emphasised
+ *      only while the list is empty.
  *
  * Both sessions are stubs: this pins the two components' own show/hide rules,
  * not the bin round-trip that arrives at the state.
@@ -145,22 +145,46 @@ export async function runTests() {
 
     const addBtn = /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-add'));
     assert(!!addBtn, 'no add button in the rendered bar');
-    assert((addBtn?.textContent || '').trim() === '+ New conversation',
+    assert((addBtn?.textContent || '').trim() === 'New conversation',
       `the empty sidebar's button should name itself, got "${(addBtn?.textContent || '').trim()}"`);
     assert(addBtn?.classList.contains('conversation-add-labelled'),
-      'the labelled button is missing the class that sizes it as a label');
+      'the labelled button is missing the class that emphasises it');
     passed++;
 
-    // --- 6: and shrinks back once there is a tab ----------------------------
+    // --- 6: and keeps its name beside real tabs, losing only the emphasis ----
     bar._session.conversations.set('conv_a', { id: 'conv_a', name: 'First' });
     bar.render();
 
     const addAfter = /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-add'));
     assert(addAfter === addBtn, 'the add button was rebuilt, dropping its click handler');
-    assert((addAfter?.textContent || '').trim() === '+',
-      `the button should be a bare "+" beside real tabs, got "${(addAfter?.textContent || '').trim()}"`);
+    assert((addAfter?.textContent || '').trim() === 'New conversation',
+      `the button should keep its name beside real tabs, got "${(addAfter?.textContent || '').trim()}"`);
     assert(!addAfter?.classList.contains('conversation-add-labelled'),
-      'the label sizing outlived the empty list');
+      'the empty-list emphasis outlived the empty list');
+    passed++;
+
+    // --- 7: and is drawn as the "New workspace or group" button is ---------
+    // The two rows that make something in the strip are one style: the same
+    // "+" mark before the words, the same dashed outline, corner, padding and
+    // type. Compared as computed values, so a rule that drifts on one of them
+    // fails here rather than on screen.
+    const newWs = /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-box-new-button'));
+    assert(!!newWs, 'no "New workspace or group" button to compare against');
+    assert(!!addAfter?.querySelector('svg'), 'the button has no "+" mark drawn before its words');
+    // Every button fades its colour, and this one has just lost the empty
+    // list's accent: read where it is going, not a frame of the fade.
+    /** @type {HTMLElement} */ (addAfter).style.transition = 'none';
+    const a = getComputedStyle(/** @type {HTMLElement} */ (addAfter));
+    const w = getComputedStyle(/** @type {HTMLElement} */ (newWs));
+    for (const prop of ['border-top-left-radius', 'padding-top', 'padding-left', 'font-size',
+      'font-weight', 'color', 'background-color', 'column-gap', 'justify-content']) {
+      assert(a.getPropertyValue(prop) === w.getPropertyValue(prop),
+        `${prop}: new conversation "${a.getPropertyValue(prop)}", new workspace "${w.getPropertyValue(prop)}"`);
+    }
+    const aOutline = getComputedStyle(/** @type {HTMLElement} */ (addAfter), '::before').maskImage;
+    const wOutline = getComputedStyle(/** @type {HTMLElement} */ (newWs), '::before').maskImage;
+    assert(!!wOutline && wOutline !== 'none' && aOutline === wOutline,
+      `the dashed outline differs: "${aOutline}" vs "${wOutline}"`);
     passed++;
 
   } catch (error) {

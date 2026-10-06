@@ -136,23 +136,20 @@ export function buildPickerPanel({
       btn.className = 'pp-recent-item';
       btn.textContent = path;
       btn.title = path;
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         pathInputEl.value = path;
-        if (validate) {
-          triggerValidation(path);
-        } else {
+        // A click opens the entry: it does exactly what the primary confirm
+        // button does — which, in the desktop switching case, is open a NEW
+        // window (confirmAction === doNewWindow when confirmOpensNewWindow), not
+        // switch this window in place. Route through confirmAction, never doOpen
+        // directly, so both entry points stay in lockstep across window modes.
+        // A path that no longer checks out stays in the field with the reason.
+        if (!validate) {
           openBtn.disabled = path.trim().length === 0;
           syncNewWindowBtn();
+          confirmAction();
+          return;
         }
-      });
-      btn.addEventListener('dblclick', async () => {
-        pathInputEl.value = path;
-        // Double-click must do exactly what the primary confirm button does —
-        // which, in the desktop switching case, is open a NEW window
-        // (confirmAction === doNewWindow when confirmOpensNewWindow), not switch
-        // this window in place. Route through confirmAction, never doOpen
-        // directly, so both entry points stay in lockstep across window modes.
-        if (!validate) { confirmAction(); return; }
         if (debounceTimer !== null) { clearTimeout(debounceTimer); debounceTimer = null; }
         setStatus('checking', 'Checking…');
         const gen = ++validationGen;
@@ -253,7 +250,7 @@ export function buildPickerPanel({
   // Native "Browse…" button (desktop app only; absent in a browser tab). Opens
   // the OS chooser — folders only for the project picker, either for a picker
   // asking about a file — and feeds the result through the same value+validate
-  // path a recents click uses, so the rest of the flow is identical. The panel's
+  // path typing uses, so the rest of the flow is identical. The panel's
   // own title is reused as the chooser's, so the sheet says what was asked.
   const browseBtn = /** @type {HTMLButtonElement|null} */ (panel.querySelector('.pp-btn-browse'));
   if (browseBtn) {

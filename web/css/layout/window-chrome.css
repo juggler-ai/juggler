@@ -24,10 +24,6 @@
     padding-left: 80px; /* clear macOS traffic lights */
 }
 
-:where(.window-mode) .logo {
-    cursor: default;
-}
-
 /* Opt interactive regions out of drag — custom property inherits into their children too */
 :where(.window-mode) header-actions,
 :where(.window-mode) .header-history,

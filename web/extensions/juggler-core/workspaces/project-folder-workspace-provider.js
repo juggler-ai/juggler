@@ -61,7 +61,7 @@ class ProjectFolderWorkspaceProvider extends WorkspaceProvider {
 
   static MANIFEST = {
     id: 'project-folder',
-    name: 'Project Folder',
+    name: 'Subfolder',
     version: '1.0.0',
     description: 'Conversations here work in a subfolder instead of the project root',
     setupLabel: 'A subfolder of this project',

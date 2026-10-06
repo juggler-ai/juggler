@@ -445,7 +445,7 @@ class ConversationBar extends JugglerElement {
       if (id) void this._binConversation(id);
     });
     // F2 (from the KeyShortcutManager) opens inline rename on the visible tab —
-    // the same UX as clicking the already-active tab.
+    // the same UX as clicking the already-active tab's name.
     this.onDocument('juggler:rename-active-conversation', () => {
       const id = this._session?.visibleConversationId;
       if (id) this._enterRenameMode(id);
@@ -1079,10 +1079,13 @@ class ConversationBar extends JugglerElement {
     if (!addButton) {
       addButton = document.createElement('li');
       addButton.className = 'conversation-add-item';
+      // Drawn as the "New workspace or group" outline at the foot of the strip
+      // is, and from the same rules: the two rows that make something are one
+      // kind of thing.
       addButton.innerHTML = `
-        <button class="conversation-add"
+        <button class="conversation-add" type="button"
                 title="New conversation" data-shortcut-id="new-conversation"
-                aria-label="Create new conversation">+</button>
+                aria-label="Create new conversation">${ADD_ICON_SVG}<span class="conversation-box-new-label">New conversation</span></button>
       `;
       this._cachedElements.set('add-button', addButton);
 
@@ -1095,17 +1098,10 @@ class ConversationBar extends JugglerElement {
       tabsMenu.insertBefore(addButton, tabsMenu.firstChild);
     }
 
-    // With no tabs below it the bare "+" is the only mark in an empty column,
-    // and reads as decoration rather than the way out. Spell it out while the
-    // list is empty; it shrinks back to the glyph as soon as a tab exists,
-    // where the tabs themselves make what it does obvious.
+    // With no tabs below it, the button is the only way out of an empty column,
+    // and is emphasised as such.
     const addBtn = /** @type {HTMLElement|null} */ (addButton.querySelector('.conversation-add'));
-    if (addBtn) {
-      const labelled = conversations.length === 0;
-      addBtn.classList.toggle('conversation-add-labelled', labelled);
-      const label = labelled ? '+ New conversation' : '+';
-      if (addBtn.textContent !== label) addBtn.textContent = label;
-    }
+    if (addBtn) addBtn.classList.toggle('conversation-add-labelled', conversations.length === 0);
 
     // The way to make a workspace, drawn as an empty one. A box with a dashed
     // edge and a name in it is the shape of the thing it makes, standing where
@@ -1900,7 +1896,10 @@ class ConversationBar extends JugglerElement {
       if (tab.classList.contains('is-renaming')) return;
 
       if (id === this._session?.visibleConversationId) {
-        this._enterRenameMode(id);
+        // Only the name itself renames: the rest of the row is where a click
+        // on the strip's blank space lands, and opening an editor there reads
+        // as the row having grown a border for no reason.
+        if (target?.closest('.conversation-tab-name')) this._enterRenameMode(id);
       } else {
         this._switchConversation(id, { focusInput: true });
       }
@@ -1908,7 +1907,7 @@ class ConversationBar extends JugglerElement {
 
     // Rename rides on click, not dblclick (WebKit/touch misfires dblclick for
     // rapid taps across different elements): first click switches to the tab, a
-    // second click on the now-active tab renames it.
+    // second click on the now-active tab's name renames it.
 
     // Drag to reorder: a mouse from anywhere on the tab, and a finger or pen
     // from anywhere too, by holding still first (_startDrag passes the hold).

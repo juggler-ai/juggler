@@ -106,9 +106,14 @@ workspace-panel {
     gap: 0.5rem;
 }
 
+/* Read-only, so it drops the shared path box's frame: a bordered field reads
+   as one you can type into. */
 .workspace-panel-path {
     flex: 1 1 auto;
     min-width: 0;
+    padding-inline: 0;
+    background: none;
+    border-color: transparent;
     overflow-wrap: anywhere;
 }
 

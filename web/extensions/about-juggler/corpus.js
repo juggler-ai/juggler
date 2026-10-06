@@ -233,7 +233,7 @@ others are made by workspace providers, and the built-in ones are:
   in a project with or without git. Anything .gitignore leaves out is left out of
   the copy. Applying a change back copies whole files, and refuses the ones the
   project has changed since.
-- **Project Folder** — conversations work in a subfolder instead of the project
+- **Subfolder** — conversations work in a subfolder instead of the project
   root. Best for one package, service or subrepo of a large monorepo: commands run
   in the folder while the rest of the project stays readable. Nothing is created
   and nothing is removed.

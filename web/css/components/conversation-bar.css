@@ -385,8 +385,10 @@ conversation-bar .conversation-box-new {
 }
 
 /* The mark and the words are one phrase, centred in the outline across and
-   down, as the "+" above is centred in its row. */
-conversation-bar .conversation-box-new-button {
+   down. The "New conversation" button at the head of the strip is drawn by the
+   same rules: the two rows that make something are one kind of thing. */
+conversation-bar .conversation-box-new-button,
+conversation-bar .conversation-add {
     position: relative;
     display: flex;
     flex: 1;
@@ -412,7 +414,8 @@ conversation-bar .conversation-box-new-button {
    stroked rectangle masking the border colour instead, where the gap is set on
    its own terms: wide enough that the edge reads as the outline of a box and
    not as a box. */
-conversation-bar .conversation-box-new-button::before {
+conversation-bar .conversation-box-new-button::before,
+conversation-bar .conversation-add::before {
     content: '';
     position: absolute;
     inset: -0.0625rem;
@@ -424,7 +427,8 @@ conversation-bar .conversation-box-new-button::before {
 /* Sized to the words it leads, and never squeezed by them: one line of them
    tall, so a single line sets the row's height alone. When the words wrap it
    stays level with the middle of them. */
-conversation-bar .conversation-box-new-button svg {
+conversation-bar .conversation-box-new-button svg,
+conversation-bar .conversation-add svg {
     flex-shrink: 0;
     width: 1rem;
     height: 1lh;
@@ -441,13 +445,15 @@ conversation-bar .conversation-box-new-label {
 
 /* On hover it fills in: the outline becoming a box is the same answer the real
    boxes give the pointer, and says what pressing it is going to produce. */
-conversation-bar .conversation-box-new-button:hover {
+conversation-bar .conversation-box-new-button:hover,
+conversation-bar .conversation-add:hover {
     color: var(--text-primary);
     background: var(--workspace-box-bg);
     border-color: var(--workspace-box-border);
 }
 
-conversation-bar .conversation-box-new-button:hover::before {
+conversation-bar .conversation-box-new-button:hover::before,
+conversation-bar .conversation-add:hover::before {
     display: none;
 }
 
@@ -721,49 +727,21 @@ conversation-bar .conversation-tab-button {
     min-width: 0;
 }
 
-/* Subtle "+" tab — no chrome by default, picks up a faint background on hover.
-   The glyph is quiet until pointed at: green in this strip says a tab is
-   running, and says nothing else. */
-conversation-bar .conversation-add {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: 0.0625rem solid transparent;
-    border-radius: var(--radius-xl);
-    padding: 0.25rem 0.75rem;
-    cursor: pointer;
-    transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base);
-    color: var(--text-tertiary);
-    font-size: 1.25rem;
-    font-weight: 600;
-    line-height: 1;
-    width: 100%;
-}
-
-/* The same button carrying its name, while an empty list leaves nothing else
-   to explain it: label-sized rather than glyph-sized, and a visible edge so it
-   reads as the one thing to press. */
+/* The "New conversation" button is drawn by the "New workspace or group" rules
+   above. While an empty list leaves nothing else to press, it alone wears the
+   accent, so it reads as the way out. */
 conversation-bar .conversation-add-labelled {
-    border-color: var(--border-color);
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
-    font-weight: 500;
     color: var(--accent-green);
-}
-
-conversation-bar .conversation-add:hover {
-    background: var(--bg-raised);
-    border-color: var(--border-color);
-    color: var(--accent-blue);
 }
 
 conversation-bar .conversation-add-labelled:hover {
     color: var(--accent-green-bright);
 }
 
+/* As wide as the words and no wider, so a click past the end of a short name
+   is a click on the row, not on the name (which renames the open tab). */
 conversation-bar .conversation-tab-name {
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

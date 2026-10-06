@@ -507,12 +507,12 @@ class UIEventManager {
     // tab's on-screen rect, so closing the drawer slides that tab off-canvas and
     // the overlay lands clipped at the viewport edge (and tearing the editor down
     // with the drawer would make rename impossible). Two taps enter rename:
-    // tapping the ALREADY-active tab, and creating a conversation ("+") while
-    // auto-naming is OFF. With auto-naming ON the "+" opens no editor — it names
-    // the tab "Untitled N" and focuses the composer — so the drawer must get out
-    // of the way, otherwise it covers the composer it just focused. So only
-    // dismiss on a tap that leaves nothing to edit here: a non-active tab, or a
-    // "+" that won't prompt for a name.
+    // tapping the ALREADY-active tab's name, and creating a conversation ("+")
+    // while auto-naming is OFF. With auto-naming ON the "+" opens no editor — it
+    // names the tab "Untitled N" and focuses the composer — so the drawer must
+    // get out of the way, otherwise it covers the composer it just focused. So
+    // only dismiss on a tap that leaves nothing to edit here: a tab other than
+    // the active one's name, or a "+" that won't prompt for a name.
     //
     // CAPTURE PHASE is load-bearing: the tab's own bubble-phase click handler
     // calls switchConversation(), which synchronously notifies the bar and
@@ -531,7 +531,8 @@ class UIEventManager {
           return;
         }
         const tab = target?.closest('.conversation-tab');
-        if (tab && !tab.classList.contains('active')) close();
+        const renames = tab?.classList.contains('active') && !!target?.closest('.conversation-tab-name');
+        if (tab && !renames) close();
       };
       sidebar.addEventListener('click', handler, true);
       this._listeners.push({ element: sidebar, event: 'click', handler, options: true });

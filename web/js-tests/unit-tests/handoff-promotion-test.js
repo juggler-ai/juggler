@@ -19,6 +19,7 @@ import {
   initializeRegistries,
   createTestSession,
   createTestConversation,
+  waitFor,
   assert
 } from '../utilities/test-helpers.js';
 import { maybePromoteHandoffThread } from '../../js/utils/compaction-utils.js';
@@ -182,6 +183,13 @@ export async function runTests(_ctx) {
       const mt = conversation.rootMessageThread;
       insertThreadTile(mt, { handoffPromote: true, result: SUMMARY });
       maybePromoteHandoffThread(mt);
+      // The request is sent from behind a dynamic import, so it lands an
+      // unbounded number of tasks after the promotion — wait for it rather than
+      // for a fixed delay, then give a duplicate the same window to show up.
+      await waitFor(() => requests.some(r => r.id === conversation.id), {
+        timeoutMs: 2000,
+        description: 'the auto-name request after promotion'
+      });
       await waitForObservers();
 
       const forConv = requests.filter(r => r.id === conversation.id);

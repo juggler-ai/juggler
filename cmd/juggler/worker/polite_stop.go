@@ -40,9 +40,8 @@ package worker
 //     for. /compact and /handoff (handleCompact), Re-summarise
 //     (handleResummarizeCompactionThread), a tool retry (resetToolActionAndRedrive)
 //     and a thread the user created (handleCreateThread) all say so. Note it is
-//     the OP that is human, not the plumbing under it: createThread's
-//     ExternalDispatch flag is worn by the orchestrator too, so the lift lives in
-//     the handler.
+//     the OP that is human, not the plumbing under it: dispatchThread serves the
+//     orchestrator too, so the lift lives in the handler.
 //   - MACHINE CONTINUATION — the conversation carrying on by itself, which is
 //     what a pause is a statement about. The mark stands and the work waits:
 //     delivered background-task output (handleInjectThreadMessage), a thread the

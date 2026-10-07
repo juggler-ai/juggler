@@ -661,7 +661,7 @@ func TestContextRecoveryKeepsDelegatedRunRecords(t *testing.T) {
 }
 
 // invocationItemForTest builds the message that starts one delegated run, as
-// createThread and resumeSession stamp it: the call's prompt plus the tool-use
+// spawnThread and resumeSession stamp it: the call's prompt plus the tool-use
 // coordinates its result is paired back from.
 func invocationItemForTest(id, toolUseID, result string) ConversationItem {
 	return ConversationItem{

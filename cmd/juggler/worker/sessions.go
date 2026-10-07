@@ -246,20 +246,23 @@ func sessionBusyMessage(name string) string {
 // rather than on the thread, which is what lets the thread be invoked more than
 // once — N invocations are N stamped user items in order down the transcript,
 // each paired against the run it began.
-func invocationMessage(opts CreateThreadOptions) ConversationItem {
-	content := opts.Prompt
-	if opts.ResultSpec != "" {
-		content += "\n\n---\nYour last message is what the caller receives. It must contain: " + opts.ResultSpec
+//
+// A dispatched thread has no call, so its zero toolSpawn leaves the message
+// unstamped.
+func invocationMessage(spec threadSpec, call toolSpawn) ConversationItem {
+	content := spec.Prompt
+	if spec.ResultSpec != "" {
+		content += "\n\n---\nYour last message is what the caller receives. It must contain: " + spec.ResultSpec
 	}
 	return ConversationItem{
 		Type:         ItemTypeUser,
 		ItemID:       generateItemID(),
 		Content:      content,
 		Timestamp:    time.Now().Format(time.RFC3339),
-		RunToolUseID: opts.ToolUseID,
-		RunToolName:  opts.ToolName,
-		RunToolInput: opts.ToolInput,
-		RunGoal:      opts.RunGoal,
+		RunToolUseID: call.ToolUseID,
+		RunToolName:  call.ToolName,
+		RunToolInput: call.ToolInput,
+		RunGoal:      call.RunGoal,
 	}
 }
 
@@ -298,7 +301,7 @@ func continuationMarker() ConversationItem {
 // goal and sessionName are frozen display copies for the tile alone; the thread
 // they describe is the truth. RunGoal is the per-call label surfaces show; it is
 // resolved from the spec rather than inferred from the tool's detailed input.
-func aliasItem(canonicalItemID, goal, sessionName string, opts CreateThreadOptions) ConversationItem {
+func aliasItem(canonicalItemID, goal, sessionName string, call toolSpawn) ConversationItem {
 	return ConversationItem{
 		Type:         ItemTypeThread,
 		ItemID:       generateItemID(),
@@ -306,10 +309,10 @@ func aliasItem(canonicalItemID, goal, sessionName string, opts CreateThreadOptio
 		AliasOf:      canonicalItemID,
 		Goal:         goal,
 		SessionName:  sessionName,
-		RunToolUseID: opts.ToolUseID,
-		RunToolName:  opts.ToolName,
-		RunToolInput: opts.ToolInput,
-		RunGoal:      opts.RunGoal,
+		RunToolUseID: call.ToolUseID,
+		RunToolName:  call.ToolName,
+		RunToolInput: call.ToolInput,
+		RunGoal:      call.RunGoal,
 	}
 }
 
@@ -355,7 +358,7 @@ func receiptItem(canonicalItemID, goal, sessionName, runItemID string) Conversat
 // an earlier alias still shows a result shaped by an older one. That is the
 // header describing the session as it stands, which is what a header is for —
 // while each item keeps its own short label in RunGoal.
-func (r *run) resumeSession(threadItemID string, opts CreateThreadOptions) error {
+func (r *run) resumeSession(threadItemID string, spec threadSpec, call toolSpawn) error {
 	nested := r.doc.GetThreadItemsArray(threadItemID)
 	if nested == nil {
 		return fmt.Errorf("session thread %s not found", threadItemID)
@@ -371,16 +374,16 @@ func (r *run) resumeSession(threadItemID string, opts CreateThreadOptions) error
 	ycrdtMu.Lock()
 	if m := findThreadYMap(r.doc.getItems(), threadItemID); m != nil {
 		goal, _ = m.Get("goal").(string)
-		spec, _ := m.Get("resultSpec").(string)
+		resultSpec, _ := m.Get("resultSpec").(string)
 		sessionName, _ = m.Get("sessionName").(string)
-		if (opts.Goal != "" && opts.Goal != goal) || (opts.ResultSpec != "" && opts.ResultSpec != spec) {
+		if (spec.Goal != "" && spec.Goal != goal) || (spec.ResultSpec != "" && spec.ResultSpec != resultSpec) {
 			r.doc.transactTracked(func(_ *ycrdt.Transaction) {
-				if opts.Goal != "" && opts.Goal != goal {
-					m.Set("goal", opts.Goal)
-					goal = opts.Goal
+				if spec.Goal != "" && spec.Goal != goal {
+					m.Set("goal", spec.Goal)
+					goal = spec.Goal
 				}
-				if opts.ResultSpec != "" && opts.ResultSpec != spec {
-					m.Set("resultSpec", opts.ResultSpec)
+				if spec.ResultSpec != "" && spec.ResultSpec != resultSpec {
+					m.Set("resultSpec", spec.ResultSpec)
 				}
 			})
 		}
@@ -390,15 +393,15 @@ func (r *run) resumeSession(threadItemID string, opts CreateThreadOptions) error
 	// The alias goes in first, at the end of the calling thread — where the turn
 	// making this call stands — so it is in the document before the run it stands
 	// for can settle.
-	if opts.ToolUseID != "" {
+	if call.ToolUseID != "" {
 		target := r.getTargetItemsYArray()
-		r.tracker.AppendMessageIntoArray(target, aliasItem(threadItemID, goal, sessionName, opts))
+		r.tracker.AppendMessageIntoArray(target, aliasItem(threadItemID, goal, sessionName, call))
 	}
 
-	r.tracker.AppendMessageIntoArray(nested, invocationMessage(opts))
+	r.tracker.AppendMessageIntoArray(nested, invocationMessage(spec, call))
 	r.tracker.MergeFromIndex(mergeFrom)
 	r.tracker.StopCapturing()
 
-	r.log.Info("[worker] resumed session %s (thread %s)", opts.SessionName, threadItemID)
+	r.log.Info("[worker] resumed session %s (thread %s)", call.SessionName, threadItemID)
 	return nil
 }

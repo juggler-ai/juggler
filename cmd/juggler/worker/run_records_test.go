@@ -609,16 +609,17 @@ func TestTrailingItemShowsTheResumedRun(t *testing.T) {
 	w.doc.ensureItems()
 	w.currentRun().storeState(StateProcessing)
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{
-		Goal:      "map auth",
-		Prompt:    "find the auth flow",
+	threadID, err := w.currentRun().spawnThread(threadSpec{
+		Goal:   "map auth",
+		Prompt: "find the auth flow",
+	}, toolSpawn{
 		ToolUseID: "tu-1",
 		ToolName:  "Explore",
 		ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`),
 		Delegated: true,
 	})
 	if err != nil {
-		t.Fatalf("createThread: %v", err)
+		t.Fatalf("spawnThread: %v", err)
 	}
 	w.turn.thread.itemID = threadID
 	w.turn.thread.itemsArray = w.doc.GetThreadItemsArray(threadID)
@@ -704,12 +705,11 @@ func TestAnsweredCallGetsAReceiptNotARewrite(t *testing.T) {
 	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
 	w.currentRun().storeState(StateProcessing)
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{
-		Goal: "map auth", Prompt: "find the auth flow", ToolUseID: "tu-1",
-		ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
+	threadID, err := w.currentRun().spawnThread(threadSpec{Goal: "map auth", Prompt: "find the auth flow"}, toolSpawn{
+		ToolUseID: "tu-1", ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
 	})
 	if err != nil {
-		t.Fatalf("createThread: %v", err)
+		t.Fatalf("spawnThread: %v", err)
 	}
 	inChild := func(item ConversationItem) {
 		w.turn.thread.itemID = threadID
@@ -786,12 +786,11 @@ func TestReadButUnansweredCallTakesTheRetry(t *testing.T) {
 	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
 	w.currentRun().storeState(StateProcessing)
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{
-		Goal: "map auth", Prompt: "find the auth flow", ToolUseID: "tu-1",
-		ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
+	threadID, err := w.currentRun().spawnThread(threadSpec{Goal: "map auth", Prompt: "find the auth flow"}, toolSpawn{
+		ToolUseID: "tu-1", ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
 	})
 	if err != nil {
-		t.Fatalf("createThread: %v", err)
+		t.Fatalf("spawnThread: %v", err)
 	}
 	inChild := func(item ConversationItem) {
 		w.turn.thread.itemID = threadID
@@ -875,12 +874,11 @@ func TestUnreadReceiptCoalescesTheNextRun(t *testing.T) {
 	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
 	w.currentRun().storeState(StateProcessing)
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{
-		Goal: "map auth", Prompt: "find the auth flow", ToolUseID: "tu-1",
-		ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
+	threadID, err := w.currentRun().spawnThread(threadSpec{Goal: "map auth", Prompt: "find the auth flow"}, toolSpawn{
+		ToolUseID: "tu-1", ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
 	})
 	if err != nil {
-		t.Fatalf("createThread: %v", err)
+		t.Fatalf("spawnThread: %v", err)
 	}
 	inChild := func(item ConversationItem) {
 		w.turn.thread.itemID = threadID
@@ -940,12 +938,11 @@ func TestIdenticalRunGetsNoSecondReceipt(t *testing.T) {
 	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
 	w.currentRun().storeState(StateProcessing)
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{
-		Goal: "map auth", Prompt: "find the auth flow", ToolUseID: "tu-1",
-		ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
+	threadID, err := w.currentRun().spawnThread(threadSpec{Goal: "map auth", Prompt: "find the auth flow"}, toolSpawn{
+		ToolUseID: "tu-1", ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
 	})
 	if err != nil {
-		t.Fatalf("createThread: %v", err)
+		t.Fatalf("spawnThread: %v", err)
 	}
 	inChild := func(item ConversationItem) {
 		w.turn.thread.itemID = threadID
@@ -997,12 +994,11 @@ func TestContinueMovesOnlyTheTrailingSessionItem(t *testing.T) {
 	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
 	w.currentRun().storeState(StateProcessing)
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{
-		Goal: "map auth", Prompt: "find the auth flow", ToolUseID: "tu-1",
-		ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
+	threadID, err := w.currentRun().spawnThread(threadSpec{Goal: "map auth", Prompt: "find the auth flow"}, toolSpawn{
+		ToolUseID: "tu-1", ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
 	})
 	if err != nil {
-		t.Fatalf("createThread: %v", err)
+		t.Fatalf("spawnThread: %v", err)
 	}
 	w.turn.thread.itemID = threadID
 	w.turn.thread.itemsArray = w.doc.GetThreadItemsArray(threadID)
@@ -1012,9 +1008,8 @@ func TestContinueMovesOnlyTheTrailingSessionItem(t *testing.T) {
 	w.settleThreadRun(threadID, false)
 
 	w.currentRun().resetThreadContext()
-	if err := w.currentRun().resumeSession(threadID, CreateThreadOptions{
-		Goal: "trace callers", Prompt: "who calls it?", ToolUseID: "tu-2",
-		ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"who calls it?"}`), Delegated: true,
+	if err := w.currentRun().resumeSession(threadID, threadSpec{Goal: "trace callers", Prompt: "who calls it?"}, toolSpawn{
+		ToolUseID: "tu-2", ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"who calls it?"}`), Delegated: true,
 	}); err != nil {
 		t.Fatalf("resumeSession: %v", err)
 	}
@@ -1078,12 +1073,11 @@ func TestContinueAfterTheCallWasAnsweredLeavesItAlone(t *testing.T) {
 	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
 	w.currentRun().storeState(StateProcessing)
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{
-		Goal: "map auth", Prompt: "find the auth flow", ToolUseID: "tu-1",
-		ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
+	threadID, err := w.currentRun().spawnThread(threadSpec{Goal: "map auth", Prompt: "find the auth flow"}, toolSpawn{
+		ToolUseID: "tu-1", ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
 	})
 	if err != nil {
-		t.Fatalf("createThread: %v", err)
+		t.Fatalf("spawnThread: %v", err)
 	}
 	inChild := func(item ConversationItem) {
 		w.turn.thread.itemID = threadID

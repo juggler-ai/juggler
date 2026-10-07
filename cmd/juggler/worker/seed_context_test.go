@@ -174,9 +174,9 @@ func TestCreateThreadSeedsChildEagerly(t *testing.T) {
 	w.currentRun().storeState(StateProcessing)
 	seedableRoot(w.doc, "identity")
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{Goal: "child", Prompt: "do the thing"})
+	threadID, err := w.currentRun().spawnThread(threadSpec{Goal: "child", Prompt: "do the thing"}, toolSpawn{})
 	if err != nil {
-		t.Fatalf("createThread: %v", err)
+		t.Fatalf("spawnThread: %v", err)
 	}
 
 	childArr := w.doc.GetThreadItemsArray(threadID)
@@ -200,9 +200,9 @@ func TestCreateThreadContinuationDoesNotSeed(t *testing.T) {
 	w.currentRun().storeState(StateProcessing)
 	seedableRoot(w.doc, "identity")
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{Goal: "cont", IsContinuation: true})
+	threadID, err := w.currentRun().spawnThread(threadSpec{Goal: "cont", IsContinuation: true}, toolSpawn{})
 	if err != nil {
-		t.Fatalf("createThread: %v", err)
+		t.Fatalf("spawnThread: %v", err)
 	}
 	childArr := w.doc.GetThreadItemsArray(threadID)
 	if got := w.doc.GetItemsLengthFromArray(childArr); got != 0 {
@@ -217,7 +217,7 @@ func TestSeedThreadIfUnseededLazyAndIdempotent(t *testing.T) {
 	seedableRoot(doc, "identity")
 
 	// Client-created / legacy sub-thread: a thread inserted directly with only
-	// its own user message, never routed through createThread's eager seeding.
+	// its own user message, never routed through insertThread's eager seeding.
 	childArr := doc.InsertThreadIntoArray(root, doc.GetItemsLengthFromArray(root), "child")
 	doc.InsertMessageIntoArray(childArr, 0, ConversationItem{Type: ItemTypeUser, ItemID: "cu-1", Content: "task"})
 	childID := doc.GetItemsFromArray(root)[6].ItemID
@@ -327,9 +327,9 @@ func TestCreateThreadEagerSeedSurvivesBackstop(t *testing.T) {
 	w.currentRun().storeState(StateProcessing)
 	seedableRoot(w.doc, "identity")
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{Goal: "child", Prompt: "do the thing"})
+	threadID, err := w.currentRun().spawnThread(threadSpec{Goal: "child", Prompt: "do the thing"}, toolSpawn{})
 	if err != nil {
-		t.Fatalf("createThread: %v", err)
+		t.Fatalf("spawnThread: %v", err)
 	}
 	childArr := w.doc.GetThreadItemsArray(threadID)
 	before := w.doc.GetItemsLengthFromArray(childArr)
@@ -382,7 +382,7 @@ func TestSeedChainPropagatesCustomization(t *testing.T) {
 	seedableRoot(w.doc, "root-identity")
 
 	// Child seeded from root carries root's identity.
-	childID, err := w.currentRun().createThread(CreateThreadOptions{Goal: "child", Prompt: "c"})
+	childID, err := w.currentRun().spawnThread(threadSpec{Goal: "child", Prompt: "c"}, toolSpawn{})
 	if err != nil {
 		t.Fatalf("createThread child: %v", err)
 	}
@@ -401,7 +401,7 @@ func TestSeedChainPropagatesCustomization(t *testing.T) {
 	}
 
 	// Grandchild seeded from the child inherits the child's customization.
-	gcID, err := w.currentRun().createThread(CreateThreadOptions{Goal: "gc", Prompt: "g", ParentThreadItemID: childID})
+	gcID, err := w.currentRun().spawnThread(threadSpec{Goal: "gc", Prompt: "g", ParentThreadItemID: childID}, toolSpawn{})
 	if err != nil {
 		t.Fatalf("createThread grandchild: %v", err)
 	}

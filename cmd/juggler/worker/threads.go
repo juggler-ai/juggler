@@ -12,13 +12,25 @@ import (
 	ycrdt "github.com/skyterra/y-crdt"
 )
 
-// CreateThreadOptions describes a thread to be created via createThread.
+// A thread is opened in one of two ways, and each has its own entry point:
 //
-// Three callsites construct one of these:
-//   - executeCreateThread (tool-driven from LLM)      — ToolUseID set
-//   - handleCreateThread (WS-driven from browser)     — ExternalDispatch=true
-//   - pendingRequests orchestrator                    — ExternalDispatch=true
-type CreateThreadOptions struct {
+//   - spawnThread: a model's tool call opened it (create_thread, or a
+//     delegatesToSubthread tool). It is created in the calling run's own thread,
+//     stamped llmCreated, and carries a toolSpawn: the tool_use it answers, and
+//     the handle and claims its caller gave it. Nothing dispatches it here; the
+//     strategy loop parks on hasIncompleteThreads and the reducer picks it up.
+//   - dispatchThread: something outside a model's turn asked for it (the browser's
+//     create-thread message, or a strategy's createThread through
+//     pendingRequests). The whole conversation must be idle and a model chosen.
+//     It is created at the root unless a parent is named, stamped
+//     strategyCreated, and dispatched straight away.
+//
+// Both describe the thread itself with a threadSpec, and both insert it through
+// insertThread. Only a spawn carries tool coordinates, which is why they are a
+// separate argument rather than fields an external dispatch would leave empty.
+
+// threadSpec is what a new thread is, whoever asks for it.
+type threadSpec struct {
 	Goal   string
 	Prompt string
 
@@ -28,8 +40,30 @@ type CreateThreadOptions struct {
 	// Optional: an empty spec changes nothing.
 	ResultSpec string
 
+	// IsContinuation opens the thread with no invocation message and no seeded
+	// context: the items it continues already carry both.
 	IsContinuation bool
 
+	// ParentThreadItemID, if non-empty, names the thread the new one is created
+	// in. Empty means the calling run's own thread for a spawn, and the root for
+	// a dispatch.
+	ParentThreadItemID string
+
+	// StrategyID and ModelConfigJSON, when set, override the new thread's
+	// strategy and model — stamped on its Y.Map as currentStrategyId /
+	// modelConfig so getEffectiveStrategyId / ResolveEffectiveModelConfig
+	// resolve them. Used by user-defined subthread commands and by subagent
+	// specs to run a prompt under a different (e.g. read-only) strategy or model
+	// than the parent. ModelConfigJSON is the JSON encoding of a
+	// {provider, model, ...} object; empty/invalid leaves the thread inheriting
+	// the parent's model.
+	StrategyID      string
+	ModelConfigJSON string
+}
+
+// toolSpawn is what a thread opened by a model's tool call carries beyond its
+// spec: the call it answers, and what that call said about it.
+type toolSpawn struct {
 	// Tool-use coordinates: when set, these are stamped as a run record on the
 	// invocation message this creation appends, so the parent's buildMessages can
 	// reconstruct the tool_use/tool_result pair the LLM expects to see. Holding
@@ -48,16 +82,14 @@ type CreateThreadOptions struct {
 
 	// SessionName is the handle this thread answers to within the thread that
 	// called it: a later call naming it invokes THIS thread again instead of
-	// spawning a fresh one (see sessions.go). Set for every tool-spawned child;
-	// empty for a user- or orchestrator-created thread, which nothing calls
-	// into. Stamped on the thread Y.Map, where resolveSession reads it back.
+	// spawning a fresh one (see sessions.go). Stamped on the thread Y.Map, where
+	// resolveSession reads it back.
 	SessionName string
 
 	// Delegated marks a thread spawned by a delegatesToSubthread tool (not the
 	// create_thread meta-tool). It is stamped onto the thread Y.Map, where
 	// withinDelegatedThread reads it to keep a delegated child from starting a
-	// further delegation. Tool-use coordinates (ToolUseID/ToolName/ToolInput)
-	// are set exactly as for create_thread.
+	// further delegation.
 	Delegated bool
 
 	// ReadOnly marks a thread whose run cannot change anything outside its own
@@ -70,30 +102,6 @@ type CreateThreadOptions struct {
 	// Nothing verifies the claim. It is the spawning item's assertion about the
 	// agent it seeds, and the cost of overstating it is siblings racing.
 	ReadOnly bool
-
-	// ParentThreadItemID, if non-empty, names the thread the new one is created
-	// in (used by ExternalDispatch entry points to scope into a specific parent).
-	// Empty means the root for an ExternalDispatch, and the calling run's own
-	// thread otherwise.
-	ParentThreadItemID string
-
-	// StrategyID and ModelConfigJSON, when set, override the new thread's
-	// strategy and model — stamped on its Y.Map as currentStrategyId /
-	// modelConfig so getEffectiveStrategyId / ResolveEffectiveModelConfig
-	// resolve them. Used by user-defined subthread commands to run their prompt
-	// under a different (e.g. read-only) strategy or model than the parent.
-	// ModelConfigJSON is the JSON encoding of a {provider, model, ...} object;
-	// empty/invalid leaves the thread inheriting the parent's model.
-	StrategyID      string
-	ModelConfigJSON string
-
-	// ExternalDispatch=true marks the WS/orchestrator entry path: the worker
-	// must be idle, the effective model must be set, the new thread is
-	// marked strategyCreated, and the LLM is dispatched via requestLLM plus
-	// a reducer pass after creation. Tool-driven creation (ExternalDispatch=
-	// false) is marked llmCreated and leaves dispatch to the strategy loop's
-	// hasIncompleteThreads check.
-	ExternalDispatch bool
 }
 
 // structuredToolInput converts a tool input's raw JSON to the structured value a
@@ -116,60 +124,81 @@ func structuredToolInput(raw json.RawMessage) any {
 	return convertToYcrdt(parsed)
 }
 
-// createThread is the single thread-creation entry point. The three public
-// wrappers below differ only in how they assemble CreateThreadOptions; the
-// mutation/dispatch policy lives here.
-func (r *run) createThread(opts CreateThreadOptions) (string, error) {
-	if opts.RunGoal == "" {
-		opts.RunGoal = opts.Goal
+// spawnThread opens the thread a model's tool call asked for, in the calling
+// run's own thread unless spec names another, and returns its itemId. It leaves
+// the dispatch to the reducer. The caller has already applied the runaway guards
+// (executeCreateThread, tryDelegateTool).
+func (r *run) spawnThread(spec threadSpec, call toolSpawn) (string, error) {
+	if call.RunGoal == "" {
+		call.RunGoal = spec.Goal
 	}
-	if opts.Goal == "" {
-		opts.Goal = "Thread"
+	parent, err := r.creationParent(spec.ParentThreadItemID, r.t.thread)
+	if err != nil {
+		return "", err
+	}
+	return r.insertThread(spec, call, parent, "llmCreated"), nil
+}
+
+// dispatchThread opens a thread nobody's turn asked for (see the comment above
+// threadSpec), at the root unless spec names a parent, and dispatches its run.
+//
+// Conversation-wide: it starts a run of its own, so any run in flight anywhere
+// refuses it, and so does a conversation with no model to run it on.
+func (r *run) dispatchThread(spec threadSpec) (string, error) {
+	if state := r.anyRunState(); state != StateIdle {
+		return "", fmt.Errorf("worker not idle (state=%s)", state)
+	}
+	parent, err := r.creationParent(spec.ParentThreadItemID, threadContext{})
+	if err != nil {
+		return "", err
+	}
+	mc := r.doc.ResolveEffectiveModelConfig(spec.ParentThreadItemID)
+	if mc == nil || mc.Model == "" {
+		return "", fmt.Errorf("please select a model before creating a thread")
 	}
 
-	if opts.ExternalDispatch {
-		// Conversation-wide: an external dispatch starts a run of its own at
-		// root scope or under a named parent, so any run in flight anywhere
-		// refuses it.
-		if state := r.anyRunState(); state != StateIdle {
-			return "", fmt.Errorf("worker not idle (state=%s)", state)
-		}
+	// Auto-name trigger for the conversation whose FIRST user action was to
+	// dispatch a subthread — a `run: subthread` command typed into an empty
+	// tab, which asks for work without ever appending a root user message,
+	// so the trigger in handleSendMessage never sees it and the tab stays
+	// "Untitled N" for a conversation that plainly has a subject. The prompt
+	// is that subject. Restricted to a dispatch from root scope, because a
+	// child of some existing thread is not what the conversation is about,
+	// and to the same once-only and name-provenance guards the message path
+	// uses (metaAutoNamed, NameIsProvisional), so the later root message
+	// that usually follows does not retitle the tab.
+	if spec.ParentThreadItemID == "" && !spec.IsContinuation && r.autoNameFunc != nil &&
+		strings.TrimSpace(spec.Prompt) != "" && !r.hasAutoNamed() && r.NameIsProvisional() {
+		r.fireAutoName(spec.Prompt, mc.Provider, mc.Model, mc.Thinking, false)
 	}
 
-	// The thread the new one is created in: a named parent; the root, for an
-	// external dispatch that names none; otherwise the calling run's own thread,
-	// which is where a tool-driven creation's tool_use was made.
-	parent := r.t.thread
-	if opts.ParentThreadItemID != "" {
-		named, ok := r.resolveThread(opts.ParentThreadItemID)
-		if !ok {
-			return "", fmt.Errorf("thread item %s not found", opts.ParentThreadItemID)
-		}
-		parent = named
-	} else if opts.ExternalDispatch {
-		parent = threadContext{}
+	threadItemID := r.insertThread(spec, toolSpawn{}, parent, "strategyCreated")
+	r.requestLLM(threadItemID)
+	r.requestReconcile()
+	return threadItemID, nil
+}
+
+// creationParent resolves the thread a new one is created in: the named one
+// when parentThreadItemID is set, and fallback otherwise.
+func (r *run) creationParent(parentThreadItemID string, fallback threadContext) (threadContext, error) {
+	if parentThreadItemID == "" {
+		return fallback, nil
 	}
+	named, ok := r.resolveThread(parentThreadItemID)
+	if !ok {
+		return threadContext{}, fmt.Errorf("thread item %s not found", parentThreadItemID)
+	}
+	return named, nil
+}
 
-	if opts.ExternalDispatch {
-		mc := r.doc.ResolveEffectiveModelConfig(opts.ParentThreadItemID)
-		if mc == nil || mc.Model == "" {
-			return "", fmt.Errorf("please select a model before creating a thread")
-		}
-
-		// Auto-name trigger for the conversation whose FIRST user action was to
-		// dispatch a subthread — a `run: subthread` command typed into an empty
-		// tab, which asks for work without ever appending a root user message,
-		// so the trigger in handleSendMessage never sees it and the tab stays
-		// "Untitled N" for a conversation that plainly has a subject. The prompt
-		// is that subject. Restricted to a dispatch from root scope, because a
-		// child of some existing thread is not what the conversation is about,
-		// and to the same once-only and name-provenance guards the message path
-		// uses (metaAutoNamed, NameIsProvisional), so the later root message
-		// that usually follows does not retitle the tab.
-		if opts.ParentThreadItemID == "" && !opts.IsContinuation && r.autoNameFunc != nil &&
-			strings.TrimSpace(opts.Prompt) != "" && !r.hasAutoNamed() && r.NameIsProvisional() {
-			r.fireAutoName(opts.Prompt, mc.Provider, mc.Model, mc.Thinking, false)
-		}
+// insertThread writes a new thread into parent and returns its itemId: the
+// container, its stamped fields, the seeded context and the invocation message,
+// as one undo unit. createdBy is the flag that says which entry point opened it
+// ("llmCreated" or "strategyCreated"). It decides nothing; both entry points
+// have already done that.
+func (r *run) insertThread(spec threadSpec, call toolSpawn, parent threadContext, createdBy string) string {
+	if spec.Goal == "" {
+		spec.Goal = "Thread"
 	}
 
 	// A thread creation is one undo unit: the thread container, its stamped
@@ -187,14 +216,14 @@ func (r *run) createThread(opts CreateThreadOptions) (string, error) {
 	// thread can be invoked again later. A continuation or an empty prompt has no
 	// message to stamp, so those fall back to the scalar thread-level fields and
 	// describe the single invocation they always did.
-	stampsInvocation := !opts.IsContinuation && opts.Prompt != ""
+	stampsInvocation := !spec.IsContinuation && spec.Prompt != ""
 
 	// Create thread item with nested Y.Array (in the parent's array). Use the
 	// tracker (authorID origin) so the insertion is tracked by the UndoManager and
 	// can be undone independently.
 	targetArr := r.itemsArrayIn(parent)
 	insertIdx := r.itemsLengthIn(parent)
-	nestedItems := r.tracker.InsertThreadIntoArray(targetArr, insertIdx, opts.Goal)
+	nestedItems := r.tracker.InsertThreadIntoArray(targetArr, insertIdx, spec.Goal)
 
 	// Get the thread's itemId and store tool_use coordinates (for LLM-created
 	// threads) on the thread Y.Map.
@@ -206,57 +235,53 @@ func (r *run) createThread(opts CreateThreadOptions) (string, error) {
 		threadYMap = m
 		threadItemID, _ = m.Get("itemId").(string)
 		r.doc.transactTracked(func(_ *ycrdt.Transaction) {
-			if opts.ResultSpec != "" {
-				m.Set("resultSpec", opts.ResultSpec)
+			if spec.ResultSpec != "" {
+				m.Set("resultSpec", spec.ResultSpec)
 			}
-			if opts.SessionName != "" {
-				m.Set("sessionName", opts.SessionName)
+			if call.SessionName != "" {
+				m.Set("sessionName", call.SessionName)
 			}
-			if opts.ExternalDispatch {
-				m.Set("strategyCreated", true)
-			} else {
-				m.Set("llmCreated", true)
-			}
+			m.Set(createdBy, true)
 			// Optional per-thread strategy/model overrides (user-defined
 			// subthread commands). Stamped so getEffectiveStrategyId /
 			// ResolveEffectiveModelConfig resolve them on the new thread.
-			if opts.StrategyID != "" {
-				m.Set("currentStrategyId", opts.StrategyID)
+			if spec.StrategyID != "" {
+				m.Set("currentStrategyId", spec.StrategyID)
 			}
-			if opts.ModelConfigJSON != "" {
+			if spec.ModelConfigJSON != "" {
 				var mc map[string]any
-				if err := json.Unmarshal([]byte(opts.ModelConfigJSON), &mc); err == nil && len(mc) > 0 {
+				if err := json.Unmarshal([]byte(spec.ModelConfigJSON), &mc); err == nil && len(mc) > 0 {
 					m.Set("modelConfig", convertToYcrdt(mc))
 				}
 			}
-			if opts.Delegated {
+			if call.Delegated {
 				m.Set("delegated", true)
 			}
-			if opts.ReadOnly {
+			if call.ReadOnly {
 				m.Set("readOnly", true)
 			}
-			if opts.ToolUseID != "" {
+			if call.ToolUseID != "" {
 				if stampsInvocation {
 					// The run selector: this item is the parent's view of the run
 					// the invocation message below starts. A later call into the
 					// same session appends its own alias item carrying its own
 					// selector, so each parent item answers for one run and the
 					// wire emits each call's pair where the call was made.
-					m.Set("runToolUseId", opts.ToolUseID)
-					m.Set("runToolName", opts.ToolName)
-					if opts.RunGoal != "" {
-						m.Set("runGoal", opts.RunGoal)
+					m.Set("runToolUseId", call.ToolUseID)
+					m.Set("runToolName", call.ToolName)
+					if call.RunGoal != "" {
+						m.Set("runGoal", call.RunGoal)
 					}
-					if input := structuredToolInput(opts.ToolInput); input != nil {
+					if input := structuredToolInput(call.ToolInput); input != nil {
 						m.Set("runToolInput", input)
 					}
 				} else {
 					// No invocation message to select: the coordinates live on the
 					// thread itself and describe the single invocation they always
 					// did.
-					m.Set("toolUseId", opts.ToolUseID)
-					m.Set("toolName", opts.ToolName)
-					if input := structuredToolInput(opts.ToolInput); input != nil {
+					m.Set("toolUseId", call.ToolUseID)
+					m.Set("toolName", call.ToolName)
+					if input := structuredToolInput(call.ToolInput); input != nil {
 						m.Set("toolInput", input)
 					}
 				}
@@ -269,7 +294,7 @@ func (r *run) createThread(opts CreateThreadOptions) (string, error) {
 	// items (system prompt, agents files, memory) into the head of the child's
 	// array, each with a fresh id. targetArr is the parent array (root array
 	// when creating at root scope). Continuations already carry their seeds.
-	if !opts.IsContinuation {
+	if !spec.IsContinuation {
 		r.tracker.SeedThreadFromParent(targetArr, nestedItems, threadYMap)
 	}
 
@@ -286,7 +311,7 @@ func (r *run) createThread(opts CreateThreadOptions) (string, error) {
 	// each invocation appending its own stamped message (resumeSession appends
 	// the identical shape).
 	if stampsInvocation {
-		r.tracker.AppendMessageIntoArray(nestedItems, invocationMessage(opts))
+		r.tracker.AppendMessageIntoArray(nestedItems, invocationMessage(spec, call))
 	}
 
 	// Collapse the container insert, field stamps, seeds, and seed prompt into one
@@ -295,12 +320,7 @@ func (r *run) createThread(opts CreateThreadOptions) (string, error) {
 	r.tracker.MergeFromIndex(createMergeFrom)
 	r.tracker.StopCapturing()
 
-	if opts.ExternalDispatch {
-		r.requestLLM(threadItemID)
-		r.requestReconcile()
-	}
-
-	return threadItemID, nil
+	return threadItemID
 }
 
 // promoteThreadSpawnCapable stamps canSpawnThreads=true on the thread a human
@@ -396,8 +416,8 @@ func threadBreadthRefusal(toolName string, live int) string {
 }
 
 // executeCreateThread handles the create_thread tool: parses tool input and
-// either continues the session it names or dispatches a new thread via
-// createThread. Called from processLLMResponse when the LLM emits a
+// either continues the session it names or opens a new thread via
+// spawnThread. Called from processLLMResponse when the LLM emits a
 // create_thread block.
 func (r *run) executeCreateThread(toolUseID, toolName string, toolInput json.RawMessage) error {
 	var input struct {
@@ -419,14 +439,16 @@ func (r *run) executeCreateThread(toolUseID, toolName string, toolInput json.Raw
 	// continuing a thread creates nothing — it neither deepens the tree nor
 	// widens it, so neither cap has anything to say about it.
 	session := r.resolveSession(toolName, input.Session)
-	opts := CreateThreadOptions{
-		Goal:        input.Goal,
-		RunGoal:     input.Goal,
-		Prompt:      input.Prompt,
-		ResultSpec:  input.ResultSpec,
+	spec := threadSpec{
+		Goal:       input.Goal,
+		Prompt:     input.Prompt,
+		ResultSpec: input.ResultSpec,
+	}
+	call := toolSpawn{
 		ToolUseID:   toolUseID,
 		ToolName:    toolName,
 		ToolInput:   toolInput,
+		RunGoal:     input.Goal,
 		SessionName: session.name,
 	}
 	if session.busy {
@@ -434,7 +456,7 @@ func (r *run) executeCreateThread(toolUseID, toolName string, toolInput json.Raw
 		return nil
 	}
 	if session.resumeThreadID != "" {
-		return r.resumeSession(session.resumeThreadID, opts)
+		return r.resumeSession(session.resumeThreadID, spec, call)
 	}
 
 	// Runaway-recursion guard. The would-be child sits one level below the
@@ -475,7 +497,7 @@ func (r *run) executeCreateThread(toolUseID, toolName string, toolInput json.Raw
 		return nil
 	}
 
-	_, err := r.createThread(opts)
+	_, err := r.spawnThread(spec, call)
 	return err
 }
 
@@ -488,12 +510,12 @@ func (r *run) executeCreateThread(toolUseID, toolName string, toolInput json.Raw
 // decision. Those guards bound a MODEL decomposing work inside its own turn
 // loop, where each refusal has a tool_use to answer and the next turn to act on
 // it. A request that arrives over the wire has already been decided somewhere
-// else, and it cannot join a runaway in any case: ExternalDispatch requires the
-// whole conversation to be idle (see createThread), and a fan-out is by
-// definition runs in flight.
+// else, and it cannot join a runaway in any case: dispatchThread requires the
+// whole conversation to be idle, and a fan-out is by definition runs in flight.
 //
-// The same is true of dispatchCreateThread, the pending-request route below.
-// Between them they are every way a thread is opened without a model asking.
+// The same is true of the pending-request route (claimAndDispatchPendingEntry's
+// createThread arm), which calls dispatchThread directly. Between them they are
+// every way a thread is opened without a model asking.
 //
 // The only sender of this message is WorkerManager#createThread
 // (web/js/services/worker-manager.js), which nothing in the tree calls: strategy
@@ -508,16 +530,15 @@ func (r *run) handleCreateThread(payload json.RawMessage) {
 	// standing over the thread it is created under, as a send into that thread
 	// does. Asked of the PARENT because the child does not exist yet,
 	// and a mark over the parent stands over the child. This lives here rather
-	// than in createThread's ExternalDispatch branch because that flag is also
-	// worn by the pendingRequests orchestrator, which is not a human asking.
+	// than in dispatchThread because dispatchThread also serves the
+	// pendingRequests orchestrator, which is not a human asking.
 	r.dropPoliteStopsCovering(msg.ThreadItemID)
 
-	threadItemID, err := r.createThread(CreateThreadOptions{
+	threadItemID, err := r.dispatchThread(threadSpec{
 		Goal:               msg.Goal,
 		Prompt:             msg.Prompt,
 		IsContinuation:     msg.IsContinuation,
 		ParentThreadItemID: msg.ThreadItemID,
-		ExternalDispatch:   true,
 	})
 	if err != nil {
 		r.send(map[string]any{
@@ -531,22 +552,5 @@ func (r *run) handleCreateThread(payload json.RawMessage) {
 		"type":         "create-thread-response",
 		"requestId":    msg.RequestID,
 		"threadItemId": threadItemID,
-	})
-}
-
-// dispatchCreateThread is the orchestrator entry point used by pendingRequests,
-// and so the route behind the SDK's strategy createThread primitive. Same
-// semantics as handleCreateThread — including its lack of the runaway guards,
-// for the reasons given there — but returns the new thread's itemId directly
-// (no WS response).
-func (r *run) dispatchCreateThread(goal, prompt, parentThreadItemID string, isContinuation bool, strategyID, modelConfigJSON string) (string, error) {
-	return r.createThread(CreateThreadOptions{
-		Goal:               goal,
-		Prompt:             prompt,
-		IsContinuation:     isContinuation,
-		ParentThreadItemID: parentThreadItemID,
-		StrategyID:         strategyID,
-		ModelConfigJSON:    modelConfigJSON,
-		ExternalDispatch:   true,
 	})
 }

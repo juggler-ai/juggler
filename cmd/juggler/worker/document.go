@@ -1003,7 +1003,7 @@ func (cd *ConversationDocument) SeedThreadFromParent(parentArr, childArr *ycrdt.
 
 // SeedThreadIfUnseeded lazily seeds threadItemID from its parent when it has
 // not been seeded yet — the backstop for sub-threads that never passed through
-// createThread's eager seeding: client-created ones (createSubThread — the
+// insertThread's eager seeding: client-created ones (createSubThread — the
 // /thread command, plugin API) and legacy docs from before seeds were copied at
 // creation. Runs on every turn (llm_request.go), so its idempotency is what
 // stands between a sub-thread and a fresh copy of its starting context per turn:

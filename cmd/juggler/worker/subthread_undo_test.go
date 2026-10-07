@@ -71,7 +71,7 @@ func TestCreateThreadIsAtomicallyUndoable(t *testing.T) {
 	seedableRoot(w.doc, "identity")
 	rootBefore := w.doc.GetItemsLength()
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{Goal: "child", Prompt: "do the thing"})
+	threadID, err := w.currentRun().spawnThread(threadSpec{Goal: "child", Prompt: "do the thing"}, toolSpawn{})
 	if err != nil {
 		t.Fatal(err)
 	}

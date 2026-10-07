@@ -84,7 +84,7 @@ export const COMPOSER_PLACEHOLDERS = Object.freeze({
 
   /** A thread long past the point of comfort. */
   long: Object.freeze([
-    "This one's getting long. What's your next step?",
+    "This one's getting long. What next?",
     "Quite an epic, this. What's your next move?",
   ]),
 });

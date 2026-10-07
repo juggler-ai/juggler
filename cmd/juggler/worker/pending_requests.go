@@ -22,7 +22,7 @@
 //     introduces (viewer cancel → engine writes the cancelled result → viewer
 //     observes) collapses to zero hops.
 //   * It already owns the create-thread / send-message dispatch paths
-//     internally; the orchestrator reuses dispatchCreateThread directly
+//     internally; the orchestrator reuses dispatchThread directly
 //     instead of round-tripping through a WS message to itself.
 
 package worker
@@ -248,7 +248,14 @@ func (r *run) claimAndDispatchPendingEntry(e pendingEntrySnapshot) {
 
 	switch e.kind {
 	case "createThread":
-		threadItemID, err := r.dispatchCreateThread(e.goal, e.prompt, e.parentThreadID, e.isContinuation, e.strategyID, e.modelConfigJSON)
+		threadItemID, err := r.dispatchThread(threadSpec{
+			Goal:               e.goal,
+			Prompt:             e.prompt,
+			IsContinuation:     e.isContinuation,
+			ParentThreadItemID: e.parentThreadID,
+			StrategyID:         e.strategyID,
+			ModelConfigJSON:    e.modelConfigJSON,
+		})
 		if err != nil {
 			r.writePendingEntryError(e.ownerThreadID, e.id, err.Error())
 			return

@@ -220,8 +220,8 @@ func TestAutoNameFiresOnFirstRootSubthreadDispatch(t *testing.T) {
 	var calls []autoNameCall
 	w := newDispatchWorker(t, "conv-subthread", &calls)
 
-	if _, err := w.currentRun().dispatchCreateThread("Plan", "Plan the migration", "", false, "", ""); err != nil {
-		t.Fatalf("dispatchCreateThread: %v", err)
+	if _, err := w.currentRun().dispatchThread(threadSpec{Goal: "Plan", Prompt: "Plan the migration"}); err != nil {
+		t.Fatalf("dispatchThread: %v", err)
 	}
 	w.quiesce(t)
 
@@ -241,8 +241,8 @@ func TestAutoNameDoesNotRefireAfterSubthreadDispatch(t *testing.T) {
 	var calls []autoNameCall
 	w := newDispatchWorker(t, "conv-subthread-then-message", &calls)
 
-	if _, err := w.currentRun().dispatchCreateThread("Plan", "Plan the migration", "", false, "", ""); err != nil {
-		t.Fatalf("dispatchCreateThread: %v", err)
+	if _, err := w.currentRun().dispatchThread(threadSpec{Goal: "Plan", Prompt: "Plan the migration"}); err != nil {
+		t.Fatalf("dispatchThread: %v", err)
 	}
 	w.quiesce(t)
 	sendMsg(t, w, SendMessageMessage{Text: "now do the first step"})
@@ -258,12 +258,12 @@ func TestAutoNameDoesNotFireOnNestedDispatch(t *testing.T) {
 	var calls []autoNameCall
 	w := newDispatchWorker(t, "conv-nested-dispatch", &calls)
 
-	parentID, err := w.currentRun().createThread(CreateThreadOptions{Goal: "parent", Prompt: "existing work"})
+	parentID, err := w.currentRun().spawnThread(threadSpec{Goal: "parent", Prompt: "existing work"}, toolSpawn{})
 	if err != nil {
-		t.Fatalf("createThread: %v", err)
+		t.Fatalf("spawnThread: %v", err)
 	}
-	if _, err := w.currentRun().dispatchCreateThread("child", "a nested task", parentID, false, "", ""); err != nil {
-		t.Fatalf("dispatchCreateThread: %v", err)
+	if _, err := w.currentRun().dispatchThread(threadSpec{Goal: "child", Prompt: "a nested task", ParentThreadItemID: parentID}); err != nil {
+		t.Fatalf("dispatchThread: %v", err)
 	}
 	w.quiesce(t)
 

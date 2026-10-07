@@ -39,9 +39,8 @@ func reconcilePassBytes(t *testing.T, payloadBytes int) uint64 {
 	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
 	w.currentRun().storeState(StateProcessing)
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{
-		Goal: "audit", Prompt: "audit the worker", ToolUseID: "tu-1",
-		ToolName: "create_thread", ToolInput: json.RawMessage(`{"prompt":"audit the worker"}`), Delegated: true,
+	threadID, err := w.currentRun().spawnThread(threadSpec{Goal: "audit", Prompt: "audit the worker"}, toolSpawn{
+		ToolUseID: "tu-1", ToolName: "create_thread", ToolInput: json.RawMessage(`{"prompt":"audit the worker"}`), Delegated: true,
 	})
 	if err != nil {
 		t.Fatalf("createThread: %v", err)

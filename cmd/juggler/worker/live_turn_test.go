@@ -200,15 +200,15 @@ func TestLiveRunAdmissionAllowsOneWriterWithReadOnlySiblings(t *testing.T) {
 	}
 	r.handleInit(initPayload)
 
-	readA, err := r.createThread(CreateThreadOptions{Goal: "read a", Prompt: "read", ReadOnly: true})
+	readA, err := r.spawnThread(threadSpec{Goal: "read a", Prompt: "read"}, toolSpawn{ReadOnly: true})
 	if err != nil {
 		t.Fatalf("creating first read-only thread: %v", err)
 	}
-	readB, err := r.createThread(CreateThreadOptions{Goal: "read b", Prompt: "read", ReadOnly: true})
+	readB, err := r.spawnThread(threadSpec{Goal: "read b", Prompt: "read"}, toolSpawn{ReadOnly: true})
 	if err != nil {
 		t.Fatalf("creating second read-only thread: %v", err)
 	}
-	writer, err := r.createThread(CreateThreadOptions{Goal: "write", Prompt: "write"})
+	writer, err := r.spawnThread(threadSpec{Goal: "write", Prompt: "write"}, toolSpawn{})
 	if err != nil {
 		t.Fatalf("creating write-capable thread: %v", err)
 	}
@@ -263,9 +263,7 @@ func TestReadOnlyAdmissionCeiling(t *testing.T) {
 	// calling several sub-agents produces.
 	ids := make([]string, 0, maxConcurrentReadOnlyThreads+1)
 	for i := 0; i <= maxConcurrentReadOnlyThreads; i++ {
-		id, err := r.createThread(CreateThreadOptions{
-			Goal: fmt.Sprintf("read %d", i), Prompt: "read", ReadOnly: true,
-		})
+		id, err := r.spawnThread(threadSpec{Goal: fmt.Sprintf("read %d", i), Prompt: "read"}, toolSpawn{ReadOnly: true})
 		if err != nil {
 			t.Fatalf("creating read-only thread %d: %v", i, err)
 		}

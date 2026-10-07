@@ -214,9 +214,10 @@ func TestCreateThreadStampsRunRecordOnInvocationMessage(t *testing.T) {
 	w.currentRun().storeState(StateProcessing)
 
 	input := json.RawMessage(`{"prompt":"find the auth flow"}`)
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{
-		Goal:      "map auth",
-		Prompt:    "find the auth flow",
+	threadID, err := w.currentRun().spawnThread(threadSpec{
+		Goal:   "map auth",
+		Prompt: "find the auth flow",
+	}, toolSpawn{
 		ToolUseID: "tu-1",
 		ToolName:  "Explore",
 		ToolInput: input,
@@ -534,9 +535,8 @@ func TestResultFedStampMarksTheAnswerNotTheTurn(t *testing.T) {
 	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
 	w.currentRun().storeState(StateProcessing)
 
-	threadID, err := w.currentRun().createThread(CreateThreadOptions{
-		Goal: "map auth", Prompt: "find the auth flow", ToolUseID: "tu-1",
-		ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
+	threadID, err := w.currentRun().spawnThread(threadSpec{Goal: "map auth", Prompt: "find the auth flow"}, toolSpawn{
+		ToolUseID: "tu-1", ToolName: "Explore", ToolInput: json.RawMessage(`{"prompt":"find the auth flow"}`), Delegated: true,
 	})
 	if err != nil {
 		t.Fatalf("createThread: %v", err)

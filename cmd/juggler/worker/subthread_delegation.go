@@ -180,24 +180,26 @@ func (r *run) tryDelegateTool(toolUseID, toolName string, toolInput json.RawMess
 	// invokes that child again instead of spawning a sibling; anything else
 	// starts a new session under a name the result reports back.
 	session := r.resolveSession(toolName, spec.SessionName)
-	opts := CreateThreadOptions{
-		Goal:        spec.Goal,
-		RunGoal:     spec.Goal,
-		Prompt:      spec.Prompt,
-		ResultSpec:  spec.ResultSpec,
-		ToolUseID:   toolUseID,
-		ToolName:    toolName,
-		ToolInput:   toolInput,
-		SessionName: session.name,
-		Delegated:   true,
-		// The item's standing claim about what this child may do, carried from
-		// the turn's tool definition onto the thread itself.
-		ReadOnly: tool.readOnlySubthread,
+	child := threadSpec{
+		Goal:       spec.Goal,
+		Prompt:     spec.Prompt,
+		ResultSpec: spec.ResultSpec,
 		// A spec may pin the child's strategy and model. Empty leaves the child
 		// inheriting from the parent, which is what every delegating tool that
 		// does not own a strategy of its own gets.
 		StrategyID:      spec.StrategyID,
 		ModelConfigJSON: string(spec.ModelConfig),
+	}
+	call := toolSpawn{
+		ToolUseID:   toolUseID,
+		ToolName:    toolName,
+		ToolInput:   toolInput,
+		RunGoal:     spec.Goal,
+		SessionName: session.name,
+		Delegated:   true,
+		// The item's standing claim about what this child may do, carried from
+		// the turn's tool definition onto the thread itself.
+		ReadOnly: tool.readOnlySubthread,
 	}
 
 	// A busy session is answered, not queued or silently redirected. The
@@ -210,7 +212,7 @@ func (r *run) tryDelegateTool(toolUseID, toolName string, toolInput json.RawMess
 	}
 
 	if session.resumeThreadID != "" {
-		if err := r.resumeSession(session.resumeThreadID, opts); err != nil {
+		if err := r.resumeSession(session.resumeThreadID, child, call); err != nil {
 			r.log.Error("[worker] resuming session %s for %s failed: %v", session.name, toolName, err)
 			return false
 		}
@@ -262,7 +264,7 @@ func (r *run) tryDelegateTool(toolUseID, toolName string, toolInput json.RawMess
 		return true
 	}
 
-	if _, err := r.createThread(opts); err != nil {
+	if _, err := r.spawnThread(child, call); err != nil {
 		r.log.Error("[worker] delegated thread creation failed for %s: %v", toolName, err)
 		return false
 	}

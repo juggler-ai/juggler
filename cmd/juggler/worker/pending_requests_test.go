@@ -528,7 +528,7 @@ func TestPendingRequests_SubmitToTerminalRoundtrip(t *testing.T) {
 	ycrdtMu.Lock()
 	w.doc.ensureItems()
 	ycrdtMu.Unlock()
-	// dispatchCreateThread asserts the worker is StateIdle (the default
+	// dispatchThread asserts the worker is StateIdle (the default
 	// zero value of an atomic.Int32 is 0, which equals StateIdle). The
 	// nested strategy loop transitions through StateProcessing during the
 	// LLM call and back to StateIdle on completion.
@@ -566,7 +566,7 @@ func TestPendingRequests_SubmitToTerminalRoundtrip(t *testing.T) {
 		req.Set("isContinuation", false)
 	})
 
-	// First scan: claim + dispatch. dispatchCreateThread asks the reducer for
+	// First scan: claim + dispatch. dispatchThread asks the reducer for
 	// the pass that starts the thread; quiescing the actor runs it to completion.
 	w.currentRun().scanPendingRequests()
 	w.quiesce(t)

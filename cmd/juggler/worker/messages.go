@@ -549,7 +549,7 @@ type ToolDefinition struct {
 	// guarantee for a race.
 	//
 	// Only meaningful alongside DelegatesToSubthread. It is stamped onto the
-	// child's thread Y.Map at creation (see CreateThreadOptions.ReadOnly), where
+	// child's thread Y.Map at creation (see toolSpawn.ReadOnly), where
 	// the reducer reads it back — the tool that spawned the child may be long
 	// gone from the turn by the time the child is dispatched.
 	ReadOnlySubthread bool `json:"readOnlySubthread,omitempty"`
@@ -703,7 +703,7 @@ type RunContextHookRequest struct {
 
 // SubthreadSpec is the seed for a delegated child thread, produced by the
 // engine's buildSubthreadSpec for a delegatesToSubthread tool. Goal/Prompt/
-// ResultSpec map directly onto CreateThreadOptions.
+// ResultSpec map directly onto threadSpec.
 //
 // SessionName is the caller's handle for the child: a name matching a session
 // this tool already started in the calling thread invokes THAT thread again
@@ -713,7 +713,7 @@ type RunContextHookRequest struct {
 // only costs a slower correct answer. A tool that wants this exposes it as an
 // optional argument on its own schema and passes it through here.
 //
-// StrategyID and ModelConfig map onto CreateThreadOptions.StrategyID /
+// StrategyID and ModelConfig map onto threadSpec.StrategyID /
 // ModelConfigJSON exactly as Goal/Prompt/ResultSpec map onto their fields: they
 // pin the child's strategy and model, and omitting them leaves the child
 // inheriting from its parent. A tool that owns a hidden strategy (a subagent)

@@ -52,7 +52,7 @@ class GroupWorkspaceProvider extends WorkspaceProvider {
     id: 'group',
     name: 'Group',
     version: '1.0.0',
-    description: 'A named group to keep related conversations together. They work in the project, as usual',
+    description: 'A container for you to group related conversations together.',
     setupLabel: 'New group',
     recommendations: {
       bestFor: 'keeping related conversations together in the strip',

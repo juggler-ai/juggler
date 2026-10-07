@@ -74,12 +74,9 @@ func newIdleGuardWorld(t *testing.T, replyFor func(threadID string) string) *idl
 // finishStrategyRun's idle-publishing branch.
 func (world *idleGuardWorld) userThread(goal string) string {
 	world.t.Helper()
-	threadID, err := world.w.currentRun().createThread(CreateThreadOptions{
-		Goal:             goal,
-		ExternalDispatch: true,
-	})
+	threadID, err := world.w.currentRun().dispatchThread(threadSpec{Goal: goal})
 	if err != nil {
-		world.t.Fatalf("createThread(%s): %v", goal, err)
+		world.t.Fatalf("dispatchThread(%s): %v", goal, err)
 	}
 	return threadID
 }
@@ -88,16 +85,17 @@ func (world *idleGuardWorld) userThread(goal string) string {
 // create_thread/delegation kind, whose open run is work still in flight.
 func (world *idleGuardWorld) llmThread(name string) string {
 	world.t.Helper()
-	threadID, err := world.w.currentRun().createThread(CreateThreadOptions{
-		Goal:      name,
-		Prompt:    "task for " + name,
+	threadID, err := world.w.currentRun().spawnThread(threadSpec{
+		Goal:   name,
+		Prompt: "task for " + name,
+	}, toolSpawn{
 		ToolUseID: "tu-" + name,
 		ToolName:  "Explore",
 		ToolInput: json.RawMessage(`{"prompt":"task"}`),
 		Delegated: true,
 	})
 	if err != nil {
-		world.t.Fatalf("createThread(%s): %v", name, err)
+		world.t.Fatalf("spawnThread(%s): %v", name, err)
 	}
 	return threadID
 }
@@ -152,8 +150,8 @@ func TestFinishStrategyRunWithholdsIdleWhileSiblingRuns(t *testing.T) {
 		return "done"
 	})
 
-	// Create the llm sibling first: createThread stamps it and (unlike
-	// ExternalDispatch) returns without dispatching, because its run is driven by
+	// Create the llm sibling first: spawnThread stamps it and (unlike
+	// dispatchThread) returns without dispatching, because its run is driven by
 	// the parent's park rather than an explicit request.
 	openThread = world.llmThread("sibling")
 	if got := world.w.doc.liveThreadCount(); got != 1 {
@@ -209,7 +207,7 @@ func TestFinishStrategyRunWithholdsIdleWhileSiblingRuns(t *testing.T) {
 func TestFinishStrategyRunRestsAtIdleWithNoOpenRuns(t *testing.T) {
 	world := newIdleGuardWorld(t, func(string) string { return "all done" })
 
-	// ExternalDispatch asks for the reducer pass that starts the run; with no
+	// dispatchThread asks for the reducer pass that starts the run; with no
 	// sibling to hold open, quiescing the actor returns once it has rested.
 	world.userThread("solo child")
 	world.w.quiesce(t)
@@ -230,16 +228,17 @@ func TestFirstLiveThreadIDMatchesWalkOrder(t *testing.T) {
 	w.doc.ensureItems()
 
 	mkThread := func(name string) string {
-		threadID, err := w.currentRun().createThread(CreateThreadOptions{
-			Goal:      name,
-			Prompt:    "task for " + name,
+		threadID, err := w.currentRun().spawnThread(threadSpec{
+			Goal:   name,
+			Prompt: "task for " + name,
+		}, toolSpawn{
 			ToolUseID: "tu-" + name,
 			ToolName:  "Explore",
 			ToolInput: json.RawMessage(`{"prompt":"task"}`),
 			Delegated: true,
 		})
 		if err != nil {
-			t.Fatalf("createThread(%s): %v", name, err)
+			t.Fatalf("spawnThread(%s): %v", name, err)
 		}
 		return threadID
 	}

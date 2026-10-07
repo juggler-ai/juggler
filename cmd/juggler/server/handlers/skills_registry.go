@@ -6,34 +6,32 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"juggler/internal/userpaths"
+	"juggler/cmd/juggler/core"
 
 	"github.com/gorilla/mux"
 )
 
 // The Skills Marketplace lets a user browse external skill registries and pull
-// skills into one of the four local roots that skills.go already discovers.
+// skills into one of the four local roots that core/skills.go already discovers.
 // Installing a skill is nothing more than writing its directory into a root and
 // asking the frontend to reloadRegistries(); everything downstream (the `skill`
-// tool, the system-prompt block, the manager UI) already works. skills.go stays
-// pure read-only; all fetch/write lives here.
+// tool, the system-prompt block, the manager UI) already works. Fetching and
+// deciding live here; every byte written to disk (the skill, the registry list,
+// the catalog cache, the install ledger) is written by core/skill_store.go.
 //
 // Identity is (source, remotePath), never (source, name): basenames collide
 // across categories, across repos, and within one repo, so every cache key and
 // provenance record is keyed on the remote path. The directory basename is only
-// a suggested install name, slugified to satisfy validSkillName and confirmed by
+// a suggested install name, slugified to satisfy core.ValidSkillName and confirmed by
 // the client as an explicit targetName the server re-validates.
 
 const (
@@ -51,20 +49,6 @@ const (
 
 // repoPattern validates an "owner/repo" slug extracted from a user-supplied URL.
 var repoPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
-
-// SkillSource is one configured registry. All sources are equal: a fresh install
-// is seeded with defaultSources(), but seeds and user-added sources are then
-// persisted together in ~/.juggler/skill-registries.json and any of them can be
-// removed. v1 ships the "github" kind only.
-type SkillSource struct {
-	ID         string `json:"id"`
-	Kind       string `json:"kind"`  // "github"
-	Label      string `json:"label"` // human-facing name
-	Repo       string `json:"repo"`  // "owner/name"
-	Ref        string `json:"ref"`   // branch/tag/sha; "" → default branch
-	SkillsRoot string `json:"skillsRoot"`
-	Trust      string `json:"trust"` // "official" | "community" | "custom"
-}
 
 // InstalledInfo annotates a catalog entry with the local install that provides
 // it (if any), so the card can show ✓ Installed / ↑ Update. UpToDate compares
@@ -113,23 +97,6 @@ type SourceCatalog struct {
 	Truncated bool           `json:"truncated,omitempty"`
 	Entries   []CatalogEntry `json:"entries"`
 	Tree      []treeEntry    `json:"tree"`
-}
-
-// InstallRecord is the provenance stored for one installed skill (keyed by its
-// absolute installed path in ~/.juggler/skills-installed.json). DirSha is the
-// update signal: it differs from the catalog's dirSha exactly when the skill's
-// own directory changed upstream — never merely because the repo head moved.
-type InstallRecord struct {
-	Source      string    `json:"source"` // source id
-	Repo        string    `json:"repo"`
-	Ref         string    `json:"ref"`
-	Commit      string    `json:"commit"`
-	DirSha      string    `json:"dirSha"`
-	RemotePath  string    `json:"remotePath"`
-	TargetName  string    `json:"targetName"`
-	Scope       string    `json:"scope"`      // "user" | "project"
-	RootSource  string    `json:"rootSource"` // "juggler" | "agents"
-	InstalledAt time.Time `json:"installedAt"`
 }
 
 // CatalogSourceStatus is the per-source fetch state returned by the catalog and
@@ -207,36 +174,29 @@ func NewSkillsRegistryAPI(projectPathProvider func() string, skills *SkillsAPI) 
 // defaultSources are the registries a fresh install is seeded with (written to
 // skill-registries.json on first use). They are not privileged afterwards — each
 // is an ordinary, removable source, and a removed seed stays removed.
-func defaultSources() []SkillSource {
-	return []SkillSource{
+func defaultSources() []core.SkillSource {
+	return []core.SkillSource{
 		{ID: "anthropic", Kind: "github", Label: "Anthropic", Repo: "anthropics/skills", Ref: "main", SkillsRoot: "skills", Trust: "official"},
 		{ID: "mattpocock", Kind: "github", Label: "Matt Pocock", Repo: "mattpocock/skills", Ref: "main", SkillsRoot: "skills", Trust: "community"},
 		{ID: "superpowers", Kind: "github", Label: "Superpowers", Repo: "obra/superpowers", Ref: "main", SkillsRoot: "skills", Trust: "community"},
 	}
 }
 
-// ── config / cache / provenance file paths ──────────────────────────────────
-
-func customSourcesPath() string { return filepath.Join(userpaths.ConfigDir(), "skill-registries.json") }
-func provenancePath() string    { return filepath.Join(userpaths.ConfigDir(), "skills-installed.json") }
-func catalogCachePath(id string) string {
-	return filepath.Join(userpaths.CacheDir(), "skill-catalog-"+id+".json")
-}
+// ── registries, catalog cache ───────────────────────────────────────────────
 
 // loadSources returns the configured sources from skill-registries.json. On a
 // fresh install (the file has never been written) it seeds the file with
 // defaultSources() and returns those; thereafter the file is the single source
 // of truth, so a removed seed is never re-injected. Entries are de-duplicated by
 // id and kept in stored order (seeds first, user additions appended).
-func (api *SkillsRegistryAPI) loadSources() []SkillSource {
-	var stored []SkillSource
-	found, _ := readJSONFile(customSourcesPath(), &stored)
+func (api *SkillsRegistryAPI) loadSources() []core.SkillSource {
+	stored, found := core.ReadSkillSources()
 	if !found {
 		stored = defaultSources()
-		_ = saveSources(stored)
+		_ = core.WriteSkillSources(stored)
 	}
 	seen := map[string]bool{}
-	var sources []SkillSource
+	var sources []core.SkillSource
 	for _, s := range stored {
 		if s.ID == "" || seen[s.ID] {
 			continue
@@ -251,42 +211,25 @@ func (api *SkillsRegistryAPI) loadSources() []SkillSource {
 }
 
 // sourceByID returns the configured source with the given id.
-func (api *SkillsRegistryAPI) sourceByID(id string) (SkillSource, bool) {
+func (api *SkillsRegistryAPI) sourceByID(id string) (core.SkillSource, bool) {
 	for _, s := range api.loadSources() {
 		if s.ID == id {
 			return s, true
 		}
 	}
-	return SkillSource{}, false
-}
-
-// saveSources persists the full source list (seeds and user-added alike)
-// atomically. It is the sole writer of skill-registries.json.
-func saveSources(sources []SkillSource) error {
-	return writeJSONFile(customSourcesPath(), sources)
+	return core.SkillSource{}, false
 }
 
 func (api *SkillsRegistryAPI) loadCatalog(id string) *SourceCatalog {
 	var cat SourceCatalog
-	found, err := readJSONFile(catalogCachePath(id), &cat)
-	if err != nil || !found {
+	if !core.ReadSkillCatalogCache(id, &cat) {
 		return nil
 	}
 	return &cat
 }
 
 func (api *SkillsRegistryAPI) saveCatalog(cat *SourceCatalog) {
-	_ = writeJSONFile(catalogCachePath(cat.SourceID), cat)
-}
-
-func (api *SkillsRegistryAPI) loadProvenance() map[string]InstallRecord {
-	prov := map[string]InstallRecord{}
-	_, _ = readJSONFile(provenancePath(), &prov)
-	return prov
-}
-
-func (api *SkillsRegistryAPI) saveProvenance(prov map[string]InstallRecord) error {
-	return writeJSONFile(provenancePath(), prov)
+	_ = core.WriteSkillCatalogCache(cat.SourceID, cat)
 }
 
 // ── catalog build ───────────────────────────────────────────────────────────
@@ -295,7 +238,7 @@ func (api *SkillsRegistryAPI) saveProvenance(prov map[string]InstallRecord) erro
 // commit-pinned catalog. When the ETag matches the previous catalog's, the
 // upstream is unchanged and the cached catalog is reused (only its timestamp is
 // refreshed), spending no rate limit on the tree/description fetches.
-func (api *SkillsRegistryAPI) buildCatalog(ctx context.Context, src SkillSource, prev *SourceCatalog) (*SourceCatalog, error) {
+func (api *SkillsRegistryAPI) buildCatalog(ctx context.Context, src core.SkillSource, prev *SourceCatalog) (*SourceCatalog, error) {
 	etag := ""
 	if prev != nil {
 		etag = prev.ETag
@@ -333,7 +276,7 @@ func (api *SkillsRegistryAPI) buildCatalog(ctx context.Context, src SkillSource,
 // skillsRoot and turns each into a skeleton catalog entry (descriptions are
 // filled later). It also returns the tree entries retained for install-time blob
 // resolution (regular files only — symlinks and submodules are dropped by mode).
-func deriveEntries(src SkillSource, commit string, tree []treeEntry) ([]CatalogEntry, []treeEntry) {
+func deriveEntries(src core.SkillSource, commit string, tree []treeEntry) ([]CatalogEntry, []treeEntry) {
 	root := strings.Trim(src.SkillsRoot, "/")
 	// Index tree ("directory") entries by path for O(1) dirSha lookups, and a set
 	// of directory paths so scripts/ and hooks/ presence is a map probe.
@@ -423,7 +366,7 @@ func subtreeStats(blobs []treeEntry, dir string) (count int, size int64) {
 // SKILL.md from the raw CDN (pinned to the commit) and parsing the frontmatter.
 // Fetches run in parallel bounded by descFetchConcurrency; each goroutine writes
 // its own entry index, so no shared state is mutated concurrently.
-func (api *SkillsRegistryAPI) fetchDescriptions(ctx context.Context, src SkillSource, cat *SourceCatalog) {
+func (api *SkillsRegistryAPI) fetchDescriptions(ctx context.Context, src core.SkillSource, cat *SourceCatalog) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, descFetchConcurrency)
 	for i := range cat.Entries {
@@ -440,7 +383,7 @@ func (api *SkillsRegistryAPI) fetchDescriptions(ctx context.Context, src SkillSo
 				cat.Entries[i].Error = "could not fetch SKILL.md: " + err.Error()
 				return
 			}
-			fm, _, perr := parseSkillFile(data)
+			fm, _, perr := core.ParseSkillFile(data)
 			cat.Entries[i].Description = fm.Description
 			cat.Entries[i].License = fm.License
 			switch {
@@ -463,8 +406,7 @@ func (api *SkillsRegistryAPI) fetchDescriptions(ctx context.Context, src SkillSo
 func (api *SkillsRegistryAPI) HandleCatalog(w http.ResponseWriter, r *http.Request) {
 	refresh := boolParam(r.URL.Query().Get("refresh"))
 	ctx := r.Context()
-	prov := api.loadProvenance()
-	installed := api.buildInstalledIndex(prov)
+	installed := buildInstalledIndex(core.InstalledSkillRecords())
 
 	resp := CatalogResponse{Entries: []CatalogEntry{}, Sources: []CatalogSourceStatus{}}
 	for _, src := range api.loadSources() {
@@ -519,7 +461,7 @@ func (api *SkillsRegistryAPI) HandleCatalogEntry(w http.ResponseWriter, r *http.
 		WriteError(w, r, http.StatusNotFound, fmt.Sprintf("skill %q not found in %s", skillPath, sourceID))
 		return
 	}
-	prov := api.buildInstalledIndex(api.loadProvenance())
+	prov := buildInstalledIndex(core.InstalledSkillRecords())
 	entry.Installed = annotateInstalled(prov, src.ID, entry.Path, entry.DirSha)
 
 	body := ""
@@ -535,7 +477,7 @@ func (api *SkillsRegistryAPI) HandleCatalogEntry(w http.ResponseWriter, r *http.
 
 // manifestUnder builds the preview file manifest for a skill directory from the
 // cached tree, flagging files under scripts/ or hooks/ as runnable. Capped at
-// maxSkillFileListing (shared with the discovery listing).
+// core.MaxSkillFileListing (shared with the discovery listing).
 func manifestUnder(tree []treeEntry, dir string) []SkillMarketFile {
 	prefix := dir + "/"
 	files := []SkillMarketFile{}
@@ -552,7 +494,7 @@ func manifestUnder(tree []treeEntry, dir string) []SkillMarketFile {
 			Size: e.Size,
 			Runs: strings.HasPrefix(rel, "scripts/") || strings.HasPrefix(rel, "hooks/"),
 		})
-		if len(files) >= maxSkillFileListing {
+		if len(files) >= core.MaxSkillFileListing {
 			break
 		}
 	}
@@ -572,7 +514,7 @@ func (api *SkillsRegistryAPI) HandleInstall(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	if !validSkillName(req.TargetName) {
+	if !core.ValidSkillName(req.TargetName) {
 		WriteError(w, r, http.StatusBadRequest, "invalid target name (lowercase letters, digits, single hyphens; max 64 chars)")
 		return
 	}
@@ -606,8 +548,8 @@ func (api *SkillsRegistryAPI) HandleInstall(w http.ResponseWriter, r *http.Reque
 		WriteError(w, r, http.StatusBadRequest, "skill has no installable files")
 		return
 	}
-	if len(blobs) > maxSkillFileListing {
-		WriteError(w, r, http.StatusBadRequest, fmt.Sprintf("skill has too many files (%d > %d)", len(blobs), maxSkillFileListing))
+	if len(blobs) > core.MaxSkillFileListing {
+		WriteError(w, r, http.StatusBadRequest, fmt.Sprintf("skill has too many files (%d > %d)", len(blobs), core.MaxSkillFileListing))
 		return
 	}
 	var total int64
@@ -619,12 +561,12 @@ func (api *SkillsRegistryAPI) HandleInstall(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	finalDir := filepath.Join(rootDir, req.TargetName)
-	if !pathWithin(rootDir, finalDir) {
+	finalDir, ok := core.SkillDir(rootDir, req.TargetName)
+	if !ok {
 		WriteError(w, r, http.StatusBadRequest, "invalid install path")
 		return
 	}
-	if existing, clash := collidingDir(rootDir, req.TargetName); clash && req.Mode != "overwrite" {
+	if existing, clash := core.CollidingSkillDir(rootDir, req.TargetName); clash && req.Mode != "overwrite" {
 		WriteJSON(w, r, http.StatusConflict, map[string]any{
 			"error":     fmt.Sprintf("a skill named %q already exists here", existing),
 			"collision": true,
@@ -633,26 +575,17 @@ func (api *SkillsRegistryAPI) HandleInstall(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := os.MkdirAll(rootDir, 0o755); err != nil {
-		WriteError(w, r, http.StatusInternalServerError, "could not create root dir: "+err.Error())
-		return
-	}
-	tmpDir, err := os.MkdirTemp(rootDir, ".skill-install-")
+	inst, err := core.BeginSkillInstall(rootDir)
 	if err != nil {
-		WriteError(w, r, http.StatusInternalServerError, "could not create temp dir: "+err.Error())
+		WriteError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer os.RemoveAll(tmpDir) // no-op after a successful rename; cleans up on any error
+	defer inst.Abort() // no-op after a successful commit; cleans up on any error
 
 	for _, b := range blobs {
 		rel := strings.TrimPrefix(b.Path, entry.Path+"/")
-		dest := filepath.Join(tmpDir, filepath.FromSlash(rel))
-		if !pathWithin(tmpDir, dest) {
+		if !inst.Accepts(rel) {
 			WriteError(w, r, http.StatusBadRequest, "skill contains an unsafe path: "+rel)
-			return
-		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-			WriteError(w, r, http.StatusInternalServerError, "could not create dir: "+err.Error())
 			return
 		}
 		data, err := api.fetcher.Blob(r.Context(), src.Repo, cat.Commit, b.Path)
@@ -660,29 +593,20 @@ func (api *SkillsRegistryAPI) HandleInstall(w http.ResponseWriter, r *http.Reque
 			WriteError(w, r, http.StatusBadGateway, "could not fetch "+rel+": "+err.Error())
 			return
 		}
-		mode := os.FileMode(0o644)
-		if b.Mode == "100755" {
-			mode = 0o755
-		}
-		if err := os.WriteFile(dest, data, mode); err != nil {
-			WriteError(w, r, http.StatusInternalServerError, "could not write "+rel+": "+err.Error())
+		if err := inst.WriteFile(rel, data, b.Mode == "100755"); err != nil {
+			WriteError(w, r, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
 
-	// Replace atomically: drop any existing dir (overwrite mode only reaches
-	// here) then rename the fully-written temp dir into place.
-	if err := os.RemoveAll(finalDir); err != nil {
-		WriteError(w, r, http.StatusInternalServerError, "could not replace existing skill: "+err.Error())
-		return
-	}
-	if err := os.Rename(tmpDir, finalDir); err != nil {
-		WriteError(w, r, http.StatusInternalServerError, "could not finalize install: "+err.Error())
+	// Overwrite mode is the only way a collision reaches here, so replacing
+	// whatever is at finalDir is what was asked for.
+	if err := inst.Commit(finalDir); err != nil {
+		WriteError(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	prov := api.loadProvenance()
-	prov[finalDir] = InstallRecord{
+	_ = core.RecordSkillInstall(finalDir, core.SkillInstallRecord{
 		Source:      src.ID,
 		Repo:        src.Repo,
 		Ref:         cat.Ref,
@@ -693,8 +617,7 @@ func (api *SkillsRegistryAPI) HandleInstall(w http.ResponseWriter, r *http.Reque
 		Scope:       req.Scope,
 		RootSource:  req.Target,
 		InstalledAt: api.now(),
-	}
-	_ = api.saveProvenance(prov)
+	})
 
 	WriteJSON(w, r, 0, map[string]any{
 		"installedPath": finalDir,
@@ -706,12 +629,12 @@ func (api *SkillsRegistryAPI) HandleInstall(w http.ResponseWriter, r *http.Reque
 
 // HandleUninstall removes an installed skill directory from one of the four
 // managed roots and drops its provenance entry. It works on any skill in a
-// managed root (not only marketplace installs); name validation and pathWithin
-// keep the delete inside the resolved root.
+// managed root (not only marketplace installs); core.SkillDir keeps the delete
+// inside the resolved root.
 func (api *SkillsRegistryAPI) HandleUninstall(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	scope, source, name := vars["scope"], vars["source"], vars["name"]
-	if !validSkillName(name) {
+	if !core.ValidSkillName(name) {
 		WriteError(w, r, http.StatusBadRequest, "invalid skill name")
 		return
 	}
@@ -720,19 +643,14 @@ func (api *SkillsRegistryAPI) HandleUninstall(w http.ResponseWriter, r *http.Req
 		WriteError(w, r, http.StatusBadRequest, fmt.Sprintf("unknown or unavailable source %q/%q", scope, source))
 		return
 	}
-	dir := filepath.Join(rootDir, name)
-	if !pathWithin(rootDir, dir) {
+	dir, ok := core.SkillDir(rootDir, name)
+	if !ok {
 		WriteError(w, r, http.StatusBadRequest, "invalid skill path")
 		return
 	}
-	if err := os.RemoveAll(dir); err != nil {
-		WriteError(w, r, http.StatusInternalServerError, "could not remove skill: "+err.Error())
+	if err := core.UninstallSkill(dir); err != nil {
+		WriteError(w, r, http.StatusInternalServerError, err.Error())
 		return
-	}
-	prov := api.loadProvenance()
-	if _, ok := prov[dir]; ok {
-		delete(prov, dir)
-		_ = api.saveProvenance(prov)
 	}
 	WriteJSON(w, r, 0, map[string]bool{"deleted": true})
 }
@@ -769,7 +687,7 @@ func (api *SkillsRegistryAPI) HandleListDefaultRegistries(w http.ResponseWriter,
 // the raw-file append below never clobbers the other seeds.
 func (api *SkillsRegistryAPI) HandleRestoreDefaultRegistry(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	var seed *SkillSource
+	var seed *core.SkillSource
 	for _, s := range defaultSources() {
 		if s.ID == id {
 			seed = &s
@@ -784,10 +702,9 @@ func (api *SkillsRegistryAPI) HandleRestoreDefaultRegistry(w http.ResponseWriter
 		WriteError(w, r, http.StatusConflict, fmt.Sprintf("source %q is already configured", id))
 		return
 	}
-	var stored []SkillSource
-	_, _ = readJSONFile(customSourcesPath(), &stored)
+	stored, _ := core.ReadSkillSources()
 	stored = append(stored, *seed)
-	if err := saveSources(stored); err != nil {
+	if err := core.WriteSkillSources(stored); err != nil {
 		WriteError(w, r, http.StatusInternalServerError, "could not save source: "+err.Error())
 		return
 	}
@@ -819,12 +736,11 @@ func (api *SkillsRegistryAPI) HandleAddRegistry(w http.ResponseWriter, r *http.R
 	if label == "" {
 		label = repo
 	}
-	src := SkillSource{ID: id, Kind: "github", Label: label, Repo: repo, Ref: ref, SkillsRoot: "skills", Trust: "custom"}
+	src := core.SkillSource{ID: id, Kind: "github", Label: label, Repo: repo, Ref: ref, SkillsRoot: "skills", Trust: "custom"}
 
-	var stored []SkillSource
-	_, _ = readJSONFile(customSourcesPath(), &stored)
+	stored, _ := core.ReadSkillSources()
 	stored = append(stored, src)
-	if err := saveSources(stored); err != nil {
+	if err := core.WriteSkillSources(stored); err != nil {
 		WriteError(w, r, http.StatusInternalServerError, "could not save source: "+err.Error())
 		return
 	}
@@ -839,19 +755,18 @@ func (api *SkillsRegistryAPI) HandleDeleteRegistry(w http.ResponseWriter, r *htt
 		WriteError(w, r, http.StatusNotFound, fmt.Sprintf("unknown source %q", id))
 		return
 	}
-	var stored []SkillSource
-	_, _ = readJSONFile(customSourcesPath(), &stored)
+	stored, _ := core.ReadSkillSources()
 	kept := stored[:0]
 	for _, s := range stored {
 		if s.ID != id {
 			kept = append(kept, s)
 		}
 	}
-	if err := saveSources(kept); err != nil {
+	if err := core.WriteSkillSources(kept); err != nil {
 		WriteError(w, r, http.StatusInternalServerError, "could not save sources: "+err.Error())
 		return
 	}
-	_ = os.Remove(catalogCachePath(id))
+	_ = core.RemoveSkillCatalogCache(id)
 	WriteJSON(w, r, 0, map[string]bool{"deleted": true})
 }
 
@@ -860,20 +775,17 @@ func (api *SkillsRegistryAPI) HandleDeleteRegistry(w http.ResponseWriter, r *htt
 // provEntry is a provenance record joined with its installed path (the map key)
 // so annotation can report the path and compare tree shas.
 type provEntry struct {
-	InstallRecord
+	core.SkillInstallRecord
 	installedPath string
 }
 
-// buildInstalledIndex keys still-present installs by (source id, remote path) so
-// a catalog entry can find its local install in O(1). Installs whose directory
-// has since been deleted are skipped (they are effectively uninstalled).
-func (api *SkillsRegistryAPI) buildInstalledIndex(prov map[string]InstallRecord) map[string]provEntry {
+// buildInstalledIndex keys installs (core.InstalledSkillRecords, which leaves out
+// any whose directory has since been deleted) by (source id, remote path) so a
+// catalog entry can find its local install in O(1).
+func buildInstalledIndex(installed map[string]core.SkillInstallRecord) map[string]provEntry {
 	index := map[string]provEntry{}
-	for p, rec := range prov {
-		if !dirExists(p) {
-			continue
-		}
-		index[installedKey(rec.Source, rec.RemotePath)] = provEntry{InstallRecord: rec, installedPath: p}
+	for p, rec := range installed {
+		index[installedKey(rec.Source, rec.RemotePath)] = provEntry{SkillInstallRecord: rec, installedPath: p}
 	}
 	return index
 }
@@ -922,23 +834,6 @@ func installBlobs(tree []treeEntry, dir string) []treeEntry {
 	return out
 }
 
-// collidingDir reports whether rootDir already holds a directory whose name
-// matches targetName case-insensitively (macOS/Windows filesystems fold case),
-// returning the existing on-disk name for the message.
-func collidingDir(rootDir, targetName string) (string, bool) {
-	entries, err := os.ReadDir(rootDir)
-	if err != nil {
-		return "", false
-	}
-	lower := strings.ToLower(targetName)
-	for _, e := range entries {
-		if e.IsDir() && strings.ToLower(e.Name()) == lower {
-			return e.Name(), true
-		}
-	}
-	return "", false
-}
-
 // slugSkillName lowercases name and collapses every run of non-[a-z0-9] into a
 // single hyphen, trimming leading/trailing hyphens and bounding length, so a
 // remote basename that isn't a valid skill name yields a valid suggestion. The
@@ -956,8 +851,8 @@ func slugSkillName(name string) (string, bool) {
 		}
 	}
 	slug := strings.Trim(b.String(), "-")
-	if len(slug) > maxSkillNameLen {
-		slug = strings.Trim(slug[:maxSkillNameLen], "-")
+	if len(slug) > core.MaxSkillNameLen {
+		slug = strings.Trim(slug[:core.MaxSkillNameLen], "-")
 	}
 	return slug, slug != name
 }
@@ -1012,50 +907,4 @@ func boolParam(v string) bool {
 		return true
 	}
 	return false
-}
-
-// readJSONFile decodes path into v. A missing file returns found=false with no
-// error (an unconfigured source / first run is not a failure).
-func readJSONFile(path string, v any) (found bool, err error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if len(strings.TrimSpace(string(data))) == 0 {
-		return false, nil
-	}
-	if err := json.Unmarshal(data, v); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// writeJSONFile marshals v and writes it atomically (temp file + rename in the
-// same directory), so a crash mid-write never leaves a truncated config/cache.
-func writeJSONFile(path string, v any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return os.Rename(tmpName, path)
 }

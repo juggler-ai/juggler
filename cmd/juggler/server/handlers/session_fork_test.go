@@ -34,11 +34,11 @@ func (f *forkFakeWM) SeedNewConversation(string, string, string, string, *core.M
 	return nil
 }
 
-// TestWriteCloneDoc_LiveWorkerUsesSnapshot: when the source worker is loaded
+// TestCloneDocSource_LiveWorkerUsesSnapshot: when the source worker is loaded
 // (possibly mid-turn), the clone's doc.yjs is the in-memory parked snapshot —
 // NOT a copy of the on-disk file, and no flush is attempted (flushing would
 // block on the run loop during a turn).
-func TestWriteCloneDoc_LiveWorkerUsesSnapshot(t *testing.T) {
+func TestCloneDocSource_LiveWorkerUsesSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	srcDir := filepath.Join(dir, "src")
 	dstDir := filepath.Join(dir, "dst")
@@ -57,8 +57,12 @@ func TestWriteCloneDoc_LiveWorkerUsesSnapshot(t *testing.T) {
 	fake := &forkFakeWM{snapshot: snap, snapshotOK: true}
 	api := &SessionAPI{workerManager: fake}
 
-	if err := api.writeCloneDoc("src", srcDir, dstDir); err != nil {
-		t.Fatalf("writeCloneDoc: %v", err)
+	doc, err := api.cloneDocSource("src")
+	if err != nil {
+		t.Fatalf("cloneDocSource: %v", err)
+	}
+	if err := core.CloneConvFolder(srcDir, dstDir, doc); err != nil {
+		t.Fatalf("CloneConvFolder: %v", err)
 	}
 
 	got, err := os.ReadFile(filepath.Join(dstDir, "doc.yjs"))
@@ -73,9 +77,9 @@ func TestWriteCloneDoc_LiveWorkerUsesSnapshot(t *testing.T) {
 	}
 }
 
-// TestWriteCloneDoc_NoWorkerFlushesAndCopies: with no loaded worker, the on-disk
+// TestCloneDocSource_NoWorkerFlushesAndCopies: with no loaded worker, the on-disk
 // doc is authoritative — flush (no-op) then byte-copy it into the clone.
-func TestWriteCloneDoc_NoWorkerFlushesAndCopies(t *testing.T) {
+func TestCloneDocSource_NoWorkerFlushesAndCopies(t *testing.T) {
 	dir := t.TempDir()
 	srcDir := filepath.Join(dir, "src")
 	dstDir := filepath.Join(dir, "dst")
@@ -93,8 +97,12 @@ func TestWriteCloneDoc_NoWorkerFlushesAndCopies(t *testing.T) {
 	fake := &forkFakeWM{snapshotOK: false} // unloaded → fall back to file copy
 	api := &SessionAPI{workerManager: fake}
 
-	if err := api.writeCloneDoc("src", srcDir, dstDir); err != nil {
-		t.Fatalf("writeCloneDoc: %v", err)
+	doc, err := api.cloneDocSource("src")
+	if err != nil {
+		t.Fatalf("cloneDocSource: %v", err)
+	}
+	if err := core.CloneConvFolder(srcDir, dstDir, doc); err != nil {
+		t.Fatalf("CloneConvFolder: %v", err)
 	}
 
 	got, err := os.ReadFile(filepath.Join(dstDir, "doc.yjs"))

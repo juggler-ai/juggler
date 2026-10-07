@@ -84,7 +84,7 @@ Paths are relative to the `juggler/` repo root.
   (several conversations to one workspace), the per-box `+`, moving a
   conversation with "Use a different workspace…", and finishing a workspace.
   Do NOT describe the provisioning state machine or the rebinding internals.
-- **Agent Skills** — `cmd/juggler/server/handlers/skills.go:22-39` documents the
+- **Agent Skills** — `cmd/juggler/core/skills.go:19-38` documents the
   format and the four discovery roots (project and user scope, each with a
   `.juggler` native path and a `.agents` cross-agent alias). The `skill` tool
   loads one body on demand; the list is metadata only.

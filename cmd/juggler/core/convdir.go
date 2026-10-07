@@ -97,6 +97,72 @@ func ConvAssetsDir(convDir string) string {
 	return filepath.Join(convDir, assetsDirName)
 }
 
+// CloneConvFolder fills dstDir, an already-created conversation folder, with
+// everything srcDir persists: the document, the transaction blobs its items
+// reference by id, and the attachment bytes its items reference by sha. A
+// clone that carried the doc without the blobs would open with broken
+// transaction links and images that resolve to nothing.
+//
+// doc, when non-nil, is written as the clone's document in place of the
+// source's on-disk one, for a caller holding a more current copy (a live
+// worker's snapshot). When nil, the source's doc.yjs is copied, and a source
+// that has never saved one yields an empty clone rather than an error.
+func CloneConvFolder(srcDir, dstDir string, doc []byte) error {
+	var err error
+	if doc != nil {
+		err = os.WriteFile(ConvDocPath(dstDir), doc, 0o644)
+	} else {
+		err = copyFileIfExists(ConvDocPath(srcDir), ConvDocPath(dstDir))
+	}
+	if err != nil {
+		return fmt.Errorf("write clone %s: %w", docFileName, err)
+	}
+	if err := copyDirContents(ConvTxnsDir(srcDir), ConvTxnsDir(dstDir)); err != nil {
+		return fmt.Errorf("copy %s: %w", txnsDirName, err)
+	}
+	if err := copyDirContents(ConvAssetsDir(srcDir), ConvAssetsDir(dstDir)); err != nil {
+		return fmt.Errorf("copy %s: %w", assetsDirName, err)
+	}
+	return nil
+}
+
+// copyFileIfExists copies src→dst. A missing src is not an error (it means the
+// source has nothing persisted yet); any other read/write failure is returned.
+func copyFileIfExists(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return os.WriteFile(dst, data, 0o644)
+}
+
+// copyDirContents copies every regular file in srcDir into dstDir (non-recursive
+// — txns/ and assets/ are flat). A missing srcDir is not an error.
+func copyDirContents(srcDir, dstDir string) error {
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if err := copyFileIfExists(filepath.Join(srcDir, e.Name()), filepath.Join(dstDir, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SanitizedNameMaxRunes caps the sanitized name length to leave headroom
 // under the 255-byte filename limits on most filesystems even when
 // characters expand to 4-byte UTF-8 sequences. The full folder name is

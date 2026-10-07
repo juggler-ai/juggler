@@ -710,13 +710,11 @@ func (api *SessionAPI) HandleCreateConversation(w http.ResponseWriter, r *http.R
 	}
 }
 
-// duplicateConversationFiles copies a source conversation's persisted state
-// (doc.yjs + the txns/ blob directory) into the already-created destination
-// folder. It first flushes the source's worker (if loaded) so the on-disk doc
-// is current, then copies files directly — size-independent and with no
-// cross-worker writes, so the destination is complete before it is announced.
-// A source with no doc.yjs yet (never saved) copies nothing, yielding a
-// legitimately empty clone rather than an error.
+// duplicateConversationFiles clones a source conversation's persisted state
+// into the already-created destination folder, with no cross-worker writes, so
+// the destination is complete before it is announced. What a folder holds, and
+// so what a clone carries, is core.CloneConvFolder's to say; this decides only
+// which copy of the document is current.
 func (api *SessionAPI) duplicateConversationFiles(srcID, dstID string) error {
 	mgr := api.manager()
 	srcDir, ok := mgr.ConvDir(srcID)
@@ -727,78 +725,32 @@ func (api *SessionAPI) duplicateConversationFiles(srcID, dstID string) error {
 	if !ok {
 		return fmt.Errorf("destination conversation %s not found", dstID)
 	}
-
-	// doc.yjs carries items AND metadata (model config, permission rules, …).
-	if err := api.writeCloneDoc(srcID, srcDir, dstDir); err != nil {
-		return fmt.Errorf("write clone doc.yjs: %w", err)
-	}
-	// txns/ holds per-round-trip blobs referenced by items by id.
-	if err := copyDirContents(core.ConvTxnsDir(srcDir), core.ConvTxnsDir(dstDir)); err != nil {
-		return fmt.Errorf("copy txns: %w", err)
-	}
-	// assets/ holds content-addressed image blobs referenced by items by sha.
-	// Cloning the doc carries the attachment refs, so the bytes must come too
-	// or the clone's images resolve to nothing.
-	if err := copyDirContents(core.ConvAssetsDir(srcDir), core.ConvAssetsDir(dstDir)); err != nil {
-		return fmt.Errorf("copy assets: %w", err)
-	}
-	return nil
-}
-
-// writeCloneDoc writes the clone's doc.yjs, choosing the source that is current.
-// A loaded worker may be mid-turn, where FlushConversation would block on the run
-// loop (its inner selects don't drain flushReq); so when one is loaded, take an
-// in-memory parked snapshot instead — race-free (ycrdtMu) and marked so the clone
-// loads stopped. With no worker loaded, the on-disk doc is authoritative: flush
-// (a no-op) then byte-copy it. Split from duplicateConversationFiles so the
-// source-selection is unit-testable without a SessionManager.
-func (api *SessionAPI) writeCloneDoc(srcID, srcDir, dstDir string) error {
-	if api.workerManager != nil {
-		if snap, ok := api.workerManager.SnapshotParkedState(srcID); ok {
-			return os.WriteFile(core.ConvDocPath(dstDir), snap, 0o644)
-		}
-		if err := api.workerManager.FlushConversation(srcID); err != nil {
-			return fmt.Errorf("flush source worker: %w", err)
-		}
-	}
-	return copyFileIfExists(core.ConvDocPath(srcDir), core.ConvDocPath(dstDir))
-}
-
-// copyFileIfExists copies src→dst. A missing src is not an error (it means the
-// source has nothing persisted yet); any other read/write failure is returned.
-func copyFileIfExists(src, dst string) error {
-	data, err := os.ReadFile(src)
+	doc, err := api.cloneDocSource(srcID)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
 		return err
 	}
-	return os.WriteFile(dst, data, 0o644)
+	return core.CloneConvFolder(srcDir, dstDir, doc)
 }
 
-// copyDirContents copies every regular file in srcDir into dstDir (non-recursive
-// — the txns directory is flat). A missing srcDir is not an error.
-func copyDirContents(srcDir, dstDir string) error {
-	entries, err := os.ReadDir(srcDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
+// cloneDocSource chooses the current copy of a source's document for a clone.
+// A loaded worker may be mid-turn, where FlushConversation would block on the
+// run loop (its inner selects don't drain flushReq); so when one is loaded, it
+// returns an in-memory parked snapshot instead, race-free (ycrdtMu) and marked
+// so the clone loads stopped. With no worker loaded, the on-disk doc is
+// authoritative: it flushes (a no-op) and returns nil, which tells the clone to
+// copy the file. Split from duplicateConversationFiles so the source selection
+// is unit-testable without a SessionManager.
+func (api *SessionAPI) cloneDocSource(srcID string) ([]byte, error) {
+	if api.workerManager == nil {
+		return nil, nil
 	}
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
-		return err
+	if snap, ok := api.workerManager.SnapshotParkedState(srcID); ok {
+		return snap, nil
 	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if err := copyFileIfExists(filepath.Join(srcDir, e.Name()), filepath.Join(dstDir, e.Name())); err != nil {
-			return err
-		}
+	if err := api.workerManager.FlushConversation(srcID); err != nil {
+		return nil, fmt.Errorf("flush source worker: %w", err)
 	}
-	return nil
+	return nil, nil
 }
 
 // ConvIDFromVars extracts the {convId} route variable. On a missing/empty id it

@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"juggler/cmd/juggler/core"
+
 	"github.com/gorilla/mux"
 )
 
@@ -507,7 +509,7 @@ func TestAddAndRemoveCustomRegistry(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("add status = %d (%s)", rec.Code, rec.Body.String())
 	}
-	var src SkillSource
+	var src core.SkillSource
 	_ = json.Unmarshal(rec.Body.Bytes(), &src)
 	if src.Repo != "octocat/hello-world" {
 		t.Errorf("repo = %q", src.Repo)
@@ -558,7 +560,7 @@ func TestListDefaultRegistries(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	var list []SkillSource
+	var list []core.SkillSource
 	_ = json.Unmarshal(rec.Body.Bytes(), &list)
 	if len(list) != 3 {
 		t.Errorf("got %d defaults, want 3: %+v", len(list), list)
@@ -585,7 +587,7 @@ func TestRestoreDefaultRegistry(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("restore status = %d (%s)", rec.Code, rec.Body.String())
 	}
-	var src SkillSource
+	var src core.SkillSource
 	_ = json.Unmarshal(rec.Body.Bytes(), &src)
 	if src.Trust != "community" || src.Label == "" {
 		t.Errorf("restored seed lost curated metadata: %+v", src)

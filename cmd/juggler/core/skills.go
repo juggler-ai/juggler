@@ -2,12 +2,11 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package handlers
+package core
 
 import (
 	"fmt"
 	"io/fs"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,8 +14,6 @@ import (
 	"strings"
 
 	"juggler/internal/userpaths"
-
-	"github.com/gorilla/mux"
 )
 
 // Agent Skills are directories following the open Agent Skills standard
@@ -30,27 +27,33 @@ import (
 //	<config>/skills/<name>/SKILL.md             user + juggler    (native)
 //	~/.agents/skills/<name>/SKILL.md            user + agents     (cross-agent alias)
 //
-// This handler is discovery + read only: it serves skill *metadata* (name +
-// description of every skill, always cheap) and, on demand, one skill's SKILL.md
-// body plus a listing of its directory. Bodies are never returned in the list —
-// the model loads a body through the `skill` tool only when a task matches
-// (progressive disclosure). Files under a skill (scripts/, references/) are read
-// by the model through the ordinary read/execute tools, under normal approval,
-// so this handler adds no new execution or file-access path.
+// This file is where those roots are and how a skill in one is read: every
+// skill's *metadata* (name + description, always cheap) and, on demand, one
+// skill's SKILL.md body plus a listing of its directory. Writing a skill into a
+// root is skill_store.go's. The HTTP surface is handlers.SkillsAPI, and bodies
+// never appear in its list — the model loads a body through the `skill` tool
+// only when a task matches (progressive disclosure). Files under a skill
+// (scripts/, references/) are read by the model through the ordinary
+// read/execute tools, under normal approval, so skills add no new execution or
+// file-access path.
 
 // skillNamePattern is the spec-mandated skill name: lowercase letters/digits in
 // hyphen-separated groups, so no leading, trailing, or doubled hyphen. Length is
-// bounded separately (<= maxSkillNameLen). The name must also equal the skill's
+// bounded separately (<= MaxSkillNameLen). The name must also equal the skill's
 // directory name.
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
-// maxSkillNameLen is the spec cap on a skill name.
-const maxSkillNameLen = 64
+// MaxSkillNameLen is the spec cap on a skill name.
+const MaxSkillNameLen = 64
 
-// maxSkillFileListing bounds the per-skill file listing returned by the body
-// endpoint, so a pathological skill directory can't produce an unbounded
-// response (the listing is advisory — the model reads real files via read).
-const maxSkillFileListing = 500
+// MaxSkillFileListing bounds the per-skill file listing ReadSkill returns, so a
+// pathological skill directory can't produce an unbounded response (the listing
+// is advisory — the model reads real files via read). The marketplace applies
+// the same cap to a skill's install.
+const MaxSkillFileListing = 500
+
+// skillFileName is the file that makes a directory a skill.
+const skillFileName = "SKILL.md"
 
 // SkillFrontmatter is the parsed YAML frontmatter of a SKILL.md. Only the spec's
 // top-level scalar fields are interpreted; unknown keys and nested mappings
@@ -65,11 +68,11 @@ type SkillFrontmatter struct {
 	AllowedTools  string `json:"allowedTools,omitempty"` // surfaced read-only; NOT honored in v1 (see plan §4)
 }
 
-// Skill is one entry in the GET /api/skills response — metadata only, never the
-// SKILL.md body. A directory that fails to parse or validate is still returned
-// with Error set so the manager UI can show exactly why it is broken. A skill
-// whose name is claimed by a higher-precedence root carries ShadowedBy (the
-// winning "<scope>-<source>") but is still listed — never a silent drop.
+// Skill is one discovered skill — metadata only, never the SKILL.md body. A
+// directory that fails to parse or validate is still returned with Error set
+// so the manager UI can show exactly why it is broken. A skill whose name is
+// claimed by a higher-precedence root carries ShadowedBy (the winning
+// "<scope>-<source>") but is still listed — never a silent drop.
 type Skill struct {
 	Name          string           `json:"name"`
 	Description   string           `json:"description"`
@@ -84,60 +87,38 @@ type Skill struct {
 }
 
 // SkillFile is one entry in a skill's directory listing (relative path + size),
-// returned by the body endpoint so the tool result can tell the model what is
-// available under references/, scripts/, assets/, etc.
+// so the tool result can tell the model what is available under references/,
+// scripts/, assets/, etc.
 type SkillFile struct {
 	Path string `json:"path"` // forward-slash path relative to the skill directory
 	Size int64  `json:"size"`
 }
 
-// SkillDetail is the GET /api/skills/{scope}/{source}/{name} response: the full
-// SKILL.md body plus the directory listing. Metadata mirrors the list entry.
-type SkillDetail struct {
-	Name   string      `json:"name"`
-	Scope  string      `json:"scope"`
-	Source string      `json:"source"`
-	Path   string      `json:"path"`
-	Body   string      `json:"body"`
-	Files  []SkillFile `json:"files"`
+// SkillRoot is one source directory: a (scope, source) pair mapped to its
+// on-disk skills directory. Roots are enumerated in precedence order (see
+// SkillRoots), so the first occurrence of a name wins and later ones are
+// shadowed.
+type SkillRoot struct {
+	Scope  string
+	Source string
+	Dir    string
 }
 
-// skillRoot is one discovered source directory: a (scope, source) pair mapped to
-// its on-disk skills directory. Roots are enumerated in precedence order (see
-// roots), so the first occurrence of a name wins and later ones are shadowed.
-type skillRoot struct {
-	scope  string
-	source string
-	dir    string
-}
-
-// label is the "<scope>-<source>" identifier surfaced to the frontend (badge,
+// Label is the "<scope>-<source>" identifier surfaced to the frontend (badge,
 // shadowedBy origin, tool-result header).
-func (r skillRoot) label() string { return r.scope + "-" + r.source }
+func (r SkillRoot) Label() string { return r.Scope + "-" + r.Source }
 
-// SkillsAPI discovers and serves Agent Skills. The project path is read through a
-// provider func so a runtime project switch is reflected without reconstructing
-// the handler (mirrors UserCommandsAPI / ConfigAPI).
-type SkillsAPI struct {
-	projectPathProvider func() string
-}
-
-// NewSkillsAPI creates a SkillsAPI. projectPathProvider returns the current
-// project root ("" in no-project mode).
-func NewSkillsAPI(projectPathProvider func() string) *SkillsAPI {
-	return &SkillsAPI{projectPathProvider: projectPathProvider}
-}
-
-// roots returns the skill source roots in precedence order (first wins on a name
-// collision): project-juggler, project-agents, user-juggler, user-agents.
-// Project roots are omitted in no-project mode. A root directory that doesn't
-// exist is harmless — discovery simply finds nothing there.
-func (api *SkillsAPI) roots() []skillRoot {
-	var roots []skillRoot
-	if project := api.projectPathProvider(); project != "" {
+// SkillRoots returns the skill source roots in precedence order (first wins on
+// a name collision): project-juggler, project-agents, user-juggler, user-agents.
+// Project roots are omitted in no-project mode (projectPath ""). A root
+// directory that doesn't exist is harmless — discovery simply finds nothing
+// there.
+func SkillRoots(projectPath string) []SkillRoot {
+	var roots []SkillRoot
+	if projectPath != "" {
 		roots = append(roots,
-			skillRoot{scope: "project", source: "juggler", dir: filepath.Join(project, ".juggler", "skills")},
-			skillRoot{scope: "project", source: "agents", dir: filepath.Join(project, ".agents", "skills")},
+			SkillRoot{Scope: "project", Source: "juggler", Dir: filepath.Join(projectPath, ".juggler", "skills")},
+			SkillRoot{Scope: "project", Source: "agents", Dir: filepath.Join(projectPath, ".agents", "skills")},
 		)
 	}
 	return append(roots, userSkillRoots()...)
@@ -155,34 +136,60 @@ func (api *SkillsAPI) roots() []skillRoot {
 // skill would auto-instantiate a Skills context item into every conversation and
 // perturb assertions on thread item counts, making tests pass or fail by the
 // host's installed skills. Unset (production), behavior is unchanged.
-func userSkillRoots() []skillRoot {
+func userSkillRoots() []SkillRoot {
 	if base := os.Getenv("JUGGLER_SKILLS_USER_DIR"); base != "" {
-		return []skillRoot{
-			{scope: "user", source: "juggler", dir: filepath.Join(base, "juggler", "skills")},
-			{scope: "user", source: "agents", dir: filepath.Join(base, "agents", "skills")},
+		return []SkillRoot{
+			{Scope: "user", Source: "juggler", Dir: filepath.Join(base, "juggler", "skills")},
+			{Scope: "user", Source: "agents", Dir: filepath.Join(base, "agents", "skills")},
 		}
 	}
-	roots := []skillRoot{{scope: "user", source: "juggler", dir: filepath.Join(userpaths.ConfigDir(), "skills")}}
+	roots := []SkillRoot{{Scope: "user", Source: "juggler", Dir: filepath.Join(userpaths.ConfigDir(), "skills")}}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		roots = append(roots, skillRoot{scope: "user", source: "agents", dir: filepath.Join(home, ".agents", "skills")})
+		roots = append(roots, SkillRoot{Scope: "user", Source: "agents", Dir: filepath.Join(home, ".agents", "skills")})
 	}
 	return roots
 }
 
-// HandleList returns every discovered skill across all roots, with shadowed and
+// SkillRootDir maps a (scope, source) pair to its skills directory, honoring
+// no-project mode (project scopes are absent from SkillRoots then). Returns
+// ok=false for an unknown or unavailable pair.
+func SkillRootDir(projectPath, scope, source string) (string, bool) {
+	for _, root := range SkillRoots(projectPath) {
+		if root.Scope == scope && root.Source == source {
+			return root.Dir, true
+		}
+	}
+	return "", false
+}
+
+// SkillDir is the directory of skill name inside rootDir. ok is false when name
+// is not a spec-valid skill name or the path would leave the root — which the
+// name check already precludes, and which is re-checked defensively.
+func SkillDir(rootDir, name string) (string, bool) {
+	if !ValidSkillName(name) {
+		return "", false
+	}
+	dir := filepath.Join(rootDir, name)
+	if !pathWithin(rootDir, dir) {
+		return "", false
+	}
+	return dir, true
+}
+
+// ListSkills returns every discovered skill across all roots, with shadowed and
 // error flags set (never a silent drop), sorted by name then scope then source
 // for deterministic, cache-stable output. Bodies are never included.
-func (api *SkillsAPI) HandleList(w http.ResponseWriter, r *http.Request) {
+func ListSkills(projectPath string) []Skill {
 	skills := []Skill{}
-	winners := map[string]skillRoot{} // skill name -> highest-precedence root that provides it
-	for _, root := range api.roots() {
+	winners := map[string]SkillRoot{} // skill name -> highest-precedence root that provides it
+	for _, root := range SkillRoots(projectPath) {
 		for _, skill := range discoverSkills(root) {
 			// Only well-formed skills participate in shadowing: a broken skill
 			// neither wins a name nor is marked "shadowed" (its Error already
 			// explains why it is unusable).
 			if skill.Error == "" {
 				if win, ok := winners[skill.Name]; ok {
-					skill.ShadowedBy = win.label()
+					skill.ShadowedBy = win.Label()
 				} else {
 					winners[skill.Name] = root
 				}
@@ -199,66 +206,27 @@ func (api *SkillsAPI) HandleList(w http.ResponseWriter, r *http.Request) {
 		}
 		return skills[i].Source < skills[j].Source
 	})
-	WriteJSON(w, r, 0, skills)
+	return skills
 }
 
-// HandleGet returns one skill's SKILL.md body and directory listing for
-// {scope}/{source}/{name}. The name must match the spec pattern (which excludes
-// path separators and dots), and the resolved directory must stay inside its
-// root — so directory traversal is impossible by construction and re-checked
-// defensively. A malformed frontmatter still returns its body (best effort), so
-// the manager preview and the tool can show what the file contains.
-func (api *SkillsAPI) HandleGet(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	scope, source, name := vars["scope"], vars["source"], vars["name"]
-
-	if !validSkillName(name) {
-		WriteError(w, r, http.StatusBadRequest, "invalid skill name")
-		return
-	}
-	rootDir, ok := api.resolveRootDir(scope, source)
-	if !ok {
-		WriteError(w, r, http.StatusBadRequest, fmt.Sprintf("unknown or unavailable source %q/%q", scope, source))
-		return
-	}
-	dir := filepath.Join(rootDir, name)
-	if !pathWithin(rootDir, dir) {
-		WriteError(w, r, http.StatusBadRequest, "invalid skill path")
-		return
-	}
-	data, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+// ReadSkill returns the SKILL.md body of the skill in dir (as SkillDir resolves
+// it) and a listing of its directory. A malformed frontmatter still returns its
+// body (best effort), so the manager preview and the tool can show what the file
+// contains. The error is the read's: in practice, no such skill.
+func ReadSkill(dir string) (body string, files []SkillFile, err error) {
+	data, err := os.ReadFile(filepath.Join(dir, skillFileName))
 	if err != nil {
-		WriteError(w, r, http.StatusNotFound, fmt.Sprintf("skill %q not found in %s/%s", name, scope, source))
-		return
+		return "", nil, err
 	}
-	_, body, _ := parseSkillFile(data) // body is served even when frontmatter is malformed
-	WriteJSON(w, r, 0, SkillDetail{
-		Name:   name,
-		Scope:  scope,
-		Source: source,
-		Path:   dir,
-		Body:   body,
-		Files:  listSkillFiles(dir),
-	})
-}
-
-// resolveRootDir maps a (scope, source) pair to its skills directory, honoring
-// no-project mode (project scopes are absent from roots() then). Returns
-// ok=false for an unknown or unavailable pair.
-func (api *SkillsAPI) resolveRootDir(scope, source string) (string, bool) {
-	for _, root := range api.roots() {
-		if root.scope == scope && root.source == source {
-			return root.dir, true
-		}
-	}
-	return "", false
+	_, body, _ = ParseSkillFile(data) // body is served even when frontmatter is malformed
+	return body, listSkillFiles(dir), nil
 }
 
 // discoverSkills scans one root directory for skill subdirectories (each holding
 // a SKILL.md). A missing/unreadable root yields nothing. Every candidate is
 // returned; parse/validation failures carry Error rather than being dropped.
-func discoverSkills(root skillRoot) []Skill {
-	entries, err := os.ReadDir(root.dir)
+func discoverSkills(root SkillRoot) []Skill {
+	entries, err := os.ReadDir(root.Dir)
 	if err != nil {
 		return nil // absent or unreadable — no skills here
 	}
@@ -268,30 +236,30 @@ func discoverSkills(root skillRoot) []Skill {
 			continue
 		}
 		name := entry.Name()
-		dir := filepath.Join(root.dir, name)
-		if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err != nil {
+		dir := filepath.Join(root.Dir, name)
+		if _, err := os.Stat(filepath.Join(dir, skillFileName)); err != nil {
 			continue // a plain directory, not a skill — silently ignored
 		}
 		skill := Skill{
 			Name:          name,
-			Scope:         root.scope,
-			Source:        root.source,
+			Scope:         root.Scope,
+			Source:        root.Source,
 			Path:          dir,
 			HasScripts:    dirExists(filepath.Join(dir, "scripts")),
 			HasReferences: dirExists(filepath.Join(dir, "references")),
 		}
-		if !validSkillName(name) {
+		if !ValidSkillName(name) {
 			skill.Error = "invalid skill name (lowercase letters, digits, and single hyphens; max 64 chars)"
 			out = append(out, skill)
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+		data, err := os.ReadFile(filepath.Join(dir, skillFileName))
 		if err != nil {
 			skill.Error = fmt.Sprintf("could not read SKILL.md: %v", err)
 			out = append(out, skill)
 			continue
 		}
-		fm, _, parseErr := parseSkillFile(data)
+		fm, _, parseErr := ParseSkillFile(data)
 		skill.Frontmatter = fm
 		skill.Description = fm.Description
 		switch {
@@ -307,11 +275,13 @@ func discoverSkills(root skillRoot) []Skill {
 	return out
 }
 
-// parseSkillFile splits a SKILL.md into frontmatter and body using the shared
+// ParseSkillFile splits a SKILL.md into frontmatter and body using the shared
 // frontmatter splitter/scanner, mapping the spec's scalar keys onto
 // SkillFrontmatter. Unknown keys are ignored (preserve-and-ignore), so a skill
-// carrying another agent's non-spec fields still parses.
-func parseSkillFile(data []byte) (SkillFrontmatter, string, error) {
+// carrying another agent's non-spec fields still parses. The marketplace parses
+// remote SKILL.md files with it too, so a catalog entry and an installed skill
+// read the same way.
+func ParseSkillFile(data []byte) (SkillFrontmatter, string, error) {
 	var fm SkillFrontmatter
 	fmLines, body, err := splitFrontmatter(data)
 	if err != nil {
@@ -336,14 +306,14 @@ func parseSkillFile(data []byte) (SkillFrontmatter, string, error) {
 
 // listSkillFiles walks a skill directory and returns every regular file as a
 // forward-slash path relative to the directory, with its size, sorted for
-// deterministic output and capped at maxSkillFileListing (the walk stops at the
+// deterministic output and capped at MaxSkillFileListing (the walk stops at the
 // cap, so a pathological directory isn't traversed in full — WalkDir's lexical
 // order keeps the retained subset deterministic). Errors mid-walk are tolerated
 // (best-effort listing); the model reads real files via the read tool.
 func listSkillFiles(dir string) []SkillFile {
 	files := []SkillFile{}
 	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if len(files) >= maxSkillFileListing {
+		if len(files) >= MaxSkillFileListing {
 			return fs.SkipAll
 		}
 		if err != nil || d.IsDir() {
@@ -365,15 +335,15 @@ func listSkillFiles(dir string) []SkillFile {
 	return files
 }
 
-// validSkillName reports whether name is a spec-valid skill name (pattern +
+// ValidSkillName reports whether name is a spec-valid skill name (pattern +
 // length bound). Because it forbids '/', '.', and '\', a valid name can never
 // escape its root directory.
-func validSkillName(name string) bool {
-	return len(name) <= maxSkillNameLen && skillNamePattern.MatchString(name)
+func ValidSkillName(name string) bool {
+	return len(name) <= MaxSkillNameLen && skillNamePattern.MatchString(name)
 }
 
 // pathWithin reports whether child resolves inside root (defense-in-depth
-// against traversal, though validSkillName already precludes it).
+// against traversal, though ValidSkillName already precludes it).
 func pathWithin(root, child string) bool {
 	rel, err := filepath.Rel(root, child)
 	if err != nil {

@@ -2,7 +2,7 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package handlers
+package core
 
 import (
 	"fmt"
@@ -70,4 +70,16 @@ func scanFrontmatterFields(fmLines []string, assign func(key, value string)) {
 		value := unquoteScalar(strings.TrimSpace(line[colon+1:]))
 		assign(key, value)
 	}
+}
+
+// unquoteScalar strips a single matching pair of surrounding quotes and unescapes
+// \" inside double quotes. Bare values are returned unchanged.
+func unquoteScalar(v string) string {
+	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+		return strings.ReplaceAll(v[1:len(v)-1], `\"`, `"`)
+	}
+	if len(v) >= 2 && v[0] == '\'' && v[len(v)-1] == '\'' {
+		return v[1 : len(v)-1]
+	}
+	return v
 }

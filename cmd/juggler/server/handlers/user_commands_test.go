@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"juggler/cmd/juggler/core"
+
 	"github.com/gorilla/mux"
 )
 
@@ -34,7 +36,7 @@ func writeFile(t *testing.T, dir, name, content string) {
 	}
 }
 
-func listCommands(t *testing.T, api *UserCommandsAPI) []UserCommand {
+func listCommands(t *testing.T, api *UserCommandsAPI) []core.UserCommand {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/user-commands", nil)
 	rec := httptest.NewRecorder()
@@ -42,7 +44,7 @@ func listCommands(t *testing.T, api *UserCommandsAPI) []UserCommand {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	var cmds []UserCommand
+	var cmds []core.UserCommand
 	if err := json.Unmarshal(rec.Body.Bytes(), &cmds); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -108,7 +110,7 @@ func TestDiscoverMalformedReturnsError(t *testing.T) {
 	writeFile(t, dir, "bad-fm.md", "---\ndescription: x\nbody with no close\n")
 
 	cmds := listCommands(t, api)
-	byName := map[string]UserCommand{}
+	byName := map[string]core.UserCommand{}
 	for _, c := range cmds {
 		byName[c.Name] = c
 	}
@@ -129,7 +131,7 @@ func TestDiscoverInvalidName(t *testing.T) {
 	}
 }
 
-func putCommand(t *testing.T, api *UserCommandsAPI, scope, name string, req UserCommandWriteRequest) *httptest.ResponseRecorder {
+func putCommand(t *testing.T, api *UserCommandsAPI, scope, name string, req core.UserCommandSpec) *httptest.ResponseRecorder {
 	t.Helper()
 	body, _ := json.Marshal(req)
 	// Use a fixed valid target; the router-extracted vars are supplied via
@@ -145,7 +147,7 @@ func putCommand(t *testing.T, api *UserCommandsAPI, scope, name string, req User
 func TestPutThenDiscover(t *testing.T) {
 	project := t.TempDir()
 	api := newTestAPI(t, project)
-	rec := putCommand(t, api, "project", "deploy", UserCommandWriteRequest{
+	rec := putCommand(t, api, "project", "deploy", core.UserCommandSpec{
 		Description: "Deploy the app",
 		Run:         "send",
 		Template:    "Deploy $1 to $2.",
@@ -169,13 +171,13 @@ func TestPutValidationErrors(t *testing.T) {
 	api := newTestAPI(t, t.TempDir())
 	cases := []struct {
 		name  string
-		req   UserCommandWriteRequest
+		req   core.UserCommandSpec
 		field string
 	}{
-		{"Bad Name", UserCommandWriteRequest{Description: "d", Template: "t"}, "name"},
-		{"good", UserCommandWriteRequest{Template: "t"}, "description"},
-		{"good", UserCommandWriteRequest{Description: "d", Run: "bogus", Template: "t"}, "run"},
-		{"good", UserCommandWriteRequest{Description: "d"}, "template"},
+		{"Bad Name", core.UserCommandSpec{Description: "d", Template: "t"}, "name"},
+		{"good", core.UserCommandSpec{Template: "t"}, "description"},
+		{"good", core.UserCommandSpec{Description: "d", Run: "bogus", Template: "t"}, "run"},
+		{"good", core.UserCommandSpec{Description: "d"}, "template"},
 	}
 	for _, tc := range cases {
 		rec := putCommand(t, api, "project", tc.name, tc.req)
@@ -224,7 +226,7 @@ func TestNoProjectScopeUnavailable(t *testing.T) {
 	if api.ProjectCommandDir() != "" {
 		t.Errorf("ProjectCommandDir = %q, want empty", api.ProjectCommandDir())
 	}
-	rec := putCommand(t, api, "project", "x", UserCommandWriteRequest{Description: "d", Template: "t"})
+	rec := putCommand(t, api, "project", "x", core.UserCommandSpec{Description: "d", Template: "t"})
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("PUT to unavailable project scope: status = %d, want 400", rec.Code)
 	}
@@ -233,7 +235,7 @@ func TestNoProjectScopeUnavailable(t *testing.T) {
 func TestRoundTripModelOverride(t *testing.T) {
 	project := t.TempDir()
 	api := newTestAPI(t, project)
-	putCommand(t, api, "project", "review", UserCommandWriteRequest{
+	putCommand(t, api, "project", "review", core.UserCommandSpec{
 		Description: "Review a PR",
 		Run:         "subthread",
 		Strategy:    "read-only",
@@ -286,7 +288,7 @@ func TestRoundTripQuotedValue(t *testing.T) {
 	project := t.TempDir()
 	api := newTestAPI(t, project)
 	// A value with a leading '#' would be a YAML comment if unquoted.
-	putCommand(t, api, "project", "hashy", UserCommandWriteRequest{
+	putCommand(t, api, "project", "hashy", core.UserCommandSpec{
 		Description: "#1 helper",
 		ArgsHint:    "  spaced  ",
 		Template:    "body",

@@ -21,7 +21,7 @@ import { apiUrl } from '../utils/api-url.js';
 /**
  * Allowed command name (= filename sans .md): lowercase, starting with a
  * letter, using only letters, digits, and hyphens. Mirrors the server's
- * userCommandNamePattern (handlers/user_commands.go) — the single frontend
+ * userCommandNamePattern (core/user_commands.go) — the single frontend
  * definition; the editor dialog and the define_command tool both use it.
  * @type {RegExp}
  */

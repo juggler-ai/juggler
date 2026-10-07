@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"juggler/cmd/juggler/core"
 	"juggler/internal/userpaths"
 
 	"github.com/gorilla/mux"
@@ -67,7 +68,7 @@ func writeSkillFile(t *testing.T, root, name, rel, content string) {
 	}
 }
 
-func listSkills(t *testing.T, api *SkillsAPI) []Skill {
+func listSkills(t *testing.T, api *SkillsAPI) []core.Skill {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/skills", nil)
 	rec := httptest.NewRecorder()
@@ -75,15 +76,15 @@ func listSkills(t *testing.T, api *SkillsAPI) []Skill {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	var skills []Skill
+	var skills []core.Skill
 	if err := json.Unmarshal(rec.Body.Bytes(), &skills); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	return skills
 }
 
-func skillsByName(skills []Skill) map[string]Skill {
-	m := map[string]Skill{}
+func skillsByName(skills []core.Skill) map[string]core.Skill {
+	m := map[string]core.Skill{}
 	for _, s := range skills {
 		m[s.Name] = s
 	}

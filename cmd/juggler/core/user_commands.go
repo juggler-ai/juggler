@@ -2,11 +2,10 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package handlers
+package core
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,8 +13,6 @@ import (
 	"strings"
 
 	"juggler/internal/userpaths"
-
-	"github.com/gorilla/mux"
 )
 
 // User-defined slash commands are declarative markdown files (YAML frontmatter +
@@ -25,8 +22,9 @@ import (
 //	<project>/.juggler/commands/*.md    project scope (git-shareable)
 //
 // They are the no-code tier below extensions: a command is *data* interpreted by
-// a single generic frontend CommandType. This handler discovers, serves, and
-// writes them; the frontend synthesises a command class per definition.
+// a single generic frontend CommandType. This file is their store: where each
+// scope lives, the file format, and the reads and writes. The HTTP surface is
+// handlers.UserCommandsAPI.
 
 // userCommandNamePattern is the allowed command name (= filename sans .md).
 var userCommandNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -55,9 +53,9 @@ type UserCommandFrontmatter struct {
 	Goal        string `json:"goal,omitempty"` // subthread only — thread goal label
 }
 
-// UserCommand is one entry in the GET /api/user-commands response. A file that
-// fails to parse or validate is still returned with Error set so the manager UI
-// can show exactly why it is broken — never a silent drop.
+// UserCommand is one discovered command file. A file that fails to parse or
+// validate is still returned with Error set so the manager UI can show exactly
+// why it is broken — never a silent drop.
 type UserCommand struct {
 	Name        string                 `json:"name"`
 	Scope       string                 `json:"scope"` // "user" | "project"
@@ -67,10 +65,10 @@ type UserCommand struct {
 	Error       string                 `json:"error,omitempty"`
 }
 
-// UserCommandWriteRequest is the JSON body of a PUT. The server owns markdown
-// serialization so the editor dialog and the define_command tool share one
-// format and one validation path.
-type UserCommandWriteRequest struct {
+// UserCommandSpec is a command as written: its frontmatter fields and its
+// template. The server owns markdown serialization so the editor dialog and the
+// define_command tool share one format and one validation path.
+type UserCommandSpec struct {
 	Description string `json:"description"`
 	ArgsHint    string `json:"argsHint"`
 	Run         string `json:"run"`
@@ -84,191 +82,131 @@ type UserCommandWriteRequest struct {
 	Template    string `json:"template"` // the prompt-template body
 }
 
-// UserCommandsAPI discovers, serves, and writes user-defined slash commands. The
-// project path is read through a provider func so a runtime project switch is
-// reflected without reconstructing the handler (mirrors ConfigAPI).
-type UserCommandsAPI struct {
-	projectPathProvider func() string
-}
-
-// NewUserCommandsAPI creates a UserCommandsAPI. projectPathProvider returns the
-// current project root ("" in no-project mode).
-func NewUserCommandsAPI(projectPathProvider func() string) *UserCommandsAPI {
-	return &UserCommandsAPI{projectPathProvider: projectPathProvider}
-}
-
 // UserCommandDir is the user-scope command directory (~/.juggler/commands).
-func (api *UserCommandsAPI) UserCommandDir() string {
+func UserCommandDir() string {
 	return filepath.Join(userpaths.ConfigDir(), "commands")
 }
 
 // ProjectCommandDir is the project-scope command directory
 // (<project>/.juggler/commands), or "" in no-project mode.
-func (api *UserCommandsAPI) ProjectCommandDir() string {
-	projectPath := api.projectPathProvider()
+func ProjectCommandDir(projectPath string) string {
 	if projectPath == "" {
 		return ""
 	}
 	return filepath.Join(projectPath, ".juggler", "commands")
 }
 
-// scopeDir maps a scope name to its command directory, or "" if unknown/absent.
-func (api *UserCommandsAPI) scopeDir(scope string) string {
-	switch scope {
-	case "user":
-		return api.UserCommandDir()
-	case "project":
-		return api.ProjectCommandDir()
-	default:
-		return ""
-	}
+// ValidUserCommandName reports whether name is an allowed command name, and so
+// a safe file name inside a scope directory.
+func ValidUserCommandName(name string) bool {
+	return userCommandNamePattern.MatchString(name)
 }
 
-// resolveTarget extracts the {scope}/{name} route vars and resolves the scope's
-// command directory, writing a 400 (and returning ok=false) when the scope is
-// unknown or unavailable (project scope in no-project mode).
-func (api *UserCommandsAPI) resolveTarget(w http.ResponseWriter, r *http.Request) (scope, name, dir string, ok bool) {
-	scope = mux.Vars(r)["scope"]
-	name = mux.Vars(r)["name"]
-	dir = api.scopeDir(scope)
-	if dir == "" {
-		WriteError(w, r, http.StatusBadRequest, fmt.Sprintf("unknown or unavailable scope %q", scope))
-		return "", "", "", false
-	}
-	return scope, name, dir, true
-}
-
-// HandleList returns every discovered command across both scopes, sorted by
-// scope then name for deterministic output. Malformed files are returned with
-// Error set rather than dropped.
-func (api *UserCommandsAPI) HandleList(w http.ResponseWriter, r *http.Request) {
+// ListUserCommands returns every command in the two scope directories, sorted
+// by scope then name for deterministic output. Either directory may be "" or
+// absent, and contributes nothing then. Malformed files are returned with Error
+// set rather than dropped.
+func ListUserCommands(userDir, projectDir string) []UserCommand {
 	commands := []UserCommand{}
-	commands = append(commands, discoverCommands(api.UserCommandDir(), "user")...)
-	commands = append(commands, discoverCommands(api.ProjectCommandDir(), "project")...)
+	commands = append(commands, discoverCommands(userDir, "user")...)
+	commands = append(commands, discoverCommands(projectDir, "project")...)
 	sort.Slice(commands, func(i, j int) bool {
 		if commands[i].Scope != commands[j].Scope {
 			return commands[i].Scope < commands[j].Scope
 		}
 		return commands[i].Name < commands[j].Name
 	})
-	WriteJSON(w, r, 0, commands)
+	return commands
 }
 
-// HandlePut creates or overwrites a command file for {scope}/{name}. It
-// validates the name charset, run mode, and required fields, returning
-// structured field errors ({"errors": {field: message}}) with 400 for inline
-// display in the editor. Parent directories are created on demand.
-func (api *UserCommandsAPI) HandlePut(w http.ResponseWriter, r *http.Request) {
-	scope, name, dir, ok := api.resolveTarget(w, r)
-	if !ok {
-		return
-	}
-
-	req, ok := DecodeJSON[UserCommandWriteRequest](w, r)
-	if !ok {
-		return
-	}
-
-	if fieldErrors := validateWriteRequest(name, req); len(fieldErrors) > 0 {
-		WriteJSON(w, r, http.StatusBadRequest, map[string]any{"errors": fieldErrors})
-		return
-	}
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		WriteError(w, r, http.StatusInternalServerError, fmt.Sprintf("could not create commands dir: %v", err))
-		return
-	}
-	path := filepath.Join(dir, name+".md")
-	if err := os.WriteFile(path, []byte(serializeCommand(req)), 0o644); err != nil {
-		WriteError(w, r, http.StatusInternalServerError, fmt.Sprintf("could not write command: %v", err))
-		return
-	}
-	WriteJSON(w, r, 0, UserCommand{
-		Name:        name,
-		Scope:       scope,
-		Path:        path,
-		Frontmatter: frontmatterOf(req),
-		Body:        req.Template,
-	})
-}
-
-// HandleDelete removes a command file for {scope}/{name}. A missing file is a
-// no-op success (idempotent delete).
-func (api *UserCommandsAPI) HandleDelete(w http.ResponseWriter, r *http.Request) {
-	_, name, dir, ok := api.resolveTarget(w, r)
-	if !ok {
-		return
-	}
-	if !userCommandNamePattern.MatchString(name) {
-		WriteError(w, r, http.StatusBadRequest, "invalid command name")
-		return
-	}
-	path := filepath.Join(dir, name+".md")
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		WriteError(w, r, http.StatusInternalServerError, fmt.Sprintf("could not delete command: %v", err))
-		return
-	}
-	WriteJSON(w, r, 0, map[string]bool{"deleted": true})
-}
-
-// validateWriteRequest returns a field→message map of validation errors (empty
-// when the request is valid). Collisions with built-in/extension command ids are
+// ValidateUserCommand returns a field→message map of validation errors (empty
+// when the command is valid). Collisions with built-in/extension command ids are
 // deliberately NOT checked here: built-ins are defined in frontend JS the server
 // cannot enumerate, so a colliding definition still writes and is flagged at
 // registry load time (surfaced in the manager UI).
-func validateWriteRequest(name string, req UserCommandWriteRequest) map[string]string {
+func ValidateUserCommand(name string, spec UserCommandSpec) map[string]string {
 	errs := map[string]string{}
-	if !userCommandNamePattern.MatchString(name) {
+	if !ValidUserCommandName(name) {
 		errs["name"] = "name must be lowercase, start with a letter, and use only letters, digits, and hyphens"
 	}
-	if strings.TrimSpace(req.Description) == "" {
+	if strings.TrimSpace(spec.Description) == "" {
 		errs["description"] = "description is required"
 	}
-	if req.Run != "" && !validRunModes[req.Run] {
+	if spec.Run != "" && !validRunModes[spec.Run] {
 		errs["run"] = `run must be one of "send", "draft", or "subthread"`
 	}
-	if strings.TrimSpace(req.Template) == "" {
+	if strings.TrimSpace(spec.Template) == "" {
 		errs["template"] = "template is required"
 	}
 	return errs
 }
 
-// frontmatterOf projects a write request onto the frontmatter shape returned by
-// discovery, so a PUT response matches what a subsequent GET would report.
-func frontmatterOf(req UserCommandWriteRequest) UserCommandFrontmatter {
+// WriteUserCommand creates or overwrites <dir>/<name>.md, creating dir on
+// demand, and returns the entry a later ListUserCommands would report for it.
+// The caller validates first (ValidateUserCommand); this only writes.
+func WriteUserCommand(dir, scope, name string, spec UserCommandSpec) (UserCommand, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return UserCommand{}, fmt.Errorf("could not create commands dir: %w", err)
+	}
+	path := filepath.Join(dir, name+".md")
+	if err := os.WriteFile(path, []byte(serializeCommand(spec)), 0o644); err != nil {
+		return UserCommand{}, fmt.Errorf("could not write command: %w", err)
+	}
+	return UserCommand{
+		Name:        name,
+		Scope:       scope,
+		Path:        path,
+		Frontmatter: frontmatterOf(spec),
+		Body:        spec.Template,
+	}, nil
+}
+
+// DeleteUserCommand removes <dir>/<name>.md. A missing file is a no-op success
+// (idempotent delete). The caller checks the name (ValidUserCommandName).
+func DeleteUserCommand(dir, name string) error {
+	path := filepath.Join(dir, name+".md")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("could not delete command: %w", err)
+	}
+	return nil
+}
+
+// frontmatterOf projects a spec onto the frontmatter shape returned by
+// discovery, so a write's reply matches what a subsequent list would report.
+func frontmatterOf(spec UserCommandSpec) UserCommandFrontmatter {
 	return UserCommandFrontmatter{
-		Description: req.Description,
-		ArgsHint:    req.ArgsHint,
-		Run:         req.Run,
-		Strategy:    req.Strategy,
-		Provider:    req.Provider,
-		Model:       req.Model,
-		Thinking:    req.Thinking,
-		ServiceTier: req.ServiceTier,
-		Icon:        req.Icon,
-		Goal:        req.Goal,
+		Description: spec.Description,
+		ArgsHint:    spec.ArgsHint,
+		Run:         spec.Run,
+		Strategy:    spec.Strategy,
+		Provider:    spec.Provider,
+		Model:       spec.Model,
+		Thinking:    spec.Thinking,
+		ServiceTier: spec.ServiceTier,
+		Icon:        spec.Icon,
+		Goal:        spec.Goal,
 	}
 }
 
-// serializeCommand renders a write request as a markdown file: a YAML
-// frontmatter block (only non-empty fields) followed by the template body. The
-// output round-trips through parseCommandFile.
-func serializeCommand(req UserCommandWriteRequest) string {
+// serializeCommand renders a spec as a markdown file: a YAML frontmatter block
+// (only non-empty fields) followed by the template body. The output
+// round-trips through parseCommandFile.
+func serializeCommand(spec UserCommandSpec) string {
 	var b strings.Builder
 	b.WriteString("---\n")
-	writeField(&b, "description", req.Description)
-	writeField(&b, "argsHint", req.ArgsHint)
-	writeField(&b, "run", req.Run)
-	writeField(&b, "strategy", req.Strategy)
-	writeField(&b, "provider", req.Provider)
-	writeField(&b, "model", req.Model)
-	writeField(&b, "thinking", req.Thinking)
-	writeField(&b, "serviceTier", req.ServiceTier)
-	writeField(&b, "icon", req.Icon)
-	writeField(&b, "goal", req.Goal)
+	writeField(&b, "description", spec.Description)
+	writeField(&b, "argsHint", spec.ArgsHint)
+	writeField(&b, "run", spec.Run)
+	writeField(&b, "strategy", spec.Strategy)
+	writeField(&b, "provider", spec.Provider)
+	writeField(&b, "model", spec.Model)
+	writeField(&b, "thinking", spec.Thinking)
+	writeField(&b, "serviceTier", spec.ServiceTier)
+	writeField(&b, "icon", spec.Icon)
+	writeField(&b, "goal", spec.Goal)
 	b.WriteString("---\n")
-	b.WriteString(req.Template)
-	if !strings.HasSuffix(req.Template, "\n") {
+	b.WriteString(spec.Template)
+	if !strings.HasSuffix(spec.Template, "\n") {
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -326,7 +264,7 @@ func discoverCommands(dir, scope string) []UserCommand {
 		path := filepath.Join(dir, entry.Name())
 		cmd := UserCommand{Name: name, Scope: scope, Path: path}
 
-		if !userCommandNamePattern.MatchString(name) {
+		if !ValidUserCommandName(name) {
 			cmd.Error = "invalid command name (must be lowercase letters, digits, and hyphens, starting with a letter)"
 			out = append(out, cmd)
 			continue
@@ -395,16 +333,4 @@ func assignFrontmatterField(fm *UserCommandFrontmatter, key, value string) {
 	case "goal":
 		fm.Goal = value
 	}
-}
-
-// unquoteScalar strips a single matching pair of surrounding quotes and unescapes
-// \" inside double quotes. Bare values are returned unchanged.
-func unquoteScalar(v string) string {
-	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
-		return strings.ReplaceAll(v[1:len(v)-1], `\"`, `"`)
-	}
-	if len(v) >= 2 && v[0] == '\'' && v[len(v)-1] == '\'' {
-		return v[1 : len(v)-1]
-	}
-	return v
 }

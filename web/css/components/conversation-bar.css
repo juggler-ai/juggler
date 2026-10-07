@@ -32,6 +32,11 @@ conversation-bar {
     /* A stacking context of its own, so the pattern's z-index: -1 puts it above
        this element's background but beneath every child. */
     isolation: isolate;
+
+    /* Queried by the "+" rows, which shorten their words in a narrow strip.
+       The width is always set (here or by a drag), never taken from content,
+       so containing it costs nothing. */
+    container: tab-strip / inline-size;
 }
 
 /* Background pattern: the sidebar's half of the pattern shared with the header
@@ -369,14 +374,9 @@ conversation-bar .conversation-box:not(:has(.conversation-tab)) .conversation-bo
     cursor: pointer;
 }
 
-/* The way to make a workspace, drawn as the outline of one. Same width, same
-   corner and the same border colour as a real box, with the fill left out and
-   the edge dashed: it is the shape of the thing, stated as not yet being one.
-   Height comes from the words inside it — one line, so one box header's worth
-   of the strip and not an empty rectangle's, until a narrow strip wraps them. The gap that sets it apart
-   from the boxes above belongs to the outline, not to the button inside it: one
-   wrapper carrying the whole space keeps the button's own box flush with the
-   shape it is drawn as. */
+/* The way to make a workspace: the last row of the strip. The gap that sets it
+   apart from the boxes above belongs to the row, not to the button inside it,
+   so the button's own box stays a tab's. */
 conversation-bar .conversation-box-new {
     display: flex;
     flex-shrink: 0;
@@ -384,77 +384,89 @@ conversation-bar .conversation-box-new {
     margin-top: 1.125rem;
 }
 
-/* The mark and the words are one phrase, centred in the outline across and
-   down. The "New conversation" button at the head of the strip is drawn by the
-   same rules: the two rows that make something are one kind of thing. */
-conversation-bar .conversation-box-new-button,
-conversation-bar .conversation-add {
-    position: relative;
+/* The two rows that make something — "New conversation" at the head of the
+   strip, "New workspace or group" at its foot — are drawn as rows of the list
+   they add to: no edge of their own, the mark standing in the status circle's
+   column and the words starting where the names do. Laid out on the tabs'
+   grid, they read as part of the list rather than frames around it, however
+   few tabs are between them. */
+conversation-bar .conversation-add,
+conversation-bar .conversation-box-new-button {
     display: flex;
     flex: 1;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 0.2rem;
     min-width: 0;
-    text-align: center;
-    padding: 0.4rem;
+    text-align: left;
+    padding: 0.25rem 0.4rem;
     font-size: 0.8125rem;
     color: var(--text-tertiary);
     background: none;
-
-    /* Transparent while the outline is dashed, so the dashes and the solid edge
-       hover draws sit on exactly the same line. */
     border: 0.0625rem solid transparent;
-    border-radius: 0.75rem;
+    border-radius: var(--radius-xl);
     cursor: pointer;
+    transition: color var(--transition-base);
 }
 
-/* A dashed border's dashes are sized from its width, and one pixel of it puts
-   them close enough together to read as a thin solid edge. The outline is a
-   stroked rectangle masking the border colour instead, where the gap is set on
-   its own terms: wide enough that the edge reads as the outline of a box and
-   not as a box. */
-conversation-bar .conversation-box-new-button::before,
-conversation-bar .conversation-add::before {
-    content: '';
-    position: absolute;
-    inset: -0.0625rem;
-    pointer-events: none;
-    background: var(--workspace-box-border);
-    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' rx='12' ry='12' fill='none' stroke='black' stroke-width='2' stroke-dasharray='2 6'/%3E%3C/svg%3E") center/100% 100% no-repeat;
-}
-
-/* Sized to the words it leads, and never squeezed by them: one line of them
-   tall, so a single line sets the row's height alone. When the words wrap it
-   stays level with the middle of them. */
-conversation-bar .conversation-box-new-button svg,
-conversation-bar .conversation-add svg {
+/* The mark is padded out to the status circle's square, so the row stands a
+   tab's height and the words start where a tab's name does. */
+conversation-bar .conversation-add svg,
+conversation-bar .conversation-box-new-button svg {
     flex-shrink: 0;
+    box-sizing: content-box;
     width: 1rem;
-    height: 1lh;
+    height: 1rem;
+    padding: calc((var(--tab-status-column) - 1rem) / 2);
+    margin-right: calc(var(--tab-status-gap) - 0.2rem);
 }
 
-/* A button's words are what it does, so a narrow strip wraps them rather than
-   cutting them off: between words while they fit, and inside one only when the
-   strip is narrower than that word alone. Wrapped lines are centred, as the
-   phrase is. */
+/* One line, as a tab's name is: a narrow strip first swaps the words for their
+   short form (below), and only a strip narrower than even that cuts them, with
+   an ellipsis. Wrapping would make the row taller than the tabs it heads, and
+   broke words mid-way at the narrowest widths. */
 conversation-bar .conversation-box-new-label {
     min-width: 0;
-    overflow-wrap: break-word;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
-/* On hover it fills in: the outline becoming a box is the same answer the real
-   boxes give the pointer, and says what pressing it is going to produce. */
-conversation-bar .conversation-box-new-button:hover,
-conversation-bar .conversation-add:hover {
-    color: var(--text-primary);
-    background: var(--workspace-box-bg);
-    border-color: var(--workspace-box-border);
-}
-
-conversation-bar .conversation-box-new-button:hover::before,
-conversation-bar .conversation-add:hover::before {
+conversation-bar .conversation-box-new-label-short {
     display: none;
+}
+
+/* Where the full words stop fitting on one line — the strip's width, less the
+   menu's margins and padding, the button's padding and the mark's column. Each
+   row switches on its own, so "New conversation" keeps its words in a strip
+   that has already shortened the longer one. The onboarding unit test sweeps
+   the strip's widths and fails if either breakpoint lets full words be cut or
+   drops them with a rem of room still to spare. */
+@container tab-strip (width < 11.5rem) {
+    conversation-bar .conversation-add .conversation-box-new-label-full {
+        display: none;
+    }
+
+    conversation-bar .conversation-add .conversation-box-new-label-short {
+        display: inline;
+    }
+}
+
+@container tab-strip (width < 14.5rem) {
+    conversation-bar .conversation-box-new-button .conversation-box-new-label-full {
+        display: none;
+    }
+
+    conversation-bar .conversation-box-new-button .conversation-box-new-label-short {
+        display: inline;
+    }
+}
+
+/* Hover is a tab's: a step toward selected, in the same neutral. */
+conversation-bar .conversation-add:hover,
+conversation-bar .conversation-box-new-button:hover {
+    color: var(--text-primary);
+    background-image: linear-gradient(var(--overlay-light-5), var(--overlay-light-5));
 }
 
 conversation-bar .conversation-tab,
@@ -663,13 +675,13 @@ conversation-bar .conversation-tabs.is-dragging .conversation-box-empty {
     transition: transform var(--transition-base);
 }
 
-/* The two rows that make something — the "+" at the top, the outline at the foot
-   — stand aside while a drag is on, and go the way the rest of the strip moves:
+/* The two rows that make something — "New conversation" at the top, "New workspace
+   or group" at the foot — stand aside while a drag is on, and go the way the rest of the strip moves:
    over the same 150ms, so the whole bar settles into the gesture as one thing.
    Cut between two frames they read as rows the strip had lost rather than as rows
    getting out of the way, and their leaving is the first thing a drag does.
 
-   `display` is in the list for the outline's sake, which is the only one of the
+   `display` is in the list for the foot row's sake, which is the only one of the
    two that changes it, and is why the list is written twice: `display` is
    discrete, so it is the one thing in the transition that has to wait for the
    rest of it, `allow-discrete` is what makes it wait — and an engine that doesn't
@@ -690,7 +702,7 @@ conversation-bar .conversation-add-item.stands-aside {
     pointer-events: none;
 }
 
-/* The outline goes the same way and gives up its space as well. It is the last
+/* The foot row goes the same way and gives up its space as well. It is the last
    row, so nothing above it moves when it goes — and it has to go, or a drop aimed
    past the last tab lands its placeholder below a row that is still there, with
    the row's height of empty strip between the list and the slot. The "+" keeps its
@@ -703,7 +715,7 @@ conversation-bar .conversation-box-new.stands-aside {
 }
 
 /* A row that isn't drawn has no state to come back from, so the way back in has
-   to be written down: this is where the outline's fade starts, both after a drag
+   to be written down: this is where the foot row's fade starts, both after a drag
    and the first time the strip draws it. */
 @starting-style {
     conversation-bar .conversation-box-new {
@@ -727,9 +739,8 @@ conversation-bar .conversation-tab-button {
     min-width: 0;
 }
 
-/* The "New conversation" button is drawn by the "New workspace or group" rules
-   above. While an empty list leaves nothing else to press, it alone wears the
-   accent, so it reads as the way out. */
+/* While an empty list leaves nothing else to press, the "New conversation"
+   button alone wears the accent, so it reads as the way out. */
 conversation-bar .conversation-add-labelled {
     color: var(--accent-green);
 }

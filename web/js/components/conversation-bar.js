@@ -96,9 +96,9 @@ const BOX_TOP_BAND_PX = 14;
 // Material "delete" (trash can) icon — the per-tab "move to bin" affordance.
 const BIN_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" height="1rem" viewBox="0 -960 960 960" width="1rem" fill="currentColor" aria-hidden="true"><path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/></svg>`;
 
-// Material "add" icon — the mark on the outline that makes a workspace. It sits
-// in the slot a tab keeps for its drag handle, so the words beside it line up
-// with the tab names below.
+// Material "add" icon — the mark on the rows that make a conversation and a
+// workspace. It stands in the column a tab keeps for its status circle, so the
+// words beside it line up with the tab names.
 const ADD_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" height="1rem" viewBox="0 -960 960 960" width="1rem" fill="currentColor" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg>`;
 
 // Material "undo" icon — the arrow on the bin toast's Undo button, matching the
@@ -112,7 +112,7 @@ const CHROME_ELEMENT_KEYS = new Set([
 ]);
 
 // The rows of the strip that make something rather than hold something: the "+"
-// at the top, which makes a conversation, and the outline at the foot, which
+// at the top, which makes a conversation, and the "+" at the foot, which
 // makes a workspace. They are the ends of the strip, and they stand aside
 // together for the length of a drag.
 const CREATE_ROW_KEYS = ['add-button', 'new-workspace'];
@@ -1079,13 +1079,12 @@ class ConversationBar extends JugglerElement {
     if (!addButton) {
       addButton = document.createElement('li');
       addButton.className = 'conversation-add-item';
-      // Drawn as the "New workspace or group" outline at the foot of the strip
-      // is, and from the same rules: the two rows that make something are one
-      // kind of thing.
+      // Drawn as a row of the list it adds to: the "+" in the status circle's
+      // column and the words where tab names start.
       addButton.innerHTML = `
         <button class="conversation-add" type="button"
                 title="New conversation" data-shortcut-id="new-conversation"
-                aria-label="Create new conversation">${ADD_ICON_SVG}<span class="conversation-box-new-label">New conversation</span></button>
+                aria-label="Create new conversation">${ADD_ICON_SVG}<span class="conversation-box-new-label"><span class="conversation-box-new-label-full">New conversation</span><span class="conversation-box-new-label-short">Conversation</span></span></button>
       `;
       this._cachedElements.set('add-button', addButton);
 
@@ -1103,13 +1102,9 @@ class ConversationBar extends JugglerElement {
     const addBtn = /** @type {HTMLElement|null} */ (addButton.querySelector('.conversation-add'));
     if (addBtn) addBtn.classList.toggle('conversation-add-labelled', conversations.length === 0);
 
-    // The way to make a workspace, drawn as an empty one. A box with a dashed
-    // edge and a name in it is the shape of the thing it makes, standing where
-    // that thing will stand, which is the whole of how the idea is introduced:
-    // the strip is two hundred pixels wide and has no room to explain what a
-    // workspace is, so it shows one instead. It is the outline of a container
-    // rather than another "+" beside the first, because what it makes holds
-    // conversations and the button above it makes one.
+    // The way to make a workspace: the last row of the strip, standing where
+    // the boxes it makes will stand. Drawn as the "+" at the top is — a row of
+    // the list, on the tabs' grid — so the two read as the ends of one list.
     let newWorkspace = /** @type {HTMLElement|null} */ (this._cachedElements.get('new-workspace'));
     if (!newWorkspace) {
       newWorkspace = document.createElement('li');
@@ -1117,7 +1112,7 @@ class ConversationBar extends JugglerElement {
       newWorkspace.innerHTML = `
         <button class="conversation-box-new-button" type="button"
                  title="Create a new workspace, or a group to keep conversations together"
-                 aria-label="New workspace or group">${ADD_ICON_SVG}<span class="conversation-box-new-label">New workspace or group</span></button>
+                 aria-label="New workspace or group">${ADD_ICON_SVG}<span class="conversation-box-new-label"><span class="conversation-box-new-label-full">New workspace or group</span><span class="conversation-box-new-label-short">Workspace/Group</span></span></button>
       `;
       this._cachedElements.set('new-workspace', newWorkspace);
       newWorkspace.querySelector('button')?.addEventListener('click', () => { void this._createWorkspace(); });
@@ -1201,7 +1196,7 @@ class ConversationBar extends JugglerElement {
       this._workspaceBoxes.delete(id);
     }
 
-    // Last in the strip, under the boxes it is the outline of. Placed after the
+    // Last in the strip, under the boxes it makes. Placed after the
     // reconciliation pass rather than in it: the pass walks a cursor through the
     // tabs and boxes it knows about, and this belongs to none of those runs — it
     // simply comes after all of them, however they end up ordered.
@@ -1416,7 +1411,7 @@ class ConversationBar extends JugglerElement {
    *
    * Neither is somewhere to land, and a drag is about the places something can
    * go — so while something is in the air they are only ever in the way, each in
-   * its own manner. The outline at the foot is in the way twice over: a drop
+   * its own manner. The row at the foot is in the way twice over: a drop
    * aimed at the bottom of the bar is aimed over it, and the placeholder a drag
    * past the end leaves behind is drawn below it. The "+" at the top is in the
    * way of the pointer, which passes over it holding a tab and lights it up on

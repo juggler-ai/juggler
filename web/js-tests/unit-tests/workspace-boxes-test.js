@@ -98,8 +98,9 @@ function stubSession(workspaces, bindings) {
 /**
  * The strip as it is drawn: each top-level entry, and what is inside a box.
  *
- * The two pieces of chrome pinned into the list — the "+" at the top and the
- * outline of a workspace at the bottom — are not entries and are left out.
+ * The two pieces of chrome pinned into the list — the "+" rows that make a
+ * conversation at the top and a workspace at the bottom — are not entries and
+ * are left out.
  * @param {any} bar - The mounted bar.
  * @returns {string} e.g. `ws_a{c1,c2} c3`.
  */
@@ -668,17 +669,20 @@ export async function runTests() {
         + `${JSON.stringify(label.querySelector('.conversation-box-label-text')?.textContent)}`);
     });
 
-    await check('the strip ends with the outline of a box to make', () => {
+    await check('the strip ends with a row that makes a box', () => {
       const menu = /** @type {HTMLElement} */ (bar.querySelector('.conversation-tabs'));
       const outlines = menu.querySelectorAll('.conversation-box-new');
       assert(outlines.length === 1,
         `there is one way to make a workspace in the strip, got ${outlines.length}`);
       assert(menu.lastElementChild === outlines[0],
-        'and it is the last thing in the list, under the boxes it is the outline of');
+        'and it is the last thing in the list, under the boxes it makes');
 
       const button = /** @type {HTMLElement} */ (outlines[0].querySelector('button'));
-      assert(button.textContent === 'New workspace or group',
-        `it says what it makes, in the words the boxes above it are named by, got ${JSON.stringify(button.textContent)}`);
+      const fullLabel = button.querySelector('.conversation-box-new-label-full')?.textContent;
+      assert(fullLabel === 'New workspace or group',
+        `it says what it makes, in the words the boxes above it are named by, got ${JSON.stringify(fullLabel)}`);
+      assert(button.getAttribute('aria-label') === 'New workspace or group',
+        'and is called that whichever form of the words a narrow strip shows');
 
       // A mark and a label, read as one phrase. The mark is drawn, not spelled:
       // a "+" in the text would be read out as one.
@@ -686,11 +690,11 @@ export async function runTests() {
       assert(mark?.getAttribute('aria-hidden') === 'true',
         'the mark is decoration beside the words, not part of what the button is called');
       const boxLabel = button.querySelector('.conversation-box-new-label');
-      assert(button.firstElementChild === mark && boxLabel?.textContent === 'New workspace or group',
+      assert(button.firstElementChild === mark && !!boxLabel?.contains(button.querySelector('.conversation-box-new-label-full')),
         'it leads with the mark and follows with the label');
 
       // It is not one of the things the strip is a list of: a drag looks for
-      // tabs and boxes, and an outline is neither.
+      // tabs and boxes, and this row is neither.
       const outline = /** @type {HTMLElement} */ (outlines[0]);
       const isTab = outline.classList.contains('conversation-tab');
       const isBox = outline.classList.contains('conversation-box');
@@ -710,30 +714,7 @@ export async function runTests() {
         `pressing it asks what kind to make, got ${asked} call(s)`);
     });
 
-    await check('a narrow strip wraps the outline\'s words instead of clipping them', () => {
-      const button = /** @type {HTMLElement} */ (bar.querySelector('.conversation-box-new-button'));
-      const label = /** @type {HTMLElement} */ (button.querySelector('.conversation-box-new-label'));
-      // The strip at the narrowest the panel can be dragged to.
-      const width = bar.style.width;
-      bar.style.width = '8rem';
-      try {
-        const lineHeight = parseFloat(getComputedStyle(label).lineHeight)
-          || parseFloat(getComputedStyle(label).fontSize) * 1.2;
-        assert(label.scrollWidth <= label.clientWidth + 0.5,
-          `every word is shown, none cut off at the edge, got ${label.scrollWidth}px of text in ${label.clientWidth}px`);
-        assert(label.getBoundingClientRect().height > lineHeight * 1.5,
-          `the words run onto a second line, got a label ${label.getBoundingClientRect().height}px tall `
-          + `for ${lineHeight}px lines`);
-        const outline = button.getBoundingClientRect();
-        const words = label.getBoundingClientRect();
-        assert(words.top >= outline.top && words.bottom <= outline.bottom,
-          'and the outline grows to hold them');
-      } finally {
-        bar.style.width = width;
-      }
-    });
-
-    await check('the outline survives a render, and stays last', () => {
+    await check('the workspace row survives a render, and stays last', () => {
       const menu = /** @type {HTMLElement} */ (bar.querySelector('.conversation-tabs'));
       const before = menu.querySelector('.conversation-box-new');
       bar.render();
@@ -748,7 +729,7 @@ export async function runTests() {
 
     await check('both ways to make something stand aside for a drag, and come back after it', () => {
       // Neither end of the strip is a place a tab can land, so while one is in
-      // the air both are only in the way. The outline is the last row, so a tab
+      // the air both are only in the way. The workspace row is the last, so a tab
       // dragged to the foot of the bar has to be let go over something that will
       // not take it, and the drag's own placeholder ends up below it. The "+" is
       // the row the pointer crosses on the way there, and a pointer the gesture
@@ -792,8 +773,8 @@ export async function runTests() {
 
       const tab = /** @type {HTMLElement} */ (menu.querySelector('.conversation-tab'));
       assert(duringDrag(tab, (press) => bar._startDrag(press, tab)),
-        'a tab is dragged about a strip of places it can land, and neither the "+" nor the outline of a '
-        + 'box to make is one of them — so neither is in the way while one is in the air');
+        'a tab is dragged about a strip of places it can land, and neither the "+" nor the row that makes a '
+        + 'box is one of them — so neither is in the way while one is in the air');
       assert(!aside(outline) && !aside(plus),
         'and both are back as soon as the gesture is over, abandoned or not');
 
@@ -828,7 +809,7 @@ export async function runTests() {
           + 'across it from leaving it lit');
 
         assert(getComputedStyle(outline).display === 'none',
-          'the outline leaves the layout, so a drop past the last tab does not land a placeholder below '
+          'the workspace row leaves the layout, so a drop past the last tab does not land a placeholder below '
           + 'a row that is still taking up the foot of the strip');
         assert(plus.getBoundingClientRect().height > 0,
           'the "+" keeps its space — it is the first row, and every tab below it would jump the moment '

@@ -561,10 +561,10 @@ func TestProviderUnavailableSurfacedAsValidationError(t *testing.T) {
 		ctxResp, _ := json.Marshal(map[string]any{"type": "render-context-items-result", "systemPrompt": "sys", "contexts": []any{}})
 		toolsResp, _ := json.Marshal(map[string]any{"type": "tools-result", "tools": []any{}})
 		for {
-			if !w.contextReply.inject(done, ctxResp) {
+			if !w.engine.contextReply.inject(done, ctxResp) {
 				return
 			}
-			if !w.toolsReply.inject(done, toolsResp) {
+			if !w.engine.toolsReply.inject(done, toolsResp) {
 				return
 			}
 		}
@@ -692,10 +692,10 @@ func assertUserFixableFailure(t *testing.T, failErr error, wantCode, wantKind, h
 		ctxResp, _ := json.Marshal(map[string]any{"type": "render-context-items-result", "systemPrompt": "sys", "contexts": []any{}})
 		toolsResp, _ := json.Marshal(map[string]any{"type": "tools-result", "tools": []any{}})
 		for {
-			if !w.contextReply.inject(done, ctxResp) {
+			if !w.engine.contextReply.inject(done, ctxResp) {
 				return
 			}
-			if !w.toolsReply.inject(done, toolsResp) {
+			if !w.engine.toolsReply.inject(done, toolsResp) {
 				return
 			}
 		}

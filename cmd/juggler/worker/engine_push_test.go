@@ -108,10 +108,10 @@ func TestToolTurnPushesStateToEngine(t *testing.T) {
 			Tools: []ToolDefinition{{Name: "bash"}},
 		})
 		for {
-			if !w.contextReply.inject(done, ctxResp) {
+			if !w.engine.contextReply.inject(done, ctxResp) {
 				return
 			}
-			if !w.toolsReply.inject(done, toolsResp) {
+			if !w.engine.toolsReply.inject(done, toolsResp) {
 				return
 			}
 		}

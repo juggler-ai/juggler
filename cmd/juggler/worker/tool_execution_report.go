@@ -25,11 +25,9 @@ type execReport struct {
 // handleToolExecutionReport ingests a tool-execution-report from the engine
 // (INV-B). It runs on the run goroutine, so the report store needs no lock.
 //
-// Accept-gate: a report is evidence only if it came from the CURRENTLY-attached
-// engine client (OriginClient identity fence — a viewer or a superseded engine
-// connection is rejected) and carries a seq newer than the last accepted one
-// (duplicate/reorder fence). On an engine change the stored reports are dropped
-// so a new engine's early report can't be compared against a dead engine's.
+// The accept-gate is engineSession.admitReport: a report is evidence only if it
+// came from the CURRENTLY-attached engine client and carries a seq newer than the
+// last accepted one. Both outcomes go on the tape.
 func (w *ConversationWorker) handleToolExecutionReport(payload json.RawMessage, originClient string) {
 	var msg struct {
 		Seq       int64 `json:"seq"`
@@ -43,48 +41,30 @@ func (w *ConversationWorker) handleToolExecutionReport(payload json.RawMessage, 
 		return
 	}
 
-	// Identity fence: only the current engine's reports are admissible.
-	engineID := w.callbacks.engineClientID()
-	if engineID == "" || originClient != engineID {
-		w.tape.Record("exec-report-rejected", map[string]any{
-			"reason": "origin", "from": originClient, "seq": msg.Seq,
-		})
-		return
-	}
-
-	// Engine (re)attach: a different engine than the stored reports came from —
-	// drop the old state and reset the seq fence before applying this one.
-	if originClient != w.execReportClient {
-		w.execReportClient = originClient
-		w.lastExecReport = nil
-		w.prevExecReport = nil
-		w.execReportSeq = 0
-	}
-
-	// Duplicate/reorder fence. On one ordered channel this shouldn't regress, but
-	// it costs one integer compare and closes the door on a replayed frame.
-	if msg.Seq <= w.execReportSeq {
-		w.tape.Record("exec-report-rejected", map[string]any{
-			"reason": "seq", "seq": msg.Seq, "last": w.execReportSeq,
-		})
-		return
-	}
-	w.execReportSeq = msg.Seq
-
 	ids := make(map[string]int64, len(msg.Executing))
 	for _, e := range msg.Executing {
 		if e.ToolUseID != "" {
 			ids[e.ToolUseID] = e.RunningEpoch
 		}
 	}
-	w.prevExecReport = w.lastExecReport
-	w.lastExecReport = &execReport{
+	report := &execReport{
 		receivedAt: time.Now(),
 		sentAtMs:   msg.SentAt,
 		seq:        msg.Seq,
 		ids:        ids,
 	}
-	w.tape.Record("exec-report", map[string]any{"seq": msg.Seq, "count": len(ids)})
+	switch reason, last := w.engine.admitReport(originClient, w.callbacks.engineClientID(), report); reason {
+	case "":
+		w.tape.Record("exec-report", map[string]any{"seq": msg.Seq, "count": len(ids)})
+	case "origin":
+		w.tape.Record("exec-report-rejected", map[string]any{
+			"reason": reason, "from": originClient, "seq": msg.Seq,
+		})
+	default:
+		w.tape.Record("exec-report-rejected", map[string]any{
+			"reason": reason, "seq": msg.Seq, "last": last,
+		})
+	}
 }
 
 // finalizeToolsAbsentFromExecReport is the level-based liveness rule (INV-B/C),
@@ -101,20 +81,10 @@ func (w *ConversationWorker) finalizeToolsAbsentFromExecReport() {
 }
 
 func (w *ConversationWorker) finalizeToolsAbsentFromExecReportExcept(liveThreads map[string]bool) {
-	// Cond 1: an engine must be attached AND the last accepted report must be fresh.
-	if !w.callbacks.engineAttached() || w.lastExecReport == nil {
-		return
-	}
-	now := time.Now()
-	if now.Sub(w.lastExecReport.receivedAt) > execReportFreshMs*time.Millisecond {
-		return // engine went quiet — orphan recovery belongs to the reattach path
-	}
-	// Cond 5 (belt): require a second, also-recent accepted report. Two consecutive
-	// reports converts any future regression of the ordering/contiguity assumptions
-	// from "wrongly finalize a completed tool" into a no-op (the terminal write lands
-	// between the two reports).
-	if w.prevExecReport == nil ||
-		now.Sub(w.prevExecReport.receivedAt) > 2*execReportFreshMs*time.Millisecond {
+	// Cond 1: an engine must be attached and its last accepted report fresh.
+	// Cond 5 (belt): a second, also-recent accepted report. Both report
+	// conditions are engineSession.reportsCurrent, whose doc says why.
+	if !w.callbacks.engineAttached() || !w.engine.reportsCurrent(time.Now()) {
 		return
 	}
 
@@ -156,10 +126,7 @@ func (w *ConversationWorker) finalizeToolsAbsentFromExecReportExcept(liveThreads
 		epoch, _ := docNumberToInt64(m.Get("runningEpoch"))
 		started, _ := docNumberToInt64(m.Get("runningStartedAt"))
 		// Cond 3+4 must hold for BOTH consecutive reports (the belt).
-		if !absentFromReport(w.lastExecReport, id, epoch, started) {
-			return false
-		}
-		if !absentFromReport(w.prevExecReport, id, epoch, started) {
+		if !w.engine.provesAbsent(id, epoch, started) {
 			return false
 		}
 		cands = append(cands, cand{id: id, epoch: epoch})

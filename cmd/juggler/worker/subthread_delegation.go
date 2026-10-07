@@ -159,7 +159,7 @@ func (r *run) tryDelegateTool(toolUseID, toolName string, toolInput json.RawMess
 	}
 
 	requestID := generateRequestID()
-	reply, unregister := r.subthreadSpecReply.register(requestID)
+	reply, unregister := r.engine.subthreadSpecReply.register(requestID)
 	defer unregister()
 	r.dispatchBuildSubthreadSpec(requestID, toolUseID, toolName, toolInput)
 	spec, ok := r.waitForSubthreadSpec(requestID, reply, SubthreadSpecTimeout)

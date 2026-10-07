@@ -107,7 +107,7 @@ func startDelegatingWorker(t *testing.T, mc *msgChan, tools []ToolDefinition, sp
 				RequestID: head.RequestID,
 				Spec:      nextSpec(),
 			})
-			w.subthreadSpecReply.inject(w.done, payload)
+			w.engine.subthreadSpecReply.inject(w.done, payload)
 		}
 	})
 	w.SetEngineClientID("engine")

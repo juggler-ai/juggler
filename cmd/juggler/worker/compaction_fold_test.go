@@ -30,10 +30,10 @@ func feedCompactionContextAndTools(w *ConversationWorker, tools ...ToolDefinitio
 		})
 		toolsResponse, _ := json.Marshal(ToolsResultMessage{Type: "tools-result", Tools: tools})
 		for {
-			if !w.contextReply.inject(w.done, contextResponse) {
+			if !w.engine.contextReply.inject(w.done, contextResponse) {
 				return
 			}
-			if !w.toolsReply.inject(w.done, toolsResponse) {
+			if !w.engine.toolsReply.inject(w.done, toolsResponse) {
 				return
 			}
 		}

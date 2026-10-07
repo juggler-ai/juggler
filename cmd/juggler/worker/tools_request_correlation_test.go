@@ -162,10 +162,10 @@ func TestOnlyOneToolsReplyPerRequestIsAccepted(t *testing.T) {
 		return payload
 	}
 
-	reply, unregister := w.toolsReply.register("the-in-flight-request")
+	reply, unregister := w.engine.toolsReply.register("the-in-flight-request")
 	defer unregister()
 	w.handleToolsResult(toolsResult("first-client"))
-	if w.toolsReply.held() != 1 {
+	if w.engine.toolsReply.held() != 1 {
 		t.Fatal("the first answer to the in-flight request must be accepted")
 	}
 	<-reply // the turn reads its answer

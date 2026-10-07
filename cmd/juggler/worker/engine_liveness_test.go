@@ -95,7 +95,7 @@ func TestEngineMute_ToolIsNotBlamed(t *testing.T) {
 	insertApprovedTool(h)
 
 	// The engine registered (SetEngineClientID in the harness) and never traced.
-	if !h.w.lastEngineTraceAt.IsZero() {
+	if !h.w.engine.lastTraceAt.IsZero() {
 		t.Fatal("harness precondition: engine must not have traced")
 	}
 
@@ -183,7 +183,7 @@ func TestEngineWentSilentMidPhase_ToolIsNotBlamed(t *testing.T) {
 	// tool still executing would keep the conversation-wide signal just as warm.
 	h.w.driveToolActions()
 	h.w.tools.recordTrace("tu-1", "evaluate-done", "", time.Now())
-	h.w.lastEngineTraceAt = time.Now()
+	h.w.engine.lastTraceAt = time.Now()
 
 	for i := 0; i <= maxToolCommandAttempts+1; i++ {
 		h.w.driveToolActions()
@@ -219,7 +219,7 @@ func TestEngineTrace_StampsThePerToolReceipt(t *testing.T) {
 		t.Fatal("an engine-trace naming tu-1 did not stamp tu-1's receipt — check " +
 			"the toolUseId field name against sendEngineTrace in the engine")
 	}
-	if h.w.lastEngineTraceAt.IsZero() {
+	if h.w.engine.lastTraceAt.IsZero() {
 		t.Fatal("engine-trace must still stamp the conversation-wide receipt")
 	}
 	if !h.w.tools.lastTracedAt("tu-other").IsZero() {

@@ -43,10 +43,10 @@ func newTruncationWorker(t *testing.T, convID string) *ConversationWorker {
 				return
 			default:
 			}
-			if !w.contextReply.inject(w.done, ctxResp) {
+			if !w.engine.contextReply.inject(w.done, ctxResp) {
 				return
 			}
-			if !w.toolsReply.inject(w.done, toolsResp) {
+			if !w.engine.toolsReply.inject(w.done, toolsResp) {
 				return
 			}
 		}

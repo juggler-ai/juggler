@@ -17,11 +17,11 @@ func TestEveryReplySlotRoutesConcurrentRequestsByID(t *testing.T) {
 	w := NewConversationWorker("conv-slots", "user:test")
 	t.Cleanup(func() { w.doc.Destroy() })
 
-	if len(w.replySlots) == 0 {
+	if len(w.engine.replySlots()) == 0 {
 		t.Fatal("the worker registered no reply slots; this test would pass by vacuum")
 	}
 
-	for _, slot := range w.replySlots {
+	for _, slot := range w.engine.replySlots() {
 		t.Run(slot.name, func(t *testing.T) {
 			answer := func(requestID, client string) json.RawMessage {
 				payload, _ := json.Marshal(map[string]any{
@@ -79,7 +79,7 @@ func TestInjectQueuesAtMostOneUnclaimedReply(t *testing.T) {
 	abort := make(chan struct{})
 	t.Cleanup(func() { close(abort) })
 
-	slot := w.contextReply
+	slot := w.engine.contextReply
 	accepted := make(chan struct{}, 100)
 	go func() {
 		for i := 0; i < cap(accepted); i++ {

@@ -176,7 +176,7 @@ func newDelegationHarnessTools(t *testing.T, specs []*SubthreadSpec, mocks []Moc
 				RequestID: head.RequestID,
 				Spec:      spec(),
 			})
-			w.subthreadSpecReply.inject(w.done, resp)
+			w.engine.subthreadSpecReply.inject(w.done, resp)
 		}
 		// A spec carrying a StrategyID makes the child's first turn activate it,
 		// which blocks on this hook. Answer with no guidance so activation
@@ -186,7 +186,7 @@ func newDelegationHarnessTools(t *testing.T, specs []*SubthreadSpec, mocks []Moc
 				Type:      "strategy-hook-response",
 				RequestID: head.RequestID,
 			})
-			w.strategyHookReply.inject(w.done, resp)
+			w.engine.strategyHookReply.inject(w.done, resp)
 		}
 	})
 	w.SetEngineClientID("engine")
@@ -202,10 +202,10 @@ func newDelegationHarnessTools(t *testing.T, specs []*SubthreadSpec, mocks []Moc
 			Tools: []ToolDefinition{tool},
 		})
 		for {
-			if !w.contextReply.inject(w.done, ctxResp) {
+			if !w.engine.contextReply.inject(w.done, ctxResp) {
 				return
 			}
-			if !w.toolsReply.inject(w.done, toolsResp) {
+			if !w.engine.toolsReply.inject(w.done, toolsResp) {
 				return
 			}
 		}
@@ -745,7 +745,7 @@ func delegationCapWorker(t *testing.T, spec func() *SubthreadSpec) *Conversation
 			RequestID: head.RequestID,
 			Spec:      spec(),
 		})
-		w.subthreadSpecReply.inject(w.done, resp)
+		w.engine.subthreadSpecReply.inject(w.done, resp)
 	})
 	w.SetEngineClientID("engine")
 	w.turn.delegatingTools = map[string]delegatingTool{"WebFetch": {}}

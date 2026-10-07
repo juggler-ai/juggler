@@ -108,7 +108,7 @@ func (r *run) maybeActivateStrategy() {
 		return
 	}
 	requestID := generateRequestID()
-	reply, unregister := r.strategyHookReply.register(requestID)
+	reply, unregister := r.engine.strategyHookReply.register(requestID)
 	defer unregister()
 	r.dispatchStrategyHook(requestID, "onActivate", current, threadID, activated)
 	guidance, ok := r.waitForStrategyHook(requestID, reply, StrategyHookTimeout)

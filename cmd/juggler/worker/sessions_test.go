@@ -155,8 +155,8 @@ func TestCreateThreadSessionResumesSameThread(t *testing.T) {
 			Tools: []ToolDefinition{{Name: "create_thread"}},
 		})
 		for i := 0; i < 5; i++ {
-			w.contextReply.inject(w.done, ctxResponse)
-			w.toolsReply.inject(w.done, toolsResponse)
+			w.engine.contextReply.inject(w.done, ctxResponse)
+			w.engine.toolsReply.inject(w.done, toolsResponse)
 		}
 	}()
 

@@ -58,10 +58,10 @@ type countReplies struct {
 	result chan int
 }
 
-// newReplySlot builds and registers the registry for a named request type.
-func (w *ConversationWorker) newReplySlot(name string) *replySlot {
-	s := &replySlot{name: name, commands: make(chan any), done: w.done}
-	w.replySlots = append(w.replySlots, s)
+// newReplySlot builds and starts the registry for a named request type. It
+// stops when done closes.
+func newReplySlot(name string, done <-chan struct{}) *replySlot {
+	s := &replySlot{name: name, commands: make(chan any), done: done}
 	go s.run()
 	return s
 }

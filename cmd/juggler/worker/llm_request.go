@@ -59,7 +59,7 @@ func (r *run) requestContextAndToolsForItemIDs(itemIDs []string) (*ContextResult
 	if len(itemIDs) > 0 {
 		rid := generateRequestID()
 		var unregister func()
-		contextReply, unregister = r.contextReply.register(rid)
+		contextReply, unregister = r.engine.contextReply.register(rid)
 		defer unregister()
 		r.sendRenderContextItemsRequest(rid, itemIDs)
 	}
@@ -69,7 +69,7 @@ func (r *run) requestContextAndToolsForItemIDs(itemIDs []string) (*ContextResult
 	// which is also why the slot accepts only this request's answer: another
 	// request's describes another thread's tools.
 	toolsRequestID := generateRequestID()
-	toolsReply, unregisterTools := r.toolsReply.register(toolsRequestID)
+	toolsReply, unregisterTools := r.engine.toolsReply.register(toolsRequestID)
 	defer unregisterTools()
 	r.send(map[string]any{
 		"type":         "request-tools",

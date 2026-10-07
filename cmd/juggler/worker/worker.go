@@ -71,51 +71,6 @@ type elapsedAnchor struct {
 	lastLivenessMs int64
 }
 
-// engineRPC holds the worker's request/reply round-trips with the clients and
-// the engine — one slot each, named for the request it answers. The
-// correlation every one of them needs lives in reply_slot.go.
-type engineRPC struct {
-	// replySlots holds them all, in construction order, so a test can check the
-	// whole set rather than the ones someone thought to list.
-	replySlots        []*replySlot
-	contextReply      *replySlot
-	toolsReply        *replySlot
-	strategyHookReply *replySlot
-	// The subthread-delegation round-trip is engine-targeted: the worker asks
-	// the engine to build a SubthreadSpec for a delegating tool.
-	subthreadSpecReply *replySlot
-}
-
-// engineLiveness is the evidence the worker has that the attached engine is
-// actually running its tool-command handlers: the two most recent accepted
-// tool-execution reports (the finalize rule needs a wedge absent from BOTH),
-// the fence that rejects stale or duplicate reports, the engine those reports
-// came from, and when a trace last arrived.
-//
-// Run goroutine only (set in handleToolExecutionReport / handleEngineTrace,
-// read in finalizeToolsAbsentFromExecReport / escalateStaleToolCommand).
-type engineLiveness struct {
-	// Level-based tool-liveness (tool-execution-report, INV-B/C). lastExecReport and
-	// prevExecReport hold the two most recent ACCEPTED reports from the attached
-	// engine — the finalize rule requires a wedge to be absent from BOTH (the
-	// 2-consecutive belt). execReportSeq fences stale/duplicate reports (per engine
-	// client); execReportClient is the engine the stored reports came from, so the
-	// state is dropped when a different engine attaches. Run goroutine only (set in
-	// handleToolExecutionReport, read in finalizeToolsAbsentFromExecReport).
-	lastExecReport   *execReport
-	prevExecReport   *execReport
-	execReportSeq    int64
-	execReportClient string
-	// lastEngineTraceAt is when this worker last received an engine-trace for this
-	// conversation (handleEngineTrace). Purely diagnostic: it is the worker's only
-	// evidence that the engine is reaching its tool-command handlers at all, so
-	// escalateStaleToolCommand reports it — "never" separates an engine that never
-	// received the command (or is wedged before its handlers) from one that
-	// received it and declined to act, which the trace itself then explains. Zero
-	// until the first trace arrives. Run goroutine only.
-	lastEngineTraceAt time.Time
-}
-
 // undoCoalescer is the undo/history machinery: the two "collapse everything
 // added since this index into one entry" marks, and the two suppressions that
 // stop a history step from being read as fresh user intent.
@@ -248,8 +203,6 @@ type ConversationWorker struct {
 	// Grouped state, embedded so every call site still reads w.<field>.
 	// See each type for what it owns and which goroutine may touch it.
 	elapsedAnchor
-	engineRPC
-	engineLiveness
 	undoCoalescer
 	persistence
 	toolDrive
@@ -377,25 +330,12 @@ type ConversationWorker struct {
 	// Whether handleInit has been called at least once (first-init vs reconnect)
 	initialized bool
 
-	// engineDocVector is the Yjs state vector pushStateToEngine believes the
-	// attached engine holds, and so the point its next push encodes a delta
-	// from. Nil means "the engine holds nothing we can build on", which is the
-	// only case that sends full state.
-	//
-	// It is advanced to the doc's own vector after each push rather than learnt
-	// from the engine, because the engine never reports one unprompted. That is
-	// safe in both directions: the push carries every op up to that vector
-	// through the engine's ordered mailbox, and ops the doc gains afterwards
-	// reach the engine on the ordinary broadcast path, so a vector that lags the
-	// engine's true one only re-sends a few ops it can already integrate.
-	//
-	// Two things invalidate it, and both must, because a delta is worthless to a
-	// peer without the base it builds on: a different engine attaching
-	// (SetEngineClientID) and the engine itself reporting it does not hold this
-	// conversation (a conv-not-loaded trace — the engine can release a loaded
-	// conversation without dropping its socket, so attachment alone is not
-	// evidence it still has the document). Run goroutine only.
-	engineDocVector []byte
+	// engine is the worker's side of its relationship with the attached engine:
+	// the client round-trips, the evidence the engine is running its tool-command
+	// handlers, and what the engine is believed to hold of the document. See
+	// engine_session.go, which owns every rule here. Held by name rather than
+	// embedded, so its state is reached through its methods.
+	engine engineSession
 
 	// activityAsserted tracks whether this worker is currently holding an
 	// osactivity assertion (App Nap defeat). Set when the first turn is
@@ -560,13 +500,9 @@ func NewConversationWorker(conversationID, authorID string) *ConversationWorker 
 			undoCoalesceFromIdx:    -1,
 		},
 	}
-	// The client round-trips, each named for the request it answers. Created
-	// after w.done, which they share so a blocked test client is released when
-	// the worker stops.
-	w.contextReply = w.newReplySlot("render-context-items-request")
-	w.toolsReply = w.newReplySlot("request-tools")
-	w.strategyHookReply = w.newReplySlot("run-strategy-hook")
-	w.subthreadSpecReply = w.newReplySlot("build-subthread-spec")
+	// Created after w.done, which its reply slots share so a blocked test client
+	// is released when the worker stops.
+	w.engine = newEngineSession(w.done)
 
 	// Unbounded, order-preserving intake. Created after w.done so the pump's
 	// lifetime is tied to the worker; Send enqueues here so it never drops.
@@ -733,10 +669,10 @@ func (w *ConversationWorker) RemoveCallback(clientID string) {
 // SetEngineClientID tells this worker which client is the engine (the single
 // tool executor), so pushStateToEngine can target it. "" detaches.
 func (w *ConversationWorker) SetEngineClientID(clientID string) {
-	// The incoming engine has observed none of this conversation's ops, so the
-	// vector describing what the previous one held describes nothing now. Drop it
-	// and let the next push re-seed full state.
-	w.engineDocVector = nil
+	// The incoming engine has observed none of this conversation's ops, so what
+	// the previous one held describes nothing now. The next push re-seeds full
+	// state.
+	w.engine.forgetDocument()
 	w.callbacks.setEngine(clientID)
 }
 
@@ -754,8 +690,9 @@ func (w *ConversationWorker) SetEngineClientID(clientID string) {
 // no engine is attached or the doc isn't loaded yet.
 //
 // Only the FIRST push to a given engine is the whole document; the rest are
-// deltas against engineDocVector. Seeding a peer that holds nothing takes full
-// state, but repeating it does not, and this fires once per tool-action
+// deltas against what the engine was last sent (engineSession.nextPush).
+// Seeding a peer that holds nothing takes full state, but repeating it does
+// not, and this fires once per tool-action
 // dispatched plus once per redrive interval per unanswered tool — so on a
 // conversation with large tool results the full-document form re-encoded,
 // base64'd and shipped megabytes down a loopback socket (where permessage-
@@ -772,23 +709,9 @@ func (w *ConversationWorker) pushStateToEngine() {
 	if !w.initialized {
 		return
 	}
-	if w.engineDocVector == nil {
-		state := w.doc.ToState()
-		if len(state) == 0 {
-			// Nothing to seed from yet, so claim nothing: the next push retries
-			// full state rather than sending a delta against a base the engine
-			// was never given.
-			return
-		}
-		w.callbacks.sendToEngine(marshalYjsSync(state, false))
-		w.engineDocVector = w.doc.GetStateVector()
-		return
+	if update, ok := w.engine.nextPush(w.doc); ok {
+		w.callbacks.sendToEngine(marshalYjsSync(update, false))
 	}
-	// Both doc reads happen on the run goroutine, which is also the only goroutine
-	// that mutates the doc, so the vector recorded is exactly the one the delta
-	// brings the engine to.
-	w.callbacks.sendToEngine(marshalYjsSync(w.doc.GetStateUpdate(w.engineDocVector), false))
-	w.engineDocVector = w.doc.GetStateVector()
 }
 
 // SetLLMCaller sets the function used to call the LLM provider directly.

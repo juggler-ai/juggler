@@ -579,7 +579,7 @@ func (w *ConversationWorker) engineLivenessSummary(id string) (engine, lastTrace
 		}
 		return time.Since(t).Round(time.Second).String() + " ago"
 	}
-	return engine, age(w.lastEngineTraceAt), age(w.tools.lastTracedAt(id))
+	return engine, age(w.engine.lastTrace()), age(w.tools.lastTracedAt(id))
 }
 
 // escalateStaleToolCommand fails a tool whose engine command stayed stuck at the

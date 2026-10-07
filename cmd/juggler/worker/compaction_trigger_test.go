@@ -1287,10 +1287,10 @@ func TestContextRecoveryRetriesRejectedTurnAboveAdvisoryLimit(t *testing.T) {
 		})
 		toolsResp, _ := json.Marshal(map[string]any{"type": "tools-result", "tools": []any{}})
 		for {
-			if !w.contextReply.inject(w.done, ctxResp) {
+			if !w.engine.contextReply.inject(w.done, ctxResp) {
 				return
 			}
-			if !w.toolsReply.inject(w.done, toolsResp) {
+			if !w.engine.toolsReply.inject(w.done, toolsResp) {
 				return
 			}
 		}
@@ -1563,10 +1563,10 @@ func TestToolResultPushingNextCallOverContextRecovers(t *testing.T) {
 			Tools: []ToolDefinition{{Name: "bash"}},
 		})
 		for {
-			if !w.contextReply.inject(w.done, ctxResp) {
+			if !w.engine.contextReply.inject(w.done, ctxResp) {
 				return
 			}
-			if !w.toolsReply.inject(w.done, toolsResp) {
+			if !w.engine.toolsReply.inject(w.done, toolsResp) {
 				return
 			}
 		}

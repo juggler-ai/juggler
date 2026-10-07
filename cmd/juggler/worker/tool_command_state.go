@@ -188,7 +188,7 @@ var engineUnreachableReasons = map[string]bool{
 // CONVERSATION rather than the tool: the engine holds no loaded copy of it. The
 // other unreachable reasons say the engine has the document but could not find
 // the tool within it, so only this one invalidates what the worker believes the
-// engine's document contains (handleEngineTrace → engineDocVector).
+// engine's document contains (handleEngineTrace → engineSession.forgetDocument).
 const engineReasonConvNotLoaded = "conv-not-loaded"
 
 // engineLivenessOnlyEvents are engine traces that prove the engine received a

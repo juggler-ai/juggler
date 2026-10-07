@@ -172,8 +172,8 @@ func TestExecReport_StaleReportNoFinalize(t *testing.T) {
 	sendExecReport(w, "engine", 1, 5000, map[string]int64{})
 	sendExecReport(w, "engine", 2, 6000, map[string]int64{})
 	// Backdate both accepted reports well past the freshness window.
-	w.lastExecReport.receivedAt = time.Now().Add(-30 * time.Second)
-	w.prevExecReport.receivedAt = time.Now().Add(-33 * time.Second)
+	w.engine.lastReport.receivedAt = time.Now().Add(-30 * time.Second)
+	w.engine.prevReport.receivedAt = time.Now().Add(-33 * time.Second)
 
 	w.finalizeToolsAbsentFromExecReport()
 	if got := toolState(w, "tu-1"); got != StateRunning {
@@ -188,7 +188,7 @@ func TestExecReport_ViewerOriginRejected(t *testing.T) {
 	w := h.w
 
 	sendExecReport(w, "viewer-7", 1, 5000, map[string]int64{})
-	if w.lastExecReport != nil {
+	if w.engine.lastReport != nil {
 		t.Fatal("a non-engine-origin report must be rejected and store no state")
 	}
 }
@@ -202,10 +202,10 @@ func TestExecReport_StaleSeqRejected(t *testing.T) {
 	sendExecReport(w, "engine", 5, 5000, map[string]int64{"tu-x": 1})
 	sendExecReport(w, "engine", 3, 6000, map[string]int64{}) // stale seq — rejected
 
-	if w.execReportSeq != 5 {
-		t.Fatalf("stale-seq report must not advance the fence: want seq 5, got %d", w.execReportSeq)
+	if w.engine.reportSeq != 5 {
+		t.Fatalf("stale-seq report must not advance the fence: want seq 5, got %d", w.engine.reportSeq)
 	}
-	if w.lastExecReport == nil || w.lastExecReport.seq != 5 {
+	if w.engine.lastReport == nil || w.engine.lastReport.seq != 5 {
 		t.Fatal("stale-seq report must not replace the last accepted report")
 	}
 }
@@ -226,10 +226,10 @@ func TestExecReport_EngineAttachClearsState(t *testing.T) {
 	w.SetEngineClientID("engine2")
 	sendExecReport(w, "engine2", 1, 7000, map[string]int64{})
 
-	if w.execReportClient != "engine2" {
-		t.Fatalf("report state should now belong to engine2, got %q", w.execReportClient)
+	if w.engine.reportClient != "engine2" {
+		t.Fatalf("report state should now belong to engine2, got %q", w.engine.reportClient)
 	}
-	if w.prevExecReport != nil {
+	if w.engine.prevReport != nil {
 		t.Fatal("attach must clear the previous engine's reports (no belt from a dead engine)")
 	}
 	w.finalizeToolsAbsentFromExecReport()

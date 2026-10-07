@@ -438,10 +438,10 @@ func feedStrategyContextAndTools(w *ConversationWorker) {
 	})
 	toolsResp, _ := json.Marshal(map[string]any{"type": "tools-result", "tools": []any{}})
 	for {
-		if !w.contextReply.inject(w.done, ctxResp) {
+		if !w.engine.contextReply.inject(w.done, ctxResp) {
 			return
 		}
-		if !w.toolsReply.inject(w.done, toolsResp) {
+		if !w.engine.toolsReply.inject(w.done, toolsResp) {
 			return
 		}
 	}
@@ -863,10 +863,10 @@ func TestContextRecoveryNoProgressErrorItemPreservesProviderCause(t *testing.T) 
 		})
 		toolsResp, _ := json.Marshal(map[string]any{"type": "tools-result", "tools": []any{}})
 		for {
-			if !w.contextReply.inject(w.done, ctxResp) {
+			if !w.engine.contextReply.inject(w.done, ctxResp) {
 				return
 			}
-			if !w.toolsReply.inject(w.done, toolsResp) {
+			if !w.engine.toolsReply.inject(w.done, toolsResp) {
 				return
 			}
 		}

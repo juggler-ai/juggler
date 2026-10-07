@@ -784,20 +784,20 @@ func (r *run) handleCancel(reason cancelReason) {
 
 func (w *ConversationWorker) handleRenderContextItemsResponse(payload json.RawMessage) {
 	reportRoundTrip("context", payload)
-	w.contextReply.deliver(payload)
+	w.engine.contextReply.deliver(payload)
 }
 
 func (w *ConversationWorker) handleToolsResult(payload json.RawMessage) {
 	reportRoundTrip("tools", payload)
-	w.toolsReply.deliver(payload)
+	w.engine.toolsReply.deliver(payload)
 }
 
 func (w *ConversationWorker) handleStrategyHookResponse(payload json.RawMessage) {
-	w.strategyHookReply.deliver(payload)
+	w.engine.strategyHookReply.deliver(payload)
 }
 
 func (w *ConversationWorker) handleBuildSubthreadSpecResponse(payload json.RawMessage) {
-	w.subthreadSpecReply.deliver(payload)
+	w.engine.subthreadSpecReply.deliver(payload)
 }
 
 func (r *run) handleYjsSync(payload json.RawMessage) {
@@ -1017,7 +1017,7 @@ const engineTraceToolOverdue = "tool-overdue"
 // Recover it with the file log when diagnosing a wedge.
 //
 // The payload is diagnostic, but the RECEIPT is not: the arrival time is stamped
-// on the worker (lastEngineTraceAt) and is the evidence that the engine is
+// on the worker (engineSession.noteTrace) and is the evidence that the engine is
 // reaching its handlers at all. driveToolActions requires it before failing a
 // tool for going unhandled, so that a command which never reached the engine is
 // never reported as the tool's fault (see answeredSincePrevDispatch).
@@ -1037,7 +1037,7 @@ const engineTraceToolOverdue = "tool-overdue"
 // logged raw, so fields the engine adds appear without a Go change.
 func (w *ConversationWorker) handleEngineTrace(payload json.RawMessage) {
 	now := time.Now()
-	w.lastEngineTraceAt = now
+	w.engine.noteTrace(now)
 	var probe struct {
 		Event     string  `json:"event"`
 		ToolUseID string  `json:"toolUseId"`
@@ -1074,7 +1074,7 @@ func (w *ConversationWorker) handleEngineTrace(payload json.RawMessage) {
 		// full state. Deliberately NOT routed through recordTrace, which ignores
 		// any toolUseId not currently under command: a decline for a tool the
 		// worker has stopped driving still proves the document is gone.
-		w.engineDocVector = nil
+		w.engine.forgetDocument()
 	}
 	if decoded && probe.Event == engineTraceToolOverdue {
 		// The one engine-trace that is not merely part of a lifecycle: the engine's

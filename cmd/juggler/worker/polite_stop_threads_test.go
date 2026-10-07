@@ -48,14 +48,14 @@ func feedContextAndTools(t *testing.T, w *ConversationWorker) {
 	toolsResp, _ := json.Marshal(map[string]any{"type": "tools-result", "tools": []any{}})
 	go func() {
 		for {
-			if !w.contextReply.inject(stop, ctxResp) {
+			if !w.engine.contextReply.inject(stop, ctxResp) {
 				return
 			}
 		}
 	}()
 	go func() {
 		for {
-			if !w.toolsReply.inject(stop, toolsResp) {
+			if !w.engine.toolsReply.inject(stop, toolsResp) {
 				return
 			}
 		}

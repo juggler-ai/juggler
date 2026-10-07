@@ -19,6 +19,8 @@
  *      the explanation, which is the whole difference between the two states.
  *   4. The new-folder panel it opens can be dismissed again. It carries no
  *      Cancel of its own, so Escape and the outside click are the only way out.
+ *   5. Opening a project holds the window: an overlay says so, and nothing can
+ *      start a second open until the first has failed or the page reloads.
  *
  * The session is a stub: this pins the panel's own rules, not the project
  * switch that ends the state.
@@ -31,6 +33,7 @@ import apiService from '../../js/services/api.js';
 import wsService from '../../js/services/websocket.js';
 import providersCache from '../../js/services/providers-cache.js';
 import '../../js/components/no-project-overlay.js';
+import { endProjectOpen, isOpeningProject, openProjectInWindow } from '../../js/components/project-opening.js';
 
 /**
  * Minimal stand-in for the session surface the overlay reads: a project path
@@ -223,22 +226,57 @@ export async function runTests() {
     // --- 9: a recent opens the project it names -----------------------------
     /** @type {string[]} */
     const openedWith = [];
+    /** @type {(value: any) => void} */
+    let finishOpen = () => {};
     const realOpen = apiService.openProject;
-    apiService.openProject = async (/** @type {string} */ path) => {
+    apiService.openProject = (/** @type {string} */ path) => {
       openedWith.push(path);
-      return { projectPath: path };
+      return new Promise((resolve) => { finishOpen = resolve; });
     };
+    /** @returns {Element|null} The opening overlay, while it is up. */
+    const openingOverlay = () => document.querySelector('.loading-overlay[data-loading-overlay="opening-project"]');
     try {
       items[1].click();
       await settle();
       assert(openedWith.length === 1 && openedWith[0] === '/code/beta',
         `clicking a recent opened ${JSON.stringify(openedWith)}, want ["/code/beta"]`);
+      passed++;
+
+      // --- 10: the window shows it is opening, and takes no second choice ---
+      // A large project's open is seconds of server-side directory walking.
+      // Without this the window looked untouched for all of it, and a second
+      // project could be chosen before the first had arrived.
+      assert(!!openingOverlay(), 'nothing on screen said a project was opening');
+      assert(isOpeningProject(), 'the open in flight was not recorded');
+      items[0].click();
+      window.dispatchEvent(new CustomEvent('juggler:folder-dropped', { detail: { path: '/code/gamma' } }));
+      await settle();
+      assert(openedWith.length === 1,
+        `a second project was opened while the first was in flight: ${JSON.stringify(openedWith)}`);
+
+      // Success is followed by the page reloading, so the overlay stays up.
+      finishOpen({ projectPath: '/code/beta' });
+      await settle();
+      assert(!!openingOverlay(), 'the overlay came down before the reload that ends the open');
+      passed++;
     } finally {
       apiService.openProject = realOpen;
+      endProjectOpen();
     }
+
+    // --- 11: a failed open gives the window back ----------------------------
+    let threw = false;
+    try {
+      await openProjectInWindow('/code/missing', () => Promise.reject(new Error('not found')));
+    } catch {
+      threw = true;
+    }
+    assert(threw, 'a failed open swallowed its error, so the caller could not report it');
+    assert(!openingOverlay() && !isOpeningProject(),
+      'a failed open left the window held under the opening overlay');
     passed++;
 
-    // --- 10: it lets go of the provider feed when it goes ------------------
+    // --- 12: it lets go of the provider feed when it goes ------------------
     // A detached element still holding a subscription re-renders markup nobody
     // can see, for as long as the page lives.
     returning.remove();
@@ -246,7 +284,7 @@ export async function runTests() {
       'the overlay kept its providers-update subscription after being removed');
     passed++;
 
-    // --- 11: the overlay owns the native drag hooks ------------------------
+    // --- 13: the overlay owns the native drag hooks ------------------------
     // The native side hands a dropped folder to window._wails, and the Wails
     // runtime's own versions of those hooks cannot carry it: each ends in an RPC
     // to /wails/runtime, a route this page's server does not answer. So the
@@ -273,7 +311,7 @@ export async function runTests() {
       }
       passed++;
 
-      // --- 12: the window says so while a folder is over it ------------------
+      // --- 14: the window says so while a folder is over it ------------------
       w._wails.handleDragEnter();
       assert(dropper.classList.contains('folder-drop-active'),
         'a folder over the window left it unmarked, so the panel never outlines');
@@ -291,7 +329,7 @@ export async function runTests() {
         'the mark outlived the drop it was announcing');
       passed++;
 
-      // --- 13: a window showing a project takes no dropped folder ------------
+      // --- 15: a window showing a project takes no dropped folder ------------
       // Native drop is switched off for one, so this is belt and braces: acting
       // on it anyway would replace the project under someone on one gesture.
       w._wails.handleDragEnter();
@@ -303,7 +341,7 @@ export async function runTests() {
         'a hidden overlay marked itself as holding a folder');
       passed++;
 
-      // --- 14: it gives the hooks back when it goes --------------------------
+      // --- 16: it gives the hooks back when it goes --------------------------
       dropper.remove();
       for (const name of hookNames) {
         assert(!(name in w._wails), `${name} outlived the overlay that installed it`);
@@ -316,7 +354,7 @@ export async function runTests() {
       }
     }
 
-    // --- 15: the new-folder panel can be got rid of again --------------------
+    // --- 17: the new-folder panel can be got rid of again --------------------
     // It carries no Cancel button of its own, on purpose: dismissal belongs to
     // the popup surface. That only holds while the surface's `onClose` actually
     // tears the panel down — wire it to anything less and Escape, the outside
@@ -336,7 +374,7 @@ export async function runTests() {
     assert(!livePanel(), 'Escape left the new-folder panel on screen');
     passed++;
 
-    // --- 16: and by clicking away from it ------------------------------------
+    // --- 18: and by clicking away from it ------------------------------------
     openNewProjectPanel([]);
     assert(!!livePanel(), 'the new-folder panel never presented on a second open');
     document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));

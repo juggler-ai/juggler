@@ -20,6 +20,7 @@ import { hasNativeHost, pickDirectory, pickFile } from '../../sdk/lib/window-con
 import { focusWhenShown } from '../utils/focus.js';
 import { projectsOpenInNewWindow } from '../utils/project-open-mode.js';
 import { showAlert, showConfirm } from './modal-dialog.js';
+import { isOpeningProject, openProjectInWindow } from './project-opening.js';
 
 /**
  * @typedef {(path: string) => Promise<{valid: boolean, path?: string, error?: string, current?: boolean}>} ValidateFn
@@ -370,6 +371,9 @@ export async function openProjectPicker(currentPath, session) {
   // picker-local open-state flag. Must run before the first await so a rapid
   // second click can't race a half-built picker.
   if (closePopupById('project-picker')) return;
+  // A project already on its way into this window: the overlay covers the
+  // buttons, but not the native menu's ⌘O, which arrives here directly.
+  if (isOpeningProject()) return;
 
   const anchor = /** @type {HTMLElement|null} */ (document.getElementById('project-path-chip'));
   if (!anchor) {
@@ -439,7 +443,7 @@ export async function openProjectPicker(currentPath, session) {
   const chosen = await promise;
   release();
 
-  if (!chosen) return;
+  if (!chosen || isOpeningProject()) return;
 
   // Switching projects tears this window's session down server-side, abandoning
   // any in-flight turn. Warn before discarding busy conversations.
@@ -456,7 +460,7 @@ export async function openProjectPicker(currentPath, session) {
   }
 
   try {
-    await apiService.openProject(chosen);
+    await openProjectInWindow(chosen, () => apiService.openProject(chosen), currentPath);
     // Server broadcasts `project-changed`; session listener triggers full reload.
   } catch (err) {
     const msg = extractUserMessage(err);
@@ -517,6 +521,7 @@ export function openNewProjectPanel(recents = []) {
   // Toggle, like every other button popup. Before the first await so a rapid
   // second click cannot race a half-built panel.
   if (closePopupById('new-project')) return;
+  if (isOpeningProject()) return;
 
   const anchor = /** @type {HTMLElement|null} */ (document.getElementById('project-path-chip'));
   if (!anchor) {
@@ -620,8 +625,16 @@ export function openNewProjectPanel(recents = []) {
   async function create() {
     if (createBtn.disabled) return;
     createBtn.disabled = true;
+    const parent = pathInputEl.value.trim();
+    const name = nameEl.value.trim();
     try {
-      await apiService.createProject(pathInputEl.value.trim(), nameEl.value.trim());
+      // A freshly made folder is never the one already loaded, so no current
+      // path is passed: success always means a reload is coming.
+      const resp = await openProjectInWindow(name, () => apiService.createProject(parent, name));
+      if (!resp) {
+        createBtn.disabled = false;
+        return;
+      }
       // Server broadcasts `project-changed`; session listener triggers full reload.
       close();
     } catch (err) {

@@ -23,6 +23,7 @@ import { openSettings } from '../services/settings-launcher.js';
 import { extractUserMessage } from '../../sdk/lib/error-utils.js';
 import { hasNativeHost, reportFolderDropped } from '../../sdk/lib/window-control.js';
 import { showAlert } from './modal-dialog.js';
+import { openProjectInWindow } from './project-opening.js';
 
 /** How many recent folders the panel offers before it stops being a shortlist. */
 const RECENTS_SHOWN = 5;
@@ -403,7 +404,7 @@ class NoProjectOverlay extends HTMLElement {
    */
   async _open(path) {
     try {
-      await apiService.openProject(path);
+      await openProjectInWindow(path, () => apiService.openProject(path));
       // The server broadcasts `project-changed`; the session listener reloads.
     } catch (err) {
       await showAlert(extractUserMessage(err), 'Open project');

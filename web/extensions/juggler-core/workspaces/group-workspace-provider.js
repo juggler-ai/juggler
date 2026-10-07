@@ -72,7 +72,7 @@ class GroupWorkspaceProvider extends WorkspaceProvider {
   renderSetup(container, ctx) {
     const id = `group-name-${nextFormSequence()}`;
     container.replaceChildren();
-    const { input, note } = field(container, id, 'name', 'Name', nextGroupName(ctx?.session));
+    const { input, note } = field(container, id, 'name', 'Name', 'Enter group name');
     input.value = String(ctx?.values?.name ?? '');
     showNote(note, 'Conversations in a group work in the project, exactly as they would outside it.');
     this._form = { input };

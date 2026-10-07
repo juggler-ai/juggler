@@ -460,9 +460,11 @@ export function openWorkspaceCreate(session) {
     });
 
     render();
-    // The keyboard starts on the chosen kind, so that the rail is where the
-    // arrows work without a press to get there first.
-    const first = root.querySelector('.setup-row[aria-checked="true"]') || root.querySelector('.setup-row');
+    // The kind is chosen on the way in, so the keyboard starts in its form's
+    // first field, ready to type — a group's name, typically. A kind with nothing
+    // to type starts it on the chosen row instead, where the arrows walk the rail.
+    const first = root.querySelector('.workspace-create-detail input:not([type="hidden"]):not(:disabled)')
+      || root.querySelector('.setup-row[aria-checked="true"]') || root.querySelector('.setup-row');
     /** @type {HTMLElement|null} */ (first)?.focus();
 
     /**

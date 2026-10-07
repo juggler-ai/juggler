@@ -239,6 +239,23 @@ export async function runTests() {
       }
     });
 
+    await run('it opens with the keyboard in the chosen kind\'s first field', async () => {
+      // The kind is already chosen on the way in, so the next thing to do is
+      // fill in its form: a group's name is typed straight away, with no click
+      // or Tab to get into the field first.
+      const settled = openWorkspaceCreate(session);
+      try {
+        await waitFor(() => document.querySelector('.workspace-create-detail') !== null, 2000);
+        const field = document.querySelector('.workspace-create-detail input');
+        assert(field, 'the kind the dialog opens on has a field to type into');
+        assert(document.activeElement === field,
+          `and it has the focus, got ${document.activeElement?.tagName}.${document.activeElement?.className}`);
+      } finally {
+        press('.workspace-create-cancel');
+        await settled;
+      }
+    });
+
     await run('Create makes a workspace with nothing bound to it', async () => {
       const name = 'create-dialog-tree';
       const dir = `${projectPath}/${name}`;

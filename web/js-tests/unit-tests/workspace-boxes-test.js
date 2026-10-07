@@ -134,7 +134,7 @@ function isOpaque(colour) {
 }
 
 /**
- * A conversation as `WorkerManager._doCreateNew` builds one: the real class,
+ * A conversation as `ConversationLoader#createNew` builds one: the real class,
  * carrying the workspace it was created for and nothing of its own yet.
  *
  * The real class rather than a record, because what is being asserted is what a

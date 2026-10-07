@@ -27,6 +27,7 @@ import {
 import { snapshotOwnConversationIds } from '../utilities/conversation-claims.js';
 
 import workerManager from '../../js/services/worker-manager.js';
+import { pingWorker } from '../utilities/worker-test-hooks.js';
 import { TOOL_STATES } from '../../sdk/lib/message.js';
 import logger from '../utilities/test-logger.js';
 import { budgetFor } from '../utilities/test-deadline.js';
@@ -57,7 +58,7 @@ import { budgetFor } from '../utilities/test-deadline.js';
  * @returns {Promise<void>}
  */
 async function waitForUndoStateSync(conversation) {
-  await workerManager.ping(conversation.id);
+  await pingWorker(conversation.id);
   conversation._doc.flushPendingUpdates();
 }
 
@@ -74,9 +75,9 @@ async function waitForUndoStateSync(conversation) {
 async function waitForCaptureBoundary(conversation) {
   // First sync any pending yjs-sync messages so they capture into the
   // current group, THEN close the capture window before subsequent ops.
-  await workerManager.ping(conversation.id);
+  await pingWorker(conversation.id);
   workerManager.stopUndoCapturing(conversation.id);
-  await workerManager.ping(conversation.id);
+  await pingWorker(conversation.id);
 }
 
 /**
@@ -177,9 +178,9 @@ async function cleanupAutoAddedContextItems(conversation) {
 
   // Worker round-trips: first to flush the deletes above, then again
   // after clearUndoStacks so the undoState reset has propagated.
-  await workerManager.ping(conversation.id);
+  await pingWorker(conversation.id);
   await workerManager.clearUndoStacks(conversation.id);
-  await workerManager.ping(conversation.id);
+  await pingWorker(conversation.id);
 }
 
 /**
@@ -415,11 +416,11 @@ async function testUndoHistoryPersistence(session) {
     throw new Error('Before save: expected canUndo=true');
   }
 
-  // No explicit wait needed - destroyConversationAndWorker() triggers onShutdown()
+  // No explicit wait needed - loader.destroy() triggers onShutdown()
   // which performs a synchronous save before the worker stops
 
   // Destroy and reload
-  await workerManager.destroyConversationAndWorker(conv1);
+  await workerManager.loader.destroy(conv1);
   session.conversations.delete(conv1.id);
   await session.load();
   await session.ensureConversationLoaded(conv1.id);

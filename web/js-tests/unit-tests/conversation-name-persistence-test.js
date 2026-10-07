@@ -60,7 +60,7 @@ export async function runTests(_ctx) {
 
   // Destroy conversation and terminate worker
   logger.info('[conversation-name-persistence-test] Destroying conversation and worker');
-  await workerManager.destroyConversationAndWorker(conversation);
+  await workerManager.loader.destroy(conversation);
   session.conversations.delete(convId);
 
   // Reload session (simulates page reload)

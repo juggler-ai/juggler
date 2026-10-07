@@ -8,8 +8,8 @@
  * helpers.
  *
  * Each function takes the WorkerManager instance (`wm`) as its first argument,
- * so the WorkerManager class methods delegate here in one line and its
- * message-handler switch cases dispatch here in one line.
+ * so the WorkerManager class methods delegate here in one line, and so do
+ * their entries in the inbound table (`worker-manager-inbound.js`).
  * @module services/worker-manager-protocols
  */
 
@@ -940,11 +940,11 @@ export function sendStrategyHookResponse(wm, conversationId, requestId, guidance
  * @returns {Promise<any>} The loaded conversation, or null
  */
 async function ensureEngineConversationLoaded(wm, conversationId, notes = undefined) {
-  const pending = wm._pendingAutoLoads?.get(conversationId);
+  const pending = wm.loader?.pendingAutoLoad(conversationId);
   if (pending) {
     if (notes) notes.awaitedAutoLoad = true;
     try {
-      await pending.promise;
+      await pending;
     } catch {
       // Auto-load failed; fall through to an explicit load attempt below.
     }
@@ -953,7 +953,7 @@ async function ensureEngineConversationLoaded(wm, conversationId, notes = undefi
   if (wm._session && (!conversation || conversation.loadState !== 'loaded')) {
     if (notes) notes.loadedFromDisk = true;
     try {
-      conversation = await wm.loadExistingConversation(conversationId, wm._session);
+      conversation = await wm.loader.loadExisting(conversationId, wm._session);
     } catch (err) {
       console.error(`[worker-manager] could not load ${conversationId} for strategy hook:`, err);
       return null;

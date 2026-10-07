@@ -596,7 +596,7 @@ type ResyncRequestMessage struct {
 // reconnected, and the same state went out again.
 //
 // An engine that does not know the conversation ignores the offer and loads it
-// the ordinary way (see _autoLoadConversation in web/js/services/worker-manager.js),
+// the ordinary way (see ConversationLoader.autoLoad in web/js/services/conversation-loader.js),
 // which arrives at full state through init.
 type ResyncOfferMessage struct {
 	Type string `json:"type"` // "resync-offer"

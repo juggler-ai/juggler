@@ -56,7 +56,7 @@ const DECLINE_BUDGET_MS = 15000;
  */
 async function loadOutcome(session, id) {
   /** @type {Promise<'loaded'|Error>} */
-  const attempt = workerManager.loadExistingConversation(id, session)
+  const attempt = workerManager.loader.loadExisting(id, session)
     .then(() => /** @type {'loaded'} */ ('loaded'), (err) => (err instanceof Error ? err : new Error(String(err))));
   /** @type {ReturnType<typeof setTimeout>|undefined} */
   let timer;
@@ -129,7 +129,7 @@ export async function runTests(_ctx) {
       const stub = session.conversations.get(gone);
       assert(!!stub && stub.loadState === 'error',
         `a refused load must leave its stub in error, which is what puts a Retry in front of the user; loadState=${stub ? stub.loadState : '(no stub)'}`);
-      assert(!workerManager.hasWorker(gone),
+      assert(workerManager.workerState(gone) === 'absent',
         'a refused load must leave no worker entry behind — the next attempt would take it as a live worker and never send an init');
 
       passed++;

@@ -48,7 +48,7 @@ function probeManager() {
      */
     forgetConversation(id) { return this.conversations.delete(id); },
   };
-  wm.loadExistingConversation = async () => {
+  wm.loader.loadExisting = async () => {
     attempts++;
     if (shouldFail) throw new Error('worker not ready');
     return { handleYjsSyncMessage: () => {} };
@@ -68,8 +68,8 @@ function probeManager() {
  * @returns {Promise<void>} Resolves once the attempt has finished.
  */
 async function autoLoad(wm, conversationId) {
-  wm._autoLoadConversation(conversationId);
-  await wm._pendingAutoLoads.get(conversationId)?.promise;
+  wm.loader.autoLoad(conversationId);
+  await wm.loader.pendingAutoLoad(conversationId);
 }
 
 /**
@@ -122,7 +122,7 @@ export async function runTests(_ctx) {
     await autoLoad(wm, convId);
     assert(attempts() === 2, `the load and its immediate first retry; got ${attempts()}`);
 
-    const record = wm._autoLoadFailures.get(convId);
+    const record = wm.loader._autoLoadFailures.get(convId);
     assert(record, 'the failure must be recorded, or nothing can decide when to retry');
     assert(record.failures === 2, `both failures counted; got ${record.failures}`);
 
@@ -144,8 +144,8 @@ export async function runTests(_ctx) {
     const delays = [];
     for (let i = 0; i < 6; i++) {
       await autoLoad(wm, convId);
-      const record = wm._autoLoadFailures.get(convId);
-      delays.push(wm._autoLoadRetryDelayMs(record.failures));
+      const record = wm.loader._autoLoadFailures.get(convId);
+      delays.push(wm.loader.autoLoadRetryDelayMs(record.failures));
       record.lastAttemptAt = 0; // let the next one through
     }
 
@@ -163,14 +163,14 @@ export async function runTests(_ctx) {
     const convId = 'conv_autoload_probe';
 
     await autoLoad(wm, convId);
-    assert(wm._autoLoadFailures.has(convId), 'the failure was recorded');
+    assert(wm.loader._autoLoadFailures.has(convId), 'the failure was recorded');
 
     succeed();
-    wm._autoLoadFailures.get(convId).lastAttemptAt = 0;
+    wm.loader._autoLoadFailures.get(convId).lastAttemptAt = 0;
     await autoLoad(wm, convId);
 
     assert(
-      !wm._autoLoadFailures.has(convId),
+      !wm.loader._autoLoadFailures.has(convId),
       'a successful load must clear the backoff — the next unrelated blip deserves the fast first retry'
     );
   });

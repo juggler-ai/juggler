@@ -88,14 +88,14 @@ export async function runTests(_ctx) {
 
     // The link drops, and the user keeps working. The update this produces is
     // discarded by the transport — nothing queues it.
-    await workerManager.simulateDisconnect(convId);
+    await wsService.simulateDisconnect();
     appendLocalItem(conversation, OFFLINE_MARKER);
 
     // Come back as a genuine drop rather than a clean teardown: a reconnect is
     // the path gated on the server's boot id, and an unchanged one must leave a
     // link the resync below can actually run over.
     wsService._reconnectAttempts = 1;
-    await workerManager.reconnect(convId);
+    await wsService.reconnect();
 
     // Reconnecting alone recovers nothing: the frame is long gone.
     assert(!viewerHas(viewer, OFFLINE_MARKER),

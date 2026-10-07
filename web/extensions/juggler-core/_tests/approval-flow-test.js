@@ -25,7 +25,7 @@ import {
 } from '../../../js-tests/utilities/test-helpers.js';
 import { TOOL_STATES, ACTION_STATES, createToolActionMessage } from '../../../sdk/lib/message.js';
 import { observeUntil } from '../../../js-tests/utilities/turn-sync.js';
-import workerManager from '../../../js/services/worker-manager.js';
+import { pingWorker } from '../../../js-tests/utilities/worker-test-hooks.js';
 import ExecuteContextItem from '../context-items/execute-context-item.js';
 import { buildApprovalButtons } from '../../../js/services/approval-options.js';
 import '../../../js/components/action-confirmation.js';
@@ -443,7 +443,7 @@ export async function runTests(_ctx) {
     // inbound queue + flushed outbound) before the user-style deny below,
     // matching the page-reload scenario where the worker already holds
     // the pending tool when the user clicks.
-    await workerManager.ping(conversation.id);
+    await pingWorker(conversation.id);
 
     // Verify orphaned state
     let orphanedToolUse = findToolUseInConversation(conversation, orphanedToolUseId);
@@ -513,7 +513,7 @@ export async function runTests(_ctx) {
 
     // Barrier: the worker holds the orphan before the user-style approve,
     // matching the page-reload scenario.
-    await workerManager.ping(conversation.id);
+    await pingWorker(conversation.id);
 
     // Get reference before resolve
     let orphanedToolUse = findToolUseInConversation(conversation, orphanedToolUseId);

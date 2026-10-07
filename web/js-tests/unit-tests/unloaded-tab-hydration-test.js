@@ -171,7 +171,7 @@ export async function runTests(_ctx) {
       const workerManager = (await import('../../js/services/worker-manager.js')).default;
       const ConversationLoadQueue =
         (await import('../../js/services/conversation-load-queue.js')).default;
-      const queue = new ConversationLoadQueue({ session, workerManager });
+      const queue = new ConversationLoadQueue({ session, loader: workerManager.loader });
       /** @type {any} */ (session)._loadQueue = queue;
       queue.enqueueAll([restoredId]);
       await queue.whenLoaded(restoredId);

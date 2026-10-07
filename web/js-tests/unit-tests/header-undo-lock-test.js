@@ -21,7 +21,7 @@ import {
   createTestConversation,
   assert
 } from '../utilities/test-helpers.js';
-import workerManager from '../../js/services/worker-manager.js';
+import { pingWorker } from '../utilities/worker-test-hooks.js';
 import { setupHeaderControls } from '../../js/utils/header-controls.js';
 
 /**
@@ -35,7 +35,7 @@ import { setupHeaderControls } from '../../js/utils/header-controls.js';
  * @returns {Promise<void>}
  */
 async function syncUndoState(conversation) {
-  await workerManager.ping(conversation.id);
+  await pingWorker(conversation.id);
   conversation._doc.flushPendingUpdates();
 }
 

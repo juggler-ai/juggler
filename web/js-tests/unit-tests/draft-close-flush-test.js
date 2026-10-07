@@ -113,7 +113,7 @@ export async function runTests() {
     conversation._doc.flushPendingUpdates();
     await workerManager.flushPersistence(convId);
 
-    await workerManager.destroyConversationAndWorker(conversation);
+    await workerManager.loader.destroy(conversation);
     session.conversations.delete(convId);
     await session.load();
     await session.ensureConversationLoaded(convId);

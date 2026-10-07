@@ -291,7 +291,7 @@ class Session {
     this._pendingFocus = null;
 
     /**
-     * Ids whose remote-`created` load is in flight. _doLoadExisting publishes
+     * Ids whose remote-`created` load is in flight. The loader's load publishes
      * its conversation into `this.conversations` early (the worker's yjs-sync
      * lands before the load resolves and must find it), so a bare
      * `conversations.has(id)` reports switchable well before
@@ -715,7 +715,7 @@ class Session {
   async _teardownConversation(conv, from) {
     const id = conv.id;
     this._loadQueue?.cancel(id);
-    await workerManager.destroyConversationAndWorker(conv);
+    await workerManager.loader.destroy(conv);
     recordTape('session-mut', id, { op: 'delete', from });
     this.conversations.delete(id);
     this._mruList = this._mruList.filter(x => x !== id);
@@ -919,13 +919,13 @@ class Session {
    * @returns {Promise<object|null>} Loaded conv, or null if load failed.
    */
   async _loadAndInsertConversation(id, { prepend }) {
-    // Claim the head slot BEFORE the load, not after it. loadExistingConversation
-    // seeds its own entry via Map.set (worker-manager._doLoadExisting) and then
+    // Claim the head slot BEFORE the load, not after it. The loader's
+    // loadExisting seeds its own entry (adoptConversation) and then
     // awaits a worker spawn that can take seconds — so ordering the map only on
     // completion leaves the tab parked at the END of the bar for the whole load
     // and then jumps it to the top. An unloaded stub here is the same entry
-    // _doLoadExisting reuses, so every render in between paints the tab in its
-    // final position. Mirrors the local-create path (_doCreateNew).
+    // loadExisting reuses, so every render in between paints the tab in its
+    // final position. Mirrors the local-create path (loader.createNew).
     let stubbed = false;
     if (prepend && !this.conversations.has(id)) {
       const services = this.getServices();
@@ -953,7 +953,7 @@ class Session {
     }
 
     try {
-      const conv = await workerManager.loadExistingConversation(id, this);
+      const conv = await workerManager.loader.loadExisting(id, this);
       if (prepend) {
         this._setConversationOrder([id], new Map([[id, conv]]));
       } else {
@@ -1720,8 +1720,8 @@ class Session {
    * load. Routing every ask through here means the absence of a queue costs
    * concurrency limiting, not the load itself.
    *
-   * The direct call is the one the queue would have made. Worker-manager's
-   * `_creating` map dedupes concurrent requests for an id, so a click while a
+   * The direct call is the one the queue would have made. The loader's
+   * in-flight map dedupes concurrent requests for an id, so a click while a
    * load is already in flight joins it rather than starting a second.
    * @param {string} conversationId - Conversation to hydrate
    * @param {{retry?: boolean}} [opts] - `retry` re-attempts a load that errored
@@ -1741,7 +1741,7 @@ class Session {
     if (conv.loadState === 'loading') return;
     conv.setLoadState('loading');
     try {
-      await workerManager.loadExistingConversation(conversationId, this);
+      await workerManager.loader.loadExisting(conversationId, this);
       this.conversations.get(conversationId)?.setLoadState('loaded');
     } catch (error) {
       console.error(`[Session] Load failed for ${conversationId}:`, error);
@@ -1913,7 +1913,7 @@ class Session {
         }
 
         // The engine has no UI and stays fully dormant — it skips stub creation
-        // so worker-manager._autoLoadConversation can pull in convs on demand
+        // so the loader's autoLoad can pull in convs on demand
         // when a yjs-sync arrives from a worker the user has activated. Creating
         // unloaded stubs here would route yjs-sync to a doc whose outbound sync
         // was never activated, silently swallowing the engine's tool-state
@@ -1942,7 +1942,7 @@ class Session {
 
           this._loadQueue = new ConversationLoadQueue({
             session: this,
-            workerManager,
+            loader: workerManager.loader,
             concurrency: 3
           });
 
@@ -2202,7 +2202,7 @@ class Session {
       // WorkerManager returns conversation ONLY when fully ready (worker spawned, Yjs active).
       // The worker spawned for this id will find the existing folder via
       // ensureConvDir on its first save, preserving canonicalName on disk.
-      conversation = await workerManager.createNewConversation(id, canonicalName, this, { workspaceId });
+      conversation = await workerManager.loader.createNew(id, canonicalName, this, { workspaceId });
 
       // Settle the order the adoption already put it in: at the top of the bar,
       // or at the top of its workspace's box.
@@ -2422,7 +2422,7 @@ class Session {
     const { id: newId, name: canonicalName } = response;
 
     // 2. Load the now-populated clone from disk.
-    const loadedClone = await workerManager.loadExistingConversation(newId, this);
+    const loadedClone = await workerManager.loader.loadExisting(newId, this);
     this.setConversationName(newId, canonicalName);
 
     // 4. Insert clone right after source (Maps maintain insertion order) and
@@ -2918,7 +2918,7 @@ class Session {
       // it and announce via 'conversation:created' below so conversation-bar
       // creates the <conversation-tab> host element.
       try {
-        const conv = await workerManager.loadExistingConversation(id, this);
+        const conv = await workerManager.loader.loadExisting(id, this);
         reordered.set(id, conv);
         newlyLoaded.push(conv);
       } catch (error) {
@@ -2929,7 +2929,7 @@ class Session {
     // Destroy conversations that were deleted in the other view
     for (const [id, conv] of this.conversations) {
       if (serverIds.has(id) || !knownAtEntry.has(id)) continue;
-      await workerManager.destroyConversationAndWorker(conv);
+      await workerManager.loader.destroy(conv);
     }
 
     // Fold in whatever arrived while the loads above were awaiting.

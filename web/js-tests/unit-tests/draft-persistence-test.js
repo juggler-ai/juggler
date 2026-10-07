@@ -89,7 +89,7 @@ export async function runTests(_ctx) {
   await workerManager.flushPersistence(convId);
 
   // Destroy + reload (simulates quit/restart).
-  await workerManager.destroyConversationAndWorker(conversation);
+  await workerManager.loader.destroy(conversation);
   session.conversations.delete(convId);
   await session.load();
   // Deterministically wait for the reloaded conversation's doc to load from

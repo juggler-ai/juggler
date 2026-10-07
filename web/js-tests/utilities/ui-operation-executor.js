@@ -22,6 +22,7 @@ import { SecondViewer } from './second-viewer.js';
 import { budgetFor } from './test-deadline.js';
 import { askForMoreTime, whyGivingUp } from './test-patience.js';
 import { apiUrl } from '../../js/utils/api-url.js';
+import { pingWorker } from './worker-test-hooks.js';
 
 /**
  * @typedef {import('./integration-test-runner.js').TestOperation} TestOperation
@@ -690,8 +691,7 @@ export async function executeUIOperation(harness, op) {
       harness.conversation.rootMessageThread.setStrategy(op.strategy);
       // setStrategy writes Yjs metadata synced to the worker async; ping so the
       // switch lands (and the worker's re-evaluation runs) before the next op.
-      const { default: _wmStrat } = await import('../../js/services/worker-manager.js');
-      await _wmStrat.ping(harness.conversation.id);
+      await pingWorker(harness.conversation.id);
       break;
     }
 
@@ -709,8 +709,7 @@ export async function executeUIOperation(harness, op) {
       // without a round-trip barrier the duplicate can race ahead of the
       // modelConfig sync and copy the previous (test-default) value. Ping
       // the worker so any in-flight syncs land before we return.
-      const { default: _wmSet } = await import('../../js/services/worker-manager.js');
-      await _wmSet.ping(harness.conversation.id);
+      await pingWorker(harness.conversation.id);
       break;
     }
 

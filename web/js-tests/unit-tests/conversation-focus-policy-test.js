@@ -14,7 +14,7 @@
  *      Anyone reading another tab, or part-way through typing, keeps their
  *      place and just gains a new tab in the sidebar.
  *   2. A switch may only happen once the target is genuinely switchable.
- *      `_doLoadExisting` publishes its conversation into `session.conversations`
+ *      `loader.loadExisting` publishes its conversation into `session.conversations`
  *      early — the worker's yjs-sync must find it — so the map reports the id
  *      well before `conversation:created` fires and the tab bar builds the
  *      element. Focusing inside that window hides every other tab and shows

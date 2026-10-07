@@ -57,10 +57,10 @@ function stubSession(ids) {
 }
 
 /**
- * A worker manager stub that records every hydration request and settles it
+ * A loader stub that records every hydration request and settles it
  * however the test says.
  * @param {(id: string, attempt: number) => Promise<any>} handler - Per-call outcome
- * @returns {{calls: string[], loadExistingConversation: (id: string, session: any) => Promise<any>}} Stub manager
+ * @returns {{calls: string[], loadExisting: (id: string, session: any) => Promise<any>}} Stub loader
  */
 function stubWorkerManager(handler) {
   /** @type {string[]} */
@@ -72,7 +72,7 @@ function stubWorkerManager(handler) {
      * @param {any} _session - Owning session (unused)
      * @returns {Promise<any>} The stubbed outcome
      */
-    loadExistingConversation(id, _session) {
+    loadExisting(id, _session) {
       calls.push(id);
       return handler(id, calls.filter((c) => c === id).length);
     }
@@ -120,7 +120,7 @@ export async function runTests(_ctx) {
     try {
       const session = stubSession(['c1']);
       const manager = stubWorkerManager(async () => ({ id: 'c1' }));
-      const queue = new ConversationLoadQueue({ session, workerManager: manager });
+      const queue = new ConversationLoadQueue({ session, loader: manager });
 
       queue.enqueueAll(['c1']);
       await until(() => session.conversations.get('c1').loadState === 'loaded',
@@ -155,7 +155,7 @@ export async function runTests(_ctx) {
         if (attempt === 1) throw new Error('spawn refused');
         return { id: 'c2' };
       });
-      const queue = new ConversationLoadQueue({ session, workerManager: manager });
+      const queue = new ConversationLoadQueue({ session, loader: manager });
 
       queue.enqueueAll(['c2']);
       await until(() => session.conversations.get('c2').loadState === 'error',

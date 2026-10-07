@@ -3,7 +3,7 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * A conversation created through `workerManager.createNewConversation` owns the
+ * A conversation created through `workerManager.loader.createNew` owns the
  * canonical `SYSTEM_1` system-prompt item — including when the create joins a
  * load that is already in flight for the same id.
  *
@@ -55,9 +55,9 @@ export async function runTests() {
 
   // The engine's race: an auto-load for this id is already registered, so the
   // create attaches to it instead of running its own creation path.
-  workerManager._creating.set(conversation.id, Promise.resolve(conversation));
+  workerManager.loader._inFlight.set(conversation.id, Promise.resolve(conversation));
   try {
-    const returned = await workerManager.createNewConversation(conversation.id, conversation.name, session);
+    const returned = await workerManager.loader.createNew(conversation.id, conversation.name, session);
 
     assert(returned === conversation, 'a create that joins an in-flight load must return that conversation');
     assert(!!mt.findByItemId('SYSTEM_1'),
@@ -68,7 +68,7 @@ export async function runTests() {
     assert(first.get('preventUserDeletion') === true,
       'the seeded system prompt must be undeletable');
   } finally {
-    workerManager._creating.delete(conversation.id);
+    workerManager.loader._inFlight.delete(conversation.id);
   }
 
   return { passed: 4, failed: 0, errors: [] };

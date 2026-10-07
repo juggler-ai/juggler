@@ -3,21 +3,28 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * Worker Manager - Manages conversation workers via WebSocket.
- * Routes messages to workers running on the backend server.
- * Each conversation gets its own dedicated worker for orchestration.
+ * Worker Manager: the client's transport to the conversation workers running
+ * on the backend server, one worker per conversation.
+ *
+ * It owns the worker entries (spawn, init, ready, terminate), the outbound
+ * commands, and the ack and thread-request bookkeeping their replies settle.
+ * Two jobs sit beside it in their own modules:
+ *
+ * - What each inbound message means is `worker-manager-inbound.js`, one
+ *   handler per wire type. {@link WorkerManager#handleWorkerMessageFromWS}
+ *   unwraps the envelope and hands it there.
+ * - Building, loading and destroying Conversation objects is
+ *   `conversation-loader.js`, reached as {@link WorkerManager#loader}.
+ *
+ * The engine-side request/response protocols are `worker-manager-protocols.js`.
  * @module services/worker-manager
  */
 
 import wsService from './websocket.js';
 import * as protocols from './worker-manager-protocols.js';
-import { recordTape } from '../utils/event-tape.js';
-import { bytesToBase64, base64ToBytes } from '../utils/base64.js';
-import { isEngine } from '../../sdk/lib/client-role.js';
-import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
-import { setBootstrapSummarizationPrompt } from '../utils/compaction-utils.js';
-import { fetchJson } from './http.js';
-import { apiUrl } from '../utils/api-url.js';
+import { routeWorkerMessage } from './worker-manager-inbound.js';
+import { ConversationLoader } from './conversation-loader.js';
+import { bytesToBase64 } from '../utils/base64.js';
 
 // ============================================================================
 // Type Definitions
@@ -65,8 +72,6 @@ import { apiUrl } from '../utils/api-url.js';
  * @property {boolean} [cancelled] - Whether the error was due to cancellation
  * @property {object[]} [items] - Items array (for state-reset)
  * @property {object[]} [contextItems] - Context items array (for state-reset)
- * @property {boolean} [canUndo] - Whether undo is available (for undo-state messages)
- * @property {boolean} [canRedo] - Whether redo is available (for undo-state messages)
  * @property {object} [metadata] - Metadata extracted from Yjs (for ready messages when loading existing conversations)
  * @property {string} [summarizationPrompt] - Worker-owned canonical summarization prompt (for ready messages)
  */
@@ -95,27 +100,6 @@ import { apiUrl } from '../utils/api-url.js';
 const WORKER_READY_TIMEOUT_MS = 60000;
 
 /**
- * How long to wait after a failed auto-load before trying that conversation
- * again, and the ceiling that wait grows to.
- *
- * An auto-load is triggered by a yjs-sync for a conversation this realm does
- * not know, and the worker pushes state ahead of every tool dispatch and every
- * redrive — so while anything is happening the trigger arrives continuously. A
- * conversation that keeps failing to load therefore retries at round-trip
- * cadence indefinitely, working hardest exactly when whatever is stopping it
- * loading is at its worst.
- *
- * Backing off rather than capping is deliberate: a conversation that never
- * loads is one whose tools can never run, so there is no attempt count at which
- * giving up is the right answer. The delay doubles to the ceiling and stays
- * there, which costs two attempts a minute for a conversation that is never
- * coming back and nothing at all for the common case, where the first retry
- * succeeds.
- */
-const AUTO_LOAD_RETRY_BASE_MS = 500;
-const AUTO_LOAD_RETRY_MAX_MS = 30000;
-
-/**
  * Manages conversation workers
  */
 export class WorkerManager {
@@ -142,12 +126,12 @@ export class WorkerManager {
     this._session = null;
 
     /**
-     * Map of conversation ID to in-flight creation/load promises
-     * Used to prevent duplicate spawns during async operations
-     * @type {Map<string, Promise<import('../model/conversation.js').default>>}
-     * @private
+     * Builds, loads and destroys the conversations this manager's workers
+     * serve, including the engine's auto-load of conversations it hears about
+     * from a sync.
+     * @type {ConversationLoader}
      */
-    this._creating = new Map();
+    this.loader = new ConversationLoader(this);
 
     /**
      * Map of conversation ID to in-flight spawn promises
@@ -197,23 +181,6 @@ export class WorkerManager {
     this._onSubthreadSpecRequest = null;
 
     /**
-     * In-flight auto-load promises for unknown conversations (conversationId -> Promise).
-     * Prevents duplicate loads and queues yjs-sync bytes until load completes.
-     * @type {Map<string, {promise: Promise<void>, queuedBytes: string[]}>}
-     * @private
-     */
-    this._pendingAutoLoads = new Map();
-
-    /**
-     * Auto-load failures per conversation, so a repeated one backs off instead
-     * of retrying on every sync (conversationId -> {failures, lastAttemptAt}).
-     * Cleared for a conversation the moment one of its loads succeeds.
-     * @type {Map<string, {failures: number, lastAttemptAt: number}>}
-     * @private
-     */
-    this._autoLoadFailures = new Map();
-
-    /**
      * Pending thread creation requests
      * (requestId -> {conversationId, resolve, reject}). The conversationId is
      * what lets {@link WorkerManager#terminate} unwind the requests belonging to
@@ -249,9 +216,6 @@ export class WorkerManager {
      * @private
      */
     this._instanceId = 'wm_' + Math.random().toString(36).slice(2, 10);
-
-
-
   }
 
   /**
@@ -265,12 +229,21 @@ export class WorkerManager {
   }
 
   /**
+   * The session whose conversations this manager's workers serve, or null
+   * before {@link WorkerManager#init}.
+   * @returns {import('../model/session.js').default|null} The session
+   */
+  get session() {
+    return this._session;
+  }
+
+  /**
    * Repoint the project root every subsequently-spawned worker is initialised
    * with, after a runtime project switch.
    *
    * `init` runs once per client, but the engine is persistent across
    * SwitchProject and keeps spawning workers afterwards (a yjs-sync for an
-   * unknown conversation triggers `_autoLoadConversation` → `_spawnWorker`).
+   * unknown conversation triggers `loader.autoLoad` → `spawnWorker`).
    * The config is sent verbatim in each worker's `init` message and becomes the
    * worker's `projectPath` server-side, which is what its transcript logs,
    * persistence and transaction store are keyed on — so a stale value writes
@@ -305,7 +278,6 @@ export class WorkerManager {
         return;
       }
     }
-    // Route to existing message handler
     this._handleWorkerMessage(conversationId, /** @type {WorkerMessage} */ (parsedPayload));
   }
 
@@ -380,7 +352,7 @@ export class WorkerManager {
       }, WORKER_READY_TIMEOUT_MS);
       entry.readyCallbacks.push((/** @type {object|null} */ _metadata) => {
         clearTimeout(timer);
-        resolve();  // Ignore metadata here - caller uses _waitForWorkerReady to get it
+        resolve();  // Ignore metadata here - caller uses waitForWorkerReady to get it
       });
       // A worker that fails its init reports an error and then says nothing —
       // and the error path unwinds REJECTORS, so a wait registered without one
@@ -480,17 +452,15 @@ export class WorkerManager {
   }
 
   /**
-   * Terminate all workers and reset internal bookkeeping. Used by test
-   * teardown so a new test starts with empty state — leaving _creating
-   * promises around would block a subsequent createNewConversation that
+   * Terminate all workers and reset internal bookkeeping, the loader's
+   * included. Used by test teardown so a new test starts with empty state — an
+   * in-flight create left in the loader would be joined by a later create that
    * happened to reuse the same id.
    */
   terminateAll() {
     this._workers.clear();
-    this._creating.clear();
     this._spawning.clear();
-    this._pendingAutoLoads.clear();
-    this._autoLoadFailures.clear();
+    this.loader.reset();
 
     // Reject outstanding thread requests so their awaiters unwind instead of
     // hanging forever, then drop them.
@@ -520,7 +490,7 @@ export class WorkerManager {
    * immediately when no worker exists for the conversation. It rejects only when
    * a not-yet-ready worker never becomes ready (init failure or ready timeout).
    * Fire-and-forget callers are correct to ignore it; an ack'd request
-   * (`_sendWithAck`) is how to learn the worker acted.
+   * ({@link WorkerManager#sendWithAck}) is how to learn the worker acted.
    * @param {string} conversationId - Conversation ID
    * @param {{type: string, [key: string]: unknown}} message - Message to send
    * @returns {Promise<void>} Resolves on hand-off to the transport, not on delivery
@@ -534,7 +504,7 @@ export class WorkerManager {
 
     // Wait for ready if not already
     if (!entry.ready) {
-      await this._waitForWorkerReady(conversationId);
+      await this.waitForWorkerReady(conversationId);
     }
 
     wsService.sendWorkerMessage(conversationId, message);
@@ -709,7 +679,7 @@ export class WorkerManager {
           onAbort = null;
         }
       };
-      // No wall-clock deadline here, unlike _sendWithAck's 5s. The two wait for
+      // No wall-clock deadline here, unlike sendWithAck's 5s. The two wait for
       // different things: an ack is an immediate receipt, so any silence past a
       // few seconds means the message was lost, whereas this waits for a whole
       // sub-agent run to finish — reading files, calling a model, running its own
@@ -794,17 +764,39 @@ export class WorkerManager {
   }
 
   /**
+   * Settle the pending {@link WorkerManager#createThread} a
+   * `create-thread-response` answers. A response for a request this client
+   * did not make (the worker broadcasts them) or already settled is ignored.
+   * @param {string} requestId - The request the response names
+   * @param {{error: string, cancelled: boolean}|{threadItemId: string, result: string}} outcome -
+   *   The thread's result, or why it has none. A cancelled thread rejects
+   *   with an AbortError, so callers can tell it from one that failed.
+   * @returns {void}
+   */
+  settleThreadRequest(requestId, outcome) {
+    const pending = this._pendingThreadRequests.get(requestId);
+    if (!pending) return;
+    this._pendingThreadRequests.delete(requestId);
+    if ('error' in outcome) {
+      const err = new Error(outcome.error);
+      if (outcome.cancelled) err.name = 'AbortError';
+      pending.reject(err);
+      return;
+    }
+    pending.resolve({ threadItemId: outcome.threadItemId, result: outcome.result });
+  }
+
+  /**
    * Send a command to worker and wait for acknowledgment
    * @param {string} conversationId - Conversation ID
    * @param {{type: string, [key: string]: unknown}} message - Message to send (will have ackId added)
    * @param {number} [timeout=5000] - Timeout in ms
    * @returns {Promise<*>} Resolves with result from worker (if any)
-   * @private
    */
-  _sendWithAck(conversationId, message, timeout = 5000) {
+  sendWithAck(conversationId, message, timeout = 5000) {
     return new Promise((resolve, reject) => {
       // Salt the ackId with this instance id. The worker broadcasts its ack to
-      // ALL registered clients (callbacks.broadcast), and _handleAck matches
+      // ALL registered clients (callbacks.broadcast), and settleAck matches
       // purely by ackId — so a bare per-instance counter ("ack_3") collides
       // across clients and a sibling conversation's broadcast ack could resolve
       // THIS request's promise with the wrong conversation's result (observed:
@@ -834,12 +826,13 @@ export class WorkerManager {
 
 
   /**
-   * Handle acknowledgment from worker
+   * Settle the {@link WorkerManager#sendWithAck} an `ack` answers. An ack for
+   * a request this client did not make is ignored.
    * @param {string} ackId - Acknowledgment ID
    * @param {*} [result] - Optional result from worker
-   * @private
+   * @returns {void}
    */
-  _handleAck(ackId, result) {
+  settleAck(ackId, result) {
     const pending = this._pendingAcks.get(ackId);
     if (pending) {
       // Delete before resolve so a duplicate ack (worker can broadcast acks)
@@ -894,12 +887,82 @@ export class WorkerManager {
   }
 
   /**
-   * Check if a worker exists for a conversation
+   * Where a conversation's worker entry stands: none at all, spawned and
+   * waiting for its `ready`, or ready. Unlike {@link isWorkerReady} this says
+   * nothing about the socket; a worker outlives a link drop.
    * @param {string} conversationId - Conversation ID
-   * @returns {boolean} True if worker exists
+   * @returns {'absent'|'starting'|'ready'} The entry's state
    */
-  hasWorker(conversationId) {
-    return this._workers.has(conversationId);
+  workerState(conversationId) {
+    const entry = this._workers.get(conversationId);
+    if (!entry) return 'absent';
+    return entry.ready ? 'ready' : 'starting';
+  }
+
+  /**
+   * Record a worker's `ready` and release everything waiting on it.
+   *
+   * One kind of ready is not ours: an entry spawned with `loadFromDisk` waits
+   * for the ready that carries metadata, which the worker sends in answer to
+   * this client's init. A metadata-less one arriving first came from another
+   * client's init (a viewer creating the conversation, say) and is ignored;
+   * the one we want follows shortly.
+   * @param {string} conversationId - Conversation ID
+   * @param {object|null} metadata - The conversation metadata the ready
+   *   carried, present when it answers a load from disk
+   * @returns {{loadFromDisk: boolean}|null} How the entry was spawned, or null
+   *   when there is no entry or the ready was not ours
+   */
+  markReady(conversationId, metadata) {
+    const entry = this._workers.get(conversationId);
+    if (!entry) return null;
+    if (entry.loadFromDisk && !metadata) return null;
+    entry.ready = true;
+    entry.metadata = metadata || null;
+    for (const callback of entry.readyCallbacks) {
+      callback(entry.metadata);
+    }
+    entry.readyCallbacks = [];
+    entry.readyRejectors = [];
+    return { loadFromDisk: !!entry.loadFromDisk };
+  }
+
+  /**
+   * Fail everything waiting on a worker's `ready`, because the worker said it
+   * cannot start. A no-op once the worker is ready, or with nobody waiting.
+   * @param {string} conversationId - Conversation ID
+   * @param {string} message - The worker's reason, given to each waiter
+   * @returns {void}
+   */
+  failPendingReady(conversationId, message) {
+    const entry = this._workers.get(conversationId);
+    if (!entry || entry.ready || !entry.readyRejectors?.length) return;
+    const rejectors = entry.readyRejectors;
+    entry.readyRejectors = [];
+    entry.readyCallbacks = [];
+    const err = new Error(message);
+    for (const reject of rejectors) reject(err);
+  }
+
+  /**
+   * Re-send an init for a conversation whose worker entry this manager still
+   * holds, marking the entry not ready until the worker answers it.
+   *
+   * An entry outlives the Conversation that owns the document, so a fresh,
+   * empty Conversation for the same id would otherwise find
+   * {@link spawnWorker} short-circuit on the existing entry, and an init is
+   * the only thing that asks the worker for state. A no-op when there is no
+   * entry, in which case `spawnWorker` sends the init.
+   * @param {string} conversationId - Conversation ID
+   * @param {{loadFromDisk?: boolean, [key: string]: unknown}} serializedConversation - The init's conversation data
+   * @returns {void}
+   */
+  reattach(conversationId, serializedConversation) {
+    const entry = this._workers.get(conversationId);
+    if (!entry) return;
+    entry.ready = false;
+    entry.loadFromDisk = !!serializedConversation.loadFromDisk;
+    this._sendInit(conversationId, serializedConversation);
   }
 
   /**
@@ -981,333 +1044,14 @@ export class WorkerManager {
   }
 
   /**
-   * Resolve when the worker for the given conversation is ready.
-   * Resolves immediately if already ready; otherwise queues onto the
-   * existing readyCallbacks list so we get the first 'ready' message.
-   * @param {string} conversationId - Conversation ID
-   * @returns {Promise<void>}
-   */
-  whenReady(conversationId) {
-    return new Promise((resolve, reject) => {
-      const entry = this._workers.get(conversationId);
-      if (!entry) {
-        reject(new Error(`No worker for conversation ${conversationId}`));
-        return;
-      }
-      if (entry.ready) {
-        resolve();
-        return;
-      }
-      entry.readyCallbacks.push(() => resolve());
-    });
-  }
-
-
-  /**
-   * Handle message from worker
+   * Handle message from worker: hand it to its inbound handler
+   * (`worker-manager-inbound.js`).
    * @param {string} conversationId - Conversation ID
    * @param {WorkerMessage} data - Message data
    * @private
    */
   _handleWorkerMessage(conversationId, data) {
-    const entry = this._workers.get(conversationId);
-
-    switch (data.type) {
-      case 'ready':
-        // The worker owns the canonical summarization prompt and ships it with
-        // every "ready" (server-wide constant, independent of this entry).
-        if (data.summarizationPrompt) {
-          setBootstrapSummarizationPrompt(data.summarizationPrompt);
-        }
-        if (entry) {
-          // If this entry was spawned with loadFromDisk:true, a ready message
-          // without metadata came from another client's init (e.g. the viewer
-          // creating a new conversation). Ignore it — the metadata-bearing ready
-          // (sent by the Go worker in response to OUR loadFromDisk init) will
-          // arrive shortly.
-          if (entry.loadFromDisk && !data.metadata) {
-            break;
-          }
-          entry.ready = true;
-          // Store metadata if provided (for loadExistingConversation flow)
-          entry.metadata = data.metadata || null;
-          for (const callback of entry.readyCallbacks) {
-            callback(entry.metadata);
-          }
-          entry.readyCallbacks = [];
-          entry.readyRejectors = [];
-
-          // Activate bidirectional sync. Skip the initial state broadcast
-          // for load-from-disk: the worker already has the full state
-          // and encoding+broadcasting it back blocks the main thread
-          // for hundreds of ms on large docs. New conversations have
-          // local additions that still need the broadcast.
-          if (this._session) {
-            const conversation = this._session.conversations.get(conversationId);
-            if (conversation) {
-              conversation.activateYjsSync({ broadcastInitialState: !entry.loadFromDisk });
-            }
-          }
-        }
-        break;
-
-      case 'yjs-sync': {
-        // Handle Yjs sync messages from worker
-        // Unified sync protocol - all sync goes through YjsConversationSync
-        if (!data.bytes) {
-          console.warn(`[WorkerManager] Missing bytes for yjs-sync`);
-          break;
-        }
-        const conversation = this._session?.conversations.get(conversationId);
-        if (!conversation) {
-          // Auto-load is engine-only: the engine is the single execution
-          // place — it needs every conversation loaded so it can execute
-          // tools and run worker-dispatched strategy hooks regardless of which
-          // viewer created the conv. Viewers must NOT auto-load: a viewer
-          // shows only the conversations the user explicitly opened and runs no
-          // session-wide flow, so loading siblings' convs would be pure waste.
-          if (isEngine()) {
-            this._autoLoadConversation(conversationId, /** @type {string} */ (/** @type {unknown} */ (data.bytes)));
-          }
-          break;
-        }
-        // data.bytes is base64-encoded from Go's JSON marshaling of []byte
-        const bytes = base64ToBytes(/** @type {string} */ (/** @type {unknown} */ (data.bytes)));
-        conversation.handleYjsSyncMessage(bytes);
-        break;
-      }
-
-      case 'resync-offer': {
-        // The worker telling a freshly attached engine that this conversation
-        // is loaded on the server. It carries no state, because what is needed
-        // depends on what this engine already has — and only this engine knows
-        // that.
-        //
-        // The realm outlives the socket, so after a link drop the document is
-        // usually still here and the answer is the ordinary delta handshake.
-        // After a real restart there is nothing here, and the conversation is
-        // loaded the ordinary way instead, which arrives at full state through
-        // init. A worker that exists but is not ready yet needs neither: its
-        // init is already in flight and carries whatever state it lacks.
-        if (!isEngine()) break;
-        const entry = this._workers.get(conversationId);
-        if (!entry) {
-          this._autoLoadConversation(conversationId);
-          break;
-        }
-        if (!entry.ready) break;
-        const conversation = this._session?.conversations.get(conversationId);
-        if (!conversation) break;
-        try {
-          this.sendToWorker(conversationId, {
-            type: 'resync-request',
-            stateVector: bytesToBase64(conversation.getYjsStateVector())
-          });
-        } catch (err) {
-          console.warn(`[WorkerManager] Couldn't answer the resync offer for ${conversationId}:`, err);
-        }
-        break;
-      }
-
-      case 'resync-response': {
-        // The worker's answer to our reconnect resync-request: the ops we are
-        // missing, plus the worker's state vector. Apply its ops, then send back
-        // exactly the ops it lacks — the edits made here while the socket was
-        // down, which the transport discarded on the floor. Both directions are
-        // deltas; neither side ever ships full state on this path.
-        const conversation = this._session?.conversations.get(conversationId);
-        if (!conversation) break;
-        const delta = data.bytes
-          ? base64ToBytes(/** @type {string} */ (/** @type {unknown} */ (data.bytes)))
-          : null;
-        const workerVector = data.stateVector
-          ? base64ToBytes(/** @type {string} */ (/** @type {unknown} */ (data.stateVector)))
-          : null;
-        if (!workerVector) {
-          // No vector, no diff to compute — apply what we were given and stop.
-          if (delta) conversation.handleYjsSyncMessage(delta);
-          break;
-        }
-        const update = conversation.applyResyncResponse(delta, workerVector);
-        if (update) {
-          this.sendToWorker(conversationId, {
-            type: 'yjs-sync',
-            bytes: bytesToBase64(update)
-          });
-        }
-        break;
-      }
-
-      case 'render-context-items-request':
-        // Engine-only; runs async (ensures the conversation is loaded before
-        // rendering, mirroring the tool/strategy command handlers). Guard the
-        // promise so a load failure surfaces instead of an unhandled rejection.
-        protocols.handleRenderContextItemsRequest(this, conversationId, data).catch((err) => {
-          console.error('[WorkerManager] render-context-items-request failed:', err);
-        });
-        break;
-
-      case 'request-tools':
-        protocols.handleRequestTools(this, conversationId, data);
-        break;
-
-      case 'build-subthread-spec':
-        // Worker asks the engine to build a subthread spec for a delegating
-        // tool call (engine-only). Runs async and self-replies; guard the
-        // promise so a load failure surfaces instead of an unhandled rejection.
-        protocols.handleBuildSubthreadSpec(this, conversationId, data).catch((err) => {
-          console.error('[WorkerManager] build-subthread-spec failed:', err);
-        });
-        break;
-
-      case 'approval-request':
-        protocols.handleApprovalRequest(this, conversationId, data);
-        break;
-
-      case 'run-strategy-hook':
-        // Worker-driven strategy lifecycle hook (engine-only). Runs async and
-        // self-replies; guard the promise so a viewer-role assertion or load
-        // failure surfaces instead of becoming an unhandled rejection.
-        protocols.handleRunStrategyHook(this, conversationId, data).catch((err) => {
-          console.error('[WorkerManager] run-strategy-hook failed:', err);
-        });
-        break;
-
-      case 'run-context-hook':
-        // Worker-driven context-item lifecycle hook (onTurnEnd), fired once per
-        // completed turn at the same root-idle moment as run-strategy-hook
-        // (engine-only). Fire-and-forget; guard the promise so a viewer-role
-        // assertion or load failure surfaces instead of an unhandled rejection.
-        protocols.handleRunContextHook(this, conversationId, data).catch((err) => {
-          console.error('[WorkerManager] run-context-hook failed:', err);
-        });
-        break;
-
-      case 'evaluate-tool': {
-        // Worker-commanded tool evaluation (engine-only): run handleNewToolAction
-        // for the given tool-action by id. No ack — the worker re-drives from doc
-        // state (level-based): a command that couldn't act leaves the tool at its
-        // prior state, which driveToolActions re-dispatches once it goes stale.
-        const toolUseId = /** @type {string} */ (data.toolUseId);
-        protocols.handleEvaluateTool(this, conversationId, toolUseId)
-          .catch((err) => {
-            console.error('[WorkerManager] evaluate-tool failed:', err);
-          });
-        break;
-      }
-
-      case 'execute-tool': {
-        // Worker-commanded tool execution (engine-only): claim approved→running
-        // and run the side effect for the given tool-action by id. No ack — the
-        // worker re-drives from doc state (level-based); once claimRunning moves the
-        // tool to running, driveToolActions no longer selects it, so a re-driven
-        // command is a harmless claimRunning-CAS no-op.
-        const toolUseId = /** @type {string} */ (data.toolUseId);
-        protocols.handleExecuteTool(this, conversationId, toolUseId)
-          .catch((err) => {
-            console.error('[WorkerManager] execute-tool failed:', err);
-          });
-        break;
-      }
-
-      case 'cancel-tool':
-        // Worker-commanded cancellation (engine-only): abort an in-flight
-        // execution for the given tool-action by id.
-        protocols.handleCancelTool(this, conversationId, /** @type {string} */ (data.toolUseId), /** @type {number|undefined} */ (data.runningEpoch)).catch((err) => {
-          console.error('[WorkerManager] cancel-tool failed:', err);
-        });
-        break;
-
-      case 'cancel-strategy-execution': {
-        // Worker cancelled — abort engine-driven strategy execution (plan
-        // driver) by firing the conversation's stop handlers.
-        const sec = this._session?.conversations.get(conversationId);
-        sec?.cancelStrategyExecution?.();
-        break;
-      }
-
-      case 'create-thread-response': {
-        const requestId = /** @type {string} */ (data.requestId);
-        const pending = this._pendingThreadRequests.get(requestId);
-        if (pending) {
-          this._pendingThreadRequests.delete(requestId);
-          if (data.error) {
-            const err = new Error(/** @type {string} */ (data.error));
-            if (data.cancelled) {
-              err.name = 'AbortError';
-            }
-            pending.reject(err);
-          } else {
-            pending.resolve({
-              threadItemId: /** @type {string} */ (/** @type {any} */ (data).threadItemId),
-              result: /** @type {string} */ (data.result)
-            });
-          }
-        }
-        break;
-      }
-
-      case 'error':
-        console.error(`[WorkerManager] Worker error for ${conversationId}:`, data.message, data.stack);
-        // An error arriving before ready IS the answer to the init: the worker
-        // could not load the conversation and will send nothing further. Fail
-        // the waiters now so the panel offers Retry, instead of leaving them to
-        // time out a minute later on a spinner that was never going to end.
-        // After ready, the conversation carries its own errors through Yjs.
-        if (entry && !entry.ready && entry.readyRejectors?.length) {
-          const rejectors = entry.readyRejectors;
-          entry.readyRejectors = [];
-          entry.readyCallbacks = [];
-          const err = new Error(data.message ? String(data.message) : `Worker error for ${conversationId}`);
-          for (const reject of rejectors) reject(err);
-        }
-        break;
-
-      case 'validation-error': {
-        // Show validation error in composer warning
-        if (!data.message) {
-          break;
-        }
-        const validationConv = /** @type {!import('../model/session.js').default} */ (this._session).conversations.get(conversationId);
-        if (!validationConv) {
-          console.warn(`[WorkerManager] No conversation found for ${conversationId}`);
-          break;
-        }
-        validationConv.showWarning(data.message);
-        validationConv.restorePendingMessage();
-        break;
-      }
-
-      case 'status':
-        // Processing state syncs via Yjs metadata (doc.metadata.processingState),
-        // which LLMState observes directly — this message carries nothing of its
-        // own. What it is, is the worker announcing a state transition, and the
-        // write it announces is sitting in the inbound sync batch behind a 50ms
-        // timer. Everything that asks "is this conversation busy" reads that
-        // metadata (llmState, the bin guard, the attention edges), so applying
-        // the batch here is what keeps those answers from being one window out
-        // of date. Transitions only — the streaming firehose stays batched.
-        this._session?.conversations.get(conversationId)?.flushPendingSyncs?.();
-        break;
-
-      case 'ack':
-        // Handle command acknowledgment
-        if (data.ackId) {
-          this._handleAck(data.ackId, data.result);
-        }
-        break;
-
-      case 'save-error':
-        // Worker failed to save - log the error
-        console.error(`[WorkerManager] Save failed for ${conversationId}:`, data.error);
-        break;
-
-      default:
-        // Ignore debug messages (debug-init-received, etc.) in production
-        if (!data.type?.startsWith('debug-')) {
-          console.warn(`[WorkerManager] Unknown message from worker ${conversationId}:`, data.type);
-        }
-    }
+    routeWorkerMessage(this, conversationId, data);
   }
 
   // ========== UNDO/REDO OPERATIONS ==========
@@ -1318,7 +1062,7 @@ export class WorkerManager {
    * @returns {Promise<boolean>} True if undo was successful
    */
   async undo(conversationId) {
-    return await this._sendWithAck(conversationId, { type: 'undo' });
+    return await this.sendWithAck(conversationId, { type: 'undo' });
   }
 
   /**
@@ -1327,18 +1071,20 @@ export class WorkerManager {
    * @returns {Promise<boolean>} True if redo was successful
    */
   async redo(conversationId) {
-    return await this._sendWithAck(conversationId, { type: 'redo' });
+    return await this.sendWithAck(conversationId, { type: 'redo' });
   }
 
   /**
-   * Clear undo/redo stacks (for testing purposes)
+   * Clear undo/redo stacks, so what was just written cannot be undone. The
+   * session does this after seeding a new conversation and after duplicating
+   * one; tests use it to start from an empty history.
    * @param {string} conversationId - Conversation ID
    * @returns {Promise<boolean>} True when complete
    */
   async clearUndoStacks(conversationId) {
-    // Test-only setup call; patient like ping() — a loaded pool can hold the
-    // worker's inbound queue past the default 5s without anything being wrong.
-    return await this._sendWithAck(conversationId, { type: 'clear-undo-stacks' }, 15000);
+    // Patient: a loaded pool can hold the worker's inbound queue past the
+    // default 5s without anything being wrong.
+    return await this.sendWithAck(conversationId, { type: 'clear-undo-stacks' }, 15000);
   }
 
   /**
@@ -1352,7 +1098,7 @@ export class WorkerManager {
    *   is not a compaction thread)
    */
   async resummarizeCompactionThread(conversationId, threadItemId) {
-    return await this._sendWithAck(conversationId, { type: 'resummarize-compaction-thread', threadItemId });
+    return await this.sendWithAck(conversationId, { type: 'resummarize-compaction-thread', threadItemId });
   }
 
   /**
@@ -1365,7 +1111,7 @@ export class WorkerManager {
    * @returns {Promise<object|null>} Parsed transaction blob or null
    */
   async getTransaction(conversationId, transactionId) {
-    const result = await this._sendWithAck(conversationId, {
+    const result = await this.sendWithAck(conversationId, {
       type: 'get-transaction',
       transactionId
     });
@@ -1385,7 +1131,7 @@ export class WorkerManager {
    *   (`folded` false when there was nothing to fold)
    */
   async compact(conversationId, { handoffPromote = false } = {}) {
-    const result = await this._sendWithAck(conversationId, {
+    const result = await this.sendWithAck(conversationId, {
       type: 'compact',
       handoffPromote
     });
@@ -1414,26 +1160,8 @@ export class WorkerManager {
     return undoState?.canRedo ?? false;
   }
 
-  /**
-   * Test-only synchronization barrier. The ack returns only after the worker
-   * has drained its inbound queue (every prior message processed, every
-   * observer fired) AND flushed its outbound Yjs batcher. Resolves on the
-   * next microtask so the main-thread Yjs observers triggered by that final
-   * sync have a chance to run before the caller's next line.
-   * @param {string} conversationId - Conversation ID
-   * @returns {Promise<void>}
-   */
-  async ping(conversationId) {
-    // Patient timeout: the barrier legitimately takes as long as the worker's
-    // inbound queue is deep — under the 9-lane test pool a heavy undo storm
-    // can push a full drain past the default 5s. The per-test hard timeout
-    // remains the fail-fast bound for a genuinely wedged worker.
-    await this._sendWithAck(conversationId, { type: 'ping' }, 30000);
-    await Promise.resolve();
-  }
-
   // ============================================================================
-  // Test Harness Methods
+  // Undo grouping and persistence barriers
   // ============================================================================
 
   /**
@@ -1455,35 +1183,7 @@ export class WorkerManager {
    * @returns {Promise<void>}
    */
   async flushPersistence(conversationId, timeoutMs = 30000) {
-    await this._sendWithAck(conversationId, { type: 'flush-persistence' }, timeoutMs);
-  }
-
-  /**
-   * Set mock LLM responses for testing.
-   * When set, the worker's callLLM() will return these responses instead of calling real LLM.
-   * @param {string} conversationId - Conversation ID
-   * @param {Array<{blocks: Array<{type: string, content?: string, text?: string, thinking?: string, toolUseId?: string, toolName?: string, toolInput?: object}>, stopReason: string, inputTokens?: number, outputTokens?: number}>} responses - Mock responses to inject
-   * @returns {Promise<void>}
-   */
-  async setMockResponses(conversationId, responses) {
-    recordTape('mock-llm', conversationId, { action: 'set', count: responses.length });
-    // Use _sendWithAck to ensure worker receives and processes mock responses
-    // before tests start sending messages
-    await this._sendWithAck(conversationId, {
-      type: 'set-mock-responses',
-      responses
-    }, 5000);
-  }
-
-  /**
-   * Release a paused mock response. Worker uses MockResponse.PauseBeforeReturn
-   * to hold a response between streaming and return — this releases that hold.
-   * Idempotent: extra releases are coalesced by the worker's buffered channel.
-   * @param {string} conversationId - Conversation ID
-   * @returns {void}
-   */
-  releaseMock(conversationId) {
-    this.sendToWorker(conversationId, { type: 'release-mock' });
+    await this.sendWithAck(conversationId, { type: 'flush-persistence' }, timeoutMs);
   }
 
   /**
@@ -1521,43 +1221,21 @@ export class WorkerManager {
    * @returns {Promise<boolean>} Resolves when the worker has merged the groups
    */
   async endUndoCoalescing(conversationId) {
-    return await this._sendWithAck(conversationId, { type: 'end-undo-coalesce' });
-  }
-
-  /**
-   * Simulate WebSocket disconnection for testing.
-   * Temporarily closes the WebSocket connection to test reconnection handling.
-   * @param {string} _conversationId - Conversation ID (unused, disconnect is global)
-   * @returns {Promise<void>}
-   */
-  async simulateDisconnect(_conversationId) {
-    // Signal WebSocket service to disconnect
-    await wsService.simulateDisconnect();
-  }
-
-  /**
-   * Trigger WebSocket reconnection for testing.
-   * Re-establishes connection after simulateDisconnect().
-   * @param {string} _conversationId - Conversation ID (unused, reconnect is global)
-   * @returns {Promise<void>}
-   */
-  async reconnect(_conversationId) {
-    // Signal WebSocket service to reconnect
-    await wsService.reconnect();
+    return await this.sendWithAck(conversationId, { type: 'end-undo-coalesce' });
   }
 
   // ============================================================================
-  // Lifecycle Management (Promise-Based)
+  // Worker lifecycle: the surface ConversationLoader builds on
   // ============================================================================
 
   /**
-   * Wait for worker to be ready
+   * Wait for a spawned worker to report ready. Rejects at once when there is
+   * no entry, when the worker reports an error instead, or at the timeout.
    * @param {string} conversationId - Conversation ID
    * @param {number} [timeoutMs=WORKER_READY_TIMEOUT_MS] - Timeout in milliseconds
    * @returns {Promise<object|null>} Metadata from ready message (null for new conversations)
-   * @private
    */
-  async _waitForWorkerReady(conversationId, timeoutMs = WORKER_READY_TIMEOUT_MS) {
+  async waitForWorkerReady(conversationId, timeoutMs = WORKER_READY_TIMEOUT_MS) {
     const timeout = timeoutMs;
     const entry = this._workers.get(conversationId);
     if (!entry) {
@@ -1587,321 +1265,14 @@ export class WorkerManager {
   }
 
   /**
-   * Create a brand new conversation with no prior state on disk.
-   * Caller must already have allocated the id and final name via
-   * `POST /api/conversations` (the server creates the on-disk folder
-   * with the canonical name before this is called). Returns a fully
-   * initialized conversation with worker ready.
-   * @param {string} id - Server-allocated conversation id
-   * @param {string} name - Server-canonical conversation name (folder name on disk)
-   * @param {import('../model/session.js').default} session - Parent session
-   * @param {{workspaceId?: string}} [options] - The tree it will work in, which
-   *   is where in the tab bar it belongs — see `Session#_placeNewConversation`
-   * @returns {Promise<import('../model/conversation.js').default>} Fully initialized conversation
-   */
-  async createNewConversation(id, name, session, { workspaceId = '' } = {}) {
-    const Conversation = (await import('../model/conversation.js')).default;
-
-    // Check if already creating (lock via in-flight promise). In the ENGINE this
-    // is the normal path, not a rarity: the worker the server spawns for the new
-    // conversation flushes its first yjs-sync before the create's HTTP response
-    // gets back here, and a sync for an unknown conversation makes the engine
-    // auto-load it (_autoLoadConversation → loadExistingConversation, which
-    // registers here). So the create joins a LOAD, which — reading a
-    // conversation that already exists — seeds no built-in items. Finish the
-    // creation contract explicitly, or the conversation is born without its
-    // system prompt: no editable prompt in the panel, and every sub-thread
-    // clones a starting context that has none.
-    const existingPromise = this._creating.get(id);
-    if (existingPromise) {
-      const conversation = await existingPromise;
-      await this._ensureNewConversationSystemPrompt(conversation);
-      return conversation;
-    }
-
-    // Start creation (atomic)
-    const promise = this._doCreateNew(name, session, id, Conversation, workspaceId);
-    this._creating.set(id, promise);
-
-    try {
-      const conversation = await promise;
-      return conversation;
-    } finally {
-      this._creating.delete(id);
-    }
-  }
-
-  /**
-   * Give a brand-new conversation the root system-prompt placeholder, once its
-   * worker's items array is in the browser doc. Seeding before the array lands
-   * builds a rival root["items"] that Yjs conflict resolution then discards,
-   * taking SYSTEM_1 with it — see {@link _waitForItemsArray}. Idempotent, so it
-   * is safe on a conversation that already has one.
-   * @param {import('../model/conversation.js').default} conversation - The new conversation
-   * @returns {Promise<void>}
-   * @private
-   */
-  async _ensureNewConversationSystemPrompt(conversation) {
-    await this._waitForItemsArray(conversation);
-    conversation.rootMessageThread.ensureSystemPromptPlaceholder();
-  }
-
-  /**
-   * Internal implementation of new conversation creation
-   * @param {string} name - Conversation name
-   * @param {import('../model/session.js').default} session - Parent session
-   * @param {string} id - Generated conversation ID
-   * @param {typeof import('../model/conversation.js').default} Conversation - Conversation class
-   * @param {string} [workspaceId] - The tree it will work in, if it is one
-   * @returns {Promise<import('../model/conversation.js').default>} Fully initialized conversation
-   * @private
-   */
-  async _doCreateNew(name, session, id, Conversation, workspaceId = '') {
-    try {
-      // 1. Create conversation instance
-      const services = session.getServices();
-      if (!services) {
-        throw new Error('Cannot create conversation: services not set');
-      }
-
-      // The browser DOES NOT initialize the system-prompt placeholder yet —
-      // doing it here would create root["items"] in the browser doc, racing
-      // the worker's own ensureItems() and dropping SYSTEM_1 ~half the time.
-      // The worker creates the items Y.Array in handleInit and ships it via
-      // yjs-sync; the browser's ensureSystemPromptPlaceholder() below adds
-      // SYSTEM_1 to that *existing* array.
-      // Built carrying the workspace it is for, so it reports that binding from
-      // the moment it exists. The durable write happens in initialiseConversation
-      // once the worker is up, which is several renders of the tab bar away —
-      // and the bar groups the strip by this answer.
-      const conversation = new Conversation(id, name, session, /** @type {import('../model/session.js').ConversationServices} */ (services), { skipBuiltInContextItems: true, workspaceId });
-
-      // CRITICAL: Add to session BEFORE spawning worker. Worker sends yjs-sync
-      // messages immediately and the message handler needs to find the
-      // conversation. It goes in at the TOP — of the bar, or of its workspace's
-      // box — so any render that fires while the worker is still spawning
-      // (broadcast echo, etc.) sees the new tab in its final position rather
-      // than briefly painting it at the end of the bar, or briefly dragging a
-      // workspace's whole box up there with it.
-      session.adoptConversation(id, conversation, { atHead: true, workspaceId, from: '_doCreateNew' });
-
-      // 2. Spawn worker with full metadata (LoadFromDisk: false)
-      const workerInit = conversation.getWorkerInitData();
-      const initData = {
-        id: conversation.id,
-        name: conversation.name,
-        created: conversation.created,
-        modelConfig: workerInit.modelConfig,
-        loadFromDisk: false  // New conversation - don't load from disk
-      };
-      await this._spawnWorker(conversation.id, initData);
-
-      // 3. Wait for ready (no metadata expected). The worker has now flushed
-      // its initial yjs-sync (with the items Y.Array creation), so the
-      // browser doc's items reference is the worker's array.
-      await this._waitForWorkerReady(conversation.id);
-
-      // Browser-side sync application is batched on a timer, and under load
-      // the worker's initial yjs-sync (which CREATES root["items"]) can still
-      // be in flight when _waitForWorkerReady resolves — 'ready' is sent after
-      // that sync, but the two are applied through independent batched paths.
-      // A one-shot flush only applies syncs that have already arrived; if the
-      // array-bearing sync hasn't, doc.root["items"] is still absent and
-      // ensureSystemPromptPlaceholder() below creates a SECOND, competing
-      // root["items"] in the browser doc. Yjs Map-conflict resolution then
-      // keeps the worker's array and discards the browser's, dropping SYSTEM_1
-      // with it — the "system-prompt missing at [0]" flake seen under multi-
-      // conversation load. Positively WAIT for the worker's array so SYSTEM_1
-      // is always inserted into THAT array, never a rival one.
-      await this._waitForItemsArray(conversation);
-
-      // 4. Activate Yjs sync (registers update handler, sends current state).
-      conversation.activateYjsSync();
-
-      // 5. Insert the system-prompt placeholder into the (now-present) items
-      // array. ensureSystemPromptPlaceholder() is a no-op if SYSTEM_1 already
-      // exists — safe to call regardless of whether worker pre-loaded items.
-      await this._ensureNewConversationSystemPrompt(conversation);
-
-      return conversation;
-    } catch (error) {
-      console.error(`[WorkerManager] Failed to create conversation ${id}:`, error);
-      this.terminate(id);
-      throw error;
-    }
-  }
-
-  /**
-   * Wait until the worker's root["items"] Y.Array has arrived and been applied
-   * to the browser doc. This is the precondition for seeding SYSTEM_1: inserting
-   * the system-prompt placeholder while the array is still absent creates a
-   * competing browser-side root["items"], which Yjs Map-conflict resolution
-   * later discards in favour of the worker's — dropping SYSTEM_1. Flushes the
-   * batched sync buffer on each check so a just-arrived sync is applied
-   * promptly. Bounded so a pathological worker that never ships an array can't
-   * hang conversation creation; on timeout the caller proceeds anyway and
-   * ensureSystemPromptPlaceholder creates the array locally, accepting the
-   * risk above.
-   * @param {import('../model/conversation.js').default} conversation
-   * @param {number} [timeoutMs=2000] - Max time to wait for the array to sync.
-   * @returns {Promise<boolean>} True once the items array is present, false on timeout.
-   * @private
-   */
-  async _waitForItemsArray(conversation, timeoutMs = 2000) {
-    const deadline = Date.now() + timeoutMs;
-    conversation.flushPendingSyncs();
-    while (!conversation.hasRootItemsArray) {
-      if (Date.now() >= deadline) {
-        console.warn(`[WorkerManager] items array not synced within ${timeoutMs}ms for ${conversation.id}; SYSTEM_1 may create a local array`);
-        return false;
-      }
-      await new Promise(r => setTimeout(r, 10));
-      conversation.flushPendingSyncs();
-    }
-    return true;
-  }
-
-  /**
-   * Load an existing conversation from disk using its ID.
-   * Backend extracts metadata from the .yjs file and sends it in the ready message.
-   * @param {string} conversationId - Conversation ID
-   * @param {import('../model/session.js').default} session - Parent session
-   * @returns {Promise<import('../model/conversation.js').default>} Fully initialized conversation
-   */
-  async loadExistingConversation(conversationId, session) {
-    const Conversation = (await import('../model/conversation.js')).default;
-
-    // Check if already loading (lock via in-flight promise)
-    const existingPromise = this._creating.get(conversationId);
-    if (existingPromise) {
-      console.warn(`[WorkerManager] Duplicate load for ${conversationId} - waiting for in-flight`);
-      return await existingPromise;
-    }
-
-    const promise = this._doLoadExisting(conversationId, session, Conversation);
-    this._creating.set(conversationId, promise);
-
-    try {
-      const conversation = await promise;
-      return conversation;
-    } finally {
-      this._creating.delete(conversationId);
-    }
-  }
-
-  /**
-   * Internal implementation of existing conversation loading
-   * @param {string} conversationId - Conversation ID
-   * @param {import('../model/session.js').default} session - Parent session
-   * @param {typeof import('../model/conversation.js').default} Conversation - Conversation class
-   * @returns {Promise<import('../model/conversation.js').default>} Fully initialized conversation
-   * @private
-   */
-  async _doLoadExisting(conversationId, session, Conversation) {
-    try {
-      // 1. Get services first
-      const services = session.getServices();
-      if (!services) {
-        throw new Error('Cannot load conversation: services not set');
-      }
-
-      // 2. Reuse the stub created by Session._doLoad if present — replacing it
-      // would break tab-element bindings and tab-bar references. Auto-load
-      // and other direct callers fall through to create a fresh one.
-      let conversation = session.conversations.get(conversationId);
-      if (!conversation) {
-        conversation = new Conversation(
-          conversationId,
-          '',  // populated from metadata after worker ready
-          session,
-          services,
-          { skipBuiltInContextItems: true }
-        );
-        // Must be in the session before _spawnWorker — yjs-sync messages from
-        // the worker arrive immediately and need to find it.
-        session.adoptConversation(conversationId, conversation, { from: '_doLoadExisting' });
-      }
-
-      // 3. Spawn worker with LoadFromDisk flag
-      const initData = {
-        id: conversationId,
-        loadFromDisk: true  // Backend will load from disk and send metadata
-      };
-      // A worker entry outlives the Conversation object that
-      // owns the document. Session._doLoad replaces every conversation with a
-      // fresh, EMPTY one but leaves this map alone, so _spawnWorker's
-      // "already exists" short-circuit would skip the init — and an init is
-      // the only thing that asks the worker for state. Re-attach explicitly:
-      // the worker answers this document's state vector with the ops it lacks.
-      const existingEntry = this._workers.get(conversationId);
-      if (existingEntry && !conversation.hasRootItemsArray) {
-        existingEntry.ready = false;
-        existingEntry.loadFromDisk = true;
-        this._sendInit(conversationId, initData);
-      }
-      await this._spawnWorker(conversationId, initData);
-
-      // 4. Wait for ready and get metadata from backend
-      const metadata = await this._waitForWorkerReady(conversationId);
-      if (!metadata) {
-        throw new Error(`Worker did not provide metadata for existing conversation ${conversationId}`);
-      }
-
-      // 5. Populate stub with metadata (properties are mutable). The name
-      // comes from the on-disk folder name, populated when the manifest
-      // was loaded — don't overwrite it from worker metadata.
-      const metadataObj = /** @type {{ created?: string; defaultModelConfig?: any; currentStrategyId?: string }} */ (metadata);
-      const defaultModelConfig = metadataObj.defaultModelConfig ?? null;
-      conversation.created = metadataObj.created || new Date().toISOString();
-      conversation.restoreWorkerMetadata({
-        modelConfig: defaultModelConfig,
-        currentStrategyId: metadataObj.currentStrategyId || 'default'
-      });
-
-      // Fetch context window if model is set (fire-and-forget)
-      if (defaultModelConfig) {
-        // Use ensureContextWindow which internally calls _fetchContextWindow
-        conversation.ensureContextWindow();
-      }
-
-      // Note: Permissions come from worker Yjs sync, no need to set here
-
-      // Browser-side sync application is batched on a 50ms timer; the worker's
-      // initial yjs-sync (with the loaded items array and all messages) may
-      // have arrived but not yet been applied. Flush so callers that read
-      // conv.rootItems immediately after this call see the synced state.
-      conversation.flushPendingSyncs();
-
-      // 6. Activate Yjs sync. All yjs-sync was captured from the start, so the
-      // doc is already complete here.
-      conversation.activateYjsSync();
-
-      // Cover callers that bypass the load queue (clone, refreshFromServer).
-      if (conversation.loadState !== 'loaded') {
-        conversation.setLoadState('loaded');
-      }
-
-      return conversation;
-    } catch (error) {
-      console.error(`[WorkerManager] Failed to load conversation ${conversationId}:`, error);
-      // Keep the stub in session.conversations with loadState=error so the
-      // panel can render a retry affordance and the next reload retries.
-      // Dropping it instead would lose the conversation permanently.
-      const stub = session.conversations.get(conversationId);
-      if (stub && stub.loadState !== 'error') stub.setLoadState('error');
-      this.terminate(conversationId);
-      throw error;
-    }
-  }
-
-  /**
-   * Spawn a worker for a conversation (internal helper)
+   * Spawn a worker for a conversation: create its entry and send its init. A
+   * spawn already in flight for the id is joined, and an existing entry is
+   * left alone (see {@link reattach} for re-sending its init).
    * @param {string} conversationId - Conversation ID
    * @param {{loadFromDisk?: boolean, [key: string]: unknown}} serializedConversation - Serialized conversation data
-   * @returns {Promise<void>} Resolves when init message is sent
-   * @private
+   * @returns {Promise<void>} Resolves once the worker reports ready
    */
-  async _spawnWorker(conversationId, serializedConversation) {
+  async spawnWorker(conversationId, serializedConversation) {
     // Check if already spawning (lock via in-flight promise)
     if (this._spawning.has(conversationId)) {
       console.warn(`[WorkerManager] Duplicate spawn for ${conversationId} - waiting for in-flight`);
@@ -1923,132 +1294,6 @@ export class WorkerManager {
     } finally {
       this._spawning.delete(conversationId);
     }
-  }
-
-  /**
-   * Destroy conversation and terminate worker (atomic operation)
-   * Enforces proper cleanup order: stop operations → destroy resources → terminate worker
-   * @param {import('../model/conversation.js').default} conversation - Conversation to destroy
-   * @returns {Promise<void>}
-   */
-  async destroyConversationAndWorker(conversation) {
-    const conversationId = conversation.id;
-
-    try {
-      // 1. Destroy conversation resources (this also stops active operations)
-      //    Conversation.destroy() calls llmState.stop() and cancelPendingApprovals()
-      conversation.destroy();
-
-      // 2. Terminate worker
-      this.terminate(conversationId);
-    } catch (error) {
-      console.error(`[WorkerManager] Error destroying ${conversationId}:`, error);
-      // Still terminate worker even if conversation cleanup failed
-      this.terminate(conversationId);
-      throw error;
-    }
-  }
-
-  /**
-   * How long a conversation must be left alone after `failures` consecutive
-   * failed auto-loads: doubling from the base, up to the ceiling.
-   * @param {number} failures - Consecutive failed loads for this conversation.
-   * @returns {number} Milliseconds to wait before the next attempt.
-   * @private
-   */
-  _autoLoadRetryDelayMs(failures) {
-    // The first failure is the documented race — the worker's first-init
-    // 'ready' arriving before it has processed our init — and the next sync is
-    // exactly when it will have. Retry that one immediately; only a SECOND
-    // failure says something is actually wrong.
-    if (failures <= 1) return 0;
-    return Math.min(AUTO_LOAD_RETRY_MAX_MS, AUTO_LOAD_RETRY_BASE_MS * 2 ** (failures - 2));
-  }
-
-  /**
-   * Auto-load a conversation that the engine doesn't know about yet.
-   * Queues yjs-sync bytes and applies them after load completes.
-   * Deduplicates concurrent loads for the same conversation.
-   *
-   * The bytes are optional: an incidental yjs-sync arrives with the ops that
-   * prompted the load and must not lose them, but a resync-offer is only a
-   * pointer to a conversation, and the load itself brings the state.
-   * @param {string} conversationId - Conversation to load
-   * @param {string} [base64Bytes] - Base64-encoded yjs-sync bytes to apply once loaded
-   * @private
-   */
-  _autoLoadConversation(conversationId, base64Bytes) {
-    // Skip internal conversations
-    if (conversationId.startsWith('_internal:')) return;
-
-    const existing = this._pendingAutoLoads.get(conversationId);
-    if (existing) {
-      // Load already in flight — just queue the bytes
-      if (base64Bytes !== undefined) existing.queuedBytes.push(base64Bytes);
-      return;
-    }
-
-    // A conversation that has just failed to load is left alone until its
-    // backoff elapses. The bytes go with it: they are an update to a document
-    // this realm does not have, and the load itself is what brings the state.
-    const failure = this._autoLoadFailures.get(conversationId);
-    if (failure && Date.now() - failure.lastAttemptAt < this._autoLoadRetryDelayMs(failure.failures)) {
-      return;
-    }
-
-    /** @type {string[]} */
-    const queuedBytes = base64Bytes === undefined ? [] : [base64Bytes];
-
-    const promise = (async () => {
-      try {
-        if (!this._session) return;
-        console.log(`[WorkerManager] Auto-loading unknown conversation ${conversationId}`);
-        const conversation = await this.loadExistingConversation(conversationId, this._session);
-        // It loaded: whatever was wrong has passed, so the next unrelated blip
-        // gets the fast first retry rather than an inherited backoff.
-        this._autoLoadFailures.delete(conversationId);
-
-        // Apply all queued yjs-sync updates
-        for (const b64 of queuedBytes) {
-          conversation.handleYjsSyncMessage(base64ToBytes(b64));
-        }
-      } catch (err) {
-        const failures = (this._autoLoadFailures.get(conversationId)?.failures ?? 0) + 1;
-        this._autoLoadFailures.set(conversationId, { failures, lastAttemptAt: Date.now() });
-        console.error(
-          `[WorkerManager] Failed to auto-load conversation ${conversationId} (attempt ${failures}, next no sooner than ${this._autoLoadRetryDelayMs(failures)}ms):`,
-          err
-        );
-        // The engine's console is invisible in headless runs, and a repeated
-        // auto-load failure means no tool execution for the conversation —
-        // worth a server-side trace. The endpoint only exists in test mode, so
-        // gate the call behind the test flag rather than firing a request that
-        // 404s in production (over the studio tunnel that 404 is a visible
-        // console line). Fire-and-forget.
-        if (/** @type {any} */ (globalThis).JUGGLER_TEST_MODE) {
-          void fetchJson(apiUrl('/test/debug-log'), {
-            method: 'POST',
-            body: {
-              where: 'engine-auto-load-failed',
-              conversationId,
-              error: extractErrorMessage(err)
-            },
-            fallback: null,
-          });
-        }
-        // The first failure is usually a race: the worker's first-init
-        // 'ready' (triggered by whichever client booted the worker) lands in
-        // our entry before the worker has processed *our* init, so we get a
-        // ready without metadata. Drop the stub so the next yjs-sync
-        // re-triggers autoload — by then the worker is initialized and our
-        // init takes the "Client attached" path with metadata.
-        this._session?.forgetConversation(conversationId, 'engine-auto-load-failed');
-      } finally {
-        this._pendingAutoLoads.delete(conversationId);
-      }
-    })();
-
-    this._pendingAutoLoads.set(conversationId, { promise, queuedBytes });
   }
 }
 

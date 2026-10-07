@@ -198,7 +198,7 @@ class EngineApp {
       return;
     }
 
-    // The engine loads conversations lazily via _autoLoadConversation when it
+    // The engine loads conversations lazily via the loader's autoLoad when it
     // receives yjs-sync from active workers, so it must NOT apply the op-tagged
     // conversations-changed diff the way a viewer does — that would load every
     // conversation, which is exactly what the engine's empty

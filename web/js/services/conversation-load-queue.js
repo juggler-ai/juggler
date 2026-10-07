@@ -6,34 +6,39 @@
  * Concurrency-limited orchestrator for lazy conversation hydration.
  *
  * Stubs are created by Session._doLoad before any id lands here; the queue
- * decides *when* to call workerManager.loadExistingConversation(). The conv's
+ * decides *when* to call workerManager.loader.loadExisting(). The conv's
  * loadState transitions through 'loading' → 'loaded' (or 'error') and the
  * session emits 'conversation:loadstate-changed' so listeners (tab bar,
  * conversation panel) can re-render. Failures retain the id on the session
  * (session.retainUnloadedConversationId) so it survives saveImmediately and
  * gets retried on the next reload.
  *
- * Worker-manager's _creating map dedupes concurrent loads for the same id,
+ * The loader's in-flight map dedupes concurrent loads for the same id,
  * so this queue does not need its own dedupe.
  */
 
 /**
- * @typedef {object} LoadQueueWorkerManager
- * @property {(id: string, session: import('../model/session.js').default) => Promise<import('../model/conversation.js').default>} loadExistingConversation Hydrate the conversation's Yjs doc by spawning its backend worker
+ * @typedef {object} LoadQueueLoader
+ * @property {(id: string, session: import('../model/session.js').default) => Promise<import('../model/conversation.js').default>} loadExisting Hydrate the conversation's Yjs doc by spawning its backend worker
  */
 
 class ConversationLoadQueue {
   /**
    * @param {object} opts
    * @param {import('../model/session.js').default} opts.session
-   * @param {LoadQueueWorkerManager} opts.workerManager
+   * @param {LoadQueueLoader} opts.loader - Normally `workerManager.loader`
    * @param {number} [opts.concurrency=3] - max in-flight loads
    */
-  constructor({ session, workerManager, concurrency = 3 }) {
+  constructor({ session, loader, concurrency = 3 }) {
+    // Without this every load would fail later as an ordinary load failure,
+    // which reads as the conversation's fault rather than the caller's.
+    if (typeof loader?.loadExisting !== 'function') {
+      throw new TypeError('ConversationLoadQueue needs a loader with loadExisting (workerManager.loader)');
+    }
     /** @type {import('../model/session.js').default} @private */
     this._session = session;
-    /** @type {LoadQueueWorkerManager} @private */
-    this._workerManager = workerManager;
+    /** @type {LoadQueueLoader} @private */
+    this._loader = loader;
     /** @type {number} @private */
     this._concurrency = Math.max(1, concurrency);
 
@@ -182,7 +187,7 @@ class ConversationLoadQueue {
 
     const promise = (async () => {
       try {
-        await this._workerManager.loadExistingConversation(id, this._session);
+        await this._loader.loadExisting(id, this._session);
         if (this._destroyed) return;
         this._loaded.add(id);
         this._errored.delete(id);

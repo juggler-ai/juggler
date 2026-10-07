@@ -17,6 +17,7 @@
 
 import workerManager from '../../js/services/worker-manager.js';
 import wsService from '../../js/services/websocket.js';
+import { setMockResponses, releaseMock } from './worker-test-hooks.js';
 import { TOOL_STATES } from '../../sdk/lib/message.js';
 import { threadRunSettled } from '../../js/model/run-records.js';
 import { waitForTurnComplete, observeUntil, findItemRecursive, hasIncompleteApprovedTools } from './turn-sync.js';
@@ -246,7 +247,7 @@ export class IntegrationTestHarness {
     // Inject only responses from startIndex onwards
     const remainingResponses = responses.slice(startIndex);
     console.error(`[ESSENTIAL] [MOCK] Injecting ${remainingResponses.length} responses (total=${responses.length}, startIndex=${startIndex}) for ${this._conversation.id}`);
-    await workerManager.setMockResponses(this._conversation.id, remainingResponses);
+    await setMockResponses(this._conversation.id, remainingResponses);
   }
 
   /**
@@ -833,7 +834,7 @@ export class IntegrationTestHarness {
     this._conversation = conv;
 
     // Wait for worker to be fully ready
-    await this._waitForWorkerReady(convId);
+    await workerManager.waitForWorkerReady(convId, 5000);
 
     // Inject mock responses into the new conversation's worker. An explicit
     // per-conversation list takes priority — required when two conversations
@@ -922,23 +923,6 @@ export class IntegrationTestHarness {
       timeoutMs: timeout,
       label: `${expectedCount} items to sync in ${conversationId}`
     });
-  }
-
-  /**
-   * Wait for a worker to be ready.
-   * @param {string} conversationId - Conversation ID
-   * @param {number} [timeout=5000] - Timeout in ms
-   * @returns {Promise<void>}
-   * @private
-   */
-  async _waitForWorkerReady(conversationId, timeout = 5000) {
-    await Promise.race([
-      workerManager.whenReady(conversationId),
-      new Promise((_resolve, reject) => setTimeout(
-        () => reject(new Error(`Timeout waiting for worker to be ready: ${conversationId}`)),
-        timeout
-      ))
-    ]);
   }
 
   /**
@@ -1296,8 +1280,7 @@ export class IntegrationTestHarness {
       throw new Error('Conversation not initialized');
     }
 
-    // Access the worker manager to simulate disconnect
-    await workerManager.simulateDisconnect(this._conversation.id);
+    await wsService.simulateDisconnect();
 
     // Wait before allowing reconnection
     if (reconnectMs > 0) {
@@ -1305,7 +1288,7 @@ export class IntegrationTestHarness {
     }
 
     // Trigger reconnection
-    await workerManager.reconnect(this._conversation.id);
+    await wsService.reconnect();
   }
 
   /**
@@ -1787,7 +1770,7 @@ export class IntegrationTestHarness {
     if (!this._conversation) {
       throw new Error('Conversation not initialized');
     }
-    workerManager.releaseMock(this._conversation.id);
+    releaseMock(this._conversation.id);
   }
 
   async cancelExecution(timeoutMs = 10000) {

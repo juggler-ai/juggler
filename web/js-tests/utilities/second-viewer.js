@@ -94,7 +94,7 @@ export class SecondViewer {
         try { payload = JSON.parse(payload); } catch { return; }
       }
       if (!payload || payload.type !== 'yjs-sync' || !payload.bytes) return;
-      // base64 → Uint8Array (mirror worker-manager.js _handleWorkerMessage)
+      // base64 → Uint8Array (mirror worker-manager-inbound.js onYjsSync)
       const binary = atob(payload.bytes);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);

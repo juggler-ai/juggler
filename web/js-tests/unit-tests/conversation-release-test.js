@@ -199,13 +199,13 @@ export async function runTests(_ctx) {
       const conv = await createTestConversation(session);
       created = conv.id;
       assert(session.conversations.has(created), 'precondition: the session holds the conversation');
-      assert(workerManager.hasWorker(created), 'precondition: the conversation has a worker entry');
+      assert(workerManager.workerState(created) !== 'absent', 'precondition: the conversation has a worker entry');
 
       const released = await within(session.releaseConversation(created), 8000, 'releaseConversation never settled');
       assert(released === true, 'releasing a held conversation must report that it did');
       assert(!session.conversations.has(created),
         'a released conversation must leave the session map — otherwise the engine keeps every conversation it was ever synced');
-      assert(!workerManager.hasWorker(created), 'a released conversation must leave no worker entry behind');
+      assert(workerManager.workerState(created) === 'absent', 'a released conversation must leave no worker entry behind');
 
       const again = await session.releaseConversation(created);
       assert(again === false, 'releasing an id this realm does not hold must be a no-op');

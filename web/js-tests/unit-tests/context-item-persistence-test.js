@@ -107,7 +107,7 @@ async function _runTests() {
   logger.info('[context-item-persistence-test] Step 3: Reloading conversation from backend');
 
   // Destroy conversation and terminate worker (atomic operation with enforced cleanup order)
-  await workerManager.destroyConversationAndWorker(conversation);
+  await workerManager.loader.destroy(conversation);
   session.conversations.delete(conversation.id);
 
   // Reload session (simulates page reload)

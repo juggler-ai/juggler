@@ -21,7 +21,7 @@ import {
 } from '../utilities/test-helpers.js';
 import { DEFAULT_FILE_EDITING_META_KEY } from '../../js/services/file-editing-permission.js';
 import { fetchJson } from '../../js/services/http.js';
-import workerManager from '../../js/services/worker-manager.js';
+import { pingWorker } from './worker-test-hooks.js';
 import contextItemRegistry from '../../js/registries/context-item-registry.js';
 import { createBoundOps } from '../../sdk/ops.js';
 import { registerWorkspace, patchWorkspace, listWorkspaces } from '../../js/services/workspaces.js';
@@ -639,7 +639,7 @@ export function bannerFor(conversation, state = {}) {
  * @returns {Promise<void>} When the document is current.
  */
 export async function syncUndoState(conversation) {
-  await workerManager.ping(conversation.id);
+  await pingWorker(conversation.id);
   conversation._doc.flushPendingUpdates();
 }
 

@@ -711,7 +711,7 @@ export async function runTests(_ctx) {
 
       const spyWm = {
         _session: session,
-        loadExistingConversation: async () => conversation,
+        loader: { pendingAutoLoad: () => null, loadExisting: async () => conversation },
         sendToWorker: () => {},
       };
       const handled = await handleExecuteTool(spyWm, conversation.id, toolUseId);

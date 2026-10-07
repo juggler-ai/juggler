@@ -415,7 +415,7 @@ class Conversation {
   /**
    * Whether the root items Y.Array exists in this client's document yet. The
    * worker creates it and it arrives over sync, so a caller that must not race
-   * that (see WorkerManager._waitForItemsArray) waits on this rather than
+   * that (see ConversationLoader#_waitForItemsArray) waits on this rather than
    * reaching into the document.
    * @returns {boolean} True once the root items array is present.
    */
@@ -510,7 +510,7 @@ class Conversation {
    *
    * IMPORTANT: do NOT write modelConfig back to Yjs here. The worker just
    * loaded its doc from disk and is broadcasting that state via yjs-sync;
-   * by the time _doLoadExisting calls this, the local doc already has the
+   * by the time the loader's loadExisting calls this, the local doc already has the
    * worker's modelConfig (flushPendingUpdates was just called). Writing it
    * again produces a redundant Yjs update that RACES against concurrent
    * writers: a viewer auto-loading the conversation would write its stale

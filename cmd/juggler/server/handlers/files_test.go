@@ -158,6 +158,53 @@ func TestFileContentMissingFile(t *testing.T) {
 	}
 }
 
+// serveFileTree requests absPath through the tree route, spelled as the client
+// spells it: the token, then the absolute path without its leading slash.
+func serveFileTree(api *FilesAPI, absPath string) *httptest.ResponseRecorder {
+	p := strings.TrimPrefix(filepath.ToSlash(absPath), "/")
+	req := httptest.NewRequest(http.MethodGet, FileTreePrefix+"tok/"+p, nil)
+	rec := httptest.NewRecorder()
+	api.HandleGetFileTree(rec, req)
+	return rec
+}
+
+// TestFileTreeServesProjectFile is the tree route's happy path: the same bytes
+// and headers as the query route, from a path a page's relative links can reach.
+func TestFileTreeServesProjectFile(t *testing.T) {
+	api, project, _ := newFilesTestAPI(t)
+
+	rec := serveFileTree(api, filepath.Join(project, "src", "app.js"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %q)", rec.Code, rec.Body.String())
+	}
+	if got := rec.Body.String(); got != "const a = 1;\n" {
+		t.Errorf("body = %q, want the file's bytes", got)
+	}
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+}
+
+// TestFileTreeRejectsTraversal: a page's `../` links are exactly how this route
+// is asked for a path outside the project, so it must refuse them as the query
+// route does.
+func TestFileTreeRejectsTraversal(t *testing.T) {
+	api, project, secret := newFilesTestAPI(t)
+
+	for _, p := range []string{secret, filepath.Join(project, "src") + "/../../secret.txt"} {
+		rec := serveFileTree(api, p)
+		if rec.Code == http.StatusOK || strings.Contains(rec.Body.String(), "TOP SECRET") {
+			t.Fatalf("path %q streamed (status %d); want refusal", p, rec.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, FileTreePrefix+"tok", nil)
+	rec := httptest.NewRecorder()
+	api.HandleGetFileTree(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 when no path follows the token", rec.Code)
+	}
+}
+
 func TestFileContentRequiresPath(t *testing.T) {
 	api, _, _ := newFilesTestAPI(t)
 

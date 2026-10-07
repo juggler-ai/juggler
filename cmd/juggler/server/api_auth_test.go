@@ -209,6 +209,36 @@ func TestAPIAuthFileContentAcceptsQueryToken(t *testing.T) {
 	}
 }
 
+// TestAPIAuthFileTreeTakesTokenFromPath: the tree route frames a page whose
+// relative links drop any query string, so its token is the first path segment
+// — and a wrong or missing one is refused like any other.
+func TestAPIAuthFileTreeTakesTokenFromPath(t *testing.T) {
+	s, reached := newAuthTestServer(t)
+	s.router.PathPrefix("/api/session/files/tree/").HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		*reached = true
+		w.WriteHeader(http.StatusOK)
+	}).Methods("GET")
+
+	cases := []struct {
+		path string
+		want int
+	}{
+		{"/api/session/files/tree/" + testAPIToken + "/proj/page/img.png", http.StatusOK},
+		{"/api/session/files/tree/wrong/proj/page/img.png", http.StatusUnauthorized},
+		{"/api/session/files/tree/proj/page/img.png", http.StatusUnauthorized},
+	}
+	for _, tc := range cases {
+		*reached = false
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		req.Host = "localhost"
+		rec := httptest.NewRecorder()
+		s.router.ServeHTTP(rec, req)
+		if rec.Code != tc.want || *reached != (tc.want == http.StatusOK) {
+			t.Errorf("GET %s: got %d reached=%v, want %d", tc.path, rec.Code, *reached, tc.want)
+		}
+	}
+}
+
 // TestAPIAuthRejectsRebindingHost covers §S.2: even with a valid token, a Host
 // header naming a DNS name (as a DNS-rebinding attacker's page would send) is
 // rejected before the token is even consulted.

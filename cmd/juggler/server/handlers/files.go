@@ -9,7 +9,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"juggler/cmd/juggler/ops"
 )
@@ -53,7 +55,52 @@ func NewFilesAPI(pathProvider func() string) *FilesAPI {
 //     Content-Type plus nosniff so the browser cannot be talked into treating a
 //     file as script.
 func (api *FilesAPI) HandleGetFileContent(w http.ResponseWriter, r *http.Request) {
-	requested := r.URL.Query().Get("path")
+	api.serveProjectFile(w, r, r.URL.Query().Get("path"))
+}
+
+// FileTreePrefix is the route under which HandleGetFileTree serves files by
+// path. What follows it is `<token>/<absolute path>`.
+const FileTreePrefix = "/api/session/files/tree/"
+
+// HandleGetFileTree serves the same files as HandleGetFileContent, addressed by
+// URL path instead of query: GET <FileTreePrefix><token>/<absolute path>, the
+// path's leading slash dropped. A page framed from here sits in its own
+// directory as far as the browser can tell, so the images, styles and scripts
+// it links relatively resolve to the files beside it — and to this route, with
+// the token still in the path. A `../` above the project root is refused by the
+// same containment as the query route; one above the filesystem root eats the
+// token segment and is refused by the auth middleware.
+//
+// The token segment is read by apiAuthMiddleware (see fileTreeToken), not here.
+func (api *FilesAPI) HandleGetFileTree(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, FileTreePrefix)
+	_, filePath, ok := strings.Cut(rest, "/")
+	if !ok || filePath == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	// A Windows path keeps its drive letter as the first segment; anything else
+	// had its leading slash dropped when it was made into a URL path.
+	if !isDriveLetterPath(filePath) {
+		filePath = "/" + filePath
+	}
+	api.serveProjectFile(w, r, filepath.FromSlash(filePath))
+}
+
+// isDriveLetterPath reports whether p begins with a Windows drive letter, as in
+// "C:/Users".
+func isDriveLetterPath(p string) bool {
+	if len(p) < 2 || p[1] != ':' {
+		return false
+	}
+	c := p[0]
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// serveProjectFile streams the file at requested, contained to the project
+// root. Both GET routes share it, and with it the SECURITY rules on
+// HandleGetFileContent.
+func (api *FilesAPI) serveProjectFile(w http.ResponseWriter, r *http.Request, requested string) {
 	if requested == "" {
 		http.Error(w, "path is required", http.StatusBadRequest)
 		return

@@ -262,6 +262,9 @@ func (s *Server) setupSessionRoutes(sessionAPI *handlers.SessionAPI) {
 	// handlers.FilesAPI for the full rationale.
 	filesAPI := handlers.NewFilesAPI(s.ProjectPath)
 	api.HandleFunc("/session/files/content", filesAPI.HandleGetFileContent).Methods("GET")
+	// The same files addressed by path, so a framed HTML page's relative links
+	// resolve beside it (see handlers.FilesAPI.HandleGetFileTree).
+	api.PathPrefix("/session/files/tree/").HandlerFunc(filesAPI.HandleGetFileTree).Methods("GET")
 	api.HandleFunc("/session/files/bytes", filesAPI.HandlePostFileBytes).Methods("POST")
 }
 

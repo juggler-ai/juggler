@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"juggler/cmd/juggler/server/handlers"
 	"juggler/internal/apipaths"
 	"juggler/internal/hostcheck"
 )
@@ -158,6 +159,24 @@ func isAssetGetRequest(r *http.Request) bool {
 	return strings.HasPrefix(p, "/api/session/conversations/") && strings.Contains(p, "/assets/")
 }
 
+// fileTreeToken returns the token a GET under handlers.FileTreePrefix carries
+// as its first path segment, or "" for any other request. That route frames an
+// HTML page whose relative links must resolve beside it, and a relative URL
+// drops the query string — so the token rides in the path, where every link the
+// page makes inherits it. It is the same read-only, project-contained surface as
+// the ?token= file route, reached by a different spelling.
+func fileTreeToken(r *http.Request) string {
+	if r.Method != http.MethodGet {
+		return ""
+	}
+	rest, ok := strings.CutPrefix(r.URL.Path, handlers.FileTreePrefix)
+	if !ok {
+		return ""
+	}
+	token, _, _ := strings.Cut(rest, "/")
+	return token
+}
+
 // apiAuthMiddleware enforces the per-instance token and Host allowlist on the
 // sensitive /api surface (§S.1 + §S.2). It is a no-op in test mode — the browser
 // integration harness drives the server headlessly over many synthetic origins
@@ -183,6 +202,9 @@ func (s *Server) apiAuthMiddleware(next http.Handler) http.Handler {
 			// <img src> loads can't set a custom header — accept the token as a
 			// query param for this read-only route (see isAssetGetRequest).
 			token = r.URL.Query().Get("token")
+		}
+		if token == "" {
+			token = fileTreeToken(r)
 		}
 		if token != s.apiToken {
 			http.Error(w, "Unauthorized: missing or invalid session token", http.StatusUnauthorized)

@@ -63,8 +63,11 @@ function previewTarget(source) {
   if (offset > 1 || (source.lineCount && source.totalLines && source.lineCount < source.totalLines)) {
     return { reason: 'Part of the file, so shown as source.' };
   }
+  // pageURL where there is one: it puts the page in its own directory, so the
+  // images, styles and scripts it links relatively load from beside it. url()
+  // would serve the page alone, and every relative link would miss.
   let url = '';
-  try { url = source.url(); } catch { url = ''; }
+  try { url = source.pageURL?.() || source.url(); } catch { url = ''; }
   // Same-origin paths only. A text-backed source's URL is a data: stub, which
   // frame-src refuses and which would render as plain text if it did not.
   if (!/^\/(?!\/)/.test(url)) {
@@ -96,9 +99,9 @@ async function probe(url, signal) {
  * a click away. The model still reads the source: `extract()` is the text
  * viewer's, and only what the user sees differs.
  *
- * The page is loaded from the file content route into a sandboxed frame, so
- * its scripts, styles and any libraries it pulls from a CDN run as they would
- * in a browser tab. It is shown as source instead wherever a preview would be
+ * The page is loaded from the file tree route into a sandboxed frame, so its
+ * scripts, styles, the files it links relatively and any libraries it pulls
+ * from a CDN load as they would opened from its folder in a browser tab. It is shown as source instead wherever a preview would be
  * untrue or cannot load: a partial read, a source with no server URL, or a path
  * the server will not serve.
  * @augments FileViewer

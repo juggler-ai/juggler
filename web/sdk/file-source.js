@@ -29,6 +29,7 @@ import { apiUrl } from '../js/utils/api-url.js';
  * @property {string} [warning] - Pre-existing explanation carried by a persisted result
  * @property {FileAccess} [access] - How the server may resolve this path (see {@link fetchFileBytes})
  * @property {() => string} url - Streaming URL (viewer realm only)
+ * @property {() => string} [pageURL] - URL that also serves the files beside this one, so a page loaded from it resolves its relative links (viewer realm only; absent when the file is not on disk in the project)
  * @property {() => Promise<Uint8Array>} bytes - Raw bytes (either realm)
  */
 
@@ -102,6 +103,27 @@ export function fileContentURL(absPath) {
   const url = apiUrl(`/session/files/content?path=${encodeURIComponent(absPath)}`);
   const token = apiToken();
   return token ? `${url}&token=${encodeURIComponent(token)}` : url;
+}
+
+/**
+ * Build a URL for an absolute path that, unlike {@link fileContentURL}, places
+ * the file in its own directory: `/api/session/files/tree/<token>/<path>`. A
+ * page framed from it resolves its relative links (`img.png`, `../style.css`)
+ * to the files beside it, still under the route and still carrying the token —
+ * which is why the token is a path segment rather than a query parameter a
+ * relative URL would drop. The server holds it to the project root exactly as
+ * it does the query route.
+ * @param {string} absPath - Absolute file path (POSIX, or Windows with a drive letter)
+ * @returns {string} Token-bearing tree URL, or '' when the path is not absolute
+ */
+export function fileTreeURL(absPath) {
+  const p = String(absPath || '').replace(/\\/g, '/');
+  if (!/^(\/|[A-Za-z]:\/)/.test(p)) return '';
+  const segments = p.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
+  // A placeholder keeps the URL's shape where a realm has no token (the test
+  // server, which does not check one).
+  const token = encodeURIComponent(apiToken() || '_');
+  return apiUrl(`/session/files/tree/${token}/${segments}`);
 }
 
 /**
@@ -184,6 +206,11 @@ export function createFileSource(fields) {
     url: fields.url || (() => fileContentURL(absPath)),
     bytes: fields.bytes || (() => fetchFileBytes(absPath, undefined, fields.access)),
   });
+  // Only a source streamed from disk has neighbours to serve. One whose url()
+  // points elsewhere (an asset, a data: stub) keeps whatever pageURL it was given.
+  if (!fields.pageURL && !fields.url && fileTreeURL(absPath)) {
+    source.pageURL = () => fileTreeURL(absPath);
+  }
   return source;
 }
 

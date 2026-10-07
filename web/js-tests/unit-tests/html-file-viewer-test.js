@@ -16,6 +16,10 @@
  */
 
 import fileViewerRegistry from '../../js/registries/file-viewer-registry.js';
+import { fetchJson } from '../../js/services/http.js';
+import { writeFileOp } from '../../js/services/ops-api.js';
+import { apiUrl } from '../../js/utils/api-url.js';
+import { createBoundOps } from '../../sdk/ops.js';
 import { createFileSource, fileSourceFromText, toDescriptor } from '../../sdk/file-source.js';
 import HtmlFileViewer from '../../extensions/juggler-core/viewers/html-file-viewer.js';
 import TextFileViewer from '../../extensions/juggler-core/viewers/text-file-viewer.js';
@@ -85,6 +89,44 @@ function dispose(rendered) {
   if (typeof rendered.teardown === 'function') rendered.teardown();
   rendered.host.remove();
   rendered.header.remove();
+}
+
+/** A 4×3 image, written as text so `writeFileOp` can put it on disk. */
+const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="3"><rect width="4" height="3"/></svg>\n';
+
+/**
+ * A page that reports, once loaded, the natural width of each of its images.
+ * The frame has an opaque origin, so the test cannot look inside it; the page
+ * has to say what it got.
+ */
+const ASSET_PAGE = '<!doctype html><img src="beside.svg"><img src="../above.svg">'
+  + '<script>addEventListener("load", () => parent.postMessage('
+  + '{ htmlViewerImages: [...document.images].map((i) => i.naturalWidth) }, "*"));</script>\n';
+
+/**
+ * Wait for a framed page's image report (see {@link ASSET_PAGE}).
+ * @param {HTMLElement} host - Where the viewer rendered its frame
+ * @param {number} timeoutMs - How long to wait
+ * @returns {Promise<number[]|null>} Each image's natural width, or null on timeout
+ */
+function imageReport(host, timeoutMs) {
+  return new Promise((resolve) => {
+    /** @param {MessageEvent} event - A message from some frame */
+    const onMessage = (event) => {
+      const frame = host.querySelector('iframe');
+      if (!frame || event.source !== frame.contentWindow) return;
+      if (!Array.isArray(event.data?.htmlViewerImages)) return;
+      done(event.data.htmlViewerImages);
+    };
+    /** @param {number[]|null} result - What to resolve with */
+    const done = (result) => {
+      clearTimeout(timer);
+      window.removeEventListener('message', onMessage);
+      resolve(result);
+    };
+    const timer = setTimeout(() => done(null), timeoutMs);
+    window.addEventListener('message', onMessage);
+  });
 }
 
 /**
@@ -166,6 +208,42 @@ export async function runTests() {
       'a URL the server refuses must fall back to source rather than frame the error', errors));
   } finally {
     dispose(refused);
+  }
+
+  // A page on disk loads what it links relatively — beside it and above it —
+  // exactly as it would opened from a folder. The frame's URL has to put the
+  // page in its own directory for that, or every relative link resolves against
+  // the API route instead and comes back a 404.
+  const stamp = Math.random().toString(36).slice(2, 8);
+  const dir = `html-view-${stamp}`;
+  const project = createBoundOps(() => ({ workspaceId: '' }));
+  try {
+    const root = String((await fetchJson(apiUrl('/session')))?.projectPath || '');
+    tally(check(root.length > 0, 'the test server should report its project path', errors));
+    await writeFileOp({ path: `${dir}/above.svg`, content: SVG });
+    await writeFileOp({ path: `${dir}/page/beside.svg`, content: SVG });
+    await writeFileOp({ path: `${dir}/page/index.html`, content: ASSET_PAGE });
+    const absPath = `${root.replace(/[\\/]+$/, '')}/${dir}/page/index.html`;
+    const host = document.createElement('div');
+    document.body.append(host);
+    const report = imageReport(host, 8000);
+    const teardown = await new HtmlFileViewer().render(createFileSource({
+      path: `${dir}/page/index.html`,
+      absPath,
+      size: ASSET_PAGE.length,
+      exists: true,
+    }), host, { signal: new AbortController().signal });
+    try {
+      const widths = await report;
+      tally(check(widths !== null, 'the framed page should load and report its images', errors));
+      tally(check(JSON.stringify(widths) === '[4,4]',
+        `a sibling and a ../ image should both load, got natural widths ${JSON.stringify(widths)}`, errors));
+    } finally {
+      if (typeof teardown === 'function') teardown();
+      host.remove();
+    }
+  } finally {
+    await project.copyTree({ to: '.', delete: [dir] });
   }
 
   // What the model reads is exactly what the text viewer would have given it.

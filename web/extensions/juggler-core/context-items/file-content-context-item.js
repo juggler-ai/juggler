@@ -92,7 +92,7 @@ const MAX_FROZEN_SNAPSHOT_CHARS = 256_000;
  *       change a message near the head of the conversation and cold-start the
  *       whole cached prefix.
  *     - a SEEDED item (`seeded`, which implies frozen) — the CLAUDE.md /
- *       AGENTS.md a session adds to itself (session.js `addAIAssistantFiles`).
+ *       AGENTS.md a session adds to itself (`addAIAssistantFiles`, `web/js/model/conversation-seeder.js`).
  *       Nobody asked for it, and the agent editing its own agents file is
  *       routine, so the same cold start would recur for nothing.
  *    Freezing also stops the same bytes being sent twice: after an edit they are

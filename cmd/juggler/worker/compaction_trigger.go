@@ -190,64 +190,66 @@ func providerAuthoredContextError(overflow error) error {
 	return overflow
 }
 
-// overflowVerdict tells the strategy loop how to proceed after
-// handleContextOverflow has tried to reduce a context-limit overflow.
-type overflowVerdict int
+// contextOverflow is one context-limit overflow as the recovery ladder sees
+// it. A provider rejection and an admission estimate arrive as different error
+// types and leave asContextOverflow as this one shape, so the ladder is written
+// once for both.
+type contextOverflow struct {
+	// limit is the normalized overflow (contextLimitFromAdvisory for an
+	// estimate).
+	limit *provider.ContextLimitExceededError
+	// advisory is set when the admission estimate raised the overflow (a
+	// silent-truncation guard) rather than a provider rejecting the request.
+	// An estimate must never be terminal; cannotReduce is where that decides
+	// an outcome.
+	advisory bool
+	// err is the original error, kept so a terminal outcome can surface the
+	// provider-authored cause.
+	err error
+}
 
-const (
-	// overflowStop: the incident resolved without a turn error (a folded thread
-	// summarized, or the reduce was cancelled); end the run quietly.
-	overflowStop overflowVerdict = iota
-	// overflowBypassAndRetry: rebuild the request and dispatch it once with the
-	// guard bypassed, letting the provider judge it. Returned both after a fold
-	// (the fold invalidated the measured anchor, so guarded admission would
-	// re-judge the compacted history with the raw estimator) and when nothing
-	// more can be reduced under an advisory estimate.
-	overflowBypassAndRetry
-	// overflowTerminal: give up and report err as the turn's error.
-	overflowTerminal
-)
-
-type overflowResult struct {
-	verdict overflowVerdict
-	err     error // set only for overflowTerminal
+// asContextOverflow classifies err, reporting false when it is not a
+// context-limit overflow of either kind.
+func asContextOverflow(err error) (contextOverflow, bool) {
+	var advisory *provider.ContextCompactionAdvisory
+	if errors.As(err, &advisory) {
+		return contextOverflow{limit: contextLimitFromAdvisory(advisory), advisory: true, err: err}, true
+	}
+	var limit *provider.ContextLimitExceededError
+	if errors.As(err, &limit) {
+		return contextOverflow{limit: limit, err: err}, true
+	}
+	return contextOverflow{}, false
 }
 
 // handleContextOverflow runs the shared bounded-compaction → context-recovery
-// ladder for a context-limit overflow, whether it arrived as a provider
-// rejection (isAdvisory=false) or as a silent-truncation admission estimate
-// (isAdvisory=true). limit is the normalized overflow (contextLimitFromAdvisory
-// for the estimate case); overflowErr is the original error, preserved so a
-// terminal verdict can surface the provider-authored cause. recovery is the
-// per-incident attempt budget, advanced in place. The two overflow kinds differ
-// only in the terminal move: an advisory that can no longer reduce bypasses the
-// guard once and retries, where a provider rejection surfaces the overflow.
-func (r *run) handleContextOverflow(
-	limit *provider.ContextLimitExceededError,
-	isAdvisory bool,
-	guardBypassed bool,
-	recovery *compactionAttempts,
-	modelConfig *ModelConfig,
-	overflowErr error,
-) overflowResult {
-	// The request-local fallback is single-shot. Registry admission honors the
-	// bypass before transport, so a repeated advisory here means a broken
-	// caller/provider contract; stop without ever publishing the estimate as a
-	// terminal user error. Provider rejections carry no such single-shot guard.
-	if isAdvisory && guardBypassed {
-		r.log.Error("[context guard] advisory repeated after fallback bypass; stopping without a terminal estimate error")
-		return overflowResult{verdict: overflowStop}
-	}
+// ladder for one overflow. recovery is the per-incident attempt budget,
+// advanced in place.
+//
+// A non-nil err is the turn's terminal error. Otherwise retry says what the
+// strategy loop does next. True rebuilds the request and dispatches it once
+// with the guard bypassed, letting the provider judge it: that follows a fold
+// (the fold invalidated the measured anchor, so guarded admission would
+// re-judge the compacted history with the raw estimator) and an estimate that
+// can be reduced no further. False ends the run quietly, because the incident
+// resolved without a turn error (a folded thread summarized, or the reduce was
+// cancelled).
+//
+// An advisory on a request that had already bypassed the guard never reaches
+// here: that is a rule about the request, and resolveContextOverflow, which
+// holds the request's state, enforces it.
+func (r *run) handleContextOverflow(o contextOverflow, recovery *compactionAttempts, modelConfig *ModelConfig) (retry bool, err error) {
+	limit := o.limit
 
 	// A browser-folded summary thread reduces in one bounded pass. When this
 	// overflow belongs to such a thread, tryBoundedCompaction handles it here.
 	if handled, compactErr := r.tryBoundedCompaction(limit, modelConfig); handled {
 		if compactErr == nil || errors.Is(compactErr, errBoundedCompactionCancelled) {
-			return overflowResult{verdict: overflowStop}
+			return false, nil
 		}
 		// Hidden reducer requests bypass the guard, so any error here is a real
 		// bounded/provider failure rather than the advisory escaping.
-		return overflowResult{verdict: overflowTerminal, err: fmt.Errorf("bounded compaction failed: %w", compactErr)}
+		return false, fmt.Errorf("bounded compaction failed: %w", compactErr)
 	}
 
 	// Global off switch: when automatic compaction is disabled, nothing here
@@ -263,16 +265,15 @@ func (r *run) handleContextOverflow(
 	// provider's own context error, so the user hits the wall — and the "Compact
 	// now" affordance — instead of an automatic summarize.
 	if !r.autoCompactEnabled() {
-		if isAdvisory {
-			return overflowResult{verdict: overflowBypassAndRetry}
+		if o.advisory {
+			return true, nil
 		}
 		// Surface the provider's own context error, with a one-line hint that
 		// manual /compact still works — the "Compact now" affordance for a
 		// deliberately-disabled auto-compaction. Wrapping with %w keeps the
 		// provider cause reachable via errors.Is/As.
-		err := fmt.Errorf("%w\n\nContext limit reached — run /compact to summarize the conversation and continue",
-			providerAuthoredContextError(overflowErr))
-		return overflowResult{verdict: overflowTerminal, err: err}
+		return false, fmt.Errorf("%w\n\nContext limit reached — run /compact to summarize the conversation and continue",
+			providerAuthoredContextError(o.err))
 	}
 
 	// Trigger discipline: an unanchored advisory is the character estimator's
@@ -284,24 +285,18 @@ func (r *run) handleContextOverflow(
 	// once with the guard bypassed and lets the provider judge: an accepted
 	// dispatch re-anchors admission with its billed count, and a rejection
 	// re-enters here as an authoritative overflow.
-	if isAdvisory && !limit.MeasuredPrefix &&
+	if o.advisory && !limit.MeasuredPrefix &&
 		provider.SaturatingAdd(limit.EstimatedInputTokens, limit.OutputReserveTokens) <= limit.ContextWindowTokens {
 		r.logContextGuardDecision("unanchored estimate fits the window; dispatching bypassed for a measured verdict", limit)
-		return overflowResult{verdict: overflowBypassAndRetry}
+		return true, nil
 	}
 
 	// Ordinary root / subthread turn: summarize or shrink durable history, then
-	// rebuild and retry only when its objective shape changed. When the attempt
-	// budget is spent, the terminal move depends on the overflow kind.
+	// rebuild and retry only when its objective shape changed.
 	if !recovery.canAttempt() {
-		if isAdvisory {
-			r.logContextGuardDecision("recovery attempt bound reached; dispatching one fallback", limit)
-			return overflowResult{verdict: overflowBypassAndRetry}
-		}
-		// Preserve and expose the last provider-authored overflow; do not
-		// replace it with a local estimate or retry-limit error.
-		r.log.Info("[compaction] stopped after %d progressive attempts", recovery.attempts)
-		return overflowResult{verdict: overflowTerminal, err: providerAuthoredContextError(overflowErr)}
+		return r.cannotReduce(o,
+			"recovery attempt bound reached; dispatching one fallback",
+			fmt.Sprintf("stopped after %d progressive attempts", recovery.attempts))
 	}
 
 	// Said before recovery runs, so a recovery that then fails still leaves the
@@ -312,7 +307,7 @@ func (r *run) handleContextOverflow(
 	}
 	result, recErr := r.compactToFit(limit, modelConfig)
 	if errors.Is(recErr, errBoundedCompactionCancelled) {
-		return overflowResult{verdict: overflowStop}
+		return false, nil
 	}
 	if recErr != nil {
 		// A concrete recovery failure (reducer call, concurrent source change,
@@ -324,7 +319,7 @@ func (r *run) handleContextOverflow(
 		if limit.Cause != nil {
 			err = fmt.Errorf("%w (provider: %s)", err, limit.Cause.Error())
 		}
-		return overflowResult{verdict: overflowTerminal, err: err}
+		return false, err
 	}
 	// Structural progress: the fold (or shrink) just proved with pessimistic
 	// per-item estimates that the retained history fits the window, and it also
@@ -333,20 +328,32 @@ func (r *run) handleContextOverflow(
 	// the very transcript the fold produced. Dispatch bypassed and let the
 	// provider judge: an accepted retry re-anchors admission with its billed
 	// count, and a rejection re-enters here with the attempt budget as the bound.
-	if retry, _ := recovery.advance(result, overflowErr); retry {
+	if progressed, _ := recovery.advance(result, o.err); progressed {
 		if result.FoldedItems > 0 {
 			r.insertCompactionNotice(result.FoldedItems)
 		}
-		return overflowResult{verdict: overflowBypassAndRetry}
+		return true, nil
 	}
-	if isAdvisory {
-		r.logContextGuardDecision("nothing left to reduce; dispatching one irreducible fallback", limit)
-		return overflowResult{verdict: overflowBypassAndRetry}
+	return r.cannotReduce(o,
+		"nothing left to reduce; dispatching one irreducible fallback",
+		"stopped because the request structure did not change")
+}
+
+// cannotReduce is the ladder's last move once recovery can do no more, and the
+// one place the two overflow kinds part ways by outcome. An advisory is only an
+// estimate and must never be terminal, so it earns one guard-bypassed dispatch
+// and the provider judges; guardDecision is the context-guard line that says
+// so. A provider rejection is authoritative. It is surfaced as the provider
+// authored it, never replaced with a local estimate or retry-limit error, so
+// errors.Is/As still reach its Cause; stopLine is the compaction log line that
+// says why recovery stopped.
+func (r *run) cannotReduce(o contextOverflow, guardDecision, stopLine string) (retry bool, err error) {
+	if o.advisory {
+		r.logContextGuardDecision(guardDecision, o.limit)
+		return true, nil
 	}
-	// No durable structural progress: surface the latest provider overflow
-	// unchanged so errors.Is/As reach its Cause.
-	r.log.Info("[compaction] stopped because the request structure did not change")
-	return overflowResult{verdict: overflowTerminal, err: providerAuthoredContextError(overflowErr)}
+	r.log.Info("[compaction] %s", stopLine)
+	return false, providerAuthoredContextError(o.err)
 }
 
 func contextRecoverySignature(items []ConversationItem) recoverySignature {

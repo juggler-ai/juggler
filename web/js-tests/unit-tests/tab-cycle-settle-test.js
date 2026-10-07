@@ -27,8 +27,7 @@ function stubSession() {
   const session = {
     workspaces: [],
     conversations: new Map(['a', 'b', 'c', 'd'].map((id) => [id, { id, name: id }])),
-    binnedCount: 0,
-    binSizeBytes: 0,
+    bin: { count: 0, sizeBytes: 0 },
     selection: null,
     loadedConversationId: 'a',
     visibleConversationId: 'a',

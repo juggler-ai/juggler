@@ -685,7 +685,7 @@ async function _runTestBody(harness, testDef, trace) {
   // fixture-template swap because the iframe-pool topology doesn't
   // per-test-reset the shared fixture dir. Files are deleted in the
   // runner's finally{} cleanup so sibling tests don't see the seeded
-  // state (e.g. CLAUDE.md would trigger session.addAIAssistantFiles
+  // state (e.g. CLAUDE.md would trigger addAIAssistantFiles
   // auto-add and shift item IDs in unrelated tests).
   if (testDef.setupFiles) {
     trace.stage = 'setupFiles';

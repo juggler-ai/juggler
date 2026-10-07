@@ -633,7 +633,7 @@ class JugglerApp {
         case 'renamed':          session.applyConversationRenamed(id, name); break;
         case 'binned':           session.applyConversationBinned(id); break;
         case 'restored':         session.applyConversationRestored(id, name); break;
-        case 'binned-deleted':   session.applyBinnedConversationDeleted(id); break;
+        case 'binned-deleted':   session.bin.noteLeft(id); break;
         case 'reordered':        session.applyConversationsReordered(order); break;
         default: console.warn('[Juggler] unknown conversations-changed op:', op);
       }

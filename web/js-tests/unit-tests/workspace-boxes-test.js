@@ -88,8 +88,7 @@ function stubSession(workspaces, bindings) {
   return {
     workspaces,
     conversations: new Map(bindings.map(([id, workspaceId]) => [id, { id, name: id, workspaceId }])),
-    binnedCount: 0,
-    binSizeBytes: 0,
+    bin: { count: 0, sizeBytes: 0 },
     selection: null,
     loadedConversationId: null
   };

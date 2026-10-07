@@ -138,7 +138,7 @@ class BinModal extends JugglerElement {
     /** @type {BinnedConvRow[]} */
     let binned = [];
     try {
-      binned = await this._session.listBinnedConversations();
+      binned = await this._session.bin.list();
     } catch (e) {
       console.error('[BinModal] Failed to load binned list:', e);
       this._binned = [];
@@ -159,10 +159,10 @@ class BinModal extends JugglerElement {
     list.innerHTML = '';
     if (emptyBtn) {
       emptyBtn.disabled = binned.length === 0;
-      // listBinnedConversations refreshed session.binSizeBytes above; fold the
+      // bin.list() refreshed bin.sizeBytes above; fold the
       // approximate folder size into the button so "Empty Bin (50 MB)" tells
       // the user how much they're about to reclaim.
-      const sizeBytes = this._session.binSizeBytes || 0;
+      const sizeBytes = this._session.bin.sizeBytes || 0;
       emptyBtn.textContent = binned.length > 0 && sizeBytes > 0
         ? `Empty Bin (${formatBytes(sizeBytes)})`
         : 'Empty Bin';
@@ -182,7 +182,7 @@ class BinModal extends JugglerElement {
     // A bin nothing ever empties on its own is worth naming once it is large:
     // the size alone reads as a label, and the second sentence is the part the
     // user cannot infer — that it will sit there until they act.
-    const noticeBytes = this._session.binSizeBytes || 0;
+    const noticeBytes = this._session.bin.sizeBytes || 0;
     if (notice && noticeBytes >= BIN_LARGE_BYTES) {
       notice.textContent = `The bin is holding ${formatBytes(noticeBytes)}. Nothing here is deleted automatically.`;
       notice.classList.remove('hidden');
@@ -225,7 +225,7 @@ class BinModal extends JugglerElement {
   async _onRestore(row) {
     if (!this._session) return;
     try {
-      await this._session.restoreConversation(row.id);
+      await this._session.bin.restore(row.id);
     } catch (e) {
       console.error('[BinModal] restore failed:', e);
       await showAlert(
@@ -249,7 +249,7 @@ class BinModal extends JugglerElement {
     );
     if (!confirmed) return;
     try {
-      await this._session.deleteBinnedConversation(row.id);
+      await this._session.bin.deletePermanently(row.id);
     } catch (e) {
       console.error('[BinModal] delete failed:', e);
       await showAlert(
@@ -414,7 +414,7 @@ class BinModal extends JugglerElement {
     }
 
     try {
-      await this._session.emptyBin(olderThanDays);
+      await this._session.bin.empty(olderThanDays);
     } catch (e) {
       console.error('[BinModal] empty bin failed:', e);
       await showAlert(

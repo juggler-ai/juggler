@@ -7,7 +7,7 @@
  *
  * An extension context item that implements `execute()` (so the model's tool
  * call routes to the Action path) but does NOT override `onToolCall()` must
- * still seed cleanly: `Session.seedAutoContextItems` seeds every
+ * still seed cleanly: `seedAutoContextItems` (`conversation-seeder.js`) seeds every
  * `autoInstantiate` item through `executeContextItem` -> `handleToolCall`, which
  * calls `onToolCall()` before rendering the standing block. If the base
  * `onToolCall()` throws for such an item, the orchestrator catches it and
@@ -134,7 +134,7 @@ export async function runTests(_ctx) {
     const reg = contextItemRegistry.registerClass(ExecuteOnlySeedItem, { modulePath: '(test)' });
     assert(reg.registered === true, `fixture must register; got: ${reg.reason}`);
     try {
-      // Exactly what Session.seedAutoContextItems runs for an autoInstantiate item.
+      // Exactly what seedAutoContextItems (conversation-seeder.js) runs for an autoInstantiate item.
       const res = await mt.executeContextItem(ITEM_ID, {});
       assert(res.created === true, `seed must register the item; got error: ${res.error}`);
 

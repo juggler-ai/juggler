@@ -146,8 +146,7 @@ export async function runTests() {
         ['empty-scheduled', conversation('empty-scheduled', { items: [] })],
         ['failed-scheduled', conversation('failed-scheduled', { items: ['user', 'error'] })]
       ]),
-      binnedCount: 0,
-      binSizeBytes: 0,
+      bin: { count: 0, sizeBytes: 0 },
       selection: null,
       loadedConversationId: null
     };

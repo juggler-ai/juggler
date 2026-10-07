@@ -61,8 +61,7 @@ function createStubSession() {
   const session = {
     /** @type {Map<string, any>} */
     conversations: new Map(),
-    binnedCount: 0,
-    binSizeBytes: 0,
+    bin: { count: 0, sizeBytes: 0 },
     /** @type {string|null} */
     visibleConversationId: null,
     /** @type {string[]} */

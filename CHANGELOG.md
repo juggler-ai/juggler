@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Fixed the Bin count dropping by two when restoring or deleting one conversation
+
 ## [0.7.5] - 2026-10-06
 
 - Improved the file attach icon and made non-images join as text snapshots

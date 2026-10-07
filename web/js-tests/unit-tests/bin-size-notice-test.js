@@ -37,11 +37,13 @@ function createStubSession(binSizeBytes, rowCount = 2) {
     lastModifiedAt: new Date().toISOString(),
   }));
   return {
-    binSizeBytes,
-    binnedCount: rowCount,
-    /** @returns {Promise<any[]>} Current bin rows. */
-    async listBinnedConversations() {
-      return rows.slice();
+    bin: {
+      sizeBytes: binSizeBytes,
+      count: rowCount,
+      /** @returns {Promise<any[]>} Current bin rows. */
+      async list() {
+        return rows.slice();
+      },
     },
   };
 }

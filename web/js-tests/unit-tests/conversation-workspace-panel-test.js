@@ -601,7 +601,7 @@ export async function runTests() {
 
         // The bin, which is what makes this survivable: it never expires, so a
         // conversation that turns out to have mattered is restored from there.
-        const binned = await session.listBinnedConversations();
+        const binned = await session.bin.list();
         const ids = binned.map((/** @type {any} */ entry) => entry.id);
         assert(ids.includes(owner.id) && ids.includes(peer.id),
           `both are in the bin rather than gone, got ${JSON.stringify(ids)}`);
@@ -613,7 +613,7 @@ export async function runTests() {
         // project, and a suite that bins two conversations per run leaves them
         // there for all of them (see `releaseTestConversation`).
         for (const conv of [owner, peer]) {
-          if (conv?.id) await session.deleteBinnedConversation(conv.id).catch(() => {});
+          if (conv?.id) await session.bin.deletePermanently(conv.id).catch(() => {});
         }
         if (workspaceId) await unregisterWorkspace(workspaceId).catch(() => {});
         await projectOps.shell({ command: `rm -rf ${name}` }).catch(() => {});
@@ -664,8 +664,7 @@ export async function runTests() {
         // the bin under test would be a real one this suite then has to undo.
         bar._session = {
           conversations: new Map([[conversation.id, conversation]]),
-          binnedCount: 0,
-          binSizeBytes: 0,
+          bin: { count: 0, sizeBytes: 0 },
           visibleConversationId: conversation.id,
           workspaces: [made],
           /**

@@ -46,7 +46,7 @@ export const clearPreservesSystemPromptTest = {
  * the always-present auto items (project memory, AI assistant files) re-seeded,
  * not lost. Regression guard for "/clear stripped the memory/CLAUDE.md items and
  * never added them back". Uses the same single source of truth as
- * createConversation (Session.seedConversationAutoItems).
+ * createConversation (`seedConversationAutoItems`, `conversation-seeder.js`).
  *
  * The default harness conversation is created BEFORE setupFiles writes
  * `.juggler/MEMORY.md`, so it carries no memory item up front; the re-seed on

@@ -735,8 +735,7 @@ class UIEventManager {
     const messageThread = threadItemId
       ? conversation.resolveMessageThread(threadItemId)
       : conversation.rootMessageThread;
-    const addedCount = await session.addAIAssistantFiles(conversation, messageThread);
-    await session.seedAutoContextItems(conversation, messageThread);
+    const { assistantFiles: addedCount } = await session.seedConversationAutoItems(conversation, messageThread);
     // A bound conversation is seeded with these files already, so a click that
     // adds nothing is the common case — and without a word it reads as a dead
     // menu item.

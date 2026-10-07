@@ -143,7 +143,7 @@ export async function runTests(_ctx) {
       if (doomedId) {
         session.conversations.delete(doomedId);
         try {
-          await session.deleteBinnedConversation(doomedId);
+          await session.bin.deletePermanently(doomedId);
         } catch {
           // Already gone, or never made it to the bin — nothing to clean up.
         }
@@ -203,7 +203,7 @@ export async function runTests(_ctx) {
       if (doomedId) {
         session.conversations.delete(doomedId);
         try {
-          await session.deleteBinnedConversation(doomedId);
+          await session.bin.deletePermanently(doomedId);
         } catch {
           // Already gone, or never made it to the bin — nothing to clean up.
         }

@@ -79,8 +79,7 @@ export async function runTests() {
         ['long', { id: 'long', name: LONG, workspaceId: '' }],
         ['boxed', { id: 'boxed', name: 'In a box', workspaceId: 'ws_a' }]
       ]),
-      binnedCount: 0,
-      binSizeBytes: 0,
+      bin: { count: 0, sizeBytes: 0 },
       selection: null,
       loadedConversationId: null
     };

@@ -6,7 +6,7 @@
 /**
  * Auto-instantiate capability + memory seeding tests.
  *
- * Covers the `autoInstantiate` manifest capability and `Session.seedAutoContextItems`:
+ * Covers the `autoInstantiate` manifest capability and `seedAutoContextItems` (`js/model/conversation-seeder.js`):
  *  - the SDK normalizes `autoInstantiate` (default false);
  *  - memory's static `shouldAutoInstantiate()` gates on file existence;
  *  - a fresh conversation gains NO memory item when the file is absent — the
@@ -22,6 +22,7 @@
 import MemoryContextItem from '../context-items/memory-context-item.js';
 import GlobContextItem from '../context-items/glob-context-item.js';
 import { writeFileOp } from '../../../js/services/ops-api.js';
+import { seedAutoContextItems } from '../../../js/model/conversation-seeder.js';
 import {
   initializeRegistries,
   createTestSession,
@@ -96,7 +97,7 @@ export async function runTests(ctx) {
 
   await test('a fresh conversation has NO memory item when the project has no memory file', () => {
     // createTestConversation routes through session.createConversation, which
-    // calls seedAutoContextItems. With the default .juggler/MEMORY.md absent,
+    // seeds the auto items. With the default .juggler/MEMORY.md absent,
     // gating must keep memory out — this is what protects every full-document
     // golden from gaining a phantom item.
     const memItems = conversation.rootMessageThread.contextItems.filter((/** @type {any} */ i) => i.type === 'memory');
@@ -105,8 +106,8 @@ export async function runTests(ctx) {
 
   await test('seedAutoContextItems is a no-op (adds nothing) when gating fails', async () => {
     const before = conversation.rootMessageThread.contextItems.length;
-    await session.seedAutoContextItems(conversation);
-    await session.seedAutoContextItems(conversation);
+    await seedAutoContextItems(conversation);
+    await seedAutoContextItems(conversation);
     const after = conversation.rootMessageThread.contextItems.length;
     assert(before === after, `seeding should add nothing when gated out (before=${before}, after=${after})`);
   });

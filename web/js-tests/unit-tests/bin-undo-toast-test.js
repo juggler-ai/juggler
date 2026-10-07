@@ -39,8 +39,17 @@ function createStubSession() {
       ['conv_doomed', { id: 'conv_doomed', name: 'Doomed conversation' }],
       ['conv_next', { id: 'conv_next', name: 'Next one' }]
     ]),
-    binnedCount: 0,
-    binSizeBytes: 0,
+    bin: {
+      count: 0,
+      sizeBytes: 0,
+      /**
+       * @param {string} id - Conversation to restore
+       * @returns {Promise<void>} Resolves once logged
+       */
+      async restore(id) {
+        session.restored.push(id);
+      }
+    },
     visibleConversationId: null,
     /** @type {string[]} */ binned: [],
     /** @type {string[]} */ restored: [],
@@ -51,15 +60,8 @@ function createStubSession() {
     async binConversation(id) {
       session.binned.push(id);
       session.conversations.delete(id);
-      session.binnedCount += 1;
+      session.bin.count += 1;
       return true;
-    },
-    /**
-     * @param {string} id - Conversation to restore
-     * @returns {Promise<void>} Resolves once logged
-     */
-    async restoreConversation(id) {
-      session.restored.push(id);
     }
   };
   return session;

@@ -180,7 +180,7 @@ export async function runTests(_ctx) {
       assert(binned === true, 'precondition: the bin must succeed');
       assert(!session.conversations.has(restoredId), 'precondition: binning drops the conversation');
 
-      await session.restoreConversation(restoredId);
+      await session.bin.restore(restoredId);
       await session.applyConversationRestored(restoredId, name);
       assert(session.conversations.has(restoredId),
         'a restored conversation must be back in the map — its tab is showing');
@@ -242,7 +242,7 @@ export async function runTests(_ctx) {
         }
       });
 
-      await session.restoreConversation(restoredId);
+      await session.bin.restore(restoredId);
       const applied = session.applyConversationRestored(restoredId, name);
       assert(announced.length > 0,
         'a restore put the conversation in the map and told nobody — the tab strip stays unchanged until something unrelated renders it');

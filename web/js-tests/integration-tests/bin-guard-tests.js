@@ -78,7 +78,7 @@ export const binAwaitingApprovalIsAllowedTest = {
       );
     }
     // And it must be in the bin (restorable), not vanished/deleted.
-    const binned = await session.listBinnedConversations();
+    const binned = await session.bin.list();
     if (!binned.some((/** @type {{id: string}} */ row) => row.id === binnedId)) {
       throw new Error(
         `bin-awaiting-approval-is-allowed: Conv B (${binnedId}) is gone from the ` +
@@ -86,7 +86,7 @@ export const binAwaitingApprovalIsAllowedTest = {
       );
     }
     // Clean up so repeated `-count=N` runs don't accumulate bin entries.
-    await session.deleteBinnedConversation(binnedId);
+    await session.bin.deletePermanently(binnedId);
   }
 };
 

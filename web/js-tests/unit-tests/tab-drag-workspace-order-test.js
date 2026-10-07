@@ -74,8 +74,6 @@ function mountBar(workspaces, bindings) {
   }))));
   session.workspaces = workspaces;
   session.projectPath = '/tmp/project';
-  session.binnedCount = 0;
-  session.binSizeBytes = 0;
   // A move brings what the conversation read out of its old tree up to date
   // with the new one, which reads files over the wire and is
   // conversation-workspace-move-test's subject. What is under test here is

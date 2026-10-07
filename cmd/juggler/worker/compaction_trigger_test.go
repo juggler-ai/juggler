@@ -31,6 +31,76 @@ func recoveryLimitErr() *provider.ContextLimitExceededError {
 	}
 }
 
+// testOverflow hands the ladder limit as an overflow of the given kind, with
+// limit itself as the original error, the way a provider rejection arrives.
+func testOverflow(limit *provider.ContextLimitExceededError, advisory bool) contextOverflow {
+	return contextOverflow{limit: limit, advisory: advisory, err: limit}
+}
+
+// TestAsContextOverflowClassifiesBothKinds pins the one place a context-limit
+// failure becomes the ladder's shape: an admission estimate is advisory and
+// normalized to the limit shape, a provider rejection is not advisory and is
+// its own limit, either may arrive wrapped, the original error is kept for the
+// provider-authored cause, and anything else is not an overflow.
+func TestAsContextOverflowClassifiesBothKinds(t *testing.T) {
+	advisory := &provider.ContextCompactionAdvisory{EstimatedInputTokens: 3_500, OutputReserveTokens: 300, ContextWindowTokens: 4_000, MeasuredPrefix: true}
+	wrapped := fmt.Errorf("dispatch: %w", advisory)
+	o, ok := asContextOverflow(wrapped)
+	if !ok || !o.advisory {
+		t.Fatalf("wrapped advisory: ok=%v advisory=%v, want an advisory overflow", ok, o.advisory)
+	}
+	if o.limit == nil || o.limit.EstimatedInputTokens != 3_500 || !o.limit.MeasuredPrefix {
+		t.Fatalf("advisory was not normalized to its limit: %+v", o.limit)
+	}
+	if o.err != wrapped {
+		t.Fatalf("original error not kept: %v", o.err)
+	}
+
+	rejection := recoveryLimitErr()
+	o, ok = asContextOverflow(fmt.Errorf("call: %w", rejection))
+	if !ok || o.advisory || o.limit != rejection {
+		t.Fatalf("wrapped rejection: ok=%v advisory=%v limit=%p, want the rejection itself as a non-advisory overflow", ok, o.advisory, o.limit)
+	}
+
+	if _, ok := asContextOverflow(errors.New("connection reset")); ok {
+		t.Fatal("an ordinary error was classified as an overflow")
+	}
+}
+
+// TestRepeatedAdvisoryAfterBypassStopsQuietly pins the single-shot rule
+// resolveContextOverflow holds for the ladder: an advisory on a request that
+// already bypassed the guard settles the turn without a terminal error and
+// without starting recovery, where a provider rejection on the same request
+// still goes to the ladder.
+func TestRepeatedAdvisoryAfterBypassStopsQuietly(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.currentRun().storeState(StateProcessing)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+	w.doc.InsertMessage(0, recoveryTestItems()...)
+	w.llmCallFunc = func(_ context.Context, _ json.RawMessage, _ func(StreamChunk)) (*LLMResponse, error) {
+		t.Fatal("recovery ran for an advisory on a request that had already bypassed the guard")
+		return nil, nil
+	}
+	before := len(w.doc.GetItems())
+	st := &strategyRunState{bypassContextGuard: true}
+	advisory := &provider.ContextCompactionAdvisory{EstimatedInputTokens: 6_200, OutputReserveTokens: 300, ContextWindowTokens: 4_000, MeasuredPrefix: true}
+
+	verdict, settled, reportErr := w.ownedRun(t).resolveContextOverflow(st, advisory, nil)
+	if verdict != turnDone || !settled {
+		t.Fatalf("verdict=%v settled=%v, want a settled stop", verdict, settled)
+	}
+	if reportErr != advisory {
+		t.Fatalf("reported %v, want the advisory itself (settled, so never shown)", reportErr)
+	}
+	if st.compaction.attempts != 0 {
+		t.Fatalf("recovery budget advanced to %d", st.compaction.attempts)
+	}
+	if got := len(w.doc.GetItems()); got != before {
+		t.Fatalf("durable items changed %d -> %d", before, got)
+	}
+}
+
 func recoveryTestItems() []ConversationItem {
 	items := make([]ConversationItem, 0, 7)
 	for i := 0; i < 4; i++ {
@@ -96,20 +166,17 @@ func TestHandleContextOverflowGateOffProviderRejectionTerminal(t *testing.T) {
 
 	before := len(w.doc.GetItems())
 	recovery := &compactionAttempts{}
-	res := w.ownedRun(t).handleContextOverflow(recoveryLimitErr(), false, false, recovery, pinned, recoveryLimitErr())
+	retry, err := w.ownedRun(t).handleContextOverflow(testOverflow(recoveryLimitErr(), false), recovery, pinned)
 
-	if res.verdict != overflowTerminal {
-		t.Fatalf("verdict = %v, want overflowTerminal", res.verdict)
-	}
-	if res.err == nil {
-		t.Fatal("terminal verdict carried no error")
+	if retry || err == nil {
+		t.Fatalf("retry = %v, err = %v; want a terminal error", retry, err)
 	}
 	var limit *provider.ContextLimitExceededError
-	if !errors.As(res.err, &limit) {
-		t.Fatalf("terminal error does not wrap the provider context limit: %v", res.err)
+	if !errors.As(err, &limit) {
+		t.Fatalf("terminal error does not wrap the provider context limit: %v", err)
 	}
-	if !strings.Contains(res.err.Error(), "/compact") {
-		t.Fatalf("terminal error lacks the compact-now hint: %q", res.err.Error())
+	if !strings.Contains(err.Error(), "/compact") {
+		t.Fatalf("terminal error lacks the compact-now hint: %q", err.Error())
 	}
 	if got := len(w.doc.GetItems()); got != before {
 		t.Fatalf("durable items changed %d -> %d; recovery must not run when gated off", before, got)
@@ -134,13 +201,13 @@ func TestHandleContextOverflowGateOffAdvisoryBypasses(t *testing.T) {
 	pinned := &ModelConfig{Provider: "test", Model: "test"}
 
 	recovery := &compactionAttempts{}
-	res := w.ownedRun(t).handleContextOverflow(recoveryLimitErr(), true, false, recovery, pinned, recoveryLimitErr())
+	retry, err := w.ownedRun(t).handleContextOverflow(testOverflow(recoveryLimitErr(), true), recovery, pinned)
 
-	if res.verdict != overflowBypassAndRetry {
-		t.Fatalf("verdict = %v, want overflowBypassAndRetry", res.verdict)
+	if !retry || err != nil {
+		t.Fatalf("retry = %v, err = %v; want a guard-bypassed retry", retry, err)
 	}
-	if res.err != nil {
-		t.Fatalf("advisory bypass carried an error: %v", res.err)
+	if err != nil {
+		t.Fatalf("advisory bypass carried an error: %v", err)
 	}
 }
 
@@ -182,16 +249,16 @@ func TestHandleContextOverflowUnanchoredAdvisoryBypasses(t *testing.T) {
 
 	before := len(w.doc.GetItems())
 	recovery := &compactionAttempts{}
-	res := w.ownedRun(t).handleContextOverflow(advisoryLimitErr(false), true, false, recovery, pinned, advisoryLimitErr(false))
+	retry, err := w.ownedRun(t).handleContextOverflow(testOverflow(advisoryLimitErr(false), true), recovery, pinned)
 
 	if hiddenCalls != 0 {
 		t.Fatalf("hidden reducer calls = %d, want 0 for an unanchored soft-ceiling advisory", hiddenCalls)
 	}
-	if res.verdict != overflowBypassAndRetry {
-		t.Fatalf("verdict = %v, want overflowBypassAndRetry", res.verdict)
+	if !retry || err != nil {
+		t.Fatalf("retry = %v, err = %v; want a guard-bypassed retry", retry, err)
 	}
-	if res.err != nil {
-		t.Fatalf("bypass carried an error: %v", res.err)
+	if err != nil {
+		t.Fatalf("bypass carried an error: %v", err)
 	}
 	if got := len(w.doc.GetItems()); got != before {
 		t.Fatalf("durable items changed %d -> %d; an unanchored estimate must not rewrite history", before, got)
@@ -213,10 +280,10 @@ func TestHandleContextOverflowAnchoredAdvisoryFolds(t *testing.T) {
 	w.llmCallFunc = stub
 
 	recovery := &compactionAttempts{}
-	res := w.ownedRun(t).handleContextOverflow(advisoryLimitErr(true), true, false, recovery, pinned, advisoryLimitErr(true))
+	retry, err := w.ownedRun(t).handleContextOverflow(testOverflow(advisoryLimitErr(true), true), recovery, pinned)
 
-	if res.verdict != overflowBypassAndRetry {
-		t.Fatalf("verdict = %v, want overflowBypassAndRetry after a measured-ceiling fold", res.verdict)
+	if !retry || err != nil {
+		t.Fatalf("retry = %v, err = %v; want a guard-bypassed retry after a measured-ceiling fold", retry, err)
 	}
 	if *calls == 0 {
 		t.Fatal("no hidden calls — the fold reducer never ran")
@@ -243,9 +310,9 @@ func TestHandleContextOverflowFoldLeavesTailNotice(t *testing.T) {
 	w.llmCallFunc = stub
 
 	recovery := &compactionAttempts{}
-	res := w.ownedRun(t).handleContextOverflow(advisoryLimitErr(true), true, false, recovery, pinned, advisoryLimitErr(true))
-	if res.verdict != overflowBypassAndRetry {
-		t.Fatalf("verdict = %v, want overflowBypassAndRetry", res.verdict)
+	retry, err := w.ownedRun(t).handleContextOverflow(testOverflow(advisoryLimitErr(true), true), recovery, pinned)
+	if !retry || err != nil {
+		t.Fatalf("retry = %v, err = %v; want a guard-bypassed retry", retry, err)
 	}
 
 	items := w.doc.GetItems()
@@ -308,9 +375,9 @@ func TestAssumedWindowNoticeBeforeAutoCompaction(t *testing.T) {
 	pinned := &ModelConfig{Provider: "local", Model: "qwen3.6-35b"}
 
 	recovery := &compactionAttempts{}
-	res := w.ownedRun(t).handleContextOverflow(recoveryLimitErr(), false, false, recovery, pinned, recoveryLimitErr())
-	if res.verdict != overflowTerminal {
-		t.Fatalf("verdict = %v, want overflowTerminal (the reducer call fails)", res.verdict)
+	retry, err := w.ownedRun(t).handleContextOverflow(testOverflow(recoveryLimitErr(), false), recovery, pinned)
+	if retry || err == nil {
+		t.Fatalf("retry = %v, err = %v; want a terminal error (the reducer call fails)", retry, err)
 	}
 
 	notices := assumedWindowNotices(t, w.doc.GetItems())
@@ -344,8 +411,8 @@ func TestNoAssumedWindowNoticeForReportedWindow(t *testing.T) {
 	w.llmCallFunc = stub
 
 	recovery := &compactionAttempts{}
-	if res := w.ownedRun(t).handleContextOverflow(advisoryLimitErr(true), true, false, recovery, pinned, advisoryLimitErr(true)); res.verdict != overflowBypassAndRetry {
-		t.Fatalf("verdict = %v, want overflowBypassAndRetry", res.verdict)
+	if retry, err := w.ownedRun(t).handleContextOverflow(testOverflow(advisoryLimitErr(true), true), recovery, pinned); !retry || err != nil {
+		t.Fatalf("retry = %v, err = %v; want a guard-bypassed retry", retry, err)
 	}
 	if n := len(assumedWindowNotices(t, w.doc.GetItems())); n != 0 {
 		t.Fatalf("got %d assumed-window notices for a reported window, want 0", n)
@@ -393,8 +460,8 @@ func TestHandleContextOverflowFoldReceiptSaysWhatSurvived(t *testing.T) {
 	w.llmCallFunc = stub
 
 	recovery := &compactionAttempts{}
-	if res := w.ownedRun(t).handleContextOverflow(advisoryLimitErr(true), true, false, recovery, pinned, advisoryLimitErr(true)); res.verdict != overflowBypassAndRetry {
-		t.Fatalf("verdict = %v, want overflowBypassAndRetry", res.verdict)
+	if retry, err := w.ownedRun(t).handleContextOverflow(testOverflow(advisoryLimitErr(true), true), recovery, pinned); !retry || err != nil {
+		t.Fatalf("retry = %v, err = %v; want a guard-bypassed retry", retry, err)
 	}
 
 	items := w.doc.GetItems()
@@ -431,7 +498,9 @@ func TestHandleContextOverflowFoldDoesNotStealSelection(t *testing.T) {
 	w.llmCallFunc = stub
 
 	recovery := &compactionAttempts{}
-	w.ownedRun(t).handleContextOverflow(advisoryLimitErr(true), true, false, recovery, pinned, advisoryLimitErr(true))
+	if _, err := w.ownedRun(t).handleContextOverflow(testOverflow(advisoryLimitErr(true), true), recovery, pinned); err != nil {
+		t.Fatalf("fold failed: %v", err)
+	}
 
 	items := w.doc.GetItems()
 	if items[0].Type != ItemTypeThread || !items[0].BoundedCompaction {
@@ -466,10 +535,10 @@ func TestHandleContextOverflowUnanchoredOverHardWindowStillFolds(t *testing.T) {
 	w.llmCallFunc = stub
 
 	recovery := &compactionAttempts{}
-	res := w.ownedRun(t).handleContextOverflow(recoveryLimitErr(), true, false, recovery, pinned, recoveryLimitErr())
+	retry, err := w.ownedRun(t).handleContextOverflow(testOverflow(recoveryLimitErr(), true), recovery, pinned)
 
-	if res.verdict != overflowBypassAndRetry {
-		t.Fatalf("verdict = %v, want overflowBypassAndRetry — over-window estimates still fold, then the provider judges the retry", res.verdict)
+	if !retry || err != nil {
+		t.Fatalf("retry = %v, err = %v; want a guard-bypassed retry — over-window estimates still fold, then the provider judges the retry", retry, err)
 	}
 	if *calls == 0 {
 		t.Fatal("no hidden calls — the fold reducer never ran")

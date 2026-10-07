@@ -41,8 +41,7 @@ function createStubSession(projectPath, conversationIds) {
   return {
     projectPath,
     conversations: new Map(conversationIds.map(id => [id, { id, name: id }])),
-    binnedCount: 0,
-    binSizeBytes: 0,
+    bin: { count: 0, sizeBytes: 0 },
     visibleConversationId: null,
     /**
      * @param {(event: any) => void} fn - Listener

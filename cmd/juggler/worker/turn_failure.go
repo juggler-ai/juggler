@@ -239,36 +239,33 @@ func (r *run) reportUserFixableFailure(f userFixableFailure, err error, duration
 // re-enter overflow handling in the same iteration, even when it wraps a
 // provider overflow, which is why it is returned rather than re-classified.
 func (r *run) resolveContextOverflow(st *strategyRunState, err error, llmRequest json.RawMessage) (verdict turnVerdict, settled bool, reportErr error) {
-	var advisory *provider.ContextCompactionAdvisory
-	var contextLimit *provider.ContextLimitExceededError
-	var limit *provider.ContextLimitExceededError
-	isAdvisory := false
-	if errors.As(err, &advisory) {
-		// A silent-truncation guard is an estimate-based request to
-		// compact, never a terminal error; normalize it to the same
-		// overflow shape the provider-rejection path uses.
-		limit = contextLimitFromAdvisory(advisory)
-		isAdvisory = true
-	} else if errors.As(err, &contextLimit) {
-		limit = contextLimit
-	}
-	if limit == nil {
+	overflow, ok := asContextOverflow(err)
+	if !ok {
 		return turnDone, false, err
+	}
+	// The guard-bypassed fallback is single-shot. Registry admission honors
+	// the bypass before transport, so an advisory on a bypassed request means
+	// a broken caller/provider contract; stop without ever publishing the
+	// estimate as a terminal user error. Provider rejections carry no such
+	// single-shot guard.
+	if overflow.advisory && st.bypassContextGuard {
+		r.log.Error("[context guard] advisory repeated after fallback bypass; stopping without a terminal estimate error")
+		return turnDone, true, err
 	}
 	// Parse the original request only now that it is needed (a
 	// context-limit overflow), not on every successful turn.
 	var originalRequest hiddenLLMRequest
 	_ = json.Unmarshal(llmRequest, &originalRequest)
-	switch v := r.handleContextOverflow(limit, isAdvisory, st.bypassContextGuard, &st.compaction, originalRequest.ModelConfig, err); v.verdict {
-	case overflowStop:
-		return turnDone, true, err
-	case overflowBypassAndRetry:
+	retry, terminal := r.handleContextOverflow(overflow, &st.compaction, originalRequest.ModelConfig)
+	switch {
+	case terminal != nil:
+		return turnDone, false, terminal
+	case retry:
 		st.bypassContextGuard = true
 		return turnContinue, true, err
-	case overflowTerminal:
-		return turnDone, false, v.err
+	default:
+		return turnDone, true, err
 	}
-	return turnDone, false, err
 }
 
 // restOnRateLimit handles a usage cap the provider dated. That is a fact about

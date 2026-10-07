@@ -26,8 +26,7 @@ import '../../js/components/conversation-bar.js';
 function createStubSession(binnedCount, binSizeBytes) {
   return {
     conversations: new Map([['conv_a', { id: 'conv_a', name: 'A' }]]),
-    binnedCount,
-    binSizeBytes,
+    bin: { count: binnedCount, sizeBytes: binSizeBytes },
     visibleConversationId: null
   };
 }
@@ -73,7 +72,7 @@ export async function runTests() {
       `the tooltip lost the size: "${binBtn?.title}"`);
 
     // --- 3: a large one shows it, as a warning ------------------------------
-    bar._session.binSizeBytes = BIN_LARGE_BYTES;
+    bar._session.bin.sizeBytes = BIN_LARGE_BYTES;
     bar.render();
     assert(sizeEl?.hidden === false && (sizeEl.textContent || '').length > 0,
       'a bin at the large threshold hides its size');

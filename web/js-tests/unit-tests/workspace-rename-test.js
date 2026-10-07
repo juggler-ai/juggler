@@ -42,8 +42,7 @@ function makeSession(workspaces, bindings) {
   const session = /** @type {any} */ (Object.create(Session.prototype));
   session.workspaces = workspaces;
   session.projectPath = '/tmp/project';
-  session.binnedCount = 0;
-  session.binSizeBytes = 0;
+  session.bin = { count: 0, sizeBytes: 0 };
   session.selection = null;
   session.loadedConversationId = null;
   session._mruList = [];

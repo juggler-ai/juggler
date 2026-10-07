@@ -1033,8 +1033,8 @@ class ConversationBar extends JugglerElement {
     }
 
     // Refresh the count badge + size hint from session state on every render.
-    const count = this._session.binnedCount || 0;
-    const sizeBytes = this._session.binSizeBytes || 0;
+    const count = this._session.bin.count || 0;
+    const sizeBytes = this._session.bin.sizeBytes || 0;
     const countEl = /** @type {HTMLElement|null} */ (binBtn.querySelector('.conversation-bin-count'));
     if (countEl) {
       // Compared before writing, like every other text in this pass: render()
@@ -2061,7 +2061,7 @@ class ConversationBar extends JugglerElement {
     this._hideBinUndo();
     if (!id || !this._session) return;
     try {
-      await this._session.restoreConversation(id);
+      await this._session.bin.restore(id);
     } catch (e) {
       console.error('[ConversationBar] restore from bin failed:', e);
       await showAlert(

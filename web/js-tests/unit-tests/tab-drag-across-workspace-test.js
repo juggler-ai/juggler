@@ -80,8 +80,7 @@ function mountBar(workspaces, bindings) {
   const session = {
     workspaces,
     projectPath: '/tmp/project',
-    binnedCount: 0,
-    binSizeBytes: 0,
+    bin: { count: 0, sizeBytes: 0 },
     visibleConversationId: null,
     conversations: new Map(),
     /**

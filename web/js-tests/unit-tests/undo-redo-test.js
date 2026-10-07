@@ -164,7 +164,7 @@ function getContextItemCount(conversation) {
  * @param {import('../../model/conversation.js').default} conversation - Conversation instance
  */
 async function cleanupAutoAddedContextItems(conversation) {
-  // Remove all context items (AI assistant files added by Session.addAIAssistantFiles)
+  // Remove all context items (AI assistant files added by addAIAssistantFiles in conversation-seeder.js)
   // Delete context items in reverse order (to preserve indices)
   // @ts-ignore - Accessing private _doc for testing
   const items = conversation.rootMessageThread.yarray.toArray();

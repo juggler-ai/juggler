@@ -1351,8 +1351,8 @@ export async function executeUIOperation(harness, op) {
     case 'add-ai-files-to-sub-thread': {
       // Simulate clicking "Add Context Item" → "AI assistant files" from a sub-thread's footer.
       // Spins up a real UIEventManager with the test session so _handleContextItemAddRequested runs.
-      // RED: _addAIAssistantFiles() ignores threadItemId and calls session.addAIAssistantFiles(conversation)
-      // which hardcodes rootMessageThread — file-content item lands in root.
+      // What this catches: an _addAIAssistantFiles() that ignores threadItemId seeds
+      // rootMessageThread, so the file-content item lands in root.
       const rootItems = harness.rootThread.items || [];
       let addAIThreadItemId = null;
       for (const item of rootItems) {

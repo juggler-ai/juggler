@@ -292,14 +292,14 @@ export async function runTests() {
         assert(finished.done === true, `deleting goes through, got ${JSON.stringify(finished)}`);
         assert(!session.conversations.has(inside.id),
           'the conversation in it is gone from the strip');
-        const binned = (await session.listBinnedConversations()).map((/** @type {any} */ entry) => entry.id);
+        const binned = (await session.bin.list()).map((/** @type {any} */ entry) => entry.id);
         assert(binned.includes(inside.id),
           `and is in the bin rather than gone, got ${JSON.stringify(binned)}`);
         assert(/in the bin/.test(String(finished.message ?? '')),
           `which the ending says, got ${JSON.stringify(finished.message)}`);
       } finally {
         session.workspaces = saved;
-        if (inside?.id) await session.deleteBinnedConversation(inside.id).catch(() => {});
+        if (inside?.id) await session.bin.deletePermanently(inside.id).catch(() => {});
         if (workspaceId) await unregisterWorkspace(workspaceId).catch(() => {});
       }
     });

@@ -40,8 +40,6 @@ function daysAgo(days) {
  */
 function createStubSession() {
   const session = {
-    binSizeBytes: 4096,
-    binnedCount: 3,
     /** @type {Array<{id: string, name: string, lastModifiedAt: string}>} */
     rows: [
       { id: 'conv_fresh', name: 'Fresh', lastModifiedAt: daysAgo(2) },
@@ -49,22 +47,26 @@ function createStubSession() {
       { id: 'conv_stale', name: 'Stale', lastModifiedAt: daysAgo(40) }
     ],
     /** @type {Array<number|null>} */ emptied: [],
-    /**
-     * @returns {Promise<Array<{id: string, name: string, lastModifiedAt: string}>>} Current bin rows.
-     */
-    async listBinnedConversations() {
-      return session.rows.slice();
-    },
-    /**
-     * @param {number|null} [olderThanDays] - Cutoff, or null/omitted for all.
-     * @returns {Promise<void>} Resolves once the stub bin is updated.
-     */
-    async emptyBin(olderThanDays = null) {
-      session.emptied.push(olderThanDays);
-      const cutoff = olderThanDays ? Date.now() - olderThanDays * DAY_MS : null;
-      session.rows = cutoff === null
-        ? []
-        : session.rows.filter((r) => Date.parse(r.lastModifiedAt) >= cutoff);
+    bin: {
+      sizeBytes: 4096,
+      count: 3,
+      /**
+       * @returns {Promise<Array<{id: string, name: string, lastModifiedAt: string}>>} Current bin rows.
+       */
+      async list() {
+        return session.rows.slice();
+      },
+      /**
+       * @param {number|null} [olderThanDays] - Cutoff, or null/omitted for all.
+       * @returns {Promise<void>} Resolves once the stub bin is updated.
+       */
+      async empty(olderThanDays = null) {
+        session.emptied.push(olderThanDays);
+        const cutoff = olderThanDays ? Date.now() - olderThanDays * DAY_MS : null;
+        session.rows = cutoff === null
+          ? []
+          : session.rows.filter((r) => Date.parse(r.lastModifiedAt) >= cutoff);
+      }
     }
   };
   return session;

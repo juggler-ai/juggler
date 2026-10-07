@@ -12,29 +12,38 @@
  * says where the tabs it names go, and nothing about the rest. Treating it as
  * the complete truth is what drops a newly created tab to the bottom of the bar.
  *
- * The session is built from the prototype with a map of markers: what is under
- * test is the ordering rule, and real conversations would bring a worker and a
- * server round trip to it without making any assertion sharper.
+ * The rule is the sync reducer's, driven over a stub host holding a map of
+ * markers: real conversations would bring a worker and a server round trip to
+ * it without making any assertion sharper.
  * @module unit-tests/tab-order-merge
  */
 
 import { assert } from '../utilities/test-helpers.js';
-import Session from '../../js/model/session.js';
+import ConversationSyncReducer from '../../js/model/conversation-sync-reducer.js';
 
 /**
- * A session holding nothing but ids, with notifications stubbed out.
+ * A reducer over a bar holding nothing but ids, with notifications stubbed out.
  * @param {string[]} ids - Conversation ids, in bar order
- * @returns {any} A session whose conversations map holds one marker per id
+ * @returns {{sync: ConversationSyncReducer, conversations: Map<string, {id: string}>}} The reducer and the map it reorders
  */
 function sessionWithOrder(ids) {
-  const session = Object.create(Session.prototype);
-  session.conversations = new Map(ids.map((id) => [id, { id }]));
-  session._notify = () => {};
-  return session;
+  let conversations = new Map(ids.map((id) => [id, { id }]));
+  const sync = new ConversationSyncReducer(/** @type {any} */ ({
+    holds: (/** @type {string} */ id) => conversations.has(id),
+    order: () => [...conversations.keys()],
+    reorder: (/** @type {string[]} */ order) => {
+      conversations = new Map(order.map((id) => [id, { id }]));
+    },
+    notify: () => {}
+  }));
+  return {
+    sync,
+    get conversations() { return conversations; }
+  };
 }
 
 /**
- * @param {any} session - Session to read
+ * @param {{conversations: Map<string, unknown>}} session - Bar to read
  * @returns {string} Its bar order, for assertion messages
  */
 function orderOf(session) {
@@ -68,7 +77,7 @@ export async function runTests(_ctx) {
   const check = (what, local, echo, expected) => {
     try {
       const session = sessionWithOrder(local);
-      session.applyConversationsReordered(echo);
+      session.sync.reordered(echo);
       const got = orderOf(session);
       assert(got === expected, `expected ${expected}, got ${got}`);
       passed++;

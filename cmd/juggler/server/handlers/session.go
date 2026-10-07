@@ -118,7 +118,7 @@ type WorkerManager interface {
 // `BroadcastConversationFocus` asks every viewer to switch to a conversation.
 // It rides the same event type with `op:"focus"` plus a `from` id naming the
 // conversation that requested the switch, so each viewer can decide whether to
-// follow (see Session.applyConversationFocus).
+// follow (see ConversationSyncReducer.focus, web/js/model/conversation-sync-reducer.js).
 //
 // `BroadcastPinboardChanged` carries the whole board after an edit, named by the
 // board it is. Unlike the conversation list there is no per-op diff on the wire:

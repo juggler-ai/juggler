@@ -32,7 +32,7 @@ import {
 /**
  * Reduce a live conversation to the state a restore leaves behind: no worker,
  * and a fresh stub in the map carrying only its id and name. This is what
- * Session._loadAndInsertConversation builds, and what the user clicks on.
+ * Session._loadIntoHead builds, and what the user clicks on.
  * @param {any} session - The session holding it
  * @param {string} id - Conversation to park
  * @param {string} name - Its folder name
@@ -147,7 +147,7 @@ export async function runTests(_ctx) {
   // tears down the worker, the server moves the folder and lifts its block on
   // the id, and the restore puts back a stub that the selection has to hydrate.
   // The broadcast is applied directly because a unit-test session has no app.js
-  // websocket wiring; applyConversationRestored is exactly what that dispatch
+  // websocket wiring; `session.sync.apply` is exactly what that dispatch
   // calls.
   //
   // The conversation is hydrated THROUGH a load queue first, which is the state
@@ -181,7 +181,7 @@ export async function runTests(_ctx) {
       assert(!session.conversations.has(restoredId), 'precondition: binning drops the conversation');
 
       await session.bin.restore(restoredId);
-      await session.applyConversationRestored(restoredId, name);
+      await session.sync.apply({ op: 'restored', id: restoredId, name });
       assert(session.conversations.has(restoredId),
         'a restored conversation must be back in the map — its tab is showing');
 
@@ -243,7 +243,7 @@ export async function runTests(_ctx) {
       });
 
       await session.bin.restore(restoredId);
-      const applied = session.applyConversationRestored(restoredId, name);
+      const applied = session.sync.apply({ op: 'restored', id: restoredId, name });
       assert(announced.length > 0,
         'a restore put the conversation in the map and told nobody — the tab strip stays unchanged until something unrelated renders it');
       assert(announced[0] !== 'loaded',

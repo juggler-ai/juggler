@@ -12,9 +12,9 @@
  * be counted once, whichever of the two arrives first, while a departure some
  * other viewer caused (which arrives only as the broadcast) must still count.
  *
- * A broadcast is applied as `app.js` applies it: `binned-deleted` goes straight
- * to `session.bin.noteLeft`, and `restored` reaches it through
- * `Session.applyConversationRestored`.
+ * A broadcast is applied as the session's sync reducer applies it:
+ * `binned-deleted` goes straight to `session.bin.noteLeft`, and `restored`
+ * reaches it through `ConversationSyncReducer#restored`.
  *
  * Runs against a bare Session with a stub API service — no server, no workers.
  * @module unit-tests/conversation-bin-test
@@ -89,7 +89,7 @@ export async function runTests(_ctx) {
   await run('restoring from the bin counts once', async () => {
     const session = sessionWithBinOf(3);
     await session.bin.restore('conv_a');
-    // The restored broadcast's bin half (`Session.applyConversationRestored`),
+    // The restored broadcast's bin half (`ConversationSyncReducer#restored`),
     // without the conversation load around it.
     session.bin.noteLeft('conv_a');
     assert(session.bin.count === 2, `count = ${session.bin.count} after restoring one of 3, want 2`);

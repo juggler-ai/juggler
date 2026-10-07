@@ -325,7 +325,7 @@ export const attentionExcusesTurnEndAfterFollowTest = {
       await harness.waitForMockPaused();
 
       // Mid-turn, the conversation asks viewers to follow it elsewhere.
-      session.applyConversationFocus(spawnedId, convId);
+      session.sync.focus(spawnedId, convId);
       if (session.visibleConversationId !== spawnedId) {
         throw new Error(`the focus request was not followed (visible ${session.visibleConversationId})`);
       }

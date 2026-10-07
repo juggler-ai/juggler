@@ -84,7 +84,7 @@ export async function runTests(_ctx) {
   const Conversation = (await import('../../js/model/conversation.js')).default;
 
   // Test 1: a conversation inserted while the refresh is in flight survives it.
-  // This is the restore: applyConversationRestored claims the head of the bar
+  // This is the restore: the sync reducer's `restored` claims the head of the bar
   // with an unloaded stub and then awaits a worker spawn, so the stub is in the
   // map for the whole of any refresh that overlaps it.
   {

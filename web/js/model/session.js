@@ -30,6 +30,7 @@ import { approvePermittedPendingApprovals } from './conversation-tool-actions.js
 import { isWorkspaceUsable, patchWorkspace, reorderWorkspaces } from '../services/workspaces.js';
 import { placeForNewConversation, placementForNewConversation, takesTheHead } from '../services/workspace-provisioning.js';
 import ConversationBin from './conversation-bin.js';
+import ConversationSyncReducer from './conversation-sync-reducer.js';
 import { seedCreationDefaults, seedConversationAutoItems as seedAutoItems } from './conversation-seeder.js';
 
 /**
@@ -256,18 +257,6 @@ class Session {
     this._mruList = [];
 
     /**
-     * Ids of conversations whose local create/duplicate flow is mid-flight.
-     * Because the client preallocates ids, entries are registered before the
-     * create POST; if the server's `conversations-changed` op="created" echo
-     * outruns the HTTP response, applyConversationCreated finds the id here
-     * and skips the remote-load path. The local flow owns the insert and will
-     * fire `conversation:created` when the worker is ready.
-     * @type {Set<string>}
-     * @private
-     */
-    this._pendingCreates = new Set();
-
-    /**
      * In-flight {@link Session#initialiseConversation} passes, by conversation
      * id. The commit hop is on every path that puts content into a conversation
      * — a send, a mention, a drop — so two of them can arrive together on a
@@ -277,32 +266,6 @@ class Session {
      * @private
      */
     this._initialising = new Map();
-
-    /**
-     * A server "focus" broadcast this viewer accepted but cannot act on yet,
-     * as `{id, from}`. The "focus" op arrives right behind the "created" one it
-     * follows, while that create's async load is still in flight, so
-     * applyConversationFocus parks the request here and applyConversationCreated
-     * redeems it once the conversation is fully inserted and announced. Null
-     * when there is no pending focus.
-     * @type {{id: string, from: string}|null}
-     * @private
-     */
-    this._pendingFocus = null;
-
-    /**
-     * Ids whose remote-`created` load is in flight. The loader's load publishes
-     * its conversation into `this.conversations` early (the worker's yjs-sync
-     * lands before the load resolves and must find it), so a bare
-     * `conversations.has(id)` reports switchable well before
-     * `conversation:created` fires and the tab bar builds the element. Focusing
-     * in that window switches to a conversation with no tab element — every
-     * other tab hides and the panel goes blank until the next manual switch.
-     * applyConversationFocus consults this set and parks instead.
-     * @type {Set<string>}
-     * @private
-     */
-    this._remoteCreates = new Set();
 
     /**
      * Ids this client has removed locally whose removal the server has not yet
@@ -458,6 +421,28 @@ class Session {
      * @type {ConversationBin}
      */
     this.bin = new ConversationBin(() => this._apiService);
+
+    const session = this;
+    /**
+     * The reducer for the server's `conversations-changed` broadcast, and the
+     * echo and focus bookkeeping it needs. Each host entry is read at call
+     * time, so a test that replaces one of these methods on the session is
+     * replacing it for the reducer too.
+     * @type {ConversationSyncReducer}
+     */
+    this.sync = new ConversationSyncReducer({
+      holds: (id) => this.conversations.has(id),
+      order: () => [...this.conversations.keys()],
+      setName: (id, name) => this.setConversationName(id, name),
+      notify: (type, data) => this._notify(type, data),
+      notifyChange: (type, data) => this.notifyConversationChange(type, data),
+      loadAtHead: (id) => this._loadIntoHead(id),
+      drop: (id, opts) => this._dropActiveConversation(id, opts),
+      reorder: (ids) => this._setConversationOrder(ids),
+      follow: (id) => { this.switchConversation(id); },
+      shouldFollow: (from) => this.shouldFollowRequest(from),
+      get bin() { return session.bin; }
+    });
   }
 
   /**
@@ -484,73 +469,6 @@ class Session {
     this._conversationNames[id] = name;
   }
 
-  // ==========================================================================
-  // Server diff-event handlers
-  // ==========================================================================
-  //
-  // Each apply* method handles one op of the `conversations-changed`
-  // broadcast and mutates local state to match. They are idempotent: when
-  // the originator of the action receives its own broadcast echo, the
-  // local state already reflects the change and the apply call no-ops.
-
-  /**
-   * Apply a `conversations-changed` op="created" event. Loads the new conversation
-   * from disk and inserts it at the top of the tab bar.
-   * @param {string} id - Server-allocated conversation id
-   * @param {string} name - Canonical folder name
-   * @returns {Promise<void>}
-   */
-  async applyConversationCreated(id, name) {
-    this.setConversationName(id, name);
-    if (this.conversations.has(id)) {
-      // Originator (or a prior broadcast) already added this conversation.
-      this.notifyConversationChange('conversation:changed', { conversationId: id });
-      this._redeemPendingFocus(id);
-      return;
-    }
-    if (this._pendingCreates.has(id)) {
-      // This client is creating/duplicating this preallocated id. The broadcast
-      // echo can arrive before the POST response; skip the remote-load path and
-      // let the local flow insert the conversation when it is ready.
-      return;
-    }
-    this._remoteCreates.add(id);
-    let conv;
-    try {
-      conv = await this._loadAndInsertConversation(id, { prepend: true });
-    } finally {
-      this._remoteCreates.delete(id);
-    }
-    if (conv) {
-      this._notify('conversation:created', conv);
-      this._redeemPendingFocus(id);
-    }
-  }
-
-  /**
-   * Apply a `conversations-changed` op="focus" event: switch this viewer to the
-   * given conversation. Emitted by the server right after "created" when a
-   * headless creator (the engine's new_conversation tool) asked viewers to
-   * follow. The request is advisory — {@link shouldFollowRequest} decides, so a
-   * viewer reading another tab or part-way through a message keeps its place.
-   * When the switch is wanted but the conversation isn't switchable yet (its
-   * "created" load is still in flight), park the id and let
-   * {@link applyConversationCreated} redeem it on insert.
-   * @param {string} id - Conversation to switch to.
-   * @param {string} [from] - Conversation that requested the switch; empty for
-   *   an unattributed request, which is always followed.
-   * @returns {void}
-   */
-  applyConversationFocus(id, from = '') {
-    if (!id) return;
-    if (!this.shouldFollowRequest(from)) return;
-    if (this.conversations.has(id) && !this._remoteCreates.has(id)) {
-      this._followFocus(id, from);
-    } else {
-      this._pendingFocus = { id, from };
-    }
-  }
-
   /**
    * Decide whether this viewer follows a request from a conversation. A request
    * to move the user is only allowed when the user is actually watching that
@@ -565,108 +483,6 @@ class Session {
     if (this.visibleConversationId !== from) return false;
     const tab = this.getConversation(from)?.getTabElement?.();
     return !tab?.hasComposerText?.();
-  }
-
-  /**
-   * Redeem a parked focus request once its conversation is inserted and
-   * announced: if the inserted id matches, clear it and switch. The follow
-   * guard is re-run first — the create's load takes long enough for the user to
-   * have started typing since the request arrived, and a switch is only ever
-   * welcome while they are still idle on the requesting conversation. No-op
-   * when the id doesn't match.
-   * @param {string} id - The conversation just inserted.
-   * @returns {void}
-   * @private
-   */
-  _redeemPendingFocus(id) {
-    const pending = this._pendingFocus;
-    if (!pending || pending.id !== id) return;
-    this._pendingFocus = null;
-    if (this.shouldFollowRequest(pending.from)) {
-      this._followFocus(id, pending.from);
-    }
-  }
-
-  /**
-   * Follow a focus request: switch to `id`, then announce that the user was
-   * moved there by `from` rather than leaving it of their own accord. The
-   * attention manager listens for `conversation:focus-followed`, because the
-   * requesting conversation is usually mid-turn and will come to rest moments
-   * after the user has been taken away from it.
-   * @param {string} id - Conversation to switch to.
-   * @param {string} from - Conversation that requested the switch; empty when
-   *   unattributed.
-   * @returns {void}
-   * @private
-   */
-  _followFocus(id, from) {
-    this.switchConversation(id);
-    if (from) this._notify('conversation:focus-followed', { id, from });
-  }
-
-  /**
-   * Apply a `conversations-changed` op="deleted" event. Tears down the worker and
-   * removes the conversation from the active map.
-   * @param {string} id
-   * @returns {Promise<void>}
-   */
-  async applyConversationDeleted(id) {
-    const conv = await this._dropActiveConversation(id, { clearVisibleIfNoFallback: true });
-    if (conv) this._notify('conversation:deleted', conv);
-  }
-
-  /**
-   * Apply a `conversations-changed` op="renamed" event. Updates the cached folder name
-   * and notifies subscribers so tab labels re-render.
-   * @param {string} id
-   * @param {string} name - Canonical folder name
-   * @returns {void}
-   */
-  applyConversationRenamed(id, name) {
-    this.setConversationName(id, name);
-    // A full refresh may already have put this value in the cache without
-    // painting it. Rename is a discrete server event, so always announce it:
-    // cache equality is not evidence that subscribers have rendered the name.
-    this.notifyConversationChange('conversation:renamed', { conversationId: id });
-  }
-
-  /**
-   * Apply a `conversations-changed` op="binned" event. Tears down the worker like
-   * delete does, removes from the active map, and counts the arrival in the bin.
-   * A conversation this viewer binned itself is already gone from the map, so
-   * its own echo counts nothing.
-   * @param {string} id
-   * @returns {Promise<void>}
-   */
-  async applyConversationBinned(id) {
-    const conv = await this._dropActiveConversation(id, { clearVisibleIfNoFallback: false });
-    if (!conv) return;
-    this.bin.noteBinned();
-    this._notify('conversation:deleted', conv);
-  }
-
-  /**
-   * Apply a `conversations-changed` op="restored" event. Loads the conversation back
-   * into the active map and counts its departure from the bin (once, even when
-   * this viewer asked for the restore: see `conversation-bin.js`).
-   *
-   * Restored conversations go to the head of the bar, alongside freshly created
-   * ones: pulling something out of the bin is a deliberate act, and whatever it
-   * was wanted for happens next — so it belongs where the user is looking, not
-   * at the end of a long tab list.
-   * @param {string} id
-   * @param {string} name - Canonical folder name
-   * @returns {Promise<void>}
-   */
-  async applyConversationRestored(id, name) {
-    this.setConversationName(id, name);
-    if (this.conversations.has(id)) return;
-    // Counted before the load: the server has restored it whether or not this
-    // viewer manages to open it.
-    this.bin.noteLeft(id);
-    const conv = await this._loadAndInsertConversation(id, { prepend: true });
-    if (!conv) return;
-    this._notify('conversation:created', conv);
   }
 
   /**
@@ -690,7 +506,8 @@ class Session {
    *
    * Viewer-only state (the visible conversation, the tab fallback) is
    * deliberately untouched: a viewer reaches the same teardown through
-   * {@link Session#applyConversationDeleted}, which owns those.
+   * the `deleted` broadcast ({@link ConversationSyncReducer#deleted}), which
+   * owns those.
    * @param {string} id - Conversation to release
    * @returns {Promise<boolean>} True if a loaded conversation was released
    */
@@ -909,16 +726,15 @@ class Session {
   }
 
   /**
-   * Load a conversation from disk and insert it into the active map.
-   * With `prepend: true` the new entry becomes the first key (tab bar
-   * head); with `prepend: false` it is appended via `Map.set` (insertion
-   * order puts it at the end). Returns the loaded `conv`, or null if
-   * loading failed (the error is logged).
+   * Load a conversation from disk into the head of the tab bar: the arrival
+   * path for a conversation another viewer created or restored (the sync
+   * reducer's `loadAtHead`). Returns the loaded `conv`, or null if loading
+   * failed (the error is logged).
    * @param {string} id
-   * @param {{prepend: boolean}} opts
    * @returns {Promise<object|null>} Loaded conv, or null if load failed.
+   * @private
    */
-  async _loadAndInsertConversation(id, { prepend }) {
+  async _loadIntoHead(id) {
     // Claim the head slot BEFORE the load, not after it. The loader's
     // loadExisting seeds its own entry (adoptConversation) and then
     // awaits a worker spawn that can take seconds — so ordering the map only on
@@ -927,7 +743,7 @@ class Session {
     // loadExisting reuses, so every render in between paints the tab in its
     // final position. Mirrors the local-create path (loader.createNew).
     let stubbed = false;
-    if (prepend && !this.conversations.has(id)) {
+    if (!this.conversations.has(id)) {
       const services = this.getServices();
       if (services) {
         const stub = new Conversation(
@@ -937,7 +753,7 @@ class Session {
           services,
           { skipBuiltInContextItems: true, loadState: 'unloaded' }
         );
-        recordTape('session-mut', id, { op: 'set', from: '_loadAndInsertConversation-stub' });
+        recordTape('session-mut', id, { op: 'set', from: '_loadIntoHead-stub' });
         this._setConversationOrder([id], new Map([[id, stub]]));
         stubbed = true;
         // Announce it now, not when the worker lands. Subscribers paint from the
@@ -954,12 +770,7 @@ class Session {
 
     try {
       const conv = await workerManager.loader.loadExisting(id, this);
-      if (prepend) {
-        this._setConversationOrder([id], new Map([[id, conv]]));
-      } else {
-        recordTape('session-mut', id, { op: 'set', from: '_loadAndInsertConversation' });
-        this.conversations.set(id, conv);
-      }
+      this._setConversationOrder([id], new Map([[id, conv]]));
       return conv;
     } catch (error) {
       console.error(`[Session] load failed for ${id}:`, error);
@@ -970,52 +781,13 @@ class Session {
       // entry silently strands them.
       const stub = this.conversations.get(id);
       if (stubbed && stub?.loadState === 'unloaded') {
-        recordTape('session-mut', id, { op: 'delete', from: '_loadAndInsertConversation-stub-failed' });
+        recordTape('session-mut', id, { op: 'delete', from: '_loadIntoHead-stub-failed' });
         this.conversations.delete(id);
         this._mruList = this._mruList.filter(x => x !== id);
         this._notify('conversation:deleted', stub);
       }
       return null;
     }
-  }
-
-  /**
-   * Apply a `conversations-changed` op="reordered" event.
-   *
-   * The arriving order is treated as a PARTIAL reorder, matching what the
-   * server does to the manifest (core.mergeConversationOrder): the ids it names
-   * are re-slotted, in the sequence given, into the positions those ids
-   * currently occupy, and every other tab stays exactly where it is. It is
-   * never the whole truth about this bar — order is persisted by posting the
-   * tab list and echoed back to every viewer including the sender, so an echo
-   * in flight describes the bar as it was when the post left, and a tab created
-   * in that window appears in neither. Taking the echo literally is what sends
-   * a brand-new tab to the bottom.
-   *
-   * Idempotent: an echo that changes nothing notifies nothing.
-   * @param {string[]} order - Conversation ids the server has reordered
-   * @returns {void}
-   */
-  applyConversationsReordered(order) {
-    if (!Array.isArray(order)) return;
-
-    const localKeys = Array.from(this.conversations.keys());
-
-    // Only ids this realm actually holds can be placed. One we don't have yet
-    // arrives with its own created/restored event.
-    const queue = order.filter((id, i) => this.conversations.has(id) && order.indexOf(id) === i);
-    if (queue.length === 0) return;
-
-    const named = new Set(queue);
-    let qi = 0;
-    // Every slot `named` matches is filled from `queue`, and the two are built
-    // from the same ids, so the read is always in range.
-    const merged = localKeys.map((id) => (named.has(id) ? /** @type {string} */ (queue[qi++]) : id));
-
-    if (merged.every((id, i) => localKeys[i] === id)) return;
-
-    this._setConversationOrder(merged);
-    this._notify('conversation:reordered', {});
   }
 
   /**
@@ -1269,27 +1041,6 @@ class Session {
   }
 
   /**
-   * Re-read the project-scoped session state after a project switch — the work
-   * a viewer gets for free by hard-reloading into a fresh `_doLoad`.
-   *
-   * `session.metadata` is where session-scoped permission rules
-   * (`sessionPermissionRules`) and folder grants (`sessionAllowedPaths`) live,
-   * and it belongs to ONE project's `session.json`. The engine is persistent
-   * across a switch, so without this it keeps serving the previous project's
-   * rules while `projectPath` already names the new one — the two halves
-   * `isPermitted` reads disagree. A command matching a standing rule of the
-   * switched-to project is then wrongly parked for approval, and the suggestion
-   * engine offers to add the very rule the user already has; conversely the old
-   * project's folder grants would still authorise commands here.
-   *
-   * Metadata is REPLACED, not patched: a switch means a different session.json,
-   * so a key absent from the new project must disappear rather than linger.
-   * A switch that lands while this is in flight wins — the late response is
-   * dropped rather than reinstating the project we just left.
-   * @returns {Promise<void>} Resolves once metadata/history are reseeded
-   * @private
-   */
-  /**
    * Adopt the session-level state a manifest (`GET /api/session`) carries:
    * platform, home, message history and metadata. The one reader of those
    * fields, shared by the first load, the post-project-switch reseed and every
@@ -1324,6 +1075,27 @@ class Session {
     }
   }
 
+  /**
+   * Re-read the project-scoped session state after a project switch — the work
+   * a viewer gets for free by hard-reloading into a fresh `_doLoad`.
+   *
+   * `session.metadata` is where session-scoped permission rules
+   * (`sessionPermissionRules`) and folder grants (`sessionAllowedPaths`) live,
+   * and it belongs to ONE project's `session.json`. The engine is persistent
+   * across a switch, so without this it keeps serving the previous project's
+   * rules while `projectPath` already names the new one — the two halves
+   * `isPermitted` reads disagree. A command matching a standing rule of the
+   * switched-to project is then wrongly parked for approval, and the suggestion
+   * engine offers to add the very rule the user already has; conversely the old
+   * project's folder grants would still authorise commands here.
+   *
+   * Metadata is REPLACED, not patched: a switch means a different session.json,
+   * so a key absent from the new project must disappear rather than linger.
+   * A switch that lands while this is in flight wins — the late response is
+   * dropped rather than reinstating the project we just left.
+   * @returns {Promise<void>} Resolves once metadata/history are reseeded
+   * @private
+   */
   async _reseedProjectScopedState() {
     const requestedFor = this.projectPath;
     /** @type {SessionData|null} */
@@ -2176,12 +1948,12 @@ class Session {
     const wantsRename = activate && !(name && String(name).trim());
     const requestedName = name || this._nextUntitledName();
 
-    // Preallocate the id locally so we can mark this create as pending before
-    // the POST. The server's `conversations-changed` echo can outrun the HTTP
-    // response; with the id known up front, applyConversationCreated skips the
+    // Preallocate the id locally so we can mark this create as ours before the
+    // POST. The server's `conversations-changed` echo can outrun the HTTP
+    // response; with the id known up front, the sync reducer skips the
     // remote-load path for our own in-flight create.
     const requestedId = this._generateConversationId();
-    this._pendingCreates.add(requestedId);
+    this.sync.beginLocalCreate(requestedId);
 
     let response;
     let conversation;
@@ -2209,10 +1981,7 @@ class Session {
       recordTape('session-mut', conversation.id, { op: 'set', from: 'createConversation-place' });
       this._placeNewConversation(conversation.id, conversation, workspaceId);
     } finally {
-      this._pendingCreates.delete(requestedId);
-      if (response && response.id !== requestedId) {
-        this._pendingCreates.delete(response.id);
-      }
+      this.sync.endLocalCreate(requestedId, response?.id);
     }
 
     this._notify('conversation:created', conversation);
@@ -2397,9 +2166,15 @@ class Session {
 
     const requestedName = this._generateUniqueSuffixedName(source.name, nameSuffix);
 
+    // Bracketed like createConversation's, and for as long: until the clone is
+    // in the map where this flow puts it. An echo that lands after the POST
+    // returns but before the load has adopted the clone would otherwise load it
+    // a second time at the head of the bar and announce it twice.
     const requestedId = this._generateConversationId();
-    this._pendingCreates.add(requestedId);
+    this.sync.beginLocalCreate(requestedId);
     let response;
+    /** @type {import('./conversation.js').default|null} */
+    let loadedClone = null;
     try {
       // 1. Server creates the clone atomically: it copies the source's
       //    persisted files (doc.yjs + txns) into the new folder and only THEN
@@ -2413,36 +2188,37 @@ class Session {
         duplicateFrom: conversationId,
         origin: 'duplicate'
       });
-    } finally {
-      this._pendingCreates.delete(requestedId);
-      if (response && response.id !== requestedId) {
-        this._pendingCreates.delete(response.id);
+      const { id: newId, name: canonicalName } = response;
+
+      // 2. Load the now-populated clone from disk.
+      const loaded = await workerManager.loader.loadExisting(newId, this);
+      loadedClone = loaded;
+      this.setConversationName(newId, canonicalName);
+
+      // 3. Insert clone right after source (Maps maintain insertion order).
+      /** @type {string[]} */
+      const withClone = [];
+      for (const id of this.conversations.keys()) {
+        withClone.push(id);
+        if (id === conversationId) withClone.push(loaded.id);
       }
+      this._setConversationOrder(withClone, new Map([[loaded.id, loaded]]));
+    } finally {
+      this.sync.endLocalCreate(requestedId, response?.id);
     }
-    const { id: newId, name: canonicalName } = response;
+    // Set whenever the bracket completed without throwing.
+    const clone = /** @type {import('./conversation.js').default} */ (loadedClone);
 
-    // 2. Load the now-populated clone from disk.
-    const loadedClone = await workerManager.loader.loadExisting(newId, this);
-    this.setConversationName(newId, canonicalName);
-
-    // 4. Insert clone right after source (Maps maintain insertion order) and
-    //    persist the new ordering via POST /reorder.
-    /** @type {string[]} */
-    const withClone = [];
-    for (const id of this.conversations.keys()) {
-      withClone.push(id);
-      if (id === conversationId) withClone.push(loadedClone.id);
-    }
-    this._setConversationOrder(withClone, new Map([[loadedClone.id, loadedClone]]));
+    // 4. Persist the new ordering via POST /reorder.
     this._persistOrder('duplicate reorder');
 
     // Clear undo history so user starts fresh (copied items are not undoable)
     // This prevents undoing built-in context items and copied messages
-    await workerManager.clearUndoStacks(loadedClone.id);
+    await workerManager.clearUndoStacks(clone.id);
 
-    this._notify('conversation:created', loadedClone);
+    this._notify('conversation:created', clone);
     this.save();
-    return loadedClone.id;
+    return clone.id;
   }
 
   /**

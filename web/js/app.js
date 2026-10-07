@@ -621,22 +621,11 @@ class JugglerApp {
       workerManager.handleWorkerMessageFromWS(data);
     },
 
-    // Op-tagged conversation-list diff from the server. Carries the
-    // minimum payload needed to apply locally; clients apply
-    // idempotently so the originator's echo is a no-op.
+    // Op-tagged conversation-list diff from the server. The session's sync
+    // reducer owns the op vocabulary and applies each one idempotently, so the
+    // originator's echo is a no-op (model/conversation-sync-reducer.js).
     'conversations-changed': (_app, session, data) => {
-      const { op, id, name, order, from } = data;
-      switch (op) {
-        case 'created':          session.applyConversationCreated(id, name); break;
-        case 'focus':            session.applyConversationFocus(id, from); break;
-        case 'deleted':          session.applyConversationDeleted(id); break;
-        case 'renamed':          session.applyConversationRenamed(id, name); break;
-        case 'binned':           session.applyConversationBinned(id); break;
-        case 'restored':         session.applyConversationRestored(id, name); break;
-        case 'binned-deleted':   session.bin.noteLeft(id); break;
-        case 'reordered':        session.applyConversationsReordered(order); break;
-        default: console.warn('[Juggler] unknown conversations-changed op:', op);
-      }
+      void session.sync.apply(data);
     },
 
     // A server-side background task reporting something the user would

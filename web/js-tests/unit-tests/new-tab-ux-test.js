@@ -228,7 +228,7 @@ export async function runTests() {
     //     must not disturb the open rename or push the tab off the top.
     //     Replay the echo and verify the bar remains in its post-click
     //     state. ---
-    await /** @type {any} */ (session).applyConversationCreated(newId, /** @type {any} */ (session.conversations.get(newId)).name);
+    await session.sync.apply({ op: 'created', id: newId, name: /** @type {any} */ (session.conversations.get(newId)).name });
 
     assertAbovePreexisting('after the broadcast echo');
     assert(newTab.classList.contains('is-renaming'),
@@ -251,7 +251,7 @@ export async function runTests() {
     paintedName.textContent = canonicalName;
     const autoName = `Auto-named ${newId}`;
     session.setConversationName(newId, autoName);
-    session.applyConversationRenamed(newId, autoName);
+    session.sync.renamed(newId, autoName);
     assert(paintedName.textContent === autoName,
       `equal cached rename must repaint synchronously; got "${paintedName.textContent}"`);
 

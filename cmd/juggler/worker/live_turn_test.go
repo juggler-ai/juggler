@@ -132,7 +132,7 @@ func sendUserMessage(t *testing.T, w *ConversationWorker, text string) {
 func awaitLiveRun(t *testing.T, w *ConversationWorker) {
 	t.Helper()
 	deadline := time.After(5 * time.Second)
-	for !w.hasLiveRun() {
+	for !w.sched.hasLive() {
 		select {
 		case <-deadline:
 			t.Fatal("no turn was ever published as live")
@@ -174,7 +174,7 @@ func gateNextMockPause(t *testing.T, w *ConversationWorker) (release func()) {
 func awaitNoLiveRun(t *testing.T, w *ConversationWorker) {
 	t.Helper()
 	deadline := time.After(5 * time.Second)
-	for w.hasLiveRun() {
+	for w.sched.hasLive() {
 		select {
 		case <-deadline:
 			t.Fatal("the finished turn was never retired from the live-run registry")
@@ -186,7 +186,7 @@ func awaitNoLiveRun(t *testing.T, w *ConversationWorker) {
 func TestLiveRunAdmissionAllowsOneWriterWithReadOnlySiblings(t *testing.T) {
 	w := NewConversationWorker("conv-live-admission", "user:test")
 	t.Cleanup(func() {
-		w.releaseOSActivity()
+		w.sched.releaseActivity()
 		w.doc.Destroy()
 	})
 	r := w.currentRun()
@@ -245,7 +245,7 @@ func TestLiveRunAdmissionAllowsOneWriterWithReadOnlySiblings(t *testing.T) {
 func TestReadOnlyAdmissionCeiling(t *testing.T) {
 	w := NewConversationWorker("conv-readonly-ceiling", "user:test")
 	t.Cleanup(func() {
-		w.releaseOSActivity()
+		w.sched.releaseActivity()
 		w.doc.Destroy()
 	})
 	r := w.currentRun()
@@ -287,7 +287,7 @@ func TestReadOnlyAdmissionCeiling(t *testing.T) {
 	}
 
 	// Nothing is lost: the refusal is a wait, not a rejection.
-	w.retireLiveRun(turns[0])
+	w.sched.unregister(turns[0])
 	if !w.canAdmitThread(last) {
 		t.Fatal("the queued child was still refused after a sibling retired — the ceiling must be a queue, " +
 			"not a wall")
@@ -346,9 +346,9 @@ func TestRetiredTurnBoundariesRemainThreadOwned(t *testing.T) {
 	r.finishRetiredTurn(first)
 
 	continuedA := newTurnState()
-	r.seedThreadBoundary("thread-a", continuedA)
+	r.sched.seedBoundary("thread-a", continuedA)
 	continuedB := newTurnState()
-	r.seedThreadBoundary("thread-b", continuedB)
+	r.sched.seedBoundary("thread-b", continuedB)
 	if got := continuedA.processingStartedAt.Load(); got != 101 {
 		t.Fatalf("thread-a boundary start = %d, want 101", got)
 	}
@@ -389,17 +389,17 @@ func TestSettledRunFilesItsBoundaryUnderItsOwnThread(t *testing.T) {
 	if left := w.mock.remaining(); left != 0 {
 		t.Fatalf("the child's turn did not run (%d scripted turns left)", left)
 	}
-	if _, ok := w.turnBoundaries[child]; !ok {
+	if _, ok := w.sched.turnBoundaries[child]; !ok {
 		t.Errorf("the settled run filed no boundary under its own thread %q", child)
 	}
-	if _, ok := w.turnBoundaries[""]; ok {
+	if _, ok := w.sched.turnBoundaries[""]; ok {
 		t.Errorf("a sub-thread run filed its boundary under the root; boundaries: %v", boundaryKeys(w))
 	}
 }
 
 func boundaryKeys(w *ConversationWorker) []string {
-	keys := make([]string, 0, len(w.turnBoundaries))
-	for k := range w.turnBoundaries {
+	keys := make([]string, 0, len(w.sched.turnBoundaries))
+	for k := range w.sched.turnBoundaries {
 		keys = append(keys, fmt.Sprintf("%q", k))
 	}
 	return keys
@@ -567,7 +567,7 @@ func TestReadOnlyChildrenRunSideBySide(t *testing.T) {
 	// Release whatever is parked once the assertions are done — and on any exit,
 	// so a failure doesn't leave two goroutines blocked on the barrier.
 	t.Cleanup(func() {
-		for i := 0; i < 400 && w.hasLiveRun(); i++ {
+		for i := 0; i < 400 && w.sched.hasLive(); i++ {
 			w.mock.release()
 			time.Sleep(5 * time.Millisecond)
 		}
@@ -586,13 +586,13 @@ func TestReadOnlyChildrenRunSideBySide(t *testing.T) {
 		state = w.readProcessingState()
 		projected, _ = state["threadItemId"].(string)
 		if runEntryOf(state, readA) != nil && runEntryOf(state, readB) != nil &&
-			len(w.liveRuns()) == 2 && (projected == readA || projected == readB) {
+			len(w.sched.runs()) == 2 && (projected == readA || projected == readB) {
 			break
 		}
 		select {
 		case <-deadline:
 			t.Fatalf("the two read-only children never held runs at the same time; runs=%v registry=%d projection=%q",
-				state["runs"], len(w.liveRuns()), projected)
+				state["runs"], len(w.sched.runs()), projected)
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
@@ -681,7 +681,7 @@ func TestDelegatedReadOnlySiblingsRunSideBySide(t *testing.T) {
 	// Release whatever is parked once the assertions are done — and on any exit,
 	// so a failure doesn't leave two goroutines blocked on the barrier.
 	t.Cleanup(func() {
-		for i := 0; i < 400 && w.hasLiveRun(); i++ {
+		for i := 0; i < 400 && w.sched.hasLive(); i++ {
 			w.mock.release()
 			time.Sleep(5 * time.Millisecond)
 		}
@@ -779,7 +779,7 @@ func TestParentWaitsForEveryDelegatedSibling(t *testing.T) {
 		},
 	})
 	t.Cleanup(func() {
-		for i := 0; i < 400 && w.hasLiveRun(); i++ {
+		for i := 0; i < 400 && w.sched.hasLive(); i++ {
 			w.mock.release()
 			time.Sleep(5 * time.Millisecond)
 		}
@@ -793,7 +793,7 @@ func TestParentWaitsForEveryDelegatedSibling(t *testing.T) {
 	// after the release below — leaving a response in the queue that reads
 	// exactly like a parent that never resumed at all.
 	deadline := time.After(15 * time.Second)
-	for len(w.liveRuns()) < 2 || w.mock.remaining() > 1 {
+	for len(w.sched.runs()) < 2 || w.mock.remaining() > 1 {
 		select {
 		case <-deadline:
 			t.Fatalf("the two delegated children never ran together; runs=%v scripted responses left=%d",
@@ -805,7 +805,7 @@ func TestParentWaitsForEveryDelegatedSibling(t *testing.T) {
 	// Let exactly one of them through. Which one is not the point — whichever it
 	// is, the other is still running, and that is what the parent owes an answer.
 	w.mock.release()
-	for len(w.liveRuns()) > 1 {
+	for len(w.sched.runs()) > 1 {
 		select {
 		case <-deadline:
 			t.Fatal("neither child finished after a release")
@@ -821,7 +821,7 @@ func TestParentWaitsForEveryDelegatedSibling(t *testing.T) {
 		if remaining := w.mock.remaining(); remaining != 1 {
 			t.Fatalf("the parent resumed with a child still running: %d scripted responses left, want 1", remaining)
 		}
-		if !w.hasLiveRun() {
+		if !w.sched.hasLive() {
 			t.Fatal("the second child stopped running, so the window this asserts over is gone")
 		}
 		time.Sleep(5 * time.Millisecond)

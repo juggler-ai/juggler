@@ -65,7 +65,7 @@ func TestRateLimitLatch_HoldsEverySiblingThread(t *testing.T) {
 	})
 	feedContextAndTools(t, w)
 
-	w.needsReconcile.Store(true)
+	w.sched.markReconcile()
 	w.quiesce(t)
 
 	if left := w.mock.remaining(); left != 2 {

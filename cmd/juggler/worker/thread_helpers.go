@@ -12,7 +12,7 @@ import (
 // appendTargetMessage calls address the root conversation, not a sub-thread.
 // Clears both fields together so a stale itemsArray can never outlive a cleared
 // itemID. Anything filed under the thread a turn was begun for after this runs
-// asks the live-run registry, not t.thread (see retireLiveRun).
+// asks the live-run registry, not t.thread (see runScheduler.unregister).
 func (r *run) resetThreadContext() {
 	r.t.thread = threadContext{}
 }

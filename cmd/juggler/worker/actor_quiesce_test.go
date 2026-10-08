@@ -15,8 +15,8 @@ import (
 // A worker the test never Starts has no run() goroutine, so the test goroutine
 // is its actor: it calls the handlers directly, exactly as the run loop would.
 // The scheduler is the shipped one — a reducer pass is requested by posting,
-// a doc-driven pickup is posted to threadDispatch, every turn runs on its own
-// goroutine and hands itself back through turnRetired — so what is missing is
+// a doc-driven pickup is posted to the scheduler's dispatch queue, every turn runs on its own
+// goroutine and hands itself back through its retirements — so what is missing is
 // only the loop that serves those three channels. quiesce is that loop, run on
 // the test goroutine until there is nothing left for it to do.
 //
@@ -32,7 +32,7 @@ const quiesceTimeout = 10 * time.Second
 // quiesce serves the run loop's scheduler cases on the calling goroutine until,
 // after a reducer drain, no scheduler event is ready and no turn is live — the
 // point at which the run loop itself would block waiting for an input. Like the
-// loop, it does not wait for needsReconcile to clear: a drain is bounded, and a
+// loop, it does not wait for the reconcile bit to clear: a drain is bounded, and a
 // refused dispatch re-arms the bit for the next event to act on.
 func (w *ConversationWorker) quiesce(t testing.TB) {
 	t.Helper()
@@ -44,12 +44,12 @@ func (w *ConversationWorker) quiesce(t testing.TB) {
 		if r.serveSchedulerEvent(nil) {
 			continue
 		}
-		if !r.hasLiveRun() {
+		if !r.sched.hasLive() {
 			return
 		}
 		if !r.serveSchedulerEvent(deadline.C) {
 			t.Fatalf("quiesce: a turn was still live after %v: %d live run(s)\n%s",
-				quiesceTimeout, len(r.liveRuns()), allGoroutineStacks())
+				quiesceTimeout, len(r.sched.runs()), allGoroutineStacks())
 		}
 	}
 }
@@ -73,11 +73,11 @@ func allGoroutineStacks() []byte {
 func (r *run) serveSchedulerEvent(wait <-chan time.Time) bool {
 	if wait == nil {
 		select {
-		case <-r.reconcileRequest:
-			r.needsReconcile.Store(true)
-		case t := <-r.threadDispatch:
+		case <-r.sched.wakes():
+			r.sched.markReconcile()
+		case t := <-r.sched.dispatches():
 			r.startPreparedThreadRun(t)
-		case t := <-r.turnRetired:
+		case t := <-r.sched.retirements():
 			r.finishRetiredTurn(t)
 		default:
 			return false
@@ -85,11 +85,11 @@ func (r *run) serveSchedulerEvent(wait <-chan time.Time) bool {
 		return true
 	}
 	select {
-	case <-r.reconcileRequest:
-		r.needsReconcile.Store(true)
-	case t := <-r.threadDispatch:
+	case <-r.sched.wakes():
+		r.sched.markReconcile()
+	case t := <-r.sched.dispatches():
 		r.startPreparedThreadRun(t)
-	case t := <-r.turnRetired:
+	case t := <-r.sched.retirements():
 		r.finishRetiredTurn(t)
 	case <-wait:
 		return false
@@ -102,7 +102,7 @@ func (r *run) serveSchedulerEvent(wait <-chan time.Time) bool {
 // standing in for a call the user cancelled mid-flight — because acceptCancel
 // writes only the run's atomic state and its wake signal.
 func cancelLiveRuns(w *ConversationWorker) {
-	for _, e := range w.liveRuns() {
+	for _, e := range w.sched.runs() {
 		w.runFor(e.t).acceptCancel()
 	}
 }
@@ -115,17 +115,17 @@ func cancelLiveRuns(w *ConversationWorker) {
 func (w *ConversationWorker) ownedRun(t testing.TB) *run {
 	t.Helper()
 	threadID := w.turn.thread.itemID
-	if runs := w.liveRuns(); len(runs) == 1 && runs[0].threadItemID == threadID {
+	if runs := w.sched.runs(); len(runs) == 1 && runs[0].threadItemID == threadID {
 		return w.runFor(runs[0].t)
 	}
-	if w.hasLiveRun() {
-		t.Fatalf("ownedRun: %d other run(s) already live", len(w.liveRuns()))
+	if w.sched.hasLive() {
+		t.Fatalf("ownedRun: %d other run(s) already live", len(w.sched.runs()))
 	}
 	tr := w.currentRun().beginTurn(threadID)
 	tr.storeState(w.currentRun().loadState())
 	t.Cleanup(func() {
-		w.retireLiveRun(tr.t)
-		w.releaseOSActivity()
+		w.sched.unregister(tr.t)
+		w.sched.releaseActivity()
 	})
 	return tr
 }

@@ -337,14 +337,6 @@ type ConversationWorker struct {
 	// embedded, so its state is reached through its methods.
 	engine engineSession
 
-	// activityAsserted tracks whether this worker is currently holding an
-	// osactivity assertion (App Nap defeat). Set when the first turn is
-	// published as live (registerLiveRun); cleared when the last one retires
-	// (releaseOSActivity). Per-worker bool because each conversation has its
-	// own busy span; the osactivity package itself refcounts across multiple
-	// workers concurrently busy.
-	activityAsserted bool
-
 	// turnCounter is incremented on every transition to idle. It is written
 	// into the durable `completedTurns` metadata key (NOT the ephemeral
 	// processingState blob) so the browser (and test harness) can observe that
@@ -372,48 +364,12 @@ type ConversationWorker struct {
 	spendOutput atomic.Int64
 	spendLimit  SpendLimitFunc
 
-	// Thread reducer dispatch state. The reducer is called from the
-	// document observer (handleItemsChange) which fires synchronously —
-	// it cannot run the LLM inline. Instead it sets needsReconcile=true;
-	// the main event loop calls tryReconcile() after every event and
-	// dispatches the action at the top level.
-	//
-	// Atomic because a turn on its own goroutine finds work for the reducer too
-	// (promoting a queued message re-enters the observer), and this is one bit
-	// whose only meaning is "look again". Only the run goroutine clears it, and
-	// only tryReconcile acts on it, so the reducer itself stays single-threaded;
-	// requestReconcile is still what a caller uses when it also needs the loop
-	// woken to run the pass.
-	needsReconcile atomic.Bool
-
-	// reconcileRequest carries "the reducer needs another pass" to the run loop,
-	// which owns needsReconcile. Buffered by one and sent to non-blockingly: the
-	// flag is a single bit, so a burst coalesces into one pass, which is all a
-	// re-tickle ever asked for.
-	//
-	// It is also what keeps a finished turn from dispatching the next one on its
-	// own stack: finishStrategyRun posts here and returns, so the reducer's
-	// walk-down runs as a fresh iteration of the event loop rather than as
-	// recursion underneath the run that just ended.
-	reconcileRequest chan struct{}
-
-	// threadDispatch carries a prepared turn whose claim checkForNewThreads has
-	// already taken. Preparing it publishes the admission reservation before the
-	// run loop starts the strategy goroutine.
-	threadDispatch chan *turnState
-
-	// liveRunsPtr publishes the live-run registry: the turns currently executing
-	// on goroutines of their own. See live_runs.go for who may write it.
-	liveRunsPtr atomic.Pointer[[]liveRunEntry]
-
-	// turnBoundaries is actor-owned continuation state keyed by destination thread.
-	turnBoundaries map[string]turnBoundary
-
-	// turnRetired carries a finished turn's state back to the run loop, which
-	// drops it from the registry, folds its turn-boundary bookkeeping into the
-	// ambient turn and asks the reducer for the pass that settles what is left.
-	// Buffered so a turn never parks on the way out.
-	turnRetired chan *turnState
+	// sched is which turns run and when the reducer is next asked: the reconcile
+	// bit, the run loop's dispatch and retirement hand-offs, the live-run
+	// registry, the turn boundaries and the App Nap defeat. See
+	// run_scheduler.go, which owns every rule here. Held by name rather than
+	// embedded, so its state is reached through its methods.
+	sched runScheduler
 
 	// Outbound Yjs update debouncer; coalesces a burst into one broadcast
 	// per SyncThrottleMs. See sync_batcher.go.
@@ -466,21 +422,19 @@ func NewConversationWorker(conversationID, authorID string) *ConversationWorker 
 	doc := NewConversationDocument(conversationID, authorID)
 	tracker := NewOperationTracker(doc)
 
+	done := make(chan struct{})
 	w := &ConversationWorker{
-		conversationID:   conversationID,
-		authorID:         authorID,
-		doc:              doc,
-		tracker:          tracker,
-		tape:             NewEventTape(),
-		callbacks:        newCallbackRegistry(),
-		done:             make(chan struct{}),
-		stopped:          make(chan struct{}),
-		turn:             newTurnState(),
-		docChangeChan:    make(chan struct{}, 1),
-		reconcileRequest: make(chan struct{}, 1),
-		threadDispatch:   make(chan *turnState, 4),
-		turnRetired:      make(chan *turnState, 4),
-		turnBoundaries:   make(map[string]turnBoundary),
+		conversationID: conversationID,
+		authorID:       authorID,
+		doc:            doc,
+		tracker:        tracker,
+		tape:           NewEventTape(),
+		callbacks:      newCallbackRegistry(),
+		done:           done,
+		stopped:        make(chan struct{}),
+		turn:           newTurnState(),
+		docChangeChan:  make(chan struct{}, 1),
+		sched:          newRunScheduler(done),
 		toolDrive: toolDrive{
 			tools:                     newToolCommandTracker(),
 			redriveInterval:           defaultRedriveInterval,
@@ -585,7 +539,7 @@ func (r *run) Stop() {
 	// final. Wait the turns out: they unwind on r.done, and a turn still writing
 	// to the document after Stop returns would be writing into a doc the caller
 	// is about to destroy.
-	for _, e := range r.liveRuns() {
+	for _, e := range r.sched.runs() {
 		<-e.t.finished
 	}
 }
@@ -869,7 +823,7 @@ func (r *run) detectFrozenGap() {
 	// Only meaningful while a turn's timer is actively running. Idle has no anchor;
 	// while parked on an approval the wait mechanism already excludes the entire park
 	// (this freeze included), so advancing here too would double-count it.
-	targets := r.liveRuns()
+	targets := r.sched.runs()
 	if len(targets) == 0 {
 		targets = []liveRunEntry{{t: r.t}}
 	}
@@ -946,7 +900,7 @@ func (r *run) storeState(s WorkerState) {
 // in this conversation?"), spelled apart from threadRunState so the two are
 // never confused.
 func (w *ConversationWorker) anyRunState() WorkerState {
-	for _, e := range w.liveRuns() {
+	for _, e := range w.sched.runs() {
 		if state, ok := e.t.state.Load().(WorkerState); ok && state != StateIdle {
 			return state
 		}
@@ -959,7 +913,7 @@ func (w *ConversationWorker) anyRunState() WorkerState {
 // intake gates: a send, an injected message or a fold each concern ONE thread,
 // and a run streaming on a sibling is not a reason to refuse them.
 func (w *ConversationWorker) threadRunState(threadItemID string) WorkerState {
-	for _, e := range w.liveRuns() {
+	for _, e := range w.sched.runs() {
 		if e.threadItemID != threadItemID {
 			continue
 		}
@@ -1032,19 +986,19 @@ func (r *run) run(ctx context.Context) {
 		case <-r.docChangeChan:
 			event, started = "items change", time.Now()
 			r.handleItemsChange()
-		case <-r.reconcileRequest:
+		case <-r.sched.wakes():
 			event, started = "reconcile request", time.Now()
-			r.needsReconcile.Store(true)
-		case t := <-r.threadDispatch:
+			r.sched.markReconcile()
+		case t := <-r.sched.dispatches():
 			event, started = "thread dispatch", time.Now()
 			r.startPreparedThreadRun(t)
-		case t := <-r.turnRetired:
+		case t := <-r.sched.retirements():
 			event, started = "turn retired", time.Now()
 			r.finishRetiredTurn(t)
 		case <-r.livenessC():
 			event, started = "liveness tick", time.Now()
 			r.detectFrozenGap()
-			liveThreads := r.liveThreadSet()
+			liveThreads := r.sched.liveThreads()
 			// Periodic recovery remains actor-owned and skips only the subtrees whose
 			// live run goroutines currently own their tool state.
 			r.finalizeToolsAbsentFromExecReportExcept(liveThreads)
@@ -1052,7 +1006,7 @@ func (r *run) run(ctx context.Context) {
 		}
 		handled := time.Since(started)
 		// After every event, drain the reducer. A dispatch may complete
-		// and set needsReconcile again (e.g., child thread completes →
+		// and raise the reconcile bit again (e.g., child thread completes →
 		// parent needs dispatch). Loop until the reducer is quiet.
 		// Bounded to prevent spin loops from observer re-triggering.
 		reconcileStarted := time.Now()
@@ -1373,16 +1327,16 @@ func (r *run) sendStatusWithCode(status, message, code string) {
 	r.updateElapsedAnchor(status)
 	r.writeProcessingState(status, message, code)
 	if status == "idle" {
-		if r.liveRunOwns(r.t) {
+		if r.sched.owns(r.t) {
 			// A turn goroutine's idle edge is finalized by the actor as it retires
 			// the turn (finishRetiredTurn).
 			r.t.completedIdle = true
 		} else {
 			// Reducer/cancel cleanup can publish an idle edge from the ambient actor
 			// without a turn goroutine to retire. Finalize that edge here; waiting for
-			// turnRetired would strand the completed-turn fence forever.
+			// the turn's retirement would strand the completed-turn fence forever.
 			r.bumpTurnCounterAtIdle()
-			if r.hasLiveRun() {
+			if r.sched.hasLive() {
 				r.batcher.Flush()
 			} else {
 				r.finishIdleTransition()
@@ -1517,7 +1471,7 @@ func (r *run) bumpTurnCounterAtIdle() {
 // first live turn took — including for a run that was registered and then
 // abandoned before it started.
 func (w *ConversationWorker) finishIdleTransition() {
-	w.releaseOSActivity()
+	w.sched.releaseActivity()
 	// If a compaction was in flight, collapse every undo group the
 	// strategy added during the run into the single stack item that
 	// holds the viewer's compact insert — so the user undoes the
@@ -1668,7 +1622,7 @@ func (r *run) handleItemsChange() {
 	if r.suppressReconcileAfterHistoryNavUntilMs > 0 {
 		if time.Now().UnixMilli() < r.suppressReconcileAfterHistoryNavUntilMs {
 			r.releaseAllLLM()
-			r.needsReconcile.Store(false)
+			r.sched.dropReconcile()
 			return
 		}
 		r.suppressReconcileAfterHistoryNavUntilMs = 0
@@ -1780,7 +1734,7 @@ func (r *run) checkForNewThreads() bool {
 		// failure: needsStrategyRun is consumed only after both checks succeed, and
 		// releasing another thread's claim does not fire the items observer.
 		if !r.canAdmitThread(threadID) || !r.claimLLM(threadID) {
-			r.needsReconcile.Store(true)
+			r.sched.markReconcile()
 			return false
 		}
 
@@ -1839,11 +1793,9 @@ func (r *run) checkForNewThreads() bool {
 // run in the window, and the buffered slot cannot be contended.
 func (r *run) dispatchThreadRun(threadItemID string) {
 	tr := r.beginTurn(threadItemID)
-	select {
-	case r.threadDispatch <- tr.t:
-	default:
+	if !r.sched.postDispatch(tr.t) {
 		r.log.Error("Thread dispatch queue full, re-arming pickup for %s", threadItemID)
-		r.retireLiveRun(tr.t)
+		r.sched.unregister(tr.t)
 		r.setThreadNeedsStrategyRun(threadItemID)
 		r.abandonThreadRun(threadItemID)
 	}
@@ -1851,12 +1803,12 @@ func (r *run) dispatchThreadRun(threadItemID string) {
 
 // startPreparedThreadRun starts a claimed thread whose admission reservation is
 // already present in the live-run registry. Run goroutine only: the run loop's
-// threadDispatch case.
+// sched.dispatches() case.
 func (r *run) startPreparedThreadRun(t *turnState) {
 	tr := r.runFor(t)
 	threadItemID := tr.t.thread.itemID
 	if tr.t.thread.itemsArray == nil {
-		r.retireLiveRun(tr.t)
+		r.sched.unregister(tr.t)
 		r.abandonThreadRun(threadItemID)
 		return
 	}

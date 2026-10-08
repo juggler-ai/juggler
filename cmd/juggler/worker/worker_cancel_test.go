@@ -363,7 +363,7 @@ func TestCancelParksWhenToolExecuting(t *testing.T) {
 // TestPureApprovalCancelPreservesWarmSession verifies that cancelling a turn
 // parked PURELY on tool approval — nothing executing, e.g. an AskUserQuestion
 // awaiting the user's answer — releases the provider session (always
-// warm-preserving) and hands off to the reducer (needsReconcile) so a queued
+// warm-preserving) and hands off to the reducer (the reconcile bit) so a queued
 // turn continues, rather than parking. Keeping the resume anchor warm lets the
 // re-run resume via the provider's regimeResumeDelta and deliver the fresh
 // answer to the model instead of cold-starting.
@@ -409,10 +409,10 @@ func TestPureApprovalCancelPreservesWarmSession(t *testing.T) {
 		t.Fatal("expected handleCancel to release the provider session")
 	}
 	// Pure-approval cancel hands to the reducer (continue what's queued) rather
-	// than parking: it sets needsReconcile and deliberately leaves activity at
+	// than parking: it raises the reconcile bit and deliberately leaves activity at
 	// awaiting_llm so the reducer can run, rather than clearing it to idle.
-	if !w.needsReconcile.Load() {
-		t.Error("pure-approval cancel: expected needsReconcile=true (hand off to reducer)")
+	if !w.sched.reconcilePending() {
+		t.Error("pure-approval cancel: expected the reconcile bit set (hand off to reducer)")
 	}
 	if got := w.getActivity(); got != ActivityAwaitingLLM {
 		t.Errorf("pure-approval cancel: expected activity preserved as %q for the reducer, got %q",

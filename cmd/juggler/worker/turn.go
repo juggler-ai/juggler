@@ -186,7 +186,7 @@ type turnState struct {
 // of its own (beginTurn) — so while a dispatched turn streams on its goroutine
 // the ambient turn carries only the actor's own frames: reducer rests, cancel
 // cleanup, and the busy frame a pickup publishes before the loop starts its run.
-// Ask liveRunForThread for the turn that is actually running.
+// Ask sched.runOn for the turn that is actually running.
 func (w *ConversationWorker) currentRun() *run {
 	return &run{ConversationWorker: w, t: w.turn}
 }

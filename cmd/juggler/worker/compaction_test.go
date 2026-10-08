@@ -279,10 +279,10 @@ func TestStrategyRunThreadRecoveredByReconcileTick(t *testing.T) {
 	if got, _ := w.doc.GetThreadYMap(threadID).Get("result").(string); got != "" {
 		t.Fatalf("fold summarized while the claim was held: %q", got)
 	}
-	if n := len(w.threadDispatch); n != 0 {
+	if n := len(w.sched.dispatchQueue); n != 0 {
 		t.Fatalf("fold was dispatched beside a live write-capable turn (%d queued)", n)
 	}
-	if !w.needsReconcile.Load() {
+	if !w.sched.reconcilePending() {
 		t.Fatal("a fold that lost the claim race left no reconcile armed — nothing will ever revisit it")
 	}
 

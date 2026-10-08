@@ -89,7 +89,7 @@ func TestQueuedMessageJoinsToolResultContinuation(t *testing.T) {
 	}()
 
 	// Drive the reducer exactly as the event loop would after the tool completes.
-	w.needsReconcile.Store(true)
+	w.sched.markReconcile()
 	w.quiesce(t)
 
 	// Exactly the one scripted turn must have run.

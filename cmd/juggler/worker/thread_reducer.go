@@ -351,10 +351,10 @@ func hasThreadResult(item ConversationItem) bool {
 // reconcileThread is called from the document observer (handleItemsChange)
 // on every Yjs update. Because the observer fires synchronously — even
 // during a strategy-loop write — this method MUST NOT block. It just
-// sets the needsReconcile flag; the main event loop's tryReconcile()
+// raises the scheduler's reconcile bit; the main event loop's tryReconcile()
 // dispatches the actual action at the top level.
 func (w *ConversationWorker) reconcileThread() {
-	w.needsReconcile.Store(true)
+	w.sched.markReconcile()
 }
 
 // updateApprovalWaitAnchor keeps the spinner's elapsed digit measuring active
@@ -407,7 +407,7 @@ func (r *run) updateApprovalWaitAnchorForThread(threadItemID string) {
 }
 
 // tryReconcile is called from the main event loop after every event. If
-// the reducer has been tickled (needsReconcile=true), it evaluates the
+// the reducer has been tickled (the reconcile bit is set), it evaluates the
 // current thread's items, decides what action to take, and dispatches.
 //
 // Walk-down: if the reducer returns ActionNone because the last effective
@@ -416,7 +416,7 @@ func (r *run) updateApprovalWaitAnchorForThread(threadItemID string) {
 // without recursive strategy loop calls.
 
 // maxReconcilePasses bounds a drain loop so observer re-triggering can't spin
-// forever. A dispatch may complete and set needsReconcile again (e.g. a child
+// forever. A dispatch may complete and raise the reconcile bit again (e.g. a child
 // thread completes → parent needs dispatch), so we loop until quiet or capped.
 const maxReconcilePasses = 10
 
@@ -431,24 +431,20 @@ const maxReconcilePasses = 10
 // report.
 func (r *run) drainReconcile() int {
 	passes := 0
-	for ; passes < maxReconcilePasses && r.needsReconcile.Load(); passes++ {
+	for ; passes < maxReconcilePasses && r.sched.reconcilePending(); passes++ {
 		r.tryReconcile()
 	}
 	return passes
 }
 
-// requestReconcile asks for a reducer pass without running one here. It posts
-// to reconcileRequest, so the pass — and any dispatch it decides on — happens as
+// requestReconcile asks for a reducer pass without running one here. It wakes
+// the run loop (runScheduler.wakeReconcile), so the pass — and any dispatch it decides on — happens as
 // a fresh iteration of the event loop instead of as recursion on the caller's
 // stack. That is what lets a turn hand the reducer back at its end rather than
 // driving the next turn from inside the one that just finished. A post to a loop
 // that has since stopped is dropped, which is what shutdown wants.
 func (r *run) requestReconcile() {
-	r.needsReconcile.Store(true)
-	select {
-	case r.reconcileRequest <- struct{}{}:
-	default: // a pass is already queued, and one pass is all this asks for
-	}
+	r.sched.wakeReconcile()
 }
 
 // tryReconcile is one pass of the reducer, and one of the two ways a sub-thread
@@ -459,7 +455,7 @@ func (r *run) requestReconcile() {
 // share no dispatch code, so exercising one proves nothing about the other:
 // test both.
 func (r *run) tryReconcile() {
-	if !r.needsReconcile.Swap(false) {
+	if !r.sched.takeReconcile() {
 		return
 	}
 
@@ -475,8 +471,8 @@ func (r *run) tryReconcile() {
 		}
 	}()
 
-	liveThreads := r.liveThreadSet()
-	for _, live := range r.liveRuns() {
+	liveThreads := r.sched.liveThreads()
+	for _, live := range r.sched.runs() {
 		r.runFor(live.t).updateApprovalWaitAnchorForThread(live.threadItemID)
 	}
 	if len(liveThreads) == 0 {
@@ -497,7 +493,7 @@ func (r *run) tryReconcile() {
 	if r.checkForNewThreads() {
 		// The pickup claimed a thread and marked the conversation busy; re-evaluate
 		// from scratch rather than walking down with items read before it.
-		r.needsReconcile.Store(true)
+		r.sched.markReconcile()
 		return
 	}
 
@@ -630,7 +626,7 @@ func (r *run) tryReconcile() {
 			// siblings, and they are dispatched in this same pass rather than one
 			// per pass — so a batch of read-only children all start together
 			// instead of arriving staggered across reconcile ticks. A dispatch the
-			// admission gate refuses re-raises needsReconcile itself.
+			// admission gate refuses re-raises the reconcile bit itself.
 			r.dispatchCallLLMOnThread(target.threadItemID)
 
 		case ActionGoIdle:
@@ -646,14 +642,14 @@ func (r *run) tryReconcile() {
 			// only ever fires when the block was purely tool approvals.
 			//
 			// Resting writes conversation-wide state, so the pass ends here rather
-			// than carrying on with a queue built before it. needsReconcile brings
+			// than carrying on with a queue built before it. The reconcile bit brings
 			// the next pass, which sees what resting left behind.
 			if r.hasPendingItems(target.threadItemID) {
 				r.dispatchCallLLMOnThread(target.threadItemID)
 				return
 			}
 			r.restPromotingQueue(target.threadItemID)
-			r.needsReconcile.Store(true)
+			r.sched.markReconcile()
 			return
 		}
 	}
@@ -692,7 +688,7 @@ func (r *run) dispatchCallLLMOnThread(threadItemID string) {
 	// The live registry is what admits a thread: one run per thread, one
 	// write-capable run at a time, and the read-only ceiling.
 	if !r.canAdmitThread(threadItemID) {
-		r.needsReconcile.Store(true)
+		r.sched.markReconcile()
 		return
 	}
 
@@ -743,7 +739,7 @@ func (r *run) dispatchCallLLMOnThread(threadItemID string) {
 	if !r.claimLLM(threadItemID) {
 		// A turn is already in flight — re-tickle so the next reconcile
 		// tick picks this up after that call completes.
-		r.needsReconcile.Store(true)
+		r.sched.markReconcile()
 		return
 	}
 	explicitContinuation := r.consumeExplicitContinuation(threadItemID)

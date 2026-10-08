@@ -676,5 +676,5 @@ func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
 		"runningStartedAt": nil,
 	})
 	w.clearToolCommandBookkeeping(id)
-	w.needsReconcile.Store(true)
+	w.sched.markReconcile()
 }

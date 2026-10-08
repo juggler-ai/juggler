@@ -297,7 +297,7 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 				// drain that queue — the wait is dead time on a request this message
 				// has already superseded. Tell it so; every other busy run drains the
 				// queue at its next turn boundary on its own.
-				r.nudgeRetryWait(msg.ThreadItemID)
+				r.sched.nudgeRetryWait(msg.ThreadItemID)
 			}
 		}
 
@@ -429,7 +429,7 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 		r.injectSkillPreloadsInto(dest, skillsToLoad)
 		r.batcher.Flush()
 		r.handleItemsChange()
-		r.needsReconcile.Store(true)
+		r.sched.markReconcile()
 		return
 	}
 
@@ -446,7 +446,7 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 	// activity="awaiting_llm" atomically; the reducer picks it up on
 	// the next event-loop tick via tryReconcile → dispatchCallLLM.
 	r.requestLLM(msg.ThreadItemID)
-	r.needsReconcile.Store(true)
+	r.sched.markReconcile()
 }
 
 // firstRootUserMessageText returns the text of the conversation's first
@@ -688,7 +688,7 @@ func (r *run) handleCancel(reason cancelReason) {
 	if threadID == "" {
 		threadID = r.t.thread.itemID
 	}
-	if live := r.liveRunForThread(threadID); live != nil {
+	if live := r.sched.runOn(threadID); live != nil {
 		target = r.runFor(live.t)
 	}
 	target.logCancel(reason)
@@ -760,7 +760,7 @@ func (r *run) handleCancel(reason cancelReason) {
 			// hand off to the reducer, which continues a queued turn or rests.
 			// Deliberately does NOT write idle here — that would clear
 			// awaiting_llm before the reducer runs and strand the continuation.
-			r.needsReconcile.Store(true)
+			r.sched.markReconcile()
 			return
 		}
 
@@ -1148,7 +1148,7 @@ func (r *run) handleUndoOrRedo(fn func() bool, payload json.RawMessage) {
 	// the UndoManager's restoration of items (e.g. a thread with a trailing
 	// user message) immediately tickles the reducer, which dispatches a new
 	// LLM turn — the user's undo would visibly do nothing because the worker
-	// fights it. Same reason we clear needsReconcile afterwards.
+	// fights it. Same reason we drop the reconcile bit afterwards.
 	r.suppressItemsChange = true
 	success := fn()
 	// The Yjs items observer fires synchronously inside fn(), enqueueing
@@ -1160,7 +1160,7 @@ func (r *run) handleUndoOrRedo(fn func() bool, payload json.RawMessage) {
 	default:
 	}
 	r.suppressItemsChange = false
-	r.needsReconcile.Store(false)
+	r.sched.dropReconcile()
 
 	// Clear any in-flight activity marker. The user explicitly reverted
 	// state; awaiting_llm or calling_llm semantics from before the undo
@@ -1218,7 +1218,7 @@ func (w *ConversationWorker) handleEndUndoCoalesce(payload json.RawMessage) {
 // until the worker reaches StateIdle. Called before undo/redo so the document
 // rollback can't be raced by the strategy's deferred writes.
 func (r *run) cancelAndWaitForIdle() bool {
-	runs := r.liveRuns()
+	runs := r.sched.runs()
 	if len(runs) == 0 {
 		if r.anyRunState() != StateIdle {
 			r.handleCancel(cancelReasonUndoRedo)

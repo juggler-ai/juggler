@@ -56,7 +56,7 @@ func reconcilePassBytes(t *testing.T, payloadBytes int) uint64 {
 
 	r := w.currentRun()
 	// One warm pass first, so lazily built state is not billed to the measured one.
-	w.needsReconcile.Store(true)
+	w.sched.markReconcile()
 	r.tryReconcile()
 
 	var least uint64
@@ -65,7 +65,7 @@ func reconcilePassBytes(t *testing.T, payloadBytes int) uint64 {
 		// not it has been collected, and a forced cycle on a saturated machine
 		// under -race can wait minutes for its turn.
 		var before, after runtime.MemStats
-		w.needsReconcile.Store(true)
+		w.sched.markReconcile()
 		runtime.ReadMemStats(&before)
 		r.tryReconcile()
 		runtime.ReadMemStats(&after)

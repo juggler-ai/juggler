@@ -123,7 +123,7 @@ func TestDocLockUsableAfterPanic(t *testing.T) {
 
 func assertRestedAfterPanic(t *testing.T, w *ConversationWorker, threadID string) {
 	t.Helper()
-	if w.hasLiveRun() {
+	if w.sched.hasLive() {
 		t.Errorf("a turn is still live after the panic")
 	}
 	if got := w.anyRunState(); got != StateIdle {

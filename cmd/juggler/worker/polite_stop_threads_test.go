@@ -123,7 +123,7 @@ func TestPoliteStop_RestsOneThreadAndLetsItsSiblingCallTheModel(t *testing.T) {
 	feedContextAndTools(t, w)
 
 	// Drive the reducer exactly as the event loop would once the tools complete.
-	w.needsReconcile.Store(true)
+	w.sched.markReconcile()
 	w.quiesce(t)
 
 	if left := w.mock.remaining(); left != 2 {
@@ -510,7 +510,7 @@ func TestPoliteStop_StoppingOneThreadLeavesTheConversationPaused(t *testing.T) {
 	// The stopped child reports its outcome to its caller, as it does at every
 	// ending — so the parent's batch is complete and the reducer would drive it.
 	w.settleThreadRun(child, true)
-	w.needsReconcile.Store(true)
+	w.sched.markReconcile()
 	w.quiesce(t)
 
 	if left := w.mock.remaining(); left != 1 {

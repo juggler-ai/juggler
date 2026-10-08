@@ -241,8 +241,8 @@ func TestCheckForNewThreads_IgnoresWhenBusy(t *testing.T) {
 	defer w.doc.Destroy()
 	busy := w.currentRun().beginTurn("") // a root turn is streaming
 	t.Cleanup(func() {
-		w.retireLiveRun(busy.t)
-		w.releaseOSActivity()
+		w.sched.unregister(busy.t)
+		w.sched.releaseActivity()
 	})
 
 	threadID := insertThreadWithOpts(w, threadOpts{goal: "Queued thread", needsStrategyRun: true, userMessage: "Summarize"})
@@ -255,7 +255,7 @@ func TestCheckForNewThreads_IgnoresWhenBusy(t *testing.T) {
 	if w.currentRun().checkForNewThreads() {
 		t.Fatal("checkForNewThreads picked a thread up beside a live write-capable turn")
 	}
-	if n := len(w.threadDispatch); n != 0 {
+	if n := len(w.sched.dispatchQueue); n != 0 {
 		t.Fatalf("%d run(s) dispatched while the worker was busy, want 0", n)
 	}
 	if got := w.threadActivity(threadID); got != ActivityNone {
@@ -268,7 +268,7 @@ func TestCheckForNewThreads_IgnoresWhenBusy(t *testing.T) {
 	if !armed {
 		t.Error("needsStrategyRun was consumed by a pickup that never ran")
 	}
-	if !w.needsReconcile.Load() {
+	if !w.sched.reconcilePending() {
 		t.Error("a refused pickup left no reconcile armed to revisit it")
 	}
 }
@@ -458,7 +458,7 @@ func TestReconcile_DeletedThreadWithStandingClaimDoesNotRun(t *testing.T) {
 		t.Fatal("thread still present after delete")
 	}
 
-	w.needsReconcile.Store(true)
+	w.sched.markReconcile()
 	w.quiesce(t)
 
 	if calls != 0 {

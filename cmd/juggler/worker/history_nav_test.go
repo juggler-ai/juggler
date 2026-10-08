@@ -69,7 +69,7 @@ func TestHistoryNavigationSuppressesReducerForDangerousLastItems(t *testing.T) {
 			if got := w.getActivity(); got != ActivityNone {
 				t.Fatalf("history-nav echo should clear stale activity, got %q", got)
 			}
-			if w.needsReconcile.Load() {
+			if w.sched.reconcilePending() {
 				t.Fatalf("history-nav echo should not tickle reducer for %s", tc.name)
 			}
 		})

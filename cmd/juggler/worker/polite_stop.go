@@ -290,7 +290,7 @@ func (w *ConversationWorker) handleUnpause(threadItemID string) {
 // re-issue the request the pause exists to prevent. signalInterject is refused by
 // a run that is not backing off, so this reaches exactly those.
 func (w *ConversationWorker) nudgePoliteStop() {
-	for _, e := range w.liveRuns() {
+	for _, e := range w.sched.runs() {
 		if w.politeStopCovers(e.threadItemID) {
 			e.t.signalInterject()
 		}

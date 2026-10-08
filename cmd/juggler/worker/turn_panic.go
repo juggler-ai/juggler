@@ -114,7 +114,7 @@ func (r *run) recoverTurnBackstop(tr *run) {
 // the root or a turn not in the registry. Safe from any goroutine: it reads the
 // registry's published copy.
 func (w *ConversationWorker) registeredThread(t *turnState) string {
-	for _, e := range w.liveRuns() {
+	for _, e := range w.sched.runs() {
 		if e.t == t {
 			return e.threadItemID
 		}

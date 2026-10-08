@@ -841,7 +841,7 @@ func (w *ConversationWorker) signalParentThread(completedThreadID string) bool {
 	if !w.requestLLM(parentThreadID) {
 		return false
 	}
-	w.needsReconcile.Store(true)
+	w.sched.markReconcile()
 	return true
 }
 

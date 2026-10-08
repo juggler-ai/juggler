@@ -236,7 +236,7 @@ func (r *run) handleInjectThreadMessage(payload json.RawMessage) {
 	// handleSendMessage uses. handleItemsChange alone reconciles state but does
 	// not start a turn; without this the injected message would sit unanswered.
 	r.requestLLM(msg.ThreadItemID)
-	r.needsReconcile.Store(true)
+	r.sched.markReconcile()
 }
 
 // handleDeliveryEnded finalizes a pump that has stopped: drop its handle and

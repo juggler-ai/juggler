@@ -4,8 +4,6 @@
 
 package worker
 
-import "juggler/cmd/juggler/osactivity"
-
 // The live-run registry.
 //
 // A dispatched turn runs on a goroutine of its own with a turnState of its own,
@@ -15,11 +13,10 @@ import "juggler/cmd/juggler/osactivity"
 // of the form "what is in flight in this conversation" needs somewhere else to
 // look. This is that somewhere: one entry per turn goroutine.
 //
-// Published as an immutable slice behind an atomic.Pointer and rewritten
-// copy-on-write. Only the run loop writes it — registering at dispatch, retiring
-// when the turn hands itself back — so the rewrite races with nothing; readers
-// take a snapshot and are free to be on any goroutine, which Stop, the wake
-// interrupt and the manager's activity scan all are.
+// The registry itself is runScheduler's (run_scheduler.go): it holds the
+// snapshot and the copy-on-write that maintains it. This file holds the rules
+// that need the worker to apply: which thread is read-only, how a turn is begun
+// and started, and what retiring one does to the conversation.
 
 // liveRunEntry names one turn goroutine.
 type liveRunEntry struct {
@@ -29,55 +26,6 @@ type liveRunEntry struct {
 	threadItemID string
 	readOnly     bool
 	t            *turnState
-}
-
-// liveRuns returns the current registry snapshot. Never mutated in place, so the
-// caller may hold it across anything.
-func (w *ConversationWorker) liveRuns() []liveRunEntry {
-	if p := w.liveRunsPtr.Load(); p != nil {
-		return *p
-	}
-	return nil
-}
-
-// hasLiveRun reports whether any turn is on its own goroutine right now.
-func (w *ConversationWorker) hasLiveRun() bool {
-	return len(w.liveRuns()) > 0
-}
-
-// liveThreadSet returns the thread ids whose state is owned by live run
-// goroutines. Actor-side reconciliation uses the snapshot to leave those
-// subtrees alone while continuing to settle idle siblings.
-func (w *ConversationWorker) liveThreadSet() map[string]bool {
-	owned := make(map[string]bool)
-	for _, live := range w.liveRuns() {
-		owned[live.threadItemID] = true
-	}
-	return owned
-}
-
-// liveRunForThread returns the live run on threadItemID, or nil when that
-// thread is not running.
-func (w *ConversationWorker) liveRunForThread(threadItemID string) *liveRunEntry {
-	runs := w.liveRuns()
-	for i := range runs {
-		if runs[i].threadItemID == threadItemID {
-			return &runs[i]
-		}
-	}
-	return nil
-}
-
-// liveRunOwns reports whether t belongs to a published live run. Status paths
-// use it to distinguish a turn goroutine handing finalization to retirement
-// from actor-side reducer cleanup that must finalize immediately.
-func (w *ConversationWorker) liveRunOwns(t *turnState) bool {
-	for _, live := range w.liveRuns() {
-		if live.t == t {
-			return true
-		}
-	}
-	return false
 }
 
 // maxConcurrentReadOnlyThreads caps how many read-only children may run AT ONCE.
@@ -105,32 +53,16 @@ const maxConcurrentReadOnlyThreads = 3
 // are write-capable, while stamped read-only children may share the writer slot
 // — up to maxConcurrentReadOnlyThreads of them at a time.
 //
-// The ceiling counts only the read-only runs in flight. A write-capable run
-// alongside them is already limited to one by the rule above it, and charging it
-// to a pacing limit meant for fan-out would stall the main thread behind its own
-// children.
+// The rule itself is runScheduler.admits; this supplies the stamp.
 func (w *ConversationWorker) canAdmitThread(threadItemID string) bool {
-	readOnly := w.threadIsReadOnly(threadItemID)
-	liveReadOnly := 0
-	for _, live := range w.liveRuns() {
-		if live.threadItemID == threadItemID {
-			return false
-		}
-		if !readOnly && !live.readOnly {
-			return false
-		}
-		if live.readOnly {
-			liveReadOnly++
-		}
-	}
-	return !readOnly || liveReadOnly < maxConcurrentReadOnlyThreads
+	return w.sched.admits(threadItemID, w.threadIsReadOnly(threadItemID))
 }
 
 // exclusivelyOwnsConversation reports whether this run is the only live owner.
 // Compaction rewrites shared ancestry and therefore cannot use read-only sibling
 // admission: it retains conversation-wide exclusion.
 func (r *run) exclusivelyOwnsConversation() bool {
-	runs := r.liveRuns()
+	runs := r.sched.runs()
 	return len(runs) == 1 && runs[0].t == r.t
 }
 
@@ -138,7 +70,7 @@ func (r *run) exclusivelyOwnsConversation() bool {
 // ambient one. What a teardown or a system-wake interrupt has to sweep, since
 // either can arrive with a turn on its own goroutine or with none at all.
 func (w *ConversationWorker) allTurnStates() []*turnState {
-	runs := w.liveRuns()
+	runs := w.sched.runs()
 	out := make([]*turnState, 0, len(runs)+1)
 	for _, e := range runs {
 		out = append(out, e.t)
@@ -146,51 +78,14 @@ func (w *ConversationWorker) allTurnStates() []*turnState {
 	return append(out, w.turn)
 }
 
-// registerLiveRun publishes a turn as running. Actor goroutine only.
+// registerLiveRun publishes a turn as running, stamped with whether its thread
+// is read-only. Actor goroutine only.
 func (w *ConversationWorker) registerLiveRun(threadItemID string, t *turnState) {
-	cur := w.liveRuns()
-	if len(cur) == 0 && !w.activityAsserted {
-		osactivity.Begin()
-		w.activityAsserted = true
-	}
-	next := make([]liveRunEntry, len(cur), len(cur)+1)
-	copy(next, cur)
-	next = append(next, liveRunEntry{
+	w.sched.register(liveRunEntry{
 		threadItemID: threadItemID,
 		readOnly:     w.threadIsReadOnly(threadItemID),
 		t:            t,
 	})
-	w.liveRunsPtr.Store(&next)
-}
-
-// releaseOSActivity hands back the App Nap defeat registerLiveRun took for this
-// worker's busy span. Actor goroutine only; a no-op when none is held.
-func (w *ConversationWorker) releaseOSActivity() {
-	if w.activityAsserted {
-		osactivity.End()
-		w.activityAsserted = false
-	}
-}
-
-// retireLiveRun drops a finished turn from the registry and returns the thread
-// it was registered for. Actor goroutine only.
-//
-// The registered thread is the turn's identity, and it is fixed when the turn is
-// begun. The turn's own thread context is not fixed: finishStrategyRun clears it
-// as the run settles, so anything filed under the turn's thread after its
-// goroutine has returned must use this answer rather than t.thread.
-func (w *ConversationWorker) retireLiveRun(t *turnState) (threadItemID string) {
-	cur := w.liveRuns()
-	next := make([]liveRunEntry, 0, len(cur))
-	for _, e := range cur {
-		if e.t != t {
-			next = append(next, e)
-		} else {
-			threadItemID = e.threadItemID
-		}
-	}
-	w.liveRunsPtr.Store(&next)
-	return threadItemID
 }
 
 // beginTurn prepares the run a dispatch is about to start on threadItemID: a
@@ -199,7 +94,7 @@ func (w *ConversationWorker) retireLiveRun(t *turnState) (threadItemID string) {
 // conversation is never readable as idle between the two.
 func (r *run) beginTurn(threadItemID string) *run {
 	t := newTurnState()
-	r.seedThreadBoundary(threadItemID, t)
+	r.sched.seedBoundary(threadItemID, t)
 	tr := r.runFor(t)
 	tr.t.thread.itemID = threadItemID
 	if threadItemID != "" {
@@ -219,7 +114,7 @@ func (r *run) beginTurn(threadItemID string) *run {
 func (r *run) runTurn(tr *run, body func(*run)) {
 	r.storeState(StateIdle)
 	go func() {
-		defer r.retireTurn(tr.t)
+		defer r.sched.retire(tr.t)
 		defer close(tr.t.finished)
 		// Runs first, while the turn is still registered: a panic here is on a
 		// goroutine nothing else recovers, and would end the process.
@@ -228,33 +123,23 @@ func (r *run) runTurn(tr *run, body func(*run)) {
 	}()
 }
 
-// retireTurn hands a finished turn back to the run loop. Called from the turn's
-// own goroutine as it unwinds; falls through on shutdown, where there is no loop
-// left to hand anything to.
-func (w *ConversationWorker) retireTurn(t *turnState) {
-	select {
-	case w.turnRetired <- t:
-	case <-w.done:
-	}
-}
-
 // finishRetiredTurn folds a finished turn goroutine back into the worker. Run
 // goroutine only. The reducer stays out of the way for as long as a turn is live
 // (see drainReconcile), so this is also the moment it is asked for the pass that
 // settles whatever the turn left behind.
 func (r *run) finishRetiredTurn(t *turnState) {
-	r.turnBoundaries[r.retireLiveRun(t)] = boundaryFromTurn(t)
+	r.sched.fileBoundary(r.sched.unregister(t), t)
 	if t.completedIdle {
 		r.bumpTurnCounterAtIdle()
 	}
-	if !r.hasLiveRun() {
+	if !r.sched.hasLive() {
 		r.finishIdleTransition()
 	} else {
 		// Publish this sibling's terminal frame promptly without closing the shared
 		// undo capture window still used by live runs.
 		r.batcher.Flush()
 	}
-	r.needsReconcile.Store(true)
+	r.sched.markReconcile()
 }
 
 // turnBoundary is the state one logical turn carries between its LLM runs.
@@ -277,34 +162,5 @@ func boundaryFromTurn(t *turnState) turnBoundary {
 		lastCacheMissNotice:   t.lastCacheMissNotice,
 		lastProviderNotice:    t.lastProviderNotice,
 		runBudget:             t.runBudget,
-	}
-}
-
-// seedThreadBoundary gives a fresh run only the boundary owned by its thread.
-// The actor owns this map, so siblings retiring in either order cannot overwrite
-// one another's continuation state.
-func (r *run) seedThreadBoundary(threadItemID string, t *turnState) {
-	boundary, ok := r.turnBoundaries[threadItemID]
-	if !ok {
-		return
-	}
-	t.processingStartedAt.Store(boundary.processingStartedAt)
-	t.approvalWaitStartedAt.Store(boundary.approvalWaitStartedAt)
-	t.wasBlockedOnApprovals = boundary.wasBlockedOnApprovals
-	t.lastProgressWriteMs = boundary.lastProgressWriteMs
-	t.lastCacheMissNotice = boundary.lastCacheMissNotice
-	t.lastProviderNotice = boundary.lastProviderNotice
-	t.runBudget = boundary.runBudget
-}
-
-// nudgeRetryWait tells a run parked in a retry backoff on this thread that a
-// fresh user message is queued for it. The wait loops no longer read the
-// mailbox, so this is the explicit signal that carries an intake through to a
-// turn that has no boundary coming.
-func (w *ConversationWorker) nudgeRetryWait(threadItemID string) {
-	for _, e := range w.liveRuns() {
-		if e.threadItemID == threadItemID {
-			e.t.signalInterject()
-		}
 	}
 }

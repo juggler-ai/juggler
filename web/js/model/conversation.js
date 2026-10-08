@@ -18,6 +18,7 @@ import { isConversationalItemType } from '../../sdk/lib/message.js';
 import MessageThread from './message-thread.js';
 import { plainToYMap, plain } from './item-accessor.js';
 import { settleRunCancelled } from './run-records.js';
+import { statusHoldsTurn } from './processing-status.js';
 import strategyRegistry from '../registries/strategy-registry.js';
 import contextItemRegistry from '../registries/context-item-registry.js';
 import { TURN_CANCELLED_NOTICE } from '../utils/constants.js';
@@ -2425,14 +2426,13 @@ class Conversation {
    * Synchronous snapshot of the same two truth sources `cancelAndSettle`
    * settles on, so callers that only want to REFUSE a mid-turn action (rather
    * than cancel it) can check without awaiting. See `cancelAndSettle` for the
-   * rationale on each source.
+   * rationale on each source, and `model/processing-status.js` for how this
+   * question differs from the conversation's other busy questions.
    * @returns {boolean} true if the worker is mid-turn OR a frontend-driven
    *   tool action is still running.
    */
   isTurnActive() {
-    const status = this.processingState?.status;
-    const workerBusy = !!status && status !== 'idle';
-    return workerBusy || this._actionExecutor.hasRunningActions();
+    return statusHoldsTurn(this.processingState?.status) || this._actionExecutor.hasRunningActions();
   }
 
   /**

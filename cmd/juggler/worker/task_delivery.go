@@ -214,10 +214,9 @@ func (r *run) handleInjectThreadMessage(payload json.RawMessage) {
 		input.TaskSource = &TaskSourceRef{TaskID: msg.TaskID, Label: msg.Label}
 	}
 
-	// Busy: queue it; the strategy loop drains at its next boundary. Both halves
-	// are asked of the target thread, so delivery into an idle thread isn't held
-	// up by a sibling.
-	if r.threadActivity(msg.ThreadItemID) != ActivityNone || r.threadRunState(msg.ThreadItemID) != StateIdle {
+	// Busy: queue it; the strategy loop drains at its next boundary. Asked of the
+	// target thread, so delivery into an idle thread isn't held up by a sibling.
+	if r.threadBusy(msg.ThreadItemID) {
 		r.enqueuePendingMessage(msg.ThreadItemID, input)
 		return
 	}

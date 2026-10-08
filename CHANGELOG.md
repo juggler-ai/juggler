@@ -6,6 +6,7 @@ of changes; this project follows semantic versioning.
 ## [Unreleased]
 
 - Fixed the Bin count dropping by two when restoring or deleting one conversation
+- A send refused for having no model no longer locks undo and New Thread
 
 ## [0.7.5] - 2026-10-06
 

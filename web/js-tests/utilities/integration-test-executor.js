@@ -218,6 +218,7 @@ import { runTests as runComposerAutoresizeDeferTests } from '../unit-tests/compo
 import { runTests as runComposerRestoreMessageTests } from '../unit-tests/composer-restore-message-test.js';
 import { apiUrl } from '../../js/utils/api-url.js';
 import { runTests as runPendingMessageRestoreTests } from '../unit-tests/pending-message-restore-test.js';
+import { runTests as runTurnActiveStatusTests } from '../unit-tests/turn-active-status-test.js';
 import { runTests as runWindowResizeCursorTests } from '../unit-tests/window-resize-cursor-test.js';
 import { runTests as runWindowEdgeResizeTests } from '../unit-tests/window-edge-resize-test.js';
 import { runTests as runScheduledSendTests } from '../unit-tests/scheduled-send-test.js';
@@ -545,6 +546,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:composer-autoresize-defer', run: runComposerAutoresizeDeferTests },
   { name: 'unit:composer-restore-message', run: runComposerRestoreMessageTests },
   { name: 'unit:pending-message-restore', run: runPendingMessageRestoreTests },
+  { name: 'unit:turn-active-status', run: runTurnActiveStatusTests },
   { name: 'unit:window-resize-cursor', run: runWindowResizeCursorTests },
   { name: 'unit:window-edge-resize', run: runWindowEdgeResizeTests },
   { name: 'unit:scheduled-send', run: runScheduledSendTests },

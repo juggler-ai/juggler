@@ -17,6 +17,7 @@ import { fetchJson } from '../services/http.js';
 import { showAlert } from '../components/modal-dialog.js';
 import { apiUrl } from './api-url.js';
 import { projectsOpenInNewWindow } from './project-open-mode.js';
+import { statusHoldsTurn } from '../model/processing-status.js';
 
 /**
  * @typedef {import('../model/session.js').default} Session
@@ -122,17 +123,15 @@ export function setupHeaderControls(session) {
   let metadataObserver = null;
 
   // The conversation is running whenever the worker's authoritative
-  // processingState.status is anything other than 'idle' — the top-level
+  // processingState.status is a turn phase rather than a resting status
+  // (model/processing-status.js) — the top-level
   // projection reports a running status while ANY of its threads holds a claim,
   // for the whole busy span (LLM call, tool execution, approval waits). That is
   // the right scope here: undo/redo roll the WHOLE document back, so one live
   // run anywhere in it is reason enough to lock them out. Reading the doc
   // metadata (not the local llmState projection) means viewers that didn't
   // initiate the turn lock out too.
-  const isBusy = () => {
-    const status = currentConversation?.processingState?.status;
-    return !!status && status !== 'idle';
-  };
+  const isBusy = () => statusHoldsTurn(currentConversation?.processingState?.status);
 
   // A button disabled by a running turn says so; one disabled because there is
   // nothing to step through needs no explanation and keeps its plain name.

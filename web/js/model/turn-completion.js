@@ -24,6 +24,7 @@
  */
 
 import { TOOL_STATES } from '../../sdk/lib/message.js';
+import { isRestingStatus } from './processing-status.js';
 
 /**
  * Single-pass scan of the tool states the turn fence needs, so a wait walks the
@@ -63,7 +64,8 @@ export function scanToolStates(items) {
  * Whether a turn has reached a durable terminal state, and which one.
  *
  * Terminal, with no approved tool still executing, when EITHER a tool-action is
- * pending approval (the turn is parked for the user) OR the worker is idle —
+ * pending approval (the turn is parked for the user) OR the worker is at rest
+ * (idle, or a terminal-error status; see `model/processing-status.js`) —
  * and, in **fence mode**, `completedTurns` has advanced past `sinceTurn`, so a
  * genuinely new turn finished rather than a stale idle being read.
  *
@@ -86,10 +88,11 @@ export function inspectTurn(conversation, items, { sinceTurn } = {}) {
   // Read processingState ONCE (the durable signal the worker writes) and derive
   // the phase from it. The top-level projection is the right read here: this
   // asks whether the CONVERSATION has quiesced, and the projection reports a
-  // running status while any of its threads still holds a run.
+  // running status while any of its threads still holds a run. A frame with no
+  // status yet is a dispatch about to start, so only a resting status settles.
   const ps = conversation.processingState;
-  if (ps && ps.status !== 'idle') return notDone;
-  // Idle. Fence mode additionally requires a NEW completed turn. The counter
+  if (ps && !isRestingStatus(ps.status)) return notDone;
+  // At rest. Fence mode additionally requires a NEW completed turn. The counter
   // lives in its own `completedTurns` metadata key (read via the getter), not
   // inside the ephemeral processingState blob.
   const fenced = typeof sinceTurn === 'number' ? conversation.completedTurns > sinceTurn : true;

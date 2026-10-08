@@ -276,15 +276,13 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 	// messages and continuations have nothing to queue.
 	input := msg.UserInput()
 	skillsToLoad := dedupSkills(msg.Skills)
-	// Both halves are asked of the TARGET thread: a message for an idle thread
-	// must not queue behind an unrelated sibling's run. threadRunState answers for
-	// the run writing to that thread and StateIdle for every other thread, so a
-	// run streaming on a sibling is not a reason to refuse this one.
 	// Whether this send asks for anything at all. An empty, skill-less,
 	// non-continuation send is not a send: below the gate it is refused outright,
 	// and above it there is nothing for it to queue.
 	carriesIntent := msg.IsContinuation || !input.isEmpty() || len(skillsToLoad) > 0
-	if r.threadActivity(msg.ThreadItemID) != ActivityNone || r.threadRunState(msg.ThreadItemID) != StateIdle {
+	// Asked of the TARGET thread (threadBusy): a message for an idle thread must
+	// not queue behind an unrelated sibling's run.
+	if r.threadBusy(msg.ThreadItemID) {
 		if !msg.IsContinuation {
 			// Skills chosen while a turn is in flight ride the pending queue ahead
 			// of the message, so they promote and execute before its turn.

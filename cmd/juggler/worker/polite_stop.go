@@ -224,25 +224,6 @@ func (cd *ConversationDocument) markCoversLocked(markThreadID, threadItemID stri
 	return cd.anyMarkCoversLocked(map[string]bool{markThreadID: true}, threadItemID)
 }
 
-// subtreeHasActiveRun reports whether any thread under this one holds a claim.
-// The scoped form of hasActiveRun: what a pause on one column has to ask, so
-// pausing a column with nothing running strands no mark.
-func (w *ConversationWorker) subtreeHasActiveRun(threadItemID string) bool {
-	ycrdtMu.Lock()
-	defer ycrdtMu.Unlock()
-	for _, raw := range runsView(w.readProcessingStateLocked()) {
-		entry, ok := raw.(map[string]any)
-		if !ok || entryActivity(entry) == ActivityNone {
-			continue
-		}
-		id, _ := entry["threadItemId"].(string)
-		if w.doc.markCoversLocked(threadItemID, id) {
-			return true
-		}
-	}
-	return false
-}
-
 // handlePause marks a polite stop over threadItemID when that subtree is
 // actually running — whether the pause arrives between turns or while one is
 // streaming, since the run loop keeps servicing the mailbox either way.

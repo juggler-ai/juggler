@@ -739,41 +739,6 @@ func (r *run) storeState(s WorkerState) {
 	}
 }
 
-// anyRunState reports the state of the busiest run this worker owns: any turn on
-// a goroutine of its own that is not idle, else the ambient turn — which is what
-// carries the busy frame across the moment a pickup hands a thread to the loop.
-// It is the question every conversation-wide gate asks ("is anything in flight
-// in this conversation?"), spelled apart from threadRunState so the two are
-// never confused.
-func (w *ConversationWorker) anyRunState() WorkerState {
-	for _, e := range w.sched.runs() {
-		if state, ok := e.t.state.Load().(WorkerState); ok && state != StateIdle {
-			return state
-		}
-	}
-	return w.currentRun().loadState()
-}
-
-// threadRunState reports the state of the run writing to threadItemID, and
-// StateIdle when no run is on that thread. This is the per-thread half of the
-// intake gates: a send, an injected message or a fold each concern ONE thread,
-// and a run streaming on a sibling is not a reason to refuse them.
-func (w *ConversationWorker) threadRunState(threadItemID string) WorkerState {
-	for _, e := range w.sched.runs() {
-		if e.threadItemID != threadItemID {
-			continue
-		}
-		if state, ok := e.t.state.Load().(WorkerState); ok {
-			return state
-		}
-	}
-	r := w.currentRun()
-	if r.t.thread.itemID != threadItemID {
-		return StateIdle
-	}
-	return r.loadState()
-}
-
 // State returns the current worker state (for testing and monitoring).
 func (w *ConversationWorker) State() WorkerState {
 	return w.anyRunState()

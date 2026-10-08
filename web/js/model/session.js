@@ -30,6 +30,7 @@ import { approvePermittedPendingApprovals } from './conversation-tool-actions.js
 import { isWorkspaceUsable, patchWorkspace, reorderWorkspaces } from '../services/workspaces.js';
 import { placeForNewConversation, placementForNewConversation, takesTheHead } from '../services/workspace-provisioning.js';
 import ConversationBin from './conversation-bin.js';
+import { statusHoldsTurn } from './processing-status.js';
 import ConversationSyncReducer from './conversation-sync-reducer.js';
 import { seedCreationDefaults, seedConversationAutoItems as seedAutoItems } from './conversation-seeder.js';
 
@@ -1143,9 +1144,7 @@ class Session {
   _isConvBusy(conv) {
     if (!conv) return false;
     if (conv.llmState?.isConversationProcessing?.(conv.id)) return true;
-    const state = conv.getMetadata('processingState');
-    const status = state && state.status;
-    return !!status && status !== 'idle' && status !== 'error' && status !== 'validation-error';
+    return statusHoldsTurn(conv.getMetadata('processingState')?.status);
   }
 
   /**

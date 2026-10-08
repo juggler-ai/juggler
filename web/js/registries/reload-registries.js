@@ -14,6 +14,7 @@ import { resetUserCommandsCache } from '../services/user-commands.js';
 import { resetSkillsCache } from '../services/skills.js';
 import { markRegistriesReady } from './registry-ready.js';
 import { getAppSession } from '../utils/app-session.js';
+import { statusHoldsTurn } from '../model/processing-status.js';
 
 /**
  * Event dispatched on `document` after the capability registries have been torn
@@ -66,8 +67,7 @@ const QUIESCENCE_TIMEOUT_MS = 30000;
  * @returns {boolean} True while the conversation is running a turn
  */
 export function isConversationBusy(conv) {
-  const status = conv.processingState?.status;
-  if (!status || status === 'idle' || status === 'error' || status === 'validation-error') return false;
+  if (!statusHoldsTurn(conv.processingState?.status)) return false;
   return !conv.isAwaitingApproval?.();
 }
 

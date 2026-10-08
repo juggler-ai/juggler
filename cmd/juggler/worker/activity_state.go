@@ -492,45 +492,6 @@ func statusHoldsClaim(status string) bool {
 	}
 }
 
-// getActivity reads the top-level processingState.activity projection — the
-// activity of whichever run is live (see projectLiveRun). Readers asking about
-// one particular thread must use threadActivity instead; this one answers "what
-// is this conversation showing".
-func (w *ConversationWorker) getActivity() string {
-	existing := w.readProcessingState()
-	if existing == nil {
-		return ActivityNone
-	}
-	activity, _ := existing["activity"].(string)
-	return activity
-}
-
-// threadActivity reads one thread's own activity from the run registry,
-// unaffected by what any sibling is doing. This is what a busy gate for a
-// specific target thread must ask, so an idle thread is never made to queue
-// behind an unrelated run.
-func (w *ConversationWorker) threadActivity(threadItemID string) string {
-	return entryActivity(runEntryOf(w.readProcessingState(), threadItemID))
-}
-
-// threadActivityLocked is threadActivity without the lock; callers MUST already
-// hold ycrdtMu.
-func (w *ConversationWorker) threadActivityLocked(threadItemID string) string {
-	return entryActivity(runEntryOf(w.readProcessingStateLocked(), threadItemID))
-}
-
-// hasActiveRun reports whether ANY thread holds a claim. The conversation-wide
-// question — "is something running here at all" — as distinct from getActivity,
-// which describes only the run the projection currently names.
-func (w *ConversationWorker) hasActiveRun() bool {
-	for _, raw := range runsView(w.readProcessingState()) {
-		if entry, ok := raw.(map[string]any); ok && entryActivity(entry) != ActivityNone {
-			return true
-		}
-	}
-	return false
-}
-
 // docTurnCounter reads the completed-turn counter currently stored in the doc's
 // dedicated `completedTurns` metadata key (0 if absent). It lives outside the
 // ephemeral processingState blob precisely because it is the one value read back
@@ -549,32 +510,6 @@ func (w *ConversationWorker) docTurnCounter() int64 {
 	default:
 		return 0
 	}
-}
-
-// isLLMClaimed reports whether an LLM call is currently in progress on any
-// thread. "awaiting_llm" is NOT claimed — it means "dispatch needed" and the
-// reducer should act on it. Reading the projection answers this for the whole
-// conversation: pickLiveRun prefers a calling_llm run over an awaiting one, so
-// the top-level activity is "calling_llm" exactly when some thread is calling.
-func (w *ConversationWorker) isLLMClaimed() bool {
-	return w.getActivity() == ActivityCallingLLM
-}
-
-// isActivelyRunning reports whether a turn is genuinely doing work on this
-// worker: some thread holds the doc-native LLM claim AND the turn is
-// not merely parked waiting for the user to approve a tool. A turn blocked
-// solely on pending approvals is doing nothing — quitting and restarting leaves
-// the approval intact — so it does not count as running. This is the "is it
-// safe to quit / rebuild without interrupting work" signal (see AnyActive /
-// ActiveConversationIDs); it is deliberately narrower than activity != none,
-// which stays true for the whole turn including the approval-parked pause.
-func (w *ConversationWorker) isActivelyRunning() bool {
-	if !w.hasActiveRun() {
-		return false
-	}
-	// Conversation-wide ("" is the root, so the whole tree): the caller is asking
-	// whether it is safe to quit, which no thread can answer on its own.
-	return !w.blockedOnlyByApprovals("")
 }
 
 // markExplicitContinuation records a one-shot continuation intent on the given

@@ -6,9 +6,12 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -430,40 +433,61 @@ class PropertiesPanel {
 	}
 
 	result, err := readOps.Execute(context.Background(), "editFile", params)
-	if err != nil {
-		t.Fatalf("Expected structured error result, got error: %v", err)
-	}
+	coded := searchNotFound(t, result, err)
 
-	resultMap, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("Expected map result, got %T", result)
+	// The near-match should point near the function signature, not the file's
+	// opening comment. The window starts 2 lines before the match; the
+	// signature is on line 10, so the window starts around line 8.
+	start := nearMatchWindowStart(coded.Msg)
+	if start < 0 {
+		t.Fatalf("Expected a near-match window — should find the function signature. Message: %s", coded.Msg)
 	}
-
-	if resultMap["success"] != false {
-		t.Fatal("Expected success=false")
+	if start <= 2 {
+		t.Errorf("Near match pointed to line %d (file header area) — should match near the function signature", start)
 	}
-	if resultMap["errorCode"] != "SEARCH_NOT_FOUND" {
-		t.Fatalf("Expected errorCode=SEARCH_NOT_FOUND, got %v", resultMap["errorCode"])
-	}
-
-	// The near-match should point near the function signature, not the file's opening comment
-	if resultMap["hasNearMatch"] != true {
-		t.Fatal("Expected hasNearMatch=true — should find the function signature")
-	}
-	nearMatchLine, _ := resultMap["nearMatchLine"].(int)
-	// nearMatchLine is the start of the context window (2 lines before the match).
-	// The function signature is on line 10, so context starts around line 8.
-	if nearMatchLine <= 2 {
-		t.Errorf("Near match pointed to line %d (file header area) — should match near the function signature", nearMatchLine)
-	}
-	contextLines, _ := resultMap["contextLines"].(string)
-	if !strings.Contains(contextLines, "_createHeader") {
-		t.Errorf("Context lines should contain '_createHeader', got: %s", contextLines)
+	if !strings.Contains(coded.Msg, "→10:     _createHeader") {
+		t.Errorf("The window should mark the signature line, got: %s", coded.Msg)
 	}
 }
 
+// searchNotFound asserts that an edit failed as a search-not-found: an error,
+// not a result, carrying the SEARCH_NOT_FOUND code, a message the model can act
+// on, and the path and current hash as its detail.
+func searchNotFound(t *testing.T, result any, err error) *ops.CodedError {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("Expected a search-not-found error, got result %v", result)
+	}
+	var coded *ops.CodedError
+	if !errors.As(err, &coded) {
+		t.Fatalf("Expected an *ops.CodedError, got %T: %v", err, err)
+	}
+	if coded.Code != ops.CodeSearchNotFound {
+		t.Fatalf("Expected code %s, got %q", ops.CodeSearchNotFound, coded.Code)
+	}
+	if !strings.HasPrefix(coded.Msg, "Search failed in '") ||
+		!strings.HasSuffix(coded.Msg, "Re-read file and use exact text including whitespace.") {
+		t.Errorf("The message should name the file and say what to do, got: %s", coded.Msg)
+	}
+	if hash, _ := coded.Detail["contentHash"].(string); len(hash) != 64 {
+		t.Errorf("Expected the file's current hash in the detail, got %v", coded.Detail)
+	}
+	return coded
+}
+
+// nearMatchWindowStart reads the first line of the near-match window out of a
+// search-not-found message, or -1 when the message carries no window.
+func nearMatchWindowStart(msg string) int {
+	m := regexp.MustCompile(`near possible match \(lines (\d+)-\d+\)`).FindStringSubmatch(msg)
+	if m == nil {
+		return -1
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
 // TestEditFile_SearchNotFound_NoNearMatch verifies that a completely
-// unrelated search string produces hasNearMatch=false.
+// unrelated search string produces no near-match window.
 func TestEditFile_SearchNotFound_NoNearMatch(t *testing.T) {
 	projectDir := helpers.CreateTempDir(t)
 	defer os.RemoveAll(projectDir)
@@ -479,20 +503,33 @@ func TestEditFile_SearchNotFound_NoNearMatch(t *testing.T) {
 	}
 
 	result, err := readOps.Execute(context.Background(), "editFile", params)
-	if err != nil {
-		t.Fatalf("Expected structured error result, got error: %v", err)
+	coded := searchNotFound(t, result, err)
+	if want := "Search failed in 'simple.txt'. Re-read file and use exact text including whitespace."; coded.Msg != want {
+		t.Errorf("Expected no near-match window for a completely unrelated search string.\n got: %q\nwant: %q", coded.Msg, want)
+	}
+}
+
+// TestEditFile_SearchNotFound_Escaping verifies that an old_str which would
+// match once its backslash escapes are removed is reported as an escaping
+// mistake.
+func TestEditFile_SearchNotFound_Escaping(t *testing.T) {
+	projectDir := helpers.CreateTempDir(t)
+	defer os.RemoveAll(projectDir)
+
+	helpers.WriteFile(t, filepath.Join(projectDir, "tmpl.js"), []byte("const s = `${name}`;\n"))
+
+	readOps := ops.NewFileOperations(ops.NewPathScope(projectDir, nil))
+
+	params := map[string]any{
+		"path":    "tmpl.js",
+		"old_str": "const s = \\`\\${name}\\`;",
+		"new_str": "const s = name;",
 	}
 
-	resultMap, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("Expected map result, got %T", result)
-	}
-
-	if resultMap["success"] != false {
-		t.Fatal("Expected success=false")
-	}
-	if resultMap["hasNearMatch"] != false {
-		t.Error("Expected hasNearMatch=false for completely unrelated search string")
+	result, err := readOps.Execute(context.Background(), "editFile", params)
+	coded := searchNotFound(t, result, err)
+	if !strings.Contains(coded.Msg, "ESCAPING ERROR: old_str is LITERAL") {
+		t.Errorf("Expected the escaping hint, got: %s", coded.Msg)
 	}
 }
 
@@ -520,27 +557,15 @@ function unrelated() {
 	}
 
 	result, err := readOps.Execute(context.Background(), "editFile", params)
-	if err != nil {
-		t.Fatalf("Expected structured error result, got error: %v", err)
-	}
-
-	resultMap, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("Expected map result, got %T", result)
-	}
-
-	if resultMap["success"] != false {
-		t.Fatal("Expected success=false")
-	}
+	coded := searchNotFound(t, result, err)
 
 	// The fallback should use the longest comment line as probe and find a match.
 	// The distinctive comment is on line 2; context window starts at line 1.
-	if resultMap["hasNearMatch"] != true {
-		t.Fatal("Expected hasNearMatch=true — fallback should use the longest comment line")
+	if nearMatchWindowStart(coded.Msg) != 1 {
+		t.Fatalf("Expected a near-match window from line 1 — fallback should use the longest comment line. Message: %s", coded.Msg)
 	}
-	contextLines, _ := resultMap["contextLines"].(string)
-	if !strings.Contains(contextLines, "frobnicating") {
-		t.Errorf("Context should contain the distinctive comment line, got: %s", contextLines)
+	if !strings.Contains(coded.Msg, "frobnicating") {
+		t.Errorf("Context should contain the distinctive comment line, got: %s", coded.Msg)
 	}
 }
 

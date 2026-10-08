@@ -130,9 +130,8 @@ export async function runTests(_ctx) {
   // Regression: a Replace action whose old_string doesn't match must fail
   // VALIDATION (so no approval modal is shown), not be auto-approved and
   // then fail at execute time. The plugin's validate() calls editFile with
-  // dryRun:true; the backend returns { success: false, errorCode:
-  // 'SEARCH_NOT_FOUND' } without throwing, so validate() must inspect the
-  // result and return { valid: false }.
+  // dryRun:true; the op fails with an OpsError coded SEARCH_NOT_FOUND, and
+  // validate() must turn it into { valid: false }.
   // =========================================================================
   try {
     const conversation = await createTestConversation(session);

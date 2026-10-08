@@ -72,9 +72,7 @@ export async function continueThread(conversation, messageThread, beforeContinue
   messageThread.cancelPendingApprovals();
   beforeContinue?.();
 
-  if (conversation._conversationArea) {
-    conversation._conversationArea.scrollToBottom(true);
-  }
+  conversation.announceTurnRequested();
 
   if (workerManager.isWorkerReady(conversation.id)) {
     workerManager.continue(conversation.id, messageThread.threadItemId);

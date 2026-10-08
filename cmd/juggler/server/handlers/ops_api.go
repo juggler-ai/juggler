@@ -7,6 +7,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -33,11 +34,15 @@ type OperationRequest struct {
 	WorkspaceID  string         `json:"workspaceId,omitempty"`
 }
 
-// OperationResponse represents the response from a native operation
+// OperationResponse represents the response from a native operation. A failure
+// carries its message in Error and, when the op failed with an *ops.CodedError,
+// that error's Code and Detail beside it.
 type OperationResponse struct {
-	Success bool   `json:"success"`
-	Data    any    `json:"data,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Success bool           `json:"success"`
+	Data    any            `json:"data,omitempty"`
+	Error   string         `json:"error,omitempty"`
+	Code    string         `json:"code,omitempty"`
+	Detail  map[string]any `json:"detail,omitempty"`
 }
 
 // OpsAPI handles the unified native operations API. The project path is
@@ -79,7 +84,7 @@ func (api *OpsAPI) HandleOperationCall(w http.ResponseWriter, r *http.Request) {
 		// Return operation errors as success=false in the response body with HTTP 200
 		// This allows the frontend to handle the error gracefully
 		// HTTP 500 should only be for actual server failures (panics, crashes)
-		api.sendOperationError(w, r, err.Error())
+		api.sendOperationError(w, r, err)
 		return
 	}
 
@@ -184,10 +189,14 @@ func (api *OpsAPI) sendError(w http.ResponseWriter, r *http.Request, message str
 }
 
 // sendOperationError sends an operation error response (HTTP 200 with success=false)
-// Operation errors like "search string not found" are not server errors
-func (api *OpsAPI) sendOperationError(w http.ResponseWriter, r *http.Request, message string) {
-	WriteJSON(w, r, http.StatusOK, OperationResponse{
-		Success: false,
-		Error:   message,
-	})
+// Operation errors like "search string not found" are not server errors. A
+// coded error's code and detail travel beside its message.
+func (api *OpsAPI) sendOperationError(w http.ResponseWriter, r *http.Request, err error) {
+	resp := OperationResponse{Success: false, Error: err.Error()}
+	var coded *ops.CodedError
+	if errors.As(err, &coded) {
+		resp.Code = coded.Code
+		resp.Detail = coded.Detail
+	}
+	WriteJSON(w, r, http.StatusOK, resp)
 }

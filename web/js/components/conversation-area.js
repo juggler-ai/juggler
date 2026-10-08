@@ -2286,21 +2286,6 @@ class ConversationArea extends HTMLElement {
   }
 
   /**
-   * Trigger footer update (called by LLMState when status changes)
-   */
-  updateBusyMessage() {
-    this.updateFooter();
-  }
-
-  /**
-   * Trigger footer update and clear next steps (called by LLMState when processing stops)
-   */
-  hideBusy() {
-    this._nextSteps = '';
-    this.updateFooter();
-  }
-
-  /**
    * Show or hide the next-steps (`<plan>`) indicator for THIS column. The plan
    * is per-thread state: a sub-thread column reads it from its own thread Y.Map
    * (like goal/result/resultSpec), the root column from conversation metadata

@@ -298,7 +298,6 @@ export function setupHeaderControls(session) {
       case 'conversation:switched':
       case 'conversation:created':
       case 'conversation:deleted':
-      case 'contextItems:changed':
         bindToVisible();
         break;
     }

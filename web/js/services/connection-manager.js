@@ -402,44 +402,13 @@ class ConnectionManager {
       return;
     }
 
-    // Subscribe to session changes and update UI
-    this._unsubscribe = this._session.subscribe(/** @param {{type: string, data: unknown, session: import('../model/session.js').default}} event */ (event) => {
-      // CRITICAL: Use event.session instead of this._session!
-      // The event contains the actual session instance with all its data
-      const session = event.session;
-      const visible = session.getVisibleConversation();
-
-      switch (event.type) {
-        case 'session:loaded':
-          // Update conversation-area in visible tab when session loads
-          if (visible) {
-            const tab = visible.getTabElement();
-            if (tab) {
-              // @ts-ignore - getConversationArea is a method on conversation-tab
-              const conversationArea = tab.getConversationArea();
-              if (conversationArea) {
-                /** @type {any} */(conversationArea).conversation = visible;
-                /** @type {any} */(conversationArea).renderFromItems(visible.rootItems || []);
-              }
-            }
-          }
-          break;
-
-        case 'context-items:changed':
-        case 'conversation:changed':
-        case 'processing:started':
-        case 'processing:stopped':
-        case 'conversation:switched':
-        case 'conversation:created':
-        case 'conversation:deleted':
-          // UI updates are owned by the per-tab components: conversation-bar
-          // handles tab visibility, conversation-tab._syncWithConversation()
-          // handles context items, model selector, and token display.
-          break;
-
-        case 'session:save-error':
-          console.error('[ConnectionManager] Failed to save session:', event.data);
-          break;
+    // UI updates are owned by the per-tab components, which subscribe for
+    // themselves: conversation-bar handles tab visibility, and conversation-tab
+    // repaints its columns (on `session:loaded` too). All that is left here is
+    // reporting a failed save.
+    this._unsubscribe = this._session.subscribe(/** @param {{type: string, data: unknown}} event */ (event) => {
+      if (event.type === 'session:save-error') {
+        console.error('[ConnectionManager] Failed to save session:', event.data);
       }
     });
   }

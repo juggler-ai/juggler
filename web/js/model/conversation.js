@@ -212,9 +212,6 @@ class Conversation {
     /** @type {import('../services/action-executor.js').default} @private */
     this._actionExecutor = services.actionExecutor;
 
-    /** @type {HTMLElementTagNameMap['conversation-area']|null} */
-    this._conversationArea = null; // Will be set via setTabElement()
-
     /** @type {import('../components/conversation-tab.js').default|null} @private */
     this._tabElement = null;
 
@@ -757,22 +754,17 @@ class Conversation {
   }
 
   /**
-   * Set the tab element that owns this conversation
-   * IMPORTANT: This is the ONLY way a conversation gets access to its DOM elements
+   * Set the tab element that shows this conversation, and start the status
+   * observer that turns worker processing-state frames into LLM status.
+   *
+   * The conversation writes nothing into the tab or its columns. The tab hands
+   * its own columns the conversation, paints status from its own subscription
+   * to {@link onStatusChange}, and scrolls on `conversation:turn-requested`.
    * @param {import('../components/conversation-tab.js').default} tabElement
    */
   setTabElement(tabElement) {
     this._tabElement = tabElement;
-
-    // Update conversation area reference to use tab's conversation area
-    const conversationArea = /** @type {HTMLElementTagNameMap['conversation-area']|null} */ (tabElement.getConversationArea());
-    if (conversationArea) {
-      this._conversationArea = conversationArea;
-      conversationArea.conversation = this;
-    }
-
-    // Register tab with LLM state for per-conversation busy indicators
-    this._llmState.registerConversationTab(this, tabElement);
+    this._llmState.registerConversation(this);
   }
 
   /**
@@ -1835,7 +1827,7 @@ class Conversation {
           this.showWarning(result.message, 3000);
         }
         if (result.sideEffects) {
-          await this._handleCommandSideEffects(result.sideEffects);
+          this._handleCommandSideEffects(result.sideEffects);
         }
         return null;
       }
@@ -1985,15 +1977,13 @@ class Conversation {
     // hydration, no send) leaves every window's settled order untouched.
     this._session.bumpConversation?.(this.id, { forceTop: true });
 
-    // Move to the end of the conversation the moment the user sends, rather
-    // than making them wait out the round-trip to see anything happen. This is
-    // the responsiveness half only: the guarantee that the message is shown is
-    // rule 3/8b in conversation-area-selection.js, which runs when the message
-    // itself lands in the DOM. Scrolling to anything more specific here is
-    // unsafe because neither the user-message DOM nor the spinner exist yet.
-    if (this._conversationArea) {
-      this._conversationArea.scrollToBottom(true);
-    }
+    // Announce the turn the moment the user sends, so the tab can move to the
+    // end of the conversation rather than making them wait out the round-trip
+    // to see anything happen (conversation-tab.js scrolls its root column on
+    // this). This is the responsiveness half only: the guarantee that the
+    // message is shown is rule 3/8b in conversation-area-selection.js, which
+    // runs when the message itself lands in the DOM.
+    this.announceTurnRequested();
 
     // Route to worker - the worker owns the strategy loop. Turns are driven
     // exclusively by the Go worker; there is no viewer-side fallback loop.
@@ -2058,14 +2048,18 @@ class Conversation {
    * Finish processing and clean up
    *     */
   _finishProcessing() {
+    // Stopping tells the status observers, so the tab drops its spinner.
     this._llmState.stop(this.id);
-
-    // Also directly hide busy indicator as a fallback
-    if (this._conversationArea && 'hideBusy' in this._conversationArea) {
-      /** @type {any} */ (this._conversationArea).hideBusy();
-    }
-
     this._session.notifyConversationChange('processing:stopped', this.id);
+  }
+
+  /**
+   * Announce that a turn has been asked for in this conversation, on the
+   * session feed as `conversation:turn-requested`. The tab showing it scrolls
+   * to the end on it; the model itself touches no view.
+   */
+  announceTurnRequested() {
+    this._session?.notifyConversationChange('conversation:turn-requested', { conversationId: this.id });
   }
 
   /**
@@ -2794,9 +2788,10 @@ class Conversation {
    * This is the single point where commands' declared intents are dispatched
    * to the host application (UI, session, etc.).
    * @param {import('juggler/command-type').CommandSideEffect[]} sideEffects
+   * @returns {void}
    * @private
    */
-  async _handleCommandSideEffects(sideEffects) {
+  _handleCommandSideEffects(sideEffects) {
     for (const effect of sideEffects) {
       const data = effect.data || {};
       switch (effect.type) {
@@ -2820,10 +2815,9 @@ class Conversation {
           break;
         }
         case 'openCommandManager': {
-          // The /commands manager. Loaded lazily so the editor dialog module is
-          // only pulled in when actually opened.
-          const { openCommandManager } = await import('../components/command-editor-dialog.js');
-          openCommandManager();
+          // The /commands manager is app-level UI, so the model only asks for
+          // it; app.js opens the dialog on this event.
+          this._session?.notifyConversationChange('command-manager:open-requested', { conversationId: this.id });
           break;
         }
       }
@@ -3008,11 +3002,10 @@ class Conversation {
       this._llmState.stop(this.id);
     }
 
-    // Unregister the tab from LLM state — this tears down the per-conversation
-    // Yjs metadata observer registered in setTabElement(). Without it the
-    // observer (and its captured conversation) leak for the app's lifetime.
-    this._llmState?.unregisterConversationTab?.(this.id);
-
+    // Unregister from LLM state — this tears down the per-conversation Yjs
+    // metadata observer registered in setTabElement(). Without it the observer
+    // (and its captured conversation) leak for the app's lifetime.
+    this._llmState?.unregisterConversation?.(this.id);
 
 
     // Clean up all local context items

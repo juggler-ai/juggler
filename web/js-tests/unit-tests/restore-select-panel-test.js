@@ -35,7 +35,8 @@ import '../../js/components/conversation-tab.js';
 
 /**
  * Minimal stand-in for a Conversation as `_createConversationTab` and
- * `setActive` see it: an identity, a load state, and a session to subscribe to.
+ * `setActive` see it: an identity, a load state, a session to subscribe to, and
+ * a status feed.
  * @param {any} session - Owning stub session
  * @param {string} id - Conversation id
  * @param {string} name - Display name
@@ -50,7 +51,9 @@ function createStubConversation(session, id, name, loadState) {
     loadState,
     tabElement: /** @type {any} */ (null),
     /** @param {any} el - Tab element claiming this conversation */
-    setTabElement(el) { this.tabElement = el; }
+    setTabElement(el) { this.tabElement = el; },
+    /** @returns {() => void} Unsubscribe */
+    onStatusChange() { return () => {}; }
   };
 }
 

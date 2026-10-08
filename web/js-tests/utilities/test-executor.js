@@ -254,14 +254,6 @@ class TestExecutor {
    * @private
    */
   async _createMockServices() {
-    const mockConversationArea = /** @type {any} */ (document.createElement('div'));
-    mockConversationArea.showBusy = () => {};
-    mockConversationArea.hideBusy = () => {};
-    mockConversationArea.clearStreamingMessage = () => {};
-    mockConversationArea.finalizeStreamingMessage = () => {};
-    mockConversationArea.addMessage = () => {};
-    mockConversationArea.scrollToBottom = () => {};
-
     const { default: LLMState } = await import('../../js/services/llm-state.js');
 
     if (!LLMState) {

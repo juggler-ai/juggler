@@ -32,10 +32,24 @@ export class OpsError extends Error {
   /**
    * @param {string} message - Error message
    * @param {number} [status] - HTTP status, when the error came from an HTTP response
+   * @param {{code?: string, detail?: Record<string, unknown>}} [coded] - The op's failure code and its detail, when it gave one
    */
-  constructor(message, status) {
+  constructor(message, status, coded = {}) {
     super(message);
     this.name = 'OpsError';
+    /**
+     * The op's stable code for this kind of failure (e.g. `SEARCH_NOT_FOUND`,
+     * an edit whose old_str matched nothing), or undefined for a failure with
+     * no code. Branch on this, never on the message.
+     * @type {string|undefined}
+     */
+    this.code = coded.code || undefined;
+    /**
+     * The values the op sent with the code, e.g. the file's current
+     * `contentHash` for `SEARCH_NOT_FOUND`.
+     * @type {Record<string, unknown>}
+     */
+    this.detail = coded.detail || {};
     /**
      * The HTTP status this error was reported with, when it came from an HTTP
      * response (undefined otherwise). Lets a caller branch on the KIND of
@@ -133,6 +147,8 @@ function requireParam(params, name) {
  * @property {boolean} success - Whether the operation succeeded
  * @property {T} [data] - Response data (present only if success=true)
  * @property {string} [error] - Error message (present only if success=false)
+ * @property {string} [code] - Stable failure code, when the op gave its failure one (see OpsError#code)
+ * @property {Record<string, unknown>} [detail] - Values that go with the code (see OpsError#detail)
  */
 
 // ============================================================================
@@ -498,7 +514,7 @@ async function callOp(toolId, operation, params, signal, allowedPaths, workspace
 
   if (!result.success) {
     // All backend errors are operational feedback, not bugs
-    throw new OpsError(result.error || 'Operation failed');
+    throw new OpsError(result.error || 'Operation failed', undefined, { code: result.code, detail: result.detail });
   }
 
   if (!result.data) {
@@ -598,6 +614,9 @@ export async function writeFileOp(params, signal, allowedPaths, workspaceId) {
  * @param {string[]} [allowedPaths] - Standing allowed-paths grant (top-level transport; see writeFileOp)
  * @param {string} [workspaceId] - Where to run it (top-level transport; see callOp)
  * @returns {Promise<ReadFileEditResult>} Edit operation result with file metadata
+ * @throws {OpsError} On failure. An old_str that matches nothing throws with
+ *   code `SEARCH_NOT_FOUND`, and `detail.path` and `detail.contentHash` (the
+ *   file's current bytes).
  */
 export async function readFileEdit(params, signal, allowedPaths, workspaceId) {
   requireParam(params, 'path');

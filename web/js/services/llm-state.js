@@ -84,8 +84,10 @@ function runsView(state) {
 /**
  * LLMState - Centralized state management for LLM loop
  *
- * Manages processing state and UI updates for LLM conversations.
- * Per-conversation tab tracking ensures each conversation's UI updates independently.
+ * Manages processing state for LLM conversations, and announces every change
+ * to its status observers ({@link addStatusObserver}). It holds no view: a tab
+ * that paints a conversation's status subscribes to that conversation's feed
+ * (`Conversation#onStatusChange`) and reads the state back from here.
  *
  * State is held per RUN — one conversation, one thread — because a conversation
  * can be driving several threads at once (a parent and its read-only children).
@@ -97,9 +99,6 @@ function runsView(state) {
  */
 class LLMState {
   constructor() {
-    /** @type {Map<string, HTMLElement>} @private Map of conversationId -> conversation-tab element */
-    this._conversationTabs = new Map();
-
     /**
      * Status messages are THE source of truth for processing state.
      * If a run has a message, that thread is processing. If not, it's not.
@@ -177,42 +176,20 @@ class LLMState {
   }
 
   /**
-   * Register a conversation and the tab element showing it, and start the Yjs
-   * metadata observer that turns worker processing-state frames into status.
-   * The conversation is passed in rather than read off the element: the caller
-   * IS the conversation, so asking its view for it back is a round trip through
-   * a component private.
+   * Register a conversation: start the Yjs metadata observer that turns worker
+   * processing-state frames into status.
    * @param {import('../model/conversation.js').default} conversation - The conversation.
-   * @param {HTMLElement} tabElement - The conversation-tab element showing it.
    */
-  registerConversationTab(conversation, tabElement) {
-    this._conversationTabs.set(conversation.id, tabElement);
+  registerConversation(conversation) {
     this._setupMetadataObserver(conversation.id, conversation);
   }
 
   /**
-   * Unregister a conversation tab
-   * Cleans up Yjs metadata observer
+   * Unregister a conversation: tear down its Yjs metadata observer.
    * @param {string} conversationId - Conversation ID
    */
-  unregisterConversationTab(conversationId) {
-    this._conversationTabs.delete(conversationId);
+  unregisterConversation(conversationId) {
     this._cleanupMetadataObserver(conversationId);
-  }
-
-  /**
-   * Get conversation area for a specific conversation
-   * @param {string} conversationId - Conversation ID
-   * @returns {HTMLElement|null} The conversation area element or null if not found
-   * @private
-   */
-  _getConversationArea(conversationId) {
-    const tab = this._conversationTabs.get(conversationId);
-    if (!tab) {
-      return null;
-    }
-    // @ts-ignore - getConversationArea is a method on conversation-tab
-    return tab.getConversationArea();
   }
 
   /**
@@ -392,7 +369,7 @@ class LLMState {
   /**
    * Start LLM processing for a specific conversation
    * - Sets status message (this IS the processing state)
-   * - Shows busy indicator for this conversation's tab
+   * - Tells the status observers, so the tab showing it shows its spinner
    * - Adopts the worker's shared start time (or hides the digit when absent)
    * - Starts/restarts elapsed time timer
    * @param {string} conversationId - ID of conversation being processed
@@ -427,35 +404,25 @@ class LLMState {
     const message = this._buildStatusMessage(statusData.type, statusData);
     this._perThread(this._statusMessages, conversationId).set(key, message);
 
-    // Update UI
-    this._notifyConversationArea(conversationId);
+    // Tell the observers (the tab showing it among them)
+    this._notifyStatusObservers(conversationId);
   }
 
   /**
-   * Notify the conversation tab to sync layout and update footers.
-   * Uses syncWithStatus() (Rule B: ensures the thread column opens before footer
-   * updates fire, so the spinner appears in the correct column).
-   * Falls back to updateAllFooters() for tabs without syncWithStatus().
+   * Tell every status observer that a conversation's status changed. The tab
+   * showing the conversation is one of them (see conversation-tab.js
+   * `setConversation`), and it reads the new state back from here.
    * @param {string} conversationId - Conversation ID
    * @private
    */
-  _notifyConversationArea(conversationId) {
-    const tab = this._conversationTabs.get(conversationId);
-    if (tab) {
-      if ('syncWithStatus' in tab) {
-        const threadId = this.getStatusThreadId(conversationId);
-        (/** @type {any} */ (tab)).syncWithStatus(threadId);
-      } else if ('updateAllFooters' in tab) {
-        (/** @type {any} */ (tab)).updateAllFooters();
-      }
-    }
+  _notifyStatusObservers(conversationId) {
     for (const fn of this._statusObservers) fn(conversationId);
   }
 
   /**
    * Stop LLM processing for a specific conversation
    * - Clears status message (this IS what stops processing)
-   * - Hides busy indicator for this conversation's tab
+   * - Tells the status observers, so the tab showing it drops its spinner
    * - Cleans up status data for this conversation
    * - Stops elapsed time timer
    * @param {string} conversationId - ID of conversation that finished processing
@@ -470,8 +437,8 @@ class LLMState {
     // Stop elapsed time timer
     this._stopElapsedTimeTimer(conversationId);
 
-    // Update UI
-    this._notifyConversationArea(conversationId);
+    // Tell the observers (the tab showing it among them)
+    this._notifyStatusObservers(conversationId);
   }
 
   /**
@@ -490,7 +457,7 @@ class LLMState {
     if (!this.isConversationProcessing(conversationId)) {
       this._stopElapsedTimeTimer(conversationId);
     }
-    this._notifyConversationArea(conversationId);
+    this._notifyStatusObservers(conversationId);
   }
 
   /**
@@ -580,8 +547,8 @@ class LLMState {
     const message = this._buildStatusMessage(statusType, statusData);
     this._perThread(this._statusMessages, conversationId).set(key, message);
 
-    // Update UI
-    this._notifyConversationArea(conversationId);
+    // Tell the observers (the tab showing it among them)
+    this._notifyStatusObservers(conversationId);
   }
 
   /**

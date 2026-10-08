@@ -735,40 +735,18 @@ func (ops *FileOperations) editFile(params map[string]any) (any, error) {
 		}
 	}
 
-	// All strategies failed - return structured error data for frontend to
-	// interpret. Test matchStrategy (not newContentStr) so a legitimate edit that
-	// replaces the whole file with "" isn't misreported as SEARCH_NOT_FOUND.
+	// All strategies failed. Test matchStrategy (not newContentStr) so a
+	// legitimate edit that replaces the whole file with "" isn't misreported as
+	// a failed search. The detail's contentHash lets the caller tell "your
+	// old_str is wrong" from "the file changed since you read it".
 	if matchStrategy == "" {
-		// Detect escaping issues
-		escapingHint := detectEscapingIssues(oldStr, currentContentStr)
-
-		// Find approximate location for context
-		contextLines := findApproximateLocation(oldStr, currentContentStr)
-
-		// Extract line number from context if available
-		var nearMatchLine int
-		if contextLines != "" {
-			// Parse "near possible match (lines X-Y)" to get X
-			var start, end int
-			if _, err := fmt.Sscanf(contextLines, "\n\nApproximate file content near possible match (lines %d-%d)", &start, &end); err == nil {
-				nearMatchLine = start
-			}
+		return nil, &CodedError{
+			Code: CodeSearchNotFound,
+			Msg: searchNotFoundMessage(path,
+				hasEscapingIssues(oldStr, currentContentStr),
+				findApproximateLocation(oldStr, currentContentStr)),
+			Detail: map[string]any{"path": path, "contentHash": currentHash},
 		}
-
-		// Return structured error data - frontend action plugin will create
-		// messages. contentHash lets the JS layer distinguish "your old_str is
-		// wrong" from "the file changed since you read it" when explaining the
-		// failed match to the model.
-		return map[string]any{
-			"success":       false,
-			"errorCode":     "SEARCH_NOT_FOUND",
-			"path":          path,
-			"hasEscaping":   escapingHint != "",
-			"hasNearMatch":  contextLines != "",
-			"nearMatchLine": nearMatchLine,
-			"contextLines":  contextLines, // Include raw context for detailed LLM feedback
-			"contentHash":   currentHash,
-		}, nil
 	}
 
 	// If dry-run mode, return full old and new file content for diff preview.
@@ -1136,9 +1114,25 @@ func makeFlexiblePattern(s string) string {
 	return pattern
 }
 
-// detectEscapingIssues checks if oldStr contains escaped characters that should be literal
-// Returns a hint message if escaping issues are detected
-func detectEscapingIssues(oldStr, fileContent string) string {
+// searchNotFoundMessage is what an edit whose old_str matched nothing tells the
+// model: which file, an escaping hint when unescaping old_str would have
+// matched, the file around the likeliest intended location (context, from
+// findApproximateLocation, may be empty), and what to do next.
+func searchNotFoundMessage(path string, escaping bool, context string) string {
+	parts := []string{fmt.Sprintf("Search failed in '%s'.", path)}
+	if escaping {
+		parts = append(parts, "ESCAPING ERROR: old_str is LITERAL, don't escape backticks, ${}, (), [], {}.")
+	}
+	if context != "" {
+		parts = append(parts, context)
+	}
+	parts = append(parts, "Re-read file and use exact text including whitespace.")
+	return strings.Join(parts, " ")
+}
+
+// hasEscapingIssues reports whether oldStr carries backslash escapes that are
+// literal in the file: oldStr does not match, but would once unescaped.
+func hasEscapingIssues(oldStr, fileContent string) bool {
 	// Check if oldStr has escaped characters that might be literal in the file
 	hasEscapedBackticks := strings.Contains(oldStr, "\\`")
 	hasEscapedDollar := strings.Contains(oldStr, "\\$")
@@ -1158,11 +1152,9 @@ func detectEscapingIssues(oldStr, fileContent string) string {
 		unescaped = strings.ReplaceAll(unescaped, "\\{", "{")
 		unescaped = strings.ReplaceAll(unescaped, "\\}", "}")
 
-		if strings.Contains(fileContent, unescaped) {
-			return "\n\n❌ ESCAPING ERROR DETECTED: Your old_str contains escaped characters (\\`, \\$, \\(, \\), etc.) but old_str is a LITERAL STRING MATCH, not a regex. Remove all backslash escapes and use the exact text from the file."
-		}
+		return strings.Contains(fileContent, unescaped)
 	}
-	return ""
+	return false
 }
 
 // findApproximateLocation tries to find an approximate location in the file for diagnostics

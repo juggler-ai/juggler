@@ -267,7 +267,7 @@ class ConversationFooter extends HTMLElement {
         this._unsubscribe = /** @type {() => void} */ (session.subscribe((/** @type {any} */ event) => {
           if (event.type === 'conversation:context-window-updated' && event.data === conversation) {
             this._scheduleTokenDisplayUpdate();
-          } else if (event.type === 'contextItems:changed' || event.type === 'conversation:changed') {
+          } else if (event.type === 'conversation:changed') {
             // A model override lives in the document, so a document change is
             // the event that can invalidate the resolved model.
             this._threadModelConfig = undefined;

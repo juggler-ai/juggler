@@ -87,6 +87,9 @@ class ConversationTab extends JugglerElement {
     /** @type {(() => void)|null} @private - Session event unsubscribe function */
     this._unsubscribe = null;
 
+    /** @type {(() => void)|null} @private - Conversation status feed unsubscribe function */
+    this._statusUnsubscribe = null;
+
     /** @type {boolean} @private - Whether item-selected listener is attached */
     this._itemSelectedListenerAttached = false;
 
@@ -141,10 +144,22 @@ class ConversationTab extends JugglerElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     // Re-assignable (setConversation disposes and re-subscribes mid-life), so
-    // it stays a field rather than an addCleanup registration.
+    // they stay fields rather than addCleanup registrations.
+    this._dropSubscriptions();
+  }
+
+  /**
+   * Drop the session and status subscriptions taken by {@link setConversation}.
+   * @private
+   */
+  _dropSubscriptions() {
     if (this._unsubscribe) {
       this._unsubscribe();
       this._unsubscribe = null;
+    }
+    if (this._statusUnsubscribe) {
+      this._statusUnsubscribe();
+      this._statusUnsubscribe = null;
     }
   }
 
@@ -200,25 +215,42 @@ class ConversationTab extends JugglerElement {
    * @param {Conversation} conversation
    */
   setConversation(conversation) {
-    if (this._unsubscribe) {
-      this._unsubscribe();
-      this._unsubscribe = null;
-    }
+    this._dropSubscriptions();
 
     this._conversation = conversation;
     this._selection.resetSelections();
 
-    // Reset the first column's scroll restore flag
-    asArea(this._columns[0])?.resetScrollRestoreFlag();
+    // Reset the first column's scroll restore flag, and hand the root column
+    // its conversation. The tab owns its columns: the conversation never
+    // writes into one.
+    const root = asArea(this._columns[0]);
+    root?.resetScrollRestoreFlag();
+    if (root) root.conversation = conversation;
 
     // Give conversation reference to this tab
     conversation.setTabElement(this);
+
+    // Paint status changes. Rule B: syncWithStatus opens the running thread's
+    // column before it updates the footers, so the spinner appears in the
+    // right column.
+    this._statusUnsubscribe = conversation.onStatusChange(() => {
+      this.syncWithStatus(conversation.llmState?.getStatusThreadId(conversation.id) ?? null);
+    });
 
     // Subscribe to session events
     const session = conversation.session;
     if (session) {
       this._unsubscribe = /** @type {() => void} */ (session.subscribe((/** @type {{type: string, data?: any}} */ event) => {
         if (!this._conversation) return;
+
+        // A send or a continue: move to the end the moment it is asked for,
+        // hidden or not, rather than waiting out the round-trip.
+        if (event.type === 'conversation:turn-requested') {
+          if (event.data?.conversationId === this._conversation.id) {
+            asArea(this._columns[0])?.scrollToBottom(true);
+          }
+          return;
+        }
 
         // Hidden: defer all rendering work. setActive will flush.
         // 'conversation:switched' for our own conv is also a no-op here:
@@ -292,8 +324,13 @@ class ConversationTab extends JugglerElement {
           // coalesced batch (one event for a whole turn) leaves it that way
           // forever.
           this._ensureThreadColumnSelections();
-        } else if (event.type === 'contextItems:changed' ||
-            event.type === 'processing:stopped' ||
+        } else if (event.type === 'session:loaded') {
+          // The session finished loading: repaint the root column from the
+          // document rather than trust what was rendered while it loaded.
+          const rootColumn = this._columns[0];
+          if (rootColumn) this._builder.invalidate(rootColumn);
+          this._syncWithConversation();
+        } else if (event.type === 'processing:stopped' ||
             (event.type === 'conversation:loadstate-changed' &&
              event.data?.conversationId === this._conversation.id)) {
           this._syncWithConversation();

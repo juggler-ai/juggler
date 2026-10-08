@@ -1408,21 +1408,14 @@ class Session {
   }
 
   /**
-   * Notify listeners about a conversation state change
-   * Public method for Conversation instances to trigger session-level notifications
-   * Also dispatches a DOM CustomEvent so UI components can listen via document.addEventListener
+   * Notify listeners about a conversation state change. The public door for
+   * Conversation instances to announce on the session feed, which is the only
+   * place it goes: a component that wants it calls {@link subscribe}.
    * @param {string} type - Event type (e.g., 'conversation:strategy-changed')
    * @param {any} data - Event data
    */
   notifyConversationChange(type, data) {
     this._notify(type, data);
-
-    // Also dispatch as DOM event for UI components that listen via document.
-    // The engine worker has no document and no UI listeners — observers fire
-    // via _notify regardless, so skipping the DOM event off-thread is safe.
-    if (typeof document !== 'undefined') {
-      document.dispatchEvent(new CustomEvent(type, { detail: data }));
-    }
   }
 
   /**

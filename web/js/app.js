@@ -47,6 +47,7 @@ import { MAX_CONVERSATIONS, CONVERSATION_LIMIT_MESSAGE } from './model/session.j
 import { normalizeAttachments } from './utils/attachments.js';
 import { itemField } from '../sdk/lib/message.js';
 import { showAlert, showNotice } from './components/modal-dialog.js';
+import { openCommandManager } from './components/command-editor-dialog.js';
 import { setFaultSink, reportFault } from './utils/fault-report.js';
 import { apiUrl, serverPath } from './utils/api-url.js';
 
@@ -514,6 +515,9 @@ class JugglerApp {
     const syncWindowTitle = () => updateWindowTitle(session.projectPath || '');
     session.subscribe(/** @param {{type: string}} event */ (event) => {
       if (event.type === 'session:loaded') syncWindowTitle();
+      // A command (/commands) asked for the manager: the model only announces
+      // it, because the dialog is app-level UI.
+      else if (event.type === 'command-manager:open-requested') openCommandManager();
     });
     syncWindowTitle();
 

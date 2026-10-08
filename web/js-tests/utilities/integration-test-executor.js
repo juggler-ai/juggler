@@ -211,6 +211,7 @@ import { runTests as runSessionManifestStateTests } from '../unit-tests/session-
 import { runTests as runConversationSeederTests } from '../unit-tests/conversation-seeder-test.js';
 import { runTests as runConversationBinTests } from '../unit-tests/conversation-bin-test.js';
 import { runTests as runConversationSyncTests } from '../unit-tests/conversation-sync-test.js';
+import { runTests as runModelViewBoundaryTests } from '../unit-tests/model-view-boundary-test.js';
 import { runTests as runCommandMenuOrderTests } from '../unit-tests/command-menu-order-test.js';
 import { runTests as runMobileComposerTests } from '../unit-tests/mobile-composer-test.js';
 import { runTests as runComposerSendLatchTests } from '../unit-tests/composer-send-latch-test.js';
@@ -666,6 +667,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:conversation-seeder', run: runConversationSeederTests },
   { name: 'unit:conversation-bin', run: runConversationBinTests },
   { name: 'unit:conversation-sync', run: runConversationSyncTests },
+  { name: 'unit:model-view-boundary', run: runModelViewBoundaryTests },
   { name: 'unit:command-menu-order', run: runCommandMenuOrderTests },
   { name: 'unit:unclaimed-conversations', run: runUnclaimedConversationsTests },
   { name: 'unit:thread-column-selection', run: runThreadColumnSelectionTests },

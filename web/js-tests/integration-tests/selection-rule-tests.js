@@ -508,8 +508,8 @@ export const selectionAutoSelectInRootAfterThread = {
  *
  * Regression test: tool-action-message's Yjs observer called render() but
  * not updateFooter(), so when a tool transitioned RUNNING→COMPLETED after
- * hideBusy() fired, isProcessing stayed true and the continue button stayed
- * hidden.
+ * processing had stopped, isProcessing stayed true and the continue button
+ * stayed hidden.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
 export const selectionContinueBtnVisibleAfterToolUse = {

@@ -22,6 +22,24 @@ import { absolutePathKey } from './path-approval.js';
  */
 
 /**
+ * The read-file op's code for an edit whose old_str matched nothing (an
+ * OpsError's `code`; see ops-api.js readFileEdit).
+ */
+const SEARCH_NOT_FOUND = 'SEARCH_NOT_FOUND';
+
+/**
+ * What execute returns when old_str stopped matching between approval and
+ * execute: a structured failure in the SDK's shape (`success: false` plus an
+ * `errorCode`), which the action executor hands to {@link
+ * ReplaceTextContextItem#formatError}.
+ * @typedef {object} SearchNotFoundResult
+ * @property {false} success - Always false
+ * @property {string} errorCode - SEARCH_NOT_FOUND
+ * @property {string} path - The file the edit named
+ * @property {string} message - The explanation for the model
+ */
+
+/**
  * ReplaceTextContextItem - Search and replace text in files with diff preview
  *
  * Superior to WriteFileContextItem for modifying existing files.
@@ -167,52 +185,17 @@ class ReplaceTextContextItem extends EditBase {
         /** @type {import('../../../js/services/ops-api.js').ReadFileEditParams} */ ({ ...params, dryRun: true })
       );
     } catch (err) {
-      // If string not found, check if size was the likely cause and give helpful error.
-      // The caps are deliberately generous: a single prose paragraph (one long
-      // line of Markdown) is a legitimate, common edit target, so a paragraph-
-      // sized old_str must NOT be waved off to the write tool — the backend
-      // matcher (exact → flexible-whitespace → regex) handles blocks this size
-      // fine. Only a genuinely huge multi-paragraph block is better rewritten
-      // wholesale, so the "use write" advice fires only past that.
-      const oldContentLines = params.old_str.split('\n').length;
-      const oldContentChars = params.old_str.length;
-      const MAX_LINES = 40;
-      const MAX_CHARS = 4000;
-
-      if (oldContentLines > MAX_LINES || oldContentChars > MAX_CHARS) {
-        return {
-          valid: false,
-          error: `The old_str is very large (${oldContentLines} lines, ${oldContentChars} characters) and did not match. ` +
-                        `For a block this big, the write tool is usually more reliable than reproducing it exactly. ` +
-                        `Otherwise re-read the file and copy the exact text (including whitespace) for a smaller, unique old_str.`
-        };
+      // Every failure is rejected here, at validation time: an edit that
+      // cannot apply must not reach the approval modal, which would show the
+      // user a diff-less approval for an edit that then fails at execute time.
+      if (/** @type {any} */ (err)?.code === SEARCH_NOT_FOUND) {
+        return { valid: false, error: this._explainSearchNotFound(params, /** @type {any} */ (err)) };
       }
-      // String was small enough but still didn't match - return validation error
-      // (includes ambiguous matches, file not found, etc.)
+      // Ambiguous matches, a missing file, and the rest.
       return {
         valid: false,
         error: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`
       };
-    }
-
-    // The backend returns search-not-found / file-not-found / ambiguous-match
-    // as `{ success: false, errorCode, ... }` data WITHOUT throwing, so the
-    // try/catch above doesn't see them. Inspect the dryRun result here and
-    // reject at validation time — otherwise the framework would proceed to
-    // request approval for an edit that cannot apply, surfacing a useless
-    // diff-less approval modal to the user before the action ultimately
-    // fails at execute time.
-    if (result && /** @type {any} */ (result).success === false) {
-      // A stale file explains a failed match better than the generic
-      // search-not-found guidance, so check freshness against the hash the
-      // backend reports alongside the structured error.
-      const failedHash = /** @type {any} */ (result).contentHash;
-      const staleOnFail = checkFileFreshness(this.conversation, this.session, params.path, failedHash);
-      if (!staleOnFail.ok) {
-        return { valid: false, error: staleOnFail.error };
-      }
-      const { llmMessage } = this.formatError(/** @type {any} */ (result), 'edit');
-      return { valid: false, error: llmMessage };
     }
 
     // Staleness is deliberately NOT re-checked on a successful match. Reaching
@@ -233,6 +216,43 @@ class ReplaceTextContextItem extends EditBase {
       valid: true,
       params: { ...params, _dryRunResult: result }
     };
+  }
+
+  /**
+   * What the model is told when old_str matched nothing in the file, best
+   * explanation first:
+   * - The file changed since it was read. A stale read explains a failed match
+   *   better than anything about old_str, so freshness is checked against the
+   *   hash the backend reports with the failure.
+   * - The old_str is huge. The caps are deliberately generous: a single prose
+   *   paragraph (one long line of Markdown) is a legitimate, common edit
+   *   target, so a paragraph-sized old_str must NOT be waved off to the write
+   *   tool, because the backend matcher (exact → flexible-whitespace → regex)
+   *   handles blocks this size fine. Only a genuinely huge multi-paragraph
+   *   block is better rewritten wholesale, so the "use write" advice fires
+   *   only past that.
+   * - Otherwise, the backend's own explanation, which carries any escaping
+   *   hint and the file around the likeliest intended location.
+   * @param {{path: string, old_str: string}} params - The edit's params
+   * @param {{message: string, detail?: {contentHash?: string}}} err - The SEARCH_NOT_FOUND OpsError
+   * @returns {string} The message for the model
+   * @private
+   */
+  _explainSearchNotFound(params, err) {
+    const staleOnFail = checkFileFreshness(this.conversation, this.session, params.path, err.detail?.contentHash);
+    if (!staleOnFail.ok) {
+      return staleOnFail.error;
+    }
+    const oldContentLines = params.old_str.split('\n').length;
+    const oldContentChars = params.old_str.length;
+    const MAX_LINES = 40;
+    const MAX_CHARS = 4000;
+    if (oldContentLines > MAX_LINES || oldContentChars > MAX_CHARS) {
+      return `The old_str is very large (${oldContentLines} lines, ${oldContentChars} characters) and did not match. ` +
+        `For a block this big, the write tool is usually more reliable than reproducing it exactly. ` +
+        `Otherwise re-read the file and copy the exact text (including whitespace) for a smaller, unique old_str.`;
+    }
+    return err.message;
   }
 
   /**
@@ -258,7 +278,7 @@ class ReplaceTextContextItem extends EditBase {
   /**
    * Execute the replace text action
    * @param {Record<string, unknown>} params - Prepared params from prepare
-   * @returns {Promise<ReplaceTextResult>} Action result
+   * @returns {Promise<ReplaceTextResult|SearchNotFoundResult>} Action result, or the failed match
    */
   async execute(params) {
     // Normalize params (may have been passed raw toolInput)
@@ -305,15 +325,33 @@ class ReplaceTextContextItem extends EditBase {
       // check admits the edit (see EditBase._authorizeWrite).
       const sendParams = this._authorizeWrite(normalizedParams);
 
-      const result = await this.ops.editFile(
-        /** @type {import('../../../js/services/ops-api.js').ReadFileEditParams} */ (sendParams),
-        this.signal
-      );
+      /** @type {any} */
+      let result;
+      try {
+        result = await this.ops.editFile(
+          /** @type {import('../../../js/services/ops-api.js').ReadFileEditParams} */ (sendParams),
+          this.signal
+        );
+      } catch (err) {
+        // validate() rejects a failed match before approval, so this is the
+        // file changing under an approved edit. Answer it as a structured
+        // failure, so the user sees which file and the model sees why
+        // (formatError).
+        if (/** @type {any} */ (err)?.code === SEARCH_NOT_FOUND) {
+          return {
+            success: false,
+            errorCode: SEARCH_NOT_FOUND,
+            path: anyParams.path,
+            message: this._explainSearchNotFound(anyParams, /** @type {any} */ (err))
+          };
+        }
+        throw err;
+      }
 
       // Remember the post-edit hash synchronously so a follow-up edit of the same
       // file later in this turn passes the freshness guard even before this edit's
       // tool-action lands in the durable transcript (see read-history.js).
-      if (result && /** @type {any} */ (result).success !== false &&
+      if (result &&
           typeof (/** @type {any} */ (result).contentHash) === 'string') {
         recordWrittenHash(this.conversation, this.session, anyParams.path, /** @type {any} */ (result).contentHash);
       }
@@ -322,7 +360,7 @@ class ReplaceTextContextItem extends EditBase {
       // filename. The dryRun captured the full before/after file content, which
       // counts every occurrence for a replace_all; fall back to the single
       // old_str/new_str region when it isn't available.
-      if (result && /** @type {any} */ (result).success !== false) {
+      if (result) {
         const stats = (typeof oldFull === 'string' && typeof newFull === 'string')
           ? EditBase._lineStats(oldFull, newFull)
           : EditBase._lineStats(anyParams.old_str, anyParams.new_str);
@@ -354,8 +392,8 @@ class ReplaceTextContextItem extends EditBase {
       return this.failureSummary(`Replace text cancelled: ${prepPath}`);
     }
     if (!outcome.success) {
-      // Check if we have structured error info from backend
-      const result = /** @type {{success: boolean, errorCode: string, path: string, hasEscaping?: boolean, hasNearMatch?: boolean, nearMatchLine?: number, contextLines?: string}|undefined} */ (outcome.result);
+      // A failed match carries the file and an explanation (execute's SearchNotFoundResult)
+      const result = /** @type {SearchNotFoundResult|undefined} */ (outcome.result);
       if (result && result.path) {
         const { userMessage, llmMessage } = this.formatError(result, 'edit');
         return this.failureSummary(`Replace text failed: ${userMessage}`, { feedbackForLLM: llmMessage });
@@ -372,39 +410,16 @@ class ReplaceTextContextItem extends EditBase {
   }
 
   /**
-   * Format structured error from backend into user and LLM messages.
-   * Called when backend returns success: false with error diagnostics.
-   * @param {object} result - Structured error result from backend
-   * @param {boolean} result.success - Always false for errors
-   * @param {string} result.errorCode - Error code (e.g., 'SEARCH_NOT_FOUND')
-   * @param {string} result.path - File path
-   * @param {boolean} [result.hasEscaping] - Whether escaping issues detected
-   * @param {boolean} [result.hasNearMatch] - Whether similar content found nearby
-   * @param {number} [result.nearMatchLine] - Line number of near match
-   * @param {string} [result.contextLines] - Raw context lines for LLM
+   * Format this tool's structured failure (see execute) into user and LLM
+   * messages: the file's name for the user, the full explanation for the model.
+   * @param {Record<string, unknown>} result - The SearchNotFoundResult execute returned
    * @param {string} _toolName - Name of the tool that failed
    * @returns {{userMessage: string, llmMessage: string}} Dual messages
    */
   formatError(result, _toolName) {
-    // User-friendly message - short and clear with filename
-    const filename = result.path ? basename(result.path) || result.path : 'unknown';
-    const userMessage = `failed in ${filename}`;
-
-    // LLM message with technical details for self-correction (built as array to avoid += lint rule)
-    const llmParts = [`Search failed in '${result.path}'.`];
-    if (result.hasEscaping) {
-      llmParts.push("ESCAPING ERROR: old_str is LITERAL, don't escape backticks, ${}, (), [], {}.");
-    }
-    if (result.hasNearMatch && result.nearMatchLine) {
-      llmParts.push(`Similar content near line ${result.nearMatchLine}.`);
-    }
-    if (result.contextLines) {
-      llmParts.push(result.contextLines);
-    }
-    llmParts.push('Re-read file and use exact text including whitespace.');
-    const llmMessage = llmParts.join(' ');
-
-    return { userMessage, llmMessage };
+    const failed = /** @type {SearchNotFoundResult} */ (/** @type {unknown} */ (result));
+    const filename = failed.path ? basename(failed.path) || failed.path : 'unknown';
+    return { userMessage: `failed in ${filename}`, llmMessage: failed.message };
   }
 
   /**

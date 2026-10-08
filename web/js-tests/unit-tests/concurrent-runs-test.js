@@ -99,7 +99,7 @@ export async function runTests() {
   try {
     const llm = new LLMState();
     const conv = stubConversation('conv-two-live');
-    llm.registerConversationTab(conv, /** @type {any} */ ({}));
+    llm.registerConversation(conv);
     conv.publish(frame([
       { threadItemId: '', status: 'streaming', startedAt: now - 65000, outputTokens: 120 },
       { threadItemId: 'child-a', status: 'streaming', startedAt: now - 5000, outputTokens: 7 },
@@ -120,7 +120,7 @@ export async function runTests() {
     assert(live['child-a'].includes('5s'),
       `the five-second-old run must show its own elapsed time; got '${live['child-a']}'`);
 
-    llm.unregisterConversationTab(conv.id);
+    llm.unregisterConversation(conv.id);
     passed++;
   } catch (e) {
     failed++;
@@ -133,7 +133,7 @@ export async function runTests() {
   try {
     const llm = new LLMState();
     const conv = stubConversation('conv-barrier');
-    llm.registerConversationTab(conv, /** @type {any} */ ({}));
+    llm.registerConversation(conv);
     conv.publish(frame([
       { threadItemId: '', status: 'streaming', startedAt: now - 1000 },
       { threadItemId: 'child-a', status: 'processing_tools', startedAt: now - 1000 },
@@ -148,7 +148,7 @@ export async function runTests() {
     assert(llm.isThreadProcessing(conv.id, 'child-b') === false,
       'a thread holding no run is idle, however busy its siblings are — this is the barrier a send asks');
 
-    llm.unregisterConversationTab(conv.id);
+    llm.unregisterConversation(conv.id);
     passed++;
   } catch (e) {
     failed++;
@@ -161,7 +161,7 @@ export async function runTests() {
   try {
     const llm = new LLMState();
     const conv = stubConversation('conv-sibling-rest');
-    llm.registerConversationTab(conv, /** @type {any} */ ({}));
+    llm.registerConversation(conv);
     conv.publish(frame([
       { threadItemId: '', status: 'streaming', startedAt: now - 30000, outputTokens: 400 },
       { threadItemId: 'child-a', status: 'streaming', startedAt: now - 2000, outputTokens: 9 },
@@ -182,7 +182,7 @@ export async function runTests() {
     assert(llm.isConversationProcessing(conv.id) === true,
       'the conversation is still busy while the root streams');
 
-    llm.unregisterConversationTab(conv.id);
+    llm.unregisterConversation(conv.id);
     passed++;
   } catch (e) {
     failed++;
@@ -195,7 +195,7 @@ export async function runTests() {
   try {
     const llm = new LLMState();
     const conv = stubConversation('conv-flow');
-    llm.registerConversationTab(conv, /** @type {any} */ ({}));
+    llm.registerConversation(conv);
     conv.publish(frame([
       { threadItemId: '', status: 'streaming', startedAt: now - 1000, inputTokens: 5000, cachedTokens: 4000, outputTokens: 10 },
       { threadItemId: 'child-a', status: 'streaming', startedAt: now - 1000, inputTokens: 90, outputTokens: 3 },
@@ -210,7 +210,7 @@ export async function runTests() {
     assert(llm.getLiveInputUsage(conv.id, 'child-b') === null,
       'a thread with no run has no live usage to report');
 
-    llm.unregisterConversationTab(conv.id);
+    llm.unregisterConversation(conv.id);
     passed++;
   } catch (e) {
     failed++;
@@ -222,7 +222,7 @@ export async function runTests() {
   try {
     const llm = new LLMState();
     const conv = stubConversation('conv-rest');
-    llm.registerConversationTab(conv, /** @type {any} */ ({}));
+    llm.registerConversation(conv);
     conv.publish(frame([
       { threadItemId: '', status: 'streaming', startedAt: now - 1000 },
       { threadItemId: 'child-a', status: 'streaming', startedAt: now - 1000 },
@@ -236,7 +236,7 @@ export async function runTests() {
     assert(llm.getStatusThreadId(conv.id) === null,
       'a conversation at rest names no live column for the readers that act on one');
 
-    llm.unregisterConversationTab(conv.id);
+    llm.unregisterConversation(conv.id);
     passed++;
   } catch (e) {
     failed++;
@@ -251,7 +251,7 @@ export async function runTests() {
     const Y = await import('../../js/vendor/yjs.mjs');
     const llm = new LLMState();
     const conv = stubConversation('conv-tiles');
-    llm.registerConversationTab(conv, /** @type {any} */ ({}));
+    llm.registerConversation(conv);
     conv.publish(frame([
       { threadItemId: 'child-a', status: 'streaming', startedAt: now - 3000, outputTokens: 12 },
       { threadItemId: 'child-b', status: 'streaming', startedAt: now - 3000, outputTokens: 34 },
@@ -285,7 +285,7 @@ export async function runTests() {
     assert(c.kind === 'queued',
       `a sibling with no run of its own is still waiting its turn; got '${c.kind}'`);
 
-    llm.unregisterConversationTab(conv.id);
+    llm.unregisterConversation(conv.id);
     passed++;
   } catch (e) {
     failed++;
@@ -302,7 +302,7 @@ export async function runTests() {
   try {
     const llm = new LLMState();
     const conv = stubConversation('conv-terminal-error');
-    llm.registerConversationTab(conv, /** @type {any} */ ({}));
+    llm.registerConversation(conv);
     conv.publish(frame([
       { threadItemId: 'child-a', status: 'streaming', startedAt: now - 4000, outputTokens: 51 },
     ]));
@@ -320,7 +320,7 @@ export async function runTests() {
     assert(llm.getStatusThreadId(conv.id) === null,
       'nothing names a live column any more: a bare Escape must not be handed a thread that has stopped');
 
-    llm.unregisterConversationTab(conv.id);
+    llm.unregisterConversation(conv.id);
     passed++;
   } catch (e) {
     failed++;

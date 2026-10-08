@@ -138,8 +138,8 @@ class PropertiesPanel extends HTMLElement {
     /** @type {((event: any, transaction: any) => void)|null} @private */
     this._contextItemsObserver = null;
 
-    /** @type {((event: Event) => void)|null} @private */
-    this._strategyChangeHandler = null;
+    /** @type {(() => void)|null} @private - Session feed unsubscribe, for strategy changes */
+    this._strategyUnsubscribe = null;
 
     /** @type {{state: string|undefined, hasResult: boolean, contentSnippet: string, type: string|undefined}|null} @private */
     this._lastSnapshot = null;
@@ -351,16 +351,21 @@ class PropertiesPanel extends HTMLElement {
     container.observeDeep(this._itemsObserver);
     // Unified storage: context items are in items array, so items observer handles changes too
 
-    // Re-render when strategy changes (system prompt panel shows strategy content)
-    this._strategyChangeHandler = () => {
-      if (this._selectedItemId) {
-        // Force full re-render by clearing snapshot
-        this._lastSnapshot = null;
-        this._renderedItemId = null;
-        this._renderContent();
-      }
-    };
-    document.addEventListener('conversation:strategy-changed', this._strategyChangeHandler);
+    // Re-render when this conversation's strategy changes (system prompt panel
+    // shows strategy content).
+    const conversation = this._messageThread?.conversation;
+    const session = conversation?.session;
+    if (session) {
+      this._strategyUnsubscribe = /** @type {() => void} */ (session.subscribe((/** @type {{type: string, data?: any}} */ event) => {
+        if (event.type !== 'conversation:strategy-changed' || event.data?.conversation !== conversation) return;
+        if (this._selectedItemId) {
+          // Force full re-render by clearing snapshot
+          this._lastSnapshot = null;
+          this._renderedItemId = null;
+          this._renderContent();
+        }
+      }));
+    }
   }
 
   /**
@@ -374,9 +379,9 @@ class PropertiesPanel extends HTMLElement {
     this._observedContainer = null;
     this._itemsObserver = null;
 
-    if (this._strategyChangeHandler) {
-      document.removeEventListener('conversation:strategy-changed', this._strategyChangeHandler);
-      this._strategyChangeHandler = null;
+    if (this._strategyUnsubscribe) {
+      this._strategyUnsubscribe();
+      this._strategyUnsubscribe = null;
     }
   }
 

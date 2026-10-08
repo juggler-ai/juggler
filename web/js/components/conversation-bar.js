@@ -35,7 +35,7 @@ import {
   openMenuAt
 } from '../services/context-menu-service.js';
 import scheduledSendService, { SCHEDULED_SEND_ARMED_EVENT } from '../services/scheduled-send-service.js';
-import { CLOCK_SVG, ALERT_SVG } from '../utils/icons.js';
+import { CLOCK_SVG, ALERT_SVG, ADD_SVG, BIN_SVG, UNDO_SVG, withAttrs } from '../utils/icons.js';
 import { TYPE_ICONS } from '../utils/icon-message-renderer.js';
 import { isPinboardView } from '../utils/view-mode.js';
 import keyShortcutManager from '../services/key-shortcut-manager.js';
@@ -93,17 +93,13 @@ const TAB_GLIDE_ID = 'tab-keyboard-glide';
 // there is nothing at that edge to take.
 const BOX_TOP_BAND_PX = 14;
 
-// Material "delete" (trash can) icon — the per-tab "move to bin" affordance.
-const BIN_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" height="1rem" viewBox="0 -960 960 960" width="1rem" fill="currentColor" aria-hidden="true"><path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/></svg>`;
+// The trash can on the per-tab "move to bin" affordance and the Bin button.
+const BIN_ICON_SVG = withAttrs(BIN_SVG, { width: '1rem', height: '1rem' });
 
-// Material "add" icon — the mark on the rows that make a conversation and a
-// workspace. It stands in the column a tab keeps for its status circle, so the
-// words beside it line up with the tab names.
-const ADD_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" height="1rem" viewBox="0 -960 960 960" width="1rem" fill="currentColor" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg>`;
-
-// Material "undo" icon — the arrow on the bin toast's Undo button, matching the
-// column-footer undo offer.
-const UNDO_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z"/></svg>`;
+// The mark on the rows that make a conversation and a workspace. It stands in
+// the column a tab keeps for its status circle, so the words beside it line up
+// with the tab names.
+const ADD_ICON_SVG = withAttrs(ADD_SVG, { width: '1rem', height: '1rem' });
 
 // Keys in `_cachedElements` that name the bar's own furniture rather than a
 // conversation tab, so render()'s cleanup pass leaves them alone.
@@ -1009,7 +1005,7 @@ class ConversationBar extends JugglerElement {
       undoToast.title = 'Put the conversation you just binned back';
       undoToast.setAttribute('aria-label', 'Restore the conversation from the bin');
       undoToast.hidden = true;
-      undoToast.innerHTML = `${UNDO_ICON_SVG}<span>Restore from Bin</span>`;
+      undoToast.innerHTML = `${UNDO_SVG}<span>Restore from Bin</span>`;
       undoToast.addEventListener('click', () => this._undoBin());
       this._cachedElements.set('bin-undo', undoToast);
       footer.appendChild(undoToast);

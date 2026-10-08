@@ -535,15 +535,15 @@ context-preview-modal .context-system {
     color: #8af;
 }
 
-context-preview-modal .ci-section {
+context-preview-modal .context-items-section {
     color: #8d8;
 }
 
-context-preview-modal .ci-section-even {
+context-preview-modal .context-item-even {
     color: #cb7;
 }
 
-context-preview-modal .ci-section-odd {
+context-preview-modal .context-item-odd {
     color: #bfb;
 }
 
@@ -572,15 +572,15 @@ context-preview-modal .context-message {
     color: #06c;
 }
 
-:root[data-theme="light"] context-preview-modal .ci-section {
+:root[data-theme="light"] context-preview-modal .context-items-section {
     color: #2d7d2d;
 }
 
-:root[data-theme="light"] context-preview-modal .ci-section-even {
+:root[data-theme="light"] context-preview-modal .context-item-even {
     color: #960;
 }
 
-:root[data-theme="light"] context-preview-modal .ci-section-odd {
+:root[data-theme="light"] context-preview-modal .context-item-odd {
     color: #383;
 }
 

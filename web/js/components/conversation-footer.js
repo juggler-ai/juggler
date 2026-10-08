@@ -43,6 +43,7 @@ import { findAssistantTxnIds, findLastAssistantItemId } from '../utils/transacti
 import { formatRelativeDateTime } from '../utils/format.js';
 import providersCache from '../services/providers-cache.js';
 import { openSettings } from '../services/settings-launcher.js';
+import { FORK_SVG, UNDO_SVG } from '../utils/icons.js';
 
 const TOKEN_UPDATE_DEBOUNCE_MS = 2000;
 
@@ -715,7 +716,7 @@ class ConversationFooter extends HTMLElement {
             <div class="footer-undo-offer hidden" role="status">
                 <span class="footer-undo-text"></span>
                 <button class="message-action-btn footer-undo-btn" type="button">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true"><path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z"/></svg>
+                    ${UNDO_SVG}
                     Undo
                 </button>
             </div>
@@ -743,7 +744,7 @@ class ConversationFooter extends HTMLElement {
                     </div>
                     <div class="footer-idle-right">
                         <button class="message-action-btn duplicate-to-tab-btn hidden">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M448-160v-305.33L226.67-686.67V-570H160v-230h230v66.67H274l240.67 240.66V-160H448Zm126.67-368-47.34-47.33 158.67-158H570V-800h230v230h-66.67v-116.67L574.67-528Z"/></svg>
+                            ${FORK_SVG}
                             Duplicate as new conversation
                         </button>
                         <button class="message-action-btn continue-btn">

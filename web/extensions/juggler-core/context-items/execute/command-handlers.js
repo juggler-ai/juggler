@@ -2945,79 +2945,45 @@ class XargsHandler extends CommandHandler {
 }
 
 /**
- * Registry — add a class and an entry here to support a new command.
+ * Key each handler by its own `commandName`. An unnamed handler, or two that
+ * claim one name (a copied class that kept its parent's), throws at load
+ * rather than leaving the later one silently shadowed.
+ * @param {Array<typeof CommandHandler>} handlers - Every concrete handler class.
+ * @returns {Map<string, typeof CommandHandler>} Handlers by command name.
+ */
+function registerHandlers(handlers) {
+  /** @type {Map<string, typeof CommandHandler>} */
+  const byName = new Map();
+  for (const handler of handlers) {
+    const name = handler.commandName;
+    if (!name) throw new Error(`${handler.name} has no commandName`);
+    const taken = byName.get(name);
+    if (taken) throw new Error(`${taken.name} and ${handler.name} both claim "${name}"`);
+    byName.set(name, handler);
+  }
+  return byName;
+}
+
+/**
+ * Registry — add a class and list it here to support a new command.
+ * `_tests/command-handlers-registry-test.js` fails on a named class left out.
  *
- * The entry list is annotated rather than the Map: handler subclasses narrow the
+ * The list is cast rather than left to inference: handler subclasses narrow the
  * base signatures they override (a handler that ignores `ctx` declares one
  * parameter), so left to itself the checker hunts for a common supertype across
  * the union and settles on whichever handler comes first. Naming the element
  * type states the intent — every entry is a `CommandHandler` subclass — and
  * keeps that inference from turning on the order of this list.
  */
-export const COMMAND_HANDLERS = new Map(/** @type {Array<[string, typeof CommandHandler]>} */ ([
-  [PwdHandler.commandName, PwdHandler],
-  [WhoamiHandler.commandName, WhoamiHandler],
-  [IdHandler.commandName, IdHandler],
-  [DateHandler.commandName, DateHandler],
-  [TrueHandler.commandName, TrueHandler],
-  [FalseHandler.commandName, FalseHandler],
-  [ColonHandler.commandName, ColonHandler],
-  [HostnameHandler.commandName, HostnameHandler],
-  [UptimeHandler.commandName, UptimeHandler],
-  [SleepHandler.commandName, SleepHandler],
-  [UnameHandler.commandName, UnameHandler],
-  [EchoHandler.commandName, EchoHandler],
-  [PrintfHandler.commandName, PrintfHandler],
-  [WhichHandler.commandName, WhichHandler],
-  [TypeHandler.commandName, TypeHandler],
-  [CommandBuiltinHandler.commandName, CommandBuiltinHandler],
-  [CdHandler.commandName, CdHandler],
-  [LsHandler.commandName, LsHandler],
-  [DuHandler.commandName, DuHandler],
-  [TailHandler.commandName, TailHandler],
-  [HeadHandler.commandName, HeadHandler],
-  [WcHandler.commandName, WcHandler],
-  [StringsHandler.commandName, StringsHandler],
-  [OdHandler.commandName, OdHandler],
-  [XxdHandler.commandName, XxdHandler],
-  [HexdumpHandler.commandName, HexdumpHandler],
-  [NlHandler.commandName, NlHandler],
-  [TacHandler.commandName, TacHandler],
-  [RevHandler.commandName, RevHandler],
-  [FoldHandler.commandName, FoldHandler],
-  [ExpandHandler.commandName, ExpandHandler],
-  [UnexpandHandler.commandName, UnexpandHandler],
-  [PasteHandler.commandName, PasteHandler],
-  [JoinHandler.commandName, JoinHandler],
-  [ColumnHandler.commandName, ColumnHandler],
-  [CksumHandler.commandName, CksumHandler],
-  [Md5sumHandler.commandName, Md5sumHandler],
-  [Sha1sumHandler.commandName, Sha1sumHandler],
-  [Sha256sumHandler.commandName, Sha256sumHandler],
-  [Sha512sumHandler.commandName, Sha512sumHandler],
-  [ShasumHandler.commandName, ShasumHandler],
-  [CommHandler.commandName, CommHandler],
-  [CmpHandler.commandName, CmpHandler],
-  [DiffHandler.commandName, DiffHandler],
-  [RealpathHandler.commandName, RealpathHandler],
-  [DfHandler.commandName, DfHandler],
-  [BasenameHandler.commandName, BasenameHandler],
-  [DirnameHandler.commandName, DirnameHandler],
-  [SeqHandler.commandName, SeqHandler],
-  [SortHandler.commandName, SortHandler],
-  [UniqHandler.commandName, UniqHandler],
-  [CutHandler.commandName, CutHandler],
-  [TrHandler.commandName, TrHandler],
-  [CatHandler.commandName, CatHandler],
-  [TeeHandler.commandName, TeeHandler],
-  [FileHandler.commandName, FileHandler],
-  [StatHandler.commandName, StatHandler],
-  [TestHandler.commandName, TestHandler],
-  [BracketHandler.commandName, BracketHandler],
-  [FindHandler.commandName, FindHandler],
-  [GrepHandler.commandName, GrepHandler],
-  [SedHandler.commandName, SedHandler],
-  [GitHandler.commandName, GitHandler],
-  [AwkHandler.commandName, AwkHandler],
-  [XargsHandler.commandName, XargsHandler]
+export const COMMAND_HANDLERS = registerHandlers(/** @type {Array<typeof CommandHandler>} */ ([
+  PwdHandler, WhoamiHandler, IdHandler, DateHandler, TrueHandler, FalseHandler, ColonHandler,
+  HostnameHandler, UptimeHandler, SleepHandler, UnameHandler, EchoHandler, PrintfHandler,
+  WhichHandler, TypeHandler, CommandBuiltinHandler, CdHandler, LsHandler, DuHandler, TailHandler,
+  HeadHandler, WcHandler, StringsHandler, OdHandler, XxdHandler, HexdumpHandler, NlHandler,
+  TacHandler, RevHandler, FoldHandler, ExpandHandler, UnexpandHandler, PasteHandler, JoinHandler,
+  ColumnHandler, CksumHandler, Md5sumHandler, Sha1sumHandler, Sha256sumHandler, Sha512sumHandler,
+  ShasumHandler, CommHandler, CmpHandler, DiffHandler, RealpathHandler, DfHandler, BasenameHandler,
+  DirnameHandler, SeqHandler, SortHandler, UniqHandler, CutHandler, TrHandler, CatHandler,
+  TeeHandler, FileHandler, StatHandler, TestHandler, BracketHandler, FindHandler, GrepHandler,
+  SedHandler, GitHandler, AwkHandler, XargsHandler
 ]));

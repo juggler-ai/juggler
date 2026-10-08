@@ -5,6 +5,7 @@
 import BaseMessage, { FINAL_ITEM_ATTR } from './base-message.js';
 import { createErrorArticle } from '../utils/icon-message-renderer.js';
 import { openSettings } from '../services/settings-launcher.js';
+import { RETRY_SVG } from '../utils/icons.js';
 
 /**
  * Signatures that identify an error as a failure to reach the provider at all,
@@ -22,9 +23,6 @@ const UNREACHABLE_SIGNATURE = /\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|
  */
 const UNREACHABLE_LEAD = 'Couldn’t reach the model. Could be problems at their end, or your network.';
 
-// Retry icon (Material "refresh") — a circular arrow, distinct from the
-// footer's Continue "play" glyph so the affordance reads as "try that turn again".
-const RETRY_ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-110h80v280H520v-80h168q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q77 0 139-44t87-116h84q-28 106-114 173t-196 67Z"/></svg>';
 
 // Settings icon (Material "settings") — the same gear the header's Settings
 // button and the model menu's settings items use, so the destination is
@@ -137,7 +135,9 @@ class ErrorMessage extends BaseMessage {
         retryBtn.type = 'button';
         retryBtn.className = 'message-action-btn error-retry-btn';
         retryBtn.title = 'Delete this error and continue the conversation';
-        retryBtn.innerHTML = `${RETRY_ICON}Retry`;
+        // A circular arrow, distinct from the footer's Continue "play" glyph so
+        // the affordance reads as "try that turn again".
+        retryBtn.innerHTML = `${RETRY_SVG}Retry`;
         retryBtn.addEventListener('click', (event) => {
           event.preventDefault();
           event.stopPropagation();

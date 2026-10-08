@@ -69,7 +69,7 @@ layer-inversion patterns/buttons.css > components/diff-viewer.css 26
 layer-inversion patterns/markdown.css > components/conversation-bar.css 26
 layer-inversion patterns/markdown.css > components/onboarding.css 24
 layer-inversion layout/app-shell.css > components/composer.css 22
-layer-inversion patterns/markdown.css > components/context-items.css 22
+layer-inversion patterns/markdown.css > components/context-items.css 21
 layer-inversion patterns/markdown.css > components/overlays-and-updates.css 19
 layer-inversion patterns/markdown.css > components/approvals.css 18
 layer-inversion patterns/markdown.css > components/messages.css 18

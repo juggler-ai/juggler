@@ -8,6 +8,7 @@ import { copyToClipboard } from '../../sdk/lib/clipboard.js';
 import { markPopupOpen } from '../utils/popup-manager.js';
 import { fadeOutScrims } from '../utils/modal-scrim.js';
 import { showAlert } from './modal-dialog.js';
+import { CHECK_SVG, withAttrs } from '../utils/icons.js';
 
 /**
  * ContextPreviewModal - Modal for previewing the full LLM context
@@ -296,12 +297,12 @@ class ContextPreviewModal extends HTMLElement {
 
     // Context item sections - alternating green colors
     if (sectionType === 'context-items-header' || sectionType === 'context-items-empty') {
-      return 'ci-section';
+      return 'context-items-section';
     }
 
     if (sectionType === 'context-item') {
       // Alternate between two green colors
-      return itemIndex !== undefined && itemIndex % 2 === 0 ? 'ci-section-even' : 'ci-section-odd';
+      return itemIndex !== undefined && itemIndex % 2 === 0 ? 'context-item-even' : 'context-item-odd';
     }
 
     // Conversation sections - need to distinguish user vs assistant
@@ -427,10 +428,9 @@ class ContextPreviewModal extends HTMLElement {
       const copyButton = this.querySelector('#copy-button');
       if (copyButton) {
         const originalText = copyButton.innerHTML;
+        // 20px, the size of the copy icon it stands in for.
         copyButton.innerHTML = `
-          <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-            <path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/>
-          </svg>
+          ${withAttrs(CHECK_SVG, { width: '20px', height: '20px' })}
           Copied!
         `;
         copyButton.classList.add('copied');

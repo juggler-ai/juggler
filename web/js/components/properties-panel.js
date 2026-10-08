@@ -15,6 +15,7 @@
  */
 
 import { createIconBadge, createTypeBadge } from '../utils/icon-message-renderer.js';
+import { FORK_SVG, INFO_SVG, RETRY_SVG, UNDO_SVG } from '../utils/icons.js';
 import { appendDeleteControls } from '../utils/panel-delete-controls.js';
 import { createPinControl } from '../utils/properties-panel-helpers.js';
 import { TOOL_STATES } from '../../sdk/lib/message.js';
@@ -394,9 +395,7 @@ class PropertiesPanel extends HTMLElement {
             <properties-panel-content>
                 <properties-panel-empty>
                     <span class="properties-panel-empty-icon">
-                        <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
-                            <path d="M440-280h80v-240h-80v240Zm40-320q17 0 28.5-11.5T520-640q0-17-11.5-28.5T480-680q-17 0-28.5 11.5T440-640q0 17 11.5 28.5T480-600Zm0 520q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z"/>
-                        </svg>
+                        ${INFO_SVG}
                     </span>
                     <span class="properties-panel-empty-text">Select an item to view details</span>
                 </properties-panel-empty>
@@ -901,9 +900,7 @@ class PropertiesPanel extends HTMLElement {
     container.innerHTML = `
             <properties-panel-empty>
                 <span class="properties-panel-empty-icon">
-                    <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
-                        <path d="M440-280h80v-240h-80v240Zm40-320q17 0 28.5-11.5T520-640q0-17-11.5-28.5T480-680q-17 0-28.5 11.5T440-640q0 17 11.5 28.5T480-600Zm0 520q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z"/>
-                    </svg>
+                    ${INFO_SVG}
                 </span>
                 <span class="properties-panel-empty-text">Select an item to view details</span>
             </properties-panel-empty>
@@ -943,9 +940,7 @@ class PropertiesPanel extends HTMLElement {
           const rollbackBtn = document.createElement('button');
           rollbackBtn.className = 'properties-panel-btn';
           rollbackBtn.innerHTML = `
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" height="16" width="16" fill="currentColor">
-                            <path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z"/>
-                        </svg>
+                        ${UNDO_SVG}
                         Rewind to this message
                     `;
           rollbackBtn.addEventListener('click', () => this._rollbackFromItem(messageItemId));
@@ -954,9 +949,7 @@ class PropertiesPanel extends HTMLElement {
           const branchBtn = document.createElement('button');
           branchBtn.className = 'properties-panel-btn';
           branchBtn.innerHTML = `
-                        <svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor">
-                            <path d="M448-160v-305.33L226.67-686.67V-570H160v-230h230v66.67H274l240.67 240.66V-160H448Zm126.67-368-47.34-47.33 158.67-158H570V-800h230v230h-66.67v-116.67L574.67-528Z"/>
-                        </svg>
+                        ${FORK_SVG}
                         Fork a new conversation from here
                     `;
           branchBtn.addEventListener('click', () => this._branchFromItem(messageItemId));
@@ -990,9 +983,7 @@ class PropertiesPanel extends HTMLElement {
       const refreshBtn = document.createElement('button');
       refreshBtn.className = 'properties-panel-btn';
       refreshBtn.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor">
-                    <path d="M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-110h80v280H520v-80h168q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q77 0 139-44t87-116h84q-28 106-114 173t-196 67Z"/>
-                </svg>
+                ${RETRY_SVG}
                 Refresh
             `;
       refreshBtn.addEventListener('click', () => this._refreshContextItem(contextItem));
@@ -1042,9 +1033,7 @@ class PropertiesPanel extends HTMLElement {
       const retryBtn = document.createElement('button');
       retryBtn.className = 'properties-panel-btn';
       retryBtn.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" height="16" width="16" fill="currentColor">
-                    <path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z"/>
-                </svg>
+                ${UNDO_SVG}
                 Re-run command
             `;
       retryBtn.addEventListener('click', () => this._retryToolAction(toolAction));

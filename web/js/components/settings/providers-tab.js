@@ -19,7 +19,7 @@ import { sortModelsByVersion } from '../../utils/model-filter.js';
 import { buildEndpointCard, buildAddEndpointForm } from './custom-endpoint-card.js';
 import { apiUrl } from '../../utils/api-url.js';
 import { formatTokens } from '../../utils/format.js';
-import { CHECK_SVG } from '../../utils/icons.js';
+import { CHECK_SVG, REFRESH_SVG } from '../../utils/icons.js';
 
 /**
  * Whether a published model's context window is a guess nobody has corrected:
@@ -31,12 +31,6 @@ function isAssumedWindow(model) {
   return !!model.windowAssumed
     && (model.providerContextWindow === undefined || model.providerContextWindow === null);
 }
-
-// Standard refresh glyph for the OAuth "re-check sign-in" button. Fill is left to
-// CSS (currentColor) so it tracks the button's theme colour.
-const OAUTH_REFRESH_ICON =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true">' +
-  '<path d="M482-160q-134 0-228-93t-94-227v-7l-64 64-56-56 160-160 160 160-56 56-64-64v7q0 100 70.5 170T482-240q26 0 51-6t49-18l60 60q-38 22-78 33t-82 11Zm278-161L600-481l56-56 64 64v-7q0-100-70.5-170T478-720q-26 0-51 6t-49 18l-60-60q38-22 78-33t82-11q134 0 228 93t94 227v7l64-64 56 56-160 160Z"/></svg>';
 
 /**
  * "Providers" tab: one field per registered provider — OAuth (bearer), keyless
@@ -556,7 +550,7 @@ export class ProvidersTab {
     btn.className = 'settings-btn icon';
     btn.title = `Re-check ${subject}`;
     btn.setAttribute('aria-label', `Re-check ${provider.displayName} ${subject}`);
-    btn.innerHTML = OAUTH_REFRESH_ICON;
+    btn.innerHTML = REFRESH_SVG;
     btn.addEventListener('click', () => this._refreshOAuthProvider(provider, btn, subject));
     return btn;
   }

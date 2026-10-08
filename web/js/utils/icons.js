@@ -49,15 +49,51 @@ export const OPEN_IN_NEW_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="
 // to the Pinboard.
 export const PIN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="16" width="16" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="m640-480 80 80v80H520v240l-40 40-40-40v-240H240v-80l80-80v-280h-40v-80h400v80h-40v280Zm-286 80h252l-46-46v-314H400v314l-46 46Zm126 0Z"/></svg>';
 
+// Material Symbols "undo" — puts back what was just removed: the bin toast, the
+// column-footer undo offer, and rewind / re-run in the properties panel.
+export const UNDO_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="16" width="16" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z"/></svg>';
+
+// Material Symbols "call_split" — starts a new conversation from an existing one.
+export const FORK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="16" width="16" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M448-160v-305.33L226.67-686.67V-570H160v-230h230v66.67H274l240.67 240.66V-160H448Zm126.67-368-47.34-47.33 158.67-158H570V-800h230v230h-66.67v-116.67L574.67-528Z"/></svg>';
+
+// Material Symbols "refresh" — try that again: a failed turn's Retry, the
+// properties panel's Refresh. A single circular arrow, unlike REFRESH_SVG's pair.
+export const RETRY_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="16" width="16" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M480-160q-134 0-227-93t-93-227q0-134 93-227t227-93q69 0 132 28.5T720-690v-110h80v280H520v-80h168q-32-56-87.5-88T480-720q-100 0-170 70t-70 170q0 100 70 170t170 70q77 0 139-44t87-116h84q-28 106-114 173t-196 67Z"/></svg>';
+
+// Material Symbols "add" — a plus: new conversation / workspace rows, zoom in.
+export const ADD_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="16" width="16" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg>';
+
+// Material Symbols "delete" — a trash can: moving a conversation to the bin.
+export const BIN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="16" width="16" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/></svg>';
+
 /**
- * One of the icons above with a class on its `<svg>`, for a site whose CSS sizes
- * or colours the icon through that class.
+ * One of the icons in this module with attributes set on its `<svg>`, for a site
+ * that draws it at another size or in a fixed colour. An attribute the icon
+ * already carries is replaced; any other is added. Values are not escaped.
+ * @param {string} svg - An icon string from this module.
+ * @param {Record<string, string>} attrs - Attribute name → value.
+ * @returns {string} The same icon with those attributes on its root element.
+ */
+export function withAttrs(svg, attrs) {
+  const end = svg.indexOf('>');
+  let tag = svg.slice(0, end);
+  for (const [name, value] of Object.entries(attrs)) {
+    const existing = new RegExp(`\\s${name}="[^"]*"`);
+    const attr = ` ${name}="${value}"`;
+    tag = existing.test(tag) ? tag.replace(existing, attr) : tag + attr;
+  }
+  return tag + svg.slice(end);
+}
+
+/**
+ * One of the icons in this module with a class on its `<svg>`, for a site whose
+ * CSS sizes or colours the icon through that class.
  * @param {string} svg - An icon string from this module.
  * @param {string} className - Class (or space-separated classes) to add.
  * @returns {string} The same markup with `class` on its root element.
  */
 export function withClass(svg, className) {
-  return svg.replace('<svg ', `<svg class="${className}" `);
+  return withAttrs(svg, { class: className });
 }
 
 // Material Symbols "check" — a done/active tick: installed skills, the model

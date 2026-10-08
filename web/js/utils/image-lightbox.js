@@ -3,6 +3,7 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 import { presentModal } from './modal-surface.js';
+import { ADD_SVG, withAttrs } from './icons.js';
 
 /**
  * Click-to-expand image lightbox with zoom and pan. Opens the given image
@@ -35,7 +36,7 @@ const DRAG_SLOP = 4;
 
 // Material Symbols "remove" / "add" / "close".
 const ZOOM_OUT_SVG = '<svg width="1.5em" height="1.5em" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M200-440v-80h560v80H200Z"/></svg>';
-const ZOOM_IN_SVG = '<svg width="1.5em" height="1.5em" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg>';
+const ZOOM_IN_SVG = withAttrs(ADD_SVG, { width: '1.5em', height: '1.5em' });
 const CLOSE_SVG = '<svg width="1.5em" height="1.5em" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/></svg>';
 
 /** @type {(() => void)|null} The active lightbox's close fn, or null. */

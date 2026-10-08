@@ -44,7 +44,7 @@ function scriptLoads(session, stubConversation) {
   const land = new Map();
   session._loadIntoHead = (/** @type {string} */ id) => new Promise((resolve) => {
     const conv = stubConversation(id);
-    session.conversations.set(id, conv);
+    session.registry.insert(id, conv, 'test');
     land.set(id, () => resolve(conv));
   });
   return land;
@@ -81,16 +81,16 @@ function makeSession({ composerText = false, creating = false } = {}) {
     getTabElement: () => ({ hasComposerText: () => composerText })
   });
 
-  session.conversations.set('caller', stubConversation('caller'));
-  if (!creating) session.conversations.set('target', stubConversation('target'));
-  session._setSelection({ kind: 'conversation', id: 'caller' });
+  session.registry.insert('caller', stubConversation('caller'), 'test');
+  if (!creating) session.registry.insert('target', stubConversation('target'), 'test');
+  session.registry.select({ kind: 'conversation', id: 'caller' });
   const land = scriptLoads(session, stubConversation);
 
   /** @type {string[]} */
   const switched = [];
   session.switchConversation = (/** @type {string} */ id) => {
     switched.push(id);
-    session._setSelection({ kind: 'conversation', id });
+    session.registry.select({ kind: 'conversation', id });
     return true;
   };
 
@@ -130,7 +130,7 @@ export async function runTests(_ctx) {
 
   await run('ignores a focus request while a different conversation is on screen', () => {
     const { session, switched } = makeSession();
-    session._setSelection({ kind: 'conversation', id: 'other' });
+    session.registry.select({ kind: 'conversation', id: 'other' });
     session.sync.focus('target', 'caller');
     assert(switched.length === 0,
       `a background conversation pulled the viewer away: ${JSON.stringify(switched)}`);
@@ -145,7 +145,7 @@ export async function runTests(_ctx) {
 
   await run('follows an unattributed focus request unconditionally', () => {
     const { session, switched } = makeSession({ composerText: true });
-    session._setSelection({ kind: 'conversation', id: 'other' });
+    session.registry.select({ kind: 'conversation', id: 'other' });
     session.sync.focus('target');
     assert(switched.length === 1 && switched[0] === 'target',
       `an unattributed request must always be followed, got ${JSON.stringify(switched)}`);

@@ -38,6 +38,7 @@
 
 import { assert } from '../utilities/test-helpers.js';
 import Session from '../../js/model/session.js';
+import ConversationRegistry from '../../js/model/conversation-registry.js';
 import Conversation from '../../js/model/conversation.js';
 import {
   getAttentionPrefs,
@@ -93,22 +94,23 @@ function fakeBar(convId, awaiting) {
 }
 
 /**
- * A minimal `this` for {@link Session.prototype.bumpConversation}: the ordered
- * conversations map plus the collaborators that method touches. Conversations
- * are idle stand-ins, so the busy barrier resolves to "nothing busy" and a bump
- * targets index 0.
+ * A minimal `this` for {@link Session.prototype.bumpConversation}: a real
+ * registry holding the ordered conversations, plus the collaborators that
+ * method touches. Conversations are idle stand-ins, so the busy barrier
+ * resolves to "nothing busy" and a bump targets index 0.
  * @param {string[]} ids - Conversation ids in tab order.
  * @returns {any} The stand-in session, with `persists`/`notifies` call counters.
  */
 function fakeSession(ids) {
   const idle = { getMetadata: () => ({ status: 'idle' }) };
+  const registry = new ConversationRegistry();
+  for (const id of ids) registry.insert(id, /** @type {any} */ (idle), 'test');
   return {
-    conversations: new Map(ids.map((id) => [id, idle])),
+    registry,
+    get conversations() { return registry.conversations; },
     persists: 0,
     notifies: 0,
     _isConvBusy: Session.prototype._isConvBusy,
-    _setConversationOrder: Session.prototype._setConversationOrder,
-    _replaceConversations: Session.prototype._replaceConversations,
     // A bump moves a conversation, so a box anchored to it hands its place on
     // rather than being dragged up the bar by a turn coming to rest. No
     // workspaces here, so it is the real method answering that there is nothing

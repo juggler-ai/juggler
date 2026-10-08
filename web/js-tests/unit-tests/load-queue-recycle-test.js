@@ -38,22 +38,15 @@ function stubConversation(id) {
 }
 
 /**
- * A session stub holding stub conversations, plus the one optional callback the
- * queue reaches for on failure.
+ * A session stub holding stub conversations.
  * @param {string[]} ids - Conversation ids to hold
- * @returns {{conversations: Map<string, any>, retained: string[], retainUnloadedConversationId: (id: string) => void}} Stub session
+ * @returns {{conversations: Map<string, any>}} Stub session
  */
 function stubSession(ids) {
   /** @type {Map<string, any>} */
   const conversations = new Map();
   for (const id of ids) conversations.set(id, stubConversation(id));
-  return {
-    conversations,
-    /** @type {string[]} */
-    retained: [],
-    /** @param {string} id - Id to retain for the next reload */
-    retainUnloadedConversationId(id) { this.retained.push(id); }
-  };
+  return { conversations };
 }
 
 /**

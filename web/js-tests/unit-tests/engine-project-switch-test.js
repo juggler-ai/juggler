@@ -31,6 +31,7 @@
 
 import { createTestSession, assert } from '../utilities/test-helpers.js';
 import workerManager from '../../js/services/worker-manager.js';
+import ConversationRegistry from '../../js/model/conversation-registry.js';
 import { getRulesFor, getAllowedPaths } from '../../js/model/message-thread-permissions.js';
 import ExecuteContextItem from '../../extensions/juggler-core/context-items/execute-context-item.js';
 
@@ -49,39 +50,34 @@ const RUN_RULE = { id: 'r_run_glob', itemType: 'execute', kind: 'glob', value: '
 function guardSwitchSideEffects(session, sessionData = { metadata: {}, messageHistory: [] }) {
   const saved = {
     getSession: session._apiService.getSession,
-    conversations: session.conversations,
+    registry: session.registry,
     metadata: session.metadata,
     messageHistory: session.messageHistory,
     platform: session.platform,
     home: session.home,
-    visible: session.visibleConversationId,
-    names: session._conversationNames,
-    unloaded: session._unloadedConversationIds,
-    mru: session._mruList,
     config: workerManager._config
   };
-  session.conversations = new Map();
+  // The registry is the whole of the conversation list — map, selection,
+  // names, most-recently-used — so a stand-in for it is a stand-in for all of
+  // what a switch releases.
+  session.registry = new ConversationRegistry();
   session._apiService.getSession = async () => sessionData;
   return () => {
     session._apiService.getSession = saved.getSession;
-    session.conversations = saved.conversations;
+    session.registry = saved.registry;
     session.metadata = saved.metadata;
     session.messageHistory = saved.messageHistory;
     session.platform = saved.platform;
     session.home = saved.home;
-    session._setSelection(saved.visible ? { kind: 'conversation', id: saved.visible } : null);
-    session._conversationNames = saved.names;
-    session._unloadedConversationIds = saved.unloaded;
-    session._mruList = saved.mru;
     workerManager._config = saved.config;
   };
 }
 
 /**
  * Drive one engine project switch against a stubbed `GET /api/session`, with
- * every mutated global restored afterwards. The session's real conversation map
- * is swapped out for `conversations` so the harness's own conversations are
- * never destroyed by the release step.
+ * every mutated global restored afterwards. The session's real registry is
+ * swapped out for one holding `conversations` so the harness's own
+ * conversations are never destroyed by the release step.
  * @param {any} session - The test session
  * @param {object} opts - Switch options
  * @param {Record<string, any>} opts.before - Metadata the engine holds from the previous project
@@ -114,7 +110,7 @@ async function switchProject(session, { before, after, conversations = new Map()
   try {
     g.JUGGLER_ENGINE = true;
     session.metadata = before;
-    session.conversations = conversations;
+    for (const [id, conv] of conversations) session.registry.insert(id, conv, 'test');
     await session._applyEngineProjectRoot(NEW_PROJECT);
   } catch (e) {
     restore();
@@ -314,7 +310,7 @@ export async function runTests() {
       assert(workerManager._config.projectPath === NEW_PROJECT,
         `worker config repointed, got ${workerManager._config.projectPath}`);
       assert(destroyed === 2, `both stale conversations were destroyed, got ${destroyed}`);
-      assert(stale.size === 0, 'the previous project\'s conversation map is emptied');
+      assert(session.conversations.size === 0, 'the previous project\'s conversation map is emptied');
       assert(session.visibleConversationId === null, 'no conversation from the old project stays visible');
     } finally {
       restore();

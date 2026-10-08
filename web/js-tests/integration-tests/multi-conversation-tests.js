@@ -348,12 +348,12 @@ export const duplicateConversationNameTest = {
  * tab, not just the first tab in list order.
  *
  * Sequence (new convs are PREPENDED in the session Map):
- *   Start: Conv A selected (visibleConversationId=A, _mruList=[])
+ *   Start: Conv A selected (visibleConversationId=A, MRU=[])
  *   create Conv B  → session map: {B, A}
- *   switch to B    → _mruList: [B]
+ *   switch to B    → MRU: [B]
  *   create Conv C  → session map: {C, B, A}
- *   switch to C    → _mruList: [C, B]
- *   delete C       → _mruList: [B], visibleConversationId → B (MRU)
+ *   switch to C    → MRU: [C, B]
+ *   delete C       → MRU: [B], visibleConversationId → B (MRU)
  *                    session map: {B, A}   ← B is at index 0
  *   Expected: B selected, not A (first in creation order) or A (tail of MRU).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}

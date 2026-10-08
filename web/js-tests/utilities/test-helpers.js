@@ -307,7 +307,7 @@ export async function createTestConversation(session) {
   conversation.setModelConfig({ provider: 'test-provider', model: 'test-model' });
 
   // Set visible conversation for the session
-  session._setSelection({ kind: 'conversation', id: convId });
+  session.registry.select({ kind: 'conversation', id: convId });
 
   // Enable write permission for write-file operations
   conversation.rootMessageThread.addRule('write-file', { kind: 'boolean', value: true });
@@ -767,7 +767,7 @@ export async function createApprovalTestConversation(session) {
   }
 
   // Enable headless execution visibility
-  session._setSelection({ kind: 'conversation', id: convId });
+  session.registry.select({ kind: 'conversation', id: convId });
 
   // Set a default model configuration (required for worker validation)
   conversation.setModelConfig({ provider: 'test-provider', model: 'test-model' });

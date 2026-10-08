@@ -16,6 +16,7 @@
 
 import { assert } from '../utilities/test-helpers.js';
 import Session from '../../js/model/session.js';
+import ConversationRegistry from '../../js/model/conversation-registry.js';
 import { resolveMenu } from '../../js/services/context-menu-service.js';
 import workspaceProviderRegistry from '../../js/registries/workspace-provider-registry.js';
 import GroupWorkspaceProvider from '../../extensions/juggler-core/workspaces/group-workspace-provider.js';
@@ -43,12 +44,11 @@ function makeSession(workspaces, bindings) {
   session.workspaces = workspaces;
   session.projectPath = '/tmp/project';
   session.bin = { count: 0, sizeBytes: 0 };
-  session.selection = null;
-  session.loadedConversationId = null;
-  session._mruList = [];
   session._listeners = new Map();
-  session.conversations = new Map(
-    bindings.map(([id, workspaceId]) => [id, { id, name: id, workspaceId, loadState: 'loaded' }]));
+  session.registry = new ConversationRegistry();
+  for (const [id, workspaceId] of bindings) {
+    session.registry.insert(id, { id, name: id, workspaceId, loadState: 'loaded' }, 'test');
+  }
   session.save = () => {};
   session._requestConversationLoad = () => {};
   session._notify = () => {};

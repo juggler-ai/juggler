@@ -442,7 +442,7 @@ class TestExecutor {
     // activeConversationId the session persists — would target the wrong
     // conversation. It has no bearing on tool approval: that is decided by the
     // rules and the auto-approve flag set below.
-    this.session._setSelection({ kind: 'conversation', id: convId });
+    this.session.registry.select({ kind: 'conversation', id: convId });
 
     // Enable all permissions for headless test execution (no user to click approve)
     // writeFile permission covers write-file and replace-text actions

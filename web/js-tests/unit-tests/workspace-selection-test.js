@@ -16,6 +16,7 @@
 
 import { assert } from '../utilities/test-helpers.js';
 import Session from '../../js/model/session.js';
+import ConversationRegistry from '../../js/model/conversation-registry.js';
 import '../../js/components/conversation-bar.js';
 
 /**
@@ -40,12 +41,11 @@ function makeSession(workspaces, bindings) {
   session.workspaces = workspaces;
   session.projectPath = '/tmp/project';
   session.bin = { count: 0, sizeBytes: 0 };
-  session.selection = null;
-  session.loadedConversationId = null;
-  session._mruList = [];
   session._listeners = new Map();
-  session.conversations = new Map(
-    bindings.map(([id, workspaceId]) => [id, { id, name: id, workspaceId, loadState: 'loaded' }]));
+  session.registry = new ConversationRegistry();
+  for (const [id, workspaceId] of bindings) {
+    session.registry.insert(id, { id, name: id, workspaceId, loadState: 'loaded' }, 'test');
+  }
   // The parts of a switch that reach past the strip: persistence, the load
   // queue, and the context-window fetch have nothing to say about selection.
   session.save = () => {};

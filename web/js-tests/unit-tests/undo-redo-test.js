@@ -990,7 +990,7 @@ async function testDeleteAssistantFileSingleUndo(session) {
     throw new Error('Failed to create conversation');
   }
 
-  session._setSelection({ kind: 'conversation', id: convId });
+  session.registry.select({ kind: 'conversation', id: convId });
 
   // Wait for worker to be ready
   await waitForWorkerReady(convId);
@@ -1075,7 +1075,7 @@ async function testProductionBugTwoUndos(session) {
     throw new Error('Failed to create conversation');
   }
 
-  session._setSelection({ kind: 'conversation', id: convId });
+  session.registry.select({ kind: 'conversation', id: convId });
 
   // Wait for everything to settle
   await waitForWorkerReady(convId);

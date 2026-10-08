@@ -32,6 +32,7 @@ import { placeForNewConversation, placementForNewConversation, takesTheHead } fr
 import ConversationBin from './conversation-bin.js';
 import { statusHoldsTurn } from './processing-status.js';
 import ConversationSyncReducer from './conversation-sync-reducer.js';
+import ConversationRegistry from './conversation-registry.js';
 import { seedCreationDefaults, seedConversationAutoItems as seedAutoItems } from './conversation-seeder.js';
 
 /**
@@ -209,53 +210,14 @@ class Session {
     this._destroyed = false;
 
     /**
-     * Conversations map (id -> Conversation instance)
-     * @type {Map<string, import('./conversation.js').default>}
+     * The open conversations: their tab-bar order, what is on screen, the
+     * most-recently-used list and the name cache. The session decides what
+     * happens to the list and the registry records it; it is the only writer.
+     * `switchConversation` and `selectWorkspace` are the ways to move the
+     * selection.
+     * @type {ConversationRegistry}
      */
-    this.conversations = new Map();
-
-    /**
-     * IDs that exist on disk (in the server's conversationOrder) but failed to
-     * load this session — e.g. transient init timeout. We retain them so they
-     * stay in conversationOrder across saves and get retried on next reload,
-     * instead of being silently dropped.
-     * @type {string[]}
-     */
-    this._unloadedConversationIds = [];
-
-    /**
-     * What is on screen, and the only thing that says so.
-     *
-     * The tab strip is one list of things to choose between — conversation tabs
-     * and workspace boxes — and exactly one of them is chosen at a time. That
-     * is one fact, so it is one field: naming a new selection is the whole of
-     * giving up the old one, and no caller has an invariant to maintain between
-     * two of them. Local only, and never written directly: `switchConversation`
-     * and `selectWorkspace` are the ways in.
-     * @type {{kind: 'conversation'|'workspace', id: string}|null}
-     */
-    this.selection = null;
-
-    /**
-     * The conversation that stays loaded, and the one the backend is told to
-     * reopen.
-     *
-     * Deliberately not part of the selection, and **never** consulted to decide
-     * what is showing: while a workspace panel holds the selection this still
-     * names the conversation behind it, which is what a click on its tab comes
-     * back to and what is persisted as `activeConversationId`. Asking this
-     * field what is on screen is the bug this split exists to make impossible.
-     * @type {string|null}
-     */
-    this.loadedConversationId = null;
-
-    /**
-     * Most-recently-used conversation ID list (local only, most-recent first).
-     * Used to pick the fallback tab when the visible conversation is deleted.
-     * @type {string[]}
-     * @private
-     */
-    this._mruList = [];
+    this.registry = new ConversationRegistry();
 
     /**
      * In-flight {@link Session#initialiseConversation} passes, by conversation
@@ -406,17 +368,6 @@ class Session {
     this._loadQueue = null;
 
     /**
-     * Snapshot of conversation names received in the last session manifest
-     * (id → name). The backend derives these from the on-disk folder names
-     * each time GET /api/session runs, so the UI can render tabs before any
-     * Yjs doc hydrates. Renames go through PATCH and update conv.name plus
-     * this map locally on success.
-     * @type {Record<string, string>}
-     * @private
-     */
-    this._conversationNames = {};
-
-    /**
      * The project's bin: its count and size, and the requests that list,
      * restore and permanently delete what is in it.
      * @type {ConversationBin}
@@ -432,18 +383,44 @@ class Session {
      * @type {ConversationSyncReducer}
      */
     this.sync = new ConversationSyncReducer({
-      holds: (id) => this.conversations.has(id),
-      order: () => [...this.conversations.keys()],
+      holds: (id) => this.registry.has(id),
+      order: () => this.registry.ids(),
       setName: (id, name) => this.setConversationName(id, name),
       notify: (type, data) => this._notify(type, data),
       notifyChange: (type, data) => this.notifyConversationChange(type, data),
       loadAtHead: (id) => this._loadIntoHead(id),
       drop: (id, opts) => this._dropActiveConversation(id, opts),
-      reorder: (ids) => this._setConversationOrder(ids),
+      reorder: (ids) => this.registry.arrange(ids),
       follow: (id) => { this.switchConversation(id); },
       shouldFollow: (from) => this.shouldFollowRequest(from),
       get bin() { return session.bin; }
     });
+  }
+
+  /**
+   * The open conversations, in tab-bar order — the registry's map, read-only.
+   * There is no setter: the list is written through {@link registry} alone.
+   * @returns {ReadonlyMap<string, import('./conversation.js').default>} The live map.
+   */
+  get conversations() {
+    return this.registry.conversations;
+  }
+
+  /**
+   * What is on screen. See {@link ConversationRegistry#selection}.
+   * @returns {import('./conversation-registry.js').Selection|null} The selection.
+   */
+  get selection() {
+    return this.registry.selection;
+  }
+
+  /**
+   * The conversation that stays loaded and is reopened next time — never what
+   * decides what is showing. See {@link ConversationRegistry#loadedConversationId}.
+   * @returns {string|null} The id.
+   */
+  get loadedConversationId() {
+    return this.registry.loadedConversationId;
   }
 
   /**
@@ -454,7 +431,7 @@ class Session {
    * @returns {string} Display name, or '' when no cache entry exists.
    */
   getConversationName(id) {
-    return this._conversationNames[id] || '';
+    return this.registry.name(id);
   }
 
   /**
@@ -467,7 +444,7 @@ class Session {
    * @param {string} name
    */
   setConversationName(id, name) {
-    this._conversationNames[id] = name;
+    this.registry.setName(id, name);
   }
 
   /**
@@ -513,7 +490,7 @@ class Session {
    * @returns {Promise<boolean>} True if a loaded conversation was released
    */
   async releaseConversation(id) {
-    const conv = this.conversations.get(id);
+    const conv = this.registry.get(id);
     if (!conv) return false;
     /** @type {any} */ (conv)._actionExecutor?.cancelConversationActions?.(id);
     await this._teardownConversation(conv, 'releaseConversation');
@@ -523,20 +500,17 @@ class Session {
   /**
    * The teardown both removal paths share — {@link Session#releaseConversation}
    * and {@link Session#_dropActiveConversation}: stop any queued load, destroy
-   * the worker, then drop the entry from the map and the MRU list. Each caller
-   * adds only what is its own (an action cancel; a fallback selection).
+   * the worker, then remove it from the registry. Each caller adds only what is
+   * its own (an action cancel; a fallback selection).
    * @param {any} conv - The loaded conversation being removed
    * @param {string} from - Caller, for the tape
    * @returns {Promise<void>}
    * @private
    */
   async _teardownConversation(conv, from) {
-    const id = conv.id;
-    this._loadQueue?.cancel(id);
+    this._loadQueue?.cancel(conv.id);
     await workerManager.loader.destroy(conv);
-    recordTape('session-mut', id, { op: 'delete', from });
-    this.conversations.delete(id);
-    this._mruList = this._mruList.filter(x => x !== id);
+    this.registry.remove(conv.id, from);
   }
 
   /**
@@ -549,68 +523,21 @@ class Session {
    * @returns {Promise<object|null>} Removed conv, or null if not active.
    */
   async _dropActiveConversation(id, { clearVisibleIfNoFallback }) {
-    const conv = this.conversations.get(id);
+    const conv = this.registry.get(id);
     if (!conv) return null;
     await this._teardownConversation(conv, '_dropActiveConversation');
     // The one being dropped may be the conversation behind a workspace panel
     // rather than the one on screen, and it needs replacing either way.
     if (this.loadedConversationId === id) {
-      const fallbackId =
-        this._mruList.find(x => this.conversations.has(x)) ??
-        this.conversations.keys().next().value;
+      const fallbackId = this.registry.fallback();
       if (fallbackId !== undefined) {
         this.switchConversation(fallbackId);
       } else if (clearVisibleIfNoFallback) {
         recordTape('session-mut', null, { op: 'visible', from: '_dropActive-clearFallback' });
-        // Nothing left to show, and nothing left to come back to.
-        this._setSelection(null);
-        this.loadedConversationId = null;
+        this.registry.clearSelection();
       }
     }
     return conv;
-  }
-
-  /**
-   * Rebuild `this.conversations` in `orderedIds` order.
-   *
-   * Map insertion order IS the tab-bar order, so every insert, move and
-   * reorder is a full rebuild rather than an in-place mutation — this is the
-   * one place that rebuild lives. An id naming neither a current entry nor an
-   * addition is skipped (an id we don't have yet arrives with its own
-   * `created` / `restored` event); a current entry the caller didn't name keeps
-   * its relative position at the end (defensive — a drag-reorder always carries
-   * the full order).
-   * @param {string[]} orderedIds - Ids in their new order
-   * @param {Map<string, any>} [additions] - Entries not in the map yet (freshly created/loaded), keyed by id
-   * @private
-   */
-  _setConversationOrder(orderedIds, additions) {
-    /** @type {Map<string, any>} */
-    const next = new Map();
-    for (const id of orderedIds) {
-      const conv = additions?.get(id) ?? this.conversations.get(id);
-      if (conv) next.set(id, conv);
-    }
-    for (const [id, conv] of this.conversations) {
-      if (!next.has(id)) next.set(id, conv);
-    }
-    this._replaceConversations(next);
-  }
-
-  /**
-   * Swap the active map's contents for `next` without replacing the Map itself.
-   *
-   * The rebuild above runs on every insert and reorder, and one of those inserts
-   * happens with a conversation's worker still spawning — so the map is rebuilt
-   * under callers that are mid-await. Keeping the Map object identity means such
-   * a caller holds a live view of the tab bar rather than a snapshot of the order
-   * it was inserted into.
-   * @param {Map<string, any>} next - New contents, in their new order
-   * @private
-   */
-  _replaceConversations(next) {
-    this.conversations.clear();
-    for (const [id, conv] of next) this.conversations.set(id, conv);
   }
 
   /**
@@ -619,8 +546,8 @@ class Session {
    * The worker manager constructs a Conversation and must have it findable in
    * the active map BEFORE it spawns the worker (the first yjs-sync arrives
    * immediately), so the entry lands from outside — but the map is the tab-bar
-   * order and every mutation of it is taped, so it lands through here rather
-   * than by writing the Map directly. `atHead` puts the tab where a brand-new
+   * order, written only through the registry, so it lands through here. `atHead`
+   * puts the tab where a brand-new
    * conversation belongs — the front of the bar, or the front of its workspace's
    * box when it is bound to one (see {@link placeForNewConversation}) — and it
    * must be there from its first render, not after the spawn completes.
@@ -631,11 +558,10 @@ class Session {
    *   labels the tape entry
    */
   adoptConversation(id, conv, { atHead = false, workspaceId = '', from = 'adoptConversation' } = {}) {
-    recordTape('session-mut', id, { op: 'set', from });
     if (atHead) {
-      this._placeNewConversation(id, conv, workspaceId);
+      this._placeNewConversation(id, conv, workspaceId, from);
     } else {
-      this.conversations.set(id, conv);
+      this.registry.insert(id, conv, from);
     }
   }
 
@@ -643,21 +569,22 @@ class Session {
    * Put a brand-new conversation into the tab-bar order.
    *
    * Where it goes is {@link placeForNewConversation}'s answer, and the whole of
-   * the arithmetic here is turning that index into the full order the Map is
-   * rebuilt from. Idempotent, because it is run twice for one conversation: once
+   * the arithmetic here is turning that index into the full order the registry
+   * arranges. Idempotent, because it is run twice for one conversation: once
    * when the worker manager adopts it, and again when the create that asked for
    * it returns — the second is what settles the order if anything moved in
    * between, and it must not shuffle the tab along on its way past.
    * @param {string} id - Conversation id
    * @param {import('./conversation.js').default} conv - The conversation being placed
    * @param {string} [workspaceId] - The tree it will work in, if it is one
+   * @param {string} [from] - Caller, for the tape entry its arrival leaves
    * @private
    */
-  _placeNewConversation(id, conv, workspaceId = '') {
+  _placeNewConversation(id, conv, workspaceId = '', from = '_placeNewConversation') {
     const index = placeForNewConversation(this, workspaceId, { ignore: id });
-    const ids = [...this.conversations.keys()].filter(existing => existing !== id);
+    const ids = this.registry.ids().filter(existing => existing !== id);
     ids.splice(index, 0, id);
-    this._setConversationOrder(ids, new Map([[id, conv]]));
+    this.registry.arrange(ids, new Map([[id, conv]]), from);
 
     // Stored from here rather than from the server's own create, which is told
     // only that the conversation goes at the front of the order. Whether that
@@ -720,10 +647,7 @@ class Session {
    * @returns {boolean} True if an entry was dropped
    */
   forgetConversation(id, from = 'forgetConversation') {
-    if (!this.conversations.has(id)) return false;
-    recordTape('session-mut', id, { op: 'delete', from });
-    this.conversations.delete(id);
-    return true;
+    return this.registry.forget(id, from);
   }
 
   /**
@@ -744,18 +668,17 @@ class Session {
     // loadExisting reuses, so every render in between paints the tab in its
     // final position. Mirrors the local-create path (loader.createNew).
     let stubbed = false;
-    if (!this.conversations.has(id)) {
+    if (!this.registry.has(id)) {
       const services = this.getServices();
       if (services) {
         const stub = new Conversation(
           id,
-          this._conversationNames[id] || UNTITLED_BASE,
+          this.registry.name(id) || UNTITLED_BASE,
           this,
           services,
           { skipBuiltInContextItems: true, loadState: 'unloaded' }
         );
-        recordTape('session-mut', id, { op: 'set', from: '_loadIntoHead-stub' });
-        this._setConversationOrder([id], new Map([[id, stub]]));
+        this.registry.arrange([id], new Map([[id, stub]]), '_loadIntoHead-stub');
         stubbed = true;
         // Announce it now, not when the worker lands. Subscribers paint from the
         // map but only inside a render, and they render on notifies — so holding
@@ -771,7 +694,7 @@ class Session {
 
     try {
       const conv = await workerManager.loader.loadExisting(id, this);
-      this._setConversationOrder([id], new Map([[id, conv]]));
+      this.registry.arrange([id], new Map([[id, conv]]), '_loadIntoHead');
       return conv;
     } catch (error) {
       console.error(`[Session] load failed for ${id}:`, error);
@@ -780,11 +703,9 @@ class Session {
       // announced on the way in, so announce the removal too: subscribers hold
       // per-conversation elements keyed off the create, and dropping the map
       // entry silently strands them.
-      const stub = this.conversations.get(id);
+      const stub = this.registry.get(id);
       if (stubbed && stub?.loadState === 'unloaded') {
-        recordTape('session-mut', id, { op: 'delete', from: '_loadIntoHead-stub-failed' });
-        this.conversations.delete(id);
-        this._mruList = this._mruList.filter(x => x !== id);
+        this.registry.remove(id, '_loadIntoHead-stub-failed');
         this._notify('conversation:deleted', stub);
       }
       return null;
@@ -1024,21 +945,14 @@ class Session {
    */
   _releaseProjectScopedConversations() {
     workerManager.terminateAll();
-    for (const conv of this.conversations.values()) {
+    for (const conv of this.registry.conversations.values()) {
       try {
         conv.destroy?.();
       } catch (err) {
         console.error('[Session] Failed to release a conversation on project switch:', err);
       }
     }
-    this.conversations.clear();
-    this._unloadedConversationIds = [];
-    this._conversationNames = {};
-    this._mruList = [];
-    // Another project's conversations and workspaces are not this one's, so
-    // nothing is selected and there is nothing to come back to.
-    this._setSelection(null);
-    this.loadedConversationId = null;
+    this.registry.reset();
   }
 
   /**
@@ -1218,15 +1132,15 @@ class Session {
    */
   bumpConversation(conversationId, options = {}) {
     if (!isTabReorderEnabled()) return;
-    if (!this.conversations.has(conversationId)) return;
-    const order = Array.from(this.conversations.keys());
+    if (!this.registry.has(conversationId)) return;
+    const order = this.registry.ids();
 
     let target = 0;
     if (!options.forceTop) {
       // Target = length of the leading contiguous run of *other* busy tabs.
       for (const id of order) {
         if (id === conversationId) continue;
-        if (this._isConvBusy(this.conversations.get(id))) {
+        if (this._isConvBusy(this.registry.get(id) ?? undefined)) {
           target += 1;
         } else {
           break;
@@ -1249,7 +1163,7 @@ class Session {
 
     const without = order.filter(id => id !== conversationId);
     without.splice(target, 0, conversationId);
-    this._setConversationOrder(without);
+    this.registry.arrange(without);
 
     this._notify('conversation:reordered', { conversationId });
 
@@ -1298,19 +1212,6 @@ class Session {
   }
 
   /**
-   * Retain a conversation id that exists on disk but could not be loaded, so
-   * `saveImmediately` keeps it in `conversationOrder` and the next reload
-   * retries it rather than silently dropping it. Idempotent.
-   * @param {string} id - The conversation id to retain.
-   * @returns {void}
-   */
-  retainUnloadedConversationId(id) {
-    if (!Array.isArray(this._unloadedConversationIds)) return;
-    if (this._unloadedConversationIds.includes(id)) return;
-    this._unloadedConversationIds.push(id);
-  }
-
-  /**
    * Generate a unique conversation ID matching the backend's conv_<9-char base36> shape.
    * @private
    * @returns {string} Unique conversation ID
@@ -1343,7 +1244,7 @@ class Session {
    * @returns {string|null} The id, or null.
    */
   get visibleConversationId() {
-    return this.selection?.kind === 'conversation' ? this.selection.id : null;
+    return this.registry.visibleConversationId;
   }
 
   /**
@@ -1351,24 +1252,7 @@ class Session {
    * @returns {string|null} The id, or null.
    */
   get visibleWorkspaceId() {
-    return this.selection?.kind === 'workspace' ? this.selection.id : null;
-  }
-
-  /**
-   * Move the selection, without announcing it.
-   *
-   * The one write to {@link selection}. Choosing a conversation also makes it
-   * the one to come back to; choosing a workspace deliberately leaves that
-   * alone, which is what makes the panel somewhere you are rather than
-   * somewhere you left off.
-   * @param {{kind: 'conversation'|'workspace', id: string}|null} selection - What is now on screen.
-   * @private
-   */
-  _setSelection(selection) {
-    this.selection = selection;
-    if (selection?.kind === 'conversation') {
-      this.loadedConversationId = selection.id;
-    }
+    return this.registry.visibleWorkspaceId;
   }
 
   /**
@@ -1379,7 +1263,7 @@ class Session {
     if (!this.visibleConversationId) {
       return null;
     }
-    return this.conversations.get(this.visibleConversationId) || null;
+    return this.registry.get(this.visibleConversationId);
   }
 
   /**
@@ -1388,7 +1272,7 @@ class Session {
    * @returns {import('./conversation.js').default|null} Conversation instance or null if not found
    */
   getConversation(conversationId) {
-    return this.conversations.get(conversationId) || null;
+    return this.registry.get(conversationId);
   }
 
   /**
@@ -1508,10 +1392,9 @@ class Session {
       await workerManager.loader.loadExisting(conversationId, this);
       this.conversations.get(conversationId)?.setLoadState('loaded');
     } catch (error) {
+      // The server's order still lists it, so the next reload retries it; the
+      // tab stays, showing the error and a Retry.
       console.error(`[Session] Load failed for ${conversationId}:`, error);
-      // Retain the id so saveImmediately keeps it in conversationOrder; the
-      // next reload will retry.
-      this.retainUnloadedConversationId?.(conversationId);
       this.conversations.get(conversationId)?.setLoadState('error');
     }
   }
@@ -1659,16 +1542,14 @@ class Session {
           this._loadQueue = null;
         }
 
-        recordTape('session-mut', null, { op: 'clear', size: this.conversations.size });
-        this.conversations.clear();
-        this._unloadedConversationIds = [];
+        this.registry.clear('_doLoad');
 
         // Conversation names live on the on-disk folder name (parsed by the
         // backend on every GET /api/session) — no client-side title cache.
         const names = /** @type {Record<string, string>} */ (
           (data && /** @type {any} */(data).conversationNames) || {}
         );
-        this._conversationNames = { ...names };
+        this.registry.adoptNames(names);
         this.bin.adopt(/** @type {any} */ (data));
 
         const services = this.getServices();
@@ -1691,17 +1572,16 @@ class Session {
               services,
               { skipBuiltInContextItems: true, loadState: 'unloaded' }
             );
-            recordTape('session-mut', convId, { op: 'set', from: '_doLoad-stub' });
-            this.conversations.set(convId, stub);
+            this.registry.insert(convId, stub, '_doLoad-stub');
           }
 
-          if (data.activeConversationId && this.conversations.has(data.activeConversationId)) {
+          if (data.activeConversationId && this.registry.has(data.activeConversationId)) {
             recordTape('session-mut', data.activeConversationId, { op: 'visible', from: '_doLoad-active' });
-            this._setSelection({ kind: 'conversation', id: data.activeConversationId });
+            this.registry.select({ kind: 'conversation', id: data.activeConversationId });
           } else {
-            const firstId = this.conversations.keys().next().value;
+            const firstId = this.registry.ids()[0];
             recordTape('session-mut', firstId ?? null, { op: 'visible', from: '_doLoad-first' });
-            this._setSelection(firstId ? { kind: 'conversation', id: firstId } : null);
+            this.registry.select(firstId ? { kind: 'conversation', id: firstId } : null);
           }
 
           this._loadQueue = new ConversationLoadQueue({
@@ -1786,7 +1666,7 @@ class Session {
   async _createInitialConversation() {
     const id = await this.createConversation('', { activate: true, origin: 'initial-bootstrap' });
     recordTape('session-mut', id, { op: 'visible', from: '_createInitialConversation' });
-    this._setSelection({ kind: 'conversation', id });
+    this.registry.select({ kind: 'conversation', id });
   }
 
   /**
@@ -1970,8 +1850,7 @@ class Session {
 
       // Settle the order the adoption already put it in: at the top of the bar,
       // or at the top of its workspace's box.
-      recordTape('session-mut', conversation.id, { op: 'set', from: 'createConversation-place' });
-      this._placeNewConversation(conversation.id, conversation, workspaceId);
+      this._placeNewConversation(conversation.id, conversation, workspaceId, 'createConversation-place');
     } finally {
       this.sync.endLocalCreate(requestedId, response?.id);
     }
@@ -2187,14 +2066,15 @@ class Session {
       loadedClone = loaded;
       this.setConversationName(newId, canonicalName);
 
-      // 3. Insert clone right after source (Maps maintain insertion order).
+      // 3. Insert clone right after source.
       /** @type {string[]} */
       const withClone = [];
-      for (const id of this.conversations.keys()) {
+      for (const id of this.registry.ids()) {
+        if (id === loaded.id) continue;
         withClone.push(id);
         if (id === conversationId) withClone.push(loaded.id);
       }
-      this._setConversationOrder(withClone, new Map([[loaded.id, loaded]]));
+      this.registry.arrange(withClone, new Map([[loaded.id, loaded]]), 'duplicateConversation');
     } finally {
       this.sync.endLocalCreate(requestedId, response?.id);
     }
@@ -2225,7 +2105,7 @@ class Session {
    * @private
    */
   _persistOrder(label, moved = '') {
-    this._apiService.reorderConversations(Array.from(this.conversations.keys()), moved)
+    this._apiService.reorderConversations(this.registry.ids(), moved)
       .catch((/** @type {any} */ err) => console.error(`[Session] ${label} persist failed:`, err));
   }
 
@@ -2256,7 +2136,7 @@ class Session {
   _reanchorBoxesBeforeMove(conversationId) {
     if (!this.workspaces?.some?.(row => row.place === conversationId)) return;
 
-    const order = Array.from(this.conversations.keys());
+    const order = this.registry.ids();
     const at = order.indexOf(conversationId);
     const inherits = at > 0 ? order[at - 1] : 'head';
 
@@ -2284,7 +2164,7 @@ class Session {
    * @returns {boolean} Whether any of it was news.
    */
   applyStripArrangement({ order, places, moved = '' }) {
-    const current = Array.from(this.conversations.keys());
+    const current = this.registry.ids();
     const known = new Set(current);
     const next = order.filter(id => known.has(id));
 
@@ -2300,7 +2180,7 @@ class Session {
 
     const orderChanged = current.length !== next.length || current.some((id, i) => next[i] !== id);
     if (orderChanged) {
-      this._setConversationOrder(next);
+      this.registry.arrange(next);
       this._notify('conversation:reordered', { conversationId: moved, beforeId: null });
       // Sent without naming what moved: the server re-anchors boxes around the
       // conversation a reorder moved, which is the very rule being replaced
@@ -2369,8 +2249,7 @@ class Session {
       return false;
     }
 
-    const conv = this.conversations.get(conversationId);
-    if (!conv || !this.conversations.has(beforeId)) {
+    if (!this.registry.has(conversationId) || !this.registry.has(beforeId)) {
       return false;
     }
 
@@ -2378,9 +2257,9 @@ class Session {
     this._reanchorBoxesBeforeMove(conversationId);
 
     // Move the conversation to sit immediately before `beforeId`.
-    const order = Array.from(this.conversations.keys()).filter(id => id !== conversationId);
+    const order = this.registry.ids().filter(id => id !== conversationId);
     order.splice(order.indexOf(beforeId), 0, conversationId);
-    this._setConversationOrder(order);
+    this.registry.arrange(order);
     this._notify('conversation:reordered', { conversationId, beforeId });
 
     // POST /reorder is the sole writer of conversation order.
@@ -2603,8 +2482,9 @@ class Session {
     // is the only client entry point for a rename, so it is the only place a
     // hand-typed name enters the system. See PROVISIONAL_NAME_KEY.
     this.setNameIsProvisional(conversationId, false);
-    // Update _conversationNames, the single in-memory cache of the on-disk
-    // folder name, so `conv.name` (a getter) reflects the rename immediately.
+    // Update the registry's name cache, the single in-memory copy of the
+    // on-disk folder name, so `conv.name` (a getter) reflects the rename
+    // immediately.
     this.setConversationName(conversationId, canonical);
     this.notifyConversationChange('conversation:renamed', { conversationId });
     return canonical;
@@ -2620,7 +2500,7 @@ class Session {
     // ids held when the refresh began can be judged against the manifest it
     // returns. Anything that arrives after this line is newer than what was
     // read, and this rebuild has no opinion about it.
-    const knownAtEntry = new Set(this.conversations.keys());
+    const knownAtEntry = new Set(this.registry.ids());
 
     // The map alone would have this rebuild undo removals still in flight: an id
     // this client has binned is absent from the map and present in a manifest
@@ -2638,24 +2518,16 @@ class Session {
     if (!data.conversationOrder) return;
 
     const serverOrder = data.conversationOrder;
+    /** @type {Map<string, import('./conversation.js').default>} */
     const reordered = new Map();
 
-    // Folder names on disk are the source of truth. Keep the last known name
-    // for conversations which this refresh is about to remove: worker teardown
-    // is asynchronous, and the old conversation remains renderable until it
-    // finishes. The next refresh drops names whose conversations are already
-    // gone.
+    // Folder names on disk are the source of truth, but a conversation this
+    // refresh is about to remove keeps its last known name until it is gone
+    // (ConversationRegistry#mergeNames).
     const names = /** @type {Record<string, string>} */ (
       (data && /** @type {any} */(data).conversationNames) || {}
     );
-    /** @type {Record<string, string>} */
-    const retainedNames = {};
-    for (const id of this.conversations.keys()) {
-      if (!Object.hasOwn(names, id) && this._conversationNames[id]) {
-        retainedNames[id] = this._conversationNames[id];
-      }
-    }
-    this._conversationNames = { ...retainedNames, ...names };
+    this.registry.mergeNames(names);
     this.bin.adopt(/** @type {any} */ (data));
     this._applyManifestState(data, { notify: true });
 
@@ -2668,7 +2540,7 @@ class Session {
     /** @type {import('./conversation.js').default[]} */
     const newlyLoaded = [];
     for (const id of serverOrder) {
-      const existing = this.conversations.get(id);
+      const existing = this.registry.get(id);
       if (existing) {
         reordered.set(id, existing);
         // A stub nothing is hydrating stays on the spinner until the user
@@ -2695,16 +2567,18 @@ class Session {
     }
 
     // Destroy conversations that were deleted in the other view
-    for (const [id, conv] of this.conversations) {
+    for (const [id, conv] of this.registry.conversations) {
       if (serverIds.has(id) || !knownAtEntry.has(id)) continue;
       await workerManager.loader.destroy(conv);
     }
 
     // Fold in whatever arrived while the loads above were awaiting.
-    const arrivals = Array.from(this.conversations)
+    const arrivals = Array.from(this.registry.conversations)
       .filter(([id]) => !reordered.has(id) && !knownAtEntry.has(id));
 
-    this._replaceConversations(this._foldArrivals(reordered, arrivals));
+    // Through the registry like every other change to the list, so what the
+    // manifest took away is taped and leaves the most-recently-used list.
+    this.registry.replace(this._foldArrivals(reordered, arrivals), 'refreshFromServer');
 
     // Announce each newly-loaded conv so subscribers (notably the
     // conversation-bar) build the inner <conversation-tab> host element.
@@ -2714,8 +2588,8 @@ class Session {
 
     // If visible conversation was deleted, switch to first.
     // Use switchConversation() so the load queue is prioritized.
-    if (this.loadedConversationId && !this.conversations.has(this.loadedConversationId)) {
-      const firstId = this.conversations.keys().next().value;
+    if (this.loadedConversationId && !this.registry.has(this.loadedConversationId)) {
+      const firstId = this.registry.ids()[0];
       if (firstId !== undefined) {
         this.switchConversation(firstId);
       }
@@ -2763,7 +2637,7 @@ class Session {
     const alreadyVisible = this.visibleConversationId === conversationId;
 
     recordTape('session-mut', conversationId, { op: 'visible', from: 'switchConversation' });
-    this._setSelection({ kind: 'conversation', id: conversationId });
+    this.registry.select({ kind: 'conversation', id: conversationId });
     if (leavingWorkspace) {
       this._notify('workspace:selected', null);
     }
@@ -2776,8 +2650,7 @@ class Session {
     // when it lands on the conversation that was behind it: the panel was what
     // was on screen, so the tab has to be shown and announced like any other.
 
-    // Update MRU list: move conversationId to front
-    this._mruList = [conversationId, ...this._mruList.filter(id => id !== conversationId)];
+    this.registry.touch(conversationId);
 
     // Bump the user's selection to the front of the load queue so a
     // still-loading or errored conv hydrates before background work.
@@ -2823,7 +2696,7 @@ class Session {
       return true; // Already showing
     }
 
-    this._setSelection({ kind: 'workspace', id: workspaceId });
+    this.registry.select({ kind: 'workspace', id: workspaceId });
     this._notify('workspace:selected', workspace);
     return true;
   }
@@ -2894,12 +2767,12 @@ class Session {
     // Terminate all workers
     workerManager.terminateAll();
 
-    this.conversations.forEach(conv => {
+    this.registry.conversations.forEach(conv => {
       if (conv.destroy) {
         conv.destroy();
       }
     });
-    this.conversations.clear();
+    this.registry.clear('destroy');
 
     this._listeners.clear();
 

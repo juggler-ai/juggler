@@ -16,6 +16,7 @@
 
 import { assert } from '../utilities/test-helpers.js';
 import Session from '../../js/model/session.js';
+import ConversationRegistry from '../../js/model/conversation-registry.js';
 import '../../js/components/conversation-bar.js';
 
 /**
@@ -32,13 +33,10 @@ function makeSession(name) {
   ];
   session.projectPath = '/tmp/project';
   session.bin = { count: 0, sizeBytes: 0 };
-  session.selection = null;
-  session.loadedConversationId = null;
-  session._mruList = [];
   session._listeners = new Map();
-  session.conversations = new Map([
-    ['c1', { id: 'c1', name, workspaceId: 'ws_a', loadState: 'loaded', hasAutoNameSource: () => false }]
-  ]);
+  session.registry = new ConversationRegistry();
+  session.registry.insert('c1',
+    { id: 'c1', name, workspaceId: 'ws_a', loadState: 'loaded', hasAutoNameSource: () => false }, 'test');
   session.save = () => {};
   session._requestConversationLoad = () => {};
   session._notify = () => {};
@@ -206,7 +204,7 @@ export async function runTests() {
 
   await check('a click on the open tab renames only from its name, not the empty row beside it', async () => {
     const session = makeSession('Old name');
-    session.selection = { kind: 'conversation', id: 'c1' };
+    session.registry.select({ kind: 'conversation', id: 'c1' });
     const { bar, teardown } = mountBar(session);
     try {
       const tab = /** @type {HTMLElement} */ (bar.querySelector('.conversation-tab[data-conversation-id="c1"]'));

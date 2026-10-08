@@ -250,7 +250,7 @@ function boxPlace(box, conversations, indexOf) {
  *
  * There are two kinds of thing in the tab bar and each keeps its own place. A
  * conversation's is the flat order — Map insertion order, see
- * `Session#_setConversationOrder`. A box's is its workspace's `after` field, the
+ * `ConversationRegistry#arrange`. A box's is its workspace's `after` field, the
  * conversation it sits behind. Neither is derived from the other, which is the
  * whole point: a box placed by whichever conversation happened to be in it moved
  * whenever work started or finished there, and an empty box had nothing to be

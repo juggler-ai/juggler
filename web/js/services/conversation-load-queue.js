@@ -9,9 +9,9 @@
  * decides *when* to call workerManager.loader.loadExisting(). The conv's
  * loadState transitions through 'loading' → 'loaded' (or 'error') and the
  * session emits 'conversation:loadstate-changed' so listeners (tab bar,
- * conversation panel) can re-render. Failures retain the id on the session
- * (session.retainUnloadedConversationId) so it survives saveImmediately and
- * gets retried on the next reload.
+ * conversation panel) can re-render. A failed load leaves its stub in the bar
+ * marked 'error'; the server's conversation order still lists it, so the next
+ * reload retries it.
  *
  * The loader's in-flight map dedupes concurrent loads for the same id,
  * so this queue does not need its own dedupe.
@@ -196,11 +196,8 @@ class ConversationLoadQueue {
         this._resolveWaiters(id);
       } catch (error) {
         if (this._destroyed) return;
-        console.error(`[ConversationLoadQueue] Load failed for ${id} — retaining in order for next reload:`, error);
+        console.error(`[ConversationLoadQueue] Load failed for ${id} — the next reload retries it:`, error);
         this._errored.add(id);
-        // Retain the id so saveImmediately keeps it in
-        // conversationOrder; the next reload will retry.
-        this._session.retainUnloadedConversationId?.(id);
         const c = this._session.conversations.get(id);
         if (c) c.setLoadState('error');
         this._rejectWaiters(id, error);

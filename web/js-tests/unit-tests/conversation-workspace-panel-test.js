@@ -269,7 +269,7 @@ export async function runTests() {
       } finally {
         panel.remove();
         header.remove();
-        session.selection = null;
+        session.registry.select(null);
         document.body.classList.remove('workspace-selected');
         session.workspaces = saved;
         FixtureProvider.reported = null;

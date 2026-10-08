@@ -431,9 +431,9 @@ class Conversation {
   }
 
   /**
-   * Human-readable conversation name. Derived from the session-level
-   * `_conversationNames` cache, which mirrors the on-disk folder name
-   * shipped by GET /api/session.
+   * Human-readable conversation name. Derived from the session registry's
+   * name cache, which mirrors the on-disk folder name shipped by
+   * GET /api/session.
    * @returns {string} Current display name, or '' if not yet known.
    */
   get name() {

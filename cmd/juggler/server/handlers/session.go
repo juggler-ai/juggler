@@ -64,8 +64,9 @@ func (api *SessionAPI) SetConvOwnershipHooks(
 	api.releaseConvOwner = release
 }
 
-// WorkerManager interface for worker cleanup during conversation deletion.
-// Uses an interface to avoid circular import with worker package.
+// WorkerManager is the slice of worker.Manager the session routes need —
+// seeding, flushing, renaming, binning, restoring and deleting a conversation's
+// worker — kept narrow so SessionAPI depends on no more of it than that.
 type WorkerManager interface {
 	// Remove stops the worker and blocks the conversation from loading another
 	// one, so a client message in flight during the folder move cannot recreate

@@ -927,18 +927,16 @@ func (w *ConversationWorker) handleResyncToOrigin() {
 // tools (create_thread) are skipped — the worker, not the engine, executes
 // them, so an attach doesn't strand them. Clears the dedup entry for each reset
 // tool so the subsequent drive re-dispatches.
+//
+// The check and the reset share one hold (updateToolActionsWhere): a result
+// written between them would otherwise be reset to approved and run again.
 func (w *ConversationWorker) resetRunningToolsForReattach() {
 	// Read the current turn outside the walk's lock (docTurnCounter acquires
 	// ycrdtMu itself). A running tool stamped with this turn already had a
 	// result delivered to the provider this turn and must NOT be re-executed.
 	currentTurn := w.docTurnCounter()
 
-	var ids []string
-	ycrdtMu.Lock()
-	walkAllItems(w.doc.getItems(), "", func(m *ycrdt.YMap, _ string) bool {
-		if t, _ := m.Get("type").(string); t != ItemTypeToolAction {
-			return false
-		}
+	reset := w.doc.updateToolActionsWhere(func(m *ycrdt.YMap, _ string) bool {
 		if state, _ := m.Get("state").(string); state != StateRunning {
 			return false
 		}
@@ -977,20 +975,13 @@ func (w *ConversationWorker) resetRunningToolsForReattach() {
 		if name, _ := m.Get("toolName").(string); name == "create_thread" {
 			return false // worker-managed: not executed by the engine
 		}
-		if id, _ := m.Get("toolUseId").(string); id != "" {
-			ids = append(ids, id)
-		}
-		return false
+		return true
+	}, map[string]any{
+		"state":            StateApproved,
+		"runningStartedAt": nil,
 	})
-	ycrdtMu.Unlock()
 
-	for _, id := range ids {
-		// UpdateToolActionFieldsRecursive acquires ycrdtMu internally, so this
-		// must run with the lock released.
-		w.doc.UpdateToolActionFieldsRecursive(id, map[string]any{
-			"state":            StateApproved,
-			"runningStartedAt": nil,
-		})
+	for _, id := range reset {
 		w.tools.clear(id)
 	}
 }

@@ -793,31 +793,18 @@ func selectThreadFallbackResult(items []ConversationItem) string {
 // UndoManager and can be undone. The null item created here has Go's clientID,
 // which is required for RedoItem to succeed when undoing the clear.
 func (w *ConversationWorker) clearThreadResult(threadItemID string) bool {
-	// StopCapturing must be called outside ycrdtMu (it takes its own internal
-	// lock against the undo manager's afterTransaction handler).
+	// Resolve, check, close the undo group and write in one hold, so the map
+	// written is the one checked.
 	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
 	threadYMap := findThreadYMap(w.doc.getItems(), threadItemID)
 	if threadYMap == nil {
-		ycrdtMu.Unlock()
 		return false
 	}
 	if existingResult, _ := threadYMap.Get("result").(string); existingResult == "" {
-		ycrdtMu.Unlock()
 		return false // already open
 	}
-	ycrdtMu.Unlock()
-
-	w.tracker.StopCapturing()
-
-	ycrdtMu.Lock()
-	defer ycrdtMu.Unlock()
-	// Re-resolve under the same lock window as the write. The pointer from
-	// the existence-check above could have been invalidated by a sync update
-	// applied between releasing and re-acquiring.
-	threadYMap = findThreadYMap(w.doc.getItems(), threadItemID)
-	if threadYMap == nil {
-		return false
-	}
+	w.tracker.stopCapturingLocked()
 	w.doc.transactTracked(func(_ *ycrdt.Transaction) {
 		threadYMap.Set("result", nil)
 	})

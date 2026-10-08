@@ -249,37 +249,25 @@ func (w *ConversationWorker) reevaluatePendingToolsOnStrategyChangeExcept(liveTh
 		return
 	}
 
-	// Collect pending tool-actions belonging to a changed thread.
-	var ids []string
-	ycrdtMu.Lock()
-	walkAllItems(w.doc.getItems(), "", func(m *ycrdt.YMap, threadID string) bool {
+	// Reset the pending tool-actions belonging to a changed thread. Full reset
+	// to "" so the engine rebuilds a fresh approval decision (and form, if still
+	// needed) from the tool's immutable toolInput under the new policy. The
+	// pending check and the reset share one hold: an approval given between them
+	// would otherwise be wiped.
+	ids := w.doc.updateToolActionsWhere(func(m *ycrdt.YMap, threadID string) bool {
 		if !changed[threadID] {
 			return false
 		}
-		if t, _ := m.Get("type").(string); t != ItemTypeToolAction {
-			return false
-		}
-		if state, _ := m.Get("state").(string); state != StatePending {
-			return false
-		}
-		if id, _ := m.Get("toolUseId").(string); id != "" {
-			ids = append(ids, id)
-		}
-		return false
+		state, _ := m.Get("state").(string)
+		return state == StatePending
+	}, map[string]any{
+		"state":            StateUnevaluated,
+		"approvalResponse": nil,
+		"approvalOptions":  nil,
+		"displayData":      nil,
 	})
-	ycrdtMu.Unlock()
 
 	for _, id := range ids {
-		// UpdateToolActionFieldsRecursive acquires ycrdtMu internally, so this
-		// must run with the lock released. Full reset to "" so the engine rebuilds
-		// a fresh approval decision (and form, if still needed) from the tool's
-		// immutable toolInput under the new policy.
-		w.doc.UpdateToolActionFieldsRecursive(id, map[string]any{
-			"state":            StateUnevaluated,
-			"approvalResponse": nil,
-			"approvalOptions":  nil,
-			"displayData":      nil,
-		})
 		w.tools.clear(id)
 	}
 	if len(ids) > 0 {
@@ -567,32 +555,11 @@ func (w *ConversationWorker) engineLivenessSummary(id string) (engine, lastTrace
 // never an infinite wait").
 //
 // The walk that selected this id ran earlier and released ycrdtMu, so the engine
-// may have claimed or completed the tool since. Revalidate under the lock: only
-// fail a tool still at expectState with no result; otherwise the engine acted and
-// we just drop the stale bookkeeping. All bookkeeping for the id is cleared.
+// may have claimed or completed the tool since. The write revalidates in the
+// hold it writes under: only a tool still at expectState with no result is
+// failed; otherwise the engine acted and we just drop the stale bookkeeping. All
+// bookkeeping for the id is cleared.
 func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
-	stillStuck := false
-	toolName := ""
-	ycrdtMu.Lock()
-	walkAllItems(w.doc.getItems(), "", func(m *ycrdt.YMap, _ string) bool {
-		if t, _ := m.Get("type").(string); t != ItemTypeToolAction {
-			return false
-		}
-		if tid, _ := m.Get("toolUseId").(string); tid != id {
-			return false
-		}
-		toolName, _ = m.Get("toolName").(string)
-		if state, _ := m.Get("state").(string); state == expectState && m.Get("result") == nil {
-			stillStuck = true
-		}
-		return true // found the tool; stop the walk
-	})
-	ycrdtMu.Unlock()
-	if !stillStuck {
-		w.clearToolCommandBookkeeping(id)
-		return
-	}
-
 	engine, lastTrace, toolTrace := w.engineLivenessSummary(id)
 	// Three very different faults share this exit, and the message must say which
 	// — reporting any of the others as a tool failure sends every investigation
@@ -620,13 +587,6 @@ func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
 	case mute:
 		verdict = "mute"
 	}
-	w.log.Error("[worker] tool-command for %s (%s) in %s stayed at state=%q unhandled %d× (verdict=%s); failing the tool to unblock the turn (engine=%s lastEngineTrace=%s lastToolTrace=%s)",
-		id, toolName, w.conversationID, expectState, maxToolCommandAttempts, verdict, engine, lastTrace, toolTrace)
-	w.tape.Record("tool-command-attempts-escalate", map[string]any{
-		"id": id, "tool": toolName, "state": expectState, "attempts": maxToolCommandAttempts,
-		"engine": engine, "lastEngineTrace": lastTrace, "lastToolTrace": toolTrace,
-		"verdict": verdict, "mute": mute,
-	})
 	content := fmt.Sprintf("Couldn't run this tool: the engine acknowledged the request but never carried it out, after %d attempts. Failed so the turn can continue.",
 		maxToolCommandAttempts)
 	switch {
@@ -644,7 +604,15 @@ func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
 		content = fmt.Sprintf("Couldn't run this tool: the engine never answered for it within %s. Nothing ran. (last engine activity: %s)",
 			engineUnprovenHold, lastTrace)
 	}
-	w.doc.UpdateToolActionFieldsRecursive(id, map[string]any{
+	toolName := ""
+	failed := w.doc.updateToolActionsWhere(func(m *ycrdt.YMap, _ string) bool {
+		if tid, _ := m.Get("toolUseId").(string); tid != id {
+			return false
+		}
+		toolName, _ = m.Get("toolName").(string)
+		state, _ := m.Get("state").(string)
+		return state == expectState && m.Get("result") == nil
+	}, map[string]any{
 		"state": StateCompleted,
 		"result": map[string]any{
 			"content": content,
@@ -653,5 +621,15 @@ func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
 		"runningStartedAt": nil,
 	})
 	w.clearToolCommandBookkeeping(id)
+	if len(failed) == 0 {
+		return
+	}
+	w.log.Error("[worker] tool-command for %s (%s) in %s stayed at state=%q unhandled %d× (verdict=%s); failing the tool to unblock the turn (engine=%s lastEngineTrace=%s lastToolTrace=%s)",
+		id, toolName, w.conversationID, expectState, maxToolCommandAttempts, verdict, engine, lastTrace, toolTrace)
+	w.tape.Record("tool-command-attempts-escalate", map[string]any{
+		"id": id, "tool": toolName, "state": expectState, "attempts": maxToolCommandAttempts,
+		"engine": engine, "lastEngineTrace": lastTrace, "lastToolTrace": toolTrace,
+		"verdict": verdict, "mute": mute,
+	})
 	w.sched.markReconcile()
 }

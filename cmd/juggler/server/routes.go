@@ -245,7 +245,8 @@ func (s *Server) setupSessionRoutes(sessionAPI *handlers.SessionAPI) {
 	// <convDir>/assets/<sha>.<ext>. {sha} is validated as 64-char lowercase hex.
 	api.HandleFunc("/session/conversations/{convId}/assets/{sha}", sessionAPI.HandleGetAsset).Methods("GET")
 	// Upload raw image bytes (mime in Content-Type) → content-addressed store;
-	// returns the AssetRef. Server-package handler: it needs worker.AssetStore.
+	// returns the AssetRef. It reads no server state: an exception to the
+	// placement rule in handlers/doc.go, whose home is beside HandleGetAsset.
 	api.HandleFunc("/session/conversations/{convId}/assets", s.handleUploadAsset).Methods("POST")
 	api.HandleFunc("/session/conversations/{convId}/bin", sessionAPI.HandleBinConversation).Methods("POST")
 	api.HandleFunc("/session/binned-conversations", sessionAPI.HandleListBinnedConversations).Methods("GET")

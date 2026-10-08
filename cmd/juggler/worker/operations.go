@@ -463,6 +463,13 @@ func (t *OperationTracker) Redo() bool {
 func (t *OperationTracker) StopCapturing() {
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
+	t.stopCapturingLocked()
+}
+
+// stopCapturingLocked is StopCapturing for a caller already holding ycrdtMu, so
+// a decision and the undo-group boundary that precedes its write can share one
+// hold. The UndoManager's own StopCapturing only resets its capture clock.
+func (t *OperationTracker) stopCapturingLocked() {
 	if t.undoManager == nil {
 		return
 	}

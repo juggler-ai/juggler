@@ -274,6 +274,36 @@ func (cd *ConversationDocument) UpdateToolActionFieldsRecursive(toolUseID string
 	return updateToolActionFieldsInArray(cd.doc, docInternalOrigin, cd.getItems(), toolUseID, fields)
 }
 
+// updateToolActionsWhere writes fields to every tool-action (root + nested
+// threads) that match accepts, and returns the toolUseIds it wrote. The match
+// and the write share one ycrdtMu hold, which is the point: a caller that
+// checked a tool's state in an earlier hold and then wrote it by id would act on
+// what it saw, and a sync update landing in the gap — a result, an approval —
+// would be overwritten. match runs under the lock and must only read m.
+// Tool-actions without a toolUseId are skipped.
+func (cd *ConversationDocument) updateToolActionsWhere(match func(m *ycrdt.YMap, threadID string) bool, fields map[string]any) []string {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	var written []string
+	walkAllItems(cd.getItems(), "", func(m *ycrdt.YMap, threadID string) bool {
+		if t, _ := m.Get("type").(string); t != ItemTypeToolAction {
+			return false
+		}
+		id, _ := m.Get("toolUseId").(string)
+		if id == "" || !match(m, threadID) {
+			return false
+		}
+		cd.doc.Transact(func(_ *ycrdt.Transaction) {
+			for field, value := range fields {
+				m.Set(field, convertToYcrdt(value))
+			}
+		}, docInternalOrigin)
+		written = append(written, id)
+		return false
+	})
+	return written
+}
+
 // UpdateToolActionDisplayDataRecursive merges one durable display-data value
 // without discarding display fields owned by another part of the tool renderer.
 func (cd *ConversationDocument) UpdateToolActionDisplayDataRecursive(toolUseID, key string, value any) bool {

@@ -122,6 +122,15 @@ const maxWatchedDirs = 1000
 // past this bound is acceptable — a project switch rebuilds the index.
 const maxCreateWalk = 20000
 
+// maxCreateWalkReports bounds how many of the paths that sub-walk finds are
+// reported as created. The walk reports what it finds because nothing else will:
+// a file written straight after its `mkdir -p` lands before the directory is
+// watched, so its own create event never fires. That case is a handful of paths.
+// A large tree moved in is a bulk change, which the directory's own event
+// already announces, and reporting every file in it would only overflow
+// changeChan.
+const maxCreateWalkReports = 64
+
 // buildWatchesAndIndex does a single breadth-first walk of the project tree
 // that (a) registers directory watches up to maxWatchedDirs and (b) collects
 // every non-skipped file/dir path (dirs with a trailing "/") for the index, up
@@ -269,7 +278,8 @@ func (w *FileWatcher) indexRemoved(absPath string) {
 }
 
 // indexSubtree BFS-walks a subtree and feeds every non-skipped path into the
-// index, watching subdirectories as it goes. Bounded by maxCreateWalk.
+// index, watching subdirectories as it goes and reporting the first
+// maxCreateWalkReports paths as created. Bounded by maxCreateWalk.
 func (w *FileWatcher) indexSubtree(absRoot, relRoot string) {
 	type queued struct{ abs, rel string }
 	queue := []queued{{abs: absRoot, rel: relRoot}}
@@ -305,6 +315,9 @@ func (w *FileWatcher) indexSubtree(absRoot, relRoot string) {
 				continue
 			}
 			count++
+			if count <= maxCreateWalkReports {
+				w.emitChange(filepath.FromSlash(rel), "create")
+			}
 			if isDir {
 				w.index.add(rel + "/")
 				_ = w.watcher.Add(abs)

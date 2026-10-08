@@ -425,6 +425,78 @@ export async function runTests(ctx) {
     }
   });
 
+  /**
+   * Poll a pin's body until it says something, or give up.
+   * @param {HTMLElement} body - The pin's body.
+   * @param {string} wanted - Text to wait for.
+   * @param {number} timeout - How long to give it.
+   * @returns {Promise<boolean>} Whether it appeared.
+   */
+  async function eventually(body, wanted, timeout) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      if ((body.textContent || '').includes(wanted)) return true;
+      await new Promise((r) => { setTimeout(r, 20); });
+    }
+    return (body.textContent || '').includes(wanted);
+  }
+
+  // The fixture is not reset between runs, so a file one run makes appear would
+  // already be there for the next.
+  const unique = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+  await test('a missing file that appears later is shown, with no change event to say so', async () => {
+    // The agent writing a file and pinning it in one turn: the two run in
+    // parallel, the pin reads first, and a file outside what the watcher can see
+    // arrives without a word.
+    const name = `late_${unique}.txt`;
+    const mounted = mount({ path: `${base}_${name}` });
+    try {
+      assert((await settled(mounted.body)).includes('File not found'), 'it starts missing');
+      await writeFixture(name, 'arrived after all');
+      assert(await eventually(mounted.body, 'arrived after all', 5000),
+        `the pin shows the file once it exists, got "${mounted.body.textContent}"`);
+    } finally {
+      mounted.teardown();
+    }
+  });
+
+  await test('a missing file is not checked for while the pin cannot be seen', async () => {
+    const name = `hidden_${unique}.txt`;
+    const mounted = mount({ path: `${base}_${name}` });
+    try {
+      assert((await settled(mounted.body)).includes('File not found'), 'it starts missing');
+      mounted.body.style.display = 'none';
+      await writeFixture(name, 'there while nobody looked');
+      await new Promise((r) => { setTimeout(r, 1200); });
+      assert((mounted.body.textContent || '').includes('File not found'),
+        `a hidden pin waits rather than reading, got "${mounted.body.textContent}"`);
+
+      mounted.body.style.display = '';
+      assert(await eventually(mounted.body, 'there while nobody looked', 8000),
+        `shown again, it picks the file up, got "${mounted.body.textContent}"`);
+    } finally {
+      mounted.teardown();
+    }
+  });
+
+  await test('a torn-down pin stops checking for its missing file', async () => {
+    const name = `abandoned_${unique}.txt`;
+    const mounted = mount({ path: `${base}_${name}` });
+    try {
+      assert((await settled(mounted.body)).includes('File not found'), 'it starts missing');
+      // The controller alone, leaving the body attached and visible, so the only
+      // thing that can stop the check is the teardown.
+      mounted.controller.teardown?.();
+      await writeFixture(name, 'too late');
+      await new Promise((r) => { setTimeout(r, 1200); });
+      assert(!(mounted.body.textContent || '').includes('too late'),
+        `a torn-down pin must not keep reading, got "${mounted.body.textContent}"`);
+    } finally {
+      mounted.teardown();
+    }
+  });
+
   // ========================================================================
   // Staying current
   // ========================================================================

@@ -146,7 +146,10 @@ import { validateManifest } from './lib/manifest.js';
  * files inside the open project are reported, and hidden files are not: the
  * watcher is rooted at the project and skips dot-files. A pin on anything else
  * will hear nothing, so offer the user a way to re-read rather than trusting this
- * to be complete — and never poll for what it does not tell you.
+ * to be complete. Do not poll for changes it does not report. The one exception
+ * is a pin whose path does not exist yet: it may stat that path, backing off,
+ * while the pin is visible and until something appears. Changes to an existing
+ * file still come only from this service or from the user.
  * @typedef {object} PinFilesService
  * @property {(listener: (changes: PinFileChange[]) => void) => (() => void)} onChange -
  *   Watch for file changes. Returns an unsubscribe function; the host also drops

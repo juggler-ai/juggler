@@ -6,6 +6,7 @@
 import PinboardItemType from 'juggler/pinboard-item-type';
 import { basename } from 'juggler/item-utils';
 import { buildPickerPanel, createElement, injectStylesOnce } from 'juggler/ui';
+import { stat } from 'juggler/ops';
 import { fetchLiveFile, renderLiveFileBody } from '../lib/live-file.js';
 import { absoluteFilePinPath, normalizeFilePinParameters } from '../lib/file-pin-config.js';
 import { pathPinController } from '../lib/path-pin.js';
@@ -29,6 +30,14 @@ injectStylesOnce('file-pin-styles', `
  * would be several reads to show one file.
  */
 const REFRESH_DEBOUNCE_MS = 150;
+
+/**
+ * How long a pin showing a missing path waits between checks for it to appear,
+ * one entry per check and the last repeated. Front-loaded because the usual
+ * reason for the missing state is a race rather than a typo: the agent writes a
+ * file and pins it in one turn, the two run in parallel, and the pin reads first.
+ */
+const ARRIVAL_CHECK_MS = [250, 500, 1000, 2000, 5000];
 
 /**
  * FilePin — a file kept where it can be seen.
@@ -185,7 +194,9 @@ class FilePin extends PinboardItemType {
 
   /**
    * Show the file, and keep showing it: a change to it on disk re-reads, and so
-   * does `Refresh` for the changes the watcher cannot see.
+   * does `Refresh` for the changes the watcher cannot see. A path with nothing at
+   * it is checked again until something arrives, because the watcher cannot see
+   * every path.
    * @param {HTMLElement} container - The body to fill.
    * @param {import('juggler/pinboard-item-type').PinContext} pinContext - The pin and its context.
    * @returns {import('juggler/pinboard-item-type').PinController} The controller.
@@ -200,8 +211,59 @@ class FilePin extends PinboardItemType {
     let generation = 0;
     /** @type {ReturnType<typeof setTimeout>|undefined} */
     let pending;
+    /** @type {ReturnType<typeof setTimeout>|undefined} */
+    let arrivalCheck;
+
+    /**
+     * Keep checking for a path that was not there. The watcher reports a file
+     * appearing only inside the project, outside dot-directories and gitignored
+     * ones, so for a pin in the missing state this check is how the file showing
+     * up gets noticed. It checks only while the pin can be seen, uses a stat
+     * rather than a read, and stops at the first render, change of path or
+     * teardown.
+     *
+     * A failed read did not necessarily find nothing there; it may have been
+     * refused. In that case the check is only kept up once a stat agrees the path
+     * is missing, so a file that exists but cannot be read is not re-read
+     * forever.
+     * @param {number} mine - The render generation that found the path missing.
+     * @param {boolean} knownMissing - Whether that render established the path is missing.
+     */
+    const awaitArrival = (mine, knownMissing) => {
+      let step = 0;
+      let missing = knownMissing;
+      const next = () => {
+        arrivalCheck = setTimeout(async () => {
+          if (mine !== generation || context.signal.aborted) return;
+          if (!container.isConnected || !container.checkVisibility()) {
+            next();
+            return;
+          }
+          /** @type {boolean|null} */
+          let present = null;
+          try {
+            const metadata = await stat({
+              path: absoluteFilePinPath(context.pin.config, context.active),
+              userInitiated: true,
+            });
+            present = metadata.exists !== false;
+          } catch {
+            // Not a missing path: whatever refused the stat will refuse the read.
+          }
+          if (mine !== generation || context.signal.aborted || present === null) return;
+          if (!present) {
+            missing = true;
+            next();
+          } else if (missing) {
+            void render();
+          }
+        }, ARRIVAL_CHECK_MS[Math.min(step++, ARRIVAL_CHECK_MS.length - 1)]);
+      };
+      next();
+    };
 
     const render = async () => {
+      clearTimeout(arrivalCheck);
       const mine = ++generation;
       const path = absoluteFilePinPath(context.pin.config, context.active);
       // Say which file the body below belongs to, so selecting part of it can be
@@ -230,6 +292,7 @@ class FilePin extends PinboardItemType {
         codeRefPath: relative || path,
         codeRefAbsolute: !relative,
       });
+      if (!result.exists) awaitArrival(mine, !result.error);
 
       // The pin asks for the whole file, so this only speaks up when the read
       // op cut the file short anyway — over the size a read will return at all.
@@ -262,6 +325,7 @@ class FilePin extends PinboardItemType {
       render,
       teardown: () => {
         clearTimeout(pending);
+        clearTimeout(arrivalCheck);
         stopWatching();
       },
     });

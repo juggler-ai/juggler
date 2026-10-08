@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 // writeGitignore writes root/.gitignore with the given content.
@@ -167,6 +169,40 @@ func TestFileWatcher_CreatedIgnoredFileNotAdded(t *testing.T) {
 	}
 	if got := searchPaths(w.Index(), "fresh-widget", 20); !contains(got, "fresh-widget.go") {
 		t.Errorf("created tracked file should be indexed, got %v", got)
+	}
+}
+
+// TestFileWatcher_FileInNewDirectoryIsReported covers `mkdir -p dir && write
+// dir/file`: the file lands before the new directory is watched, so its own
+// create event never fires, and the only event there is is the directory's.
+// That one event has to report the file too, or a viewer waiting on it — a pin
+// on a file the agent is about to write — never hears that it arrived.
+func TestFileWatcher_FileInNewDirectoryIsReported(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, []string{"seed.go"})
+
+	w, err := NewFileWatcher(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Stop()
+
+	writeTree(t, root, []string{"reports/q3/chart.html", "reports/.draft.html"})
+	w.handleEvent(fsnotify.Event{Name: filepath.Join(root, "reports"), Op: fsnotify.Create})
+
+	got := map[string]string{}
+	for len(w.changeChan) > 0 {
+		for _, change := range (<-w.changeChan).Changes {
+			got[filepath.ToSlash(change.Path)] = change.Event
+		}
+	}
+	for _, want := range []string{"reports", "reports/q3", "reports/q3/chart.html"} {
+		if got[want] != "create" {
+			t.Errorf("expected a create for %s, got %v", want, got)
+		}
+	}
+	if _, ok := got["reports/.draft.html"]; ok {
+		t.Errorf("a hidden file in a new directory should not be reported, got %v", got)
 	}
 }
 

@@ -436,7 +436,7 @@ func (w *ConversationWorker) writeBoundedCompactionResult(threadID string, resul
 // the worker to idle and closed the undo capture window (cancelAndSettle +
 // stop-undo-capturing on the same ordered channel), so the fold starts a fresh
 // undo group and the checkForNewThreads pickup merges fold + summary into one
-// group (compactionMergeFromIdx), matching the old browser-fold undo semantics.
+// group (undoGrouping.markCompactionStart), matching the old browser-fold undo semantics.
 //
 // It replies BEFORE driving the pickup so the browser command returns promptly;
 // the summarization then runs on the worker loop without blocking the command —
@@ -545,7 +545,7 @@ func condenseForRefold(it ConversationItem) ConversationItem {
 // The thread is spliced UNSUMMARIZED (needsStrategyRun, no result); the caller
 // then lets checkForNewThreads pick it up and run it through the Phase-3
 // folded-compaction summarizer, which also merges the whole operation into one
-// undo group (compactionMergeFromIdx).
+// undo group (undoGrouping.markCompactionStart).
 //
 // Convergence invariant: each fold SWALLOWS prior summarized compaction
 // threads (nested whole, transcript included, see condenseForRefold),

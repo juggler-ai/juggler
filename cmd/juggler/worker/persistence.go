@@ -7,7 +7,6 @@ package worker
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"juggler/cmd/juggler/core"
 	"juggler/internal/logpaths"
@@ -132,7 +131,7 @@ func (r *run) writeStateToDisk() (bool, error) {
 		return false, fmt.Errorf("save conversation binary: %w", err)
 	}
 
-	r.dirty.Store(false)
+	r.saver.markSaved()
 	return true, nil
 }
 
@@ -158,33 +157,12 @@ func (r *run) saveStateToDisk() error {
 	return nil
 }
 
-// scheduleSave marks the document dirty and asks the run loop to re-arm the
+// scheduleSave marks the document unsaved and asks the run loop to re-arm the
 // save debounce. Callable from ANY goroutine: it is invoked from the Yjs sync
 // callback, which fires on whichever goroutine did the Transact() — the run
-// loop, the batcher actor's broadcast, or a turn. It therefore touches nothing
-// but an atomic and a buffered channel; armSaveDebounce owns the timer.
+// loop, the batcher actor's broadcast, or a turn. See docSaver.noteChange.
 func (w *ConversationWorker) scheduleSave() {
-	w.dirty.Store(true)
-	select {
-	case w.saveRequest <- struct{}{}:
-	default: // a re-arm is already queued — the debounce is about to be reset anyway
-	}
-}
-
-// armSaveDebounce (re)starts the debounce timer. Run goroutine only — it is the
-// sole writer of saveTimer.
-func (w *ConversationWorker) armSaveDebounce() {
-	if w.saveTimer != nil {
-		w.saveTimer.Stop()
-	}
-	w.saveTimer = time.AfterFunc(SaveDebounceTime, func() {
-		// Signal the run loop to save — never call saveStateToDisk from the
-		// timer goroutine, as that races with the run loop accessing the doc.
-		select {
-		case w.saveChan <- struct{}{}:
-		default: // save already pending
-		}
-	})
+	w.saver.noteChange()
 }
 
 func (r *run) onShutdown() {
@@ -202,7 +180,7 @@ func (r *run) onShutdown() {
 
 	// Stop every task-output delivery pump and kill its background task so a
 	// delivering command doesn't outlive the conversation worker.
-	r.stopAllDeliveryPumps()
+	r.pumps.stopAll()
 
 	// Level the document up with any streamed content the write throttle is
 	// holding, BEFORE the Yjs flush below, so the final broadcast and the
@@ -213,16 +191,8 @@ func (r *run) onShutdown() {
 	// Flush any pending Yjs sync updates
 	r.batcher.Flush()
 
-	// Cancel any pending save timer
-	if r.saveTimer != nil {
-		r.saveTimer.Stop()
-		r.saveTimer = nil
-	}
-	// Drain any pending save signal (timer may have fired before Stop)
-	select {
-	case <-r.saveChan:
-	default:
-	}
+	// Cancel any pending save, including a firing already posted.
+	r.saver.cancel()
 	// Skip final save when the worker is being removed for deletion —
 	// otherwise SaveConversationBinary's ensureConvDir would recreate the
 	// just-deleted folder as "Untitled--<id>".
@@ -230,7 +200,7 @@ func (r *run) onShutdown() {
 		return
 	}
 	// Skip if no changes since last successful save.
-	if !r.dirty.Load() {
+	if !r.saver.isUnsaved() {
 		return
 	}
 	// Write only — no blob/asset GC. Every worker's shutdown save runs inside

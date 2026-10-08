@@ -349,7 +349,7 @@ func (r *run) advanceClaimedPendingEntry(e pendingEntrySnapshot) {
 			r.writePendingEntryCompletedThread(e.ownerThreadID, e.id, "", "")
 		}
 	case "deliverTaskOutput":
-		if _, running := r.deliveryPumps[e.id]; running {
+		if r.pumps.running(e.id) {
 			return // the pump owns this entry's lifecycle
 		}
 		if r.deliveryIsForeign(e) {
@@ -396,7 +396,7 @@ func (r *run) cancelPendingEntry(e pendingEntrySnapshot) {
 	if e.kind == "deliverTaskOutput" {
 		// Stop the pump and kill the task; do NOT forward to handleCancel (a
 		// delivery cancel must not abort an unrelated in-flight turn).
-		r.stopDeliveryPump(e.id)
+		r.pumps.stop(e.id)
 		r.writePendingEntryCancelled(e.ownerThreadID, e.id, "")
 		return
 	}

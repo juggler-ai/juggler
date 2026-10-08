@@ -200,7 +200,7 @@ func TestFrozenGapExcludesSuspendedTimeFromElapsed(t *testing.T) {
 		"startedAt": oldAnchor,
 	})
 
-	// First tick just seeds lastLivenessMs — no comparison point yet, no change.
+	// First tick just seeds the clock's previous tick — no comparison point yet, no change.
 	w.currentRun().detectFrozenGap()
 	if w.turn.processingStartedAt.Load() != oldAnchor {
 		t.Fatalf("first tick must not move the anchor: got %d want %d", w.turn.processingStartedAt.Load(), oldAnchor)
@@ -209,7 +209,7 @@ func TestFrozenGapExcludesSuspendedTimeFromElapsed(t *testing.T) {
 	// Simulate the process having been frozen for 30s: backdate the last tick so
 	// this tick lands 30s + one interval later than expected.
 	frozenMs := int64(30_000)
-	w.lastLivenessMs = time.Now().UnixMilli() - frozenMs - livenessInterval.Milliseconds()
+	w.liveness.prevTickMs = time.Now().UnixMilli() - frozenMs - livenessInterval.Milliseconds()
 
 	w.currentRun().detectFrozenGap()
 
@@ -233,7 +233,7 @@ func TestFrozenGapIgnoredWhenIdleOrParked(t *testing.T) {
 	defer w.doc.Destroy()
 
 	backdate := func() {
-		w.lastLivenessMs = time.Now().UnixMilli() - 30_000 - livenessInterval.Milliseconds()
+		w.liveness.prevTickMs = time.Now().UnixMilli() - 30_000 - livenessInterval.Milliseconds()
 	}
 
 	// Idle: no anchor. A large gap must not create one.

@@ -12,22 +12,22 @@ import (
 // These tests guard the level-based tool-command delivery model (no ack, no
 // in-flight latch, no watchdog timer). driveToolActions re-dispatches a tool's
 // command only when the doc state still demands one AND the last dispatch at that
-// state has aged past redriveInterval; doc-state progression (the engine claimed
+// state has aged past redriveAfter; doc-state progression (the engine claimed
 // or evaluated the tool) suppresses re-drive immediately, and a command stuck at
 // the same state past maxToolCommandAttempts escalates to a terminal error so the
 // parked turn unblocks — provided the engine is answering at all
 // (engine_liveness_test.go). Staleness is forced deterministically by shrinking
-// the worker's redriveInterval (the clock seam) — no sleeps.
+// the tracker's redriveAfter (the clock seam) — no sleeps.
 
 // TestToolCommandRedrive_AgeSuppressesThenRedrives exercises the three legs of the
-// one rule on an approved tool: a re-drive WITHIN redriveInterval is deduped (no
+// one rule on an approved tool: a re-drive WITHIN redriveAfter is deduped (no
 // per-tick spam), a re-drive PAST it re-dispatches (recovers a silently-dropped
 // command), and once the engine claims the tool (state→running) the doc-state
 // guard stops all further commands (no double side effect).
 func TestToolCommandRedrive_AgeSuppressesThenRedrives(t *testing.T) {
 	h := newReattachHarness(t, "conv-redrive-age")
 	w := h.w
-	w.redriveInterval = time.Hour // suppress the age-based re-drive for the dedup leg
+	w.tools.redriveAfter = time.Hour // suppress the age-based re-drive for the dedup leg
 
 	w.doc.InsertMessage(0, ConversationItem{
 		Type: ItemTypeToolAction, ItemID: "ta-1", ToolUseID: "tu-1",
@@ -41,7 +41,7 @@ func TestToolCommandRedrive_AgeSuppressesThenRedrives(t *testing.T) {
 		t.Fatalf("first drive: want 1 execute-tool, got %d", got)
 	}
 
-	// Re-drive within redriveInterval, same state: the age test dedups it.
+	// Re-drive within redriveAfter, same state: the age test dedups it.
 	w.driveToolActions()
 	h.flush(t)
 	if got := h.executeCount("tu-1"); got != 1 {
@@ -49,7 +49,7 @@ func TestToolCommandRedrive_AgeSuppressesThenRedrives(t *testing.T) {
 	}
 
 	// Shrink the interval so the dispatch is now stale: the re-drive re-dispatches.
-	w.redriveInterval = 0
+	w.tools.redriveAfter = 0
 	w.driveToolActions()
 	h.flush(t)
 	if got := h.executeCount("tu-1"); got != 2 {
@@ -90,7 +90,7 @@ func TestToolCommandRedrive_SilentDropRedrives(t *testing.T) {
 
 	// Engine stays silent (the command was dropped). Once the dispatch is stale the
 	// next drive re-dispatches it — this is the ~31-min "popup fail" wedge fix.
-	w.redriveInterval = 0
+	w.tools.redriveAfter = 0
 	w.driveToolActions()
 	h.flush(t)
 	if got := h.executeCount("tu-1"); got != 2 {
@@ -114,7 +114,7 @@ func TestToolCommandRedrive_SilentDropRedrives(t *testing.T) {
 // (state→running) but not yet completed must NOT be re-driven — the engine
 // completes it in its own time and re-driving would double-fire the side effect.
 // The doc-state guard (running is not a delivery state driveToolActions selects)
-// enforces this even with a zero redriveInterval.
+// enforces this even with a zero redriveAfter.
 func TestToolCommandRedrive_RunningToolNotRedriven(t *testing.T) {
 	h := newReattachHarness(t, "conv-redrive-running")
 	w := h.w
@@ -137,7 +137,7 @@ func TestToolCommandRedrive_RunningToolNotRedriven(t *testing.T) {
 	})
 
 	// Even with staleness forced, a running tool is never re-driven or escalated.
-	w.redriveInterval = 0
+	w.tools.redriveAfter = 0
 	w.driveToolActions()
 	h.flush(t)
 	if got := h.executeCount("tu-1"); got != 1 {
@@ -178,7 +178,7 @@ func TestToolCommandHeldSaysSo(t *testing.T) {
 
 	// An engine that never answers: drive past the attempts cap with staleness
 	// forced, so the hold is what keeps the command being re-issued.
-	w.redriveInterval = 0
+	w.tools.redriveAfter = 0
 	for i := 0; i < maxToolCommandAttempts+3; i++ {
 		w.driveToolActions()
 		h.flush(t)

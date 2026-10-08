@@ -137,7 +137,7 @@ func captureAck(t *testing.T, w *ConversationWorker, clientID, ackID string) fun
 		default:
 		}
 	})
-	w.replyTo = clientID
+	w.inbox.beginReply(clientID)
 	return func() map[string]any {
 		deadline := time.After(2 * time.Second)
 		for {

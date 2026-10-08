@@ -49,9 +49,9 @@ import (
 // traceReason is the `reason` the engine answers each command with: "" for an
 // engine that engaged with the tool, an engineUnreachableReasons value for one
 // that could not reach it, and traceNothing for an engine that says nothing at
-// all. Staleness is forced through the redriveInterval clock seam — no sleeps.
+// all. Staleness is forced through the tracker's redriveAfter clock seam — no sleeps.
 func driveToEscalation(h *reattachHarness, traceReason string) {
-	h.w.redriveInterval = 0
+	h.w.tools.redriveAfter = 0
 	for i := 0; i <= maxToolCommandAttempts+1; i++ {
 		if traceReason != traceNothing {
 			// The engine is alive and answering FOR THIS TOOL: it is declining the
@@ -177,7 +177,7 @@ func TestEngineMute_FailureNamesTheEngine(t *testing.T) {
 func TestEngineWentSilentMidPhase_ToolIsNotBlamed(t *testing.T) {
 	h := newReattachHarness(t, "conv-engine-silent-mid-phase")
 	insertApprovedTool(h)
-	h.w.redriveInterval = 0
+	h.w.tools.redriveAfter = 0
 
 	// One trace, answering the first command, then silence for good. A sibling
 	// tool still executing would keep the conversation-wide signal just as warm.
@@ -210,7 +210,7 @@ func TestEngineWentSilentMidPhase_ToolIsNotBlamed(t *testing.T) {
 func TestEngineTrace_StampsThePerToolReceipt(t *testing.T) {
 	h := newReattachHarness(t, "conv-engine-trace-receipt")
 	insertApprovedTool(h)
-	h.w.redriveInterval = 0
+	h.w.tools.redriveAfter = 0
 	h.w.driveToolActions() // create the bookkeeping entry the trace stamps
 
 	h.w.handleEngineTrace([]byte(`{"event":"execute-noact","toolUseId":"tu-1","reason":"no-thread"}`))
@@ -349,7 +349,7 @@ func TestEngineUnreachableDecline_ToolIsHeldNotBlamed(t *testing.T) {
 func TestEngineUnreachableDecline_FailureNamesTheReason(t *testing.T) {
 	h := newReattachHarness(t, "conv-engine-unreachable-waited-out")
 	insertApprovedTool(h)
-	h.w.redriveInterval = 0
+	h.w.tools.redriveAfter = 0
 	h.w.driveToolActions() // open the bookkeeping entry so the phase can be aged
 
 	// Age the phase past the hold. The state never changes across the drive below,

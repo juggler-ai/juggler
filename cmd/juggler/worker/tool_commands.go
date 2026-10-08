@@ -16,7 +16,7 @@ import (
 // tool-command that stays stuck at the same delivery state ("" or approved). Past
 // this the worker escalates the tool to a terminal error so a parked turn unblocks
 // instead of hanging forever, rather than re-driving indefinitely. At the default
-// redriveInterval (~5s) this is ~30s of silence before escalation.
+// re-drive interval (~5s) this is ~30s of silence before escalation.
 //
 // The cap only applies to an engine that is ANSWERING FOR THIS TOOL. Exhausting
 // it against an engine that has traced nothing for the tool means the commands
@@ -29,7 +29,7 @@ const maxToolCommandAttempts = 6
 // a tool-command still stuck at the state it was last sent at. Doc-state
 // progression (the engine claimed/evaluated the tool) suppresses re-drive
 // immediately; this interval only bounds recovery of a silently-dropped command.
-// Exposed as the redriveInterval worker field, which tests shrink.
+// Exposed as the tracker's redriveAfter field, which tests shrink.
 const defaultRedriveInterval = 5 * time.Second
 
 // engineUnprovenHold bounds how long a tool is held while the engine has
@@ -58,7 +58,7 @@ const engineUnprovenHold = 60 * time.Second
 // loading engine waits on its own conversation load, whose ceiling is
 // WORKER_READY_TIMEOUT_MS in web/js/services/worker-manager.js — 60s. A hold
 // merely equal to that ties with the thing it is waiting for and fails the tool
-// as the load lands, so this leaves a redriveInterval's headroom above it for
+// as the load lands, so this leaves a re-drive interval's headroom above it for
 // the next command to actually run. Raising that JS timeout without raising this
 // puts the race back.
 const engineUnreachableHold = 90 * time.Second
@@ -78,7 +78,7 @@ const engineUnreachableHold = 90 * time.Second
 //
 // Dedup + recovery are one level-based rule: re-dispatch a tool's command only
 // when the doc state still demands one AND it wasn't already dispatched at that
-// state within redriveInterval (tools.shouldRedrive). Doc-state progression is the
+// state within the re-drive interval (tools.shouldRedrive). Doc-state progression is the
 // "engine acted" signal — the engine handlers are independently idempotent
 // (handleNewToolAction's ifState CAS and claimRunning's compare-and-set), so a
 // redundant command is a harmless no-op — so the age test alone both suppresses
@@ -148,13 +148,13 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 
 	// Filter to the commands due for dispatch: either the doc demands a fresh
 	// command (never dispatched, or the demanded state changed) or the last
-	// dispatch at this state has aged past redriveInterval. recordDispatch stamps
+	// dispatch at this state has aged past the re-drive interval. recordDispatch stamps
 	// the dispatch and returns the attempt count; past maxToolCommandAttempts the
 	// tool is escalated to a terminal error instead of re-driven forever.
 	now := time.Now()
 	var toDispatch, escalate []toolCmd
 	for _, c := range cmds {
-		if !w.tools.shouldRedrive(c.id, c.state, now, w.redriveInterval) {
+		if !w.tools.shouldRedrive(c.id, c.state, now) {
 			continue // already dispatched at this state and not yet stale
 		}
 		if n := w.tools.recordDispatch(c.id, c.state, now); n > maxToolCommandAttempts {
@@ -223,10 +223,7 @@ func (w *ConversationWorker) reevaluatePendingToolsOnStrategyChangeExcept(liveTh
 	// Snapshot the current effective strategy for every inactive thread. A live
 	// thread keeps its old baseline until its owner retires, so a strategy change
 	// made mid-run is still observed on the first safe pass.
-	current := make(map[string]string, len(w.lastReconciledStrategyIDs)+1)
-	for threadID, strategyID := range w.lastReconciledStrategyIDs {
-		current[threadID] = strategyID
-	}
+	current := w.baselines.recordedStrategies()
 	if !liveThreads[""] {
 		current[""] = w.doc.ResolveEffectiveStrategyID("")
 	}
@@ -245,26 +242,9 @@ func (w *ConversationWorker) reevaluatePendingToolsOnStrategyChangeExcept(liveTh
 		}
 	}
 
-	if !w.strategyBaselineSet {
-		// First observation: record every thread's baseline without resetting.
-		w.lastReconciledStrategyIDs = current
-		w.strategyBaselineSet = true
-		return
-	}
-
-	// Determine which threads changed strategy since the last tick.
-	changed := make(map[string]bool)
-	for threadID, cur := range current {
-		prev, existed := w.lastReconciledStrategyIDs[threadID]
-		if !existed {
-			// Newly appeared thread — record baseline, don't reset (tools fresh).
-			continue
-		}
-		if cur != prev {
-			changed[threadID] = true
-		}
-	}
-	w.lastReconciledStrategyIDs = current
+	// The threads whose strategy changed since the last tick. The first
+	// observation, and a newly appeared thread, only record a baseline.
+	changed := w.baselines.strategySwitches(current)
 	if len(changed) == 0 {
 		return
 	}
@@ -366,7 +346,7 @@ func (w *ConversationWorker) cascadeBatchDenialsExcept(liveThreads map[string]bo
 		fresh := false
 		for _, id := range cancelled {
 			current[id] = true
-			if !w.sweptDenials[id] {
+			if w.baselines.isFreshDenial(id) {
 				fresh = true
 			}
 		}
@@ -375,10 +355,7 @@ func (w *ConversationWorker) cascadeBatchDenialsExcept(liveThreads map[string]bo
 		}
 	}
 
-	baselined := w.denialBaselineSet
-	w.sweptDenials = current
-	w.denialBaselineSet = true
-	if !baselined {
+	if !w.baselines.recordDenials(current) {
 		// First observation records only. A conversation loaded with a denial
 		// already in it had its cascade when the denial happened; re-running it
 		// against a doc whose calls may since have been retried would cancel work

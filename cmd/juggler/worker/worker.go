@@ -12,7 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"juggler/cmd/juggler/mailbox"
 	"juggler/cmd/juggler/providers/provider"
 	"juggler/internal/jlog"
 
@@ -48,165 +47,13 @@ type threadContext struct {
 
 // ConversationWorker handles conversation orchestration.
 // All state is owned by a single goroutine - no mutexes needed.
-// Messages come in via the inbound channel and are processed sequentially.
-// elapsedAnchor is everything behind the spinner's elapsed digit. The whole
-// timer is one number the clients subtract from now(); the rest of this group
-// exists to keep that number honest — excluding time parked at an approval
-// prompt, and excluding wall-clock the process spent frozen.
+// Messages come in through the inbox and are processed sequentially.
 //
-// Its methods are updateElapsedAnchor, updateApprovalWaitAnchor and
-// detectFrozenGap. Run goroutine only.
-type elapsedAnchor struct {
-	// livenessTicker fires ~every livenessInterval while run() executes, giving
-	// detectFrozenGap a heartbeat. There is no OS event for "the wall clock jumped
-	// while we weren't running", so the only way to notice a suspended process is to
-	// observe that an expected tick arrived late. Created in run(), stopped on
-	// shutdown; nil in workers that never run (unit tests) — read via livenessC().
-	livenessTicker *time.Ticker
-	// lastLivenessMs is the wall-clock millis of the previous liveness tick (0 before
-	// the first). detectFrozenGap compares each tick against it: a gap far larger than
-	// livenessInterval means the process was frozen (sleep, hibernate, VM/host suspend,
-	// a stop-the-world pause) and that dead time is excluded from the elapsed digit.
-	// Owned solely by the run() goroutine.
-	lastLivenessMs int64
-}
-
-// undoCoalescer is the undo/history machinery: the two "collapse everything
-// added since this index into one entry" marks, and the two suppressions that
-// stop a history step from being read as fresh user intent.
-//
-// Both indices use -1 for "nothing in flight", so a zero value is NOT valid —
-// NewConversationWorker sets them explicitly. Run goroutine only.
-type undoCoalescer struct {
-	// suppressItemsChange, when true, makes handleItemsChange a no-op. Set
-	// for the duration of an undo/redo so the document mutations the
-	// UndoManager applies don't kick the reducer (which would otherwise see
-	// e.g. a restored thread + trailing user message and immediately
-	// dispatch ActionCallLLM, undoing the user's undo in front of their
-	// eyes). The flag is set on the event-loop goroutine and read on the
-	// same goroutine via the items observer, so a plain bool is sufficient.
-	suppressItemsChange bool
-	// suppressReconcileAfterHistoryNavUntilMs is set briefly after undo/redo.
-	// Browser/engine Yjs sync echoes can arrive after the synchronous
-	// UndoManager transaction and reintroduce a stale
-	// processingState.activity="awaiting_llm" marker. During this short recoil
-	// window, doc updates still apply/save, but they must not drive the thread
-	// reducer forward from whatever last item shape the history step exposed
-	// (user, completed tool, completed thread, meta result, etc.). Explicit
-	// send/continue intent clears the window immediately; otherwise it expires
-	// so later user actions delivered as Yjs sync (e.g. approval clicks) work.
-	suppressReconcileAfterHistoryNavUntilMs int64
-	// compactionMergeFromIdx, when >= 0, is the UndoStack index whose entry
-	// holds the viewer-side compaction insert. While set, every undo group
-	// the strategy adds during the compaction run will be collapsed into
-	// that single entry on idle, so the whole compaction (insert + every
-	// LLM turn + result) undoes as one user action. -1 means "no
-	// compaction in flight."
-	compactionMergeFromIdx int
-	// undoCoalesceFromIdx, when >= 0, is the UndoStack index captured at the
-	// start of a browser-driven multi-step command (e.g. /clear: wipe history +
-	// re-seed auto items). On the matching end marker, every undo group added
-	// since is collapsed into that single entry so the whole command undoes as
-	// one user action. -1 means "no coalescing in flight." Set/read only on the
-	// run() goroutine via the begin/end-undo-coalesce handlers.
-	undoCoalesceFromIdx int
-}
-
-// persistence is how the doc reaches disk: the save debounce, the dirty flag,
-// the synchronous flush seam, and the two out-of-doc stores whose bytes live
-// beside the doc rather than in it.
-//
-// txnStore and assetStore are nil until handleInit knows projectPath.
-type persistence struct {
-	// Persistence
-	//
-	// saveTimer is the debounce timer, touched ONLY on the run() goroutine (see
-	// armSaveDebounce). scheduleSave cannot re-arm it directly: the Yjs sync
-	// callback invokes scheduleSave on whichever goroutine did the Transact(),
-	// and a turn goroutine writing the document makes that genuinely concurrent
-	// with run(). So scheduleSave signals saveRequest and the run loop owns the
-	// timer.
-	saveTimer *time.Timer
-	// saveRequest carries "the document changed, re-arm the debounce" from any
-	// goroutine to the run loop. Buffered by one and sent to non-blockingly: a
-	// burst coalesces into a single re-arm, which is what a debounce wants
-	// anyway.
-	saveRequest chan struct{}
-	saveChan    chan struct{} // Timer goroutine signals here; run loop does the actual save
-	dirty       atomic.Bool   // true when doc has unsaved changes since last successful save
-	// flushReq lets tests (or shutdown) force-save synchronously without
-	// waiting on the SaveDebounceTime timer. Each request carries a reply
-	// chan that the run loop signals after the save completes.
-	flushReq chan chan error
-	// Per-conversation transaction blob store (input/output context for each
-	// LLM round-trip). Initialized in handleInit once projectPath is known.
-	txnStore *TransactionStore
-	// Per-conversation content-addressed asset store (attached images, etc.).
-	// Bytes live out-of-doc under <convDir>/assets/; the doc holds only refs.
-	// Initialized in handleInit once projectPath is known.
-	assetStore *AssetStore
-}
-
-// toolDrive is the state driveToolActions runs on: per-toolUseId delivery
-// bookkeeping, how long to wait before re-dispatching a command still stuck at
-// the state it was last sent at, the running task-output delivery pumps, and
-// the per-thread strategy snapshot that makes a live strategy switch detectable.
-//
-// Run goroutine only.
-type toolDrive struct {
-	// tools holds the per-toolUseId tool-command delivery bookkeeping — the state a
-	// command was last dispatched at, its dispatch time, and the attempt count (see
-	// tool_command_state.go). driveToolActions consults it to re-dispatch only when
-	// the doc still demands a command and the last dispatch at that state has aged
-	// past redriveInterval, and to escalate past maxToolCommandAttempts. Run
-	// goroutine only.
-	tools *toolCommandTracker
-	// redriveInterval is how long driveToolActions waits before re-dispatching a
-	// tool-command still stuck at the state it was last sent at. A field (defaulting
-	// to defaultRedriveInterval) so tests can shrink it to force staleness.
-	redriveInterval time.Duration
-	// deliveryPumps tracks running task-output delivery pumps, keyed by the
-	// owning pendingRequests entry id. Each pump polls a background task and
-	// injects its new output into a thread as turn-boundary messages (see
-	// task_delivery.go) — a generic capability any plugin can request via a
-	// `deliverTaskOutput` pending request. Touched only on the run() goroutine
-	// (scanPendingRequests / handleDeliveryEnded / onShutdown); the pump goroutines
-	// communicate back via w.Send.
-	deliveryPumps map[string]*taskDeliveryPump
-	// lastReconciledStrategyIDs records each thread's effective strategy as of the
-	// last reconcile tick, keyed by threadItemID ("" = root; empty strategy
-	// normalized to "default"). Strategy is per-thread, so the switch detection is
-	// per-thread: driveToolActions compares each thread's current effective
-	// strategy against its recorded value to detect a live switch and re-evaluate
-	// that thread's tool-actions parked awaiting approval under the OLD policy (see
-	// reevaluatePendingToolsOnStrategyChange). strategyBaselineSet guards the first
-	// observation, which only records the baseline — never resetting freshly-loaded
-	// tools on startup.
-	lastReconciledStrategyIDs map[string]string
-	strategyBaselineSet       bool
-	// sweptDenials holds the toolUseId of every tool-action observed cancelled as
-	// of the last reconcile tick. A denial refuses the whole batch, so a cancelled
-	// call that was not in this set is a fresh denial whose unstarted siblings
-	// still need refusing (see cascadeBatchDenials). Rebuilt each tick, so it is
-	// bounded by the cancelled tools in the doc and a tool reset back out of
-	// cancelled (retry-approval) is forgotten and can trigger again. Touched only
-	// on the run() goroutine, like the strategy baseline above.
-	// denialBaselineSet guards the first observation, which only records: a
-	// conversation loaded with a denial already in it is a batch whose cascade
-	// happened when it was denied, not one to re-run against a doc whose parked
-	// calls may since have been retried.
-	sweptDenials      map[string]bool
-	denialBaselineSet bool
-}
-
+// Pieces of its state that have rules of their own are objects held by name
+// (engine, sched, liveness, undo, saver, baselines, pumps, inbox, tools), each
+// owning its fields in its own file. The worker embeds nothing
+// (TestWorkerSeamsOwnTheirState).
 type ConversationWorker struct {
-	// Grouped state, embedded so every call site still reads w.<field>.
-	// See each type for what it owns and which goroutine may touch it.
-	elapsedAnchor
-	undoCoalescer
-	persistence
-	toolDrive
-
 	conversationID string
 	projectPath    string
 	authorID       string
@@ -246,6 +93,46 @@ type ConversationWorker struct {
 	doc     *ConversationDocument
 	tracker *OperationTracker
 
+	// txnStore is the per-conversation transaction blob store (input/output
+	// context for each LLM round-trip), and assetStore the content-addressed
+	// asset store (attached images, etc.), whose bytes live out-of-doc under
+	// <convDir>/assets/ while the doc holds only refs. Both are nil until
+	// handleInit knows projectPath.
+	txnStore   *TransactionStore
+	assetStore *AssetStore
+
+	// saver decides when the doc is written: the unsaved bit, the save debounce
+	// and the forced-flush queue. See doc_saver.go, which owns every rule here;
+	// the write itself is persistence.go's.
+	saver docSaver
+
+	// undo makes one undo press revert one user action: the compaction and
+	// command merge marks, and the reducer holds around a history step. See
+	// undo_grouping.go, which owns every rule here.
+	undo undoGrouping
+
+	// liveness measures wall-clock time the process spent frozen, which
+	// detectFrozenGap excludes from the spinner's elapsed digit. See
+	// liveness_clock.go.
+	liveness livenessClock
+
+	// tools holds the per-toolUseId tool-command delivery bookkeeping — the
+	// state a command was last dispatched at, its dispatch time, the attempt
+	// count and the re-drive interval (see tool_command_state.go).
+	// driveToolActions consults it to re-dispatch only when the doc still
+	// demands a command and the last dispatch at that state has aged, and to
+	// escalate past maxToolCommandAttempts. Run goroutine only.
+	tools *toolCommandTracker
+
+	// baselines is what the reconcile tick remembers from its previous pass
+	// (each thread's strategy, the cancelled tools), so a strategy switch and a
+	// fresh denial read as edges. See reconcile_baselines.go.
+	baselines reconcileBaselines
+
+	// pumps is the running task-output delivery pumps. See delivery_pumps.go,
+	// and task_delivery.go for what a pump does.
+	pumps deliveryPumps
+
 	// tape is a per-worker ring buffer that records timestamped events when
 	// JUGGLER_TRACE is set. Used by the test runner's failure-dump endpoint
 	// to splice the worker's view alongside JS-side iframe tapes so cross-
@@ -253,14 +140,12 @@ type ConversationWorker struct {
 	// is off (single boolean test in Record).
 	tape *EventTape
 
-	// Channels for message passing. inbound is the consumer end of inboundQ,
-	// an unbounded FIFO; Send enqueues via inboundQ so intake never drops (see
-	// inbound_queue.go). The run loop and the streaming wait loops are the sole
-	// consumers and read inbound directly.
-	inboundQ *mailbox.Queue[workerMessage]
-	inbound  <-chan workerMessage
-	done     chan struct{}
-	stopped  chan struct{}
+	// inbox is the intake every message arrives on, and the client the one
+	// being dispatched came from. See worker_inbox.go.
+	inbox workerInbox
+
+	done    chan struct{}
+	stopped chan struct{}
 
 	// turn is the run currently in flight: the thread it writes to, the
 	// round-trip in flight, and the accumulators that outlive a chunk but not the
@@ -396,14 +281,6 @@ type ConversationWorker struct {
 	// linger until the retention sweep. Set-once before teardown; read on the
 	// worker's own goroutine in onShutdown.
 	purgeLogs atomic.Bool
-
-	// replyTo is the client ID that originated the message currently being
-	// dispatched, or "" for worker-internal messages. Set at the top of
-	// dispatchMessage and consumed by reply() to route an ack back to only the
-	// requester. Safe without a lock: the run loop dispatches one message at a
-	// time on a single goroutine, and acks are sent synchronously within that
-	// dispatch.
-	replyTo string
 }
 
 // workerMessage wraps an incoming message. OriginClient is the ID of the client
@@ -435,33 +312,18 @@ func NewConversationWorker(conversationID, authorID string) *ConversationWorker 
 		turn:           newTurnState(),
 		docChangeChan:  make(chan struct{}, 1),
 		sched:          newRunScheduler(done),
-		toolDrive: toolDrive{
-			tools:                     newToolCommandTracker(),
-			redriveInterval:           defaultRedriveInterval,
-			deliveryPumps:             make(map[string]*taskDeliveryPump),
-			lastReconciledStrategyIDs: make(map[string]string),
-			sweptDenials:              make(map[string]bool),
-		},
-		persistence: persistence{
-			saveChan:    make(chan struct{}, 1),
-			saveRequest: make(chan struct{}, 1),
-			flushReq:    make(chan chan error, 4),
-		},
-		// Both marks mean "nothing in flight" at -1, so the zero value would
-		// read as "collapse everything from entry 0".
-		undoCoalescer: undoCoalescer{
-			compactionMergeFromIdx: -1,
-			undoCoalesceFromIdx:    -1,
-		},
+		tools:          newToolCommandTracker(),
+		baselines:      newReconcileBaselines(),
+		pumps:          newDeliveryPumps(),
+		saver:          newDocSaver(),
+		undo:           newUndoGrouping(),
+		// Unbounded, order-preserving intake, its pump's lifetime tied to the
+		// worker's; Send enqueues here so it never drops.
+		inbox: newWorkerInbox(done),
 	}
 	// Created after w.done, which its reply slots share so a blocked test client
 	// is released when the worker stops.
 	w.engine = newEngineSession(w.done)
-
-	// Unbounded, order-preserving intake. Created after w.done so the pump's
-	// lifetime is tied to the worker; Send enqueues here so it never drops.
-	w.inboundQ = mailbox.NewQueue[workerMessage](w.done)
-	w.inbound = w.inboundQ.Out()
 	w.batcher = newSyncBatcher(doc, time.Duration(SyncThrottleMs)*time.Millisecond)
 
 	// Set up sync broadcast callback
@@ -585,7 +447,7 @@ func (w *ConversationWorker) Send(msgType string, payload json.RawMessage) {
 // a request-scoped reply (an ack) routes back to only that client. clientID ""
 // behaves exactly like Send (reply broadcasts).
 func (w *ConversationWorker) SendFromClient(clientID, msgType string, payload json.RawMessage) {
-	w.inboundQ.Push(workerMessage{Type: msgType, Payload: payload, OriginClient: clientID})
+	w.inbox.push(workerMessage{Type: msgType, Payload: payload, OriginClient: clientID})
 }
 
 // SendAndWait queues a worker-internal message and blocks until the run loop has
@@ -593,7 +455,7 @@ func (w *ConversationWorker) SendFromClient(clientID, msgType string, payload js
 // traffic.
 func (w *ConversationWorker) SendAndWait(ctx context.Context, msgType string, payload json.RawMessage) error {
 	ack := make(chan error, 1)
-	w.inboundQ.Push(workerMessage{Type: msgType, Payload: payload, Ack: ack})
+	w.inbox.push(workerMessage{Type: msgType, Payload: payload, Ack: ack})
 	select {
 	case err := <-ack:
 		return err
@@ -785,22 +647,12 @@ const (
 	execReportClaimGraceMs = 2000
 )
 
-// livenessC returns the liveness ticker's channel, or nil when there is no ticker
-// (a worker that never entered run(), e.g. a unit test driving callLLM directly).
-// A nil channel simply never fires, so the select cases degrade to no-ops.
-func (w *ConversationWorker) livenessC() <-chan time.Time {
-	if w.livenessTicker == nil {
-		return nil
-	}
-	return w.livenessTicker.C
-}
-
 // detectFrozenGap keeps the elapsed-time digit counting only wall-clock time this
 // process was actually running. Clients render the digit as (now - startedAt) against
 // one shared anchor, so any span the machine spent frozen — system sleep, hibernation,
 // a suspended VM, a stop-the-world pause — would otherwise inflate it even though no
 // work happened. There is no event for "the wall clock jumped", so we poll: the
-// liveness ticker fires ~every livenessInterval while run() executes, and a tick that
+// liveness clock ticks ~every livenessInterval while run() executes, and a tick that
 // lands far later than that interval measures how long we were frozen. We push the
 // anchor forward by that excess (the same exclusion the approval-wait path applies via
 // advanceElapsedAnchor), so the digit resumes with the dead time removed.
@@ -810,15 +662,9 @@ func (w *ConversationWorker) livenessC() <-chan time.Time {
 // the anchor it corrects belongs to the turn that is streaming, which is why that
 // field is atomic.
 func (r *run) detectFrozenGap() {
-	now := time.Now().UnixMilli()
-	last := r.lastLivenessMs
-	r.lastLivenessMs = now
-	if last == 0 {
-		return // first tick of the run — nothing to compare against yet
-	}
-	excess := now - last - livenessInterval.Milliseconds()
-	if excess < frozenGapThresholdMs {
-		return // normal cadence (or a backward clock step) — not a freeze
+	excess := r.liveness.frozenFor(time.Now().UnixMilli())
+	if excess == 0 {
+		return // first tick, normal cadence or a backward clock step — not a freeze
 	}
 	// Only meaningful while a turn's timer is actively running. Idle has no anchor;
 	// while parked on an approval the wait mechanism already excludes the entire park
@@ -852,7 +698,7 @@ func (w *ConversationWorker) Document() *ConversationDocument {
 func (w *ConversationWorker) FlushPersistence(ctx context.Context) error {
 	ack := make(chan error, 1)
 	select {
-	case w.flushReq <- ack:
+	case w.saver.postFlush() <- ack:
 	case <-w.done:
 		return nil
 	case <-ctx.Done():
@@ -948,8 +794,8 @@ func (r *run) resolveModelConfig() *ModelConfig {
 func (r *run) run(ctx context.Context) {
 	defer close(r.stopped)
 	defer r.onShutdown()
-	r.livenessTicker = time.NewTicker(livenessInterval)
-	defer r.livenessTicker.Stop()
+	r.liveness.start()
+	defer r.liveness.stop()
 	for {
 		// Each case stamps what it handled and when it began, for the
 		// slow-iteration report below (loop_timing.go).
@@ -960,16 +806,16 @@ func (r *run) run(ctx context.Context) {
 			return
 		case <-r.done:
 			return
-		case msg := <-r.inbound:
+		case msg := <-r.inbox.messages():
 			event, started = "message "+msg.Type, time.Now()
 			r.handleMessage(msg)
 		case <-r.doc.UpdateSignal():
 			event, started = "doc update signal", time.Now()
 			r.batcher.Schedule()
-		case <-r.saveRequest:
+		case <-r.saver.rearmRequests():
 			event, started = "save request", time.Now()
-			r.armSaveDebounce()
-		case <-r.saveChan:
+			r.saver.rearm()
+		case <-r.saver.fired():
 			event, started = "save", time.Now()
 			// Skip if marked for deletion — the folder is about to be
 			// removed, and saving would recreate it as "Untitled--<id>",
@@ -980,7 +826,7 @@ func (r *run) run(ctx context.Context) {
 					r.log.Error("Failed to save state: %v", err)
 				}
 			}
-		case ack := <-r.flushReq:
+		case ack := <-r.saver.flushRequests():
 			event, started = "flush", time.Now()
 			ack <- r.flushNow()
 		case <-r.docChangeChan:
@@ -995,7 +841,7 @@ func (r *run) run(ctx context.Context) {
 		case t := <-r.sched.retirements():
 			event, started = "turn retired", time.Now()
 			r.finishRetiredTurn(t)
-		case <-r.livenessC():
+		case <-r.liveness.ticks():
 			event, started = "liveness tick", time.Now()
 			r.detectFrozenGap()
 			liveThreads := r.sched.liveThreads()
@@ -1049,8 +895,8 @@ func (r *run) dispatchMessage(msg workerMessage) {
 			msg.Ack <- nil
 		}()
 	}
-	r.replyTo = msg.OriginClient
-	defer func() { r.replyTo = "" }()
+	r.inbox.beginReply(msg.OriginClient)
+	defer r.inbox.endReply()
 
 	if r.handleTestMessage(msg) {
 		return
@@ -1240,9 +1086,9 @@ func (w *ConversationWorker) handleGetTransaction(payload json.RawMessage) {
 // destroy+reload cycle.
 //
 // This runs on the worker goroutine (dispatched inline from the run loop), so it
-// calls flushNow directly — exactly as the loop's own flushReq case does —
-// rather than routing through ConversationWorker.FlushPersistence, which would
-// deadlock waiting on the same loop to service flushReq.
+// calls flushNow directly — exactly as the loop's own flush case does — rather
+// than routing through ConversationWorker.FlushPersistence, which would deadlock
+// waiting on the same loop to service the flush.
 func (r *run) handleFlushPersistence(payload json.RawMessage) {
 	ackID := r.ackIDOf("flush-persistence", payload)
 	if err := r.flushNow(); err != nil {
@@ -1255,7 +1101,7 @@ func (r *run) handleFlushPersistence(payload json.RawMessage) {
 }
 
 // flushNow is the synchronous save behind both flush paths — the run loop's
-// flushReq case (FlushPersistence, from tests and shutdown) and the
+// flush case (FlushPersistence, from tests and shutdown) and the
 // flush-persistence message (the quit handshake). It stops the pending debounce
 // timer and saves, unless the conversation is being deleted: the folder is about
 // to be removed, and saving would recreate it. Runs on the worker goroutine.
@@ -1263,9 +1109,7 @@ func (r *run) flushNow() error {
 	if r.deleting.Load() {
 		return nil
 	}
-	if r.saveTimer != nil {
-		r.saveTimer.Stop()
-	}
+	r.saver.holdDebounce()
 	return r.saveStateToDisk()
 }
 
@@ -1306,8 +1150,8 @@ func (w *ConversationWorker) reply(msg any) {
 // marshalYjsSync). Same addressing rule: the originating client, or a broadcast
 // when there is no origin to answer.
 func (w *ConversationWorker) replyWS(data []byte) {
-	if w.replyTo != "" {
-		w.callbacks.sendTo(w.replyTo, data)
+	if origin := w.inbox.origin(); origin != "" {
+		w.callbacks.sendTo(origin, data)
 		return
 	}
 	w.sendWS(data)
@@ -1477,9 +1321,8 @@ func (w *ConversationWorker) finishIdleTransition() {
 	// holds the viewer's compact insert — so the user undoes the
 	// whole compaction in one press. See checkForNewThreads for the
 	// snapshot that captured the start index.
-	if w.compactionMergeFromIdx >= 0 {
-		w.tracker.MergeFromIndex(w.compactionMergeFromIdx)
-		w.compactionMergeFromIdx = -1
+	if idx, ok := w.undo.takeCompactionMerge(); ok {
+		w.tracker.MergeFromIndex(idx)
 	}
 	// Close the current undo capture window so the next browser-originated
 	// action (e.g. /thread command) is recorded as a separate undo group
@@ -1610,7 +1453,7 @@ func (r *run) handleItemsChange() {
 	// not let those mutations re-trigger the strategy loop (e.g. by
 	// re-firing on a restored thread + trailing user message). See
 	// handleUndoOrRedo's wrapping.
-	if r.suppressItemsChange {
+	if r.undo.observerIsMuted() {
 		return
 	}
 
@@ -1619,13 +1462,10 @@ func (r *run) handleItemsChange() {
 	// the synchronous UndoManager transaction and reintroduce stale
 	// activity="awaiting_llm"; clear it and skip the reducer until an explicit
 	// user action (send/continue/approve/retry/rerun) starts a new LLM intent.
-	if r.suppressReconcileAfterHistoryNavUntilMs > 0 {
-		if time.Now().UnixMilli() < r.suppressReconcileAfterHistoryNavUntilMs {
-			r.releaseAllLLM()
-			r.sched.dropReconcile()
-			return
-		}
-		r.suppressReconcileAfterHistoryNavUntilMs = 0
+	if r.undo.inNavRecoil(time.Now()) {
+		r.releaseAllLLM()
+		r.sched.dropReconcile()
+		return
 	}
 	r.tape.Record("items-change", map[string]any{
 		"itemCount": r.doc.GetItemsLength(),
@@ -1750,7 +1590,7 @@ func (r *run) checkForNewThreads() bool {
 		// /thread, or the LLM did create_thread) DO get their natural
 		// per-turn grouping — we only merge for noAutoSelect.
 		if candidate.noAutoSelect {
-			r.compactionMergeFromIdx = r.tracker.UndoStackLen() - 1
+			r.undo.markCompactionStart(r.tracker.UndoStackLen() - 1)
 		}
 		// Consume the one-shot trigger before running. Completion is tracked by
 		// the thread result; cancellation must not leave a persistent trigger that

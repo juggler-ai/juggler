@@ -76,7 +76,7 @@ func (w *ConversationWorker) startTaskDeliveryPump(entryID, ownerThreadID, taskI
 		w.writePendingEntryError(ownerThreadID, entryID, "deliverTaskOutput: missing taskId")
 		return
 	}
-	if _, exists := w.deliveryPumps[entryID]; exists {
+	if w.pumps.running(entryID) {
 		return
 	}
 	p := &taskDeliveryPump{
@@ -86,7 +86,7 @@ func (w *ConversationWorker) startTaskDeliveryPump(entryID, ownerThreadID, taskI
 		label:         label,
 		stop:          make(chan struct{}),
 	}
-	w.deliveryPumps[entryID] = p
+	w.pumps.add(p)
 	go w.runDeliveryPump(p)
 }
 
@@ -246,25 +246,6 @@ func (w *ConversationWorker) handleDeliveryEnded(payload json.RawMessage) {
 	if !w.decodePayload("delivery-ended", payload, &msg) {
 		return
 	}
-	delete(w.deliveryPumps, msg.EntryID)
+	w.pumps.forget(msg.EntryID)
 	w.writePendingEntryCompletedThread(msg.OwnerThreadID, msg.EntryID, "", "")
-}
-
-// stopDeliveryPump stops a single pump and kills its task. Run() goroutine.
-func (w *ConversationWorker) stopDeliveryPump(entryID string) {
-	if p, ok := w.deliveryPumps[entryID]; ok {
-		close(p.stop)
-		ops.KillTask(p.taskID)
-		delete(w.deliveryPumps, entryID)
-	}
-}
-
-// stopAllDeliveryPumps stops every pump and kills its task. Called on shutdown
-// so a delivering command never outlives its conversation worker.
-func (w *ConversationWorker) stopAllDeliveryPumps() {
-	for id, p := range w.deliveryPumps {
-		close(p.stop)
-		ops.KillTask(p.taskID)
-		delete(w.deliveryPumps, id)
-	}
 }

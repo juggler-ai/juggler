@@ -9,7 +9,7 @@ import "time"
 // toolCommandState is the per-toolUseId bookkeeping for the level-based
 // command-driven tool lifecycle. driveToolActions re-dispatches a tool's command
 // (evaluate-tool for "", execute-tool for approved) whenever the doc state still
-// demands one and it has not been dispatched at that state within redriveInterval.
+// demands one and it has not been dispatched at that state within the re-drive interval.
 //
 // Doc-state progression is the "engine acted" signal — the idempotent engine
 // handlers (handleNewToolAction's ifState CAS, claimRunning's compare-and-set)
@@ -25,8 +25,8 @@ type toolCommandState struct {
 	dispatchedStateSet bool
 
 	// lastDispatchedAt stamps the last dispatch so shouldRedrive can suppress a
-	// re-dispatch at the same state until redriveInterval has elapsed. Tests force
-	// staleness by shrinking the worker's redriveInterval, not by poking this.
+	// re-dispatch at the same state until the re-drive interval has elapsed. Tests force
+	// staleness by shrinking the tracker's redriveAfter, not by poking this.
 	lastDispatchedAt time.Time
 
 	// dispatches counts every command sent for this id, across delivery phases. It
@@ -87,10 +87,14 @@ type toolCommandState struct {
 // run there), so it carries no lock of its own.
 type toolCommandTracker struct {
 	byID map[string]*toolCommandState
+	// redriveAfter is how long a command still stuck at the state it was last
+	// sent at waits before shouldRedrive allows it again. A field (defaulting to
+	// defaultRedriveInterval) so tests can shrink it to force staleness.
+	redriveAfter time.Duration
 }
 
 func newToolCommandTracker() *toolCommandTracker {
-	return &toolCommandTracker{byID: map[string]*toolCommandState{}}
+	return &toolCommandTracker{byID: map[string]*toolCommandState{}, redriveAfter: defaultRedriveInterval}
 }
 
 // entry returns the mutable state for id, creating a zero entry if absent.
@@ -132,12 +136,12 @@ func (t *toolCommandTracker) noteHeld(id string) bool {
 // dispatch — is dispatched immediately; a re-dispatch at the SAME state is
 // suppressed until interval has elapsed since the last dispatch (the anti-spam
 // dedup that also recovers a silently-dropped command once it goes stale).
-func (t *toolCommandTracker) shouldRedrive(id, state string, now time.Time, interval time.Duration) bool {
+func (t *toolCommandTracker) shouldRedrive(id, state string, now time.Time) bool {
 	s := t.byID[id]
 	if s == nil || !s.dispatchedStateSet || s.dispatchedState != state {
 		return true
 	}
-	return now.Sub(s.lastDispatchedAt) >= interval
+	return now.Sub(s.lastDispatchedAt) >= t.redriveAfter
 }
 
 // recordDispatch records a just-sent command for id at state, stamped now, and
@@ -241,7 +245,7 @@ func (t *toolCommandTracker) recordTrace(id, event, reason string, now time.Time
 // driveToolActions calls recordDispatch before deciding whether to escalate, so
 // at the decision point the latest dispatch is the one just sent, which nothing
 // could have answered yet. The previous dispatch is the most recent one the
-// engine has had a full redriveInterval to answer, so a trace that arrived once
+// engine has had a full re-drive interval to answer, so a trace that arrived once
 // dispatches had reached at least that count is an answer to it.
 //
 // This is the difference between the escalation verdicts, so it is deliberately

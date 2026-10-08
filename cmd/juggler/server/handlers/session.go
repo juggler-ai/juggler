@@ -734,7 +734,7 @@ func (api *SessionAPI) duplicateConversationFiles(srcID, dstID string) error {
 
 // cloneDocSource chooses the current copy of a source's document for a clone.
 // A loaded worker may be mid-turn, where FlushConversation would block on the
-// run loop (its inner selects don't drain flushReq); so when one is loaded, it
+// run loop (its inner selects don't drain the flush queue); so when one is loaded, it
 // returns an in-memory parked snapshot instead, race-free (ycrdtMu) and marked
 // so the clone loads stopped. With no worker loaded, the on-disk doc is
 // authoritative: it flushes (a no-op) and returns nil, which tells the clone to

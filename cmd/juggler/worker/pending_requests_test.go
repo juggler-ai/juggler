@@ -635,7 +635,7 @@ func TestPendingRequests_DeliveryBindingOwnership(t *testing.T) {
 			if s := findEntryStatus(w, "d-1"); s != tc.wantStat {
 				t.Errorf("status = %q, want %q", s, tc.wantStat)
 			}
-			p, running := w.deliveryPumps["d-1"]
+			p, running := w.pumps.pumpsByEntry["d-1"]
 			if running != tc.adopted {
 				t.Fatalf("pump running = %v, want %v", running, tc.adopted)
 			}

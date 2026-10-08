@@ -62,7 +62,7 @@ func TestHistoryNavigationSuppressesReducerForDangerousLastItems(t *testing.T) {
 				"threadItemId": "",
 				"status":       "processing_tools",
 			})
-			w.suppressReconcileAfterHistoryNavUntilMs = time.Now().UnixMilli() + 10_000
+			w.undo.navRecoilUntilMs = time.Now().UnixMilli() + 10_000
 
 			w.currentRun().handleItemsChange()
 

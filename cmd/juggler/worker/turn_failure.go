@@ -21,7 +21,7 @@ import (
 // writeBoundedCompactionResult. handled is false when the thread is not such a
 // fold (or already has its summary), and the caller runs an ordinary turn. When
 // handled, the turn is over; the deferred cleanup drives idle, which collapses
-// the fold + summary into one undo group (compactionMergeFromIdx).
+// the fold + summary into one undo group (undoGrouping.markCompactionStart).
 func (r *run) runFoldedCompactionTurn() (verdict turnVerdict, handled bool) {
 	threadID := r.t.thread.itemID
 	if threadID == "" || !r.isBoundedCompactionThread(threadID) || r.threadHasResult(threadID) {

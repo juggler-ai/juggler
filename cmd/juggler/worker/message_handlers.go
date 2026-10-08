@@ -49,7 +49,7 @@ func (r *run) handleInit(payload json.RawMessage) {
 		}
 		r.tape.Record("init", map[string]any{
 			"path":         "reconnect",
-			"origin":       r.replyTo,
+			"origin":       r.inbox.origin(),
 			"loadFromDisk": msg.Conversation.LoadFromDisk,
 			"delta":        len(msg.StateVector) > 0,
 		})
@@ -88,7 +88,7 @@ func (r *run) handleInit(payload json.RawMessage) {
 	// First-init path: full initialization
 	r.tape.Record("init", map[string]any{
 		"path":         "first",
-		"origin":       r.replyTo,
+		"origin":       r.inbox.origin(),
 		"loadFromDisk": msg.Conversation.LoadFromDisk,
 	})
 	r.projectPath = msg.Config.ProjectPath
@@ -362,7 +362,7 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 
 	// A send/continue is a fresh user intent to drive the LLM after any prior
 	// undo/redo history navigation.
-	r.suppressReconcileAfterHistoryNavUntilMs = 0
+	r.undo.endNavRecoil()
 
 	// A thread carrying a result is NOT refused. A result is the thread's current
 	// summary, not a terminal state: a thread is running or it is stopped, and a
@@ -819,7 +819,7 @@ func (r *run) handleYjsSync(payload json.RawMessage) {
 		"bytes":         len(msg.Bytes),
 		"engineDerived": msg.EngineDerived,
 		"err":           applyErr != nil,
-		"origin":        r.replyTo,
+		"origin":        r.inbox.origin(),
 	})
 	if applyErr != nil {
 		r.log.Error("Failed to apply sync update: %v", applyErr)
@@ -872,7 +872,7 @@ func (w *ConversationWorker) handleResyncRequest(payload json.RawMessage) {
 	})
 }
 
-// handleResyncToOrigin tells ONLY the client that asked (w.replyTo), not every
+// handleResyncToOrigin tells ONLY the client that asked (w.inbox.origin()), not every
 // viewer, that this conversation is loaded here. It seeds a freshly
 // (re)connected engine with the conversations that were already loaded before
 // it attached: an on-demand engine that was torn down and recreated starts
@@ -1149,17 +1149,17 @@ func (r *run) handleUndoOrRedo(fn func() bool, payload json.RawMessage) {
 	// user message) immediately tickles the reducer, which dispatches a new
 	// LLM turn — the user's undo would visibly do nothing because the worker
 	// fights it. Same reason we drop the reconcile bit afterwards.
-	r.suppressItemsChange = true
+	r.undo.muteObserver()
 	success := fn()
 	// The Yjs items observer fires synchronously inside fn(), enqueueing
-	// docChangeChan signals. Drain them before clearing suppressItemsChange
+	// docChangeChan signals. Drain them before unmuting the observer
 	// so the next event-loop tick doesn't run handleItemsChange against
 	// the post-undo state and tickle the reducer.
 	select {
 	case <-r.docChangeChan:
 	default:
 	}
-	r.suppressItemsChange = false
+	r.undo.unmuteObserver()
 	r.sched.dropReconcile()
 
 	// Clear any in-flight activity marker. The user explicitly reverted
@@ -1173,7 +1173,7 @@ func (r *run) handleUndoOrRedo(fn func() bool, payload json.RawMessage) {
 	// Keep suppressing reducer advancement for immediate post-undo/redo Yjs sync
 	// echoes. This is time-bounded so later Yjs-originated user actions (approval
 	// clicks) still drive the reducer normally.
-	r.suppressReconcileAfterHistoryNavUntilMs = time.Now().UnixMilli() + 500
+	r.undo.startNavRecoil(time.Now())
 
 	// Flush Yjs sync BEFORE ACK so frontend state is updated when undo()/redo() returns
 	r.batcher.Flush()
@@ -1193,7 +1193,7 @@ func (r *run) handleUndoOrRedo(fn func() bool, payload json.RawMessage) {
 // snapshot reflects state strictly before the command's first write.
 func (w *ConversationWorker) handleBeginUndoCoalesce() {
 	w.tracker.StopCapturing()
-	w.undoCoalesceFromIdx = w.tracker.UndoStackLen()
+	w.undo.openCommand(w.tracker.UndoStackLen())
 }
 
 // handleEndUndoCoalesce collapses every undo group added since the matching
@@ -1202,10 +1202,9 @@ func (w *ConversationWorker) handleBeginUndoCoalesce() {
 // when zero or one group was added. Acks so the browser can await completion.
 func (w *ConversationWorker) handleEndUndoCoalesce(payload json.RawMessage) {
 	ackID := w.ackIDOf("end-undo-coalesce", payload)
-	if w.undoCoalesceFromIdx >= 0 {
-		w.tracker.MergeFromIndex(w.undoCoalesceFromIdx)
+	if idx, ok := w.undo.takeCommandMerge(); ok {
+		w.tracker.MergeFromIndex(idx)
 		w.tracker.StopCapturing()
-		w.undoCoalesceFromIdx = -1
 	}
 	w.batcher.Flush()
 	w.reply(map[string]any{
@@ -1411,7 +1410,7 @@ func (w *ConversationWorker) handleRetryToolAction(payload json.RawMessage) {
 
 	w.tape.Record("retry-tool", map[string]any{
 		"toolUseId": msg.ToolUseID,
-		"origin":    w.replyTo,
+		"origin":    w.inbox.origin(),
 	})
 
 	// Set state='approved' and clear result. Writing 'approved' (the

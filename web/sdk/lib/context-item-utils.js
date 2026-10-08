@@ -311,6 +311,77 @@ export function formatFileContentForLLM(params) {
 }
 
 /**
+ * One piece of a parsed `<file>` block: a run of consecutively numbered lines,
+ * or the prose between and after them (a truncation gap, a footer).
+ * @typedef {{kind: 'lines', lineOffset: number, content: string} | {kind: 'note', text: string}} FileContentPart
+ */
+
+/**
+ * Read a {@link formatFileContentForLLM} block back into the text it was made
+ * from — its inverse, kept beside it so the two cannot drift.
+ *
+ * The block may since have been cut by a line-based truncation (a head/tail
+ * split with a marker in the middle, a note appended), so the numbered lines come
+ * back as runs: a new run starts wherever the numbering breaks, and anything that
+ * is not a numbered line becomes a note in its place. Line numbers are
+ * recognisable because every body line carries one, so a file line that itself
+ * reads `</file>` or `12\tfoo` arrives prefixed and is not mistaken for structure.
+ * @param {string} text - A formatted block, possibly truncated
+ * @returns {{path: string, parts: FileContentPart[]} | null} The path and parts,
+ *   or null when the text is not a file block with at least one numbered line.
+ */
+export function parseFileContentForLLM(text) {
+  const lines = String(text || '').split('\n');
+  const open = /^<file path="(.*)">$/.exec(lines[0] || '');
+  if (!open) return null;
+
+  /** @type {FileContentPart[]} */
+  const parts = [];
+  /** @type {{lineOffset: number, next: number, lines: string[]} | null} */
+  let run = null;
+  /** @type {string[]} */
+  let note = [];
+  let inBody = true;
+
+  const flushRun = () => {
+    if (run) parts.push({ kind: 'lines', lineOffset: run.lineOffset, content: run.lines.join('\n') });
+    run = null;
+  };
+  const flushNote = () => {
+    const joined = note.join('\n').trim();
+    if (joined) parts.push({ kind: 'note', text: joined });
+    note = [];
+  };
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = /** @type {string} */ (lines[i]);
+    if (inBody && line === '</file>') {
+      inBody = false;
+      continue;
+    }
+    const numbered = inBody ? /^ *(\d+)\t([\s\S]*)$/.exec(line) : null;
+    if (!numbered) {
+      flushRun();
+      note.push(line);
+      continue;
+    }
+    const n = Number(numbered[1]);
+    if (!run || n !== run.next) {
+      flushRun();
+      flushNote();
+      run = { lineOffset: n, next: n, lines: [] };
+    }
+    run.lines.push(/** @type {string} */ (numbered[2]));
+    run.next = n + 1;
+  }
+  flushRun();
+  flushNote();
+
+  if (!parts.some(p => p.kind === 'lines')) return null;
+  return { path: /** @type {string} */ (open[1]), parts };
+}
+
+/**
  * Create a text block element for rendering markdown content.
  *
  * Carries the standard hover-reveal copy button, which yields the markdown

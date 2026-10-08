@@ -270,11 +270,14 @@ export function fileSourceFromReadResult(result, absPath, opts = {}) {
 }
 
 /**
- * Build a FileSource for a file the browser holds in memory and the server has
- * never seen (a drag-and-dropped file). It is text-only by construction: there
- * is no path on disk to stream from, so `url()`/`bytes()` resolve against the
- * carried text rather than the content endpoint.
- * @param {{path: string, text: string, size?: number}} file - The dropped file
+ * Build a FileSource for text the browser holds in memory rather than reads from
+ * disk: a drag-and-dropped file, or a frozen snapshot of one. It is text-only by
+ * construction: `url()`/`bytes()` resolve against the carried text rather than
+ * the content endpoint, so what is shown is these bytes even when a file of the
+ * same name exists on disk.
+ * @param {{path: string, text: string, size?: number, lineOffset?: number}} file - The
+ *   text, the path it is attributed to, and the 1-indexed line it starts at when
+ *   it is a slice of a longer file.
  * @returns {FileSource} A text-backed file source
  */
 export function fileSourceFromText(file) {
@@ -287,7 +290,7 @@ export function fileSourceFromText(file) {
     text,
     exists: true,
     totalLines: text ? text.split('\n').length : 0,
-    lineOffset: 1,
+    lineOffset: file.lineOffset || 1,
     url: () => `data:text/plain;charset=utf-8,${encodeURIComponent(text)}`,
     bytes: async () => new TextEncoder().encode(text),
   });

@@ -47,6 +47,8 @@ import {
 import contextItemRegistry from '../../js/registries/context-item-registry.js';
 import { writeFileOp } from '../../js/services/ops-api.js';
 import { createBoundOps } from '../../sdk/ops.js';
+import { formatFileContentForLLM, parseFileContentForLLM } from '../../sdk/lib/context-item-utils.js';
+import { smartTruncate } from '../../sdk/lib/smart-truncate.js';
 
 /**
  * @typedef {object} TestResult
@@ -342,6 +344,78 @@ export async function runTests(_ctx) {
     assert(!panel.textContent.includes('start of this conversation'),
       'and does not describe it as a file the session added to itself');
     panel.remove();
+  });
+
+  // ---- THE PANEL SHOWS WHAT THE MODEL READS -------------------------------
+
+  await test('the panel shows the snapshot, not the file as it now stands', async () => {
+    const { item, setBody } = makeItem('as mentioned\n');
+    await item.onToolCall('file-content', { path: 'plan.md', frozen: true });
+    await item.createContextText(REQUEST);
+    setBody('since edited\n');
+    const panel = item.createPropertiesPanelElement();
+    document.body.appendChild(panel);
+    try {
+      await waitFor(() => (panel.textContent || '').includes('as mentioned'),
+        { timeoutMs: 2000, description: 'the frozen panel to show the snapshot' });
+      await new Promise(r => setTimeout(r, 0));
+      assert(!(panel.textContent || '').includes('since edited'),
+        'the frozen panel must not show the live file');
+      assert(!(panel.textContent || '').includes('<file path='),
+        'the snapshot is shown as the file, not as its model-facing wrapper');
+    } finally {
+      panel.remove();
+    }
+  });
+
+  await test('a formatted file reads back as the text it was formatted from', () => {
+    const cases = [
+      { content: 'one\ntwo\n', lineOffset: 1, totalLines: 2 },
+      { content: 'a\n\n\tindented\n12\tlooks numbered\n</file>\nlast', lineOffset: 1 },
+      { content: 'middle\nof a file', lineOffset: 40, totalLines: 300 },
+      { content: 'x', lineOffset: 9 },
+    ];
+    for (const c of cases) {
+      const formatted = formatFileContentForLLM({ path: 'dir/some "file".js', ...c });
+      const parsed = parseFileContentForLLM(formatted);
+      assert(parsed, `a formatted block must parse: ${JSON.stringify(c)}`);
+      const runs = parsed.parts.filter(p => p.kind === 'lines');
+      assert(runs.length === 1, `one run expected, got ${runs.length}`);
+      assert(runs[0].content === c.content,
+        `content must round-trip: ${JSON.stringify(runs[0].content)} vs ${JSON.stringify(c.content)}`);
+      assert(runs[0].lineOffset === c.lineOffset, `lineOffset must round-trip for ${c.lineOffset}`);
+      assert(parsed.path === 'dir/some "file".js', `path must round-trip, got ${parsed.path}`);
+    }
+  });
+
+  await test('a truncated snapshot reads back as its runs and the notes between them', () => {
+    const lines = Array.from({ length: 2000 }, (_, i) => `line ${i + 1} ${'x'.repeat(30)}`);
+    const formatted = formatFileContentForLLM({ path: 'big.txt', content: lines.join('\n'), totalLines: 2000 });
+    const { content: bounded } = smartTruncate(formatted, { maxChars: 8000 });
+    const parsed = parseFileContentForLLM(bounded + '\n\n(Truncated from a lot)');
+    assert(parsed, 'a head/tail-truncated block must still parse');
+    const kinds = parsed.parts.map(p => p.kind).join(',');
+    assert(kinds === 'lines,note,lines,note', `expected run, gap, run, footer; got ${kinds}`);
+    const [head, gap, tail, footer] = /** @type {any[]} */ (parsed.parts);
+    assert(head.lineOffset === 1 && head.content.startsWith('line 1 '), 'the head starts at line 1');
+    assert(gap.text.includes('lines omitted'), `the gap says what was left out, got ${gap.text}`);
+    const headLines = head.content.split('\n').length;
+    assert(tail.lineOffset > headLines + 1, 'the tail resumes past the gap');
+    assert(tail.content.split('\n')[0] === lines[tail.lineOffset - 1],
+      'and its first line is the line its number says');
+    assert(footer.text.includes('2000 lines total') && footer.text.includes('Truncated from'),
+      `the trailing notes are kept, got ${footer.text}`);
+  });
+
+  await test('text that is not a file block does not parse', () => {
+    for (const text of [
+      'Directory listing of src/:\nmain.go',
+      'File does not exist: nope.md',
+      formatFileContentForLLM({ path: 'empty.md', content: '' }),
+      '<file path="x">\nno numbers here\n</file>',
+    ]) {
+      assert(parseFileContentForLLM(text) === null, `must not parse: ${JSON.stringify(text)}`);
+    }
   });
 
   // ---- THE PANEL MUST NOT FREEZE ------------------------------------------

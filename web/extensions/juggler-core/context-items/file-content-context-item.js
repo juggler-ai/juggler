@@ -4,7 +4,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import ContextItem from 'juggler/context-item';
-import { formatDisplayPath, formatFileContentForLLM, basename } from 'juggler/item-utils';
+import { formatDisplayPath, formatFileContentForLLM, parseFileContentForLLM, basename } from 'juggler/item-utils';
+import { fileSourceFromText } from 'juggler/file-source';
 import { extractFileSource } from 'juggler/registry';
 import { createElement, injectStylesOnce } from 'juggler/ui';
 import { addFilePath } from 'juggler/ui';
@@ -479,16 +480,16 @@ class FileContentContextItem extends ContextItem {
   /**
    * Create properties panel view.
    *
-   * The panel always shows LIVE disk contents. For a pin that is simply the
-   * truth — there is no snapshot to be stale against. For a frozen item it is a
-   * deliberate mismatch: the panel is the curation UI, so it must show what the
-   * file actually says, not what this conversation happens to be reading. A note
-   * states the difference and offers the refresh, because a panel that silently
-   * showed one thing while the model read another would be the worst of both.
+   * The panel shows what this item puts in front of the model. For a pin, and
+   * for a frozen item that has not yet taken its snapshot, that is the file as it
+   * stands on disk. For a frozen item with a snapshot it is the snapshot, rendered
+   * from memory: the live file is a click away on the path above, and the frozen
+   * copy is visible nowhere else. A note says which, and offers the update once
+   * the file has diverged.
    *
-   * We render a `Loading…` placeholder synchronously, kick off a `_fetchLive()`
-   * (which reuses the 500ms TTL cache from any just-completed send), and swap the
-   * result in when it resolves.
+   * A live body renders a `Loading…` placeholder synchronously, kicks off a
+   * `_fetchLive()` (which reuses the 500ms TTL cache from any just-completed
+   * send), and swaps the result in when it resolves.
    * @returns {HTMLElement} Properties panel element
    */
   createPropertiesPanelElement() {
@@ -516,6 +517,12 @@ class FileContentContextItem extends ContextItem {
 
     if (!this.data.path) {
       body.appendChild(createElement('div', 'file-content-loading', 'No file selected'));
+      return container;
+    }
+
+    if (FileContentContextItem.isFrozen(this.data) && typeof this.data.content === 'string') {
+      body.appendChild(this._buildFrozenNote(container));
+      body.appendChild(this._renderSnapshotBody(this.data.content));
       return container;
     }
 
@@ -741,8 +748,8 @@ class FileContentContextItem extends ContextItem {
     }
 
     note.appendChild(createElement('div', 'file-content-seeded-line', seeded
-      ? 'Added at the start of this conversation and frozen when it began, so that editing this file does not make the conversation re-read itself. The file below is live.'
-      : 'Mentioned in a message and frozen when it was sent, so that editing this file does not make the conversation re-read itself. The file below is live.'));
+      ? 'Added at the start of this conversation and frozen when it began, so that editing this file does not make the conversation re-read itself. Below is the frozen copy the conversation reads.'
+      : 'Mentioned in a message and frozen when it was sent, so that editing this file does not make the conversation re-read itself. Below is the frozen copy the conversation reads.'));
 
     // Offer the update only against a real difference.
     this._renderLive().then(live => {
@@ -772,6 +779,41 @@ class FileContentContextItem extends ContextItem {
     });
 
     return note;
+  }
+
+  /**
+   * Render a frozen snapshot as the file it is a copy of.
+   *
+   * The snapshot is the model-facing `<file>` block, so it is unwrapped back into
+   * text and each numbered run handed to the viewer as an in-memory file, keeping
+   * its own line numbers. Whatever sits between and after the runs — a truncation
+   * gap, the line-count footer — is shown as a caption in its place. A snapshot
+   * that is not a file block (a directory listing, a missing file, text extracted
+   * from a PDF) is shown verbatim, since that text is all the model has.
+   * @param {string} snapshot - The stored snapshot
+   * @returns {HTMLElement} The rendered body
+   * @private
+   */
+  _renderSnapshotBody(snapshot) {
+    const host = createElement('div', 'file-content-snapshot');
+    const parsed = parseFileContentForLLM(snapshot);
+    if (!parsed) {
+      host.appendChild(createElement('pre', 'file-content-snapshot-text', snapshot));
+      return host;
+    }
+
+    const path = this.getAbsolutePath() || parsed.path;
+    for (const part of parsed.parts) {
+      if (part.kind === 'note') {
+        host.appendChild(createElement('div', 'file-content-snapshot-note', part.text));
+        continue;
+      }
+      const view = /** @type {any} */ (document.createElement('file-view'));
+      view.showPath = false;
+      view.setSource(fileSourceFromText({ path, text: part.content, lineOffset: part.lineOffset }));
+      host.appendChild(view);
+    }
+    return host;
   }
 
   // ========== PRIVATE HELPERS ==========
@@ -807,6 +849,15 @@ const FILE_CONTENT_STYLES = `
 }
 .file-content-seeded-update:hover:not(:disabled) { background: var(--bg-hover, rgba(127, 127, 127, 0.25)); }
 .file-content-seeded-update:disabled { opacity: 0.5; cursor: default; }
+.file-content-snapshot { display: flex; flex-direction: column; gap: 0.5rem; }
+.file-content-snapshot-note {
+  font-size: 0.75rem; font-style: italic;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+.file-content-snapshot-text {
+  margin: 0; white-space: pre-wrap; word-break: break-word;
+  font-family: var(--font-mono, monospace); font-size: 0.75rem;
+}
 `;
 
 injectStylesOnce('file-content-styles', FILE_CONTENT_STYLES);

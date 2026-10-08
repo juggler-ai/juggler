@@ -11,6 +11,7 @@ export {
   formatPathForStatus,
   basename,
   formatFileContentForLLM,
+  parseFileContentForLLM,
   normalizeFilePath,
   // Pure string work with no DOM behind it, so the worker gets the real thing
   // rather than a stub: an engine-side plugin writing a code reference must

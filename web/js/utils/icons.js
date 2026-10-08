@@ -49,7 +49,19 @@ export const OPEN_IN_NEW_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="
 // to the Pinboard.
 export const PIN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="16" width="16" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="m640-480 80 80v80H520v240l-40 40-40-40v-240H240v-80l80-80v-280h-40v-80h400v80h-40v280Zm-286 80h252l-46-46v-314H400v314l-46 46Zm126 0Z"/></svg>';
 
-// Material Symbols "check" — the installed tick on skills cards and the preview.
+/**
+ * One of the icons above with a class on its `<svg>`, for a site whose CSS sizes
+ * or colours the icon through that class.
+ * @param {string} svg - An icon string from this module.
+ * @param {string} className - Class (or space-separated classes) to add.
+ * @returns {string} The same markup with `class` on its root element.
+ */
+export function withClass(svg, className) {
+  return svg.replace('<svg ', `<svg class="${className}" `);
+}
+
+// Material Symbols "check" — a done/active tick: installed skills, the model
+// picker's selected row, a provider's active key, the edits-on permission label.
 export const CHECK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="16" width="16" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>';
 
 // Material Symbols "priority_high" — a bare "!", a tab's last-turn-failed glyph.

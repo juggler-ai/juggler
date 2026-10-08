@@ -47,6 +47,7 @@ import { modelLabel, modelLabelFromList } from '../../model/model-display.js';
 import { formatTokens } from '../../utils/format.js';
 import { renderUsageRow } from '../../utils/usage-renderer.js';
 import { escapeHtml } from '../../../sdk/lib/html.js';
+import { CHECK_SVG } from '../../utils/icons.js';
 import JugglerElement from '../juggler-element.js';
 import { cachedUserPref, setUserPref } from '../../services/prefs.js';
 import { openSettings } from '../../services/settings-launcher.js';
@@ -507,9 +508,7 @@ class ModelPicker extends JugglerElement {
    */
   _selectionItem({ label, active, classes = '', dataAttrs = '' }) {
     const selectedTick = active
-      ? `<span class="model-selected-tick" aria-hidden="true">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>
-                </span>`
+      ? `<span class="model-selected-tick" aria-hidden="true">${CHECK_SVG}</span>`
       : '';
     return `
             <li class="menu-item model-selection-item ${active ? 'active' : ''} ${classes}" ${dataAttrs}>

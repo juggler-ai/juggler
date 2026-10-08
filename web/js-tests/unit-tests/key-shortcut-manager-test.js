@@ -620,6 +620,78 @@ export async function runTests(_ctx) {
       'no boolean rules remain when disabled');
   });
 
+  // ── Background navigation stand-down ────────────────────────────────
+  // The document-level arrow handlers (conversation nav, tab-list nav) act on
+  // the app BEHIND focus, so they share one rule for when a key is not theirs.
+  await run('backgroundNavStandsDown yields to text fields, selects and editables', () => {
+    /** @type {HTMLElement[]} */
+    const made = [];
+    try {
+      for (const tag of ['input', 'textarea', 'select']) {
+        const el = document.createElement(tag);
+        document.body.appendChild(el);
+        made.push(el);
+        assert(keyShortcutManager.backgroundNavStandsDown(/** @type {any} */ ({ target: el })),
+          `an arrow key in a <${tag}> is the field's to handle, not the transcript's behind it`);
+      }
+      const editable = document.createElement('div');
+      editable.contentEditable = 'true';
+      document.body.appendChild(editable);
+      made.push(editable);
+      assert(keyShortcutManager.backgroundNavStandsDown(/** @type {any} */ ({ target: editable })),
+        'a contenteditable owns its arrows');
+
+      const plain = document.createElement('div');
+      document.body.appendChild(plain);
+      made.push(plain);
+      assert(!keyShortcutManager.backgroundNavStandsDown(/** @type {any} */ ({ target: plain })),
+        'a key on a plain element is background navigation');
+    } finally {
+      for (const el of made) el.remove();
+    }
+  });
+
+  await run('backgroundNavStandsDown yields to an action-confirmation widget', () => {
+    const widget = document.createElement('action-confirmation');
+    const button = document.createElement('button');
+    widget.appendChild(button);
+    document.body.appendChild(widget);
+    try {
+      assert(keyShortcutManager.backgroundNavStandsDown(/** @type {any} */ ({ target: button })),
+        'focus inside an approval widget keeps its arrow/Enter/Escape keys');
+    } finally {
+      widget.remove();
+    }
+  });
+
+  await run('backgroundNavStandsDown takes a keydown aimed at the document itself', () => {
+    // With nothing focused, or a key dispatched at document, the target is the
+    // Document: no tagName and no closest(). It is background navigation, and
+    // asking must not throw out of the listener that asked.
+    for (const target of [document, null]) {
+      let verdict;
+      try {
+        verdict = keyShortcutManager.backgroundNavStandsDown(/** @type {any} */ ({ target }));
+      } catch (e) {
+        throw new Error(`threw for a ${target ? 'Document' : 'null'} target: ${e instanceof Error ? e.message : e}`);
+      }
+      assert(verdict === false, `a ${target ? 'Document' : 'null'} target is not a field, got ${verdict}`);
+    }
+  });
+
+  await run('backgroundNavStandsDown defers to suppressedByOverlay', () => {
+    const mgr = /** @type {any} */ (keyShortcutManager);
+    const own = Object.prototype.hasOwnProperty.call(mgr, 'suppressedByOverlay');
+    const was = mgr.suppressedByOverlay;
+    mgr.suppressedByOverlay = () => true;
+    try {
+      assert(keyShortcutManager.backgroundNavStandsDown(/** @type {any} */ ({ target: document.body })),
+        'an open overlay owns the keyboard, so navigation behind it stands down');
+    } finally {
+      if (own) mgr.suppressedByOverlay = was; else delete mgr.suppressedByOverlay;
+    }
+  });
+
   // ── Per-project "edits on by default" preference ────────────────────
   await run('default-file-editing preference round-trips through session metadata', () => {
     const meta = {};

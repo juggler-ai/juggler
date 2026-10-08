@@ -35,6 +35,7 @@ import {
 import providersCache from '../../services/providers-cache.js';
 import { extractErrorMessage } from '../../../sdk/lib/error-utils.js';
 import { showConfirm } from '../modal-dialog.js';
+import { CHECK_SVG } from '../../utils/icons.js';
 
 /**
  * The id rule, mirroring the server's. An id becomes a provider id, a DOM
@@ -506,7 +507,7 @@ function buildKeyField(endpoint, ctx) {
 
   const badge = document.createElement('span');
   badge.className = 'provider-active-badge';
-  badge.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg><span>key is active</span>';
+  badge.innerHTML = `${CHECK_SVG}<span>key is active</span>`;
   badge.style.display = endpoint.hasKey && !fromEnv ? 'inline-flex' : 'none';
 
   const buttons = document.createElement('div');

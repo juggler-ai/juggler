@@ -1084,25 +1084,11 @@ class ConversationTab extends JugglerElement {
       // Only handle if this is the active tab
       if (!this.classList.contains('active')) return;
 
-      // An overlay (modal, settings panel, dropdown) owns the keyboard: this is
-      // a document-level handler that navigates/cancels the conversation BEHIND
-      // it, so it must stand down while a popup is open — otherwise ↑/↓ would
-      // move the selection under the overlay. Single rule, shared with the
-      // central command dispatcher (see KeyShortcutManager.suppressedByOverlay).
-      if (keyShortcutManager.suppressedByOverlay()) return;
-
-      // A keydown reaching document doesn't have to come from an element: with
-      // nothing focused, or when the key is dispatched at the document itself,
-      // the target is the Document — no tagName, and no closest() to call. Narrow
-      // to an Element up front, so a stray target can't throw out of this
-      // listener and take the rest of the handler (Escape included) with it.
-      const target = e.target instanceof Element ? e.target : null;
-
-      // Don't handle if user is typing in an input
-      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return;
-
-      // If focus is inside an action-confirmation widget, let it handle arrow/Enter/Escape keys
-      if (target && target.closest('action-confirmation')) return;
+      // This is a document-level handler that navigates/cancels the
+      // conversation BEHIND focus, so it stands down for an open overlay (↑/↓
+      // would move the selection under it), a field being typed into, or an
+      // approval widget's own keys. Single rule, shared with the tab strip's nav.
+      if (keyShortcutManager.backgroundNavStandsDown(e)) return;
 
       // Tab-list focus mode owns arrow keys until the user re-enters the tab.
       if (document.querySelector('conversation-bar.tab-list-focused')) {

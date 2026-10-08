@@ -24,6 +24,7 @@ import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { isEngine } from '../../sdk/lib/client-role.js';
 import { toSandboxRoot } from '../../sdk/lib/sandbox-runner.js';
 import { recordTape } from '../utils/event-tape.js';
+import { reportFault } from '../utils/fault-report.js';
 import { isTabReorderEnabled } from '../utils/attention-manager.js';
 import { setupWorkerCallbacks, setupViewerWorkerCallbacks } from './session-worker-callbacks.js';
 import { approvePermittedPendingApprovals } from './conversation-tool-actions.js';
@@ -1276,7 +1277,11 @@ class Session {
   }
 
   /**
-   * Notify all listeners of a change
+   * Notify all listeners of a change.
+   *
+   * Each listener is contained, as on the socket's emitter: its throw goes to
+   * the fault sink and the fan-out carries on, because subscribers are
+   * independent and a release viewer has no console to read the throw in.
    * @param {string} type - Event type
    * @param {any} data - Event data
    * @private
@@ -1286,7 +1291,7 @@ class Session {
       try {
         callback({ type, data, session: this });
       } catch (error) {
-        console.error('[Session] Listener error:', error);
+        reportFault(`session-listener:${type}`, error);
       }
     });
   }

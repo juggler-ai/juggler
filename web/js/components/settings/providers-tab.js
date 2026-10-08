@@ -19,6 +19,7 @@ import { sortModelsByVersion } from '../../utils/model-filter.js';
 import { buildEndpointCard, buildAddEndpointForm } from './custom-endpoint-card.js';
 import { apiUrl } from '../../utils/api-url.js';
 import { formatTokens } from '../../utils/format.js';
+import { CHECK_SVG } from '../../utils/icons.js';
 
 /**
  * Whether a published model's context window is a guess nobody has corrected:
@@ -1065,7 +1066,7 @@ export class ProvidersTab {
     activeBadge.id = `${provider.name}-active-badge`;
     activeBadge.className = 'provider-active-badge';
     activeBadge.style.display = 'none';
-    activeBadge.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg><span>key is active</span>';
+    activeBadge.innerHTML = `${CHECK_SVG}<span>key is active</span>`;
 
     const buttonGroup = document.createElement('div');
     buttonGroup.className = 'provider-buttons';

@@ -672,6 +672,27 @@ class KeyShortcutManager {
     return isAnyPopupOpen();
   }
 
+  /**
+   * Whether a document-level navigation handler — one that moves something
+   * BEHIND focus, like the conversation's arrow-nav or the tab strip's — must
+   * leave this keydown alone. It must when an overlay owns the keyboard
+   * ({@link suppressedByOverlay}), when the key is going into something being
+   * typed into ({@link isEditableTarget}: a field, a select, a contenteditable),
+   * or when focus is inside an `action-confirmation`, which runs its own
+   * arrow/Enter/Escape keys.
+   *
+   * The target may be the Document itself (nothing focused, or a key
+   * dispatched at document), which has no `closest()`; that is background
+   * navigation and answers false.
+   * @param {KeyboardEvent} e
+   * @returns {boolean} True when the handler should return without acting.
+   */
+  backgroundNavStandsDown(e) {
+    if (this.suppressedByOverlay()) return true;
+    if (isEditableTarget(e.target)) return true;
+    return e.target instanceof Element && e.target.closest('action-confirmation') !== null;
+  }
+
   /** @returns {ShortcutDef[]} All definitions in declared order. */
   all() {
     return [...this._defs.values()];

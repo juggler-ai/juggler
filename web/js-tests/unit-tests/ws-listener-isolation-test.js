@@ -14,12 +14,14 @@
  * because a release viewer has no console to read it in.
  *
  * Driven on a private `WebSocketService` instance, so no real subscriber in the
- * page is handed a fabricated message.
+ * page is handed a fabricated message. The session's feed is held to the same
+ * reporting rule, on a session of its own.
  * @module unit-tests/ws-listener-isolation-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, trackTestSession } from '../utilities/test-helpers.js';
 import { WebSocketService } from '../../js/services/websocket.js';
+import Session from '../../js/model/session.js';
 import { setFaultSink } from '../../js/utils/fault-report.js';
 
 /**
@@ -90,6 +92,29 @@ export async function runTests() {
     assert(secondRan === 1, `the second listener should run once, ran ${secondRan} times`);
     assert(faults.length === 1 && faults[0].source === 'ws-listener:providers-update',
       `expected one fault named ws-listener:providers-update, got ${JSON.stringify(faults.map((/** @type {any} */ f) => f.source))}`);
+  });
+
+  // The session's own feed is the app's other bus, and its subscribers are just
+  // as independent — so a throw there owes the app log the same report.
+  await run('a throwing session subscriber is reported like a socket one', (/** @type {any} */ faults) => {
+    const session = /** @type {any} */ (trackTestSession(new Session(/** @type {any} */ ({}))));
+    let secondRan = 0;
+    const offFirst = session.subscribe(() => { throw new Error('session subscriber blew up'); });
+    const offSecond = session.subscribe(() => { secondRan++; });
+    try {
+      session.notifyConversationChange('listener-isolation:probe', null);
+    } finally {
+      offFirst();
+      offSecond();
+    }
+
+    assert(secondRan === 1, `the subscriber behind a throwing one should run once, ran ${secondRan} times`);
+    assert(faults.length === 1,
+      `the throw must reach the fault sink once, got ${faults.length} — a release viewer has no console`);
+    assert(faults[0].source === 'session-listener:listener-isolation:probe',
+      `the fault must name the event it was delivering, got ${faults[0].source}`);
+    assert(faults[0].message === 'session subscriber blew up',
+      `the fault must carry what was thrown, got ${faults[0].message}`);
   });
 
   return { passed, failed, errors };

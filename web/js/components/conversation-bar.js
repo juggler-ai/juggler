@@ -374,14 +374,10 @@ class ConversationBar extends JugglerElement {
       const e = /** @type {KeyboardEvent} */ (evt);
       if (!this.classList.contains('tab-list-focused')) return;
 
-      // Stand down while an overlay owns the keyboard: this document-level
-      // handler switches tabs behind the popup, so ↑/↓ must not reach it. Same
-      // shared rule as the central dispatcher (KeyShortcutManager).
-      if (keyShortcutManager.suppressedByOverlay()) return;
-
-      const target = /** @type {Element|null} */ (e.target);
-      if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) return;
-      if (target?.closest('action-confirmation')) return;
+      // This document-level handler switches tabs behind focus, so it stands
+      // down for an open overlay, a field being typed into, or an approval
+      // widget's own keys — the rule it shares with the conversation's nav.
+      if (keyShortcutManager.backgroundNavStandsDown(e)) return;
 
       switch (e.key) {
         case 'ArrowUp':

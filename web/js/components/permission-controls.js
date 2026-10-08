@@ -7,10 +7,11 @@ import { presentInlineMenu } from '../utils/popup-surface.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
 import contextItemRegistry from '../registries/context-item-registry.js';
 import { isFileEditingAllowed } from '../services/file-editing-permission.js';
+import { CHECK_SVG, withClass } from '../utils/icons.js';
 import './path-input.js';
 
 const LOCK_ICON = `<svg class="shell-lock-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M240-640h360v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85h-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h40q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640Zm0 480h480v-400H240v400Zm296.5-143.5Q560-327 560-360t-23.5-56.5Q513-440 480-440t-56.5 23.5Q400-393 400-360t23.5 56.5Q447-280 480-280t56.5-23.5ZM240-160v-400 400Z"/></svg>`;
-const CHECK_ICON = `<svg class="shell-lock-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>`;
+const CHECK_ICON = withClass(CHECK_SVG, 'shell-lock-icon');
 
 /**
  * Permission Controls — host shell for plugin-supplied permission UI.

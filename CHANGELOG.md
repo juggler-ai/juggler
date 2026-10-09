@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-10-09
+
 - Tool hooks: deny, hold or annotate any tool call, from extensions or `~/.juggler/hooks`
 - Fixed the Bin count dropping by two when restoring or deleting one conversation
 - A send refused for having no model no longer locks undo and New Thread

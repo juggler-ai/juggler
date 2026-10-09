@@ -177,8 +177,9 @@ class FileContentContextItem extends ContextItem {
    * Ask which file. In the desktop app, looking at a tree on this machine, that
    * is the OS chooser straight away — a typed-path panel whose only useful
    * button is "Browse…" is one click too many. Everywhere else (a browser tab,
-   * a remote server, a workspace reached over a wire) the chooser would browse
-   * the wrong machine, so the typed path with its completions is the question.
+   * a remote server, a workspace whose tree is not on this machine) the chooser
+   * would browse the wrong machine, so the typed path with its completions is
+   * the question.
    * @param {{startDir?: string|null, localTree?: boolean}} [context] - Where the
    *   conversation works, and whether that tree is on this machine.
    * @returns {Promise<Record<string,string>|null>} Params for the new item, or null if cancelled

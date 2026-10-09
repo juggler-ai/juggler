@@ -52,8 +52,8 @@ import './model-picker/model-picker.js';
 const RUNNING_TURN_NOTE = 'A turn is running. A change takes effect on its next request — no need to stop it.';
 
 /**
- * Why a CLI provider is not offered to a conversation working somewhere this
- * machine only reaches over a wire. Juggler spawns such a provider as a
+ * Why a CLI provider is not offered to a conversation working in a workspace
+ * with no directory on this machine. Juggler spawns such a provider as a
  * subprocess here, in a directory that would not be the one the turn's file
  * operations use — which goes wrong quietly, so it is refused loudly.
  */
@@ -362,9 +362,10 @@ class ModelSelector extends HTMLElement {
    * what it is handed — so a constraint that depends on where this conversation
    * works is applied here, on the way in. A provider Juggler spawns as a
    * subprocess would run on this machine while every file operation of the turn
-   * ran somewhere else, so for a workspace of a kind that cannot host one it is
-   * marked unavailable with that reason, which the picker already knows how to
-   * render and how to refuse.
+   * ran somewhere else, so for a workspace that says it cannot host one
+   * ({@link Session#workspaceHostsLocalProviders}) it is marked unavailable
+   * with that reason, which the picker already knows how to render and how to
+   * refuse.
    * @returns {Provider[]} What may be offered.
    * @private
    */

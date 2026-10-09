@@ -229,10 +229,11 @@ func (s *Server) createLLMCaller() worker.LLMCallFunc {
 
 		// Where this conversation works: the project unless it is bound to a
 		// workspace. Resolved before the handle is opened, so a binding that
-		// cannot be honoured (still provisioning, closed, root gone, unknown)
-		// fails the turn saying which — rather than running in the project
-		// root, which would edit the wrong tree and look exactly like working.
-		workspaceRoot, err := s.workspaceRoot(req.WorkspaceID)
+		// cannot be honoured (still provisioning, closed, root gone, unknown, or
+		// nowhere this provider can be spawned) fails the turn saying which —
+		// rather than running in the project root, which would edit the wrong
+		// tree and look exactly like working.
+		workspaceRoot, err := turnDir(s.Workspaces().Resolve, req.WorkspaceID, req.ModelConfig.Provider)
 		if err != nil {
 			return nil, err
 		}

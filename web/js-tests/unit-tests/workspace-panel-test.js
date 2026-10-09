@@ -247,8 +247,8 @@ export async function runTests() {
     const session = makeSession([workspace('ws_a')]);
     const { panel, teardown } = mountPanel(session);
     // A status that describes this instance the way the git worktree provider's
-    // does: which repository it is of, which is not what the head is about.
-    FixtureProvider.reported = { kind: 'Somewhere else, of juggler', detail: 'branch feat/x · clean' };
+    // does, which is not what the head is about.
+    FixtureProvider.reported = { detail: 'branch feat/x · clean' };
     try {
       session.selection = { kind: 'workspace', id: 'ws_a' };
       panel._refresh();

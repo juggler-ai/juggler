@@ -13,6 +13,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/mailbox"
+	"juggler/cmd/juggler/workspace"
 )
 
 type viewerOpKind int
@@ -340,7 +341,7 @@ func (b serverBroadcaster) BroadcastSessionMetadataChanged(metadata map[string]a
 // BroadcastWorkspacesChanged publishes the whole workspace table after an edit,
 // so every viewer converges on it — and so a window that is only watching sees a
 // workspace appear, become usable, and be finished with, without asking.
-func (b serverBroadcaster) BroadcastWorkspacesChanged(workspaces []core.Workspace) {
+func (b serverBroadcaster) BroadcastWorkspacesChanged(workspaces []workspace.Row) {
 	b.srv.broadcastToAll(map[string]any{
 		"type":       "workspaces-changed",
 		"workspaces": workspaces,

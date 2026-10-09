@@ -2,7 +2,16 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package handlers
+// Package gitview reads the git state of a directory tree on this machine: every
+// repository under it, the root one and any nested inside it, as the three views
+// the app shows of a working tree — the status card's counts (Status), the
+// review's complete file manifest (Review) and one file's diff (Diff).
+//
+// It knows nothing of projects, workspaces or HTTP. It is handed a root it may
+// read, runs git there and nowhere above it, and answers in the shapes the API
+// sends on unchanged. Everything it does is a read (see gitCommand for what that
+// takes).
+package gitview
 
 import (
 	"bufio"
@@ -10,34 +19,12 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"net/http"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"juggler/cmd/juggler/core"
 )
-
-// GitStatusAPI summarises the working-tree state of every git repository found
-// under the tree a request names — the root repo plus any nested
-// subrepos/submodules — for the "Git status" info card and pinboard pin. The
-// project path is read through a provider func so a runtime project switch
-// retargets the scan, and the workspace lookup resolves a request that names a
-// conversation's own tree instead.
-type GitStatusAPI struct {
-	pathProvider func() string
-	workspaces   core.WorkspaceLookup
-}
-
-// NewGitStatusAPI creates a new GitStatusAPI. pathProvider must return the
-// current project path on each call ("" when no project is loaded); workspaces
-// resolves a workspace id to the tree it names, and may be nil in a server with
-// no session, in which case only the project can be asked about.
-func NewGitStatusAPI(pathProvider func() string, workspaces core.WorkspaceLookup) *GitStatusAPI {
-	return &GitStatusAPI{pathProvider: pathProvider, workspaces: workspaces}
-}
 
 // The card's bounds. Its walk is deliberately shallow — a git repo lives at the
 // top of its tree, so scanning a few levels catches the root repo and its direct
@@ -80,12 +67,12 @@ type gitDiffstat struct {
 	Removed int
 }
 
-// gitRepoStatus is one repository's summary. Path is relative to the project
+// RepoStatus is one repository's summary. Path is relative to the project
 // root ("" for the root repo itself), always forward-slashed. Files is bounded
 // by whatever ceiling its caller asked for; Truncated says the tree holds more
 // than the list shows and Total says how many. Changed, Staged and Total count
 // the whole tree either way.
-type gitRepoStatus struct {
+type RepoStatus struct {
 	Path       string          `json:"path"`
 	Changed    int             `json:"changed"` // files with working-tree changes (incl. untracked)
 	Staged     int             `json:"staged"`  // files with staged (index) changes
@@ -105,79 +92,16 @@ type gitRepoStatus struct {
 	Truncated  bool            `json:"truncated"`
 }
 
-// gitStatusResponse is the JSON response shape for GET /api/git/status.
-type gitStatusResponse struct {
-	Root      string          `json:"root"`
-	Workspace string          `json:"workspace,omitempty"` // See gitTree.Name
-	Repos     []gitRepoStatus `json:"repos"`
-}
-
-// gitTree is the tree a git request is about, and what to call it.
-type gitTree struct {
-	Root string
-	// Name is the workspace's label when the tree is somewhere other than the
-	// project — a worktree, a copy, a subfolder — and empty when it is the
-	// project itself, including for a workspace that works in the project (a
-	// group). It travels in the answer beside Root, so a surface names the tree
-	// its counts came from rather than whichever conversation is showing now.
-	Name string
-}
-
-// gitRoot is the tree a git request is about: the workspace named by the
-// `workspace` query parameter, or the project when it names none.
-//
-// All three git endpoints resolve it through here, because every git surface in
-// the app shows one conversation's view of one tree. The card's counts, the
-// review's file list and a file's diff sit on top of one another in the pin, so
-// two of them answering about different trees would show the name of one and the
-// bytes of another.
-//
-// The refusals are `WorkspaceLookup.Usable`'s, shared with the ops API so the
-// words match, and there is deliberately no fall back to the project: a status
-// that quietly reported the project for a binding that could not be honoured
-// would show a clean tree for a conversation whose own tree has gone.
-func (a *GitStatusAPI) gitRoot(r *http.Request) (gitTree, error) {
-	id := r.URL.Query().Get("workspace")
-	project := a.pathProvider()
-	if id == core.DefaultWorkspaceID {
-		return gitTree{Root: project}, nil
-	}
-	if a.workspaces == nil {
-		return gitTree{}, fmt.Errorf("no session is loaded, so workspace %s cannot be resolved", id)
-	}
-	ws, err := a.workspaces.Usable(id)
-	if err != nil {
-		return gitTree{}, err
-	}
-	tree := gitTree{Root: ws.Root}
-	if project == "" || filepath.Clean(ws.Root) != filepath.Clean(project) {
-		tree.Name = ws.Name()
-	}
-	return tree, nil
-}
-
-// HandleGitStatus handles GET /api/git/status. It discovers repositories under
-// the tree the request names — a workspace, or the project by default — and
-// reports each one's branch, divergence from its upstream, changed/staged counts
-// and bounded file list. Results are best-effort: a repo whose `git status`
-// fails (git missing, bare repo) is simply omitted rather than failing the whole
-// response.
-func (a *GitStatusAPI) HandleGitStatus(w http.ResponseWriter, r *http.Request) {
-	tree, err := a.gitRoot(r)
-	if err != nil {
-		WriteError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
-	root := tree.Root
-	resp := gitStatusResponse{Root: root, Workspace: tree.Name, Repos: []gitRepoStatus{}}
-	if root == "" {
-		WriteJSON(w, r, 0, resp)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), gitStatusBudget)
+// Status discovers the repositories under root and reports each one's branch,
+// divergence from its upstream, changed/staged counts and bounded file list —
+// the status card's answer. It is best-effort: a repo whose `git status` fails
+// (git missing, bare repo) is simply omitted rather than failing the whole
+// answer, which is why it has no error to return.
+func Status(ctx context.Context, root string) []RepoStatus {
+	ctx, cancel := context.WithTimeout(ctx, gitStatusBudget)
 	defer cancel()
 
+	repos := []RepoStatus{}
 	for _, dir := range discoverRepos(ctx, root) {
 		status, err := repoStatus(ctx, dir, repoStatusOptions{maxFiles: gitStatusMaxFile, perCmd: gitStatusPerCmd})
 		if err != nil {
@@ -187,16 +111,35 @@ func (a *GitStatusAPI) HandleGitStatus(w http.ResponseWriter, r *http.Request) {
 		// this is the one caller that can shrug at losing them.
 		_ = repoDiffstats(ctx, dir, gitStatusPerCmd, &status)
 		status.Path = repoRelativePath(root, dir)
-		resp.Repos = append(resp.Repos, status)
+		repos = append(repos, status)
 	}
 
 	// Root repo first, then nested repos alphabetically — stable ordering so the
 	// card doesn't reshuffle between polls.
-	sort.SliceStable(resp.Repos, func(i, j int) bool {
-		return resp.Repos[i].Path < resp.Repos[j].Path
+	sort.SliceStable(repos, func(i, j int) bool {
+		return repos[i].Path < repos[j].Path
 	})
+	return repos
+}
 
-	WriteJSON(w, r, 0, resp)
+// LendClocks replaces every git clock — the card's, the review's and the
+// diff's — with perCmd for one command and budget for a whole request, and
+// returns the func that puts the shipped values back. It is for tests: one
+// asking what git reports over a fixture of a handful of files is not asking how
+// fast a loaded machine runs git, and the shipped seconds would make it measure
+// the second. Not safe to call while a read is in flight.
+func LendClocks(perCmd, budget time.Duration) (restore func()) {
+	statusPerCmd, statusBudget := gitStatusPerCmd, gitStatusBudget
+	reviewPerCmd, reviewBudget := gitReviewPerCmd, gitReviewBudget
+	diffPerCmd, diffBudget := gitDiffPerCmd, gitDiffBudget
+	gitStatusPerCmd, gitStatusBudget = perCmd, budget
+	gitReviewPerCmd, gitReviewBudget = perCmd, budget
+	gitDiffPerCmd, gitDiffBudget = perCmd, budget
+	return func() {
+		gitStatusPerCmd, gitStatusBudget = statusPerCmd, statusBudget
+		gitReviewPerCmd, gitReviewBudget = reviewPerCmd, reviewBudget
+		gitDiffPerCmd, gitDiffBudget = diffPerCmd, diffBudget
+	}
 }
 
 // repoScanLimits bounds a search for repositories. The status card runs one on
@@ -344,7 +287,7 @@ type repoStatusOptions struct {
 // repoStatus runs git in dir and summarises the working tree. The error carries
 // git's own complaint, because a caller that reports a repository it could not
 // read has to say why. Path is left for the caller to fill in.
-func repoStatus(ctx context.Context, dir string, opts repoStatusOptions) (gitRepoStatus, error) {
+func repoStatus(ctx context.Context, dir string, opts repoStatusOptions) (RepoStatus, error) {
 	// Porcelain v2 with --branch reports the branch, its upstream, ahead/behind
 	// and per-file detail in one invocation. --show-stash adds the stash count to
 	// that same header block.
@@ -354,7 +297,7 @@ func repoStatus(ctx context.Context, dir string, opts repoStatusOptions) (gitRep
 	}
 	out, err := gitRead(ctx, dir, opts.perCmd, gitDiffMaxMeta, args...)
 	if err != nil {
-		return gitRepoStatus{}, err
+		return RepoStatus{}, err
 	}
 
 	status := parseGitStatusV2(out.Kept)
@@ -377,7 +320,7 @@ func repoStatus(ctx context.Context, dir string, opts repoStatusOptions) (gitRep
 // checkout or a submodule. That repository is reviewed in its own right, so
 // leaving the entry here lists the same tree twice, the second time under a path
 // with no diff to show for it.
-func dropDirectoryEntries(status *gitRepoStatus) {
+func dropDirectoryEntries(status *RepoStatus) {
 	kept := status.Files[:0]
 	for _, file := range status.Files {
 		if file.Worktree == "?" && strings.HasSuffix(file.Path, "/") {
@@ -397,7 +340,7 @@ func dropDirectoryEntries(status *gitRepoStatus) {
 // a file — the same comparison a single file's diff is taken from, so a count
 // here and a patch there can never disagree. Untracked and binary files have no
 // honest line count and simply carry none.
-func repoDiffstats(ctx context.Context, dir string, perCmd time.Duration, status *gitRepoStatus) error {
+func repoDiffstats(ctx context.Context, dir string, perCmd time.Duration, status *RepoStatus) error {
 	base, err := gitDiffBase(ctx, dir, perCmd)
 	if err != nil {
 		return err
@@ -416,7 +359,7 @@ func repoDiffstats(ctx context.Context, dir string, perCmd time.Duration, status
 // left alone: "200 of 4000 files" is a useful thing to be able to say, and it
 // needs the 4000. A ceiling of zero lists none of them, which is what is left
 // for a repository reached after a shared budget was spent.
-func truncateGitFiles(status *gitRepoStatus, maxFiles int) {
+func truncateGitFiles(status *RepoStatus, maxFiles int) {
 	if len(status.Files) <= maxFiles {
 		return
 	}
@@ -437,8 +380,8 @@ func truncateGitFiles(status *gitRepoStatus, maxFiles int) {
 //
 // A line git did not write in a shape this understands is skipped rather than
 // failing the repo: a summary that omits one file is worth more than no summary.
-func parseGitStatusV2(out []byte) gitRepoStatus {
-	status := gitRepoStatus{Files: []gitFileStatus{}}
+func parseGitStatusV2(out []byte) RepoStatus {
+	status := RepoStatus{Files: []gitFileStatus{}}
 
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -501,7 +444,7 @@ func parseGitStatusV2(out []byte) gitRepoStatus {
 
 // parseGitBranchHeader applies one "# branch.*" header to status. Anything else
 // git puts in the header block is ignored.
-func parseGitBranchHeader(header string, status *gitRepoStatus) {
+func parseGitBranchHeader(header string, status *RepoStatus) {
 	key, value, ok := strings.Cut(header, " ")
 	if !ok {
 		return
@@ -600,7 +543,7 @@ func parseGitNumstat(out []byte) map[string]gitDiffstat {
 // applyGitDiffstats attaches known line counts to listed files and totals them
 // for the repository. Files omitted by the status bound still count in the
 // repository total; untracked and binary files remain unknown rather than zero.
-func applyGitDiffstats(status *gitRepoStatus, stats map[string]gitDiffstat) {
+func applyGitDiffstats(status *RepoStatus, stats map[string]gitDiffstat) {
 	for _, stat := range stats {
 		status.Added += stat.Added
 		status.Removed += stat.Removed

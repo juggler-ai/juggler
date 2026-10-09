@@ -1005,13 +1005,9 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    * @returns {Promise<any>} What to show for it.
    */
   async status(workspace, ctx) {
-    // What this place IS, said in full and said first: the repository is half of
-    // it, and a worktree named only by its branch leaves a reader who has three
-    // checkouts open no way to tell which one they are about to commit into.
     const repoDir = String(workspace?.meta?.repoDir ?? '');
-    const kind = repoDir ? `Git worktree of ${baseName(repoDir)}` : 'Git worktree';
     if (workspace.available === false) {
-      return { kind, detail: 'The worktree directory is missing.', available: false };
+      return { detail: 'The worktree directory is missing.', available: false };
     }
 
     const answer = await api.getGitStatus(workspace.id, { signal: ctx.signal });
@@ -1019,7 +1015,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     if (!repo) {
       // A registered root that is no longer a repository: removed by hand, or
       // never one. Worth saying rather than reporting a clean tree.
-      return { kind, detail: 'No git repository there.', available: true };
+      return { detail: 'No git repository there.', available: true };
     }
 
     let changed = repo.changed;
@@ -1035,7 +1031,6 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     const dirty = Math.max(0, total) > 0;
 
     return {
-      kind,
       // What the commit is about to take, for the dialog that asks for a message
       // to put on it. The same filter as the counts above, so the list and the
       // number over it are one answer — and free, because the round trip that

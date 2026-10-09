@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/workspace"
 )
 
 // Which tree a git endpoint reports on. All three are one conversation's view of
@@ -22,13 +23,14 @@ import (
 
 // gitAPIOver builds the git API over a project path and a table of workspaces.
 func gitAPIOver(projectPath string, table map[string]core.Workspace) *GitStatusAPI {
-	return NewGitStatusAPI(
+	return NewGitStatusAPI(workspace.NewResolver(
 		func() string { return projectPath },
 		func(id string) (core.Workspace, bool) {
 			ws, ok := table[id]
 			return ws, ok
 		},
-	)
+		nil,
+	).Resolve)
 }
 
 // askStatus calls the status endpoint for a workspace id ("" for the project).
@@ -137,7 +139,8 @@ func TestGitAnswersNameTheTreeTheyDescribe(t *testing.T) {
 	}
 }
 
-// TestGitStatusRefusesAWorkspaceItCannotResolve covers the four refusals. The
+// TestGitStatusRefusesAWorkspaceItCannotResolve covers four of the refusals
+// (the kind one is the resolver's own test). The
 // dangerous answer is not an error but a success: reporting the project for a
 // binding that cannot be honoured shows a clean tree for a conversation whose
 // own tree is missing, and nothing on screen would say so.
@@ -146,9 +149,9 @@ func TestGitStatusRefusesAWorkspaceItCannotResolve(t *testing.T) {
 	gone := t.TempDir()
 
 	api := gitAPIOver(project.root, map[string]core.Workspace{
-		"ws_building": {ID: "ws_building", Root: gone, State: core.WorkspaceStateProvisioning},
-		"ws_closed":   {ID: "ws_closed", Root: gone, State: core.WorkspaceStateClosed},
-		"ws_gone":     {ID: "ws_gone", Root: gone + "-removed", State: core.WorkspaceStateReady},
+		"ws_building": {ID: "ws_building", Kind: core.WorkspaceKindLocal, Root: gone, State: core.WorkspaceStateProvisioning},
+		"ws_closed":   {ID: "ws_closed", Kind: core.WorkspaceKindLocal, Root: gone, State: core.WorkspaceStateClosed},
+		"ws_gone":     {ID: "ws_gone", Kind: core.WorkspaceKindLocal, Root: gone + "-removed", State: core.WorkspaceStateReady},
 	})
 
 	for _, tc := range []struct {

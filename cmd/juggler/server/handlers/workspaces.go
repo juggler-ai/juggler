@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/workspace"
 )
 
 // The workspace table over HTTP. A workspace is where a conversation's tools
@@ -44,6 +45,35 @@ func workspaceStatus(err error) int {
 	return http.StatusBadRequest
 }
 
+// SetWorkspaceResolver gives the session load a way to ask the project's own
+// workspace what it can host (projectHostsLocalProviders). Without one the load
+// leaves that answer out, which the browser reads as yes.
+func (api *SessionAPI) SetWorkspaceResolver(resolve workspace.ResolveFunc) {
+	api.resolveWorkspace = resolve
+}
+
+// projectHostsLocalProviders is the project's answer to the question every row
+// answers in Row.HostsLocalProviders: whether a provider Juggler spawns can run
+// there. False for ok when there is nothing to ask.
+func (api *SessionAPI) projectHostsLocalProviders() (hosts, ok bool) {
+	if api.resolveWorkspace == nil {
+		return false, false
+	}
+	ws, err := api.resolveWorkspace(core.DefaultWorkspaceID)
+	if err != nil {
+		return false, false
+	}
+	_, hosts = ws.LocalDir()
+	return hosts, true
+}
+
+// describeOne is one row as the browser is handed it (workspace.Describe).
+// Every row that leaves these routes goes through Describe, so each carries
+// what its workspace can do.
+func describeOne(ws core.Workspace) workspace.Row {
+	return workspace.Describe([]core.Workspace{ws})[0]
+}
+
 // broadcastWorkspaces publishes the whole table after an edit.
 //
 // The whole table rather than a diff, on the pinboard's reasoning: it is a
@@ -54,7 +84,7 @@ func (api *SessionAPI) broadcastWorkspaces() {
 	if api.broadcaster == nil {
 		return
 	}
-	api.broadcaster.BroadcastWorkspacesChanged(api.manager().ListWorkspaces())
+	api.broadcaster.BroadcastWorkspacesChanged(workspace.Describe(api.manager().ListWorkspaces()))
 }
 
 // HandleListWorkspaces returns every registered workspace.
@@ -71,7 +101,7 @@ func (api *SessionAPI) HandleListWorkspaces(w http.ResponseWriter, r *http.Reque
 	if api.manager().RefreshWorkspaceAvailability() {
 		api.broadcastWorkspaces()
 	}
-	WriteJSON(w, r, 0, map[string]any{"workspaces": api.manager().ListWorkspaces()})
+	WriteJSON(w, r, 0, map[string]any{"workspaces": workspace.Describe(api.manager().ListWorkspaces())})
 }
 
 // HandleRegisterWorkspace puts a workspace on the table, in the provisioning
@@ -91,7 +121,7 @@ func (api *SessionAPI) HandleRegisterWorkspace(w http.ResponseWriter, r *http.Re
 		WriteError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	WriteJSON(w, r, http.StatusOK, map[string]any{"workspace": ws})
+	WriteJSON(w, r, http.StatusOK, map[string]any{"workspace": describeOne(ws)})
 	api.broadcastWorkspaces()
 }
 
@@ -117,7 +147,7 @@ func (api *SessionAPI) HandleUpdateWorkspace(w http.ResponseWriter, r *http.Requ
 		WriteError(w, r, workspaceStatus(err), err.Error())
 		return
 	}
-	WriteJSON(w, r, http.StatusOK, map[string]any{"workspace": ws})
+	WriteJSON(w, r, http.StatusOK, map[string]any{"workspace": describeOne(ws)})
 	api.broadcastWorkspaces()
 }
 
@@ -135,7 +165,7 @@ func (api *SessionAPI) HandleCloseWorkspace(w http.ResponseWriter, r *http.Reque
 		WriteError(w, r, workspaceStatus(err), err.Error())
 		return
 	}
-	WriteJSON(w, r, http.StatusOK, map[string]any{"workspace": ws})
+	WriteJSON(w, r, http.StatusOK, map[string]any{"workspace": describeOne(ws)})
 	api.broadcastWorkspaces()
 }
 
@@ -174,7 +204,7 @@ func (api *SessionAPI) HandleReorderWorkspaces(w http.ResponseWriter, r *http.Re
 		WriteError(w, r, workspaceStatus(err), err.Error())
 		return
 	}
-	WriteJSON(w, r, http.StatusOK, map[string]any{"workspaces": list})
+	WriteJSON(w, r, http.StatusOK, map[string]any{"workspaces": workspace.Describe(list)})
 	api.broadcastWorkspaces()
 }
 

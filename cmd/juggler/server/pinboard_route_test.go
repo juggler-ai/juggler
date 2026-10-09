@@ -15,6 +15,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/server/handlers"
+	"juggler/cmd/juggler/workspace"
 )
 
 // The pinboard is the project's shared workspace composition — which panels are
@@ -30,7 +31,7 @@ type recordingBroadcaster struct {
 	boards     [][]core.Pin
 	names      []string
 	reveals    []pinboardReveal
-	workspaces [][]core.Workspace
+	workspaces [][]workspace.Row
 }
 
 type pinboardReveal struct {
@@ -44,7 +45,7 @@ func (b *recordingBroadcaster) BroadcastSessionMetadataChanged(map[string]any)  
 func (b *recordingBroadcaster) BroadcastConversationsChanged(op, id, name string) {}
 func (b *recordingBroadcaster) BroadcastConversationsReordered([]string)          {}
 func (b *recordingBroadcaster) BroadcastConversationFocus(id, from string)        {}
-func (b *recordingBroadcaster) BroadcastWorkspacesChanged(workspaces []core.Workspace) {
+func (b *recordingBroadcaster) BroadcastWorkspacesChanged(workspaces []workspace.Row) {
 	b.workspaces = append(b.workspaces, workspaces)
 }
 func (b *recordingBroadcaster) BroadcastPinboardChanged(board string, pins []core.Pin) {

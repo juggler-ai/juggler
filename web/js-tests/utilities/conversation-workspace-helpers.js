@@ -42,7 +42,7 @@ import { apiUrl } from '../../js/utils/api-url.js';
  * @returns {any} The row.
  */
 export function workspaceRow(id, root, extra = {}) {
-  return { id, kind: 'local', root, state: 'ready', available: true, ...extra };
+  return { id, kind: 'local', root, state: 'ready', available: true, hostsLocalProviders: true, ...extra };
 }
 
 /**

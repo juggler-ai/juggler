@@ -63,12 +63,12 @@ func TestSandboxImportServesWorkspaceModules(t *testing.T) {
 		{"a ready workspace's module", inWorkspace},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			disk, ok := s.sandboxImportFile(sandboxURLPath(tc.abs))
+			mod, ok := s.sandboxImportFile(sandboxURLPath(tc.abs))
 			if !ok {
 				t.Fatalf("%s was not served; want it resolved to %s", tc.abs, tc.abs)
 			}
-			if disk != filepath.FromSlash(tc.abs) {
-				t.Fatalf("resolved to %q, want %q", disk, tc.abs)
+			if got := filepath.Join(mod.tree.Root(), filepath.FromSlash(mod.rel)); got != filepath.FromSlash(tc.abs) {
+				t.Fatalf("resolved to %q, want %q", got, tc.abs)
 			}
 		})
 	}
@@ -122,8 +122,8 @@ func TestSandboxImportRefusesWhatIsNotAWorkspace(t *testing.T) {
 		{"a workspace that was closed", closed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if disk, ok := s.sandboxImportFile(sandboxURLPath(tc.abs)); ok {
-				t.Fatalf("%s was served as %s; want it refused", tc.abs, disk)
+			if mod, ok := s.sandboxImportFile(sandboxURLPath(tc.abs)); ok {
+				t.Fatalf("%s was served as %s in %s; want it refused", tc.abs, mod.rel, mod.tree.Root())
 			}
 		})
 	}

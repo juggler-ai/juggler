@@ -129,25 +129,23 @@ export async function runTests() {
     await run('a workspace that cannot run a CLI provider is not offered one', async () => {
       // Provider spawn is inherently local: Juggler runs the CLI as a
       // subprocess of its own, in the conversation's directory. A workspace
-      // this machine only reaches over a wire therefore cannot host one — the
-      // CLI would run here while every file operation of the turn ran there,
-      // which fails by quietly making no sense rather than by erroring.
+      // whose row says it has no directory on this machine therefore cannot
+      // host one — the CLI would run in a directory that is not the one every
+      // file operation of the turn uses, which fails by quietly making no sense
+      // rather than by erroring.
       // What the server actually published, before anything here stubs it: the
-      // kinds ride the session load, so a key named wrongly at either end is
-      // caught here rather than by a constraint that silently never fires.
-      assert(session.workspaceKinds?.local?.hostsLocalProviders === true,
-        `the load carries what each kind can do, got ${JSON.stringify(session.workspaceKinds)}`);
+      // project's answer rides the session load beside the rows, so a key named
+      // wrongly at either end is caught here rather than by a constraint that
+      // silently never fires. Each row's own answer is asserted on the Go side
+      // (TestWorkspaceRoutes_RowsSayWhetherTheyHostLocalProviders).
+      assert(session.projectHostsLocalProviders === true,
+        `the load says the project can host a provider we spawn, got ${JSON.stringify(session.projectHostsLocalProviders)}`);
 
       const saved = session.workspaces;
-      const savedKinds = session.workspaceKinds;
       session.workspaces = [
         workspaceRow('ws_here', `${projectPath}/src`),
-        workspaceRow('ws_elsewhere', '/srv/build', { kind: 'test-elsewhere' })
+        workspaceRow('ws_elsewhere', '/srv/build', { hostsLocalProviders: false })
       ];
-      session.workspaceKinds = {
-        local: { hostsLocalProviders: true },
-        'test-elsewhere': { hostsLocalProviders: false }
-      };
       try {
         const here = await makeConversation(session, 'works-on-this-machine', { workspaceId: 'ws_here' });
         release(here);
@@ -157,7 +155,7 @@ export async function runTests() {
         assert(here.workspaceHostsLocalProviders === true,
           'a workspace on this machine can host a provider we spawn');
         assert(away.workspaceHostsLocalProviders === false,
-          'and one of a kind that says it cannot, cannot');
+          'and one whose row says it cannot, cannot');
 
         const providers = [
           { name: 'test-provider', displayName: 'Over the network', available: true, modelsWithContext: [{ id: 'test-model' }] },
@@ -180,7 +178,6 @@ export async function runTests() {
           'and everything reached over the network is untouched, which is what makes that mean anything');
       } finally {
         session.workspaces = saved;
-        session.workspaceKinds = savedKinds;
       }
     });
 

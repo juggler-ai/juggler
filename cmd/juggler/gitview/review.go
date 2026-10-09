@@ -2,13 +2,12 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package handlers
+package gitview
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"sort"
 	"time"
 )
@@ -56,31 +55,28 @@ const (
 // not. A repository git could not read is still listed — the user is owed the
 // knowledge that it is there and unreviewed.
 type gitReviewRepo struct {
-	gitRepoStatus
+	RepoStatus
 	Complete bool   `json:"complete"`
 	Error    string `json:"error,omitempty"`
 }
 
-// gitReviewResponse is the JSON response shape for GET /api/git/review: the file
-// manifest a deliberate review works from.
+// Manifest is the file manifest a deliberate review works from.
 //
-// Complete is the claim the whole endpoint exists to make honestly. Ceilings and
+// Complete is the claim the whole review exists to make honestly. Ceilings and
 // failures are unavoidable; presenting what they left behind as the complete
 // working tree is not, so each one names itself in Warnings and Complete goes
-// false. Partial results stay in the response — they are worth reading, they are
+// false. Partial results stay in the answer — they are worth reading, they are
 // just not everything.
-type gitReviewResponse struct {
-	Root      string          `json:"root"`
-	Workspace string          `json:"workspace,omitempty"` // See gitTree.Name
-	Complete  bool            `json:"complete"`
-	Warnings  []string        `json:"warnings"`
-	Repos     []gitReviewRepo `json:"repos"`
+type Manifest struct {
+	Complete bool            `json:"complete"`
+	Warnings []string        `json:"warnings"`
+	Repos    []gitReviewRepo `json:"repos"`
 }
 
 // warn records something the review could not reach, once. A warning and an
 // incomplete review are the same statement made twice, so they are made in one
 // place: there is no way to add the first without the second.
-func (resp *gitReviewResponse) warn(format string, args ...any) {
+func (resp *Manifest) warn(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	for _, existing := range resp.Warnings {
 		if existing == msg {
@@ -99,33 +95,21 @@ func reviewScanLimits() repoScanLimits {
 	return repoScanLimits{maxRepos: gitReviewMaxRepos, maxDirs: gitReviewMaxDirs}
 }
 
-// HandleGitReview handles GET /api/git/review: every repository under the
-// project and every file in each of them, freshly read.
+// Review reads every repository under root and every file in each of them,
+// freshly.
 //
 // This is the card's question asked in earnest. The card is a number in the
 // corner of a window, polled every twenty seconds, and it can afford to skip a
 // repository that was slow or a directory that is usually enormous. A review is
 // what the user reads before telling the agent what to fix, and a file missing
 // from it is a change that never gets reviewed — so nothing is quietly left out
-// here, and what cannot be included says so.
-func (a *GitStatusAPI) HandleGitReview(w http.ResponseWriter, r *http.Request) {
-	tree, err := a.gitRoot(r)
-	if err != nil {
-		WriteError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
-	root := tree.Root
-	if root == "" {
-		// An empty manifest would be a complete review of nothing, which is a
-		// stronger claim than "there is no project open".
-		WriteError(w, r, http.StatusBadRequest, "No project is open")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), gitReviewBudget)
+// here, and what cannot be included says so. That is also why it returns no
+// error: a failure is part of the manifest, named in its Warnings.
+func Review(ctx context.Context, root string) Manifest {
+	ctx, cancel := context.WithTimeout(ctx, gitReviewBudget)
 	defer cancel()
 
-	resp := gitReviewResponse{Root: root, Workspace: tree.Name, Complete: true, Warnings: []string{}, Repos: []gitReviewRepo{}}
+	resp := Manifest{Complete: true, Warnings: []string{}, Repos: []gitReviewRepo{}}
 
 	scan := scanRepos(ctx, root, reviewScanLimits())
 	for _, reason := range scan.Cut {
@@ -145,17 +129,16 @@ func (a *GitStatusAPI) HandleGitReview(w http.ResponseWriter, r *http.Request) {
 	sort.SliceStable(resp.Repos, func(i, j int) bool {
 		return resp.Repos[i].Path < resp.Repos[j].Path
 	})
-
-	WriteJSON(w, r, 0, resp)
+	return resp
 }
 
 // reviewRepo reads one repository, listing at most budget of its files and
 // recording against the manifest whatever it could not establish.
-func reviewRepo(ctx context.Context, root, dir string, budget int, resp *gitReviewResponse) gitReviewRepo {
+func reviewRepo(ctx context.Context, root, dir string, budget int, resp *Manifest) gitReviewRepo {
 	rel := repoRelativePath(root, dir)
 	repo := gitReviewRepo{
-		gitRepoStatus: gitRepoStatus{Path: rel, Files: []gitFileStatus{}},
-		Complete:      true,
+		RepoStatus: RepoStatus{Path: rel, Files: []gitFileStatus{}},
+		Complete:   true,
 	}
 
 	status, err := repoStatus(ctx, dir, repoStatusOptions{maxFiles: budget, allUntracked: true, perCmd: gitReviewPerCmd})
@@ -166,7 +149,7 @@ func reviewRepo(ctx context.Context, root, dir string, budget int, resp *gitRevi
 		return repo
 	}
 	status.Path = rel
-	repo.gitRepoStatus = status
+	repo.RepoStatus = status
 
 	if status.Truncated {
 		repo.Complete = false
@@ -181,7 +164,7 @@ func reviewRepo(ctx context.Context, root, dir string, budget int, resp *gitRevi
 	// A repository whose lines could not be counted is not a repository that did
 	// not change, and zero is what both look like. Only the warning separates
 	// them, so the count failing has to produce one.
-	if err := repoDiffstats(ctx, dir, gitReviewPerCmd, &repo.gitRepoStatus); err != nil {
+	if err := repoDiffstats(ctx, dir, gitReviewPerCmd, &repo.RepoStatus); err != nil {
 		repo.Complete = false
 		resp.warn("Couldn't count the changed lines in %s: %s", repoDescription(rel), gitReviewFailure(err))
 	}

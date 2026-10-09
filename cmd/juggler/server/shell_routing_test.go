@@ -6,15 +6,21 @@ package server
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/ops"
+	"juggler/cmd/juggler/workspace"
 )
 
 // newTestServerStateWithProject is newTestServerState plus a real
-// SessionManager rooted at a temp dir, so processShellRequest (which reads
-// s.SessionManager().GetProjectPath() for the command cwd) has a valid project.
+// SessionManager rooted at a temp dir, and the project path beside it as
+// seedProjectState records it, so processShellRequest (which resolves the
+// project as the command's tree) has a valid project.
 func newTestServerStateWithProject(t *testing.T) *Server {
 	t.Helper()
 	s := &Server{wsFleet: wsFleet{hub: newClientHub()}}
@@ -23,8 +29,80 @@ func newTestServerStateWithProject(t *testing.T) *Server {
 		t.Fatalf("NewSessionManagerForPath: %v", err)
 	}
 	t.Cleanup(mgr.Shutdown)
-	s.projectState.Store(&projectState{sessionManager: mgr, viewers: newViewerGroup()})
+	s.projectState.Store(&projectState{projectPath: mgr.GetProjectPath(), sessionManager: mgr, viewers: newViewerGroup()})
 	return s
+}
+
+// elsewhere is a Workspace that is not on this machine: it has no LocalDir, and
+// runs its streaming shell itself. Only what the server's callers use is
+// answered; the embedded nil interface panics on anything else, which a test
+// would report as a caller reaching for more than it should.
+type elsewhere struct {
+	workspace.Workspace
+	shellRan *workspace.ShellRequest
+}
+
+func (e *elsewhere) ID() string               { return "ws_far" }
+func (e *elsewhere) Name() string             { return "far-tree" }
+func (e *elsewhere) LocalDir() (string, bool) { return "", false }
+
+func (e *elsewhere) StreamShell(_ context.Context, req workspace.ShellRequest, out chan<- ops.ShellStreamChunk) {
+	e.shellRan = &req
+	out <- ops.ShellStreamChunk{ShellID: req.ShellID, Data: "ran over there", Done: true}
+	close(out)
+}
+
+// resolveOnly answers one id with one workspace and refuses every other.
+func resolveOnly(id string, ws workspace.Workspace) workspace.ResolveFunc {
+	return func(asked string) (workspace.Workspace, error) {
+		if asked == id {
+			return ws, nil
+		}
+		return nil, errors.New("unknown workspace: " + asked)
+	}
+}
+
+// A streaming command runs wherever its workspace runs commands — the
+// workspace's own StreamShell, never a process the server starts here in a root
+// it read off the row — and one whose workspace cannot be resolved is refused in
+// the shape the engine is waiting for.
+func TestStreamShell_RunsInTheResolvedWorkspace(t *testing.T) {
+	s := newTestServerStateWithProject(t)
+	far := &elsewhere{}
+	engine := testWSClient("engine")
+
+	s.streamShell(context.Background(), resolveOnly("ws_far", far), ShellStartRequest{
+		ShellID: "sh-far", ConvId: "conv", Command: "make test", Cwd: "sub", Timeout: 1234, WorkspaceID: "ws_far",
+	}, engine)
+	if far.shellRan == nil {
+		t.Fatal("the workspace never ran the command")
+	}
+	if want := (workspace.ShellRequest{ShellID: "sh-far", ConvID: "conv", Command: "make test", Cwd: "sub", TimeoutMs: 1234}); *far.shellRan != want {
+		t.Errorf("the workspace ran %+v, want %+v", *far.shellRan, want)
+	}
+	if msg := nextShellOutput(t, engine); msg["data"] != "ran over there" || msg["done"] != true {
+		t.Errorf("the engine received %+v, want the workspace's own output", msg)
+	}
+
+	s.streamShell(context.Background(), resolveOnly("ws_far", far), ShellStartRequest{
+		ShellID: "sh-lost", Command: "echo hi", WorkspaceID: "ws_gone",
+	}, engine)
+	if msg := nextShellOutput(t, engine); msg["done"] != true || !strings.Contains(fmt.Sprint(msg["error"]), "unknown workspace: ws_gone") {
+		t.Errorf("an unresolvable workspace ended %+v, want a done chunk carrying the refusal", msg)
+	}
+}
+
+// nextShellOutput is the next shell-output message the client was sent.
+func nextShellOutput(t *testing.T, c *WSClient) map[string]any {
+	t.Helper()
+	select {
+	case msg := <-c.send:
+		m, _ := msg.json.(map[string]any)
+		return m
+	case <-time.After(2 * time.Second):
+		t.Fatal("no shell-output arrived")
+		return nil
+	}
 }
 
 // awaitShellDone drains a test WSClient's send channel looking for the

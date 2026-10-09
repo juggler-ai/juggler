@@ -7,6 +7,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/providers/provider"
 	"juggler/cmd/juggler/worker"
+	"juggler/cmd/juggler/workspace"
 )
 
 // newWorkspaceTurnServer is a server with a real SessionManager (so workspaces
@@ -209,5 +211,49 @@ func TestLLMCallerRefusesUnusableWorkspace(t *testing.T) {
 	case cfg := <-configs:
 		t.Fatalf("a provider was initialized for a refused turn: %+v", cfg)
 	default:
+	}
+}
+
+// Where a turn's provider is rooted is the workspace's LocalDir — and a
+// workspace with none cannot host a provider Juggler spawns as a subprocess:
+// that CLI would run on this machine while every operation of the turn ran
+// somewhere else, so the turn is refused rather than spawned in the project. A
+// provider that is reached over HTTP runs the same from anywhere and is not
+// asked to care.
+func TestTurnDirIsTheWorkspacesLocalDir(t *testing.T) {
+	const spawning, remote = "test_turn_dir_cli", "test_turn_dir_http"
+	provider.RegisterProvider(provider.ProviderInfo{Name: spawning, DisplayName: "Some CLI", SpawnsLocalProcess: true},
+		func(provider.Config) (provider.Provider, error) { return nil, nil })
+	provider.RegisterProvider(provider.ProviderInfo{Name: remote, DisplayName: "Some API"},
+		func(provider.Config) (provider.Provider, error) { return nil, nil })
+
+	here := t.TempDir()
+	resolve := func(id string) (workspace.Workspace, error) {
+		switch id {
+		case "ws_here":
+			return workspace.NewResolver(func() string { return t.TempDir() },
+				func(string) (core.Workspace, bool) {
+					return core.Workspace{ID: "ws_here", Kind: core.WorkspaceKindLocal, Root: here, State: core.WorkspaceStateReady}, true
+				}, nil).Resolve(id)
+		case "ws_far":
+			return &elsewhere{}, nil
+		}
+		return nil, errors.New("unknown workspace: " + id)
+	}
+
+	if dir, err := turnDir(resolve, "", spawning); dir != "" || err != nil {
+		t.Errorf("the project's turn dir = %q, %v; want \"\" — the provider roots itself at the project", dir, err)
+	}
+	if dir, err := turnDir(resolve, "ws_here", spawning); dir != here || err != nil {
+		t.Errorf("a local workspace's turn dir = %q, %v; want %q", dir, err, here)
+	}
+	if dir, err := turnDir(resolve, "ws_far", spawning); err == nil || !strings.Contains(err.Error(), "far-tree") {
+		t.Errorf("a CLI provider in a workspace with no LocalDir got %q, %v; want the turn refused, naming the workspace", dir, err)
+	}
+	if dir, err := turnDir(resolve, "ws_far", remote); dir != "" || err != nil {
+		t.Errorf("an HTTP provider in a workspace with no LocalDir got %q, %v; want it to run", dir, err)
+	}
+	if _, err := turnDir(resolve, "ws_gone", remote); err == nil {
+		t.Error("an unresolvable workspace was given a turn dir")
 	}
 }

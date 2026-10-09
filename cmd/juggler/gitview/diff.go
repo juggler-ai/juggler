@@ -2,7 +2,7 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package handlers
+package gitview
 
 import (
 	"bufio"
@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -103,7 +102,7 @@ type gitDiffHunk struct {
 	Lines    []gitDiffLine `json:"lines"`
 }
 
-// gitDiffResponse is the JSON response shape for GET /api/git/diff: one file's
+// FileDiff is the JSON response shape for GET /api/git/diff: one file's
 // working tree against HEAD. Status is what happened to the file rather than a
 // porcelain letter, because a reader is being told a story about the file and
 // not asked to decode one.
@@ -127,7 +126,7 @@ type gitDiffHunk struct {
 // modes reads as nothing having happened. An untracked symbolic link carries a
 // NewMode alone, which is the only thing separating the path it holds from an
 // ordinary new file whose one line happens to be a path.
-type gitDiffResponse struct {
+type FileDiff struct {
 	Repo       string        `json:"repo"`
 	Path       string        `json:"path"`
 	OldPath    string        `json:"oldPath,omitempty"`
@@ -144,43 +143,48 @@ type gitDiffResponse struct {
 	Hunks      []gitDiffHunk `json:"hunks"`
 }
 
-// HandleGitDiff handles GET /api/git/diff?repo=<rel>&path=<rel>. It answers with
-// one file's whole working-tree change relative to HEAD — index and worktree
-// together, the same comparison the status card's line counts are taken from, so
-// a file's diffstat there and its diff here can never disagree.
+// DiffRequest names one file's diff as the viewer asks for it: the raw query
+// values, validated here rather than by whoever relayed them, because where a
+// diff may be pointed is the whole of its security and has to be decided next to
+// the files.
 //
-// `repo` locates the repository within the project ("" for the root repo) and
-// `path` locates the file within that repository. Both are relative and are
-// refused if they climb out of where they belong: this endpoint reads whatever
-// it is pointed at, so where it may be pointed is the whole of its security.
-//
-// `context` is how many unchanged lines to carry around each change, -1 for the
-// whole file, and the shipped default when it is absent or unusable. The answer
-// reports the width it was produced at.
-func (a *GitStatusAPI) HandleGitDiff(w http.ResponseWriter, r *http.Request) {
-	tree, err := a.gitRoot(r)
-	if err != nil {
-		WriteError(w, r, http.StatusBadRequest, err.Error())
-		return
-	}
-	root := tree.Root
-	if root == "" {
-		WriteError(w, r, http.StatusBadRequest, "No project is open")
-		return
-	}
+// Repo locates the repository within the root ("" for the root repo) and Path
+// locates the file within that repository. Both are relative and are refused if
+// they climb out of where they belong. Context is how many unchanged lines to
+// carry around each change, "-1" for the whole file, and the shipped default
+// when it is absent or unusable.
+type DiffRequest struct {
+	Repo    string
+	Path    string
+	Context string
+}
 
-	repoRel, ok := cleanRepoRelative(r.URL.Query().Get("repo"))
+// RequestError is a diff refused for what it asked for — a path outside the
+// root, a directory that is not a repository in it — as distinct from one git
+// could not produce. The first is the asker's to fix and the second is not, so
+// the two are told apart by type.
+type RequestError struct{ msg string }
+
+func (e *RequestError) Error() string { return e.msg }
+
+// Diff answers with one file's whole working-tree change relative to HEAD —
+// index and worktree together, the same comparison the status card's line
+// counts are taken from, so a file's diffstat there and its diff here can never
+// disagree. The answer reports the context width it was produced at.
+//
+// A refusal of the request itself is a *RequestError; any other error is a diff
+// that could not be read, cancellation and running out of time included.
+func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
+	repoRel, ok := cleanRepoRelative(req.Repo)
 	if !ok {
-		WriteError(w, r, http.StatusBadRequest, "Not a path inside the project: repo")
-		return
+		return FileDiff{}, &RequestError{"Not a path inside the project: repo"}
 	}
-	fileRel, ok := cleanRepoRelative(r.URL.Query().Get("path"))
+	fileRel, ok := cleanRepoRelative(req.Path)
 	if !ok || fileRel == "" {
-		WriteError(w, r, http.StatusBadRequest, "Not a path inside the repository: path")
-		return
+		return FileDiff{}, &RequestError{"Not a path inside the repository: path"}
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), gitDiffBudget)
+	ctx, cancel := context.WithTimeout(ctx, gitDiffBudget)
 	defer cancel()
 
 	dir, ok := resolveRepoDir(ctx, root, repoRel)
@@ -189,28 +193,24 @@ func (a *GitStatusAPI) HandleGitDiff(w http.ResponseWriter, r *http.Request) {
 		// there being nothing to find. Reported as the latter it becomes a settled
 		// fact about the project rather than the passing failure it is.
 		if ctx.Err() != nil {
-			WriteError(w, r, http.StatusBadGateway, "Couldn't read the diff. "+ctx.Err().Error())
-			return
+			return FileDiff{}, ctx.Err()
 		}
-		WriteError(w, r, http.StatusBadRequest, "Not a repository in this project: repo")
-		return
+		return FileDiff{}, &RequestError{"Not a repository in this project: repo"}
 	}
 	abs := filepath.Join(dir, filepath.FromSlash(fileRel))
 	if !fileWithinRepo(abs, dir) {
-		WriteError(w, r, http.StatusBadRequest, "Not a path inside the repository: path")
-		return
+		return FileDiff{}, &RequestError{"Not a path inside the repository: path"}
 	}
 
-	unified := diffContextFrom(r.URL.Query().Get("context"))
-	resp := gitDiffResponse{
+	unified := diffContextFrom(req.Context)
+	resp := FileDiff{
 		Repo: repoRel, Path: fileRel, Status: "unchanged",
 		Context: unified, Hunks: []gitDiffHunk{},
 	}
 
 	base, err := gitDiffBase(ctx, dir, gitDiffPerCmd)
 	if err != nil {
-		WriteError(w, r, http.StatusBadGateway, "Couldn't read the diff. "+err.Error())
-		return
+		return FileDiff{}, err
 	}
 
 	// What happened to a file is settled before the file's own patch is asked
@@ -220,8 +220,7 @@ func (a *GitStatusAPI) HandleGitDiff(w http.ResponseWriter, r *http.Request) {
 	// the path the review lists a renamed file under.
 	meta, err := gitDiffMetadata(ctx, dir, base)
 	if err != nil {
-		WriteError(w, r, http.StatusBadGateway, "Couldn't read the diff. "+err.Error())
-		return
+		return FileDiff{}, err
 	}
 	file, changed := meta[fileRel]
 
@@ -234,8 +233,7 @@ func (a *GitStatusAPI) HandleGitDiff(w http.ResponseWriter, r *http.Request) {
 
 	patch, err := gitFilePatch(ctx, dir, base, paths, unified)
 	if err != nil {
-		WriteError(w, r, http.StatusBadGateway, "Couldn't read the diff. "+err.Error())
-		return
+		return FileDiff{}, err
 	}
 	resp.Revision, resp.Truncated = patch.Revision, patch.Truncated
 	if len(patch.Kept) > 0 {
@@ -269,14 +267,14 @@ func (a *GitStatusAPI) HandleGitDiff(w http.ResponseWriter, r *http.Request) {
 			untrackedDiff(ctx, abs, &resp)
 		}
 	}
-	WriteJSON(w, r, 0, resp)
+	return resp, nil
 }
 
 // applyGitFileMeta overlays what the repository-wide pass established onto what
 // the file's own patch said. The patch is read for its hunks; the metadata is
 // what the status and the paths are taken from, since a patch for one pathspec
 // cannot see past itself.
-func applyGitFileMeta(resp *gitDiffResponse, file gitFileMeta) {
+func applyGitFileMeta(resp *FileDiff, file gitFileMeta) {
 	if file.Status != "" {
 		resp.Status = file.Status
 	}
@@ -760,7 +758,7 @@ func gitIsUntracked(ctx context.Context, dir, fileRel string) (bool, error) {
 // every line, added. A binary file says so and shows nothing, exactly as git
 // would have. The content is read the same way a patch is — under a ceiling,
 // fingerprinted whole — because this is the one file git is not reading for us.
-func untrackedDiff(ctx context.Context, abs string, resp *gitDiffResponse) {
+func untrackedDiff(ctx context.Context, abs string, resp *FileDiff) {
 	// Lstat rather than Stat: a symlink is a pointer, and the bytes on the other
 	// end of it may be anywhere on disk. The link is never opened — what is shown
 	// is the link's own content, which is the path it holds, and that is what git
@@ -832,7 +830,7 @@ func untrackedDiff(ctx context.Context, abs string, resp *gitDiffResponse) {
 // The path it names may be anywhere, including outside the project — that is a
 // fact about the link, which is worth showing, and not permission to read what
 // is at the end of it.
-func untrackedSymlinkDiff(abs string, resp *gitDiffResponse) {
+func untrackedSymlinkDiff(abs string, resp *FileDiff) {
 	target, err := os.Readlink(abs)
 	if err != nil {
 		return
@@ -856,7 +854,7 @@ func untrackedSymlinkDiff(abs string, resp *gitDiffResponse) {
 // hunks say what happened inside it. A line git wrote in a shape this does not
 // understand is skipped rather than failing the diff, on the same grounds as the
 // status parser: a diff missing one line is worth more than no diff.
-func parseGitPatch(patch []byte, resp *gitDiffResponse) {
+func parseGitPatch(patch []byte, resp *FileDiff) {
 	resp.Status = "modified"
 
 	var hunk *gitDiffHunk
@@ -947,7 +945,7 @@ func parseGitPatch(patch []byte, resp *gitDiffResponse) {
 }
 
 // parseGitPatchHeader applies one line of a patch's header block to resp.
-func parseGitPatchHeader(line string, resp *gitDiffResponse) {
+func parseGitPatchHeader(line string, resp *FileDiff) {
 	switch {
 	case strings.HasPrefix(line, "new file mode"):
 		resp.Status = "added"

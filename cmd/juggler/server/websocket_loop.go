@@ -7,11 +7,10 @@ package server
 import (
 	"compress/flate"
 	"context"
-	"fmt"
 	"net/http"
 
 	"juggler/cmd/juggler/ops"
-	"juggler/cmd/juggler/server/handlers"
+	"juggler/cmd/juggler/workspace"
 	"juggler/internal/jlog"
 
 	"github.com/gorilla/websocket"
@@ -153,20 +152,19 @@ func (s *Server) processShellRequest(
 		}
 	}()
 
-	// Create shell operations rooted where the requesting conversation works —
-	// its workspace, or the project when it named none. The requested cwd is
-	// validated against that root inside ExecuteStreaming, so this is what stops
-	// a bound conversation's command running in the wrong tree. The boundary is
-	// resolved by the same func /api/ops/call uses: a streaming command and a
-	// one-shot one must be confined identically.
-	ref, kind, scope, err := handlers.ResolveWorkspaceScope(
-		s.WorkspaceLookup(), req.WorkspaceID, s.SessionManager().GetProjectPath(), nil)
-	if err == nil && !kind.HostsLocalProviders {
-		// Streaming runs a process on this machine, in that root. A kind that
-		// only reaches its files over a wire has no such root to run in, and
-		// running on the laptop instead is silently the wrong thing.
-		err = fmt.Errorf("workspace %s is a %s workspace, which cannot run a command here", ref.ID, ref.Kind)
-	}
+	s.streamShell(ctx, s.Workspaces().Resolve, req, requester)
+}
+
+// streamShell runs one streaming command in the requesting conversation's
+// workspace — the project when it named none — and forwards its output to the
+// requester until the command is over.
+//
+// The workspace runs the command itself, confining the requested cwd to its
+// root, so this is what stops a bound conversation's command running in the
+// wrong tree. It is resolved by the same resolver /api/ops/call uses: a
+// streaming command and a one-shot one must be confined identically.
+func (s *Server) streamShell(ctx context.Context, resolve workspace.ResolveFunc, req ShellStartRequest, requester Sender) {
+	ws, err := resolve(req.WorkspaceID)
 	if err != nil {
 		// Refuse to the requester in the shape it is waiting for: a done chunk
 		// carrying the reason, so the engine's shellExecuteStreaming settles with
@@ -179,13 +177,14 @@ func (s *Server) processShellRequest(
 		})
 		return
 	}
-	shellOps := ops.NewShellOperations(scope)
 
 	// Create output channel for streaming chunks
 	outputChan := make(chan ops.ShellStreamChunk, 100)
 
-	// Start streaming execution
-	go shellOps.ExecuteStreaming(ctx, req.ShellID, req.ConvId, req.Command, req.Cwd, req.Timeout, outputChan)
+	// Start streaming execution; the workspace closes the channel when it is over.
+	go ws.StreamShell(ctx, workspace.ShellRequest{
+		ShellID: req.ShellID, ConvID: req.ConvId, Command: req.Command, Cwd: req.Cwd, TimeoutMs: req.Timeout,
+	}, outputChan)
 
 	// Forward chunks to the requesting engine (see func doc for why not the
 	// viewer group).

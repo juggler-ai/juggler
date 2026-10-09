@@ -854,6 +854,55 @@ func TestRegisterWorkspace_KeepsASuppliedID(t *testing.T) {
 	}
 }
 
+// A registration naming a kind this server cannot open is refused at the door,
+// rather than accepted onto the table as a row every operation then refuses.
+func TestRegisterWorkspace_RefusesAKindItCannotOpen(t *testing.T) {
+	m, dir := managerForWorkspaceTest(t)
+
+	_, err := m.RegisterWorkspace(Workspace{Kind: "elsewhere", Root: dir, State: WorkspaceStateReady})
+	if err == nil || !strings.Contains(err.Error(), "elsewhere") {
+		t.Fatalf("RegisterWorkspace(kind elsewhere) err = %v, want a refusal naming the kind", err)
+	}
+	if listed := m.ListWorkspaces(); len(listed) != 0 {
+		t.Fatalf("ListWorkspaces = %+v, want nothing registered", listed)
+	}
+}
+
+// A row of a kind this server cannot open is refused for what it is, and is
+// never reported as available, whether or not a directory of that name happens
+// to exist on this machine: its root is not a path here at all.
+func TestWorkspaces_AKindThatCannotOpenIsNeverTreatedAsALocalPath(t *testing.T) {
+	_, dir := newStoreForTest(t)
+	here := t.TempDir()
+	writeManifest(t, dir, `{
+	  "version": 5,
+	  "conversationOrder": [],
+	  "activeConversationId": "",
+	  "messageHistory": [],
+	  "workspaces": [
+	    {"id":"ws_far","kind":"elsewhere","root":`+jsonPath(t, filepath.Join(here, "not-on-this-machine"))+`,"state":"ready"},
+	    {"id":"ws_far_here","kind":"elsewhere","root":`+jsonPath(t, here)+`,"state":"ready"}
+	  ]
+	}`)
+	m, err := NewSessionManagerForPath(dir)
+	if err != nil {
+		t.Fatalf("NewSessionManagerForPath: %v", err)
+	}
+	t.Cleanup(m.Shutdown)
+
+	lookup := WorkspaceLookup(m.GetWorkspace)
+	for _, id := range []string{"ws_far", "ws_far_here"} {
+		if _, err := lookup.Usable(id); err == nil || !strings.Contains(err.Error(), `"elsewhere"`) {
+			t.Errorf("Usable(%s) err = %v, want a refusal naming the kind", id, err)
+		}
+	}
+	for _, ws := range m.ListWorkspaces() {
+		if ws.Available {
+			t.Errorf("%s listed as available, but nothing here can open it", ws.ID)
+		}
+	}
+}
+
 // writeManifest hand-writes a session.json, as an older build (or another
 // machine) would have left one.
 func writeManifest(t *testing.T, dir, manifest string) {

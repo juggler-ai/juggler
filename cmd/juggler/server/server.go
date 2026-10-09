@@ -17,10 +17,10 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
-	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/server/handlers"
 	"juggler/cmd/juggler/syswake"
 	"juggler/cmd/juggler/worker"
+	"juggler/cmd/juggler/workspace"
 	"juggler/internal/jlog"
 	"juggler/internal/updatecheck"
 
@@ -367,6 +367,7 @@ func New(cfg Config) (*Server, error) {
 			cc.CloseConversation(convID)
 		}
 	}, s.resolveDefaultModel)
+	sessionAPI.SetWorkspaceResolver(func(id string) (workspace.Workspace, error) { return s.Workspaces().Resolve(id) })
 
 	configAPI, err := handlers.NewConfigAPI(s.ProjectPath, s.RefreshProviders, func() {
 		s.broadcastToAll(map[string]any{"type": "plugin-changed", "path": "config/plugins"})
@@ -414,18 +415,12 @@ func New(cfg Config) (*Server, error) {
 	// must be assigned field-by-field, or the second write wipes the first.
 	skillsAPI := handlers.NewSkillsAPI(s.ProjectPath)
 	s.serverAPIs = serverAPIs{
-		// Workspaces are resolved through the live session manager on each
-		// request, for the same reason the project path is a provider func: a
-		// project switch retargets both, and a workspace registered a moment
-		// ago must resolve without rebuilding anything.
-		opsAPI: handlers.NewOpsAPI(s.ProjectPath, s.WorkspaceLookup()),
-		completionsAPI: handlers.NewCompletionsAPI(s.ProjectPath, s.WorkspaceLookup(), func() ops.PathSearcher {
-			if fw := s.FileWatcher(); fw != nil {
-				return fw.Index()
-			}
-			return nil
-		}),
-		gitStatusAPI:      handlers.NewGitStatusAPI(s.ProjectPath, s.WorkspaceLookup()),
+		// Every handler that acts on a conversation's tree resolves it through
+		// the server's one resolver (Server.Workspaces), which reads the live
+		// project and session on each request.
+		opsAPI:            handlers.NewOpsAPI(s.Workspaces().Resolve),
+		completionsAPI:    handlers.NewCompletionsAPI(s.Workspaces().Resolve),
+		gitStatusAPI:      handlers.NewGitStatusAPI(s.Workspaces().Resolve),
 		extensionsAPI:     extensionsAPI,
 		userCommandsAPI:   handlers.NewUserCommandsAPI(s.ProjectPath),
 		skillsAPI:         skillsAPI,

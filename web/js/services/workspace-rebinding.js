@@ -75,7 +75,7 @@ export function whyNotRebind(conversation, workspaceId) {
  *
  * A move is confirmed because it changes where a conversation's files and
  * commands happen, under an agent that may be relying on them. Two workspaces
- * that resolve to the same tree on the same machine — a group and the project
+ * that resolve to the same tree — a group and the project
  * it is rooted at, or two groups — share all of that, and a move between them
  * changes only which box the tab is drawn in. Nothing about that needs a
  * second look.
@@ -93,24 +93,26 @@ export function moveNeedsConfirmation(conversation, workspaceId) {
 }
 
 /**
- * Whether two workspaces are the same tree on the same machine — so that a
- * conversation working in one is working on exactly the files it would be in
- * the other. A group and the project it is rooted at are; a worktree and the
- * repository it was made from are not.
+ * Whether two workspaces are the same tree — so that a conversation working in
+ * one is working on exactly the files it would be in the other. A group and the
+ * project it is rooted at are; a worktree and the repository it was made from
+ * are not.
+ *
+ * By root alone. A root resolves only for a workspace that can be worked in
+ * (`Session#workspaceRoot`), and the server reports a row it cannot open as
+ * unavailable, so every root compared here is a tree on the server's machine
+ * and two equal roots are one tree.
  * @param {any} session - The session both belong to.
  * @param {string} a - One workspace id; '' is the project.
  * @param {string} b - The other.
- * @returns {boolean} True only when both resolve, to the same root, on the same machine.
+ * @returns {boolean} True only when both resolve, to the same root.
  */
 export function sameTree(session, a, b) {
   if (a === b) return true;
   const rootA = session?.workspaceRoot?.(a);
   const rootB = session?.workspaceRoot?.(b);
   if (!rootA || !rootB) return false;
-
-  // The same path on another machine is another tree.
-  const machine = (/** @type {string} */ id) => (id ? session?.getWorkspace?.(id)?.kind : '') || 'local';
-  return machine(a) === machine(b) && trimSlash(rootA) === trimSlash(rootB);
+  return trimSlash(rootA) === trimSlash(rootB);
 }
 
 /**

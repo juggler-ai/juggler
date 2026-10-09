@@ -13,6 +13,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/ops"
+	"juggler/cmd/juggler/workspace"
 	"juggler/internal/jlog"
 )
 
@@ -45,20 +46,18 @@ type OperationResponse struct {
 	Detail  map[string]any `json:"detail,omitempty"`
 }
 
-// OpsAPI handles the unified native operations API. The project path is
-// looked up via a provider func so runtime project switches retarget ops.
+// OpsAPI handles the unified native operations API. Each request's workspace
+// is resolved afresh, so a runtime project switch retargets ops and a workspace
+// registered a moment ago is reachable.
 type OpsAPI struct {
-	pathProvider func() string
-	workspaces   core.WorkspaceLookup
+	resolve workspace.ResolveFunc
 	// Operation handlers are stateless and recreated per request.
 }
 
-// NewOpsAPI creates a new operations API handler. pathProvider must return
-// the current project path on each call; workspaces resolves a request's
-// workspace id against the session's table, and may be nil in setups that have
-// no session (every request then runs in the project, as it always did).
-func NewOpsAPI(pathProvider func() string, workspaces core.WorkspaceLookup) *OpsAPI {
-	return &OpsAPI{pathProvider: pathProvider, workspaces: workspaces}
+// NewOpsAPI creates a new operations API handler. resolve turns a request's
+// workspace id into the Workspace its operation runs in ("" is the project).
+func NewOpsAPI(resolve workspace.ResolveFunc) *OpsAPI {
+	return &OpsAPI{resolve: resolve}
 }
 
 // HandleOperationCall is the unified entry point for all native operations
@@ -69,9 +68,8 @@ func (api *OpsAPI) HandleOperationCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get current project path
-	projectPath := api.pathProvider()
-	if projectPath == "" {
+	// Every operation belongs to a project, whichever workspace it runs in.
+	if project, err := api.resolve(core.DefaultWorkspaceID); err != nil || project.Root() == "" {
 		api.sendError(w, r, "no project loaded", http.StatusConflict)
 		return
 	}
@@ -79,7 +77,7 @@ func (api *OpsAPI) HandleOperationCall(w http.ResponseWriter, r *http.Request) {
 	// Route to appropriate operation handler. r.Context() is cancelled when the
 	// client aborts the request (browser aborts the op fetch on Escape), so
 	// long-running ops can stop early instead of running to completion.
-	result, err := api.routeOperation(r.Context(), req, projectPath)
+	result, err := api.routeOperation(r.Context(), req)
 	if err != nil {
 		// Return operation errors as success=false in the response body with HTTP 200
 		// This allows the frontend to handle the error gracefully
@@ -92,15 +90,19 @@ func (api *OpsAPI) HandleOperationCall(w http.ResponseWriter, r *http.Request) {
 }
 
 // routeOperation routes the operation to the handler for its tool, in the
-// workspace it named. Handlers are stateless and built per request, from the
-// two registries: which operation this is (tool id) and where it runs (kind).
-func (api *OpsAPI) routeOperation(ctx context.Context, req OperationRequest, projectPath string) (any, error) {
-	backend, scope, err := api.resolveWorkspace(req, projectPath)
+// workspace it named. Handlers are stateless and built per request by the
+// workspace, which decides the path boundary they are confined to — the same
+// one a streaming shell in that workspace gets (Server.processShellRequest).
+// A workspace that cannot be worked in refuses here, in the words
+// core.WorkspaceLookup.Usable chose, so an operation and the CLI it belongs to
+// can never disagree about it.
+func (api *OpsAPI) routeOperation(ctx context.Context, req OperationRequest) (any, error) {
+	ws, err := api.resolve(req.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
 
-	handler, err := backend.Operations(req.ToolID, scope)
+	handler, err := ws.Operations(req.ToolID, req.AllowedPaths)
 	if err != nil {
 		return nil, fmt.Errorf("no operation handler registered for tool: %s", req.ToolID)
 	}
@@ -112,64 +114,6 @@ func (api *OpsAPI) routeOperation(ctx context.Context, req OperationRequest, pro
 	}
 
 	return result, err
-}
-
-// ResolveWorkspaceScope turns a workspace id into the workspace it names, the
-// kind that serves it, and the path boundary an operation there is confined to.
-//
-// No id at all is the project, exactly as before workspaces existed: that is
-// every request today, and it must stay byte-identical. Any other id is put to
-// core.WorkspaceLookup.Usable, which owns the refusals — the same ones the turn
-// path gets, so an operation and the CLI it belongs to can never disagree about
-// whether a workspace can be worked in.
-//
-// A ready workspace roots the scope at the workspace, and widens the READ
-// boundary with the project. A conversation working in a worktree still needs
-// to read the tree it branched from — to diff against it, to read a doc that
-// only exists on the main branch — and refusing that would make the feature's
-// first hour miserable. Writes are unaffected: they are gated by approval, not
-// by the scope (see PathScope.Sanitize).
-//
-// It is exported because /api/ops/call is not the only way a command reaches a
-// workspace: a streaming shell rides the WebSocket instead (Server.processShellRequest),
-// and the two must confine a command identically. One of them deciding this
-// twice is how they would come to disagree.
-func ResolveWorkspaceScope(workspaces core.WorkspaceLookup, workspaceID, projectPath string, allowedPaths []string) (ops.WorkspaceRef, ops.WorkspaceKind, ops.PathScope, error) {
-	ref := ops.WorkspaceRef{Kind: core.WorkspaceKindLocal, Root: projectPath}
-	scope := ops.NewPathScope(projectPath, allowedPaths)
-
-	if workspaceID != core.DefaultWorkspaceID {
-		if workspaces == nil {
-			return ops.WorkspaceRef{}, ops.WorkspaceKind{}, ops.PathScope{},
-				fmt.Errorf("no session is loaded, so workspace %s cannot be resolved", workspaceID)
-		}
-		ws, err := workspaces.Usable(workspaceID)
-		if err != nil {
-			return ops.WorkspaceRef{}, ops.WorkspaceKind{}, ops.PathScope{}, err
-		}
-		ref = ops.WorkspaceRef{ID: ws.ID, Kind: ws.Kind, Root: ws.Root, Meta: ws.Meta}
-		// The project joins the allowed roots so reads can reach it; the scope
-		// is still ROOTED at the workspace, which is what confines a shell's
-		// cwd (see ops.validateCwd, which consults the root alone).
-		scope = ops.NewPathScope(ws.Root, append(append([]string{}, allowedPaths...), projectPath)).
-			WithProjectRoot(projectPath)
-	}
-
-	kind, err := ops.LookupWorkspaceKind(ref.Kind)
-	if err != nil {
-		return ops.WorkspaceRef{}, ops.WorkspaceKind{}, ops.PathScope{}, err
-	}
-	return ref, kind, scope, nil
-}
-
-// resolveWorkspace turns a request's workspace id into the backend that will
-// serve it and the path boundary it is confined to.
-func (api *OpsAPI) resolveWorkspace(req OperationRequest, projectPath string) (ops.KindBackend, ops.PathScope, error) {
-	ref, kind, scope, err := ResolveWorkspaceScope(api.workspaces, req.WorkspaceID, projectPath, req.AllowedPaths)
-	if err != nil {
-		return nil, ops.PathScope{}, err
-	}
-	return kind.New(ref), scope, nil
 }
 
 // sendSuccess sends a success response

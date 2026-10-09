@@ -33,7 +33,7 @@
 
 import WorkspaceProvider from 'juggler/workspace-provider';
 import { extractErrorMessage } from 'juggler/ui';
-import { baseName, join, relativePath } from '../lib/workspace-paths.js';
+import { join, relativePath } from '../lib/workspace-paths.js';
 import { nextFormSequence, pathField, showNote } from '../lib/setup-fields.js';
 
 /**
@@ -263,26 +263,24 @@ class ProjectFolderWorkspaceProvider extends WorkspaceProvider {
   }
 
   /**
-   * What it is, and whether it is still there.
+   * Whether it is still there.
    *
    * Nothing further is worth a round trip, and nothing further is worth a line:
    * a folder has no branch, no drift and no unapplied change of its own — what
    * git has to say about it is the project's own status, which the user can
-   * already see. The place is named by its `kind` and addressed by the path every
-   * surface shows beside it, so a status line here could only spell that path a
-   * second time, under the first.
+   * already see. The place is addressed by the path every surface shows beside
+   * it, so a status line here could only spell that path a second time, under
+   * the first.
    * @param {any} workspace - The row to report on.
    * @param {any} ctx - Operations pinned to it, and a signal.
    * @returns {Promise<any>} What to show for it.
    */
   async status(workspace, ctx) {
     void ctx;
-    const project = String(this.session?.projectPath ?? '');
-    const kind = project ? `Folder of ${baseName(project)}` : 'Folder of the project';
     if (workspace.available === false) {
-      return { kind, detail: 'The folder is missing.', available: false };
+      return { detail: 'The folder is missing.', available: false };
     }
-    return { kind, available: true };
+    return { available: true };
   }
 
   /**

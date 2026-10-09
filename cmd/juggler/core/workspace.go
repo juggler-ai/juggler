@@ -16,13 +16,17 @@ import (
 // shown under. A project has one implicit workspace — itself — and as many
 // registered ones as the user has made.
 //
-// Every session has a default workspace that is not in this table: id "", kind
-// local, rooted at the project path. A conversation bound to it behaves exactly
-// as one did before workspaces existed, which is what keeps the feature free
-// when nobody uses it.
+// Every session has a default workspace that is not in this table: id "",
+// rooted at the project path. A conversation bound to it behaves as if
+// workspaces did not exist, which is what keeps the feature free when nobody
+// uses it.
 //
 // Kind and Root are carried here, on the server's own row, rather than being
-// asked of whatever extension created the workspace. An extension can be
+// asked of whatever extension created the workspace. Kind is stored data:
+// RegisterWorkspace records local for a registration that names none, and
+// OpenError alone says whether this server can open a row. A Root is a path on
+// this machine only for a row OpenError accepts, so nothing stats one before
+// asking. An extension can be
 // disabled, uninstalled, or simply fail to load while its workspaces are still
 // on the table and conversations are still bound to them; resolving an
 // operation must not depend on any of that. What the provider supplies —
@@ -58,8 +62,8 @@ import (
 // when the neighbour itself goes.
 type Workspace struct {
 	ID              string         `json:"id"`                        // Server-assigned, stable for the workspace's life
-	Kind            string         `json:"kind"`                      // Selects the ops backend; "local" today
-	Root            string         `json:"root"`                      // Absolute path, in terms the kind understands
+	Kind            string         `json:"kind"`                      // "local" (WorkspaceKindLocal) is this machine, and the only kind that opens; see OpenError
+	Root            string         `json:"root"`                      // Absolute path to the tree
 	Label           string         `json:"label,omitempty"`           // What the UI calls it, e.g. "feat/tunnels"
 	Place           string         `json:"place,omitempty"`           // Where its box sits: "" for unrecorded, PlaceHead, or the conversation it sits behind
 	ProviderID      string         `json:"providerId,omitempty"`      // Extension owning its lifecycle; empty for one nobody manages
@@ -77,10 +81,20 @@ type Workspace struct {
 // workspace runs where every operation used to run.
 const DefaultWorkspaceID = ""
 
-// WorkspaceKindLocal is the only kind the open core registers — the machine
-// Juggler is running on. Others (a remote host, a container) register their own
-// backend against the same seam.
+// WorkspaceKindLocal is the kind of a tree on the machine Juggler is running
+// on. RegisterWorkspace records it for a registration that names no kind, and
+// it is the only kind OpenError lets open.
 const WorkspaceKindLocal = "local"
+
+// OpenError is why this server cannot open the row, or nil when it can. Only a
+// local row is a tree on this machine; any other kind is refused by name, and
+// its Root is never read as a path here.
+func (w Workspace) OpenError() error {
+	if w.Kind == WorkspaceKindLocal {
+		return nil
+	}
+	return fmt.Errorf("workspace %s is a %q workspace, which this server cannot open", w.Name(), w.Kind)
+}
 
 // The three states of a workspace. There are three rather than the obvious
 // closed-or-not because a workspace exists on the table before it is usable: it
@@ -151,8 +165,11 @@ func GenerateWorkspaceID() string {
 // The stored field is written only by RefreshWorkspaceAvailability, whose job
 // is noticing a change worth telling the viewers about. Everything that reads
 // a row gets a live answer instead.
+//
+// A row this server cannot open is never available: its root is not a path on
+// this machine, so a directory that happens to have that name proves nothing.
 func (w *Workspace) refreshAvailability() {
-	if w.Root == "" {
+	if w.Root == "" || w.OpenError() != nil {
 		w.Available = false
 		return
 	}
@@ -242,6 +259,9 @@ func validateWorkspaceMeta(meta map[string]any) error {
 // anything changed, so the caller only writes the manifest when it has
 // something to say.
 //
+// No row is refused or dropped here, whatever its kind: one this server cannot
+// open stays on the table and is refused when something asks to work in it.
+//
 // It runs on the server, at session load, rather than in the browser once the
 // extensions are up. There is no leader among clients, so a browser-side pass
 // means every open window runs it — duplicate offers, and two windows racing
@@ -275,11 +295,12 @@ type WorkspaceLookup func(id string) (Workspace, bool)
 
 // Usable resolves an id to the workspace that may be worked in, or says why it
 // may not be. Everything that acts on a conversation's binding goes through
-// here — an operation from the engine, the directory a provider's CLI is
-// spawned in — so that the answer cannot differ between them: a turn that
-// refuses to run is far better than one that runs somewhere else.
+// here, by way of workspace.Resolver — an operation from the engine, the
+// directory a provider's CLI is spawned in — so that the answer cannot differ
+// between them: a turn that refuses to run is far better than one that runs
+// somewhere else.
 //
-// The four refusals, and why each is what it is:
+// The five refusals, and why each is what it is:
 //
 //   - One still being provisioned refuses, saying so. The UI parks a send until
 //     its workspace is ready, so this is the inherited binding and the second
@@ -287,6 +308,9 @@ type WorkspaceLookup func(id string) (Workspace, bool)
 //   - A closed one refuses too, and differently: the id still resolves, so the
 //     conversation can be told the workspace was finished with rather than that
 //     it never existed.
+//   - A kind this server cannot open refuses by name (see OpenError), and is
+//     asked before the root, which is not a path on this machine for such a
+//     row: "missing its root" would send the user looking for a directory.
 //   - A root that has gone (the worktree was removed behind our back) fails
 //     once and legibly, rather than as a run of cryptic errors from whichever
 //     operation happened to touch it first.
@@ -294,8 +318,8 @@ type WorkspaceLookup func(id string) (Workspace, bool)
 //     project. A stale binding that silently ran in the project root would edit
 //     the wrong tree, and look exactly like working.
 //
-// The default workspace is not asked about here: it has no row, and every
-// caller that could ask for it already holds the project path.
+// The default workspace is not asked about here: it has no row, and
+// workspace.Resolver answers it with the project.
 func (lookup WorkspaceLookup) Usable(id string) (Workspace, error) {
 	if lookup == nil {
 		return Workspace{}, fmt.Errorf("unknown workspace: %s", id)
@@ -312,6 +336,9 @@ func (lookup WorkspaceLookup) Usable(id string) (Workspace, error) {
 		return Workspace{}, fmt.Errorf("workspace %s was closed", ws.Name())
 	default:
 		return Workspace{}, fmt.Errorf("workspace %s is in an unknown state: %s", ws.Name(), ws.State)
+	}
+	if err := ws.OpenError(); err != nil {
+		return Workspace{}, err
 	}
 	if info, err := os.Stat(ws.Root); err != nil || !info.IsDir() {
 		return Workspace{}, fmt.Errorf("workspace %s is missing its root: %s", ws.Name(), ws.Root)

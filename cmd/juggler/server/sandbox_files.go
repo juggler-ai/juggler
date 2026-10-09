@@ -6,12 +6,12 @@ package server
 
 import (
 	"net/http"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/workspace"
 )
 
 // sandboxImportRoot normalises a root (the project's, or a workspace's) for the
@@ -34,14 +34,20 @@ func sandboxImportPath(urlPath, root string) string {
 	return urlPath
 }
 
-// sandboxImportFile maps a query_code sandbox import URL to a real file on disk
-// inside a tree the sandbox may import from, or reports ok=false. The sandbox
-// worker resolves user code's `import('<projectRoot>/rel/path')` against its
-// http origin, so the request path is that absolute path. We serve it only when
-// it (a) stays strictly inside one of those trees and (b) is an importable
-// module, so the ACAO=* response never exposes arbitrary files (secrets, source)
-// to a cross-origin reader — only JavaScript/JSON modules the sandbox can
-// import().
+// sandboxModule is one module a sandbox import names: the tree it is in, and
+// its forward-slashed path within that tree.
+type sandboxModule struct {
+	tree workspace.Workspace
+	rel  string
+}
+
+// sandboxImportFile maps a query_code sandbox import URL to a real module inside
+// a tree the sandbox may import from, or reports ok=false. The sandbox worker
+// resolves user code's `import('<projectRoot>/rel/path')` against its http
+// origin, so the request path is that absolute path. We serve it only when it
+// (a) stays strictly inside one of those trees and (b) is an importable module,
+// so the ACAO=* response never exposes arbitrary files (secrets, source) to a
+// cross-origin reader — only JavaScript/JSON modules the sandbox can import().
 //
 // The trees are the project and every ready workspace, because `projectRoot` is
 // the root of the tree the asking CONVERSATION works in: a bound one builds its
@@ -49,61 +55,71 @@ func sandboxImportPath(urlPath, root string) string {
 // every one of them. Nothing widens on its own — a workspace is on the table
 // only because the user registered it through the flow that also authorises ops
 // there — and neither the module-extension list nor the containment check moves.
-func (s *Server) sandboxImportFile(urlPath string) (string, bool) {
+// The file itself is read through the tree's own Open.
+func (s *Server) sandboxImportFile(urlPath string) (sandboxModule, bool) {
 	// Cheapest filter first: this runs as a route matcher, so every request that
 	// reaches the fallthrough asks it, and almost none of them name a module.
 	if !sandboxImportableExt(urlPath) {
-		return "", false
+		return sandboxModule{}, false
 	}
-	if diskPath, ok := sandboxFileUnder(urlPath, sandboxImportRoot(s.ProjectPath())); ok {
-		return diskPath, true
-	}
-	// Only now ask the session for its workspaces, so an ordinary project import
-	// still costs nothing but the stat it always did.
-	for _, root := range s.sandboxWorkspaceRoots() {
-		if diskPath, ok := sandboxFileUnder(urlPath, root); ok {
-			return diskPath, true
+	resolve := s.Workspaces().Resolve
+	if project, err := resolve(core.DefaultWorkspaceID); err == nil {
+		if mod, ok := sandboxModuleIn(urlPath, project); ok {
+			return mod, true
 		}
 	}
-	return "", false
+	// Only now ask the session for its workspaces, so an ordinary project import
+	// costs nothing but the one look at the file.
+	for _, id := range s.sandboxWorkspaceIDs() {
+		tree, err := resolve(id)
+		if err != nil {
+			continue
+		}
+		if mod, ok := sandboxModuleIn(urlPath, tree); ok {
+			return mod, true
+		}
+	}
+	return sandboxModule{}, false
 }
 
-// sandboxFileUnder resolves an import URL against one root, or reports ok=false.
-func sandboxFileUnder(urlPath, root string) (string, bool) {
+// sandboxModuleIn resolves an import URL against one tree, or reports ok=false.
+func sandboxModuleIn(urlPath string, tree workspace.Workspace) (sandboxModule, bool) {
+	root := sandboxImportRoot(tree.Root())
 	if root == "" {
-		return "", false
+		return sandboxModule{}, false
 	}
 	p := path.Clean(sandboxImportPath(urlPath, root))
 	// Clean has collapsed any "..", so a path still under the root cannot escape
 	// it. Reject the root itself and anything outside it.
-	if p != root && !strings.HasPrefix(p, root+"/") {
-		return "", false
+	if !strings.HasPrefix(p, root+"/") {
+		return sandboxModule{}, false
 	}
-	diskPath := filepath.FromSlash(p)
-	info, err := os.Stat(diskPath)
-	if err != nil || info.IsDir() {
-		return "", false
+	mod := sandboxModule{tree: tree, rel: strings.TrimPrefix(p, root+"/")}
+	f, err := tree.Open(mod.rel)
+	if err != nil {
+		return sandboxModule{}, false
 	}
-	return diskPath, true
+	_ = f.Close()
+	return mod, true
 }
 
-// sandboxWorkspaceRoots are the registered workspace roots a sandbox may import
-// from. Ready ones only: a workspace still being provisioned is half a tree, and
-// a closed one is finished with — both refuse every other operation, and serving
+// sandboxWorkspaceIDs are the registered workspaces a sandbox may import from.
+// Ready ones only: a workspace still being provisioned is half a tree, and a
+// closed one is finished with — both refuse every other operation, and serving
 // their files would be the one way to keep reading a workspace after it was
 // tombstoned.
-func (s *Server) sandboxWorkspaceRoots() []string {
+func (s *Server) sandboxWorkspaceIDs() []string {
 	mgr := s.SessionManager()
 	if mgr == nil {
 		return nil
 	}
-	var roots []string
+	var ids []string
 	for _, ws := range mgr.ListWorkspaces() {
 		if ws.State == core.WorkspaceStateReady && ws.Root != "" {
-			roots = append(roots, sandboxImportRoot(ws.Root))
+			ids = append(ids, ws.ID)
 		}
 	}
-	return roots
+	return ids
 }
 
 // sandboxImportableExt reports whether p has an extension the sandbox may load
@@ -118,12 +134,12 @@ func sandboxImportableExt(p string) bool {
 	}
 }
 
-// serveSandboxImportFile writes a file resolved by sandboxImportFile.
+// serveSandboxImportFile writes a module resolved by sandboxImportFile.
 // It sets an explicit JavaScript/JSON MIME because .mjs/.cjs are absent from
 // Go's mime table and a module import() requires a JavaScript media type — a
 // sniffed text/plain would make the browser reject the module.
-func serveSandboxImportFile(w http.ResponseWriter, r *http.Request, diskPath string) {
-	f, err := os.Open(diskPath)
+func serveSandboxImportFile(w http.ResponseWriter, r *http.Request, mod sandboxModule) {
+	f, err := mod.tree.Open(mod.rel)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -136,12 +152,12 @@ func serveSandboxImportFile(w http.ResponseWriter, r *http.Request, diskPath str
 	}
 	// Reuse the shared web-asset MIME map, defaulting to JavaScript since
 	// sandbox project files are imported as ES modules.
-	ct := staticAssetContentType(diskPath)
+	ct := staticAssetContentType(mod.rel)
 	if ct == "" {
 		ct = "text/javascript; charset=utf-8"
 	}
 	w.Header().Set("Content-Type", ct)
-	http.ServeContent(w, r, filepath.Base(diskPath), info.ModTime(), f)
+	http.ServeContent(w, r, path.Base(mod.rel), info.ModTime(), f)
 }
 
 // staticAssetContentType returns a stable Content-Type for the web-asset

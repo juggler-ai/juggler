@@ -107,9 +107,10 @@ type ProviderStatus struct {
 	// declined it" (switch off, no models).
 	Disabled bool `json:"disabled,omitempty"`
 	// SpawnsLocalProcess mirrors ProviderInfo's: this provider is run as a
-	// subprocess in the conversation's directory, so a workspace of a kind this
-	// machine only reaches over a wire cannot host it. The browser pairs it with
-	// the workspace kind's HostsLocalProviders to say so before the turn.
+	// subprocess in the conversation's directory, so a workspace with no
+	// directory on this machine cannot host it. The browser pairs it with the
+	// workspace row's HostsLocalProviders (workspace.Row) to say so before the
+	// turn.
 	SpawnsLocalProcess bool `json:"spawnsLocalProcess,omitempty"`
 	// SwitchTo names a provider better suited to the server this one is pointed
 	// at (ProviderInfo.Successor), for the UI to offer the switch. Nil for

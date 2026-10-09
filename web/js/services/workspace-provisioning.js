@@ -832,18 +832,16 @@ export async function provisionWorkspace(request) {
   const effectiveSignal = signal ?? new AbortController().signal;
   effectiveSignal.throwIfAborted();
 
-  // The base workspace decides two things: where the provider's commands run,
-  // and what transport the new workspace inherits. Both come from the row rather
-  // than from the provider, which is what lets a provider that knows nothing
-  // about ssh build a worktree on another machine.
-  const base = baseWorkspaceId ? session.getWorkspace(baseWorkspaceId) : null;
+  // The base workspace decides where the provider's commands run, and comes
+  // from the row rather than from the provider, which knows only the tree it is
+  // handed. The new row names no kind: what kind of place it is, and whether
+  // this server can open it, is the server's to record.
   const baseRoot = session.workspaceRoot(baseWorkspaceId);
   if (!baseRoot) {
     throw new Error(`Couldn't provision a workspace: its base workspace is not usable.`);
   }
 
   const row = await registerWorkspace({
-    kind: base?.kind || 'local',
     root: provider.plannedRoot(values) || baseRoot,
     label: label || provider.getSetupLabel(),
     providerId,

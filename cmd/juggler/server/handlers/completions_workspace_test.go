@@ -18,6 +18,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/ops"
+	"juggler/cmd/juggler/workspace"
 )
 
 // Which tree "@" completion offers. A mention becomes a file-content item that
@@ -28,14 +29,14 @@ import (
 // completionsOver builds the completions API over a project and a workspace
 // table, with a project index that knows only what it is given.
 func completionsOver(projectPath string, table map[string]core.Workspace, indexed ...string) *CompletionsAPI {
-	return NewCompletionsAPI(
+	return NewCompletionsAPI(workspace.NewResolver(
 		func() string { return projectPath },
 		func(id string) (core.Workspace, bool) {
 			ws, ok := table[id]
 			return ws, ok
 		},
 		func() ops.PathSearcher { return fixedSearcher(indexed) },
-	)
+	).Resolve)
 }
 
 // fixedSearcher stands in for the project's path index.
@@ -149,9 +150,9 @@ func TestCompletionsOfferNothingForAWorkspaceTheyCannotResolve(t *testing.T) {
 	gone := t.TempDir()
 
 	api := completionsOver(project, map[string]core.Workspace{
-		"ws_building": {ID: "ws_building", Root: gone, State: core.WorkspaceStateProvisioning},
-		"ws_closed":   {ID: "ws_closed", Root: gone, State: core.WorkspaceStateClosed},
-		"ws_gone":     {ID: "ws_gone", Root: gone + "-removed", State: core.WorkspaceStateReady},
+		"ws_building": {ID: "ws_building", Kind: core.WorkspaceKindLocal, Root: gone, State: core.WorkspaceStateProvisioning},
+		"ws_closed":   {ID: "ws_closed", Kind: core.WorkspaceKindLocal, Root: gone, State: core.WorkspaceStateClosed},
+		"ws_gone":     {ID: "ws_gone", Kind: core.WorkspaceKindLocal, Root: gone + "-removed", State: core.WorkspaceStateReady},
 	}, "project-only.go")
 
 	for _, id := range []string{"ws_building", "ws_closed", "ws_gone", "ws_never_registered"} {

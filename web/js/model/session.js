@@ -79,21 +79,23 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  * @property {Array<string|HistoryMessage>} [messageHistory] - Session-level message history for input navigation. Entries may be legacy bare strings until normalized.
  * @property {Record<string, any>} [metadata] - General-purpose key-value store for frontend flags
  * @property {Workspace[]} [workspaces] - The registered workspaces; absent until one is made
- * @property {Record<string, {hostsLocalProviders?: boolean}>} [workspaceKinds] - What each kind of workspace can do; registered at server startup and fixed for the run
+ * @property {boolean} [projectHostsLocalProviders] - Whether the project itself can host a provider Juggler spawns; the rows each carry their own
  */
 
 /**
  * One registered workspace, as the server reports it — the row, verbatim, from
- * `cmd/juggler/core/workspace.go`. Kind and Root are carried on the row rather
- * than asked of whichever extension made it, so a workspace stays resolvable
- * while its provider is disabled, uninstalled, or simply failing to load.
+ * `cmd/juggler/core/workspace.go`, plus what its workspace can do
+ * (`workspace.Row` in `cmd/juggler/workspace/resolver.go`). Kind and Root are
+ * carried on the row rather than asked of whichever extension made it, so a
+ * workspace stays resolvable while its provider is disabled, uninstalled, or
+ * simply failing to load.
  *
  * The default workspace is NOT one of these: it has no row, its id is '', and
  * its root is {@link Session#projectPath}.
  * @typedef {object} Workspace
  * @property {string} id - Server-assigned, stable for the workspace's life
- * @property {string} kind - Selects the ops backend; 'local' today
- * @property {string} root - Absolute path, in terms the kind understands
+ * @property {string} kind - Stored as registered and read only by the server; 'local' is this machine
+ * @property {string} root - Absolute path to the tree
  * @property {string} [label] - What the UI calls it, e.g. "feat/tunnels"
  * @property {string} [place] - Where its box sits in the tab bar: 'head', or the conversation it sits behind. Empty or absent is a row with no place recorded, drawn by its first member instead
  * @property {string} [providerId] - Extension owning its lifecycle; empty for one nobody manages
@@ -102,6 +104,7 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  * @property {Record<string, any>} [meta] - The provider's own record of what it built; opaque here
  * @property {boolean} [available] - Whether its root was there when the server last looked
  * @property {boolean} [stale] - Provisioning, but nothing is provisioning it
+ * @property {boolean} [hostsLocalProviders] - Whether a provider Juggler spawns as a subprocess can run there; computed by the server on every read
  */
 
 /**
@@ -280,13 +283,13 @@ class Session {
     this.workspaces = [];
 
     /**
-     * What each KIND of workspace can do, keyed by kind name — the part a row
-     * does not carry, because it belongs to the transport rather than to the
-     * place. Sent once with the load: kinds are registered when the server
-     * starts and cannot change under a running client.
-     * @type {Record<string, {hostsLocalProviders?: boolean}>}
+     * Whether the project itself can host a provider Juggler spawns — the
+     * answer each row in {@link Session#workspaces} carries for itself, which
+     * the project, having no row, is sent beside the table with the load.
+     * Undefined until the load says.
+     * @type {boolean|undefined}
      */
-    this.workspaceKinds = {};
+    this.projectHostsLocalProviders = undefined;
 
     /**
      * Platform (darwin/linux/windows)
@@ -859,11 +862,11 @@ class Session {
    * project. A stale binding quietly resolving to the project root would edit
    * the wrong tree and look exactly like working.
    *
-   * These are the same four refusals the server makes in
-   * `WorkspaceLookup.Usable`, and they have to agree: what the client shows and
-   * what the operation does must not be two different answers. The server's
-   * fourth is a `stat` of the root; here it is `available`, which is that stat,
-   * recomputed at every load and carried on every broadcast.
+   * These are the refusals the server makes in `WorkspaceLookup.Usable`, and
+   * they have to agree: what the client shows and what the operation does must
+   * not be two different answers. Two of the server's — a kind it cannot open,
+   * and a `stat` of the root — arrive here as `available`, which the server
+   * computes on every read and carries on every broadcast.
    * @param {string} id - Workspace id, '' for the project
    * @returns {string|null} The root to work in, or null if the binding cannot be honoured
    */
@@ -877,24 +880,23 @@ class Session {
    * Whether a workspace can host a provider Juggler spawns as a subprocess — a
    * CLI agent, run in the conversation's own directory.
    *
-   * The project can, and so can anything on this machine. A workspace reached
-   * over a wire cannot: the CLI would run here, in a directory that is not the
-   * one every file operation of that turn uses, and the user would find out
-   * through answers that made no sense.
+   * The server answers it, for the project with the load and for each
+   * workspace on its row: whether the workspace has a directory on this
+   * machine to spawn in. One that does not would have the CLI run in a
+   * directory that is not the one every file operation of that turn uses, and
+   * the user would find out through answers that made no sense.
    *
-   * A kind nobody described answers yes. Not a fallback so much as an
-   * acknowledgement: a kind this client has never heard of has no backend
-   * either, so the turn is already going to be refused for a reason the server
-   * can state — and disabling every CLI model over an answer we do not have
-   * would be a refusal we could not explain.
+   * A missing answer — a row the table no longer holds, a load that did not
+   * say — is yes. Not a fallback so much as an acknowledgement: a binding the
+   * client cannot read is refused by the server for a reason it can state, and
+   * disabling every CLI model over an answer we do not have would be a
+   * refusal we could not explain.
    * @param {string} id - Workspace id, '' for the project.
    * @returns {boolean} True when a spawned provider would run in the right place.
    */
   workspaceHostsLocalProviders(id) {
-    if (!id) return true;
-    const kind = this.getWorkspace(id)?.kind;
-    if (!kind) return true;
-    return this.workspaceKinds[kind]?.hostsLocalProviders !== false;
+    if (!id) return this.projectHostsLocalProviders !== false;
+    return this.getWorkspace(id)?.hostsLocalProviders !== false;
   }
 
   /**
@@ -1506,9 +1508,9 @@ class Session {
       // meant for. Every edit after this arrives as a workspaces-changed
       // broadcast; this is the one that sets the table up.
       this.workspaces = Array.isArray(data.workspaces) ? data.workspaces : [];
-      this.workspaceKinds = data.workspaceKinds && typeof data.workspaceKinds === 'object'
-        ? data.workspaceKinds
-        : {};
+      this.projectHostsLocalProviders = typeof data.projectHostsLocalProviders === 'boolean'
+        ? data.projectHostsLocalProviders
+        : undefined;
       this._applyManifestState(data, { notify: false });
 
       // Initialize worker manager with session config (Pass session for conversation access)

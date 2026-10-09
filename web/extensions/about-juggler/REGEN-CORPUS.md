@@ -85,9 +85,9 @@ Paths are relative to the `juggler/` repo root.
   conversation with "Use a different workspace…", and finishing a workspace.
   Say where workspaces come from, because users go looking for a hardcoded list
   and find the wrong one: providers are extension-declared
-  (`provides.workspaceProviders` in a manifest — no rebuild), while the kinds
-  registered in `cmd/juggler/ops/workspace_kinds.go` (where operations run) are
-  compiled in, and today hold only the local machine.
+  (`provides.workspaceProviders` in a manifest — no rebuild), while where
+  operations run is the server's (`cmd/juggler/workspace/`): every workspace is
+  a tree on the machine the server runs on.
   Do NOT describe the provisioning state machine or the rebinding internals.
 - **Agent Skills** — `cmd/juggler/core/skills.go:19-38` documents the
   format and the four discovery roots (project and user scope, each with a

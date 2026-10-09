@@ -199,6 +199,43 @@ export async function runTests() {
         'and takes the row off the table with it');
     });
 
+    await run('a provision leaves the kind of place to the server', async () => {
+      // What a kind means is the server's: it records one for a registration
+      // that names none, and refuses one it cannot open. A browser that wrote a
+      // kind itself would be a second copy of that rule, free to disagree.
+      const name = `fixture-kind-${Math.random().toString(36).slice(2, 8)}`;
+      /** @type {any[]} */
+      const registered = [];
+      const realFetch = window.fetch;
+      window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ init) => {
+        if (String(url).endsWith('/api/session/workspaces') && init?.method === 'POST') {
+          registered.push(JSON.parse(String(init.body)));
+        }
+        return realFetch(url, init);
+      });
+      /** @type {any} */
+      let outcome = null;
+      try {
+        outcome = await provisionWorkspace({
+          session,
+          providerId: FixtureProvider.MANIFEST.id,
+          values: { dir: `${projectPath}/${name}` }
+        });
+      } finally {
+        window.fetch = realFetch;
+      }
+      try {
+        assert(registered.length === 1,
+          `the provision registers its row once, got ${registered.length} registrations`);
+        assert(!('kind' in registered[0]),
+          `and names no kind, got ${JSON.stringify(registered[0])}`);
+        assert(outcome.workspace.kind === 'local',
+          `the row records the kind the server gave it, got ${JSON.stringify(outcome.workspace.kind)}`);
+      } finally {
+        await outcome?.undo();
+      }
+    });
+
     await run('cancelling mid-provision rejects and leaves nothing behind', async () => {
       // The claim the whole feature is sold on: a mis-click costs nothing. It
       // has to be true of the disk as well as of the table, which is why this

@@ -13,6 +13,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/ops"
+	"juggler/cmd/juggler/workspace"
 )
 
 // Where an operation runs. A request naming no workspace runs in the project,
@@ -21,29 +22,31 @@ import (
 // is not in a state to serve it.
 
 // opsAPIForTest builds an OpsAPI over a fixed project path and a table of
-// workspaces, with the real tool handlers registered.
+// workspaces, resolved as the server resolves them, with the real tool handlers
+// registered.
 func opsAPIForTest(projectPath string, table map[string]core.Workspace) *OpsAPI {
 	ops.Register("read-file", func(scope ops.PathScope) ops.Operations { return ops.NewFileOperations(scope) })
 	ops.Register("shell", func(scope ops.PathScope) ops.Operations { return ops.NewShellOperations(scope) })
-	return NewOpsAPI(
+	return NewOpsAPI(workspace.NewResolver(
 		func() string { return projectPath },
 		func(id string) (core.Workspace, bool) {
 			ws, ok := table[id]
 			return ws, ok
 		},
-	)
+		nil,
+	).Resolve)
 }
 
 // readFile asks the read-file tool for a path, through the full resolution
 // path, and returns the error (nil when the read succeeded).
-func readFile(t *testing.T, api *OpsAPI, projectPath, workspaceID, path string) error {
+func readFile(t *testing.T, api *OpsAPI, workspaceID, path string) error {
 	t.Helper()
 	_, err := api.routeOperation(context.Background(), OperationRequest{
 		ToolID:      "read-file",
 		Operation:   "loadFile",
 		Params:      map[string]any{"path": path},
 		WorkspaceID: workspaceID,
-	}, projectPath)
+	})
 	return err
 }
 
@@ -73,11 +76,11 @@ func TestRouteOperation_NoWorkspaceRunsInTheProject(t *testing.T) {
 	project, workspace := projectAndWorkspace(t)
 	api := opsAPIForTest(project, nil)
 
-	if err := readFile(t, api, project, "", "in-project.txt"); err != nil {
+	if err := readFile(t, api, "", "in-project.txt"); err != nil {
 		t.Fatalf("reading a project file with no workspace: %v", err)
 	}
-	// And the sibling is out of scope, exactly as it was before workspaces.
-	if err := readFile(t, api, project, "", filepath.Join(workspace, "in-workspace.txt")); err == nil {
+	// And the sibling is out of scope.
+	if err := readFile(t, api, "", filepath.Join(workspace, "in-workspace.txt")); err == nil {
 		t.Fatalf("a file outside the project was read with no workspace named")
 	}
 }
@@ -91,10 +94,10 @@ func TestRouteOperation_ReadyWorkspaceRootsAtItselfAndReadsTheProject(t *testing
 		"ws_1": {ID: "ws_1", Kind: core.WorkspaceKindLocal, Root: workspace, State: core.WorkspaceStateReady},
 	})
 
-	if err := readFile(t, api, project, "ws_1", "in-workspace.txt"); err != nil {
+	if err := readFile(t, api, "ws_1", "in-workspace.txt"); err != nil {
 		t.Fatalf("reading a workspace file relative to the workspace: %v", err)
 	}
-	if err := readFile(t, api, project, "ws_1", filepath.Join(project, "in-project.txt")); err != nil {
+	if err := readFile(t, api, "ws_1", filepath.Join(project, "in-project.txt")); err != nil {
 		t.Fatalf("reading the project from a workspace: %v — the base tree must stay readable", err)
 	}
 	// Somewhere that is neither is still refused.
@@ -102,7 +105,7 @@ func TestRouteOperation_ReadyWorkspaceRootsAtItselfAndReadsTheProject(t *testing
 	if err := os.WriteFile(filepath.Join(outside, "elsewhere.txt"), []byte("no\n"), 0o644); err != nil {
 		t.Fatalf("write outside file: %v", err)
 	}
-	if err := readFile(t, api, project, "ws_1", filepath.Join(outside, "elsewhere.txt")); err == nil {
+	if err := readFile(t, api, "ws_1", filepath.Join(outside, "elsewhere.txt")); err == nil {
 		t.Fatalf("a file outside both the workspace and the project was read")
 	}
 }
@@ -121,7 +124,7 @@ func TestRouteOperation_ShellCwdIsClampedToTheWorkspace(t *testing.T) {
 			Operation:   "execute",
 			Params:      map[string]any{"command": "pwd", "cwd": cwd},
 			WorkspaceID: "ws_1",
-		}, project)
+		})
 		return err
 	}
 
@@ -133,8 +136,8 @@ func TestRouteOperation_ShellCwdIsClampedToTheWorkspace(t *testing.T) {
 	}
 }
 
-// The three refusals, each saying something different — a workspace being
-// built, one that was finished with, and an id that means nothing.
+// The refusals, each saying something different — a workspace being built, one
+// that was finished with, one whose root has gone, and an id that means nothing.
 func TestRouteOperation_RefusesUnusableWorkspaces(t *testing.T) {
 	project, workspace := projectAndWorkspace(t)
 	api := opsAPIForTest(project, map[string]core.Workspace{
@@ -152,7 +155,7 @@ func TestRouteOperation_RefusesUnusableWorkspaces(t *testing.T) {
 		{"ws_removed", "missing its root"},
 		{"ws_nope", "unknown workspace"},
 	} {
-		err := readFile(t, api, project, tc.id, "in-workspace.txt")
+		err := readFile(t, api, tc.id, "in-workspace.txt")
 		if err == nil {
 			t.Fatalf("%s: the operation was served", tc.id)
 		}
@@ -162,14 +165,14 @@ func TestRouteOperation_RefusesUnusableWorkspaces(t *testing.T) {
 	}
 }
 
-// The sharpest one of the four: an id nothing knows must never quietly run in
+// The sharpest of the refusals: an id nothing knows must never quietly run in
 // the project. A stale binding that silently edited the main tree would look
 // exactly like working.
 func TestRouteOperation_UnknownWorkspaceNeverFallsBackToTheProject(t *testing.T) {
 	project, _ := projectAndWorkspace(t)
 	api := opsAPIForTest(project, nil)
 
-	err := readFile(t, api, project, "ws_stale", "in-project.txt")
+	err := readFile(t, api, "ws_stale", "in-project.txt")
 	if err == nil {
 		t.Fatalf("an unknown workspace id resolved to the project root")
 	}

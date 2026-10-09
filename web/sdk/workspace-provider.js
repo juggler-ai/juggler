@@ -34,10 +34,10 @@ import { validateManifest } from './lib/manifest.js';
 
 /**
  * What a workspace is, minus the parts the server decides. Returned by
- * {@link WorkspaceProvider#provision}; the host assigns the id and the state.
+ * {@link WorkspaceProvider#provision}; the host assigns the id and the state,
+ * and the server records what kind of place it is.
  * @typedef {object} WorkspaceDescriptor
- * @property {string} [kind] - The ops backend; inherited from the base workspace when omitted
- * @property {string} root - Where it is, in terms the kind understands
+ * @property {string} root - Where it is: an absolute path to the tree
  * @property {string} [label] - What to call it
  * @property {Record<string, any>} [meta] - The provider's own record of what it built
  */
@@ -64,11 +64,10 @@ import { validateManifest } from './lib/manifest.js';
  * would therefore arrive seconds late and change the title under a reader —
  * and it would disagree with the same workspace's name in the strip, the setup
  * list and the move dialog, all of which read the row.
+ * What kind of place it is is not here either: that is a property of the
+ * provider, not of one workspace, and surfaces say it from the manifest's
+ * `name` and `description`, which are known before anything is asked.
  * @typedef {object} WorkspaceStatus
- * @property {string} [kind] - What kind of place this is, in full — 'Git worktree
- *   of juggler-pro', 'Copy of the project'. The provider's manifest name is the
- *   fallback, and is usually too bare to answer the question a reader actually
- *   has: a path and a branch say where and how, and nothing says WHAT
  * @property {string} [detail] - A second line: branch, host, latency, whatever
  *   matters. It describes the PLACE, and a surface may show it wherever it
  *   shows the place — so a provider that cannot answer must leave it alone
@@ -264,7 +263,7 @@ import { validateManifest } from './lib/manifest.js';
  * A **workspace** is the environment a conversation's tools run in: somewhere to
  * run commands and read and write files, plus the identity it is shown under.
  * Every project has one already — itself. A provider is what makes the others: a
- * git worktree, a throwaway copy of the tree, a directory on another machine.
+ * git worktree, a throwaway copy of the tree, a folder inside the project.
  *
  * ## What a provider is not on the path of
  *
@@ -504,8 +503,8 @@ class WorkspaceProvider {
    * under instructions written above them, and seeding only the root leaves the
    * house rules unread. The host cannot work out which other place counts —
    * walking up from a worktree reaches the user's home directory, not the
-   * project, and a kind with no local filesystem under it has no "up" at all.
-   * The provider knows, because it knows what this workspace was made from.
+   * project. The provider knows, because it knows what this workspace was made
+   * from.
    *
    * It names DIRECTORIES only. Which filenames count, the content-hash dedup
    * and the skip for what the user pinned themselves all stay with the host, so

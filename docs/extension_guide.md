@@ -898,7 +898,7 @@ instead of text).
 A **workspace** is the environment a conversation's tools run in: somewhere to
 run commands and read and write files, plus the identity it is shown under. Every
 project already has one — itself. A provider makes the others: a git worktree, a
-throwaway copy of the tree, a directory on another machine.
+throwaway copy of the tree, a folder inside the project.
 
 | Method | Job |
 |--------|-----|
@@ -906,7 +906,7 @@ throwaway copy of the tree, a directory on another machine.
 | `provision(values, ctx)` | **Headless.** Build the place from those values alone |
 | `status(workspace, ctx)` | How it is doing. **Must be cheap** — asked of every row the panel lists |
 | `finishOptions(workspace)` / `finish(workspace, id, ctx)` | The ways to be done with it, and doing one |
-| `status().kind` | What kind of place it is, in full — `'Git worktree of juggler-pro'` |
+| `status()` does **not** say what kind of place it is | The manifest's `name` and `description` do, from the first draw |
 | `status()` does **not** name it | The `label` on the row does, everywhere. A status is asked for after the first draw and can take a git call to answer, so a name from it would arrive late and change the title under the reader |
 | `reconcile(workspaces, ctx)` | What exists, set against what the session thinks it has. Only looks |
 | `cleanupPartial(workspace, ctx)` | Undo a provision that died with the tab, from `workspace.meta` alone |
@@ -975,9 +975,8 @@ export default GitWorktreeProvider;
 
 `ctx.ops` is the only way a provider touches anything, and it arrives already
 rooted: at the **base** workspace during `provision` (the repository — the tree
-does not exist yet), and at the workspace itself everywhere else. That is what
-lets a worktree provider know nothing whatever about ssh and still be able to
-build a worktree on another machine.
+does not exist yet), and at the workspace itself everywhere else. A provider is
+handed operations rather than a place, and does its work through them.
 
 `ctx.baseOps` is the other end of the same thread: operations rooted at the
 workspace this one was **made from**. An ending that lands work back where it
@@ -1014,8 +1013,8 @@ no second button — the host invents nothing.
 workspace is dirty, but "nothing has changed" is a reason to stop a commit and no
 reason at all to stop an ending that merely asks for a name.
 
-**A provider may be absent when its workspaces come back.** `kind` and `root` are
-the session's, so an extension that is disabled or broken cannot strand a
+**A provider may be absent when its workspaces come back.** A workspace's `root`
+is the session's, so an extension that is disabled or broken cannot strand a
 conversation: its operations keep resolving. Only what the provider supplies
 degrades — status becomes "provider unavailable", the finish menu renders empty
 with that reason, and reconcile does not run for its rows, which are left

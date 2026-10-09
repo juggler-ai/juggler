@@ -17,6 +17,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/server/handlers"
+	"juggler/cmd/juggler/workspace"
 )
 
 // The workspace table through its routes: a workspace is registered before it
@@ -37,8 +38,9 @@ func newWorkspaceTestServer(t *testing.T) (*Server, *recordingBroadcaster, strin
 	t.Cleanup(mgr.Shutdown)
 	bc := &recordingBroadcaster{}
 	s := &Server{router: mux.NewRouter()}
-	s.setupSessionRoutes(handlers.NewSessionAPI(
-		func() *core.SessionManager { return mgr }, nil, bc, nil, nil))
+	api := handlers.NewSessionAPI(func() *core.SessionManager { return mgr }, nil, bc, nil, nil)
+	api.SetWorkspaceResolver(workspace.NewResolver(func() string { return dir }, mgr.GetWorkspace, nil).Resolve)
+	s.setupSessionRoutes(api)
 	return s, bc, dir
 }
 
@@ -128,6 +130,68 @@ func TestWorkspaceRoutes_RegisterReadyCloseRoundTrip(t *testing.T) {
 	}
 	if len(bc.workspaces) != 3 {
 		t.Fatalf("%d broadcasts, want one per edit", len(bc.workspaces))
+	}
+}
+
+// Whether a workspace can host a provider Juggler spawns as a subprocess is the
+// workspace's own answer, and every row the browser is handed carries it: the
+// register and list responses, the broadcast, and the session load — which
+// also carries the project's answer, since the project has no row. The model
+// picker reads nothing else, so a row that left it out would make the refusal
+// it backs silently never fire.
+func TestWorkspaceRoutes_RowsSayWhetherTheyHostLocalProviders(t *testing.T) {
+	s, bc, dir := newWorkspaceTestServer(t)
+
+	hosts := func(where string, row map[string]any) {
+		t.Helper()
+		if row["hostsLocalProviders"] != true {
+			t.Errorf("%s: row = %v, want hostsLocalProviders:true for a tree on this machine", where, row)
+		}
+	}
+
+	rec := pinboardRequest(t, s, http.MethodPost, "/api/session/workspaces",
+		fmt.Sprintf(`{"kind":"local","root":%q,"state":"ready"}`, dir))
+	var registered struct {
+		Workspace map[string]any `json:"workspace"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &registered); err != nil {
+		t.Fatalf("decode %q: %v", rec.Body.String(), err)
+	}
+	hosts("register", registered.Workspace)
+
+	var listed struct {
+		Workspaces []map[string]any `json:"workspaces"`
+	}
+	rec = pinboardRequest(t, s, http.MethodGet, "/api/session/workspaces", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil || len(listed.Workspaces) != 1 {
+		t.Fatalf("list = %q (%v), want one row", rec.Body.String(), err)
+	}
+	hosts("list", listed.Workspaces[0])
+
+	if len(bc.workspaces) == 0 {
+		t.Fatal("no workspaces broadcast")
+	}
+	encoded, err := json.Marshal(bc.workspaces[len(bc.workspaces)-1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var broadcast []map[string]any
+	if err := json.Unmarshal(encoded, &broadcast); err != nil || len(broadcast) != 1 {
+		t.Fatalf("broadcast = %s (%v), want one row", encoded, err)
+	}
+	hosts("broadcast", broadcast[0])
+
+	var load struct {
+		Workspaces                 []map[string]any `json:"workspaces"`
+		ProjectHostsLocalProviders *bool            `json:"projectHostsLocalProviders"`
+	}
+	rec = pinboardRequest(t, s, http.MethodGet, "/api/session", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &load); err != nil || len(load.Workspaces) != 1 {
+		t.Fatalf("session load = %q (%v), want one workspace row", rec.Body.String(), err)
+	}
+	hosts("session load", load.Workspaces[0])
+	if load.ProjectHostsLocalProviders == nil || !*load.ProjectHostsLocalProviders {
+		t.Errorf("session load projectHostsLocalProviders = %v, want true: the project is a tree on this machine", load.ProjectHostsLocalProviders)
 	}
 }
 

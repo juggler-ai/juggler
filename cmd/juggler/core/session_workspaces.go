@@ -153,8 +153,16 @@ func (m *SessionManager) RegisterWorkspace(ws Workspace) (Workspace, error) {
 		if ws.State == "" {
 			ws.State = WorkspaceStateProvisioning
 		}
+		// A registration that names no kind is a tree on this machine. This is
+		// the one place an empty kind means local: anywhere else a row without
+		// one is a kind OpenError does not open.
 		if ws.Kind == "" {
 			ws.Kind = WorkspaceKindLocal
+		}
+		// Kind is fixed at registration — no patch changes it — so this is the
+		// one place a row that could never be opened is kept off the table.
+		if err := ws.OpenError(); err != nil {
+			return Workspace{}, err
 		}
 		if ws.ID == "" {
 			ws.ID = GenerateWorkspaceID()

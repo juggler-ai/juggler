@@ -322,23 +322,17 @@ class ScratchCopyWorkspaceProvider extends WorkspaceProvider {
    */
   async status(workspace, ctx) {
     const meta = workspace?.meta ?? {};
-    // What it is, before how it is doing. A copy is only meaningful as a copy OF
-    // something, and the tree it came from is the thing a reader is deciding
-    // about when they decide to apply it.
-    const baseDir = String(meta?.baseDir ?? '');
-    const kind = baseDir ? `Copy of ${baseName(baseDir)}` : 'Copy of the project';
     if (workspace.available === false) {
-      return { kind, detail: 'The copy is missing.', available: false };
+      return { detail: 'The copy is missing.', available: false };
     }
-    if (!baseDir) {
-      return { kind, detail: 'There is no record of what this is a copy of.', available: true };
+    if (!meta?.baseDir) {
+      return { detail: 'There is no record of what this is a copy of.', available: true };
     }
 
     const changes = await this._changes(workspace, ctx);
     const count = (changes?.paths ?? []).length + (changes?.removed ?? []).length;
 
     return {
-      kind,
       // Said against the thing it is measured against. A bare count is a number
       // whose question the reader has to guess at, and the guesses — changed
       // against the project? against the last turn? — are all answers this does

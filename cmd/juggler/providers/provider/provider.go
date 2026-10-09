@@ -860,13 +860,15 @@ type ProviderInfo struct {
 	StreamsLiveUsage bool
 	// SpawnsLocalProcess marks a provider Juggler runs as a subprocess of its
 	// own, in the conversation's working directory — the CLI agents, not the
-	// HTTP APIs. It is the property a workspace has to be able to host: a
-	// conversation working somewhere this machine only reaches over a wire would
-	// run such a provider *here*, in a directory that is not the one every file
-	// operation of that turn uses. That is silently the wrong thing, and the user
-	// discovers it through results that make no sense — so the workspace kind
-	// declares whether it can host one (ops.WorkspaceKind.HostsLocalProviders)
-	// and the model picker refuses the pairing rather than offering it.
+	// HTTP APIs. It is the property a workspace has to be able to host: in a
+	// workspace with no directory on this machine, such a provider would run in
+	// a directory that is not the one every file operation of that turn uses.
+	// That is silently the wrong thing, and the user discovers it through
+	// results that make no sense — so a workspace says whether it has a
+	// directory here to spawn in (workspace.Workspace.LocalDir, carried on each
+	// row the browser is sent as workspace.Row's HostsLocalProviders), the model
+	// picker refuses the pairing rather than offering it, and the server refuses
+	// the turn if it is asked anyway.
 	//
 	// Deliberately about spawning rather than about locality in general: an HTTP
 	// provider running on this machine is fine anywhere, because the turn reaches

@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
-	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/worker"
+	"juggler/cmd/juggler/workspace"
 	"juggler/internal/jlog"
 
 	"github.com/gorilla/mux"
@@ -41,6 +41,10 @@ type SessionAPI struct {
 	// run an LLM-call pipeline.
 	closeConversation   func(conversationID string)
 	resolveDefaultModel func(ctx context.Context) (core.ModelRef, bool)
+
+	// resolveWorkspace answers what the project's own workspace can host, for
+	// the session load (SetWorkspaceResolver). Nil leaves that answer out.
+	resolveWorkspace workspace.ResolveFunc
 
 	// Test-mode conversation-ownership hooks (all nil in production). In the
 	// multi-lane test pool every lane shares one session, so creates tagged
@@ -143,7 +147,7 @@ type WorkerManager interface {
 type Broadcaster interface {
 	BroadcastSessionChanged()
 	BroadcastSessionMetadataChanged(metadata map[string]any)
-	BroadcastWorkspacesChanged(workspaces []core.Workspace)
+	BroadcastWorkspacesChanged(workspaces []workspace.Row)
 	BroadcastConversationsChanged(op, id, name string)
 	BroadcastConversationsReordered(order []string)
 	BroadcastConversationFocus(id, from string)
@@ -500,14 +504,14 @@ func (api *SessionAPI) HandleGetSession(w http.ResponseWriter, r *http.Request) 
 		"activeConversationId": sess.ActiveConversationID,
 		"messageHistory":       sess.MessageHistory,
 		"metadata":             sess.Metadata,
-		"workspaces":           api.manager().ListWorkspaces(),
-		// What each KIND of workspace can do, which the rows themselves do not
-		// say. Sent once beside the table, because kinds are registered at
-		// startup and cannot change under a running client — unlike the table,
-		// which is republished on every edit.
-		"workspaceKinds": ops.WorkspaceKindCapabilities(),
-		"binnedCount":    len(api.manager().ListBinnedConversations()),
-		"binSizeBytes":   api.manager().BinSizeBytes(),
+		"workspaces":           workspace.Describe(api.manager().ListWorkspaces()),
+		"binnedCount":          len(api.manager().ListBinnedConversations()),
+		"binSizeBytes":         api.manager().BinSizeBytes(),
+	}
+	// The project has no row, so what it can host rides beside the table rather
+	// than in it — asked of the project's workspace like any row's answer is.
+	if hosts, ok := api.projectHostsLocalProviders(); ok {
+		response["projectHostsLocalProviders"] = hosts
 	}
 
 	WriteJSON(w, r, 0, response)

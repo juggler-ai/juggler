@@ -1380,10 +1380,9 @@ func (fs *FileSessionStore) Load() (*Session, error) {
 		return nil, fmt.Errorf("failed to read session globals: %w", readErr)
 	}
 
-	// Re-check the workspace table against the world: roots that have gone
-	// since the last run, and provisions that died with the process that
-	// started them. See verifyWorkspaces for why this half runs here rather
-	// than in the browser.
+	// The load-time pass over the workspace table: provisions that died with
+	// the process that started them. See verifyWorkspaces for why this half
+	// runs here rather than in the browser.
 	workspacesChanged := verifyWorkspaces(&session)
 
 	// Reconcile manifest's ConversationOrder against the on-disk index:

@@ -2,17 +2,14 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package handlers
+package gitview
 
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,80 +20,42 @@ import (
 )
 
 // The manifest's whole claim is that it is the complete working tree, so these
-// are handler tests over real repositories for the same reason the diff's are:
-// only git can be asked whether what it reports is what the endpoint returned.
-// They reuse the gitProject harness in git_diff_handler_test.go.
+// are tests over real repositories for the same reason the diff's are: only git
+// can be asked whether what it reports is what the review returned. They reuse
+// the gitProject harness in diff_test.go.
 
 // unhurried lends every git clock — the review's, the diff's and the card's —
 // enough time that none of them can be the thing a test measures. The fixtures
 // in this package are a handful of files, so every git command over them is the
 // work of milliseconds; a loaded CI runner can still lose one to the shipped
-// seconds, and the test then reports a missing file, or a 502, rather than a slow
-// machine. That has happened to the card's three seconds, the review's ten and
-// the diff's ten, so all three are lent time from one place: newGitProject calls
-// this, which covers every real-repository test here and any later one.
+// seconds, and the test then reports a missing file, or an unreadable diff,
+// rather than a slow machine. That has happened to the card's three seconds, the
+// review's ten and the diff's ten, so all three are lent time from one place
+// (LendClocks): newGitProject calls this, which covers every real-repository test
+// here and any later one.
 //
 // The shipped values keep their own tests — TestGitReviewIsNotHeldToTheStatusCardsClock
 // and TestGitDiffIsNotHeldToTheStatusCardsClock — which build no repository and
 // so go on reading them.
 func unhurried(t *testing.T) {
 	t.Helper()
-	reviewBudget, reviewPerCmd := gitReviewBudget, gitReviewPerCmd
-	diffBudget, diffPerCmd := gitDiffBudget, gitDiffPerCmd
-	cardBudget, cardPerCmd := gitStatusBudget, gitStatusPerCmd
-	gitReviewBudget, gitReviewPerCmd = 5*time.Minute, time.Minute
-	gitDiffBudget, gitDiffPerCmd = 5*time.Minute, time.Minute
-	gitStatusBudget, gitStatusPerCmd = 5*time.Minute, time.Minute
-	t.Cleanup(func() {
-		gitReviewBudget, gitReviewPerCmd = reviewBudget, reviewPerCmd
-		gitDiffBudget, gitDiffPerCmd = diffBudget, diffPerCmd
-		gitStatusBudget, gitStatusPerCmd = cardBudget, cardPerCmd
-	})
+	t.Cleanup(LendClocks(time.Minute, 5*time.Minute))
 }
 
-// askReview calls the manifest endpoint the way the router would.
-func (p *gitProject) askReview(ctx context.Context) (*httptest.ResponseRecorder, gitReviewResponse) {
+// review reads the project's manifest.
+func (p *gitProject) review() Manifest {
 	p.t.Helper()
-	api := NewGitStatusAPI(func() string { return p.root }, nil)
-	req := httptest.NewRequest(http.MethodGet, "/api/git/review", nil).WithContext(ctx)
-	rec := httptest.NewRecorder()
-	api.HandleGitReview(rec, req)
-
-	var resp gitReviewResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		p.t.Fatalf("decoding the response: %v\n%s", err, rec.Body.String())
-	}
-	return rec, resp
+	return Review(p.t.Context(), p.root)
 }
 
-// review is askReview for the ordinary case: the endpoint answered, and the
-// answer is what the test is about.
-func (p *gitProject) review() gitReviewResponse {
+// card reads the ambient status, which is the thing the review is not.
+func (p *gitProject) card() []RepoStatus {
 	p.t.Helper()
-	rec, resp := p.askReview(p.t.Context())
-	if rec.Code != http.StatusOK {
-		p.t.Fatalf("GET review = %d, want 200\n%s", rec.Code, rec.Body.String())
-	}
-	return resp
-}
-
-// card asks the ambient status endpoint, which is the thing the review is not.
-func (p *gitProject) card() gitStatusResponse {
-	p.t.Helper()
-	api := NewGitStatusAPI(func() string { return p.root }, nil)
-	req := httptest.NewRequest(http.MethodGet, "/api/git/status", nil).WithContext(p.t.Context())
-	rec := httptest.NewRecorder()
-	api.HandleGitStatus(rec, req)
-
-	var resp gitStatusResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		p.t.Fatalf("decoding the response: %v\n%s", err, rec.Body.String())
-	}
-	return resp
+	return Status(p.t.Context(), p.root)
 }
 
 // repo finds one repository in a manifest by its project-relative path.
-func (resp gitReviewResponse) repo(t *testing.T, rel string) gitReviewRepo {
+func (resp Manifest) repo(t *testing.T, rel string) gitReviewRepo {
 	t.Helper()
 	for _, repo := range resp.Repos {
 		if repo.Path == rel {
@@ -108,7 +67,7 @@ func (resp gitReviewResponse) repo(t *testing.T, rel string) gitReviewRepo {
 }
 
 // paths is every repository the manifest listed, for a failure to print.
-func (resp gitReviewResponse) paths() []string {
+func (resp Manifest) paths() []string {
 	paths := make([]string, 0, len(resp.Repos))
 	for _, repo := range resp.Repos {
 		paths = append(paths, repo.Path)
@@ -242,7 +201,7 @@ func TestGitStatusReadsRunOnTheirCallersClock(t *testing.T) {
 		t.Errorf("repoStatus on a spent clock = %v, want it to give up on that clock", err)
 	}
 
-	var status gitRepoStatus
+	var status RepoStatus
 	if err := repoDiffstats(t.Context(), p.root, spentClock, &status); !ranOut(err) {
 		t.Errorf("repoDiffstats on a spent clock = %v, want it to give up on that clock", err)
 	}
@@ -277,7 +236,7 @@ func TestGitReviewFindsARepositoryTheCardSkips(t *testing.T) {
 
 	// The card is allowed to go on being cheap. If that ever stops being true this
 	// test is the place to find out, rather than a slow poll nobody attributes.
-	for _, card := range p.card().Repos {
+	for _, card := range p.card() {
 		if card.Path == "vendor/thing" {
 			t.Error("the status card walked into vendor/, which is what the review is for")
 		}
@@ -449,49 +408,6 @@ func TestGitReviewReportsConflicts(t *testing.T) {
 	}
 }
 
-// The project path is read on every request, so a switch retargets the review
-// rather than answering about the project that was open when the server started.
-func TestGitReviewFollowsAProjectSwitch(t *testing.T) {
-	first := newGitProject(t)
-	first.write("first.txt", "x\n")
-
-	second := &gitProject{t: t, root: t.TempDir()}
-	second.dir = second.root
-	second.init()
-	second.write("second.txt", "x\n")
-
-	open := first.root
-	api := NewGitStatusAPI(func() string { return open }, nil)
-	manifest := func() gitReviewResponse {
-		t.Helper()
-		req := httptest.NewRequest(http.MethodGet, "/api/git/review", nil).WithContext(t.Context())
-		rec := httptest.NewRecorder()
-		api.HandleGitReview(rec, req)
-		var resp gitReviewResponse
-		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("decoding the response: %v\n%s", err, rec.Body.String())
-		}
-		return resp
-	}
-
-	before := manifest()
-	if before.Root != first.root {
-		t.Errorf("Root = %q, want %q", before.Root, first.root)
-	}
-	if got := before.repo(t, "").filePaths(); !reflect.DeepEqual(got, []string{"first.txt"}) {
-		t.Errorf("files = %v, want [first.txt]", got)
-	}
-
-	open = second.root
-	after := manifest()
-	if after.Root != second.root {
-		t.Errorf("Root = %q, want %q", after.Root, second.root)
-	}
-	if got := after.repo(t, "").filePaths(); !reflect.DeepEqual(got, []string{"second.txt"}) {
-		t.Errorf("files = %v, want [second.txt] — the review answered about the project that was closed", got)
-	}
-}
-
 // A comment is attached to a row the user found by looking, so the row has to
 // still be where they left it after the next refresh.
 func TestGitReviewOrdersEverythingTheSameWayTwice(t *testing.T) {
@@ -603,17 +519,9 @@ func (p *gitProject) snapshot() map[string]string {
 }
 
 // The states where there is nothing to say, said without claiming more than is
-// known: a project nobody opened is not an empty review of one.
+// known. (A project nobody opened is the API's to refuse: see
+// handlers.TestGitReviewWithNoProject.)
 func TestGitReviewWithNothingToReport(t *testing.T) {
-	t.Run("no project", func(t *testing.T) {
-		api := NewGitStatusAPI(func() string { return "" }, nil)
-		req := httptest.NewRequest(http.MethodGet, "/api/git/review", nil).WithContext(t.Context())
-		rec := httptest.NewRecorder()
-		api.HandleGitReview(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-		}
-	})
 	t.Run("no repository", func(t *testing.T) {
 		// A project directory of its own, under one that is a repository, so that a
 		// search reaching upward would be caught rather than quietly succeed.

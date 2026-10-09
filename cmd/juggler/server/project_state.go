@@ -14,6 +14,8 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/mcp"
 	"juggler/cmd/juggler/ops"
+	"juggler/cmd/juggler/providers/provider"
+	"juggler/cmd/juggler/workspace"
 	"juggler/internal/jlog"
 )
 
@@ -68,8 +70,8 @@ func (s *Server) ProjectPath() string {
 // WorkspaceLookup resolves workspace ids against the live session, rather than
 // against a table captured when something was built: a project switch retargets
 // it, and a workspace registered a moment ago resolves without rebuilding
-// anything. Everything that acts on a conversation's binding — the ops API, the
-// directory a turn's provider spawns in — asks through this one func.
+// anything. Everything that acts on a conversation's binding asks through this
+// one func, by way of Workspaces.
 func (s *Server) WorkspaceLookup() core.WorkspaceLookup {
 	return func(id string) (core.Workspace, bool) {
 		mgr := s.SessionManager()
@@ -80,21 +82,52 @@ func (s *Server) WorkspaceLookup() core.WorkspaceLookup {
 	}
 }
 
-// workspaceRoot is the directory a conversation's turn runs in: the project
-// when it is bound to nothing, and the workspace's own root otherwise. An
-// unusable workspace (still provisioning, closed, root gone, never registered)
-// returns the error that says which — failing the turn rather than quietly
-// running it in the project, where it would edit the wrong tree and look
-// exactly like working.
-func (s *Server) workspaceRoot(workspaceID string) (string, error) {
+// Workspaces is the resolver everything that acts on a conversation's tree goes
+// through — the ops API, the streaming shell, "@" completion, the git views, the
+// directory a turn's provider spawns in, the sandbox's imports — so the answer,
+// or the refusal, cannot differ between them. It reads the live project, session
+// and path index on every Resolve, so it never needs rebuilding.
+func (s *Server) Workspaces() *workspace.Resolver {
+	return workspace.NewResolver(s.ProjectPath, s.WorkspaceLookup(), func() ops.PathSearcher {
+		if fw := s.FileWatcher(); fw != nil {
+			return fw.Index()
+		}
+		return nil
+	})
+}
+
+// turnDir is the directory a conversation's turn runs in, as a provider is told
+// it (provider.Config.WorkspaceRoot): "" when it is bound to nothing, so the
+// provider roots itself at the project, and the workspace's
+// LocalDir otherwise.
+//
+// An unusable workspace (still provisioning, closed, root gone, never
+// registered) returns the error that says which — failing the turn rather than
+// quietly running it in the project, where it would edit the wrong tree and
+// look exactly like working. So does a workspace with no directory on this
+// machine when the provider is one Juggler spawns as a subprocess
+// (ProviderInfo.SpawnsLocalProcess): that CLI would run here while every
+// operation of the turn ran somewhere else. A provider reached over HTTP is
+// told nothing and runs as it would anywhere.
+func turnDir(resolve workspace.ResolveFunc, workspaceID, providerName string) (string, error) {
 	if workspaceID == core.DefaultWorkspaceID {
 		return "", nil
 	}
-	ws, err := s.WorkspaceLookup().Usable(workspaceID)
+	ws, err := resolve(workspaceID)
 	if err != nil {
 		return "", err
 	}
-	return ws.Root, nil
+	if dir, ok := ws.LocalDir(); ok {
+		return dir, nil
+	}
+	if info, found := provider.GetProviderInfo(providerName); found && info.SpawnsLocalProcess {
+		name := info.DisplayName
+		if name == "" {
+			name = providerName
+		}
+		return "", fmt.Errorf("%s runs on this machine, and workspace %s is not on it — pick a model that does not run locally", name, ws.Name())
+	}
+	return "", nil
 }
 
 // FileWatcher returns the current file watcher, or nil in no-project mode.

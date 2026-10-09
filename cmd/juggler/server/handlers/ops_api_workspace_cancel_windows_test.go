@@ -56,7 +56,7 @@ func TestRouteOperation_CancelKillsTheRealWindowsShell(t *testing.T) {
 			Operation:   "execute",
 			Params:      map[string]any{"command": "echo yes > started.txt; while [ ! -e release.txt ]; do sleep 0.1; done; echo yes > finished.txt"},
 			WorkspaceID: "ws_1",
-		}, project)
+		})
 		done <- err
 	}()
 

@@ -2,16 +2,12 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package handlers
+package gitview
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,16 +16,15 @@ import (
 	"time"
 )
 
-// These are the handler's tests rather than its parser's: each one builds a real
+// These are Diff's tests rather than its parser's: each one builds a real
 // repository, puts it into the state under test with real git commands, and asks
-// the real endpoint what changed. What the diff contract promises is a statement
-// about git's behaviour, and only git can be asked whether that is what it does.
+// Diff what changed. What the diff contract promises is a statement about git's
+// behaviour, and only git can be asked whether that is what it does.
 
-// gitProject is a throwaway project directory holding a throwaway repository,
-// and the handler pointed at it.
+// gitProject is a throwaway project directory holding a throwaway repository.
 type gitProject struct {
 	t    *testing.T
-	root string // the project root the handler is given
+	root string // the root Diff, Review and Status are given
 	dir  string // this repository's directory; the root repo's is the root itself
 	rel  string // this repository's path relative to the project root
 }
@@ -142,57 +137,45 @@ func (p *gitProject) commit(message string) {
 	p.git("commit", "-qm", message)
 }
 
-// ask calls the endpoint the way the router would and hands back the recorder
-// and the decoded body, whatever the status.
-func (p *gitProject) ask(ctx context.Context, fileRel string) (*httptest.ResponseRecorder, gitDiffResponse) {
+// ask asks for one file's diff the way the API does and hands back whatever came
+// of it, refusal or failure included.
+func (p *gitProject) ask(ctx context.Context, fileRel string) (FileDiff, error) {
 	p.t.Helper()
-	api := NewGitStatusAPI(func() string { return p.root }, nil)
-	target := "/api/git/diff?repo=" + url.QueryEscape(p.rel) + "&path=" + url.QueryEscape(fileRel)
-	req := httptest.NewRequest(http.MethodGet, target, nil).WithContext(ctx)
-	rec := httptest.NewRecorder()
-	api.HandleGitDiff(rec, req)
-
-	var resp gitDiffResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		p.t.Fatalf("decoding the response: %v\n%s", err, rec.Body.String())
-	}
-	return rec, resp
+	return Diff(ctx, p.root, DiffRequest{Repo: p.rel, Path: fileRel})
 }
 
-// diff is ask for the ordinary case: the endpoint answered, and the answer is
-// what the test is about.
-func (p *gitProject) diff(fileRel string) gitDiffResponse {
+// diff is ask for the ordinary case: there was an answer, and the answer is what
+// the test is about.
+func (p *gitProject) diff(fileRel string) FileDiff {
 	p.t.Helper()
-	rec, resp := p.ask(p.t.Context(), fileRel)
-	if rec.Code != http.StatusOK {
-		p.t.Fatalf("GET diff %q = %d, want 200\n%s", fileRel, rec.Code, rec.Body.String())
+	resp, err := p.ask(p.t.Context(), fileRel)
+	if err != nil {
+		p.t.Fatalf("diff %q: %v", fileRel, err)
 	}
 	return resp
 }
 
 // diffAt is diff with a context width asked for, as the viewer's control sends
 // it: the raw query value, so a test can send something that is not a number.
-func (p *gitProject) diffAt(fileRel, context string) gitDiffResponse {
+func (p *gitProject) diffAt(fileRel, context string) FileDiff {
 	p.t.Helper()
-	api := NewGitStatusAPI(func() string { return p.root }, nil)
-	target := "/api/git/diff?repo=" + url.QueryEscape(p.rel) +
-		"&path=" + url.QueryEscape(fileRel) + "&context=" + url.QueryEscape(context)
-	req := httptest.NewRequest(http.MethodGet, target, nil).WithContext(p.t.Context())
-	rec := httptest.NewRecorder()
-	api.HandleGitDiff(rec, req)
-	if rec.Code != http.StatusOK {
-		p.t.Fatalf("GET diff %q context=%q = %d, want 200\n%s", fileRel, context, rec.Code, rec.Body.String())
-	}
-	var resp gitDiffResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		p.t.Fatalf("decoding the response: %v\n%s", err, rec.Body.String())
+	resp, err := Diff(p.t.Context(), p.root, DiffRequest{Repo: p.rel, Path: fileRel, Context: context})
+	if err != nil {
+		p.t.Fatalf("diff %q context=%q: %v", fileRel, context, err)
 	}
 	return resp
 }
 
+// refused reports whether a diff was turned down for what it asked for, which
+// the API answers with a 400 rather than the 502 of a diff git could not read.
+func refused(err error) bool {
+	var request *RequestError
+	return errors.As(err, &request)
+}
+
 // unchangedLines counts the context a response carries — what the width asked
 // for is a request for.
-func unchangedLines(resp gitDiffResponse) int {
+func unchangedLines(resp FileDiff) int {
 	n := 0
 	for _, hunk := range resp.Hunks {
 		for _, line := range hunk.Lines {
@@ -206,7 +189,7 @@ func unchangedLines(resp gitDiffResponse) int {
 
 // lineText renders a response's lines as "+added"/"-removed"/" context", which is
 // how a failure reads as the patch it is.
-func lineText(resp gitDiffResponse) string {
+func lineText(resp FileDiff) string {
 	var b strings.Builder
 	for _, hunk := range resp.Hunks {
 		for _, line := range hunk.Lines {
@@ -656,7 +639,7 @@ func TestGitDiffAnswersFromTheNestedRepository(t *testing.T) {
 }
 
 // Where this endpoint may be pointed is the whole of its security. The unit
-// tests cover the shapes of a path; these cover what the handler does with one.
+// tests cover the shapes of a path; these cover what Diff does with one.
 func TestGitDiffRefusesToLeaveTheProject(t *testing.T) {
 	p := newGitProject(t)
 	p.write("inside.txt", "x\n")
@@ -669,16 +652,14 @@ func TestGitDiffRefusesToLeaveTheProject(t *testing.T) {
 	}
 
 	t.Run("path climbing out", func(t *testing.T) {
-		rec, _ := p.ask(t.Context(), "../secret.txt")
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+		if _, err := p.ask(t.Context(), "../secret.txt"); !refused(err) {
+			t.Errorf("err = %v, want the request refused", err)
 		}
 	})
 	t.Run("repo that is not a repo", func(t *testing.T) {
 		plain := &gitProject{t: t, root: p.root, dir: filepath.Join(p.root, "plain"), rel: "plain"}
-		rec, _ := plain.ask(t.Context(), "inside.txt")
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("status = %d, want %d — an ordinary directory is not a repository", rec.Code, http.StatusBadRequest)
+		if _, err := plain.ask(t.Context(), "inside.txt"); !refused(err) {
+			t.Errorf("err = %v, want the request refused — an ordinary directory is not a repository", err)
 		}
 	})
 	// A directory in the path is a different matter from the file at the end of
@@ -692,9 +673,9 @@ func TestGitDiffRefusesToLeaveTheProject(t *testing.T) {
 		if err := os.Symlink(outside, filepath.Join(p.dir, "linkdir")); err != nil {
 			t.Skipf("symlinks unavailable here: %v", err)
 		}
-		rec, resp := p.ask(t.Context(), "linkdir/secret.txt")
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+		resp, err := p.ask(t.Context(), "linkdir/secret.txt")
+		if !refused(err) {
+			t.Errorf("err = %v, want the request refused", err)
 		}
 		if strings.Contains(lineText(resp), "THE-CONTENTS") {
 			t.Errorf("the endpoint read through a linked directory:\n%s", lineText(resp))
@@ -707,7 +688,7 @@ func TestGitDiffRefusesToLeaveTheProject(t *testing.T) {
 		if err := os.Symlink(filepath.Join(filepath.Dir(p.root), "secret.txt"), filepath.Join(p.dir, "escape.txt")); err != nil {
 			t.Skipf("symlinks unavailable here: %v", err)
 		}
-		_, resp := p.ask(t.Context(), "escape.txt")
+		resp, _ := p.ask(t.Context(), "escape.txt")
 		if strings.Contains(lineText(resp), "THE-CONTENTS") {
 			t.Errorf("the endpoint read through a link out of the project:\n%s", lineText(resp))
 		}
@@ -869,12 +850,12 @@ func TestGitDiffReportsCancellationRatherThanAnEmptyDiff(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	rec, resp := p.ask(ctx, "f.txt")
-	if rec.Code == http.StatusOK {
-		t.Fatalf("status = 200 with Status %q; a cancelled read is not an answer", resp.Status)
+	resp, err := p.ask(ctx, "f.txt")
+	if err == nil {
+		t.Fatalf("answered with Status %q; a cancelled read is not an answer", resp.Status)
 	}
-	if rec.Code != http.StatusBadGateway {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadGateway)
+	if refused(err) {
+		t.Errorf("err = %v, want a diff that could not be read, not a refused request", err)
 	}
 }
 
@@ -912,7 +893,7 @@ func TestGitDiffReturnsTheContextWidthAskedFor(t *testing.T) {
 			narrow.Context, wide.Context, fallback.Context, gitDiffContext)
 	}
 	// The change itself is the one thing no width may alter.
-	for _, resp := range []gitDiffResponse{narrow, wide, fallback} {
+	for _, resp := range []FileDiff{narrow, wide, fallback} {
 		if resp.Added != 1 || resp.Removed != 1 {
 			t.Errorf("at context %d the change itself read as +%d -%d, want +1 -1", resp.Context, resp.Added, resp.Removed)
 		}

@@ -2,7 +2,7 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package handlers
+package gitview
 
 import (
 	"fmt"
@@ -13,13 +13,13 @@ import (
 	"unicode/utf8"
 )
 
-// newDiffResponse builds the zero value HandleGitDiff starts from, so a parser
-// test sees the same starting state the handler would have given it.
-func newDiffResponse() *gitDiffResponse {
-	return &gitDiffResponse{Status: "unchanged", Hunks: []gitDiffHunk{}}
+// newDiffResponse builds the zero value Diff starts from, so a parser test sees
+// the same starting state Diff would have given it.
+func newDiffResponse() *FileDiff {
+	return &FileDiff{Status: "unchanged", Hunks: []gitDiffHunk{}}
 }
 
-func parsePatch(t *testing.T, patch string) *gitDiffResponse {
+func parsePatch(t *testing.T, patch string) *FileDiff {
 	t.Helper()
 	resp := newDiffResponse()
 	parseGitPatch([]byte(patch), resp)

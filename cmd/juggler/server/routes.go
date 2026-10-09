@@ -617,12 +617,12 @@ func (s *Server) setupRoutes() {
 		_, ok := s.sandboxImportFile(r.URL.Path)
 		return ok
 	}).HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		diskPath, ok := s.sandboxImportFile(r.URL.Path)
+		mod, ok := s.sandboxImportFile(r.URL.Path)
 		if !ok {
 			http.NotFound(w, r)
 			return
 		}
-		serveSandboxImportFile(w, r, diskPath)
+		serveSandboxImportFile(w, r, mod)
 	})
 
 	// Web-root fallback for the sandbox worker. When the absolute import path is

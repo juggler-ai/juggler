@@ -48,7 +48,7 @@ func TestRouteOperation_CancelKillsTheWorkspaceProcessGroup(t *testing.T) {
 			Operation:   "execute",
 			Params:      map[string]any{"command": "sleep 30 & echo $! > child.pid; wait"},
 			WorkspaceID: "ws_1",
-		}, project)
+		})
 		done <- err
 	}()
 

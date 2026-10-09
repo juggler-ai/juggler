@@ -400,8 +400,8 @@ export async function runTests() {
         outcome = await provisionWorkspace({ session, providerId: PROVIDER_ID, values: { folder } });
 
         const reported = await workspaceStatus(session, outcome.workspace);
-        assert(reported.kind.startsWith('Folder of '),
-          `the chip says what kind of place this is, got ${JSON.stringify(reported.kind)}`);
+        assert(reported.available === true,
+          `a folder that is there says so, got ${JSON.stringify(reported)}`);
         // And does not name it. The row does that, from the moment any surface
         // draws; a name arriving with the status would land after the first
         // draw and change the title under whoever was reading it.

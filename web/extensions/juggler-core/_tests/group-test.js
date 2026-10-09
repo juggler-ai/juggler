@@ -219,8 +219,8 @@ export async function runTests() {
       try {
         outcome = await provisionWorkspace({ session, providerId: PROVIDER_ID, values: { name: 'quiet' } });
         const reported = await workspaceStatus(session, outcome.workspace);
-        assert(reported.kind === 'Group' && reported.available === true,
-          `it says what it is, got ${JSON.stringify(reported)}`);
+        assert(reported.available === true,
+          `it says it can be reached, got ${JSON.stringify(reported)}`);
         // The project's own changes belong to the project, and a dot on every
         // group box would be the same dot drawn once per group.
         assert(!reported.dirty && !reported.badge && !reported.detail && !reported.problem,

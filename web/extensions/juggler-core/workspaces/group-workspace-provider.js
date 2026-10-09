@@ -100,14 +100,15 @@ class GroupWorkspaceProvider extends WorkspaceProvider {
   }
 
   /**
-   * What it is, and nothing about its tree, which is the project's.
+   * Whether it can be reached, and nothing about its tree, which is the
+   * project's.
    * @param {any} workspace - The row to report on.
    * @param {any} ctx - Unused.
    * @returns {Promise<any>} What to show for it.
    */
   async status(workspace, ctx) {
     void ctx;
-    return { kind: 'Group', available: workspace?.available !== false };
+    return { available: workspace?.available !== false };
   }
 
   /**

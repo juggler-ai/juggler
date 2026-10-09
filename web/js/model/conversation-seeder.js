@@ -179,7 +179,7 @@ export async function addAIAssistantFiles(session, conversation, messageThread =
   //
   // Widest first, so a tree's own files are probed last and read closest. The
   // paths are absolute, which the scope allows: reads from a workspace are
-  // widened by the project (handlers.ResolveWorkspaceScope), and a
+  // widened by the project (scope, in cmd/juggler/workspace/local.go), and a
   // workspace-relative `../` would read as a file of the workspace's own,
   // both to the model and in the properties panel.
   const above = where ? workspaceInstructionRoots(session, session.getWorkspace(where)) : [];

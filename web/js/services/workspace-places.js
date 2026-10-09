@@ -263,7 +263,6 @@ export async function adoptSetupRow(session, rowId, options = {}) {
 
   const registered = await registerWorkspace({
     ...(options?.id ? { id: options.id } : {}),
-    kind: offer.artifact.workspace.kind || 'local',
     root: offer.artifact.workspace.root,
     label: offer.artifact.workspace.label || offer.artifact.label || '',
     providerId: offer.providerId,

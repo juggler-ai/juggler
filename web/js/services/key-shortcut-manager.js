@@ -333,6 +333,32 @@ const SHORTCUT_DEFS = [
     allowInInput: 'unscrolled',
   },
   {
+    id: 'select-prev-item',
+    label: 'Select previous item',
+    description: 'Move the selection to the item above in the conversation, without '
+      + 'leaving the message box.',
+    category: 'Conversations',
+    // ⌥↑/Alt+Up, the chat-app "move in the sidebar while typing" key (Slack,
+    // Discord). Its native meaning in a text field is macOS's paragraph jump —
+    // rarely used in a message box, and ⌘↑ still reaches the start — and it has
+    // none at all in a Windows/Linux textarea. shift:false is load-bearing: ⇧⌥↑
+    // selects by paragraph, which people do use, so that chord stays the field's.
+    defaultBinding: { alt: true, shift: false, key: 'ArrowUp' },
+    // Works while typing, and leaves focus and caret in the field: the composer
+    // has focus almost all the time, so a selection key that stood down there
+    // would be one that never fires.
+    allowInInput: true,
+  },
+  {
+    id: 'select-next-item',
+    label: 'Select next item',
+    description: 'Move the selection to the item below in the conversation, without '
+      + 'leaving the message box.',
+    category: 'Conversations',
+    defaultBinding: { alt: true, shift: false, key: 'ArrowDown' },
+    allowInInput: true,
+  },
+  {
     id: 'bin-conversation',
     label: 'Move conversation to bin',
     description: 'Move the current conversation to the bin.',

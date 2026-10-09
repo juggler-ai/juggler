@@ -8,6 +8,7 @@ of changes; this project follows semantic versioning.
 - Fixed the Bin count dropping by two when restoring or deleting one conversation
 - A send refused for having no model no longer locks undo and New Thread
 - Arrow keys in a diff's context dropdown no longer also move the conversation selection
+- Alt+Up/Down move the conversation selection, even while typing in the message box
 
 ## [0.7.5] - 2026-10-06
 

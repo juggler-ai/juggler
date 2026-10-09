@@ -19,6 +19,8 @@
  *   3. Clicking into a column that is off-screen still reveals it — the case
  *      that must keep working, and the control that stops rule 2 from passing
  *      because nothing scrolls at all.
+ *   4. ⌥↑/↓ step the selection from inside the message box without taking the
+ *      keyboard out of it, and from outside a field step exactly once.
  * @module unit-tests/column-navigation-test
  */
 
@@ -36,6 +38,7 @@ import {
 } from '../../sdk/lib/message.js';
 import { ColumnSelectionState } from '../../js/utils/column-selection.js';
 import { SHEET_QUERY } from '../../js/utils/popup-surface.js';
+import { registerConversationShortcuts } from '../../js/services/shortcut-bindings.js';
 import '../../js/components/conversation-tab.js';
 
 /**
@@ -187,6 +190,36 @@ export async function runTests() {
     assert(ids.length >= 3, `expected at least 3 selectable items, got ${ids.length}`);
     rootCol.selectItem(ids[1]);
     await settle();
+
+    // ⌥↑/↓ walk the same selection from inside the message box, and leave the
+    // keyboard there: the key is consumed (no caret move) and focus stays put.
+    // From outside a field it is one step per press, not one from the command
+    // table plus another from the tab's own arrow handler.
+    registerConversationShortcuts(/** @type {any} */ (session));
+    const selectedNow = () => rootCol.querySelector('.selected')?.getAttribute('message-id') ?? null;
+    const textarea = /** @type {HTMLTextAreaElement|null} */ (tab.getComposer()?.querySelector('textarea'));
+    assert(!!textarea, 'no composer textarea to type into');
+    textarea.focus();
+    const tookFocus = document.activeElement === textarea;
+    const altUp = new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true, cancelable: true });
+    textarea.dispatchEvent(altUp);
+    await settle();
+    assert(selectedNow() === ids[0],
+      `⌥↑ in the composer moved the selection to ${selectedNow()}, not the item above (${ids[0]})`);
+    assert(altUp.defaultPrevented, '⌥↑ in the composer was left to move the caret as well');
+    if (tookFocus) {
+      assert(document.activeElement === textarea, '⌥↑ took focus out of the composer');
+    }
+    const shiftAltUp = new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, shiftKey: true, bubbles: true, cancelable: true });
+    textarea.dispatchEvent(shiftAltUp);
+    assert(!shiftAltUp.defaultPrevented, '⇧⌥↑ (select by paragraph) must stay the text field\'s');
+    textarea.blur();
+    rootCol.querySelector('#message-list')?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true })
+    );
+    await settle();
+    assert(selectedNow() === ids[1],
+      `⌥↓ outside a field landed on ${selectedNow()}, not one step down (${ids[1]})`);
 
     // Stand where the user would: the row dragged right, so the column being
     // navigated is only partly on screen. Any rule that re-anchors the row on

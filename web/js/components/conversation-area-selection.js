@@ -555,53 +555,6 @@ export function selectPreviousItem(area) {
 }
 
 /**
- * Select the next user message below the current selection.
- * @param {any} area - ConversationArea instance
- */
-export function selectNextUserMessage(area) {
-  const items = getSelectableItemIds(area);
-  if (items.length === 0) return;
-
-  const currentIndex = area._localSelectedItemId ? items.indexOf(area._localSelectedItemId) : -1;
-  for (let i = currentIndex + 1; i < items.length; i++) {
-    const id = /** @type {string} */ (items[i]);
-    if (isUserMessageItem(area, id)) {
-      selectItem(area, id);
-      return;
-    }
-  }
-}
-
-/**
- * Select the previous user message above the current selection.
- * @param {any} area - ConversationArea instance
- */
-export function selectPreviousUserMessage(area) {
-  const items = getSelectableItemIds(area);
-  if (items.length === 0) return;
-
-  const currentIndex = area._localSelectedItemId ? items.indexOf(area._localSelectedItemId) : items.length;
-  for (let i = currentIndex - 1; i >= 0; i--) {
-    const id = /** @type {string} */ (items[i]);
-    if (isUserMessageItem(area, id)) {
-      selectItem(area, id);
-      return;
-    }
-  }
-}
-
-/**
- * Check whether a selectable item is a user message.
- * @param {any} area - ConversationArea instance
- * @param {string} itemId
- * @returns {boolean} True if the item is a user-message element.
- */
-function isUserMessageItem(area, itemId) {
-  const el = area.querySelector(`[message-id="${itemId}"]`);
-  return el?.tagName === 'USER-MESSAGE';
-}
-
-/**
  * Check whether a selectable item is a sub-thread tile.
  * @param {any} area - ConversationArea instance
  * @param {string} itemId

@@ -1147,24 +1147,16 @@ class ConversationTab extends JugglerElement {
             break;
           }
           case 'ArrowDown':
-            if (!activeArea) break;
-            e.preventDefault();
-            this._selection.markManualInteraction();
-            if (e.altKey) {
-              activeArea.selectNextUserMessage();
-            } else {
-              activeArea.selectNextItem();
-            }
-            break;
           case 'ArrowUp':
-            if (!activeArea) break;
+            // ⌥↑/↓ belong to the select-prev/next-item commands, which call
+            // stepItemSelection() themselves from the same document keydown —
+            // stepping here as well would move two items per press. ⌥⌘↑/↓ are
+            // the tab-switch chords, also not ours.
+            if (e.altKey || !activeArea) break;
             e.preventDefault();
             this._selection.markManualInteraction();
-            if (e.altKey) {
-              activeArea.selectPreviousUserMessage();
-            } else {
-              activeArea.selectPreviousItem();
-            }
+            if (e.key === 'ArrowDown') activeArea.selectNextItem();
+            else activeArea.selectPreviousItem();
             break;
           case 'ArrowRight':
             if (activeCol.tagName !== 'CONVERSATION-AREA') break;
@@ -1236,6 +1228,35 @@ class ConversationTab extends JugglerElement {
     };
 
     this.onDocument('keydown', /** @type {EventListener} */ (onKeydown));
+  }
+
+  /**
+   * Move the active column's item selection one item up or down, as plain ↑/↓
+   * do from outside a text field, without touching focus — so it can be driven
+   * from the composer (the select-prev/next-item commands) and leave the user
+   * typing where they were.
+   * @param {'prev'|'next'} direction
+   * @returns {boolean} True when there was a conversation column to step in.
+   */
+  stepItemSelection(direction) {
+    // Typing in a column's composer means that column, whichever one the
+    // keyboard was last walking; otherwise the active one.
+    const typingIn = document.activeElement?.closest('conversation-area');
+    const area = asArea(typingIn && this._columns.includes(/** @type {HTMLElement} */ (typingIn))
+      ? typingIn
+      : this._columns[this._selection.activeColumnIndex]);
+    if (!area) return false;
+    // Rule 15 suppression: a step onto a thread tile rebuilds the columns, and
+    // that rebuild must not hand focus to the sub-thread's composer.
+    this._isKeyboardNavigating = true;
+    try {
+      this._selection.markManualInteraction();
+      if (direction === 'next') area.selectNextItem();
+      else area.selectPreviousItem();
+    } finally {
+      this._isKeyboardNavigating = false;
+    }
+    return true;
   }
 
   /**

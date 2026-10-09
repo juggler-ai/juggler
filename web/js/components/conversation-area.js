@@ -1546,16 +1546,6 @@ class ConversationArea extends HTMLElement {
     selection.selectPreviousItem(this);
   }
 
-  /** Skip forward to the next user message */
-  selectNextUserMessage() {
-    selection.selectNextUserMessage(this);
-  }
-
-  /** Skip backward to the previous user message */
-  selectPreviousUserMessage() {
-    selection.selectPreviousUserMessage(this);
-  }
-
   /**
    * Select a specific item by ID
    * @param {string} itemId

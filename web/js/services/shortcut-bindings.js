@@ -24,6 +24,16 @@ import { getModelSelector } from './model-cycler.js';
 import findBar, { findPanelFor } from '../components/find-bar.js';
 
 /**
+ * Step the visible tab's item selection one item up or down.
+ * @param {'prev'|'next'} direction
+ * @returns {boolean} True when there was a conversation column to step in.
+ */
+function stepActiveTabSelection(direction) {
+  const tab = /** @type {any} */ (document.querySelector('conversation-tab.active'));
+  return tab?.stepItemSelection?.(direction) ?? false;
+}
+
+/**
  * Register the conversation command handlers and install the global dispatcher.
  * Idempotent: re-registering (e.g. on reconnect with a fresh session) simply
  * rebinds the handlers to the current session.
@@ -68,6 +78,12 @@ export function registerConversationShortcuts(session) {
     window.dispatchEvent(new CustomEvent('juggler:move-tab', { detail: { direction: 'down' } }));
     return true;
   });
+  // Select-prev/next-item (⌥↑/↓) walk the visible tab's active column the way
+  // plain ↑/↓ do from outside a text field, but from anywhere — the composer
+  // included, where focus stays put. Falls through where there is no
+  // conversation to walk, so the field keeps its own meaning for the key.
+  keyShortcutManager.register('select-prev-item', () => stepActiveTabSelection('prev'));
+  keyShortcutManager.register('select-next-item', () => stepActiveTabSelection('next'));
   keyShortcutManager.register('jump-to-attention', () => {
     const acted = jumpToAttentionConversation(session);
     if (acted) markSeen('jump-to-attention');

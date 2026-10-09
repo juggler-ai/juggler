@@ -9,6 +9,7 @@ of changes; this project follows semantic versioning.
 - A send refused for having no model no longer locks undo and New Thread
 - Arrow keys in a diff's context dropdown no longer also move the conversation selection
 - Alt+Up/Down move the conversation selection, even while typing in the message box
+- On Linux, an MCP server added in Settings reaches the model without a restart
 
 ## [0.7.5] - 2026-10-06
 

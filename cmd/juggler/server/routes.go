@@ -245,9 +245,8 @@ func (s *Server) setupSessionRoutes(sessionAPI *handlers.SessionAPI) {
 	// <convDir>/assets/<sha>.<ext>. {sha} is validated as 64-char lowercase hex.
 	api.HandleFunc("/session/conversations/{convId}/assets/{sha}", sessionAPI.HandleGetAsset).Methods("GET")
 	// Upload raw image bytes (mime in Content-Type) → content-addressed store;
-	// returns the AssetRef. It reads no server state: an exception to the
-	// placement rule in handlers/doc.go, whose home is beside HandleGetAsset.
-	api.HandleFunc("/session/conversations/{convId}/assets", s.handleUploadAsset).Methods("POST")
+	// returns the AssetRef.
+	api.HandleFunc("/session/conversations/{convId}/assets", sessionAPI.HandleUploadAsset).Methods("POST")
 	api.HandleFunc("/session/conversations/{convId}/bin", sessionAPI.HandleBinConversation).Methods("POST")
 	api.HandleFunc("/session/binned-conversations", sessionAPI.HandleListBinnedConversations).Methods("GET")
 	api.HandleFunc("/session/binned-conversations", sessionAPI.HandleEmptyBin).Methods("DELETE")
@@ -318,11 +317,12 @@ func (s *Server) setupConfigRoutes(configAPI *handlers.ConfigAPI) {
 	// the current prompt as a new preset; DELETE removes one; PUT .../default
 	// records which preset (built-in or user) new conversations seed from.
 	// The /default route is registered before /{id} so it isn't shadowed.
-	api.HandleFunc("/system-prompt-presets", s.handleGetSystemPromptPresets).Methods("GET")
-	api.HandleFunc("/system-prompt-presets", s.handleCreateSystemPromptPreset).Methods("POST")
-	api.HandleFunc("/system-prompt-presets/default", s.handleSetDefaultSystemPromptPreset).Methods("PUT")
-	api.HandleFunc("/system-prompt-presets/{id}", s.handleDeleteSystemPromptPreset).Methods("DELETE")
-	api.HandleFunc("/system-prompt-presets/{id}", s.handleUpdateSystemPromptPreset).Methods("PUT")
+	presets := s.systemPromptPresetsAPI
+	api.HandleFunc("/system-prompt-presets", presets.HandleGetPresets).Methods("GET")
+	api.HandleFunc("/system-prompt-presets", presets.HandleCreatePreset).Methods("POST")
+	api.HandleFunc("/system-prompt-presets/default", presets.HandleSetDefaultPreset).Methods("PUT")
+	api.HandleFunc("/system-prompt-presets/{id}", presets.HandleDeletePreset).Methods("DELETE")
+	api.HandleFunc("/system-prompt-presets/{id}", presets.HandleUpdatePreset).Methods("PUT")
 
 	// Recently-selected concrete models, persisted server-side so the list
 	// survives an app relaunch / a port change (browser localStorage is
@@ -480,7 +480,7 @@ func (s *Server) setupBootstrapRoutes() {
 	api := s.router.PathPrefix(apipaths.Prefix).Subrouter()
 	api.HandleFunc(apiRoute(apipaths.WebSocket), s.handleWebSocket).Methods("GET")
 	api.HandleFunc(apiRoute(apipaths.WebRTCSignal), s.handleWebRTCSignal).Methods("POST")
-	api.HandleFunc(apiRoute(apipaths.Health), s.handleHealth).Methods("GET")
+	api.HandleFunc(apiRoute(apipaths.Health), handlers.HandleHealth).Methods("GET")
 	api.HandleFunc(apiRoute(apipaths.HealthActive), s.handleHealthActive).Methods("GET")
 	api.HandleFunc(apiRoute(apipaths.HealthInstance), s.handleHealthInstance).Methods("GET")
 	api.HandleFunc(apiRoute(apipaths.Shutdown), s.handleShutdown).Methods("POST")
@@ -506,12 +506,12 @@ func (s *Server) setupRoutes() {
 	api.HandleFunc("/providers/switch", s.handleProviderSwitch).Methods("POST")
 	// What first-run setup found on this machine (see onboarding_api.go).
 	api.HandleFunc("/onboarding/detect", s.handleOnboardingDetect).Methods("GET")
-	// GitHub Copilot device-flow sign-in (see copilot_signin.go).
-	api.HandleFunc("/providers/copilot/device/start", s.handleCopilotDeviceStart).Methods("POST")
-	api.HandleFunc("/providers/copilot/device/poll", s.handleCopilotDevicePoll).Methods("POST")
-	api.HandleFunc("/providers/copilot/signout", s.handleCopilotSignOut).Methods("POST")
-	api.HandleFunc("/providers/copilot/host", s.handleCopilotGetHost).Methods("GET")
-	api.HandleFunc("/providers/copilot/host", s.handleCopilotSetHost).Methods("POST")
+	// GitHub Copilot device-flow sign-in (see handlers/copilot.go).
+	api.HandleFunc("/providers/copilot/device/start", s.configAPI.HandleCopilotDeviceStart).Methods("POST")
+	api.HandleFunc("/providers/copilot/device/poll", s.configAPI.HandleCopilotDevicePoll).Methods("POST")
+	api.HandleFunc("/providers/copilot/signout", s.configAPI.HandleCopilotSignOut).Methods("POST")
+	api.HandleFunc("/providers/copilot/host", s.configAPI.HandleCopilotGetHost).Methods("GET")
+	api.HandleFunc("/providers/copilot/host", s.configAPI.HandleCopilotSetHost).Methods("POST")
 
 	api.HandleFunc("/extensions", s.extensionsAPI.HandleListExtensions).Methods("GET")
 	api.HandleFunc("/extensions/locations", s.extensionsAPI.HandleListLocations).Methods("GET")
@@ -658,8 +658,8 @@ func (s *Server) setupRoutes() {
 	// Frontend → application-log bridge. Both the worker-backed engine runtime (as
 	// it boots) and the viewer's chime path (rare untoward audio events) POST here;
 	// their WebView consoles are invisible in a shipped build, so this is the only
-	// window into either. See client_report.go.
-	s.router.HandleFunc("/api/client/report", s.handleClientReport).Methods("POST")
+	// window into either. See handlers.HandleClientReport.
+	s.router.HandleFunc("/api/client/report", handlers.HandleClientReport).Methods("POST")
 
 	// Wails v3 runtime — served to every client (see wails_runtime.go).
 	s.router.HandleFunc("/wails/runtime.js", s.handleWailsRuntime).Methods("GET")

@@ -20,6 +20,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/ops"
+	"juggler/cmd/juggler/worker"
 	"juggler/internal/jlog"
 
 	"github.com/gorilla/mux"
@@ -852,6 +853,58 @@ func assetContentType(path string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+// maxAssetUploadBytes caps an uploaded attachment. The raw bytes are the request
+// body, so this bounds memory per upload.
+const maxAssetUploadBytes = 25 << 20 // 25 MiB
+
+// HandleUploadAsset accepts the raw image bytes as the request body (mime in the
+// Content-Type header), stores them content-addressed via worker.AssetStore, and
+// returns the resulting AssetRef as JSON. HandleGetAsset serves them back.
+func (api *SessionAPI) HandleUploadAsset(w http.ResponseWriter, r *http.Request) {
+	convID, ok := ConvIDFromVars(w, r)
+	if !ok {
+		return
+	}
+
+	contentType := r.Header.Get("Content-Type")
+	if mediaType, _, ok := strings.Cut(contentType, ";"); ok {
+		contentType = strings.TrimSpace(mediaType)
+	}
+	if !strings.HasPrefix(contentType, "image/") {
+		WriteError(w, r, http.StatusBadRequest, "Only image/* uploads are accepted")
+		return
+	}
+
+	// The asset store resolves the per-conversation folder through the current
+	// session manager, knowing nothing about the project layout. With no project
+	// loaded there is no manager, and no conversation to store into.
+	assetStore := worker.NewAssetStore(func(convID string) (string, bool) {
+		sm := api.manager()
+		if sm == nil {
+			return "", false
+		}
+		return sm.ConvDir(convID)
+	})
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxAssetUploadBytes)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		WriteError(w, r, http.StatusBadRequest, "Upload too large or read failed")
+		return
+	}
+	if len(data) == 0 {
+		WriteError(w, r, http.StatusBadRequest, "Empty upload")
+		return
+	}
+
+	ref, err := assetStore.Save(convID, data, contentType)
+	if err != nil {
+		WriteError(w, r, http.StatusInternalServerError, err.Error())
+		return
+	}
+	WriteJSON(w, r, http.StatusOK, ref)
 }
 
 // HandleUpdateConversation updates a single conversation (binary Yjs format)

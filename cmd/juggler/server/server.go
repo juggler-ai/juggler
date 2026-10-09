@@ -98,22 +98,22 @@ type serverAPIs struct {
 	skillsRegistryAPI *handlers.SkillsRegistryAPI
 	configAPI         *handlers.ConfigAPI
 	sessionAPI        *handlers.SessionAPI // Kept so RegisterTestRoutes can wire test-mode hooks
+	// systemPromptPresetsAPI serves user-saved system-prompt presets and the
+	// chosen session-default preset id (~/.juggler/system-prompt-presets.json).
+	systemPromptPresetsAPI *handlers.SystemPromptPresetsAPI
 }
 
 // serverStores are the JSON-backed preference stores under ~/.juggler, all
 // user-global rather than per-project. Embedded in Server.
 //
 // The global settings document is deliberately NOT here: it is written later in
-// New than these five, and keeping it out is what lets this group be assigned as
+// New than these four, and keeping it out is what lets this group be assigned as
 // one literal without a later write being at risk of being wiped.
 type serverStores struct {
 	defaultModelStore *core.DefaultModelStore
 	cheapModelStore   *core.CheapModelStore
 	recentsStore      *core.RecentsStore
 	recentModelsStore *core.RecentModelsStore
-	// systemPromptPresetStore persists user-saved system-prompt presets and the
-	// chosen session-default preset id (~/.juggler/system-prompt-presets.json).
-	systemPromptPresetStore *core.SystemPromptPresetStore
 }
 
 // providerRefresh is the provider/model snapshot and the actor that recomputes
@@ -432,13 +432,14 @@ func New(cfg Config) (*Server, error) {
 		skillsRegistryAPI: handlers.NewSkillsRegistryAPI(s.ProjectPath, skillsAPI),
 		configAPI:         configAPI,
 		sessionAPI:        sessionAPI,
+
+		systemPromptPresetsAPI: handlers.NewSystemPromptPresetsAPI(systemPromptPresetStore),
 	}
 	s.serverStores = serverStores{
-		defaultModelStore:       defaultModelStore,
-		cheapModelStore:         cheapModelStore,
-		recentsStore:            recents,
-		recentModelsStore:       recentModels,
-		systemPromptPresetStore: systemPromptPresetStore,
+		defaultModelStore: defaultModelStore,
+		cheapModelStore:   cheapModelStore,
+		recentsStore:      recents,
+		recentModelsStore: recentModels,
 	}
 
 	s.router = router

@@ -9,12 +9,8 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"juggler/cmd/juggler/server/handlers"
-	"juggler/internal/jlog"
-
-	"rsc.io/qr"
 )
 
 // setupConnectivityRoutes registers the /api/connectivity endpoints.
@@ -23,7 +19,7 @@ func (s *Server) setupConnectivityRoutes() {
 	api.HandleFunc("/connectivity", s.handleGetConnectivity).Methods("GET")
 	api.HandleFunc("/connectivity/lan", s.handleSetLAN).Methods("POST")
 	api.HandleFunc("/connectivity/tunnel", s.handleSetTunnel).Methods("POST")
-	api.HandleFunc("/connectivity/qr", s.handleQRCode).Methods("GET")
+	api.HandleFunc("/connectivity/qr", handlers.HandleQRCode).Methods("GET")
 }
 
 func (s *Server) handleGetConnectivity(w http.ResponseWriter, r *http.Request) {
@@ -123,54 +119,4 @@ func (s *Server) handleSetTunnel(w http.ResponseWriter, r *http.Request) {
 		relay = info.Relay
 	}
 	handlers.WriteSuccess(w, r, map[string]any{"tunnelURL": tunnelURL, "tunnelMode": string(mode), "relay": relay})
-}
-
-// handleQRCode serves a QR code SVG for the given ?url= query parameter.
-// The SVG has a transparent background and uses fill="currentColor" so that
-// inline-embedded markup inherits the surrounding text colour.
-func (s *Server) handleQRCode(w http.ResponseWriter, r *http.Request) {
-	rawURL := r.URL.Query().Get("url")
-	if rawURL == "" {
-		http.Error(w, "url param required", http.StatusBadRequest)
-		return
-	}
-	code, err := qr.Encode(rawURL, qr.M)
-	if err != nil {
-		http.Error(w, "Couldn't encode QR", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	if _, err := w.Write([]byte(qrToSVG(code))); err != nil {
-		jlog.Error("qr: write error: %v", err)
-	}
-}
-
-// qrToSVG renders a QR code as an SVG with one rect per horizontal run of
-// dark modules. fill="currentColor" lets inline-embedded SVG inherit the
-// surrounding text colour; no background rect is emitted, so the SVG is
-// transparent.
-func qrToSVG(code *qr.Code) string {
-	n := code.Size
-	var b strings.Builder
-	fmt.Fprintf(&b,
-		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" shape-rendering="crispEdges">`,
-		n, n)
-	b.WriteString(`<g fill="currentColor">`)
-	for y := 0; y < n; y++ {
-		x := 0
-		for x < n {
-			if !code.Black(x, y) {
-				x++
-				continue
-			}
-			runStart := x
-			for x < n && code.Black(x, y) {
-				x++
-			}
-			fmt.Fprintf(&b, `<rect x="%d" y="%d" width="%d" height="1"/>`, runStart, y, x-runStart)
-		}
-	}
-	b.WriteString(`</g></svg>`)
-	return b.String()
 }

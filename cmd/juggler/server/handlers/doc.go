@@ -13,7 +13,10 @@
 // when it reads the server's own running state: the provider cache, the
 // in-memory settings and update checker, the WS hub, the engine client, the
 // tunnel and LAN, shutdown, or the page and static-asset serving. Imports do not
-// decide it: the only package out of reach from here is server itself.
+// decide it: the only package out of reach from here is server itself. A
+// handler that needs nothing injected at all is a plain function (stateless.go).
+// TestServerHandlersReadServerState, in package server, enforces this from the
+// other side.
 //
 // What Juggler keeps on disk is not decided here. Where each file lives (under
 // a project's .juggler/, the user config directory or the cache), its format,

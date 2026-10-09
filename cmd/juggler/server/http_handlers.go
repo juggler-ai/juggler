@@ -32,14 +32,6 @@ func (s *Server) handleEngineStatus(w http.ResponseWriter, r *http.Request) {
 	handlers.WriteJSON(w, r, 0, body)
 }
 
-// handleHealth returns server health status
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	handlers.WriteJSON(w, r, 0, map[string]any{
-		"status": "ok",
-		"time":   time.Now().Unix(),
-	})
-}
-
 // handleHealthActive returns whether any conversation is actively running a turn
 // (turns parked solely on a pending tool approval are not counted — they survive
 // a restart intact, so callers like the desktop quit guard need not warn).

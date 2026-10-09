@@ -2,16 +2,31 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package server
+package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
-	"juggler/cmd/juggler/server/handlers"
 	"juggler/internal/jlog"
+
+	"rsc.io/qr"
 )
 
-// handleClientReport is the frontend → application-log bridge. The desktop app's
+// The handlers here need nothing injected at all, so they are plain functions
+// rather than methods on an API struct.
+
+// HandleHealth reports that the server is up, with its current Unix time.
+func HandleHealth(w http.ResponseWriter, r *http.Request) {
+	WriteJSON(w, r, 0, map[string]any{
+		"status": "ok",
+		"time":   time.Now().Unix(),
+	})
+}
+
+// HandleClientReport is the frontend → application-log bridge. The desktop app's
 // WebView console (and the engine's hidden worker WebView console) can't be read
 // in a shipped build, so a fault a real user hits would otherwise vanish — this
 // endpoint lands it in the app log they can send us. Two callers use it:
@@ -26,8 +41,8 @@ import (
 // Body: {source?, event?, message?, stack?}. event "error" logs at Error,
 // "ready" at Info, anything else at Debug. Callers send only untoward events, so
 // the app log stays quiet unless something actually went wrong.
-func (s *Server) handleClientReport(w http.ResponseWriter, r *http.Request) {
-	body, ok := handlers.DecodeJSON[struct {
+func HandleClientReport(w http.ResponseWriter, r *http.Request) {
+	body, ok := DecodeJSON[struct {
 		Source  string `json:"source"`
 		Event   string `json:"event"`
 		Message string `json:"message"`
@@ -67,4 +82,54 @@ func (s *Server) handleClientReport(w http.ResponseWriter, r *http.Request) {
 		jlog.Info("[%s] %s", source, msg)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// HandleQRCode serves a QR code SVG for the given ?url= query parameter.
+// The SVG has a transparent background and uses fill="currentColor" so that
+// inline-embedded markup inherits the surrounding text colour.
+func HandleQRCode(w http.ResponseWriter, r *http.Request) {
+	rawURL := r.URL.Query().Get("url")
+	if rawURL == "" {
+		http.Error(w, "url param required", http.StatusBadRequest)
+		return
+	}
+	code, err := qr.Encode(rawURL, qr.M)
+	if err != nil {
+		http.Error(w, "Couldn't encode QR", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	if _, err := w.Write([]byte(qrToSVG(code))); err != nil {
+		jlog.Error("qr: write error: %v", err)
+	}
+}
+
+// qrToSVG renders a QR code as an SVG with one rect per horizontal run of
+// dark modules. fill="currentColor" lets inline-embedded SVG inherit the
+// surrounding text colour; no background rect is emitted, so the SVG is
+// transparent.
+func qrToSVG(code *qr.Code) string {
+	n := code.Size
+	var b strings.Builder
+	fmt.Fprintf(&b,
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" shape-rendering="crispEdges">`,
+		n, n)
+	b.WriteString(`<g fill="currentColor">`)
+	for y := 0; y < n; y++ {
+		x := 0
+		for x < n {
+			if !code.Black(x, y) {
+				x++
+				continue
+			}
+			runStart := x
+			for x < n && code.Black(x, y) {
+				x++
+			}
+			fmt.Fprintf(&b, `<rect x="%d" y="%d" width="%d" height="1"/>`, runStart, y, x-runStart)
+		}
+	}
+	b.WriteString(`</g></svg>`)
+	return b.String()
 }

@@ -67,15 +67,14 @@ export default function systemPromptContribution({ enabledPluginIds }) {
 
   // Context economy — every tool whose point is doing work without putting it
   // in the transcript, explained once and side by side, because the choice
-  // between them (computation vs. judgement) is what the model gets wrong when
+  // between them (a script vs. a sub-agent) is what the model gets wrong when
   // each is described alone. Each line gates on its own plugin.
   /** @type {string[]} */
   const economyLines = [];
   if (has('explore-code')) {
     economyLines.push(
-      '- **Computation → `query_code`.** The answer is computable from the codebase: trace a call chain, ' +
-      'find every usage of a symbol, map how a module fits together. One script replaces three or more ' +
-      'read/grep/glob calls; only what it returns or prints comes back.'
+      '- **`query_code`** — use it instead of making several read/grep/glob calls. Only what the script ' +
+      'returns comes back.'
     );
   }
   if (has('explore-agent')) {
@@ -109,8 +108,7 @@ export default function systemPromptContribution({ enabledPluginIds }) {
       'These tools do work whose intermediate steps never enter this conversation — only the result does. ' +
       'Choose by what the work needs:\n' + economyLines.join('\n');
     if (has('explore-code') && (has('explore-agent') || has('research-agent') || has('thread'))) {
-      economy += '\nIf a script could compute the answer exactly, the work is computation, not judgement: ' +
-        'write `query_code` rather than delegating it.';
+      economy += '\nPrefer `query_code` over a sub-agent when a script can answer it.';
     }
     toolUsage.push(economy);
   }

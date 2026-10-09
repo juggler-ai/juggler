@@ -35,7 +35,7 @@ import {
  * @property {string[]} errors Collected error messages.
  */
 
-const EXPLORE_MARKER = '→ `query_code`';
+const EXPLORE_MARKER = '**`query_code`** — use it instead of';
 // The plugin id the query_code tool ships under. Pinned as a literal on
 // purpose: it is persisted in users' enabled-plugin lists, so it is a
 // compatibility constant, not a name that may follow the tool or the file.
@@ -43,7 +43,7 @@ const QUERY_CODE_PLUGIN_ID = 'explore-code';
 const THREAD_MARKER = '→ `create_thread`';
 const NEW_CONV_MARKER = 'use new_conversation';
 const ECONOMY_HEADING = '### Keeping intermediate work out of context';
-const ECONOMY_RULE = 'computation, not judgement';
+const ECONOMY_RULE = 'Prefer `query_code` over a sub-agent';
 
 /**
  * Each context-economy mechanism, the plugin it ships under, and the marker of
@@ -148,7 +148,7 @@ export async function runTests(_ctx) {
       'no section when none of its tools are enabled');
   });
 
-  await test('the computation-vs-judgement rule appears only when both sides do', () => {
+  await test('the query_code-over-sub-agent rule appears only when both sides do', () => {
     assert(systemPromptContribution({ enabledPluginIds: ['explore-code', 'explore-agent'] }).includes(ECONOMY_RULE),
       'query_code beside a sub-agent must get the rule that tells them apart');
     assert(!systemPromptContribution({ enabledPluginIds: ['explore-code'] }).includes(ECONOMY_RULE),

@@ -431,7 +431,7 @@ export async function runTests() {
         assert(col.getSelectedItemId() !== listed[0],
           'ArrowDown after the delete jumped to the first row');
       } finally {
-        setToolGroupingEnabled(originalGrouping);
+        await setToolGroupingEnabled(originalGrouping);
       }
     });
   } catch (e) {

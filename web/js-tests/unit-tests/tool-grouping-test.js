@@ -553,7 +553,7 @@ export async function runTests() {
       void setWindowPref('juggler-tool-grouping', null);
       assert(isToolGroupingEnabled() === false, 'unset means off — the flat transcript is the default');
     } finally {
-      setToolGroupingEnabled(original);
+      await setToolGroupingEnabled(original);
     }
     passed++;
   } catch (e) { failed++; errors.push(`preference: ${msg(e)}`); }
@@ -570,7 +570,7 @@ export async function runTests() {
         'a user-wide value does not override this window\'s choice');
     } finally {
       await setUserPref('juggler-tool-grouping', null);
-      setToolGroupingEnabled(original);
+      await setToolGroupingEnabled(original);
     }
     passed++;
   } catch (e) { failed++; errors.push(`preference realm: ${msg(e)}`); }

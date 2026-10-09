@@ -696,7 +696,9 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:auto-follow-holds-the-end', run: runAutoFollowHoldsTheEndTests },
   { name: 'unit:user-send-follow', run: runUserSendFollowTests },
   { name: 'unit:thread-column-landing', run: runThreadColumnLandingTests },
-  { name: 'unit:jump-to-attention-reveal', run: runJumpToAttentionRevealTests },
+  // Exclusive for the shared origin: it turns tool grouping on, and a sibling
+  // drawing tool rows meanwhile finds them folded into a group.
+  { name: 'unit:jump-to-attention-reveal', run: runJumpToAttentionRevealTests, needsExclusiveRun: true },
   { name: 'unit:column-builder', run: runColumnBuilderTests },
   { name: 'unit:empty-conversation-hint', run: runEmptyConversationHintTests },
   { name: 'unit:no-conversations-onboarding', run: runNoConversationsOnboardingTests },
@@ -706,7 +708,9 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:starter-prompts', run: runStarterPromptsTests },
   { name: 'unit:column-file-drop', run: runColumnFileDropTests },
   { name: 'unit:composer-attach-button', run: runComposerAttachButtonTests },
-  { name: 'unit:column-navigation', run: runColumnNavigationTests },
+  // Exclusive: it asserts ⌥↑ leaves the composer focused, and a sibling lane
+  // taking the window's focus mid-case blurs it whatever the code under test did.
+  { name: 'unit:column-navigation', run: runColumnNavigationTests, needsExclusiveRun: true },
   // Exclusive for the shared origin: one case writes the tool-grouping
   // localStorage preference, which every lane's renderer reads.
   { name: 'unit:delete-selection-neighbour', run: runDeleteSelectionNeighbourTests, needsExclusiveRun: true },

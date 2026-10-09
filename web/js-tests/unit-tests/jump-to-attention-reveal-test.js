@@ -159,7 +159,9 @@ export async function runTests() {
     failed = 1;
     errors.push(e instanceof Error ? e.message : String(e));
   } finally {
-    setToolGroupingEnabled(originalGrouping);
+    // Awaited: a lane that loads before the restore reaches the server reads the
+    // value set above and keeps it, folding every tool run it draws.
+    await setToolGroupingEnabled(originalGrouping);
     container.remove();
     if (conversation && session) {
       try {

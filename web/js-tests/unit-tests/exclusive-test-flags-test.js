@@ -111,5 +111,25 @@ export async function runTests(_ctx) {
     }
   });
 
+  await run('the suites that switch tool grouping on are exclusive', () => {
+    const exclusive = new Set(listExclusiveTests());
+
+    // The preference is read by every lane's renderer, so while one of these has
+    // it on, a sibling's tool rows fold into a group and its DOM assertions fail.
+    const missing = ['unit:tool-grouping', 'unit:delete-selection-neighbour', 'unit:jump-to-attention-reveal']
+      .filter(name => !exclusive.has(name));
+    if (missing.length) {
+      throw new Error(`${missing.join(', ')} turn tool grouping on, so they must run alone`);
+    }
+  });
+
+  await run('the suites that assert the composer keeps focus are exclusive', () => {
+    const exclusive = new Set(listExclusiveTests());
+    // A sibling lane taking the window's focus blurs the composer mid-case.
+    if (!exclusive.has('unit:column-navigation')) {
+      throw new Error('unit:column-navigation asserts document.activeElement, so it must run alone');
+    }
+  });
+
   return { passed, failed, errors };
 }

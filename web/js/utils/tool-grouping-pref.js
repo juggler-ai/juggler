@@ -36,12 +36,15 @@ export function isToolGroupingEnabled() {
 
 /**
  * Set the preference and notify listeners.
+ * The local cache changes at once; the realm write is debounced, so the server
+ * holds the previous value until the returned promise resolves.
  * @param {boolean} enabled - True to collapse tool runs into group tiles.
- * @returns {void}
+ * @returns {Promise<void>} Resolves when the write has been sent.
  */
 export function setToolGroupingEnabled(enabled) {
-  void setWindowPref(PREF_KEY, !!enabled);
+  const written = setWindowPref(PREF_KEY, !!enabled);
   notifyPrefChanged(TOOL_GROUPING_EVENT);
+  return written;
 }
 
 /**
@@ -50,7 +53,7 @@ export function setToolGroupingEnabled(enabled) {
  */
 export function toggleToolGrouping() {
   const next = !isToolGroupingEnabled();
-  setToolGroupingEnabled(next);
+  void setToolGroupingEnabled(next);
   return next;
 }
 

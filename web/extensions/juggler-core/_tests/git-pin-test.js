@@ -368,6 +368,27 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
+  // The pin follows the visible conversation, so the same pin shows the project
+  // and then a worktree. The tree's name comes with the review it describes.
+  await test('a workspace tree is named in the scope, and the project is not', async () => {
+    const files = [{ path: 'a.js', index: 'M', worktree: '.', added: 1, removed: 0 }];
+    const tree = await mounted({ manifest: manifestOf(files, { workspace: 'feat/tunnels' }) });
+    const treeScope = tree.body.querySelector('.review-panel__scope')?.textContent || '';
+    assert(treeScope.includes('Working tree of feat/tunnels against HEAD'),
+      `a worktree's review must say whose tree it is:\n${treeScope}`);
+    tree.teardown();
+
+    const empty = await mounted({ manifest: { root: '/tmp/wt', workspace: 'scratch', complete: true, warnings: [], repos: [] } });
+    assert(empty.text().trim() === 'No git repository in scratch.', `got ${JSON.stringify(empty.text())}`);
+    empty.teardown();
+
+    const project = await mounted({ manifest: manifestOf(files) });
+    const projectScope = project.body.querySelector('.review-panel__scope')?.textContent || '';
+    assert(projectScope.includes('Working tree against HEAD') && !projectScope.includes(' of '),
+      `the project's review names no workspace:\n${projectScope}`);
+    project.teardown();
+  });
+
   // --- one file at a time ---------------------------------------------------
 
   await test('mounting asks for a review and loads only the first file', async () => {

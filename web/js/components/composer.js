@@ -13,7 +13,7 @@ import { isAnyPopupOpen } from '../utils/popup-manager.js';
 import { handleEscapeKey } from '../services/escape-behaviour.js';
 import { presentPopup, COARSE_POINTER_QUERY } from '../utils/popup-surface.js';
 import { CompletionMenu } from './completion-menu.js';
-import { fileMentionProvider, extractFileMentionsAsync } from './file-mention-provider.js';
+import { createFileMentionProvider, extractFileMentionsAsync } from './file-mention-provider.js';
 import { slashCommandProvider } from './slash-command-provider.js';
 import {
   createSkillMentionProvider,
@@ -374,10 +374,12 @@ class Composer extends HTMLElement {
       // user to press Enter a second time.
       onSubmit: () => this.sendMessage(),
       // `$name` skill mentions resolve against THIS thread's frozen snapshot,
-      // evaluated lazily per fetch so a later thread swap is picked up.
+      // and `@` mentions list THIS conversation's working tree — both evaluated
+      // lazily per fetch so a later thread swap or a first-send binding is
+      // picked up.
       providers: [
         slashCommandProvider,
-        fileMentionProvider,
+        createFileMentionProvider(() => this._messageThread?.conversation?.workingWorkspaceId ?? ''),
         createSkillMentionProvider(() => getThreadSkillSnapshot(this._messageThread)),
       ],
     });
@@ -1498,7 +1500,7 @@ class Composer extends HTMLElement {
         // Create context items for all @-mentions AND dropped text files before
         // sending (from the trigger-stripped prose — stripping `$name` never
         // affects an `@` token). Awaited here so these land BEFORE the user message.
-        const paths = await extractFileMentionsAsync(outgoingMessage);
+        const paths = await extractFileMentionsAsync(outgoingMessage, mt.conversation?.workingWorkspaceId ?? '');
         const textFiles = this._pendingTextFiles;
         this._pendingTextFiles = [];
         if (paths.length > 0 || textFiles.length > 0) {

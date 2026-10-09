@@ -353,7 +353,7 @@ class ScheduledSendService {
       // is frozen at its send, as the composer's is.
       const busy = thread.isProcessing ||
         (typeof thread.hasBusyItems === 'function' && thread.hasBusyItems());
-      const paths = await extractFileMentionsAsync(text);
+      const paths = await extractFileMentionsAsync(text, thread.conversation?.workingWorkspaceId ?? '');
       if (paths.length > 0 || textFiles.length > 0) {
         await Promise.all([
           ...paths.map((p) => busy

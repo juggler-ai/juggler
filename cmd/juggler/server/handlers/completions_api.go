@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/ops"
 )
 
@@ -19,6 +20,7 @@ import (
 // switches transparently retarget the search root.
 type CompletionsAPI struct {
 	pathProvider  func() string
+	workspaces    core.WorkspaceLookup
 	indexProvider func() ops.PathSearcher
 }
 
@@ -27,8 +29,35 @@ type CompletionsAPI struct {
 // current file-path index (or nil in no-project mode) for whole-tree "@"
 // completion; it may itself be nil, in which case completion is prefix-scan
 // only.
-func NewCompletionsAPI(pathProvider func() string, indexProvider func() ops.PathSearcher) *CompletionsAPI {
-	return &CompletionsAPI{pathProvider: pathProvider, indexProvider: indexProvider}
+func NewCompletionsAPI(pathProvider func() string, workspaces core.WorkspaceLookup, indexProvider func() ops.PathSearcher) *CompletionsAPI {
+	return &CompletionsAPI{pathProvider: pathProvider, workspaces: workspaces, indexProvider: indexProvider}
+}
+
+// completionRoot is the tree a completion request is about, and the searcher for
+// whole-tree matches in it: the workspace named by the `workspace` query
+// parameter, or the project when it names none.
+//
+// A mention becomes a file-content item that reads from the conversation's
+// workspace, so the menu offering it must list that tree — the project's would
+// offer files the read cannot find and hide the ones it can. The project's path
+// index describes the project alone, so a workspace is searched by walking it.
+//
+// ok is false when the workspace cannot be honoured (`WorkspaceLookup.Usable`'s
+// four refusals). Completion is best-effort, so the caller answers empty rather
+// than failing — and never with the project instead.
+func (a *CompletionsAPI) completionRoot(r *http.Request) (root string, searcher ops.PathSearcher, ok bool) {
+	id := r.URL.Query().Get("workspace")
+	if id == core.DefaultWorkspaceID {
+		if a.indexProvider != nil {
+			searcher = a.indexProvider()
+		}
+		return a.pathProvider(), searcher, true
+	}
+	ws, err := a.workspaces.Usable(id)
+	if err != nil {
+		return "", nil, false
+	}
+	return ws.Root, ops.NewTreeSearcher(r.Context(), ws.Root), true
 }
 
 // fileCompletionsResponse is the JSON response shape.
@@ -48,7 +77,13 @@ func (a *CompletionsAPI) HandlePathCompletions(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	results, err := ops.CompletePath(r.Context(), query, a.pathProvider(), limit)
+	// The base only anchors a "./" or "../" query; an absolute one ignores it.
+	base, _, ok := a.completionRoot(r)
+	if !ok {
+		WriteJSON(w, r, 0, fileCompletionsResponse{Results: []ops.FileMatch{}})
+		return
+	}
+	results, err := ops.CompletePath(r.Context(), query, base, limit)
 	if err != nil {
 		results = []ops.FileMatch{}
 	}
@@ -64,19 +99,20 @@ type pathExistsResponse struct {
 	Existing []string `json:"existing"`
 }
 
-// HandlePathExists handles GET /api/completions/exists?paths=p1&paths=p2 ...
+// HandlePathExists handles GET /api/completions/exists?paths=p1&paths=p2&workspace=<id>
 // Returns the subset of supplied paths that resolve to an existing filesystem
-// entry. Relative paths are resolved against the current project working dir;
-// leading "~" is expanded to $HOME. Used by the @-mention parser to filter out
-// stray "@word" tokens that look like identifiers, not file paths.
+// entry. Relative paths are resolved against the workspace's root (the project
+// when none is named); leading "~" is expanded to $HOME. Used by the @-mention
+// parser to filter out stray "@word" tokens that look like identifiers, not
+// file paths.
 func (a *CompletionsAPI) HandlePathExists(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query()["paths"]
-	if len(raw) == 0 {
+	workingDir, _, ok := a.completionRoot(r)
+	if len(raw) == 0 || !ok {
 		WriteJSON(w, r, 0, pathExistsResponse{Existing: []string{}})
 		return
 	}
 
-	workingDir := a.pathProvider()
 	existing := make([]string, 0, len(raw))
 	for _, p := range raw {
 		if p == "" {
@@ -115,7 +151,7 @@ func resolveForExists(p, workingDir string) string {
 	return filepath.Join(workingDir, p)
 }
 
-// HandleFileCompletions handles GET /api/completions/files?q=<query>&limit=<n>
+// HandleFileCompletions handles GET /api/completions/files?q=<query>&limit=<n>&workspace=<id>
 func (a *CompletionsAPI) HandleFileCompletions(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	limit := 20
@@ -125,14 +161,10 @@ func (a *CompletionsAPI) HandleFileCompletions(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	workingDir := a.pathProvider()
-	if workingDir == "" {
+	workingDir, searcher, ok := a.completionRoot(r)
+	if !ok || workingDir == "" {
 		WriteJSON(w, r, 0, fileCompletionsResponse{Results: []ops.FileMatch{}})
 		return
-	}
-	var searcher ops.PathSearcher
-	if a.indexProvider != nil {
-		searcher = a.indexProvider()
 	}
 	results, err := ops.CompleteFiles(r.Context(), workingDir, query, limit, searcher)
 	if err != nil {

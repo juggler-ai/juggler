@@ -36,6 +36,17 @@ injectStylesOnce('git-pin-styles', `
 const SCOPE_LABEL = 'Working tree against HEAD';
 
 /**
+ * The scope line for one review. A workspace's tree is named in it: the pin
+ * follows the visible conversation, so the same pin shows the project one moment
+ * and a worktree the next, and without the name the two read identically.
+ * @param {import('juggler/pinboard-item-type').PinGitReview} review - What the server reported.
+ * @returns {string} e.g. 'Working tree of feat/tunnels against HEAD'.
+ */
+function scopeLabel(review) {
+  return review.workspace ? `Working tree of ${review.workspace} against HEAD` : SCOPE_LABEL;
+}
+
+/**
  * Absolute path of one repository-relative file.
  * @param {string} root - Project root.
  * @param {string} repoPath - Repository path relative to the project.
@@ -101,6 +112,7 @@ function toManifest(review) {
   // several, and an unlabelled block would not say which.
   const showNames = !(repos.length === 1 && !repos[0]?.path);
   return {
+    scope: scopeLabel(review),
     complete: review.complete === true,
     warnings: review.warnings || [],
     groups: repos.map((repo) => ({
@@ -154,7 +166,7 @@ class GitPin extends PinboardItemType {
     id: 'git',
     name: 'Git',
     version: '1.0.0',
-    description: "Review the project's working tree against HEAD and comment on the changes",
+    description: "Review the working tree against HEAD — the project's, or the visible conversation's workspace — and comment on the changes",
     order: 40,
     defaultPin: true,
   };
@@ -243,7 +255,7 @@ class GitPin extends PinboardItemType {
       if ((review.repos || []).length === 0) {
         // Already the whole answer: the tab says what the pin is for, and this
         // says why there is none of it. Centred like every other empty card.
-        body.replaceChildren(pinEmpty('No git repository.'));
+        body.replaceChildren(pinEmpty(review.workspace ? `No git repository in ${review.workspace}.` : 'No git repository.'));
         return;
       }
 

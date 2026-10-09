@@ -419,7 +419,7 @@ func New(cfg Config) (*Server, error) {
 		// project switch retargets both, and a workspace registered a moment
 		// ago must resolve without rebuilding anything.
 		opsAPI: handlers.NewOpsAPI(s.ProjectPath, s.WorkspaceLookup()),
-		completionsAPI: handlers.NewCompletionsAPI(s.ProjectPath, func() ops.PathSearcher {
+		completionsAPI: handlers.NewCompletionsAPI(s.ProjectPath, s.WorkspaceLookup(), func() ops.PathSearcher {
 			if fw := s.FileWatcher(); fw != nil {
 				return fw.Index()
 			}

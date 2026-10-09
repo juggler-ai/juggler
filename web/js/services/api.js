@@ -545,7 +545,8 @@ class APIService {
    * read are omitted, and an empty repo list means no git repository was found.
    * @param {string} [workspaceId] - Workspace to read, '' or omitted for the project.
    * @param {{signal?: AbortSignal}} [options] - Cancellation, for a speculative read nobody is waiting on any more.
-   * @returns {Promise<{root: string, repos: GitRepoStatus[]}>} The root read and its per-repo status.
+   * @returns {Promise<{root: string, workspace?: string, repos: GitRepoStatus[]}>} The root read, the
+   *   workspace's name when that root is not the project, and its per-repo status.
    */
   async getGitStatus(workspaceId = '', options = {}) {
     return await this.request(`/git/status${gitWorkspaceQuery(workspaceId)}`,

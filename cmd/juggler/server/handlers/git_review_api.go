@@ -70,10 +70,11 @@ type gitReviewRepo struct {
 // false. Partial results stay in the response — they are worth reading, they are
 // just not everything.
 type gitReviewResponse struct {
-	Root     string          `json:"root"`
-	Complete bool            `json:"complete"`
-	Warnings []string        `json:"warnings"`
-	Repos    []gitReviewRepo `json:"repos"`
+	Root      string          `json:"root"`
+	Workspace string          `json:"workspace,omitempty"` // See gitTree.Name
+	Complete  bool            `json:"complete"`
+	Warnings  []string        `json:"warnings"`
+	Repos     []gitReviewRepo `json:"repos"`
 }
 
 // warn records something the review could not reach, once. A warning and an
@@ -108,11 +109,12 @@ func reviewScanLimits() repoScanLimits {
 // from it is a change that never gets reviewed — so nothing is quietly left out
 // here, and what cannot be included says so.
 func (a *GitStatusAPI) HandleGitReview(w http.ResponseWriter, r *http.Request) {
-	root, err := a.gitRoot(r)
+	tree, err := a.gitRoot(r)
 	if err != nil {
 		WriteError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
+	root := tree.Root
 	if root == "" {
 		// An empty manifest would be a complete review of nothing, which is a
 		// stronger claim than "there is no project open".
@@ -123,7 +125,7 @@ func (a *GitStatusAPI) HandleGitReview(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), gitReviewBudget)
 	defer cancel()
 
-	resp := gitReviewResponse{Root: root, Complete: true, Warnings: []string{}, Repos: []gitReviewRepo{}}
+	resp := gitReviewResponse{Root: root, Workspace: tree.Name, Complete: true, Warnings: []string{}, Repos: []gitReviewRepo{}}
 
 	scan := scanRepos(ctx, root, reviewScanLimits())
 	for _, reason := range scan.Cut {

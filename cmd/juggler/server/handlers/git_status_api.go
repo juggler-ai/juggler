@@ -107,8 +107,20 @@ type gitRepoStatus struct {
 
 // gitStatusResponse is the JSON response shape for GET /api/git/status.
 type gitStatusResponse struct {
-	Root  string          `json:"root"`
-	Repos []gitRepoStatus `json:"repos"`
+	Root      string          `json:"root"`
+	Workspace string          `json:"workspace,omitempty"` // See gitTree.Name
+	Repos     []gitRepoStatus `json:"repos"`
+}
+
+// gitTree is the tree a git request is about, and what to call it.
+type gitTree struct {
+	Root string
+	// Name is the workspace's label when the tree is somewhere other than the
+	// project — a worktree, a copy, a subfolder — and empty when it is the
+	// project itself, including for a workspace that works in the project (a
+	// group). It travels in the answer beside Root, so a surface names the tree
+	// its counts came from rather than whichever conversation is showing now.
+	Name string
 }
 
 // gitRoot is the tree a git request is about: the workspace named by the
@@ -124,19 +136,24 @@ type gitStatusResponse struct {
 // words match, and there is deliberately no fall back to the project: a status
 // that quietly reported the project for a binding that could not be honoured
 // would show a clean tree for a conversation whose own tree has gone.
-func (a *GitStatusAPI) gitRoot(r *http.Request) (string, error) {
+func (a *GitStatusAPI) gitRoot(r *http.Request) (gitTree, error) {
 	id := r.URL.Query().Get("workspace")
+	project := a.pathProvider()
 	if id == core.DefaultWorkspaceID {
-		return a.pathProvider(), nil
+		return gitTree{Root: project}, nil
 	}
 	if a.workspaces == nil {
-		return "", fmt.Errorf("no session is loaded, so workspace %s cannot be resolved", id)
+		return gitTree{}, fmt.Errorf("no session is loaded, so workspace %s cannot be resolved", id)
 	}
 	ws, err := a.workspaces.Usable(id)
 	if err != nil {
-		return "", err
+		return gitTree{}, err
 	}
-	return ws.Root, nil
+	tree := gitTree{Root: ws.Root}
+	if project == "" || filepath.Clean(ws.Root) != filepath.Clean(project) {
+		tree.Name = ws.Name()
+	}
+	return tree, nil
 }
 
 // HandleGitStatus handles GET /api/git/status. It discovers repositories under
@@ -146,12 +163,13 @@ func (a *GitStatusAPI) gitRoot(r *http.Request) (string, error) {
 // fails (git missing, bare repo) is simply omitted rather than failing the whole
 // response.
 func (a *GitStatusAPI) HandleGitStatus(w http.ResponseWriter, r *http.Request) {
-	root, err := a.gitRoot(r)
+	tree, err := a.gitRoot(r)
 	if err != nil {
 		WriteError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	resp := gitStatusResponse{Root: root, Repos: []gitRepoStatus{}}
+	root := tree.Root
+	resp := gitStatusResponse{Root: root, Workspace: tree.Name, Repos: []gitRepoStatus{}}
 	if root == "" {
 		WriteJSON(w, r, 0, resp)
 		return

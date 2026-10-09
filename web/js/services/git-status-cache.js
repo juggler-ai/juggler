@@ -32,6 +32,8 @@ import wsService from './websocket.js';
 /**
  * @typedef {object} GitStatusSnapshot
  * @property {string} root - Absolute path of the tree that was read.
+ * @property {string} workspace - What that tree is called when it is not the
+ *   project (a worktree's label, say); '' for the project.
  * @property {import('./api.js').GitRepoStatus[]} repos - Every repo found under it.
  */
 
@@ -170,6 +172,7 @@ const gitStatusCache = {
         if (generation !== _generation) return _snapshot;
         _snapshot = {
           root: (data && data.root) || '',
+          workspace: (data && typeof data.workspace === 'string' && data.workspace) || '',
           repos: data && Array.isArray(data.repos) ? data.repos : [],
         };
         _error = '';

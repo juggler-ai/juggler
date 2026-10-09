@@ -158,11 +158,12 @@ type gitDiffResponse struct {
 // whole file, and the shipped default when it is absent or unusable. The answer
 // reports the width it was produced at.
 func (a *GitStatusAPI) HandleGitDiff(w http.ResponseWriter, r *http.Request) {
-	root, err := a.gitRoot(r)
+	tree, err := a.gitRoot(r)
 	if err != nil {
 		WriteError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
+	root := tree.Root
 	if root == "" {
 		WriteError(w, r, http.StatusBadRequest, "No project is open")
 		return

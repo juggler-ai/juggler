@@ -255,8 +255,15 @@ such as into or out of a group, is made without asking.
 Finishing a workspace is the provider's business and the options are its own — a
 worktree offers to commit or to discard, and discarding deletes the tree and the
 branch. Closing a workspace bins the conversations that were working in it: they
-go with the place they were working in, and the Bin restores them. Extensions can
-add providers of their own; see "Writing an extension".
+go with the place they were working in, and the Bin restores them.
+
+Nothing about workspaces needs a rebuild. The workspaces themselves are made at
+runtime and kept with the project's session. The providers above are not a fixed
+list either: each is a "workspaces/*-workspace-provider.js" file that an
+extension declares in its manifest, so an installed extension can add a provider
+of its own; see "Writing an extension". What is built into the server is only
+where a workspace's operations run, and today that is always this machine — a
+provider makes a directory on it, and cannot reach another host by itself.
 
 ## Keyboard shortcuts
 

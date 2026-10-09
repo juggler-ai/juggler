@@ -18,7 +18,10 @@
  *   4. Tab is a completion key: it splices the command and leaves sending to
  *      the user, even for a command Enter would have run outright,
  *   5. the composer wires slash + file-mention providers into one menu, with
- *      slash taking precedence at the message start.
+ *      slash taking precedence at the message start,
+ *   6. the `@` provider and the send-time existence check both ask about the
+ *      tree the composer's conversation works in — the one its mentions are
+ *      read from — and ask about the project only when it works there.
  *
  * Assertions read SYNCHRONOUS, deterministic state: `handleInput()` selects the
  * active provider and anchor before it kicks off the (debounced) fetch, the
@@ -33,7 +36,7 @@
 import { initializeRegistries, assert } from '../utilities/test-helpers.js';
 import slashCommandHandler from '../../js/services/slash-command-handler.js';
 import { slashCommandProvider } from '../../js/components/slash-command-provider.js';
-import { fileMentionProvider } from '../../js/components/file-mention-provider.js';
+import { extractFileMentionsAsync } from '../../js/components/file-mention-provider.js';
 import '../../js/components/composer.js';
 
 /**
@@ -164,7 +167,7 @@ export async function runTests() {
       assert(!!menu, 'composer-box must construct a CompletionMenu');
       assert(menu._providers.some((/** @type {any} */ p) => p === slashCommandProvider),
         'the menu must include the slash-command provider');
-      assert(menu._providers.some((/** @type {any} */ p) => p === fileMentionProvider),
+      assert(menu._providers.some((/** @type {any} */ p) => p.id === 'file-mention'),
         'the menu must include the file-mention provider');
 
       // handleInput() selects the active provider + anchor SYNCHRONOUSLY, before
@@ -296,6 +299,50 @@ export async function runTests() {
       failed++;
       errors.push('slash-tab-completes-without-sending: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
+      box._completions.close();
+      container.remove();
+    }
+  }
+
+  // ── Test 5: "@" asks about the conversation's own tree ────────────────────
+  // A mention is read from the conversation's working workspace, so the menu
+  // that offers it and the check that admits a bare "@word" must ask about that
+  // tree. Only the id travels; the server resolves it. Read per fetch, so a
+  // binding acquired after the composer was built is followed.
+  {
+    const { box, container } = mountComposer();
+    const realFetch = window.fetch;
+    /** @type {string[]} */
+    const asked = [];
+    window.fetch = /** @type {any} */ (async (/** @type {any} */ url) => {
+      asked.push(String(url));
+      return { ok: true, status: 200, json: async () => ({ results: [], existing: [] }) };
+    });
+    try {
+      const provider = box._completions._providers.find((/** @type {any} */ p) => p.id === 'file-mention');
+
+      await provider.fetch('main');
+      assert(asked.length === 1 && !asked[0].includes('workspace='),
+        `a composer with no conversation must ask about the project, asked ${JSON.stringify(asked)}`);
+
+      box._messageThread = { conversation: { workingWorkspaceId: 'ws_tree' } };
+      asked.length = 0;
+      await provider.fetch('main');
+      await provider.fetch('./sr');
+      assert(asked.length === 2 && asked.every((u) => u.includes('workspace=ws_tree')),
+        `both completers must name the conversation's workspace, asked ${JSON.stringify(asked)}`);
+
+      asked.length = 0;
+      await extractFileMentionsAsync('look at @Makefile', 'ws_tree');
+      assert(asked.length === 1 && asked[0].includes('/completions/exists') && asked[0].includes('workspace=ws_tree'),
+        `the bare-word check must ask the workspace, asked ${JSON.stringify(asked)}`);
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push('file-mention-asks-the-conversations-tree: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      window.fetch = realFetch;
+      box._messageThread = null;
       box._completions.close();
       container.remove();
     }

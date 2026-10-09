@@ -13,20 +13,33 @@ let _currentController = null;
 let _pathController = null;
 
 /**
+ * The query-string suffix naming the tree a completion request is about. Only
+ * the id travels — the server resolves it, refusing the ways every other
+ * workspace-addressed request is refused — and '' (the project) sends nothing.
+ * @param {string} [workspaceId] - Workspace id, '' or omitted for the project.
+ * @returns {string} '' or '&workspace=<id>'.
+ */
+function workspaceParam(workspaceId) {
+  return workspaceId ? `&workspace=${encodeURIComponent(workspaceId)}` : '';
+}
+
+/**
  * Check which of the given paths exist on disk. Resolves relative paths
- * against the current project working dir; "~" is expanded server-side.
+ * against the workspace's root (the project when none is named); "~" is
+ * expanded server-side.
  *
  * Runs on the send path, between the button press and the message going out, so
  * it is time-boxed: a link too slow to answer yields an empty set (barewords
  * simply make no context item) rather than holding the send open indefinitely.
  * @param {string[]} paths - Candidate paths to check
+ * @param {string} [workspaceId] - The tree to check in, '' for the project
  * @returns {Promise<Set<string>>} The subset of inputs that exist
  */
-export async function fetchExistingPaths(paths) {
+export async function fetchExistingPaths(paths, workspaceId = '') {
   if (!paths || paths.length === 0) return new Set();
   const qs = paths.map(p => `paths=${encodeURIComponent(p)}`).join('&');
   /** @type {{existing: string[]}|null} */
-  const data = await fetchJson(apiUrl(`/completions/exists?${qs}`), {
+  const data = await fetchJson(apiUrl(`/completions/exists?${qs}${workspaceParam(workspaceId)}`), {
     fallback: null,
     timeoutMs: SEND_LOOKUP_TIMEOUT_MS,
   });
@@ -38,9 +51,10 @@ export async function fetchExistingPaths(paths) {
  * Aborts any in-flight request before issuing a new one.
  * Returns [] on error — completions are best-effort.
  * @param {string} query - Typed text after "@"
+ * @param {string} [workspaceId] - The tree to list, '' for the project
  * @returns {Promise<Array<string>>} Matching paths (dirs have trailing "/")
  */
-export async function fetchFileCompletions(query) {
+export async function fetchFileCompletions(query, workspaceId = '') {
   if (_currentController) {
     _currentController.abort();
   }
@@ -48,7 +62,7 @@ export async function fetchFileCompletions(query) {
   _currentController = controller;
 
   try {
-    const url = apiUrl(`/completions/files?q=${encodeURIComponent(query)}`);
+    const url = apiUrl(`/completions/files?q=${encodeURIComponent(query)}${workspaceParam(workspaceId)}`);
     /** @type {{results: Array<{path: string}>}|null} */
     const data = await fetchJson(url, { signal: controller.signal });
     return (data?.results || []).map(r => r.path);
@@ -68,9 +82,10 @@ export async function fetchFileCompletions(query) {
  * Aborts any in-flight request before issuing a new one.
  * Returns [] on error, null if the request was superseded by a newer one.
  * @param {string} query - Absolute path prefix (e.g. "/Users/alice/co" or "~/code/")
+ * @param {string} [workspaceId] - The tree a "./" or "../" query is relative to, '' for the project
  * @returns {Promise<Array<string>|null>} Matching paths (dirs have trailing "/"), or null if aborted
  */
-export async function fetchPathCompletions(query) {
+export async function fetchPathCompletions(query, workspaceId = '') {
   if (_pathController) {
     _pathController.abort();
   }
@@ -78,7 +93,7 @@ export async function fetchPathCompletions(query) {
   _pathController = controller;
 
   try {
-    const url = apiUrl(`/completions/path?q=${encodeURIComponent(query)}`);
+    const url = apiUrl(`/completions/path?q=${encodeURIComponent(query)}${workspaceParam(workspaceId)}`);
     /** @type {{results: Array<{path: string}>}|null} */
     const data = await fetchJson(url, { signal: controller.signal });
     return (data?.results || []).map(r => r.path);

@@ -46,10 +46,37 @@ function escapeMentionPath(path) {
 }
 
 /**
- * The `@` file-mention completion provider.
- * @type {import('./completion-menu.js').CompletionProvider}
+ * Build the `@` file-mention completion provider for one composer.
+ *
+ * It lists the tree the composer's conversation works in, because a mention
+ * becomes a file-content item that reads from exactly that tree: a menu listing
+ * the project would offer files the read cannot find and hide the ones it can.
+ * The id is read per fetch, so a tab that acquires its binding on first send,
+ * or a composer that switches threads, is followed without rebuilding the menu.
+ * @param {() => string} [getWorkspaceId] - The conversation's working workspace id, '' for the project
+ * @returns {import('./completion-menu.js').CompletionProvider} The provider
  */
-export const fileMentionProvider = {
+export function createFileMentionProvider(getWorkspaceId = () => '') {
+  return {
+    ...fileMentionProviderBase,
+    async fetch(/** @type {string} */ query) {
+      const workspaceId = getWorkspaceId() || '';
+      // Absolute / home-relative paths bypass the tree-restricted completer —
+      // otherwise typing "~" or "/" produces zero results and the dropdown
+      // collapses mid-keystroke.
+      const isAbsolute = query.startsWith('/') || query.startsWith('~');
+      return isAbsolute
+        ? (await fetchPathCompletions(query, workspaceId)) ?? []
+        : await fetchFileCompletions(query, workspaceId);
+    },
+  };
+}
+
+/**
+ * Everything about the `@` provider except where it looks.
+ * @type {Omit<import('./completion-menu.js').CompletionProvider, 'fetch'>}
+ */
+const fileMentionProviderBase = {
   id: 'file-mention',
   emptyLabel: 'No matches',
 
@@ -75,16 +102,6 @@ export const fileMentionProvider = {
     }
 
     return null;
-  },
-
-  async fetch(query) {
-    // Absolute / home-relative paths bypass the project-restricted completer —
-    // otherwise typing "~" or "/" produces zero results and the dropdown
-    // collapses mid-keystroke.
-    const isAbsolute = query.startsWith('/') || query.startsWith('~');
-    return isAbsolute
-      ? (await fetchPathCompletions(query)) ?? []
-      : await fetchFileCompletions(query);
   },
 
   renderItem(path) {
@@ -176,10 +193,15 @@ function extractFileMentions(text) {
  * Like {@link extractFileMentions} but additionally drops candidates that look
  * like identifiers (no `/`) and do not exist on disk. This is the form the send
  * pipeline should use.
+ *
+ * "On disk" means in the tree the mentions will be read from, so callers pass
+ * the conversation's working workspace — the one its file-content items resolve
+ * against.
  * @param {string} text
+ * @param {string} [workspaceId] - The tree the mentions will be read from, '' for the project
  * @returns {Promise<string[]>} Unique verified paths in order
  */
-export async function extractFileMentionsAsync(text) {
+export async function extractFileMentionsAsync(text, workspaceId = '') {
   const candidates = extractFileMentions(text);
   if (candidates.length === 0) return [];
 
@@ -193,7 +215,7 @@ export async function extractFileMentionsAsync(text) {
   }
   if (needCheck.length === 0) return candidates;
 
-  const existing = await fetchExistingPaths(needCheck);
+  const existing = await fetchExistingPaths(needCheck, workspaceId);
   const verified = needCheck.filter(p => existing.has(p));
   // Preserve original order: walk candidates again, keep ones we accept.
   const accept = new Set([...trusted, ...verified]);

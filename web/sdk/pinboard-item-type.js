@@ -259,7 +259,11 @@ import { validateManifest } from './lib/manifest.js';
  * The working-tree state of every repository under the project — the root repo
  * and any nested repos or submodules, in a stable order.
  * @typedef {object} PinGitStatus
- * @property {string} root - Absolute project root path
+ * @property {string} root - Absolute path of the tree that was read: the project,
+ *   or the workspace the visible conversation works in
+ * @property {string} [workspace] - That workspace's name when the tree is not the
+ *   project (a worktree, a copy, a subfolder). Absent for the project. Show it:
+ *   counts from a worktree read exactly like counts from the project otherwise
  * @property {PinGitRepo[]} repos - Every repo found, empty when the project has no git
  */
 
@@ -284,7 +288,9 @@ import { validateManifest } from './lib/manifest.js';
  * — they are just not everything, and each gap names itself in `warnings`, in
  * sentences meant for the user rather than for a log.
  * @typedef {object} PinGitReview
- * @property {string} root - Absolute project root path
+ * @property {string} root - Absolute path of the tree that was read, as for
+ *   {@link PinGitStatus}
+ * @property {string} [workspace] - That tree's workspace name, as for {@link PinGitStatus}
  * @property {boolean} complete - Whether every repository and file was reached
  * @property {string[]} warnings - What could not be reviewed, one sentence each.
  *   Always an array; empty when nothing was missed.

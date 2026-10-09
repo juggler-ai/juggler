@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -84,6 +85,55 @@ func TestGitStatusReportsTheWorkspaceItIsAskedFor(t *testing.T) {
 	}
 	if len(unbound.Repos) != 1 || unbound.Repos[0].Changed != 0 {
 		t.Fatalf("project status = %+v, want a clean tree", unbound.Repos)
+	}
+}
+
+// TestGitAnswersNameTheTreeTheyDescribe: a worktree's status and review carry
+// the workspace's name beside its root, so a surface can say which tree it is
+// showing from the answer itself rather than from a guess made somewhere else.
+// The project is unnamed, and so is a workspace that works in the project (a
+// group) — naming one there would claim a separate tree that does not exist.
+func TestGitAnswersNameTheTreeTheyDescribe(t *testing.T) {
+	project := newGitProject(t)
+	project.write("a.txt", "committed")
+	project.commit("initial")
+	worktree := newGitProject(t)
+	worktree.write("b.txt", "uncommitted")
+
+	api := gitAPIOver(project.root, map[string]core.Workspace{
+		"ws_tree": {
+			ID: "ws_tree", Kind: core.WorkspaceKindLocal, Label: "feat/tunnels",
+			Root: worktree.root, State: core.WorkspaceStateReady,
+		},
+		"ws_group": {
+			ID: "ws_group", Kind: core.WorkspaceKindLocal, Label: "Billing",
+			Root: project.root + string(filepath.Separator), State: core.WorkspaceStateReady,
+		},
+	})
+
+	for _, tc := range []struct{ id, want string }{
+		{"ws_tree", "feat/tunnels"},
+		{"ws_group", ""},
+		{"", ""},
+	} {
+		_, status := askStatus(t, api, tc.id)
+		if status.Workspace != tc.want {
+			t.Errorf("status for %q names %q, want %q", tc.id, status.Workspace, tc.want)
+		}
+
+		target := "/api/git/review"
+		if tc.id != "" {
+			target += "?workspace=" + tc.id
+		}
+		rec := httptest.NewRecorder()
+		api.HandleGitReview(rec, httptest.NewRequest(http.MethodGet, target, nil).WithContext(t.Context()))
+		var review gitReviewResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &review); err != nil {
+			t.Fatalf("decoding the review: %v\n%s", err, rec.Body.String())
+		}
+		if review.Workspace != tc.want {
+			t.Errorf("review for %q names %q, want %q", tc.id, review.Workspace, tc.want)
+		}
 	}
 }
 

@@ -329,6 +329,108 @@ func searchIgnoredCompletionPaths(ctx context.Context, workingDir, query string,
 	return matches
 }
 
+// treeSearchScanLimit bounds the entries one TreeSearcher query visits. A
+// workspace has no persistent index, so each keystroke walks; the bound keeps
+// that a few milliseconds on an ordinary tree, and the walk's breadth-first
+// order means the cap trims the deepest paths, not a whole subtree.
+const treeSearchScanLimit = 20_000
+
+// TreeSearcher answers whole-tree "@" completion for a tree that has no path
+// index — a workspace — by walking it per query, under the same rules the
+// project's index is built by: dot-entries, skipped directories and gitignored
+// paths are left out, and a match is a case-insensitive substring of the
+// basename. Results are ranked as the index ranks them (earlier match in the
+// name, then shallower, then shorter, then alphabetical), so a menu reads the
+// same in a workspace as it does in the project.
+type TreeSearcher struct {
+	ctx  context.Context
+	root string
+}
+
+// NewTreeSearcher returns a searcher over root that stops walking when ctx ends.
+func NewTreeSearcher(ctx context.Context, root string) TreeSearcher {
+	return TreeSearcher{ctx: ctx, root: root}
+}
+
+// Search returns up to limit root-relative, forward-slashed matches for query.
+func (s TreeSearcher) Search(query string, limit int) []FileMatch {
+	if limit <= 0 {
+		limit = 20
+	}
+	q := strings.ToLower(query)
+	if q == "" {
+		return nil
+	}
+
+	type ranked struct {
+		FileMatch
+		offset, depth int
+	}
+	matcher := gitignore.NewMatcher(s.root)
+	type queued struct {
+		abs, rel string
+		depth    int
+	}
+	queue := []queued{{abs: s.root}}
+	var matches []ranked
+	visited := 0
+
+	for len(queue) > 0 && visited < treeSearchScanLimit {
+		if s.ctx.Err() != nil {
+			break
+		}
+		cur := queue[0]
+		queue = queue[1:]
+		for _, entry := range readCompletionEntries(cur.abs, treeSearchScanLimit-visited) {
+			name := entry.Name()
+			isDir := entry.IsDir()
+			if strings.HasPrefix(name, ".") || isDir && skipdirs.Skip(name) {
+				continue
+			}
+			visited++
+			rel := name
+			if cur.rel != "" {
+				rel = cur.rel + "/" + name
+			}
+			if matcher.Ignored(rel, isDir) {
+				continue
+			}
+			if off := strings.Index(strings.ToLower(name), q); off >= 0 {
+				p := rel
+				if isDir {
+					p += "/"
+				}
+				matches = append(matches, ranked{FileMatch{Path: p, IsDir: isDir}, off, cur.depth})
+			}
+			if isDir {
+				queue = append(queue, queued{abs: filepath.Join(cur.abs, name), rel: rel, depth: cur.depth + 1})
+			}
+		}
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		a, b := matches[i], matches[j]
+		if a.offset != b.offset {
+			return a.offset < b.offset
+		}
+		if a.depth != b.depth {
+			return a.depth < b.depth
+		}
+		if len(a.Path) != len(b.Path) {
+			return len(a.Path) < len(b.Path)
+		}
+		return strings.ToLower(a.Path) < strings.ToLower(b.Path)
+	})
+	out := make([]FileMatch, 0, min(limit, len(matches)))
+	for _, m := range matches {
+		if len(out) >= limit {
+			break
+		}
+		out = append(out, m.FileMatch)
+	}
+	return out
+}
+
 func readCompletionEntries(dir string, limit int) []os.DirEntry {
 	if limit <= 0 {
 		return nil

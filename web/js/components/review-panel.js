@@ -78,6 +78,9 @@ function revealInScroller(scroller, target) {
  *   drawn, never papered over: a partial list stays on screen, described as partial.
  * @property {string[]} warnings - What could not be reviewed, one sentence each
  * @property {ReviewGroup[]} groups - The groups, in the order to show them
+ * @property {string} [scope] - What is being compared, when this manifest says
+ *   more than the panel's `scopeLabel` — the tree it was read from, say. It rides
+ *   the manifest so the words and the files they describe arrive together.
  */
 
 /** How wide a quoted line may be before the editor's label stops naming it. */
@@ -333,7 +336,7 @@ class ReviewPanel {
     const added = files.reduce((total, file) => total + (file.added || 0), 0);
     const removed = files.reduce((total, file) => total + (file.removed || 0), 0);
     /** @type {string[]} */
-    const parts = [this._scopeLabel];
+    const parts = [this._manifest?.scope || this._scopeLabel];
     if (this._manifest) {
       // "so far" is the whole difference between a count and a claim. A review
       // that could not reach everything knows a floor, not a total.

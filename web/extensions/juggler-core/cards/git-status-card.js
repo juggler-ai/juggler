@@ -6,7 +6,8 @@
 /**
  * The Git status info card — a quiet, live summary of the working tree the
  * visible conversation works in, which is the project unless that conversation
- * is bound to a workspace. When there's a single repo at the root the line is
+ * is bound to a workspace, in which case the card names it first. When there's a
+ * single repo at the root the line is
  * just the counts. With multiple repos, or a repo below the root, each line is
  * prefixed with the repo's location (the root repo by its folder name, nested
  * repos by their relative path).
@@ -69,6 +70,27 @@ function repoLine(name, counts) {
 }
 
 /**
+ * Name the tree the card is describing, above whatever it says about it, when
+ * that tree is a workspace rather than the project. The card follows the visible
+ * conversation, so a tab switch can move it from the project to a worktree and
+ * back; without this the two read identically, down to "No changed files".
+ * @param {string} workspace - The workspace's name, '' for the project.
+ * @param {HTMLElement[]} nodes - What the card says about the tree.
+ * @returns {HTMLElement[]} The same, under the tree's name when it has one.
+ */
+function inTree(workspace, nodes) {
+  if (!workspace) return nodes;
+  const row = document.createElement('div');
+  row.className = 'info-card__git-line';
+  const badge = document.createElement('span');
+  badge.className = 'info-card__git-repo';
+  badge.textContent = workspace;
+  badge.title = `Workspace: ${workspace}`;
+  row.appendChild(badge);
+  return [row, ...nodes];
+}
+
+/**
  * The working tree, as something the board can be asked to show. The card names
  * a kind rather than a pin class: the registry finds whichever item type accepts
  * it, so the card knows nothing about the Git pin and the pin knows nothing
@@ -128,12 +150,12 @@ function render(contentEl) {
   }
   const repos = snap.repos || [];
   if (repos.length === 0) {
-    contentEl.replaceChildren(...withLauncher([line('No git repository')]));
+    contentEl.replaceChildren(...withLauncher(inTree(snap.workspace, [line('No git repository')])));
     return;
   }
   const dirty = repos.filter((r) => r.changed > 0 || r.staged > 0);
   if (dirty.length === 0) {
-    contentEl.replaceChildren(...withLauncher([line('No changed files')]));
+    contentEl.replaceChildren(...withLauncher(inTree(snap.workspace, [line('No changed files')])));
     return;
   }
   // Only the lone-repo-at-root case hides its location; anything else labels.
@@ -142,7 +164,7 @@ function render(contentEl) {
     const counts = countsPhrase(r);
     return repoLine(showLabels ? repoLabel(snap.root, r.path) : null, counts);
   });
-  contentEl.replaceChildren(...withLauncher(nodes, true));
+  contentEl.replaceChildren(...withLauncher(inTree(snap.workspace, nodes), true));
 }
 
 /**
@@ -154,7 +176,7 @@ export default class GitStatusCard extends InfoCardType {
     id: 'git-status',
     name: 'Git status',
     version: '1.0.0',
-    description: "Show a summary of your project's git working tree in the sidebar.",
+    description: "Show a summary of the git working tree in the sidebar — the project's, or the visible conversation's workspace.",
     eyebrow: 'Git status',
     priority: 10,
   };

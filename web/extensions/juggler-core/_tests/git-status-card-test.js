@@ -261,6 +261,27 @@ export async function runTests(_ctx) {
     nested.teardown();
   });
 
+  // The card follows the visible conversation; a tab switch can move it from the
+  // project to a worktree, and every state it can be in must say which.
+  await test('a workspace tree is named above every state, and the project is not', async () => {
+    const badges = (/** @type {any} */ m) => [...m.contentEl.querySelectorAll('.info-card__git-repo')]
+      .map((/** @type {any} */ el) => el.textContent);
+    for (const [what, status] of /** @type {[string, any][]} */ ([
+      ['dirty', { root: '/tmp/wt', workspace: 'feat/tunnels', repos: [repo({ changed: 1, total: 1 })] }],
+      ['clean', { root: '/tmp/wt', workspace: 'feat/tunnels', repos: [repo()] }],
+      ['no repository', { root: '/tmp/wt', workspace: 'feat/tunnels', repos: [] }],
+    ])) {
+      const m = await mount(status);
+      assert(badges(m).includes('feat/tunnels'),
+        `the ${what} card must name the workspace:\n${m.contentEl.innerHTML}`);
+      m.teardown();
+    }
+
+    const project = await mount({ root: '/tmp/proj', repos: [repo({ changed: 1, total: 1 })] });
+    assert(badges(project).length === 0, `the project needs no name:\n${project.contentEl.innerHTML}`);
+    project.teardown();
+  });
+
   await test('a clean repo is left out of a list of dirty ones', async () => {
     const m = await mount({
       root: '/tmp/proj',

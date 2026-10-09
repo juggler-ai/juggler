@@ -13,6 +13,8 @@ of changes; this project follows semantic versioning.
 - On Linux, an MCP server added in Settings reaches the model without a restart
 - Escape now stops a running query_code script instead of letting it run on
 - query_code returns what a script prints with `console.log`, even when it fails
+- `@` file completion lists the conversation's workspace, not the project
+- Git status card and Git pin name the workspace whose tree they show
 
 ## [0.7.5] - 2026-10-06
 

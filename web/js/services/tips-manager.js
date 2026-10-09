@@ -39,50 +39,28 @@ const TIPS_CHANGED_EVENT = 'juggler:tips-changed';
  */
 
 /**
- * Shortcut tips, in priority order: `{ id, body }`. The title and key glyph are
- * read live from the shortcut table (an id no longer defined is dropped); the body
- * is authored here so it adds context instead of restating the title.
- * @type {Array<{id: string, body: string}>}
+ * Every tip, in priority order — the order the strip opens on and steps
+ * through, so the head of the list is what a user who glances once actually
+ * sees. It leads with what makes Juggler different (several conversations at
+ * once, and moving between them), then the composer controls reached for every
+ * turn, then the occasional ones.
+ *
+ * A shortcut tip is `{ kind: 'shortcut', id, body }`: its title and key glyph
+ * are read live from the shortcut table (an id no longer defined is dropped);
+ * the body is authored here so it adds context instead of restating the title.
+ * A feature tip is a whole {@link Tip}, for a gesture with no key, limited to
+ * gestures verified to exist.
+ *
+ * Nothing here repeats what the starting hint already says above the strip
+ * (send, new line, @ to reference a file, / for commands, drag-and-drop), and a
+ * pair of twin commands gets one tip, not two slots in a short rotation.
+ * @type {Array<{kind: 'shortcut', id: string, body: string} | Tip>}
  */
-const SHORTCUT_TIPS = [
-  { id: 'jump-to-attention', body: 'Jump straight to whichever conversation is waiting on you, landing on its pending approval.' },
-  { id: 'new-conversation', body: 'Spin up another conversation and switch to it — run several in parallel.' },
-  { id: 'cycle-model', body: 'Tap to flip back to your previous model; hold to open the full model menu — no mouse needed.' },
-  { id: 'cycle-thinking', body: 'Nudge the current model\u2019s thinking level up or down; hold to open the level popover.' },
-  { id: 'next-tab', body: 'Step down your conversation list without leaving the keyboard (wraps around at the end).' },
-  { id: 'prev-tab', body: 'Step up your conversation list without leaving the keyboard (wraps around at the top).' },
-  { id: 'strategy-switch', body: 'Flip the active strategy from the composer; hold to open the full strategy menu.' },
-  { id: 'find-in-conversation', body: 'Search the text of whatever you\u2019re reading — the conversation, a properties panel, a pin.' },
-  { id: 'toggle-file-editing', body: 'Flip between letting the agent edit files freely and asking you first.' },
-  { id: 'rename-conversation', body: 'Give the current conversation a memorable name, straight from the keyboard.' },
-  { id: 'pause-conversation', body: 'Pause after the current step finishes — a non-destructive stop, instead of a hard cancel.' },
-  { id: 'bin-conversation', body: 'Clear a conversation out of the way — you can restore it from the Bin anytime.' },
-];
-
-/**
- * Feature tips — hand-authored, for gestures with no keyboard shortcut. Limited to
- * gestures verified to exist in the composer.
- * @type {Tip[]}
- */
-const FEATURE_TIPS = [
-  {
-    id: 'mention-files',
-    kind: 'feature',
-    title: 'Reference a file',
-    body: 'Type @ in the composer to search your project and add a file into the conversation.',
-  },
-  {
-    id: 'slash-commands',
-    kind: 'feature',
-    title: 'Slash commands',
-    body: 'Type / at the start of the composer — or press the / button — for quick actions.',
-  },
-  {
-    id: 'paste-images',
-    kind: 'feature',
-    title: 'Paste a screenshot',
-    body: 'Drag-and-drop or copy-paste an image file into the composer to attach it to your prompt.',
-  },
+const TIPS = [
+  { kind: 'shortcut', id: 'new-conversation', body: 'Spin up another conversation and switch to it — run several in parallel.' },
+  { kind: 'shortcut', id: 'jump-to-attention', body: 'Jump straight to whichever conversation is waiting on you, landing on its pending approval.' },
+  { kind: 'shortcut', id: 'strategy-switch', body: 'Flip the active strategy from the composer; hold to open the full strategy menu.' },
+  { kind: 'shortcut', id: 'cycle-model', body: 'Tap to flip back to your previous model; hold to open the full model menu — no mouse needed.' },
   {
     id: 'workspaces',
     kind: 'feature',
@@ -91,6 +69,19 @@ const FEATURE_TIPS = [
       + 'something risky in. Make one at the foot of the conversation list, then start '
       + 'conversations in it or drag them across.',
   },
+  { kind: 'shortcut', id: 'toggle-file-editing', body: 'Flip between letting the agent edit files freely and asking you first.' },
+  { kind: 'shortcut', id: 'pause-conversation', body: 'Pause after the current step finishes — a non-destructive stop, instead of a hard cancel.' },
+  { kind: 'shortcut', id: 'next-tab', body: 'Step through your conversation list without leaving the keyboard; Previous conversation steps back.' },
+  { kind: 'shortcut', id: 'cycle-thinking', body: 'Nudge the current model\u2019s thinking level up or down; hold to open the level popover.' },
+  { kind: 'shortcut', id: 'find-in-conversation', body: 'Search the text of whatever you\u2019re reading — the conversation, a properties panel, a pin.' },
+  {
+    id: 'paste-images',
+    kind: 'feature',
+    title: 'Paste a screenshot',
+    body: 'Paste an image straight into the composer to attach it to your prompt.',
+  },
+  { kind: 'shortcut', id: 'rename-conversation', body: 'Give the current conversation a memorable name, straight from the keyboard.' },
+  { kind: 'shortcut', id: 'bin-conversation', body: 'Clear a conversation out of the way — you can restore it from the Bin anytime.' },
 ];
 
 /**
@@ -115,23 +106,27 @@ function writeState(state) {
 }
 
 /**
- * Every tip in priority order (shortcut tips first), with shortcut copy
- * materialized live from the table. Dangling shortcut ids are dropped.
+ * Every tip in priority order, with shortcut copy materialized live from the
+ * table. Dangling shortcut ids are dropped.
  * @returns {Tip[]} All displayable tips in priority order.
  */
 export function allTips() {
   /** @type {Tip[]} */
-  const shortcuts = [];
-  for (const entry of SHORTCUT_TIPS) {
+  const tips = [];
+  for (const entry of TIPS) {
+    if (entry.kind !== 'shortcut') {
+      tips.push(/** @type {Tip} */ (entry));
+      continue;
+    }
     const def = keyShortcutManager.all().find((d) => d.id === entry.id);
     // Drop a dangling id, and any command with no key on this platform — a tip
     // exists to teach a keystroke, so one we deliberately left unbound here has
     // nothing to teach. (The strip renders the binding live, so a command that
     // keeps a different key here still gets its tip, showing that key.)
     if (!def || keyShortcutManager.getBindings(entry.id).length === 0) continue;
-    shortcuts.push({ id: entry.id, kind: 'shortcut', title: def.label, body: entry.body, shortcutId: entry.id });
+    tips.push({ id: entry.id, kind: 'shortcut', title: def.label, body: entry.body, shortcutId: entry.id });
   }
-  return [...shortcuts, ...FEATURE_TIPS];
+  return tips;
 }
 
 /**

@@ -23,8 +23,8 @@
  * the container is offscreen, which is fine, because every measurement here
  * is a difference of viewport-relative rects.
  *
- * At its foot sits the rolling tip: it must show a tip, its ‹ › must step to a
- * different tip and back, and those buttons must take clicks even though the
+ * At its foot sits the rolling tip: it must show a tip under a lightbulb, its
+ * ‹ › must slide to a different tip and back, and those buttons must take clicks even though the
  * rest of the hint passes them through to the background. It is also the first
  * thing to go when room is short: a band that holds the hint only without it
  * sheds the tip and keeps the composer gestures, rather than losing both.
@@ -118,11 +118,34 @@ export async function runTests() {
     assert(!!prev && !!next, 'the tip strip should carry previous and next buttons');
     assert(getComputedStyle(/** @type {HTMLElement} */ (next)).pointerEvents === 'auto',
       'the tip buttons must take clicks, though the hint around them passes clicks through');
+    assert(!!tips.querySelector('.empty-hint-tips__badge .icon-lightbulb'),
+      'the tip strip should be labelled with a lightbulb, so it reads as a tip');
+
+    // Stepping slides the row rather than swapping text in place, so it reads as
+    // one of a row: next brings the new tip in from the right, previous from the
+    // left. Under reduced motion it swaps without the slide.
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    /** @returns {string} The first keyframe transform of the incoming tip's slide, or '' if none. */
+    const slideFrom = () => {
+      const slot = /** @type {HTMLElement|null} */ (tips?.querySelector('.empty-hint-tips__tip') ?? null);
+      const effect = /** @type {KeyframeEffect|undefined} */ (slot?.getAnimations()[0]?.effect ?? undefined);
+      return String(effect?.getKeyframes()[0]?.transform ?? '');
+    };
     next?.click();
     const second = tipId();
     assert(!!second && second !== first, `next should move off tip "${first}", but shows "${second}"`);
+    if (!reducedMotion) {
+      assert(slideFrom() === 'translateX(100%)',
+        `next should slide the new tip in from the right, but its slide starts at "${slideFrom()}"`);
+    }
     prev?.click();
     assert(tipId() === first, `previous should return to tip "${first}", but shows "${tipId()}"`);
+    if (!reducedMotion) {
+      assert(slideFrom() === 'translateX(-100%)',
+        `previous should slide the tip in from the left, but its slide starts at "${slideFrom()}"`);
+    }
+    assert(tips.querySelectorAll('.empty-hint-tips__tip').length <= 2,
+      'stepping should leave at most the incoming tip and one still sliding out');
 
     // --- The ‹ tip › group sits centred, and its buttons hold still, on every tip ---
 

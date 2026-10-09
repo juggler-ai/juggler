@@ -5,8 +5,10 @@
 /**
  * <empty-hint-tips> — the rolling tip at the foot of the starting hint (see
  * {@link module:components/empty-hint-stack}): one tip from
- * {@link module:services/tips-manager} at a time, slow-rotating on its own, with
- * ‹ › buttons either side so it is plain there are more to step through.
+ * {@link module:services/tips-manager} at a time under a lightbulb, rotating on
+ * its own, with ‹ › buttons either side. Each step slides the old tip out and
+ * the new one in from the side it came from, so the strip reads as a window on
+ * a row of tips rather than one line of text that changes.
  *
  * Every tip is in the rotation, seen or not — a hint read at the start of every
  * conversation that ran out of things to say would just vanish. "Seen" only
@@ -29,8 +31,14 @@ import { allTips, isSeen } from '../services/tips-manager.js';
 
 /** @typedef {import('../services/tips-manager.js').Tip} Tip */
 
-/** Rotate to the next tip this often (ms). */
-const ROTATE_MS = 20000;
+/**
+ * Rotate to the next tip this often (ms): long enough to read the longest tip,
+ * short enough that someone who glances at the hint sees it move.
+ */
+const ROTATE_MS = 8000;
+
+/** How long one tip takes to slide out and the next in (ms). */
+const SLIDE_MS = 350;
 
 /** The query the starting hint hides its keyboard-only rows by. */
 const TOUCH_QUERY = '(hover: none) and (pointer: coarse)';
@@ -75,12 +83,21 @@ class EmptyHintTips extends JugglerElement {
     if (this._tips.length === 0) return;
     this._index = this._startIndex();
 
-    this.replaceChildren(
+    const badge = document.createElement('div');
+    badge.className = 'empty-hint-tips__badge';
+    badge.setAttribute('aria-hidden', 'true');
+    badge.appendChild(Object.assign(document.createElement('span'), { className: 'icon-lightbulb' }));
+
+    const row = document.createElement('div');
+    row.className = 'empty-hint-tips__row';
+    row.append(
       this._navButton('prev'),
-      Object.assign(document.createElement('div'), { className: 'empty-hint-tips__tip' }),
+      Object.assign(document.createElement('div'), { className: 'empty-hint-tips__viewport' }),
       this._navButton('next'),
     );
-    this._render();
+
+    this.replaceChildren(badge, row);
+    this._render(0);
     this._restartRotation();
     this.addCleanup(() => this._stopRotation());
   }
@@ -133,7 +150,7 @@ class EmptyHintTips extends JugglerElement {
     const n = this._tips.length;
     if (n === 0) return;
     this._index = (((this._index + delta) % n) + n) % n;
-    this._render();
+    this._render(Math.sign(delta));
   }
 
   /** @returns {string|null} Id of the tip on show, or null when there is none. */
@@ -142,15 +159,57 @@ class EmptyHintTips extends JugglerElement {
   }
 
   /**
-   * Write the current tip into the tip slot. Shortcut tips lead with the live key
-   * glyph, formatted now so a rebinding shows on the next render. Built with
-   * createElement/textContent (CSP-safe).
+   * Show the current tip in the viewport, sliding it in from the side `direction`
+   * points away from (+1 enters from the right, -1 from the left, 0 just
+   * appears). The incoming tip goes FIRST in the viewport and holds the layout;
+   * the outgoing one is taken out of flow while it slides away, so neither the
+   * buttons nor the stack's height move. A step made mid-slide drops the tip
+   * still leaving, so at most two are ever present.
+   * @param {number} direction
    * @private
    */
-  _render() {
-    const slot = this.querySelector('.empty-hint-tips__tip');
+  _render(direction) {
+    const viewport = this.querySelector('.empty-hint-tips__viewport');
     const tip = this._tips[this._index];
-    if (!slot || !tip) return;
+    if (!viewport || !tip) return;
+
+    viewport.querySelectorAll('.empty-hint-tips__tip--leaving').forEach((leaving) => leaving.remove());
+    const old = /** @type {HTMLElement|null} */ (viewport.querySelector('.empty-hint-tips__tip'));
+    const slot = this._buildTip(tip);
+    viewport.prepend(slot);
+    if (!old) return;
+
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    if (direction === 0 || reduced || typeof slot.animate !== 'function') {
+      old.remove();
+      return;
+    }
+    old.classList.add('empty-hint-tips__tip--leaving');
+    const offset = direction > 0 ? 100 : -100;
+    const timing = { duration: SLIDE_MS, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' };
+    slot.animate([
+      { transform: `translateX(${offset}%)`, opacity: 0 },
+      { transform: 'translateX(0)', opacity: 1 },
+    ], timing);
+    const out = old.animate([
+      { transform: 'translateX(0)', opacity: 1 },
+      { transform: `translateX(${-offset}%)`, opacity: 0 },
+    ], timing);
+    out.onfinish = () => old.remove();
+    out.oncancel = () => old.remove();
+  }
+
+  /**
+   * One tip's markup. Shortcut tips lead with the live key glyph, formatted now
+   * so a rebinding shows on the next render. Built with
+   * createElement/textContent (CSP-safe).
+   * @param {Tip} tip
+   * @returns {HTMLElement} The tip element.
+   * @private
+   */
+  _buildTip(tip) {
+    const slot = document.createElement('div');
+    slot.className = 'empty-hint-tips__tip';
 
     const title = document.createElement('div');
     title.className = 'empty-hint-tips__title';
@@ -169,8 +228,9 @@ class EmptyHintTips extends JugglerElement {
     body.className = 'empty-hint-tips__body';
     body.textContent = tip.body;
 
-    slot.replaceChildren(title, body);
+    slot.append(title, body);
     slot.setAttribute('data-tip-id', tip.id);
+    return slot;
   }
 
   /**

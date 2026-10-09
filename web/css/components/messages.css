@@ -151,26 +151,61 @@ conversation-empty-hint.no-room {
     }
 }
 
-/* The rolling tip at the foot of the hint (empty-hint-tips.js): the tip between
-   a ‹ and a › that step through the rest, under a short centred hairline that
-   sets it apart from the composer gestures above. The strip has a set width
-   (the tip takes whatever the buttons leave) and the tip enough height for the
-   longest one, so stepping neither moves the buttons nor re-centres the whole
-   stack. The width must not come from the text: a strip sized by its tip
-   stretches to the column for a long one and shrinks for a short one, so the
-   group lurches off-centre and the buttons slide out from under the pointer.
-   In a column narrower than the set width the strip gives up the difference
-   and the tip wraps, so it never runs past the hint's margins. The hint as a
-   whole passes clicks through to the background; the buttons take theirs
-   back. */
+/* The rolling tip at the foot of the hint (empty-hint-tips.js): a lightbulb on
+   a short centred hairline that labels the strip and sets it apart from the
+   composer gestures above, then the tip between a ‹ and a › that step through
+   the rest. The strip has a set width (the tip takes whatever the buttons
+   leave) and the tip enough height for the longest one, so stepping neither
+   moves the buttons nor re-centres the whole stack. The width must not come
+   from the text: a strip sized by its tip stretches to the column for a long
+   one and shrinks for a short one, so the group lurches off-centre and the
+   buttons slide out from under the pointer. In a column narrower than the set
+   width the strip gives up the difference and the tip wraps, so it never runs
+   past the hint's margins. The hint as a whole passes clicks through to the
+   background; the buttons take theirs back. */
 .empty-hint-tips {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    width: 31rem;
+    max-width: 100%;
+    padding-top: 0.25rem;
+}
+
+.empty-hint-tips__badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.empty-hint-tips__badge::before,
+.empty-hint-tips__badge::after {
+    content: '';
+    width: 1.5rem;
+    height: 0.0625rem;
+    background: var(--border-color);
+}
+
+.empty-hint-tips__badge .icon-lightbulb {
+    width: 1.125rem;
+    height: 1.125rem;
+}
+
+.empty-hint-tips__row {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    width: 31rem;
-    max-width: 100%;
-    padding-top: 1rem;
-    background: linear-gradient(var(--border-color), var(--border-color)) top center / 4rem 0.0625rem no-repeat;
+}
+
+/* The window the tips slide through. The incoming tip is in flow and sets the
+   height; the outgoing one is lifted out over it while it slides away, and
+   clipped at the window's edges rather than drawn across the buttons. */
+.empty-hint-tips__viewport {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
 }
 
 /* The band holds the hint only without the tip (see _positionEmptyHint):
@@ -183,11 +218,14 @@ conversation-empty-hint.no-room-for-tips .empty-hint-tips {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
-    flex: 1 1 0;
-    min-width: 0;
     min-height: 6.5rem;
     font-size: var(--font-size-sm);
     line-height: 1.45;
+}
+
+.empty-hint-tips__tip--leaving {
+    position: absolute;
+    inset: 0 0 auto;
 }
 
 .empty-hint-tips__title {

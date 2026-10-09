@@ -24,6 +24,12 @@ const worker = new Worker(`${/** @type {any} */ (window).__assetPrefix || ''}/js
 let capCallSeq = 0;
 /** @type {Map<string, {runId: string, resolve: Function, reject: Function}>} */
 const pendingCapCalls = new Map();
+/**
+ * One controller per run in flight, so the worker's `sandbox-abort` can reach
+ * the iframe that holds the run's Worker.
+ * @type {Map<string, AbortController>}
+ */
+const runControllers = new Map();
 
 /**
  * Forward one capability call from the iframe back to the worker to service.
@@ -76,13 +82,24 @@ function runSandboxForWorker(data) {
   // Forward the engine's live project root (from the worker realm) so the
   // sandbox binding tracks a runtime project switch instead of the frozen
   // sandbox.html template value.
-  runInSandbox(data.code, { capabilities, timeoutMs: data.timeoutMs, projectRoot: data.projectRoot })
+  const controller = new AbortController();
+  runControllers.set(data.id, controller);
+  runInSandbox(data.code, {
+    capabilities,
+    timeoutMs: data.timeoutMs,
+    projectRoot: data.projectRoot,
+    signal: controller.signal,
+    onConsole: (text) => worker.postMessage({ type: 'sandbox-console', id: data.id, text })
+  })
     .then((result) => worker.postMessage({ type: 'sandbox-result', id: data.id, ok: true, result }))
     .catch((err) => worker.postMessage({
       type: 'sandbox-result', id: data.id, ok: false,
       error: err instanceof Error ? err.message : String(err)
     }))
-    .finally(() => abandonCapCalls(data.id));
+    .finally(() => {
+      runControllers.delete(data.id);
+      abandonCapCalls(data.id);
+    });
 }
 
 worker.onmessage = (/** @type {MessageEvent} */ event) => {
@@ -94,6 +111,10 @@ worker.onmessage = (/** @type {MessageEvent} */ event) => {
   }
   if (data.type === 'sandbox-run') {
     runSandboxForWorker(data);
+    return;
+  }
+  if (data.type === 'sandbox-abort') {
+    runControllers.get(data.id)?.abort();
     return;
   }
   if (data.type === 'sandbox-cap-reply') {

@@ -28,6 +28,7 @@ import { observeUntil } from '../../../js-tests/utilities/turn-sync.js';
 import { pingWorker } from '../../../js-tests/utilities/worker-test-hooks.js';
 import ExecuteContextItem from '../context-items/execute-context-item.js';
 import { buildApprovalButtons } from '../../../js/services/approval-options.js';
+import toolExecutor from '../../../js/services/tool-executor.js';
 import '../../../js/components/action-confirmation.js';
 
 /**
@@ -346,15 +347,14 @@ export async function runTests(_ctx) {
     // This should complete immediately without waiting for approval
     // @ts-ignore - accessing private member for testing
     const responseHandler = conversation._responseHandler;
-    const outcomes2 = await withTimeout(
-      responseHandler.executeToolCalls([toolCall2], conversation.rootMessageThread),
+    const outcome2 = await withTimeout(
+      toolExecutor.executeToolCall(toolCall2, responseHandler, conversation.rootMessageThread),
       5000,
       'second execution should auto-approve'
     );
 
     // Verify it executed without approval
-    assert(outcomes2.length === 1, 'should have one outcome');
-    assert(outcomes2[0].success === true, 'should succeed');
+    assert(outcome2.success === true, 'should succeed');
 
     // The second tool-use should also exist (auto-approved by pattern)
     const secondToolUse = findToolUseInConversation(conversation, toolCall2.id);

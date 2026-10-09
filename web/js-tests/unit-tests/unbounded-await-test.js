@@ -22,6 +22,8 @@
  *     that awaited the answer had no timer at all.
  *   - a cancel that reached no one: query_code built an AbortSignal and never
  *     passed it to the sandbox, so Escape aborted a controller nobody listened to.
+ *     The signal must also stop the script, on whichever side of the boundary
+ *     its Worker lives.
  * @module unit-tests/unbounded-await
  */
 
@@ -218,18 +220,24 @@ export async function runTests(_ctx) {
   // Test 5: runInSandbox must honour a cancel signal. query_code's execute()
   // passes its action's signal, which is what Escape aborts; without this the
   // signal reached nothing and the tool stayed at `running` until the script's
-  // own budget — up to ten minutes — ran out.
+  // own budget — up to ten minutes — ran out. Settling the caller is half of
+  // it: the script itself must stop, or it goes on calling its capabilities
+  // for a run nobody is waiting on.
   {
     try {
-      // The real iframe sandbox, with a script that never returns and a budget
-      // far longer than this test's patience: if the signal reached nothing, the
-      // call would wait out the full minute and the guard below would fire.
+      // The real iframe sandbox, with a script that loops forever calling a
+      // capability, and a budget far longer than this test's patience: if the
+      // signal reached nothing, the call would wait out the full minute and the
+      // guard below would fire.
+      let ticks = 0;
       const controller = new AbortController();
-      const run = runInSandbox('await new Promise(() => {}); return 1;', {
-        timeoutMs: 60000,
-        signal: controller.signal
-      });
-      await new Promise((r) => { setTimeout(r, 100); });
+      const run = runInSandbox(
+        'for (;;) { await tick(); await new Promise((r) => setTimeout(r, 10)); }',
+        { capabilities: { tick: () => { ticks++; } }, timeoutMs: 60000, signal: controller.signal }
+      );
+      await within((async () => {
+        while (ticks < 3) await new Promise((r) => { setTimeout(r, 10); });
+      })(), 15000, 'the looping script never got going');
       controller.abort();
 
       let threw = null;
@@ -242,10 +250,63 @@ export async function runTests(_ctx) {
       assert(/** @type {any} */ (threw).name === 'AbortError',
         `the abort must surface as an AbortError, got ${/** @type {any} */ (threw).name}: ${/** @type {any} */ (threw).message}`);
 
+      // Let anything already in flight at the abort land, then watch for more.
+      await new Promise((r) => { setTimeout(r, 200); });
+      const ticksAfterAbort = ticks;
+      await new Promise((r) => { setTimeout(r, 500); });
+      assert(ticks === ticksAfterAbort,
+        `the script kept running after the abort: ${ticksAfterAbort} capability calls became ${ticks} over 500ms`);
+
       passed++;
     } catch (e) {
       failed++;
       errors.push(`runInSandbox honours a cancel signal: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Test 6: in the engine worker the run lives on the main-thread host, across a
+  // postMessage boundary, so an abort must cross it too. The bridge has to tell
+  // the host to stop the run, and settle and drop its own entry at once rather
+  // than wait for a result the host may never send.
+  {
+    try {
+      /** @type {any[]} */
+      const posted = [];
+      const bridge = createSandboxBridge({ post: (m) => { posted.push(m); }, graceMs: 5000 });
+      const controller = new AbortController();
+      const run = bridge.delegate('for (;;) {}', {}, 60000, undefined, { signal: controller.signal });
+      const runId = posted[0].id;
+      controller.abort();
+
+      let threw = null;
+      try {
+        await within(run, 4000, 'an aborted delegate run never settled');
+      } catch (e) {
+        threw = e;
+      }
+      assert(!!threw && /** @type {any} */ (threw).name === 'AbortError',
+        `the abort must surface as an AbortError, got ${threw && /** @type {any} */ (threw).name}`);
+      assert(posted.some((m) => m.type === 'sandbox-abort' && m.id === runId),
+        `the bridge must ask the host to stop the run, posted: ${JSON.stringify(posted.map((m) => m.type))}`);
+      assert(bridge.pendingCount() === 0, 'an aborted run must leave no bookkeeping behind');
+
+      // A signal that was already aborted never starts a run at all.
+      const before = posted.length;
+      const dead = new AbortController();
+      dead.abort();
+      let threwEarly = null;
+      try {
+        await within(bridge.delegate('return 1', {}, 1000, undefined, { signal: dead.signal }), 4000, 'a pre-aborted run never settled');
+      } catch (e) {
+        threwEarly = e;
+      }
+      assert(!!threwEarly && /** @type {any} */ (threwEarly).name === 'AbortError', 'a pre-aborted run must reject with an AbortError');
+      assert(posted.length === before, 'a pre-aborted run must not be sent to the host');
+
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`sandbox delegate forwards an abort: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

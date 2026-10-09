@@ -23,8 +23,8 @@
  *     removed from the global scope before any user code runs; if `process`
  *     cannot be removed the run fails closed.
  *   - the only channel out is the capability RPC over parentPort; the main
- *     thread terminates this Worker on timeout, giving true hang-parity with the
- *     iframe teardown.
+ *     thread terminates this Worker on timeout or abort, giving true hang-parity
+ *     with the iframe teardown.
  *
  * All run configuration arrives via workerData; results and capability calls
  * flow over parentPort.
@@ -133,7 +133,52 @@ const code = rewriteDynamicImports(String(rawCode));
 if (!neuterEscapeHatches()) {
   post({ kind: 'result', ok: false, error: 'query_code sandbox could not be hardened (process global is not removable)' });
 } else {
+  captureConsole();
   runUserCode();
+}
+
+/**
+ * Send the script's console output to the host, a line per call as it is
+ * written — so what was printed before a throw, a timeout or a kill has already
+ * arrived — capped here so a print loop cannot flood the channel. The format
+ * and the caps are sandbox.html's; see `onConsole` in sandbox-runner.js.
+ */
+function captureConsole() {
+  const MAX_LINES = 200;
+  const MAX_CHARS = 20000;
+  const MAX_LINE_CHARS = 2000;
+  let lines = 0;
+  let chars = 0;
+  let cut = false;
+  /** @param {unknown} a @returns {string} */
+  const fmt = (a) => {
+    if (typeof a === 'string') return a;
+    if (a instanceof Error) return `${a.name}: ${a.message}`;
+    try {
+      const s = JSON.stringify(a);
+      return s === undefined ? String(a) : s;
+    } catch {
+      return String(a);
+    }
+  };
+  /** @param {string} prefix @returns {(...args: unknown[]) => void} */
+  const writer = (prefix) => (...args) => {
+    if (cut) return;
+    let text = prefix + args.map(fmt).join(' ');
+    if (text.length > MAX_LINE_CHARS) text = `${text.slice(0, MAX_LINE_CHARS)}…`;
+    if (lines >= MAX_LINES || chars + text.length > MAX_CHARS) {
+      cut = true;
+      post({ kind: 'console', text: `… console output truncated (limit: ${MAX_LINES} lines, ${MAX_CHARS} characters)` });
+      return;
+    }
+    lines++;
+    chars += text.length;
+    post({ kind: 'console', text });
+  };
+  const c = /** @type {any} */ (globalThis.console);
+  for (const m of ['log', 'info', 'debug', 'trace', 'dir', 'table']) c[m] = writer('');
+  c.warn = writer('[warn] ');
+  c.error = writer('[error] ');
 }
 
 /** Run the compiled user code with an in-worker timeout and report the result. */

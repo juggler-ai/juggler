@@ -125,6 +125,10 @@ self.onmessage = (event) => {
     sandbox.handleResult(data);
     return;
   }
+  if (data.type === 'sandbox-console') {
+    sandbox.handleConsole(data);
+    return;
+  }
 
   if (data.type !== 'start') return;
   /** @type {any} */ (globalThis).__assetPrefix = data.assetPrefix || '';

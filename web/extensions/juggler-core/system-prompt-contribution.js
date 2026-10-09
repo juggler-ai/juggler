@@ -65,29 +65,54 @@ export default function systemPromptContribution({ enabledPluginIds }) {
   }
   toolUsage.push('### Tool Batching\n' + batchLines.join('\n'));
 
+  // Context economy — every tool whose point is doing work without putting it
+  // in the transcript, explained once and side by side, because the choice
+  // between them (computation vs. judgement) is what the model gets wrong when
+  // each is described alone. Each line gates on its own plugin.
+  /** @type {string[]} */
+  const economyLines = [];
   if (has('explore-code')) {
-    toolUsage.push(
-      '### Querying across files — prefer query_code\n' +
-			'When you need to understand something that spans several files — trace a call chain, find ' +
-			'every usage of a symbol, map how a module fits together — reach for `query_code` instead of a ' +
-			'sequence of individual read/grep/glob calls. It runs all of your reads, greps, and globs together ' +
-			'inside one sandboxed JavaScript call and returns only the value you compute. The dozen ' +
-			'intermediate file dumps never enter the conversation, so you stay oriented and your context stays ' +
-			'clean. Rule of thumb: if answering would otherwise take three or more separate read-only calls, ' +
-			'write one `query_code` script instead.'
+    economyLines.push(
+      '- **Computation → `query_code`.** The answer is computable from the codebase: trace a call chain, ' +
+      'find every usage of a symbol, map how a module fits together. One script replaces three or more ' +
+      'read/grep/glob calls; only what it returns or prints comes back.'
     );
   }
-
-  if (has('thread')) {
-    toolUsage.push(
-      '### Delegating sub-tasks — use create_thread\n' +
-				'Spawn a `create_thread` for a self-contained sub-task whose intermediate steps would only clutter ' +
-        'this conversation; it runs in isolation and only its final summary returns, keeping its tool calls ' +
-        'out of your context. Give `goal` only a very short user-facing label. Put the complete self-contained ' +
-        'task and context in `prompt`, and put the required contents and shape of the final answer in `resultSpec`. ' +
-        'Give each thread one task — never a task list, and never tell it to spawn further threads; run multiple tasks ' +
-        'as separate threads yourself.'
+  if (has('explore-agent')) {
+    economyLines.push(
+      '- **Judgement about this codebase → `Explore`.** An open question that needs reading and weighing ' +
+      '("how does auth work here"). A read-only sub-agent investigates and returns only what it found.'
     );
+  }
+  if (has('research-agent')) {
+    economyLines.push(
+      '- **Judgement from the web → `Research`.** A question that takes several sources. A sub-agent ' +
+      'searches and reads; only the answer returns.'
+    );
+  }
+  if (has('web-fetch')) {
+    economyLines.push(
+      '- **One fact from one large page → `WebFetch` with a `prompt`.** Omit `prompt` to read the page yourself.'
+    );
+  }
+  if (has('thread')) {
+    economyLines.push(
+      '- **A self-contained sub-task → `create_thread`.** It runs in isolation and only its final summary ' +
+      'returns. Give `goal` only a very short user-facing label. Put the complete self-contained task and ' +
+      'context in `prompt`, and the required contents and shape of the final answer in `resultSpec`. Give each ' +
+      'thread one task — never a task list, and never tell it to spawn further threads; run multiple tasks as ' +
+      'separate threads yourself.'
+    );
+  }
+  if (economyLines.length > 0) {
+    let economy = '### Keeping intermediate work out of context\n' +
+      'These tools do work whose intermediate steps never enter this conversation — only the result does. ' +
+      'Choose by what the work needs:\n' + economyLines.join('\n');
+    if (has('explore-code') && (has('explore-agent') || has('research-agent') || has('thread'))) {
+      economy += '\nIf a script could compute the answer exactly, the work is computation, not judgement: ' +
+        'write `query_code` rather than delegating it.';
+    }
+    toolUsage.push(economy);
   }
 
   if (has('new-conversation')) {

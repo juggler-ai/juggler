@@ -252,7 +252,7 @@ class ActionExecutor {
       // If we get here without _approvalHandled and approval is needed, throw an error.
       // This ensures ALL tool execution goes through the proper approval flow.
       if (!context._approvalHandled && action.requiresApproval() && !action.isPermitted(toolInput)) {
-        throw new Error(`Action "${actionId}" requires approval. Use ResponseHandler.executeToolCalls() for proper approval flow.`);
+        throw new Error(`Action "${actionId}" requires approval. Run it as a tool-action (toolExecutor.executeToolCall) so it goes through the approval flow.`);
       }
 
       // Step 3: Execute - plugin handles its own recovery internally if desired

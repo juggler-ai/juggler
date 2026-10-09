@@ -133,10 +133,19 @@ function getSandboxFrame() {
  *   such as a tool running in a conversation's workspace, must pass it rather
  *   than say nothing.
  * @property {AbortSignal} [signal] - Cancellation. Aborting settles this call
- *   with an AbortError; the sandboxed run itself is not killed, because the
- *   frame protocol is one-shot and the run expires on its own `timeoutMs`. What
- *   the caller gets back is a prompt answer instead of a wait for the full
- *   budget, which is what Escape has to mean.
+ *   with an AbortError at once and terminates the sandboxed run: whichever host
+ *   holds the run's Worker tears it down, so a script cannot go on calling its
+ *   capabilities after the caller has stopped listening. Escape has to mean
+ *   both.
+ * @property {(line: string) => void} [onConsole] - Receives each line the code
+ *   writes through `console.*`, as it is written, so output printed before a
+ *   throw, a timeout or an abort still arrives. A line is the call's arguments
+ *   joined by spaces (non-strings JSON-encoded), prefixed `[warn] ` or
+ *   `[error] ` for those levels. The output is capped inside the sandbox, so a
+ *   print loop cannot flood the channel: 200 lines, 20000 characters in all,
+ *   2000 per line. If it has to cut, it sends one last line saying so. Both
+ *   sandbox workers (sandbox.html, engine-sandbox-worker.mjs) implement this,
+ *   and must agree. Without this option the output is discarded.
  */
 
 /**
@@ -147,7 +156,7 @@ function getSandboxFrame() {
  * @returns {Promise<unknown>} The code's return value (null if it returned
  *   undefined).
  */
-export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000, projectRoot = undefined, signal = undefined } = {}) {
+export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000, projectRoot = undefined, signal = undefined, onConsole = undefined } = {}) {
   // One normalization for both realms, so a caller passing a native root cannot
   // hand the sandbox a `projectRoot` its own `path` and `glob` disagree with.
   const root = projectRoot === undefined ? undefined : toSandboxRoot(projectRoot);
@@ -181,7 +190,7 @@ export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000,
     if (typeof delegate !== 'function') {
       throw new Error('runInSandbox: no host sandbox delegate registered (engine worker)');
     }
-    return withCancel(delegate(code, capabilities, timeoutMs, root));
+    return withCancel(delegate(code, capabilities, timeoutMs, root, { signal, onConsole }));
   }
 
   const iframe = await withCancel(getSandboxFrame());
@@ -195,6 +204,10 @@ export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000,
         if (msg.ok) resolve(msg.result);
         else reject(new Error(msg.error || 'sandbox script error'));
         port.close();
+        return;
+      }
+      if (msg.kind === 'console') {
+        onConsole?.(String(msg.text));
         return;
       }
       // RPC: a capability call from the sandboxed code. path methods are pure
@@ -226,5 +239,14 @@ export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000,
   const descriptors = Object.entries(capabilities).map(([name, cap]) => ({ name, callable: typeof cap === 'function' }));
   contentWindow.postMessage({ type: 'sandbox-execute', code, timeoutMs, capabilities: descriptors, projectRoot: root }, '*', [channel.port2]);
 
-  return withCancel(Promise.race([done, timer]));
+  // Only the frame holds the run's Worker, so stopping it takes a message. The
+  // caller has already been answered by `cancelled`; this is the teardown.
+  const onAbort = () => {
+    try { port.postMessage({ kind: 'abort' }); } catch { /* port already closed: the run is over */ }
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
+  const outcome = Promise.race([done, timer]);
+  outcome.catch(() => {}).finally(() => signal?.removeEventListener('abort', onAbort));
+
+  return withCancel(outcome);
 }

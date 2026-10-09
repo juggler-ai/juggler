@@ -35,7 +35,6 @@
  * @property {boolean} [showsApprovalControls] - Whether UI shows permission toggles (default: true for strategies with write tools)
  * @property {DefaultRule[]} [defaultRules] - Initial permission rules for new conversations
  * @property {string[]} [defaultAllowedPaths] - Initial allowed filesystem roots (default: [session.projectPath])
- * @property {'default'|'all-parallel'|'all-sequential'} [toolExecution] - How tool calls are executed: 'default' = reads parallel/writes sequential, 'all-parallel' = all concurrent, 'all-sequential' = one at a time
  * @property {number} [order] - Soft display-order hint (lower = earlier in the
  *   strategy selector and command-editor strategy list). Every strategy —
  *   built-in or 3rd-party — uses the same field to declare its position; ties
@@ -210,8 +209,8 @@ export class AbortError extends Error {
  * static MANIFEST and a set of hooks the worker calls in the engine:
  *
  *   - **MANIFEST fields** configure defaults: `defaultRules`,
- *     `defaultAllowedPaths`, `toolExecution`, `showsApprovalControls`,
- *     `recommendations`, `color`, `icon`.
+ *     `defaultAllowedPaths`, `showsApprovalControls`, `recommendations`,
+ *     `color`, `icon`.
  *   - **static GUIDANCE** is what the strategy tells the model on activation —
  *     declared, so the user can read it in Settings → Extensions.
  *   - `filterTools(tools)` — restrict which tools the model may call (per phase).

@@ -8,7 +8,6 @@ import { createContextWriter } from './context-writer.js';
 import { RESULT_TYPES } from '../../sdk/lib/message.js';
 import { hashString } from '../utils/hash.js';
 import { FormattingHelpers } from '../../sdk/lib/formatting-helpers.js';
-import toolExecutor from './tool-executor.js';
 import * as actions from './response-handler-actions.js';
 
 /**
@@ -90,20 +89,6 @@ class ResponseHandler {
    */
   get conversation() {
     return this._conversation;
-  }
-
-  // ========== STRATEGY PRIMITIVE SUPPORT ==========
-
-  /**
-   * Execute tool calls and return outcomes (for strategy.executeTools primitive).
-   * Delegates to ToolExecutor for routing and execution coordination.
-   * @param {Array<{id: string, name: string, input: object}>} toolCalls - Tool calls to execute
-   * @param {import('../model/message-thread.js').default} messageThread - Message thread
-   * @param {Array<{name: string, category?: string}>} [toolDefinitions] - Tool definitions for category lookup (includes strategy-provided tools)
-   * @returns {Promise<import('juggler/strategy-type').ToolOutcome[]>} Outcomes for each tool
-   */
-  async executeToolCalls(toolCalls, messageThread, toolDefinitions) {
-    return toolExecutor.executeToolCalls(toolCalls, this, messageThread, { toolDefinitions });
   }
 
   // ========== TOOL EXECUTOR API ==========
@@ -317,9 +302,6 @@ class ResponseHandler {
         data: input
       };
     }
-
-    // Strategy-provided tools (if a strategy adds any) are handled in
-    // strategy.executeTools() before reaching the response handler.
 
     // No handler found - unknown meta tool
     return {

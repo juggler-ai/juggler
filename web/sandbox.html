@@ -240,6 +240,46 @@ self.addEventListener('message', (event) => {
   const names = Object.keys(bindings);
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
+  // Send the script's console output to the host, a line per call as it is
+  // written — so what was printed before a throw, a timeout or a kill has
+  // already arrived — capped here so a print loop cannot flood the channel.
+  // engine-sandbox-worker.mjs does the same for the Node host; the format and
+  // the caps must match (see onConsole in sandbox-runner.js).
+  (function captureConsole() {
+    const MAX_LINES = 200;
+    const MAX_CHARS = 20000;
+    const MAX_LINE_CHARS = 2000;
+    let lines = 0;
+    let chars = 0;
+    let cut = false;
+    const fmt = (a) => {
+      if (typeof a === 'string') return a;
+      if (a instanceof Error) return a.name + ': ' + a.message;
+      try {
+        const s = JSON.stringify(a);
+        return s === undefined ? String(a) : s;
+      } catch (_) {
+        return String(a);
+      }
+    };
+    const writer = (prefix) => (...args) => {
+      if (cut) return;
+      let text = prefix + args.map(fmt).join(' ');
+      if (text.length > MAX_LINE_CHARS) text = text.slice(0, MAX_LINE_CHARS) + '…';
+      if (lines >= MAX_LINES || chars + text.length > MAX_CHARS) {
+        cut = true;
+        port.postMessage({ kind: 'console', text: '… console output truncated (limit: ' + MAX_LINES + ' lines, ' + MAX_CHARS + ' characters)' });
+        return;
+      }
+      lines++;
+      chars += text.length;
+      port.postMessage({ kind: 'console', text });
+    };
+    for (const m of ['log', 'info', 'debug', 'trace', 'dir', 'table']) console[m] = writer('');
+    console.warn = writer('[warn] ');
+    console.error = writer('[error] ');
+  })();
+
   // Route user import() through the resolver. Workers have no import map, so
   // this is the runtime analog of the static import rewrite the server already
   // does for module workers (worker_module.go).
@@ -285,7 +325,8 @@ self.addEventListener('message', (event) => {
         // request + a private channel, and relay that channel to/from the host
         // port verbatim — capability RPCs and the final result flow worker →
         // iframe → host, and the host's replies flow back. The host services
-        // every capability call; we only relay.
+        // every capability call; we only relay, except for {kind: 'abort'},
+        // which terminates the worker.
         window.addEventListener('message', (event) => {
             if (!event.data || event.data.type !== 'sandbox-execute') return;
             const hostPort = event.ports[0];
@@ -345,9 +386,19 @@ self.addEventListener('message', (event) => {
                 }
             };
 
-            // Relay host → worker (capability replies).
+            // Relay host → worker (capability replies). An abort is the one
+            // message for this frame rather than the worker: the caller has
+            // stopped listening, so terminate the run instead of letting it go
+            // on calling capabilities until its timeout.
             hostPort.onmessage = (e) => {
                 if (settled) return;
+                if (e.data && e.data.kind === 'abort') {
+                    settled = true;
+                    clearTimeout(killTimer);
+                    cleanup();
+                    hostPort.postMessage({ kind: 'result', ok: false, error: 'Script was cancelled' });
+                    return;
+                }
                 channel.port1.postMessage(e.data);
             };
 

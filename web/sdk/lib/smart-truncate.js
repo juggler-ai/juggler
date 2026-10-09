@@ -66,20 +66,6 @@ export function smartTruncate(content, options = {}) {
 }
 
 /**
- * Compute character budget based on how many tool calls have been made this turn.
- * More calls = smaller budget per call to preserve context.
- * @param {number} callCount - Number of tool calls so far this turn
- * @returns {number} maxChars budget
- */
-export function getBudgetForCallCount(callCount) {
-  if (callCount <= 2) return 30000;   // ~7500 tokens
-  if (callCount <= 5) return 20000;   // ~5000 tokens
-  if (callCount <= 10) return 12000;  // ~3000 tokens
-  if (callCount <= 20) return 8000;   // ~2000 tokens
-  return 5000;                        // ~1250 tokens
-}
-
-/**
  * Extract windows around keyword-matching lines
  * @param {string[]} lines - All lines
  * @param {string[]} keywords - Keywords to match

@@ -28,7 +28,7 @@ export {
 export { injectStylesOnce } from './lib/inject-styles.js';
 
 // Output truncation / token budgets
-export { smartTruncate, getBudgetForCallCount } from './lib/smart-truncate.js';
+export { smartTruncate } from './lib/smart-truncate.js';
 
 // Error formatting
 export {

@@ -12,7 +12,8 @@
  * engine runs on this very thread, where the real fs/grep/glob closures live —
  * it spawns an isolated worker_threads Worker (engine-sandbox-worker.mjs) to run
  * the untrusted code, services each capability call the worker RPCs back, and
- * terminates the worker on timeout. The untrusted code never runs on this thread.
+ * terminates the worker on timeout or when the caller's signal aborts. The
+ * untrusted code never runs on this thread.
  */
 
 /**
@@ -26,11 +27,19 @@ export function installNodeSandboxDelegate({ origin, token, projectRoot }) {
    * @param {Record<string, any>} capabilities - Named fs/grep/glob closures
    * @param {number} timeoutMs - Wall-clock budget
    * @param {string} [callerRoot] - The root the caller works in, POSIX-form
+   * @param {RunHooks} [hooks] - The caller's abort signal and console sink
    * @returns {Promise<unknown>} The script's return value
    */
-  /** @type {any} */ (globalThis).__hostSandboxDelegate = (code, capabilities, timeoutMs, callerRoot) =>
-    runInWorkerSandbox(code, capabilities, timeoutMs, { origin, token, projectRoot }, callerRoot);
+  /** @type {any} */ (globalThis).__hostSandboxDelegate = (code, capabilities, timeoutMs, callerRoot, hooks) =>
+    runInWorkerSandbox(code, capabilities, timeoutMs, { origin, token, projectRoot }, callerRoot, hooks);
 }
+
+/**
+ * @typedef {object} RunHooks
+ * @property {AbortSignal} [signal] - Aborting terminates the run's Worker
+ * @property {(line: string) => void} [onConsole] - Receives each console line
+ *   the script writes, as it is written
+ */
 
 /**
  * Run one query_code script in an isolated worker_threads Worker.
@@ -39,10 +48,14 @@ export function installNodeSandboxDelegate({ origin, token, projectRoot }) {
  * @param {number} timeoutMs
  * @param {{ origin: string, token: string, projectRoot: string }} env
  * @param {string} [callerRoot]
+ * @param {RunHooks} [hooks]
  * @returns {Promise<unknown>}
  */
-async function runInWorkerSandbox(code, capabilities, timeoutMs, env, callerRoot) {
+async function runInWorkerSandbox(code, capabilities, timeoutMs, env, callerRoot, { signal, onConsole } = {}) {
+  const abortError = () => new DOMException('The operation was aborted.', 'AbortError');
+  if (signal?.aborted) throw abortError();
   const { Worker } = await import('node:worker_threads');
+  if (signal?.aborted) throw abortError();
   const descriptors = Object.entries(capabilities).map(([name, cap]) => ({
     name,
     callable: typeof cap === 'function',
@@ -85,15 +98,27 @@ async function runInWorkerSandbox(code, capabilities, timeoutMs, env, callerRoot
       if (settled) return;
       settled = true;
       clearTimeout(killTimer);
+      signal?.removeEventListener('abort', onAbort);
       worker.terminate();
       done(value);
     }
+
+    // Escape: kill the script, not just the wait for it. A run left alive
+    // would go on servicing capability calls until its own timeout.
+    function onAbort() {
+      finish(reject, abortError());
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
 
     worker.on('message', async (msg) => {
       if (!msg) return;
       if (msg.kind === 'result') {
         if (msg.ok) finish(resolve, msg.result);
         else finish(reject, new Error(msg.error || 'sandbox script error'));
+        return;
+      }
+      if (msg.kind === 'console') {
+        if (!settled) onConsole?.(String(msg.text));
         return;
       }
       if (msg.kind === 'cap') {
@@ -121,6 +146,7 @@ async function runInWorkerSandbox(code, capabilities, timeoutMs, env, callerRoot
       if (settled) return;
       settled = true;
       clearTimeout(killTimer);
+      signal?.removeEventListener('abort', onAbort);
       reject(new Error(`query_code sandbox worker exited (${exitCode}) before returning a result`));
     });
   });

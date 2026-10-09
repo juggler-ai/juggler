@@ -227,7 +227,7 @@ export const threadInheritsFoundationalContextTest = {
         { role: 'user', contentIncludes: 'Do the sub task' }
       ],
       expectedContent: [
-        'Delegating sub-tasks',   // system prompt (extension contribution)
+        'Keeping intermediate work out of context', // system prompt (extension contribution)
         'AGENTFILE_MARKER_ZZZ',   // agents file (CLAUDE.md)
         'MEMORY_MARKER_ZZZ'       // project memory
       ]

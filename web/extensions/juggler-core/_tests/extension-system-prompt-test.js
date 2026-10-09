@@ -35,13 +35,28 @@ import {
  * @property {string[]} errors Collected error messages.
  */
 
-const EXPLORE_MARKER = 'prefer query_code';
+const EXPLORE_MARKER = '→ `query_code`';
 // The plugin id the query_code tool ships under. Pinned as a literal on
 // purpose: it is persisted in users' enabled-plugin lists, so it is a
 // compatibility constant, not a name that may follow the tool or the file.
 const QUERY_CODE_PLUGIN_ID = 'explore-code';
-const THREAD_MARKER = 'use create_thread';
+const THREAD_MARKER = '→ `create_thread`';
 const NEW_CONV_MARKER = 'use new_conversation';
+const ECONOMY_HEADING = '### Keeping intermediate work out of context';
+const ECONOMY_RULE = 'computation, not judgement';
+
+/**
+ * Each context-economy mechanism, the plugin it ships under, and the marker of
+ * its line in the section.
+ * @type {Array<[string, string]>}
+ */
+const ECONOMY_LINES = [
+  ['explore-code', EXPLORE_MARKER],
+  ['explore-agent', '→ `Explore`'],
+  ['research-agent', '→ `Research`'],
+  ['web-fetch', '→ `WebFetch` with a `prompt`'],
+  ['thread', THREAD_MARKER]
+];
 
 /**
  * Run extension system-prompt tests.
@@ -111,6 +126,43 @@ export async function runTests(_ctx) {
     assert(!out.includes(THREAD_MARKER), 'create_thread section must be gated out');
   });
 
+  // The context-economy section explains every tool whose point is doing work
+  // without putting it in the transcript, in one place. Each line must follow
+  // its own plugin, so the prompt never names a tool the user has disabled.
+  await test('each context-economy line gates on its own plugin', () => {
+    const allIds = ECONOMY_LINES.map(([id]) => id);
+    for (const [id, marker] of ECONOMY_LINES) {
+      assert(systemPromptContribution({ enabledPluginIds: [id] }).includes(marker),
+        `the ${id} line must be present when ${id} is enabled`);
+      const without = systemPromptContribution({ enabledPluginIds: allIds.filter((x) => x !== id) });
+      assert(!without.includes(marker), `the ${id} line must be absent when ${id} is disabled`);
+    }
+  });
+
+  await test('the context-economy section is one section, absent when none of its tools are', () => {
+    const all = systemPromptContribution({ enabledPluginIds: ECONOMY_LINES.map(([id]) => id) });
+    assert(all.split(ECONOMY_HEADING).length === 2, 'all five mechanisms must share one section');
+    assert(!all.includes('### Querying across files') && !all.includes('### Delegating sub-tasks'),
+      'the standalone query_code and create_thread sections must be folded into it');
+    assert(!systemPromptContribution({ enabledPluginIds: ['read-file', 'memory'] }).includes(ECONOMY_HEADING),
+      'no section when none of its tools are enabled');
+  });
+
+  await test('the computation-vs-judgement rule appears only when both sides do', () => {
+    assert(systemPromptContribution({ enabledPluginIds: ['explore-code', 'explore-agent'] }).includes(ECONOMY_RULE),
+      'query_code beside a sub-agent must get the rule that tells them apart');
+    assert(!systemPromptContribution({ enabledPluginIds: ['explore-code'] }).includes(ECONOMY_RULE),
+      'with no sub-agent there is nothing to tell query_code apart from');
+    assert(!systemPromptContribution({ enabledPluginIds: ['explore-agent', 'thread'] }).includes(ECONOMY_RULE),
+      'with no query_code there is no computation side');
+  });
+
+  await test('the create_thread line keeps its usage contract', () => {
+    const out = systemPromptContribution({ enabledPluginIds: ['thread'] });
+    assert(out.includes('`resultSpec`') && out.includes('`goal`') && out.includes('one task'),
+      'create_thread still needs its goal/prompt/resultSpec and one-task rules');
+  });
+
   await test('general working-style guidance is NOT extension-generated (moved to presets)', () => {
     // Tone/quality/loop/references are tool-independent and now live in the
     // editable prompt presets, never in the plugin-gated extension text.
@@ -158,7 +210,7 @@ export async function runTests(_ctx) {
     const out1 = systemPromptContribution({});
     assert(typeof out1 === 'string', 'undefined ids → returns a string');
     assert(!out1.includes('## Memory'), 'undefined ids → no memory section');
-    assert(!out1.includes('use create_thread'), 'undefined ids → no thread section');
+    assert(!out1.includes(THREAD_MARKER), 'undefined ids → no thread section');
     const out2 = systemPromptContribution({ enabledPluginIds: null });
     assert(typeof out2 === 'string', 'null ids → returns a string');
   });

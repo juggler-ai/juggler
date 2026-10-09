@@ -12,7 +12,7 @@
  * are present as throwing stubs so accidental engine-side use fails clearly.
  */
 
-export { smartTruncate, getBudgetForCallCount } from './lib/smart-truncate.js';
+export { smartTruncate } from './lib/smart-truncate.js';
 // Not a stub: injectStylesOnce is DOM-guarded and returns without touching a
 // global when there is no document, so the worker gets the real function.
 export { injectStylesOnce } from './lib/inject-styles.js';

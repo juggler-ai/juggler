@@ -406,7 +406,7 @@ this way; `read-only-strategy-type.js` is the simplest and best starting point.
 
 The production surface is:
 
-- **MANIFEST fields**: `defaultRules`, `defaultAllowedPaths`, `toolExecution`,
+- **MANIFEST fields**: `defaultRules`, `defaultAllowedPaths`,
   `showsApprovalControls`, `recommendations`, `color`, `icon`.
 - **`static GUIDANCE`** — what the strategy tells the model when it becomes
   active, or `''` for one that tells it nothing. The base `onActivate` injects

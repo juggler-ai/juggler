@@ -173,6 +173,36 @@ export const tests = [
     'cap=ok;direct=blocked'
   ),
 
+  // Printed output comes back with the result. Without capture, console.* went
+  // to the hidden engine's devtools and the model never saw it.
+  queryTest(
+    'query-console',
+    'query_code: console output is returned with the result',
+    'console.log("hi", { a: 1 }, [2]);\nconsole.warn("careful");\nconsole.error(new Error("oops"));\nreturn 7;',
+    '7\n\nConsole output:\nhi {"a":1} [2]\n[warn] careful\n[error] Error: oops'
+  ),
+
+  // A script that prints and then fails: the output is most useful exactly
+  // here, so it rides the error rather than being lost with the result.
+  queryTest(
+    'query-console-then-throw',
+    'query_code: console output survives a thrown error',
+    'console.log("got this far");\nthrow new Error("boom");',
+    'boom\n\nConsole output:\ngot this far',
+    true
+  ),
+
+  // Output is capped where it is produced, so a print loop cannot flood the
+  // channel or the transcript, and the cut is said out loud.
+  queryTest(
+    'query-console-cap',
+    'query_code: console output is capped',
+    'for (let i = 0; i < 500; i++) console.log("line " + i);\nreturn "done";',
+    'done\n\nConsole output:\n'
+      + Array.from({ length: 200 }, (_, i) => `line ${i}`).join('\n')
+      + '\n… console output truncated (limit: 200 lines, 20000 characters)'
+  ),
+
   // Read-credit for the freshness guard: an query_code script's fs.readFile
   // records the file in the action's filesRead map, which satisfies the edit
   // tool's read-before-edit guard (read-history.js). The target is seeded via

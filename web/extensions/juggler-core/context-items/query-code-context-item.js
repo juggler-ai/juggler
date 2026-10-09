@@ -46,7 +46,7 @@ class QueryCodeContextItem extends ContextItem {
     return [{
       name: 'query_code',
       category: 'read',
-      description: 'Run JavaScript against a read-only view of the codebase. Collapses many reads, greps and globs into one call — only the value you return enters context.',
+      description: 'Run JavaScript against a read-only view of the codebase. Collapses many reads, greps and globs into one call — only the value you return, plus anything you print with `console.log`, enters context.',
       input_schema: {
         type: 'object',
         properties: {
@@ -94,7 +94,9 @@ class QueryCodeContextItem extends ContextItem {
    * Execute the query script via the host sandbox (juggler/sandbox),
    * exposing a read-only filesystem plus grep/glob search to the code. The
    * sandbox also injects `path` and `projectRoot` — the root of the tree this
-   * conversation works in. Only the script's return value enters context.
+   * conversation works in. Only the script's return value and its console
+   * output enter context. The output is kept as `console` (an array of lines)
+   * beside `result`, and on failure it is appended to the error.
    *
    * The result also carries `filesRead` — path → contentHash for every file
    * the script's `fs.readFile` pulled — so the read-before-mutate freshness
@@ -129,15 +131,28 @@ class QueryCodeContextItem extends ContextItem {
     // The signal is what makes Escape mean anything here. Without it the script
     // is only bounded by its own timeout — up to ten minutes — and a cancel
     // leaves the tool sitting at `running` until that budget runs out.
-    const result = await runInSandbox(code, {
-      capabilities: { fs, grep, glob },
-      timeoutMs,
-      projectRoot: workspaceRoot,
-      signal: this.signal,
-    });
+    /** @type {string[]} */
+    const consoleLines = [];
+    let result;
+    try {
+      result = await runInSandbox(code, {
+        capabilities: { fs, grep, glob },
+        timeoutMs,
+        projectRoot: workspaceRoot,
+        signal: this.signal,
+        onConsole: (line) => { consoleLines.push(line); },
+      });
+    } catch (err) {
+      // What the script printed matters most when it failed, so it rides the
+      // error. A cancel stays a bare AbortError: nobody is reading the output.
+      if (consoleLines.length === 0 || (err instanceof Error && err.name === 'AbortError')) throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(withConsole(message, consoleLines));
+    }
 
     /** @type {Record<string, unknown>} */
     const out = { result: result === undefined ? null : result };
+    if (consoleLines.length > 0) out.console = consoleLines;
     if (fs.filesRead.size > 0) {
       /** @type {Record<string, string|null>} */
       const filesRead = {};
@@ -230,6 +245,7 @@ class QueryCodeContextItem extends ContextItem {
     } else {
       content = '(no return value)';
     }
+    if (Array.isArray(result.console)) content = withConsole(content, result.console);
 
     return this.successSummary(this.truncateForLLM(content));
   }
@@ -306,6 +322,16 @@ class QueryCodeContextItem extends ContextItem {
   static _prettyPrintCode(src) {
     return prettyPrintQueryScript(src);
   }
+}
+
+/**
+ * Append a script's console output to the text the model reads.
+ * @param {string} text - The result or error text
+ * @param {string[]} lines - Console lines, already capped by the sandbox
+ * @returns {string} text, followed by the output when there is any
+ */
+function withConsole(text, lines) {
+  return lines.length > 0 ? `${text}\n\nConsole output:\n${lines.join('\n')}` : text;
 }
 
 // Words after which a `{` opens an expression (object literal), not a block.

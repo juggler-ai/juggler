@@ -40,17 +40,26 @@ import { extractErrorMessage } from '../sdk/lib/error-utils.js';
 export const SANDBOX_DELEGATE_GRACE_MS = 30000;
 
 /**
+ * @typedef {object} RunHooks
+ * @property {AbortSignal} [signal] - Aborting settles the run at once and tells
+ *   the host to terminate it
+ * @property {(line: string) => void} [onConsole] - Receives each console line
+ *   the script writes, relayed from the host as it is written
+ */
+
+/**
  * Build the worker-side sandbox bridge.
  * @param {object} opts - Bridge options
  * @param {(message: any) => void} opts.post - Post a message to the main-thread host
  * @param {number} [opts.graceMs] - Override for {@link SANDBOX_DELEGATE_GRACE_MS} (tests)
- * @returns {{delegate: (code: string, capabilities: Record<string, any>, timeoutMs: number, callerRoot?: string) => Promise<unknown>,
- *   handleResult: (data: any) => void, handleCap: (data: any) => Promise<void>, pendingCount: () => number}}
- *   The delegate to install on globalThis, and the two inbound message handlers.
+ * @returns {{delegate: (code: string, capabilities: Record<string, any>, timeoutMs: number, callerRoot?: string, hooks?: RunHooks) => Promise<unknown>,
+ *   handleResult: (data: any) => void, handleCap: (data: any) => Promise<void>, handleConsole: (data: any) => void,
+ *   pendingCount: () => number}}
+ *   The delegate to install on globalThis, and the inbound message handlers.
  */
 export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS }) {
   let sandboxSeq = 0;
-  /** @type {Map<string, {resolve: Function, reject: Function, capabilities: Record<string, any>, timer: any}>} */
+  /** @type {Map<string, {resolve: Function, reject: Function, capabilities: Record<string, any>, timer: any, detach: () => void, onConsole?: (line: string) => void}>} */
   const pending = new Map();
 
   /**
@@ -66,6 +75,7 @@ export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS 
     if (!entry) return;
     pending.delete(id);
     clearTimeout(entry.timer);
+    entry.detach();
     if (ok) entry.resolve(value);
     else entry.reject(value);
   }
@@ -77,9 +87,12 @@ export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS 
      * @param {Record<string, any>} capabilities - Named fs/grep/glob closures
      * @param {number} timeoutMs - The script's own wall-clock budget
      * @param {string} [callerRoot] - The root the caller works in, POSIX-form
+     * @param {RunHooks} [hooks] - The caller's abort signal and console sink
      * @returns {Promise<unknown>} The script's return value
      */
-    delegate(code, capabilities, timeoutMs, callerRoot) {
+    delegate(code, capabilities, timeoutMs, callerRoot, { signal, onConsole } = {}) {
+      const abortError = () => new DOMException('The operation was aborted.', 'AbortError');
+      if (signal?.aborted) return Promise.reject(abortError());
       const id = `sbx_${++sandboxSeq}`;
       const descriptors = Object.entries(capabilities).map(([name, cap]) => ({
         name,
@@ -99,9 +112,27 @@ export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS 
             `query_code: the sandbox host never answered within ${timeoutMs + graceMs}ms`)),
           timeoutMs + graceMs
         );
-        pending.set(id, { resolve, reject, capabilities, timer });
+        // The run's Worker lives on the host, so stopping it takes a message.
+        // Settle here without waiting for the host's reply: the caller asked to
+        // stop, and a host that never answers must not hold it.
+        const onAbort = () => {
+          post({ type: 'sandbox-abort', id });
+          settle(id, false, abortError());
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        const detach = () => signal?.removeEventListener('abort', onAbort);
+        pending.set(id, { resolve, reject, capabilities, timer, detach, onConsole });
         post({ type: 'sandbox-run', id, code, timeoutMs, descriptors, projectRoot });
       });
+    },
+
+    /**
+     * Apply a `sandbox-console` line from the host to its run's console sink.
+     * A line for a run that has already settled is dropped.
+     * @param {any} data - { id, text }
+     */
+    handleConsole(data) {
+      pending.get(data.id)?.onConsole?.(String(data.text));
     },
 
     /**

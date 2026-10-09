@@ -11,6 +11,8 @@ of changes; this project follows semantic versioning.
 - Arrow keys in a diff's context dropdown no longer also move the conversation selection
 - Alt+Up/Down move the conversation selection, even while typing in the message box
 - On Linux, an MCP server added in Settings reaches the model without a restart
+- Escape now stops a running query_code script instead of letting it run on
+- query_code returns what a script prints with `console.log`, even when it fails
 
 ## [0.7.5] - 2026-10-06
 

@@ -795,7 +795,7 @@ func (cp *controlProtocol) takeStashLocked(idx int) *provider.ToolResult {
 
 // answerCallLocked writes the control_response for one parked call.
 func (cp *controlProtocol) answerCallLocked(call pendingMCPCall, result *provider.ToolResult) error {
-	mcpResp, err := mcpToolsCallSuccess(call.jsonrpcID, result.Content, result.ResultStatus.IsError() || result.ResultStatus.VetosContinuation())
+	mcpResp, err := mcpToolsCallSuccess(call.jsonrpcID, result.Content, result.Parts, result.ResultStatus.IsError() || result.ResultStatus.VetosContinuation())
 	if err != nil {
 		return fmt.Errorf("encode tools/call response: %w", err)
 	}
@@ -906,7 +906,7 @@ func (cp *controlProtocol) discardStaleBuffers() (stashed, parked int) {
 		}
 		for _, call := range cp.parkedCalls {
 			jlog.Error("discardStaleBuffers: orphaned parked call key=%q gen=%d currentGen=%d", call.key, call.generation, cp.currentGeneration)
-			mcpResp, err := mcpToolsCallSuccess(call.jsonrpcID, "tool result not delivered before turn end (provider/CLI tool desync)", true)
+			mcpResp, err := mcpToolsCallSuccess(call.jsonrpcID, "tool result not delivered before turn end (provider/CLI tool desync)", nil, true)
 			if err != nil {
 				jlog.Error("discardStaleBuffers: encode abort for requestID=%s: %v", call.requestID, err)
 				continue

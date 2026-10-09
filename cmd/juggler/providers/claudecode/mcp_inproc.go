@@ -14,6 +14,7 @@ package claudecode
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
@@ -151,9 +152,19 @@ func jsonrpcFailure(id json.RawMessage, code int, message string) (json.RawMessa
 // mcpToolsCallSuccess builds the JSONRPC envelope for a successful
 // tools/call response. Content text + IsError mirror MCP's spec; the CLI
 // uses IsError to decide whether to surface as a failed tool to the LLM.
-func mcpToolsCallSuccess(id json.RawMessage, content string, isError bool) (json.RawMessage, error) {
-	return jsonrpcSuccess(id, MCPToolsCallResult{
-		Content: []MCPContentBlock{{Type: "text", Text: content}},
-		IsError: isError,
-	})
+// Each image part with resolved bytes follows the text as an image block; a
+// part whose asset was missing has no bytes and is skipped.
+func mcpToolsCallSuccess(id json.RawMessage, content string, parts []provider.MediaPart, isError bool) (json.RawMessage, error) {
+	blocks := []any{MCPContentBlock{Type: "text", Text: content}}
+	for _, part := range parts {
+		if part.Type != "image" || len(part.Data) == 0 {
+			continue
+		}
+		blocks = append(blocks, MCPImageBlock{
+			Type:     "image",
+			Data:     base64.StdEncoding.EncodeToString(part.Data),
+			MimeType: part.Mime,
+		})
+	}
+	return jsonrpcSuccess(id, MCPToolsCallResult{Content: blocks, IsError: isError})
 }

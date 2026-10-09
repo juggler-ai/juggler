@@ -491,6 +491,9 @@ type ToolResult struct {
 	Content      string       `json:"content"`      // The result content
 	ResultStatus ResultStatus `json:"resultStatus"` // Outcome: "success", "error", "denied", "cancelled"
 	Category     string       `json:"category"`     // Tool category: "read", "write", "meta"
+	// Parts carries the images a tool returned alongside its text (e.g. read on
+	// a PNG), with Data already resolved — see Message.Parts.
+	Parts []MediaPart `json:"parts,omitempty"`
 }
 
 // ShouldContinueResult is returned by ShouldContinueCallback

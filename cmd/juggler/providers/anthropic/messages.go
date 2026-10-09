@@ -146,7 +146,7 @@ func transformToAPIMessagesInternal(messages []provider.Message) []APIMessage {
 					Text: msg.Content,
 				})
 			}
-			currentBlocks = appendImageBlocks(currentBlocks, msg.Parts)
+			currentBlocks = AppendImageBlocks(currentBlocks, msg.Parts)
 
 		case "assistant":
 			if msg.Content != "" {
@@ -199,7 +199,7 @@ func transformToAPIMessagesInternal(messages []provider.Message) []APIMessage {
 			// turn, right after the tool_result block — Anthropic accepts extra
 			// content after tool_result blocks, and both the SDK and CLI paths map
 			// these image blocks natively (transformContentBlock's image case).
-			currentBlocks = appendImageBlocks(currentBlocks, msg.Parts)
+			currentBlocks = AppendImageBlocks(currentBlocks, msg.Parts)
 
 		case "context-item", "context-item-updated", "guidance", "system-reminder":
 			// These are user-role messages with text content, all cacheable in
@@ -212,7 +212,7 @@ func transformToAPIMessagesInternal(messages []provider.Message) []APIMessage {
 					Text: msg.Content,
 				})
 			}
-			currentBlocks = appendImageBlocks(currentBlocks, msg.Parts)
+			currentBlocks = AppendImageBlocks(currentBlocks, msg.Parts)
 		}
 	}
 
@@ -223,13 +223,15 @@ func transformToAPIMessagesInternal(messages []provider.Message) []APIMessage {
 	return insertEmptyAssistantAPIMessages(result)
 }
 
-// appendImageBlocks appends one base64 image content block per image MediaPart
+// AppendImageBlocks appends one base64 image content block per image MediaPart
 // with resolved bytes. Parts whose Data is empty are skipped defensively — the
 // server resolves bytes from the asset store before Submit, so an unresolved
 // part means the asset was missing and is better dropped than sent malformed.
 // Images attach to user-role messages only (the caller cases — user, the
 // user-role context-item family, and tool-result — all map to the user role).
-func appendImageBlocks(blocks []APIContentBlock, parts []provider.MediaPart) []APIContentBlock {
+// The claudecode provider also uses it to nest a tool's images inside the
+// tool_result it journals into a warm session file.
+func AppendImageBlocks(blocks []APIContentBlock, parts []provider.MediaPart) []APIContentBlock {
 	for _, part := range parts {
 		if part.Type != "image" || len(part.Data) == 0 {
 			continue

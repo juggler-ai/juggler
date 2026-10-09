@@ -412,6 +412,7 @@ func (c *Client) extractToolResults(messages []provider.Message) []*provider.Too
 				ToolUseID:    msg.ToolUseID,
 				Content:      msg.Content,
 				ResultStatus: status,
+				Parts:        msg.Parts,
 			}
 		}
 	}

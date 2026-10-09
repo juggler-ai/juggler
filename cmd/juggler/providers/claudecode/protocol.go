@@ -128,17 +128,25 @@ type MCPToolsCallParams struct {
 // MCPToolsCallResult is the result payload our in-process MCP server
 // returns on a successful tools/call. The CLI surfaces Content as the
 // LLM's view of the tool output; IsError flips the response to a
-// tool-failure branch in the LLM.
+// tool-failure branch in the LLM. Each Content entry is an MCPContentBlock
+// or an MCPImageBlock.
 type MCPToolsCallResult struct {
-	Content []MCPContentBlock `json:"content"`
-	IsError bool              `json:"isError,omitempty"`
+	Content []any `json:"content"`
+	IsError bool  `json:"isError,omitempty"`
 }
 
-// MCPContentBlock is a single piece of content in an MCP tools/call result.
-// MCP supports image / resource_link types too; we only emit text.
+// MCPContentBlock is a text block in an MCP tools/call result.
 type MCPContentBlock struct {
 	Type string `json:"type"` // "text"
 	Text string `json:"text"`
+}
+
+// MCPImageBlock is an image block in an MCP tools/call result: base64 bytes
+// keyed by MIME type. The CLI hands it to the model inside the tool_result.
+type MCPImageBlock struct {
+	Type     string `json:"type"` // "image"
+	Data     string `json:"data"`
+	MimeType string `json:"mimeType"`
 }
 
 // MCPInitializeResult is the result payload returned by our in-process MCP

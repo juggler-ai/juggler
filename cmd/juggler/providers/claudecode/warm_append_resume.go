@@ -319,8 +319,8 @@ func trailingToolUses(lines [][]byte) ([]danglingToolUse, error) {
 // no matching call would break tool_use→tool_result adjacency; a call left
 // without a result would leave the rebuilt assistant turn half-answered, which
 // the API rejects outright. Either way the caller cold-starts instead.
-func pairResultsWithToolUses(blocks []anthropic.APIContentBlock, dangling []danglingToolUse, sessionUUID, workingDir string) ([]map[string]any, error) {
-	byID := make(map[string]anthropic.APIContentBlock, len(blocks))
+func pairResultsWithToolUses(blocks []warmToolResultBlock, dangling []danglingToolUse, sessionUUID, workingDir string) ([]map[string]any, error) {
+	byID := make(map[string]warmToolResultBlock, len(blocks))
 	for _, b := range blocks {
 		byID[b.ToolUseID] = b
 	}
@@ -328,7 +328,7 @@ func pairResultsWithToolUses(blocks []anthropic.APIContentBlock, dangling []dang
 	now := time.Now()
 	entries := make([]map[string]any, 0, len(dangling))
 	for _, d := range dangling {
-		mine := make([]anthropic.APIContentBlock, 0, len(d.ids))
+		mine := make([]warmToolResultBlock, 0, len(d.ids))
 		for _, id := range d.ids {
 			b, ok := byID[id]
 			if !ok {
@@ -504,20 +504,38 @@ func parseToolUseEntry(line []byte) (uuid string, toolUseIDs []string, err error
 	return e.UUID, ids, nil
 }
 
+// warmToolResultBlock is a tool_result content block as the CLI journals it.
+// Content is the result text, or — when the tool returned images — the array
+// of a text block followed by image blocks that the CLI itself writes for an
+// MCP tool's image result. Nesting the images inside the tool_result, rather
+// than beside it, keeps the entry nothing but tool_results, so a parallel
+// call's results stay first in the user turn the CLI rebuilds.
+type warmToolResultBlock struct {
+	Type      string `json:"type"`
+	ToolUseID string `json:"tool_use_id,omitempty"`
+	Content   any    `json:"content,omitempty"`
+	IsError   bool   `json:"is_error,omitempty"`
+}
+
 // toolResultBlocks converts the delta's paired tool-result messages into
-// Anthropic tool_result content blocks for the appended session entry.
-func toolResultBlocks(results []provider.Message) []anthropic.APIContentBlock {
-	var blocks []anthropic.APIContentBlock
+// tool_result content blocks for the appended session entry.
+func toolResultBlocks(results []provider.Message) []warmToolResultBlock {
+	var blocks []warmToolResultBlock
 	for _, m := range results {
 		if m.Type != "tool-result" {
 			continue
 		}
-		blocks = append(blocks, anthropic.APIContentBlock{
-			Type:      "tool_result",
-			ToolUseID: m.ToolUseID,
-			Content:   m.Content,
-			IsError:   m.IsError,
-		})
+		block := warmToolResultBlock{Type: "tool_result", ToolUseID: m.ToolUseID, IsError: m.IsError}
+		var inner []anthropic.APIContentBlock
+		if m.Content != "" {
+			inner = append(inner, anthropic.APIContentBlock{Type: "text", Text: m.Content})
+		}
+		if withImages := anthropic.AppendImageBlocks(inner, m.Parts); len(withImages) > len(inner) {
+			block.Content = withImages
+		} else if m.Content != "" {
+			block.Content = m.Content
+		}
+		blocks = append(blocks, block)
 	}
 	return blocks
 }

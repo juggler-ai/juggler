@@ -27,6 +27,7 @@ import { isViewer } from '../../sdk/lib/client-role.js';
 import { plain, yGet } from './item-accessor.js';
 import StrategyType, { APPROVAL_POLICY } from 'juggler/strategy-type';
 import { INTERACTION_KIND } from '../../sdk/context-item.js';
+import { runBeforeToolHooks } from '../services/hook-runtime.js';
 
 /** @typedef {import('../../sdk/lib/message.js').Message} Message */
 
@@ -106,6 +107,15 @@ function closingReviewStatus(result) {
 }
 
 /**
+ * The approval-card line for a call a hook is holding for the user.
+ * @param {import('../services/hook-runtime.js').HookRecord} record - The hook that asked
+ * @returns {string} The line
+ */
+function hookHoldNote(record) {
+  return `Held for you by hook "${record.name}"` + (record.reason ? `: ${record.reason}` : '');
+}
+
+/**
  * Execute a tool action that has been approved (state='running').
  * Called by the items observer when it detects a running tool without a result.
  * @param {import('./message-thread.js').default} messageThread
@@ -148,6 +158,15 @@ export async function executeToolAction(messageThread, toolUseId, conversation) 
 }
 
 /**
+ * Evaluations running now, by conversation and toolUseId. The worker re-sends an
+ * `evaluate-tool` that has gone unanswered for its re-drive interval, and a
+ * second evaluation started beside a first that is still waiting on a hook
+ * would run every hook twice. A re-sent command joins the one in flight instead.
+ * @type {Map<string, Promise<void>>}
+ */
+const evaluationsInFlight = new Map();
+
+/**
  * Handle a newly created tool-action with undefined state.
  * Checks plugin manifest to determine if approval is needed.
  * Called by the items observer when a new tool-action is inserted.
@@ -155,9 +174,28 @@ export async function executeToolAction(messageThread, toolUseId, conversation) 
  * @param {string} toolUseId
  * @param {any} conversation
  * @param {any} [existingYMap]
+ * @returns {Promise<void>}
  */
-export async function handleNewToolAction(messageThread, toolUseId, conversation, existingYMap = null) {
-  if (isViewer()) return;
+export function handleNewToolAction(messageThread, toolUseId, conversation, existingYMap = null) {
+  if (isViewer()) return Promise.resolve();
+  const key = `${conversation?.id}\u0000${toolUseId}`;
+  const inFlight = evaluationsInFlight.get(key);
+  if (inFlight) return inFlight;
+  const evaluation = evaluateNewToolAction(messageThread, toolUseId, conversation, existingYMap)
+    .finally(() => evaluationsInFlight.delete(key));
+  evaluationsInFlight.set(key, evaluation);
+  return evaluation;
+}
+
+/**
+ * The body of {@link handleNewToolAction}, run once per evaluation.
+ * @param {import('./message-thread.js').default} messageThread
+ * @param {string} toolUseId
+ * @param {any} conversation
+ * @param {any} existingYMap
+ * @returns {Promise<void>}
+ */
+async function evaluateNewToolAction(messageThread, toolUseId, conversation, existingYMap) {
 
   const toolAction = existingYMap || messageThread.getToolAction(toolUseId);
   if (!toolAction) return;
@@ -239,6 +277,34 @@ export async function handleNewToolAction(messageThread, toolUseId, conversation
   // reused for both the approval decision and the provenance stamp below.
   const permitted = action.isPermitted(toolInputPlain);
 
+  // Tool hooks rule before the strategy does (services/hook-runtime.js). A deny
+  // ends the call here; an ask and an allow feed the decision below. They are
+  // awaited — the one wait on this path besides prepare() — and bounded well
+  // under the worker's re-drive interval, so the evaluate is answered in time.
+  const hookOutcome = await runBeforeToolHooks({
+    messageThread,
+    conversationId: conversation.id,
+    threadId: messageThread.threadItemId || conversation.id,
+    toolUseId,
+    toolName,
+    toolInput: toolInputPlain || {},
+  });
+  // Another evaluation may have settled the call while the hooks ran (a reset
+  // and re-evaluation, a cancel). Only a call still unevaluated is ours to rule on.
+  if (hookOutcome.records.length && (toolAction.get('state') || '') !== '') return;
+  if (hookOutcome.verdict === 'deny') {
+    const denier = /** @type {import('../services/hook-runtime.js').HookRecord} */ (hookOutcome.decidedBy);
+    const errorMessage = `Blocked by hook "${denier.name}"` + (denier.reason ? `: ${denier.reason}` : '.');
+    messageThread.completeToolAction(toolUseId, {
+      content: errorMessage,
+      isError: true,
+      resultType: 'action',
+      fullResult: { state: 'error', success: false, error: errorMessage },
+      hooks: hookOutcome.records
+    });
+    return;
+  }
+
   // The action's own default decision: needs approval unless it never requires
   // it, or is already permitted by a rule, or the conversation is in the blanket
   // auto-approve toggle AND this call is auto-approvable. A non-auto-approvable
@@ -273,8 +339,20 @@ export async function handleNewToolAction(messageThread, toolUseId, conversation
     autoApprovable
   });
 
+  // A hook's allow stands where a saved permission rule would: it waives the
+  // action's own default, never a strategy that requires approval, and never a
+  // call that must reach a human (an elicitation, a non-auto-approvable checkpoint).
+  const hookAllows = hookOutcome.verdict === 'allow'
+    && autoApprovable
+    && action.interactionKind() === INTERACTION_KIND.GATE;
+  const hookAsks = hookOutcome.verdict === 'ask';
+
   let needsApproval;
-  if (strategyPolicy === APPROVAL_POLICY.APPROVE) {
+  if (hookAsks) {
+    // A hook that asks wins over everything but a deny: the user decides this
+    // call, whatever the strategy or the saved rules would have done.
+    needsApproval = true;
+  } else if (strategyPolicy === APPROVAL_POLICY.APPROVE) {
     // A force-approve strategy (YOLO) has returned APPROVE for this call. Its
     // own getApprovalPolicy already excludes the calls that must still reach a
     // human — elicitations and non-auto-approvable checkpoints both come back as
@@ -283,8 +361,10 @@ export async function handleNewToolAction(messageThread, toolUseId, conversation
   } else if (strategyPolicy === APPROVAL_POLICY.REQUIRE_APPROVAL) {
     needsApproval = true;
   } else {
-    needsApproval = defaultApproval;
+    needsApproval = defaultApproval && !hookAllows;
   }
+  const approvedByHook = hookAllows && !needsApproval && defaultApproval
+    && strategyPolicy !== APPROVAL_POLICY.APPROVE;
 
   // Is a strategy reviewer about to be handed this call (see the onToolPending
   // dispatch below)? Decided here, before the park is written, because the park
@@ -294,7 +374,9 @@ export async function handleNewToolAction(messageThread, toolUseId, conversation
   // parks already marked as under review and the alert waits for the review to
   // end and leave it parked. `onToolPending` always exists — StrategyType
   // defines the no-op — so the question is whether this strategy overrides it.
+  // Not when a hook asked: that hook wants the user, not a stand-in for them.
   const strategyReviews = needsApproval
+    && !hookAsks
     && action.interactionKind() === INTERACTION_KIND.GATE
     && typeof messageThread.strategy?.onToolPending === 'function'
     && messageThread.strategy.onToolPending !== StrategyType.prototype.onToolPending;
@@ -326,6 +408,14 @@ export async function handleNewToolAction(messageThread, toolUseId, conversation
               busy: true,
               label: reviewLabelFor(messageThread.strategy)
             });
+          } else if (hookAsks && item.get('state') === TOOL_STATES.PENDING) {
+            // Say in the approval card which hook is holding the call, and why.
+            messageThread.updateItemField(i, 'reviewStatus', closingReviewStatus({
+              note: hookHoldNote(/** @type {any} */ (hookOutcome.decidedBy))
+            }));
+          }
+          if (hookOutcome.records.length) {
+            messageThread.updateItemField(i, 'hooks', hookOutcome.records);
           }
           break;
         }
@@ -344,12 +434,16 @@ export async function handleNewToolAction(messageThread, toolUseId, conversation
       // approved it without individual confirmation — a force-approve strategy
       // (YOLO / read-only for read+meta tools), or the headless auto-approve
       // test flag → `strategy`. The value names WHO approved, not the mechanism.
-      const approvalSource = permitted ? 'rule' : 'strategy';
+      // A hook's allow that waived the gate names the hook as the approver.
+      const approvalSource = permitted ? 'rule' : approvedByHook ? 'hook' : 'strategy';
       const items = messageThread.items;
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         if (isToolActionMessage(/** @type {Message} */ (item)) && item.get('toolUseId') === toolUseId) {
           messageThread.updateItemField(i, 'approvalSource', approvalSource);
+          if (hookOutcome.records.length) {
+            messageThread.updateItemField(i, 'hooks', hookOutcome.records);
+          }
           break;
         }
       }
@@ -376,7 +470,10 @@ export async function handleNewToolAction(messageThread, toolUseId, conversation
   // stall the evaluate-tool ack. A throw or a rejected promise is swallowed
   // here so it never becomes an unhandled rejection; the tool simply stays
   // PENDING for the human (fail-closed).
-  if (needsApproval && action.interactionKind() === INTERACTION_KIND.GATE) {
+  //
+  // Never for a call a hook asked the user about: that hook wants the human,
+  // and a reviewer approving it would be exactly the stand-in it ruled out.
+  if (needsApproval && !hookAsks && action.interactionKind() === INTERACTION_KIND.GATE) {
     try {
       const pendingResult = messageThread.strategy?.onToolPending?.({
         toolUseId,

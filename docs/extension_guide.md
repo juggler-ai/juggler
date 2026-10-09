@@ -14,7 +14,7 @@ high-level so it doesn't drift from the code.
 
 ## Capabilities
 
-An extension bundles any mix of six capability types — each a class you
+An extension bundles any mix of eight capability types — each a class you
 `export default`, extending an SDK base class and declaring a `static MANIFEST`:
 
 | Capability | What it does | Base class (SDK module) | Built-in examples |
@@ -26,6 +26,7 @@ An extension bundles any mix of six capability types — each a class you
 | **Pinboard Item** | A tab on the Pinboard, the workbench behind the right edge | `juggler/pinboard-item-type` | `file` |
 | **File Viewer** | How a file type is shown to you and extracted for the model | `juggler/file-viewer` | `text`, `pdf`, `image` |
 | **Workspace Provider** | Makes and looks after a place a conversation works in | `juggler/workspace-provider` | — |
+| **Hook** | Policy and notes around every tool call, whatever the strategy — deny, ask, allow, or tell the model something | `juggler/hook-type` | — |
 
 An extension may **also** contribute a **system-prompt contribution** — not a
 class but a single module whose default export adds terse, durable guidance to
@@ -41,6 +42,10 @@ third-party extension. It is the best reference for well-formed capabilities.
 > extension. A [custom slash command](custom-commands.md) is a no-code markdown
 > file — a prompt template plus a few options — editable from the UI. Reach for a
 > Command capability (below) only when the command needs real code.
+>
+> The same goes for hooks: a rule like "ask before touching `migrations/`" or
+> "after a sandbox denial, say how to diagnose it" is a [hook file](hooks.md) in
+> `~/.juggler/hooks/`, no code needed.
 
 ## Quick start
 
@@ -130,6 +135,7 @@ core extension does (`context-items/edit/`, `context-items/execute/`).
     "pinboardItems": ["pins/*-pin.js"],
     "fileViewers":  ["viewers/*-file-viewer.js"],
     "workspaceProviders": ["workspaces/*-workspace-provider.js"],
+    "hooks":        ["hooks/*-hook.js"],
     "systemPrompt": "system-prompt-contribution.js",  // optional; single module path
     "tests":        ["_tests/*-test.js"]              // optional; test-only, never served
   }
@@ -140,7 +146,7 @@ core extension does (`context-items/edit/`, `context-items/execute/`).
 |-------|----------|-------|
 | `id` | Yes | Scoped, e.g. `@you/name`. The unit of enable/disable. |
 | `name`, `version` | Yes | Display name and semver. |
-| `provides` | Yes | At least one capability. `contextItems`/`strategies`/`commands`/`infoCards`/`pinboardItems`/`fileViewers`/`workspaceProviders` are root-relative globs; `systemPrompt` is a single module path (see [System-prompt contribution](#system-prompt-contribution)); `tests` is test-only (see [Testing your extension](#testing-your-extension)) and does not count as a capability. None may escape the extension root. |
+| `provides` | Yes | At least one capability. `contextItems`/`strategies`/`commands`/`infoCards`/`pinboardItems`/`fileViewers`/`workspaceProviders`/`hooks` are root-relative globs; `systemPrompt` is a single module path (see [System-prompt contribution](#system-prompt-contribution)); `tests` is test-only (see [Testing your extension](#testing-your-extension)) and does not count as a capability. None may escape the extension root. |
 | `engineApi` | Recommended | Semver range (`^1.0.0`, `1.2.3`, or `*`). Omitting it disables the compat check and earns a validation warning. The host SDK version lives in `web/sdk/version.js`. |
 | `permissions` | As needed | **Declares** the host access this extension's code uses. Surfaced to the user in the catalog and the install prompt — a disclosure, not a sandbox (see [Trust model](#trust-model)). See the vocabulary below. |
 | `settings` | As needed | User-configurable values, rendered in the extensions catalog. See [Settings and secrets](#settings-and-secrets). |
@@ -216,6 +222,7 @@ import CommandType from 'juggler/command-type';
 import InfoCardType from 'juggler/info-card-type';
 import PinboardItemType from 'juggler/pinboard-item-type';
 import FileViewer from 'juggler/file-viewer';
+import HookType from 'juggler/hook-type';
 import { readFile, writeFile, glob, grep, shell, webFetch } from 'juggler/ops';
 import { smartTruncate, createElement } from 'juggler/ui';
 ```
@@ -231,6 +238,7 @@ The full set of specifiers, and what each is for:
 | `juggler/pinboard-item-type` | `PinboardItemType` |
 | `juggler/file-viewer` | `FileViewer` |
 | `juggler/workspace-provider` | `WorkspaceProvider` — the workspace lifecycle base class |
+| `juggler/hook-type` | `HookType` — the tool-hook base class, and `validateHookManifest` |
 | `juggler/file-source` | `FileSource`/`FileAccess` types, `toDescriptor`, `fetchFileBytes` — what a file viewer is handed |
 | `juggler/ops` | The privileged host operations (below) |
 | `juggler/ui` | Render/format helpers — `createElement`, `smartTruncate`, markdown, syntax highlighting, `FormattingHelpers` |
@@ -1018,6 +1026,93 @@ Full reference: **`web/sdk/workspace-provider.js`**. Template:
 a real cancellation story, and the reason no absolute path is ever put in a
 command.
 
+### Hook — policy and notes around every tool call
+
+A hook runs around every tool call, whichever strategy is active and alongside
+every other hook. A strategy decides how autonomous the agent is; a hook says
+what is true regardless. Use one for a guard ("never `git push --force`"), an
+approval rule ("ask before anything touches `migrations/`, even in YOLO"), or
+a note the model needs after a certain kind of result ("that was a sandbox
+denial — here is how to diagnose it").
+
+```javascript
+// hooks/nono-denial-hook.js
+import HookType from 'juggler/hook-type';
+
+export default class NonoDenialHook extends HookType {
+  static MANIFEST = {
+    id: 'nono-denial',
+    name: 'nono denial diagnostics',
+    version: '1.0.0',
+    description: 'After a call the sandbox refused, tells the model to run `nono why`',
+    events: ['afterTool'],
+    match: { result: 'Operation not permitted|EPERM|EACCES' },
+    repeat: 'once-per-thread'
+  };
+
+  afterTool({ toolName, result }) {
+    return { note: `The sandbox refused that ${toolName} call. Run \`nono why\` before retrying.` };
+  }
+}
+```
+
+**Declare what you match; don't test for it.** `match` narrows the calls a hook
+is offered: `tools` (names as the model calls them), `input` (a regular
+expression tested against the input as JSON), and, for `afterTool`, `result` (a
+regular expression tested against the result text) and `isError`. The runtime
+applies it before calling you, so a hook never pays for a call it didn't ask
+for, and the catalog can show exactly what each hook fires on.
+
+| Method | Receives | May return |
+|--------|----------|------------|
+| `beforeTool(ctx)` | `toolName`, `toolInput` (a copy), `toolUseId`, `conversationId`, `threadId`, `signal` | `{ verdict: 'deny' \| 'ask' \| 'allow', reason }`, and/or `{ note }` |
+| `afterTool(ctx)` | the same, plus `result: { content, isError }` | `{ note }`, and/or `{ markError: true }` |
+
+Either method may be async. Returning nothing means no opinion.
+
+- **`deny`** ends the call as a failed tool. Its result reads `Blocked by hook
+  "<name>": <reason>`, and the model sees it.
+- **`ask`** parks the call for the user, even under a strategy that approves
+  everything. The call is never handed to the strategy's `onToolPending`
+  reviewer, and its approval card names the hook and its reason.
+- **`allow`** waives the gate the way a saved permission rule does, and the
+  call is stamped as approved by a hook. It never overrides a strategy that
+  requires approval, and never applies to a call that must reach a human (an
+  elicitation, or a call whose `autoApprovable` is false).
+- When hooks disagree, deny beats ask beats allow.
+- **A note goes inside the call's tool result**, after the tool's own output,
+  as a `<hook-note source="<id>">` block. It is never a separate message. On
+  the Claude Code provider, anything after a batch's tool results would read as
+  the user interjecting and cost a session respawn, so keeping the note in the
+  result avoids that. The note is stored on the tool-action (its `hooks` field)
+  and shown in the call's properties panel, so the transcript still holds
+  exactly what the model was told.
+- **`repeat: 'once-per-thread'`** drops your note when an earlier call in the
+  same thread already carries one from you. Verdicts are never deduplicated.
+
+**Where and when it runs.** Hooks run only in the engine, once per call, never
+in a viewer tab.
+
+- `beforeTool` runs between `prepare()` and the approval decision. It gets
+  `timeoutMs` (default 2000, at most 3000), which stays under the worker's
+  re-drive of an unanswered tool command.
+- `afterTool` runs after the tool returns and before its result is written,
+  while the call still reads as running. It gets `timeoutMs` (default 5000, at
+  most 30000), and its `signal` aborts if the call is cancelled.
+- A hook that throws or times out fails open: the call goes ahead as if the
+  hook hadn't run, and the failure is recorded. A `beforeTool` hook can set
+  `onError: 'closed'` to hold the call for the user instead.
+
+One instance of each hook class is kept for the life of the registry, so a hook
+may keep state between calls.
+
+Hooks do not run on sub-threads (`create_thread`) or on the meta tools the
+worker handles itself.
+
+Full reference: **`web/sdk/hook-type.js`**. Example:
+`examples/extensions/nono-denials`. For the no-code version (a markdown file in
+`~/.juggler/hooks/`), see [Tool hooks](hooks.md).
+
 ### System-prompt contribution
 
 Add durable guidance to the prompt. Not a class: a **single module** named by the manifest's `provides.systemPrompt`
@@ -1304,7 +1399,7 @@ id disables everything it bundles:
   reference.
 - **API source of truth** — `web/sdk/`: `context-item.js`, `strategy-type.js`,
   `command-type.js`, `info-card-type.js`, `pinboard-item-type.js`,
-  `file-viewer.js`, `ops.js`, `ui.js`, `version.js`. Read the JSDoc headers.
+  `file-viewer.js`, `hook-type.js`, `ops.js`, `ui.js`, `version.js`. Read the JSDoc headers.
 - **Conversation API** — `web/js/model/message-thread.js` (grep `@plugin-api`).
 - **Worked examples** — `examples/extensions/` (small extensions covering every
   capability type) and `web/extensions/juggler-core/` (the built-in extension —

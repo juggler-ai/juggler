@@ -106,6 +106,7 @@ import { runTests as runRegistryInitRaceTests } from '../unit-tests/registry-ini
 import { runTests as runStrategyInjectionTests } from '../unit-tests/strategy-injection-test.js';
 import { runTests as runObserverDecouplingTests } from '../unit-tests/observer-decoupling-test.js';
 import { runTests as runToolPendingHookTests } from '../unit-tests/tool-pending-hook-test.js';
+import { runTests as runToolHooksTests } from '../unit-tests/tool-hooks-test.js';
 import { runTests as runDenyCascadeTests } from '../unit-tests/deny-cascade-test.js';
 import { runTests as runTokenMeterRecoveryTests } from '../unit-tests/token-meter-recovery-test.js';
 import { runTests as runContextTurnHookTests } from '../unit-tests/context-turn-hook-test.js';
@@ -537,6 +538,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:strategy-injection', run: runStrategyInjectionTests },
   { name: 'unit:observer-decoupling', run: runObserverDecouplingTests },
   { name: 'unit:tool-pending-hook', run: runToolPendingHookTests },
+  { name: 'unit:tool-hooks', run: runToolHooksTests },
   { name: 'unit:deny-cascade', run: runDenyCascadeTests },
   { name: 'unit:token-meter-recovery', run: runTokenMeterRecoveryTests },
   { name: 'unit:context-turn-hook', run: runContextTurnHookTests },

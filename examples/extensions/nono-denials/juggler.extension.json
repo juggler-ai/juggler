@@ -1,0 +1,12 @@
+{
+  "id": "@example/nono-denials",
+  "name": "nono Denials",
+  "version": "1.0.0",
+  "author": "Juggler Team",
+  "license": "Apache-2.0",
+  "engineApi": "^1.0.0",
+  "permissions": [],
+  "provides": {
+    "hooks": ["hooks/*-hook.js"]
+  }
+}

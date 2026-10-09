@@ -5,6 +5,7 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Tool hooks: deny, hold or annotate any tool call, from extensions or `~/.juggler/hooks`
 - Fixed the Bin count dropping by two when restoring or deleting one conversation
 - A send refused for having no model no longer locks undo and New Thread
 - Arrow keys in a diff's context dropdown no longer also move the conversation selection

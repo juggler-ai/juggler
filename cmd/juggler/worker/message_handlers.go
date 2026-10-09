@@ -1338,12 +1338,15 @@ func (w *ConversationWorker) handleRetryToolApproval(payload json.RawMessage) {
 	// displayData and writes 'pending'. Clearing the derived fields (result,
 	// approvalResponse, approvalOptions, displayData) makes the re-ask look
 	// brand-new so a fresh approval form is derived from the immutable toolInput.
+	// The hook record goes too: re-evaluation runs the beforeTool hooks again and
+	// writes its own.
 	w.resetToolActionAndRedrive(msg.ToolUseID, map[string]any{
 		"state":            StateUnevaluated,
 		"result":           nil,
 		"approvalResponse": nil,
 		"approvalOptions":  nil,
 		"displayData":      nil,
+		"hooks":            nil,
 	})
 }
 

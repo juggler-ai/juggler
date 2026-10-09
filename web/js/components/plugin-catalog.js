@@ -8,6 +8,7 @@ import commandRegistry from '../registries/command-registry.js';
 import infoCardRegistry from '../registries/info-card-registry.js';
 import pinboardItemRegistry from '../registries/pinboard-item-registry.js';
 import fileViewerRegistry from '../registries/file-viewer-registry.js';
+import hookRegistry from '../registries/hook-registry.js';
 import { reloadRegistries, REGISTRIES_RELOADED } from '../registries/reload-registries.js';
 import {
   fetchExtensions,
@@ -27,7 +28,7 @@ import { getAppSession } from '../utils/app-session.js';
 /**
  * @typedef {object} CapCard
  * @property {string} url - Served URL of the capability module
- * @property {'context-item'|'strategy'|'command'|'info-card'|'file-viewer'|'pinboard-item'} itemType - Capability type
+ * @property {'context-item'|'strategy'|'command'|'info-card'|'file-viewer'|'pinboard-item'|'hook'} itemType - Capability type
  * @property {string|null} id - Capability id (null if it failed to register)
  * @property {string} name - Display name
  * @property {string} description - Short description
@@ -58,6 +59,7 @@ const CAP_TYPES = /** @type {const} */ ([
   ['infoCards', 'info-card'],
   ['fileViewers', 'file-viewer'],
   ['pinboardItems', 'pinboard-item'],
+  ['hooks', 'hook'],
 ]);
 
 /**
@@ -74,6 +76,7 @@ const ALL_REGISTRIES = /** @type {ReadonlyArray<readonly [any, string]>} */ ([
   [infoCardRegistry, 'info-card'],
   [fileViewerRegistry, 'file-viewer'],
   [pinboardItemRegistry, 'pinboard-item'],
+  [hookRegistry, 'hook'],
 ]);
 
 /** Human labels for an extension's provenance. */
@@ -105,6 +108,7 @@ const CAP_SECTIONS = /** @type {ReadonlyArray<readonly [string, string]>} */ ([
   ['info-card', 'Info Cards'],
   ['file-viewer', 'File Viewers'],
   ['pinboard-item', 'Pinboard Items'],
+  ['hook', 'Hooks'],
 ]);
 
 /**
@@ -128,6 +132,7 @@ const TYPE_LABELS = /** @type {Record<string, string>} */ ({
   'info-card': 'Info Card',
   'file-viewer': 'File Viewer',
   'pinboard-item': 'Pinboard Item',
+  hook: 'Hook',
 });
 
 /**
@@ -247,7 +252,7 @@ export function buildExtensionCards(extensions, entriesByPath, failedByPath, dis
         const selfDisabled = !!capId && disabledIds.has(capId);
         caps.push({
           url,
-          itemType: /** @type {'context-item'|'strategy'|'command'|'info-card'|'file-viewer'|'pinboard-item'} */ (itemType),
+          itemType: /** @type {'context-item'|'strategy'|'command'|'info-card'|'file-viewer'|'pinboard-item'|'hook'} */ (itemType),
           id: capId,
           name: reg?.manifest?.name || remembered?.entry.name || url.split('/').pop() || url,
           description: reg?.manifest?.description || '',
@@ -1439,6 +1444,7 @@ class PluginCatalog extends JugglerElement {
     if (cap.itemType === 'info-card') return infoCardRegistry.getIncludingDisabled(cap.id);
     if (cap.itemType === 'file-viewer') return fileViewerRegistry.getIncludingDisabled(cap.id);
     if (cap.itemType === 'pinboard-item') return pinboardItemRegistry.getIncludingDisabled(cap.id);
+    if (cap.itemType === 'hook') return hookRegistry.getIncludingDisabled(cap.id);
     return contextItemRegistry.getIncludingDisabled(cap.id);
   }
 

@@ -15,11 +15,11 @@
  * @module services/response-handler-actions
  */
 
-import actionExecutor from './action-executor.js';
+import actionExecutor, { toolResultContent } from './action-executor.js';
 import { getBlockedToolReason, resolveToolName } from './tool-generator.js';
 import { withMcpToolMissReason } from './mcp-availability.js';
 import contextItemRegistry from '../registries/context-item-registry.js';
-import { extractErrorInfo, extractErrorMessage } from '../../sdk/lib/error-utils.js';
+import { extractErrorInfo } from '../../sdk/lib/error-utils.js';
 import { buildApprovalButtons } from './approval-options.js';
 import { RESULT_TYPES, ACTION_STATES, TOOL_STATES } from '../../sdk/lib/message.js';
 import { INTERACTION_KIND } from '../../sdk/context-item.js';
@@ -452,6 +452,21 @@ function stripLargeArrays(result) {
 }
 
 /**
+ * The hook record to store on a completed call: the beforeTool records already on
+ * the tool-action, followed by this execution's afterTool records. Earlier
+ * afterTool records are dropped — they described a previous run of the call.
+ * @param {any} toolAction - The tool-action Y.Map (may be absent)
+ * @param {import('./hook-runtime.js').HookRecord[]|undefined} afterRecords - This execution's afterTool records
+ * @returns {import('./hook-runtime.js').HookRecord[]|undefined} The record to write, or undefined when there is none
+ */
+function mergeHookRecords(toolAction, afterRecords) {
+  const existing = plain(toolAction?.get?.('hooks'));
+  const before = Array.isArray(existing) ? existing.filter(r => r?.event === 'beforeTool') : [];
+  const merged = [...before, ...(afterRecords || [])];
+  return merged.length || (Array.isArray(existing) && existing.length) ? merged : undefined;
+}
+
+/**
  * Execute the action and update the tool-action with the final result,
  * handling the success, cancellation (no Yjs write), and error paths.
  * @param {ResponseHandler} rh - Response handler instance
@@ -499,15 +514,7 @@ async function runActionAndComplete(rh, toolCall, actionId, toolInput, messageTh
     // after its terminal write (see action-executor.js execute() finally).
 
     // Build content from result
-    let content = typeof result.formatted?.summary === 'string'
-      ? result.formatted.summary
-      : extractErrorMessage(result.formatted?.summary) || 'Action completed.';
-    if (result.formatted?.feedbackForLLM) {
-      const feedback = typeof result.formatted.feedbackForLLM === 'string'
-        ? result.formatted.feedbackForLLM
-        : extractErrorMessage(result.formatted.feedbackForLLM);
-      content += '\n\n' + feedback;
-    }
+    const content = toolResultContent(result.formatted);
 
     // On cancellation, do NOT write to the Yjs doc. The Go worker
     // is the sole writer of cancellation state (via CancelStaleToolActions
@@ -569,12 +576,18 @@ async function runActionAndComplete(rh, toolCall, actionId, toolInput, messageTh
       ? result.formatted.attachments.filter((/** @type {any} */ a) => a && a.id)
       : undefined;
 
+    // The call's hook record: what the beforeTool hooks said at evaluation (kept
+    // on the item since), plus what the afterTool hooks just said. A re-run
+    // replaces the afterTool part rather than piling a second one on.
+    const hooks = mergeHookRecords(ta, result.hookRecords);
+
     messageThread.completeToolAction(toolCall.id, {
       content,
       isError: !result.success,
       resultType: RESULT_TYPES.ACTION,
       fullResult,
-      ...(attachments && attachments.length ? { attachments } : {})
+      ...(attachments && attachments.length ? { attachments } : {}),
+      ...(hooks ? { hooks } : {})
     });
 
     // Determine result status

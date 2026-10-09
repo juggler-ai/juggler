@@ -58,6 +58,12 @@ type Provides struct {
 	// and the engine resolves a workspace from the session's own row without
 	// asking whoever made it.
 	WorkspaceProviders []string `json:"workspaceProviders,omitempty"`
+	// Hooks declares the tool hooks the extension contributes — policy and
+	// observation that runs around every tool call whichever strategy is active:
+	// before a call (deny it, force an approval, add a note) and after it (add a
+	// note for the model, mark it failed). Loaded in both realms; only the
+	// engine, where tools run, ever calls one.
+	Hooks []string `json:"hooks,omitempty"`
 	// SystemPrompt is a single module path (not a glob) whose default export
 	// `({enabledPluginIds}) => string` contributes terse, durable guidance to
 	// the system prompt — the extension's voice on how to use its tools. It is
@@ -151,6 +157,7 @@ func Validate(m Manifest, engineVersion string) error {
 		len(m.Provides.FileViewers) == 0 &&
 		len(m.Provides.PinboardItems) == 0 &&
 		len(m.Provides.WorkspaceProviders) == 0 &&
+		len(m.Provides.Hooks) == 0 &&
 		strings.TrimSpace(m.Provides.SystemPrompt) == "" {
 		return fmt.Errorf("manifest %q provides no capabilities", m.ID)
 	}

@@ -104,13 +104,14 @@ function badgeCtx(host) {
  * MessageThread.resolveApproval): `user` (a human clicked approve), `rule` (a
  * saved permission rule allowed it), `strategy` (the active strategy approved it
  * without individual confirmation — a force-approve strategy or an out-of-band
- * reviewer).
+ * reviewer), `hook` (a tool hook allowed it — see the Hooks section).
  * @type {Record<string, {label: string, icon: string, title: string}>}
  */
 const APPROVAL_SOURCE_META = {
   user: { label: 'User', icon: 'icon-check', title: 'Approved by the user' },
   rule: { label: 'Permitted', icon: 'icon-checklist', title: 'Allowed by a permission rule' },
-  strategy: { label: 'Strategy', icon: 'icon-auto-awesome', title: 'Approved by the active strategy' }
+  strategy: { label: 'Strategy', icon: 'icon-auto-awesome', title: 'Approved by the active strategy' },
+  hook: { label: 'Hook', icon: 'icon-checklist', title: 'Approved by a tool hook' }
 };
 
 /**
@@ -624,7 +625,43 @@ export function renderToolAction(host, container, toolAction) {
     wrapper.appendChild(resultSection);
   }
 
+  const hooksText = describeHookRecords(yGet(toolAction, 'hooks'));
+  if (hooksText) panelHelpers.addSubsection(wrapper, 'Hooks', hooksText, 'properties-panel-text');
+
   container.appendChild(wrapper);
+}
+
+/**
+ * One line per tool hook that acted on a call, then its note or reason —
+ * what it ruled, what it told the model, and whether it failed. The notes are
+ * shown in full because they are part of what the model was sent.
+ * @param {unknown} records - The tool-action's `hooks` field, as plain JS
+ * @returns {string} The section text, or '' when no hook acted
+ */
+export function describeHookRecords(records) {
+  if (!Array.isArray(records) || records.length === 0) return '';
+  /** @type {string[]} */
+  const blocks = [];
+  for (const r of records) {
+    if (!r || typeof r !== 'object') continue;
+    const when = r.event === 'beforeTool' ? 'before the call' : 'after the call';
+    /** @type {string[]} */
+    const did = [];
+    if (r.verdict === 'deny') did.push('blocked it');
+    else if (r.verdict === 'ask') did.push('held it for your approval');
+    else if (r.verdict === 'allow') did.push('allowed it');
+    if (r.markError) did.push('marked it failed');
+    if (r.note) did.push('added a note for the model');
+    if (r.repeatSuppressed) did.push('had a note already given earlier in this thread');
+    if (r.error) did.push(`failed: ${r.error}`);
+    if (!did.length) did.push('had nothing to add');
+    const source = r.source === 'user' ? 'hook file' : 'extension hook';
+    const lines = [`${r.name || r.id} (${source}), ${when}: ${did.join('; ')}`];
+    if (r.reason) lines.push(r.reason);
+    if (r.note) lines.push(r.note);
+    blocks.push(lines.join('\n'));
+  }
+  return blocks.join('\n\n');
 }
 
 /** @type {ItemRenderer} */

@@ -953,7 +953,10 @@ export default class MessageThread {
       // serialization, GC retention, and the worker's image-part emission all
       // treat them identically — and keep them out of the stored `result` blob
       // to avoid duplicating the refs.
-      const { attachments, ...resultRest } = result || {};
+      // The tool-hook record is item-level for the same reason: the worker
+      // reads it beside the result (its notes ride inside the tool_result), and
+      // beforeTool hooks write it before there is a result at all.
+      const { attachments, hooks, ...resultRest } = /** @type {any} */ (result || {});
       // displayData is by far the largest thing a tool-action carries: an edit's
       // diff holds the whole file both before and after. It reaches here twice —
       // once on the item, set by the approval flow, and again nested inside
@@ -976,6 +979,9 @@ export default class MessageThread {
           ymap.set('result', convertToYType(resultRest));
           if (Array.isArray(attachments) && attachments.length) {
             ymap.set('attachments', convertToYType(attachments));
+          }
+          if (Array.isArray(hooks)) {
+            ymap.set('hooks', convertToYType(hooks));
           }
           // Promote it onto the YMap so the properties panel can render diffs for
           // auto-approved actions, where the approval flow never set the

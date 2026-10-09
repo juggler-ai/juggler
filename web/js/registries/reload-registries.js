@@ -9,8 +9,10 @@ import infoCardRegistry from './info-card-registry.js';
 import pinboardItemRegistry from './pinboard-item-registry.js';
 import fileViewerRegistry from './file-viewer-registry.js';
 import workspaceProviderRegistry from './workspace-provider-registry.js';
+import hookRegistry from './hook-registry.js';
 import { resetExtensionsCache } from '../services/extensions.js';
 import { resetUserCommandsCache } from '../services/user-commands.js';
+import { resetUserHooksCache } from '../services/user-hooks.js';
 import { resetSkillsCache } from '../services/skills.js';
 import { markRegistriesReady } from './registry-ready.js';
 import { getAppSession } from '../utils/app-session.js';
@@ -125,6 +127,9 @@ export async function initAllRegistries() {
     // engine worker — so unlike info cards this registry is initialised
     // unconditionally.
     await fileViewerRegistry.init();
+    // Hooks are loaded in both realms too: the engine is where the hook runtime
+    // calls them, and the viewer's catalog lists them.
+    await hookRegistry.init();
     // Info cards and pinboard items touch the DOM and only render in the viewer —
     // never init these registries (which would import DOM-touching modules) in the
     // engine worker, which has no document.
@@ -228,6 +233,7 @@ export function collectFailedModules() {
     contextItemRegistry,
     commandRegistry,
     fileViewerRegistry,
+    hookRegistry,
     infoCardRegistry,
     pinboardItemRegistry,
     workspaceProviderRegistry,
@@ -264,10 +270,12 @@ async function rebuildRegistriesNow() {
   resetExtensionsCache();
   resetUserCommandsCache();
   resetSkillsCache();
+  resetUserHooksCache();
   strategyRegistry.reset();
   contextItemRegistry.reset();
   commandRegistry.reset();
   fileViewerRegistry.reset();
+  hookRegistry.reset();
   // Viewer-only registries; the engine worker never inits them, so only reset
   // them where a document exists (initAllRegistries applies the same realm gate).
   if (typeof document !== 'undefined') {

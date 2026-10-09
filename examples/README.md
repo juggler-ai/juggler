@@ -13,6 +13,7 @@ under.
 | [`extensions/hello-tool`](extensions/hello-tool) | A context item: the smallest useful tool the model can call |
 | [`extensions/focus-strategy`](extensions/focus-strategy) | A strategy: gating tools and auto-approving what survives |
 | [`extensions/csv-viewer`](extensions/csv-viewer) | A file viewer: `render()` for you, `extract()` for the model |
+| [`extensions/nono-denials`](extensions/nono-denials) | A hook: a note for the model after every call a sandbox refused |
 | [`extensions/bookmarks`](extensions/bookmarks) | Four capabilities at once — tools, an approval gate, a **command**, an **info card** and a setting. The end state of the [tutorial](../docs/extension_tutorial.md) |
 
 Commands and info cards have no standalone example: they are small enough that

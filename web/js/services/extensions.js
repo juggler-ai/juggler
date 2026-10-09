@@ -54,6 +54,7 @@ import { apiUrl } from '../utils/api-url.js';
  * @property {string[]} pinboardItems - Served URLs of pinboard-item modules
  * @property {string[]} pinboardItemMeta - Served URLs of pinboard-item agent descriptors
  * @property {string[]} workspaceProviders - Served URLs of workspace-provider modules
+ * @property {string[]} hooks - Served URLs of tool-hook modules
  * @property {string} [systemPrompt] - Served URL of the extension's system-prompt contribution module (omitted when none declared)
  */
 
@@ -149,6 +150,7 @@ const TYPE_TO_KEY = /** @type {const} */ ({
   'pinboard-item': 'pinboardItems',
   'pinboard-item-meta': 'pinboardItemMeta',
   'workspace-provider': 'workspaceProviders',
+  hook: 'hooks',
 });
 
 /**

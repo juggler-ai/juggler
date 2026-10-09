@@ -42,6 +42,8 @@ type ExtensionCapabilities struct {
 	// WorkspaceProviders holds the served URLs of the extension's workspace
 	// providers — what can make and look after a place a conversation works in.
 	WorkspaceProviders []string `json:"workspaceProviders"`
+	// Hooks holds the served URLs of the extension's tool hooks.
+	Hooks []string `json:"hooks"`
 	// SystemPrompt is the single served URL of the extension's system-prompt
 	// contribution module (empty when the manifest declares none).
 	SystemPrompt string `json:"systemPrompt,omitempty"`
@@ -343,6 +345,10 @@ func expandCapabilities(root extensionRoot, p ExtensionProvides) (ExtensionCapab
 	if err != nil {
 		return ExtensionCapabilities{}, nil, err
 	}
+	hooks, err := expandGlobs(root, p.Hooks, files)
+	if err != nil {
+		return ExtensionCapabilities{}, nil, err
+	}
 	// systemPrompt is a single module path, not a glob list. Resolve it through
 	// the same expander (traversal guard + disk-path mapping) and take the one
 	// match, if any.
@@ -365,6 +371,7 @@ func expandCapabilities(root extensionRoot, p ExtensionProvides) (ExtensionCapab
 		PinboardItems:      pinboardItems,
 		PinboardItemMeta:   pinboardItemMeta,
 		WorkspaceProviders: workspaceProviders,
+		Hooks:              hooks,
 		SystemPrompt:       systemPrompt,
 	}, files, nil
 }

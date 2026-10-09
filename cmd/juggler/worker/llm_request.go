@@ -7,6 +7,7 @@ package worker
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"juggler/cmd/juggler/providers/provider"
@@ -394,6 +395,7 @@ func buildToolResultMap(item ConversationItem) map[string]any {
 	}
 	content, _ := result["content"].(string)
 	isError, _ := result["isError"].(bool)
+	content += toolResultHookNotes(item)
 	m := map[string]any{
 		"type":      "tool-result",
 		"toolUseId": item.ToolUseID,
@@ -407,6 +409,42 @@ func buildToolResultMap(item ConversationItem) map[string]any {
 		m["parts"] = parts
 	}
 	return m
+}
+
+// toolHookRecord is the part of a hook record (see the `hooks` field the
+// engine's hook runtime writes on a tool-action) that reaches the model.
+type toolHookRecord struct {
+	ID   string `json:"id"`
+	Note string `json:"note"`
+}
+
+// toolResultHookNotes renders the notes tool hooks left on a call as a suffix
+// to its tool_result content, one tagged block per note, in the order the hooks
+// ran. Empty when no hook left one.
+//
+// The notes ride INSIDE the tool_result rather than as a system-reminder after
+// it, and that is load-bearing: anything placed after a batch's tool results
+// reads to the claudecode provider as the user interjecting
+// (userInterjectedAfterPendingTools), which costs a CLI respawn on every turn a
+// hook speaks. Inside the result it is just more of the result, on every
+// provider. The record stays in the doc beside the result, so the transcript
+// still holds exactly what the model was sent.
+func toolResultHookNotes(item ConversationItem) string {
+	if len(item.Hooks) == 0 {
+		return ""
+	}
+	var records []toolHookRecord
+	if err := json.Unmarshal(item.Hooks, &records); err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range records {
+		if strings.TrimSpace(r.Note) == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "\n\n<hook-note source=%q>\n%s\n</hook-note>", r.ID, strings.TrimSpace(r.Note))
+	}
+	return b.String()
 }
 
 // toolResultWire renders one tool-action's tool_result message. A tool that has

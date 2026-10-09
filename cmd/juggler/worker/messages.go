@@ -965,6 +965,10 @@ type ConversationItem struct {
 	Data            json.RawMessage `json:"data,omitempty"`            // Additional data
 	Cancelled       bool            `json:"cancelled,omitempty"`       // Whether tool was cancelled
 	Result          json.RawMessage `json:"result,omitempty"`          // Tool result or thread result (omitted when null/empty)
+	// Hooks is the record of every tool hook that ran on this call (written by
+	// the engine's hook runtime). Notes in it are part of what the model is sent:
+	// toolResultHookNotes renders them into the call's tool_result.
+	Hooks json.RawMessage `json:"hooks,omitempty"`
 	// Thread-specific fields
 	Goal                   string          `json:"goal,omitempty"`                   // Thread goal description
 	Items                  json.RawMessage `json:"items,omitempty"`                  // Nested items for thread messages (preserved for undo/redo)

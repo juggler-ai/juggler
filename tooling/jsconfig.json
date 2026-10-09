@@ -27,6 +27,7 @@
       "juggler/pinboard-item-type": ["web/sdk/pinboard-item-type.js"],
       "juggler/file-viewer": ["web/sdk/file-viewer.js"],
       "juggler/workspace-provider": ["web/sdk/workspace-provider.js"],
+      "juggler/hook-type": ["web/sdk/hook-type.js"],
       "juggler/file-source": ["web/sdk/file-source.js"],
       "juggler/ops": ["web/sdk/ops.js"],
       "juggler/sandbox": ["web/sdk/sandbox.js"],

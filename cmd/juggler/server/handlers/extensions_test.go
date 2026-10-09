@@ -118,6 +118,25 @@ func TestExtensionsWorkspaceProviderOnly(t *testing.T) {
 		[]string{"/extensions/juggler-core/workspaces/git-worktree-workspace-provider.js"})
 }
 
+// TestExtensionsHookOnly pins that a tool hook is a capability in its own right:
+// an extension that ships nothing but a hook (a sandbox-denial explainer, a
+// "never touch migrations/" guard) must load, not be rejected as providing
+// nothing — and its hooks must be served.
+func TestExtensionsHookOnly(t *testing.T) {
+	manifest := `{
+	  "id":"@you/nono","name":"nono","version":"1.0.0","engineApi":"^1.0.0",
+	  "provides":{"hooks":["hooks/*-hook.js"]}
+	}`
+	fsys := coreFS(manifest, "1.0.0")
+	fsys["extensions/juggler-core/hooks/nono-denial-hook.js"] = &fstest.MapFile{Data: []byte("//")}
+	ext := loadOne(t, fsys)
+	if ext.Error != "" {
+		t.Fatalf("unexpected error: %s", ext.Error)
+	}
+	assertURLs(t, "hooks", ext.Capabilities.Hooks,
+		[]string{"/extensions/juggler-core/hooks/nono-denial-hook.js"})
+}
+
 // assertURLs compares two URL slices as sets (glob order is filesystem-dependent).
 func assertURLs(t *testing.T, label string, got, want []string) {
 	t.Helper()

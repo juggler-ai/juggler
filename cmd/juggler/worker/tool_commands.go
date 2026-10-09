@@ -265,6 +265,7 @@ func (w *ConversationWorker) reevaluatePendingToolsOnStrategyChangeExcept(liveTh
 		"approvalResponse": nil,
 		"approvalOptions":  nil,
 		"displayData":      nil,
+		"hooks":            nil, // re-evaluation re-runs the beforeTool hooks
 	})
 
 	for _, id := range ids {

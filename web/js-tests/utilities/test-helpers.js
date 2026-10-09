@@ -15,6 +15,7 @@
 
 import contextItemRegistry from '../../js/registries/context-item-registry.js';
 import strategyRegistry from '../../js/registries/strategy-registry.js';
+import hookRegistry from '../../js/registries/hook-registry.js';
 import { markRegistriesReady } from '../../js/registries/registry-ready.js';
 import { registerItemOwnedStrategies } from '../../js/registries/reload-registries.js';
 import { ContextBuilder } from '../../js/services/context-builder.js';
@@ -68,6 +69,12 @@ export async function initializeRegistries() {
   // inits the two registries by hand, so it has to run it too or a sub-agent's
   // strategy is simply missing under test.
   registerItemOwnedStrategies();
+  // Every tool call consults the hook registry, as production's
+  // initAllRegistries() has already loaded it by then. Loading it here keeps a
+  // test's first tool call from paying for that load in the middle of the test.
+  if (!hookRegistry.isInitialized()) {
+    await hookRegistry.init();
+  }
   // The unit harness initializes registries directly (not via app.js /
   // engine-app.js / reload-registries.js), so it must also flip the
   // registries-ready signal. Without this, buildExtensionSystemPromptContributions

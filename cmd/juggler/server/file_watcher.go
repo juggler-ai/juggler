@@ -225,10 +225,10 @@ func isExtensionEvent(name string, extDirs map[string]bool) bool {
 
 // pluginWatchDirs returns the directory trees the watcher should register: the
 // extension container (owned by the ExtensionsAPI) plus the user- and
-// project-scope user-command directories. Each is created if absent so a `juggler
-// ext link` or a first command file written while the server is already running
-// is caught by the watch on the container. An external edit to a command file
-// broadcasts plugin-changed (see isPluginFile), reusing the extension hot-reload
+// project-scope user-command directories and the user hook directory. Each is
+// created if absent so a `juggler ext link` or a first command or hook file
+// written while the server is already running is caught by the watch on the
+// container. An external edit to a command or hook file broadcasts plugin-changed (see isPluginFile), reusing the extension hot-reload
 // path with no new client plumbing.
 func (s *Server) pluginWatchDirs() []pluginWatchDir {
 	var dirs []pluginWatchDir
@@ -242,6 +242,7 @@ func (s *Server) pluginWatchDirs() []pluginWatchDir {
 	watch(s.extensionsAPI.UserExtensionDir(), true)
 	watch(s.userCommandsAPI.UserCommandDir(), false)
 	watch(s.userCommandsAPI.ProjectCommandDir(), false)
+	watch(core.UserHookDir(), false)
 	return dirs
 }
 

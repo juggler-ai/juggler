@@ -11,6 +11,7 @@ delete.
 ├── workspace.json          desktop app's open-window set + last-used theme
 ├── extensions/             installed extensions
 ├── commands/               user-defined slash commands (see custom-commands.md)
+├── hooks/                  tool hook files (see hooks.md)
 └── cache/                  regenerable — safe to delete
     ├── recents.json        recently-opened projects (MRU list)
     └── claudecode-model-info.json   learned model context-window sizes (see context-window.md)

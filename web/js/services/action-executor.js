@@ -2,7 +2,7 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-import { extractErrorInfo } from '../../sdk/lib/error-utils.js';
+import { extractErrorInfo, extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import ContextItem from 'juggler/context-item';
 import { OpsError } from './ops-api.js';
 import wsService from './websocket.js';
@@ -51,6 +51,7 @@ function warnOnEmptySuccessSummary(rawSummary, className) {
  * @property {boolean} [cancelled] - True if action was cancelled (checked before success is known)
  * @property {object} [result] - Result data (may exist on failure for partial results)
  * @property {number} [durationMs] - How long the action took in milliseconds
+ * @property {import('./hook-runtime.js').HookRecord[]} [hookRecords] - What the afterTool hooks did (set by execute())
  */
 
 /**
@@ -160,6 +161,27 @@ const OVERDUE_REPEAT_MS = 10 * 60 * 1000;
 // this name. One transport, one delivery per peer — no duplicate events.
 const __ACTION_PROGRESS_CHANNEL = 'juggler-action-progress';
 
+/**
+ * The text the model is sent for a finished action, before any hook's note: the
+ * tool's summary, then its feedback for the model. One definition, because the
+ * afterTool hooks are shown this text and the result write stores it, and a
+ * hook must see exactly what the model will.
+ * @param {FormattedActionResult|undefined} formatted - The action's formatted result
+ * @returns {string} The result content
+ */
+export function toolResultContent(formatted) {
+  let content = typeof formatted?.summary === 'string'
+    ? formatted.summary
+    : extractErrorMessage(formatted?.summary) || 'Action completed.';
+  if (formatted?.feedbackForLLM) {
+    const feedback = typeof formatted.feedbackForLLM === 'string'
+      ? formatted.feedbackForLLM
+      : extractErrorMessage(formatted.feedbackForLLM);
+    content += '\n\n' + feedback;
+  }
+  return content;
+}
+
 class ActionExecutor {
   constructor() {
     /**
@@ -239,6 +261,16 @@ class ActionExecutor {
 
       // Stamp duration on every result
       actionResult.durationMs = Date.now() - startTime;
+
+      // Step 4: afterTool hooks. Here, inside the try and before the finally,
+      // because this is the one place they can wait without breaking INV-C: the
+      // execution is still in the executing set, so the call reads as running
+      // while they think, and the await-free region between the delete below and
+      // the caller's result write is left exactly as it was. Not for a cancelled
+      // call (the worker owns its terminal state) nor outside a thread.
+      if (!actionResult.cancelled && !controller.signal.aborted && context.messageThread && context.toolUseId) {
+        actionResult.hookRecords = await this._runAfterToolHooks(actionId, toolInput, context, actionResult, controller.signal);
+      }
       return actionResult;
     } finally {
       // Always clean up tracking — covers prepare()/approval throws and the
@@ -254,6 +286,46 @@ class ActionExecutor {
       // tool's terminal doc write. Do NOT introduce an await between this delete
       // and that write, or the worker could finalize an already-completed tool.
       this._runningActions.delete(executionId);
+    }
+  }
+
+  /**
+   * Run the afterTool hooks on a finished execution and return their records.
+   * A hook that marks the call failed turns the result into a failure here, so
+   * every reader downstream — the stored state, `isError` on the wire — agrees.
+   * Never throws: hooks fail open.
+   * @param {string} actionId
+   * @param {Record<string, unknown>} toolInput
+   * @param {ExecutionContext} context
+   * @param {ActionStatus} actionResult - Mutated when a hook marks the call failed
+   * @param {AbortSignal} signal - The execution's signal (cancelling the call cancels its hooks)
+   * @returns {Promise<import('./hook-runtime.js').HookRecord[]>} The hooks' records (empty when none matched)
+   * @private
+   */
+  async _runAfterToolHooks(actionId, toolInput, context, actionResult, signal) {
+    try {
+      const { runAfterToolHooks } = await import('./hook-runtime.js');
+      const thread = /** @type {any} */ (context.messageThread);
+      const { records, markError } = await runAfterToolHooks({
+        messageThread: thread,
+        conversationId: /** @type {any} */ (context.conversation)?.id ?? '',
+        threadId: thread?.threadItemId || /** @type {any} */ (context.conversation)?.id || '',
+        toolUseId: /** @type {string} */ (context.toolUseId),
+        toolName: context.toolName || actionId,
+        toolInput,
+        result: { content: toolResultContent(actionResult.formatted), isError: !actionResult.success },
+        signal,
+      });
+      if (markError && actionResult.success) {
+        const marker = records.find(r => r.markError);
+        const failed = /** @type {any} */ (actionResult);
+        failed.success = false;
+        failed.error = `Marked as failed by hook "${marker?.name}"`;
+      }
+      return records;
+    } catch (err) {
+      console.error('[ActionExecutor] afterTool hooks failed:', err);
+      return [];
     }
   }
 

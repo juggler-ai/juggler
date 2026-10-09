@@ -521,6 +521,8 @@ func (s *Server) setupRoutes() {
 	api.HandleFunc("/user-commands/{scope}/{name}", s.userCommandsAPI.HandlePut).Methods("PUT")
 	api.HandleFunc("/user-commands/{scope}/{name}", s.userCommandsAPI.HandleDelete).Methods("DELETE")
 
+	api.HandleFunc("/user-hooks", handlers.HandleListUserHooks).Methods("GET")
+
 	api.HandleFunc("/skills", s.skillsAPI.HandleList).Methods("GET")
 	// Marketplace routes are registered before the {scope}/{source}/{name}
 	// discovery routes so their literal prefixes (registries, catalog, install)

@@ -200,6 +200,7 @@ Unified lifecycle for one tool call. See `TOOL_STATES` for state machine.
 | `toolName` | string | Plugin tool name (`read-file`, `glob`, `execute`, …). |
 | `toolInput` | object | Plugin-specific input. |
 | `state` | `'pending' \| 'approved' \| 'running' \| 'completed' \| 'cancelled'` | Undefined before approval flow starts. |
+| `category` | `'read' \| 'write' \| 'meta'` \| undefined | The tool's declared category, stamped by the engine on evaluation. The worker orders a turn's calls by it: reads and meta calls overlap, anything else (including an unstamped call) waits for every earlier unfinished call in its turn and holds back every later one, so an `approved` call can sit uncommanded until its turn. A `pending` call holds nothing back. |
 | `approvalResponse` | string \| undefined | Last user response to the approval modal. |
 | `approvalOptions` | object \| undefined | Approval UI options snapshot. |
 | `displayData` | object \| undefined | Renderer hints. |

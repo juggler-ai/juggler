@@ -208,7 +208,7 @@ const OBSERVE_ONLY_OPS = new Set([
   'wait-for-idle', 'wait-for-state', 'wait-for-approval', 'wait-for-thread-approval',
   'wait-for-progress', 'wait-for-action-output', 'wait-for-execution',
   'wait-for-mock-paused', 'wait-ms',
-  'assert-document', 'assert-dom', 'assert-no-result', 'assert-input-warning',
+  'assert-document', 'assert-dom', 'assert-no-result', 'assert-tool-field', 'assert-input-warning',
   'assert-streaming-chunks', 'assert-transaction-markers', 'assert-thread-item-count',
   'assert-tool-exec-count', 'assert-spinner-was-visible', 'assert-tool-result-changed',
   'validate-context-snapshot', 'validate-thread-context',
@@ -790,6 +790,22 @@ export async function executeUIOperation(harness, op) {
       const toolIndex = items.indexOf(tool);
       if (toolIndex < items.length - 1) {
         throw new Error(`LLM continued prematurely - items exist after tool ${op.toolUseId}`);
+      }
+      break;
+    }
+
+    case 'assert-tool-field': {
+      // One raw field of a root tool-action, for fields the golden document
+      // comparison does not carry (it normalises to a fixed set of keys).
+      if (!op.toolUseId || !op.field) {
+        throw new Error('assert-tool-field operation requires toolUseId and field');
+      }
+      const items = harness.rootThread.items || [];
+      const tool = items.find(i => i.get('toolUseId') === op.toolUseId);
+      if (!tool) throw new Error(`Tool ${op.toolUseId} not found`);
+      const actual = tool.get(op.field);
+      if (actual !== op.value) {
+        throw new Error(`Expected ${op.toolUseId}.${op.field} = ${JSON.stringify(op.value)}, got ${JSON.stringify(actual)}`);
       }
       break;
     }

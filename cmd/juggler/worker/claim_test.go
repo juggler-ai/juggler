@@ -464,3 +464,39 @@ func TestNewStatusFrameDropsPreviousPhaseFields(t *testing.T) {
 		}
 	}
 }
+
+// TestAwaitingToolsRepublishesRunStatus: a turn that ends on async tool calls
+// hands the loop back through transitionToAwaitingLLM, and the run's own entry —
+// which the UI reads — must say "processing_tools" from then on, without the
+// finished stream's token counts or activity line beside it.
+func TestAwaitingToolsRepublishesRunStatus(t *testing.T) {
+	w := NewConversationWorker("test-awaiting-tools-status", "user:test")
+	t.Cleanup(func() { w.doc.Destroy() })
+
+	r := w.currentRun()
+	r.sendStatus("streaming", "")
+	r.mergeProcessingTokens(7, 5, 0)
+	r.processStreamChunk(StreamChunk{Type: provider.ContentBlockTypeActivity, Content: "Thinking"})
+
+	r.transitionToAwaitingLLM()
+
+	state := w.readProcessingState()
+	entry := runEntryOf(state, "")
+	if got := entryActivity(entry); got != ActivityAwaitingLLM {
+		t.Fatalf("entry activity = %q, want %q", got, ActivityAwaitingLLM)
+	}
+	if got, _ := entry["status"].(string); got != "processing_tools" {
+		t.Fatalf("entry status = %q, want processing_tools", got)
+	}
+	if got, _ := state["status"].(string); got != "processing_tools" {
+		t.Fatalf("projected status = %q, want processing_tools", got)
+	}
+	if _, ok := entry["startedAt"]; !ok {
+		t.Fatal("the elapsed anchor was dropped with the stream fields")
+	}
+	for _, field := range []string{"outputTokens", "inputTokens", "description", "phase"} {
+		if _, ok := entry[field]; ok {
+			t.Fatalf("%s survived the hand-off to tools: %v", field, entry[field])
+		}
+	}
+}

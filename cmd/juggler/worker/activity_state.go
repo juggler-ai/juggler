@@ -611,17 +611,37 @@ func (w *ConversationWorker) getProcessingThreadItemID() string {
 	return threadItemID
 }
 
+// phaseProgressFields are the mid-stream progress fields, which belong to the
+// phase that produced them: a token count from the last stream means nothing
+// beside "Running tools", and a provider activity line describes a call that
+// has ended.
+var phaseProgressFields = []string{"description", "phase", "inputTokens", "outputTokens", "cachedTokens"}
+
+// dropPhaseProgress clears a run entry's mid-stream progress fields, as every
+// change of phase must.
+func dropPhaseProgress(entry map[string]any) {
+	for _, field := range phaseProgressFields {
+		delete(entry, field)
+	}
+}
+
 // transitionToAwaitingLLM moves THIS turn's thread from "calling_llm" to
 // "awaiting_llm" and sets the UI status to "processing_tools". Used when the
 // strategy loop dispatches async tools and returns without blocking — the
 // reducer will re-dispatch when the tools complete. Scoped to the turn's own
 // thread, so handing the loop back never disturbs a sibling's claim.
+//
+// The status is written to the run's entry, not the frame: the projection
+// republishes the entry's own fields over the frame, and the UI reads the entry.
 func (r *run) transitionToAwaitingLLM() {
 	r.patchRunIf(r.t.thread.itemID,
 		func(map[string]any) bool { return true },
-		func(entry, state map[string]any) {
+		func(entry, _ map[string]any) {
 			entry["activity"] = ActivityAwaitingLLM
-			state["status"] = "processing_tools"
+			entry["status"] = "processing_tools"
+			entry["message"] = ""
+			delete(entry, "code")
+			dropPhaseProgress(entry)
 		},
 	)
 }

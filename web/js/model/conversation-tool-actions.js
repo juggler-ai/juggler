@@ -213,6 +213,21 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
     return;
   }
 
+  const toolDefs = ActionClass.getToolDefinitions?.() || [];
+  const toolDef = toolDefs.find((/** @type {{name: string}} */ t) => t.name === toolName);
+
+  // Stamp the tool's category on the call: the worker orders a turn's calls by
+  // it (cmd/juggler/worker/tool_ordering.go), letting reads overlap and holding
+  // everything else to emission order. Written first, before any early return,
+  // so every call this tool makes is classified — a call left unstamped is
+  // treated as a write. An engine-derived update like every derivation here, so
+  // undo skips it.
+  if (toolDef?.category && toolAction.get('category') !== toolDef.category) {
+    conversation.engineDerivedUpdate(() => {
+      toolAction.set('category', toolDef.category);
+    });
+  }
+
   // Worker-managed tools: execution handled by Go worker, skip browser-side
   // execution. Stamp executor='worker' authoritatively (this is where the plugin
   // manifest is actually known) so the worker's tool-execution-report liveness
@@ -319,8 +334,6 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
   // live strategy switch takes effect for every tool evaluated afterwards — the
   // metadata observer rebuilds messageThread.strategy on the switch, so this
   // reads the current policy with no extra plumbing.
-  const toolDefs = ActionClass.getToolDefinitions?.() || [];
-  const toolDef = toolDefs.find((/** @type {{name: string}} */ t) => t.name === toolName);
   const strategyPolicy = messageThread.strategy?.getApprovalPolicy?.({
     toolName,
     toolInput: toolInputPlain,

@@ -10,7 +10,7 @@
  * @module integration-tests/approval-flow-tests
  */
 
-import { textResponse, toolUseResponse } from '../utilities/integration-test-runner.js';
+import { testDirFor, textResponse, toolUseResponse } from '../utilities/integration-test-runner.js';
 
 // ============================================================================
 // GOLDEN DATA - Expected results
@@ -507,6 +507,69 @@ export const approvalOutOfOrderTest = {
   }
 };
 
+const TD_ao = testDirFor('approval-ordered-dependent-pair');
+const AO_WRITE = `env sh -c 'sleep 0.5; mkdir -p ${TD_ao} && echo made > ${TD_ao}/f.txt; echo wrote'`;
+/**
+ * One turn writes a file slowly, then reads it. Both are approved while the
+ * first is still running: the second must wait for it rather than race it,
+ * because calls that are not reads run in emission order. The category the
+ * worker orders them by is stamped on each call when it is evaluated.
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+export const approvalOrderedDependentPairTest = {
+  name: 'approval-ordered-dependent-pair',
+  description: 'A second command approved during the first waits for it to finish',
+  fixture: 'unit-test-fixture',
+
+  llmResponses: [
+    {
+      blocks: [
+        { type: 'text', content: 'Write, then read.' },
+        { type: 'tool_use', toolUseId: 'call_1', toolName: 'bash', toolInput: { command: AO_WRITE } },
+        { type: 'tool_use', toolUseId: 'call_2', toolName: 'bash', toolInput: { command: `env cat ${TD_ao}/f.txt` } }
+      ],
+      stopReason: 'tool_use'
+    },
+    textResponse('Done.')
+  ],
+
+  operations: [
+    { type: 'send-message', message: 'Write then read' },
+    { type: 'wait-for-approval', toolUseId: 'call_1' },
+    { type: 'wait-for-approval', toolUseId: 'call_2' },
+    { type: 'assert-tool-field', toolUseId: 'call_1', field: 'category', value: 'write' },
+    { type: 'assert-tool-field', toolUseId: 'call_2', field: 'category', value: 'write' },
+    { type: 'approve-no-wait', toolUseId: 'call_1' },
+    { type: 'wait-for-execution', toolUseId: 'call_1' },
+    { type: 'approve', toolUseId: 'call_2' }
+  ],
+
+  expectedDocument: {
+    items: [
+      { type: 'system-prompt', itemId: '$ITEM_1' },
+      { type: 'user', content: 'Write then read' },
+      { type: 'assistant', content: 'Write, then read.' },
+      {
+        type: 'tool-action',
+        toolUseId: '$TOOL_1',
+        toolName: 'bash',
+        toolInput: { command: AO_WRITE },
+        state: 'completed',
+        result: { content: 'wrote', isError: false }
+      },
+      {
+        type: 'tool-action',
+        toolUseId: '$TOOL_2',
+        toolName: 'bash',
+        toolInput: { command: `env cat ${TD_ao}/f.txt` },
+        state: 'completed',
+        result: { content: 'made', isError: false }
+      },
+      { type: 'assistant', content: 'Done.' }
+    ]
+  }
+};
+
 /**
  * Deny single tool - loop should stop entirely (no 2nd LLM turn).
  * The 2nd LLM response is provided but should never be consumed.
@@ -755,5 +818,6 @@ export const tests = [
   approvalParallel3ToolsTest,
   approvalDenyAll3ToolsTest,
   approvalParallel5ToolsTest,
-  approvalOutOfOrderTest
+  approvalOutOfOrderTest,
+  approvalOrderedDependentPairTest
 ];

@@ -959,6 +959,7 @@ type ConversationItem struct {
 	ToolName        string          `json:"toolName,omitempty"`        // Tool name
 	ToolInput       json.RawMessage `json:"toolInput,omitempty"`       // Tool input parameters
 	State           string          `json:"state,omitempty"`           // Tool lifecycle state (see State* constants)
+	Category        string          `json:"category,omitempty"`        // Tool's declared category, stamped on evaluation; orders a turn's calls (tool_ordering.go)
 	ApprovalOptions json.RawMessage `json:"approvalOptions,omitempty"` // Approval options for UI
 	DisplayData     json.RawMessage `json:"displayData,omitempty"`     // Display data for UI
 	IsError         bool            `json:"isError,omitempty"`         // Whether this is an error result

@@ -314,6 +314,7 @@ func yMapToConversationItem(m *ycrdt.YMap) ConversationItem {
 		ToolName:               yMapString(m, "toolName"),
 		ToolInput:              yMapRawJSON(m, "toolInput"),
 		State:                  yMapString(m, "state"),
+		Category:               yMapString(m, "category"),
 		IsError:                yMapBool(m, "isError"),
 		Cancelled:              yMapBool(m, "cancelled"),
 		Result:                 yMapRawJSON(m, "result"),

@@ -1236,13 +1236,7 @@ func (r *run) writeProcessingState(status, message, code string) {
 			delete(entry, "code")
 		}
 		entry["startedAt"] = r.t.processingStartedAt.Load()
-		// The mid-stream progress fields belong to the phase that produced them:
-		// a token count from the last stream means nothing beside "Running
-		// tools", and a provider activity line describes a call that has ended.
-		// Each new frame drops them.
-		for _, field := range []string{"description", "phase", "inputTokens", "outputTokens", "cachedTokens"} {
-			delete(entry, field)
-		}
+		dropPhaseProgress(entry)
 		runs[key] = entry
 	})
 }

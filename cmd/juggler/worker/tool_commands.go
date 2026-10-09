@@ -114,6 +114,10 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 		id, state, action string
 	}
 	var cmds []toolCmd
+	// Every tool-action of each turn, in emission order, for the turn-order
+	// rule (tool_ordering.go). Keyed by thread and transaction: a turn's calls
+	// share both. A call with no transaction belongs to no turn and is never held.
+	turns := map[[2]string][]turnCall{}
 
 	ycrdtMu.Lock()
 	walkAllItems(w.doc.getItems(), "", func(m *ycrdt.YMap, threadID string) bool {
@@ -128,6 +132,11 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 			return false
 		}
 		state, _ := m.Get("state").(string)
+		if txnID, _ := m.Get("transactionId").(string); txnID != "" {
+			category, _ := m.Get("category").(string)
+			key := [2]string{threadID, txnID}
+			turns[key] = append(turns[key], turnCall{id: id, state: state, category: category})
+		}
 		var action string
 		switch state {
 		case StateUnevaluated:
@@ -146,6 +155,13 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 	})
 	ycrdtMu.Unlock()
 
+	held := map[string]bool{}
+	for _, calls := range turns {
+		for id := range heldByTurnOrder(calls) {
+			held[id] = true
+		}
+	}
+
 	// Filter to the commands due for dispatch: either the doc demands a fresh
 	// command (never dispatched, or the demanded state changed) or the last
 	// dispatch at this state has aged past the re-drive interval. recordDispatch stamps
@@ -154,6 +170,9 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 	now := time.Now()
 	var toDispatch, escalate []toolCmd
 	for _, c := range cmds {
+		if held[c.id] {
+			continue // waiting its turn; not a delivery, so not counted
+		}
 		if !w.tools.shouldRedrive(c.id, c.state, now) {
 			continue // already dispatched at this state and not yet stale
 		}

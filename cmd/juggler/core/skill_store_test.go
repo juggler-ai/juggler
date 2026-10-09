@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -65,7 +66,8 @@ func TestSkillInstallStagesThenCommits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("committed script missing: %v", err)
 	}
-	if info.Mode().Perm()&0o100 == 0 {
+	// Windows has no execute bit to preserve: os.Stat reports 0o666 there.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o100 == 0 {
 		t.Errorf("an executable file lost its mode: %v", info.Mode())
 	}
 

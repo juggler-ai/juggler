@@ -84,11 +84,17 @@ func (a *GitStatusAPI) HandleGitStatus(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, r, 0, resp)
 }
 
-// HandleGitReview handles GET /api/git/review: every repository under the tree
-// the request names and every file in each of them, freshly read (see
-// gitview.Review).
+// HandleGitReview handles GET /api/git/review?scope=<scope>: every repository
+// under the tree the request names and every file in each of them that the
+// scope compares, freshly read (see gitview.Review and gitview.ParseScope). A
+// scope that cannot be read is a 400.
 func (a *GitStatusAPI) HandleGitReview(w http.ResponseWriter, r *http.Request) {
 	tree, err := a.gitTree(r)
+	if err != nil {
+		WriteError(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	scope, err := gitview.ParseScope(r.URL.Query().Get("scope"))
 	if err != nil {
 		WriteError(w, r, http.StatusBadRequest, err.Error())
 		return
@@ -99,7 +105,7 @@ func (a *GitStatusAPI) HandleGitReview(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, r, http.StatusBadRequest, "No project is open")
 		return
 	}
-	manifest, err := tree.GitReview(r.Context())
+	manifest, err := tree.GitReview(r.Context(), scope)
 	if err != nil {
 		WriteError(w, r, http.StatusBadGateway, "Couldn't read the review. "+err.Error())
 		return
@@ -107,9 +113,9 @@ func (a *GitStatusAPI) HandleGitReview(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, r, 0, gitReviewResponse{Root: tree.Root(), Workspace: tree.Name(), Manifest: manifest})
 }
 
-// HandleGitDiff handles GET /api/git/diff?repo=<rel>&path=<rel>&context=<n>: one
-// file's whole working-tree change relative to HEAD (see gitview.Diff, which
-// validates all three parameters). A request the workspace refuses is a 400; a
+// HandleGitDiff handles GET /api/git/diff?repo=<rel>&path=<rel>&context=<n>&scope=<scope>:
+// one file's change within the scope, the working tree against HEAD by default
+// (see gitview.Diff, which validates all four parameters). A request the workspace refuses is a 400; a
 // diff that could not be produced, the clock and cancellation included, is a
 // 502.
 func (a *GitStatusAPI) HandleGitDiff(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +130,7 @@ func (a *GitStatusAPI) HandleGitDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	q := r.URL.Query()
 	resp, err := tree.GitDiff(r.Context(), gitview.DiffRequest{
-		Repo: q.Get("repo"), Path: q.Get("path"), Context: q.Get("context"),
+		Repo: q.Get("repo"), Path: q.Get("path"), Context: q.Get("context"), Scope: q.Get("scope"),
 	})
 	writeGitDiff(w, r, resp, err)
 }

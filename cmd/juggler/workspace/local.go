@@ -129,8 +129,8 @@ func (w *local) GitStatus(ctx context.Context) ([]gitview.RepoStatus, error) {
 }
 
 // GitReview is gitview's manifest of the root.
-func (w *local) GitReview(ctx context.Context) (gitview.Manifest, error) {
-	return gitview.Review(ctx, w.root), nil
+func (w *local) GitReview(ctx context.Context, scope gitview.Scope) (gitview.Manifest, error) {
+	return gitview.Review(ctx, w.root, scope), nil
 }
 
 // GitDiff is gitview's diff of one file under the root.

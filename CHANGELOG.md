@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Git pin reviews any scope: staged, unstaged, branch, last commit, or a git diff range
+
 ## [0.7.6] - 2026-10-09
 
 - Tool hooks: deny, hold or annotate any tool call, from extensions or `~/.juggler/hooks`

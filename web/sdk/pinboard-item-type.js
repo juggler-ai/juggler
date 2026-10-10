@@ -273,9 +273,29 @@ import { validateManifest } from './lib/manifest.js';
  *
  * A repository git could not read is listed all the same, with `error` carrying
  * git's own first line of complaint — an uninitialised submodule is the everyday
- * case. Dropping it would turn "I could not read this" into "there is nothing
- * here", which is the one thing a review may never say.
- * @typedef {PinGitRepo & {complete: boolean, error?: string}} PinGitReviewRepo
+ * case, and a scope naming a branch this repository lacks another. Dropping it
+ * would turn "I could not read this" into "there is nothing here", which is the
+ * one thing a review may never say.
+ *
+ * For any scope but the default, `base` is the object id the old side resolved
+ * to here, `target` the new side's when that is a commit rather than the working
+ * tree or the index, and `baseName` the branch `@branch` settled on. In those
+ * scopes `files` lists what the comparison covers, lettered on the side of the
+ * two-letter code the comparison changes: the index side for `--cached`, the
+ * working-tree side for everything else.
+ * @typedef {PinGitRepo & {complete: boolean, error?: string, base?: string, target?: string, baseName?: string}} PinGitReviewRepo
+ */
+
+/**
+ * What a review compares.
+ * @typedef {object} PinGitScope
+ * @property {string} input - The scope as asked for: a preset (`@uncommitted`,
+ *   `@staged`, `@unstaged`, `@branch`, `@last`) or a small subset of `git diff`'s
+ *   own arguments (`main`, `--merge-base main`, `--cached [rev]`, `--worktree`,
+ *   `a..b`, `a...b`, `a b`)
+ * @property {'worktree'|'index'|'unstaged'|'commits'} kind - Which two states it
+ *   compares: the working tree, the index or a commit, against a commit or the index
+ * @property {string} label - The comparison in words
  */
 
 /**
@@ -294,6 +314,7 @@ import { validateManifest } from './lib/manifest.js';
  * @property {boolean} complete - Whether every repository and file was reached
  * @property {string[]} warnings - What could not be reviewed, one sentence each.
  *   Always an array; empty when nothing was missed.
+ * @property {PinGitScope} [scope] - What was compared
  * @property {PinGitReviewRepo[]} repos - Every repository found, root repo first
  */
 
@@ -322,9 +343,10 @@ import { validateManifest } from './lib/manifest.js';
  */
 
 /**
- * One file's whole working-tree change against `HEAD` — index and worktree folded
- * together, which is the same comparison the file's line counts in the manifest
- * come from, so the two can never disagree.
+ * One file's change within the scope asked for — by default its whole
+ * working-tree change against `HEAD`, index and worktree folded together. Either
+ * way it is the same comparison the file's line counts in the manifest come from,
+ * so the two can never disagree.
  *
  * `revision` fingerprints every byte the answer describes, including any past a
  * ceiling that were never sent. It is what an anchor asks about: a comment left
@@ -381,7 +403,7 @@ import { validateManifest } from './lib/manifest.js';
  *   function; the host also drops the subscription when the pin is torn down.
  * @property {() => Promise<void>} refresh - Ask git now. Never rejects: a failure
  *   shows up on `error()`.
- * @property {(options?: {signal?: AbortSignal}) => Promise<PinGitReview>} review -
+ * @property {(options?: {signal?: AbortSignal, scope?: string}) => Promise<PinGitReview>} review -
  *   Read the whole working tree for review: every repository, every changed file,
  *   nothing skipped for being expensive, and whatever could not be reached named
  *   in `warnings` rather than quietly left out. Ask when a review is opened or
@@ -389,7 +411,9 @@ import { validateManifest } from './lib/manifest.js';
  *   surface costs nothing, but a loop here runs git in a loop. Rejects if the read
  *   failed, if you cancelled it, or if the project changed while it was out: an
  *   answer about a project nobody is looking at is not an answer.
- * @property {(repo: string, path: string, options?: {signal?: AbortSignal, contextLines?: number}) => Promise<PinGitDiff>} diff -
+ *   `scope` is what to compare (see {@link PinGitScope}); omit it for the working
+ *   tree against `HEAD`. A scope the host cannot read rejects, with the reason.
+ * @property {(repo: string, path: string, options?: {signal?: AbortSignal, contextLines?: number, scope?: string}) => Promise<PinGitDiff>} diff -
  *   One file's change, named the way the manifest names it: `repo` is the
  *   repository's path within the project ('' for the root repo) and `path` is the
  *   file's path within that repository. Asked for one file at a time, when
@@ -400,6 +424,7 @@ import { validateManifest } from './lib/manifest.js';
  *   `contextLines` is how many unchanged lines to carry around each change, -1 for
  *   the whole file; omit it for the default. The patch reports the width it came
  *   back at, because you can draw less of it than that but not more.
+ *   `scope` must be the one the manifest was read with, or the file may not be in it.
  */
 
 /**

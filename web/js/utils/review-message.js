@@ -23,6 +23,9 @@ import { normalizeReviewDraft } from './review-draft.js';
 /** What the message announces itself as. */
 const REVIEW_HEADER = 'Review feedback:';
 
+/** What the comments with no scope compared, named when there are others beside them. */
+const DEFAULT_SCOPE_HEADER = 'Working tree against HEAD:';
+
 /**
  * Where a comment sorts among the comments on the same file. A comment about the
  * file as a whole is about all of it, so it goes above the lines; of the two
@@ -55,7 +58,9 @@ function compareComments(a, b) {
 }
 
 /**
- * One review as one message: a header, then a reference block per comment.
+ * One review as one message: a header, then a reference block per comment —
+ * under a line naming what they compared, when any of them compared something
+ * other than the working tree against HEAD.
  *
  * The blocks are the SDK's own, so a review comment and a selection quoted out
  * of a file arrive looking identical. Nothing here is hidden and nothing is
@@ -67,7 +72,38 @@ export function formatReviewMessage(draft) {
   const comments = normalizeReviewDraft(draft).comments.sort(compareComments);
   if (!comments.length) return '';
 
-  const blocks = comments.map((comment) => formatCodeReference({
+  // A line number means nothing without what it is a line of. Comments written
+  // against the working tree against HEAD need no saying so when they are all
+  // there is; any other comparison is named above its comments, since a line of
+  // a commit or of the index is not that line of the file on disk.
+  /** @type {Map<string, import('./review-draft.js').ReviewComment[]>} */
+  const groups = new Map();
+  for (const comment of comments) {
+    const key = comment.scope || '';
+    if (!groups.has(key)) groups.set(key, []);
+    /** @type {import('./review-draft.js').ReviewComment[]} */ (groups.get(key)).push(comment);
+  }
+  if (groups.size === 1 && groups.has('')) {
+    return [REVIEW_HEADER, ...comments.map(formatComment)].join('\n\n');
+  }
+  const keys = [...groups.keys()].sort((a, b) => (a === '' ? -1 : b === '' ? 1 : a < b ? -1 : a > b ? 1 : 0));
+  /** @type {string[]} */
+  const parts = [REVIEW_HEADER];
+  for (const key of keys) {
+    const group = /** @type {import('./review-draft.js').ReviewComment[]} */ (groups.get(key));
+    parts.push(key ? `Comparing ${group[0]?.scopeLabel || key}:` : DEFAULT_SCOPE_HEADER);
+    parts.push(...group.map(formatComment));
+  }
+  return parts.join('\n\n');
+}
+
+/**
+ * One comment as one reference block.
+ * @param {import('./review-draft.js').ReviewComment} comment - The comment.
+ * @returns {string} The block.
+ */
+function formatComment(comment) {
+  return formatCodeReference({
     // The repository a comment belongs to is part of where the file is: two
     // `src/main.go` in two nested repositories are two different files, and a
     // reference that dropped the prefix would name neither of them.
@@ -79,7 +115,5 @@ export function formatReviewMessage(draft) {
     side: comment.side === 'file' ? undefined : comment.side,
     lines: comment.lineText,
     body: comment.body,
-  }));
-
-  return [REVIEW_HEADER, ...blocks].join('\n\n');
+  });
 }

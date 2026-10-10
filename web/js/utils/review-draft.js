@@ -43,6 +43,12 @@ export const REVIEW_DRAFT_LIMITS = {
 /** Where a comment hangs: a side of the diff, or the file as a whole. */
 const SIDES = new Set(['old', 'new', 'file']);
 
+/** The scope a comment with none was written in, spelled the way a Git pin spells it. */
+const DEFAULT_SCOPE = '@uncommitted';
+
+/** How long a scope's words may be; they are written by the host, not the reader. */
+const SCOPE_LABEL_MAX = 500;
+
 /**
  * One comment written against a line, a range, or a file. A superset of the
  * renderer's `DiffAnnotation` (`web/js/lib/diff-types.js`) — it carries what it
@@ -64,6 +70,11 @@ const SIDES = new Set(['old', 'new', 'file']);
  * @property {string} revision - The fingerprint of the patch it was written
  *   against. A comment whose file no longer answers to this is outdated, and is
  *   shown as outdated rather than re-anchored.
+ * @property {string} [scope] - What the diff it was written on compared, as the
+ *   pin asked for it — `@staged`, `main...HEAD`. Absent for the working tree
+ *   against HEAD, which is every comment written before there was a choice.
+ * @property {string} [scopeLabel] - That comparison in words, with the commits it
+ *   came to when it was written: what the line numbers are line numbers of.
  * @property {number} createdAt - Unix ms it was written
  * @property {number} updatedAt - Unix ms it was last edited
  */
@@ -73,7 +84,8 @@ const SIDES = new Set(['old', 'new', 'file']);
  * @typedef {object} ReviewDraft
  * @property {number} version - The record's shape. Always 1; a reader that meets
  *   a number it does not know should refuse the record rather than guess at it.
- * @property {'head'} base - What the review compares against. One scope exists.
+ * @property {'head'} base - Kept for the record's shape. What each comment
+ *   compared is its own `scope`, since one thread's review can span several.
  * @property {ReviewComment[]} comments - The comments, in the order they are shown
  */
 
@@ -145,6 +157,13 @@ function normalizeComment(raw) {
     updatedAt: Number.isFinite(edited) ? edited : createdAt,
   };
   if (typeof obj.oldPath === 'string' && obj.oldPath) comment.oldPath = obj.oldPath;
+  const scope = typeof obj.scope === 'string' ? obj.scope.trim().split(/\s+/).filter(Boolean).join(' ') : '';
+  if (scope && scope !== DEFAULT_SCOPE) {
+    comment.scope = scope;
+    if (typeof obj.scopeLabel === 'string' && obj.scopeLabel) {
+      comment.scopeLabel = obj.scopeLabel.slice(0, SCOPE_LABEL_MAX);
+    }
+  }
   const startLine = normalizeLine(obj.startLine);
   if (startLine !== undefined) {
     comment.startLine = startLine;
@@ -166,8 +185,8 @@ export function normalizeReviewDraft(raw) {
   const comments = Array.isArray(stored)
     ? /** @type {ReviewComment[]} */ (stored.map(normalizeComment).filter(Boolean))
     : [];
-  // Version and base are answered rather than echoed: there is one shape and one
-  // scope, so a record claiming otherwise is a record that was written wrong.
+  // Version and base are answered rather than echoed: there is one shape, and
+  // what each comment compared is the comment's own business.
   return { version: 1, base: 'head', comments };
 }
 

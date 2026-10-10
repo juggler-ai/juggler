@@ -81,6 +81,11 @@ function revealInScroller(scroller, target) {
  * @property {string} [scope] - What is being compared, when this manifest says
  *   more than the panel's `scopeLabel` — the tree it was read from, say. It rides
  *   the manifest so the words and the files they describe arrive together.
+ * @property {string} [scopeKey] - Which comparison this is, for the comments: a
+ *   comment is written in the manifest's scope, and only the comments written in
+ *   it are drawn and counted here. '' or absent is the host's default comparison,
+ *   which is also where every comment carrying no scope belongs. The others are
+ *   kept — they go out with the rest — and the footer says how many there are.
  */
 
 /** How wide a quoted line may be before the editor's label stops naming it. */
@@ -193,6 +198,9 @@ class ReviewPanel {
     /** @type {HTMLElement} @private */
     this._scopeEl = el('div', 'review-panel__scope');
     /** @type {HTMLElement} @private */
+    this._scopeTextEl = el('span', 'review-panel__scope-text');
+    this._scopeEl.append(this._scopeTextEl);
+    /** @type {HTMLElement} @private */
     this._warningsEl = el('div', 'review-panel__warnings');
     /** @type {HTMLElement} @private */
     this._errorEl = el('div', 'review-panel__error');
@@ -287,6 +295,21 @@ class ReviewPanel {
     if (node.parentNode !== this.element) this.element.insertBefore(node, before);
   }
 
+  /**
+   * Put the host's own control for what is compared at the start of the scope
+   * row, so the choice and the words describing its result read as one line —
+   * and wrap to two when the panel is too narrow for that. The node is moved,
+   * not copied: a host that shows it elsewhere while the panel is away takes it
+   * back simply by appending it there.
+   * @param {HTMLElement|null} node - The control, or null to take it out.
+   */
+  setScopeControl(node) {
+    for (const child of Array.from(this._scopeEl.children)) {
+      if (child !== this._scopeTextEl && child !== node) child.remove();
+    }
+    if (node && node.parentNode !== this._scopeEl) this._scopeEl.insertBefore(node, this._scopeTextEl);
+  }
+
   /** Move focus to the file being read. */
   focus() {
     /** @type {HTMLElement|null} */
@@ -343,7 +366,7 @@ class ReviewPanel {
       parts.push(plural(files.length, 'file') + (this._manifest.complete ? '' : ' so far'));
       if (added > 0 || removed > 0) parts.push(`+${added} −${removed}`);
     }
-    this._scopeEl.textContent = parts.filter(Boolean).join(' · ');
+    this._scopeTextEl.textContent = parts.filter(Boolean).join(' · ');
   }
 
   /** @private */
@@ -628,11 +651,29 @@ class ReviewPanel {
   // --- comments -------------------------------------------------------------
 
   /**
-   * @returns {any[]} The comments on the thread being read.
+   * @returns {any[]} The comments on the thread being read, whatever scope they
+   *   were written in.
    * @private
    */
   _comments() {
     return this._review?.draft()?.comments || [];
+  }
+
+  /**
+   * @returns {string} The scope a comment written now is written in.
+   * @private
+   */
+  _scopeKey() {
+    return this._manifest?.scopeKey || '';
+  }
+
+  /**
+   * @param {any} comment - A comment.
+   * @returns {boolean} Whether it was written in the scope on screen.
+   * @private
+   */
+  _inScope(comment) {
+    return (comment.scope || '') === this._scopeKey();
   }
 
   /**
@@ -652,7 +693,8 @@ class ReviewPanel {
    * @private
    */
   _commentsFor(file) {
-    return this._comments().filter((comment) => comment.repo === file.repo && comment.path === file.path);
+    return this._comments().filter((comment) => this._inScope(comment)
+      && comment.repo === file.repo && comment.path === file.path);
   }
 
   /** @private */
@@ -864,6 +906,15 @@ class ReviewPanel {
       updatedAt: now,
     };
     if (anchor.oldPath) comment.oldPath = anchor.oldPath;
+    // An edit keeps the scope it was written in; a new comment takes the one on
+    // screen, with its words as they read now, since `main` will move.
+    const existing = comments.find((c) => c.id === comment.id);
+    const scope = existing ? existing.scope : this._scopeKey();
+    if (scope) {
+      comment.scope = scope;
+      const label = existing ? existing.scopeLabel : this._manifest?.scope;
+      if (label) comment.scopeLabel = label;
+    }
     if (anchor.side !== 'file' && typeof anchor.startLine === 'number') {
       comment.startLine = anchor.startLine;
       comment.endLine = anchor.endLine ?? anchor.startLine;
@@ -926,8 +977,11 @@ class ReviewPanel {
     }
 
     this._show(this._footerEl, true, null);
+    // Every comment goes out together, so the count is all of them; the ones
+    // written in another scope are named, since they are not on screen here.
+    const elsewhere = comments.filter((comment) => !this._inScope(comment)).length;
     this._footerEl.append(el('span', 'review-panel__draft-count',
-      `${plural(comments.length, 'draft comment')}`));
+      `${plural(comments.length, 'draft comment')}${elsewhere ? ` (${elsewhere} in another scope)` : ''}`));
     const discard = el('button', 'review-panel__discard', 'Discard');
     /** @type {HTMLButtonElement} */ (discard).type = 'button';
     discard.addEventListener('click', () => { void this._discard(); });

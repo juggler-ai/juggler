@@ -136,6 +136,7 @@ export async function runTests(_ctx) {
    *   a board with no conversation to keep comments on.
    * @param {(repo: string, path: string) => any} [options.patch] - What
    *   `git.diff()` answers with, per file.
+   * @param {Record<string, any>} [options.config] - The pin's config.
    * @returns {any} The body, controller and the levers a test needs.
    */
   function mount(options = {}) {
@@ -150,7 +151,11 @@ export async function runTests(_ctx) {
     /** @type {any} */
     let reviewFailure = options.reviewError || null;
     let reviews = 0;
-    /** @type {{repo: string, path: string}[]} */
+    /** @type {any[]} */
+    const reviewOptions = [];
+    /** @type {any[]} */
+    const configs = [];
+    /** @type {{repo: string, path: string, options?: any}[]} */
     const diffs = [];
     /** @type {{resolve: (patch: any) => void, reject: (e: any) => void, repo: string, path: string}[]} */
     const pending = [];
@@ -176,18 +181,20 @@ export async function runTests(_ctx) {
         error: () => '',
         onChange: () => () => {},
         refresh: async () => {},
-        review: async () => {
+        review: async (/** @type {any} */ opts) => {
           reviews++;
+          reviewOptions.push(opts || {});
           if (reviewFailure) throw reviewFailure;
           return manifest;
         },
         /**
          * @param {string} repoPath - The repository.
          * @param {string} filePath - The file within it.
+         * @param {any} [opts] - What else was asked.
          * @returns {Promise<any>} Its patch.
          */
-        diff: (repoPath, filePath) => {
-          diffs.push({ repo: repoPath, path: filePath });
+        diff: (repoPath, filePath, opts) => {
+          diffs.push({ repo: repoPath, path: filePath, options: opts });
           if (!holdDiffs) {
             const made = options.patch ? options.patch(repoPath, filePath) : patchOf(filePath);
             return made instanceof Error ? Promise.reject(made) : Promise.resolve(made);
@@ -235,7 +242,7 @@ export async function runTests(_ctx) {
     };
 
     const controller = /** @type {any} */ (pin.mount(body, /** @type {any} */ ({
-      pin: { id: 'pin_test', type: 'git', config: {} },
+      pin: { id: 'pin_test', type: 'git', config: options.config || {} },
       active: {
         project: { path: '/tmp/proj', displayName: 'proj' },
         conversation: draft === null ? null : { id: 'c1', title: 'Conv' },
@@ -243,7 +250,7 @@ export async function runTests(_ctx) {
       },
       services,
       signal: abort.signal,
-      updateConfig: async () => {},
+      updateConfig: async (/** @type {any} */ next) => { configs.push(next); },
     })));
 
     return {
@@ -252,6 +259,8 @@ export async function runTests(_ctx) {
       services,
       text: () => body.textContent || '',
       reviews: () => reviews,
+      reviewOptions: () => reviewOptions,
+      configs: () => configs,
       diffs: () => diffs,
       pending: () => pending,
       saves: () => saves,
@@ -300,8 +309,14 @@ export async function runTests(_ctx) {
 
   // --- the manifest and its gates ------------------------------------------
 
-  await test('the git pin is a singleton', () => {
-    assert(!pin.allowsMultiple, 'two git pins would show the same tree twice');
+  await test('the git pin is pinned once per scope', () => {
+    assert(pin.allowsMultiple, 'a branch review and an uncommitted one can sit side by side');
+    assert(pin.isSameConfig(pin.normalizeConfig({}), pin.normalizeConfig({ scope: '@uncommitted' })),
+      'no scope is the default scope, so the two are one pin');
+    assert(pin.isSameConfig(pin.normalizeConfig({ scope: ' main...HEAD ' }), pin.normalizeConfig({ scope: 'main...HEAD' })),
+      'whitespace does not make a different scope');
+    assert(!pin.isSameConfig(pin.normalizeConfig({}), pin.normalizeConfig({ scope: 'main...HEAD' })),
+      'a different scope is a different pin');
   });
 
   await test('a git pin needs a project, and says so', () => {
@@ -1280,6 +1295,208 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
+  // --- the scope ------------------------------------------------------------
+
+  await test('a pin with no scope reviews the working tree against HEAD, as it always has', async () => {
+    const m = await mounted({ manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]) });
+    assert(m.reviewOptions()[0]?.scope === '@uncommitted',
+      `expected the default scope, got ${JSON.stringify(m.reviewOptions())}`);
+    assert(m.diffs()[0]?.options?.scope === '@uncommitted',
+      `the patch must be read in the scope its row was listed in: ${JSON.stringify(m.diffs())}`);
+    const select = /** @type {HTMLSelectElement} */ (m.body.querySelector('.git-pin__scope-select'));
+    assert(select?.value === '@uncommitted', `the control should show the default, got ${select?.value}`);
+    m.teardown();
+  });
+
+  await test('the scope in the pin config goes to the review and to every patch', async () => {
+    const m = await mounted({
+      config: { scope: 'main...HEAD' },
+      manifest: manifestOf([{ path: 'a.js', index: '.', worktree: 'A' }]),
+    });
+    assert(m.reviewOptions()[0]?.scope === 'main...HEAD', `review asked ${JSON.stringify(m.reviewOptions())}`);
+    assert(m.diffs()[0]?.options?.scope === 'main...HEAD', `diff asked ${JSON.stringify(m.diffs())}`);
+    const select = /** @type {HTMLSelectElement} */ (m.body.querySelector('.git-pin__scope-select'));
+    const input = /** @type {HTMLInputElement} */ (m.body.querySelector('.git-pin__scope-input'));
+    assert(select.value === 'custom' && !input.hidden && input.value === 'main...HEAD',
+      `a custom scope shows as one: select ${select.value}, input ${input.hidden ? 'hidden' : input.value}`);
+    m.teardown();
+  });
+
+  await test('choosing a preset saves it to the pin and reads the tree again in it', async () => {
+    const m = await mounted({ manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]) });
+    const select = /** @type {HTMLSelectElement} */ (m.body.querySelector('.git-pin__scope-select'));
+    select.value = '@staged';
+    select.dispatchEvent(new Event('change'));
+    await settle();
+    await settle();
+    assert(m.configs().at(-1)?.scope === '@staged', `config saved: ${JSON.stringify(m.configs())}`);
+    assert(m.reviewOptions().at(-1)?.scope === '@staged', `review asked ${JSON.stringify(m.reviewOptions())}`);
+    assert(m.diffs().at(-1)?.options?.scope === '@staged', `diff asked ${JSON.stringify(m.diffs())}`);
+    m.teardown();
+  });
+
+  await test('a custom expression is applied on Enter and remembered', async () => {
+    const m = await mounted({ manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]) });
+    const select = /** @type {HTMLSelectElement} */ (m.body.querySelector('.git-pin__scope-select'));
+    select.value = 'custom';
+    select.dispatchEvent(new Event('change'));
+    await settle();
+    assert(m.reviews() === 1, 'choosing Custom… asks for nothing until there is something to ask');
+    const input = /** @type {HTMLInputElement} */ (m.body.querySelector('.git-pin__scope-input'));
+    assert(!input.hidden, 'Custom… shows the field');
+    input.value = '  HEAD~3  ';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+    await settle();
+    const saved = m.configs().at(-1);
+    assert(saved?.scope === 'HEAD~3', `config saved: ${JSON.stringify(saved)}`);
+    assert(Array.isArray(saved?.recent) && saved.recent[0] === 'HEAD~3', `remembered: ${JSON.stringify(saved)}`);
+    assert(m.reviewOptions().at(-1)?.scope === 'HEAD~3', `review asked ${JSON.stringify(m.reviewOptions())}`);
+    const options = [...m.body.querySelectorAll('datalist option')].map((o) => /** @type {HTMLOptionElement} */ (o).value);
+    assert(options.includes('HEAD~3'), `a recent expression is offered again: ${JSON.stringify(options)}`);
+    m.teardown();
+  });
+
+  await test('a scope the server refuses says why, and leaves the control there to fix it', async () => {
+    const m = await mounted({
+      config: { scope: 'nosuch...HEAD' },
+      reviewError: new Error('Unknown revision nosuch'),
+    });
+    assert(m.text().includes('Unknown revision nosuch'), `the reason is the server's:\n${m.text()}`);
+    const input = /** @type {HTMLInputElement} */ (m.body.querySelector('.git-pin__scope-input'));
+    assert(input && !input.hidden && input.value === 'nosuch...HEAD',
+      'the expression stays on screen, where it can be corrected');
+    m.teardown();
+  });
+
+  await test('the scope line names the scope and the commits it came to', async () => {
+    const m = await mounted({
+      config: { scope: 'main...HEAD' },
+      manifest: manifestOf([{ path: 'a.js', index: '.', worktree: 'A' }], {
+        scope: { input: 'main...HEAD', kind: 'commits', label: 'main...HEAD' },
+        repos: [repo({
+          files: [{ path: 'a.js', index: '.', worktree: 'A' }], total: 1,
+          base: 'aaaaaaa0000000000000000000000000000000000',
+          target: 'bbbbbbb0000000000000000000000000000000000',
+        })],
+      }),
+    });
+    const scope = m.body.querySelector('.review-panel__scope')?.textContent || '';
+    assert(scope.includes('main...HEAD') && scope.includes('aaaaaaa..bbbbbbb'),
+      `the scope and its commits should both be named:\n${scope}`);
+    m.teardown();
+  });
+
+  await test('a comment is written in the pin\'s scope, and another scope\'s are kept but not drawn here', async () => {
+    const draftComment = (/** @type {string} */ id, /** @type {any} */ extra = {}) => ({
+      id, repo: '', path: 'a.js', side: 'new', startLine: 85, endLine: 85,
+      lineText: ['this.renderComments(hunks);'], body: `Body ${id}`, revision: 'rev1',
+      createdAt: 1, updatedAt: 1, ...extra,
+    });
+    const m = await mounted({
+      config: { scope: '@staged' },
+      manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }], {
+        scope: { input: '@staged', kind: 'index', label: 'Staged against HEAD' },
+      }),
+      draft: {
+        version: 1, base: 'head', comments: [
+          draftComment('tree'),
+          draftComment('staged', { scope: '@staged', scopeLabel: 'Staged' }),
+        ],
+      },
+    });
+    const badge = m.rows()[0]?.querySelector('.review-panel__count')?.textContent;
+    assert(badge === '1', `only this scope's comment counts against the row, got ${JSON.stringify(badge)}`);
+    const drawnBodies = [...m.body.querySelectorAll('.diff-comment-body')].map((n) => n.textContent);
+    assert(drawnBodies.length === 1 && drawnBodies[0]?.includes('Body staged'),
+      `only this scope's comment is drawn on the diff: ${JSON.stringify(drawnBodies)}`);
+    const footer = m.body.querySelector('.review-panel__footer')?.textContent || '';
+    assert(footer.includes('2 draft comments') && footer.includes('1 in another scope'),
+      `every comment still goes out together, and the footer says where they are: ${footer}`);
+
+    const button = /** @type {HTMLElement|null} */ (m.body.querySelector('.diff-comment-btn[data-side="new"][data-line="85"]'));
+    assert(button, 'expected a comment button on the added line');
+    button?.click();
+    const editor = m.editor();
+    assert(editor, 'the button should open the editor');
+    /** @type {HTMLTextAreaElement} */ (editor.querySelector('textarea')).value = 'A new one';
+    /** @type {HTMLElement} */ (editor.querySelector('.review-panel__save')).click();
+    await settle();
+    const saved = m.saves().at(-1)?.comments?.find((/** @type {any} */ c) => c.body === 'A new one');
+    assert(saved?.scope === '@staged' && typeof saved?.scopeLabel === 'string' && saved.scopeLabel.includes('Staged'),
+      `a new comment carries the scope it was written in: ${JSON.stringify(saved)}`);
+    m.teardown();
+  });
+
+  await test('the scope description sits beside the control, and wraps under it when there is no room', async () => {
+    const m = await mounted({ manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.', added: 3, removed: 1 }]) });
+    const row = /** @type {HTMLElement} */ (m.body.querySelector('.review-panel__scope'));
+    const select = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__scope-select'));
+    const text = /** @type {HTMLElement} */ (m.body.querySelector('.review-panel__scope-text'));
+    assert(row && select && text && row.contains(select) && row.contains(text),
+      'the control and the description should share the scope row');
+    const overlaps = () => {
+      const a = select.getBoundingClientRect();
+      const b = text.getBoundingClientRect();
+      return a.top < b.bottom && b.top < a.bottom;
+    };
+    assert(overlaps() && text.getBoundingClientRect().left > select.getBoundingClientRect().right,
+      'on a wide board the description is to the right of the control');
+    m.body.style.width = '20rem';
+    assert(text.getBoundingClientRect().right <= row.getBoundingClientRect().right + 1,
+      `on a narrow board the description must not overflow the row: text ${text.getBoundingClientRect().right}, row ${row.getBoundingClientRect().right}`);
+    m.teardown();
+  });
+
+  await test('a scope the server refuses keeps the control above the message, outside any panel', async () => {
+    const m = await mounted({ config: { scope: 'nosuch' }, reviewError: new Error('Unknown revision nosuch') });
+    const select = m.body.querySelector('.git-pin__scope-select');
+    assert(select && !select.closest('.review-panel'), 'with no review there is no panel to host the control');
+    m.teardown();
+  });
+
+  await test('each preset is described once, in one vocabulary, beside its name', async () => {
+    const base = 'abcdef0000000000000000000000000000000000';
+    const target = 'bbbbbbb000000000000000000000000000000000';
+    const cases = [
+      { scope: '@uncommitted', label: 'Working tree against HEAD', repo: {}, want: 'Working tree against HEAD' },
+      { scope: '@staged', label: 'Staged against HEAD', repo: { base }, want: 'Staged against HEAD (abcdef0)' },
+      { scope: '@unstaged', label: 'Working tree against the index', repo: {}, want: 'Working tree against the index' },
+      { scope: '@branch', label: 'Working tree against the merge-base with the default branch',
+        repo: { base, baseName: 'main' }, want: 'Working tree against the merge-base with main (abcdef0)' },
+      { scope: '@last', label: 'Last commit against its parent', repo: { base, target },
+        want: 'Last commit against its parent · abcdef0..bbbbbbb' },
+    ];
+    for (const c of cases) {
+      const m = await mounted({
+        config: { scope: c.scope },
+        manifest: manifestOf([{ path: 'a.js', index: '.', worktree: 'M' }], {
+          scope: { input: c.scope, kind: 'worktree', label: c.label },
+          repos: [repo({ files: [{ path: 'a.js', index: '.', worktree: 'M' }], total: 1, ...c.repo })],
+        }),
+      });
+      const text = m.body.querySelector('.review-panel__scope-text')?.textContent || '';
+      assert(text.startsWith(`${c.want} · `), `${c.scope}: expected ${JSON.stringify(c.want)}, got ${JSON.stringify(text)}`);
+      assert(!/^(Staged|Unstaged|Branch|Last commit|Working tree|Uncommitted): /.test(text),
+        `${c.scope}: the dropdown beside it already names the preset: ${JSON.stringify(text)}`);
+      m.teardown();
+    }
+    const m = await mounted({ manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]) });
+    const options = [...m.body.querySelectorAll('.git-pin__scope-select option')].map((o) => o.textContent);
+    assert(options[0] === 'Working tree' && !options.some((o) => /uncommitted/i.test(o || '')),
+      `the presets say "working tree", never "uncommitted": ${JSON.stringify(options)}`);
+    assert(pin.describe(/** @type {any} */ ({ scope: '@uncommitted' })).subtitle === 'Review changes',
+      'the default keeps its tab words');
+    m.teardown();
+  });
+
+  await test('a scoped pin says its scope on its tab', () => {
+    assert(pin.describe(/** @type {any} */ ({})).subtitle === 'Review changes', 'the default keeps its words');
+    assert(pin.describe(/** @type {any} */ ({ scope: '@branch' })).subtitle === 'Branch', 'a preset by its name');
+    assert(pin.describe(/** @type {any} */ ({ scope: 'main...HEAD' })).subtitle === 'main...HEAD',
+      'an expression as typed');
+  });
+
   // --- against the real service ---------------------------------------------
 
   await test('the real service hands the pin the shape it expects', async () => {
@@ -1300,6 +1517,19 @@ export async function runTests(_ctx) {
           && typeof file.worktree === 'string', `file shape wrong: ${JSON.stringify(file)}`);
       }
     }
+    assert(review.scope?.input === '@uncommitted', `the default scope should be reported: ${JSON.stringify(review.scope)}`);
+
+    const staged = await gitReviewService.review({ scope: '@staged' });
+    assert(staged.scope?.input === '@staged' && staged.scope?.kind === 'index',
+      `a scope should reach the server and come back named: ${JSON.stringify(staged.scope)}`);
+
+    let refusal = '';
+    try {
+      await gitReviewService.review({ scope: '--output=/tmp/x' });
+    } catch (e) {
+      refusal = e instanceof Error ? e.message : String(e);
+    }
+    assert(refusal.includes('--output'), `an option the server will not pass to git is refused, naming it: ${refusal}`);
   });
 
   return { passed, failed, errors };

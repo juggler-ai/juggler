@@ -73,8 +73,10 @@ type Workspace interface {
 	// GitStatus is the status card's view of every repository in the tree.
 	GitStatus(ctx context.Context) ([]gitview.RepoStatus, error)
 
-	// GitReview is the review's complete manifest of the tree's changes.
-	GitReview(ctx context.Context) (gitview.Manifest, error)
+	// GitReview is the review's complete manifest of the tree's changes within
+	// a scope (see gitview.ParseScope; the zero Scope is the working tree
+	// against HEAD).
+	GitReview(ctx context.Context, scope gitview.Scope) (gitview.Manifest, error)
 
 	// GitDiff is one file's diff. A refusal of the request itself is a
 	// *gitview.RequestError.

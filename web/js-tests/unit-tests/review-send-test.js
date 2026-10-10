@@ -193,6 +193,28 @@ export async function runTests() {
     assert(text === expected, `expected the block format, got ${JSON.stringify(text)}`);
   });
 
+  await run('comments from another scope are grouped under what they compared', () => {
+    const text = formatReviewMessage({
+      comments: [
+        comment('b', 'On the branch', {
+          path: 'b.js', scope: 'main...HEAD', scopeLabel: 'main...HEAD · aaaaaaa..bbbbbbb',
+        }),
+        comment('a', 'In the working tree', { path: 'a.js' }),
+      ],
+    });
+    const blocks = text.split('\n\n');
+    assert(blocks[0] === 'Review feedback:', `the header is unchanged: ${JSON.stringify(text)}`);
+    assert(blocks[1] === 'Working tree against HEAD:', `the default scope goes first and is named: ${JSON.stringify(text)}`);
+    assert(blocks[2]?.endsWith('In the working tree'), `then its comments: ${JSON.stringify(text)}`);
+    assert(blocks[3] === 'Comparing main...HEAD · aaaaaaa..bbbbbbb:',
+      `a scoped comment says what its line numbers are lines of: ${JSON.stringify(text)}`);
+    assert(blocks[4]?.endsWith('On the branch'), `then its comments: ${JSON.stringify(text)}`);
+
+    const alone = formatReviewMessage({ comments: [comment('a', 'Only', { scope: '@staged', scopeLabel: 'Staged against HEAD (abcdef0)' })] });
+    assert(alone.startsWith('Review feedback:\n\nComparing Staged against HEAD (abcdef0):\n\n'),
+      `one scope that is not the default is still named: ${JSON.stringify(alone)}`);
+  });
+
   await run('the blocks are ordered, and the same draft writes the same message twice', () => {
     const draft = {
       comments: [

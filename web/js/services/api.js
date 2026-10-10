@@ -91,10 +91,20 @@ import { apiUrl } from '../utils/api-url.js';
  */
 
 /**
- * @typedef {GitRepoStatus & {complete: boolean, error?: string}} GitReviewRepo
+ * @typedef {GitRepoStatus & {complete: boolean, error?: string, base?: string, target?: string, baseName?: string}} GitReviewRepo
  *   One repository in a review manifest: everything the card reports about it,
  *   plus whether that is the whole story and git's own complaint when it is not.
- *   A repository git could not read is listed all the same.
+ *   A repository git could not read is listed all the same. For any scope but the
+ *   default, `base` and `target` are the object ids the scope resolved to there
+ *   (`target` only when the new side is a commit), and `baseName` the branch
+ *   `@branch` settled on.
+ */
+
+/**
+ * @typedef {object} GitScope
+ * @property {string} input - The scope as asked for, e.g. '@uncommitted' or 'main...HEAD'.
+ * @property {'worktree'|'index'|'unstaged'|'commits'} kind - Which two states it compares.
+ * @property {string} label - The comparison in words.
  */
 
 /**
@@ -102,6 +112,7 @@ import { apiUrl } from '../utils/api-url.js';
  * @property {string} root - Absolute project root path.
  * @property {boolean} complete - Whether every repository and file was reached.
  * @property {string[]} warnings - What the review could not reach, in sentences.
+ * @property {GitScope} [scope] - What was compared.
  * @property {GitReviewRepo[]} repos - Every repository found, root repo first.
  */
 
@@ -559,30 +570,37 @@ class APIService {
    * question asked in earnest — nothing is skipped for being expensive, and
    * whatever it still could not reach comes back as `complete: false` and a
    * warning saying so rather than as a shorter list.
-   * @param {{signal?: AbortSignal, workspaceId?: string}} [options] - Cancellation, and which tree to read.
+   * @param {{signal?: AbortSignal, workspaceId?: string, scope?: string}} [options] - Cancellation,
+   *   which tree to read, and what to compare ('' or omitted for the working tree
+   *   against HEAD; the server refuses a scope it cannot read with a 400).
    * @returns {Promise<GitReview>} The manifest.
    */
   async getGitReview(options = {}) {
-    return await this.request(`/git/review${gitWorkspaceQuery(options.workspaceId)}`,
-      { signal: options.signal });
+    const query = new URLSearchParams();
+    if (options.workspaceId) query.set('workspace', options.workspaceId);
+    if (options.scope) query.set('scope', options.scope);
+    const qs = query.toString();
+    return await this.request(`/git/review${qs ? `?${qs}` : ''}`, { signal: options.signal });
   }
 
   /**
-   * Read one file's whole working-tree change against HEAD — index and worktree
-   * folded together, which is the same comparison the status card's line counts
-   * come from.
+   * Read one file's change within a scope — by default its whole working-tree
+   * change against HEAD, index and worktree folded together, which is the same
+   * comparison the status card's line counts come from.
    * @param {string} repo - Repository relative to the project root, "" for the root repo.
    * @param {string} path - File relative to that repository.
-   * @param {{signal?: AbortSignal, workspaceId?: string, contextLines?: number}} [options] -
-   *   Cancellation, which tree to read, and how many unchanged lines to carry
-   *   around each change (-1 for the whole file; omitted takes the server's
-   *   default). The answer reports the width it was produced at.
+   * @param {{signal?: AbortSignal, workspaceId?: string, contextLines?: number, scope?: string}} [options] -
+   *   Cancellation, which tree to read, how many unchanged lines to carry around
+   *   each change (-1 for the whole file; omitted takes the server's default), and
+   *   what to compare, as for {@link APIService#getGitReview}. The answer reports
+   *   the width it was produced at.
    * @returns {Promise<GitFileDiff>} The file's patch and what happened to it.
    */
   async getGitDiff(repo, path, options = {}) {
     const query = new URLSearchParams({ repo, path });
     if (options.workspaceId) query.set('workspace', options.workspaceId);
     if (typeof options.contextLines === 'number') query.set('context', String(options.contextLines));
+    if (options.scope) query.set('scope', options.scope);
     return await this.request(`/git/diff?${query.toString()}`, { signal: options.signal });
   }
 

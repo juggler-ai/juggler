@@ -18,7 +18,8 @@
  * changes under them, and one kept here would be handed to the next surface as
  * though it were current; the surface showing one already holds what it drew, and
  * it knows when it last asked. So this module holds exactly two things: the
- * request currently out, so that two surfaces asking at once run git once, and
+ * request currently out for each scope, so that two surfaces asking the same
+ * question at once run git once, and
  * which tree the questions are about — the project, or the visible
  * conversation's workspace — so that an answer arriving after that changed is
  * refused instead of shown.
@@ -43,8 +44,13 @@ import wsService from './websocket.js';
  */
 let _generation = 0;
 
-/** @type {Promise<any>|null} The review currently out, shared by concurrent callers. */
-let _inFlight = null;
+/**
+ * The reviews currently out, by scope, each shared by the callers asking that
+ * scope's question. Two pins reviewing different scopes ask different questions
+ * and must not be handed each other's answer.
+ * @type {Map<string, Promise<any>>}
+ */
+const _inFlight = new Map();
 
 /** @returns {Error} The refusal a stale answer gets. */
 function staleError() {
@@ -91,6 +97,8 @@ function asReview(data) {
   const repos = Array.isArray(data?.repos) ? data.repos : [];
   return {
     root: String(data?.root || ''),
+    ...(data?.workspace ? { workspace: String(data.workspace) } : {}),
+    ...(data?.scope ? { scope: data.scope } : {}),
     complete: data?.complete === true,
     warnings: Array.isArray(data?.warnings) ? data.warnings.map(String) : [],
     repos: repos.map((/** @type {any} */ repo) => ({
@@ -116,27 +124,32 @@ const gitReviewService = {
    * Read the manifest. Concurrent callers share one request, so a board and a
    * detached window opening on the same moment cost one review and not two; each
    * of them may still cancel its own wait without disturbing the other's.
-   * @param {{signal?: AbortSignal}} [options] - Cancellation.
+   * @param {{signal?: AbortSignal, scope?: string}} [options] - Cancellation, and
+   *   what to compare ('' or omitted for the working tree against HEAD).
    * @returns {Promise<GitReview>} The manifest, as the server described it.
    */
   async review(options = {}) {
     const generation = _generation;
-    if (!_inFlight) {
-      const pending = api.getGitReview({ workspaceId: gitWorkspaceId() }).finally(() => {
+    const scope = options.scope || '';
+    let pending = _inFlight.get(scope);
+    if (!pending) {
+      const request = api.getGitReview({ workspaceId: gitWorkspaceId(), scope }).finally(() => {
         // Only if it is still ours: a project switch in between has already let
         // go of this one, and clearing unconditionally would discard the request
         // that replaced it.
-        if (_inFlight === pending) _inFlight = null;
+        if (_inFlight.get(scope) === request) _inFlight.delete(scope);
       });
-      _inFlight = pending;
+      _inFlight.set(scope, request);
+      pending = request;
     }
-    const data = await forCaller(_inFlight, options.signal);
+    const data = await forCaller(pending, options.signal);
     if (generation !== _generation) throw staleError();
     return asReview(data);
   },
 
   /**
-   * Read one file's working-tree change against HEAD.
+   * Read one file's change within a scope, by default its working-tree change
+   * against HEAD.
    *
    * Not shared and not kept: a patch is one surface's answer about one file, so
    * the caller's signal goes straight to the request and cancelling it cancels
@@ -144,16 +157,18 @@ const gitReviewService = {
    * a queue of patches nobody will look at behind them.
    * @param {string} repo - Repository relative to the project root, '' for the root repo.
    * @param {string} path - File relative to that repository.
-   * @param {{signal?: AbortSignal, contextLines?: number}} [options] - Cancellation,
+   * @param {{signal?: AbortSignal, contextLines?: number, scope?: string}} [options] - Cancellation,
    *   and how much of the file around each change to ask for (-1 for the whole
    *   file). The reader chooses that, so it belongs to the request and not to the
-   *   endpoint; the patch says which width it came back at.
+   *   endpoint; the patch says which width it came back at. `scope` is what to
+   *   compare, as for `review`, and must be the one the manifest was read with.
    * @returns {Promise<GitFileDiff>} The patch and what happened to the file.
    */
   async diff(repo, path, options = {}) {
     const generation = _generation;
     const data = await api.getGitDiff(repo, path, {
-      signal: options.signal, workspaceId: gitWorkspaceId(), contextLines: options.contextLines
+      signal: options.signal, workspaceId: gitWorkspaceId(), contextLines: options.contextLines,
+      scope: options.scope || undefined,
     });
     if (generation !== _generation) throw staleError();
     return asDiff(data);
@@ -170,7 +185,7 @@ const gitReviewService = {
    */
   reset() {
     _generation++;
-    _inFlight = null;
+    _inFlight.clear();
   },
 };
 

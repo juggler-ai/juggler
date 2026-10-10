@@ -432,8 +432,20 @@ diff-viewer .diff-file-comment-list.stale .diff-comment {
 }
 
 .review-panel__scope {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem 0.75rem;
     color: var(--text-secondary);
     font-size: var(--font-size-sm);
+}
+
+/* The description gives way to a host's control rather than squeezing it: below
+   about 12rem of room it wraps onto its own line under the control. */
+.review-panel__scope-text {
+    flex: 1 1 12rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 /* An incomplete review has to be as visible as the list it is incomplete

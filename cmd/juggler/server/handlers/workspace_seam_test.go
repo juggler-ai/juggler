@@ -66,7 +66,7 @@ func (s *scripted) GitStatus(context.Context) ([]gitview.RepoStatus, error) {
 	return []gitview.RepoStatus{{Path: "scripted-repo", Changed: 7}}, nil
 }
 
-func (s *scripted) GitReview(context.Context) (gitview.Manifest, error) {
+func (s *scripted) GitReview(context.Context, gitview.Scope) (gitview.Manifest, error) {
 	return gitview.Manifest{Warnings: []string{s.reviewWarn}}, nil
 }
 

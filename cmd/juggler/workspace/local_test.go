@@ -285,11 +285,11 @@ func TestLocalWorkspaceGitAnswersAboutItsOwnTree(t *testing.T) {
 	if err != nil || len(status) != 1 || status[0].Changed != 1 {
 		t.Errorf("workspace status = %+v (err %v), want its one repository with one change", status, err)
 	}
-	review, err := ws.GitReview(t.Context())
+	review, err := ws.GitReview(t.Context(), gitview.Scope{})
 	if err != nil || len(review.Repos) != 1 || len(review.Repos[0].Files) != 1 {
 		t.Errorf("workspace review = %+v (err %v), want its one changed file", review, err)
 	}
-	if review, err := project.GitReview(t.Context()); err != nil || len(review.Repos) != 0 {
+	if review, err := project.GitReview(t.Context(), gitview.Scope{}); err != nil || len(review.Repos) != 0 {
 		t.Errorf("project review = %+v (err %v), want nothing: the project holds no repository", review, err)
 	}
 	diff, err := ws.GitDiff(t.Context(), gitview.DiffRequest{Path: "only-here.txt"})

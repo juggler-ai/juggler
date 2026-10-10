@@ -45,7 +45,7 @@ func unhurried(t *testing.T) {
 // review reads the project's manifest.
 func (p *gitProject) review() Manifest {
 	p.t.Helper()
-	return Review(p.t.Context(), p.root)
+	return Review(p.t.Context(), p.root, Scope{})
 }
 
 // card reads the ambient status, which is the thing the review is not.

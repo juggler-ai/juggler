@@ -242,6 +242,30 @@ export async function runTests() {
         `only a comment that could be drawn survives, got ${JSON.stringify(ids)}`);
     });
 
+    await run('a comment keeps the scope it was written in, and the default is no scope', () => {
+      const draft = normalizeReviewDraft({
+        comments: [
+          comment('scoped', 'On the branch', { scope: '  main...HEAD ', scopeLabel: 'main...HEAD · aaaaaaa..bbbbbbb' }),
+          comment('default', 'In the tree', { scope: '@uncommitted', scopeLabel: 'Working tree against HEAD' }),
+          comment('old', 'Written before scopes'),
+          comment('junk', 'Junk scope', { scope: 42, scopeLabel: ['x'] }),
+        ],
+      });
+      const [scoped, plain, old, junk] = draft.comments;
+      assert(scoped.scope === 'main...HEAD' && scoped.scopeLabel === 'main...HEAD · aaaaaaa..bbbbbbb',
+        `a scope and its words survive, folded: ${JSON.stringify(scoped)}`);
+      assert(!('scope' in plain) && !('scopeLabel' in plain),
+        `the default is stored as no scope at all: ${JSON.stringify(plain)}`);
+      assert(!('scope' in old), 'a comment written before scopes is a comment in the default one');
+      assert(!('scope' in junk) && !('scopeLabel' in junk), `a scope that is not a string is no scope: ${JSON.stringify(junk)}`);
+
+      childThread.gitReviewDraft = { comments: [comment('round', 'Trip', { scope: '@staged', scopeLabel: 'Staged' })] };
+      const back = childThread.gitReviewDraft.comments[0];
+      assert(back.scope === '@staged' && back.scopeLabel === 'Staged',
+        `the scope survives the document: ${JSON.stringify(back)}`);
+      childThread.gitReviewDraft = null;
+    });
+
     await run('a quoted line is clamped, and the words around it are not', () => {
       const long = 'x'.repeat(REVIEW_DRAFT_LIMITS.quoteColumns + 500);
       const many = Array.from({ length: REVIEW_DRAFT_LIMITS.quoteLines + 20 }, () => 'line');

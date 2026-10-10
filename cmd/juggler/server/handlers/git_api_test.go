@@ -174,6 +174,46 @@ func TestGitReviewWithNoProject(t *testing.T) {
 	}
 }
 
+// The scope rides the query string to both the review and the diff, comes back
+// in the manifest, and a scope that cannot be read — or names a revision the
+// repository lacks — is the asker's mistake.
+func TestGitReviewAndDiffTakeAScope(t *testing.T) {
+	p := newGitProject(t)
+	p.write("staged.txt", "one\n")
+	p.write("unstaged.txt", "one\n")
+	p.commit("init")
+	p.write("staged.txt", "two\n")
+	p.git("add", "staged.txt")
+	p.write("unstaged.txt", "two\n")
+	api := gitAPIOn(func() string { return p.root })
+
+	rec := askGit(t, api, t.Context(), "/api/git/review?scope=%40staged")
+	var resp gitReviewResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("review in @staged = %d %s", rec.Code, rec.Body.String())
+	}
+	if resp.Scope.Input != "@staged" || len(resp.Repos) != 1 || len(resp.Repos[0].Files) != 1 ||
+		resp.Repos[0].Files[0].Path != "staged.txt" {
+		t.Errorf("review in @staged = %+v, want staged.txt alone and the scope reported", resp)
+	}
+
+	rec = askGit(t, api, t.Context(), "/api/git/diff?path=unstaged.txt&scope=%40staged")
+	var diff gitview.FileDiff
+	if err := json.Unmarshal(rec.Body.Bytes(), &diff); err != nil || rec.Code != http.StatusOK || diff.Status != "unchanged" {
+		t.Errorf("diff of unstaged.txt in @staged = %d %s, want 200 and unchanged", rec.Code, rec.Body.String())
+	}
+
+	for _, target := range []string{
+		"/api/git/review?scope=--output%3D%2Ftmp%2Fx",
+		"/api/git/diff?path=staged.txt&scope=-p",
+		"/api/git/diff?path=staged.txt&scope=nosuch",
+	} {
+		if rec := askGit(t, api, t.Context(), target); rec.Code != http.StatusBadRequest {
+			t.Errorf("GET %s = %d, want 400\n%s", target, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 // A diff refused for what it asked for is the asker's to fix, and one git could
 // not produce is not: the two travel as different statuses, and the second says
 // it is the diff that could not be read.

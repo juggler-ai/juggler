@@ -102,8 +102,8 @@ type gitDiffHunk struct {
 	Lines    []gitDiffLine `json:"lines"`
 }
 
-// FileDiff is the JSON response shape for GET /api/git/diff: one file's
-// working tree against HEAD. Status is what happened to the file rather than a
+// FileDiff is the JSON response shape for GET /api/git/diff: one file's change
+// within the scope asked for, the working tree against HEAD by default. Status is what happened to the file rather than a
 // porcelain letter, because a reader is being told a story about the file and
 // not asked to decode one.
 // Status is one of modified, added, deleted, renamed, copied, typechange,
@@ -152,11 +152,13 @@ type FileDiff struct {
 // locates the file within that repository. Both are relative and are refused if
 // they climb out of where they belong. Context is how many unchanged lines to
 // carry around each change, "-1" for the whole file, and the shipped default
-// when it is absent or unusable.
+// when it is absent or unusable. Scope is what to compare, as ParseScope reads
+// it; "" is the working tree against HEAD.
 type DiffRequest struct {
 	Repo    string
 	Path    string
 	Context string
+	Scope   string
 }
 
 // RequestError is a diff refused for what it asked for — a path outside the
@@ -167,10 +169,12 @@ type RequestError struct{ msg string }
 
 func (e *RequestError) Error() string { return e.msg }
 
-// Diff answers with one file's whole working-tree change relative to HEAD —
-// index and worktree together, the same comparison the status card's line
-// counts are taken from, so a file's diffstat there and its diff here can never
-// disagree. The answer reports the context width it was produced at.
+// Diff answers with one file's change within the request's scope. By default
+// that is the whole working-tree change relative to HEAD — index and worktree
+// together, the same comparison the status card's line counts are taken from, so
+// a file's diffstat there and its diff here can never disagree. Any other scope
+// is the same comparison the review's file list was read from for it. The answer
+// reports the context width it was produced at.
 //
 // A refusal of the request itself is a *RequestError; any other error is a diff
 // that could not be read, cancellation and running out of time included.
@@ -182,6 +186,10 @@ func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
 	fileRel, ok := cleanRepoRelative(req.Path)
 	if !ok || fileRel == "" {
 		return FileDiff{}, &RequestError{"Not a path inside the repository: path"}
+	}
+	asked, err := ParseScope(req.Scope)
+	if err != nil {
+		return FileDiff{}, err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, gitDiffBudget)
@@ -208,7 +216,7 @@ func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
 		Context: unified, Hunks: []gitDiffHunk{},
 	}
 
-	base, err := gitDiffBase(ctx, dir, gitDiffPerCmd)
+	scope, err := resolveScope(ctx, dir, asked, gitDiffPerCmd)
 	if err != nil {
 		return FileDiff{}, err
 	}
@@ -218,7 +226,7 @@ func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
 	// about two paths, and a pathspec naming one of them is a file that appeared
 	// from nowhere. The metadata is keyed by the file's current path, which is
 	// the path the review lists a renamed file under.
-	meta, err := gitDiffMetadata(ctx, dir, base)
+	meta, err := gitDiffMetadata(ctx, dir, scope)
 	if err != nil {
 		return FileDiff{}, err
 	}
@@ -231,7 +239,7 @@ func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
 		paths = append(paths, file.OldPath)
 	}
 
-	patch, err := gitFilePatch(ctx, dir, base, paths, unified)
+	patch, err := gitFilePatch(ctx, dir, scope, paths, unified)
 	if err != nil {
 		return FileDiff{}, err
 	}
@@ -245,24 +253,26 @@ func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
 		applyGitFileMeta(&resp, file)
 		// The working tree of a conflicted file holds both sides and the markers
 		// between them. Shown as an ordinary diff, that reads as text the user
-		// wrote, so the state is reported rather than left to be inferred.
-		if gitFileConflicted(ctx, dir, fileRel) {
+		// wrote, so the state is reported rather than left to be inferred. A
+		// conflict lives in the index, so two commits never have one.
+		if scope.Kind() != ScopeCommits && gitFileConflicted(ctx, dir, fileRel) {
 			resp.Status, resp.Conflicted = "conflicted", true
 		}
 		// A patch cut short took the rest of its own tally with it. git still has
 		// the whole one, and a truncated diff that understated the change would be
 		// truncation nobody could see.
 		if resp.Truncated {
-			if stat, ok := gitNumstatCounts(ctx, dir, base, paths); ok {
+			if stat, ok := gitNumstatCounts(ctx, dir, scope, paths); ok {
 				resp.Added, resp.Removed = stat.Added, stat.Removed
 			}
 		}
-	case len(patch.Kept) == 0:
+	case len(patch.Kept) == 0 && scope.touchesWorktree():
 		// Nothing from `git diff` is either an unchanged file or one git has never
 		// been told about, and only the second has anything to show. An untracked
 		// file is diffed here rather than by `--no-index` against the null device,
 		// which is spelled differently on each platform for a file we have to read
-		// anyway to know whether it is text.
+		// anyway to know whether it is text. Only a scope whose new side is the
+		// working tree can hold one.
 		if untracked, uerr := gitIsUntracked(ctx, dir, fileRel); uerr == nil && untracked {
 			untrackedDiff(ctx, abs, &resp)
 		}
@@ -407,12 +417,16 @@ func hasDriveLetter(p string) bool {
 
 // gitFileMeta is what one repository-wide pass establishes about a single file:
 // what happened to it, where it came from if it arrived from somewhere, and its
-// mode on each side of the change.
+// mode on each side of the change. Letter is git's own status letter for it, and
+// NewID the new side's object id — all zeros when that side is the working tree
+// and git has not read it.
 type gitFileMeta struct {
 	Status  string
+	Letter  string
 	OldPath string
 	OldMode string
 	NewMode string
+	NewID   string
 }
 
 // boundedOutput is what was read from a stream that may be larger than anything
@@ -494,7 +508,8 @@ func readBounded(ctx context.Context, r io.Reader, limit int) (boundedOutput, er
 // escaping non-ASCII paths into \303\251. diff.external is emptied for the same
 // reason --no-ext-diff and --no-textconv are passed to the commands that accept
 // them: reading a project is not consent to run commands its configuration
-// names.
+// names. --literal-pathspecs makes a path a path: without it a file the user
+// named `*` or `:(glob)x` would be read as a pattern over the whole repository.
 //
 // --no-optional-locks is not on its own enough to keep a read from writing, and
 // this is why every comparison against a tree here is asked of the plumbing
@@ -506,7 +521,7 @@ func readBounded(ctx context.Context, r io.Reader, limit int) (boundedOutput, er
 // options porcelain applies from configuration — and refreshes nothing.
 func gitCommand(ctx context.Context, dir string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", append([]string{
-		"--no-optional-locks", "-c", "core.quotePath=false", "-c", "diff.external=",
+		"--no-optional-locks", "--literal-pathspecs", "-c", "core.quotePath=false", "-c", "diff.external=",
 	}, args...)...)
 	cmd.Dir = dir
 	return cmd
@@ -596,18 +611,17 @@ func gitDiffBase(ctx context.Context, dir string, budget time.Duration) (string,
 	return empty, nil
 }
 
-// gitDiffMetadata reads one raw diff for the whole repository, keyed by each
-// file's current path. Rename and copy detection compares every path that
+// gitDiffMetadata reads one raw diff for the whole repository within a scope,
+// keyed by each file's current path. Rename and copy detection compares every path that
 // changed against every other, so it is asked for once, here, rather than being
 // expected from a pathspec holding a single file.
 //
 // A metadata pass past its ceiling simply stops describing the files past the
 // cut; their patches still carry their own headers, which is less than this
 // knows but more than nothing.
-func gitDiffMetadata(ctx context.Context, dir, base string) (map[string]gitFileMeta, error) {
-	out, err := gitRead(ctx, dir, gitDiffPerCmd, gitDiffMaxMeta,
-		"diff-index", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies",
-		"--raw", "--abbrev", "-z", base, "--")
+func gitDiffMetadata(ctx context.Context, dir string, scope resolvedScope) (map[string]gitFileMeta, error) {
+	out, err := gitRead(ctx, dir, gitDiffPerCmd, gitDiffMaxMeta, scope.diffArgs(
+		"--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", "--raw", "--abbrev", "-z")...)
 	if err != nil {
 		return nil, err
 	}
@@ -635,6 +649,8 @@ func parseGitRawDiff(out []byte) map[string]gitFileMeta {
 		file := gitFileMeta{
 			OldMode: fields[0],
 			NewMode: fields[1],
+			NewID:   fields[3],
+			Letter:  letter[:1],
 			Status:  gitRawStatus(letter),
 		}
 
@@ -688,11 +704,10 @@ func gitFileConflicted(ctx context.Context, dir, fileRel string) bool {
 
 // gitNumstatCounts asks git for one file's line tally, for when the patch was
 // cut short and can no longer be counted from.
-func gitNumstatCounts(ctx context.Context, dir, base string, paths []string) (gitDiffstat, bool) {
-	args := append([]string{
-		"diff-index", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies",
-		"--numstat", "-z", base, "--",
-	}, paths...)
+func gitNumstatCounts(ctx context.Context, dir string, scope resolvedScope, paths []string) (gitDiffstat, bool) {
+	args := append(scope.diffArgs(
+		"--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", "--numstat", "-z",
+	), paths...)
 	out, err := gitRead(ctx, dir, gitDiffPerCmd, gitDiffMaxMeta, args...)
 	if err != nil {
 		return gitDiffstat{}, false
@@ -729,11 +744,11 @@ func diffContextFrom(raw string) int {
 // gitFilePatch runs the diff for one file and returns its patch text, empty when
 // the file is unchanged or untracked. Both sides of a rename are passed as the
 // pathspec so that git pairs them; --no-color keeps the output parseable.
-func gitFilePatch(ctx context.Context, dir, base string, paths []string, unified int) (boundedOutput, error) {
-	args := append([]string{
-		"diff-index", "--no-color", "--no-ext-diff", "--no-textconv", "--find-renames",
-		"--patch", "--unified=" + strconv.Itoa(unified), base, "--",
-	}, paths...)
+func gitFilePatch(ctx context.Context, dir string, scope resolvedScope, paths []string, unified int) (boundedOutput, error) {
+	args := append(scope.diffArgs(
+		"--no-color", "--no-ext-diff", "--no-textconv", "--find-renames",
+		"--patch", "--unified="+strconv.Itoa(unified),
+	), paths...)
 	return gitRead(ctx, dir, gitDiffPerCmd, gitDiffMaxBytes, args...)
 }
 
@@ -745,10 +760,7 @@ func gitIsUntracked(ctx context.Context, dir, fileRel string) (bool, error) {
 	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(fileRel))); err != nil {
 		return false, nil
 	}
-	cmd := exec.CommandContext(ctx, "git", "--no-optional-locks",
-		"ls-files", "--error-unmatch", "--", fileRel)
-	cmd.Dir = dir
-	if err := cmd.Run(); err != nil {
+	if err := gitCommand(ctx, dir, "ls-files", "--error-unmatch", "--", fileRel).Run(); err != nil {
 		return true, nil
 	}
 	return false, nil

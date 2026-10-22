@@ -1,0 +1,11 @@
+{
+  "Create an API key at https://dashboard.exa.ai/api-keys": "在 https://dashboard.exa.ai/api-keys 创建 API 密钥",
+  "Exa API key": "Exa API 密钥",
+  "Exa Search": "Exa 搜索",
+  "Query": "查询",
+  "Results": "结果",
+  "Search the web with Exa": "用 Exa 搜索网络",
+  "Searching Exa for \"{query}\"...": "正在 Exa 中搜索“{query}”……",
+  "unknown": "未知",
+  "{count, plural, one {Found {count} Exa result for \"{query}\"} other {Found {count} Exa results for \"{query}\"}}": "{count, plural, other {为“{query}”找到 {count} 个 Exa 结果}}"
+}

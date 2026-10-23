@@ -21,6 +21,7 @@ var baseURL = "https://openrouter.ai/api/v1"
 // main; no init()-time side effects.
 func Register() {
 	openaibase.Register(openaibase.Descriptor{
+		ReasoningReplayFn:  reasoningReplay,
 		Name:               "openrouter",
 		DisplayName:        "OpenRouter",
 		ConfigKeyName:      "openrouter_api_key",

@@ -16,6 +16,7 @@ import (
 // (Anthropic, OpenAI, DeepSeek, Google, etc.) through an OpenAI-compatible API.
 func Register() {
 	openaibase.Register(openaibase.Descriptor{
+		ReasoningReplayFn: reasoningReplay,
 		Name:              "opencodezen",
 		DisplayName:       "OpenCode Zen",
 		Description:       msg.New("Multi-model gateway with models from Anthropic, OpenAI, DeepSeek, Google, and others."),

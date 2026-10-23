@@ -14,6 +14,12 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
+const deepseekProducer = "deepseek/deepseek-v4-flash"
+
+// deepseekReplay is DeepSeek's contract: reasoning_content on every assistant
+// message, "" where a message has none of its own.
+var deepseekReplay = ReasoningReplay{Field: "reasoning_content", Required: true}
+
 // reasoningTurn is a representative thinking+text+tool-call assistant turn:
 // DeepSeek streams chain-of-thought, then a tool call. The continuation request
 // that carries the tool result back must replay the reasoning or DeepSeek's
@@ -21,7 +27,8 @@ import (
 func reasoningTurn() []provider.Message {
 	return []provider.Message{
 		{Type: "user", Content: "What's the weather?"},
-		{Type: "thinking", Content: "The user wants weather; I should call the tool."},
+		{Type: "thinking", Content: "The user wants weather; I should call the tool.",
+			ProviderData: map[string]any{reasoningProducerKey: deepseekProducer}},
 		{Type: "assistant", Content: "Let me check."},
 		{Type: "tool-use", ToolUseID: "call_1", ToolName: "get_weather", ToolInput: map[string]any{"city": "SF"}},
 		{Type: "tool-result", ToolUseID: "call_1", Content: "sunny"},
@@ -45,11 +52,11 @@ func assistantJSON(t *testing.T, msgs []openai.ChatCompletionMessageParamUnion) 
 	return ""
 }
 
-// TestEchoReasoningContentReplaysThinking proves that with the quirk enabled the
-// assistant turn carries reasoning_content back on the wire (DeepSeek thinking
-// mode requires it), alongside the normal content and tool_calls.
-func TestEchoReasoningContentReplaysThinking(t *testing.T) {
-	msgs := transformMessages(reasoningTurn(), false, true, "")
+// TestReasoningReplayCarriesThinking proves a replaying provider sends the
+// turn's reasoning back as reasoning_content alongside the normal content and
+// tool_calls.
+func TestReasoningReplayCarriesThinking(t *testing.T) {
+	msgs := transformMessages(reasoningTurn(), false, deepseekReplay, deepseekProducer, "")
 	got := assistantJSON(t, msgs)
 
 	if !strings.Contains(got, `"reasoning_content":"The user wants weather; I should call the tool."`) {
@@ -64,15 +71,14 @@ func TestEchoReasoningContentReplaysThinking(t *testing.T) {
 	}
 }
 
-// TestEchoReasoningContentDisabledDropsThinking proves the default (every vendor
-// but DeepSeek) still omits reasoning_content — replaying it to OpenAI/OpenRouter
-// is at best ignored and at worst rejected.
-func TestEchoReasoningContentDisabledDropsThinking(t *testing.T) {
-	msgs := transformMessages(reasoningTurn(), false, false, "")
+// TestReasoningReplayOffDropsThinking proves the zero value — every API with
+// no field for it — still omits the reasoning: Mistral 422s on the unknown key.
+func TestReasoningReplayOffDropsThinking(t *testing.T) {
+	msgs := transformMessages(reasoningTurn(), false, ReasoningReplay{}, deepseekProducer, "")
 	got := assistantJSON(t, msgs)
 
-	if strings.Contains(got, "reasoning_content") {
-		t.Fatalf("reasoning_content leaked with echo disabled; got %s", got)
+	if strings.Contains(got, "reasoning") {
+		t.Fatalf("reasoning leaked with replay off; got %s", got)
 	}
 	if !strings.Contains(got, `"content":"Let me check."`) {
 		t.Fatalf("assistant content missing; got %s", got)
@@ -80,8 +86,7 @@ func TestEchoReasoningContentDisabledDropsThinking(t *testing.T) {
 }
 
 // splitAssistantJSONs returns every assistant message in the transformed set,
-// in wire order. reasoning_echo_test's single-message helper cannot express
-// multi-assistant wire shapes.
+// in wire order.
 func splitAssistantJSONs(t *testing.T, msgs []openai.ChatCompletionMessageParamUnion) []string {
 	t.Helper()
 	var out []string
@@ -100,29 +105,31 @@ func splitAssistantJSONs(t *testing.T, msgs []openai.ChatCompletionMessageParamU
 	return out
 }
 
-// TestEchoReasoningContentCoversSplitAssistantTurns pins the delegated-subthread
-// case: a turn whose tool calls arrive as several use/result pairs (thread items
-// emit one pair each) flushes one assistant message per pair. DeepSeek requires
-// reasoning_content on EVERY assistant message carrying tool_calls — the second
-// split message without it 400s with "The `reasoning_content` in the thinking
-// mode must be passed back to the API."
-func TestEchoReasoningContentCoversSplitAssistantTurns(t *testing.T) {
+// TestReasoningReplayRequiredCoversSplitAssistantTurns pins the
+// delegated-subthread case: a response whose tool calls arrive as several
+// use/result pairs (thread items emit one pair each) flushes one assistant
+// message per pair. DeepSeek 400s on any of them without reasoning_content, so
+// the first carries the reasoning and the second the empty placeholder —
+// never a second copy of the same reasoning.
+func TestReasoningReplayRequiredCoversSplitAssistantTurns(t *testing.T) {
 	msgs := transformMessages([]provider.Message{
 		{Type: "user", Content: "Summarize these pages."},
-		{Type: "thinking", Content: "I need both pages; delegate each fetch."},
+		{Type: "thinking", Content: "I need both pages; delegate each fetch.",
+			ProviderData: map[string]any{reasoningProducerKey: deepseekProducer}},
 		{Type: "tool-use", ToolUseID: "call_1", ToolName: "WebFetch", ToolInput: map[string]any{"url": "a"}},
 		{Type: "tool-result", ToolUseID: "call_1", Content: "page a"},
 		{Type: "tool-use", ToolUseID: "call_2", ToolName: "WebFetch", ToolInput: map[string]any{"url": "b"}},
 		{Type: "tool-result", ToolUseID: "call_2", Content: "page b"},
-	}, false, true, "")
+	}, false, deepseekReplay, deepseekProducer, "")
 
 	got := splitAssistantJSONs(t, msgs)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 assistant messages (one per use/result pair), got %d: %v", len(got), got)
 	}
-	for i, m := range got {
-		if !strings.Contains(m, `"reasoning_content":"I need both pages; delegate each fetch."`) {
-			t.Fatalf("assistant message %d missing reasoning_content (DeepSeek 400s without it); got %s", i, m)
-		}
+	if !strings.Contains(got[0], `"reasoning_content":"I need both pages; delegate each fetch."`) {
+		t.Fatalf("first message missing its reasoning; got %s", got[0])
+	}
+	if !strings.Contains(got[1], `"reasoning_content":""`) {
+		t.Fatalf("second message missing the placeholder DeepSeek requires; got %s", got[1])
 	}
 }

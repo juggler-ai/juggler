@@ -97,6 +97,12 @@ type Descriptor struct {
 	// that bills a single serving speed.
 	ServiceTierSpecFn ServiceTierSpecFunc
 
+	// ReasoningReplayFn picks a model's ReasoningReplay, overriding
+	// Quirks.ReasoningReplay, for a provider whose models do not all share
+	// one contract (a gateway serving several vendors, a local server whose
+	// template support varies by model).
+	ReasoningReplayFn func(modelID string) ReasoningReplay
+
 	// LimitDiscoveryUnsupported opts a provider OUT of reading the token limits
 	// its own model list publishes. Discovery is on by default because the
 	// endpoint describes the server that will serve the request, where a
@@ -248,6 +254,9 @@ func Register(d Descriptor) {
 		// gate req.ServiceTier without re-consulting the catalog per turn.
 		if d.ServiceTierSpecFn != nil {
 			base.serviceTierSpec = d.ServiceTierSpecFn(cfg.Model)
+		}
+		if d.ReasoningReplayFn != nil {
+			base.quirks.ReasoningReplay = d.ReasoningReplayFn(cfg.Model)
 		}
 		client := &openAICompatClient{
 			Client:     base,

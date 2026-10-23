@@ -17,6 +17,7 @@ import (
 // OpenAI-compatible provider, so a user can configure both side by side.
 func Register() {
 	openaibase.Register(openaibase.Descriptor{
+		ReasoningReplayFn: reasoningReplay,
 		Name:              "moonshot",
 		DisplayName:       "Moonshot Kimi",
 		Description:       msg.New("Kimi models through Moonshot AI's official OpenAI-compatible API. Models are discovered from Moonshot's /v1/models endpoint."),
@@ -30,11 +31,5 @@ func Register() {
 		InputModalitiesFn: inputModalities,
 		ThinkingSpecFn:    thinkingSpec,
 		BaseURL:           "https://api.moonshot.cn/v1",
-		Quirks: openaibase.Quirks{
-			// Kimi's thinking mode rejects a continued turn (e.g. the request
-			// after a tool call) unless the prior assistant turn's
-			// reasoning_content is echoed back — same contract DeepSeek enforces.
-			EchoReasoningContent: true,
-		},
 	})
 }

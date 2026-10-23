@@ -65,12 +65,13 @@ var probeClient = &http.Client{Timeout: time.Second}
 // main; no init()-time side effects.
 func Register() {
 	openaibase.Register(openaibase.Descriptor{
-		Name:            "llamacpp",
-		DisplayName:     "llama.cpp (local)",
-		Description:     msg.New("Runs a model locally via llama-server's OpenAI-compatible API. Start llama-server yourself first (Juggler doesn't launch it); point at a non-default host (LAN, remote workstation, custom port) below, otherwise defaults to http://127.0.0.1:8080. For LM Studio, use the LM Studio provider."),
-		AutoDetect:      server.AutoDetect(),
-		DisplayProvider: "llama.cpp",
-		ContextWindowFn: getContextWindowInfo,
+		ReasoningReplayFn: reasoningReplay,
+		Name:              "llamacpp",
+		DisplayName:       "llama.cpp (local)",
+		Description:       msg.New("Runs a model locally via llama-server's OpenAI-compatible API. Start llama-server yourself first (Juggler doesn't launch it); point at a non-default host (LAN, remote workstation, custom port) below, otherwise defaults to http://127.0.0.1:8080. For LM Studio, use the LM Studio provider."),
+		AutoDetect:        server.AutoDetect(),
+		DisplayProvider:   "llama.cpp",
+		ContextWindowFn:   getContextWindowInfo,
 		// Each model's real serving window lives in its /v1/models entry, which
 		// the OpenAI SDK's model type drops.
 		ListModelsOverride: listModels,

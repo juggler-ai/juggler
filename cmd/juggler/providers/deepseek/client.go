@@ -12,12 +12,13 @@ import (
 // main; no init()-time side effects.
 func Register() {
 	openaibase.Register(openaibase.Descriptor{
-		Name:            "deepseek",
-		DisplayName:     "DeepSeek",
-		ConfigKeyName:   "deepseek_api_key",
-		EnvVarName:      "DEEPSEEK_API_KEY",
-		APIKeyURL:       "https://platform.deepseek.com/api_keys",
-		DisplayProvider: "DeepSeek",
+		ReasoningReplayFn: reasoningReplay,
+		Name:              "deepseek",
+		DisplayName:       "DeepSeek",
+		ConfigKeyName:     "deepseek_api_key",
+		EnvVarName:        "DEEPSEEK_API_KEY",
+		APIKeyURL:         "https://platform.deepseek.com/api_keys",
+		DisplayProvider:   "DeepSeek",
 		// The catalog is flash and pro; flash is the cheap half by name and by
 		// price.
 		CheapModel:         "deepseek-v4-flash",
@@ -29,7 +30,6 @@ func Register() {
 		Quirks: openaibase.Quirks{
 			IncludePresencePenalty:  true,
 			IncludeFrequencyPenalty: true,
-			EchoReasoningContent:    true,
 			// No ForcedToolChoiceSupported: DeepSeek's thinking mode 400s on a
 			// named tool_choice, so it relies on the fail-safe default (forced
 			// tool choice downgraded to auto).

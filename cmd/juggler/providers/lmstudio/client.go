@@ -60,10 +60,11 @@ func autoDetect() bool {
 // main; no init()-time side effects.
 func Register() {
 	openaibase.Register(openaibase.Descriptor{
-		Name:        "lmstudio",
-		DisplayName: "LM Studio (local)",
-		Description: msg.New("Runs models locally through LM Studio's server. Start the server in LM Studio first (Juggler doesn't launch it); point at a non-default host (LAN, custom port) below, otherwise defaults to http://127.0.0.1:1234. Each loaded model's context window is read from LM Studio. A model that isn't loaded yet is assumed to have 8192 until it is, and Juggler says so."),
-		AutoDetect:  autoDetect,
+		ReasoningReplayFn: reasoningReplay,
+		Name:              "lmstudio",
+		DisplayName:       "LM Studio (local)",
+		Description:       msg.New("Runs models locally through LM Studio's server. Start the server in LM Studio first (Juggler doesn't launch it); point at a non-default host (LAN, custom port) below, otherwise defaults to http://127.0.0.1:1234. Each loaded model's context window is read from LM Studio. A model that isn't loaded yet is assumed to have 8192 until it is, and Juggler says so."),
+		AutoDetect:        autoDetect,
 		// The OpenAI-compatible model list carries no window; LM Studio's own
 		// table does.
 		DisplayProvider:    "LM Studio",

@@ -234,3 +234,33 @@ func TestRegisterCapsResolverVouchesOnlyForCataloguedModels(t *testing.T) {
 		t.Fatalf("uncatalogued capabilities = (%+v, %v), want zero, false", got, found)
 	}
 }
+
+// TestRegisterResolvesReasoningReplayPerModel proves Descriptor.ReasoningReplayFn
+// is consulted with the configured model, so a gateway serving several vendors
+// can give each model its own replay contract.
+func TestRegisterResolvesReasoningReplayPerModel(t *testing.T) {
+	name := "openaibase-reasoning-replay-" + t.Name()
+	Register(Descriptor{
+		Name:    name,
+		BaseURL: closedPort,
+		ReasoningReplayFn: func(modelID string) ReasoningReplay {
+			if modelID == "glm" {
+				return ReasoningReplay{Field: "reasoning_content"}
+			}
+			return ReasoningReplay{}
+		},
+	})
+	for model, want := range map[string]string{"glm": "reasoning_content", "other": ""} {
+		p, err := provider.InitializeProvider(name, provider.Config{APIKey: "test", Model: model})
+		if err != nil {
+			t.Fatalf("InitializeProvider(%s): %v", model, err)
+		}
+		c, ok := provider.As[*openAICompatClient](p)
+		if !ok {
+			t.Fatalf("InitializeProvider(%s) returned %T", model, p)
+		}
+		if got := c.quirks.ReasoningReplay.Field; got != want {
+			t.Fatalf("model %s: replay field %q, want %q", model, got, want)
+		}
+	}
+}

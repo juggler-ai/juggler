@@ -140,8 +140,22 @@ func buildChatUserMessage(msg provider.Message) (openai.ChatCompletionMessagePar
 	return openai.UserMessage(parts), true
 }
 
-// Groups consecutive assistant messages with their tool calls.
-func transformMessages(messages []provider.Message, useDeveloperRole, echoReasoning bool, systemPrompt string) []openai.ChatCompletionMessageParamUnion {
+// reasoningProducerKey is the providerData key a replaying client stamps on
+// the reasoning it streams, valued "<provider>/<model>". The history records
+// nothing else about which model wrote a thinking block, and only a model's own
+// reasoning belongs in its replayed sequence (see ReasoningReplay).
+const reasoningProducerKey = "reasoningProducer"
+
+// reasoningProducer is the stamp this client puts on, and matches against,
+// its own reasoning.
+func (c *Client) reasoningProducer() string {
+	return c.providerName + "/" + c.model
+}
+
+// Groups consecutive assistant messages with their tool calls. replay says
+// whether and how earlier reasoning goes back; producer is the
+// reasoningProducerKey stamp it replays.
+func transformMessages(messages []provider.Message, useDeveloperRole bool, replay ReasoningReplay, producer, systemPrompt string) []openai.ChatCompletionMessageParamUnion {
 	apiMessages := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages)+1)
 
 	// Add system prompt first if provided
@@ -154,13 +168,13 @@ func transformMessages(messages []provider.Message, useDeveloperRole, echoReason
 	}
 
 	// Track assistant message accumulation (text + tool calls grouped together).
-	// pendingReasoning holds the turn's chain-of-thought, replayed back to the
-	// API when echoReasoning is set (see Quirks.EchoReasoningContent). It is
-	// reset at turn boundaries only (a user/context message, or a new thinking
-	// block): a turn that produces several assistant messages on the wire (e.g.
-	// delegated tool calls emitted as thread items, each a use/result pair)
-	// must carry the turn's reasoning on EVERY assistant tool_use message —
-	// DeepSeek rejects a tool-call assistant message without it.
+	// pendingReasoning holds this model's stamped reasoning for replay.
+	// Consecutive blocks are joined, go out on the next assistant message
+	// only, and are then spent. A block with no assistant message after it
+	// before the next user-role message (its output was compacted or dropped)
+	// is discarded rather than moved onto a later call's message. When one
+	// response's tool calls are split into several use/result pairs (delegated
+	// calls emitted as thread items), the reasoning rides the first.
 	var pendingAssistantText strings.Builder
 	var pendingReasoning strings.Builder
 	var pendingToolCalls []openai.ChatCompletionMessageToolCallUnionParam
@@ -176,22 +190,21 @@ func transformMessages(messages []provider.Message, useDeveloperRole, echoReason
 					OfString: openai.String(pendingAssistantText.String()),
 				}
 			}
-			// DeepSeek's thinking mode requires the turn's reasoning to be
-			// echoed back under the non-standard `reasoning_content` key.
-			if echoReasoning && pendingReasoning.Len() > 0 {
-				assistantMsg.SetExtraFields(map[string]any{
-					"reasoning_content": pendingReasoning.String(),
-				})
+			if replay.Field != "" {
+				switch {
+				case pendingReasoning.Len() > 0:
+					assistantMsg.SetExtraFields(map[string]any{replay.Field: pendingReasoning.String()})
+				case replay.Required:
+					assistantMsg.SetExtraFields(map[string]any{replay.Field: replay.Placeholder})
+				}
 			}
 			apiMessages = append(apiMessages, openai.ChatCompletionMessageParamUnion{
 				OfAssistant: &assistantMsg,
 			})
+			pendingReasoning.Reset()
 		}
 		pendingAssistantText.Reset()
 		pendingToolCalls = nil
-		// Note: pendingReasoning deliberately survives the flush — see the
-		// reasoning comment above. It is cleared by the user/context branch
-		// and replaced by the next thinking block.
 	}
 
 	// A tool-result that returned images can't ride on the role="tool" message
@@ -223,8 +236,7 @@ func transformMessages(messages []provider.Message, useDeveloperRole, echoReason
 		case "user", "context-item", "context-item-updated", "guidance", "system-reminder":
 			// Flush any pending assistant content first
 			flushAssistant()
-			// Turn boundary: the reasoning was already replayed on the turn's
-			// assistant message(s); do not leak it into the next turn.
+			// Reasoning still pending here lost the output it belongs to.
 			pendingReasoning.Reset()
 			// Skip empty user messages with no images - some APIs (e.g., Z.AI)
 			// reject empty content.
@@ -236,15 +248,16 @@ func transformMessages(messages []provider.Message, useDeveloperRole, echoReason
 			pendingAssistantText.WriteString(msg.Content)
 
 		case "thinking":
-			// Thinking blocks are internal model state. OpenAI has no native
-			// thinking channel, so they are normally dropped — but DeepSeek's
-			// thinking mode requires the reasoning be replayed on the next
-			// request, so accumulate it when echoReasoning is set.
-			if echoReasoning {
-				// A new block starts a new turn's chain-of-thought; replace
-				// any reasoning left over from the previous turn.
-				pendingReasoning.Reset()
-				pendingReasoning.WriteString(msg.Content)
+			// Thinking blocks are internal model state with no standard Chat
+			// Completions channel, so they are dropped unless the model takes
+			// its reasoning back (Quirks.ReasoningReplay). Only this model's
+			// own reasoning belongs in its sequence: another model's (a
+			// mid-conversation switch) and the worker's own notes carry no
+			// matching stamp.
+			if replay.Field != "" {
+				if s, _ := msg.ProviderData[reasoningProducerKey].(string); s != "" && s == producer {
+					pendingReasoning.WriteString(msg.Content)
+				}
 			}
 
 		case "tool-use":
@@ -271,6 +284,8 @@ func transformMessages(messages []provider.Message, useDeveloperRole, echoReason
 		case "tool-result":
 			// Flush pending assistant content before tool result
 			flushAssistant()
+			// Reasoning still pending here lost the output it belongs to.
+			pendingReasoning.Reset()
 			// OpenAI expects role="tool" with tool_call_id
 			// Use placeholder for empty results - LLM expects a result for every tool call,
 			// and some APIs (e.g., Z.AI) reject empty content
@@ -306,7 +321,7 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 	}
 
 	// Transform unified Message[] to OpenAI format
-	apiMessages := transformMessages(req.Messages, c.quirks.UseDeveloperRole, c.quirks.EchoReasoningContent, req.SystemPrompt)
+	apiMessages := transformMessages(req.Messages, c.quirks.UseDeveloperRole, c.quirks.ReasoningReplay, c.reasoningProducer(), req.SystemPrompt)
 
 	// Log the SDK request payload for debugging
 	jlog.Trace("[openai REQUEST] model=%s, messages=%d, tools=%d", c.model, len(apiMessages), len(req.Tools))
@@ -375,6 +390,24 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 	var textContent strings.Builder
 	var thinkingContent strings.Builder
 
+	// stampReasoning ends the reasoning block with a contentless thinking chunk
+	// carrying this client's producer stamp, which the worker stores as the
+	// block's providerData; ReasoningReplay replays only stamped blocks. It
+	// runs before the first output that follows the reasoning, while the
+	// worker still has that block open.
+	stamped := false
+	stampReasoning := func() error {
+		if stamped || c.quirks.ReasoningReplay.Field == "" || thinkingContent.Len() == 0 {
+			return nil
+		}
+		stamped = true
+		_, err := callback(provider.StreamChunk{
+			Type:     provider.ContentBlockTypeThinking,
+			Metadata: map[string]any{reasoningProducerKey: c.reasoningProducer()},
+		})
+		return err
+	}
+
 	// Process the stream
 	for stream.Next() {
 		sess.Reset()
@@ -434,6 +467,9 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 
 			// Stream text content immediately
 			if choice.Delta.Content != "" {
+				if err := stampReasoning(); err != nil {
+					return nil, err
+				}
 				textContent.WriteString(choice.Delta.Content)
 				sess.Progress(choice.Delta.Content)
 				streamChunk := provider.StreamChunk{
@@ -484,6 +520,12 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 	// Log the response summary
 	jlog.Trace("[openai RESPONSE] text=%d chars, thinking=%d chars, tools=%d, finish=%s, input_tokens=%d, output_tokens=%d, cached=%d",
 		textContent.Len(), thinkingContent.Len(), len(toolCallBuffers), lastFinishReason, inputTokens, outputTokens, provider.TokenCount(cachedTokens))
+
+	// A response with no text still has its reasoning stamped, ahead of its
+	// tool calls.
+	if err := stampReasoning(); err != nil {
+		return nil, err
+	}
 
 	// Stream tool_use blocks to frontend (no execution - frontend handles that)
 	if err := flushToolCalls(toolCallBuffers, callback); err != nil {

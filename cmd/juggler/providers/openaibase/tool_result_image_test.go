@@ -26,7 +26,7 @@ func TestToolResultImageBecomesTrailingUserMessage(t *testing.T) {
 		}},
 	}
 
-	out := transformMessages(msgs, false, false, "")
+	out := transformMessages(msgs, false, ReasoningReplay{}, "", "")
 	blob, err := json.Marshal(out)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

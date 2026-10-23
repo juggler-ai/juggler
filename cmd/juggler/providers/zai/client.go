@@ -12,12 +12,13 @@ import (
 // main; no init()-time side effects.
 func Register() {
 	openaibase.Register(openaibase.Descriptor{
-		Name:            "zai",
-		DisplayName:     "Z.AI GLM",
-		ConfigKeyName:   "zai_api_key",
-		EnvVarName:      "ZAI_API_KEY",
-		APIKeyURL:       "https://z.ai/manage-apikey/apikey-list",
-		DisplayProvider: "Z.AI",
+		ReasoningReplayFn: reasoningReplay,
+		Name:              "zai",
+		DisplayName:       "Z.AI GLM",
+		ConfigKeyName:     "zai_api_key",
+		EnvVarName:        "ZAI_API_KEY",
+		APIKeyURL:         "https://z.ai/manage-apikey/apikey-list",
+		DisplayProvider:   "Z.AI",
 		// "flash" is z.ai's own name for the cheap tier of the current line.
 		CheapModel:         "glm-5.3-flash",
 		Filter:             openaibase.PrefixModelFilter("glm-", "-embedding", "-vision", "-tts"),

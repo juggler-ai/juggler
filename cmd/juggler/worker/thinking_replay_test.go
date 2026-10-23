@@ -8,8 +8,8 @@ import "testing"
 
 // TestBuildMessages_EmitsStoredThinking is the regression guard for the DeepSeek
 // thinking-mode 400 ("The `reasoning_content` in the thinking mode must be
-// passed back to the API"). The provider-layer echo (openaibase's
-// EchoReasoningContent quirk) only fires when it receives a "thinking" message,
+// passed back to the API"). The provider-layer replay (openaibase's
+// ReasoningReplay quirk) only fires when it receives a "thinking" message,
 // but buildMessages historically had no case for ItemTypeThinking, so stored
 // reasoning was silently dropped before the provider ever saw it — leaving the
 // quirk with nothing to echo. A continued (post-tool-call) DeepSeek turn then

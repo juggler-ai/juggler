@@ -157,7 +157,7 @@ export async function runTests() {
       const progress = notice.querySelector('.update-notice__status-text').textContent;
       assert(progress === 'Downloading update… 42%', `progress: ${JSON.stringify(progress)}`);
       notice.close();
-      notice.open(vmOf({ present: true, updaterState: 'available', appManagedServer: false, appVersion: '2.0.0', currentVersion: '1.0.0' }));
+      notice.open(vmOf({ present: true, updaterState: 'available', appManagedServer: false, appVersion: 'v2.0.0', currentVersion: 'v1.0.0' }));
       const skew = notice.querySelector('.update-notice__skew').textContent;
       assert(skew === "You're connected to a Juggler server started outside the app (v1.0.0). "
         + "Updating the app won't update that server — restart it to update.", `skew: ${JSON.stringify(skew)}`);

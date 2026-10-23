@@ -1621,7 +1621,7 @@
   "You can have at most {max} conversations open at once. Bin some tabs to make room for new ones.": "最多可同时打开 {max} 个对话。请把一些标签页放入回收站以腾出空间。",
   "You set this. Clear the field to go back to {count}.": "这是你设置的值。清空该字段可回到 {count}。",
   "You stopped using this workspace. Adopting it picks up where you left off.": "你已停止使用此工作区。采纳它可从中断处继续。",
-  "You're connected to a Juggler server started outside the app (v{version}). Updating the app won't update that server — restart it to update.": "你连接的是一个在应用之外启动的 Juggler 服务器（v{version}）。更新应用不会更新该服务器 —— 请重启它以更新。",
+  "You're connected to a Juggler server started outside the app ({version}). Updating the app won't update that server — restart it to update.": "你连接的是一个在应用之外启动的 Juggler 服务器（{version}）。更新应用不会更新该服务器 —— 请重启它以更新。",
   "You're on the latest version ({version}).": "你已是最新版本（{version}）。",
   "You're on the latest version.": "你使用的已是最新版本。",
   "You're up to date": "你已是最新",

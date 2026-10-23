@@ -415,7 +415,7 @@ class UpdateNotice extends JugglerElement {
     if (this._hasServerSkew(vm)) {
       const warn = document.createElement('p');
       warn.className = 'update-notice__skew';
-      warn.textContent = t("You're connected to a Juggler server started outside the app (v{version}). Updating the app won't update that server — restart it to update.",
+      warn.textContent = t("You're connected to a Juggler server started outside the app ({version}). Updating the app won't update that server — restart it to update.",
         { version: vm.currentVersion });
       body.appendChild(warn);
     }

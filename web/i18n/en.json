@@ -1624,7 +1624,7 @@
   "You set this. Clear the field to go back to Juggler's default of {count} tokens, derived from the context window.": "You set this. Clear the field to go back to Juggler's default of {count} tokens, derived from the context window.",
   "You set this. Clear the field to go back to {count}.": "You set this. Clear the field to go back to {count}.",
   "You stopped using this workspace. Adopting it picks up where you left off.": "You stopped using this workspace. Adopting it picks up where you left off.",
-  "You're connected to a Juggler server started outside the app (v{version}). Updating the app won't update that server — restart it to update.": "You're connected to a Juggler server started outside the app (v{version}). Updating the app won't update that server — restart it to update.",
+  "You're connected to a Juggler server started outside the app ({version}). Updating the app won't update that server — restart it to update.": "You're connected to a Juggler server started outside the app ({version}). Updating the app won't update that server — restart it to update.",
   "You're on the latest version ({version}).": "You're on the latest version ({version}).",
   "You're on the latest version.": "You're on the latest version.",
   "You're up to date": "You're up to date",

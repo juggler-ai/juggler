@@ -1624,7 +1624,7 @@
   "You set this. Clear the field to go back to Juggler's default of {count} tokens, derived from the context window.": "[Ýöû šéţ ţĥîš. Çļéåŕ ţĥé ƒîéļð ţö ĝö ƀåçķ ţö Ĵûĝĝļéŕ''š ðéƒåûļţ öƒ {count} ţöķéñš, ðéŕîṽéð ƒŕöɱ ţĥé çöñţéẋţ ŵîñðöŵ. ·····························]",
   "You set this. Clear the field to go back to {count}.": "[Ýöû šéţ ţĥîš. Çļéåŕ ţĥé ƒîéļð ţö ĝö ƀåçķ ţö {count}. ············]",
   "You stopped using this workspace. Adopting it picks up where you left off.": "[Ýöû šţöþþéð ûšîñĝ ţĥîš ŵöŕķšþåçé. Åðöþţîñĝ îţ þîçķš ûþ ŵĥéŕé ýöû ļéƒţ öƒƒ. ·····················]",
-  "You're connected to a Juggler server started outside the app (v{version}). Updating the app won't update that server — restart it to update.": "[Ýöû''ŕé çöññéçţéð ţö å Ĵûĝĝļéŕ šéŕṽéŕ šţåŕţéð öûţšîðé ţĥé åþþ (ṽ{version}). Ûþðåţîñĝ ţĥé åþþ ŵöñ''ţ ûþðåţé ţĥåţ šéŕṽéŕ — ŕéšţåŕţ îţ ţö ûþðåţé. ····································]",
+  "You're connected to a Juggler server started outside the app ({version}). Updating the app won't update that server — restart it to update.": "[Ýöû''ŕé çöññéçţéð ţö å Ĵûĝĝļéŕ šéŕṽéŕ šţåŕţéð öûţšîðé ţĥé åþþ ({version}). Ûþðåţîñĝ ţĥé åþþ ŵöñ''ţ ûþðåţé ţĥåţ šéŕṽéŕ — ŕéšţåŕţ îţ ţö ûþðåţé. ···································]",
   "You're on the latest version ({version}).": "[Ýöû''ŕé öñ ţĥé ļåţéšţ ṽéŕšîöñ ({version}). ········]",
   "You're on the latest version.": "[Ýöû''ŕé öñ ţĥé ļåţéšţ ṽéŕšîöñ. ········]",
   "You're up to date": "[Ýöû''ŕé ûþ ţö ðåţé ·····]",

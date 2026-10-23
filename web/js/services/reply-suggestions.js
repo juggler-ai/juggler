@@ -51,6 +51,8 @@ export const SUGGESTIONS_SYSTEM_PROMPT = `You write the user's next message, nev
 
 You are given the tail of a conversation between a user and a coding agent working in the user's codebase. Write only messages this particular user would genuinely be likely to send next, as they would type them. Output nothing unless the conversation itself makes the next message obvious — that is the common case, and an empty answer is the right one.
 
+The USER lines are already answered and shown only for the user's voice — never answer or continue them. Anything the agent might say is not a suggestion.
+
 Write a suggestion only when one of these holds:
 - The agent asked the user something. Then each line is a distinct answer to that question, and that is the whole job.
 - The agent named specific unfinished work — something it offered, deferred, skipped, or flagged as remaining. Then a line may ask for exactly that named work.
@@ -146,6 +148,12 @@ function keepHead(str, max) {
  * arguments and tool output are both left out — the names alone are enough to
  * ground a suggestion ("run the tests again"), and the output is the one
  * channel where a hostile file could put words in the prompt.
+ *
+ * The labels and the closing line are there for the short-reply case: after
+ * "Fixed.", the user's question is the loudest line in the prompt, and a chat
+ * model answers questions it sees. Marking it answered, and restating the task
+ * after the transcript where a small model weights it most, keeps the model
+ * writing the user's side.
  * @param {any[]} items - Message-thread items (`messageThread.items`).
  * @returns {string} The assembled prompt, or `''` when there is no agent reply to answer.
  */
@@ -170,7 +178,7 @@ export function buildSuggestionsPrompt(items) {
   for (let i = earlier.length - 1; i >= 0 && users.length < PROMPT_CAPS.userMessages; i--) {
     if (!isUserMessage(earlier[i])) continue;
     const text = textOf(earlier[i]);
-    if (text) users.unshift(`USER: ${keepHead(text, PROMPT_CAPS.userChars)}`);
+    if (text) users.unshift(`USER (earlier, already answered): ${keepHead(text, PROMPT_CAPS.userChars)}`);
   }
 
   /** @type {string[]} */
@@ -187,7 +195,7 @@ export function buildSuggestionsPrompt(items) {
   /** @type {string[]} */
   const lines = [...users];
   if (recentTools.length) lines.push(`AGENT RAN: ${recentTools.join(', ')}`);
-  lines.push(`AGENT: ${keepTail(textOf(list[lastAssistantIndex]), PROMPT_CAPS.assistantChars)}`);
+  lines.push(`AGENT (last message): ${keepTail(textOf(list[lastAssistantIndex]), PROMPT_CAPS.assistantChars)}`);
 
   // Total guard: drop from the front (the oldest user message first), never
   // from the agent's reply, which is the only line the task cannot be done
@@ -196,7 +204,8 @@ export function buildSuggestionsPrompt(items) {
     lines.shift();
   }
 
-  return `=== CONVERSATION ===\n${lines.join('\n')}\n=== END CONVERSATION ===`;
+  return `=== CONVERSATION ===\n${lines.join('\n')}\n=== END CONVERSATION ===\n`
+    + 'Write the user\'s reply to the agent\'s last message, or nothing.';
 }
 
 /**

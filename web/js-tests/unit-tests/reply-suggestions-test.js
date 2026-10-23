@@ -266,6 +266,21 @@ export async function runTests(_ctx) {
       'the markers are what the system prompt tells the model to distrust');
   });
 
+  await run('the user\'s words are marked answered, and the task comes last', () => {
+    // A short agent reply leaves the user's question as the loudest line in the
+    // prompt, and a chat model answers questions it sees. The labels say which
+    // line is being replied to, and the closing line restates the job after the
+    // transcript, where a small model weights it most.
+    const prompt = buildSuggestionsPrompt([user('why does the sidebar flicker?'), agent('Fixed.')]);
+    assert(prompt.includes('USER (earlier, already answered): why does the sidebar flicker?'),
+      `the user line must say it is not the thing to answer, got:\n${prompt}`);
+    assert(prompt.includes('AGENT (last message): Fixed.'),
+      `the agent line must say it is the one being replied to, got:\n${prompt}`);
+    const tail = prompt.slice(prompt.indexOf('=== END CONVERSATION ===') + '=== END CONVERSATION ==='.length).trim();
+    assert(/user's reply to the agent's last message/.test(tail),
+      `the task must be restated after the transcript, got tail: ${JSON.stringify(tail)}`);
+  });
+
   // ---------------------------------------------------------------- parsing
 
   await run('bullets, numbering and quotes are stripped', () => {

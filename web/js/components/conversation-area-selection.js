@@ -340,11 +340,13 @@ export class ColumnSelection {
    * Select an item by ID.
    * @param {string} itemId
    * @param {'user'|'auto'} [origin='user']
-   * @param {{allowReveal?: boolean}} [opts] - allowReveal false when the click
-   *   that caused this selection landed on a control inside the tile: the item
-   *   still becomes selected, but its child column is not revealed.
+   * @param {{allowReveal?: boolean, scroll?: boolean}} [opts] - allowReveal
+   *   false when the click that caused this selection landed on a control inside
+   *   the tile: the item still becomes selected, but its child column is not
+   *   revealed. scroll false when the selection is a click: the row is already
+   *   under the pointer, so the viewport stays exactly where it is.
    */
-  select(itemId, origin = 'user', { allowReveal = true } = {}) {
+  select(itemId, origin = 'user', { allowReveal = true, scroll = true } = {}) {
     const conversation = this._area.conversation;
     if (!conversation) return;
     // A folded tool row has no row of its own — selecting it means selecting the
@@ -390,14 +392,20 @@ export class ColumnSelection {
     const smooth = origin === 'auto';
 
     // Rule 4b: an automatic selection may only move the viewport while the reader
-    // is already at the end. A selection the user made always scrolls — they
-    // asked for it. (Rules 2/2b are gated at their own call sites too; this is
-    // the invariant every future auto-selecting caller inherits for free.)
-    const mayScroll = origin === 'user' || this._scroll.isNearBottom();
+    // is already at the end. A selection the user made by keyboard always
+    // scrolls — the row it lands on may be offscreen. (Rules 2/2b are gated at
+    // their own call sites too; this is the invariant every future auto-selecting
+    // caller inherits for free.)
+    //
+    // A click never scrolls: the reader pointed at a row they can see, and
+    // framing it — its top for a row taller than the viewport, the end of the
+    // conversation for the tail — slides the text out from under the pointer,
+    // so the copy or the answer they were starting lands on something else.
+    const mayScroll = scroll && (origin === 'user' || this._scroll.isNearBottom());
 
     // Rules 6-7: scroll selected item into view. This is a no-op when the item
-    // is already fully visible (see ColumnScroll._elementIntoView), so selecting
-    // an on-screen item never moves the viewport.
+    // is already fully visible (see ColumnScroll._elementIntoView), except for
+    // the tail, which always goes to the end.
     if (mayScroll) this._scroll.itemIntoView(itemId, { smooth, automatic: origin === 'auto' });
 
     this.dispatchItemSelected(itemId, origin, false, allowReveal);

@@ -314,6 +314,7 @@ import { runTests as runPinboardSatelliteTests } from '../unit-tests/pinboard-sa
 import { runTests as runScrollAwayAutofollowTests } from '../unit-tests/scroll-away-autofollow-test.js';
 import { runTests as runScrollToTopTests } from '../unit-tests/scroll-to-top-test.js';
 import { runTests as runAutoFollowHoldsTheEndTests } from '../unit-tests/auto-follow-holds-the-end-test.js';
+import { runTests as runClickSelectHoldsPlaceTests } from '../unit-tests/click-select-holds-place-test.js';
 import { runTests as runUserSendFollowTests } from '../unit-tests/user-send-follow-test.js';
 import { runTests as runThreadColumnLandingTests } from '../unit-tests/thread-column-landing-test.js';
 import { runTests as runJumpToAttentionRevealTests } from '../unit-tests/jump-to-attention-reveal-test.js';
@@ -863,6 +864,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:scroll-away-autofollow', run: runScrollAwayAutofollowTests },
   { name: 'unit:scroll-to-top', run: runScrollToTopTests },
   { name: 'unit:auto-follow-holds-the-end', run: runAutoFollowHoldsTheEndTests },
+  { name: 'unit:click-select-holds-place', run: runClickSelectHoldsPlaceTests },
   { name: 'unit:user-send-follow', run: runUserSendFollowTests },
   { name: 'unit:thread-column-landing', run: runThreadColumnLandingTests },
   // Exclusive for the shared origin: it turns tool grouping on, and a sibling

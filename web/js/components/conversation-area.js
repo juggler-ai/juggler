@@ -1257,8 +1257,9 @@ class ConversationArea extends JugglerElement {
           // the action belongs to that item — but it is not a request to see
           // the item's details, so it must not reveal the child column. Same
           // rule as the repeat click above: without it, answering a question
-          // on a narrow viewport pages the columns away mid-answer.
-          this._selectItem(itemId, 'user', { allowReveal: !onControl });
+          // on a narrow viewport pages the columns away mid-answer. Nor does
+          // any click scroll the column: the row is already under the pointer.
+          this._selectItem(itemId, 'user', { allowReveal: !onControl, scroll: false });
           // Move focus out of textarea so keyboard navigation works
           if (document.activeElement?.tagName === 'TEXTAREA') {
             /** @type {HTMLElement} */ (document.activeElement).blur();
@@ -1395,7 +1396,7 @@ class ConversationArea extends JugglerElement {
   /**
    * @param {string} itemId
    * @param {'user'|'auto'} [origin='user']
-   * @param {{allowReveal?: boolean}} [opts]
+   * @param {{allowReveal?: boolean, scroll?: boolean}} [opts]
    * @private
    */
   _selectItem(itemId, origin = 'user', opts = {}) {

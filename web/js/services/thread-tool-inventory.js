@@ -14,6 +14,12 @@
  * `withheld` exists because "the tool is not there" and "the tool is there but
  * your strategy won't allow it" are different problems with the same symptom,
  * and only this function can tell them apart.
+ *
+ * An unattended conversation (a headless `juggler run`) is also not offered the
+ * tools only a person can resolve — `withheldUnattended` — whatever its
+ * strategy, the way Claude Code -p hides AskUserQuestion when nothing in the
+ * session can answer it. The worker refuses a call to anything not offered, so
+ * one made anyway is an error result rather than a wait.
  */
 
 import { generateToolDefinitions } from './tool-generator.js';
@@ -23,11 +29,38 @@ import contextItemRegistry from '../registries/context-item-registry.js';
 import strategyRegistry from '../registries/strategy-registry.js';
 import { capabilityLabel } from '../utils/capability-label.js';
 import { t, formatList } from '../../sdk/lib/i18n.js';
+import { INTERACTION_KIND } from '../../sdk/context-item.js';
+
+/**
+ * Tools whose point is a person, offered to nobody when nobody is there. Beside
+ * these, every elicitation (a tool whose result is a person's answer:
+ * AskUserQuestion) is found by its kind rather than its name.
+ * - plan: what it is for is a submit a person approves; without one its steps
+ *   have nothing to track.
+ * - define_command: installs a durable /command for a person to review.
+ * - new_conversation: opens a tab for a person to work in, which the run never
+ *   waits on.
+ * - pin_to_pinboard: shows a person something.
+ */
+const NEEDS_A_PERSON = new Set(['plan', 'define_command', 'new_conversation', 'pin_to_pinboard']);
+
+/**
+ * Whether a tool can only be resolved by a person being there.
+ * @param {Record<string, any>} def - A tool definition
+ * @returns {boolean} True for a tool an unattended conversation is not offered
+ */
+export function needsAPerson(def) {
+  const name = String(def?.name || '');
+  if (NEEDS_A_PERSON.has(name)) return true;
+  const ItemClass = /** @type {any} */ (contextItemRegistry.getByToolName(name));
+  return ItemClass?.interactionKind?.() === INTERACTION_KIND.ELICITATION;
+}
 
 /**
  * @typedef {object} ToolInventory
  * @property {Array<Record<string, any>>} offered - Tools the model is given, in the order it receives them.
  * @property {Array<Record<string, any>>} withheld - Tools the strategy removed.
+ * @property {Array<Record<string, any>>} withheldUnattended - Tools not offered because nobody is attending the conversation.
  * @property {string} strategyName - Display name of the strategy that did the withholding, or '' if none did.
  */
 
@@ -36,14 +69,17 @@ import { t, formatList } from '../../sdk/lib/i18n.js';
  *
  * A thread with no strategy, or a strategy that doesn't filter, offers
  * everything — the common case, and the one where `withheld` is empty.
- * @param {{strategy?: any}|null|undefined} messageThread - The thread whose turn this is.
+ * @param {{strategy?: any, conversation?: {unattended?: boolean}}|null|undefined} messageThread - The thread whose turn this is.
  * @returns {Promise<ToolInventory>} What the model gets, and what it doesn't.
  */
 export async function buildToolInventory(messageThread) {
   const inventory = splitToolsByStrategy(await generateToolDefinitions(), messageThread?.strategy);
+  const unattended = messageThread?.conversation?.unattended === true;
+  const offered = unattended ? inventory.offered.filter((def) => !needsAPerson(def)) : inventory.offered;
   return {
     ...inventory,
-    offered: attachProgramSdk(inventory.offered, (def) => {
+    withheldUnattended: unattended ? inventory.offered.filter(needsAPerson) : [],
+    offered: attachProgramSdk(offered, (def) => {
       const ItemClass = /** @type {any} */ (contextItemRegistry.getByToolName(def.name));
       return typeof ItemClass?.renderProgramSdk === 'function'
         ? (callable, excluded) => ItemClass.renderProgramSdk(callable, excluded)
@@ -95,7 +131,7 @@ export function attachProgramSdk(offered, rendererFor, composable = (def) => isC
  */
 export function splitToolsByStrategy(all, strategy) {
   if (typeof strategy?.filterTools !== 'function') {
-    return { offered: all, withheld: [], strategyName: '' };
+    return { offered: all, withheld: [], withheldUnattended: [], strategyName: '' };
   }
 
   const offered = strategy.filterTools(all) || [];
@@ -103,6 +139,7 @@ export function splitToolsByStrategy(all, strategy) {
   return {
     offered,
     withheld: all.filter((/** @type {any} */ t) => !kept.has(t?.name)),
+    withheldUnattended: [],
     strategyName: strategyDisplayName(strategy)
   };
 }

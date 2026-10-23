@@ -45,7 +45,7 @@ function item(fields) {
 function makeConversation({ completedTurns = 0, status = 'idle' } = {}) {
   const observers = new Set();
   const state = { items: /** @type {any[]} */ ([]), completedTurns, status };
-  const spy = { strategy: '', rules: /** @type {any[]} */ ([]), autoApprove: false, sinceTurnAtSend: -1 };
+  const spy = { strategy: '', rules: /** @type {any[]} */ ([]), autoApprove: false, unattended: false, sinceTurnAtSend: -1 };
 
   const fire = () => {
     for (const fn of [...observers]) fn();
@@ -74,6 +74,7 @@ function makeConversation({ completedTurns = 0, status = 'idle' } = {}) {
     get processingState() { return { status: state.status }; },
     get completedTurns() { return state.completedTurns; },
     setAutoApprove: (/** @type {boolean} */ on) => { spy.autoApprove = on; },
+    setUnattended: (/** @type {boolean} */ on) => { spy.unattended = on; },
     /** @type {(msg: string) => Promise<string|null>} */
     sendMessage: async () => null
   };
@@ -233,6 +234,9 @@ export async function runTests(_ctx) {
     // hang rather than a prompt when there is nobody to ask.
     assert(conversation.spy.strategy === 'yolo', `strategy was ${conversation.spy.strategy}`);
     assert(conversation.spy.autoApprove === true, 'auto-approve was not enabled');
+    // Marked as having nobody to answer: what stops it being offered, or
+    // waiting on, a tool only a person can resolve.
+    assert(conversation.spy.unattended === true, 'the conversation was not marked unattended');
     const execute = conversation.spy.rules.find((/** @type {any} */ r) => r.type === 'execute');
     assert(!!conversation.spy.rules.find((/** @type {any} */ r) => r.type === 'write-file'), 'no write-file rule was added');
     assert(!!execute, 'no execute rule was added');

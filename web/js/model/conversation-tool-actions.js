@@ -334,6 +334,14 @@ async function decideForAction(ActionClass, toolDef, call, opts = {}) {
   if (!needsApproval) {
     return { verdict: 'approve', reason: '', ...common, hookAsks, approvedByHook };
   }
+  // Nobody is attending this conversation (a headless run), so a park would be
+  // a wait nobody answers and the run would end on it. Refuse the call instead:
+  // the model gets an error result saying why and carries on without it.
+  if (conversation.unattended) {
+    const reason = 'Nobody is attending this run, so a call that needs a person to answer or approve it ' +
+      "can't be made — it wasn't run. Carry on without it, deciding for yourself where you would have asked.";
+    return { verdict: 'deny', reason, ...common, hookAsks, approvedByHook };
+  }
   let reason;
   if (hookAsks) {
     reason = hookHoldNote(/** @type {any} */ (hookOutcome.decidedBy));

@@ -10,6 +10,12 @@ of changes; this project follows semantic versioning.
 - The message box stays short on phones; an expand button opens it full-height
 - GLM, DeepSeek, Kimi and local models see their own earlier reasoning across tool calls
 - Ctrl+Tab returns to the last-used conversation; hold Ctrl to pick from recent ones
+- Images are left out for models that can't take them, instead of failing the request
+- GLM-5.2 and GLM-5.3 get their full 128k Max output
+- `juggler run` offers no tools that wait for a user, and refuses calls that would
+- A `juggler run` reply cut off at Max output before acting is told to continue
+- A model call still streaming output is no longer cut off after 30 minutes
+- `juggler run` no longer hangs when its new conversation syncs before it opens
 
 ## [0.7.8] - 2026-10-23
 

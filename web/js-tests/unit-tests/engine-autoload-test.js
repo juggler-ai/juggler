@@ -23,6 +23,7 @@
 
 import { assert } from '../utilities/test-helpers.js';
 import { WorkerManager } from '../../js/services/worker-manager.js';
+import ConversationSyncReducer from '../../js/model/conversation-sync-reducer.js';
 
 /**
  * @typedef {object} TestResult
@@ -173,6 +174,58 @@ export async function runTests(_ctx) {
       !wm.loader._autoLoadFailures.has(convId),
       'a successful load must clear the backoff — the next unrelated blip deserves the fast first retry'
     );
+  });
+
+  /**
+   * A probe whose session is mid-create of `convId`: the worker the server made
+   * for it syncs before this realm has adopted the conversation, which is the
+   * window a headless run fell into and never came back from — the load won the
+   * spawn, and the run waited on a conversation the worker never synced to.
+   * @param {string} convId - The conversation being created.
+   * @returns {{probe: ReturnType<typeof probeManager>, sync: ConversationSyncReducer, applied: unknown[], adopt: () => void}} The probe.
+   */
+  const creating = (convId) => {
+    const probe = probeManager();
+    probe.succeed();
+    const sync = new ConversationSyncReducer(/** @type {any} */ ({}));
+    /** @type {unknown[]} */
+    const applied = [];
+    const created = { handleYjsSyncMessage: (/** @type {unknown} */ bytes) => applied.push(bytes) };
+    let adopted = false;
+    probe.wm._session.sync = sync;
+    probe.wm._session.getConversation = (/** @type {string} */ id) => (adopted && id === convId ? created : null);
+    sync.beginLocalCreate(convId);
+    return { probe, sync, applied, adopt: () => { adopted = true; } };
+  };
+
+  await run('a sync for a conversation this realm is creating waits for that create, not a load of its own', async () => {
+    const convId = 'conv_autoload_creating';
+    const { probe, sync, applied, adopt } = creating(convId);
+
+    probe.wm.loader.autoLoad(convId, 'AAEC');
+    const pending = probe.wm.loader.pendingAutoLoad(convId);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert(
+      probe.attempts() === 0,
+      `a load started while this realm's own create was in flight; it races the create for the worker (${probe.attempts()} loads)`
+    );
+
+    adopt();
+    sync.endLocalCreate(convId);
+    await pending;
+    assert(probe.attempts() === 0, `the create brought the conversation up, so nothing is left to load; got ${probe.attempts()} loads`);
+    assert(applied.length === 1, `the sync's bytes must reach the conversation the create adopted; ${applied.length} applied`);
+  });
+
+  await run('and it loads as usual when the create adopted nothing', async () => {
+    const convId = 'conv_autoload_create_failed';
+    const { probe, sync } = creating(convId);
+
+    probe.wm.loader.autoLoad(convId, 'AAEC');
+    const pending = probe.wm.loader.pendingAutoLoad(convId);
+    sync.endLocalCreate(convId);
+    await pending;
+    assert(probe.attempts() === 1, `a create that failed leaves the conversation to the load; got ${probe.attempts()} loads`);
   });
 
   return { passed, failed, errors };

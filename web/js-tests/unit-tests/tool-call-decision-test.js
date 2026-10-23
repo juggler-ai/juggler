@@ -150,6 +150,37 @@ export async function runTests(_ctx) {
       assert(d.verdict === 'park', `expected park, got ${d.verdict} (${d.reason})`);
     });
 
+    // An unattended run (juggler run) has nobody to answer, so a call that would
+    // park is refused instead — the model gets an error result and carries on,
+    // the way Claude Code -p denies one and codex exec rejects one — rather than
+    // the run ending on a wait nobody will answer.
+    await test('with nobody there an elicitation is refused, not parked', async () => {
+      const { conversation, mt } = await yoloConversation();
+      conversation.setUnattended(true);
+      const d = await decide(conversation, mt, 'AskUserQuestion', {
+        questions: [{ question: 'Which?', header: 'Pick', multiSelect: false,
+          options: [{ label: 'A', description: 'a' }, { label: 'B', description: 'b' }] }]
+      });
+      assert(d.verdict === 'deny', `expected deny, got ${d.verdict} (${d.reason})`);
+      assert(/nobody/i.test(String(d.reason)), `the reason should say nobody is there to answer, got ${d.reason}`);
+    });
+
+    await test('with nobody there a checkpoint is refused, not parked', async () => {
+      const { conversation, mt } = await yoloConversation();
+      conversation.setUnattended(true);
+      const d = await decide(conversation, mt, 'plan', {
+        action: 'submit', title: 'T', items: [{ content: 'step one' }]
+      });
+      assert(d.verdict === 'deny', `expected deny, got ${d.verdict} (${d.reason})`);
+    });
+
+    await test('with nobody there an ordinary write is still approved', async () => {
+      const { conversation, mt } = await yoloConversation();
+      conversation.setUnattended(true);
+      const d = await decide(conversation, mt, 'bash', { command: 'echo hi' });
+      assert(d.verdict === 'approve', `expected approve, got ${d.verdict} (${d.reason})`);
+    });
+
     await test('a hook that asks parks the call and is named', () => withHooks([
       bashHook('asker', { verdict: 'ask', reason: 'look first' })
     ], async () => {

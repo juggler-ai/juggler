@@ -57,15 +57,26 @@ const DefaultContextWindow = 200000
 // half the ceiling rather than all of it: 65536 is accepted by every model in
 // the catalog including the older 4.5 series (96K), which keeps one number
 // right for all of them and lets a newly-released model inherit a cap that
-// cannot 400. Raising it would mean tracking a per-model ceiling for a vendor
-// whose endpoint publishes none.
+// cannot 400. A model whose real ceiling has been verified carries it in
+// ModelMaxOutputTokens instead, since the endpoint publishes none.
 const DefaultMaxOutputTokens = 65536
 
-// ModelMaxOutputTokens holds the models whose ceiling is BELOW the default —
-// the vision line and the legacy 32B. z.ai rejects a max_tokens above a model's
-// ceiling outright, so without these entries every turn on one of them is a
-// 400, not a truncation.
+// ModelMaxOutputTokens holds the models whose ceiling is not the default.
+//
+// Above it: GLM-5.2 and the GLM-5.3 line, at the ceiling the coding endpoint
+// enforces (verified on the wire 2026-10-22: 131072 is accepted, 131073 is
+// rejected with "限制数值范围[1,131072]"). A reasoning model capped below its
+// ceiling has a long chain of thought cut off before it acts, so a model whose
+// real ceiling is known gets all of it.
+//
+// Below it: the vision line and the legacy 32B. z.ai rejects a max_tokens above
+// a model's ceiling outright, so without these entries every turn on one of
+// them is a 400, not a truncation.
 var ModelMaxOutputTokens = map[string]int{
+	"glm-5.2":       131072,
+	"glm-5.3":       131072,
+	"glm-5.3-flash": 131072,
+
 	"glm-4.6v":            32000,
 	"glm-4.6v-flash":      32000,
 	"glm-4.6v-flashx":     32000,
@@ -79,6 +90,29 @@ var (
 	contextWindowCaps = utils.ModelCaps{Default: DefaultContextWindow, Overrides: ModelContextWindows}
 	maxOutputCaps     = utils.ModelCaps{Default: DefaultMaxOutputTokens, Overrides: ModelMaxOutputTokens}
 )
+
+// inputModalities reports the input modalities a GLM model accepts. Only the
+// vision line takes images, and it names itself with a "v" straight after the
+// version (glm-4.6v, glm-4.6v-flash, glm-4.5v); every other model — GLM-5.3
+// included — is text-only, and z.ai answers a request carrying an image with a
+// 400. Declaring that is what keeps the request builder from forwarding a
+// tool's image to a model that cannot take it.
+func inputModalities(modelID string) []string {
+	rest, found := strings.CutPrefix(strings.ToLower(modelID), "glm-")
+	if !found {
+		return nil
+	}
+	end := strings.IndexFunc(rest, func(r rune) bool {
+		return r != '.' && (r < '0' || r > '9')
+	})
+	if end <= 0 || rest[end] != 'v' {
+		return nil
+	}
+	if after := rest[end+1:]; after != "" && after[0] != '-' {
+		return nil
+	}
+	return []string{"text", "image"}
+}
 
 // thinkingSpec returns a GLM model's reasoning-effort selector. z.ai accepts the
 // OpenAI-shaped reasoning_effort field only on GLM-5.2 and above; older models

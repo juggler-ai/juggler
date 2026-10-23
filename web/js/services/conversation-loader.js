@@ -510,6 +510,21 @@ export class ConversationLoader {
       try {
         const session = this._wm.session;
         if (!session) return;
+        // The worker the server made for a conversation this realm is itself
+        // creating syncs before the create has adopted it. Loading it here
+        // would race the create for the worker: whichever spawns second is
+        // told the worker exists, and its conversation is one the worker never
+        // syncs to. So the create is let finish, and its conversation takes
+        // the bytes; only a create that adopted nothing leaves this to load.
+        const creating = session.sync?.whenLocalCreateSettles?.(conversationId);
+        if (creating) {
+          await creating;
+          const adopted = session.getConversation?.(conversationId);
+          if (adopted) {
+            for (const b64 of queuedBytes) adopted.handleYjsSyncMessage(base64ToBytes(b64));
+            return;
+          }
+        }
         console.log(`[ConversationLoader] Auto-loading unknown conversation ${conversationId}`);
         const conversation = await this.loadExisting(conversationId, session);
         // It loaded: whatever was wrong has passed, so the next unrelated blip

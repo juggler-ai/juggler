@@ -46,10 +46,12 @@ const (
 	// seconds of the upstream going quiet. This timer only catches the
 	// pathological case a provider watchdog somehow misses — a turn that never
 	// returns AND never goes idle long enough to trip its own guard. It is
-	// therefore deliberately generous: an idle deadline would duplicate the
-	// provider watchdogs, and a tight absolute deadline would wrongly kill a
-	// healthy long-but-continuously-streaming turn (e.g. a large cold-start
-	// that re-ingests history then generates for minutes). Cancel/wake paths
+	// therefore deliberately generous, and it counts from the attempt's last
+	// model output rather than from its start (see waitForLLMResponse): status
+	// and usage chunks feed a provider watchdog without proving the model is
+	// generating, while any absolute deadline would kill a healthy
+	// long-but-continuously-streaming turn — GLM at max effort reasons for over
+	// half an hour in a single call. Cancel/wake paths
 	// (Stop, interruptInFlightLLMForWake) still unblock the wait immediately,
 	// so this value is never the latency a user actually waits on.
 	LLMTimeout = 30 * time.Minute
@@ -128,6 +130,9 @@ type strategyRunState struct {
 	// entry when the run starts and held until a request carrying it is
 	// answered — so a compaction or restart before then does not spend it.
 	raiseMaxOutputTokens int
+	// truncationContinues counts the times an unattended run has gone on past a
+	// turn its output limit cut off. Capped by maxUnattendedTruncationContinues.
+	truncationContinues int
 }
 
 // runOneTurn runs a single pass of the strategy loop: promote queued messages,
@@ -400,8 +405,17 @@ func (r *run) settleTurn(st *strategyRunState, response *LLMResponse, shouldCont
 		r.insertTruncationNotice(response, !hasToolUse(response))
 		r.batcher.Flush()
 		// Truncated before it emitted anything usable: there is nothing to
-		// react to and nothing a further turn could add, so rest.
+		// react to, so rest — the person reads the notice and decides. With
+		// nobody there, resting ends the run having done nothing, so the run
+		// says what that person would ("act now") and goes on, a bounded
+		// number of times (see unattended.go).
 		if !r.turnProducedAction(response) {
+			if r.unattended() && st.truncationContinues < maxUnattendedTruncationContinues {
+				st.truncationContinues++
+				r.appendTruncationNudge()
+				r.batcher.Flush()
+				return turnContinue
+			}
 			return turnDone
 		}
 	}

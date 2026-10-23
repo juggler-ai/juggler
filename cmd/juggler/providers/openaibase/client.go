@@ -253,6 +253,10 @@ type Client struct {
 	// serve the request is the best authority on what it will accept — and set
 	// only for an endpoint whose reported numbers are known to be unusable.
 	limitDiscoveryDisabled bool
+	// textOnly is set when the provider declares this model's input modalities
+	// and they include no image: images are then withheld from its requests
+	// (see withholdImages). A provider that declares nothing leaves it false.
+	textOnly bool
 }
 
 // enhanceError maps a failed call onto the provider vocabulary the worker

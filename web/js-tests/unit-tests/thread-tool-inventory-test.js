@@ -15,11 +15,12 @@
  * @module unit-tests/thread-tool-inventory-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, initializeRegistries } from '../utilities/test-helpers.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized, setLocale } from '../../sdk/lib/i18n.js';
 import {
   attachProgramSdk,
+  buildToolInventory,
   diffToolNames,
   formatToolDrift,
   groupToolsByOrigin,
@@ -113,6 +114,34 @@ export async function runTests(_ctx) {
       `withheld ${JSON.stringify(withheld)}`
     );
     assert(inv.strategyName === 'Read-only', `strategyName was ${JSON.stringify(inv.strategyName)}`);
+  });
+
+  // An unattended conversation (juggler run) has nobody to answer, approve or
+  // look: a tool only a person can resolve is not offered at all, as Claude
+  // Code -p hides AskUserQuestion when nothing in the session can answer it.
+  // The same tools stay offered to a conversation someone is attending.
+  await run('an unattended thread is not offered the tools that need a person', async () => {
+    await initializeRegistries();
+    const needsAPerson = ['AskUserQuestion', 'plan', 'define_command', 'new_conversation', 'pin_to_pinboard'];
+    const stays = ['bash', 'read', 'write', 'edit', 'todo', 'Explore', 'query_code'];
+
+    const attended = await buildToolInventory(/** @type {any} */ ({ conversation: { unattended: false } }));
+    const attendedNames = attended.offered.map((t) => t.name);
+    for (const name of needsAPerson) {
+      assert(attendedNames.includes(name), `an attended thread should be offered ${name}`);
+    }
+
+    const unattended = await buildToolInventory(/** @type {any} */ ({ conversation: { unattended: true } }));
+    const offered = unattended.offered.map((t) => t.name);
+    for (const name of needsAPerson) {
+      assert(!offered.includes(name), `an unattended thread was offered ${name}`);
+    }
+    for (const name of stays) {
+      assert(offered.includes(name), `an unattended thread lost ${name}, which needs nobody`);
+    }
+    const withheld = unattended.withheldUnattended.map((t) => t.name).sort();
+    assert(JSON.stringify(withheld) === JSON.stringify(needsAPerson.slice().sort()),
+      `the tools withheld for nobody being there should be accounted for, got ${JSON.stringify(withheld)}`);
   });
 
   await run('offered plus withheld always accounts for every tool', () => {

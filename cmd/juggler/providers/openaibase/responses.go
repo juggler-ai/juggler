@@ -194,7 +194,7 @@ func (c *Client) streamMessageResponses(ctx context.Context, req provider.Messag
 	// Build request params - Model is a string type
 	params := responses.ResponseNewParams{
 		Model: c.model,
-		Input: transformMessagesToResponsesInput(req.Messages),
+		Input: transformMessagesToResponsesInput(c.requestMessages(req)),
 	}
 	// The ChatGPT Codex backend rejects max_output_tokens (see the quirk);
 	// every other Responses endpoint honours it as the per-request output cap.

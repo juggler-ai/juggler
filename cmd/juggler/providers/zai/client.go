@@ -23,6 +23,7 @@ func Register() {
 		CheapModel:         "glm-5.3-flash",
 		Filter:             openaibase.PrefixModelFilter("glm-", "-embedding", "-vision", "-tts"),
 		ContextWindowCaps:  contextWindowCaps,
+		InputModalitiesFn:  inputModalities,
 		MaxOutputCaps:      maxOutputCaps,
 		ThinkingSpecFn:     thinkingSpec,
 		UsageStatsOverride: usageStats,

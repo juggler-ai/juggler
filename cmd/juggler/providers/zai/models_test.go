@@ -15,7 +15,12 @@ import (
 // reasoning itself, yielding empty `finish=length` turns that the worker
 // silently retried — minutes of dead "Receiving". The cap must be well above
 // 8192 yet stay within z.ai's documented per-model maxima (GLM-4.6 128K,
-// GLM-4.5 96K) and the coding-plan ceiling (~98K).
+// GLM-4.5 96K).
+//
+// GLM-5.2 and the GLM-5.3 line get their whole ceiling, verified on the wire
+// against the coding endpoint (2026-10-22): 131072 is accepted and 131073 is
+// rejected with "限制数值范围[1,131072]". A cap below it cuts a long chain of
+// reasoning off before the model acts, for no reason the endpoint gives.
 func TestGLMOutputCapHasReasoningHeadroom(t *testing.T) {
 	cases := []struct {
 		model   string
@@ -25,8 +30,10 @@ func TestGLMOutputCapHasReasoningHeadroom(t *testing.T) {
 		{"glm-4.6", 32768, 98304},
 		{"glm-4.5", 32768, 98304},
 		{"glm-4.7", 32768, 98304},
-		{"glm-5.2", 16384, 98304}, // unknown/newer → generous default, still bounded
-		{"glm-5.3", 16384, 98304},
+		{"glm-5.2", 131072, 131072},
+		{"glm-5.3", 131072, 131072},
+		{"glm-5.3-flash", 131072, 131072},
+		{"glm-9-future", 16384, 98304}, // unverified → generous default, still bounded
 		{"glm-4-flash", 16384, 98304},
 		// The vision line's documented ceilings are a fraction of the text
 		// line's, and the flat default sits above them. z.ai answers a
@@ -134,6 +141,23 @@ func TestGLMVersion(t *testing.T) {
 		if major != tc.major || minor != tc.minor || ok != tc.ok {
 			t.Errorf("glmVersion(%q) = (%d, %d, %v), want (%d, %d, %v)",
 				tc.model, major, minor, ok, tc.major, tc.minor, tc.ok)
+		}
+	}
+}
+
+// TestInputModalities: only GLM's vision line ("v" straight after the version)
+// accepts images. The text line — GLM-5.3 included — answers any request
+// carrying an image with a 400, so it must be declared text-only for the
+// request builder to withhold tool-result images from it.
+func TestInputModalities(t *testing.T) {
+	for _, m := range []string{"glm-4.6v", "glm-4.6v-flash", "glm-4.6v-flashx", "glm-4.5v", "GLM-4.6V"} {
+		if got := inputModalities(m); !slices.Contains(got, "image") {
+			t.Errorf("inputModalities(%q) = %v, want image input", m, got)
+		}
+	}
+	for _, m := range []string{"glm-5.3", "glm-5.3-flash", "glm-5.2", "glm-4.6", "glm-4.5-air", "glm-4-32b-0414-128k", ""} {
+		if got := inputModalities(m); got != nil {
+			t.Errorf("inputModalities(%q) = %v, want nil (text-only)", m, got)
 		}
 	}
 }

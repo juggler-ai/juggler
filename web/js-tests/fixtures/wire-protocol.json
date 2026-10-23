@@ -104,7 +104,7 @@
       "metadata": [
         "activatedStrategyId", "completedTurns", "created", "currentStrategyId", "defaultModelConfig", "forkParked",
         "hasAutoNamed", "isProvisionalName", "modelConfig", "nextSteps", "pendingItems", "pendingRequests",
-        "processingState", "spendNewInputTokens", "spendOutputTokens", "undoState", "workspaceId"
+        "processingState", "spendNewInputTokens", "spendOutputTokens", "unattended", "undoState", "workspaceId"
       ],
       "pendingItem": [
         "id", "kind", "status", "cancelRequested", "completedAt", "threadItemId", "itemsBefore", "request", "goal",

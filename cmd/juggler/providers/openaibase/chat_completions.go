@@ -321,7 +321,7 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 	}
 
 	// Transform unified Message[] to OpenAI format
-	apiMessages := transformMessages(req.Messages, c.quirks.UseDeveloperRole, c.quirks.ReasoningReplay, c.reasoningProducer(), req.SystemPrompt)
+	apiMessages := transformMessages(c.requestMessages(req), c.quirks.UseDeveloperRole, c.quirks.ReasoningReplay, c.reasoningProducer(), req.SystemPrompt)
 
 	// Log the SDK request payload for debugging
 	jlog.Trace("[openai REQUEST] model=%s, messages=%d, tools=%d", c.model, len(apiMessages), len(req.Tools))

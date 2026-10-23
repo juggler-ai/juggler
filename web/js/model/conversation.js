@@ -77,6 +77,13 @@ export const INITIALISED_KEY = 'initialised';
 export const SEEDED_FOR_KEY = 'seededFor';
 
 /**
+ * Doc-metadata key marking a conversation nobody is attending — a headless
+ * `juggler run` (see Conversation.setUnattended). The Go worker reads the same
+ * key (`worker/unattended.go`).
+ */
+export const UNATTENDED_KEY = 'unattended';
+
+/**
  * Hard ceiling on the cancel-settle wait so a wedged worker doesn't hang
  * the UI forever. Cancel + idle normally completes in <100ms.
  */
@@ -863,6 +870,29 @@ class Conversation {
    */
   setAutoApprove(enabled) {
     this._autoApprove = enabled;
+  }
+
+  /**
+   * Mark this conversation as having nobody to answer it — a headless run
+   * (`juggler run`). It is then not offered the tools only a person can
+   * resolve (services/thread-tool-inventory.js), and a call that would wait for
+   * a person is refused rather than parked (model/conversation-tool-actions.js),
+   * so the model hears no and carries on instead of the run ending on a wait
+   * nobody will answer. The worker reads the same marker
+   * (cmd/juggler/worker/unattended.go, metaUnattended) to go on past a turn
+   * its output limit cut off, where a person would have said "continue".
+   *
+   * It is doc metadata rather than a field on this object, so the worker can
+   * see it and a reload of the conversation mid-run keeps it.
+   * @param {boolean} enabled - Whether nobody is attending this conversation
+   */
+  setUnattended(enabled) {
+    this.setMetadata(UNATTENDED_KEY, !!enabled);
+  }
+
+  /** @returns {boolean} Whether nobody is attending this conversation (see setUnattended) */
+  get unattended() {
+    return this.getMetadata(UNATTENDED_KEY) === true;
   }
 
   // ========== APPROVAL MANAGEMENT ==========

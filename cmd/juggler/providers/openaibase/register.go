@@ -6,6 +6,7 @@ package openaibase
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"juggler/cmd/juggler/msg"
@@ -257,6 +258,10 @@ func Register(d Descriptor) {
 		}
 		if d.ReasoningReplayFn != nil {
 			base.quirks.ReasoningReplay = d.ReasoningReplayFn(cfg.Model)
+		}
+		// A model the descriptor declares text-only is never sent an image.
+		if d.InputModalitiesFn != nil {
+			base.textOnly = !slices.Contains(d.InputModalitiesFn(cfg.Model), "image")
 		}
 		client := &openAICompatClient{
 			Client:     base,

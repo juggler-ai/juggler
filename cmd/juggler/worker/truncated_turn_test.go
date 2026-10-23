@@ -341,6 +341,71 @@ func TestTruncatedTurnWithTextKeepsTheTextAndReportsIt(t *testing.T) {
 	}
 }
 
+// With somebody there, a turn cut off before it acted rests and they decide
+// what to do next (TestTruncatedThinkingOnlyTurnIsReportedNotRetried). With
+// nobody there — a headless `juggler run` — resting ends the whole run with
+// nothing done: the reported case is a GLM-5.3 run that thought for fifteen
+// minutes, hit its output limit and reported "completed" having written
+// nothing. So an unattended run does what the person would: it says act now,
+// and goes on.
+func TestUnattendedTruncatedTurnIsToldToActAndContinues(t *testing.T) {
+	w := newTruncationWorker(t, "conv-truncated-unattended")
+	w.doc.SetMetadata("unattended", true)
+	w.SetWindowResolver(func(ModelConfig) ContextWindowInfo { return ContextWindowInfo{WindowTokens: 8192, ReserveTokens: 1638} })
+
+	w.setMockResponses([]MockResponse{
+		{Blocks: []LLMResponseBlock{thinkingBlock("pondering the clipping routine")}, StopReason: "max_tokens", OutputTokens: 1638},
+		{Blocks: []LLMResponseBlock{textBlock("SENTINEL")}, StopReason: "end_turn"},
+		{Blocks: []LLMResponseBlock{textBlock("SURPLUS")}, StopReason: "end_turn"},
+	})
+
+	w.driveStrategyLoop(t, "optimise clipToPolygon", false)
+
+	if n := w.mock().remaining(); n != 1 {
+		t.Fatalf("leftover mock responses = %d, want 1 (the truncated call, then one more)", n)
+	}
+	items := itemsByType(w)
+	if !assistantContains(items, "SENTINEL") {
+		t.Fatalf("the run stopped at the truncation instead of going on; assistant items = %+v", items[ItemTypeAssistant])
+	}
+	if n := len(items[ItemTypeNotice]); n != 1 {
+		t.Errorf("got %d truncation notice(s), want 1: the transcript still says what happened", n)
+	}
+	told := false
+	for _, it := range items[ItemTypeSystemReminder] {
+		if strings.Contains(it.Content, "output limit") {
+			told = true
+		}
+	}
+	if !told {
+		t.Errorf("the model was not told why it is being asked to go on; reminders = %+v", items[ItemTypeSystemReminder])
+	}
+}
+
+// Going on is bounded: a model that spirals every time is not re-asked forever.
+// Two continuations per run, so three calls at most, then it rests as an
+// attended run would.
+func TestUnattendedTruncationContinuationsAreBounded(t *testing.T) {
+	w := newTruncationWorker(t, "conv-truncated-unattended-bounded")
+	w.doc.SetMetadata("unattended", true)
+	w.SetWindowResolver(func(ModelConfig) ContextWindowInfo { return ContextWindowInfo{WindowTokens: 8192, ReserveTokens: 1638} })
+
+	cut := MockResponse{Blocks: []LLMResponseBlock{thinkingBlock("pondering")}, StopReason: "max_tokens", OutputTokens: 1638}
+	w.setMockResponses([]MockResponse{
+		cut, cut, cut, cut, cut,
+		{Blocks: []LLMResponseBlock{textBlock("SENTINEL")}, StopReason: "end_turn"},
+	})
+
+	w.driveStrategyLoop(t, "optimise clipToPolygon", false)
+
+	if n := w.mock().remaining(); n != 3 {
+		t.Fatalf("leftover mock responses = %d, want 3 (three calls: the first and two continuations)", n)
+	}
+	if assistantContains(itemsByType(w), "SENTINEL") {
+		t.Error("the run went past its continuation bound")
+	}
+}
+
 // The genuine transient-blank path must survive the truncation fix: a provider
 // that intermittently emits an empty end_turn is still retried MaxBarrenTurns
 // times and still ends in the placeholder. Without this, "don't retry

@@ -716,6 +716,11 @@ func (r *run) resetStreamingUsage() {
 // waitForLLMResponse waits for an LLM response while processing stream chunks
 // and handling cancel messages. Stream chunks arrive on a dedicated channel
 // and are coalesced before Yjs updates to minimize transaction overhead.
+//
+// timeout runs from the attempt's last model output (failingSince), not from
+// its start: a call that keeps producing is never cut off, however long it
+// runs, while one that produces nothing for timeout gives up even if status or
+// usage chunks keep its provider's idle watchdog fed.
 func (r *run) waitForLLMResponse(turnID string, timeout time.Duration) (*LLMResponse, error) {
 	// Every exit from the wait — response, cancel, timeout, worker stop, panic —
 	// ends the streamed blocks, so the document catches up here rather than at
@@ -723,6 +728,7 @@ func (r *run) waitForLLMResponse(turnID string, timeout time.Duration) (*LLMResp
 	// window, so a finished stream still completes immediately.
 	defer r.flushPendingStreamWrites()
 
+	start := time.Now()
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
@@ -754,6 +760,10 @@ func (r *run) waitForLLMResponse(turnID string, timeout time.Duration) (*LLMResp
 				return nil, ErrCancelled
 			}
 		case <-timer.C:
+			if left := timeout - time.Since(r.failingSince(start)); left > 0 {
+				timer.Reset(left)
+				continue
+			}
 			return nil, fmt.Errorf("LLM request timed out")
 		case <-r.done:
 			return nil, fmt.Errorf("worker stopped")

@@ -69,11 +69,13 @@ export default class ConversationSyncReducer {
     this._host = host;
 
     /**
-     * Ids whose local create or duplicate is in flight (see the module doc).
-     * @type {Set<string>}
+     * Ids whose local create or duplicate is in flight (see the module doc),
+     * each with the promise {@link ConversationSyncReducer#whenLocalCreateSettles}
+     * hands out and the function that settles it.
+     * @type {Map<string, {settled: Promise<void>, settle: () => void}>}
      * @private
      */
-    this._localCreates = new Set();
+    this._localCreates = new Map();
 
     /**
      * Ids whose remote `created` load is in flight. A focus for one of these
@@ -129,7 +131,23 @@ export default class ConversationSyncReducer {
    * @returns {void}
    */
   beginLocalCreate(id) {
-    this._localCreates.add(id);
+    if (this._localCreates.has(id)) return;
+    /** @type {() => void} */
+    let settle = () => {};
+    const settled = new Promise((resolve) => { settle = () => resolve(undefined); });
+    this._localCreates.set(id, { settled, settle });
+  }
+
+  /**
+   * When this viewer's own create of a conversation is in flight, a promise
+   * that settles once that create has finished, whether it succeeded or not;
+   * otherwise null. The engine's auto-load waits on it: a load started inside
+   * the bracket races the create for the conversation's worker.
+   * @param {string} id - Conversation id
+   * @returns {Promise<void>|null} Settles when the bracket closes; null if none is open
+   */
+  whenLocalCreateSettles(id) {
+    return this._localCreates.get(id)?.settled ?? null;
   }
 
   /**
@@ -141,7 +159,9 @@ export default class ConversationSyncReducer {
    */
   endLocalCreate(...ids) {
     for (const id of ids) {
-      if (id) this._localCreates.delete(id);
+      if (!id) continue;
+      this._localCreates.get(id)?.settle();
+      this._localCreates.delete(id);
     }
   }
 

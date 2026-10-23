@@ -140,6 +140,10 @@ function configureForUnattendedUse(conversation, strategyId) {
   thread.addRule('write-file', { kind: 'boolean', value: true });
   thread.addRule('execute', { kind: 'glob', value: '*', scope: 'conversation' });
   conversation.setAutoApprove(true);
+  // What none of the above can cover: a tool only a person can resolve (an
+  // AskUserQuestion, a plan submit). Unattended, those are not offered, and one
+  // that would still wait for a person is refused instead.
+  conversation.setUnattended(true);
 }
 
 /**

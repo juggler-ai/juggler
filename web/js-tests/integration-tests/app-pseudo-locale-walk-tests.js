@@ -68,6 +68,13 @@ const DATA = '.ppd-path, .user-message-text, .markdown, .model-name, .info-card_
  */
 function isData(el) {
   if (el.closest(DATA)) return true;
+  // Text marked as another language than the page's is in that language on
+  // purpose — the Language menu names each language in itself ("中文（中国）"),
+  // and marks it with its own lang — so it is not a message left untranslated.
+  // The app's own <html>, not this test page's: the walk reads an iframe.
+  const page = el.ownerDocument.documentElement;
+  const marked = el.closest('[lang]');
+  if (marked && marked !== page && marked.getAttribute('lang') !== page.lang) return true;
   const name = el.closest('.conversation-tab-name');
   return !!name && !UNTITLED_NAME_RE.test((name.textContent || '').trim());
 }

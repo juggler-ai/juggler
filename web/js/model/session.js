@@ -443,6 +443,15 @@ class Session {
   }
 
   /**
+   * The open conversations switched to in this window, most recently used
+   * first. See {@link ConversationRegistry#recentlyUsed}.
+   * @returns {string[]} Their ids.
+   */
+  get recentlyUsedConversationIds() {
+    return this.registry.recentlyUsed();
+  }
+
+  /**
    * Resolve a conversation's display name from the cached projection of
    * GET /api/session's `conversationNames` map. Returns the empty string
    * if the id is unknown (the conversation hasn't been seen on disk yet).
@@ -2171,6 +2180,7 @@ class Session {
     // same write, with nothing to remember to clear.
     const leavingWorkspace = this.selection?.kind === 'workspace';
     const alreadyVisible = this.visibleConversationId === conversationId;
+    const leftId = this.loadedConversationId;
 
     recordTape('session-mut', conversationId, { op: 'visible', from: 'switchConversation' });
     this.registry.select({ kind: 'conversation', id: conversationId });
@@ -2186,6 +2196,10 @@ class Session {
     // when it lands on the conversation that was behind it: the panel was what
     // was on screen, so the tab has to be shown and announced like any other.
 
+    // The conversation left is the one used before this, whether or not it was
+    // ever switched to: the one a launch opens on is put on screen without a
+    // switch, and Ctrl+Tab's first answer after leaving it is that one.
+    if (leftId && leftId !== conversationId) this.registry.touch(leftId);
     this.registry.touch(conversationId);
 
     // Bump the user's selection to the front of the load queue so a

@@ -9,6 +9,7 @@ of changes; this project follows semantic versioning.
 - Background bash runs open the Background tasks pin from their panel or selected badge
 - The message box stays short on phones; an expand button opens it full-height
 - GLM, DeepSeek, Kimi and local models see their own earlier reasoning across tool calls
+- Ctrl+Tab returns to the last-used conversation; hold Ctrl to pick from recent ones
 
 ## [0.7.8] - 2026-10-23
 

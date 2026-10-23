@@ -307,7 +307,8 @@
 				"bin-modal",
 				"bin-panel",
 				"conversation-bar",
-				"info-cards-menu__check"
+				"info-cards-menu__check",
+				"recent-tabs-*"
 			]
 		},
 		{

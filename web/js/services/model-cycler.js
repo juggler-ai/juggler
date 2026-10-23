@@ -88,7 +88,7 @@ const OWN_POPUP_IDS = ['model-selector', 'thinking-mini'];
  * falls back to the active tab's root, so the gesture still reaches the right
  * thread; the whole-window capture just stops the keystroke leaking to a foreign
  * overlay (or the OS) first.
- * @type {(e: KeyboardEvent) => boolean}
+ * @type {(e: KeyboardEvent|null) => boolean}
  */
 export const modelGestureShouldHandle = popupAwareShouldHandle(OWN_POPUP_IDS);
 

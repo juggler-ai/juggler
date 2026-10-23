@@ -647,6 +647,62 @@ conversation-bar.tab-list-ring:focus-within .conversation-tab.active {
     outline-offset: var(--focus-ring-offset);
 }
 
+/* The Ctrl+Tab switcher (recent-tab-switcher.js): the strip's conversations in
+   order of use, as a HUD across the top of the window the way an editor's tab
+   switcher sits. The menu pattern supplies the card and the rows. It is drawn
+   on <body>, not in the bar — the bar contains its own layout, which would pin
+   a fixed child to the bar and clip it — so it sizes its own badge rather than
+   borrowing the strip's. The lit row is chosen the way a tab is: the same
+   strong neutral wash and heavier name. */
+.recent-tabs-hud {
+    left: 50%;
+    top: 4rem;
+    translate: -50% 0;
+    width: min(28rem, calc(100vw - 2rem));
+    max-width: none;
+    max-height: 60vh;
+    box-shadow: var(--shadow-xl);
+}
+
+.recent-tabs-row--selected,
+.recent-tabs-row--selected:hover {
+    background-image: linear-gradient(var(--item-selected-strong-bg), var(--item-selected-strong-bg));
+}
+
+.recent-tabs-row--selected .recent-tabs-name {
+    font-weight: 600;
+}
+
+.recent-tabs-status {
+    width: var(--message-icon-row-height);
+    height: var(--message-icon-row-height);
+}
+
+/* The glyph's box; the svg inside fills it by its own attributes. */
+.recent-tabs-glyph {
+    display: flex;
+    width: var(--message-icon-size);
+    height: var(--message-icon-size);
+}
+
+.recent-tabs-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.recent-tabs-place {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-tertiary);
+    font-size: var(--font-size-sm);
+}
+
 /* Drag-and-drop states.
    The dragged thing is represented by a floating clone (.drag-ghost) positioned
    `fixed` on the host, so it escapes the tab list's overflow:auto clip and can

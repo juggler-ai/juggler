@@ -48,6 +48,7 @@ import {
 import { openWorkspaceMove } from './workspace-move-dialog.js';
 import { openWorkspaceCreate } from './workspace-create-dialog.js';
 import { openConversationRename } from './conversation-rename.js';
+import RecentTabSwitcher, { recentTabOrder } from './recent-tab-switcher.js';
 import JugglerElement from './juggler-element.js';
 import { showAlert, showConfirm, showNotice } from './modal-dialog.js';
 import { whyNotRebind, moveNeedsConfirmation, rebindConversation } from '../services/workspace-rebinding.js';
@@ -109,6 +110,11 @@ const ADD_ICON_SVG = withAttrs(ADD_SVG, { width: '1rem', height: '1rem' });
 // The scheduler's clock after the name of a tab with a send scheduled. It fills
 // the box conversation-bar.css sizes for it.
 const SCHEDULE_ICON_SVG = withAttrs(CLOCK_SVG, { width: '100%', height: '100%' });
+
+// The status glyphs a row of the Ctrl+Tab list shows, filling the box
+// conversation-bar.css sizes for them (.recent-tabs-glyph).
+const HUD_ASSISTANT_SVG = withAttrs(TYPE_ICONS.assistant ?? '', { width: '100%', height: '100%' });
+const HUD_ALERT_SVG = withAttrs(ALERT_SVG, { width: '100%', height: '100%' });
 
 // Keys in `_cachedElements` that name the bar's own furniture rather than a
 // conversation tab, so render()'s cleanup pass leaves them alone.
@@ -246,6 +252,9 @@ class ConversationBar extends JugglerElement {
     /** @type {boolean} @private Whether the settled cycle should focus the composer */
     this._cycleFocusInput = false;
 
+    /** @type {RecentTabSwitcher|null} @private The Ctrl+Tab switcher, while connected */
+    this._recentTabs = null;
+
     /**
      * The box drawn for each workspace, by workspace id. Kept apart from
      * {@link _cachedElements}, which render()'s cleanup pass reads as "a tab,
@@ -281,6 +290,8 @@ class ConversationBar extends JugglerElement {
       this._renderFrame = null;
     }
     this._cancelCycle();
+    this._recentTabs?.destroy();
+    this._recentTabs = null;
     this._hideBinUndo();
     this._tabListObserver?.disconnect();
     this._tabListObserver = null;
@@ -430,6 +441,23 @@ class ConversationBar extends JugglerElement {
     });
 
     this.onWindow('juggler:cycle-tab', (/** @type {Event} */ e) => this._handleCycleTab(e));
+
+    // Ctrl+Tab: the conversations in order of use rather than strip order.
+    this._recentTabs?.destroy();
+    this._recentTabs = new RecentTabSwitcher({
+      order: () => (this._session
+        ? recentTabOrder(this._session.recentlyUsedConversationIds ?? [],
+          this._session.loadedConversationId, drawnConversationOrder(this._session))
+        : []),
+      visibleId: () => this._session?.visibleConversationId ?? null,
+      describe: (id) => this._recentTabRow(id),
+      show: (id) => {
+        this._exitTabListFocus();
+        this._switchConversation(id, { focusInput: true });
+      },
+    });
+    this._recentTabs.init();
+    this.onWindow('juggler:recent-tab', (/** @type {Event} */ e) => this._handleRecentTab(e));
     this.onWindow('juggler:move-tab', (/** @type {Event} */ e) => {
       const detail = /** @type {CustomEvent} */ (e).detail;
       this._moveVisibleTab(detail?.direction === 'up' ? -1 : 1);
@@ -660,12 +688,10 @@ class ConversationBar extends JugglerElement {
   }
 
   /**
-   * Handle the Ctrl+Tab / Ctrl+Shift+Tab accelerator, dispatched from the
-   * native window as a `juggler:cycle-tab` event (WKWebView eats the keystroke
-   * before page JS, so the round-trip through Wails is required; in a browser
-   * the event never fires). Unlike arrow-key navigation within the tab list,
-   * cycling commits like a click: it leaves tab-list-focus mode and gives the
-   * newly-shown tab's composer keyboard focus.
+   * Handle the previous/next-conversation keys (Page Up/Down, ⌥⌘↑/↓), raised by
+   * their shortcut handlers as a `juggler:cycle-tab` event. Unlike arrow-key
+   * navigation within the tab list, cycling commits like a click: it leaves
+   * tab-list-focus mode and gives the newly-shown tab's composer keyboard focus.
    * @param {Event} e
    * @private
    */
@@ -674,6 +700,42 @@ class ConversationBar extends JugglerElement {
     const step = detail?.direction === 'prev' ? -1 : 1;
     this._exitTabListFocus();
     this._switchAdjacentTab(step, { focusInput: true });
+  }
+
+  /**
+   * Handle Ctrl+Tab / Ctrl+Shift+Tab, dispatched from the native window as a
+   * `juggler:recent-tab` event (WKWebView eats the keystroke before page JS, so
+   * the round-trip through Wails is required; in a browser, which keeps the key
+   * for its own tabs, the event never fires). See recent-tab-switcher.js.
+   * @param {Event} e
+   * @private
+   */
+  _handleRecentTab(e) {
+    const detail = /** @type {CustomEvent} */ (e).detail;
+    this._recentTabs?.press(detail?.direction === 'prev' ? -1 : 1);
+  }
+
+  /**
+   * A conversation's row in the Ctrl+Tab list: named, and badged, as its tab is.
+   * @param {string} id
+   * @returns {import('./recent-tab-switcher.js').RecentTabRow} The row.
+   * @private
+   */
+  _recentTabRow(id) {
+    const conv = /** @type {any} */ (this._session?.conversations.get(id));
+    const autoNaming = this._session?.isAutoNaming?.(id) ?? false;
+    const workspace = conv?.workspaceId
+      ? (this._session?.workspaces ?? []).find((w) => w.id === conv.workspaceId)
+      : null;
+    const { preset, glyph } = this._tabStatus(id);
+    const glyphHtml = glyph === 'question' ? '<span class="recent-tabs-glyph icon-question"></span>'
+      : `<span class="recent-tabs-glyph">${glyph === 'alert' ? HUD_ALERT_SVG : HUD_ASSISTANT_SVG}</span>`;
+    return {
+      name: autoNaming ? t(AUTO_NAMING_LABEL) : displayConversationName(conv?.name),
+      place: workspace ? (workspace.label || workspace.root || '') : '',
+      preset,
+      glyphHtml,
+    };
   }
 
   /**
@@ -1866,8 +1928,7 @@ class ConversationBar extends JugglerElement {
   _refreshTabStatus(convId) {
     const tab = this._cachedElements.get(convId);
     if (!tab) return;
-    const { awaiting, running } = this._conversationActivity(convId);
-    const { failed, empty } = running ? { failed: false, empty: false } : this._conversationOutcome(convId);
+    const { awaiting, running, failed, empty, preset, glyph } = this._tabStatus(convId);
     // Read from the service's set rather than the drafts: this runs on every
     // render, and walking the thread tree here would allocate a MessageThread
     // per thread once a frame while a turn streams.
@@ -1879,20 +1940,35 @@ class ConversationBar extends JugglerElement {
     tab.classList.toggle('has-scheduled-send', scheduled);
     const circle = /** @type {HTMLElement|null} */ (tab.querySelector('.conversation-tab-status'));
     if (!circle) return;
-    const preset = awaiting ? 'color-ask'
-      : running ? 'color-green'
-        : failed ? 'color-red'
-          : 'color-meta';
     // Only on a change: swapping the class restarts the running pulse.
     if (!circle.classList.contains(preset)) {
       circle.classList.remove('color-ask', 'color-green', 'color-red', 'color-meta');
       circle.classList.add(preset);
     }
+    if (circle.dataset.glyph !== glyph) circle.dataset.glyph = glyph;
+  }
+
+  /**
+   * What a conversation's status circle says, wherever it is drawn: its state
+   * flags, the circle's preset and its one glyph (see {@link _refreshTabStatus}).
+   * @param {string} convId
+   * @returns {{awaiting: boolean, running: boolean, failed: boolean, empty: boolean,
+   *   preset: string, glyph: 'question'|'alert'|'assistant'}} The status.
+   * @private
+   */
+  _tabStatus(convId) {
+    const { awaiting, running } = this._conversationActivity(convId);
+    const { failed, empty } = running ? { failed: false, empty: false } : this._conversationOutcome(convId);
+    const preset = awaiting ? 'color-ask'
+      : running ? 'color-green'
+        : failed ? 'color-red'
+          : 'color-meta';
+    /** @type {'question'|'alert'|'assistant'} */
     const glyph = awaiting ? 'question'
       : failed ? 'alert'
         : empty ? 'question'
           : 'assistant';
-    if (circle.dataset.glyph !== glyph) circle.dataset.glyph = glyph;
+    return { awaiting, running, failed, empty, preset, glyph };
   }
 
   /**

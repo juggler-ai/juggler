@@ -136,6 +136,40 @@ export async function runTests() {
     assert(registry.remove('b', 'test') === null, 'removing what is not held is a miss, not a throw');
   });
 
+  await run('the recently-used list is most recent first, and only what is still held', () => {
+    const { registry } = makeSession();
+    for (const id of ['a', 'b', 'c', 'd']) registry.insert(id, stub(id), 'test');
+    assert(registry.recentlyUsed().length === 0, `nothing used yet is an empty list — got ${registry.recentlyUsed().join()}`);
+
+    registry.touch('a');
+    registry.touch('c');
+    registry.touch('b');
+    registry.touch('c');
+    assert(registry.recentlyUsed().join() === 'c,b,a',
+      `a re-used conversation moves to the front, once — got ${registry.recentlyUsed().join()}`);
+
+    registry.remove('b', 'test');
+    assert(registry.recentlyUsed().join() === 'c,a',
+      `a removed conversation drops out of the list — got ${registry.recentlyUsed().join()}`);
+  });
+
+  await run('switching away records the conversation left as well as the one arrived at', () => {
+    const session = makeSession();
+    const { registry } = session;
+    for (const id of ['a', 'b', 'c']) registry.insert(id, stub(id), 'test');
+    // What a launch does: put a conversation on screen without switching to it.
+    registry.select({ kind: 'conversation', id: 'b' });
+
+    session.switchConversation('c');
+    assert(session.recentlyUsedConversationIds.join() === 'c,b',
+      `the launch tab is the one used before the first switch — got ${session.recentlyUsedConversationIds.join()}`);
+
+    registry.select({ kind: 'workspace', id: 'ws' });
+    session.switchConversation('a');
+    assert(session.recentlyUsedConversationIds.join() === 'a,c,b',
+      `leaving a workspace panel, the conversation behind it is the one left — got ${session.recentlyUsedConversationIds.join()}`);
+  });
+
   await run('choosing a conversation makes it the one to come back to; choosing a workspace does not', () => {
     const { registry } = makeSession();
     registry.select({ kind: 'conversation', id: 'a' });

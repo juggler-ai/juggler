@@ -9,8 +9,9 @@
  * class). WebKit (WKWebView, what the desktop app runs in) keeps focus on a
  * textarea whose ancestor becomes display:none, so without an explicit blur a
  * hidden tab keeps swallowing keystrokes into its now-invisible composer —
- * exactly what a user sees after Ctrl+Tab cycling away from a tab whose message
- * box had focus. setHidden() must move focus out of the tab.
+ * exactly what a user sees after switching tabs from the keyboard (Ctrl+Tab,
+ * Page Up/Down) away from a tab whose message box had focus. setHidden() must
+ * move focus out of the tab.
  * @module unit-tests/tab-hide-focus-test
  */
 
@@ -67,7 +68,7 @@ export async function runTests() {
     );
 
     // Hide the tab, mirroring what conversation-bar does to the outgoing tab
-    // on a Ctrl+Tab cycle.
+    // on a keyboard switch.
     tab.setHidden();
 
     assert(

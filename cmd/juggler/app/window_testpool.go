@@ -496,15 +496,16 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 	})
 	wa.win = win
 
-	// Ctrl+Tab / Ctrl+Shift+Tab cycle conversation tabs. WKWebView consumes
-	// these before they reach page JS on macOS, so intercept at the window
-	// level via Wails KeyBindings and re-dispatch as a CustomEvent for
-	// conversation-bar to handle.
-	cycle := func(dir string) {
-		win.ExecJS("window.dispatchEvent(new CustomEvent('juggler:cycle-tab',{detail:{direction:'" + dir + "'}}))")
+	// Ctrl+Tab / Ctrl+Shift+Tab drive the recent-conversation switcher.
+	// WKWebView consumes these before they reach page JS on macOS, so intercept
+	// at the window level via Wails KeyBindings and re-dispatch as a CustomEvent
+	// for conversation-bar to handle. The Control key's own keydown/keyup still
+	// reach the page, which is how the switcher knows when the hold ends.
+	recent := func(dir string) {
+		win.ExecJS("window.dispatchEvent(new CustomEvent('juggler:recent-tab',{detail:{direction:'" + dir + "'}}))")
 	}
-	win.RegisterKeyBinding("Ctrl+Tab", func(_ application.Window) { cycle("next") })
-	win.RegisterKeyBinding("Ctrl+Shift+Tab", func(_ application.Window) { cycle("prev") })
+	win.RegisterKeyBinding("Ctrl+Tab", func(_ application.Window) { recent("next") })
+	win.RegisterKeyBinding("Ctrl+Shift+Tab", func(_ application.Window) { recent("prev") })
 
 	// Native application menu. The tiled test-pool host has no use for it and
 	// its accelerators (Cmd+O / Cmd+N) could fight the test page's own

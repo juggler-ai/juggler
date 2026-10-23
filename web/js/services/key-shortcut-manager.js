@@ -385,6 +385,26 @@ const SHORTCUT_DEFS = [
     allowInInput: true,
   },
   {
+    id: 'recent-tab',
+    label: markForTranslation('Switch to recent conversation'),
+    description: markForTranslation('Go back to the conversation you used before this one; tap again to '
+      + 'return. Hold Ctrl and press Tab to pick from the list of recent ones (Shift moves back). '
+      + 'Desktop app only.'),
+    category: markForTranslation('Conversations'),
+    // Listed, never matched. The desktop app's native window claims Ctrl+Tab
+    // before the page sees it and re-raises it as `juggler:recent-tab` for the
+    // switcher (recent-tab-switcher.js), which ends the gesture on the Control
+    // key's own keyup; a browser keeps the key for its own tabs, hence
+    // `browserClaims` on both. On macOS the key is the Control key, which a
+    // binding cannot say (`mod` is ⌘ there), so the listing spells it out — and
+    // since that leaves a bare Tab as the binding, `external` keeps the
+    // dispatcher from ever matching it.
+    defaultBinding: { key: 'Tab', displayKey: '⌃⇥', platform: 'mac', browserClaims: 'mac' },
+    aliasBindings: [{ mod: true, key: 'Tab', platform: 'other', browserClaims: 'other' }],
+    allowInInput: true,
+    external: true,
+  },
+  {
     id: 'move-tab-up',
     label: markForTranslation('Move conversation up'),
     description: markForTranslation('Move the current conversation one place up the tab list, within its '

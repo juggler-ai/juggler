@@ -27,27 +27,41 @@ import { isForeignPopupOpen } from '../utils/popup-manager.js';
  * rebinding is honoured without touching this controller. Clients supply only
  * the actions; all key listening (capture phase, so the gesture wins over
  * component-level handlers) lives here.
+ *
+ * A trigger the page never sees as a keydown — Ctrl+Tab, which the desktop
+ * app's native window claims and re-raises as an event — drives the same
+ * machine through {@link HoldToCycleController#press}: leave `shortcutId` out
+ * and no keydown starts or cycles a gesture. The modifier's own keydown and
+ * keyup still reach the page, so release still commits. Because the press
+ * travels by another route it can arrive after that release; the controller
+ * keeps track of which modifiers are down, and a press with them already up is
+ * a whole gesture at once — opened and committed in one task, so nothing paints.
  * @typedef {object} HoldToCycleConfig
- * @property {string} shortcutId - KeyShortcutManager definition id of the trigger.
+ * @property {string} [shortcutId] - KeyShortcutManager definition id of the
+ *   trigger. Omitted for a trigger that arrives through `press()` instead.
  * @property {string[]} modifierKeys - `KeyboardEvent.key` names of the binding's
  *   modifiers (e.g. `['Shift']` or `['Meta', 'Alt']`); releasing any of them
  *   commits the gesture. Callers must resolve the platform meaning of `mod`
  *   themselves ('Meta' on macOS, 'Control' elsewhere — see `isMac()`).
- * @property {(e: KeyboardEvent) => boolean} [shouldHandle] - Focus/context gate
- *   for starting a gesture. Defaults to the composer rule the strategy switcher
- *   always used: focus in a textarea inside `composer-box`, no modal dialog open.
+ * @property {(e: KeyboardEvent|null) => boolean} [shouldHandle] - Focus/context
+ *   gate for starting a gesture; given null for a `press()`, which has no event.
+ *   Defaults to the composer rule the strategy switcher always used: focus in a
+ *   textarea inside `composer-box`, no modal dialog open.
  * @property {() => boolean} [canCycle] - Whole-gesture applicability. When it
  *   returns false the trigger press falls through untouched (no preventDefault),
  *   so an inapplicable shortcut is a transparent no-op. Defaults to always-on.
- * @property {() => void} onGestureStart - Called once per gesture, on the
- *   idle → active transition. The hook to snapshot frozen state (e.g. the
- *   recents list), enter the client's deferred-write mode, and open the popup
- *   HUD at the current selection — the popup is up for the whole gesture now,
- *   and no hop is applied until the first re-press.
- * @property {() => void} onCycle - Preview the next item. Called on every
- *   trigger re-press while the gesture is active — NOT on the initial press,
- *   which only opens the popup at the current value. Buffers rather than
- *   persists — see onCommit.
+ * @property {(step: number, open: boolean) => void} onGestureStart - Called once
+ *   per gesture, on the idle → active transition. The hook to snapshot frozen
+ *   state (e.g. the recents list), enter the client's deferred-write mode, and
+ *   open the popup HUD at the current selection — the popup is up for the whole
+ *   gesture now, and no hop is applied until the first re-press. `step` is the
+ *   opening press's direction: always 1 for a keydown trigger, as given for
+ *   `press()`. `open` is false for a `press()` that found the modifiers already
+ *   released, whose onCommit follows at once: a client may skip the popup.
+ * @property {(step: number) => void} onCycle - Preview the next item (or, for
+ *   a negative step, the previous one). Called on every trigger re-press while
+ *   the gesture is active — NOT on the initial press, which only opens the
+ *   popup at the current value. Buffers rather than persists — see onCommit.
  * @property {() => void} onCommit - Gesture ended by modifier release: close the
  *   popup and persist the landing selection (flush the buffered write, record to
  *   recents). Not called on Escape.
@@ -65,11 +79,19 @@ class HoldToCycleController {
     this._config = config;
     /** @type {'idle'|'active'} @private */
     this._phase = 'idle';
+    /**
+     * The configured modifiers currently down, as their keydown/keyup report
+     * them. Only {@link press} reads it: a keydown trigger carries its own
+     * modifier state.
+     * @type {Set<string>} @private
+     */
+    this._held = new Set();
 
     // Bind handlers to preserve 'this' context
     this._handleKeyDown = this._handleKeyDown.bind(this);
     this._handleKeyUp = this._handleKeyUp.bind(this);
     this._handlePointerMove = this._handlePointerMove.bind(this);
+    this._handleBlur = this._handleBlur.bind(this);
   }
 
   /**
@@ -78,6 +100,7 @@ class HoldToCycleController {
   init() {
     document.addEventListener('keydown', this._handleKeyDown, { capture: true });
     document.addEventListener('keyup', this._handleKeyUp, { capture: true });
+    window.addEventListener('blur', this._handleBlur);
   }
 
   /**
@@ -86,7 +109,59 @@ class HoldToCycleController {
   destroy() {
     document.removeEventListener('keydown', this._handleKeyDown, { capture: true });
     document.removeEventListener('keyup', this._handleKeyUp, { capture: true });
+    window.removeEventListener('blur', this._handleBlur);
     this._endPointerIdle();
+  }
+
+  /**
+   * A trigger press that arrived by some route other than a keydown here — the
+   * desktop app's native Ctrl+Tab, re-raised as an event. Starts a gesture, or
+   * cycles the one in progress. A press that finds the modifiers already
+   * released (the keyup overtook it on the way) opens and commits at once.
+   * @param {number} [step] - 1 to move forward, -1 to move back.
+   * @returns {boolean} True when the press started or cycled a gesture; false
+   *   when the gate or `canCycle` declined it.
+   */
+  press(step = 1) {
+    if (this._phase === 'active') {
+      this._config.onCycle(step);
+      return true;
+    }
+    if (!this._shouldHandle(null)) return false;
+    if (this._config.canCycle && !this._config.canCycle()) return false;
+
+    const held = this._config.modifierKeys.every((key) => this._held.has(key));
+    this._config.onGestureStart(step, held);
+    if (!held) {
+      this._config.onCommit();
+      return true;
+    }
+    this._phase = 'active';
+    this._beginPointerIdle();
+    return true;
+  }
+
+  /**
+   * End the active gesture now, as releasing the modifiers would — for a pick
+   * made another way (a click on a row). The release that follows is inert. A
+   * no-op between gestures.
+   */
+  commit() {
+    if (this._phase !== 'active') return;
+    this._phase = 'idle';
+    this._endPointerIdle();
+    this._config.onCommit();
+  }
+
+  /**
+   * End the active gesture now without committing, as Escape would — for a HUD
+   * closed from outside (another popup opening). A no-op between gestures.
+   */
+  cancel() {
+    if (this._phase !== 'active') return;
+    this._phase = 'idle';
+    this._endPointerIdle();
+    if (this._config.onCancel) this._config.onCancel();
   }
 
   /**
@@ -95,7 +170,17 @@ class HoldToCycleController {
    * @private
    */
   _handleKeyDown(e) {
-    const binding = keyShortcutManager.getBinding(this._config.shortcutId);
+    if (this._config.modifierKeys.includes(e.key)) this._held.add(e.key);
+
+    // A press()-driven gesture: no keydown is its trigger, and Escape is the
+    // only key it answers while active.
+    const shortcutId = this._config.shortcutId;
+    if (!shortcutId) {
+      if (this._phase === 'active' && e.key === 'Escape') this._cancel(e);
+      return;
+    }
+
+    const binding = keyShortcutManager.getBinding(shortcutId);
     if (!binding) return;
 
     // Phase: IDLE — waiting for the trigger combination.
@@ -113,13 +198,13 @@ class HoldToCycleController {
       // from the very first press, showing the CURRENT selection highlighted. No
       // hop is applied yet: the first onCycle fires on the next re-press, so a
       // press-and-release with no re-press is a pure peek that changes nothing.
-      this._config.onGestureStart();
+      this._config.onGestureStart(1, true);
 
       // Learn-by-doing: engaging the gesture retires its onboarding tip. The tip
       // id equals the shortcut id for every cycler (cycle-model / cycle-thinking
       // / strategy-switch), and we're past the canCycle gate, so this only fires
       // on a real, applicable use. Idempotent; a no-op for ids with no tip.
-      markSeen(this._config.shortcutId);
+      markSeen(shortcutId);
 
       this._phase = 'active';
       this._beginPointerIdle();
@@ -129,11 +214,7 @@ class HoldToCycleController {
     // Phase: ACTIVE — the trigger key cycles again; Escape cancels the whole
     // gesture without committing.
     if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      this._phase = 'idle';
-      this._endPointerIdle();
-      if (this._config.onCancel) this._config.onCancel();
+      this._cancel(e);
       return;
     }
     // The modifiers are necessarily still held (their release ends the gesture
@@ -143,8 +224,19 @@ class HoldToCycleController {
     if (eventMatchesBinding(binding, e)) {
       e.preventDefault();
       e.stopPropagation();
-      this._config.onCycle();
+      this._config.onCycle(1);
     }
+  }
+
+  /**
+   * End the active gesture on Escape, without committing.
+   * @param {KeyboardEvent} e
+   * @private
+   */
+  _cancel(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    this.cancel();
   }
 
   /**
@@ -154,12 +246,20 @@ class HoldToCycleController {
    * @private
    */
   _handleKeyUp(e) {
-    if (this._phase === 'idle') return;
     if (!this._config.modifierKeys.includes(e.key)) return;
+    this._held.delete(e.key);
+    this.commit();
+  }
 
-    this._phase = 'idle';
-    this._endPointerIdle();
-    this._config.onCommit();
+  /**
+   * The window lost focus, and with it every keyup that happens elsewhere: a
+   * modifier released in another app is never reported here. Forget what was
+   * held rather than believe it still is, so the next {@link press} does not
+   * open a popup that waits for a release that already happened.
+   * @private
+   */
+  _handleBlur() {
+    this._held.clear();
   }
 
   /**
@@ -199,7 +299,7 @@ class HoldToCycleController {
   /**
    * Check if a gesture may start on this event — the config's gate, defaulting
    * to {@link defaultShouldHandle}.
-   * @param {KeyboardEvent} e
+   * @param {KeyboardEvent|null} e - Null for a {@link press}.
    * @returns {boolean} True if the gesture should start
    * @private
    */
@@ -211,13 +311,14 @@ class HoldToCycleController {
 /**
  * The default gesture gate, extracted verbatim from the original
  * StrategySwitcher: only handle when focus is in the main composer textarea
- * (inside `composer-box`) and no modal dialog is open.
- * @param {KeyboardEvent} e
+ * (inside `composer-box`) and no modal dialog is open. A {@link
+ * HoldToCycleController#press} has no event, so this gate never lets one through.
+ * @param {KeyboardEvent|null} e
  * @returns {boolean} True if the gesture may start.
  */
 export function defaultShouldHandle(e) {
   // Only handle when focus is in the main input textarea (inside composer-box)
-  const target = e.target;
+  const target = e?.target;
   if (!(target instanceof HTMLElement)) {
     return false;
   }
@@ -250,7 +351,7 @@ export function defaultShouldHandle(e) {
  * gated out by the very popup the gesture just opened).
  * @param {string[]} [ownPopupIds] - Popup ids that are this gesture's own HUD and
  *   therefore do NOT count as foreign.
- * @returns {(e: KeyboardEvent) => boolean} A `shouldHandle` gate for the config.
+ * @returns {(e: KeyboardEvent|null) => boolean} A `shouldHandle` gate for the config.
  */
 export function popupAwareShouldHandle(ownPopupIds = []) {
   return () => !isForeignPopupOpen(ownPopupIds);

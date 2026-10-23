@@ -3,7 +3,7 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * Keyboard tab cycling (Page Up/Down, ⌥⌘↑/↓, Ctrl+Tab, ↑/↓ in the tab list)
+ * Keyboard tab cycling (Page Up/Down, ⌥⌘↑/↓, ↑/↓ in the tab list)
  * moves the strip's highlight at once but shows the conversation only once the
  * keys have settled. Showing a conversation is the expensive half — its
  * transcript is laid out and every session listener runs — and paying that for

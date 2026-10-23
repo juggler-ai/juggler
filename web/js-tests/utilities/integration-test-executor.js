@@ -350,6 +350,7 @@ import { runTests as runChimeRecoveryTests } from '../unit-tests/chime-recovery-
 import { runTests as runChimeVoiceTests } from '../unit-tests/chime-voice-test.js';
 import { runTests as runTabBehaviourPrefsTests } from '../unit-tests/tab-behaviour-prefs-test.js';
 import { runTests as runTabCycleSettleTests } from '../unit-tests/tab-cycle-settle-test.js';
+import { runTests as runRecentTabSwitcherTests } from '../unit-tests/recent-tab-switcher-test.js';
 import { runTests as runKeyShortcutManagerTests } from '../unit-tests/key-shortcut-manager-test.js';
 import { runTests as runEscapeBehaviourTests } from '../unit-tests/escape-behaviour-test.js';
 import { runTests as runHoldToCycleTests } from '../unit-tests/hold-to-cycle-test.js';
@@ -909,6 +910,7 @@ const UNIT_TEST_SUITES = [
   // one of them (tabReorder) gates every lane's Session.bumpConversation.
   { name: 'unit:tab-behaviour-prefs', run: runTabBehaviourPrefsTests, needsExclusiveRun: true },
   { name: 'unit:tab-cycle-settle', run: runTabCycleSettleTests },
+  { name: 'unit:recent-tab-switcher', run: runRecentTabSwitcherTests },
   { name: 'unit:context-menu', run: runContextMenuTests },
   // Drives the document's one live Selection, which every other suite shares.
   { name: 'unit:composer-selection-quote', run: runComposerSelectionQuoteTests, needsExclusiveRun: true },

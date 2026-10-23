@@ -52,10 +52,11 @@ export function registerConversationShortcuts(session) {
   keyShortcutManager.register('new-conversation', () => { createNewConversation(); markSeen('new-conversation'); return true; });
   keyShortcutManager.register('bin-conversation', () => { binActiveConversation(); markSeen('bin-conversation'); return true; });
   keyShortcutManager.register('rename-conversation', () => { renameActiveConversation(); markSeen('rename-conversation'); return true; });
-  // Prev/next-tab (Page Up/Down everywhere, ⌥⌘↑/↓ on macOS) reuse the conversation
-  // bar's existing cycle path: the same juggler:cycle-tab event the native
-  // Ctrl+Tab accelerator fires, which moves to the adjacent tab (wrapping) and
-  // commits focus to its composer. Always "handles" the key.
+  // Prev/next-tab (Page Up/Down everywhere, ⌥⌘↑/↓ on macOS) go through the
+  // conversation bar's juggler:cycle-tab event, which moves to the adjacent tab
+  // in strip order (wrapping) and commits focus to its composer. Always
+  // "handles" the key. (Ctrl+Tab is the other tab key, and a different one: it
+  // walks the tabs in order of use — see recent-tab-switcher.js.)
   keyShortcutManager.register('prev-tab', () => {
     window.dispatchEvent(new CustomEvent('juggler:cycle-tab', { detail: { direction: 'prev' } }));
     markSeen('prev-tab');

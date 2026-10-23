@@ -1291,14 +1291,16 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 		fatalf("Window.NewWithOptions returned nil for %s (url=%s) — the native window could not be created", id, fullURL)
 	}
 
-	// Ctrl+Tab / Ctrl+Shift+Tab cycle conversation tabs in THIS window (WKWebView
-	// swallows them before page JS on macOS). Per-window keybindings target the
-	// focused window correctly.
+	// Ctrl+Tab / Ctrl+Shift+Tab drive the recent-conversation switcher in THIS
+	// window (WKWebView swallows them before page JS on macOS). Only the Tab press
+	// is claimed: the Control key's own keydown/keyup still reach the page, which
+	// is how the switcher knows when the hold ends. Per-window keybindings target
+	// the focused window correctly.
 	win.RegisterKeyBinding("Ctrl+Tab", func(_ application.Window) {
-		win.ExecJS("window.dispatchEvent(new CustomEvent('juggler:cycle-tab',{detail:{direction:'next'}}))")
+		win.ExecJS("window.dispatchEvent(new CustomEvent('juggler:recent-tab',{detail:{direction:'next'}}))")
 	})
 	win.RegisterKeyBinding("Ctrl+Shift+Tab", func(_ application.Window) {
-		win.ExecJS("window.dispatchEvent(new CustomEvent('juggler:cycle-tab',{detail:{direction:'prev'}}))")
+		win.ExecJS("window.dispatchEvent(new CustomEvent('juggler:recent-tab',{detail:{direction:'prev'}}))")
 	})
 
 	e := &winEntry{

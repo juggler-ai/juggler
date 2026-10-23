@@ -318,12 +318,22 @@ export default class ConversationRegistry {
   }
 
   /**
+   * The conversations still open that have been switched to, most recently used
+   * first. One shown at launch without a switch is not among them until it is
+   * switched back to.
+   * @returns {string[]} Their ids
+   */
+  recentlyUsed() {
+    return this._mru.filter(x => this._conversations.has(x));
+  }
+
+  /**
    * The tab to show when the loaded one goes away: the most recently used
    * conversation still open, else the first in the bar.
    * @returns {string|undefined} Its id, or undefined when the bar is empty
    */
   fallback() {
-    return this._mru.find(x => this._conversations.has(x)) ?? this._conversations.keys().next().value;
+    return this.recentlyUsed()[0] ?? this._conversations.keys().next().value;
   }
 
   // ── Names ────────────────────────────────────────────────────────────────

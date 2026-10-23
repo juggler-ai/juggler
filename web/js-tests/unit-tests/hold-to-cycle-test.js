@@ -284,6 +284,142 @@ export async function runTests(_ctx) {
     }
   });
 
+  // ── Trigger mode: no shortcutId, presses arrive through press() ─────────────
+  // The shape of Ctrl+Tab in the desktop app: the native window claims the Tab
+  // press and re-raises it as an event, while the Control key's own keydown and
+  // keyup still reach the page.
+
+  /**
+   * A trigger-mode controller (Control as the held modifier) whose callbacks
+   * log their step. Callers must destroy() it.
+   * @param {object} [overrides] - HoldToCycleConfig overrides.
+   * @returns {{controller: HoldToCycleController, calls: string[]}} The live controller and its log.
+   */
+  const makeTriggerHarness = (overrides = {}) => {
+    /** @type {string[]} */
+    const calls = [];
+    const controller = new HoldToCycleController({
+      modifierKeys: ['Control'],
+      shouldHandle: () => true,
+      // `:tap` marks a gesture the controller says will not stay open.
+      onGestureStart: (step, open) => calls.push(`start:${step}${open ? '' : ':tap'}`),
+      onCycle: (step) => calls.push(`cycle:${step}`),
+      onCommit: () => calls.push('commit'),
+      onCancel: () => calls.push('cancel'),
+      ...overrides,
+    });
+    controller.init();
+    return { controller, calls };
+  };
+  /** @param {string} key */
+  const holdKey = (key) => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  };
+
+  await run('trigger mode: a press while the modifier is held opens, re-presses cycle with their step, release commits', () => {
+    const { controller, calls } = makeTriggerHarness();
+    try {
+      holdKey('Control');
+      assert(controller.press(1) === true, 'a press that starts a gesture reports it acted');
+      controller.press(1);
+      controller.press(-1);
+      assert(calls.join(',') === 'start:1,cycle:1,cycle:-1',
+        `the opening press carries its step, and so does each re-press — got ${calls.join(',')}`);
+      releaseKey('Control');
+      assert(calls.join(',') === 'start:1,cycle:1,cycle:-1,commit',
+        `releasing the held modifier commits — got ${calls.join(',')}`);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  await run('trigger mode: a press that arrives after the modifier was released commits at once', () => {
+    const { controller, calls } = makeTriggerHarness();
+    try {
+      // A quick tap: the keyup overtook the native round-trip carrying the press.
+      holdKey('Control');
+      releaseKey('Control');
+      controller.press(1);
+      assert(calls.join(',') === 'start:1:tap,commit',
+        `a press with nothing held is a whole gesture in one go, and says so at its start — got ${calls.join(',')}`);
+      assert(!document.body.classList.contains('hud-pointer-idle'),
+        'a gesture that is already over leaves no pointer-idle flag behind');
+      controller.press(1);
+      assert(calls.join(',') === 'start:1:tap,commit,start:1:tap,commit',
+        `and the next one is a fresh gesture — got ${calls.join(',')}`);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  await run('trigger mode: losing the window forgets the held modifier', () => {
+    const { controller, calls } = makeTriggerHarness();
+    try {
+      holdKey('Control');
+      // Released in another app: this window never hears the keyup.
+      window.dispatchEvent(new Event('blur'));
+      controller.press(1);
+      assert(calls.join(',') === 'start:1:tap,commit',
+        `with the hold forgotten, a press commits at once rather than waiting on a keyup that is not coming — got ${calls.join(',')}`);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  await run('trigger mode: keydowns never start a gesture, and Escape still cancels', () => {
+    const { controller, calls } = makeTriggerHarness();
+    try {
+      holdKey('Control');
+      const tab = new KeyboardEvent('keydown', { key: 'Tab', ctrlKey: true, bubbles: true, cancelable: true });
+      assert(document.dispatchEvent(tab), 'a keydown is not the trigger, so it is left alone');
+      assert(calls.length === 0, `no callback for a keydown — got ${calls.join(',')}`);
+      controller.press(1);
+      pressEscape();
+      releaseKey('Control');
+      assert(calls.join(',') === 'start:1,cancel',
+        `Escape cancels, and the release after it is inert — got ${calls.join(',')}`);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  await run('commit() and cancel() end a live gesture as release and Escape would, and are inert otherwise', () => {
+    const { controller, calls } = makeTriggerHarness();
+    try {
+      controller.commit();
+      controller.cancel();
+      assert(calls.length === 0, `between gestures both are no-ops — got ${calls.join(',')}`);
+
+      holdKey('Control');
+      controller.press(1);
+      controller.commit();
+      releaseKey('Control');
+      assert(calls.join(',') === 'start:1,commit',
+        `commit() ends the gesture, so the release after it is inert — got ${calls.join(',')}`);
+
+      holdKey('Control');
+      controller.press(1);
+      controller.cancel();
+      releaseKey('Control');
+      assert(calls.join(',') === 'start:1,commit,start:1,cancel',
+        `cancel() ends it without committing, and the release after it is inert — got ${calls.join(',')}`);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  await run('trigger mode: an inapplicable press reports it did nothing', () => {
+    const { controller, calls } = makeTriggerHarness({ canCycle: () => false });
+    try {
+      holdKey('Control');
+      assert(controller.press(1) === false, 'press() is false when the gesture cannot start');
+      releaseKey('Control');
+      assert(calls.length === 0, `no callback may fire — got ${calls.join(',')}`);
+    } finally {
+      controller.destroy();
+    }
+  });
+
   await run('defaultShouldHandle gates on a composer textarea with no modal open', () => {
     const box = document.createElement('composer-box');
     const textarea = document.createElement('textarea');

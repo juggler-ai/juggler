@@ -462,29 +462,34 @@ import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
 import { racePatiently, resetPatience, patienceGranted, waitsInFlightReport } from './test-patience.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
 import { machineLoadReport } from './machine-load.js';
+import wsService from '../../js/services/websocket.js';
 
-// Action progress events fire in the engine WebviewWindow's document; without
-// a bridge they are invisible to the test page. action-executor broadcasts
-// them; re-dispatch on the test document so capture listeners see them.
+// Action progress events fire in the engine, which has no document this page
+// can listen on; the engine sends each one as an `engine-bridge` frame that the
+// server relays to every viewer. Re-dispatch the frames THIS lane's socket
+// receives on the test document, so capture listeners see them.
 //
-// BroadcastChannel scopes to the whole browsing context (origin), so in the
-// multi-iframe test pool every iframe receives every other iframe's events.
-// We tag each detail with conversationId and only redispatch events whose
-// conversation we host — otherwise sibling tests' tool executions would
-// count toward this test's per-tool exec counters.
-const __apChan = new BroadcastChannel('juggler-action-progress');
+// Take them from the socket, never from the same-window BroadcastChannel that
+// websocket.js also replays them onto: a BroadcastChannel never delivers a
+// post to the context that made it, so on that path a lane hears its own
+// progress only as its siblings' replays — none while every sibling is between
+// tests or reloading, and none at all for a lane alone on its server — while
+// its own tape shows the event arriving.
+//
+// The server relays every conversation's progress to every viewer, and
+// toolUseIds like `call_1` repeat across sibling tests, so in the iframe pool
+// only events for conversations THIS lane owns are re-dispatched — otherwise
+// sibling tests' tool executions would count toward this test's captures.
 const __inIframePool = window.parent && window.parent !== window;
-__apChan.onmessage = (/** @type {MessageEvent} */ e) => {
-  const detail = e.data;
-  // In the iframe pool, only redispatch events for conversations THIS
-  // iframe owns — otherwise sibling test iframes' tool executions pile
-  // onto this test's counters.
+wsService.on('engine-bridge', (/** @type {any} */ frame) => {
+  if (frame?.channel !== 'juggler-action-progress') return;
+  const detail = frame.payload;
   if (__inIframePool && detail?.conversationId) {
     const owned = /** @type {any} */ (window).__ownConversationIds;
     if (!owned || !owned.has(detail.conversationId)) return;
   }
   document.dispatchEvent(new CustomEvent('action-progress', { detail }));
-};
+});
 
 /**
  * @typedef {object} TestContext

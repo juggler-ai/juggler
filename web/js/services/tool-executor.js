@@ -55,12 +55,11 @@ import './tool-invoker.js';
  * @property {unknown} class - Context item class
  */
 
-// Cross-window bridge for test instrumentation. The test page subscribes to
-// this BroadcastChannel name to observe tool-exec activity
-// (`startToolExecCounter` in test-harness.js). Engine sends a single WS
-// `engine-bridge` envelope; the server forwards it to every viewer, whose
-// `websocket.js` handler replays it onto a same-window BroadcastChannel of
-// this name. One transport, one delivery per peer — no duplicate events.
+// Cross-window bridge for test instrumentation, observed by
+// `startToolExecCounter` in test-harness.js. Engine sends a single WS
+// `engine-bridge` envelope on this channel; the server forwards it to every
+// viewer, whose `websocket.js` handler emits it as a wsService
+// 'engine-bridge' event. One transport, one delivery per peer.
 const __TOOL_EXEC_CHANNEL = 'juggler-tool-exec';
 
 /**

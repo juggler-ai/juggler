@@ -156,12 +156,12 @@ const OVERDUE_REPEAT_MS = 10 * 60 * 1000;
  * @class
  */
 
-// Cross-window bridge for test instrumentation. action-progress events fire
-// on the engine document; viewers mirror them on their own document so
-// test-page capture listeners observe them. Engine sends a single WS
-// `engine-bridge` envelope; the server forwards it to every viewer, whose
-// `websocket.js` handler replays it onto a same-window BroadcastChannel of
-// this name. One transport, one delivery per peer — no duplicate events.
+// Cross-window bridge for test instrumentation. Action progress happens in
+// the engine; the test executor (integration-test-executor.js) mirrors it as
+// `action-progress` on a viewer's own document so capture listeners observe
+// it. Engine sends a single WS `engine-bridge` envelope on this channel; the
+// server forwards it to every viewer, whose `websocket.js` handler emits it
+// as a wsService 'engine-bridge' event. One transport, one delivery per peer.
 const __ACTION_PROGRESS_CHANNEL = 'juggler-action-progress';
 
 /**

@@ -20,6 +20,7 @@ import {
   withTimeout,
   assert
 } from '../utilities/test-helpers.js';
+import { budgetFor } from '../utilities/test-deadline.js';
 
 import { TOOL_STATES } from '../../sdk/lib/message.js';
 
@@ -157,7 +158,7 @@ export async function runTests(_ctx) {
 
     // Cancel to cleanup
     conversation.rootMessageThread.resolveApproval(toolUseId, 'cancel');
-    await withTimeout(executionPromise, 5000, 'execution after cancel');
+    await withTimeout(executionPromise, budgetFor(5000), 'execution after cancel');
 
     passed++;
   } catch (e) {
@@ -183,7 +184,7 @@ export async function runTests(_ctx) {
 
     // Cancel the approval
     conversation.rootMessageThread.resolveApproval(toolUseId, 'cancel');
-    await withTimeout(executionPromise, 5000, 'execution after cancel');
+    await withTimeout(executionPromise, budgetFor(5000), 'execution after cancel');
 
     // Verify tool-action exists with cancelled state
     const cancelledToolAction = findToolActionInConversation(conversation, toolUseId);
@@ -227,7 +228,7 @@ export async function runTests(_ctx) {
 
     // Cancel the approval
     conversation.rootMessageThread.resolveApproval(toolUseId, 'cancel');
-    await withTimeout(executionPromise, 5000, 'execution after cancel');
+    await withTimeout(executionPromise, budgetFor(5000), 'execution after cancel');
 
     // Build context - this is what would be sent to LLM
     const context = await buildContext(conversation.rootMessageThread, session);
@@ -280,7 +281,7 @@ export async function runTests(_ctx) {
 
     // Deny the approval
     conversation.rootMessageThread.resolveApproval(toolUseId, 'no');
-    await withTimeout(executionPromise, 5000, 'execution after deny');
+    await withTimeout(executionPromise, budgetFor(5000), 'execution after deny');
 
     // Build context
     const context = await buildContext(conversation.rootMessageThread, session);
@@ -334,7 +335,7 @@ export async function runTests(_ctx) {
     conversation.rootMessageThread.deleteRange(itemsCountBefore);
 
     // Wait for execution to complete (it should complete immediately since approval was cancelled)
-    await withTimeout(executionPromise, 5000, 'execution after removeItemsFrom');
+    await withTimeout(executionPromise, budgetFor(5000), 'execution after removeItemsFrom');
 
     // CRITICAL: After removeItemsFrom + approval cancellation:
     // - The tool-action should be GONE (it was removed)

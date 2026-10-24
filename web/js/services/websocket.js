@@ -806,17 +806,15 @@ class WebSocketService {
     },
 
     // Cross-origin engine→viewer event bridge. Each viewer's WS
-    // sees this message exactly once, so emit it as a direct
-    // wsService event for subscribers that prefer per-WS delivery
-    // (e.g. the test harness's exec counter). The engine itself
-    // both originated the message and skips its own replay.
+    // sees this message exactly once, so it is emitted as a direct
+    // wsService event, which is the only delivery there is. The
+    // engine itself both originated the message and skips it.
     //
-    // Also replay onto a same-window BroadcastChannel so existing
-    // BC subscribers (action-progress, etc.) keep working. In the
-    // multi-iframe test pool the BC path inherently fans the
-    // event N-1 ways (sender doesn't get its own posts but every
-    // sibling iframe does), which is why new test instrumentation
-    // should subscribe to 'engine-bridge' on wsService instead.
+    // Deliberately not also replayed onto a same-window
+    // BroadcastChannel: a channel never delivers a post to the
+    // context that made it, so in the multi-iframe test pool a
+    // lane would hear its own events only as its siblings' copies
+    // — N-1 of them, or none while they are between tests.
     'engine-bridge': (ws, data) => {
       if (typeof data.channel !== 'string') return false;
       if (isEngine()) return true;
@@ -843,15 +841,6 @@ class WebSocketService {
           accumulatedLen: typeof p.accumulatedOutput === 'string' ? p.accumulatedOutput.length : undefined
         });
       ws._emit('engine-bridge', { channel: data.channel, payload: data.payload });
-      if (typeof BroadcastChannel !== 'undefined') {
-        try {
-          const bc = new BroadcastChannel(data.channel);
-          bc.postMessage(data.payload);
-          bc.close();
-        } catch (err) {
-          console.error('[WebSocket] engine-bridge replay failed:', err);
-        }
-      }
       return true;
     },
 
@@ -1203,9 +1192,9 @@ class WebSocketService {
 
   /**
    * Bridge a cross-window event from the engine to every viewer via the
-   * server. Viewer-side WS handler replays the payload into a local
-   * BroadcastChannel(channel) so in-page subscribers fire.
-   * @param {string} channel - BroadcastChannel name (e.g. 'juggler-action-progress')
+   * server. Each viewer's WS handler emits it as a wsService
+   * 'engine-bridge' event carrying `{channel, payload}`.
+   * @param {string} channel - Channel name subscribers filter on (e.g. 'juggler-action-progress')
    * @param {unknown} payload - Payload to deliver to viewers
    * @returns {boolean} True if sent
    */

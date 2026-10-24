@@ -22,7 +22,7 @@
  * @module unit-tests/sync-batch-backoff-test
  */
 
-import { assert, waitFor } from '../utilities/test-helpers.js';
+import { assert, waitFor, withTimeout } from '../utilities/test-helpers.js';
 import { YJS_SYNC_BATCH_MS, YJS_SYNC_BATCH_MAX_MS } from '../../js/utils/constants.js';
 
 /**
@@ -128,6 +128,12 @@ export async function runTests(_ctx) {
 
     assert(mgr._batchCostMs >= 15,
       `a 20ms observer should be measured, got ${mgr._batchCostMs.toFixed(1)}ms`);
+    // The poll that noticed the batch can arrive more than COST_IDLE_RESET_MS
+    // after it was applied (a hidden lane's timers can run on a one-second
+    // grid), and _nextBatchDelay would then rightly read the gap as a new burst
+    // and discard the estimate. This case is about the estimate, not the reset,
+    // so it reads the window as of the moment the batch landed.
+    mgr._lastBatchAt = performance.now();
     assert(mgr._nextBatchDelay() > YJS_SYNC_BATCH_MS,
       `an expensive batch should widen the window, got ${mgr._nextBatchDelay()}`);
   });
@@ -170,12 +176,23 @@ export async function runTests(_ctx) {
     mgr._batchCostMs = 500;
     mgr._lastBatchAt = performance.now();
 
+    // Wait on the batcher itself, not on the item count: the property is that
+    // once the window closes and the queue is drained, every update is in the
+    // doc. Asserting at that moment fails on a drop at once and by name,
+    // where polling the count would only time out — and would time out on a
+    // slow timer grid too, which is not a drop.
+    /** @type {() => void} */
+    let drained = () => {};
+    const queueDrained = new Promise((resolve) => { drained = () => resolve(undefined); });
+    const applyBatch = mgr._applyBatchedUpdates.bind(mgr);
+    mgr._applyBatchedUpdates = () => {
+      applyBatch();
+      if (mgr._pendingUpdates.length === 0 && mgr._batchTimer === null) drained();
+    };
+
     for (let i = 0; i < 12; i++) push(`item-${i}`);
 
-    await waitFor(() => doc.getArray('items').length === 12, {
-      timeoutMs: YJS_SYNC_BATCH_MAX_MS * 6,
-      description: 'all 12 updates applied',
-    });
+    await withTimeout(queueDrained, YJS_SYNC_BATCH_MAX_MS * 6, 'the widest-window batch to be applied');
 
     const got = doc.getArray('items').toArray();
     assert(got.length === 12, `expected 12 items, got ${got.length}`);

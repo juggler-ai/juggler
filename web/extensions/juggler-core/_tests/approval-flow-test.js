@@ -25,6 +25,7 @@ import {
 } from '../../../js-tests/utilities/test-helpers.js';
 import { TOOL_STATES, ACTION_STATES, createToolActionMessage } from '../../../sdk/lib/message.js';
 import { observeUntil } from '../../../js-tests/utilities/turn-sync.js';
+import { budgetFor } from '../../../js-tests/utilities/test-deadline.js';
 import { pingWorker } from '../../../js-tests/utilities/worker-test-hooks.js';
 import ExecuteContextItem from '../context-items/execute-context-item.js';
 import { buildApprovalButtons } from '../../../js/services/approval-options.js';
@@ -188,7 +189,7 @@ export async function runTests(_ctx) {
     conversation.rootMessageThread.resolveApproval(toolUseId, 'yes');
 
     // Wait for execution to complete with timeout
-    await withTimeout(executionPromise, 5000, 'execution after approve');
+    await withTimeout(executionPromise, budgetFor(5000), 'execution after approve');
 
     // Verify completed state
     const approvedToolUse = findToolUseInConversation(conversation, toolUseId);
@@ -235,7 +236,7 @@ export async function runTests(_ctx) {
     conversation.rootMessageThread.resolveApproval(toolUseId, 'no');
 
     // Wait for execution to complete
-    await withTimeout(executionPromise, 5000, 'execution after deny');
+    await withTimeout(executionPromise, budgetFor(5000), 'execution after deny');
 
     // Verify cancelled state
     const cancelledToolUse = findToolUseInConversation(conversation, toolUseId);
@@ -276,7 +277,7 @@ export async function runTests(_ctx) {
     conversation.rootMessageThread.resolveApproval(toolUseId, 'cancel');
 
     // Wait for execution to complete
-    await withTimeout(executionPromise, 5000, 'execution after cancel');
+    await withTimeout(executionPromise, budgetFor(5000), 'execution after cancel');
 
     // Verify cancelled state
     const cancelledToolUse = findToolUseInConversation(conversation, toolUseId);
@@ -315,7 +316,7 @@ export async function runTests(_ctx) {
     conversation.rootMessageThread.resolveApproval(toolUseId, 'yes-always');
 
     // Wait for execution to complete
-    await withTimeout(executionPromise, 5000, 'execution after yes-always');
+    await withTimeout(executionPromise, budgetFor(5000), 'execution after yes-always');
 
     // Verify completed state
     const approvedToolUse = findToolUseInConversation(conversation, toolUseId);
@@ -578,7 +579,7 @@ export async function runTests(_ctx) {
 
     // Deny (not approve - to test retry scenario)
     conversation.rootMessageThread.resolveApproval(toolUseId, 'no');
-    await withTimeout(executionPromise, 5000, 'execution');
+    await withTimeout(executionPromise, budgetFor(5000), 'execution');
 
     // CRITICAL: approvalOptions must be PRESERVED for retry to work
     // approvalOptions is configuration (what buttons exist), not state (what happened)
@@ -603,7 +604,7 @@ export async function runTests(_ctx) {
       conversation, session, toolCall
     );
     conversation.rootMessageThread.resolveApproval(toolUseId, 'yes');
-    await withTimeout(executionPromise, 5000, 'execution');
+    await withTimeout(executionPromise, budgetFor(5000), 'execution');
 
     // Build context and verify
     const context = await buildContext(conversation.rootMessageThread, session);
@@ -677,7 +678,7 @@ export async function runTests(_ctx) {
     clearInterval(checkInterval);
 
     // Wait for completion
-    await withTimeout(executionPromise, 5000, 'execution after approve');
+    await withTimeout(executionPromise, budgetFor(5000), 'execution after approve');
 
     // Verify final state
     const finalToolResult = findToolResultInConversation(conversation, toolUseId);

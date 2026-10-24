@@ -21,13 +21,13 @@ import { setMockResponses, releaseMock } from './worker-test-hooks.js';
 import { TOOL_STATES } from '../../sdk/lib/message.js';
 import { threadRunSettled } from '../../js/model/run-records.js';
 import { waitForTurnComplete, observeUntil, findItemRecursive, hasIncompleteApprovedTools } from './turn-sync.js';
-// Multi-iframe pool support: the integration-test-executor's BroadcastChannel
+// Multi-iframe pool support: the integration-test-executor's engine-bridge
 // receiver filters action-progress events by `conversationId` so sibling
 // tests' tool runs don't pollute this iframe's exec counters, and destructive
 // cross-lane operations treat claimed conversations as untouchable. Harnesses
 // register every conversation they create so both hold.
 import { registerOwnConversation as _registerOwnConversation } from './conversation-claims.js';
-import { deadlineFor } from './test-deadline.js';
+import { budgetFor, deadlineFor } from './test-deadline.js';
 
 
 /**
@@ -1486,18 +1486,19 @@ export class IntegrationTestHarness {
    * @returns {Promise<void>}
    */
   async waitForProgress(toolUseId, minEvents, timeoutMs = 5000) {
-    // action-progress events originate in the engine iframe but are
-    // forwarded to window.parent via postMessage and re-dispatched on the
-    // test document by integration-test-executor.js. Capture handlers see
-    // them just like any other DOM event.
+    // action-progress events originate in the engine, arrive on this lane's
+    // own socket as engine-bridge frames, and are re-dispatched on the test
+    // document by integration-test-executor.js. Capture handlers see them
+    // just like any other DOM event.
     if (this.getProgressCount(toolUseId) >= minEvents) return;
+    const budgetMs = budgetFor(timeoutMs);
     await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         document.removeEventListener('action-progress', listener);
         reject(new Error(
-          `Timeout waiting for ${minEvents} progress events, got ${this.getProgressCount(toolUseId)}`
+          `Timeout after ${budgetMs}ms waiting for ${minEvents} progress events, got ${this.getProgressCount(toolUseId)}`
         ));
-      }, timeoutMs);
+      }, budgetMs);
       const listener = (/** @type {Event} */ e) => {
         if (/** @type {CustomEvent} */ (e).detail?.toolUseId !== toolUseId) return;
         if (this.getProgressCount(toolUseId) >= minEvents) {
@@ -1537,16 +1538,17 @@ export class IntegrationTestHarness {
       (/** @type {any} */ ev) => String(ev.accumulatedOutput || '').includes(substring)
     );
     if (seen()) return;
+    const budgetMs = budgetFor(timeoutMs);
     await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         document.removeEventListener('action-progress', listener);
         const last = capture.events[capture.events.length - 1];
         reject(new Error(
-          `Timeout waiting for ${toolUseId} output to contain ${JSON.stringify(substring)} ` +
+          `Timeout after ${budgetMs}ms waiting for ${toolUseId} output to contain ${JSON.stringify(substring)} ` +
           `after ${capture.events.length} progress event(s); last accumulated output was ` +
           JSON.stringify(last ? String(last.accumulatedOutput || '') : '')
         ));
-      }, timeoutMs);
+      }, budgetMs);
       const listener = (/** @type {Event} */ e) => {
         if (/** @type {CustomEvent} */ (e).detail?.toolUseId !== toolUseId) return;
         if (seen()) {

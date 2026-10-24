@@ -164,6 +164,10 @@ import { runTests as runTodoActionTests } from '../unit-tests/todo-action-test.j
 import { runTests as runTodoNoApprovalTests } from '../unit-tests/todo-no-approval-test.js';
 import { runTests as runThreadNestedArrayTests } from '../unit-tests/thread-nested-array-test.js';
 import { runTests as runUndoRedoTests } from '../unit-tests/undo-redo-test.js';
+import { runTests as runUndoRedoContextItemsTests } from '../unit-tests/undo-redo-context-items-test.js';
+import { runTests as runUndoRedoToolsTests } from '../unit-tests/undo-redo-tools-test.js';
+import { runTests as runUndoRedoDeletionTests } from '../unit-tests/undo-redo-deletion-test.js';
+import { runTests as runUndoRedoDeletionEdgesTests } from '../unit-tests/undo-redo-deletion-edges-test.js';
 import { runTests as runHeaderUndoLockTests } from '../unit-tests/header-undo-lock-test.js';
 import { runTests as runHeaderBarTests } from '../unit-tests/header-bar-test.js';
 import { runTests as runFooterMetaTests } from '../unit-tests/footer-meta-test.js';
@@ -728,6 +732,10 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:todo-no-approval', run: runTodoNoApprovalTests },
   { name: 'unit:thread-nested-array', run: runThreadNestedArrayTests },
   { name: 'unit:undo-redo', run: runUndoRedoTests },
+  { name: 'unit:undo-redo-context-items', run: runUndoRedoContextItemsTests },
+  { name: 'unit:undo-redo-tools', run: runUndoRedoToolsTests },
+  { name: 'unit:undo-redo-deletion', run: runUndoRedoDeletionTests },
+  { name: 'unit:undo-redo-deletion-edges', run: runUndoRedoDeletionEdgesTests },
   { name: 'unit:header-undo-lock', run: runHeaderUndoLockTests },
   { name: 'unit:header-bar', run: runHeaderBarTests },
   { name: 'unit:footer-meta', run: runFooterMetaTests },

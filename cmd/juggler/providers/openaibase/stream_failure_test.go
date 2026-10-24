@@ -170,6 +170,36 @@ func TestChatStreamWithOnlyOneEndMarkerIsComplete(t *testing.T) {
 	}
 }
 
+// TestAPIErrorsCarryTheProviderMessage: the SDK's error text is a bare status
+// line ("OpenAI API error: 429 Too Many Requests"), but the body's own message
+// is what tells the reader what happened — for Z.ai's coding-plan cap it is
+// the only place the reset time appears (no Retry-After is sent).
+func TestAPIErrorsCarryTheProviderMessage(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		want   string
+	}{
+		{"usage cap 429", 429,
+			`{"error":{"code":"1308","message":"Usage limit reached for 5 hour. Your limit will reset at 2026-10-24 22:19:30"}}`,
+			"Usage limit reached for 5 hour. Your limit will reset at 2026-10-24 22:19:30"},
+		{"400", 400, `{"error":{"message":"messages[3]: tool_call_id not found","type":"invalid_request_error"}}`,
+			"messages[3]: tool_call_id not found"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requests := 0
+			err := streamFailure(failureClient(t, "gpt-4o", &requests, func(r *http.Request) *http.Response {
+				return jsonStatus(r, tt.status, nil, tt.body)
+			}))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want it to carry the provider's message %q", err, tt.want)
+			}
+		})
+	}
+}
+
 // TestRateLimitResponseCarriesTheStatedWait: a 429's Retry-After reaches the
 // worker as a number, after a single request.
 func TestRateLimitResponseCarriesTheStatedWait(t *testing.T) {

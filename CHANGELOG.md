@@ -20,6 +20,7 @@ of changes; this project follows semantic versioning.
 - One undo always takes back a finished sub-thread's reply together with its result
 - A duplicated conversation can no longer open empty in another window
 - Unreachable servers and locked projects open a normal, draggable window explaining why
+- API errors from GLM and other OpenAI-compatible providers show the provider's reason
 
 ## [0.7.8] - 2026-10-23
 

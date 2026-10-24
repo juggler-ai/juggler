@@ -313,7 +313,7 @@ func (c *Client) apiFailure(err error, apiErr *openai.Error) error {
 	if errType == "" {
 		errType = apiErr.Type
 	}
-	message := err.Error()
+	message := withProviderMessage(err.Error(), apiErr)
 	switch {
 	case apiErr.StatusCode == http.StatusUnauthorized:
 		message += " (hint: your API key may be invalid)"
@@ -386,11 +386,26 @@ func rateLimited(err error, apiErr *openai.Error) error {
 			body = raw
 		}
 	}
+	text := err.Error()
+	if apiErr != nil {
+		text = withProviderMessage(text, apiErr)
+	}
 	return &provider.RateLimitedError{
 		RetryAfter: utils.ParseRateLimitHint(header, body),
-		Message:    fmt.Sprintf("%s (hint: rate limit reached, please wait)", err.Error()),
+		Message:    fmt.Sprintf("%s (hint: rate limit reached, please wait)", text),
 		Cause:      err,
 	}
+}
+
+// withProviderMessage appends the message the response body's error object
+// carries to the SDK's error text, which is a bare status line. The body's
+// message is what says what went wrong, and sometimes when it ends: Z.ai's
+// coding-plan cap states its reset time there and nowhere else.
+func withProviderMessage(text string, apiErr *openai.Error) string {
+	if m := strings.TrimSpace(apiErr.Message); m != "" && !strings.Contains(text, m) {
+		return text + ": " + m
+	}
+	return text
 }
 
 // ModelFilterFunc is a function that filters model IDs

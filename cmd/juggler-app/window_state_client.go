@@ -21,7 +21,8 @@ import (
 // stores it in the current project's session (via /api/session/window-state), so
 // it is per-project and travels with the session. The desktop app is just a
 // conduit: it reads the saved frame when opening a window and writes the frame
-// back as the user moves/resizes it.
+// back as the user moves/resizes it. That holds for a server this app runs; a
+// window onto a server by URL keeps its frame on this machine (remote_frames.go).
 //
 // Each window ROLE gets its own slot in that session. A project has never had
 // only one window — a second one for the same project already cascades off the
@@ -96,14 +97,33 @@ func readWindowState(ctx context.Context, serverURL, role string) (ws core.Windo
 // whether its server answered. A project's server is one this app just resolved
 // (spawned, or found by its lock), so it is waited for as long as a start takes
 // and counted as reached; a server by URL gets remoteReachBudget.
-func openingState(spec windowSpec, serverURL, role string) (ws core.WindowState, hasState, reached bool) {
+//
+// A server by URL is still asked, because its answer is what says it is there,
+// but what it holds is another machine's frame: the window opens at the one kept
+// on this machine instead (see remote_frames.go).
+func (a *appState) openingState(spec windowSpec, serverURL, role string) (ws core.WindowState, hasState, reached bool) {
 	if !spec.isURL() {
 		ws, hasState = fetchWindowState(serverURL, role)
 		return ws, hasState, true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), remoteReachBudget)
 	defer cancel()
-	return readWindowState(ctx, serverURL, role)
+	if _, _, reached = readWindowState(ctx, serverURL, role); !reached {
+		return core.WindowState{}, false, false
+	}
+	ws, hasState = a.remoteFrames.get(serverURL, role)
+	return ws, hasState, true
+}
+
+// storeFrame records a window's frame where it belongs: in the session of a
+// server this app runs, or on this machine for a window onto a server by URL.
+// Gives up on a session write when ctx does.
+func (a *appState) storeFrame(ctx context.Context, e *winEntry, ws core.WindowState) {
+	if e.spec.isURL() {
+		a.remoteFrames.put(e.serverURL, e.role, ws)
+		return
+	}
+	putWindowStateCtx(ctx, e.serverURL, e.role, ws)
 }
 
 func decodeWindowState(resp *http.Response) (core.WindowState, bool) {
@@ -121,16 +141,16 @@ func decodeWindowState(resp *http.Response) (core.WindowState, bool) {
 	return body.WindowState, body.HasState
 }
 
-// putWindowState persists geometry into the session the server is currently
-// serving. Best-effort: errors are ignored (the window still works; we just
-// didn't record this frame).
-func putWindowState(serverURL, role string, ws core.WindowState) {
+// putWindowStateCtx persists geometry into the session the server is currently
+// serving, giving up when ctx does. Best-effort: errors are ignored (the window
+// still works; we just didn't record this frame).
+func putWindowStateCtx(ctx context.Context, serverURL, role string, ws core.WindowState) {
 	url := windowStateURL(serverURL, role)
 	data, err := json.Marshal(ws)
 	if err != nil {
 		return
 	}
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPut, url, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(data))
 	if err != nil {
 		return
 	}

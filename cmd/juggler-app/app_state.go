@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -244,6 +245,9 @@ type appState struct {
 	ctlPort   int
 	ctlSecret string // authorises control requests; see control.go
 	workspace *workspaceStore
+	// remoteFrames keeps the frames of windows onto servers by URL on this
+	// machine, rather than in a session another machine's windows share.
+	remoteFrames *remoteFrames
 
 	// gpuPolicy is the WebKitGTK hardware-acceleration policy applied to every
 	// visible viewer window; gpuNote is the one-line reason to log at startup.
@@ -279,12 +283,13 @@ type appState struct {
 func newAppState(devMode int) *appState {
 	gpuEnabled, gpuNote := webviewenv.LinuxWebviewGpuAcceleration()
 	a := &appState{
-		devMode:   devMode != 0,
-		workspace: newWorkspaceStore(),
-		gpuPolicy: linuxGpuPolicy(gpuEnabled),
-		gpuNote:   gpuNote,
-		regOps:    make(chan func(*regState), 32),
-		ids:       make(chan string),
+		devMode:      devMode != 0,
+		workspace:    newWorkspaceStore(),
+		remoteFrames: newRemoteFrames(),
+		gpuPolicy:    linuxGpuPolicy(gpuEnabled),
+		gpuNote:      gpuNote,
+		regOps:       make(chan func(*regState), 32),
+		ids:          make(chan string),
 	}
 	go func() {
 		// Seed lastTheme from the persisted last-used theme so the very first
@@ -427,6 +432,7 @@ func (a *appState) initApplication() {
 		// present the corrupt/blank frame seen on a quick quit-then-relaunch.
 		a.reg(func(st *regState) { st.quitting = true })
 		a.persistWorkspaceSync()
+		a.saveAllWindowGeometry()
 		a.signalAllServers()
 	})
 
@@ -551,7 +557,7 @@ func (a *appState) tryBuildInitial(spec windowSpec) *winEntry {
 		logf("restore: skipping %+v: %v", spec.entry(), err)
 		return nil
 	}
-	saved, hasSaved, reached := openingState(spec, serverURL, roleMain)
+	saved, hasSaved, reached := a.openingState(spec, serverURL, roleMain)
 	if !reached {
 		return a.buildUnreachableServerWindow(spec, "")
 	}
@@ -718,7 +724,7 @@ func (a *appState) openWindow(spec windowSpec, opts windowOpts) {
 		if spec.project != "" {
 			a.rememberRecentProject(spec.project)
 		}
-		saved, hasSaved, reached := openingState(spec, serverURL, opts.role())
+		saved, hasSaved, reached := a.openingState(spec, serverURL, opts.role())
 		application.InvokeAsync(func() {
 			var e *winEntry
 			if reached {
@@ -1363,7 +1369,7 @@ func (e *winEntry) triggerSave() {
 func (a *appState) saveLoop(e *winEntry) {
 	e.saves.Run(e.stopSave, func() {
 		if s, ok := a.currentWindowState(e); ok {
-			putWindowState(e.serverURL, e.role, s)
+			a.storeFrame(context.Background(), e, s)
 		}
 	})
 }
@@ -1446,7 +1452,42 @@ func (a *appState) claimClose(e *winEntry) bool {
 func (a *appState) onShutdown() {
 	a.reg(func(st *regState) { st.quitting = true })
 	a.persistWorkspaceSync()
+	a.saveAllWindowGeometry()
 	a.signalAllServers()
+}
+
+// quitGeometryBudget bounds how long a quit waits for the windows' final
+// geometry writes. Each goes to a local server that answers in milliseconds; the
+// budget only stops one that has gone quiet from holding up the quit.
+const quitGeometryBudget = time.Second
+
+// saveAllWindowGeometry records every open window's frame (see storeFrame) and
+// waits for the writes. It runs at quit, before the servers are asked to stop,
+// because nothing later can: a window's own final write in handleWindowClosed
+// never happens on a quit — Wails drops its windows before their close events
+// reach them, and the servers are gone by then anyway. Without it the frame a
+// window reopens at is whatever its last move or resize wrote, however long ago.
+func (a *appState) saveAllWindowGeometry() {
+	var wins []*winEntry
+	a.reg(func(st *regState) {
+		for _, e := range st.windows {
+			wins = append(wins, e)
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), quitGeometryBudget)
+	defer cancel()
+	var wg sync.WaitGroup
+	for _, e := range wins {
+		if e.serverURL == "" {
+			continue
+		}
+		s, ok := a.currentWindowState(e)
+		if !ok {
+			continue
+		}
+		wg.Go(func() { a.storeFrame(ctx, e, s) })
+	}
+	wg.Wait()
 }
 
 // markBoardsClosingWith works out what a window closing means for the boards
@@ -1523,14 +1564,18 @@ func (a *appState) handleWindowClosed(e *winEntry) {
 	// loop. currentWindowState no-ops if the window is already gone, leaving the
 	// last good write intact.
 	if s, ok := a.currentWindowState(e); ok {
-		putWindowState(e.serverURL, e.role, s)
+		a.storeFrame(context.Background(), e, s)
 	}
 	// A board closed on its own is a board the user is finished with, so its tabs
 	// and its frame go with it. Waited on rather than left to a goroutine, and
 	// kept up here beside the geometry write: everything this window still owes
-	// the session is written before anything below can take the process down.
+	// the session is written before anything below can take the process down. A
+	// board onto a server by URL has its frame on this machine, so it goes here.
 	if a.boardFinishedWith(e) {
 		forgetBoard(e.serverURL, e.board)
+		if e.spec.isURL() {
+			a.remoteFrames.forget(e.serverURL, e.role)
+		}
 	}
 	close(e.stopSave)
 

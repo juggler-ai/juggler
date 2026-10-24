@@ -19,8 +19,9 @@ import (
 // open last time, each at its remembered geometry. The set lives in
 // ~/.juggler/workspace.json; per-window size/position is session state, held
 // server-side in each project's session.json (via /api/session/window-state,
-// see window_state_client.go). Together they reopen "the most recently opened
-// set of sessions" where the user left them.
+// see window_state_client.go) — except for a window onto a server by URL, whose
+// frame stays on this machine (remote_frames.go). Together they reopen "the
+// most recently opened set of sessions" where the user left them.
 //
 // The store is owned by a single goroutine (no mutex, per the concurrency
 // rule); saves are ordered, and flush waits for durability at quit.

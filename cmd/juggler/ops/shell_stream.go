@@ -92,6 +92,7 @@ func (ops *ShellOperations) ExecuteStreaming(
 	cmd := newShellCmd(ctx, command)
 	setProcGroup(cmd)
 	cmd.Dir = workingDir
+	ops.applyProjectEnv(cmd)
 
 	// Create pipe for merged stdout/stderr
 	pipeReader, pipeWriter := io.Pipe()

@@ -26,6 +26,9 @@ func RegisterAll() {
 	Register("shell", func(scope PathScope) Operations {
 		return NewShellOperations(scope)
 	})
+	Register("projectEnv", func(scope PathScope) Operations {
+		return NewProjectEnvOperations(scope)
+	})
 	Register("os", func(scope PathScope) Operations {
 		return NewOSOperations(scope)
 	})

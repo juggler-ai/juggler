@@ -335,7 +335,7 @@ class ExecuteContextItem extends ContextItem {
       required: ['command']
     };
 
-    const description = markUntranslated('Runs a bash command in a fresh shell rooted at the project directory (no `cd` needed). Nothing persists between calls.');
+    const description = markUntranslated('Runs a bash command in a fresh shell rooted at the project directory (no `cd` needed). Nothing persists between calls; variables every command needs belong in `.juggler/env.local.json`, a JSON object of names to values.');
 
     return [
       {

@@ -1550,6 +1550,61 @@ export async function revealPath(params) {
 }
 
 // ============================================================================
+// Project Environment Operations
+// ============================================================================
+
+/**
+ * One of the three files shell commands take variables from.
+ * @typedef {object} ProjectEnvFile
+ * @property {'user'|'project'|'local'} scope - Which file.
+ * @property {string} path - Where it lives.
+ * @property {boolean} exists - Whether it is there.
+ * @property {Record<string, string>} env - Its variables, applied or not.
+ * @property {string} [error] - Why it was skipped whole, when it was.
+ * @property {boolean} approved - False only for a project file awaiting approval.
+ */
+
+/**
+ * The variables shell commands get, and where each came from.
+ * @typedef {object} ProjectEnvState
+ * @property {Record<string, string>} env - The merged variables in effect.
+ * @property {Record<string, 'user'|'project'|'local'>} sources - The file each came from.
+ * @property {ProjectEnvFile[]} files - Every file, in merge order (user, project, local).
+ * @property {boolean} pending - The project file holds variables not yet approved.
+ */
+
+/**
+ * Read the environment variables shell commands get in this project.
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<ProjectEnvState>} The files and their merged result.
+ */
+export async function projectEnvGet(signal) {
+  return callOp('projectEnv', 'get', {}, signal);
+}
+
+/**
+ * Approve the project's .juggler/env.json as it stands now. Until then, and
+ * after any change to it, none of its variables apply.
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<ProjectEnvState>} The state after approval.
+ */
+export async function projectEnvApprove(signal) {
+  return callOp('projectEnv', 'approve', {}, signal);
+}
+
+/**
+ * Replace one file's variables. An empty env removes the file. A project file
+ * written here is approved as written.
+ * @param {{scope: 'user'|'project'|'local', env: Record<string, string>}} params
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<ProjectEnvState>} The state after the write.
+ */
+export async function projectEnvSet(params, signal) {
+  requireParam(params, 'scope');
+  return callOp('projectEnv', 'set', params, signal);
+}
+
+// ============================================================================
 // MCP (Model Context Protocol) Operations
 // ============================================================================
 

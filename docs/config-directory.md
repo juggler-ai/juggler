@@ -8,6 +8,8 @@ delete.
 ~/.juggler/
 ├── credentials.json        API keys (owner-only, 0600)
 ├── default-model.json      your chosen default model
+├── env.json                variables for every command, in every project (see project-env.md)
+├── env-approvals.json      the project env.json files you approved
 ├── workspace.json          desktop app's open-window set + last-used theme
 ├── extensions/             installed extensions
 ├── commands/               user-defined slash commands (see custom-commands.md)
@@ -38,7 +40,8 @@ log directory so the config folder stays small and copyable. See
 ## Project state lives in the project
 
 A project's own state — `config.json`, `session.json`, the lockfile, the
-per-conversation folders, MCP and skills config, bash output — is written to
+per-conversation folders, MCP and skills config, the environment variables
+commands get ([project-env.md](./project-env.md)), bash output — is written to
 `<project>/.juggler/`, next to the code it belongs to. That location is fixed:
 it is built from the project path wherever it is needed, and there is no flag,
 setting, or environment variable that moves it. A checkout that must not be

@@ -5,6 +5,7 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Per-project environment variables for every command, set in files or the Environment pin
 - New-workspace dialog: found trees no longer add a second Tab stop to the list
 - Background bash runs open the Background tasks pin from their panel or selected badge
 - The message box stays short on phones; an expand button opens it full-height

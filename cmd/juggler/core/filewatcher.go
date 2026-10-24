@@ -43,17 +43,20 @@ const gitignoreRebuildDebounce = time.Second
 // (conversation directories, transaction blobs, the session manifest), so
 // un-skipping it would be a flood rather than a fix.
 //
-// The project memory file is the one thing in there a user edits by hand and
-// expects the UI to notice. It is allowlisted exactly, never indexed, and its
-// directory is watched on its own — so the only extra traffic is events on
-// `.juggler/`'s immediate children, all of which are dropped here.
+// The files in there a user edits by hand and expects the UI to notice are the
+// project memory file and the two env files shell commands read (package
+// projectenv). They are allowlisted exactly, never indexed, and their directory
+// is watched on its own — so the only extra traffic is events on `.juggler/`'s
+// immediate children, all of which are dropped here.
 //
 // Keep in sync with MemoryContextItem.DEFAULT_PATH in
-// web/extensions/juggler-core/context-items/memory-context-item.js. A memory
-// file configured somewhere outside a dot-directory needs nothing from this: the
-// ordinary watch already covers it.
+// web/extensions/juggler-core/context-items/memory-context-item.js and with
+// projectenv.Path. A memory file configured somewhere outside a dot-directory
+// needs nothing from this: the ordinary watch already covers it.
 var watchedHiddenFiles = map[string]bool{
-	".juggler/MEMORY.md": true,
+	".juggler/MEMORY.md":      true,
+	".juggler/env.json":       true,
+	".juggler/env.local.json": true,
 }
 
 // FileWatcher watches a directory for file changes and sends immediate notifications

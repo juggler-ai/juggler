@@ -91,6 +91,21 @@ func TestFileWatcher_MemoryFileIsReported(t *testing.T) {
 	}
 }
 
+// The two project env files are edited by hand too, and the env pin redraws
+// from these events; the approval store and the user's own env.json live in the
+// config dir, outside any project.
+func TestFileWatcher_ProjectEnvFilesAreReported(t *testing.T) {
+	for _, rel := range []string{".juggler/env.json", ".juggler/env.local.json"} {
+		t.Run(rel, func(t *testing.T) {
+			w, root := watcherForEvents(t)
+			feed(w, root, rel, fsnotify.Write)
+			if got := filepath.ToSlash(nextChange(t, w).Path); got != rel {
+				t.Errorf("path = %q, want %q", got, rel)
+			}
+		})
+	}
+}
+
 // A hand edit is a write, but the file can also be replaced wholesale by an
 // editor that writes a temporary file and renames it over the top.
 func TestFileWatcher_MemoryFileIsReportedForEveryKindOfChange(t *testing.T) {

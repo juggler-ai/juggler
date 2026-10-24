@@ -116,7 +116,10 @@ Paths are relative to the `juggler/` repo root.
   invent a name for it.
 - **Configuration & data locations** — `docs/config-directory.md` (the
   `~/.juggler` layout, durable-vs-cache split, and that logs live elsewhere);
-  `docs/memory.md` for the project-level `.juggler/MEMORY.md`. That doc does not
+  `docs/memory.md` for the project-level `.juggler/MEMORY.md`;
+  `docs/project-env.md` for the environment variables every command gets — the
+  three env files, their merge order, why the project's committed file waits for
+  approval, where secrets go, and the Environment pin. config-directory.md does not
   list every file: `custom-providers.json` is durable per-user state
   (`customprovider/config.go:83-90`) and user-scope skills live at
   `<config>/skills/`. Prefer the doc for the shape and the source for the

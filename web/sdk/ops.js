@@ -99,6 +99,10 @@ export {
   // OS integration
   openPath,
   revealPath,
+  // Environment variables shell commands get in this project
+  projectEnvGet,
+  projectEnvApprove,
+  projectEnvSet,
   // MCP (Model Context Protocol) client
   mcpListServers,
   mcpListTools,

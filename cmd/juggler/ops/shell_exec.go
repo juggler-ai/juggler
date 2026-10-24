@@ -174,6 +174,7 @@ func (ops *ShellOperations) startBackground(params map[string]any) (any, error) 
 		cmd := newShellCmd(ctx, command)
 		setProcGroup(cmd)
 		cmd.Dir = ops.scope.Root()
+		ops.applyProjectEnv(cmd)
 
 		// Merge stdout/stderr through a pipe and publish output to the registry
 		// incrementally as it arrives, so readers (ops.TaskState) see a running
@@ -385,6 +386,7 @@ func (ops *ShellOperations) execute(ctx context.Context, params map[string]any) 
 	// Set process group so we can kill all child processes on timeout (Unix only)
 	setProcGroup(cmd)
 	cmd.Dir = workingDir
+	ops.applyProjectEnv(cmd)
 
 	convID := p.ConvID
 	spillID := fmt.Sprintf("exec-%d", time.Now().UnixNano())
@@ -477,6 +479,7 @@ func (ops *ShellOperations) executePythonCode(ctx context.Context, code string, 
 	// Windows it is routed through WSL (see newPythonCmd).
 	cmd := newPythonCmd(ctx)
 	cmd.Dir = ops.scope.Root()
+	ops.applyProjectEnv(cmd)
 	cmd.Stdin = strings.NewReader(code)
 
 	convID := p.ConvID

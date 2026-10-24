@@ -24,6 +24,8 @@ import providersCache from '../../js/services/providers-cache.js';
 import { fetchUserCommands, resetUserCommandsCache } from '../../js/services/user-commands.js';
 import slashCommandHandler from '../../js/services/slash-command-handler.js';
 import strategyRegistry from '../../js/registries/strategy-registry.js';
+import commandRegistry from '../../js/registries/command-registry.js';
+import { reloadRegistries, whenRegistriesSettled, anyLocalConversationBusy } from '../../js/registries/reload-registries.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 
 /**
@@ -137,6 +139,82 @@ function putBody(calls) {
   assert(put.url === '/api/user-commands/project/review', `PUT url = ${put.url}`);
   return put.body;
 }
+
+/**
+ * @param {number} status
+ * @param {any} data
+ * @returns {Response} A JSON response.
+ */
+const jsonResponse = (status, data) => new window.Response(JSON.stringify(data), {
+  status, headers: { 'Content-Type': 'application/json' },
+});
+
+/**
+ * A valid user-scope command as the server lists it.
+ * @param {string} name
+ * @returns {import('../../js/services/user-commands.js').UserCommandDef} The definition.
+ */
+const userDef = (name) => ({
+  name, scope: 'user', path: `/home/.juggler/commands/${name}.md`, frontmatter: { description: `the ${name} command` }, body: 'hi',
+});
+
+/**
+ * Answer `/api/user-commands` from `list()` (and accept any write), passing
+ * everything else to the real fetch — the extension catalog included, since a
+ * registry rebuild that read a canned answer for it would leave the lane's
+ * registries empty.
+ * @param {() => any[]} list - The command list the server reports right now.
+ * @param {() => void} [onWrite] - Called on a PUT or DELETE.
+ * @returns {() => void} Restores the real fetch.
+ */
+function serveUserCommands(list, onWrite = () => {}) {
+  const originalFetch = window.fetch;
+  window.fetch = /** @type {typeof fetch} */ (async (input, init) => {
+    if (!String(input).startsWith('/api/user-commands')) return originalFetch.call(window, input, init);
+    const method = init?.method || 'GET';
+    if (method !== 'GET') {
+      onWrite();
+      return jsonResponse(200, {});
+    }
+    return jsonResponse(200, list());
+  });
+  return () => { window.fetch = originalFetch; };
+}
+
+/**
+ * Run `body` while a conversation the registries can see is mid-turn — the state
+ * a full registry rebuild waits out. The turn ends (and says so) afterwards.
+ * @param {() => Promise<void>} body
+ * @returns {Promise<void>}
+ */
+async function duringTurn(body) {
+  const g = /** @type {any} */ (globalThis);
+  const hadEngineApp = Object.prototype.hasOwnProperty.call(g, 'engineApp');
+  const previousEngineApp = g.engineApp;
+  /** @type {Set<() => void>} */
+  const listeners = new Set();
+  const turn = {
+    processingState: { status: 'streaming' },
+    isAwaitingApproval: () => false,
+    onDocumentChange: (/** @type {() => void} */ fn) => { listeners.add(fn); return () => listeners.delete(fn); },
+  };
+  g.engineApp = { getSession: () => ({ conversations: new Map([['conv-1', turn]]), events: { subscribe: () => () => {} } }) };
+  try {
+    assert(anyLocalConversationBusy(), 'precondition: the stand-in turn must count as running');
+    await body();
+  } finally {
+    turn.processingState.status = 'idle';
+    for (const fn of [...listeners]) fn();
+    if (hadEngineApp) g.engineApp = previousEngineApp;
+    else delete g.engineApp;
+  }
+}
+
+/**
+ * @param {string} name
+ * @returns {boolean} Whether the slash menu offers `/name`.
+ */
+const offered = (name) => slashCommandHandler.getCommands().some((c) => c.name === name);
 
 const STRATEGY_EXT = '@test/command-editor-strategies';
 const STRATEGY_ID = 'stand-in-strategy';
@@ -445,6 +523,93 @@ export async function runTests(_ctx) {
     } finally {
       window.fetch = originalFetch;
       resetUserCommandsCache();
+    }
+  });
+
+  /**
+   * Run one test against the real environment: it stubs only what it needs, and
+   * puts the registries back as the server describes them when it is done.
+   * @param {string} label - Test label.
+   * @param {() => Promise<void>} fn - Test body.
+   */
+  const runLive = async (label, fn) => {
+    try {
+      await whenRegistriesSettled();
+      await slashCommandHandler.init();
+      await fn();
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      neutralizeStrayOverlays();
+      await whenRegistriesSettled();
+      resetUserCommandsCache();
+      await reloadRegistries();
+    }
+  };
+
+  // A turn holds back the full registry rebuild until it ends, so the tools and
+  // strategies it is using never change under it. Nothing in a turn reads the
+  // command list, so a command saved mid-turn is offered at once.
+  await runLive('a command saved during a turn is offered before the turn ends', async () => {
+    let saved = false;
+    const restore = serveUserCommands(() => (saved ? [userDef('mid-turn')] : []), () => { saved = true; });
+    try {
+      await duringTurn(async () => {
+        const done = openCommandEditor({ name: 'mid-turn', scope: 'user' });
+        const overlay = /** @type {any} */ (document.querySelector('.command-editor-overlay'));
+        assert(!!overlay, 'the editor must mount an overlay');
+        overlay.querySelector('#cmd-description').value = 'the mid-turn command';
+        overlay.querySelector('#cmd-template').value = 'hi';
+        overlay.querySelector('#cmd-name').dispatchEvent(new Event('input'));
+        overlay.querySelector('#cmd-save').click();
+        await done;
+        assert(saved, 'saving must write the command');
+        await waitFor(() => offered('mid-turn'), { description: 'the saved command in the slash menu while the turn runs' });
+      });
+    } finally {
+      // A rebuild the turn's end released reads the stub too.
+      await whenRegistriesSettled();
+      restore();
+    }
+  });
+
+  // A file the define_command tool or an editor writes reaches the viewer as a
+  // plugin-changed broadcast, which the same refresh answers. Each refresh
+  // replaces the set the last one registered, so a deleted command goes, a
+  // repeat (or overlapping) refresh does not collide with itself, and a name a
+  // built-in holds is refused for exactly as long as the file claims it.
+  await runLive('refreshing user commands replaces the set it registered', async () => {
+    const builtin = slashCommandHandler.getCommands().find((c) => !c.userDefined)?.name;
+    assert(!!builtin, 'precondition: a built-in command to collide with');
+    const BuiltinClass = commandRegistry.get(builtin);
+    /** @type {any[]} */
+    let listed = [userDef('alpha'), userDef('beta')];
+    const restore = serveUserCommands(() => listed);
+    const ownFailures = () => commandRegistry.getFailedModules().filter((f) => f.path.startsWith('user-command:'));
+    try {
+      await duringTurn(async () => {
+        await Promise.all([commandRegistry.refreshUserCommands(), commandRegistry.refreshUserCommands()]);
+        assert(offered('alpha') && offered('beta'), 'both commands must be offered');
+        assert(ownFailures().length === 0, `a repeat refresh must not collide with itself: ${JSON.stringify(ownFailures())}`);
+
+        listed = [userDef('beta')];
+        await commandRegistry.refreshUserCommands();
+        assert(!offered('alpha') && offered('beta'), 'a command whose file went must go with it');
+
+        listed = [userDef('beta'), userDef(builtin)];
+        await commandRegistry.refreshUserCommands();
+        assert(commandRegistry.get(builtin) === BuiltinClass, `a user command must not shadow the built-in /${builtin}`);
+        assert(ownFailures().length === 1, `the collision must be reported, got ${JSON.stringify(ownFailures())}`);
+
+        listed = [];
+        await commandRegistry.refreshUserCommands();
+        assert(!offered('beta') && commandRegistry.get(builtin) === BuiltinClass, 'an empty list must leave only the built-ins');
+        assert(ownFailures().length === 0, `a collision must clear once its file goes: ${JSON.stringify(ownFailures())}`);
+      });
+    } finally {
+      restore();
     }
   });
 

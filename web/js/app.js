@@ -26,6 +26,7 @@ import {
   newlyFailedModules,
   anyLocalConversationBusy,
 } from './registries/reload-registries.js';
+import commandRegistry from './registries/command-registry.js';
 import actionExecutor from './services/action-executor.js';
 import workerManager from './services/worker-manager.js';
 import { CLOSE_FLUSH_ACK_TIMEOUT_MS } from './utils/constants.js';
@@ -291,7 +292,13 @@ class JugglerApp {
     // Listen for plugin file changes (hot reload). The reload itself is silent:
     // the user edited the file, so being told it changed is no news. Only a
     // capability that would not load is worth interrupting for.
+    //
+    // The user commands are re-read at once, before the full rebuild: that
+    // waits for any running turn to end, and a command the define_command tool
+    // just wrote mid-turn should not. One cheap fetch, so it is not worth
+    // working out from the path whether a command file is what changed.
     wsService.on('plugin-changed', async () => {
+      void commandRegistry.refreshUserCommands();
       console.info('[Juggler] Plugin changed — reloading registries');
       await reloadRegistries();
       console.info('[Juggler] Plugin registries reloaded');

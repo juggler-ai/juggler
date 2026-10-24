@@ -12,9 +12,10 @@
  * @module components/command-editor-dialog
  */
 
-import { writeUserCommand, deleteUserCommand, fetchUserCommands, resetUserCommandsCache, USER_COMMAND_NAME_RE } from '../services/user-commands.js';
+import { writeUserCommand, deleteUserCommand, fetchUserCommands, USER_COMMAND_NAME_RE } from '../services/user-commands.js';
 import { expandTemplate, resolveModelConfig } from '../plugins/user-command-factory.js';
-import { reloadRegistries, REGISTRIES_RELOADED } from '../registries/reload-registries.js';
+import { REGISTRIES_RELOADED } from '../registries/reload-registries.js';
+import commandRegistry, { USER_COMMANDS_REFRESHED } from '../registries/command-registry.js';
 import slashCommandHandler from '../services/slash-command-handler.js';
 import strategyRegistry from '../registries/strategy-registry.js';
 import providersCache from '../services/providers-cache.js';
@@ -80,23 +81,15 @@ function builtinCommandIds() {
 }
 
 /**
- * Apply a command write/delete to the live registries after the file is already
- * on disk. Resets the user-commands cache synchronously (so the very next
- * {@link fetchUserCommands} re-reads the change) and kicks the registry rebuild
- * off WITHOUT awaiting it.
- *
- * `reloadRegistries()` defers its rebuild to local quiescence — it never
- * resolves while a conversation is mid-turn, and can reject if a plugin's
- * init() throws. Awaiting it would leave the dialog stuck open and the manager
- * re-reading a stale cache, so the just-saved edit appears lost. The rebuild
- * still applies live once quiescent; the UI just doesn't block on it. Mirrors
- * skills-tab's `_afterMutation`.
+ * Apply a command write/delete to the slash menu once the file is on disk. Only
+ * the user commands are re-read — not the full registry rebuild, which waits
+ * for any running turn to end — so the change is live by the time the dialog
+ * closes, mid-turn or not. Other clients hear of it from the server's
+ * plugin-changed broadcast.
+ * @returns {Promise<void>}
  */
-function refreshRegistries() {
-  resetUserCommandsCache();
-  reloadRegistries().catch((err) => {
-    console.warn('[Commands] registry reload after mutation failed:', err);
-  });
+function refreshUserCommands() {
+  return commandRegistry.refreshUserCommands();
 }
 
 /**
@@ -301,7 +294,7 @@ export function openCommandEditor(options = {}) {
           { danger: true, confirmText: t('Delete') });
         if (!ok) return;
         await deleteUserCommand(/** @type {any} */ (def?.scope), /** @type {any} */ (def?.name));
-        refreshRegistries();
+        await refreshUserCommands();
         close({ deleted: /** @type {string} */ (def?.name) });
       });
     }
@@ -334,7 +327,7 @@ export function openCommandEditor(options = {}) {
         if (editing && def && (def.name !== name || def.scope !== scope)) {
           await deleteUserCommand(/** @type {any} */ (def.scope), def.name);
         }
-        refreshRegistries();
+        await refreshUserCommands();
         close(name);
         return;
       }
@@ -409,13 +402,18 @@ export function openCommandManager() {
 
     // Live-refresh across clients: any command file changing on disk — from this
     // client, another connected client, or an external edit — is broadcast by
-    // the server as plugin-changed, driving reloadRegistries → REGISTRIES_RELOADED.
-    // Re-render on that signal so an open manager tracks the change instead of
-    // showing a stale list. The rebuild resets the user-commands cache before
-    // dispatching, so render()'s fetch re-reads fresh from disk.
-    const onRegistriesReloaded = () => { render(); };
-    document.addEventListener(REGISTRIES_RELOADED, onRegistriesReloaded);
-    stopLiveRefresh = () => document.removeEventListener(REGISTRIES_RELOADED, onRegistriesReloaded);
+    // the server as plugin-changed, which re-reads the user commands at once
+    // (USER_COMMANDS_REFRESHED) and rebuilds every registry once no turn is
+    // running (REGISTRIES_RELOADED). Re-render on either so an open manager
+    // tracks the change instead of showing a stale list. Both reset the
+    // user-commands cache before dispatching, so render()'s fetch is fresh.
+    const onCommandsChanged = () => { render(); };
+    document.addEventListener(USER_COMMANDS_REFRESHED, onCommandsChanged);
+    document.addEventListener(REGISTRIES_RELOADED, onCommandsChanged);
+    stopLiveRefresh = () => {
+      document.removeEventListener(USER_COMMANDS_REFRESHED, onCommandsChanged);
+      document.removeEventListener(REGISTRIES_RELOADED, onCommandsChanged);
+    };
 
     overlay.querySelector('#cmd-manager-new')?.addEventListener('click', async () => {
       await openCommandEditor({});
@@ -480,7 +478,7 @@ function userGroup(title, defs, refresh) {
         { danger: true, confirmText: t('Delete') });
       if (!ok) return;
       await deleteUserCommand(/** @type {any} */ (def.scope), def.name);
-      refreshRegistries();
+      await refreshUserCommands();
       refresh();
     });
     actions.append(edit, del);

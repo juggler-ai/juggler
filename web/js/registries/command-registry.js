@@ -4,8 +4,16 @@
 
 import BaseRegistry from './base-registry.js';
 import { getExtensionCapabilities } from '../services/extensions.js';
-import { getRegisterableUserCommands } from '../services/user-commands.js';
+import { getRegisterableUserCommands, resetUserCommandsCache } from '../services/user-commands.js';
 import { makeUserCommandClass } from '../plugins/user-command-factory.js';
+
+/**
+ * DOM event dispatched (viewer realm only) once a user-command pass has
+ * registered a fresh list — after {@link CommandRegistry#refreshUserCommands}
+ * and after a rebuild's own pass. Lets UI listing user commands follow a change
+ * mid-turn, when the full rebuild's REGISTRIES_RELOADED is still waiting.
+ */
+export const USER_COMMANDS_REFRESHED = 'user-commands-refreshed';
 
 /**
  * CommandRegistry - JavaScript-based command registry system
@@ -28,6 +36,31 @@ class CommandRegistry extends BaseRegistry {
      * @private
      */
     this._aliasMap = new Map();
+
+    /**
+     * The ids the last user-command pass registered (or kept as disabled), and
+     * the failed-module keys it recorded, so the next pass can replace exactly
+     * that set and leave built-in and extension commands alone.
+     * @type {{ids: Set<string>, failures: Set<string>}}
+     * @private
+     */
+    this._userCommands = { ids: new Set(), failures: new Set() };
+
+    /**
+     * Numbers each user-command pass, so of passes whose fetches overlap only
+     * the latest one applies its list.
+     * @type {number}
+     * @private
+     */
+    this._userCommandsPass = 0;
+
+    /**
+     * The latest user-command pass, which a superseded pass waits for so that
+     * its caller still returns only once the newest list is registered.
+     * @type {Promise<void>}
+     * @private
+     */
+    this._userCommandsLatest = Promise.resolve();
   }
 
   /**
@@ -55,11 +88,10 @@ class CommandRegistry extends BaseRegistry {
    */
   async init() {
     // Guard the whole override, not just super.init(): user commands are a
-    // second registration source outside super's early-return, so a repeat
-    // init() (e.g. the slash-command handler's own init) would re-run
-    // _registerUserCommands() against an un-cleared item map and every command
-    // would collide with its own first registration. reset() clears
-    // this.initialized, so hot-reload still re-runs everything.
+    // second registration source outside super's early-return, so without it
+    // every repeat init() (e.g. the slash-command handler's own) would refetch
+    // them. reset() clears this.initialized, so hot-reload still re-runs
+    // everything; refreshUserCommands() is the way to re-read them alone.
     if (this.initialized) return;
     await super.init();
     await this._registerUserCommands();
@@ -81,25 +113,96 @@ class CommandRegistry extends BaseRegistry {
   }
 
   /**
+   * Re-read the user-defined commands from the server and swap them in, without
+   * the full registry rebuild and without waiting for a running turn to end.
+   *
+   * The full rebuild (reloadRegistries) defers to quiescence because strategies
+   * and context items are what a running turn is using. Nothing in a turn reads
+   * the command list — commands are run by the user, from the composer — so a
+   * command saved mid-turn, by the editor or by the define_command tool, is
+   * offered at once. Built-in and extension commands are untouched.
+   *
+   * While a load pass is under way this does nothing: that pass registers user
+   * commands itself once the module-loaded set is in, from a fetch that starts
+   * after this one.
+   * @returns {Promise<void>} Resolves once the newest list is registered.
+   */
+  refreshUserCommands() {
+    resetUserCommandsCache();
+    return this._registerUserCommands();
+  }
+
+  /**
    * Fetch the registerable user-command definitions (valid, project-shadowed)
-   * and register a synthesised class for each. Failures are non-fatal — a broken
-   * definition never blocks the built-in commands from loading.
+   * and replace the previously registered user commands with them. Failures are
+   * non-fatal — a broken definition never blocks the built-in commands.
+   *
+   * Every pass replaces the set the last one registered, so passes that overlap
+   * (a hot reload's init beside an editor save) converge on the newest list
+   * rather than colliding with each other's registrations.
    * @returns {Promise<void>}
    * @private
    */
-  async _registerUserCommands() {
-    try {
-      const defs = await getRegisterableUserCommands();
-      for (const def of defs) {
-        const CommandClass = makeUserCommandClass(def);
-        this.registerClass(CommandClass, {
-          extensionId: null,
-          modulePath: `user-command:${def.scope}/${def.name}`,
-        });
+  _registerUserCommands() {
+    const pass = ++this._userCommandsPass;
+    const run = (async () => {
+      /** @type {import('../services/user-commands.js').UserCommandDef[]} */
+      let defs;
+      try {
+        defs = await getRegisterableUserCommands();
+      } catch (err) {
+        console.warn('[CommandRegistry] Failed to fetch user commands:', err);
+        return;
       }
-    } catch (err) {
-      console.warn('[CommandRegistry] Failed to register user commands:', err);
+      if (pass !== this._userCommandsPass) {
+        await this._userCommandsLatest;
+        return;
+      }
+      // Not loaded (or reset since): registering now would let a user command
+      // claim an id before the built-in that owns it arrives.
+      if (!this.initialized) return;
+      this._replaceUserCommands(defs);
+      // The engine worker has no document; only a viewer has anything to repaint.
+      if (typeof document !== 'undefined') {
+        document.dispatchEvent(new CustomEvent(USER_COMMANDS_REFRESHED));
+      }
+    })();
+    this._userCommandsLatest = run;
+    return run;
+  }
+
+  /**
+   * Unregister the user commands the last pass registered and register `defs`
+   * in their place. A definition colliding with a built-in or extension command
+   * is refused and recorded as a failed module, as registerClass does.
+   * @param {import('../services/user-commands.js').UserCommandDef[]} defs - Registerable definitions
+   * @private
+   */
+  _replaceUserCommands(defs) {
+    for (const id of this._userCommands.ids) {
+      this.items.delete(id);
+      this._disabledItems.delete(id);
+      this.modulePaths.delete(id);
+      this.itemExtensions.delete(id);
     }
+    for (const key of this._userCommands.failures) this._failedModules.delete(key);
+    this._userCommands = { ids: new Set(), failures: new Set() };
+
+    for (const def of defs) {
+      const modulePath = `user-command:${def.scope}/${def.name}`;
+      const outcome = this.registerClass(makeUserCommandClass(def), { extensionId: null, modulePath });
+      if (outcome.registered || outcome.disabled) this._userCommands.ids.add(def.name);
+      else this._userCommands.failures.add(modulePath);
+    }
+    this._buildAliasMap();
+  }
+
+  /**
+   * @override
+   */
+  reset() {
+    super.reset();
+    this._userCommands = { ids: new Set(), failures: new Set() };
   }
 
   /**

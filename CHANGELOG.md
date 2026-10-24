@@ -17,6 +17,8 @@ of changes; this project follows semantic versioning.
 - A `juggler run` reply cut off at Max output before acting is told to continue
 - A model call still streaming output is no longer cut off after 30 minutes
 - `juggler run` no longer hangs when its new conversation syncs before it opens
+- One undo always takes back a finished sub-thread's reply together with its result
+- A duplicated conversation can no longer open empty in another window
 
 ## [0.7.8] - 2026-10-23
 

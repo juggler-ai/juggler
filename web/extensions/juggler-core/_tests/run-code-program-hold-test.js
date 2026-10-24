@@ -21,7 +21,7 @@ import contextItemRegistry from '../../../js/registries/context-item-registry.js
 import { programChangeReport } from '../../../js/utils/program-changes.js';
 import { decideToolCall } from '../../../js/model/conversation-tool-actions.js';
 import { handOverToHeldCall } from '../../../js/services/worker-manager-protocols.js';
-import { runProgramSuite } from './run-code-program-helpers.js';
+import { runProgramSuite, ended } from './run-code-program-helpers.js';
 
 /**
  * Run this suite's run_code program cases.
@@ -92,7 +92,7 @@ export async function runTests(_ctx) {
       const button = always[0];
       const answeredAt = Date.now();
       answerHeld(conversation, mt, id, 'yes-always', { extra: { approvalRules: button.rules, approvalItemType: button.itemType } });
-      const done = await finished;
+      const done = await ended(finished);
       assert(done.state === 'completed' && !done.result?.isError, `the program finishes: ${JSON.stringify(done.result)}`);
       const [seen, ran, startedAt] = String(done.result?.content).split('|');
       assert(seen === 'hello world' && ran === 'ran', `it saw its own read and the real run: ${done.result?.content}`);
@@ -135,7 +135,7 @@ export async function runTests(_ctx) {
         delivered = handOverToHeldCall(conversation, mt, ymap, id);
       });
       if (!delivered) mt.refuseApproval(id, 'not approved by the rule');
-      const done = await finished;
+      const done = await ended(finished);
       assert(state === 'approved' && delivered, `the saved rule approves the held call: ${state}`);
       assert(done.state === 'completed' && done.result?.content === 'ran', `and the program goes on: ${JSON.stringify(done.result)}`);
     });
@@ -150,7 +150,7 @@ export async function runTests(_ctx) {
       const finished = startAsAction(conversation, mt, id);
       await waitHeld(mt, id, 'bash');
       assert(mt.refuseApproval(id, 'Refused: nobody here to ask.'), 'the refusal is written');
-      const done = await finished;
+      const done = await ended(finished);
       assert(done.state === 'completed' && done.result?.isError && done.result?.content === 'Refused: nobody here to ask.',
         `the refusal stands: ${done.state} ${JSON.stringify(done.result)}`);
       assert(await absent(log), 'the held call did not run');
@@ -175,7 +175,7 @@ export async function runTests(_ctx) {
       const pastTimeoutMs = 4000 + 500 - (Date.now() - started);
       if (pastTimeoutMs > 0) await new Promise((resolve) => setTimeout(resolve, pastTimeoutMs));
       answerHeld(conversation, mt, id, 'yes');
-      const done = await finished;
+      const done = await ended(finished);
       assert(done.state === 'completed' && done.result?.content === 'done',
         `a program that waited past its timeout for the user still finishes: ${JSON.stringify(done.result)}`);
     });
@@ -199,7 +199,7 @@ export async function runTests(_ctx) {
       const finished = startAsAction(conversation, mt, id);
       await waitHeld(mt, id, 'bash');
       await writeFile({ path: flag, content: 'go' });
-      const done = await finished;
+      const done = await ended(finished);
       assert(done.state === 'completed' && done.result?.content === 'left', `it completes: ${done.state} ${JSON.stringify(done.result)}`);
       assert(!done.heldCall && !done.approvalOptions, `with no card left on it: ${JSON.stringify(done)}`);
       assert(await absent(log), 'the held call never ran');

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -146,6 +147,31 @@ func TestHandleCreateConversation_PlaceHeadIsExplicit(t *testing.T) {
 	want := []string{id, c, b, a}
 	if got := mgr.GetSession().ConversationOrder; !slices.Equal(got, want) {
 		t.Fatalf("order = %v, want %v — a create that names the head goes to the head", got, want)
+	}
+}
+
+// TestHandleCreateConversation_DuplicateCarriesTheSource covers the create that
+// starts with content: the clone holds the source's document when the response
+// names it, and is ordered where it was asked to go.
+func TestHandleCreateConversation_DuplicateCarriesTheSource(t *testing.T) {
+	api, mgr, ids := newPlacementFixture(t)
+	a, b, c := ids[0], ids[1], ids[2]
+	srcDir, _ := mgr.ConvDir(b)
+	if err := os.WriteFile(core.ConvDocPath(srcDir), []byte("the source's document"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	id := createConvVia(t, api, `{"name":"B copy","duplicateFrom":"`+b+`","after":"`+b+`"}`)
+
+	dstDir, ok := mgr.ConvDir(id)
+	if !ok {
+		t.Fatalf("no folder for the clone %s", id)
+	}
+	if data, _ := os.ReadFile(core.ConvDocPath(dstDir)); string(data) != "the source's document" {
+		t.Errorf("clone doc.yjs = %q, want the source's", data)
+	}
+	if got, want := mgr.GetSession().ConversationOrder, []string{c, b, id, a}; !slices.Equal(got, want) {
+		t.Errorf("order = %v, want %v", got, want)
 	}
 }
 

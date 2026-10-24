@@ -453,6 +453,54 @@ func (p ConversationPlacement) indexIn(order []string) int {
 // head is right for a conversation of the project's and wrong for one made
 // inside a workspace box, which belongs beside the rest of that box.
 func (m *SessionManager) CreateConversationAt(name, requestedID string, place ConversationPlacement) (string, string, error) {
+	return m.CreateConversationFilled(name, requestedID, place, nil)
+}
+
+// CreateConversationFilled is CreateConversationAt for a conversation that
+// starts with content — a duplicate. fill runs once the folder exists and
+// before the id enters ConversationOrder, so nothing can load the conversation
+// until it holds what fill put there. The order is what every viewer reads
+// (the session document, and the refresh any client runs on a reconnect or a
+// sibling's session change), and a load that lands on the folder's zero-byte
+// doc.yjs starts a worker on an empty document that never reads the copy.
+//
+// fill runs outside the session actor: it may flush a worker, whose save goes
+// through it. When fill fails the id is not added, and the folder is left for
+// the next load's reconcile, as a crash between the two would leave it.
+func (m *SessionManager) CreateConversationFilled(name, requestedID string, place ConversationPlacement, fill func(id string) error) (string, string, error) {
+	if fill == nil {
+		return m.createConversationOrdered(name, requestedID, place)
+	}
+	created, err := runWrite(m, func(s *sessionState) (pair[string, string], error) {
+		id, finalName, _, err := s.store.CreateConversationFolder(name, requestedID)
+		return pair[string, string]{id, finalName}, err
+	})
+	if err != nil {
+		return "", "", err
+	}
+	id, finalName := created.a, created.b
+	if err := fill(id); err != nil {
+		return "", "", err
+	}
+	_, err = runWrite(m, func(s *sessionState) (struct{}, error) {
+		if _, ok := s.store.ConvDir(id); !ok {
+			return struct{}{}, fmt.Errorf("conversation %s left the session while it was filled", id)
+		}
+		if !slices.Contains(s.session.ConversationOrder, id) {
+			at := place.indexIn(s.session.ConversationOrder)
+			s.session.ConversationOrder = slices.Insert(s.session.ConversationOrder, at, id)
+		}
+		return struct{}{}, s.store.Save(s.session)
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return id, finalName, nil
+}
+
+// createConversationOrdered creates the folder and enters the id into
+// ConversationOrder in one actor step.
+func (m *SessionManager) createConversationOrdered(name, requestedID string, place ConversationPlacement) (string, string, error) {
 	r, err := runWrite(m, func(s *sessionState) (pair[string, string], error) {
 		id, finalName, _, err := s.store.CreateConversationFolder(name, requestedID)
 		if err != nil {

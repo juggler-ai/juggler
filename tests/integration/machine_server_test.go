@@ -241,7 +241,7 @@ func TestMachineServerDrivesASessionInABrowser(t *testing.T) {
 		PostedUnder string   `json:"postedUnder"`
 	}
 	if err := helpers.PollJSON(ms.Addr, prefix+"/api/test/result?name="+name, 120*time.Second, &result, nil); err != nil {
-		t.Fatalf("waiting for %s through the proxy: %v", name, err)
+		t.Fatalf("waiting for %s through the proxy: %v\n%s", name, err, ms.whereTheLaneStopped(prefix, name))
 	}
 	// The test queue is the child's own, so a lane that loaded the child
 	// directly would run the test too. Only a lane served through the proxy
@@ -409,7 +409,7 @@ func TestMachineServerLaunchesTwoSessionsFromThePage(t *testing.T) {
 	for range sessions {
 		o := <-done
 		if o.err != nil {
-			t.Errorf("%s: %v", o.prefix, o.err)
+			t.Errorf("%s: %v\n%s", o.prefix, o.err, ms.whereTheLaneStopped(o.prefix, name))
 			continue
 		}
 		if o.result.PostedUnder != o.prefix {

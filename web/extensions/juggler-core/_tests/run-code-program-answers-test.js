@@ -17,7 +17,7 @@ import { assert } from '../../../js-tests/utilities/test-helpers.js';
 import { readFile } from '../../../js/services/ops-api.js';
 import actionExecutor from '../../../js/services/action-executor.js';
 import YoloStrategyType from '../strategies/yolo-strategy-type.js';
-import { runProgramSuite, waitUntil } from './run-code-program-helpers.js';
+import { runProgramSuite, ended, waitUntil } from './run-code-program-helpers.js';
 
 /**
  * Run this suite's run_code program cases.
@@ -36,7 +36,7 @@ export async function runTests(_ctx) {
       const finished = startAsAction(conversation, mt, id);
       await waitHeld(mt, id, 'bash');
       assert(mt.resolveApproval(id, 'no'), 'the denial is written');
-      const done = await finished;
+      const done = await ended(finished);
       assert(done.state === 'cancelled' && done.result?.content === 'Action was cancelled.',
         `the denial is the item's result, not overwritten by the program's: ${done.state} ${JSON.stringify(done.result)}`);
       assert(await absent(log), 'neither the held call nor anything after it ran');
@@ -57,7 +57,7 @@ export async function runTests(_ctx) {
       const finished = startAsAction(conversation, mt, id);
       await waitHeld(mt, id, 'bash');
       mt.transact(() => mt.updateToolActionState(id, 'cancelled'));
-      const done = await finished;
+      const done = await ended(finished);
       assert(done.state === 'cancelled', `the cancel stands: ${done.state} ${JSON.stringify(done.result)}`);
       await waitUntil(() => !actionExecutor.runningActionFor(id, conversation.id), 'the program to end');
       assert(await absent(log), 'the held call never ran');
@@ -86,7 +86,7 @@ export async function runTests(_ctx) {
           for (const field of ['approvalResponse', 'approvalOptions', 'displayData', 'hooks']) ymap.delete(field);
         }
       });
-      const done = await finished;
+      const done = await ended(finished);
       assert(done.state === 'completed' && done.result?.content === 'done', `it runs under the new strategy: ${JSON.stringify(done.result)}`);
       const ran = await readFile({ path: log });
       assert(String(ran.content) === 'x', `once: ${JSON.stringify(ran.content)}`);
@@ -114,7 +114,7 @@ export async function runTests(_ctx) {
       assert(again.heldCall.input.command === command, `the same call waits again: ${JSON.stringify(again.heldCall)}`);
       assert(await absent(log), 'it did not run on the program\'s approval');
       assert(mt.resolveApproval(id, 'no'), 'the denial is written');
-      const done = await finished;
+      const done = await ended(finished);
       assert(done.state === 'cancelled', `denied, it ends: ${done.state}`);
       assert(await absent(log), 'and never ran');
     });
@@ -159,7 +159,7 @@ export async function runTests(_ctx) {
       const finished = startAsAction(conversation, mt, id);
       await waitHeld(mt, id, 'AskUserQuestion');
       answerHeld(conversation, mt, id, 'B');
-      const done = await finished;
+      const done = await ended(finished);
       assert(done.result?.content === 'answer: Pick: B', `the answer reaches the program: ${JSON.stringify(done.result)}`);
       const ran = await readFile({ path: file });
       assert(String(ran.content) === 'x', `bash ran once: ${JSON.stringify(ran.content)}`);

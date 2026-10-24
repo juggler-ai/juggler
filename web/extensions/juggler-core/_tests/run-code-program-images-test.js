@@ -16,7 +16,7 @@
 import { assert } from '../../../js-tests/utilities/test-helpers.js';
 import { writeFile } from '../../../js/services/ops-api.js';
 import QueryCodeContextItem from '../context-items/query-code-context-item.js';
-import { runProgramSuite, waitUntil } from './run-code-program-helpers.js';
+import { runProgramSuite, ended, waitUntil } from './run-code-program-helpers.js';
 
 /**
  * Run this suite's run_code program cases.
@@ -58,7 +58,7 @@ export async function runTests(_ctx) {
       await waitUntil(() => mt.getToolAction(id)?.toJSON().reviewStatus?.busy === false, 'the review to close');
       assert(mt.getToolAction(id).toJSON().reviewStatus.label === 'declined: writes outside the project', 'its note stays in the card');
       answerHeld(conversation, mt, id, 'yes');
-      const done = await finished;
+      const done = await ended(finished);
       assert(done.state === 'completed' && done.result?.content === 'done', `approving finishes it: ${JSON.stringify(done.result)}`);
     });
 
@@ -130,7 +130,7 @@ export async function runTests(_ctx) {
       const held = heldOf(mt, id);
       assert(held.length === 1 && /^[0-9a-f]{64}$/.test(held[0]), `while it waits, the item holds the image: ${JSON.stringify(held)}`);
       answerHeld(conversation, mt, id, 'yes');
-      const done = await finished;
+      const done = await ended(finished);
       assert(done.state === 'completed' && done.result?.content?.startsWith('shown'), `it finishes: ${JSON.stringify(done.result)}`);
       const attachments = mt.getToolAction(id).get('attachments');
       const refs = attachments?.toJSON ? attachments.toJSON() : attachments;

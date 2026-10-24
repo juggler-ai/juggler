@@ -1089,17 +1089,19 @@ func (w *ConversationWorker) settleThreadRun(threadItemID string, cancelled bool
 			starterCall = yMapString(open[len(open)-1], keyRunToolUseID)
 		}
 		contextTokens, resultTokens := threadTokenFigures(items, result)
-		w.doc.transactTracked(func(_ *ycrdt.Transaction) {
-			for _, m := range open {
-				m.Set(keyRunStatus, status)
-				m.Set(keyRunResult, result)
-			}
-			if summarises && result != threadResult {
-				threadYMap.Set(keyResult, result)
-			}
-			threadYMap.Set(keyContextTokens, ycrdt.Number(contextTokens))
-			threadYMap.Set(keyResultTokens, ycrdt.Number(resultTokens))
-			w.reportRunToParentLocked(threadItemID, threadYMap, starterID, starterCall, status, result)
+		w.tracker.settleIntoThreadGroupLocked(threadItemID, func() {
+			w.doc.transactTracked(func(_ *ycrdt.Transaction) {
+				for _, m := range open {
+					m.Set(keyRunStatus, status)
+					m.Set(keyRunResult, result)
+				}
+				if summarises && result != threadResult {
+					threadYMap.Set(keyResult, result)
+				}
+				threadYMap.Set(keyContextTokens, ycrdt.Number(contextTokens))
+				threadYMap.Set(keyResultTokens, ycrdt.Number(resultTokens))
+				w.reportRunToParentLocked(threadItemID, threadYMap, starterID, starterCall, status, result)
+			})
 		})
 		wrote = true
 	})

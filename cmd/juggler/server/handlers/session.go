@@ -552,8 +552,23 @@ func (api *SessionAPI) HandleCreateConversation(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	id, finalName, err := api.manager().CreateConversationAt(
-		req.Name, req.ID, core.PlacementFor(req.Place, req.After))
+	// A duplicate is filled before it is ordered (CreateConversationFilled):
+	// until the copy is in, nothing can find the id to load it.
+	var fill func(id string) error
+	var dupErr error
+	if req.DuplicateFrom != "" {
+		fill = func(id string) error {
+			dupErr = api.duplicateConversationFiles(req.DuplicateFrom, id)
+			return dupErr
+		}
+	}
+	id, finalName, err := api.manager().CreateConversationFilled(
+		req.Name, req.ID, core.PlacementFor(req.Place, req.After), fill)
+	if dupErr != nil {
+		jlog.Error("[session.Duplicate] conv=%s failed: %v", req.DuplicateFrom, dupErr)
+		WriteMessageError(w, r, http.StatusInternalServerError, msg.New("Couldn't duplicate conversation: {detail}", "detail", dupErr.Error()))
+		return
+	}
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, core.ErrInvalidConvID) {
@@ -577,11 +592,6 @@ func (api *SessionAPI) HandleCreateConversation(w http.ResponseWriter, r *http.R
 		id, finalName, origin, req.DuplicateFrom, r.RemoteAddr, r.UserAgent(), r.URL.Query().Get("lane"))
 
 	if req.DuplicateFrom != "" {
-		if err := api.duplicateConversationFiles(req.DuplicateFrom, id); err != nil {
-			jlog.Error("[session.Duplicate] conv=%s → %s failed: %v", req.DuplicateFrom, id, err)
-			WriteMessageError(w, r, http.StatusInternalServerError, msg.New("Couldn't duplicate conversation: {detail}", "detail", err.Error()))
-			return
-		}
 		jlog.Info("[session.Duplicate] conv=%s → %s (server-side file copy)", req.DuplicateFrom, id)
 	}
 

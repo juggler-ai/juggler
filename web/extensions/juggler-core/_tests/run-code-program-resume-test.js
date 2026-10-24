@@ -17,7 +17,7 @@ import { assert } from '../../../js-tests/utilities/test-helpers.js';
 import { writeFile, readFile, loadProgramSnapshot } from '../../../js/services/ops-api.js';
 import { dropSnapshot } from '../context-items/run-code-context-item.js';
 import { programChangeReport } from '../../../js/utils/program-changes.js';
-import { runProgramSuite } from './run-code-program-helpers.js';
+import { runProgramSuite, ended } from './run-code-program-helpers.js';
 
 /**
  * Run this suite's run_code program cases.
@@ -107,7 +107,7 @@ export async function runTests(_ctx) {
       answerHeld(conversation, mt, id, 'yes');
       const second = await waitHeld(mt, id, 'bash', (t) => t.heldCall.input.command !== first.heldCall.input.command);
       answerHeld(conversation, mt, id, 'yes');
-      const done = await finished;
+      const done = await ended(finished);
       const held = [first, second].map((p) => p.heldCall?.input?.command);
       assert(held.every((c) => commands.includes(c)) && held[0] !== held[1], `it asks once about each command: ${JSON.stringify(held)}`);
       const [a, b, startedAt] = String(done.result?.content).split('|');
@@ -248,7 +248,7 @@ export async function runTests(_ctx) {
         await waitHeld(mt, id, 'bash');
         assert(!(await snapshotOf(item)), 'no snapshot was kept');
         answerHeld(conversation, mt, id, 'yes');
-        return finished;
+        return ended(finished);
       });
       assert(done.state === 'completed' && done.result?.content === 'ran', `it finishes: ${JSON.stringify(done.result)}`);
       assert(String((await readFile({ path: log })).content) === 'x', 'the call ran once');
@@ -280,7 +280,7 @@ export async function runTests(_ctx) {
       assert(journal[0]?.key === 'tools.bash' && journal[0]?.ok && journal[1]?.pending && kept.heldStep === 1,
         `the write is in the snapshot, answered: ${JSON.stringify(kept)}`);
       answerHeld(conversation, mt, id, 'B');
-      const done = await finished;
+      const done = await ended(finished);
       assert(done.result?.content === 'answer: Pick: B', `the program finishes: ${JSON.stringify(done.result)}`);
       const ran = await readFile({ path: file });
       assert(String(ran.content) === 'startend', `the write ran once: ${JSON.stringify(ran.content)}`);

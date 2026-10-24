@@ -16,6 +16,28 @@ import { testDirFor } from '../utilities/integration-test-runner.js';
 
 const TD_editToolCompletes = testDirFor('edit-tool-completes');
 
+/**
+ * The bash command of a cancel-then-rerun test. Its first run prints
+ * "started" and then sleeps far longer than any cancel takes to land, so the
+ * cancel always finds it running; the rerun finds the marker the first run
+ * left and finishes at once. A first run that can end by itself races the
+ * cancel, and when it wins, the worker rightly continues the original turn on
+ * the result, spending the response the rerun was given.
+ *
+ * Cancel only once the output shows "started" (wait-for-action-output): the
+ * marker is made before it, so that output proves the marker exists. A tool's
+ * first progress event comes sooner, and a cancel landing then kills the run
+ * before it has left a marker, so the rerun takes the slow branch as well.
+ * @param {string} testName
+ * @returns {string} the command, with a marker path unique to this realm
+ */
+function slowFirstRunCommand(testName) {
+  const dir = testDirFor(testName);
+  const marker = `${dir}/.first-run-${Math.random().toString(36).slice(2)}`;
+  return `mkdir -p ${dir}; if [ -e ${marker} ]; then rm -f ${marker}; env echo "rerun"; ` +
+    `else touch ${marker}; env echo "started"; sleep 30; fi`;
+}
+
 // ============================================================================
 // TEST 1: Re-run a completed tool
 // ============================================================================
@@ -86,7 +108,7 @@ export const rerunInterruptedToolTest = {
 
   llmResponses: [
     toolUseResponse('call_1', 'bash',
-      { command: 'env echo "started"; sleep 1' },
+      { command: slowFirstRunCommand('rerun-interrupted-tool') },
       'Running command.'
     ),
     textResponse('Done.')
@@ -98,6 +120,7 @@ export const rerunInterruptedToolTest = {
     { type: 'start-capture-progress', toolUseId: 'call_1' },
     { type: 'approve-no-wait', toolUseId: 'call_1' },
     { type: 'wait-for-progress', toolUseId: 'call_1', minEvents: 1 },
+    { type: 'wait-for-action-output', toolUseId: 'call_1', contains: 'started' },
     // Cancel mid-execution — simulates crash + CancelStaleToolActions
     // This sets result={cancelled:true} but state stays as-is
     { type: 'cancel' },
@@ -226,7 +249,7 @@ export const rerunCancelledToolNoDuplicateTest = {
   // and re-issue the command, creating a duplicate.
   llmResponses: [
     toolUseResponse('call_1', 'bash',
-      { command: 'env echo "started"; sleep 1' },
+      { command: slowFirstRunCommand('rerun-cancelled-tool-no-duplicate') },
       'Running command.'
     ),
     textResponse('Done after rerun.')
@@ -238,8 +261,10 @@ export const rerunCancelledToolNoDuplicateTest = {
     { type: 'start-capture-progress', toolUseId: 'call_1' },
     { type: 'approve-no-wait', toolUseId: 'call_1' },
     { type: 'wait-for-progress', toolUseId: 'call_1', minEvents: 1 },
+    { type: 'wait-for-action-output', toolUseId: 'call_1', contains: 'started' },
     // Cancel while running
     { type: 'cancel' },
+    { type: 'assert-tool-field', toolUseId: 'call_1', field: 'state', value: 'cancelled' },
     // Re-run = "continue from here": tool re-executes, then the strategy
     // loop auto-continues and the LLM sees the new result.
     { type: 'rerun-tool', toolUseId: 'call_1' }
@@ -432,7 +457,7 @@ export const cancelRerunCycleTest = {
 
   llmResponses: [
     toolUseResponse('call_1', 'bash',
-      { command: 'env echo "started"; sleep 1' },
+      { command: slowFirstRunCommand('cancel-rerun-cycle') },
       'Running command.'
     ),
     textResponse('Done after rerun.')
@@ -444,10 +469,12 @@ export const cancelRerunCycleTest = {
     { type: 'start-capture-progress', toolUseId: 'call_1' },
     { type: 'approve-no-wait', toolUseId: 'call_1' },
     { type: 'wait-for-progress', toolUseId: 'call_1', minEvents: 1 },
+    { type: 'wait-for-action-output', toolUseId: 'call_1', contains: 'started' },
     // Cancel while running
     { type: 'cancel' },
     // Verify worker goes idle after cancel
     { type: 'wait-for-state', condition: { processingStatus: 'idle' } },
+    { type: 'assert-tool-field', toolUseId: 'call_1', field: 'state', value: 'cancelled' },
     // Rerun after cancel — strategy loop must start immediately
     { type: 'rerun-tool', toolUseId: 'call_1' }
   ],

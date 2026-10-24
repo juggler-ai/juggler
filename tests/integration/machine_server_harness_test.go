@@ -371,6 +371,43 @@ func (ms *machineServer) stderrText() string {
 	return string(b)
 }
 
+// whereTheLaneStopped says how far a browser test queued in the session at
+// prefix got, for a wait on its result that ran out: the child's queue audit
+// (never dispatched means its window never asked for work — not loaded, or not
+// running), the machine's load as the child reads it, and the tail of each
+// session child's logs. Without them a timeout says only that nothing came back.
+func (ms *machineServer) whereTheLaneStopped(prefix, name string) string {
+	var b strings.Builder
+	client := &http.Client{Timeout: 5 * time.Second}
+	for _, path := range []string{prefix + "/api/test/audit?name=" + name, prefix + "/api/test/machine"} {
+		resp, err := client.Get("http://" + ms.Addr + path)
+		if err != nil {
+			fmt.Fprintf(&b, "GET %s: %v\n", path, err)
+			continue
+		}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+		resp.Body.Close()
+		fmt.Fprintf(&b, "GET %s → %d: %s\n", path, resp.StatusCode, bytes.TrimSpace(body))
+	}
+	logs, _ := filepath.Glob(filepath.Join(ms.Logs, "*", "server*.log"))
+	if len(logs) == 0 {
+		fmt.Fprintf(&b, "no session child logs under %s\n", ms.Logs)
+	}
+	for _, path := range logs {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(&b, "%s: %v\n", path, err)
+			continue
+		}
+		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+		if len(lines) > 40 {
+			lines = lines[len(lines)-40:]
+		}
+		fmt.Fprintf(&b, "── tail of %s ──\n%s\n", path, strings.Join(lines, "\n"))
+	}
+	return b.String()
+}
+
 // readServerInfo reads the server.json the machine server keeps under its
 // temporary HOME.
 func (ms *machineServer) readServerInfo() machineserver.ServerInfo {

@@ -34,6 +34,11 @@ type OperationTracker struct {
 	// post-delete Undo offer) has no way to notice that entry is no longer on
 	// top. The number changes on every emit, which is exactly that signal.
 	undoSeq int
+	// threadGroups holds, per thread item id, the undo group the latest message
+	// appended to that thread landed in, so the run's settle can join it
+	// (settleIntoThreadGroupLocked). Entries are by identity: one whose group has
+	// left the stack matches nothing.
+	threadGroups map[string]*ycrdt.StackItem
 }
 
 // auxiliaryTypes are inserted without starting a new undo group —
@@ -290,7 +295,50 @@ func (t *OperationTracker) AppendMessageToThread(threadItemID string, messages .
 		return false
 	}
 	t.appendMessageIntoArrayLocked(arr, messages...)
+	t.noteThreadGroupLocked(threadItemID)
 	return true
+}
+
+// noteThreadGroupLocked records the group on top of the undo stack — the one a
+// tracked append just landed in — as the thread's latest. Callers MUST hold
+// ycrdtMu.
+func (t *OperationTracker) noteThreadGroupLocked(threadItemID string) {
+	if t.undoManager == nil || len(t.undoManager.UndoStack) == 0 {
+		return
+	}
+	if t.threadGroups == nil {
+		t.threadGroups = make(map[string]*ycrdt.StackItem)
+	}
+	t.threadGroups[threadItemID] = t.undoManager.UndoStack[len(t.undoManager.UndoStack)-1]
+}
+
+// settleIntoThreadGroupLocked makes the tracked write in settle one undo step
+// with the thread's latest appended message (the reply a settled run
+// summarises), so peeling a finished thread takes the same number of undos
+// whatever the clock did. Left to the capture window, the settle joined the
+// reply only when it landed within captureTimeout of it, and the turn's
+// bookkeeping in between (a transaction record written to disk, two batcher
+// flushes) sometimes took longer.
+//
+// A group opened since by anything else — a viewer's edit, a sibling thread's
+// reply — is not the run's: the capture window is closed first so the settle
+// cannot extend it, and the settle then stays a step of its own. Callers MUST
+// hold ycrdtMu.
+func (t *OperationTracker) settleIntoThreadGroupLocked(threadItemID string, settle func()) {
+	group := t.threadGroups[threadItemID]
+	delete(t.threadGroups, threadItemID)
+	if t.undoManager == nil || group == nil {
+		settle()
+		return
+	}
+	if stack := t.undoManager.UndoStack; len(stack) == 0 || stack[len(stack)-1] != group {
+		t.stopCapturingLocked()
+		group = nil
+	}
+	settle()
+	if stack := t.undoManager.UndoStack; group != nil && len(stack) >= 2 && stack[len(stack)-2] == group {
+		t.mergeFromIndexLocked(len(stack) - 2)
+	}
 }
 
 // RemoveItemsByID deletes the items whose ids are in ids from the thread
@@ -789,6 +837,7 @@ func (t *OperationTracker) ClearHistory() {
 		return
 	}
 	t.undoManager.Clear()
+	t.threadGroups = nil
 	t.emitUndoState()
 }
 

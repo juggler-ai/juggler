@@ -64,9 +64,11 @@ import {
   initializeRegistries,
   createTestSession,
   createApprovalTestConversation,
-  assert
+  assert,
+  withTimeout
 } from '../../../js-tests/utilities/test-helpers.js';
 import { budgetFor } from '../../../js-tests/utilities/test-deadline.js';
+import { pollPatiently, trackWait, whyGivingUp } from '../../../js-tests/utilities/test-patience.js';
 import { createToolActionMessage } from '../../../sdk/lib/message.js';
 import { readFile, loadProgramSnapshot } from '../../../js/services/ops-api.js';
 import actionExecutor from '../../../js/services/action-executor.js';
@@ -91,18 +93,30 @@ import {
 let seq = 0;
 
 /**
- * Wait until `predicate` holds, within this test's budget.
+ * Wait until `predicate` holds, within this test's budget. A patient wait: it
+ * is listed while it runs, so a suite timeout names it, and a loaded machine
+ * extends it.
  * @param {() => boolean} predicate - What to wait for
  * @param {string} what - Named in the failure
  * @param {number} [nominalMs] - Nominal timeout
  * @returns {Promise<void>}
  */
 export async function waitUntil(predicate, what, nominalMs = 10000) {
-  const until = Date.now() + budgetFor(nominalMs);
-  while (!predicate()) {
-    if (Date.now() > until) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  if (await pollPatiently(predicate, { nominalMs: budgetFor(nominalMs), intervalMs: 20, what })) return;
+  throw new Error(`timed out waiting for ${what} — ${await whyGivingUp()}`);
+}
+
+/**
+ * Wait for a program started with startAsAction to end, within this test's
+ * budget. Its run is the executor's promise, and a program that never ends
+ * (a cancel that missed it, a held call nobody answers) lives for a day.
+ * @template T
+ * @param {Promise<T>} finished - The run startAsAction returned
+ * @param {string} [what] - Named in the failure
+ * @returns {Promise<T>} What the run resolved with
+ */
+export function ended(finished, what = 'the program to end') {
+  return withTimeout(finished, budgetFor(10000), what);
 }
 
 /**
@@ -300,7 +314,7 @@ export async function runProgramSuite(defineCases) {
       claimed = claimRunning(conversation, ymap);
     });
     assert(claimed, 'the claim must succeed');
-    await executeToolAction(mt, toolUseId, conversation);
+    await ended(executeToolAction(mt, toolUseId, conversation), 'the program to run to its end');
     return mt.getToolAction(toolUseId).toJSON();
   };
 
@@ -375,8 +389,9 @@ export async function runProgramSuite(defineCases) {
    * @returns {Promise<void>}
    */
   const loseEngine = async (conversation, toolUseId, finished) => {
-    actionExecutor.cancelByToolUseId(toolUseId, conversation.id);
-    await finished;
+    const cancelled = actionExecutor.cancelByToolUseId(toolUseId, conversation.id);
+    assert(cancelled === 'hit', `the program should be running to be lost, cancel said ${cancelled}`);
+    await ended(finished, 'the program to end once its engine is lost');
   };
 
   /**
@@ -424,10 +439,19 @@ export async function runProgramSuite(defineCases) {
    * @returns {Promise<void>}
    */
   const waitSnapshotGone = async (item, what) => {
-    const until = Date.now() + budgetFor(10000);
-    while (await snapshotOf(item)) {
-      if (Date.now() > until) throw new Error(`timed out waiting for ${what}`);
-      await new Promise((resolve) => setTimeout(resolve, 50));
+    // Each probe is a fetch, so this cannot be a pollPatiently (its probe is
+    // synchronous); it is listed by hand instead, and each read is bounded.
+    const close = trackWait(what);
+    let outcome = 'gave up';
+    try {
+      const until = Date.now() + budgetFor(10000);
+      while (await withTimeout(snapshotOf(item), budgetFor(5000), `a read of the snapshot, ${what}`)) {
+        if (Date.now() > until) throw new Error(`timed out waiting for ${what} — ${await whyGivingUp()}`);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      outcome = 'satisfied';
+    } finally {
+      close(outcome);
     }
   };
 

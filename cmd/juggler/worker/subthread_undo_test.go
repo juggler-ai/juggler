@@ -156,3 +156,75 @@ func TestPromotePendingIntoSubthreadIsUndoable(t *testing.T) {
 		t.Fatalf("after redo sub-thread items = %s, want the promoted message restored", itemIDs(got))
 	}
 }
+
+// TestSettledRunUndoesWithTheReplyItSummarises pins the undo step a finished
+// sub-thread run makes: its settle (the thread's result, the run record) joins
+// the group of the reply it summarises, however long the turn's bookkeeping
+// took between the two. One undo takes back the reply and the result together,
+// so peeling a completed thread costs the same number of undos on every run.
+// StopCapturing stands in for that bookkeeping outlasting the capture window.
+//
+// A group something else opened in between is not this run's to join: the
+// settle stays a step of its own rather than folding into the sibling's reply,
+// so the first undo takes back the result and leaves that reply alone.
+func TestSettledRunUndoesWithTheReplyItSummarises(t *testing.T) {
+	threadState := func(w *ConversationWorker, threadID string) (result string, items []ConversationItem) {
+		ycrdtMu.Lock()
+		defer ycrdtMu.Unlock()
+		thread := findThreadYMap(w.doc.getItems(), threadID)
+		nested, _ := yMapArray(thread, keyItems)
+		return yMapString(thread, keyResult), w.doc.getItemsFromArrayLocked(nested)
+	}
+
+	t.Run("a late settle joins the reply", func(t *testing.T) {
+		w := NewConversationWorker("test-conv", "user:test")
+		defer w.doc.Destroy()
+		w.tracker.EnsureInitialized()
+
+		threadID := insertThreadWithOpts(w, threadOpts{goal: "Work", userMessage: "do it"})
+		w.turn.thread.itemID = threadID
+		w.currentRun().appendTargetMessage(ConversationItem{Type: ItemTypeAssistant, ItemID: "reply", Content: "All done."})
+		w.tracker.StopCapturing()
+		w.settleThreadRun(threadID, false)
+		if result, _ := threadState(w, threadID); result != "All done." {
+			t.Fatalf("settled result = %q, want %q", result, "All done.")
+		}
+
+		if !w.tracker.Undo() {
+			t.Fatal("nothing to undo")
+		}
+		result, items := threadState(w, threadID)
+		if result != "" {
+			t.Errorf("result after one undo = %q, want it cleared", result)
+		}
+		for _, it := range items {
+			if it.ItemID == "reply" {
+				t.Errorf("after one undo the reply is still there (%s) — the settle was a group of its own", itemIDs(items))
+			}
+		}
+	})
+
+	t.Run("a group opened in between is not joined", func(t *testing.T) {
+		w := NewConversationWorker("test-conv", "user:test")
+		defer w.doc.Destroy()
+		w.tracker.EnsureInitialized()
+
+		threadID := insertThreadWithOpts(w, threadOpts{goal: "Work", userMessage: "do it"})
+		siblingID := insertThreadWithOpts(w, threadOpts{goal: "Other", userMessage: "and this"})
+		w.turn.thread.itemID = threadID
+		w.currentRun().appendTargetMessage(ConversationItem{Type: ItemTypeAssistant, ItemID: "reply", Content: "All done."})
+		w.tracker.AppendMessageToThread(siblingID, ConversationItem{Type: ItemTypeAssistant, ItemID: "sibling-reply", Content: "Me too."})
+		w.tracker.StopCapturing()
+		w.settleThreadRun(threadID, false)
+
+		if !w.tracker.Undo() {
+			t.Fatal("nothing to undo")
+		}
+		if result, _ := threadState(w, threadID); result != "" {
+			t.Errorf("this thread's result after one undo = %q, want it cleared", result)
+		}
+		if _, items := threadState(w, siblingID); len(items) == 0 || items[len(items)-1].ItemID != "sibling-reply" {
+			t.Errorf("sibling after one undo = %s, want its reply kept — the settle was folded into the sibling's group", itemIDs(items))
+		}
+	})
+}

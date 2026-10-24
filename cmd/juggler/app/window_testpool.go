@@ -400,6 +400,13 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 	if testWindowURL != "" {
 		mainURL = testWindowURL
 	}
+	// Every one of those but production runs test pages in a window nobody
+	// sees — the pool host, and equally the lone test window a session behind
+	// a machine server opens through its proxy — so each is kept scheduled and
+	// unthrottled when hidden, not only the pool host. Left to the default, a
+	// hidden page's event loop is throttled toward a stop, which the lone
+	// window got away with only while it had the machine to itself.
+	runsHiddenTestPages := headless && testMode
 	// Production wants the frameless / draggable title bar; the test-iframe
 	// host window is just a visible WebKit surface — let it have a normal
 	// titlebar so the dev can see "Juggler Test Pool" and resize/drag it
@@ -444,7 +451,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 		DisableFramelessWindowDecorations: false,
 	}
 
-	if headless && testMode && testIframes > 0 {
+	if runsHiddenTestPages {
 		// In the tiled test-pool this window hosts the test iframes (the
 		// engine + viewer lanes) — execution happens *here*, not just in the
 		// dedicated engine window. If the dev moves it offscreen or to another
@@ -452,7 +459,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 		// lanes stall en masse (tests time out, then "recover" once the window
 		// is visible again). Pin the scheduling policy exactly as the engine
 		// window does so the pool keeps running regardless of visibility. Scoped
-		// to the test pool: production's main UI window *should* yield CPU when
+		// to test windows: production's main UI window *should* yield CPU when
 		// hidden — its hidden engine window does the background work.
 		// KeepRunningWhenHidden gets the lanes scheduled; it does not decide how
 		// coarsely their timers fire once they are, nor whether the window they
@@ -554,8 +561,8 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 	// after the application has finished launching.
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {
 		application.InvokeAsync(func() { applyWindowChrome(win, themeColours[themeDark]) })
-		if isTestPoolHost {
-			// Only the pool host: this window's lanes do timed work nobody is
+		if runsHiddenTestPages {
+			// Only a window running test pages: they do timed work nobody is
 			// watching, so there is nothing to save by coarsening their timers,
 			// and they need the page they were sized for whether or not the
 			// platform allocates a window it never shows. A production window

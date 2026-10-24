@@ -127,6 +127,17 @@ function stateOf(mt, toolUseId) {
 }
 
 /**
+ * One call's states since insert, for an assertion that failed on a state that
+ * did arrive (stateOf prints the histories only for one that did not).
+ * @param {string} toolUseId - Its id.
+ * @returns {string} The history, `inserted … → …`.
+ */
+function trailOf(toolUseId) {
+  const trail = stateTrails.get(toolUseId);
+  return trail ? `states since insert: ${trail.seen.join(' → ')}` : 'no state history recorded';
+}
+
+/**
  * Insert an unstarted AskUserQuestion tool-action — an *elicitation*, whose
  * approval surface is a user-input form rather than a go/no-go gate.
  * @param {any} conversation - Test conversation
@@ -434,17 +445,31 @@ export async function runTests(_ctx) {
 
       const ta = mt.getToolAction(toolUseId);
       // Reviewer approved out-of-band before its promise settled.
-      mt.resolveApproval(toolUseId, 'yes');
-      assert(ta?.get('state') === TOOL_STATES.APPROVED, `should be approved, got ${stateOf(mt, toolUseId)}`);
+      assert(mt.resolveApproval(toolUseId, 'yes') === true,
+        `the parked call should take the approval, got ${stateOf(mt, toolUseId)} (${trailOf(toolUseId)})`);
 
-      // Now settle the promise: clearReviewStatus sees a non-PENDING tool and
-      // must leave it untouched (guarded no-op) — no throw, state unchanged.
-      releaseHook();
-      await gate;
-      await new Promise((r) => setTimeout(r, 0));
+      // What the clear may not do is write: no reviewStatus, no return to
+      // pending. The state itself is not the clear's to keep — this
+      // conversation's worker sends an approved call to the pool's engine,
+      // which runs it, so `running` or `completed` here is the call going
+      // ahead, and whether that lands before the next read is a race.
+      /** @type {string[]} */
+      const clearWrites = [];
+      const watchClear = (/** @type {any} */ event) => {
+        if (event.keysChanged.has('reviewStatus')) clearWrites.push('reviewStatus');
+        if (event.keysChanged.has('state') && ta?.get('state') === TOOL_STATES.PENDING) clearWrites.push('state → pending');
+      };
+      ta?.observe(watchClear);
+      try {
+        releaseHook();
+        await gate;
+        await new Promise((r) => setTimeout(r, 0));
+      } finally {
+        ta?.unobserve(watchClear);
+      }
 
-      assert(ta?.get('state') === TOOL_STATES.APPROVED,
-        `clear must not disturb a resolved tool, got ${stateOf(mt, toolUseId)}`);
+      assert(clearWrites.length === 0,
+        `clear must not write onto a resolved tool, wrote [${clearWrites.join(', ')}] (${trailOf(toolUseId)})`);
 
       passed++;
     } catch (e) {

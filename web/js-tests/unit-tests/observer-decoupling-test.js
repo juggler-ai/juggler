@@ -140,6 +140,43 @@ export async function runTests(_ctx) {
     errors.push(`observer fetches context window on modelConfig change: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  // =========================================================================
+  // Test 4: Switching to a model whose window is unknown retires the old one
+  // =========================================================================
+  // claudecode publishes a window of 0 until a turn teaches it the real one.
+  // The previous model's window must not survive the switch: the footer would
+  // divide by it, and tool output would be truncated to its budget.
+  try {
+    const conversation = await createApprovalTestConversation(session);
+    // Only the list below decides the window: the observer's own fetch would
+    // resolve against the test server's providers, at a time of its choosing.
+    conversation._fetchContextWindow = async () => {};
+    const providers = [
+      { name: 'zai', modelsWithContext: [{ id: 'glm-4.5', contextWindow: 128000 }] },
+      { name: 'claudecode', modelsWithContext: [{ id: 'opus', contextWindow: 0 }] },
+    ];
+
+    conversation.rootMessageThread.modelConfig = { provider: 'zai', model: 'glm-4.5' };
+    await waitForObservers();
+    conversation.applyProvidersContextWindow(providers);
+    assert(/** @type {any} */ (conversation).contextWindow === 128000,
+      `contextWindow should be 128000 on glm-4.5, got ${/** @type {any} */ (conversation).contextWindow}`);
+
+    conversation.rootMessageThread.modelConfig = { provider: 'claudecode', model: 'opus' };
+    await waitForObservers();
+    assert(conversation.applyProvidersContextWindow(providers) === true,
+      'retiring the old window should report a change, so the footer repaints');
+    assert(/** @type {any} */ (conversation).contextWindow === null,
+      `contextWindow should be null for a model with no published window, got ${/** @type {any} */ (conversation).contextWindow}`);
+    assert(conversation.applyProvidersContextWindow(providers) === false,
+      'applying again with the window already cleared should report no change');
+
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`switch to unknown-window model clears context window: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   // Auto-compaction threshold decision moved server-side (worker turn-settle
   // trigger); its coverage now lives in the Go TestAutoCompactThresholdCrossed.
 

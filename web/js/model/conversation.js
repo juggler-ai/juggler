@@ -193,6 +193,8 @@ class Conversation {
     /** @type {MessageThread} - Root message thread (operates on _doc.root) */
     this._rootMessageThread = new MessageThread(this, this._doc.root, null, options.strategyId);
 
+    /** @type {number|null} - Root model's context window, per client; null while unknown */
+    this.contextWindow = null;
 
     /** @type {Set<string>} @private - Tool-actions with handleNewToolAction in flight */
     this._handlingNewToolAction = new Set();
@@ -2520,7 +2522,7 @@ class Conversation {
     // the cold-start race (the conversation loads before the first push lands);
     // every client is seeded a providers-update on connect, so it never hangs.
     // A model whose window isn't in the list yet (e.g. a live-API-only model
-    // before the first refresh completes) simply stays unset and is backfilled
+    // before the first refresh completes) is left unset and is backfilled
     // by applyProvidersContextWindow on the next push — no REST round-trip, so
     // no transient 404 in the console.
     const list = await providersCache.waitForFirst();
@@ -2536,6 +2538,11 @@ class Conversation {
    * window from the first turn's CLI result event, then the server
    * rebroadcasts the list — so this lets the footer correct itself once the
    * real number arrives.
+   *
+   * A model the list publishes no window for leaves the window unset rather
+   * than keeping the previous model's: a window is only worth showing when it
+   * belongs to the model in use, and every reader falls back sensibly on unset
+   * (the footer drops the denominator, truncation uses its default budget).
    * @param {Array<any>} providers - Provider list from providers-update.
    * @returns {boolean} True when the cached context window changed.
    */
@@ -2544,8 +2551,8 @@ class Conversation {
     if (!config?.provider || !config?.model) return false;
     const provider = providers.find((/** @type {any} */ p) => p?.name === config.provider);
     const model = provider?.modelsWithContext?.find((/** @type {any} */ m) => m?.id === config.model);
-    const next = model?.contextWindow;
-    if (!next || next === this.contextWindow) return false;
+    const next = Number(model?.contextWindow) || null;
+    if (next === this.contextWindow) return false;
     this.contextWindow = next;
     return true;
   }

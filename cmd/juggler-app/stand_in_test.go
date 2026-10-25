@@ -7,14 +7,18 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	"juggler/cmd/juggler/core"
+	"juggler/internal/logpaths"
 )
 
 // A stand-in window, as buildStandInWindow registers one: filed under the spec
@@ -126,6 +130,69 @@ func TestRetryingAProjectStillLockedUpdatesTheStandIn(t *testing.T) {
 	}
 	if len(si.message) != 2 || si.message[1].Params["pid"] != "4242" {
 		t.Fatalf("the stand-in should now name the process holding the lock: %+v", si.message)
+	}
+}
+
+// A window whose server could not be started opens as a stand-in that says so,
+// with the reason and where the logs are, rather than not opening at all. A
+// locked project is still told apart: it has advice of its own.
+func TestAWindowWhoseServerFailsToStartStandsInSayingWhy(t *testing.T) {
+	project := t.TempDir()
+	spec := windowSpec{project: project}
+
+	si := standInFor(spec, errors.New("server exited: could not find available port after 100 attempts"))
+	if si.kind != standInFailed || si.title.Key != failedPageTitle.Key {
+		t.Fatalf("got kind %q title %q, want the failed-server stand-in", si.kind, si.title.Key)
+	}
+	if len(si.message) != 1 {
+		t.Fatalf("want one explanation, got %+v", si.message)
+	}
+	got := si.message[0].Params
+	if got["project"] != project || !strings.Contains(fmt.Sprint(got["error"]), "could not find available port") {
+		t.Fatalf("the explanation must name the project and the reason: %+v", got)
+	}
+	if got["dir"] != logpaths.ProjectLogDir(project) {
+		t.Fatalf("logs dir = %v, want %s", got["dir"], logpaths.ProjectLogDir(project))
+	}
+
+	// An empty window has no project to name, and still says why.
+	empty := standInFor(windowSpec{}, errors.New("boom"))
+	if empty.kind != standInFailed || fmt.Sprint(empty.message[0].Params["error"]) != "boom" {
+		t.Fatalf("empty window stand-in = %+v", empty)
+	}
+
+	locked := standInFor(spec, fmt.Errorf("resolve: %w", newLockedProjectError(project, nil)))
+	if locked.kind != standInLocked {
+		t.Fatalf("a locked project got kind %q, want %q", locked.kind, standInLocked)
+	}
+}
+
+// A server that still fails may fail differently, so a failed retry brings what
+// the stand-in says up to date.
+func TestRetryingAServerThatStillFailsUpdatesTheStandIn(t *testing.T) {
+	saved := resolveSpec
+	resolveSpec = func(windowSpec) (string, *serverProc, error) {
+		return "", nil, errors.New("the second reason")
+	}
+	t.Cleanup(func() { resolveSpec = saved })
+
+	a := newTestAppState(t)
+	spec := windowSpec{project: t.TempDir()}
+	e := registerStandIn(a, "w1", spec, standInFor(spec, errors.New("the first reason")))
+
+	rec := controlRequest(a, http.MethodPost, "/win/w1/retry-server?reply=1")
+	var got struct {
+		Opened *bool `json:"opened"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Opened == nil || *got.Opened {
+		t.Fatalf("want {opened:false}, got %q (%v)", rec.Body.String(), err)
+	}
+	_, si := a.standInOf(e)
+	if si == nil || si.kind != standInFailed {
+		t.Fatalf("the window should still stand in for the failed server, got %+v", si)
+	}
+	if reason := fmt.Sprint(si.message[0].Params["error"]); reason != "the second reason" {
+		t.Fatalf("the stand-in still gives the old reason %q", reason)
 	}
 }
 

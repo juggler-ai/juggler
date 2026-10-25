@@ -6,7 +6,8 @@
  * Unit tests: the panel a stand-in window shows in place of the welcome.
  *
  * A desktop window that cannot show what it is for — a server by URL that does
- * not answer, a locked project — is an empty window's page, opened with
+ * not answer, a locked project, a server that could not be started — is an
+ * empty window's page, opened with
  * `?standIn=` (cmd/juggler-app/stand_in.go). What it pins:
  *
  *   1. A window that is no stand-in is the ordinary welcome, and never asks.
@@ -20,7 +21,10 @@
  *   5. A window asked after it stopped standing in is the ordinary welcome.
  *   6. A locked project's explanation keeps its lines, and can be selected — it
  *      names a file the reader may have to delete.
- *   7. Under en-XA every state is translated.
+ *   7. A server that could not be started says why and where its logs are, and
+ *      a failed retry draws the app's up-to-date reason without replacing the
+ *      focused button.
+ *   8. Under en-XA every state is translated.
  *
  * The app is a stub client handed to the overlay; the session is a stub too.
  * @module unit-tests/stand-in-panel-test
@@ -59,6 +63,21 @@ function unreachable(url) {
  */
 function locked(path) {
   return { kind: 'locked', title: { key: LOCKED_TITLE }, message: [{ key: LOCKED_MESSAGE, params: { path } }] };
+}
+
+const FAILED_TITLE = "Couldn't start the server";
+const FAILED_MESSAGE = 'Juggler could not start a server for {project}.\n\n{error}\n\nIts logs are in:\n{dir}';
+
+/**
+ * @param {string} error - Why the server did not start
+ * @returns {import('../../js/services/stand-in.js').StandIn} What the app says for it
+ */
+function failedToStart(error) {
+  return {
+    kind: 'failed',
+    title: { key: FAILED_TITLE },
+    message: [{ key: FAILED_MESSAGE, params: { project: '/1', error, dir: '/2/1' } }],
+  };
 }
 
 /**
@@ -272,7 +291,37 @@ export async function runTests() {
     }
     passed++;
 
-    // --- 7: en-XA --------------------------------------------------------------
+    // --- 7: a server that could not be started --------------------------------
+    // It says why, and where the logs are. Trying again may fail for another
+    // reason, which the app brings up to date: the panel draws the new one, and
+    // leaves the button the one that has focus.
+    {
+      const client = stubClient({ standIn: failedToStart('the first reason') });
+      const overlay = await mount(client);
+      await settle();
+      assert(!!overlay.querySelector('[data-stand-in="failed"]'), 'no failed-server panel was drawn');
+      assert(overlay.querySelector('h1')?.textContent === FAILED_TITLE, 'wrong heading for a failed server');
+      const said = () => overlay.querySelector('.np-stand-in-message')?.textContent || '';
+      assert(said().includes('the first reason') && said().includes('/2/1'),
+        `the explanation should give the reason and the logs: "${said()}"`);
+
+      const button = /** @type {HTMLButtonElement} */ (retryButton(overlay));
+      button.focus();
+      button.click();
+      client.standIn = failedToStart('the second reason');
+      client.retryAnswer?.resolve(false);
+      await settle();
+      assert(said().includes('the second reason') && !said().includes('the first reason'),
+        `after a failed try the explanation still says "${said()}"`);
+      assert(retryButton(overlay) === button && document.activeElement === button,
+        'redrawing the explanation replaced the button, and focus went with it');
+      const status = overlay.querySelector('.np-stand-in-status')?.textContent || '';
+      assert(status.includes('started'), `a failed try should say the server still did not start: "${status}"`);
+      overlay.remove();
+    }
+    passed++;
+
+    // --- 8: en-XA --------------------------------------------------------------
     await underPseudoLocale('test-stand-in', async () => {
       /** @type {string[]} */
       const raw = [];
@@ -290,7 +339,7 @@ export async function runTests() {
           .map((p) => p.textContent).join('\n\n');
         if (!isPseudoLocalized(explanation)) raw.push(`${where}, explanation: ${explanation}`);
       };
-      for (const standIn of [unreachable('1'), locked('2')]) {
+      for (const standIn of [unreachable('1'), locked('2'), failedToStart('3')]) {
         const client = stubClient({ standIn });
         const overlay = await mount(client);
         await settle();

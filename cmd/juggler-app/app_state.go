@@ -549,18 +549,15 @@ func (a *appState) run(specs []windowSpec) error {
 	return err
 }
 
-// tryBuildInitial resolves spec's server and builds a window for it, returning
-// the entry on success or nil when the project can't be resolved (logged and
-// skipped). A locked project, and a server by URL that does not answer, resolve
-// to a stand-in for the window (stand_in.go), which is still a non-nil entry.
+// tryBuildInitial resolves spec's server and builds a window for it. A server
+// that cannot be resolved — a locked project, one that failed to start — and a
+// server by URL that does not answer all resolve to a stand-in for the window
+// (stand_in.go), which says why; nil only when no native window could be made.
 func (a *appState) tryBuildInitial(spec windowSpec) *winEntry {
 	serverURL, proc, err := spec.resolve()
 	if err != nil {
-		if locked, ok := asLockedProject(err); ok {
-			return a.buildStandInWindow(spec, lockedStandIn(locked), a.prepareStandIn(spec), windowOpts{})
-		}
-		logf("restore: skipping %+v: %v", spec.entry(), err)
-		return nil
+		logf("restore: cannot resolve %+v: %v", spec.entry(), err)
+		return a.buildStandInWindow(spec, standInFor(spec, err), a.prepareStandIn(spec), windowOpts{})
 	}
 	saved, hasSaved, reached := a.openingState(spec, serverURL, roleMain)
 	if !reached {
@@ -706,11 +703,9 @@ func (a *appState) openWindow(spec windowSpec, opts windowOpts) {
 	go func() {
 		serverURL, proc, err := resolveSpec(spec)
 		if err != nil {
-			if locked, ok := asLockedProject(err); ok {
-				a.openStandIn(spec, lockedStandIn(locked), opts, "opened locked project")
-				return
-			}
 			logf("open window failed to resolve %+v: %v", spec, err)
+			si := standInFor(spec, err)
+			a.openStandIn(spec, si, opts, "opened "+si.kind+" stand-in")
 			return
 		}
 		a.openResolvedWindow(spec, serverURL, proc, opts)

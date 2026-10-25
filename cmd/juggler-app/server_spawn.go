@@ -7,6 +7,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -162,7 +163,11 @@ func spawnServerOn(project, port string) (string, *serverProc, error) {
 	// projects' servers); fall back to our stderr if it can't open. The child
 	// keeps its own fd after Start, so we close our copy below.
 	stderrSink := openStderrSink(project)
+	stderrFrom := int64(-1) // where this run's stderr starts in the shared file
 	if stderrSink != nil {
+		if fi, err := stderrSink.Stat(); err == nil {
+			stderrFrom = fi.Size()
+		}
 		cmd.Stderr = stderrSink
 		defer stderrSink.Close()
 	} else {
@@ -221,6 +226,9 @@ func spawnServerOn(project, port string) (string, *serverProc, error) {
 		}
 		select {
 		case <-proc.exited:
+			if reason := startupFailureReason(logpaths.StderrLogPath(project), stderrFrom); reason != "" {
+				return "", nil, fmt.Errorf("%s (the server exited: %s)", reason, proc.cmd.ProcessState)
+			}
 			return "", nil, fmt.Errorf("server exited (%s) before reporting its address", proc.cmd.ProcessState)
 		case <-timeout:
 		}
@@ -228,4 +236,34 @@ func spawnServerOn(project, port string) (string, *serverProc, error) {
 	}
 	_ = cmd.Process.Kill()
 	return "", nil, fmt.Errorf("server did not report its address within %s", serverStartTimeout)
+}
+
+// maxStartupStderr bounds how much of a failed server's stderr is searched for
+// its reason. The line comes at the very end of a short-lived run's output.
+const maxStartupStderr = 64 << 10
+
+// startupFailureReason is what a server that exited without starting said was
+// wrong: the rest of its core.StartupFailurePrefix line in its stderr log, read
+// from offset from, where its run began. The file is shared by every run of the
+// project's server, so a reason before from belongs to another run. Empty when
+// the server said nothing, or from is negative (the log could not be opened).
+func startupFailureReason(path string, from int64) string {
+	if from < 0 {
+		return ""
+	}
+	f, err := os.Open(path) //nolint:gosec // our own log path, from logpaths
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	if _, err := f.Seek(from, io.SeekStart); err != nil {
+		return ""
+	}
+	sc := bufio.NewScanner(io.LimitReader(f, maxStartupStderr))
+	for sc.Scan() {
+		if reason, ok := strings.CutPrefix(sc.Text(), core.StartupFailurePrefix); ok {
+			return strings.TrimSpace(reason)
+		}
+	}
+	return ""
 }

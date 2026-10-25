@@ -43,6 +43,17 @@ const RECENTS_SHOWN = 5;
 /** How many providers are named before the rest become a count. */
 const PROVIDERS_NAMED = 2;
 
+/**
+ * What a stand-in says under its buttons when "Try again" did not work.
+ * @param {string} kind - The stand-in's kind: 'unreachable' | 'locked' | 'failed'
+ * @returns {string} The status line, translated
+ */
+function standInStillStatus(kind) {
+  if (kind === 'locked') return t('The project is still locked.');
+  if (kind === 'failed') return t('The server still could not be started.');
+  return t("The server still isn't answering.");
+}
+
 class NoProjectOverlay extends JugglerElement {
   constructor() {
     super();
@@ -356,9 +367,24 @@ class NoProjectOverlay extends JugglerElement {
       </section>
     `;
 
-    // Paragraphs at blank lines and lines at single breaks, as the app wrote
-    // them: a locked project's lock file is on a line of its own.
-    const host = /** @type {HTMLElement} */ (this.querySelector('.np-stand-in-message'));
+    this._drawStandInMessage(standIn);
+
+    this._on('.np-stand-in-retry', () => this._retryStandIn());
+    this._on('.np-stand-in-leave', () => this._leaveStandIn());
+  }
+
+  /**
+   * Fill the stand-in's explanation, replacing whatever it said before.
+   * Paragraphs break at blank lines and lines at single breaks, as the app wrote
+   * them: a locked project's lock file is on a line of its own.
+   * @param {import('../services/stand-in.js').StandIn} standIn - What the window stands in for
+   * @returns {void}
+   * @private
+   */
+  _drawStandInMessage(standIn) {
+    const host = /** @type {HTMLElement|null} */ (this.querySelector('.np-stand-in-message'));
+    if (!host) return;
+    host.replaceChildren();
     for (const message of standIn.message || []) {
       for (const paragraph of serverText(message).split(/\n\s*\n/)) {
         const p = document.createElement('p');
@@ -370,9 +396,6 @@ class NoProjectOverlay extends JugglerElement {
         host.appendChild(p);
       }
     }
-
-    this._on('.np-stand-in-retry', () => this._retryStandIn());
-    this._on('.np-stand-in-leave', () => this._leaveStandIn());
   }
 
   /**
@@ -401,11 +424,19 @@ class NoProjectOverlay extends JugglerElement {
     button.disabled = false;
     button.textContent = t('Try again');
     if (status) {
-      status.textContent = this._standIn?.kind === 'locked'
-        ? t('The project is still locked.')
-        : t("The server still isn't answering.");
+      status.textContent = standInStillStatus(this._standIn?.kind || '');
       status.hidden = false;
     }
+
+    // The app brought its explanation up to date with the attempt (a lock that
+    // changed hands, a server failing for a new reason). Only the explanation is
+    // redrawn: the buttons and the status line stay the elements they are, so
+    // focus stays on "Try again".
+    const now = await this.standInClient.get();
+    // A project arrived meanwhile, or the window stopped standing in.
+    if (!this._rendered || !this._standIn || !now.kind) return;
+    this._standIn = now;
+    this._drawStandInMessage(now);
   }
 
   /**

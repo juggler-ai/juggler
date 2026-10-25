@@ -11,13 +11,14 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/msg"
+	"juggler/internal/logpaths"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // A window that cannot show what it is for — a server by URL that does not
-// answer, or a project whose lock is held by something that is not a Juggler
-// session — opens as a stand-in for it. A stand-in is an empty window's page,
+// answer, a project whose lock is held by something that is not a Juggler
+// session, or a server this app could not start — opens as a stand-in for it. A stand-in is an empty window's page,
 // served by a private no-project server of its own, so it has the app's header
 // bar, theme and window chrome like any other window. The page is told so by
 // ?standIn= and asks this window's "stand-in" action what to say in place of
@@ -37,6 +38,12 @@ import (
 const (
 	standInUnreachable = "unreachable"
 	standInLocked      = "locked"
+	standInFailed      = "failed"
+)
+
+var (
+	failedWindowTitle = msg.New("Server didn't start — Juggler")
+	failedPageTitle   = msg.New("Couldn't start the server")
 )
 
 // standIn is what a stand-in window says in place of the window it stands in
@@ -66,6 +73,36 @@ func lockedStandIn(e *lockedProjectError) *standIn {
 		title:       lockedPageTitle,
 		message:     e.adviceMessages(),
 	}
+}
+
+// failedStandIn stands in for a window whose server could not be started, for
+// whatever reason err gives: the error itself, and where that server's logs are.
+// The error is the app's own English, passed as a parameter rather than
+// translated, as a log line would be.
+func failedStandIn(spec windowSpec, err error) *standIn {
+	logs := logpaths.ProjectLogDir(spec.project)
+	what := msg.New("Juggler could not start a server for this window.\n\n{error}\n\nIts logs are in:\n{dir}",
+		"error", err.Error(), "dir", logs)
+	if spec.project != "" {
+		what = msg.New("Juggler could not start a server for {project}.\n\n{error}\n\nIts logs are in:\n{dir}",
+			"project", spec.project, "error", err.Error(), "dir", logs)
+	}
+	return &standIn{
+		kind:        standInFailed,
+		windowTitle: failedWindowTitle,
+		title:       failedPageTitle,
+		message:     []msg.Message{what},
+	}
+}
+
+// standInFor is the stand-in for a window whose server could not be resolved:
+// a locked project's when that is what err is, and otherwise a failed start's.
+// Every resolve failure gets one, so no window ever fails to open in silence.
+func standInFor(spec windowSpec, err error) *standIn {
+	if locked, ok := asLockedProject(err); ok {
+		return lockedStandIn(locked)
+	}
+	return failedStandIn(spec, err)
 }
 
 // trParagraphs is the stand-in's explanation in the shell's UI language, as
@@ -206,7 +243,8 @@ func (a *appState) controlRetryServer(w http.ResponseWriter, r *http.Request, e 
 
 // retryStandIn opens the window e stands in for in its place if it can be shown
 // now, reporting whether it did. A lock that is still held may have changed
-// hands, so the stand-in's explanation is brought up to date.
+// hands, and a server that still fails may fail differently, so the stand-in's
+// explanation is brought up to date.
 func (a *appState) retryStandIn(e *winEntry, spec windowSpec, opts windowOpts) bool {
 	if spec.isURL() {
 		ctx, cancel := context.WithTimeout(context.Background(), remoteReachBudget)
@@ -219,14 +257,12 @@ func (a *appState) retryStandIn(e *winEntry, spec windowSpec, opts windowOpts) b
 	}
 	serverURL, proc, err := resolveSpec(spec)
 	if err != nil {
-		if locked, ok := asLockedProject(err); ok {
-			si := lockedStandIn(locked)
-			a.reg(func(*regState) {
-				if e.standIn != nil {
-					e.standIn = si
-				}
-			})
-		}
+		si := standInFor(spec, err)
+		a.reg(func(*regState) {
+			if e.standIn != nil {
+				e.standIn = si
+			}
+		})
 		logf("retry %+v: %v", spec.entry(), err)
 		return false
 	}

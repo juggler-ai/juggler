@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -326,32 +325,40 @@ func (s *Server) findAvailablePort() (net.Listener, string, error) {
 	if s.loopbackOnly {
 		bindHost = "127.0.0.1"
 	}
-	bindAddr := net.JoinHostPort(bindHost, portStr)
-	listener, err := listenForViewers(bindAddr)
-	if err == nil {
-		_, actualPort, _ := net.SplitHostPort(listener.Addr().String())
-		return listener, net.JoinHostPort(host, actualPort), nil
+	listener, err := bindFirstFree(bindHost, port, listenForViewers)
+	if err != nil {
+		return nil, "", err
 	}
+	_, actualPort, _ := net.SplitHostPort(listener.Addr().String())
+	return listener, net.JoinHostPort(host, actualPort), nil
+}
 
-	// If configured port is busy, try finding an available one
-	jlog.Info("⚠️  Port %d is busy, searching for available port...", port)
+// maxPortSearch is how many ports past the configured one bindFirstFree tries.
+// The desktop app gives every window its own server, so each open window holds
+// one port of this range, and the range is how many windows can be open at
+// once. A busy port fails its bind at once, so a long search costs nothing worth
+// measuring.
+const maxPortSearch = 100
 
-	maxAttempts := 10
-	for range maxAttempts {
-		port++
-		bindAddr := net.JoinHostPort(bindHost, strconv.Itoa(port))
-		displayAddr := net.JoinHostPort(host, strconv.Itoa(port))
-		listener, err := listenForViewers(bindAddr)
+// bindFirstFree listens on bindHost at port, or at the first of the next
+// maxPortSearch ports that is free. Only a port that is unavailable moves the
+// search on (portUnavailable); any other failure is returned as it is, since
+// the next port would fail the same way.
+func bindFirstFree(bindHost string, port int, listen func(string) (net.Listener, error)) (net.Listener, error) {
+	for i := 0; i <= maxPortSearch; i++ {
+		listener, err := listen(net.JoinHostPort(bindHost, strconv.Itoa(port+i)))
 		if err == nil {
-			jlog.Info("✅ Found available port: %d", port)
-			return listener, displayAddr, nil
+			if i > 0 {
+				jlog.Info("✅ Found available port: %d", port+i)
+			}
+			return listener, nil
 		}
-
-		// Only continue for "address already in use" errors
-		if !strings.Contains(err.Error(), "address already in use") {
-			return nil, "", err
+		if !portUnavailable(err) {
+			return nil, err
+		}
+		if i == 0 {
+			jlog.Info("⚠️  Port %d is busy, searching for available port...", port)
 		}
 	}
-
-	return nil, "", fmt.Errorf("could not find available port after %d attempts", maxAttempts)
+	return nil, fmt.Errorf("could not find available port after %d attempts", maxPortSearch)
 }

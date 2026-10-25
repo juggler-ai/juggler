@@ -48,7 +48,16 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// fakeServerFailEnv makes the fake fail to start the way the real server does:
+// it prints its reason after core.StartupFailurePrefix on stderr, reports no
+// address, and exits non-zero.
+const fakeServerFailEnv = "JUGGLER_APP_TEST_FAKE_SERVER_FAIL"
+
 func runFakeServer(args []string) {
+	if reason := os.Getenv(fakeServerFailEnv); reason != "" {
+		fmt.Fprintf(os.Stderr, "\n%s%s\n", core.StartupFailurePrefix, reason)
+		os.Exit(1)
+	}
 	port := 0
 	project := ""
 	for i, arg := range args {

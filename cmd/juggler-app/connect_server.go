@@ -155,9 +155,11 @@ func (a *appState) connectServer(from *winEntry, fromSpec windowSpec, serverURL 
 // buildUnreachableServerWindow opens the static unreachable-server page in
 // place of a window onto spec's server, for when not even a stand-in's local
 // server could be started. It is registered under spec, so a connected server
-// keeps its place in the workspace set while the page is up.
+// keeps its place in the workspace set while the page is up. A server that
+// failed to start is shown on the same page, which says what si says and offers
+// the same two ways on.
 func (a *appState) buildUnreachableServerWindow(spec windowSpec, si *standIn, inheritedTheme string) *winEntry {
-	logf("server unreachable: %s", spec.url)
+	logf("static %s page for %+v", si.kind, spec.entry())
 	text := unreachableServerText{
 		title:     a.tr(si.title),
 		message:   a.trParagraphs(si.message),

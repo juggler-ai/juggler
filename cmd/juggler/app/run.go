@@ -217,8 +217,11 @@ func Run(cfg Config) int {
 // and an exit — indistinguishable from a session that ran and ended. A held
 // project lock gets its recovery advice too, since that is the failure a person
 // can actually do something about.
+//
+// The line it prints is also how the desktop app learns why a server it spawned
+// never came up (core.StartupFailurePrefix), so its shape is a contract.
 func reportStartupFailure(w io.Writer, err error) {
-	fmt.Fprintf(w, "\nCouldn't start Juggler: %v\n", err)
+	fmt.Fprintf(w, "\n%s%v\n", core.StartupFailurePrefix, err)
 
 	var locked *core.ProjectLockedError
 	if errors.As(err, &locked) {

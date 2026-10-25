@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Up to 100 windows can be open at once, up from 11 (or 2 on Windows)
+- A window whose server fails to start says why instead of never appearing
 - Per-project environment variables for every command, set in files or the Environment pin
 - New-workspace dialog: found trees no longer add a second Tab stop to the list
 - Background bash runs open the Background tasks pin from their panel or selected badge

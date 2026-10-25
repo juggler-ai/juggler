@@ -4,8 +4,9 @@
 
 /**
  * Client for a stand-in window: a desktop window that cannot show what it is
- * for — a server by URL that does not answer, or a project whose lock is held
- * by something that is not a Juggler session — and is showing an empty
+ * for — a server by URL that does not answer, a project whose lock is held by
+ * something that is not a Juggler session, or a server the app could not
+ * start — and is showing an empty
  * window's page in its place, on a local server the app started for it (see
  * cmd/juggler-app/stand_in.go). The app says so with `?standIn=` in the URL,
  * and answers the rest over the native window-control endpoint, which is the
@@ -23,7 +24,7 @@ import { fetchJson } from './http.js';
  * What a stand-in says in place of the welcome panel. An empty `kind` means the
  * window is not one, or is no longer.
  * @typedef {object} StandIn
- * @property {string} kind - 'unreachable' | 'locked' | ''
+ * @property {string} kind - 'unreachable' | 'locked' | 'failed' | ''
  * @property {import('./http.js').ServerMessage} [title] - The heading.
  * @property {import('./http.js').ServerMessage[]} [message] - The explanation,
  *   one message per paragraph.

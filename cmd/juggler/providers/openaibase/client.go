@@ -257,6 +257,11 @@ type Client struct {
 	// and they include no image: images are then withheld from its requests
 	// (see withholdImages). A provider that declares nothing leaves it false.
 	textOnly bool
+	// sessionHeaders are the configured headers whose value contains
+	// sessionIDPlaceholder. They are kept off the client-wide header set and
+	// sent per chat request by sessionHeaderOpts, so only a request that
+	// belongs to a conversation carries them.
+	sessionHeaders map[string]string
 }
 
 // enhanceError maps a failed call onto the provider vocabulary the worker
@@ -730,6 +735,44 @@ func sessionAffinityID(convID string) string {
 	b[6] = (b[6] & 0x0f) | 0x40 // version 4 bits
 	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant bits
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// sessionIDPlaceholder, inside a configured header value, stands for the
+// conversation's sessionAffinityID. It serves gateways that key routing or
+// prompt caching on a session header of their own naming (OpenCode Go's
+// x-opencode-session, for one).
+const sessionIDPlaceholder = "{{sessionId}}"
+
+// splitSessionHeaders separates the headers whose value contains
+// sessionIDPlaceholder from those sent as they stand.
+func splitSessionHeaders(headers map[string]string) (static, session map[string]string) {
+	for key, value := range headers {
+		target := &static
+		if strings.Contains(value, sessionIDPlaceholder) {
+			target = &session
+		}
+		if *target == nil {
+			*target = map[string]string{}
+		}
+		(*target)[key] = value
+	}
+	return static, session
+}
+
+// sessionHeaderOpts fills in the placeholder headers for one chat request. A
+// request outside a conversation sends none of them: a fixed stand-in would
+// funnel unrelated requests onto one session, and the literal placeholder
+// means nothing to the server.
+func (c *Client) sessionHeaderOpts(req provider.MessageRequest) []option.RequestOption {
+	sid := sessionAffinityID(req.ConversationID)
+	if sid == "" || len(c.sessionHeaders) == 0 {
+		return nil
+	}
+	opts := make([]option.RequestOption, 0, len(c.sessionHeaders))
+	for key, value := range c.sessionHeaders {
+		opts = append(opts, option.WithHeader(key, strings.ReplaceAll(value, sessionIDPlaceholder, sid)))
+	}
+	return opts
 }
 
 // emptyContentPlaceholder is used when tool results have empty content.

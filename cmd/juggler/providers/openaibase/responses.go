@@ -276,6 +276,7 @@ func (c *Client) streamMessageResponses(ctx context.Context, req provider.Messag
 			opts = append(opts, option.WithHeader("session_id", sid))
 		}
 	}
+	opts = append(opts, c.sessionHeaderOpts(req)...)
 	// Provider-boundary liveness: guard the SDK stream (no read deadline of its
 	// own) with an idle watchdog that cancels streamCtx if the upstream goes
 	// silent. Each event resets it; see utils.StreamIdleTimeout. The session

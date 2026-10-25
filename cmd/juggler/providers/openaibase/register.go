@@ -234,11 +234,16 @@ func Register(d Descriptor) {
 		if d.HeadersFunc != nil {
 			staticHeaders = d.HeadersFunc()
 		}
-		cfg.Headers = mergeHeaders(staticHeaders, cfg.Headers)
+		// Placeholder headers are split off here, before anything reads
+		// cfg.Headers, so the client-wide set, the model list and the usage and
+		// capability fetches all see only headers that stand as written.
+		var sessionHeaders map[string]string
+		cfg.Headers, sessionHeaders = splitSessionHeaders(mergeHeaders(staticHeaders, cfg.Headers))
 		base, err := NewClientFromProviderConfig(cfg, baseURL, d.Quirks, d.APIKeyOptional)
 		if err != nil {
 			return nil, err
 		}
+		base.sessionHeaders = sessionHeaders
 		base.limitDiscoveryDisabled = d.LimitDiscoveryUnsupported
 		base.catalogMaxOutput = catalogMaxOutputLookup(d, capsSynthesised)
 		// Label this client's provider-boundary errors (notably the idle-stall

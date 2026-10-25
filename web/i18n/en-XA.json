@@ -1936,6 +1936,7 @@
   "{oldRange}, {newRange}": "[{oldRange}, {newRange} ·]",
   "{paidPlan} — Pro, Max, Team or Enterprise. The free claude.ai plan does not include it, and no amount of installing will change that.": "[{paidPlan} — Þŕö, Ṁåẋ, Ţéåɱ öŕ Éñţéŕþŕîšé. Ţĥé ƒŕéé çļåûðé.åî þļåñ ðöéš ñöţ îñçļûðé îţ, åñð ñö åɱöûñţ öƒ îñšţåļļîñĝ ŵîļļ çĥåñĝé ţĥåţ. ·································]",
   "{percent}% full. Something’s got to give.": "[{percent}% ƒûļļ. Šöɱéţĥîñĝ’š ĝöţ ţö ĝîṽé. ········]",
+  "{placeholder} in a value becomes an ID unique to each conversation.": "[{placeholder} îñ å ṽåļûé ƀéçöɱéš åñ ÎÐ ûñîǫûé ţö éåçĥ çöñṽéŕšåţîöñ. ···············]",
   "{prefix} (HTTP {status})": "[{prefix} (ĤŢŢÞ {status}) ·]",
   "{prefix}: timed out after {ms}ms": "[{prefix}: ţîɱéð öûţ åƒţéŕ {ms}ɱš ·····]",
   "{prefix}: {detail}": "[{prefix}: {detail} ·]",

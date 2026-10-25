@@ -1936,6 +1936,7 @@
   "{oldRange}, {newRange}": "{oldRange}, {newRange}",
   "{paidPlan} — Pro, Max, Team or Enterprise. The free claude.ai plan does not include it, and no amount of installing will change that.": "{paidPlan} — Pro, Max, Team or Enterprise. The free claude.ai plan does not include it, and no amount of installing will change that.",
   "{percent}% full. Something’s got to give.": "{percent}% full. Something’s got to give.",
+  "{placeholder} in a value becomes an ID unique to each conversation.": "{placeholder} in a value becomes an ID unique to each conversation.",
   "{prefix} (HTTP {status})": "{prefix} (HTTP {status})",
   "{prefix}: timed out after {ms}ms": "{prefix}: timed out after {ms}ms",
   "{prefix}: {detail}": "{prefix}: {detail}",

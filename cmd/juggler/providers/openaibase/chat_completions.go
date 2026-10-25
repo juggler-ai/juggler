@@ -379,7 +379,8 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 	defer sess.Close()
 	streamCtx, sawDone := withDoneSentinel(streamCtx)
 
-	stream := c.client.Chat.Completions.NewStreaming(streamCtx, params, option.WithJSONSet(c.quirks.MaxTokensParamName, maxTokens))
+	opts := append(c.sessionHeaderOpts(req), option.WithJSONSet(c.quirks.MaxTokensParamName, maxTokens))
+	stream := c.client.Chat.Completions.NewStreaming(streamCtx, params, opts...)
 
 	// Track tool calls being assembled (OpenAI streams them incrementally)
 	toolCallBuffers := make(map[int]*toolCallAccumulator)

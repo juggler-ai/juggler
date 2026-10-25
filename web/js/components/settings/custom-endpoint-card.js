@@ -474,6 +474,15 @@ function buildHeadersField(endpoint, saveFields) {
   });
   field.body.appendChild(add);
 
+  // The placeholder is filled in per request by the server (openaibase
+  // sessionHeaderOpts), for gateways that want a session header of their own.
+  const hint = document.createElement('div');
+  hint.className = 'custom-endpoint-headers-hint';
+  // i18n-ignore: the placeholder is literal syntax the server matches
+  const placeholder = '{{sessionId}}';
+  hint.textContent = t('{placeholder} in a value becomes an ID unique to each conversation.', { placeholder });
+  field.body.appendChild(hint);
+
   return field.element;
 }
 

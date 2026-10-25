@@ -23,6 +23,7 @@ of changes; this project follows semantic versioning.
 - A duplicated conversation can no longer open empty in another window
 - Unreachable servers and locked projects open a normal, draggable window explaining why
 - API errors from GLM and other OpenAI-compatible providers show the provider's reason
+- Custom endpoint headers can include `{{sessionId}}`, a per-conversation ID
 
 ## [0.7.8] - 2026-10-23
 

@@ -413,6 +413,12 @@ settings-panel .custom-endpoint-header-add:hover {
     border-color: var(--text-secondary);
 }
 
+settings-panel .custom-endpoint-headers-hint {
+    color: var(--text-tertiary);
+    font-size: var(--font-size-sm);
+    padding-top: 0.375rem;
+}
+
 settings-panel .custom-endpoint-actions {
     display: flex;
     justify-content: flex-end;

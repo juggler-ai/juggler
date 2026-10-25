@@ -467,16 +467,24 @@ export async function runTests(_ctx) {
         const d = busyRetryDelay(a, rnd);
         if (d < 0) break;
         schedule.push(d);
-        assert(a < 10, 'the schedule must terminate, not retry forever');
+        assert(a < 50, 'the schedule must terminate, not retry forever');
       }
       assert(schedule.length >= 2, `expected a few re-attempts, got ${JSON.stringify(schedule)}`);
       assert(schedule.every((d) => d > 0), `every delay must be positive, got ${JSON.stringify(schedule)}`);
       for (let i = 1; i < schedule.length; i++) {
         assert(schedule[i] >= schedule[i - 1], `schedule should not shrink: ${JSON.stringify(schedule)}`);
       }
-      const total = schedule.reduce((n, d) => n + d, 0);
-      assert(total <= 6000, `the whole schedule must stay within a few seconds, got ${total}ms`);
+      assert(Math.max(...schedule) <= 5000, `no single wait should outlast a few seconds, got ${JSON.stringify(schedule)}`);
     }
+    // A refused slot is not a failure, so the reviewer keeps queueing while the
+    // call is parked — even at the shortest jitter — but not indefinitely.
+    const sum = (/** @type {() => number} */ rnd) => {
+      let total = 0;
+      for (let a = 0; busyRetryDelay(a, rnd) >= 0; a++) total += busyRetryDelay(a, rnd);
+      return total;
+    };
+    assert(sum(() => 0) >= 25000, `a queue must be waited out for tens of seconds, got ${sum(() => 0)}ms`);
+    assert(sum(() => 0.999) <= 65000, `the queueing must stay bounded near a minute, got ${sum(() => 0.999)}ms`);
   });
 
   await run('busyRetryDelay: jitter actually spreads collided retries', () => {
@@ -527,21 +535,14 @@ export async function runTests(_ctx) {
       'collided timeouts must be spread by jitter, exactly as busy ones are');
   });
 
-  await run('the whole review budget still fits inside one old-style attempt', () => {
-    // The retry is not extra patience: the reviewer asks for a shorter bound and
-    // spends the same wall-clock as two tries instead of one long wait. If this
-    // ever exceeds the server default a slow review would hold a shared pool slot
-    // for longer than it did before the retry existed.
-    let backoff = 0;
-    for (let a = 0; ; a++) {
-      const d = timeoutRetryDelay(a, () => 0.999);
-      if (d < 0) break;
-      backoff += d;
-    }
-    const attempts = 2;
-    const total = attempts * REVIEW_TIMEOUT_MS + backoff;
-    assert(REVIEW_TIMEOUT_MS > 5000, `the bound must leave a cheap model room to answer, got ${REVIEW_TIMEOUT_MS}ms`);
-    assert(total <= 32000, `the whole budget must stay near the 30s it replaced, got ${total}ms`);
+  await run('the review bound is the most the server will grant', () => {
+    // A slow review that has not failed is still worth having: the call stays
+    // parked, and the strategy aborts the request the moment the human settles
+    // it, so patience costs no pool slot once nobody is waiting. The server
+    // clamps any bound to llmCompleteMaxTimeout (60s), so asking for more would
+    // be a number the request never actually runs under.
+    assert(REVIEW_TIMEOUT_MS >= 45000, `a slow-but-working reviewer must be given time, got ${REVIEW_TIMEOUT_MS}ms`);
+    assert(REVIEW_TIMEOUT_MS <= 60000, `the server clamps past 60s, got ${REVIEW_TIMEOUT_MS}ms`);
   });
 
   // =========================================================================

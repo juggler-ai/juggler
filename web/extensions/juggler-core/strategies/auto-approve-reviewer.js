@@ -528,17 +528,18 @@ const BUSY_STATUS = 429;
 const TIMEOUT_STATUS = 504;
 
 /**
- * The bound this reviewer asks for, in ms.
+ * The bound this reviewer asks for, in ms: the most `/api/llm/complete` grants
+ * (its `llmCompleteMaxTimeout`; anything larger is clamped to it).
  *
- * Shorter than the server's own default, and deliberately so: the approval
- * buttons are live throughout, so a verdict that arrives late has already been
- * overtaken by the human. Spending the same wall-clock as two shorter attempts
- * beats one long one — a slow first call is usually a slow *call*, not a slow
- * model — and it stops one review holding a shared pool slot while its siblings
- * are refused.
+ * Generous on purpose. A review that is slow but has not failed is still worth
+ * having — the call stays parked until someone decides it, and an unattended
+ * run is exactly when a late approval saves the most. Patience is cheap because
+ * the strategy aborts the request the moment the call stops being parked, so a
+ * review the human has overtaken gives its shared pool slot straight back
+ * rather than holding it for the rest of this bound.
  * @type {number}
  */
-export const REVIEW_TIMEOUT_MS = 15000;
+export const REVIEW_TIMEOUT_MS = 60000;
 
 /**
  * Whether a failed completion was the shared out-of-band pool refusing a slot,
@@ -567,13 +568,16 @@ export function isTimeoutRejection(err) {
  * Backoff schedule for re-attempting a review the pool was too busy to accept.
  *
  * Sized against the thing being waited for: the slots are held by *other*
- * reviews of the same batch, each taking on the order of a second or two, so
- * these wait about that long rather than milliseconds. The whole schedule is
- * ~4s worst case — bounded because the approval buttons are live the entire
- * time and a reviewer that deliberates longer than the human is worthless.
+ * reviews of the same batch (and the auto-namer, and plugin micro-tasks), each
+ * taking anywhere from a second to a slow model's full bound. So the waits climb
+ * to a few seconds and then hold there, for roughly a minute in all: a refused
+ * slot is a queue, not a failure, and giving up after a few seconds turned every
+ * busy batch into a row of cards the human had to clear by hand. Still bounded,
+ * so a call nobody comes back to does not poll the pool indefinitely; and each
+ * re-attempt first checks the call is still parked.
  * @type {number[]}
  */
-const BUSY_BACKOFF_MS = [600, 1200, 2400];
+const BUSY_BACKOFF_MS = [600, 1200, 2400, 4800, ...Array(10).fill(5000)];
 
 /**
  * Backoff schedule for re-attempting a review the model was too slow to answer.
@@ -581,9 +585,8 @@ const BUSY_BACKOFF_MS = [600, 1200, 2400];
  * One re-attempt, where the busy schedule has three, because the two failures
  * cost completely different amounts: a refused slot means the model was never
  * asked, so trying again costs a moment, while an elapsed bound means it was
- * asked and spent the entire budget. One more go covers the slow call; a second
- * would just queue behind the same slow model, and by then whoever was watching
- * has clicked.
+ * asked and spent the entire budget. One more go covers a call that stalled; a
+ * model that misses a full minute twice is not going to answer a third time.
  * @type {number[]}
  */
 const TIMEOUT_BACKOFF_MS = [1000];

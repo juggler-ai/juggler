@@ -277,8 +277,8 @@ export async function runTests(_ctx) {
     const note = (await strategy.onToolPending({ ...PENDING }))?.note ?? '';
     assert(resolveCalls.length === 0, 'an exhausted review must leave the call parked');
     // Bounded: the schedule must not retry forever behind the user's back.
-    assert(completeCalls.length >= 2 && completeCalls.length <= 6,
-      `retries should be bounded and non-trivial, got ${completeCalls.length} attempts`);
+    assert(completeCalls.length >= 6 && completeCalls.length <= 30,
+      `a queue should be waited out, but boundedly, got ${completeCalls.length} attempts`);
     assert(waits.length === completeCalls.length - 1, 'one backoff between each attempt');
     assert(/too many reviews/i.test(note),
       `the note should explain the queue, not quote the server, got ${JSON.stringify(note)}`);
@@ -317,7 +317,7 @@ export async function runTests(_ctx) {
     const note = (await strategy.onToolPending({ ...PENDING }))?.note ?? '';
     assert(resolveCalls.length === 0, 'an exhausted review must leave the call parked');
     // Bounded, and more tightly than the busy schedule: each attempt costs the
-    // whole bound, so this must not become a minute of silent retrying.
+    // whole bound, and a model that misses it twice is not going to answer.
     assert(completeCalls.length === 2, `a timeout is worth exactly one more go, got ${completeCalls.length} attempts`);
     assert(/took too long/i.test(note), `the note should say it was slow, got ${JSON.stringify(note)}`);
     assert(!/deadline exceeded/i.test(note),
@@ -347,6 +347,32 @@ export async function runTests(_ctx) {
     await strategy.onToolPending({ ...PENDING });
     assert(completeCalls.length === 1,
       `a settled call must not be re-reviewed, got ${completeCalls.length} attempts`);
+  });
+
+  await run('an in-flight review is aborted once the human resolves the call', async () => {
+    // A long bound is only affordable because a review nobody is waiting for
+    // gives its pool slot back: the request itself must be cancelled, not merely
+    // have its answer ignored when it eventually lands.
+    const { strategy, resolveCalls, completeCalls, toolState } = makeStrategy(
+      (_params, signal) => new Promise((_resolve, reject) => {
+        if (!signal) { reject(new Error('the review was sent without an abort signal')); return; }
+        signal.addEventListener('abort', () => {
+          const err = new Error('The operation was aborted.');
+          err.name = 'AbortError';
+          reject(err);
+        });
+        toolState.state = 'approved';
+      })
+    );
+    strategy._parkedPollMs = 5;
+    const outcome = await Promise.race([
+      strategy.onToolPending({ ...PENDING }).then((r) => ({ settled: true, r })),
+      new Promise((resolve) => setTimeout(() => resolve({ settled: false }), 2000))
+    ]);
+    assert(/** @type {any} */ (outcome).settled,
+      'the review must be cancelled when the call stops being parked, not left to run out its bound');
+    assert(/** @type {any} */ (outcome).r === undefined, 'a review the human overtook leaves no note');
+    assert(completeCalls.length === 1 && resolveCalls.length === 0, 'nothing is re-attempted or resolved');
   });
 
   await run('a non-busy failure is never retried', async () => {

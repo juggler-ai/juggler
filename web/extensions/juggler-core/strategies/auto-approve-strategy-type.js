@@ -127,7 +127,7 @@ export default class AutoApproveStrategyType extends DefaultStrategyType {
         + 'Each parked call is checked by a cheap, fast model — the one set as your cheap model in settings, or your decision model if you have chosen one — against a safety policy. You choose how strict that policy is in the Settings section of this page: Balanced (the default) approves only what your own words or standing permissions cover, Relaxed also trusts ordinary in-project work the agent chose itself, and Custom applies a policy you write. Every level still sends destructive, exfiltrating, security-weakening and trust-boundary-crossing actions to you, unless your custom policy says otherwise; file edits and calls that always need a human are never reviewed at all. To keep that judgement trustworthy the reviewer sees only your own messages and the agent\'s raw tool calls; it never sees the agent\'s explanations or any tool output, so it cannot be argued into an approval or fed instructions hidden in a tool result.\n\n'
         + 'Alongside that it is given the facts of your setup as ground truth: the project root, your home directory, and the permissions you have already granted — whether file editing is on, which folders are allowed, which commands are allowlisted. Those come from your settings rather than the conversation, so the reviewer can tell routine work you have already sanctioned from something the agent decided on its own.\n\n'
         + 'The reviewer answers a simple allow or deny; a decision model gives a probability instead, and the call is approved only when it is at least 90% sure. A confident allow silently approves the call and the run continues. Anything else — a deny, an uncertain answer, a timeout, or an errored reviewer — leaves the call parked for you to decide, exactly as under Default, and the card tells you which it was.\n\n'
-          + 'Reviews run on a small shared pool, so when a turn parks several calls at once they queue: a call refused a slot waits a moment and tries again for a few seconds before giving up and leaving itself parked. The approval buttons stay live throughout, so you can always decide instantly rather than wait.\n\n'
+          + 'Reviews run on a small shared pool, so when a turn parks several calls at once they queue: a call refused a slot waits its turn for up to about a minute before giving up and leaving itself parked, and a slow reviewer is given up to a minute to answer. Deciding a call yourself cancels its review at once. The approval buttons stay live throughout, so you can always decide instantly rather than wait.\n\n'
         + 'Because it only ever approves, the strategy can remove a prompt you would have granted but can never block the model or run something on its own that the reviewer distrusts.',
       tradeoffs: {
         pros: [
@@ -239,7 +239,7 @@ export default class AutoApproveStrategyType extends DefaultStrategyType {
 
     for (;;) {
       try {
-        const { verdict, reason } = await this._review(policy, prompt, this._abortController?.signal);
+        const { verdict, reason } = await this._reviewWhileParked(toolUseId, policy, prompt);
         if (verdict === 'allow') {
           // Provenance `strategy`: this strategy is the approving body. The value
           // names WHO approved (a strategy), not the process (an automatic review).
@@ -255,9 +255,10 @@ export default class AutoApproveStrategyType extends DefaultStrategyType {
             : 'Auto-approve declined — over to you'
         };
       } catch (err) {
-        // A cancelled turn aborts the review in flight. That is not a reviewer
-        // failure, and the user already knows they stopped it, so clear the
-        // indicator rather than reporting their own cancel back at them.
+        // A cancelled turn, or the human deciding the call themselves, aborts
+        // the review in flight. Neither is a reviewer failure, and the user
+        // already knows what they did, so clear the indicator rather than
+        // reporting it back at them.
         if (/** @type {any} */ (err)?.name === 'AbortError') return;
 
         // Two failures say "not now" rather than "no", and both are ordinary
@@ -290,6 +291,46 @@ export default class AutoApproveStrategyType extends DefaultStrategyType {
         console.error('[auto-approve] review failed, leaving parked:', err);
         return { note: reviewFailureNote(err) };
       }
+    }
+  }
+
+  /**
+   * How often, in ms, an in-flight review checks that its call is still parked.
+   * An instance field so tests can shorten it.
+   * @type {number}
+   */
+  _parkedPollMs = 1000;
+
+  /**
+   * Run one review attempt, cancelling it as soon as nobody needs the answer.
+   *
+   * The request is aborted when the turn is cancelled, and also when the call
+   * stops being parked — the human approved or denied it first. The second is
+   * what makes `REVIEW_TIMEOUT_MS` affordable: an overtaken review releases its
+   * slot in the shared out-of-band pool within a poll interval instead of
+   * holding it for the rest of its bound while sibling reviews are refused.
+   * Polled through `_stillParked` rather than observed, so it works for any host
+   * that exposes its tool actions, under the same permissive reading.
+   * @param {string} toolUseId - The parked call's id
+   * @param {{level: string, body: string}} policy - From `resolvePolicy`
+   * @param {string} prompt - The transcript and parked call, from `buildReviewerPrompt`
+   * @returns {Promise<{verdict: 'allow'|'deny', reason: string}>} The verdict and (deny-only) reason
+   * @private
+   */
+  async _reviewWhileParked(toolUseId, policy, prompt) {
+    const controller = new AbortController();
+    const turnSignal = this._abortController?.signal;
+    const abort = () => controller.abort();
+    if (turnSignal?.aborted) abort();
+    turnSignal?.addEventListener('abort', abort, { once: true });
+    const poll = setInterval(() => {
+      if (!this._stillParked(toolUseId)) abort();
+    }, this._parkedPollMs);
+    try {
+      return await this._review(policy, prompt, controller.signal);
+    } finally {
+      clearInterval(poll);
+      turnSignal?.removeEventListener('abort', abort);
     }
   }
 

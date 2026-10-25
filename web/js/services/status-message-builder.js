@@ -50,7 +50,6 @@ const RESTATE_AFTER_MS = Object.freeze({
  * @property {number} [inputTokens] - Tokens sent to LLM
  * @property {number} [outputTokens] - Tokens received from LLM
  * @property {number} [cachedTokens] - Prompt tokens served from cache (OpenAI)
- * @property {number} [maxOutputTokens] - The Max output the call was sent with; the output count is drawn against it
  * @property {number} [elapsedTime] - Elapsed time in milliseconds
  * @property {string} [phase] - Provider-emitted retry, cache, or notice status
  * @property {string} [description] - Current provider activity snapshot
@@ -178,24 +177,8 @@ export class StatusMessageBuilder {
       const output = data.outputTokens;
       const input = data.inputTokens;
       const cached = data.cachedTokens;
-      const max = data.maxOutputTokens;
 
-      if (max !== undefined && max > 0) {
-        // Drawn against the call's Max output, so a reply nearing its limit is
-        // visible while it streams instead of only in the notice afterwards. The
-        // plural follows the limit, the number "tokens" sits beside.
-        if (input !== undefined && input > 0 && cached !== undefined && cached > 0) {
-          const percent = formatNumber(Math.round((cached / input) * 100));
-          parts.push(t('{max, plural, one {{input} ({percent}%\u00A0cached)\u00A0→ {output}\u00A0/ {limit}\u00A0token} other {{input} ({percent}%\u00A0cached)\u00A0→ {output}\u00A0/ {limit}\u00A0tokens}}',
-            { max, input: formatTokens(input), percent, output: formatTokens(output), limit: formatTokens(max) }));
-        } else if (input !== undefined && input > 0) {
-          parts.push(t('{max, plural, one {{input}\u00A0→ {output}\u00A0/ {limit}\u00A0token} other {{input}\u00A0→ {output}\u00A0/ {limit}\u00A0tokens}}',
-            { max, input: formatTokens(input), output: formatTokens(output), limit: formatTokens(max) }));
-        } else {
-          parts.push(t('{max, plural, one {{output}\u00A0/ {limit}\u00A0token} other {{output}\u00A0/ {limit}\u00A0tokens}}',
-            { max, output: formatTokens(output), limit: formatTokens(max) }));
-        }
-      } else if (input !== undefined && input > 0) {
+      if (input !== undefined && input > 0) {
         // The plural follows the total, as the English always has. The arrow
         // binds to the count before it, so a wrap puts the arrow at the end of
         // the line rather than dangling one at the start of the next.

@@ -201,16 +201,11 @@ func (r *run) processStreamChunk(chunk StreamChunk) {
 		// every peer renders the same digit off the doc (no point-to-point WS
 		// frame — a second browser view would never receive it). Throttled
 		// because text deltas can arrive ~30/sec on a fast provider; one
-		// Yjs broadcast per delta would dominate the sync channel. The call's
-		// Max output goes with it, so the count is read against its limit.
+		// Yjs broadcast per delta would dominate the sync channel.
 		now := time.Now().UnixMilli()
 		if now-r.t.lastProgressWriteMs >= 200 {
 			r.t.lastProgressWriteMs = now
-			maxOutput := r.t.maxOutputTokens
-			r.patchLiveRun(func(entry runEntry) {
-				entry.mergeTokens(chunk.OutputTokens, 0, 0)
-				entry.setMaxOutputTokens(maxOutput)
-			})
+			r.mergeProcessingTokens(chunk.OutputTokens, 0, 0)
 		}
 	case provider.ContentBlockTypeUsage:
 		// Surface input/cached tokens on the live spinner status text

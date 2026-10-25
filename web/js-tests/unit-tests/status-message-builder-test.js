@@ -76,9 +76,6 @@ export async function runTests() {
       see('streaming 5 out', B.buildStreamingStatus({ outputTokens: 5, elapsedTime: 3000 }));
       see('streaming in→out', B.buildStreamingStatus({ inputTokens: 1200, outputTokens: 30 }));
       see('streaming cached', B.buildStreamingStatus({ inputTokens: 1200, cachedTokens: 900, outputTokens: 30, elapsedTime: 3000 }));
-      see('streaming out/max', B.buildStreamingStatus({ outputTokens: 1200, maxOutputTokens: 32768 }));
-      see('streaming in→out/max', B.buildStreamingStatus({ inputTokens: 1200, outputTokens: 30, maxOutputTokens: 32768 }));
-      see('streaming cached/max', B.buildStreamingStatus({ inputTokens: 1200, cachedTokens: 900, outputTokens: 30, maxOutputTokens: 32768 }));
 
       // LLMState's own fallbacks, through the frames that reach them.
       const llm = /** @type {any} */ (new LLMState());
@@ -100,8 +97,6 @@ export async function runTests() {
         see('llm preparing', llm.getStatusMessage(convId));
         publish({ status: 'streaming', startedAt, outputTokens: 12 });
         see('llm streaming', llm.getStatusMessage(convId));
-        publish({ status: 'streaming', startedAt, outputTokens: 12, maxOutputTokens: 32768 });
-        see('llm streaming/max', llm.getStatusMessage(convId));
         publish({ status: 'retrying', startedAt });
         see('llm retrying fallback', llm.getStatusMessage(convId));
         publish({ status: 'compacting', startedAt });
@@ -127,9 +122,11 @@ export async function runTests() {
     });
   });
 
-  // The worker publishes the call's Max output beside the running count; the
-  // line draws the count against it, so a reply nearing its limit shows it.
-  await run('a frame carrying maxOutputTokens draws the count against it', async () => {
+  // The streaming line is the running count alone. The call's output limit is
+  // not the user's concern while a reply streams (a cut-off reply gets its own
+  // notice), so a frame that still carries one — from a worker of an older
+  // build — draws no "/ limit" beside the count.
+  await run('a frame carrying maxOutputTokens shows the count alone', async () => {
     const llm = /** @type {any} */ (new LLMState());
     const convId = 'conv-status-builder-max-output';
     llm._conversations.set(convId, {
@@ -142,11 +139,9 @@ export async function runTests() {
       const startedAt = Date.now();
       llm._handleProcessingStateChange(convId, { status: 'streaming', startedAt, outputTokens: 1200, maxOutputTokens: 32768 });
       const line = llm.getStatusMessage(convId);
-      const want = `${formatTokens(1200)}\u00A0/ ${formatTokens(32768)}\u00A0tokens`;
+      const want = `${formatTokens(1200)}\u00A0tokens`;
       assert(line.includes(want), `status line = "${line}", want it to include "${want}"`);
-      llm._handleProcessingStateChange(convId, { status: 'streaming', startedAt, outputTokens: 1200 });
-      const bare = llm.getStatusMessage(convId);
-      assert(!bare.includes('/'), `status line = "${bare}", want no limit drawn when the frame carries none`);
+      assert(!line.includes(formatTokens(32768)), `status line = "${line}", want no output limit drawn`);
     } finally {
       llm.stop(convId);
     }

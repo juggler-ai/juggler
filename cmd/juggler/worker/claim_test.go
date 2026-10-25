@@ -503,13 +503,11 @@ func TestNewStatusFrameDropsPreviousPhaseFields(t *testing.T) {
 	}
 }
 
-// TestProgressCarriesTheTurnsMaxOutput: the running output count is drawn
-// against the Max output the turn was sent with, so a viewer can see a reply
-// approaching its limit rather than only learning of it from the notice after.
-// The figure rides the same entry as the count, and is dropped with it at the
-// next phase.
-func TestProgressCarriesTheTurnsMaxOutput(t *testing.T) {
-	w := NewConversationWorker("test-progress-max-output", "user:test")
+// TestProgressPublishesTheOutputCount: a progress chunk's running output count
+// lands on the run's entry and its projection, and is dropped at the next phase.
+// The turn's Max output stays off the entry — the spinner shows the count alone.
+func TestProgressPublishesTheOutputCount(t *testing.T) {
+	w := NewConversationWorker("test-progress-output-count", "user:test")
 	t.Cleanup(func() { w.doc.Destroy() })
 
 	r := w.currentRun()
@@ -522,16 +520,16 @@ func TestProgressCarriesTheTurnsMaxOutput(t *testing.T) {
 	if got, _ := entry["outputTokens"].(int); got != 1200 {
 		t.Fatalf("entry outputTokens = %v, want 1200", entry["outputTokens"])
 	}
-	if got, _ := entry["maxOutputTokens"].(int); got != 32768 {
-		t.Fatalf("entry maxOutputTokens = %v, want the turn's 32768", entry["maxOutputTokens"])
+	if got, _ := state["outputTokens"].(int); got != 1200 {
+		t.Fatalf("projected outputTokens = %v, want 1200", state["outputTokens"])
 	}
-	if got, _ := state["maxOutputTokens"].(int); got != 32768 {
-		t.Fatalf("projected maxOutputTokens = %v, want 32768", state["maxOutputTokens"])
+	if v, ok := entry["maxOutputTokens"]; ok {
+		t.Fatalf("entry carries maxOutputTokens = %v, want it absent", v)
 	}
 
 	r.sendStatus("processing_tools", "")
-	if v, ok := runEntryOf(w.readProcessingState(), "")["maxOutputTokens"]; ok {
-		t.Fatalf("maxOutputTokens survived the phase change: %v", v)
+	if v, ok := runEntryOf(w.readProcessingState(), "")["outputTokens"]; ok {
+		t.Fatalf("outputTokens survived the phase change: %v", v)
 	}
 }
 

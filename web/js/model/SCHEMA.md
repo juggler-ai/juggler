@@ -67,7 +67,7 @@ runs: {
   "<threadItemId>": {
     activity, threadItemId, claimedAt, explicitContinuation,
     status, message, code, startedAt,
-    description, phase, inputTokens, outputTokens, cachedTokens, maxOutputTokens
+    description, phase, inputTokens, outputTokens, cachedTokens
   }
 }
 ```

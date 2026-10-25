@@ -37,7 +37,6 @@ const (
 	runFieldInputTokens          = "inputTokens"
 	runFieldOutputTokens         = "outputTokens"
 	runFieldCachedTokens         = "cachedTokens"
-	runFieldMaxOutputTokens      = "maxOutputTokens"
 	runFieldRaiseMaxOutputTokens = "raiseMaxOutputTokens"
 )
 
@@ -49,7 +48,6 @@ const (
 var runProjectedFields = []string{
 	runFieldStatus, runFieldMessage, runFieldCode, runFieldStartedAt,
 	runFieldDescription, runFieldPhase, runFieldInputTokens, runFieldOutputTokens, runFieldCachedTokens,
-	runFieldMaxOutputTokens,
 }
 
 // runEntryFromLegacy is the one run a frame describes through its top-level
@@ -244,22 +242,12 @@ func (e runEntry) mergeTokens(outputTokens, inputTokens, cachedTokens int) {
 	}
 }
 
-// setMaxOutputTokens records the Max output the streaming call was sent with,
-// the denominator the spinner draws the running output count against. A
-// non-positive figure is unknown and leaves the field absent.
-func (e runEntry) setMaxOutputTokens(tokens int) {
-	if tokens > 0 {
-		e[runFieldMaxOutputTokens] = tokens
-	}
-}
-
 // phaseProgressFields are the mid-stream progress fields, which belong to the
 // phase that produced them: a token count from the last stream means nothing
 // beside "Running tools", and a provider activity line describes a call that
 // has ended.
 var phaseProgressFields = []string{
 	runFieldDescription, runFieldPhase, runFieldInputTokens, runFieldOutputTokens, runFieldCachedTokens,
-	runFieldMaxOutputTokens,
 }
 
 // dropPhaseProgress clears the mid-stream progress fields, as every change of

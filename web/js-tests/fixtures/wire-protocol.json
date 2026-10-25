@@ -114,7 +114,7 @@
       "processingState": [
         "status", "message", "code", "text", "startedAt", "threadItemId", "activity", "claimedAt", "runs",
         "politeStops", "politePending", "explicitContinuation", "description", "phase", "inputTokens",
-        "outputTokens", "cachedTokens", "maxOutputTokens", "raiseMaxOutputTokens"
+        "outputTokens", "cachedTokens", "raiseMaxOutputTokens"
       ]
     }
   },

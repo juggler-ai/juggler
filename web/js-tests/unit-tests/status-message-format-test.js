@@ -84,16 +84,6 @@ export async function runTests(_ctx) {
     assert(message.includes(`128k (94%${NBSP}cached)${NBSP}→ 4k${NBSP}tokens`), `status message = "${message}"`);
   });
 
-  test('an output count is drawn against Max output, bound to it', () => {
-    const message = StatusMessageBuilder.buildStreamingStatus({ outputTokens: 1200, maxOutputTokens: 32768 });
-    assert(message.includes(`${count(1200)}${NBSP}/ ${count(32768)}${NBSP}tokens`), `status message = "${message}"`);
-  });
-
-  test('an input → output pair is drawn against Max output too', () => {
-    const message = StatusMessageBuilder.buildStreamingStatus({ inputTokens: 2000, outputTokens: 30, maxOutputTokens: 32768 });
-    assert(message.includes(`${count(2000)}${NBSP}→ 30${NBSP}/ ${count(32768)}${NBSP}tokens`), `status message = "${message}"`);
-  });
-
   test('an upload size is bound to its unit', () => {
     const message = StatusMessageBuilder.buildUploadingStatus({ payloadSize: 48 * 1024 });
     assert(message.includes(`48${NBSP}KB`), `status message = "${message}"`);
@@ -110,7 +100,6 @@ export async function runTests(_ctx) {
       StatusMessageBuilder.buildStreamingStatus({ inputTokens: 2000, cachedTokens: 1800, outputTokens: 30, elapsedTime: 90000 }),
       StatusMessageBuilder.buildStreamingStatus({ inputTokens: 1_500_000, cachedTokens: 1_200_000, outputTokens: 12_000, elapsedTime: 3000 }),
       StatusMessageBuilder.buildStreamingStatus({ outputTokens: 5, elapsedTime: 3000 }),
-      StatusMessageBuilder.buildStreamingStatus({ inputTokens: 2000, cachedTokens: 1800, outputTokens: 30, maxOutputTokens: 32768 }),
       StatusMessageBuilder.buildUploadingStatus({ payloadSize: 1_500_000, elapsedTime: 3000 }),
     ];
     for (const message of messages) {

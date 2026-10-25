@@ -20,7 +20,6 @@ const cancelFrame = typeof cancelAnimationFrame === 'function'
  * @property {number} [inputTokens] - Tokens sent to LLM
  * @property {number} [outputTokens] - Tokens received from LLM
  * @property {number} [cachedTokens] - Prompt tokens served from cache (OpenAI)
- * @property {number} [maxOutputTokens] - The Max output the streaming call was sent with
  * @property {string} [message] - Custom message
  * @property {number} [payloadSize] - Payload size in bytes (for uploading status)
  * @property {string} [phase] - Provider-emitted retry, cache, or notice status
@@ -521,7 +520,6 @@ class LLMState {
     const mergedInput = data.inputTokens !== undefined ? data.inputTokens : (sameStatus ? existingStatusData?.inputTokens : undefined);
     const mergedOutput = data.outputTokens !== undefined ? data.outputTokens : (sameStatus ? existingStatusData?.outputTokens : undefined);
     const mergedCached = data.cachedTokens !== undefined ? data.cachedTokens : (sameStatus ? existingStatusData?.cachedTokens : undefined);
-    const mergedMaxOutput = data.maxOutputTokens !== undefined ? data.maxOutputTokens : (sameStatus ? existingStatusData?.maxOutputTokens : undefined);
     // Provider labels merge like the token counts: preserved across the rAF
     // tick's otherwise-empty `data`, reset on a status transition so lifecycle
     // state replacement naturally clears stale provider activity.
@@ -535,7 +533,6 @@ class LLMState {
       inputTokens: mergedInput,
       outputTokens: mergedOutput,
       cachedTokens: mergedCached,
-      maxOutputTokens: mergedMaxOutput,
       phase: mergedPhase,
       description: mergedDescription,
       startTime: startTime,
@@ -660,7 +657,6 @@ class LLMState {
         inputTokens: statusData.inputTokens,
         outputTokens: statusData.outputTokens,
         cachedTokens: statusData.cachedTokens,
-        maxOutputTokens: statusData.maxOutputTokens,
         phase: statusData.phase,
         description: statusData.description,
         elapsedTime: elapsedTime,
@@ -731,7 +727,7 @@ class LLMState {
    * appears in at all — a rest, or a terminal error, which is one run's last
    * word about itself.
    * @param {string} conversationId - Conversation ID
-   * @param {{status: string, message?: string, code?: string, threadItemId?: string, activity?: string, runs?: object, startedAt?: number, inputTokens?: number, outputTokens?: number, cachedTokens?: number, maxOutputTokens?: number, phase?: string, description?: string}|null} state - Processing state
+   * @param {{status: string, message?: string, code?: string, threadItemId?: string, activity?: string, runs?: object, startedAt?: number, inputTokens?: number, outputTokens?: number, cachedTokens?: number, phase?: string, description?: string}|null} state - Processing state
    * @private
    */
   _handleProcessingStateChange(conversationId, state) {
@@ -813,7 +809,6 @@ class LLMState {
       inputTokens: typeof frame.inputTokens === 'number' ? frame.inputTokens : undefined,
       outputTokens: typeof frame.outputTokens === 'number' ? frame.outputTokens : undefined,
       cachedTokens: typeof frame.cachedTokens === 'number' ? frame.cachedTokens : undefined,
-      maxOutputTokens: typeof frame.maxOutputTokens === 'number' ? frame.maxOutputTokens : undefined,
       // Provider startup and activity snapshots are separate from the scalar
       // activity operation claim.
       phase: typeof frame.phase === 'string' ? frame.phase : undefined,

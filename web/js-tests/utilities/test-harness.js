@@ -901,6 +901,33 @@ export class IntegrationTestHarness {
   }
 
   /**
+   * Fork a conversation at one of its root-thread messages, as the properties
+   * panel's Fork button does: duplicate it, then cut the copy at that message
+   * with the REAL Conversation.cutAtForkPoint.
+   * @param {string} sourceId - Source conversation ID or $CONV_N placeholder
+   * @param {{type: string, content: string}} at - The message to fork at, named by its type and content
+   * @param {import('./test-harness.js').MockResponse[]} [llmResponses] - Explicit
+   *   mock script for the copy; omitted = remaining shared responses, counted one
+   *   per send, which a turn that called a tool overtakes
+   * @returns {Promise<string>} New conversation ID
+   */
+  async forkConversation(sourceId, at, llmResponses) {
+    const source = this._conversations.get(this._resolveConversationId(sourceId));
+    const target = source?.rootMessageThread.items.find(
+      (/** @type {any} */ it) => it.get('type') === at.type && it.get('content') === at.content);
+    if (!target) {
+      throw new Error(`fork-conversation: no ${at.type} message ${JSON.stringify(at.content)} in ${sourceId}`);
+    }
+    const newConvId = await this.duplicateConversation(sourceId);
+    const newConv = /** @type {any} */ (this._session).getConversation(newConvId);
+    if (!newConv.cutAtForkPoint(target.get('itemId'))) {
+      throw new Error(`fork-conversation: the copy ${newConvId} does not hold the forked-at message`);
+    }
+    if (llmResponses) await this._injectMockResponses(llmResponses, 0);
+    return newConvId;
+  }
+
+  /**
    * Wait for conversation to have at least N items (Yjs sync completion).
    * @param {string} conversationId - Conversation ID
    * @param {number} expectedCount - Minimum number of items expected

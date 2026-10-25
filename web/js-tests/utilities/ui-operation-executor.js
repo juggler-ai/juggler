@@ -648,6 +648,14 @@ export async function executeUIOperation(harness, op) {
       break;
     }
 
+    case 'fork-conversation': {
+      if (!op.sourceId || !op.at) {
+        throw new Error('fork-conversation operation requires sourceId and at');
+      }
+      op.resultId = await harness.forkConversation(op.sourceId, op.at, op.llmResponses);
+      break;
+    }
+
     case 'switch-conversation': {
       if (!op.conversationId) {
         throw new Error('switch-conversation operation requires conversationId');

@@ -281,6 +281,21 @@ export class UITestHarness {
   }
 
   /**
+   * Fork a conversation at one of its root-thread messages.
+   * @param {string} sourceId - Source conversation ID
+   * @param {{type: string, content: string}} at - The message to fork at
+   * @param {import('./test-harness.js').MockResponse[]} [llmResponses] - Explicit mock script for the copy
+   * @returns {Promise<string>} New conversation ID
+   */
+  async forkConversation(sourceId, at, llmResponses) {
+    const id = await this.innerHarness.forkConversation(sourceId, at, llmResponses);
+    if (this._conversationTab && this._innerHarness) {
+      /** @type {any} */ (this._conversationTab).setConversation(this._innerHarness.conversation);
+    }
+    return id;
+  }
+
+  /**
    * Switch to a different conversation.
    * @param {string} conversationId - Target conversation ID
    */

@@ -642,6 +642,26 @@ class Conversation {
   }
 
   /**
+   * Cut a freshly forked copy at its fork point in the root thread. A fork at a
+   * user message drops that message and everything after it, since the message
+   * goes back to the composer to be edited and sent again. A fork at a reply
+   * keeps the reply and drops only what follows it, so the next message carries
+   * on from it. The tool calls a reply went on to make come after it, so they go:
+   * each call is one item holding both the call and its result, so no call is
+   * ever left without its answer.
+   * @param {string} itemId - The message the fork was taken at
+   * @returns {boolean} Whether the root thread holds that message
+   */
+  cutAtForkPoint(itemId) {
+    const root = this._rootMessageThread;
+    const index = root.findIndexByItemId(itemId);
+    if (index < 0) return false;
+    const from = root.items[index].get('type') === 'user' ? index : index + 1;
+    this.deleteRangeWithCleanup(root, from);
+    return true;
+  }
+
+  /**
    * Delete every user-deletable item after index (exclusive) with full cleanup.
    * @param {import('./message-thread.js').default} messageThread
    * @param {number} index

@@ -858,23 +858,20 @@ class JugglerApp {
     // Switch to the new conversation
     session.switchConversation(newConvId);
 
-    // Get the new conversation and rollback
+    // Cut the copy at the fork point. Fork is offered only in the root column,
+    // and the copy keeps every item id, so the item is found by id in its root.
     const newConv = session.getConversation(newConvId);
     if (newConv) {
-      // PURE YJS: Remove items via conversation method (syncs to worker automatically)
-      // Note: branch always operates on root of the new conversation
-      // Re-resolve index in the new conversation's items
-      const newItemIndex = newConv.rootMessageThread.findIndexByItemId(itemId);
-      if (newItemIndex < 0) {
+      if (!newConv.cutAtForkPoint(itemId)) {
         console.error('[Juggler] Item not found in new conversation');
         return;
       }
-      newConv.deleteRangeWithCleanup(newConv.rootMessageThread, newItemIndex);
 
       // For user messages, restore the whole message (text + attachments)
       // into the composer. The branch clone copied the source's asset blobs
       // (server duplicateConversationFiles copies assets/), so the restored
-      // refs resolve against the new conversation's asset store.
+      // refs resolve against the new conversation's asset store. A fork at a
+      // reply leaves the composer as it is, for the next message.
       if (item.get('type') === 'user') {
         setTimeout(() => {
           this._loadMessageIntoInput(newConv, item);

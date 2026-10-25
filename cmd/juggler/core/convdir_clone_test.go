@@ -86,8 +86,8 @@ func TestCopyDirContents(t *testing.T) {
 }
 
 // TestCloneConvFolder covers the whole clone: the document, every transaction
-// blob and every attachment arrive, and a supplied document replaces the
-// source's on-disk one.
+// blob and every attachment arrive, a supplied document replaces the source's
+// on-disk one, and what belongs to the source alone stays behind.
 func TestCloneConvFolder(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
@@ -103,6 +103,13 @@ func TestCloneConvFolder(t *testing.T) {
 	write(ConvDocPath(src), "on-disk-doc")
 	write(filepath.Join(ConvTxnsDir(src), "txn_1.json"), `{"t":1}`)
 	write(filepath.Join(ConvAssetsDir(src), "abc.png"), "png-bytes")
+	// Neither of these may reach a clone. The claudecode provider's session
+	// sidecar names the CLI session the source resumes: a clone holding it would
+	// resume the source's session, and the two would write into one transcript.
+	// A program snapshot resumes one program, which two conversations would each
+	// re-run from its stop.
+	write(filepath.Join(src, "claude_session.json"), `{"sessionUUID":"source-session"}`)
+	write(filepath.Join(ConvProgramsDir(src), "toolu_1.json"), `{}`)
 
 	read := func(t *testing.T, path string) string {
 		t.Helper()
@@ -137,6 +144,11 @@ func TestCloneConvFolder(t *testing.T) {
 			}
 			if got := read(t, filepath.Join(ConvAssetsDir(dst), "abc.png")); got != "png-bytes" {
 				t.Errorf("asset = %q", got)
+			}
+			for _, carried := range []string{filepath.Join(dst, "claude_session.json"), ConvProgramsDir(dst)} {
+				if _, err := os.Stat(carried); !os.IsNotExist(err) {
+					t.Errorf("the clone carries %s (stat err = %v): only the doc, txns and assets are a clone's", filepath.Base(carried), err)
+				}
 			}
 		})
 	}

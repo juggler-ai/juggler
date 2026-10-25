@@ -39,6 +39,46 @@ export async function runTests() {
   /** @type {string[]} */
   const errors = [];
 
+  // Which messages offer Rewind and Fork. Rewind hands a user message back to
+  // the composer, so only a user message has it; Fork works at a user message
+  // or a reply, and only in the root column, which is where the copy is cut.
+  try {
+    const panel = /** @type {any} */ (document.createElement('properties-panel'));
+    const user = item({ itemId: 'u', type: 'user', content: 'question' });
+    const reply = item({ itemId: 'a', type: 'assistant', content: 'answer' });
+    const items = [user, reply];
+    const threadOf = (/** @type {string|null} */ threadItemId) => ({
+      items,
+      pendingItems: [],
+      threadItemId,
+      conversation: {},
+      findIndexByItemId: (/** @type {string} */ id) => items.findIndex((i) => i.get('itemId') === id),
+      getContextItem: () => null,
+    });
+    const labels = (/** @type {any} */ msg) =>
+      [...panel._renderMessageControls(msg).querySelectorAll('button')].map((b) => b.textContent.trim());
+    const has = (/** @type {string[]} */ shown, /** @type {string} */ label) => shown.includes(label);
+
+    panel._messageThread = threadOf(null);
+    const userRoot = labels(user);
+    assert(has(userRoot, 'Rewind to this message'), `root user message has no Rewind: ${JSON.stringify(userRoot)}`);
+    assert(has(userRoot, 'Fork a new conversation from here'), `root user message has no Fork: ${JSON.stringify(userRoot)}`);
+    const replyRoot = labels(reply);
+    assert(has(replyRoot, 'Fork a new conversation after this reply'), `root reply has no Fork: ${JSON.stringify(replyRoot)}`);
+    assert(!has(replyRoot, 'Rewind to this message'), `a reply offers Rewind: ${JSON.stringify(replyRoot)}`);
+
+    panel._messageThread = threadOf('thread-1');
+    const userSub = labels(user);
+    assert(has(userSub, 'Rewind to this message'), `sub-thread user message lost Rewind: ${JSON.stringify(userSub)}`);
+    const forks = [...userSub, ...labels(reply)].filter((l) => l.startsWith('Fork'));
+    assert(forks.length === 0, `a sub-thread column offers Fork: ${JSON.stringify(forks)}`);
+    panel._messageThread = null;
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`fork controls: ${e instanceof Error ? `${e.message}\n${e.stack}` : String(e)}`);
+  }
+
   // en-XA — every state the panel's own code draws. Data is digits, so a
   // string with no letter at all is data and is left out.
   const host = document.createElement('div');
@@ -102,6 +142,7 @@ export async function runTests() {
       const userControls = panel._renderMessageControls(user);
       assert(userControls.querySelectorAll('button').length >= 5, 'the user message drew too few controls');
       collect('user message controls', shownStrings(wrapped(userControls)));
+      collect('reply controls', shownStrings(wrapped(panel._renderMessageControls(reply))));
 
       // Context-item controls: refreshable, outside the thread (plain Remove).
       const contextItem = { id: '5', refresh() {}, preventUserDeletion: () => false };

@@ -956,8 +956,10 @@ class PropertiesPanel extends JugglerElement {
       const itemIndex = this._messageThread.findIndexByItemId(messageItemId);
 
       if (itemIndex >= 0) {
-        // Rewind/Fork buttons (for user messages)
-        if (message.get('type') === 'user') {
+        const type = message.get('type');
+        // Rewind hands a user message back to the composer, so it is a user
+        // message's alone.
+        if (type === 'user') {
           const rollbackBtn = document.createElement('button');
           rollbackBtn.className = 'properties-panel-btn';
           rollbackBtn.innerHTML = `
@@ -966,12 +968,21 @@ class PropertiesPanel extends JugglerElement {
                     `;
           rollbackBtn.addEventListener('click', () => this._rollbackFromItem(messageItemId));
           controls.appendChild(rollbackBtn);
+        }
 
+        // Fork copies the conversation and cuts the copy at this message: before
+        // a user message, which goes back to the composer, or after a reply. The
+        // copy is cut in its root thread (Conversation.cutAtForkPoint), so Fork
+        // is offered in the root column only.
+        if ((type === 'user' || type === 'assistant') && !this._messageThread.threadItemId) {
           const branchBtn = document.createElement('button');
           branchBtn.className = 'properties-panel-btn';
+          const label = type === 'user'
+            ? t('Fork a new conversation from here')
+            : t('Fork a new conversation after this reply');
           branchBtn.innerHTML = `
                         ${FORK_SVG}
-                        ${escapeHtml(t('Fork a new conversation from here'))}
+                        ${escapeHtml(label)}
                     `;
           branchBtn.addEventListener('click', () => this._branchFromItem(messageItemId));
           controls.appendChild(branchBtn);

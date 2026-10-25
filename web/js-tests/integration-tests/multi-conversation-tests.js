@@ -446,6 +446,97 @@ export const duplicateConversationTwiceNameTest = {
 };
 
 /**
+ * The types of a conversation's root items, for a whole-list comparison (the
+ * runner's expectedItems is a prefix match, and a fork is about what it drops).
+ * @param {any} conversation
+ * @returns {string[]} Each root item as `type` or `type:content`
+ */
+function rootShape(conversation) {
+  return conversation.rootMessageThread.items.map((/** @type {any} */ it) => {
+    const content = it.get('content');
+    return typeof content === 'string' && it.get('type') !== 'system-prompt' ? `${it.get('type')}:${content}` : it.get('type');
+  });
+}
+
+/**
+ * Forking at a reply keeps that reply and everything before it, and the next
+ * message carries on from it in the copy; the source is untouched.
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+export const forkFromAssistantMessageTest = {
+  name: 'fork-from-assistant-message',
+  description: 'Forking at an assistant reply keeps the reply, drops what follows, and the next message continues from it',
+  fixture: 'unit-test-fixture',
+
+  llmResponses: [
+    textResponse('First answer.'),
+    textResponse('Second answer.'),
+    textResponse('Answer in the fork.')
+  ],
+
+  operations: [
+    { type: 'send-message', message: 'First question' },
+    { type: 'send-message', message: 'Second question' },
+    { type: 'fork-conversation', sourceId: '$CONV_0', at: { type: 'assistant', content: 'First answer.' } },
+    { type: 'send-message', message: 'Question in the fork' }
+  ],
+
+  expectedItems: [
+    { type: 'system-prompt', itemId: '$ITEM_1' },
+    { type: 'user', content: 'First question' },
+    { type: 'assistant', content: 'First answer.' },
+    { type: 'user', content: 'Question in the fork' },
+    { type: 'assistant', content: 'Answer in the fork.' }
+  ],
+
+  customAssertions: (conversation, ctx) => {
+    const fork = JSON.stringify(rootShape(conversation));
+    const wantFork = JSON.stringify(['system-prompt', 'user:First question', 'assistant:First answer.',
+      'user:Question in the fork', 'assistant:Answer in the fork.']);
+    if (fork !== wantFork) throw new Error(`fork-from-assistant-message: fork holds ${fork}, want ${wantFork}`);
+
+    const source = conversation.session.conversations.get(ctx.harness.conversationIds()[0]);
+    const kept = JSON.stringify(rootShape(source));
+    const wantSource = JSON.stringify(['system-prompt', 'user:First question', 'assistant:First answer.',
+      'user:Second question', 'assistant:Second answer.']);
+    if (kept !== wantSource) throw new Error(`fork-from-assistant-message: source holds ${kept}, want ${wantSource}`);
+  }
+};
+
+/**
+ * A reply that went on to call a tool is forked as the reply alone: the call
+ * and its result come after it, so the copy ends on the reply's text and holds
+ * no tool call, answered or not.
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+export const forkFromAssistantBeforeToolCallTest = {
+  name: 'fork-from-assistant-before-tool-call',
+  description: 'Forking at a reply that went on to call a tool keeps the reply and drops the call',
+  fixture: 'unit-test-fixture',
+
+  llmResponses: [
+    toolUseResponse('call_1', 'read', { file_path: 'README.md' }, 'Let me look.'),
+    textResponse('Read it.')
+  ],
+
+  operations: [
+    { type: 'send-message', message: 'Read the README' },
+    {
+      type: 'fork-conversation', sourceId: '$CONV_0', at: { type: 'assistant', content: 'Let me look.' },
+      llmResponses: [textResponse('Carried on.')]
+    },
+    { type: 'send-message', message: 'Never mind' }
+  ],
+
+  customAssertions: (conversation) => {
+    const fork = JSON.stringify(rootShape(conversation));
+    const want = JSON.stringify(['system-prompt', 'user:Read the README', 'assistant:Let me look.',
+      'user:Never mind', 'assistant:Carried on.']);
+    if (fork !== want) throw new Error(`fork-from-assistant-before-tool-call: fork holds ${fork}, want ${want}`);
+  }
+};
+
+/**
  * Cross-conversation cancel isolation.
  *
  * Regression test: the engine's actionExecutor is a singleton running actions
@@ -606,6 +697,8 @@ export const tests = [
   duplicateConversationTest,
   duplicateConversationNameTest,
   duplicateConversationTwiceNameTest,
+  forkFromAssistantMessageTest,
+  forkFromAssistantBeforeToolCallTest,
   deleteActiveTabMruTest,
   multiConvCancelIsolationTest,
   newConversationToolTest

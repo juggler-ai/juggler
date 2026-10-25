@@ -1,0 +1,11 @@
+{
+  "Create an API key at https://dashboard.exa.ai/api-keys": "https://dashboard.exa.ai/api-keys 에서 API 키를 만드세요",
+  "Exa API key": "Exa API 키",
+  "Exa Search": "Exa 검색",
+  "Query": "검색어",
+  "Results": "결과",
+  "Search the web with Exa": "Exa로 웹 검색",
+  "Searching Exa for \"{query}\"...": "Exa에서 \"{query}\" 검색 중...",
+  "unknown": "알 수 없음",
+  "{count, plural, one {Found {count} Exa result for \"{query}\"} other {Found {count} Exa results for \"{query}\"}}": "{count, plural, other {Exa에서 \"{query}\"에 대한 결과 {count}개를 찾았습니다}}"
+}

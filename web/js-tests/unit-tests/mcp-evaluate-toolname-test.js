@@ -31,7 +31,7 @@
 import {
   initializeRegistries,
   createTestSession,
-  createApprovalTestConversation,
+  createGateTestConversation,
   assert
 } from '../utilities/test-helpers.js';
 import ContextItem from '../../sdk/context-item.js';
@@ -173,7 +173,7 @@ export async function runTests(_ctx) {
     // approval instead of error-completing with `Unknown MCP tool ""`.
     // =======================================================================
     await run('evaluate-tool gate routes the invoked MCP tool name into the action', async () => {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
       ProbeMcpItem.constructed = [];
 
@@ -213,7 +213,7 @@ export async function runTests(_ctx) {
     // call still lands as its canonical tool key.
     // =======================================================================
     await run('evaluate-tool gate resolves prefixed names before routing', async () => {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
       ProbeMcpItem.constructed = [];
 

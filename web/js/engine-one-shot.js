@@ -24,6 +24,7 @@ import { extractErrorMessage } from '../sdk/lib/error-utils.js';
 import { markUntranslated } from '../sdk/lib/i18n.js';
 import { waitForTurnOutcome } from './model/turn-completion.js';
 import wsService from './services/websocket.js';
+import providersCache from './services/providers-cache.js';
 
 /**
  * How much longer than the caller's own deadline the engine waits.
@@ -93,7 +94,17 @@ export async function runOneShot(session, request, ready) {
     const sinceTurn = conversation.completedTurns;
 
     const dropped = await conversation.sendMessage(prompt, null, conversation.rootMessageThread);
-    if (dropped) throw new Error(markUntranslated(`the prompt was not delivered: ${dropped}`));
+    if (dropped) {
+      // What the refusal was judged on, for the run's log: a refusal that should
+      // not have happened is a document or a provider list that had not arrived.
+      console.error(`[one-shot] ${conversationId} refused its prompt (${dropped}):`, {
+        modelConfig: conversation.modelConfig ?? null,
+        hasItemsArray: conversation.hasRootItemsArray,
+        providersReady: providersCache.isReady(),
+        providers: providersCache.get().length
+      });
+      throw new Error(markUntranslated(`the prompt was not delivered: ${dropped}`));
+    }
 
     const { parked, parkedTool } = await waitForTurnOutcome(conversation, {
       sinceTurn,
@@ -116,6 +127,8 @@ export async function runOneShot(session, request, ready) {
   } catch (err) {
     result.status = 'failed';
     result.errorText = extractErrorMessage(err);
+    // The result carries the message alone; the stack goes to the run's log.
+    console.error('[one-shot] run failed:', err);
   }
 
   wsService.sendOneShotResult({ requestId, ...result });

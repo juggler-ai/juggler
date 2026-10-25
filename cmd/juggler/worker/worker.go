@@ -847,6 +847,9 @@ func (r *run) dispatchMessage(msg workerMessage) {
 		}()
 	}
 	r.inbox.beginReply(msg.OriginClient)
+	if msg.Ack != nil {
+		r.inbox.answerByAck()
+	}
 	defer r.inbox.endReply()
 
 	if r.handleTestMessage(msg) {
@@ -1232,11 +1235,22 @@ func (w *ConversationWorker) finishIdleTransition() {
 // broadcast ready is a foreign answer that resolves a peer's still-outstanding
 // init before the delta addressed to that peer has gone out, leaving it holding
 // an empty document it believes is loaded.
+//
+// So an init no client sent — the server's seed of a new conversation, which
+// waits on its ack channel — is answered by that ack and nothing else. reply's
+// broadcast fallback would otherwise send its ready to every client, and the
+// engine creating that conversation is one of them, mid-init.
 func (w *ConversationWorker) sendReady() {
+	if w.inbox.answeredByAckAlone() {
+		return
+	}
 	w.reply(ReadyMessage{Type: msgReady, SummarizationPrompt: DefaultSummarizationPrompt})
 }
 
 func (w *ConversationWorker) sendReadyWithMetadata(metadata map[string]any) {
+	if w.inbox.answeredByAckAlone() {
+		return
+	}
 	w.reply(ReadyMessage{Type: msgReady, Metadata: metadata, SummarizationPrompt: DefaultSummarizationPrompt})
 }
 

@@ -24,6 +24,10 @@ type workerInbox struct {
 	// run loop dispatches one message at a time on a single goroutine, and
 	// replies are sent synchronously within that dispatch.
 	answering string
+	// byAck is whether the message being dispatched carries an ack channel —
+	// a request from inside the server, whose caller waits on that channel
+	// rather than on anything sent over the wire. Same goroutine rule.
+	byAck bool
 }
 
 // newWorkerInbox builds an empty inbox whose pump lives until done closes.
@@ -42,9 +46,18 @@ func (b *workerInbox) messages() <-chan workerMessage { return b.intakeOut }
 // beginReply records the client a dispatch is answering. Run goroutine only.
 func (b *workerInbox) beginReply(clientID string) { b.answering = clientID }
 
+// answerByAck marks the dispatch beginReply opened as one whose caller waits
+// on its ack channel. Run goroutine only.
+func (b *workerInbox) answerByAck() { b.byAck = true }
+
 // endReply ends the dispatch beginReply opened.
-func (b *workerInbox) endReply() { b.answering = "" }
+func (b *workerInbox) endReply() { b.answering, b.byAck = "", false }
 
 // origin is the client the current dispatch answers, or "" when the message
 // came from inside the worker.
 func (b *workerInbox) origin() string { return b.answering }
+
+// answeredByAckAlone reports whether the current dispatch has no client to
+// answer on the wire: a request from inside the server, answered when its ack
+// channel is.
+func (b *workerInbox) answeredByAckAlone() bool { return b.answering == "" && b.byAck }

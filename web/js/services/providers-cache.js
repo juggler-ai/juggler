@@ -119,6 +119,16 @@ const providersCache = {
   },
 
   /**
+   * Whether a settled snapshot has arrived — the synchronous form of
+   * `waitForReady()`. Until it has, the list may be the connect seed, whose
+   * emptiness says nothing about what is configured.
+   * @returns {boolean} True once a ready providers-update has been observed.
+   */
+  isReady() {
+    return _ready;
+  },
+
+  /**
    * Whether at least one provider is currently usable — enabled with a working
    * credential and at least one listable model. This is the "can the user
    * actually send a message" signal, distinct from `hasReceived()` (did any

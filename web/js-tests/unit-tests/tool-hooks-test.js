@@ -40,7 +40,7 @@
 import {
   initializeRegistries,
   createTestSession,
-  createApprovalTestConversation,
+  createGateTestConversation,
   assert
 } from '../utilities/test-helpers.js';
 import { handleNewToolAction, claimRunning, executeToolAction } from '../../js/model/conversation-tool-actions.js';
@@ -158,7 +158,7 @@ export async function runTests(_ctx) {
       beforeHook('guard-rm', { verdict: 'deny', reason: 'never delete recursively' },
         { name: 'Guard', match: { tools: ['bash'], input: 'rm -rf' } })
     ], async () => {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
       mt.strategy = { getApprovalPolicy: () => 'approve' };
 
@@ -185,7 +185,7 @@ export async function runTests(_ctx) {
     await test('beforeTool ask', () => withHooks([
       beforeHook('ask-migrations', { verdict: 'ask', reason: 'migrations are shared' }, { name: 'Migrations' })
     ], async () => {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
       /** @type {any[]} */
       const reviewed = [];
@@ -205,7 +205,7 @@ export async function runTests(_ctx) {
     await test('beforeTool allow', () => withHooks([
       beforeHook('allow-all', { verdict: 'allow' })
     ], async () => {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
       mt.strategy = { getApprovalPolicy: () => 'default' };
 
@@ -227,7 +227,7 @@ export async function runTests(_ctx) {
       beforeHook('allow-first', { verdict: 'allow' }),
       beforeHook('deny-second', { verdict: 'deny', reason: 'no' })
     ], async () => {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
       mt.strategy = { getApprovalPolicy: () => 'approve' };
       const id = insertBash(conversation, 'hook-merge-1', 'echo merge');
@@ -244,7 +244,7 @@ export async function runTests(_ctx) {
       beforeHook('throws-open', () => { throw new Error('boom'); }),
       beforeHook('throws-closed', () => { throw new Error('bang'); }, { onError: 'closed', match: { input: 'closed' } })
     ], async () => {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
       mt.strategy = { getApprovalPolicy: () => 'approve' };
 
@@ -275,7 +275,7 @@ export async function runTests(_ctx) {
         }
       }
       await withHooks([NoteHook], async () => {
-        const conversation = await createApprovalTestConversation(session);
+        const conversation = await createGateTestConversation(session);
         const mt = conversation.rootMessageThread;
         const id = insertBash(conversation, 'hook-after-1', 'echo hook-after-marker');
         mt.updateToolActionState(id, TOOL_STATES.APPROVED);
@@ -303,7 +303,7 @@ export async function runTests(_ctx) {
         afterTool() { return { note: 'standing guidance' }; }
       }
       await withHooks([OnceHook], async () => {
-        const conversation = await createApprovalTestConversation(session);
+        const conversation = await createGateTestConversation(session);
         const mt = conversation.rootMessageThread;
         const call = {
           messageThread: mt, conversationId: conversation.id, threadId: conversation.id,

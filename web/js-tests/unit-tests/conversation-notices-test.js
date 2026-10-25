@@ -156,6 +156,7 @@ async function walk() {
 
   let hasStrategy = true;
   let received = true;
+  let settled = true;
   let anyAvailable = true;
   /** @type {any[]} */
   let providers = [];
@@ -167,6 +168,7 @@ async function walk() {
   const restorers = [
     swap(strategyRegistry, 'hasAnyStrategy', () => hasStrategy),
     swap(providersCache, 'hasReceived', () => received),
+    swap(providersCache, 'isReady', () => settled),
     swap(providersCache, 'hasAvailableProvider', () => anyAvailable),
     swap(providersCache, 'get', () => providers),
     swap(workerManager, 'isWorkerReady', (/** @type {string} */ id) => workerReady(id)),
@@ -223,6 +225,11 @@ async function walk() {
     received = true;
     anyAvailable = false;
     await sendToConfirm('no provider', {});
+    // The connect seed: a list has arrived, but not the settled one, so its
+    // emptiness says nothing about what is configured yet.
+    settled = false;
+    await send('no provider, list not yet settled', {});
+    settled = true;
     anyAvailable = true;
 
     const model = { provider: 'p7', model: 'm7' };
@@ -318,6 +325,7 @@ async function walk() {
 const RETURNS = {
   'no strategy': 'no strategy enabled',
   'no provider: message': 'no provider configured',
+  'no provider, list not yet settled': 'worker not ready',
   'unavailable with hint: message': 'provider unavailable',
   'stranded, root known': 'provider cannot reach this workspace',
   'workspace unrecorded': 'workspace cannot be worked in',

@@ -770,6 +770,26 @@ export async function createApprovalTestConversation(session) {
 }
 
 /**
+ * An approval test conversation whose writes never reach its worker, for a
+ * suite that drives the engine gate (`handleNewToolAction`) itself.
+ *
+ * The worker commands the pool's engine to evaluate every unstarted call it
+ * sees, and that engine runs the same gate in its own realm: with the
+ * conversation's real policy (a safe `echo` is approved and run), without the
+ * stub strategy, hooks or tools the suite registered in this lane. Its writes
+ * merge over the suite's, so a call reached by both is decided twice and the
+ * case reads whichever won. With the outbound sync cut, the suite's gate is the
+ * only one that sees the call; the gate itself writes only to the local doc.
+ * @param {Session} session - Session instance
+ * @returns {Promise<Conversation>} The conversation, sync to its worker cut
+ */
+export async function createGateTestConversation(session) {
+  const conversation = await createApprovalTestConversation(session);
+  /** @type {any} */ (conversation)._doc.setOnSyncBroadcast(() => {});
+  return conversation;
+}
+
+/**
  * Execute a tool and wait for it to reach the approval-pending state.
  * Returns the execution promise and toolUseId for programmatic resolution.
  *

@@ -1954,12 +1954,15 @@ class Conversation {
     // selected, and the worker would bounce with an unsatisfiable "select a
     // model" warning. Surface the real problem — no provider configured — with a
     // jump to Provider Settings. Fire only when there is genuinely nothing to
-    // send with: no model already selected AND a positive "cache received and
-    // empty" signal (an un-hydrated startup, or a conversation that already has a
-    // model, never trips this — the latter is handled just below).
+    // send with: no model already selected AND a positive "list settled and
+    // empty" signal. Settled, not merely received: every connect is seeded with
+    // the server's list before availability is computed, and that seed is empty
+    // on a fresh server whatever is configured. An un-hydrated startup, or a
+    // conversation that already has a model, never trips this — the latter is
+    // handled just below.
     const selectedConfig = messageThread?.modelConfig || this.modelConfig;
     const hasSelectedModel = !!(selectedConfig && selectedConfig.provider);
-    if (!hasSelectedModel && providersCache.hasReceived() && !providersCache.hasAvailableProvider()) {
+    if (!hasSelectedModel && providersCache.isReady() && !providersCache.hasAvailableProvider()) {
       await this._showNoProviderConfigured();
       return 'no provider configured';
     }

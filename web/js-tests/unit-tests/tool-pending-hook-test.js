@@ -43,7 +43,7 @@
 import {
   initializeRegistries,
   createTestSession,
-  createApprovalTestConversation,
+  createGateTestConversation,
   assert
 } from '../utilities/test-helpers.js';
 import { handleNewToolAction } from '../../js/model/conversation-tool-actions.js';
@@ -90,6 +90,14 @@ const stateTrails = new Map();
 let trailsPrinted = false;
 
 /**
+ * Every state write that reached a call from outside this realm, as
+ * `toolUseId → state`. The only writer out there is the pool's engine, acting
+ * on the worker's `evaluate-tool` / `execute-tool` for a call it was sent.
+ * @type {string[]}
+ */
+const remoteWrites = [];
+
+/**
  * Start recording a just-inserted tool-action's state.
  * @param {any} conversation - The conversation it was inserted into.
  * @param {string} toolUseId - Its id.
@@ -99,7 +107,10 @@ function followStates(conversation, toolUseId) {
   const ta = conversation.rootMessageThread.getToolAction(toolUseId);
   const seen = [ta ? `inserted ${ta.get('state') ?? '(no state)'}` : 'NOT FOUND right after insert'];
   ta?.observe((/** @type {any} */ event) => {
-    if (event.keysChanged.has('state')) seen.push(String(ta.get('state') ?? '(cleared)'));
+    if (!event.keysChanged.has('state')) return;
+    const state = String(ta.get('state') ?? '(cleared)');
+    seen.push(event.transaction.local ? state : `${state} (remote)`);
+    if (!event.transaction.local) remoteWrites.push(`${toolUseId} → ${state}`);
   });
   stateTrails.set(toolUseId, { conversation, seen });
 }
@@ -175,6 +186,7 @@ export async function runTests(_ctx) {
   /** @type {string[]} */
   const errors = [];
   stateTrails.clear();
+  remoteWrites.length = 0;
   trailsPrinted = false;
 
   await initializeRegistries();
@@ -190,7 +202,7 @@ export async function runTests(_ctx) {
     // Test 1: parking a tool fires onToolPending once, with the tool info
     // =======================================================================
     try {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
 
       /** @type {any[]} */
@@ -229,7 +241,7 @@ export async function runTests(_ctx) {
     // Test 2: an auto-approved tool never parks, so the hook must NOT fire
     // =======================================================================
     try {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
 
       /** @type {any[]} */
@@ -259,7 +271,7 @@ export async function runTests(_ctx) {
     // (the auto-approve strategy's core flow)
     // =======================================================================
     try {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
 
       const toolUseId = insertUnstartedBash(conversation, 'resolve-1', 'echo resolved');
@@ -292,7 +304,7 @@ export async function runTests(_ctx) {
     // (fail-closed) and the gate still completes.
     // =======================================================================
     try {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
 
       const toolUseId = insertUnstartedBash(conversation, 'throws-1', 'echo boom');
@@ -321,7 +333,7 @@ export async function runTests(_ctx) {
     // (and thereby answer) it.
     // =======================================================================
     try {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
 
       /** @type {any[]} */
@@ -352,7 +364,7 @@ export async function runTests(_ctx) {
     // field while the tool is still PENDING (the deny/leave-parked path).
     // =======================================================================
     try {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
 
       const toolUseId = insertUnstartedBash(conversation, 'review-1', 'echo reviewing');
@@ -399,7 +411,7 @@ export async function runTests(_ctx) {
     // mark the park applied is dropped the moment the hook returns without one.
     // =======================================================================
     try {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
 
       const toolUseId = insertUnstartedBash(conversation, 'review-sync-1', 'echo sync');
@@ -429,7 +441,7 @@ export async function runTests(_ctx) {
     // write onto the already-resolved item.
     // =======================================================================
     try {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
 
       const toolUseId = insertUnstartedBash(conversation, 'review-approve-1', 'echo approve');
@@ -449,10 +461,7 @@ export async function runTests(_ctx) {
         `the parked call should take the approval, got ${stateOf(mt, toolUseId)} (${trailOf(toolUseId)})`);
 
       // What the clear may not do is write: no reviewStatus, no return to
-      // pending. The state itself is not the clear's to keep — this
-      // conversation's worker sends an approved call to the pool's engine,
-      // which runs it, so `running` or `completed` here is the call going
-      // ahead, and whether that lands before the next read is a race.
+      // pending.
       /** @type {string[]} */
       const clearWrites = [];
       const watchClear = (/** @type {any} */ event) => {
@@ -483,7 +492,7 @@ export async function runTests(_ctx) {
     // rejecting hook clears the indicator entirely.
     // =======================================================================
     try {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
 
       const toolUseId = insertUnstartedBash(conversation, 'review-note-1', 'echo note');
@@ -567,7 +576,7 @@ export async function runTests(_ctx) {
     // a parked call without ending its own run.
     // =======================================================================
     try {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
 
       const toolUseId = insertUnstartedBash(conversation, 'refused-1', 'echo refuse me');
@@ -618,7 +627,7 @@ export async function runTests(_ctx) {
     // time the gate returns, the mark is present either way.
     // =======================================================================
     try {
-      const conversation = await createApprovalTestConversation(session);
+      const conversation = await createGateTestConversation(session);
       const mt = conversation.rootMessageThread;
 
       const toolUseId = insertUnstartedBash(conversation, 'review-attention-1', 'echo attention');
@@ -669,6 +678,24 @@ export async function runTests(_ctx) {
     } catch (e) {
       failed++;
       errors.push(`a reviewed call is not awaiting the user: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    // =======================================================================
+    // Test 12: nothing but this suite's own gate moved any call
+    //
+    // Every case above asserts what the gate it calls did. The pool's engine
+    // runs the same gate, with the conversation's real policy, for any call the
+    // worker sees — under which `echo` is a safe command, approved and run — so
+    // a call that reached the worker could be decided twice, and whichever
+    // evaluation got there first set the state the case then read.
+    // =======================================================================
+    try {
+      assert(remoteWrites.length === 0,
+        `a call's state was written from outside this lane, so the worker drove it: [${remoteWrites.join('; ')}]`);
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`only the suite's gate decides its calls: ${e instanceof Error ? e.message : String(e)}`);
     }
   } finally {
     /** @type {any} */ (globalThis).JUGGLER_ENGINE = prevEngine;

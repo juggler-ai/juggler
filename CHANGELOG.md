@@ -5,7 +5,7 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
-- The interface is available in Japanese, Korean, German and French, under Settings → Language
+- The interface is available in Japanese, Korean, German, French and Spanish, under Settings → Language
 - Up to 100 windows can be open at once, up from 11 (or 2 on Windows)
 - A window whose server fails to start says why instead of never appearing
 - Per-project environment variables for every command, set in files or the Environment pin

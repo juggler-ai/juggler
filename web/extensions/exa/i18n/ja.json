@@ -1,0 +1,11 @@
+{
+  "Create an API key at https://dashboard.exa.ai/api-keys": "https://dashboard.exa.ai/api-keys で API キーを作成してください",
+  "Exa API key": "Exa API キー",
+  "Exa Search": "Exa 検索",
+  "Query": "クエリ",
+  "Results": "結果",
+  "Search the web with Exa": "Exa で Web を検索",
+  "Searching Exa for \"{query}\"...": "Exa で「{query}」を検索中...",
+  "unknown": "不明",
+  "{count, plural, one {Found {count} Exa result for \"{query}\"} other {Found {count} Exa results for \"{query}\"}}": "{count, plural, other {Exa で「{query}」の結果が {count} 件見つかりました}}"
+}

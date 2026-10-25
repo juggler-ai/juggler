@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"html"
 	"strconv"
-	"strings"
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/msg"
@@ -25,8 +24,8 @@ var (
 
 // lockedProjectError means another process still holds a project's OS-level
 // lock, but its instance metadata cannot be verified as a running Juggler
-// server. The desktop app presents this in an otherwise empty window instead of
-// silently dropping a restored session.
+// server. The desktop app presents this in a stand-in window (stand_in.go)
+// instead of silently dropping a restored session.
 type lockedProjectError struct {
 	project string
 	info    *core.InstanceInfo
@@ -49,8 +48,8 @@ func (e *lockedProjectError) Error() string {
 }
 
 // lockedProjectPage renders title and message as a self-contained page for the
-// window's URL. There is no server to serve it from — that is the whole problem
-// being reported — so it travels as a data URL.
+// window's URL, for when not even a stand-in's local server could be started.
+// There is no server to serve it from, so it travels as a data URL.
 func lockedProjectPage(title, message string) string {
 	t := html.EscapeString(title)
 	doc := `<!doctype html><meta charset="utf-8"><title>` + t + `</title>` +
@@ -89,9 +88,5 @@ func (e *lockedProjectError) adviceMessages() []msg.Message {
 // lockedMessage is the text shown in the locked-project window, in the shell's
 // UI language.
 func (a *appState) lockedMessage(e *lockedProjectError) string {
-	parts := make([]string, 0, 2)
-	for _, m := range e.adviceMessages() {
-		parts = append(parts, a.tr(m))
-	}
-	return strings.Join(parts, "\n\n")
+	return a.trParagraphs(e.adviceMessages())
 }

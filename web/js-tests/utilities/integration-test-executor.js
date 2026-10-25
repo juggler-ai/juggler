@@ -327,6 +327,7 @@ import { runTests as runEmptyConversationHintTests } from '../unit-tests/empty-c
 import { runTests as runEmptyHintTipsTests } from '../unit-tests/empty-hint-tips-test.js';
 import { runTests as runNoConversationsOnboardingTests } from '../unit-tests/no-conversations-onboarding-test.js';
 import { runTests as runNoProjectOnboardingTests } from '../unit-tests/no-project-onboarding-test.js';
+import { runTests as runStandInPanelTests } from '../unit-tests/stand-in-panel-test.js';
 import { runTests as runProjectPickerExternalTests } from '../unit-tests/project-picker-external-test.js';
 import { runTests as runConnectServerPanelTests } from '../unit-tests/connect-server-panel-test.js';
 import { runTests as runProjectFixedTests } from '../unit-tests/project-fixed-test.js';
@@ -888,6 +889,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:empty-hint-tips', run: runEmptyHintTipsTests },
   { name: 'unit:no-conversations-onboarding', run: runNoConversationsOnboardingTests },
   { name: 'unit:no-project-onboarding', run: runNoProjectOnboardingTests },
+  { name: 'unit:stand-in-panel', run: runStandInPanelTests },
   { name: 'unit:project-picker-external', run: runProjectPickerExternalTests },
   { name: 'unit:connect-server-panel', run: runConnectServerPanelTests },
   { name: 'unit:project-fixed', run: runProjectFixedTests },

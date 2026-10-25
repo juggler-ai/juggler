@@ -141,6 +141,7 @@ var windowActions = map[string]windowAction{
 	"save-file":    (*appState).controlSaveFile,
 	"updater":      (*appState).handleUpdaterControl,
 	"connect":      (*appState).controlConnect,
+	"stand-in":     (*appState).controlStandIn,
 	"retry-server": (*appState).controlRetryServer,
 	"open-local":   (*appState).controlOpenLocal,
 	"quit":         (*appState).controlQuit,
@@ -201,8 +202,10 @@ func (a *appState) handleWindowControl(w http.ResponseWriter, r *http.Request) {
 // window it belonged to does.
 func (a *appState) controlNewWindow(w http.ResponseWriter, r *http.Request, id string) {
 	opts := windowOptsFromQuery(r.URL.Query())
+	// What the asking page shows, which for a stand-in is an empty window on a
+	// server this app spawned (pageSpecOf).
 	if opts.isPinboard() {
-		spec, ok := a.windowSpecOf(id)
+		spec, ok := a.pageSpecOf(id)
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -217,7 +220,7 @@ func (a *appState) controlNewWindow(w http.ResponseWriter, r *http.Request, id s
 	// server's paths, which may be on another machine. Opening one here
 	// would spawn a local server for a folder that is not here, so the page
 	// is told to switch in place instead.
-	if spec, ok := a.windowSpecOf(id); ok && spec.isURL() && project != "" {
+	if spec, ok := a.pageSpecOf(id); ok && spec.isURL() && project != "" {
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"error":   urlWindowNewWindowRefusal.English(),
 			"message": urlWindowNewWindowRefusal,
@@ -302,15 +305,21 @@ func (a *appState) controlTheme(w http.ResponseWriter, r *http.Request, e *winEn
 // the right project (projects are chosen in-page, so this report is the only
 // way the app learns which one a window actually shows).
 func (a *appState) controlTitle(w http.ResponseWriter, r *http.Request, e *winEntry) {
+	// A stand-in names what it stands in for until a project is opened in it,
+	// which setWindowProject below takes as its no longer standing in.
+	project := r.URL.Query().Get("project")
 	title := strings.TrimSpace(r.URL.Query().Get("title"))
+	if _, si := a.standInOf(e); si != nil && strings.TrimSpace(project) == "" {
+		title = a.tr(si.windowTitle)
+	}
 	if title == "" {
 		title = a.tr(appWindowTitle)
 	}
 	application.InvokeAsync(func() { e.win.SetTitle(title) })
-	a.setWindowProject(e, r.URL.Query().Get("project"))
+	a.setWindowProject(e, project)
 	// The same report says whether this window is empty, which is the one
 	// state that accepts a dropped folder.
-	a.syncFileDrop(e, r.URL.Query().Get("project"))
+	a.syncFileDrop(e, project)
 	w.WriteHeader(http.StatusNoContent)
 }
 

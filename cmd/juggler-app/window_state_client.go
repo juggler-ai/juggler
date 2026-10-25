@@ -118,12 +118,23 @@ func (a *appState) openingState(spec windowSpec, serverURL, role string) (ws cor
 // storeFrame records a window's frame where it belongs: in the session of a
 // server this app runs, or on this machine for a window onto a server by URL.
 // Gives up on a session write when ctx does.
+//
+// A stand-in's frame goes where the window it stands in for keeps its own, so
+// that window comes back where the stand-in was: on this machine, under the
+// server by URL — not in the session of the server the stand-in's page comes
+// from. A locked project's session cannot be reached, so a stand-in for one
+// keeps none.
 func (a *appState) storeFrame(ctx context.Context, e *winEntry, ws core.WindowState) {
-	if e.spec.isURL() {
+	spec, si := a.standInOf(e)
+	switch {
+	case si != nil && spec.isURL():
+		a.remoteFrames.put(normalizeURL(spec.url), e.role, ws)
+	case si != nil:
+	case spec.isURL():
 		a.remoteFrames.put(e.serverURL, e.role, ws)
-		return
+	default:
+		putWindowStateCtx(ctx, e.serverURL, e.role, ws)
 	}
-	putWindowStateCtx(ctx, e.serverURL, e.role, ws)
 }
 
 func decodeWindowState(resp *http.Response) (core.WindowState, bool) {

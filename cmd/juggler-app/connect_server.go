@@ -23,9 +23,9 @@ import (
 //
 // A server by address can be down when the app starts, and a window onto it
 // would then be a blank page with nothing in it to act on. So a window whose
-// server does not answer opens on a static page instead, saying so, with a way
-// to try again and a way out to a local window — which is also how a connected
-// server that is gone for good stops being reopened.
+// server does not answer opens as a stand-in for it instead (stand_in.go),
+// saying so, with a way to try again and a way out to a local window — which is
+// also how a connected server that is gone for good stops being reopened.
 
 var (
 	unreachableWindowTitle = msg.New("Server unreachable — Juggler")
@@ -89,9 +89,10 @@ func normaliseServerURL(raw string) (string, bool) {
 // server by URL is showing a page that server sent, and if it could name
 // another host, any server ever connected to could put windows onto anywhere
 // it liked, with this app's control secret in their URLs and a place in the
-// workspace set.
+// workspace set. A stand-in for a server by URL is not one: its page comes from
+// a server this app spawned (pageSpecOf).
 func (a *appState) controlConnect(w http.ResponseWriter, r *http.Request, e *winEntry) {
-	from, ok := a.windowSpecOf(e.id)
+	from, ok := a.pageSpecOf(e.id)
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -123,14 +124,16 @@ func (a *appState) controlConnect(w http.ResponseWriter, r *http.Request, e *win
 //
 // A window already open on that server is raised instead, and remembered from
 // now on if it was a --url one: connecting to it is saying it should come back.
-// An empty window asking is replaced by the new one rather than left behind
-// beside it, as a dropped folder fills the window it is dropped on.
+// A stand-in for it is not open on it, so connecting is another attempt. An
+// empty window asking — a stand-in included — is replaced by the new one rather
+// than left behind beside it, as a dropped folder fills the window it is
+// dropped on.
 func (a *appState) connectServer(from *winEntry, fromSpec windowSpec, serverURL string, opts windowOpts) {
 	spec := windowSpec{url: serverURL, connected: true}
 	var open *winEntry
 	a.reg(func(st *regState) {
 		for _, w := range st.windows {
-			if !isBoardRole(w.role) && w.spec.sameView(spec) {
+			if !isBoardRole(w.role) && w.standIn == nil && w.spec.sameView(spec) {
 				w.spec.connected = true
 				open = w
 				break
@@ -149,55 +152,20 @@ func (a *appState) connectServer(from *winEntry, fromSpec windowSpec, serverURL 
 	a.openWindow(spec, opts)
 }
 
-// unreachablePlaceholder reports whether e is the unreachable-server page: a
-// window on a server by URL that has no server behind it.
-func (a *appState) unreachablePlaceholder(e *winEntry) (windowSpec, bool) {
-	spec, ok := a.windowSpecOf(e.id)
-	return spec, ok && spec.isURL() && e.serverURL == ""
-}
-
-// controlRetryServer is the unreachable-server page's "Try again": a fresh
-// attempt at the window it stands in for, which takes its place — the real one
-// if the server answers now, another of these pages if it still does not.
-//
-// 204 whatever happens next: the page posts a form, and any reply with a body
-// would replace it with that body.
-func (a *appState) controlRetryServer(w http.ResponseWriter, _ *http.Request, e *winEntry) {
-	spec, ok := a.unreachablePlaceholder(e)
-	if !ok {
-		w.WriteHeader(http.StatusConflict)
-		return
-	}
-	a.openWindow(spec, windowOpts{theme: a.windowTheme(e), replaces: e.id})
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// controlOpenLocal is the unreachable-server page's way out: an empty local
-// window in its place. Taking the page's place is what drops the server from
-// the workspace set, which a plain close of the last window would not (an
-// empty set is never written, so the app would reopen it next launch).
-func (a *appState) controlOpenLocal(w http.ResponseWriter, _ *http.Request, e *winEntry) {
-	if _, ok := a.unreachablePlaceholder(e); !ok {
-		w.WriteHeader(http.StatusConflict)
-		return
-	}
-	a.openWindow(windowSpec{}, windowOpts{theme: a.windowTheme(e), replaces: e.id})
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// buildUnreachableServerWindow opens the unreachable-server page in place of a
-// window onto spec's server. It is registered under spec, so a connected server
+// buildUnreachableServerWindow opens the static unreachable-server page in
+// place of a window onto spec's server, for when not even a stand-in's local
+// server could be started. It is registered under spec, so a connected server
 // keeps its place in the workspace set while the page is up.
-func (a *appState) buildUnreachableServerWindow(spec windowSpec, inheritedTheme string) *winEntry {
+func (a *appState) buildUnreachableServerWindow(spec windowSpec, si *standIn, inheritedTheme string) *winEntry {
 	logf("server unreachable: %s", spec.url)
 	text := unreachableServerText{
-		title:     a.tr(unreachablePageTitle),
-		message:   a.tr(unreachableMessage(spec.url)),
+		title:     a.tr(si.title),
+		message:   a.trParagraphs(si.message),
 		retry:     a.tr(unreachableRetry),
 		trying:    a.tr(unreachableTrying),
 		openLocal: a.tr(unreachableOpenLocal),
 	}
-	return a.buildPlaceholderWindow(spec, a.tr(unreachableWindowTitle), func(id string) string {
+	return a.buildPlaceholderWindow(spec, si, func(id string) string {
 		page := text
 		page.controlBase = a.controlBase(id)
 		return unreachableServerPage(page)

@@ -1,0 +1,232 @@
+//     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+//     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+//   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
+
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"sync/atomic"
+	"testing"
+
+	"juggler/cmd/juggler/core"
+)
+
+// A stand-in window, as buildStandInWindow registers one: filed under the spec
+// it stands in for, its page served by a local server of its own.
+func registerStandIn(a *appState, id string, spec windowSpec, si *standIn) *winEntry {
+	e := &winEntry{id: id, role: roleMain, spec: spec, standIn: si, serverURL: "http://127.0.0.1:4100"}
+	a.reg(func(st *regState) { st.windows[id] = e })
+	return e
+}
+
+// addressWithNoServer is the address of a server that is not there.
+func addressWithNoServer(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	return "http://" + addr
+}
+
+func TestStandInTellsItsPageWhatItStandsFor(t *testing.T) {
+	a := newTestAppState(t)
+	registerStandIn(a, "w1", windowSpec{url: "http://devbox:8080", connected: true}, unreachableStandIn("http://devbox:8080"))
+	registerTestWindow(a, "w2")
+
+	rec := controlRequest(a, http.MethodPost, "/win/w1/stand-in")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var got struct {
+		Kind  string `json:"kind"`
+		Title struct {
+			Key string `json:"key"`
+		} `json:"title"`
+		Message []struct {
+			Key    string         `json:"key"`
+			Params map[string]any `json:"params"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body is not JSON: %q (%v)", rec.Body.String(), err)
+	}
+	if got.Kind != standInUnreachable || got.Title.Key != unreachablePageTitle.Key {
+		t.Fatalf("got kind %q title %q, want the unreachable-server stand-in", got.Kind, got.Title.Key)
+	}
+	if len(got.Message) != 1 || got.Message[0].Params["url"] != "http://devbox:8080" {
+		t.Fatalf("the explanation must name the server, as a message the page translates: %s", rec.Body.String())
+	}
+
+	// An ordinary window, asked the same, is told it is not one, which is what
+	// lets a reloaded page that was one fall back to the welcome panel.
+	rec = controlRequest(a, http.MethodPost, "/win/w2/stand-in")
+	var plain struct {
+		Kind *string `json:"kind"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &plain); err != nil || plain.Kind == nil || *plain.Kind != "" {
+		t.Fatalf("an ordinary window should answer kind \"\", got %q (%v)", rec.Body.String(), err)
+	}
+}
+
+// Trying again on a server still down leaves the stand-in where it is, and says
+// so to the page, rather than replacing it with another.
+func TestRetryingAServerStillDownLeavesTheStandIn(t *testing.T) {
+	a := newTestAppState(t)
+	server := addressWithNoServer(t)
+	e := registerStandIn(a, "w1", windowSpec{url: server, connected: true}, unreachableStandIn(server))
+
+	rec := controlRequest(a, http.MethodPost, "/win/w1/retry-server?reply=1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var got struct {
+		Opened *bool `json:"opened"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Opened == nil || *got.Opened {
+		t.Fatalf("want {opened:false}, got %q (%v)", rec.Body.String(), err)
+	}
+	if _, si := a.standInOf(e); si == nil {
+		t.Fatal("the window stopped standing in for a server that is still down")
+	}
+}
+
+// A lock still held may be held by something else now, so a failed retry
+// brings what the stand-in says up to date.
+func TestRetryingAProjectStillLockedUpdatesTheStandIn(t *testing.T) {
+	project := t.TempDir()
+	saved := resolveSpec
+	resolveSpec = func(windowSpec) (string, *serverProc, error) {
+		return "", nil, newLockedProjectError(project, &core.InstanceInfo{PID: 4242, Host: "127.0.0.1", Port: 7777})
+	}
+	t.Cleanup(func() { resolveSpec = saved })
+
+	a := newTestAppState(t)
+	spec := windowSpec{project: project}
+	e := registerStandIn(a, "w1", spec, lockedStandIn(newLockedProjectError(project, nil)))
+
+	rec := controlRequest(a, http.MethodPost, "/win/w1/retry-server?reply=1")
+	var got struct {
+		Opened *bool `json:"opened"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Opened == nil || *got.Opened {
+		t.Fatalf("want {opened:false}, got %q (%v)", rec.Body.String(), err)
+	}
+	_, si := a.standInOf(e)
+	if si == nil || si.kind != standInLocked {
+		t.Fatalf("the window should still stand in for the locked project, got %+v", si)
+	}
+	if len(si.message) != 2 || si.message[1].Params["pid"] != "4242" {
+		t.Fatalf("the stand-in should now name the process holding the lock: %+v", si.message)
+	}
+}
+
+// "Open a local window instead" makes the stand-in the empty window its page
+// already is, where it stands: no second server, and the server it stood in for
+// leaves the workspace set.
+func TestOpenLocalTurnsTheStandInIntoAnEmptyWindowInPlace(t *testing.T) {
+	path := workspacePath(t)
+	a := newTestAppState(t)
+	a.workspace = newWorkspaceStoreAt(path)
+	e := registerStandIn(a, "w1", windowSpec{url: "http://devbox:8080", connected: true}, unreachableStandIn("http://devbox:8080"))
+
+	if rec := controlRequest(a, http.MethodPost, "/win/w1/open-local"); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	spec, si := a.standInOf(e)
+	if si != nil || spec != (windowSpec{}) {
+		t.Fatalf("got spec %+v standIn %+v, want an ordinary empty window", spec, si)
+	}
+	a.workspace.flush(nil) // barrier: nil entries leave the set unchanged
+	if got := readWorkspaceFile(path).Windows; len(got) != 1 || got[0] != (workspaceEntry{}) {
+		t.Fatalf("the workspace holds %+v, want just the empty window", got)
+	}
+	if rec := controlRequest(a, http.MethodPost, "/win/w1/open-local"); rec.Code != http.StatusConflict {
+		t.Fatalf("a window that no longer stands in took open-local: %d", rec.Code)
+	}
+}
+
+// A project opened in the stand-in's page is the window it is now. Until then
+// the page's reports of no project leave it standing in for what it was.
+func TestAProjectOpenedInAStandInEndsIt(t *testing.T) {
+	a := newTestAppState(t)
+	a.workspace = newWorkspaceStoreAt(workspacePath(t))
+	locked := t.TempDir()
+	e := registerStandIn(a, "w1", windowSpec{project: locked}, lockedStandIn(newLockedProjectError(locked, nil)))
+
+	a.setWindowProject(e, "")
+	if spec, si := a.standInOf(e); si == nil || spec.project != locked {
+		t.Fatalf("an empty report changed the stand-in: spec %+v standIn %+v", spec, si)
+	}
+
+	other := t.TempDir()
+	a.setWindowProject(e, other)
+	if spec, si := a.standInOf(e); si != nil || spec != (windowSpec{project: other}) {
+		t.Fatalf("got spec %+v standIn %+v, want an ordinary window on %s", spec, si, other)
+	}
+	a.workspace.flush(nil) // barrier: lets the save finish before the directory goes
+}
+
+// What a stand-in's page may ask for is decided by what it is — an empty
+// window on a server this app spawned — not by the server by URL it is filed
+// under, whose refusals exist because that server's pages are not ours.
+func TestAStandInsPageIsAnEmptyWindows(t *testing.T) {
+	a := newTestAppState(t)
+	registerStandIn(a, "w1", windowSpec{url: "http://devbox:8080", connected: true}, unreachableStandIn("http://devbox:8080"))
+
+	spec, ok := a.pageSpecOf("w1")
+	if !ok || spec != (windowSpec{}) {
+		t.Fatalf("pageSpecOf = %+v, %v; want the empty window", spec, ok)
+	}
+	if spec, _ := a.windowSpecOf("w1"); !spec.isURL() {
+		t.Fatalf("the workspace identity must stay the server by URL, got %+v", spec)
+	}
+
+	q := query(t, windowOpts{standIn: unreachableStandIn("http://devbox:8080")})
+	if q.Get("standIn") != standInUnreachable {
+		t.Fatalf("standIn = %q, want %q", q.Get("standIn"), standInUnreachable)
+	}
+}
+
+// A stand-in's frame is kept where the window it stands in for keeps its own,
+// so that window comes back where the stand-in was — never in the session of
+// the server the stand-in's page comes from.
+func TestAStandInsFrameIsKeptForTheWindowItStandsFor(t *testing.T) {
+	a := newTestAppState(t)
+	a.remoteFrames = newRemoteFramesAt(filepath.Join(t.TempDir(), "remote-frames.json"))
+	frame := core.WindowState{X: 10, Y: 20, Width: 900, Height: 700, HasPos: true}
+
+	// Its own server is dead, so a write that went there would be lost — and
+	// would show here as nothing kept under the remote.
+	unreachable := registerStandIn(a, "w1", windowSpec{url: "http://devbox:8080/", connected: true}, unreachableStandIn("http://devbox:8080"))
+	unreachable.serverURL = addressWithNoServer(t)
+	a.storeFrame(context.Background(), unreachable, frame)
+	if got, ok := a.remoteFrames.get("http://devbox:8080", roleMain); !ok || got.Width != 900 {
+		t.Fatalf("frame under the remote = %+v, %v; want the stand-in's", got, ok)
+	}
+	if _, ok := a.remoteFrames.get(unreachable.serverURL, roleMain); ok {
+		t.Fatal("the frame was filed under the stand-in's own server")
+	}
+
+	locked := t.TempDir()
+	lockedWin := registerStandIn(a, "w2", windowSpec{project: locked}, lockedStandIn(newLockedProjectError(locked, nil)))
+	var served atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		served.Store(true)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+	lockedWin.serverURL = srv.URL
+	a.storeFrame(context.Background(), lockedWin, frame)
+	if served.Load() {
+		t.Fatal("a locked project's stand-in wrote its frame into its own server's session")
+	}
+}

@@ -58,7 +58,7 @@ func TestWindowControlActionTable(t *testing.T) {
 	want := []string{
 		"theme", "title", "locale", "folder-dropped", "control", "attention", "zoom",
 		"drafts-flushed", "pick-directory", "pick-file", "save-file", "updater",
-		"connect", "retry-server", "open-local", "quit",
+		"connect", "stand-in", "retry-server", "open-local", "quit",
 	}
 	if len(windowActions) != len(want) {
 		t.Fatalf("windowActions has %d entries, want %d: %v", len(windowActions), len(want), want)

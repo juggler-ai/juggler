@@ -10,6 +10,13 @@
  * whether an AI provider is connected — the one prerequisite that otherwise
  * fails silently at the first message.
  *
+ * It is also what a stand-in window shows: a desktop window that cannot show
+ * what it is for — a server by URL that does not answer, a locked project — is
+ * an empty window's page, opened with `?standIn=` (see services/stand-in.js).
+ * The panel then says what the app tells it, with a way to try again and a way
+ * out to an ordinary empty window, in place of the welcome. The window keeps its
+ * header, its chrome and its folder drop, so it is a window like any other.
+ *
  * What it shows is derived from live state and nothing else: no first-run flag
  * is persisted. A window with no provider and no recents is someone's first
  * launch and gets the explanation; a window with recents is someone who just
@@ -22,12 +29,13 @@ import wsService from '../services/websocket.js';
 import providersCache from '../services/providers-cache.js';
 import { openSettings } from '../services/settings-launcher.js';
 import { extractUserMessage } from '../../sdk/lib/error-utils.js';
-import { t, htmlSlots, withHtml, formatList } from '../../sdk/lib/i18n.js';
+import { t, htmlSlots, withHtml, formatList, serverText } from '../../sdk/lib/i18n.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
 import { hasNativeHost, reportFolderDropped } from '../../sdk/lib/window-control.js';
 import { showAlert } from './modal-dialog.js';
 import { openProjectInWindow } from './project-opening.js';
 import { canConnectToServer, openConnectServerPanel } from './connect-server-panel.js';
+import defaultStandInClient from '../services/stand-in.js';
 
 /** How many recent folders the panel offers before it stops being a shortlist. */
 const RECENTS_SHOWN = 5;
@@ -48,6 +56,19 @@ class NoProjectOverlay extends JugglerElement {
     this._recents = [];
     /** @type {Record<string, Function>|null} @private */
     this._nativeDragHooks = null;
+    /**
+     * How this window learns whether it is a stand-in, and acts on it. Replaced
+     * by a test with one of its own.
+     * @type {import('../services/stand-in.js').StandInClient}
+     */
+    this.standInClient = defaultStandInClient;
+    /**
+     * What this window stands in for while it is a stand-in, else null.
+     * @type {import('../services/stand-in.js').StandIn|null} @private
+     */
+    this._standIn = null;
+    /** @type {boolean} @private */
+    this._retrying = false;
   }
 
   connectedCallback() {
@@ -197,8 +218,11 @@ class NoProjectOverlay extends JugglerElement {
     document.body.classList.toggle('no-project', empty);
 
     if (!empty) {
+      // A project opened in a stand-in is the window it is now (the app hears
+      // the same from the title report), so it is no longer one.
       this.hidden = true;
       this._rendered = false;
+      this._standIn = null;
       this.innerHTML = '';
       return;
     }
@@ -207,14 +231,53 @@ class NoProjectOverlay extends JugglerElement {
 
     if (!this._rendered) {
       this._rendered = true;
-      this.render();
-      void this._loadRecents();
-      void this._awaitProviders();
+      if (this.standInClient.requested()) {
+        // Nothing is drawn until the app says what the window stands in for:
+        // a welcome flashed first would offer a beginner's tour to someone
+        // whose server has just gone away.
+        void this._askStandIn();
+      } else {
+        this._showWelcome();
+      }
     }
+  }
+
+  /**
+   * Draw the welcome, and fetch what fills it in.
+   * @returns {void}
+   * @private
+   */
+  _showWelcome() {
+    this._standIn = null;
+    this.render();
+    void this._loadRecents();
+    void this._awaitProviders();
+  }
+
+  /**
+   * Ask the app what this window stands in for, and draw that — or the welcome,
+   * when it no longer stands in for anything (a page reloaded after leaving).
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _askStandIn() {
+    const standIn = await this.standInClient.get();
+    // A project arrived meanwhile, and the overlay is gone.
+    if (!this._rendered) return;
+    if (!standIn.kind) {
+      this._showWelcome();
+      return;
+    }
+    this._standIn = standIn;
+    this.render();
   }
 
   /** Draw the element as its state stands. Repeatable. */
   render() {
+    if (this._standIn) {
+      this._renderStandIn(this._standIn);
+      return;
+    }
     // Drag-and-drop of a folder needs the native host to read the dropped
     // path — the page is never told one. Offering it in a browser tab or on a
     // remote client would be advertising something that silently does nothing,
@@ -268,6 +331,92 @@ class NoProjectOverlay extends JugglerElement {
     this._on('.np-shortcuts', () => openSettings('shortcuts'));
 
     this._renderProviderStatus();
+  }
+
+  /**
+   * Draw what a stand-in says: the app's heading and explanation, and the two
+   * ways out of it.
+   * @param {import('../services/stand-in.js').StandIn} standIn - What the window stands in for
+   * @returns {void}
+   * @private
+   */
+  _renderStandIn(standIn) {
+    const product = 'Juggler'; // i18n-ignore: the product name, which the logo spells out
+    const title = serverText(standIn.title);
+    this.innerHTML = `
+      <section class="onboarding-panel" data-stand-in="${escapeHtml(standIn.kind)}" aria-label="${escapeHtml(title)}">
+        <div class="onboarding-logo" role="img" aria-label="${escapeHtml(product)}"></div>
+        <h1 class="np-heading">${escapeHtml(title)}</h1>
+        <div class="np-stand-in-message"></div>
+        <div class="np-actions">
+          <button type="button" class="np-action btn-primary np-stand-in-retry">${escapeHtml(t('Try again'))}</button>
+          <button type="button" class="np-action np-stand-in-leave">${escapeHtml(t('Open a local window instead'))}</button>
+        </div>
+        <p class="np-stand-in-status" aria-live="polite" hidden></p>
+      </section>
+    `;
+
+    // Paragraphs at blank lines and lines at single breaks, as the app wrote
+    // them: a locked project's lock file is on a line of its own.
+    const host = /** @type {HTMLElement} */ (this.querySelector('.np-stand-in-message'));
+    for (const message of standIn.message || []) {
+      for (const paragraph of serverText(message).split(/\n\s*\n/)) {
+        const p = document.createElement('p');
+        p.className = 'np-stand-in-detail';
+        paragraph.split('\n').forEach((line, i) => {
+          if (i > 0) p.appendChild(document.createElement('br'));
+          p.appendChild(document.createTextNode(line));
+        });
+        host.appendChild(p);
+      }
+    }
+
+    this._on('.np-stand-in-retry', () => this._retryStandIn());
+    this._on('.np-stand-in-leave', () => this._leaveStandIn());
+  }
+
+  /**
+   * "Try again". The app opens the real window in this one's place if it can be
+   * shown now, so the button stays down when it can; when it still cannot, the
+   * panel says so and the button comes back.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _retryStandIn() {
+    const button = /** @type {HTMLButtonElement|null} */ (this.querySelector('.np-stand-in-retry'));
+    const status = /** @type {HTMLElement|null} */ (this.querySelector('.np-stand-in-status'));
+    if (!button || this._retrying) return;
+    this._retrying = true;
+    button.disabled = true;
+    button.textContent = t('Trying…');
+    if (status) status.hidden = true;
+
+    let opened = false;
+    try {
+      opened = await this.standInClient.retry();
+    } finally {
+      this._retrying = false;
+    }
+    if (opened) return;
+    button.disabled = false;
+    button.textContent = t('Try again');
+    if (status) {
+      status.textContent = this._standIn?.kind === 'locked'
+        ? t('The project is still locked.')
+        : t("The server still isn't answering.");
+      status.hidden = false;
+    }
+  }
+
+  /**
+   * "Open a local window instead": the window becomes the ordinary empty window
+   * its page already is, where it stands.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _leaveStandIn() {
+    if (!(await this.standInClient.leave())) return;
+    if (this._rendered) this._showWelcome();
   }
 
   /**

@@ -112,6 +112,11 @@ type windowOpts struct {
 	// being retried or traded for a local window.
 	replaces string
 
+	// standIn makes the window a stand-in for the one its spec names, which
+	// cannot be shown (stand_in.go): its page is an empty window's, told so by
+	// ?standIn=. Set by buildStandInWindow, never off the wire.
+	standIn *standIn
+
 	// panel is where the board was on screen in the window that asked, so the
 	// new window can open over it: a pop-out is the panel leaving the window,
 	// and a window that appeared somewhere else entirely would be a new one.
@@ -321,6 +326,9 @@ func windowPageURL(serverURL, nativeCtl string, opts windowOpts) string {
 	}
 	if opts.external {
 		u += "&external=1"
+	}
+	if opts.standIn != nil {
+		u += "&standIn=" + url.QueryEscape(opts.standIn.kind)
 	}
 	if opts.view != "" {
 		u += "&view=" + url.QueryEscape(opts.view)

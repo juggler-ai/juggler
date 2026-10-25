@@ -110,6 +110,12 @@ type winEntry struct {
 	spec      windowSpec // what this window views (project or URL) — its workspace identity
 	serverURL string     // the server this window posts/reads its geometry to (immutable)
 
+	// standIn is set while this window stands in for spec, which it cannot show
+	// (stand_in.go): its page is then an empty window's, on serverURL — a server
+	// this app spawned for it — or a static page when serverURL is empty. Owned
+	// by the registry goroutine, like spec, since both change when it stops.
+	standIn *standIn
+
 	// fileDrop is whether native file drop is currently on for this window —
 	// true while it shows no project. Tracked so a repeated report of the same
 	// state does not keep adding and removing the macOS drag overlay.
@@ -484,7 +490,7 @@ func (a *appState) run(specs []windowSpec) error {
 
 	// Take up the settings' UI language from the first server there is, ahead of
 	// its page, which reports the same thing once it loads (controlLocale). A
-	// locked-project window has no server and leaves this to the next window.
+	// stand-in's static page has no server and leaves this to the next window.
 	if initial.serverURL != "" {
 		go a.adoptLocale(initial.serverURL, startupLocale())
 	}
@@ -545,21 +551,20 @@ func (a *appState) run(specs []windowSpec) error {
 
 // tryBuildInitial resolves spec's server and builds a window for it, returning
 // the entry on success or nil when the project can't be resolved (logged and
-// skipped). A locked project resolves to a locked-project placeholder window,
-// and a server by URL that does not answer to an unreachable-server one; both
-// are still non-nil entries.
+// skipped). A locked project, and a server by URL that does not answer, resolve
+// to a stand-in for the window (stand_in.go), which is still a non-nil entry.
 func (a *appState) tryBuildInitial(spec windowSpec) *winEntry {
 	serverURL, proc, err := spec.resolve()
 	if err != nil {
 		if locked, ok := asLockedProject(err); ok {
-			return a.buildLockedProjectWindow(spec, a.lockedMessage(locked), "")
+			return a.buildStandInWindow(spec, lockedStandIn(locked), a.prepareStandIn(spec), windowOpts{})
 		}
 		logf("restore: skipping %+v: %v", spec.entry(), err)
 		return nil
 	}
 	saved, hasSaved, reached := a.openingState(spec, serverURL, roleMain)
 	if !reached {
-		return a.buildUnreachableServerWindow(spec, "")
+		return a.buildStandInWindow(spec, unreachableStandIn(spec.url), a.prepareStandIn(spec), windowOpts{})
 	}
 	return a.buildWindow(spec, serverURL, proc, saved, hasSaved, windowOpts{})
 }
@@ -699,45 +704,59 @@ func (a *appState) openWindow(spec windowSpec, opts windowOpts) {
 	opts.theme = normaliseTheme(opts.theme)
 	opts.mode = normaliseMode(opts.mode)
 	go func() {
-		serverURL, proc, err := spec.resolve()
+		serverURL, proc, err := resolveSpec(spec)
 		if err != nil {
 			if locked, ok := asLockedProject(err); ok {
-				application.InvokeAsync(func() {
-					// A locked window shows a static recovery page, not the app —
-					// there is no root font-size to scale, so zoom is not threaded,
-					// and the static page has no theme mode to seed either.
-					e := a.buildLockedProjectWindow(spec, a.lockedMessage(locked), opts.theme)
-					a.showWindow(e)
-					a.closeReplaced(opts.replaces)
-					go a.warnIfWindowNeverVisible(e, "opened locked project")
-				})
+				a.openStandIn(spec, lockedStandIn(locked), opts, "opened locked project")
 				return
 			}
 			logf("open window failed to resolve %+v: %v", spec, err)
 			return
 		}
-		// A window born onto a project (New Window, the page's "open in new
-		// window", restore, or a second instance) never routes through the
-		// server's POST /api/project switch, which is the only other place the
-		// recents list is updated. Without this, a folder first opened in its own
-		// window would never appear in the picker's recents.
-		if spec.project != "" {
-			a.rememberRecentProject(spec.project)
-		}
-		saved, hasSaved, reached := a.openingState(spec, serverURL, opts.role())
-		application.InvokeAsync(func() {
-			var e *winEntry
-			if reached {
-				e = a.buildWindow(spec, serverURL, proc, saved, hasSaved, opts)
-			} else {
-				e = a.buildUnreachableServerWindow(spec, opts.theme)
-			}
-			a.showWindow(e)
-			a.closeReplaced(opts.replaces)
-			// Don't let a dynamically-opened window fail to appear silently.
-			go a.warnIfWindowNeverVisible(e, "opened dynamically")
-		})
+		a.openResolvedWindow(spec, serverURL, proc, opts)
 	}()
+}
+
+// openResolvedWindow is openWindow once spec has resolved to serverURL (proc
+// being the server spawned for it, if any): it reads the saved geometry and
+// opens the window, or a stand-in for it if the server does not answer.
+// Blocking, so never on the main thread.
+func (a *appState) openResolvedWindow(spec windowSpec, serverURL string, proc *serverProc, opts windowOpts) {
+	// A window born onto a project (New Window, the page's "open in new
+	// window", restore, or a second instance) never routes through the
+	// server's POST /api/project switch, which is the only other place the
+	// recents list is updated. Without this, a folder first opened in its own
+	// window would never appear in the picker's recents.
+	if spec.project != "" {
+		a.rememberRecentProject(spec.project)
+	}
+	saved, hasSaved, reached := a.openingState(spec, serverURL, opts.role())
+	if !reached {
+		a.openStandIn(spec, unreachableStandIn(spec.url), opts, "opened unreachable server")
+		return
+	}
+	application.InvokeAsync(func() {
+		e := a.buildWindow(spec, serverURL, proc, saved, hasSaved, opts)
+		a.showOpened(e, opts, "opened dynamically")
+	})
+}
+
+// openStandIn opens a stand-in for spec, which cannot be shown. Blocking, so
+// never on the main thread: the stand-in's own server is started first.
+func (a *appState) openStandIn(spec windowSpec, si *standIn, opts windowOpts, why string) {
+	host := a.prepareStandIn(spec)
+	application.InvokeAsync(func() {
+		a.showOpened(a.buildStandInWindow(spec, si, host, opts), opts, why)
+	})
+}
+
+// showOpened reveals a window built after launch, and closes the one it was
+// opened in place of. Must run on the main thread.
+func (a *appState) showOpened(e *winEntry, opts windowOpts, why string) {
+	a.showWindow(e)
+	a.closeReplaced(opts.replaces)
+	// Don't let a dynamically-opened window fail to appear silently.
+	go a.warnIfWindowNeverVisible(e, why)
 }
 
 // closeReplaced closes the window a new one was opened in place of, if it is
@@ -1003,11 +1022,24 @@ func (a *appState) openWindowOrigins() map[[2]int]bool {
 // URL windows keep their URL identity; an empty report never downgrades a window
 // that already has a project (avoids a transient reload blanking it). Geometry is
 // unaffected — it lives in the session, which the server itself switched.
+//
+// A stand-in's page is an empty window's, so a project opened in it is the
+// window it now is, and it stops standing in; until then it keeps the identity
+// it stands in for.
 func (a *appState) setWindowProject(e *winEntry, project string) {
 	project = strings.TrimSpace(project)
+	if e == nil {
+		return
+	}
+	if _, si := a.standInOf(e); si != nil {
+		if project != "" {
+			a.stopStandingIn(e, windowSpec{project: project})
+		}
+		return
+	}
 	changed := false
 	a.reg(func(st *regState) {
-		if e == nil || e.spec.isURL() {
+		if e.spec.isURL() {
 			return
 		}
 		if project == "" && e.spec.project != "" {
@@ -1107,21 +1139,24 @@ func (a *appState) rememberRecentProject(project string) {
 	_ = store.Add(abs)
 }
 
-// buildLockedProjectWindow opens an empty native window containing a clear
-// recovery explanation when an OS-level project lock cannot be verified. It has
-// no server or spawned process, so closing it cannot affect another session.
-func (a *appState) buildLockedProjectWindow(spec windowSpec, message, inheritedTheme string) *winEntry {
-	page := lockedProjectPage(a.tr(lockedPageTitle), message)
-	return a.buildPlaceholderWindow(spec, a.tr(lockedWindowTitle), func(string) string { return page }, inheritedTheme)
+// buildLockedProjectWindow opens the static locked-project page, a clear
+// recovery explanation when an OS-level project lock cannot be verified, for
+// when not even a stand-in's local server could be started. It has no server or
+// spawned process, so closing it cannot affect another session.
+func (a *appState) buildLockedProjectWindow(spec windowSpec, si *standIn, inheritedTheme string) *winEntry {
+	page := lockedProjectPage(a.tr(si.title), a.trParagraphs(si.message))
+	return a.buildPlaceholderWindow(spec, si, func(string) string { return page }, inheritedTheme)
 }
 
 // buildPlaceholderWindow opens a native window onto a static page standing in
 // for the one spec would show, when there is no server to show it from. The
-// window is registered under spec, so it keeps its place in the workspace set
-// for as long as it is open, with no server and no spawned process — closing it
-// cannot affect another session. page renders the window's URL from its id, for
-// a page whose buttons address this window's control endpoint.
-func (a *appState) buildPlaceholderWindow(spec windowSpec, title string, page func(id string) string, inheritedTheme string) *winEntry {
+// window is registered under spec as a stand-in (si), so it keeps its place in
+// the workspace set for as long as it is open, with no server and no spawned
+// process — closing it cannot affect another session. page renders the window's
+// URL from its id, for a page whose buttons address this window's control
+// endpoint.
+func (a *appState) buildPlaceholderWindow(spec windowSpec, si *standIn, page func(id string) string, inheritedTheme string) *winEntry {
+	title := a.tr(si.windowTitle)
 	id := <-a.ids
 	startupTheme := normaliseTheme(inheritedTheme)
 	if startupTheme == "" {
@@ -1149,7 +1184,7 @@ func (a *appState) buildPlaceholderWindow(spec windowSpec, title string, page fu
 	if win == nil {
 		fatalf("Window.NewWithOptions returned nil for placeholder window %s (%+v)", id, spec.entry())
 	}
-	e := &winEntry{id: id, win: win, spec: spec, role: roleMain, currentTheme: startupTheme, geom: windowgeom.NewTracker(core.WindowState{}, a.app.Screen.GetAll), saves: windowgeom.NewDebouncer(), stopSave: make(chan struct{})}
+	e := &winEntry{id: id, win: win, spec: spec, standIn: si, role: roleMain, currentTheme: startupTheme, geom: windowgeom.NewTracker(core.WindowState{}, a.app.Screen.GetAll), saves: windowgeom.NewDebouncer(), stopSave: make(chan struct{})}
 	a.reg(func(st *regState) { st.windows[id] = e })
 	a.persistWorkspace()
 	win.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) { a.handleWindowClosed(e) })
@@ -1174,8 +1209,18 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 
 	resolved := opts
 	resolved.theme, resolved.mode, resolved.zoom = startupTheme, startupMode, startupZoom
-	resolved.external = spec.isURL()
+	// What the page is, not what the window is filed as: a stand-in's page is an
+	// empty window's, on a server this app spawned.
+	pageSpec := spec
+	if opts.standIn != nil {
+		pageSpec = windowSpec{}
+	}
+	resolved.external = pageSpec.isURL()
 	fullURL := windowPageURL(serverURL, nativeCtl, resolved)
+	title := a.tr(appWindowTitle)
+	if opts.standIn != nil {
+		title = a.tr(opts.standIn.windowTitle)
+	}
 
 	// Resolve the native background colour to paint before the page's first
 	// frame. On Windows the window is created visible (platformWindowHidden is
@@ -1219,7 +1264,7 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 		// Startup placeholder only — the page reports its session path via the
 		// loopback control endpoint (action=title) once loaded, so the macOS
 		// "Window" menu names each window by the project it views.
-		Title:           a.tr(appWindowTitle),
+		Title:           title,
 		URL:             fullURL,
 		Width:           width,
 		Height:          height,
@@ -1259,7 +1304,7 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 		// side hands the paths to window._wails.handlePlatformFileDrop, which
 		// no-project-overlay.js implements and reports to the "folder-dropped"
 		// window-control action.
-		EnableFileDrop: spec.project == "",
+		EnableFileDrop: pageSpec.project == "",
 		Mac: application.MacWindow{
 			TitleBar: application.MacTitleBar{
 				AppearsTransparent:   true,
@@ -1314,10 +1359,11 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 		win:           win,
 		spec:          spec,
 		serverURL:     serverURL,
+		standIn:       opts.standIn,
 		role:          opts.role(),
 		board:         opts.board,
 		openedBy:      opts.openedBy,
-		fileDrop:      spec.project == "", // matches EnableFileDrop in the options above
+		fileDrop:      pageSpec.project == "", // matches EnableFileDrop in the options above
 		sizeDefaulted: frame.Width <= 0 || frame.Height <= 0,
 		geom:          windowgeom.NewTracker(windowgeom.Seed(place), a.app.Screen.GetAll),
 		saves:         windowgeom.NewDebouncer(),

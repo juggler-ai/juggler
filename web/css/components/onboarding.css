@@ -124,9 +124,17 @@ no-project-overlay.folder-drop-active .onboarding-panel {
     border-radius: var(--radius-lg);
 }
 
-no-project-overlay .np-drop-hint {
+no-project-overlay .np-drop-hint,
+no-project-overlay .np-stand-in-status {
     font-size: var(--font-size-base);
     color: var(--text-secondary);
+}
+
+/* A stand-in's explanation names things the reader may have to act on — the
+   address to check, the lock file to delete — so, unlike the rest of the
+   panel, it can be selected and copied. */
+no-project-overlay .np-stand-in-detail {
+    user-select: text;
 }
 
 no-project-overlay .np-recents {

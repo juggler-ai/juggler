@@ -19,6 +19,7 @@ of changes; this project follows semantic versioning.
 - `juggler run` no longer hangs when its new conversation syncs before it opens
 - One undo always takes back a finished sub-thread's reply together with its result
 - A duplicated conversation can no longer open empty in another window
+- Unreachable servers and locked projects open a normal, draggable window explaining why
 
 ## [0.7.8] - 2026-10-23
 

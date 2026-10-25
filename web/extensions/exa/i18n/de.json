@@ -1,0 +1,11 @@
+{
+  "Create an API key at https://dashboard.exa.ai/api-keys": "Erstellen Sie einen API-Schlüssel unter https://dashboard.exa.ai/api-keys",
+  "Exa API key": "Exa-API-Schlüssel",
+  "Exa Search": "Exa-Suche",
+  "Query": "Abfrage",
+  "Results": "Ergebnisse",
+  "Search the web with Exa": "Mit Exa im Web suchen",
+  "Searching Exa for \"{query}\"...": "Exa wird nach „{query}“ durchsucht...",
+  "unknown": "unbekannt",
+  "{count, plural, one {Found {count} Exa result for \"{query}\"} other {Found {count} Exa results for \"{query}\"}}": "{count, plural, one {{count} Exa-Ergebnis für „{query}“ gefunden} other {{count} Exa-Ergebnisse für „{query}“ gefunden}}"
+}

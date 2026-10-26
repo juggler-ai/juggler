@@ -1671,7 +1671,7 @@ export async function waitForHeldCall(harness, toolUseId, callName, timeoutMs = 
   } catch (e) {
     const action = harness?.rootThread?.getToolAction?.(toolUseId);
     throw new Error(`wait-for-held-call(${toolUseId}): ${e instanceof Error ? e.message : String(e)}; `
-      + `state ${action?.get('state')}, held ${JSON.stringify(held())}`);
+      + `state ${action?.get('state')}, held ${JSON.stringify(held())}`, { cause: e });
   }
 }
 
@@ -1698,6 +1698,6 @@ export async function waitForNestedCall(harness, toolUseId, callName, callStatus
     await waitFor(seen, { timeoutMs: budgetFor(timeoutMs), intervalMs: 25, description: `a ${callName} call to be ${callStatus}` });
   } catch (e) {
     const brief = rows().map((/** @type {any} */ r) => `${r.name}:${r.status}`).join(',') || 'none';
-    throw new Error(`wait-for-nested-call(${toolUseId}): ${e instanceof Error ? e.message : String(e)}; rows were ${brief}`);
+    throw new Error(`wait-for-nested-call(${toolUseId}): ${e instanceof Error ? e.message : String(e)}; rows were ${brief}`, { cause: e });
   }
 }

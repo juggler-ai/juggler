@@ -164,7 +164,7 @@ class QueryCodeContextItem extends ContextItem {
       this._holdAssets([]);
       if (consoleLines.length === 0 || (err instanceof Error && err.name === 'AbortError')) throw err;
       const message = extractErrorMessage(err);
-      throw new Error(withConsole(message, consoleLines));
+      throw new Error(withConsole(message, consoleLines), { cause: err });
     }
 
     /** @type {Record<string, unknown>} */

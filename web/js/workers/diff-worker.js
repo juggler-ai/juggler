@@ -17,8 +17,6 @@
  * Messages out: `{id, result}` or `{id, error}`.
  */
 
-/* eslint-env worker */
-
 /** @type {any} */
 const scope = self;
 

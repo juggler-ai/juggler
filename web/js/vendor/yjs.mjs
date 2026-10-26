@@ -560,6 +560,18 @@ var unexpectedCase = () => {
 // node_modules/lib0/decoding.js
 var errorUnexpectedEndOfArray = create3("Unexpected end of array");
 var errorIntegerOutOfRange = create3("Integer out of Range");
+var subarray = (arr, begin, len) => {
+  if (begin < 0 || len < 0 || begin + len > arr.length) {
+    throw errorUnexpectedEndOfArray;
+  }
+  return new Uint8Array(arr.buffer, arr.byteOffset + begin, len);
+};
+var subdataview = (arr, begin, len) => {
+  if (begin < 0 || len < 0 || begin + len > arr.length) {
+    throw errorUnexpectedEndOfArray;
+  }
+  return new DataView(arr.buffer, arr.byteOffset + begin, len);
+};
 var Decoder = class {
   /**
    * @param {Uint8Array<Buf>} uint8Array Binary data to decode
@@ -572,7 +584,7 @@ var Decoder = class {
 var createDecoder = (uint8Array) => new Decoder(uint8Array);
 var hasContent = (decoder) => decoder.pos !== decoder.arr.length;
 var readUint8Array = (decoder, len) => {
-  const view = new Uint8Array(decoder.arr.buffer, decoder.pos + decoder.arr.byteOffset, len);
+  const view = subarray(decoder.arr, decoder.pos, len);
   decoder.pos += len;
   return view;
 };
@@ -649,7 +661,7 @@ var _readVarStringNative = (decoder) => (
 );
 var readVarString = utf8TextDecoder ? _readVarStringNative : _readVarStringPolyfill;
 var readFromDataView = (decoder, len) => {
-  const dv = new DataView(decoder.arr.buffer, decoder.arr.byteOffset + decoder.pos, len);
+  const dv = subdataview(decoder.arr, decoder.pos, len);
   decoder.pos += len;
   return dv;
 };
@@ -859,7 +871,7 @@ var sortAndMergeDeleteSet = (ds) => {
       const left = dels[j - 1];
       const right = dels[i];
       if (left.clock + left.len >= right.clock) {
-        left.len = max(left.len, right.clock + right.len - left.clock);
+        dels[j - 1] = new DeleteItem(left.clock, max(left.len, right.clock + right.len - left.clock));
       } else {
         if (j < i) {
           dels[j] = right;
@@ -3973,15 +3985,15 @@ var cleanupTransactions = (transactionCleanups, i) => {
       fs.push(() => {
         transaction.changedParentTypes.forEach((events, type) => {
           if (type._dEH.l.length > 0 && (type._item === null || !type._item.deleted)) {
-            events = events.filter(
-              (event) => event.target._item === null || !event.target._item.deleted
-            );
-            events.forEach((event) => {
-              event.currentTarget = type;
-              event._path = null;
-            });
-            events.sort((event1, event2) => event1.path.length - event2.path.length);
             fs.push(() => {
+              events = events.filter(
+                (event) => event.target._item === null || !event.target._item.deleted
+              );
+              events.forEach((event) => {
+                event.currentTarget = type;
+                event._path = null;
+              });
+              events.sort((event1, event2) => event1.path.length - event2.path.length);
               callEventHandlerListeners(type._dEH, events, transaction);
             });
           }
@@ -4278,10 +4290,9 @@ var UndoManager = class extends ObservableV2 {
         this.emit("stack-item-updated", changeEvent);
       }
     };
+    this.destroy = this.destroy.bind(this);
     this.doc.on("afterTransaction", this.afterTransactionHandler);
-    this.doc.on("destroy", () => {
-      this.destroy();
-    });
+    this.doc.on("destroy", this.destroy);
   }
   /**
    * Extend the scope.
@@ -4398,6 +4409,7 @@ var UndoManager = class extends ObservableV2 {
   destroy() {
     this.trackedOrigins.delete(this);
     this.doc.off("afterTransaction", this.afterTransactionHandler);
+    this.doc.off("destroy", this.destroy);
     super.destroy();
   }
 };
@@ -9110,6 +9122,10 @@ var redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapChan
         return null;
       }
     } else {
+      left = parentType._map.get(item.parentSub) || null;
+    }
+    if (left !== null && /** @type {AbstractType<any>} */
+    left.parent._item !== parentItem) {
       left = parentType._map.get(item.parentSub) || null;
     }
   }

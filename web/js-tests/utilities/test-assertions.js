@@ -184,7 +184,7 @@ export async function assertContextSnapshot(rootThread, conversationId, op) {
     _assertBlobTools(`validate-context-snapshot[${txnId}]`, blob, op);
     _assertBlobMessages(`validate-context-snapshot[${txnId}]`, blob, op);
   } catch (e) {
-    throw new Error(`${e instanceof Error ? e.message : String(e)}${diag}`);
+    throw new Error(`${e instanceof Error ? e.message : String(e)}${diag}`, { cause: e });
   }
 }
 
@@ -211,7 +211,7 @@ export async function assertThreadContext(rootThread, conversationId, op) {
     _assertBlobTools('validate-thread-context', blob, op);
     _assertBlobMessages('validate-thread-context', blob, op);
   } catch (e) {
-    throw new Error(`${e instanceof Error ? e.message : String(e)}${diag}`);
+    throw new Error(`${e instanceof Error ? e.message : String(e)}${diag}`, { cause: e });
   }
 }
 

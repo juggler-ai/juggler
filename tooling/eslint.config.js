@@ -162,6 +162,11 @@ export default [
       }],
       'no-console': 'off', // We use console for logging (but see test-specific rules below)
       'no-debugger': 'error',
+      // Off: a variable is given its fallback where it is declared, and a
+      // `catch` restates it — `let ok = false; try { ok = f(); } catch { ok = false; }`.
+      // The rule calls the first assignment useless; it is what tells the
+      // reader (and tsc) the variable's type and its value when nothing else ran.
+      'no-useless-assignment': 'off',
 
       // Best practices
       'eqeqeq': ['error', 'always'],

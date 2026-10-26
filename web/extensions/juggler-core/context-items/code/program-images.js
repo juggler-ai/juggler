@@ -186,7 +186,7 @@ export function pointImageReadsAtImage(fs) {
       return await readFile(...args);
     } catch (err) {
       if (err instanceof Error && /is an image, not text$/.test(err.message)) {
-        throw new Error(`${err.message}. To show it to the model, pass its path to image().`);
+        throw new Error(`${err.message}. To show it to the model, pass its path to image().`, { cause: err });
       }
       throw err;
     }

@@ -80,7 +80,7 @@ func sdkSpecifierTables(t *testing.T) map[string]map[string]string {
 				t.Errorf("tooling/jsconfig.json: %q maps to %d paths, want 1", k, len(v))
 				continue
 			}
-			table[k] = strings.TrimPrefix(v[0], "web")
+			table[k] = strings.TrimPrefix(v[0], "../web")
 		}
 	}
 	tables["tooling/jsconfig.json"] = table

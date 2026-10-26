@@ -720,7 +720,7 @@ export async function runTests(_ctx) {
       try {
         verdict = keyShortcutManager.backgroundNavStandsDown(/** @type {any} */ ({ target }));
       } catch (e) {
-        throw new Error(`threw for a ${target ? 'Document' : 'null'} target: ${e instanceof Error ? e.message : e}`);
+        throw new Error(`threw for a ${target ? 'Document' : 'null'} target: ${e instanceof Error ? e.message : e}`, { cause: e });
       }
       assert(verdict === false, `a ${target ? 'Document' : 'null'} target is not a field, got ${verdict}`);
     }

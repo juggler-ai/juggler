@@ -311,7 +311,7 @@ class SkillContextItem extends ContextItem {
       if (typeof failure?.status !== 'number') throw err;
       throw new Error(markUntranslated(failure.detail
         ? `Failed to load skill "${name}": ${failure.detail}`
-        : `Failed to load skill "${name}" (HTTP ${failure.status})`));
+        : `Failed to load skill "${name}" (HTTP ${failure.status})`), { cause: err });
     }
     this._loadedSet().add(name);
     return {

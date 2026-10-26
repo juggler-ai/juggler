@@ -22,15 +22,15 @@
     "yjs": "^13.6.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
+    "@eslint/js": "^10.0.1",
     "@stylistic/eslint-plugin": "^5.10.0",
-    "eslint": "^9.39.2",
-    "eslint-plugin-jsdoc": "^61.1.11",
-    "eslint-scope": "^8.4.0",
-    "espree": "^10.4.0",
+    "eslint": "^10.13.0",
+    "eslint-plugin-jsdoc": "^65.4.2",
+    "eslint-scope": "^9.1.2",
+    "espree": "^11.2.0",
     "stylelint": "^17.3.0",
     "stylelint-config-standard": "^40.0.0",
-    "stylelint-rem-over-px": "^1.0.2",
-    "typescript": "^5.7.2"
+    "stylelint-rem-over-px": "^2.0.1",
+    "typescript": "^6.0.3"
   }
 }

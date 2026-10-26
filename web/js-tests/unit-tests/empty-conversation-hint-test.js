@@ -101,7 +101,7 @@ export async function runTests() {
       const bandTop = rootCol.querySelector('#message-list-inner')?.getBoundingClientRect().bottom ?? NaN;
       const bandBottom = rootCol.querySelector('#message-list')?.getBoundingClientRect().bottom ?? NaN;
       throw new Error(`${e instanceof Error ? e.message : String(e)} (no-room=${hint.classList.contains('no-room')}, `
-        + `band ${Math.round(bandBottom - bandTop)}px, stack ${stack?.offsetHeight ?? '?'}px)`);
+        + `band ${Math.round(bandBottom - bandTop)}px, stack ${stack?.offsetHeight ?? '?'}px)`, { cause: e });
     }
 
     // --- A fresh conversation shows it, standing context items and all ---

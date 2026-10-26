@@ -87,11 +87,11 @@ func (a *windowApp) startup() {
 		// reloading the page replaces the engine's realm with a fresh one.
 		engineWin, addr := a.engineWin, a.srv.GetAddr()
 		a.srv.SetEngineRecovery(func() { reloadEngineWindow(engineWin, addr) })
-		// Engine stays Hidden:true. macOS would normally throttle a hidden
-		// WKWebView's JS event loop to 0 Hz, but our patched Wails fork
-		// sets `WKInactiveSchedulingPolicyNone` on the WKWebViewConfiguration
-		// before the WebView is instantiated, so the policy applies from the
-		// engine's very first navigation.
+		// Engine stays Hidden:true. Under WebKit's default inactive scheduling
+		// policy (Suspend), a WKWebView in a never-shown window runs no timers
+		// at all. KeepRunningWhenHidden sets a policy on the WKWebViewConfiguration
+		// before the WebView is instantiated, so the engine runs from its first
+		// navigation, though WebKit still throttles it as a hidden page.
 	}
 
 	// Test slot: keep the pool window hidden so it doesn't flash on screen on

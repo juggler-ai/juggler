@@ -289,6 +289,14 @@ func (s *Server) SwitchProject(newPath string) error {
 	// tool list — by which time a turn may already have been sent without them.
 	mcp.StartDiscovery(newPath)
 
+	// The new project's queued sends fire with nobody opening their
+	// conversations, as they do when the server starts in it
+	// (StartBackgroundServices). The engine outlives a switch, so it is already
+	// there for the turns they start; the project's MCP servers are on their way.
+	if newPath != "" && s.workerManager != nil {
+		go s.workerManager.LoadHeldConversations(newPath)
+	}
+
 	// Notify all clients.
 	s.broadcastToAll(projectChangedFrame{Type: frameProjectChanged, ProjectPath: newPath})
 

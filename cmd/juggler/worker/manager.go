@@ -7,6 +7,8 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -26,7 +28,7 @@ const (
 	mgrSetEngineClient
 	mgrClearEngineClient
 	mgrGetOrCreate
-	mgrSeedNewConversation
+	mgrInitHeadless
 	mgrGet
 	mgrRemove
 	mgrHandleMessage
@@ -135,16 +137,32 @@ type Manager struct {
 	done   chan struct{}
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// held is every project's held-send index (held_send_index.go), shared
+	// with the workers that publish to it.
+	held *heldSendIndex
+	// prepareWorker, when set, is handed each new worker before it starts.
+	// Fixed at construction: the test seam that gives a worker the Manager
+	// builds its clock and its scripted replies.
+	prepareWorker func(*ConversationWorker)
 }
 
 // NewManager creates a new worker manager and starts its goroutine.
 func NewManager() *Manager {
+	return newManager(nil)
+}
+
+// newManager is NewManager with each new worker handed to prepare (when
+// non-nil) before it starts.
+func newManager(prepare func(*ConversationWorker)) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
-		ops:    make(chan managerOp, 64),
-		done:   make(chan struct{}),
-		ctx:    ctx,
-		cancel: cancel,
+		ops:           make(chan managerOp, 64),
+		done:          make(chan struct{}),
+		ctx:           ctx,
+		cancel:        cancel,
+		held:          newHeldSendIndex(),
+		prepareWorker: prepare,
 	}
 	go m.run()
 	return m
@@ -233,6 +251,10 @@ func (m *Manager) run() {
 		}
 		if engineReadyFn != nil {
 			w.SetEngineReadyFunc(engineReadyFn)
+		}
+		w.heldIndex = m.held
+		if m.prepareWorker != nil {
+			m.prepareWorker(w)
 		}
 		w.Start(m.ctx)
 		workers[conversationID] = w
@@ -365,10 +387,18 @@ func (m *Manager) run() {
 				op.workerResult <- createWorker(op.conversationID, op.authorID, false)
 			}
 
-		case mgrSeedNewConversation:
+		case mgrInitHeadless:
+			// A load asks for a conversation already on disk, so it is refused
+			// for one that is removed or unknown, as a client's first message
+			// is; and a worker already loaded has had its init.
+			load := op.initMessage != nil && op.initMessage.Conversation.LoadFromDisk
 			w, ok := workers[op.conversationID]
+			if ok && load {
+				op.seedResult <- seedStarted{worker: w}
+				continue
+			}
 			if !ok {
-				w = createWorker(op.conversationID, "server:seed", false)
+				w = createWorker(op.conversationID, op.authorID, load)
 			}
 			// The init is queued here, so it is ahead of anything routed to the
 			// worker afterwards; the caller waits for it, off this goroutine.
@@ -390,6 +420,7 @@ func (m *Manager) run() {
 			// happens after Remove returns, so the id must already be refused
 			// by createWorker when that call unblocks.
 			removedConvs[op.conversationID] = true
+			m.held.drop(op.conversationID)
 			w, ok := workers[op.conversationID]
 			if ok {
 				// Mark deleting before acknowledging the caller. The HTTP handler
@@ -411,6 +442,7 @@ func (m *Manager) run() {
 
 		case mgrConversationRestored:
 			delete(removedConvs, op.conversationID)
+			m.held.restore(op.conversationID)
 			if op.done != nil {
 				op.done <- struct{}{}
 			}
@@ -650,19 +682,65 @@ func (m *Manager) SeedNewConversation(conversationID, name, projectPath, created
 		},
 		Config: WorkerConfig{ProjectPath: projectPath},
 	}
-	result := make(chan seedStarted, 1)
-	m.ops <- managerOp{kind: mgrSeedNewConversation, conversationID: conversationID, initMessage: init, seedResult: result}
-	seed := <-result
-	if seed.err != nil || seed.initDone == nil {
-		return seed.err
-	}
-	// Both waits are on the one worker, and they are taken here rather than on
-	// the Manager's goroutine, which every other conversation's traffic passes
-	// through.
-	if err := seed.worker.awaitAck(m.ctx, seed.initDone); err != nil {
+	w, err := m.initHeadless(conversationID, "server:seed", init)
+	if err != nil || w == nil {
 		return err
 	}
-	return seed.worker.FlushPersistence(m.ctx)
+	// Taken here rather than on the Manager's goroutine, which every other
+	// conversation's traffic passes through.
+	return w.FlushPersistence(m.ctx)
+}
+
+// initHeadless loads a worker for the conversation and initializes it with
+// init, a server's init rather than a client's: its reply goes to this call
+// alone, never onto the wire, and a client's later init takes the reattach
+// path. A load (init.Conversation.LoadFromDisk) is refused — nil, no error —
+// for a conversation that has been removed or that the path provider does not
+// know, and does nothing to a worker already loaded.
+func (m *Manager) initHeadless(conversationID, authorID string, init *InitMessage) (*ConversationWorker, error) {
+	result := make(chan seedStarted, 1)
+	m.ops <- managerOp{kind: mgrInitHeadless, conversationID: conversationID, authorID: authorID, initMessage: init, seedResult: result}
+	seed := <-result
+	if seed.err != nil || seed.initDone == nil {
+		return seed.worker, seed.err
+	}
+	// Waited for here rather than on the Manager's goroutine, for the same
+	// reason as SeedNewConversation's save.
+	return seed.worker, seed.worker.awaitAck(m.ctx, seed.initDone)
+}
+
+// LoadHeldConversations loads every conversation the project's held-send index
+// lists (held_send_index.go), so that what waits in their queues is fired at
+// its time with no viewer opening them: the load's reconcile arms the
+// held-send timer, or fires at once what is already due — a send whose time
+// passed while the server was down, or a message queued untimed that a
+// restart stranded. An entry whose conversation is gone is discarded.
+//
+// Call it once the engine is attached: a send fired before then asks the
+// engine for its context, the request is dropped, and the turn fails. Blocks
+// until every listed conversation has loaded.
+func (m *Manager) LoadHeldConversations(projectPath string) {
+	loaded := 0
+	for _, id := range slices.Sorted(maps.Keys(m.held.entries(projectPath))) {
+		init := &InitMessage{
+			Type:         msgInit,
+			Conversation: SerializedConversation{ID: id, LoadFromDisk: true},
+			Config:       WorkerConfig{ProjectPath: projectPath},
+		}
+		w, err := m.initHeadless(id, "server:held-send", init)
+		switch {
+		case err != nil:
+			jlog.Error("[worker.Manager] loading conv=%s for its held sends: %v", id, err)
+		case w == nil:
+			jlog.Info("[worker.Manager] held-send index lists conv=%s, which no longer exists; dropping it", id)
+			m.held.discard(projectPath, id)
+		default:
+			loaded++
+		}
+	}
+	if loaded > 0 {
+		jlog.Info("[worker.Manager] loaded %d conversation(s) holding queued sends", loaded)
+	}
 }
 
 // seedStarted is what the Manager's goroutine hands back to a seed: the worker,

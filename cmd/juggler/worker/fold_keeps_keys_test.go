@@ -7,6 +7,7 @@ package worker
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	ycrdt "github.com/skyterra/y-crdt"
 )
@@ -154,7 +155,7 @@ func TestPromotePendingKeepsEveryKeyOfWhatItMoves(t *testing.T) {
 	}, w.doc.txOrigin())
 	ycrdtMu.Unlock()
 
-	if moved := w.tracker.PromotePending(""); len(moved) != 1 || moved[0].Content != "queued" {
+	if moved := w.tracker.PromotePending("", restDrain(time.Now())); len(moved) != 1 || moved[0].Content != "queued" {
 		t.Fatalf("PromotePending returned %+v, want the one queued message", moved)
 	}
 

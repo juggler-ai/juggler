@@ -376,6 +376,11 @@ func (r *run) reconcileProcessingStateOnLoad() {
 	if threadID, ok := r.findThreadWithIncompleteTool(); ok {
 		r.requestLLMAfterTools(threadID)
 	}
+	// What the queues hold was written by an earlier run of the server: the
+	// held-send timer is armed for it, and an idle thread's queue that is
+	// already due — a send whose time passed while the server was down, a
+	// message queued behind a turn that ended with it — fires.
+	r.markHeldStale()
 }
 
 // hideElapsedAnchor removes startedAt from the doc's processingState. Clients

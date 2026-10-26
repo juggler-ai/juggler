@@ -4,6 +4,8 @@
 
 package worker
 
+import ycrdt "github.com/skyterra/y-crdt"
+
 // metaForkParked is a one-shot doc-metadata marker stamped on a conversation
 // copied from a running source. It tells the clone's first init to load stopped
 // (rest instead of auto-resuming an in-flight tool); reconcileProcessingStateOnLoad
@@ -48,4 +50,71 @@ func (w *ConversationWorker) snapshotParked() []byte {
 	}
 	tmp.SetMetadata(metaForkParked, true)
 	return tmp.ToState()
+}
+
+// WithoutHeldSends returns a conversation's document state with every held
+// send — a queued send waiting for a time or for the end of a run, with the
+// entries queued ahead of it — taken out of its queues, for a copy of the
+// conversation: the copy would otherwise fire each one a second time. A message
+// queued untimed stays, like the rest of what is copied. changed is false when
+// there was nothing to take out, and state is then returned as given.
+func WithoutHeldSends(state []byte) (out []byte, changed bool, err error) {
+	doc := NewConversationDocument("clone", "server:clone")
+	defer doc.Destroy()
+	if err := doc.LoadFromState(state); err != nil {
+		return nil, false, err
+	}
+	if !doc.dropHeldSends() {
+		return state, false, nil
+	}
+	return doc.ToState(), true, nil
+}
+
+// dropHeldSends deletes every held send from every thread's queue, in one
+// untracked transaction per queue. Reports whether it deleted any.
+func (cd *ConversationDocument) dropHeldSends() bool {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	dropped := false
+	visit := func(_ string, parent *ycrdt.YMap) {
+		queue, ok := yMapArray(parent, keyPendingItems)
+		if !ok {
+			return
+		}
+		held := heldIndicesLocked(queue)
+		if len(held) == 0 {
+			return
+		}
+		cd.doc.Transact(func(_ *ycrdt.Transaction) {
+			for i := len(held) - 1; i >= 0; i-- {
+				queue.Delete(ycrdt.Number(held[i]), 1)
+			}
+		}, cd.txOrigin())
+		dropped = true
+	}
+	visit("", cd.root)
+	if arr := cd.getItems(); arr != nil {
+		walkThreadContainersLocked(arr, visit)
+	}
+	return dropped
+}
+
+// heldIndicesLocked returns the queue positions of every member of each send
+// that carries a hold, ascending. Caller MUST hold ycrdtMu.
+func heldIndicesLocked(queue *ycrdt.YArray) []int {
+	raw := queue.ToArray()
+	entries := make([]pendingEntry, len(raw))
+	for i, v := range raw {
+		entries[i] = readPendingEntry(v)
+	}
+	var out []int
+	for _, g := range pendingGroups(entries) {
+		if !groupHold(entries[g[0]:g[1]]).stamped() {
+			continue
+		}
+		for i := g[0]; i < g[1]; i++ {
+			out = append(out, i)
+		}
+	}
+	return out
 }

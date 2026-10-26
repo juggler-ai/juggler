@@ -652,7 +652,38 @@ func (api *SessionAPI) duplicateConversationFiles(srcID, dstID string) error {
 	if err != nil {
 		return err
 	}
+	if doc, err = withoutHeldSends(srcDir, doc); err != nil {
+		return err
+	}
 	return core.CloneConvFolder(srcDir, dstDir, doc)
+}
+
+// withoutHeldSends is the clone's document with the source's held sends taken
+// out (worker.WithoutHeldSends), read from srcDir when doc is nil. It returns
+// doc as given — nil meaning the file is copied as it stands — when there are
+// none to take out, and when the document cannot be read as one: what it holds
+// is then the clone's to fail on, as the source's own load would.
+func withoutHeldSends(srcDir string, doc []byte) ([]byte, error) {
+	state := doc
+	if state == nil {
+		data, err := os.ReadFile(core.ConvDocPath(srcDir))
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read source document: %w", err)
+		}
+		state = data
+	}
+	stripped, changed, err := worker.WithoutHeldSends(state)
+	if err != nil {
+		jlog.Error("[session.Duplicate] %s could not be read to drop its held sends, copying it as it stands: %v", srcDir, err)
+		return doc, nil
+	}
+	if !changed {
+		return doc, nil
+	}
+	return stripped, nil
 }
 
 // cloneDocSource chooses the current copy of a source's document for a clone.

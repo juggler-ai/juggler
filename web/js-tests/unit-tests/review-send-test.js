@@ -16,10 +16,9 @@
  * The second is the hand-over. A review is not sent: it is put in the prompt of
  * the thread it is about, for the reviewer to read back and send themselves, so
  * what these cases pin is where it lands and what it leaves alone. A question
- * already half-written in the box keeps its place above it, with its pasted blobs
- * and its armed schedule; a review read on a sub-thread never lands in the root's
- * box, because that would put the reader's words about one thread into a message
- * to another.
+ * already half-written in the box keeps its place above it, with its pasted
+ * blobs; a review read on a sub-thread never lands in the root's box, because
+ * that would put the reader's words about one thread into a message to another.
  *
  * Only when there is no box for that thread at all — a board whose window has
  * closed — is the review sent, because feedback that cannot be handed over is
@@ -379,12 +378,6 @@ export async function runTests() {
       composer.setText('a half-written question');
       composer.flushDraft();
       composer._pasteBlobs.set('paste_1', { content: 'a pasted wall of text', bytes: 21 });
-      // Armed the way the clock button arms it, schedule written onto the draft:
-      // an in-memory target alone is reconciled away by the first draft save, so
-      // asserting on one would be asserting on nothing.
-      composer._scheduledSendAt = Date.now() + 600_000;
-      composer._scheduledSendMode = 'delay';
-      composer._persistDraft(undefined, { scheduleIsAuthoritative: true });
 
       await service().save({ comments: [comment('c1', 'Written while something else was being typed')] });
       const before = userMessages(root).length;
@@ -396,7 +389,6 @@ export async function runTests() {
       assert(text.includes('Written while something else was being typed'),
         'with the review under it, on a line of its own');
       assert(composer._pasteBlobs.size === 1, 'the blobs that draft refers to are left alone');
-      assert(composer._scheduledSendAt !== null, 'and so is the send it has armed');
       assert(userMessages(root).length === before, 'and still nothing has been sent');
       composer.clearInput();
     });

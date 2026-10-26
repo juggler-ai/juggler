@@ -59,20 +59,10 @@ export function normalizeAttachments(raw) {
  */
 
 /**
- * @typedef {'delay'|'turn-end'} ScheduledSendMode
- * What a draft's armed send is waiting for: `delay` fires at the wall-clock
- * instant in `scheduledSendAt`; `turn-end` fires as soon as the conversation
- * has no turn in flight (the instant is then only the arming time).
- */
-
-/**
- * @typedef {{text: string, attachments: AssetRef[], textFiles: TextFileSnapshot[], pasteBlobs: PasteBlob[], scheduledSendAt: number|null, scheduledSendMode: ScheduledSendMode}} Draft
- * `scheduledSendAt` is an epoch-ms instant for a deferred send: the moment to
- * press Send under `delay`, or the moment the wait was armed under `turn-end`.
- * Persisting it on the draft (rather than a live-only timer) is what lets a
- * pending send survive a reload and stay bound to the thread it was composed
- * in. `null` when no send is scheduled — and then `scheduledSendMode` carries
- * no meaning, which is why one nullable field disarms both.
+ * @typedef {{text: string, attachments: AssetRef[], textFiles: TextFileSnapshot[], pasteBlobs: PasteBlob[]}} Draft
+ * A draft carries no timer: a scheduled send leaves the box for the thread's
+ * pending queue, where the worker holds it. Any other key on a stored record
+ * is not read.
  */
 
 /**
@@ -130,33 +120,15 @@ export function normalizePasteBlobs(raw) {
  * @returns {Draft} The draft (empty text + no attachments/text-files when absent).
  */
 export function normalizeDraft(raw) {
-  if (!raw) return { text: '', attachments: [], textFiles: [], pasteBlobs: [], scheduledSendAt: null, scheduledSendMode: 'delay' };
+  if (!raw) return { text: '', attachments: [], textFiles: [], pasteBlobs: [] };
   const obj = (typeof raw.toJSON === 'function') ? raw.toJSON() : raw;
   const text = (obj && typeof obj.text === 'string') ? obj.text : '';
-  const when = obj && obj.scheduledSendAt;
-  const scheduledSendAt = (typeof when === 'number' && Number.isFinite(when)) ? when : null;
   return {
     text,
     attachments: normalizeAttachments(obj && obj.attachments),
     textFiles: normalizeTextFiles(obj && obj.textFiles),
-    pasteBlobs: normalizePasteBlobs(obj && obj.pasteBlobs),
-    scheduledSendAt,
-    scheduledSendMode: normalizeScheduledSendMode(scheduledSendAt, obj && obj.scheduledSendMode)
+    pasteBlobs: normalizePasteBlobs(obj && obj.pasteBlobs)
   };
-}
-
-/**
- * Normalize a draft's `scheduledSendMode` against its `scheduledSendAt`. The
- * mode is meaningful only while a send is armed, so a draft with no target
- * always reads back as the default `delay` — that way clearing `scheduledSendAt`
- * alone disarms the whole schedule and no stale `turn-end` can survive a clear
- * to fire against an unrelated draft.
- * @param {number|null} scheduledSendAt
- * @param {any} raw
- * @returns {ScheduledSendMode} The armed mode, or 'delay' when nothing is armed.
- */
-export function normalizeScheduledSendMode(scheduledSendAt, raw) {
-  return (scheduledSendAt !== null && raw === 'turn-end') ? 'turn-end' : 'delay';
 }
 
 /**

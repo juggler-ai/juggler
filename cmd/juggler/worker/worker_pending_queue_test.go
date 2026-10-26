@@ -223,7 +223,7 @@ func TestPromotePendingKeepsReadGroupedWithMessage(t *testing.T) {
 	})
 	w.enqueuePendingMessage("", UserMessageInput{Text: "look at @foo.txt"})
 
-	if n := w.currentRun().promotePendingItems(""); n != 2 {
+	if n := w.currentRun().promotePendingItems("", restDrain(time.Now())); n != 2 {
 		t.Fatalf("expected 2 items promoted (read + message), got %d", n)
 	}
 	if w.hasPendingItems("") {

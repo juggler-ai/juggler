@@ -6,6 +6,7 @@ package worker
 
 import (
 	"testing"
+	"time"
 )
 
 // TestSubthreadTurnContentIsUndoable pins that a sub-thread turn's content is
@@ -130,7 +131,7 @@ func TestPromotePendingIntoSubthreadIsUndoable(t *testing.T) {
 		t.Fatal("message was not queued")
 	}
 
-	if n := w.currentRun().promotePendingItems(innerID); n != 1 {
+	if n := w.currentRun().promotePendingItems(innerID, restDrain(time.Now())); n != 1 {
 		t.Fatalf("promoted %d, want 1", n)
 	}
 	if got := w.doc.GetItemsFromArray(arr); len(got) != 1 || got[0].Content != "queued question" {

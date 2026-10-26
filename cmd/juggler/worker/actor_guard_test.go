@@ -6,6 +6,7 @@ package worker
 
 import (
 	"testing"
+	"time"
 
 	ycrdt "github.com/skyterra/y-crdt"
 )
@@ -34,7 +35,7 @@ func TestPromotionOnATurnLeavesTheItemsChangePassToTheActor(t *testing.T) {
 	}
 
 	promoted := make(chan int)
-	go func() { promoted <- w.runFor(newTurnState()).promotePendingItems("") }()
+	go func() { promoted <- w.runFor(newTurnState()).promotePendingItems("", restDrain(time.Now())) }()
 	if n := <-promoted; n != 1 {
 		t.Fatalf("promoted %d message(s), want 1", n)
 	}

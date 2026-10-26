@@ -278,6 +278,15 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 	// messages and continuations have nothing to queue.
 	input := msg.UserInput()
 	skillsToLoad := dedupSkills(msg.Skills)
+
+	// A held send asks for nothing now. It goes straight to the queue, busy
+	// thread or idle, and touches no run: it supersedes no request a retry
+	// backoff is waiting to repeat, and it lifts no cap or pause until it fires.
+	if hold, held := heldSendHold(msg, input, r.clock.Now()); held {
+		r.acceptHeldSend(msg.ThreadItemID, input, skillsToLoad, hold)
+		return
+	}
+
 	// Whether this send asks for anything at all. An empty, skill-less,
 	// non-continuation send is not a send: below the gate it is refused outright,
 	// and above it there is nothing for it to queue.
@@ -332,14 +341,6 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 		return
 	}
 
-	// Reaching here the worker is idle: an explicit send or Continue into this
-	// thread is an unambiguous "resume now", so it lifts any pause standing over
-	// it — a mark outlives the rest it caused, and would otherwise
-	// suppress this user-initiated turn. Only the marks covering THIS thread go: a
-	// pause the user put on some other sub-agent is not something typing here
-	// asked to lift.
-	r.dropPoliteStopsCovering(msg.ThreadItemID)
-
 	// The thread this send writes into, passed to every write below. The run this
 	// handler executes on is the ambient one every handler shares, so the
 	// destination is a value here rather than a re-pointing of that run. A thread
@@ -356,10 +357,14 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 		return
 	}
 
-	// Resolve model config: check thread Y.Map → parent chain → conversation metadata
-	modelConfig := r.doc.ResolveEffectiveModelConfig(msg.ThreadItemID)
-
-	if modelConfig == nil || modelConfig.Model == "" {
+	// Reaching here the thread is idle, and the send opens its turn. An explicit
+	// send or Continue is an unambiguous "resume now", so it lifts the pause
+	// standing over this thread — a mark outlives the rest it caused, and would
+	// otherwise suppress this turn. Only the marks covering THIS thread go: a
+	// pause on some other sub-agent is not something sending here asked to lift.
+	r.dropPoliteStopsCovering(msg.ThreadItemID)
+	modelConfig := r.openIdleSend(msg.ThreadItemID)
+	if modelConfig == nil {
 		warning := noModelWarning(msg.IsContinuation)
 		// code "no-model" marks the recoverable divergence case: the client may
 		// hold a valid model this worker's doc never received (outbound sync gap).
@@ -367,17 +372,6 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 		r.sendStatusWithCode("validation-error", warning.English(), &warning, "no-model")
 		return
 	}
-
-	// Same reasoning as the pause above, for the other thing that stops a
-	// conversation without being asked to: a usage cap this conversation met
-	// earlier is our record of a refusal, not the provider's current answer.
-	// Sending is an explicit "try anyway", and one request is what it costs to
-	// find out — far better than answering the user from a four-hour-old 429.
-	r.clearRateLimit(modelConfig.Provider)
-
-	// A send/continue is a fresh user intent to drive the LLM after any prior
-	// undo/redo history navigation.
-	r.undo.endNavRecoil()
 
 	// A thread carrying a result is NOT refused. A result is the thread's current
 	// summary, not a terminal state: a thread is running or it is stopped, and a
@@ -401,9 +395,7 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 		// text-less (image-only) first messages, and any conversation whose name a
 		// human has committed to (NameIsProvisional — the server re-checks it
 		// before applying the title).
-		if msg.ThreadItemID == "" && r.deps().autoNameFunc != nil &&
-			strings.TrimSpace(input.Text) != "" && !r.hasAutoNamed() &&
-			r.NameIsProvisional() {
+		if strings.TrimSpace(input.Text) != "" && r.autoNameDue(msg.ThreadItemID) {
 			r.fireAutoName(input.Text, modelConfig.Provider, modelConfig.Model, modelConfig.Thinking, false)
 		}
 
@@ -414,8 +406,9 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 		// dropped-file reads onto pendingItems (so they'd ride the queue with the
 		// message). Promoting here lands those reads immediately before the user
 		// message instead of stranding them for the next boundary to promote out
-		// of order. Harmless when the queue is empty.
-		r.promotePendingItems(msg.ThreadItemID)
+		// of order. Harmless when the queue is empty. The thread is idle, so it
+		// is a rest drain; a send scheduled for later stays queued behind this one.
+		r.promotePendingItems(msg.ThreadItemID, restDrain(r.clock.Now()))
 		r.addUserMessageTo(dest, input)
 		// Explicit skill preloads land immediately AFTER the user message, so the
 		// transcript reads user → assistant(skill) → tool_result → reply and the
@@ -440,7 +433,7 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 		// evaluates, approves, and executes them; because we never requestLLM,
 		// activity stays idle and the reducer rests on the completed tool-action
 		// rather than dispatching an empty turn.
-		r.promotePendingItems(msg.ThreadItemID)
+		r.promotePendingItems(msg.ThreadItemID, restDrain(r.clock.Now()))
 		r.injectSkillPreloadsInto(dest, skillsToLoad)
 		r.batcher.Flush()
 		r.handleItemsChange()
@@ -462,6 +455,40 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 	// the next event-loop tick via tryReconcile → dispatchCallLLM.
 	r.requestLLM(msg.ThreadItemID)
 	r.sched.markReconcile()
+}
+
+// openIdleSend is what a user's send does to an idle thread before it writes
+// anything, once the pause over the thread is lifted (which each caller does
+// itself, where the pause classification can see it), and returns the model the
+// turn will run on. A typed send or Continue opens with it, and so does a held
+// send as it fires (fireHeldSend): either is the user asking for a turn now.
+//
+// When a model resolves (thread Y.Map → parent chain → conversation metadata),
+// it lifts the other thing that stops a conversation unasked: a usage cap met
+// earlier is our record of a refusal, not the provider's current answer.
+// Sending is an explicit "try anyway", and one request is what it costs to find
+// out — far better than answering from a four-hour-old 429. The send also ends
+// any undo/redo history navigation.
+//
+// Returns nil, changing nothing, when no model resolves; the caller tells its
+// sender in the way that sender can act on.
+func (r *run) openIdleSend(threadItemID string) *ModelConfig {
+	mc := r.doc.ResolveEffectiveModelConfig(threadItemID)
+	if mc == nil || mc.Model == "" {
+		return nil
+	}
+	r.clearRateLimit(mc.Provider)
+	r.undo.endNavRecoil()
+	return mc
+}
+
+// autoNameDue reports whether a user message written into threadItemID now
+// would be the conversation's first root message, with an auto-namer to tell
+// and a name it may still replace. Asked before the message is written: a doc
+// with no auto-named marker reads its first root message to decide
+// (hasAutoNamed).
+func (r *run) autoNameDue(threadItemID string) bool {
+	return threadItemID == "" && r.deps().autoNameFunc != nil && !r.hasAutoNamed() && r.NameIsProvisional()
 }
 
 // firstRootUserMessageText returns the text of the conversation's first
@@ -801,7 +828,9 @@ func (r *run) handleCancelOn(processingID string, reason cancelReason) {
 		// Real work was in flight (an approved/running tool, or an open
 		// sub-thread). Park: keep any queued messages by promoting them into
 		// the thread, then rest — don't silently re-drive the interrupted work.
-		r.promotePendingItems(threadID)
+		// Only those whose hold has lifted; a send scheduled for later stays
+		// queued for its time.
+		r.promotePendingItems(threadID, restDrain(r.clock.Now()))
 		// Release the target claim explicitly. The ambient actor run does not carry
 		// the parked descendant's thread context, so its idle status alone would
 		// otherwise clear the root entry and leave this thread awaiting forever.
@@ -868,6 +897,11 @@ func (r *run) handleYjsSync(payload json.RawMessage) {
 
 	// Schedule save to persist frontend updates (metadata, context items, etc.)
 	r.scheduleSave()
+
+	// A viewer's edit may have removed or rewritten a held send, so the timer's
+	// moment is recomputed. Local writes do not come through here, which keeps
+	// a streaming turn from paying for that walk on every chunk.
+	r.markHeldStale()
 
 	// Explicitly check for items changes after applying sync update.
 	// ycrdt's items.Observe may not fire for remote updates applied via ApplyUpdate,
@@ -1177,6 +1211,8 @@ func (r *run) handleUndoOrRedo(fn func() bool, payload json.RawMessage) {
 	// fights it. Same reason we drop the reconcile bit afterwards.
 	r.undo.muteObserver()
 	success := fn()
+	// A history step can restore a queue entry the held-send timer has not seen.
+	r.markHeldStale()
 	// The Yjs items observer fires synchronously inside fn(), enqueueing
 	// docChangeChan signals. Drain them before unmuting the observer
 	// so the next event-loop tick doesn't run handleItemsChange against

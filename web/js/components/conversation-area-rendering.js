@@ -52,6 +52,7 @@ import { rebindConversation } from '../services/workspace-rebinding.js';
 import { openWorkspaceReconnect } from './workspace-reconnect-dialog.js';
 import { t } from '../../sdk/lib/i18n.js';
 import { displayConversationName } from '../model/conversation-naming.js';
+import { formatClockTime } from './composer-schedule.js';
 
 /** @typedef {import('../../sdk/lib/message.js').Message} Message */
 
@@ -155,35 +156,126 @@ export function ensurePendingMessages(area, messageList) {
     }
     if (el) {
       zone.appendChild(el);
-      ensureQueuedDeleteButton(area, el, id);
+      ensureQueuedControls(area, el, item);
     }
   }
 }
 
 /**
- * Ensure a queued message has its inline remove-from-queue affordance. Kept
- * outside `<article>` so user-message can keep rendering/copy behavior exactly
- * like a normal user bubble while the pending zone adds queue-only controls.
- * @param {any} area - ConversationArea instance (provides getMessageThread())
- * @param {HTMLElement} el - The queued user-message element
- * @param {string} itemId - Pending item id
+ * The hold a queued message carries, as the queued zone shows it: the label
+ * saying what it waits for, or null for an untimed message. A message carrying
+ * both holds waits for its time first, so its time is what it shows.
+ * @param {any} item - The queued user message.
+ * @returns {string|null} The hold's label, or null when it holds nothing.
  */
-function ensureQueuedDeleteButton(area, el, itemId) {
-  let button = /** @type {HTMLButtonElement|null} */ (el.querySelector(':scope > .queued-message-delete-btn'));
-  if (!button) {
-    button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'queued-message-delete-btn icon-btn';
-    button.title = t('Remove from queue');
-    button.setAttribute('aria-label', t('Remove from queue'));
-    button.innerHTML = '<span class="icon-trashcan"></span>';
-    button.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      area?.getMessageThread?.()?.removeItemById?.(itemId);
-    });
-    el.appendChild(button);
+export function queuedHoldLabel(item) {
+  const notBefore = item.get('notBefore');
+  if (typeof notBefore === 'number' && Number.isFinite(notBefore)) {
+    return t('Sends at {time}', { time: formatClockTime(notBefore) });
   }
+  return item.get('hold') ? t('After this run') : null;
+}
+
+/**
+ * Ensure a queued message has its inline controls, matched to the hold it
+ * carries now: a held message ("Send later") gets a badge saying what it waits
+ * for, Send now and Edit; every queued message gets Remove. Kept outside
+ * `<article>` so user-message can keep rendering/copy behavior exactly like a
+ * normal user bubble while the pending zone adds queue-only controls.
+ *
+ * Remove and Send now are the worker's to carry out (MessageThread#removeQueued,
+ * #releaseQueued): a send is the message and the context items queued ahead of
+ * it, which only the worker groups.
+ * @param {any} area - ConversationArea instance (provides getMessageThread() and its composer)
+ * @param {HTMLElement} el - The queued user-message element
+ * @param {any} item - The queued user message
+ */
+function ensureQueuedControls(area, el, item) {
+  const itemId = item.get('itemId');
+  const label = queuedHoldLabel(item);
+  const held = label !== null;
+
+  let badge = /** @type {HTMLElement|null} */ (el.querySelector(':scope > .queued-message-hold'));
+  if (held && !badge) {
+    badge = document.createElement('span');
+    badge.className = 'queued-message-hold';
+    el.insertBefore(badge, el.firstChild);
+  }
+  if (badge && held) {
+    if (badge.textContent !== label) badge.textContent = label;
+  } else {
+    badge?.remove();
+  }
+
+  const thread = () => area?.getMessageThread?.();
+  ensureQueuedButton(el, held, 'queued-message-send-now-btn', 'icon-play', t('Send now'),
+    () => thread()?.releaseQueued?.(itemId));
+  ensureQueuedButton(el, held, 'queued-message-edit-btn', 'icon-edit-file', t('Edit scheduled message'),
+    () => editQueuedMessage(area, itemId));
+  ensureQueuedButton(el, true, 'queued-message-delete-btn', 'icon-trashcan', t('Remove from queue'),
+    () => thread()?.removeQueued?.(itemId));
+}
+
+/**
+ * Add or drop one inline queued-message button. Buttons keep one order — Send
+ * now, Edit, Remove — however a hold comes and goes, so a new one goes ahead of
+ * Remove.
+ * @param {HTMLElement} el - The queued user-message element
+ * @param {boolean} wanted - Whether the message offers this action now
+ * @param {string} className - The button's own class
+ * @param {string} icon - Its icon class
+ * @param {string} label - Its title and accessible name
+ * @param {() => void} act - What a click does
+ */
+function ensureQueuedButton(el, wanted, className, icon, label, act) {
+  let button = /** @type {HTMLButtonElement|null} */ (el.querySelector(`:scope > .${className}`));
+  if (!wanted) {
+    button?.remove();
+    return;
+  }
+  if (button) return;
+  button = document.createElement('button');
+  button.type = 'button';
+  // A bare parameter, not a template: the CSS lint follows a parameter to the
+  // literals its call sites pass, and so learns which element carries them.
+  button.className = className;
+  button.classList.add('queued-message-btn', 'icon-btn');
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  const glyph = document.createElement('span');
+  glyph.className = icon;
+  button.appendChild(glyph);
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    act();
+  });
+  const remove = el.querySelector(':scope > .queued-message-delete-btn');
+  el.insertBefore(button, remove);
+}
+
+/**
+ * Edit on a held message: its text and attachments go back into the column's
+ * box and its send leaves the queue, to be sent or scheduled again from there.
+ * Refused, with a warning in the box, while the box holds a message — restoring
+ * over it would push that message into history unasked.
+ * @param {any} area - ConversationArea instance
+ * @param {string} itemId - The queued user message
+ */
+function editQueuedMessage(area, itemId) {
+  const thread = area?.getMessageThread?.();
+  const composer = area?.composer;
+  const entry = (thread?.pendingItems || []).find((/** @type {any} */ it) => it.get('itemId') === itemId);
+  if (!entry || !composer) return;
+  if (!composer.isEmpty()) {
+    composer.showWarning(t('Clear the message box to edit a scheduled message'));
+    return;
+  }
+  composer.restoreMessage({
+    content: entry.get('content') || '',
+    attachments: normalizeAttachments(entry.get('attachments')),
+  });
+  thread.removeQueued(itemId);
 }
 
 // Message types - elements are identified by message-id attribute

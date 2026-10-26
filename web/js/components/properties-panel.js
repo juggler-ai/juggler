@@ -15,6 +15,7 @@
  */
 
 import JugglerElement from './juggler-element.js';
+import { queuedHoldLabel } from './conversation-area-rendering.js';
 import { guarded } from '../utils/fault-report.js';
 import { createIconBadge, createTypeBadge } from '../utils/icon-message-renderer.js';
 import { FORK_SVG, INFO_SVG, RETRY_SVG, UNDO_SVG } from '../utils/icons.js';
@@ -948,6 +949,15 @@ class PropertiesPanel extends JugglerElement {
       removeBtn.className = 'properties-panel-btn danger';
       removeBtn.innerHTML = `<span class="icon-trashcan"></span> ${escapeHtml(t('Remove from queue'))}`;
       removeBtn.addEventListener('click', () => this._removePendingItem(messageItemId));
+      // A held send ("Send later") can also go now: the worker drops its hold.
+      const { msg } = this._resolveItem(messageItemId);
+      if (msg && queuedHoldLabel(msg) !== null) {
+        const sendNowBtn = document.createElement('button');
+        sendNowBtn.className = 'properties-panel-btn';
+        sendNowBtn.innerHTML = `<span class="icon-play"></span> ${escapeHtml(t('Send now'))}`;
+        sendNowBtn.addEventListener('click', () => this._messageThread?.releaseQueued(messageItemId));
+        controls.appendChild(sendNowBtn);
+      }
       controls.appendChild(removeBtn);
       return controls;
     }
@@ -1197,7 +1207,8 @@ class PropertiesPanel extends JugglerElement {
         this.clearSelection();
       }
     }
-    this._messageThread.removeItemById(itemId);
+    // The worker removes the whole send: the context items queued for it too.
+    this._messageThread.removeQueued(itemId);
   }
 
   /**

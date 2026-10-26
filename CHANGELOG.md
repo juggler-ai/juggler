@@ -29,6 +29,8 @@ of changes; this project follows semantic versioning.
 - Fork a new conversation after any assistant reply, not only at your messages
 - Auto-approve waits longer for a slow or busy reviewer; deciding yourself cancels it
 - Resumed Claude Code sub-threads no longer start out of budget, or with an empty reply
+- Scheduled sends now fire from the server, even with every window closed
+- Queued messages left behind by a restart now get answered
 
 ## [0.7.8] - 2026-10-23
 

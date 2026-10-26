@@ -59,6 +59,7 @@ var workerInboundTypedefs = []wireschema.Entry{
 	{Value: GetTransactionMessage{}, Types: wireTypes(msgGetTransaction)},
 	{Value: CompactMessage{}, Types: wireTypes(msgCompact)},
 	{Value: RequestAutoNameMessage{}, Types: wireTypes(msgRequestAutoName)},
+	{Value: QueuedEntryMessage{}, Types: wireTypes(msgReleaseQueued, msgRemoveQueued)},
 }
 
 // workerInboundUntyped is the inbound messages with no struct to render: the

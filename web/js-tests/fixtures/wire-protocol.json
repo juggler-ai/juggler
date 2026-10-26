@@ -16,7 +16,7 @@
       "retry-truncated-turn", "update-tool-action-for-retry", "background-task-snapshot", "create-thread",
       "resummarize-compaction-thread", "request-full-state", "resync-request", "resync-to-origin",
       "tool-execution-report", "engine-trace", "rename-log", "request-auto-name", "clear-undo-stacks",
-      "get-transaction", "flush-persistence", "compact"
+      "get-transaction", "flush-persistence", "compact", "release-queued", "remove-queued"
     ],
 
     "outbound": [
@@ -97,7 +97,7 @@
         "$comment": "Keys the worker reads or writes on item maps that ConversationItem does not declare.",
         "keys": [
           "compactionAccounting", "compactionUnsummarized", "contextTokens", "resultFedTurn", "resultTokens",
-          "runningEpoch", "runningStartedAt"
+          "runningEpoch", "runningStartedAt", "notBefore", "hold", "sendId"
         ]
       },
       "modelConfig": ["model", "provider", "serviceTier", "thinking"],

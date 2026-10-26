@@ -637,9 +637,12 @@ func (r *run) tryReconcile() {
 		case ActionGoIdle:
 			// All tools were denied/cancelled while activity was "awaiting_llm".
 			// If the user queued a follow-up while the turn was parked, a denial
-			// means "drop these, run what I just said": continue the turn instead
-			// of resting (the strategy loop promotes the queue at its top). With
-			// nothing queued, this is a plain stop — promote (a no-op) and rest.
+			// means "drop these, run what I just said": promote it and continue the
+			// turn instead of resting. The run would otherwise end here, so this is
+			// a rest drain, and what it promotes is a trailing unstamped user
+			// message under awaiting_llm — the shape an idle send leaves, which the
+			// next pass dispatches if this one's dispatch is refused. With nothing
+			// whose hold has lifted, this is a plain stop: rest.
 			//
 			// Park-on-executing is enforced upstream in handleCancel: an Escape
 			// while a tool is actually running cancels everything and writes idle
@@ -649,7 +652,7 @@ func (r *run) tryReconcile() {
 			// Resting writes conversation-wide state, so the pass ends here rather
 			// than carrying on with a queue built before it. The reconcile bit brings
 			// the next pass, which sees what resting left behind.
-			if r.hasPendingItems(target.threadItemID) {
+			if r.promotePendingItems(target.threadItemID, restDrain(r.clock.Now())) > 0 {
 				r.dispatchCallLLMOnThread(target.threadItemID)
 				return
 			}
@@ -667,7 +670,7 @@ func (r *run) tryReconcile() {
 // reaches via finalizeCancellation's tail, so queued messages simply become
 // normal user bubbles sitting at idle with no polite-specific handling.
 func (r *run) restPromotingQueue(threadItemID string) {
-	r.promotePendingItems(threadItemID)
+	r.promotePendingItems(threadItemID, restDrain(r.clock.Now()))
 	// Release the NAMED thread's claim. An idle frame drops only the claim its
 	// own run holds, and the reducer rests threads it is not itself running —
 	// so leaving this to the frame would keep the entry standing, keep the
@@ -707,9 +710,10 @@ func (r *run) dispatchCallLLMOnThread(threadItemID string) {
 	// The mark is left standing (only a human lifts one), so this branch is
 	// reached again every time the walk offers this thread — hence the guard:
 	// resting a thread that holds no claim and has nothing queued would write an
-	// idle frame per reconcile pass, for a thread already at rest.
+	// idle frame per reconcile pass, for a thread already at rest. A send still
+	// held is not "something queued" here: resting would not promote it.
 	if r.politeStopCovers(threadItemID) {
-		if r.threadActivity(threadItemID) != ActivityNone || r.hasPendingItems(threadItemID) {
+		if r.threadActivity(threadItemID) != ActivityNone || r.hasPromotablePending(threadItemID, restDrain(r.clock.Now())) {
 			r.restPromotingQueue(threadItemID)
 		}
 		return
@@ -729,7 +733,7 @@ func (r *run) dispatchCallLLMOnThread(threadItemID string) {
 	// dispatch, on every turn — does not pay for a document read to resolve a
 	// provider name nothing is going to be compared against.
 	if mc := r.rateLimitedModelConfig(threadItemID); mc != nil {
-		if r.threadActivity(threadItemID) != ActivityNone || r.hasPendingItems(threadItemID) {
+		if r.threadActivity(threadItemID) != ActivityNone || r.hasPromotablePending(threadItemID, restDrain(r.clock.Now())) {
 			r.restPromotingQueue(threadItemID)
 		}
 		return

@@ -14,8 +14,7 @@
  * typed by users, so they bracket a token without disturbing its metrics; the
  * label is real text carrying the id (`#7`, the join key into a side table of
  * blob contents) and the byte size. Everything here is pure and backend-free so
- * both the composer and the scheduled-send service can expand a draft the same
- * way, and so the grammar can be unit-tested in isolation.
+ * any sender can expand a draft the same way, and so the grammar can be unit-tested in isolation.
  * @module utils/paste-tokens
  */
 
@@ -124,7 +123,7 @@ export function hasTokens(text) {
  * resolves in `blobs` becomes that blob's content; an unresolvable token (only
  * possible via a corrupted/mixed-version draft) degrades to its bare label with
  * the invisible delimiters stripped, so the result is always plain, legible
- * text with no stray sentinels. This is what a send/scheduled-send dispatches.
+ * text with no stray sentinels. This is what a send dispatches.
  * @param {string} text
  * @param {Map<number, {content:string}>|PasteBlob[]|null|undefined} blobs
  * @returns {string} The expanded text.

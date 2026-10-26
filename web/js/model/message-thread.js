@@ -30,7 +30,7 @@ import { submitPendingRequest } from '../services/thread-orchestrator.js';
 import * as permissionsHelpers from './message-thread-permissions.js';
 import * as contextItemHelpers from './message-thread-context-items.js';
 import { recordTape } from '../utils/event-tape.js';
-import { normalizeDraft, normalizeAttachments, normalizeTextFiles, normalizePasteBlobs, normalizeScheduledSendMode } from '../utils/attachments.js';
+import { normalizeDraft, normalizeAttachments, normalizeTextFiles, normalizePasteBlobs } from '../utils/attachments.js';
 import { normalizeReviewDraft } from '../utils/review-draft.js';
 
 /**
@@ -228,31 +228,18 @@ export default class MessageThread {
   }
 
   /**
-   * @param {{text?: string, attachments?: import('../utils/attachments.js').AssetRef[], textFiles?: import('../utils/attachments.js').TextFileSnapshot[], pasteBlobs?: import('../utils/attachments.js').PasteBlob[], scheduledSendAt?: number|null, scheduledSendMode?: import('../utils/attachments.js').ScheduledSendMode}|null} value
+   * @param {{text?: string, attachments?: import('../utils/attachments.js').AssetRef[], textFiles?: import('../utils/attachments.js').TextFileSnapshot[], pasteBlobs?: import('../utils/attachments.js').PasteBlob[]}|null} value
    */
   set draft(value) {
     const text = (value && typeof value.text === 'string') ? value.text : '';
     const attachments = normalizeAttachments(value && value.attachments);
     const textFiles = normalizeTextFiles(value && value.textFiles);
     const pasteBlobs = normalizePasteBlobs(value && value.pasteBlobs);
-    const rawWhen = value && value.scheduledSendAt;
-    const scheduledSendAt = (typeof rawWhen === 'number' && Number.isFinite(rawWhen)) ? rawWhen : null;
-    const scheduledSendMode = normalizeScheduledSendMode(scheduledSendAt, value && value.scheduledSendMode);
-    // A pending scheduled send counts as content: a record carrying one is not
-    // empty, so storing it can never drop the timer on the floor. The composer
-    // disarms rather than leave a timer over an empty box, so this holds for
-    // writers that clear text and schedule in separate steps, not for a state
-    // the user can reach.
     // Paste blobs deliberately do NOT keep an otherwise-empty draft alive: they
     // are an append-only side table for the token characters, and with no text
     // there is no token left to resolve, so an empty box GCs them.
-    const empty = !text && attachments.length === 0 && textFiles.length === 0 && scheduledSendAt === null;
-    /** @type {{text: string, attachments: import('../utils/attachments.js').AssetRef[], textFiles: import('../utils/attachments.js').TextFileSnapshot[], pasteBlobs: import('../utils/attachments.js').PasteBlob[], scheduledSendAt?: number, scheduledSendMode?: import('../utils/attachments.js').ScheduledSendMode}} */
+    const empty = !text && attachments.length === 0 && textFiles.length === 0;
     const record = { text, attachments, textFiles, pasteBlobs };
-    // The mode rides along only for the non-default wait, and only while armed:
-    // an absent field reads back as 'delay', so nothing has to clear it.
-    if (scheduledSendAt !== null) record.scheduledSendAt = scheduledSendAt;
-    if (scheduledSendMode === 'turn-end') record.scheduledSendMode = scheduledSendMode;
     if (this.threadItemId) {
       this.transact(() => {
         if (empty) {
@@ -648,6 +635,29 @@ export default class MessageThread {
       }
     }
     return this.deleteItemById(id);
+  }
+
+  /**
+   * Send now on a queued message in this thread's queue: the worker drops the
+   * hold its send carries, and the send goes out as an untimed queued message
+   * would — at once on an idle thread, at the next drain on a busy one.
+   * @param {string} itemId - The queued user message.
+   * @returns {Promise<boolean>} Whether the transport took the request.
+   */
+  releaseQueued(itemId) {
+    return this.conversation.queuedAction('release-queued', this.threadItemId, itemId);
+  }
+
+  /**
+   * Remove a queued message from this thread's queue, with the context items and
+   * skill loads queued for it. The worker resolves the send: deleting the
+   * message alone ({@link removeItemById}) would leave those to go out on their
+   * own at the next drain.
+   * @param {string} itemId - The queued user message.
+   * @returns {Promise<boolean>} Whether the transport took the request.
+   */
+  removeQueued(itemId) {
+    return this.conversation.queuedAction('remove-queued', this.threadItemId, itemId);
   }
 
   /**
@@ -1806,16 +1816,18 @@ export default class MessageThread {
    * boundary, so its reads ride the same queue, ahead of the message, and are
    * promoted with it as one contiguous group — written into `items` now they
    * would sit above the whole in-flight turn while the message landed below it.
+   * `queue` says the message will be queued whatever the thread is doing (a
+   * held send), so the reads are queued too.
    *
    * A mention is frozen: the model gets the file as it stands at this send, so
    * an edit afterwards does not cold-start the cached prefix it sits in. A
    * dropped file is a snapshot too, carrying its bytes inline.
-   * @param {{paths?: string[], droppedFiles?: Array<{filename: string, content: string}>}} reads - What to read.
+   * @param {{paths?: string[], droppedFiles?: Array<{filename: string, content: string}>, queue?: boolean}} reads - What to read.
    * @returns {Promise<void>} Resolves once every read is written.
    */
-  async addSendContext({ paths = [], droppedFiles = [] }) {
+  async addSendContext({ paths = [], droppedFiles = [], queue = false }) {
     if (paths.length === 0 && droppedFiles.length === 0) return;
-    const write = this.sendWillQueue
+    const write = (queue || this.sendWillQueue)
       ? (/** @type {string} */ type, /** @type {Record<string, any>} */ params) => this.executeContextItemIntoPending(type, params)
       : (/** @type {string} */ type, /** @type {Record<string, any>} */ params) => this.executeContextItem(type, params);
     await Promise.all([

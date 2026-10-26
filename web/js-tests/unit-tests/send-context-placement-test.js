@@ -11,8 +11,8 @@
  * and promoted at the next boundary, so its reads must ride the same queue or
  * they land above the whole in-flight turn while the message lands below it.
  *
- * That choice is worker-queue policy, and it is the thread's: the composer and
- * the scheduled-send service both hand it their reads and let it decide. These
+ * That choice is worker-queue policy, and it is the thread's: the composer hands
+ * it its reads and lets it decide. These
  * drive the real `MessageThread.addSendContext` against a thread whose
  * busy-ness is set by hand and whose two writers only record.
  * @module unit-tests/send-context-placement-test

@@ -164,6 +164,19 @@ type ConversationWorker struct {
 	// sequence sets it to zero on its own worker before the worker runs.
 	retryBackoffLimit time.Duration
 
+	// clock is what a pending-queue drain reads as now, and what arms heldTimer.
+	// The wall clock; a test installs its own before the worker runs.
+	clock workerClock
+
+	// heldTimer wakes the run loop when a send held for a time comes due on a
+	// thread with no run to drain it. See held_send_timer.go.
+	heldTimer heldSendTimer
+	// heldIndex is the Manager's held-send index this worker publishes its
+	// entry to, set before Start; nil for a worker built without a Manager.
+	heldIndex *heldSendIndex
+	// heldPublished is the entry last published to heldIndex. Actor only.
+	heldPublished heldPublication
+
 	done    chan struct{}
 	stopped chan struct{}
 	// stopOnce closes done exactly once, whichever of Stop and a cancelled
@@ -320,6 +333,7 @@ func NewConversationWorker(conversationID, authorID string) *ConversationWorker 
 
 		strategyHookTimeout: defaultStrategyHookTimeout,
 		retryBackoffLimit:   defaultRetryBackoffLimit,
+		clock:               realClock(),
 	}
 	w.injected.Store(&workerDeps{})
 	// The actor-only seams hold the worker's guard, which exists only once w does.
@@ -747,6 +761,7 @@ func (r *run) run(ctx context.Context) {
 	defer r.onShutdown()
 	r.liveness.start()
 	defer r.liveness.stop()
+	defer r.heldTimer.disarm()
 	for {
 		// Each case stamps what it handled and when it began, for the
 		// slow-iteration report below (loop_timing.go).
@@ -800,6 +815,9 @@ func (r *run) run(ctx context.Context) {
 			// live run goroutines currently own their tool state.
 			r.finalizeToolsAbsentFromExecReportExcept(liveThreads)
 			r.driveToolActionsExcept(liveThreads)
+		case <-r.heldTimer.fired():
+			event, started = "held send due", time.Now()
+			r.fireHeldSends()
 		}
 		handled := time.Since(started)
 		// After every event, drain the reducer. A dispatch may complete
@@ -808,6 +826,9 @@ func (r *run) run(ctx context.Context) {
 		// Bounded to prevent spin loops from observer re-triggering.
 		reconcileStarted := time.Now()
 		passes := r.drainReconcile()
+		// Last, so the timer is armed against what this event and its passes
+		// left in the queues.
+		r.rearmHeldTimer()
 		r.reportSlowIteration(event, handled, time.Since(reconcileStarted), passes)
 	}
 }
@@ -928,6 +949,9 @@ var workerInbound = map[wireMsgType]inboundHandler{
 	msgRequestAutoName:  func(r *run, m workerMessage) { r.handleRequestAutoName(m.Payload) },
 	msgGetTransaction:   func(r *run, m workerMessage) { r.handleGetTransaction(m.Payload) },
 	msgFlushPersistence: func(r *run, m workerMessage) { r.handleFlushPersistence(m.Payload) },
+
+	msgReleaseQueued: func(r *run, m workerMessage) { r.handleReleaseQueued(m.Payload) },
+	msgRemoveQueued:  func(r *run, m workerMessage) { r.handleRemoveQueued(m.Payload) },
 }
 
 // handleClearUndoStacks wipes the conversation's undo/redo history. The browser

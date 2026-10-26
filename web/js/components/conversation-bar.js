@@ -29,7 +29,6 @@ import {
   resolveMenu,
   openMenuAt
 } from '../services/context-menu-service.js';
-import scheduledSendService, { SCHEDULED_SEND_ARMED_EVENT } from '../services/scheduled-send-service.js';
 import { CLOCK_SVG, ALERT_SVG, ADD_SVG, BIN_SVG, UNDO_SVG, withAttrs } from '../utils/icons.js';
 import { TYPE_ICONS } from '../utils/icon-message-renderer.js';
 import { isPinboardView } from '../utils/view-mode.js';
@@ -484,11 +483,6 @@ class ConversationBar extends JugglerElement {
       const id = this._session?.visibleConversationId;
       if (id) this._enterRenameMode(id);
     });
-
-    // Arming or cancelling a scheduled send changes which tabs show a clock,
-    // and nothing else repaints them: the schedule lives on a draft, which the
-    // bar doesn't read.
-    this.onDocument(SCHEDULED_SEND_ARMED_EVENT, () => this._refreshAllTabStatus());
   }
 
   /**
@@ -1909,7 +1903,7 @@ class ConversationBar extends JugglerElement {
 
   /**
    * Toggle the indicator classes (.is-running / .is-awaiting from the current
-   * LLMState, .has-scheduled-send from scheduledSendService, .is-failed /
+   * LLMState, .has-scheduled-send from Conversation#hasHeldSend, .is-failed /
    * .is-empty from {@link _conversationOutcome}) on a single tab, and fill its
    * status circle and pick its glyph to match. Targeted update — no full
    * re-render.
@@ -1929,10 +1923,9 @@ class ConversationBar extends JugglerElement {
     const tab = this._cachedElements.get(convId);
     if (!tab) return;
     const { awaiting, running, failed, empty, preset, glyph } = this._tabStatus(convId);
-    // Read from the service's set rather than the drafts: this runs on every
-    // render, and walking the thread tree here would allocate a MessageThread
-    // per thread once a frame while a turn streams.
-    const scheduled = scheduledSendService.hasArmedSchedule(convId);
+    // A cached flag (HeldSendFlag): this runs on every render, and walking the
+    // thread tree here would cost a walk per frame while a turn streams.
+    const scheduled = !!this._session?.conversations.get(convId)?.hasHeldSend;
     tab.classList.toggle('is-awaiting', awaiting);
     tab.classList.toggle('is-running', running);
     tab.classList.toggle('is-failed', failed);

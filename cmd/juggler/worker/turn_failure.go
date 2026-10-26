@@ -307,6 +307,6 @@ func (r *run) restOnRateLimit(rateLimit *RateLimitError, err error, errorData ma
 		report := rateLimitReport(providerName, rateLimit.ResetAt, time.Now(), err.Error())
 		r.sendErrorWithData(report.English(), &report, "", errorData)
 	}
-	r.promotePendingItems(r.t.thread.itemID)
+	r.promotePendingItems(r.t.thread.itemID, restDrain(r.clock.Now()))
 	r.t.politelyStopped = true
 }

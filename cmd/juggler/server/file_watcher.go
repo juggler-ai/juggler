@@ -31,7 +31,8 @@ const pluginReloadDebounce = 300 * time.Millisecond
 // StartBackgroundServices constructs and starts the filesystem watcher (which
 // walks the project tree and registers fsnotify watches), kicks off the
 // broadcast goroutine, starts the plugin-directory watcher, and then kicks off
-// the remaining background services (provider refresh, update checker). Call
+// the remaining background services (provider refresh, update checker), and
+// loads the conversations holding queued sends (Manager.LoadHeldConversations). Call
 // this once, after the engine is up and the server is serving — earlier and
 // you'd be holding kernel watch handles for events with no audience.
 //
@@ -59,6 +60,11 @@ func (s *Server) StartBackgroundServices() {
 	s.RefreshProviders()
 	s.startUpdateChecker()
 	s.startEngineSupervisor()
+	// Here rather than when the worker manager is wired: the conversations it
+	// loads may fire a send at once, and its turn asks the engine for context.
+	if st != nil && st.projectPath != "" && s.workerManager != nil {
+		go s.workerManager.LoadHeldConversations(st.projectPath)
+	}
 }
 
 func (s *Server) flushFileChangeBatch(changes []core.FileChange) {

@@ -26,8 +26,10 @@
 
 import * as Y from '../../js/vendor/yjs.mjs';
 import { assert } from '../utilities/test-helpers.js';
-import scheduledSendService from '../../js/services/scheduled-send-service.js';
 import '../../js/components/conversation-bar.js';
+
+/** Conversations holding a held send. */
+const armed = new Set(['scheduled', 'empty-scheduled', 'failed-scheduled']);
 
 /**
  * A conversation record with the activity the bar reads off it.
@@ -55,7 +57,8 @@ function conversation(id, state = {}) {
     loadState: state.loadState || 'loaded',
     rootMessageThread: { yarray },
     llmState: { isConversationProcessing: () => !!state.running },
-    isAwaitingApproval: () => !!state.awaiting
+    isAwaitingApproval: () => !!state.awaiting,
+    hasHeldSend: armed.has(id)
   };
 }
 
@@ -100,9 +103,6 @@ export async function runTests() {
   container.appendChild(bar);
   document.body.appendChild(container);
 
-  const armed = new Set(['scheduled', 'empty-scheduled', 'failed-scheduled']);
-  const realHasArmed = scheduledSendService.hasArmedSchedule;
-  scheduledSendService.hasArmedSchedule = (/** @type {string} */ id) => armed.has(id);
 
   /**
    * A panel circle wearing a preset, mounted where the bar's own are, to read
@@ -317,7 +317,6 @@ export async function runTests() {
         `the bin must hold its place but be hidden, got display ${style.display}, visibility ${style.visibility}`);
     });
   } finally {
-    scheduledSendService.hasArmedSchedule = realHasArmed;
     container.remove();
   }
 

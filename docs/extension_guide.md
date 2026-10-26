@@ -820,7 +820,7 @@ text the reader can see and the agent already knows how to read, with nothing
 hidden in it and nothing parsed back out. It is not sent: it is inserted into that
 thread's composer at the caret, for the reader to read back, add to, cut down or
 abandon. A half-written question already in the box survives it, along with its
-attachments and an armed scheduled send, and one undo takes the review back out.
+attachments, and one undo takes the review back out.
 From a detached board, which has no composer of its own, it goes to the window the
 board was opened from; with neither a composer nor that window, it is sent as a
 message rather than dropped. **The comments are never cleared** — text sitting in

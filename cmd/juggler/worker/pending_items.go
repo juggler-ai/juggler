@@ -17,12 +17,16 @@ import (
 // builder until it is promoted.
 //
 // `promotePendingItems` is the single transition: it moves the queued entries
-// into `items` as real user messages (chronologically last) and clears the
-// queue. The strategy loop drains at the turn boundary and at end-of-run (drive
-// a new turn). On cancel the behaviour splits: when the turn was blocked purely
-// by tool approvals, dropping them continues the queued turn (reducer ActionGoIdle
-// → dispatch); when real work was executing, Stop promotes the queue and parks
-// at idle. All paths call the same primitive — only the continuation differs.
+// into `items` as real user messages (chronologically last) and takes them off
+// the queue. Each drain says what kind of drain it is (promoteCtx): a mid-run
+// drain at the top of every LLM turn, or a rest drain where the run ends or the
+// thread rests. An entry held for a time or for the run's end (pending_hold.go)
+// stays queued until a drain lifts its hold. The strategy loop drains at the turn
+// boundary and at end-of-run (drive a new turn). On cancel the behaviour splits:
+// when the turn was blocked purely by tool approvals, dropping them continues
+// the queued turn (reducer ActionGoIdle → dispatch); when real work was
+// executing, Stop promotes the queue and parks at idle. All paths call the same
+// primitive — only the continuation differs.
 
 // pendingParentMapLocked returns the Y.Map that owns the pendingItems array for
 // the given thread ("" => root). Caller MUST hold ycrdtMu.
@@ -80,13 +84,15 @@ func (w *ConversationWorker) appendPendingItem(threadItemID string, item Convers
 }
 
 // appendPendingItemsLocked appends items, in order, to a pending queue in one
-// untracked transaction. Caller MUST hold ycrdtMu.
+// untracked transaction, and marks the held-send timer stale so the held-send
+// index learns the queue holds something. Caller MUST hold ycrdtMu.
 func (w *ConversationWorker) appendPendingItemsLocked(arr *ycrdt.YArray, items ...ConversationItem) {
 	w.doc.doc.Transact(func(_ *ycrdt.Transaction) {
 		for _, item := range items {
 			arr.Insert(arr.GetLength(), ycrdt.ArrayAny{conversationItemToYMap(item)})
 		}
 	}, w.doc.txOrigin())
+	w.markHeldStale()
 }
 
 // queueIfBusy is the intake gate and the enqueue in one hold: it reports whether
@@ -146,26 +152,32 @@ func (w *ConversationWorker) recordPendingEnqueue(threadItemID, itemID string) {
 	w.batcher.Flush()
 }
 
-// requestLLMIfQueued queues threadItemID for dispatch when its pending queue
-// holds anything, reading the queue and writing the claim in one hold. It is a
+// requestLLMIfQueued promotes what pc lets out of threadItemID's pending queue
+// and, when that was anything, queues the thread for dispatch. It is a
 // finishing run's last look at its own thread, taken after its claim is
 // released and its idle frame is out: from then on the intake gate sees the
 // thread idle, so nothing can be queued there that this look misses (see
 // queueIfBusy). Reports whether it queued a dispatch.
-func (w *ConversationWorker) requestLLMIfQueued(threadItemID string) bool {
-	ycrdtMu.Lock()
-	defer ycrdtMu.Unlock()
-	arr := w.doc.getPendingArrayLocked(threadItemID)
-	if arr == nil || arr.GetLength() == 0 {
+//
+// The promotion and the claim are two holds. A send landing between them
+// takes the idle path, which appends its message behind the promoted ones and
+// asks for the same dispatch; either claim brings the turn that answers both.
+// A send whose hold has not lifted promotes nothing and asks for no dispatch,
+// so a held send never keeps a resting thread busy.
+func (r *run) requestLLMIfQueued(threadItemID string, pc promoteCtx) bool {
+	if r.promotePendingItems(threadItemID, pc) == 0 {
 		return false
 	}
-	return w.patchRunIfLocked(threadItemID,
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	return r.patchRunIfLocked(threadItemID,
 		entryNotCallingLLM,
 		func(entry runEntry, _ map[string]any) { entry.setActivity(ActivityAwaitingLLM) },
 	)
 }
 
-// hasPendingItems reports whether the thread has any queued messages.
+// hasPendingItems reports whether the thread has any queued entries at all,
+// held or not. A decision about driving the thread asks hasPromotablePending.
 func (w *ConversationWorker) hasPendingItems(threadItemID string) bool {
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
@@ -173,8 +185,17 @@ func (w *ConversationWorker) hasPendingItems(threadItemID string) bool {
 	return arr != nil && arr.GetLength() > 0
 }
 
-// promotePendingItems moves every queued message for the thread into its items
-// array as a user message (chronologically last) and clears the queue. The
+// hasPromotablePending reports whether a drain under pc would promote
+// anything from the thread's queue.
+func (w *ConversationWorker) hasPromotablePending(threadItemID string, pc promoteCtx) bool {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	arr := w.doc.getPendingArrayLocked(threadItemID)
+	return arr != nil && len(promotableIndicesLocked(arr, pc)) > 0
+}
+
+// promotePendingItems moves the queued messages whose hold pc lifts into the
+// thread's items array as user messages (chronologically last). The
 // promoted items are left UNSTAMPED (no transactionId) so the strategy loop's
 // findUnstampedUserMsgID picks up the last one for the next round-trip. Returns
 // the number promoted. The move itself, and why it is one hold, is
@@ -186,11 +207,13 @@ func (w *ConversationWorker) hasPendingItems(threadItemID string) bool {
 // pickup), so off the actor it is handed over through the items-change signal
 // rather than run where it stands. The turn needs nothing from it: what it reads
 // next is the promoted items themselves.
-func (r *run) promotePendingItems(threadItemID string) int {
-	pending := r.tracker.PromotePending(threadItemID)
+func (r *run) promotePendingItems(threadItemID string, pc promoteCtx) int {
+	pending := r.tracker.PromotePending(threadItemID, pc)
 	if len(pending) == 0 {
 		return 0
 	}
+	// What the held-send timer waits for may have just left the queue.
+	r.markHeldStale()
 
 	r.tape.Record("pending-promote", map[string]any{
 		"threadItemId": threadItemID,
@@ -276,5 +299,6 @@ func (w *ConversationWorker) clearPendingItems(threadItemID string) {
 	w.doc.doc.Transact(func(_ *ycrdt.Transaction) {
 		arr.Delete(ycrdt.Number(0), length)
 	}, w.doc.txOrigin())
+	w.markHeldStale()
 	w.log.Info("Cleared %d pending message(s) for thread %q", length, threadItemID)
 }

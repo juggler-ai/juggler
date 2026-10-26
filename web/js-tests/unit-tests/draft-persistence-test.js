@@ -13,6 +13,10 @@
  * record on the model, reloads the conversation from the backend, and asserts
  * both halves come back.
  *
+ * A draft carries no timer. One saved by a build that kept a scheduled send on
+ * the draft (`scheduledSendAt` / `scheduledSendMode`) still loads, as a plain
+ * draft: its text comes back and the timer does not.
+ *
  * The unsent review beside it makes the same trip for the same reason, on both
  * of the routes a draft can take: the root's through conversation metadata, a
  * sub-thread's onto its own container.
@@ -27,6 +31,7 @@ import {
   createTestConversation
 } from '../utilities/test-helpers.js';
 import workerManager from '../../js/services/worker-manager.js';
+import { convertToYType } from '../../js/model/item-accessor.js';
 import logger from '../utilities/test-logger.js';
 
 /**
@@ -46,14 +51,21 @@ export async function runTests(_ctx) {
 
   const draftText = 'unsent message with an image attachment';
   const ref = { id: 'sha-draft-1', mime: 'image/png', filename: 'pixel.png', bytes: 123, width: 1, height: 1 };
-  // A pending "send after a delay" is part of the same draft record — its
-  // epoch-ms target must survive quit/restart too, or a scheduled send silently
-  // evaporates on reload (the whole point of persisting it on the draft rather
-  // than in a live-only timer).
-  const scheduledSendAt = Date.now() + 3_600_000;
 
-  // Set the draft as ONE object — text + attachments + scheduled-send target.
-  conversation.rootMessageThread.draft = { text: draftText, attachments: [ref], scheduledSendAt };
+  // Set the draft as ONE object — text + attachments.
+  conversation.rootMessageThread.draft = { text: draftText, attachments: [ref] };
+
+  // A sub-thread's draft as an older build stored it, timer and all, written
+  // straight onto its container: the draft setter would drop the timer keys
+  // before they reached the document, and the point is a record that has them.
+  const legacyText = 'scheduled before the timer left the draft';
+  const legacyThread = conversation.rootMessageThread.createSubThread({ goal: 'Old draft' });
+  conversation.resolveMessageThread(legacyThread.threadId).transact(() => {
+    conversation.resolveMessageThread(legacyThread.threadId).container.set('draft', convertToYType({
+      text: legacyText, attachments: [], textFiles: [], pasteBlobs: [],
+      scheduledSendAt: Date.now() + 3_600_000, scheduledSendMode: 'turn-end',
+    }));
+  });
 
   // A part-written review is unsent input too, kept beside the draft in the same
   // document and for the same reason: a review can take long enough that a
@@ -119,26 +131,13 @@ export async function runTests(_ctx) {
     }
   }
 
-  if (!draft || draft.scheduledSendAt !== scheduledSendAt) {
-    errors.push(`Draft scheduled-send target not persisted across reload. Expected ${scheduledSendAt}, got ${JSON.stringify(draft && draft.scheduledSendAt)}`);
+  const legacy = /** @type {any} */ (reloaded.resolveMessageThread(legacyThread.threadId).draft);
+  if (legacy.text !== legacyText) {
+    errors.push(`A draft stored with a timer lost its text on reload. Expected ${JSON.stringify(legacyText)}, got ${JSON.stringify(legacy.text)}`);
   }
-
-  if (!draft || draft.scheduledSendMode !== 'delay') {
-    errors.push(`Draft scheduled-send mode should default to 'delay', got ${JSON.stringify(draft && draft.scheduledSendMode)}`);
-  }
-
-  // The other wait — "send at end of turn" — rides the same record as a mode
-  // beside the instant, and the instant is what disarms BOTH: clearing
-  // scheduledSendAt must leave no turn-end wait behind to fire against a later,
-  // unrelated draft.
-  const thread = reloaded.rootMessageThread;
-  thread.draft = { text: draftText, scheduledSendAt: Date.now(), scheduledSendMode: 'turn-end' };
-  if (thread.draft.scheduledSendMode !== 'turn-end') {
-    errors.push(`Turn-end scheduled-send mode did not round-trip, got ${JSON.stringify(thread.draft.scheduledSendMode)}`);
-  }
-  thread.draft = { text: draftText, scheduledSendAt: null, scheduledSendMode: 'turn-end' };
-  if (thread.draft.scheduledSendMode !== 'delay') {
-    errors.push(`Clearing the target left a turn-end wait armed, got ${JSON.stringify(thread.draft.scheduledSendMode)}`);
+  const keys = Object.keys(legacy).sort().join(',');
+  if (keys !== 'attachments,pasteBlobs,text,textFiles') {
+    errors.push(`A draft stored with a timer must read back as a plain draft, got the keys ${keys}`);
   }
 
   const review = reloaded.rootMessageThread.gitReviewDraft;
@@ -156,7 +155,7 @@ export async function runTests(_ctx) {
   }
 
   if (errors.length === 0) {
-    logger.info('[draft-persistence-test] Test PASSED - draft text + attachments + scheduled-send target + review comments persisted across reload');
+    logger.info('[draft-persistence-test] Test PASSED - draft text + attachments + a timer-carrying draft + review comments persisted across reload');
     return { passed: 1, failed: 0, errors: [] };
   }
   return { passed: 0, failed: errors.length, errors };

@@ -416,10 +416,13 @@ func (t *OperationTracker) appendMessageIntoArrayLocked(arr *ycrdt.YArray, messa
 	}, t.doc.authorID, true)
 }
 
-// PromotePending moves every queued message for the thread ("" => root) to the
-// end of its items array and empties the queue, returning what it moved. The
-// promoted items are left unstamped (no transactionId), since they are the next
-// turn's input, not part of the round-trip that was running when they queued.
+// PromotePending moves the queued entries for the thread ("" => root) whose
+// hold pc lifts to the end of its items array, in queue order, and removes them
+// from the queue, returning what it moved. Held sends stay queued, in order
+// (pending_hold.go). The promoted items are left unstamped (no transactionId),
+// since they are the next turn's input, not part of the round-trip that was
+// running when they queued, and lose their hold and send stamps, which belong to
+// the queue.
 //
 // The whole move is one ycrdtMu hold. The thread's turn runs on a goroutine of
 // its own, and the run loop's save sweeps assets and applies viewer syncs
@@ -429,8 +432,9 @@ func (t *OperationTracker) appendMessageIntoArrayLocked(arr *ycrdt.YArray, messa
 // array to receive them keeps its queue.
 //
 // The append is tracked, so a promotion is undoable like a normal user send;
-// emptying the queue is not, since queuing is not conversation content.
-func (t *OperationTracker) PromotePending(threadItemID string) []ConversationItem {
+// taking entries off the queue is not, since queuing is not conversation
+// content.
+func (t *OperationTracker) PromotePending(threadItemID string, pc promoteCtx) []ConversationItem {
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
 	queue := t.doc.getPendingArrayLocked(threadItemID)
@@ -443,26 +447,35 @@ func (t *OperationTracker) PromotePending(threadItemID string) []ConversationIte
 			return nil
 		}
 	}
-
-	pending := t.doc.getItemsFromArrayLocked(queue)
-	for i := range pending {
-		pending[i].TransactionID = ""
+	indices := promotableIndicesLocked(queue, pc)
+	if len(indices) == 0 {
+		return nil
 	}
-	// What is written is the queued maps themselves, read before the queue is
-	// emptied — not pending, which went through ConversationItem and carries
+
+	all := t.doc.getItemsFromArrayLocked(queue)
+	pending := make([]ConversationItem, 0, len(indices))
+	// What is written is the queued maps themselves, read before they leave
+	// the queue — not pending, which went through ConversationItem and carries
 	// only the fields it declares. A queued context item holds whatever the
 	// browser or its plugin put there, and arrives with all of it.
-	length := int(queue.GetLength())
-	moved := make([]yNode, 0, length)
-	for i := 0; i < length; i++ {
+	moved := make([]yNode, 0, len(indices))
+	for _, i := range indices {
+		item := all[i]
+		item.TransactionID = ""
+		pending = append(pending, item)
 		n := snapshotYValue(queue.Get(ycrdt.Number(i)))
 		if n.isMap {
-			delete(n.entries, "transactionId")
+			for _, k := range []string{keyTransactionID, keyNotBefore, keyHold, keySendID} {
+				delete(n.entries, k)
+			}
 		}
 		moved = append(moved, n)
 	}
 	t.doc.doc.Transact(func(_ *ycrdt.Transaction) {
-		queue.Delete(ycrdt.Number(0), length)
+		// Last first, so each position still names the entry it was read as.
+		for j := len(indices) - 1; j >= 0; j-- {
+			queue.Delete(ycrdt.Number(indices[j]), 1)
+		}
 	}, t.doc.txOrigin())
 
 	if target == nil {

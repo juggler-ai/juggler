@@ -9,6 +9,7 @@ import (
 	"go/parser"
 	"go/token"
 	"testing"
+	"time"
 )
 
 // A queued message moves from pendingItems to items on a turn's goroutine,
@@ -35,7 +36,7 @@ func TestPromoteLeavesTheQueueWhenThereIsNowhereToPutIt(t *testing.T) {
 		t.Fatal("message was not queued")
 	}
 
-	if n := w.currentRun().promotePendingItems("th-1"); n != 0 {
+	if n := w.currentRun().promotePendingItems("th-1", restDrain(time.Now())); n != 0 {
 		t.Fatalf("promoted %d into a thread with no items array, want 0", n)
 	}
 	if !w.hasPendingItems("th-1") {

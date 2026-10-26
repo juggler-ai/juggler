@@ -267,6 +267,8 @@
  * @property {string} [threadItemId]
  * @property {AssetRef[]} [attachments]
  * @property {string[]} [skills] - Skills lists Agent Skill names the user explicitly chose to load before this turn (via the composer `$name` mention or picker). Each is loaded as a real `skill` tool-action — the same visible, auto-approved action the model issues — injected ahead of the assistant's response so its instructions are in context first. A skills-only send (empty Text) is a preload: the skills load and the worker rests without starting an LLM turn.
+ * @property {number} [notBefore] - NotBefore schedules the send: epoch milliseconds before which it waits in the thread's pending queue. A time already passed holds nothing, and the send is an ordinary one.
+ * @property {string} [hold] - Hold "run-end" keeps the send queued until the thread's run ends or rests. Any other non-empty value is read the same way. A continuation, and a send with no message, ignore both holds.
  */
 
 /**
@@ -420,6 +422,18 @@
  * @typedef {object} RequestAutoNameMessage
  * @property {'request-auto-name'} type
  * @property {boolean} [force]
+ */
+
+/**
+ * QueuedEntryMessage is an action on one queued user message, from the queued
+ * zone. release-queued (Send now) drops the hold its send carries; remove-queued
+ * takes the send off the queue. Either acts on the message's whole send — the
+ * context items and skill loads queued ahead of it ride with it (pendingGroups).
+ * An ItemID that names no queued user message is ignored.
+ * @typedef {object} QueuedEntryMessage
+ * @property {'release-queued'|'remove-queued'} type
+ * @property {string} [threadItemId]
+ * @property {string} itemId
  */
 
 /**

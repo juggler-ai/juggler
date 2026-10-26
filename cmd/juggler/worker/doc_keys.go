@@ -88,6 +88,11 @@ const (
 	keyResultTokens           = "resultTokens"
 	keyRunningEpoch           = "runningEpoch"
 	keyRunningStartedAt       = "runningStartedAt"
+	// A pending-queue entry's hold and its send (pending_hold.go). Stripped
+	// when the entry is promoted, so no item in a transcript carries them.
+	keyNotBefore = "notBefore"
+	keyHold      = "hold"
+	keySendID    = "sendId"
 )
 
 // Keys of a model configuration map (docKeys.modelConfig).
@@ -99,8 +104,9 @@ const (
 )
 
 // Keys of the document's metadata map (docKeys.metadata). pendingItems and
-// pendingRequests are also keys of a thread's own map: the root's queue lives
-// on metadata, each sub-thread's on its thread map.
+// pendingRequests are listed here but never live on metadata: both sit beside
+// the items they feed (pendingParentMapLocked), on the root map for the root
+// thread and on the thread's own map for a sub-thread.
 const (
 	keyActivatedStrategyID = "activatedStrategyId"
 	keyCompletedTurns      = "completedTurns"

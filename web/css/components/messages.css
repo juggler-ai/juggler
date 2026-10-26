@@ -924,7 +924,13 @@ thinking-message article.thinking .message-content-box {
     margin-left: 0;
 }
 
-.pending-messages .queued-message-delete-btn {
+.pending-messages .queued-message-hold {
+    flex-shrink: 0;
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+}
+
+.pending-messages .queued-message-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -939,6 +945,12 @@ thinking-message article.thinking .message-content-box {
     cursor: pointer;
     opacity: 0.9;
     transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.pending-messages .queued-message-btn:hover,
+.pending-messages .queued-message-btn:focus-visible {
+    color: var(--text-primary);
+    opacity: 1;
 }
 
 .pending-messages .queued-message-delete-btn:hover,

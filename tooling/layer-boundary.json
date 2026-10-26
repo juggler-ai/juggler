@@ -4,10 +4,6 @@
     "why": "insertAtCaret is the composer's token-aware text insertion, not a view; it lives beside the paste tokens it must keep intact",
     "imports": ["web/js/components/composer-paste-tokens.js"]
   },
-  "web/js/services/scheduled-send-service.js": {
-    "why": "extractFileMentionsAsync is the send path's @-mention resolution, which the composer's completion provider owns",
-    "imports": ["web/js/components/file-mention-provider.js"]
-  },
   "web/js/services/shortcut-bindings.js": {
     "why": "the find shortcuts open and step the find bar, whose singleton and panel lookup live in its own module",
     "imports": ["web/js/components/find-bar.js"]

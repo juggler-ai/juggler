@@ -522,8 +522,10 @@ export class WorkerManager {
    *   Content-addressed asset references (uploaded images) to store on the user item.
    * @param {string[]} [skills] - Agent Skill names the user explicitly chose to load
    *   before this turn; the worker injects each as a visible `skill` tool-action.
+   * @param {import('../model/conversation.js').SendSchedule|null} [schedule] - Holds the send:
+   *   the worker queues it and fires it at `notBefore`, or when the run ends.
    */
-  sendMessage(conversationId, text, threadItemId, attachments, skills) {
+  sendMessage(conversationId, text, threadItemId, attachments, skills, schedule) {
     // Store only the reference fields on the doc item — never raw bytes / data
     // URLs. Omit the key entirely when there are no attachments so the worker
     // writes a byte-identical user item to a plain text message.
@@ -543,7 +545,9 @@ export class WorkerManager {
       text,
       threadItemId: threadItemId || undefined,
       attachments: refs,
-      skills: skillNames
+      skills: skillNames,
+      notBefore: schedule?.notBefore,
+      hold: schedule?.hold
     });
   }
 

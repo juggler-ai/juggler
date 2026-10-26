@@ -142,13 +142,13 @@ export class UITestHarness {
         // Always use the current conversation — multi-conv tests switch it
         const conv = /** @type {any} */ (this._innerHarness).conversation;
         // Track the async sendMessage so tests can await delivery.
-        // Forward staged image attachments (mirrors UIEventManager, which
-        // passes detail.attachments through to conversation.sendMessage).
+        // Forward what UIEventManager forwards to conversation.sendMessage:
+        // staged attachments, `$skill` names and a "Send later" schedule.
         this._pendingSend = conv.sendMessage(
           detail.message,
           detail.threadItemId || null,
           detail.messageThread || null,
-          { attachments: detail.attachments || [] }
+          { attachments: detail.attachments || [], skills: detail.skills || [], schedule: detail.schedule }
         );
       }
     };

@@ -107,9 +107,8 @@ const MAX_FROZEN_SNAPSHOT_CHARS = 256_000;
  *
  *    A FROZEN item snapshots once into `data.content` and serves that for the
  *    life of the conversation. Two things create one:
- *     - an `@file` mention (composer.js and scheduled-send-service.js, one per
- *       mentioned path): a one-shot "here is this file", the user's counterpart
- *       of a `read`. The file is mentioned so the agent can work on it, so live
+ *     - an `@file` mention (composer.js, one per mentioned path): a one-shot
+ *       "here is this file", the user's counterpart of a `read`. The file is mentioned so the agent can work on it, so live
  *       would be the expensive default: every edit the agent then made would
  *       change a message near the head of the conversation and cold-start the
  *       whole cached prefix.

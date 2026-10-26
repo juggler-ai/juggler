@@ -460,7 +460,6 @@ export default [
   //   theme-manager             — the device's record of the OS light/dark setting
   //   viewer-id                 — a tab's identity, not a preference
   //   websocket                 — a reload throttle, not a preference
-  //   scheduled-send-service    — a claim lock between same-origin windows
   {
     files: ['web/js/**/*.js', 'web/sdk/**/*.js', 'web/extensions/**/*.js', 'web/machine/**/*.js'],
     ignores: [
@@ -469,7 +468,6 @@ export default [
       'web/js/utils/theme-manager.js',
       'web/js/utils/viewer-id.js',
       'web/js/services/websocket.js',
-      'web/js/services/scheduled-send-service.js',
     ],
     rules: {
       'no-restricted-globals': ['error',

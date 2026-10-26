@@ -687,11 +687,9 @@ composer-box .strategy-selector-button .strategy-name {
     height: 0.875rem;
 }
 
-/* Schedule-send ("send after a delay") button — shares the .input-ctrl-btn
-   ghost pill. Icon-only when idle; when a send is armed it turns accent and
-   reveals a compact countdown badge to its right, which pulses for as long as
-   the send is armed so a pending timer is hard to overlook. Reduced motion
-   keeps the badge and drops the pulse. */
+/* Schedule-send ("send later") button — shares the .input-ctrl-btn ghost pill
+   and is icon-only: a scheduled send leaves the box for the queued zone, which
+   shows its hold. */
 composer-box .schedule-send-btn {
     justify-content: center;
 }
@@ -701,30 +699,6 @@ composer-box .schedule-send-btn .schedule-send-icon {
     align-items: center;
     width: 0.875rem;
     height: 0.875rem;
-}
-
-composer-box .schedule-send-btn.armed {
-    color: var(--accent-blue);
-    border-color: var(--accent-blue);
-}
-
-composer-box .schedule-send-btn .schedule-send-countdown {
-    font-size: var(--font-size-xs);
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
-}
-
-composer-box .schedule-send-btn.armed .schedule-send-countdown {
-    animation: schedule-countdown-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes schedule-countdown-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.35; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    composer-box .schedule-send-btn.armed .schedule-send-countdown { animation: none; }
 }
 
 /* Delay picker — extends the .dropdown-menu base (surface, border, shadow,
@@ -831,21 +805,6 @@ composer-box .schedule-send-btn.armed .schedule-send-countdown {
     cursor: not-allowed;
 }
 
-.schedule-send-menu .schedule-cancel-btn {
-    padding: 0.375rem 0.75rem;
-    font-size: var(--font-size-base);
-    color: var(--text-primary);
-    background: var(--bg-tertiary);
-    border: 0.0625rem solid var(--border-color);
-    border-radius: var(--radius-md);
-    cursor: pointer;
-}
-
-.schedule-send-menu .schedule-cancel-btn:hover {
-    border-color: var(--accent-red);
-    color: var(--accent-red);
-}
-
 /* The other wait, below the delay block: full-width and quiet, so the accent
    "Schedule to send at HH:MM" stays the picker's primary action. */
 .schedule-send-menu .schedule-turn-end-btn {
@@ -867,18 +826,6 @@ composer-box .schedule-send-btn.armed .schedule-send-countdown {
 .schedule-send-menu .schedule-turn-end-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-}
-
-/* Armed picker: the target time sits above a full-width cancel button. */
-.schedule-send-menu .schedule-armed-target {
-    text-align: center;
-    font-size: var(--font-size-base);
-    color: var(--text-secondary);
-}
-
-.schedule-send-menu .schedule-cancel-only {
-    width: 100%;
-    text-align: center;
 }
 
 /* Touch-only "⋮" overflow button — a filled circular control that opens the
@@ -1069,9 +1016,8 @@ composer-box.touch-composer .more-actions-btn.input-ctrl-btn:focus:not(:disabled
 }
 
 /* The schedule-send ("timer") button is rarely used, so on touch it collapses
-   into the "⋮" actions sheet — except while a send is armed, when it stays
-   inline so the live countdown and cancel affordance remain visible. */
-composer-box.touch-composer .schedule-send-btn:not(.armed) {
+   into the "⋮" actions sheet. */
+composer-box.touch-composer .schedule-send-btn {
     display: none;
 }
 

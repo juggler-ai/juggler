@@ -73,12 +73,7 @@ import {
 } from './composer-paste-tokens.js';
 import {
   buildSchedulePicker,
-  clearScheduledSendState,
-  fireScheduledSend as fireArmedSend,
-  reconcileScheduleWithDraft,
   schedulePickerAnchor,
-  stopScheduledCountdown,
-  syncScheduledSendFromDraft,
   updateScheduleButton,
 } from './composer-schedule.js';
 
@@ -245,23 +240,6 @@ class Composer extends JugglerElement {
     /** @type {number} @private */
     this._pasteHistoryHops = 0;
 
-    // Scheduled-send ("send after a delay") state. The armed target is an
-    // epoch-ms wall-clock time persisted on the bound thread's draft (so it
-    // survives a reload and stays bound to that thread). This box only arms,
-    // cancels, and DISPLAYS the schedule — the actual firing is owned by
-    // scheduledSendService, which polls every thread so a send goes out even
-    // when this thread isn't the one on screen. See composer-schedule.js's
-    // syncScheduledSendFromDraft.
-    /** @type {number|null} @private epoch-ms target for the pending send, or null */
-    this._scheduledSendAt = null;
-    // What the armed send is waiting for: a wall-clock instant ('delay') or the
-    // end of the conversation's current turn ('turn-end', where the target is
-    // just the arming time). Only meaningful while `_scheduledSendAt` is set.
-    /** @type {import('../utils/attachments.js').ScheduledSendMode} @private */
-    this._scheduledSendMode = 'delay';
-    /** @type {number|null} @private setInterval id that refreshes the countdown label */
-    this._scheduledCountdownId = null;
-
     // The button-anchored popups, each built fresh on open.
     /** @type {ComposerPopup} @private - The `/` commands menu. */
     this._commandsPopup = new ComposerPopup(this, {
@@ -378,10 +356,6 @@ class Composer extends JugglerElement {
       this._conversation.unobserveMetadata(this._conversationMetadataObserver);
       this._conversationMetadataObserver = null;
     }
-    // Drop the countdown-refresh interval. The target stays persisted on the
-    // thread's draft, so reconnecting (or rebinding) restores the countdown —
-    // and scheduledSendService fires it whether or not this box is mounted.
-    stopScheduledCountdown(this);
     // Tear down the token mirror — critically, this detaches the document-level
     // selectionchange listener so a removed box leaves no dangling handler.
     teardownPasteMirror(this);
@@ -412,10 +386,8 @@ class Composer extends JugglerElement {
 
     // Render any chips that survived a re-render.
     renderAttachmentChips(this);
-    // A draft restored on mount may already carry a pending send — re-arm (or,
-    // if its target has passed, fire) it now that the controls exist.
-    syncScheduledSendFromDraft(this);
-    // Seed the Send button's empty/disabled state from any restored draft.
+    // Seed the Send and clock buttons' empty/disabled state from any restored
+    // draft.
     this._updateSendButtonState();
   }
 
@@ -933,8 +905,8 @@ class Composer extends JugglerElement {
   /**
    * Refresh both empty-sensitive controls from the current composer contents:
    * the `.is-empty` class on the Send button (so a whitespace-only message
-   * can't be sent) and the schedule button's disabled/armed look (so a delayed
-   * send can't be armed on — or appear active over — an empty box). Cheap;
+   * can't be sent) and the schedule button's disabled state (so a delayed send
+   * can't be armed on an empty box). Cheap;
    * called from the textarea input handler, after programmatic text changes,
    * and on every attachment mutation.
    * @private
@@ -1149,61 +1121,20 @@ class Composer extends JugglerElement {
    * drop/remove) so they can never drift: a quit/restart restores the whole
    * draft or nothing. Attachment/text-file changes call this immediately; text
    * changes go through the debounce below.
-   *
-   * This is also where an armed scheduled send is kept honest, because it is the
-   * one place that writes the record the schedule lives on. Two rules, both
-   * "the timer belongs to the message":
-   *   • Emptying the box disarms it. A timer over an empty box would sit there
-   *     with nothing to send, lit on the tab and uncancellable from a button
-   *     that an empty box disables.
-   *   • A schedule cleared elsewhere stays cleared. Another window may have
-   *     fired this send between our saves; carrying our stale copy back into the
-   *     draft would re-arm an instant whose fire has already been claimed, so
-   *     nothing would ever fire it again.
-   * `scheduleIsAuthoritative` exempts the arm/cancel path itself, which calls
-   * this precisely BECAUSE the schedule changed and must not have it read back.
    * @param {string} [text] - Text to persist; defaults to the live textarea value.
-   * @param {{scheduleIsAuthoritative?: boolean}} [options]
    * @private
    */
-  _persistDraft(text, { scheduleIsAuthoritative = false } = {}) {
+  _persistDraft(text) {
     if (!this._messageThread) return;
     const value = (text !== undefined) ? text : this.getText();
-    let disarmed = false;
-    if (!scheduleIsAuthoritative) {
-      reconcileScheduleWithDraft(this);
-      // Emptiness is judged on what is about to be written, not on the live DOM:
-      // the debounced save that carries the user's deletion is the event that
-      // empties this draft, and `value` is that text.
-      const stillSendable = !!value.trim()
-        || this._resolvedAttachments().length > 0
-        || this._pendingTextFiles.length > 0;
-      if (!stillSendable && this._scheduledSendAt !== null) {
-        // Reset in memory only, so the write below carries the cleared schedule.
-        // Repainting and announcing have to wait until AFTER it: announcing runs
-        // the service's scan, which would read this still-armed draft and put
-        // the timer straight back.
-        disarmed = true;
-        this._scheduledSendAt = null;
-        this._scheduledSendMode = 'delay';
-      }
-    }
     this._messageThread.draft = {
       text: value,
       attachments: this._resolvedAttachments(),
       textFiles: this._pendingTextFiles.map(({ filename, content, bytes }) => ({ filename, content, bytes })),
       // The append-only paste-blob table, so an inline placeholder survives a
       // reload / thread switch / remote client and resolves at send time.
-      pasteBlobs: Array.from(this._pasteBlobs, ([id, b]) => ({ id, content: b.content, bytes: b.bytes })),
-      // Preserve any armed send across the keystroke-driven draft saves — the
-      // user keeps typing while a send is scheduled, and each save must not
-      // drop the timer.
-      scheduledSendAt: this._scheduledSendAt,
-      scheduledSendMode: this._scheduledSendMode
+      pasteBlobs: Array.from(this._pasteBlobs, ([id, b]) => ({ id, content: b.content, bytes: b.bytes }))
     };
-    // Safe now the cleared draft is written: stops the countdown, repaints the
-    // clock button, and drops the tab clock. The state it clears is already null.
-    if (disarmed) clearScheduledSendState(this);
   }
 
   /**
@@ -1530,13 +1461,21 @@ class Composer extends JugglerElement {
 
   /**
    * Validate and dispatch the current input as a send-message event.
+   *
+   * `schedule` makes it a held send ("Send later"): the worker queues the
+   * message at once, whatever the thread is doing, and fires it at `notBefore`
+   * (epoch ms) or when the thread's run ends (`hold: 'run-end'`). The box is
+   * consumed exactly as by a plain send, and the message's reads ride the queue
+   * with it. A slash command can't be held — it would run now — so it is
+   * refused before anything is read.
+   * @param {{schedule?: import('../model/conversation.js').SendSchedule}} [options]
    * @returns {Promise<string|null>} null when the message was dispatched;
    *   otherwise a short reason describing which guard blocked the send.
    *   Callers that must know the message went out (the test driver, most
    *   importantly) check the return value — a blocked send is otherwise
    *   indistinguishable from a sent one.
    */
-  async sendMessage() {
+  async sendMessage({ schedule } = {}) {
     const textarea = this.querySelector('textarea');
     if (!textarea) return 'no textarea';
 
@@ -1577,6 +1516,13 @@ class Composer extends JugglerElement {
         { length: formatNumber(message.length), max: formatNumber(MAX_MESSAGE_CHARS) },
       ));
       return 'message too large';
+    }
+
+    // Refused here, before any mention is read into the queue for it: the same
+    // test Conversation.sendMessage uses to run text as a command.
+    if (schedule && /^\/[a-zA-Z]/.test(message)) {
+      this.showWarning(t("Slash commands can't be scheduled"));
+      return 'slash command scheduled';
     }
 
     // Held for the whole resolve-and-dispatch body below. Released in the
@@ -1625,12 +1571,13 @@ class Composer extends JugglerElement {
         // before the message is (from the trigger-stripped prose — stripping
         // `$name` never affects an `@` token). Whether they go into the
         // transcript or ride the pending queue with a queued message is the
-        // thread's call (MessageThread.addSendContext).
+        // thread's call (MessageThread.addSendContext), except that a held send
+        // is always queued, so its reads always are too.
         const paths = await extractFileMentionsAsync(outgoingMessage, mt.conversation?.workingWorkspaceId ?? '');
         const textFiles = this._pendingTextFiles;
         this._pendingTextFiles = [];
         if (paths.length > 0 || textFiles.length > 0) {
-          this._lastMentionPromise = mt.addSendContext({ paths, droppedFiles: textFiles });
+          this._lastMentionPromise = mt.addSendContext({ paths, droppedFiles: textFiles, queue: !!schedule });
           await this._lastMentionPromise;
         }
         renderAttachmentChips(this);
@@ -1657,7 +1604,8 @@ class Composer extends JugglerElement {
           threadItemId: this.threadItemId || null,
           messageThread: this._messageThread || null,
           attachments,
-          skills: skillNames
+          skills: skillNames,
+          schedule: schedule || null
         },
         bubbles: true,
         composed: true
@@ -1685,7 +1633,7 @@ class Composer extends JugglerElement {
     // closes the menu never fires — without this, submitting a command like
     // `/clear` with nothing highlighted leaves the popup stranded over the now
     // empty box. Every successful send funnels through here, so this covers the
-    // Enter, touch Send button, and scheduled-flush paths alike.
+    // Enter, touch Send button, and Send later paths alike.
     this._completions?.close();
 
     // A sent message gives the column back to the transcript.
@@ -1715,14 +1663,6 @@ class Composer extends JugglerElement {
     if (this._messageThread) {
       this._messageThread.draft = null;
     }
-
-    // Sending (or otherwise clearing) the box consumes any armed scheduled send:
-    // the draft it was attached to is now gone. Drop the in-memory target and
-    // countdown too — otherwise the button stays visually "armed", and the next
-    // keystroke's _persistDraft would re-attach the stale target to a fresh,
-    // unrelated draft and fire it. The draft was just nulled above, so this
-    // resets in-memory state only (no re-persist needed).
-    clearScheduledSendState(this);
 
     // Clear input; callers manage focus explicitly.
     this.setText('');
@@ -1798,16 +1738,6 @@ class Composer extends JugglerElement {
     if (!strategySelector || !('setMessageThread' in strategySelector)) return;
     /** @type {{setMessageThread: function(import('../model/message-thread.js').default|null): void}} */
     (strategySelector).setMessageThread(this._messageThread);
-  }
-
-  /**
-   * The thread this composer is bound to, for callers that need to tell one
-   * on-screen composer from another — scheduled-send-service matches the armed
-   * thread against every mounted composer this way.
-   * @returns {import('../model/message-thread.js').MessageThread|null} The bound thread, or null.
-   */
-  getMessageThread() {
-    return this._messageThread;
   }
 
   /**
@@ -1890,10 +1820,6 @@ class Composer extends JugglerElement {
           requestAnimationFrame(() => attemptResize(0));
         });
       }
-      // Rebind the scheduled-send timer to the newly-bound thread: cancel the
-      // previous thread's live timer and re-arm from THIS thread's persisted
-      // draft (firing at once if its target already passed).
-      syncScheduledSendFromDraft(this);
     }
 
     // A different thread is a different situation, so let it re-pick even when
@@ -2206,30 +2132,6 @@ class Composer extends JugglerElement {
     }));
   }
 
-  // ── Scheduled send ────────────────────────────────────────────────────────
-  //
-  // Arming, the countdown and the delay picker live in composer-schedule.js.
-  // The fire path stays a method: it is what scheduled-send-service.js calls on
-  // the composer element when the wait is up, so it is public API, not a
-  // private the service reaches past.
-
-  /** Send the composed message now, ending an armed scheduled send. */
-  fireScheduledSend() {
-    fireArmedSend(this);
-  }
-
-  /**
-   * Re-derive the displayed scheduled send from the bound thread's draft.
-   * Public for the same reason as `fireScheduledSend`: scheduled-send-service.js
-   * calls it on the element each sweep, so a box whose schedule was fired or
-   * cancelled somewhere else — another window, or this window's own off-screen
-   * fire path — stops showing a timer that no longer exists, without the user
-   * having to touch the box first.
-   */
-  reconcileScheduledSend() {
-    reconcileScheduleWithDraft(this);
-  }
-
   /**
    * Build the commands dropdown: the manager and built-ins buttons, then one row
    * per slash command. Presented by `_commandsPopup`.
@@ -2450,7 +2352,7 @@ class Composer extends JugglerElement {
     // that changes it. Nor is Attach files, which stays inline beside Send.
     // Schedule-send ("send later") is a rarely-used control, so on touch it
     // lives here rather than on the inline row. The row opens the same picker as
-    // the inline clock button (which stays visible only while armed).
+    // the inline clock button, which touch hides.
     addRow(t('Send later'), CLOCK_SVG, () => this._schedulePopup.toggle());
 
     /**
@@ -2577,7 +2479,6 @@ class Composer extends JugglerElement {
                                 aria-label="${escapeHtml(t('Send later'))}"
                                 aria-haspopup="dialog" aria-expanded="false">
                             <span class="schedule-send-icon">${CLOCK_SVG}</span>
-                            <span class="schedule-send-countdown" hidden></span>
                         </button>
                         <button class="expand-input-btn input-ctrl-btn" hidden
                                 title="${escapeHtml(t('Expand the message box'))}"

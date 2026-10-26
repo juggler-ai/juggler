@@ -55,6 +55,8 @@ const (
 	msgGetTransaction              wireMsgType = "get-transaction"
 	msgFlushPersistence            wireMsgType = "flush-persistence"
 	msgCompact                     wireMsgType = "compact"
+	msgReleaseQueued               wireMsgType = "release-queued"
+	msgRemoveQueued                wireMsgType = "remove-queued"
 )
 
 // Messages the worker sends. yjs-sync travels both ways and is declared above.
@@ -87,7 +89,7 @@ var allWorkerInbound = []wireMsgType{
 	msgUpdateToolActionForRetry, msgBackgroundTaskSnapshot, msgCreateThread,
 	msgResummarizeCompactionThread, msgRequestFullState, msgResyncRequest, msgResyncToOrigin,
 	msgToolExecutionReport, msgEngineTrace, msgRenameLog, msgRequestAutoName, msgClearUndoStacks,
-	msgGetTransaction, msgFlushPersistence, msgCompact,
+	msgGetTransaction, msgFlushPersistence, msgCompact, msgReleaseQueued, msgRemoveQueued,
 }
 
 // allWorkerOutbound is every message type the worker sends.

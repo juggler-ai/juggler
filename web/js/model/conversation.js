@@ -37,6 +37,7 @@ import {
   saveAutoApprovalPermission,
 } from './conversation-tool-actions.js';
 import { setupYjsObservers } from './conversation-observers.js';
+import { HeldSendFlag } from './held-send-flag.js';
 import { CONVERSATION_RULES_KEY, CONVERSATION_PATHS_KEY } from './message-thread-permissions.js';
 import {
   waitForApproval as orchestrationWaitForApproval,
@@ -128,6 +129,15 @@ const MAX_TRUNCATION_BUDGET = 200000;
  */
 
 /**
+ * When a held ("Send later") send may go out. The worker queues it at once and
+ * fires it itself, at `notBefore` or when the thread's run ends — whether or
+ * not any client is connected then.
+ * @typedef {object} SendSchedule
+ * @property {number} [notBefore] - Epoch ms before which the send waits.
+ * @property {'run-end'} [hold] - Wait for the thread's run to end or rest.
+ */
+
+/**
  * Conversation permissions configuration
  * @typedef {object} ConversationPermissions
  * @property {boolean} writeFile - Whether file writes are auto-approved
@@ -205,6 +215,9 @@ class Conversation {
     // Initialize document as client (no UndoManager, sync only)
     // and set up Yjs observers
     this._setupYjsObservers();
+
+    /** @type {HeldSendFlag} @private - Whether a queue holds a held send; read by the tab clock */
+    this._heldSendFlag = new HeldSendFlag(this._doc.doc, this._doc.root);
 
     // LLM call state
     /** @type {number} - Current iteration in agentic loop */
@@ -534,6 +547,31 @@ class Conversation {
    */
   isAwaitingApproval() {
     return hasPendingApprovalInTree(this.rootMessageThread?.items);
+  }
+
+  /**
+   * Whether any thread of this conversation holds a held send ("Send later")
+   * in its queue — what the tab's clock shows. Cheap to ask on every render:
+   * see {@link HeldSendFlag}.
+   * @returns {boolean} True while a held send waits anywhere in the tree.
+   */
+  get hasHeldSend() {
+    return this._heldSendFlag.value;
+  }
+
+  /**
+   * Ask the worker to act on one queued user message, by its item id:
+   * `release-queued` (Send now) drops the hold its send carries, and
+   * `remove-queued` takes the send off the queue together with the context
+   * items queued for it. The worker resolves the send, so every client's
+   * action means the same thing.
+   * @param {'release-queued'|'remove-queued'} type - The action.
+   * @param {string|null} threadItemId - The thread whose queue holds it; null for the root.
+   * @param {string} itemId - The queued user message.
+   * @returns {Promise<boolean>} Whether the transport took the request.
+   */
+  queuedAction(type, threadItemId, itemId) {
+    return this._workerManager.sendToWorker(this.id, { type, threadItemId: threadItemId || undefined, itemId });
   }
 
   /**
@@ -1864,7 +1902,7 @@ class Conversation {
    * @param {string} userMessage - User's message content
    * @param {string|null} [threadItemId] - Thread item ID if sending from a thread column
    * @param {import('./message-thread.js').MessageThread} [messageThread] - Column-scoped message thread
-   * @param {{preemptProcessing?: boolean, consumeComposer?: boolean, interpretCommands?: boolean, attachments?: Array<{id:string,mime:string,filename:string,bytes:number,width:number,height:number}>, skills?: string[]}} [options] -
+   * @param {{preemptProcessing?: boolean, consumeComposer?: boolean, interpretCommands?: boolean, attachments?: Array<{id:string,mime:string,filename:string,bytes:number,width:number,height:number}>, skills?: string[], schedule?: SendSchedule}} [options] -
    *   When `preemptProcessing` is set, an in-flight turn is cancelled-and-settled
    *   (worker truth) before this message is delivered, instead of the message
    *   being silently dropped by the "already processing" guard. A visible notice
@@ -1875,12 +1913,17 @@ class Conversation {
    *   The two `false` options are for a message the user never typed into a box —
    *   a review submitted from a Pinboard, and anything else generated whole.
    *   `consumeComposer: false` says this send has no claim on the composer: its
-   *   text, draft, pasted blobs and armed schedule belong to a message that has
+   *   text, draft and pasted blobs belong to a message that has
    *   not been sent, so the box is not cleared, the history the up-arrow walks is
    *   not added to, and a later validation failure restores nothing over it.
    *   `interpretCommands: false` says the text is a message whatever it starts
    *   with, so generated text that happens to begin with `/` is sent rather than
    *   run.
+   *
+   *   `schedule` holds the send ("Send later"): the worker queues it at once,
+   *   even on an idle thread, and fires it itself. It takes the queueing path —
+   *   never refused as busy, never dismissing a pending approval — and asks for
+   *   no turn now. A slash command can't be held and is refused.
    * @returns {Promise<string|null>} null when the message was delivered (or a
    *   slash command was handled); otherwise a short reason describing which
    *   guard dropped it. The drop is silent for users (the UI guard normally
@@ -1889,6 +1932,14 @@ class Conversation {
    */
   async sendMessage(userMessage, threadItemId = null, messageThread, options = {}) {
     const consumeComposer = options.consumeComposer !== false;
+    const schedule = options.schedule;
+
+    // A command runs here and now, so there is nothing a hold could keep back:
+    // a held send that reads as one is refused, its text left in the box.
+    if (schedule && options.interpretCommands !== false && /^\/[a-zA-Z]/.test(userMessage)) {
+      this.showWarning(t("Slash commands can't be scheduled"), 5000);
+      return 'slash command scheduled';
+    }
 
     // Check for slash commands first (these work even when processing)
     if (options.interpretCommands !== false && userMessage.startsWith('/')) {
@@ -2021,9 +2072,10 @@ class Conversation {
     // sibling is not this thread's turn, and queueing behind one would hold a
     // message the worker was ready to run. The only path that still can't queue
     // is the worker-less fallback (it would start a second concurrent strategy
-    // on the main thread), so it keeps refusing.
+    // on the main thread), so it keeps refusing. A held send is queued whatever
+    // the thread is doing.
     const targetBusy = this.isThreadProcessing(this._targetThreadId(messageThread, threadItemId));
-    const isQueueing = targetBusy && this._workerManager.isWorkerReady(this.id);
+    const isQueueing = (targetBusy || !!schedule) && this._workerManager.isWorkerReady(this.id);
     if (options.preemptProcessing) {
       await this.cancelAndSettle('new message preempted');
     } else if (targetBusy && !isQueueing) {
@@ -2042,12 +2094,19 @@ class Conversation {
     // written nothing, so this record is the only copy of the images too. It
     // also carries whether handing it BACK is allowed: a message the box never
     // held is one the box must never be given, however the send ends.
-    this._pendingUserMessage = {
-      content: userMessage,
-      attachments: options.attachments || [],
-      restorable: consumeComposer,
-      threadItemId: this._targetThreadId(messageThread, threadItemId),
-    };
+    //
+    // A held send is not recorded. The worker writes it into the queue as it
+    // arrives, so it is never refused unwritten; and its turn comes long after,
+    // so a refusal of some other turn in between must neither hand it back nor
+    // resend it while it still waits in the queue.
+    if (!schedule) {
+      this._pendingUserMessage = {
+        content: userMessage,
+        attachments: options.attachments || [],
+        restorable: consumeComposer,
+        threadItemId: this._targetThreadId(messageThread, threadItemId),
+      };
+    }
 
     // Validation passed locally - now clear the input, in the box showing the
     // thread we sent to and no other (see _requestComposerClear).
@@ -2082,13 +2141,14 @@ class Conversation {
     // to see anything happen (conversation-tab.js scrolls its root column on
     // this). This is the responsiveness half only: the guarantee that the
     // message is shown is rule 3/8b in conversation-area-selection.js, which
-    // runs when the message itself lands in the DOM.
-    this.announceTurnRequested();
+    // runs when the message itself lands in the DOM. A held send asks for no
+    // turn now.
+    if (!schedule) this.announceTurnRequested();
 
     // Route to worker - the worker owns the strategy loop. Turns are driven
     // exclusively by the Go worker; there is no viewer-side fallback loop.
     if (this._workerManager.isWorkerReady(this.id)) {
-      this._workerManager.sendMessage(this.id, userMessage, messageThread?.threadItemId || threadItemId, options.attachments, options.skills);
+      this._workerManager.sendMessage(this.id, userMessage, messageThread?.threadItemId || threadItemId, options.attachments, options.skills, schedule);
       const acceptedConfig = messageThread?.modelConfig || this.modelConfig;
       if (acceptedConfig?.provider && acceptedConfig?.model) {
         recentModels.record(acceptedConfig.provider, acceptedConfig.model, acceptedConfig.thinking, acceptedConfig.serviceTier);
@@ -3075,6 +3135,7 @@ class Conversation {
     // Clean up Yjs observers before destroying doc
     this._yjsCleanup?.();
     this._yjsCleanup = null;
+    this._heldSendFlag.destroy();
 
     // Clean up Y.Doc (includes sync manager cleanup)
     if (this._doc) {

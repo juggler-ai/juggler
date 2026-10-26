@@ -154,7 +154,7 @@ func (r *run) runOneTurn(st *strategyRunState, explicitContinuation bool) turnVe
 	// handles the between-turn (async-tool) case; this handles the case where the
 	// run never returned to the reducer at all.
 	if r.politeStopCovers(r.t.thread.itemID) {
-		r.promotePendingItems(r.t.thread.itemID)
+		r.promotePendingItems(r.t.thread.itemID, restDrain(r.clock.Now()))
 		r.t.politelyStopped = true
 		return turnDone
 	}
@@ -181,7 +181,12 @@ func (r *run) runOneTurn(st *strategyRunState, explicitContinuation bool) turnVe
 	// interjected continuation routes through the warm-append resume there —
 	// a few seconds of CLI respawn with the prompt cache intact, a fair
 	// price for prompt delivery of a deliberately-typed message.
-	r.promotePendingItems(r.t.thread.itemID)
+	//
+	// It is a mid-run drain: the run goes on past it, so a send held for the
+	// run's end stays queued. Where the run ends, settleTurn and the last look
+	// in finishStrategyRun promote that send themselves, before the turn that
+	// answers it; this one then finds it already in the thread.
+	r.promotePendingItems(r.t.thread.itemID, midRunDrain(r.clock.Now()))
 
 	// Bind the turn budget to the run this turn belongs to before anything reads
 	// it: a boundary carrying a count from a run that has since ended starts over
@@ -294,7 +299,7 @@ func (r *run) runOneTurn(st *strategyRunState, explicitContinuation bool) turnVe
 	// above this leaves no transaction to save — the attempt that failed already
 	// saved its own — so the turn simply ends and finishStrategyRun settles it.
 	if errors.Is(err, ErrPolitelyStopped) {
-		r.promotePendingItems(r.t.thread.itemID)
+		r.promotePendingItems(r.t.thread.itemID, restDrain(r.clock.Now()))
 		r.t.politelyStopped = true
 		return turnDone
 	}
@@ -459,15 +464,12 @@ func (r *run) settleTurn(st *strategyRunState, response *LLMResponse, shouldCont
 	//
 	// End-of-run is also a drain boundary: if the user queued a follow-up
 	// while this turn ran, promote it and drive another turn instead of
-	// going idle (the next turn's promotePendingItems does the actual move).
-	if !shouldContinue {
-		if r.hasPendingItems(r.t.thread.itemID) {
-			return turnContinue
-		}
-		return turnDone
-	}
-	if response.StopReason == provider.StopReasonEndTurn && hasAssistantText(response) {
-		if r.hasPendingItems(r.t.thread.itemID) {
+	// going idle. The move happens here rather than at the next turn's top,
+	// because only here is the run known to have ended: a send held for the
+	// run's end is promoted at this drain and at no mid-run one. A send whose
+	// hold has not lifted promotes nothing, so the run rests.
+	if !shouldContinue || (response.StopReason == provider.StopReasonEndTurn && hasAssistantText(response)) {
+		if r.promotePendingItems(r.t.thread.itemID, restDrain(r.clock.Now())) > 0 {
 			return turnContinue
 		}
 		return turnDone
@@ -576,9 +578,9 @@ func (r *run) finishStrategyRun() {
 	// below has written its frames — the root's idle frame drops the root entry,
 	// so a dispatch requested before it would be swept away. A second look from
 	// requestLLMIfQueued is the last one needed: a send after the release takes
-	// the idle path itself.
+	// the idle path itself. The run is over, so this is a rest drain.
 	defer func() {
-		if r.requestLLMIfQueued(completedThreadID) {
+		if r.requestLLMIfQueued(completedThreadID, restDrain(r.clock.Now())) {
 			r.requestReconcile()
 		}
 	}()
@@ -651,17 +653,17 @@ func (r *run) finishStrategyRun() {
 		// and signalParentThread declined to re-drive the parent (this
 		// branch, because a needsStrategyRun/compaction thread is not
 		// llmCreated). Without this the message is stranded in the pending
-		// queue and the conversation rests at idle. Drive a fresh root turn to
-		// promote and answer it (the dispatched turn's promotePendingItems does
-		// the actual move). The sendStatus("idle") above already collapsed any
-		// compaction undo-merge and closed the capture window — so this follow-up
-		// becomes its own undo group — and cleared the LLM claim, so requestLLM
-		// can transition from none.
+		// queue and the conversation rests at idle. Promote it here — the root is
+		// resting, so this is a rest drain — and drive a fresh root turn to
+		// answer it, the shape an idle send leaves. The sendStatus("idle") above
+		// already collapsed any compaction undo-merge and closed the capture
+		// window — so this follow-up becomes its own undo group — and cleared the
+		// LLM claim, so requestLLM can transition from none.
 		// Mirrors the reducer's ActionGoIdle drain. Guarded on
 		// completedThreadID != "" so it fires ONLY for a sub-thread
 		// completion — a root turn drains its own queue inside the loop (the
 		// end-of-run turnContinue), never here.
-		if completedThreadID != "" && r.hasPendingItems("") {
+		if completedThreadID != "" && r.promotePendingItems("", restDrain(r.clock.Now())) > 0 {
 			r.requestLLM("")
 			r.requestReconcile()
 			return
@@ -908,8 +910,9 @@ func (r *run) finalizeCancellation(completedThreadID string) {
 	r.CancelInFlightToolActions(completedThreadID)
 	// Stop is a promote-and-idle boundary: keep any queued messages by moving
 	// them into the thread as user items (the user reviews/edits, then sends to
-	// run) rather than dropping them.
-	r.promotePendingItems(completedThreadID)
+	// run) rather than dropping them. Only those whose hold has lifted: a send
+	// scheduled for later stays queued for its time.
+	r.promotePendingItems(completedThreadID, restDrain(r.clock.Now()))
 	// For document-driven threads, needsStrategyRun is a one-shot trigger.
 	// If cancellation leaves it set while result is empty, checkForNewThreads
 	// would immediately re-run the same thread on the next observer tick.

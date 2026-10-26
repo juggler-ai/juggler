@@ -38,7 +38,6 @@ import { updateWindowTitle } from './utils/window-title.js';
 import { initAttention } from './utils/attention-manager.js';
 import { watchTurnsForEscape, provideEscapeApp } from './services/escape-behaviour.js';
 import { provideAppSession } from './utils/app-session.js';
-import scheduledSendService from './services/scheduled-send-service.js';
 import { initViewportFit } from './utils/viewport-fit.js';
 import { reportDraftsFlushed } from '../sdk/lib/window-control.js';
 import { installLinkGuard } from './services/link-guard.js';
@@ -457,7 +456,7 @@ class JugglerApp {
     // Initialize UI event manager with callbacks. UI elements are per-tab, so
     // UIEventManager listens at document level.
     this._uiEventManager = new UIEventManager({
-      onSendMessage: (message, threadItemId, messageThread, attachments, skills) => this._sendMessage(message, threadItemId, messageThread, attachments, skills),
+      onSendMessage: (message, threadItemId, messageThread, attachments, skills, schedule) => this._sendMessage(message, threadItemId, messageThread, attachments, skills, schedule),
       onContextItemAction: (detail) => this._handleContextItemAction(detail)
     });
   }
@@ -525,17 +524,12 @@ class JugglerApp {
     watchTurnsForEscape(session);
 
     // A detached board is a second view of a window that is already doing all
-    // of this: alerting for the same conversations, holding the same claim on
-    // due scheduled sends, and answering the same conversation shortcuts. Doing
+    // of this: alerting for the same conversations and answering the same conversation shortcuts. Doing
     // it twice would be heard twice.
     if (!isPinboardView()) {
       // Alert (chime + tab flash + dock/tab notification) when a conversation needs
       // attention while unwatched.
       initAttention(session);
-
-      // Poll every conversation for a due scheduled send ("send after a delay")
-      // and fire it — regardless of which thread is currently on screen.
-      scheduledSendService.start(session);
 
       // Attach the conversation-level keyboard command handlers (new/bin/jump/
       // toggle-file-editing) and install the global shortcut dispatcher.
@@ -641,10 +635,11 @@ class JugglerApp {
    * @param {*} [messageThread] - Column-scoped message thread
    * @param {Array<{id:string,mime:string,filename:string,bytes:number,width:number,height:number}>} [attachments] - Staged image attachments
    * @param {string[]} [skills] - Agent Skill names the user explicitly chose to load before this turn
+   * @param {import('./model/conversation.js').SendSchedule|null} [schedule] - Holds the send for later ("Send later")
    * @private
    * @async
    */
-  async _sendMessage(message, threadItemId, messageThread, attachments, skills) {
+  async _sendMessage(message, threadItemId, messageThread, attachments, skills, schedule) {
     const conversation = messageThread?.conversation;
     if (!conversation) {
       console.error('[Juggler] Cannot send message: no target conversation');
@@ -653,7 +648,7 @@ class JugglerApp {
 
     // The conversation owns its own handlers and manages everything;
     // validation (including model selection) happens inside sendMessage().
-    const refusal = await conversation.sendMessage(message, threadItemId, messageThread, { attachments: attachments || [], skills: skills || [] });
+    const refusal = await conversation.sendMessage(message, threadItemId, messageThread, { attachments: attachments || [], skills: skills || [], schedule: schedule || undefined });
     // This is the composer's send path — a message the user wrote — so an
     // accepted one is a day of use.
     noteComposerSend(message, refusal);
@@ -1122,7 +1117,6 @@ class JugglerApp {
    */
   destroy() {
     // Cleanup services
-    scheduledSendService.stop();
     if (this._strategySwitcher) {
       this._strategySwitcher.destroy();
     }

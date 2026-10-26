@@ -287,6 +287,14 @@ type SendMessageMessage struct {
 	// in context first. A skills-only send (empty Text) is a preload: the skills
 	// load and the worker rests without starting an LLM turn.
 	Skills []string `json:"skills,omitempty"`
+	// NotBefore schedules the send: epoch milliseconds before which it waits in
+	// the thread's pending queue. A time already passed holds nothing, and the
+	// send is an ordinary one.
+	NotBefore int64 `json:"notBefore,omitempty"`
+	// Hold "run-end" keeps the send queued until the thread's run ends or rests.
+	// Any other non-empty value is read the same way. A continuation, and a send
+	// with no message, ignore both holds.
+	Hold string `json:"hold,omitempty"`
 }
 
 // UserInput returns the send's payload as the single inseparable submission
@@ -330,6 +338,17 @@ func (u UserMessageInput) isEmpty() bool {
 type CancelMessage struct {
 	Type   wireMsgType `json:"type"` // "cancel"
 	Reason string      `json:"reason,omitempty"`
+}
+
+// QueuedEntryMessage is an action on one queued user message, from the queued
+// zone. release-queued (Send now) drops the hold its send carries; remove-queued
+// takes the send off the queue. Either acts on the message's whole send — the
+// context items and skill loads queued ahead of it ride with it (pendingGroups).
+// An ItemID that names no queued user message is ignored.
+type QueuedEntryMessage struct {
+	Type         wireMsgType `json:"type"` // "release-queued" or "remove-queued"
+	ThreadItemID string      `json:"threadItemId,omitempty"`
+	ItemID       string      `json:"itemId"`
 }
 
 // cancelReason is a short human-readable cause for a cancel, written to the

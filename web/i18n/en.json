@@ -122,6 +122,8 @@
   "Approved by a tool hook": "Approved by a tool hook",
   "Approved by the active strategy": "Approved by the active strategy",
   "Approved by the user": "Approved by the user",
+  "Approving a lot? Switch to {strategies} ({shortcut}).": "Approving a lot? Switch to {strategies} ({shortcut}).",
+  "Approving a lot? Switch to {strategies}.": "Approving a lot? Switch to {strategies}.",
   "Args hint": "Args hint",
   "Arguments": "Arguments",
   "Ascend": "Ascend",

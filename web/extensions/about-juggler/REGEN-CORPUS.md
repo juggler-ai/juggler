@@ -71,6 +71,12 @@ Paths are relative to the `juggler/` repo root.
 - **Strategies** — `web/extensions/juggler-core/strategies/*-strategy-type.js`
   (each declares `id`, `name`, `description`). Not every file in that directory
   is a strategy — `auto-approve-reviewer.js` is a helper of one.
+- **Approvals** — the card's buttons are built in `web/js/services/approval-options.js`
+  (Yes, one "Don't Ask Again" per suggestion, No). The scope a "Don't Ask Again" saves is
+  in `getApprovalSuggestions` (`juggler-core/context-items/execute-context-item.js`).
+  The strategy hint is in `web/js/services/approval-hint.js`, and the permissions
+  popup is in `web/js/components/permission-controls.js`. Describe what each
+  button does and how long it lasts, not how it is stored.
 - **Slash commands** — `web/extensions/juggler-core/commands/*-command-type.js`
   (each declares `id` and a `description`).
 - **Workspaces** — a workspace is the place a conversation's tools run in. The

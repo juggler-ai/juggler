@@ -144,6 +144,25 @@ tools, and **exa_search** (Exa web search; needs an Exa API key in its settings)
 
 Switch with the strategy switcher (default Shift+Tab; hold for a menu).
 
+## Approvals
+
+A tool call that needs permission shows a card with these buttons:
+
+- **Yes** approves just this call.
+- **Yes + Don't Ask Again for <pattern>** also saves that pattern, for example
+  "make *", for this conversation. Click the pencil on the button to edit the
+  pattern. The permissions button in the composer lists saved patterns and
+  allowed folders. There you can edit them, add patterns for all conversations,
+  and turn file edits on or off (⌘E on macOS).
+- **No** refuses this call. It also refuses every other call waiting with it and
+  stops the turn.
+
+To stop being asked, switch strategy: **Auto-approve** has a cheap model approve
+routine calls, and **YOLO** approves everything. This is the quickest way to let
+a multi-step job such as a rebuild run. If you keep approving within one turn,
+the card offers both. Switching there, or with Shift+Tab, also decides the calls
+already waiting.
+
 ## Slash commands
 
 Type "/" in the composer. Built in: **/new** (new empty conversation),

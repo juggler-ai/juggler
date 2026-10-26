@@ -121,6 +121,8 @@
   "Approved by a tool hook": "由工具钩子批准",
   "Approved by the active strategy": "由当前策略批准",
   "Approved by the user": "由用户批准",
+  "Approving a lot? Switch to {strategies} ({shortcut}).": "需要频繁批准？切换到 {strategies}（{shortcut}）。",
+  "Approving a lot? Switch to {strategies}.": "需要频繁批准？切换到 {strategies}。",
   "Args hint": "参数提示",
   "Arguments": "参数",
   "Ascend": "上行",

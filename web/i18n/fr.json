@@ -122,6 +122,8 @@
   "Approved by a tool hook": "Approuvé par un hook d’outil",
   "Approved by the active strategy": "Approuvé par la stratégie active",
   "Approved by the user": "Approuvé par l’utilisateur",
+  "Approving a lot? Switch to {strategies} ({shortcut}).": "Beaucoup d’approbations ? Passez à {strategies} ({shortcut}).",
+  "Approving a lot? Switch to {strategies}.": "Beaucoup d’approbations ? Passez à {strategies}.",
   "Args hint": "Indication d’arguments",
   "Arguments": "Arguments",
   "Ascend": "Ascension",

@@ -486,6 +486,23 @@ action-confirmation:focus {
     }
 }
 
+/* Strategy hint under the buttons, once the user has approved several calls by
+   hand in one turn. A quiet closing line, like the settled review note. Its
+   links switch the conversation's strategy. */
+.approval-strategy-hint {
+    padding: 0.5rem 0 0;
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+}
+
+.approval-strategy-hint-link {
+    color: var(--accent-blue);
+}
+
+.approval-strategy-hint kbd {
+    font-family: var(--font-mono);
+}
+
 /* ==========================================
    Transaction Summary (inline marker)
    ========================================== */

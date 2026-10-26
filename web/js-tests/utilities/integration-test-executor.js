@@ -138,6 +138,7 @@ import { runTests as runBusyStateTests } from '../unit-tests/busy-state-test.js'
 import { runTests as runUiPortTests } from '../unit-tests/ui-port-test.js';
 import { runTests as runEventFeedsTests } from '../unit-tests/event-feeds-test.js';
 import { runTests as runApprovalButtonsTests } from '../unit-tests/approval-buttons-test.js';
+import { runTests as runApprovalHintTests } from '../unit-tests/approval-hint-test.js';
 import { runTests as runResponseHandlerModelTextTests } from '../unit-tests/response-handler-model-text-test.js';
 import { runTests as runCapabilityCatalogTests } from '../unit-tests/capability-catalog-test.js';
 import { runTests as runSetupWizardTests } from '../unit-tests/setup-wizard-test.js';
@@ -712,6 +713,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:ui-port', run: runUiPortTests },
   { name: 'unit:event-feeds', run: runEventFeedsTests },
   { name: 'unit:approval-buttons', run: runApprovalButtonsTests },
+  { name: 'unit:approval-hint', run: runApprovalHintTests },
   { name: 'unit:response-handler-model-text', run: runResponseHandlerModelTextTests },
   { name: 'unit:capability-catalog', run: runCapabilityCatalogTests },
   { name: 'unit:setup-wizard', run: runSetupWizardTests },

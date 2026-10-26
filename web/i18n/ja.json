@@ -122,6 +122,8 @@
   "Approved by a tool hook": "ツールフックにより承認",
   "Approved by the active strategy": "アクティブなストラテジーにより承認",
   "Approved by the user": "ユーザーにより承認",
+  "Approving a lot? Switch to {strategies} ({shortcut}).": "承認が多いですか？{strategies} に切り替えましょう（{shortcut}）。",
+  "Approving a lot? Switch to {strategies}.": "承認が多いですか？{strategies} に切り替えましょう。",
   "Args hint": "引数のヒント",
   "Arguments": "引数",
   "Ascend": "上昇",

@@ -122,6 +122,8 @@
   "Approved by a tool hook": "도구 후크에 의해 승인됨",
   "Approved by the active strategy": "활성 전략에 의해 승인됨",
   "Approved by the user": "사용자가 승인함",
+  "Approving a lot? Switch to {strategies} ({shortcut}).": "승인할 것이 많나요? {strategies}(으)로 전환하세요({shortcut}).",
+  "Approving a lot? Switch to {strategies}.": "승인할 것이 많나요? {strategies}(으)로 전환하세요.",
   "Args hint": "인수 힌트",
   "Arguments": "인수",
   "Ascend": "상승",

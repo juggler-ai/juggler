@@ -3,7 +3,10 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 import contextItemRegistry from '../registries/context-item-registry.js';
-import { renderResultStatusMessage } from '../../sdk/lib/html.js';
+import strategyRegistry from '../registries/strategy-registry.js';
+import keyShortcutManager from '../services/key-shortcut-manager.js';
+import { userApprovalsThisTurn, hintStrategyIds, HINT_AFTER_APPROVALS } from '../services/approval-hint.js';
+import { renderResultStatusMessage, escapeHtml } from '../../sdk/lib/html.js';
 import {
   TOOL_STATES,
   ACTION_STATES
@@ -13,7 +16,7 @@ import { iconOptionsForItem } from '../utils/item-badge.js';
 import { plain, yGet } from '../model/item-accessor.js';
 import JugglerElement from './juggler-element.js';
 import { capabilityLabel } from '../utils/capability-label.js';
-import { t } from '../../sdk/lib/i18n.js';
+import { t, htmlSlots, withHtml, formatList } from '../../sdk/lib/i18n.js';
 
 /**
  * @typedef {import('../../sdk/lib/message.js').Message} Message
@@ -890,6 +893,65 @@ class ToolActionMessage extends JugglerElement {
     }
 
     container.appendChild(buttonsEl);
+
+    const hint = this._buildStrategyHint(item, messageThread);
+    if (hint) container.appendChild(hint);
+  }
+
+  /**
+   * The registered, visible strategies the hint may offer. A seam for tests.
+   * @returns {Array<{id: string, manifest: {name: string}}>} strategyRegistry.getAllManifests()
+   * @private
+   */
+  _hintStrategies() {
+    return /** @type {any} */ (strategyRegistry.getAllManifests());
+  }
+
+  /**
+   * The strategy hint under the buttons (services/approval-hint.js). It appears
+   * only once the user has approved enough calls by hand this turn, and offers
+   * each strategy that would ask less as a link that switches to it. Switching
+   * re-decides this parked call under the new strategy (the worker's strategy-
+   * switch re-evaluation), so under YOLO the click is the approval.
+   * @param {ToolActionItem} item - The parked tool action
+   * @param {any} messageThread - Its thread
+   * @returns {HTMLElement|null} The hint row, or null when there is none
+   * @private
+   */
+  _buildStrategyHint(item, messageThread) {
+    if (!messageThread?.items || typeof messageThread.setStrategy !== 'function') return null;
+    if (userApprovalsThisTurn(messageThread.items, item.get('itemId')) < HINT_AFTER_APPROVALS) return null;
+    const available = this._hintStrategies();
+    const ids = hintStrategyIds(messageThread.getEffectiveStrategyId?.() || 'default', available);
+    if (ids.length === 0) return null;
+
+    /** @type {Record<string, string>} */
+    const links = {};
+    ids.forEach((id, i) => {
+      const manifest = available.find((s) => s.id === id)?.manifest;
+      const name = capabilityLabel(manifest?.name || id, id, strategyRegistry);
+      links[`s${i}`] = `<a href="#" class="approval-strategy-hint-link" data-strategy-id="${escapeHtml(id)}">${escapeHtml(name)}</a>`;
+    });
+    // The list is formatted over slot stand-ins, so the language's own "or" is
+    // escaped as text and the links go in as markup.
+    const linkSlots = htmlSlots(links);
+    const strategies = withHtml(formatList(Object.keys(links).map((k) => String(linkSlots[k])), { type: 'disjunction' }), links);
+    const key = keyShortcutManager.formatBinding('strategy-switch');
+    const parts = { strategies, shortcut: `<kbd>${escapeHtml(key)}</kbd>` };
+    const text = key
+      ? t('Approving a lot? Switch to {strategies} ({shortcut}).', htmlSlots(parts))
+      : t('Approving a lot? Switch to {strategies}.', htmlSlots(parts));
+
+    const row = document.createElement('div');
+    row.className = 'approval-strategy-hint';
+    row.innerHTML = withHtml(text, parts);
+    row.addEventListener('click', (e) => {
+      const link = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest('[data-strategy-id]'));
+      if (!link) return;
+      e.preventDefault();
+      messageThread.setStrategy(link.dataset.strategyId);
+    });
+    return row;
   }
 
   /**

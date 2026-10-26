@@ -504,9 +504,10 @@ export class ProvidersTab {
     buttonGroup.appendChild(this._buildOAuthRefreshButton(provider));
     controlColumn.appendChild(buttonGroup);
 
-    // Which of this provider's models to offer in the model menu.
+    // Which of this provider's models to offer in the model menu, across the
+    // whole card: model ids are long and the name column needs the room.
     const visibility = this._buildModelVisibilityRow(provider);
-    if (visibility) controlColumn.appendChild(visibility);
+    if (visibility) fieldGroup.appendChild(visibility);
   }
 
   /**
@@ -948,12 +949,14 @@ export class ProvidersTab {
       controlColumn.appendChild(this._buildClaudeBinaryRow(provider, toggle));
     }
 
-    // Which of this provider's models to offer in the model menu.
-    const visibility = this._buildModelVisibilityRow(provider);
-    if (visibility) controlColumn.appendChild(visibility);
-
     fieldGroup.appendChild(infoColumn);
     fieldGroup.appendChild(controlColumn);
+
+    // Which of this provider's models to offer in the model menu, across the
+    // whole card: model ids are long and the name column needs the room.
+    const visibility = this._buildModelVisibilityRow(provider);
+    if (visibility) fieldGroup.appendChild(visibility);
+
     container.appendChild(fieldGroup);
   }
 
@@ -1119,12 +1122,14 @@ export class ProvidersTab {
     controlColumn.appendChild(inputWrapper);
     controlColumn.appendChild(sourceHint);
 
-    // Which of this provider's models to offer in the model menu.
-    const visibility = this._buildModelVisibilityRow(provider);
-    if (visibility) controlColumn.appendChild(visibility);
-
     fieldGroup.appendChild(infoColumn);
     fieldGroup.appendChild(controlColumn);
+
+    // Which of this provider's models to offer in the model menu, across the
+    // whole card: model ids are long and the name column needs the room.
+    const visibility = this._buildModelVisibilityRow(provider);
+    if (visibility) fieldGroup.appendChild(visibility);
+
     container.appendChild(fieldGroup);
   }
 
@@ -1407,7 +1412,18 @@ export class ProvidersTab {
 
       const name = document.createElement('span');
       name.className = 'model-visibility-name';
-      name.textContent = model.id;
+      name.title = model.id;
+      // A long id wraps rather than being cut off, since gateway ids share a
+      // vendor prefix and differ only at the end. Each "/" offers a break, so
+      // the vendor and the model name part before a word is split.
+      const parts = model.id.split('/');
+      parts.forEach((part, i) => {
+        if (i < parts.length - 1) {
+          name.append(`${part}/`, document.createElement('wbr'));
+        } else {
+          name.append(part);
+        }
+      });
 
       // Dims the name of a model that won't be offered, so the shown/hidden
       // split is readable down the list without checking every box.

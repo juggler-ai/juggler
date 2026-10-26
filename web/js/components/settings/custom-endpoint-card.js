@@ -278,11 +278,13 @@ export function buildEndpointCard(endpoint, ctx) {
   control.appendChild(buildURLField(endpoint, saveFields));
   control.appendChild(buildHeadersField(endpoint, saveFields));
   control.appendChild(key.element);
-  control.appendChild(models);
-  control.appendChild(buildRemoveRow(endpoint, ctx));
 
   card.appendChild(info);
   card.appendChild(control);
+  // The model list spans the whole card, as on every provider card: model ids
+  // are long and the name column needs the room. Remove stays last, under it.
+  card.appendChild(models);
+  card.appendChild(buildRemoveRow(endpoint, ctx));
   refresh();
   return { element: card, refresh };
 }

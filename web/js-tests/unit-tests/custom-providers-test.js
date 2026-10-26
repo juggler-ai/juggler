@@ -363,6 +363,14 @@ export async function runTests(_ctx) {
         'the models, and their limits, are configured somewhere other than the endpoint they belong to');
       assert(!!card.querySelector('.custom-endpoint-remove'), 'there is no way to remove the endpoint');
 
+      // The model list spans the card, like every provider card's, rather than
+      // squeezing long model ids into the control column; Remove stays under it.
+      const children = Array.from(card.children).map(c => c.className);
+      const at = (/** @type {string} */ cls) => children.findIndex(c => c.split(' ').includes(cls));
+      assert(at('custom-endpoint-models') > at('provider-control') && at('provider-control') >= 0
+        && at('custom-endpoint-actions') > at('custom-endpoint-models'),
+      `the card's children are ${JSON.stringify(children)} — want the model list, then Remove, after the two columns`);
+
       // The provider id is shown, and is not a field: it cannot be edited,
       // because every conversation and every stored model choice names it.
       const id = card.querySelector('.custom-endpoint-id');

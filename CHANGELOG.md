@@ -32,6 +32,7 @@ of changes; this project follows semantic versioning.
 - Resumed Claude Code sub-threads no longer start out of budget, or with an empty reply
 - Scheduled sends now fire from the server, even with every window closed
 - Queued messages left behind by a restart now get answered
+- Settings shows long model names in full, in a wider models and limits list
 
 ## [0.7.8] - 2026-10-23
 

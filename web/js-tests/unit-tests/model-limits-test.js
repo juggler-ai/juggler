@@ -28,6 +28,7 @@ import { isolateFocus } from '../utilities/isolate-focus.js';
 import { setLocale } from '../../sdk/lib/i18n.js';
 import wsService from '../../js/services/websocket.js';
 import { ProvidersTab } from '../../js/components/settings/providers-tab.js';
+import '../../js/components/settings-panel.js';
 
 /**
  * @typedef {object} TestResult
@@ -60,6 +61,38 @@ function installFetch(opts = {}) {
   });
   return { restore: () => { window.fetch = orig; }, calls };
 }
+
+/**
+ * Route window.fetch to the endpoints a mounted settings panel's load fans out
+ * over.
+ * @param {any[]} providers - The provider list to serve.
+ * @returns {{restore: () => void}} Handle for cleanup.
+ */
+function installPanelFetch(providers) {
+  const orig = window.fetch;
+  window.fetch = /** @type {any} */ (async (url) => {
+    const u = String(url);
+    const ok = (/** @type {any} */ body) => ({ ok: true, status: 200, json: async () => body });
+    if (u === '/api/config') return ok({ configDir: '/tmp/juggler-test' });
+    if (u === '/api/providers') return ok({ providers, ready: true });
+    if (u === '/api/default-model' || u === '/api/cheap-model') return ok({ provider: PROVIDER, model: 'plain-model' });
+    if (u === '/api/connectivity') {
+      return ok({
+        lanEnabled: false, lanURLs: [], tunnelEnabled: false,
+        tunnelURL: '', tunnelMode: '', tunnelRelay: false, wanModes: [],
+      });
+    }
+    return { ok: false, status: 404, statusText: 'Not Found', text: async () => '', json: async () => ({}) };
+  });
+  return { restore: () => { window.fetch = orig; } };
+}
+
+/**
+ * A model id far longer than the name column could ever hold on one line, whose
+ * distinguishing part is at the end — the way a gateway's ids share a vendor
+ * prefix and differ only in the variant.
+ */
+const LONG_ID = 'deepseek-ai/DeepSeek-V4-Flash-Instruct-Preview-2026-10-01-extended-context-1m-tokens-fp8';
 
 /**
  * Let non-awaitable async chains (fetch → json) settle.
@@ -538,6 +571,57 @@ export async function runTests(_ctx) {
         focus.restore();
       }
     });
+  });
+
+  // Ids that differ only after a shared vendor prefix were cut off at that
+  // prefix: four rows all read "deepseek-ai/DeepSeek-V…", and nothing on hover
+  // said which was which. The list spans the card rather than its right-hand
+  // column, a name too long for its line wraps rather than being cut, and the
+  // whole id is the name's tooltip.
+  //
+  // Drawn in a mounted settings panel, because the layout lives in its
+  // stylesheet: a bare host would measure an unstyled span.
+  await run('a long model id is shown whole, across the width of the card', async () => {
+    const provider = catalogueOnly();
+    provider.modelsWithContext.push({ id: LONG_ID, contextWindow: 1000000, maxOutputTokens: 16384, fromAPI: true });
+    const previousLocale = setLocale('en');
+    const backend = installPanelFetch([provider]);
+    const priorShowModal = /** @type {any} */ (window).showModal;
+    /** @type {any} */ (window).showModal = async () => {};
+    wsService._emit('providers-update', [provider]);
+    wsService._emit('providers-ready', true);
+    const el = /** @type {any} */ (document.createElement('settings-panel'));
+    document.body.appendChild(el);
+    try {
+      await el.open();
+      const card = el.querySelector(`.provider-field[data-provider="${PROVIDER}"]`);
+      assert(card, 'the provider card was not drawn');
+      const details = card.querySelector('details.model-visibility');
+      assert(details, 'the card has no model list');
+      details.open = true;
+
+      assert(details.parentElement === card,
+        `the model list sits in ${details.parentElement?.className}, not across the card`);
+      const info = card.querySelector('.provider-info');
+      const offset = details.getBoundingClientRect().left - info.getBoundingClientRect().left;
+      assert(Math.abs(offset) < 2, `the model list starts ${offset}px from the card's left edge, want 0`);
+
+      const name = card.querySelector(`[data-model="${LONG_ID}"] .model-visibility-name`);
+      assert(name, 'the long-named model has no row');
+      assert(name.textContent === LONG_ID, `the name reads ${JSON.stringify(name.textContent)}`);
+      // Zero is also what a narrow card did to the name: the fixed-width limit
+      // fields beside it took the whole row.
+      assert(name.clientWidth > 0, `the name has no width in a ${card.clientWidth}px card`);
+      assert(name.scrollWidth <= name.clientWidth + 1,
+        `the name is cut off: ${name.scrollWidth}px of text in a ${name.clientWidth}px box`);
+      assert(name.title === LONG_ID, `the name's tooltip is ${JSON.stringify(name.title)}, want the whole id`);
+    } finally {
+      el.close();
+      el.remove();
+      /** @type {any} */ (window).showModal = priorShowModal;
+      backend.restore();
+      setLocale(previousLocale);
+    }
   });
 
   return { passed, failed, errors };

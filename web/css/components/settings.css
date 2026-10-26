@@ -66,6 +66,28 @@ settings-panel .model-visibility {
     min-width: 0;
 }
 
+/* The list spans the whole provider card rather than its control column, which
+   leaves the name column room for a long id. What follows it on an endpoint
+   card (Remove) spans too, so it stays under the list. The negative margin takes
+   the card's 1.5rem grid gap, sized to separate its two columns, down to a
+   row's spacing. */
+settings-panel .provider-field > .model-visibility,
+settings-panel .provider-field > .custom-endpoint-models,
+settings-panel .provider-field > .custom-endpoint-actions {
+    grid-column: 1 / -1;
+    margin-top: -0.875rem;
+}
+
+settings-panel .custom-endpoint-models > .model-visibility {
+    margin-top: 0;
+}
+
+/* An endpoint that isn't registered has no list; its empty slot must not open a
+   row of its own. */
+settings-panel .provider-field > .custom-endpoint-models:empty {
+    display: none;
+}
+
 /* The whole line is the toggle, so it carries its own caret (the native marker
    is dropped) and a hit area wider than its text. */
 settings-panel .model-visibility-summary {
@@ -188,8 +210,12 @@ settings-panel .model-visibility-list::-webkit-scrollbar-thumb {
     border-radius: var(--scrollbar-thumb-radius);
 }
 
+/* Wraps so a narrow card can't squeeze the name to nothing: the limit fields
+   drop to a line of their own, still right-aligned under their headings, once
+   the name would get less than its 10rem basis. */
 settings-panel .model-visibility-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
     min-height: 1.625rem;
@@ -207,7 +233,7 @@ settings-panel .model-visibility-toggle {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    flex: 1 1 auto;
+    flex: 1 1 10rem;
     min-width: 0;
     cursor: pointer;
     user-select: none;
@@ -223,6 +249,7 @@ settings-panel .model-limit-fields {
     display: flex;
     gap: 0.25rem;
     flex: 0 0 auto;
+    margin-left: auto;
 }
 
 /* Wide enough for a derived output budget's placeholder, "auto (64,000)". */
@@ -263,15 +290,15 @@ settings-panel .model-visibility-check {
     flex-shrink: 0;
 }
 
+/* Wraps rather than truncating: gateway ids share a vendor prefix and differ only
+   at the end, so an ellipsis hides exactly the part that tells them apart. */
 settings-panel .model-visibility-name {
     flex: 1 1 auto;
     min-width: 0;
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
     color: var(--text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
 }
 
 /* A model the menu won't offer reads back as struck-through and muted, so the
@@ -1773,6 +1800,13 @@ settings-panel .connectivity-qr svg {
         grid-template-columns: 1fr;
         gap: 0.75rem;
         padding: 0.75rem 0.875rem;
+    }
+
+    /* The stacked card's gap is already row-sized. */
+    settings-panel .provider-field > .model-visibility,
+    settings-panel .provider-field > .custom-endpoint-models,
+    settings-panel .provider-field > .custom-endpoint-actions {
+        margin-top: 0;
     }
 
     /* The two chime menus sit side by side on desktop; on a phone-width control

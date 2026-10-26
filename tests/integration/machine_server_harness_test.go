@@ -42,6 +42,23 @@ const machineServerStopTimeout = 20 * time.Second
 // child reports its address (the machine server's own spawn timeout is 20s).
 const sessionOpenTimeout = 60 * time.Second
 
+// webviewReleaseTimeout bounds the wait for Windows to release a run's
+// temporary directory. A killed child's WebView2 runtime processes are not its
+// children and exit on their own once they notice it is gone, holding files in
+// its user data folder (home\.juggler\cache\webview2) until they do — longer,
+// on a busy runner, than the ~2s testing's TempDir removal retries for.
+const webviewReleaseTimeout = 30 * time.Second
+
+// removeOnceReleased removes dir, retrying while something still holds a file
+// in it, for up to timeout. A dir still held then is left for TempDir's own
+// removal to report.
+func removeOnceReleased(dir string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for os.RemoveAll(dir) != nil && time.Now().Before(deadline) {
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
 // machineServer is one `juggler serve` process run by a test, isolated under
 // its own temporary HOME so its server.lock and server.json never meet the
 // developer's, another test's, or a real machine server's.
@@ -187,6 +204,10 @@ func newIsolatedRun(t *testing.T) isolatedRun {
 	}
 
 	base := t.TempDir()
+	if runtime.GOOS == "windows" {
+		// Registered after TempDir, so it runs before TempDir's own removal.
+		t.Cleanup(func() { removeOnceReleased(base, webviewReleaseTimeout) })
+	}
 	home := filepath.Join(base, "home")
 	logs := filepath.Join(base, "logs")
 	skills := filepath.Join(base, "skills")

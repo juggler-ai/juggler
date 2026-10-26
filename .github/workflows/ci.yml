@@ -260,6 +260,13 @@ jobs:
       # share a WebKit content process, so 1x4 puts four lanes' heap growth in
       # one heap behind one main thread — the shape that degrades a run into
       # arbitrary timeouts (see poolConfig). Raise if runners get beefier.
+      #
+      # -p 1 runs ./tests/integration and ./tests/integration/browser one
+      # after the other. Side by side, the browser pool and the integration
+      # package's spawned servers took a 3-vCPU macOS runner to a load of
+      # 23-35 per CPU, starving both: a node engine host that needed 25s to
+      # initialise, browser suites stuck rather than slow. A dev workstation
+      # has the cores to run them together; a hosted runner does not.
       - name: Run tests
         shell: bash
         env:
@@ -292,13 +299,13 @@ jobs:
             export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
             # -v and the wider timeout are what the two slow legs need. The
             # suite is several times slower under Xvfb/WebKitGTK than on macOS,
-            # so it needs the headroom; and since the integration tests are a
-            # single package, -v streams each subtest's PASS/FAIL and duration
+            # so it needs the headroom; and with one package at a time
+            # (-p 1), -v streams each subtest's PASS/FAIL and duration
             # into the step log as it runs. Without -v, a timeout panic
             # discards all buffered output, leaving no record of which tests
             # were slow or whether any of them also failed.
             xvfb-run -a --server-args='-screen 0 1920x1080x24' \
-              go test -count=1 -race -v -timeout 30m ./tests/integration/...
+              go test -count=1 -race -p 1 -v -timeout 30m ./tests/integration/...
           elif [ "${RUNNER_OS}" = "Windows" ]; then
             # This leg is the slow one by a distance: the package takes ~910s
             # here against ~110s on macOS, while every other package in the
@@ -309,9 +316,9 @@ jobs:
             # this leg gets Linux's headroom and Linux's -v: the per-subtest
             # durations are the only way to tell uniform slowness from one
             # pathological path.
-            go test -count=1 -race -v -timeout 30m ./tests/integration/...
+            go test -count=1 -race -p 1 -v -timeout 30m ./tests/integration/...
           else
-            go test -count=1 -race -timeout 15m ./tests/integration/...
+            go test -count=1 -race -p 1 -timeout 15m ./tests/integration/...
           fi
 
       # Diagnostics on a browser-suite failure. Each spawned server pipes

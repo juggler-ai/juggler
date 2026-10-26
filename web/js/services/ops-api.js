@@ -1865,6 +1865,25 @@ export async function customProvidersList(signal) {
 }
 
 /**
+ * One OpenAI-compatible provider the compiled-in models.dev catalogue knows.
+ * @typedef {object} CatalogProvider
+ * @property {string} id - Its models.dev id
+ * @property {string} name - Its display name
+ * @property {string} api - Its base URL
+ * @property {string} [doc] - Its documentation page
+ */
+
+/**
+ * List the providers the add form can be given by name instead of by URL. The
+ * catalogue is compiled into the server, so this asks nothing of the network.
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<{providers: CatalogProvider[]}>} The catalogued providers, by name
+ */
+export async function customProvidersCatalog(signal) {
+  return callOp('customProviders', 'catalog', {}, signal);
+}
+
+/**
  * Write one endpoint — adding it when the id is new, editing it when it is not.
  * Only the fields sent are changed, so a card can save the one input the user
  * just left. Takes effect at once: the server reconciles the provider registry

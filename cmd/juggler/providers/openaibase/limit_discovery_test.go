@@ -199,6 +199,25 @@ func TestCatalogDefaultDoesNotClampADiscoveredOutputCap(t *testing.T) {
 	}
 }
 
+// TestCatalogFallbackDoesNotClampTheWire: a fallback catalogue (third-party
+// data, such as the models.dev snapshot custom endpoints consult) sizes a model
+// and stops it being called assumed, but it is not a ceiling the server
+// enforces. Clamping the wire to it would undo a larger cap the user set by
+// hand on the strength of somebody else's table.
+func TestCatalogFallbackDoesNotClampTheWire(t *testing.T) {
+	desc := Descriptor{
+		Name:              "fallback-test",
+		ContextWindowCaps: utils.ModelCaps{Default: 128000},
+		MaxOutputCaps: utils.ModelCaps{Default: 16384, Fallback: func(string) (int, bool) {
+			return 8192, true
+		}},
+	}
+	client := &Client{model: "catalogued-elsewhere", maxOutputTokens: 64000, catalogMaxOutput: catalogMaxOutputLookup(desc, true)}
+	if got := client.effectiveMaxOutputTokens(provider.MessageRequest{}); got != 64000 {
+		t.Errorf("wire cap = %d, want the snapshot's 64000 — a fallback catalogue is not a ceiling", got)
+	}
+}
+
 // modelsListClient answers GET /models with the given body and nothing else.
 func modelsListClient(body string) *http.Client {
 	return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {

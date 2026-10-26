@@ -17,7 +17,8 @@ import (
 )
 
 // RegisterOps registers the "customProviders" ops handler backing the endpoints
-// section of the Providers settings tab (list / save / remove / setKey). Call
+// section of the Providers settings tab (list / catalog / save / remove /
+// setKey). Call
 // once at startup next to acp.RegisterOps() in app/run.go — not from inside the
 // ops package, which would import-cycle. Distinct from RegisterAll(), which
 // registers the endpoints themselves as providers.
@@ -60,11 +61,15 @@ type Endpoint struct {
 }
 
 // Execute dispatches a customProviders operation. Names mirror the JS ops-api
-// wrappers (list, save, remove, setKey).
+// wrappers (list, catalog, save, remove, setKey).
 func (o *operations) Execute(_ context.Context, operation string, params map[string]any) (any, error) {
 	switch operation {
 	case "list":
 		return listEndpoints()
+	case "catalog":
+		// The providers the add form can name instead of typing a URL. The
+		// snapshot is compiled in, so this asks nothing of the network.
+		return map[string]any{"providers": catalog().Providers()}, nil
 	case "save":
 		return save(params)
 	case "remove":

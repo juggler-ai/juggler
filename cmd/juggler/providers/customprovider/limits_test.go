@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"juggler/cmd/juggler/providers/modelsdev"
 	"juggler/cmd/juggler/providers/provider"
 	"juggler/internal/userpaths/userpathstest"
 )
@@ -86,6 +87,97 @@ func TestCustomProviderDiscoversEndpointLimits(t *testing.T) {
 	}
 	if served.WindowAssumed {
 		t.Error("served-by-vllm WindowAssumed = true, but the endpoint reported its window")
+	}
+}
+
+// useCatalog swaps the models.dev catalogue endpoints are sized from for the
+// length of a test.
+func useCatalog(t *testing.T, snap modelsdev.Snapshot) {
+	t.Helper()
+	prev := catalog
+	cat := modelsdev.New(snap)
+	catalog = func() *modelsdev.Catalog { return cat }
+	t.Cleanup(func() { catalog = prev })
+}
+
+// TestCustomProviderSizesCatalogedModels: an endpoint that is a provider
+// models.dev catalogues — the user pasted Baseten's or Chutes' base URL — gets
+// that catalogue's figures for the bare ids it lists, and they are statements
+// about the model, not assumptions. What the endpoint says about itself still
+// wins, and a model the catalogue does not list stays on the flagged default.
+func TestCustomProviderSizesCatalogedModels(t *testing.T) {
+	userpathstest.Isolate(t)
+	unregisterAllAtEnd(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"list","data":[
+			{"id":"org/Catalogued-Bare","object":"model"},
+			{"id":"catalogued-self-sized","object":"model","max_model_len":65536},
+			{"id":"uncatalogued","object":"model"}
+		]}`))
+	}))
+	defer srv.Close()
+
+	useCatalog(t, modelsdev.Snapshot{Providers: map[string]modelsdev.Provider{
+		"fixture": {Name: "Fixture", API: srv.URL + "/v1", Models: map[string]modelsdev.Model{
+			"org/Catalogued-Bare":   {Context: 200000, Output: 32000},
+			"catalogued-self-sized": {Context: 1000000, Output: 64000},
+		}},
+	}})
+
+	if _, err := execute(t, "save", endpointParams("hosted", "Hosted", srv.URL+"/v1/")); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	name := RegisteredName("hosted")
+	built, err := provider.InitializeProvider(name, provider.Config{Model: "org/Catalogued-Bare"})
+	if err != nil {
+		t.Fatalf("InitializeProvider: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	infos, err := built.ListModelsWithInfo(ctx)
+	if err != nil {
+		t.Fatalf("ListModelsWithInfo: %v", err)
+	}
+	byID := map[string]provider.ModelInfo{}
+	for _, info := range infos {
+		byID[info.ID] = info
+	}
+
+	bare := byID["org/Catalogued-Bare"]
+	if bare.ContextWindow != 200000 || bare.MaxOutputTokens != 32000 {
+		t.Errorf("catalogued bare id = %d/%d, want the catalogue's 200000/32000", bare.ContextWindow, bare.MaxOutputTokens)
+	}
+	if bare.WindowAssumed || bare.FromAPI {
+		t.Errorf("catalogued bare id WindowAssumed=%v FromAPI=%v, want false/false: a catalogued figure, not a guess and not the endpoint's", bare.WindowAssumed, bare.FromAPI)
+	}
+
+	self := byID["catalogued-self-sized"]
+	if self.ContextWindow != 65536 || !self.FromAPI {
+		t.Errorf("self-sized model = %d (FromAPI %v), want the endpoint's own 65536 over the catalogue's 1000000", self.ContextWindow, self.FromAPI)
+	}
+
+	unknown := byID["uncatalogued"]
+	if unknown.ContextWindow != localDefaultContextWindow || !unknown.WindowAssumed {
+		t.Errorf("uncatalogued model = %d (assumed %v), want the flagged %d default", unknown.ContextWindow, unknown.WindowAssumed, localDefaultContextWindow)
+	}
+
+	// Admission before any listing has landed vouches for a catalogued model,
+	// and still fails closed for one nothing knows.
+	info, ok := provider.GetProviderInfo(name)
+	if !ok || info.ResolveModelCapabilities == nil {
+		t.Fatalf("%s has no static resolver", name)
+	}
+	if caps, found := info.ResolveModelCapabilities("org/Catalogued-Bare"); !found || caps.ContextWindowTokens != 200000 {
+		t.Errorf("static resolve of the catalogued model = %+v, %v; want a 200000 window", caps, found)
+	}
+	if _, found := info.ResolveModelCapabilities("uncatalogued"); found {
+		t.Error("static resolve vouched for a model nothing catalogues")
 	}
 }
 

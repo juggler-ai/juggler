@@ -36,10 +36,16 @@ var ModelContextWindows = map[string]int{
 	"ministral-14b-latest":  256000,
 	"ministral-8b-2512":     256000,
 	"ministral-8b-latest":   256000,
-	"ministral-3b-2512":     256000,
-	"ministral-3b-latest":   256000,
-	"codestral-2508":        128000,
-	"codestral-latest":      128000,
+	// The docs give Ministral 3 3B 256k, but its /v1/models card reports a
+	// max_context_length of 131072 (per models.dev, which reads it). The two
+	// readings disagree by half, and the smaller is the one that cannot overrun.
+	"ministral-3b-2512":   131072,
+	"ministral-3b-latest": 131072,
+	// The reverse case: the docs say 128k and the endpoint reportedly 256000.
+	// 128000 stands, for the same reason; a live listing uses the endpoint's
+	// own figure whenever it is reachable.
+	"codestral-2508":   128000,
+	"codestral-latest": 128000,
 	// A third-party model Mistral hosts, and the only one on the platform with
 	// a published output ceiling.
 	"zai-glm-5-2": 1000000,

@@ -5,6 +5,7 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Custom endpoints suggest models.dev providers, filling the URL and each model's limits
 - Running tasks pin lists every conversation's commands, foreground too; click to jump
 - After repeated approvals, the approval card suggests switching to Auto-approve or YOLO
 - Claude Code conversations recover from a lost tool result instead of hanging; Stop always works

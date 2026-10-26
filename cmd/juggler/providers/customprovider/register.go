@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"slices"
 	"strings"
 
 	"juggler/cmd/juggler/msg"
+	"juggler/cmd/juggler/providers/modelsdev"
 	"juggler/cmd/juggler/providers/openaibase"
 	"juggler/cmd/juggler/providers/provider"
 	"juggler/cmd/juggler/providers/utils"
@@ -44,6 +46,25 @@ const (
 	localDefaultContextWindow = 8192
 	defaultMaxOutputTokens    = 16384
 )
+
+// catalog is the models.dev catalogue endpoints are sized from; a variable so
+// a test can catalogue its own local server.
+var catalog = modelsdev.Embedded
+
+// catalogLimit returns a ModelCaps.Fallback answering one limit from the
+// catalogue's entry for a model served at baseURL. It answers only when the
+// endpoint is a provider models.dev catalogues and the model is one it lists
+// (modelsdev.Catalog.Lookup); every other model keeps the default above, and
+// the UI goes on marking it assumed.
+func catalogLimit(baseURL string, pick func(modelsdev.Model) int) func(string) (int, bool) {
+	return func(model string) (int, bool) {
+		m, ok := catalog().Lookup(baseURL, model)
+		if !ok {
+			return 0, false
+		}
+		return pick(m), true
+	}
+}
 
 // defaultContextWindowFor returns the window assumed for an endpoint's models
 // that the endpoint says nothing about: localDefaultContextWindow for a server
@@ -159,7 +180,7 @@ func registerInstance(id string, inst Instance) {
 	openaibase.Register(openaibase.Descriptor{
 		Name:        RegisteredName(id),
 		DisplayName: displayName,
-		Description: msg.New("A custom endpoint speaking the OpenAI Chat Completions API. Its base URL and request headers are set in the Custom Providers tab; the API key is optional, for endpoints that need one. Models come from the endpoint's own model list, along with their context windows where it publishes them (vLLM, llama.cpp and LiteLLM all do; for LM Studio, use the LM Studio provider, which reads each model's loaded window). For a model it says nothing about, Juggler assumes 128k, or 8k for a server on this machine or your local network — set the real figure per model below."),
+		Description: msg.New("A custom endpoint speaking the OpenAI Chat Completions API. Its base URL and request headers are set in the Custom Providers tab; the API key is optional, for endpoints that need one. Models come from the endpoint's own model list, along with their context windows where it publishes them (vLLM, llama.cpp and LiteLLM all do; for LM Studio, use the LM Studio provider, which reads each model's loaded window). For a hosted provider that models.dev lists, models the endpoint says nothing about take that catalogue's figures. For any other model it says nothing about, Juggler assumes 128k, or 8k for a server on this machine or your local network — set the real figure per model below."),
 		// Per-instance credential slot and environment variable, so several
 		// endpoints hold distinct secrets. The environment form folds the
 		// hyphens an id may carry to underscores, since a shell cannot set a
@@ -168,11 +189,32 @@ func registerInstance(id string, inst Instance) {
 		EnvVarName:      EnvVarName(id),
 		DisplayProvider: displayName,
 		// Fixed at registration, which Sync repeats after every edit, so a
-		// changed base URL re-decides it.
-		ContextWindowCaps: utils.ModelCaps{Default: defaultContextWindowFor(inst.BaseURL)},
-		MaxOutputCaps:     utils.ModelCaps{Default: defaultMaxOutputTokens},
-		BaseURLFunc:       func() string { return liveBaseURL(id) },
-		HeadersFunc:       func() map[string]string { return liveHeaders(id) },
+		// changed base URL re-decides both the default and which catalogue
+		// entry, if any, sizes the endpoint's models.
+		ContextWindowCaps: utils.ModelCaps{
+			Default:  defaultContextWindowFor(inst.BaseURL),
+			Fallback: catalogLimit(inst.BaseURL, func(m modelsdev.Model) int { return m.Context }),
+		},
+		MaxOutputCaps: utils.ModelCaps{
+			Default:  defaultMaxOutputTokens,
+			Fallback: catalogLimit(inst.BaseURL, func(m modelsdev.Model) int { return m.Output }),
+		},
+		// The catalogue labels the models it knows, and withholds images only
+		// from the ones it knows cannot take them. Every other model is sent
+		// images as given: the endpoint may serve a vision model nobody
+		// catalogued, and its own error is a better answer than a guess.
+		InputModalitiesFn: func(model string) []string {
+			if m, ok := catalog().Lookup(inst.BaseURL, model); ok && len(m.Input) > 0 {
+				return m.Input
+			}
+			return nil
+		},
+		ImagesWithheldFn: func(model string) bool {
+			m, ok := catalog().Lookup(inst.BaseURL, model)
+			return ok && !slices.Contains(m.InputModalities(), "image")
+		},
+		BaseURLFunc: func() string { return liveBaseURL(id) },
+		HeadersFunc: func() map[string]string { return liveHeaders(id) },
 		// The key is optional: an endpoint may serve a public model list and
 		// need no auth at all. Availability rests instead on the base URL being
 		// configured — not a network probe, since the health path of an

@@ -21,6 +21,12 @@ type ModelCaps struct {
 	// the snapshot is a different, uncatalogued model that silently runs on the
 	// provider default. Nil means the id is the key.
 	Normalize func(model string) string
+	// Fallback is a second catalogue, asked about a model the Overrides do not
+	// name, with the id exactly as the provider reported it. A positive figure
+	// it returns is knowledge about that model, as an override is; anything
+	// else falls through to Default. Custom endpoints use it to consult the
+	// models.dev snapshot. Nil means no second catalogue.
+	Fallback func(model string) (int, bool)
 }
 
 // key returns the Overrides key for a model id, applying Normalize when set.
@@ -36,24 +42,29 @@ func (c ModelCaps) key(model string) string {
 	return c.Normalize(model)
 }
 
-// Lookup returns the override for model if present, else Default.
+// Lookup returns the override for model if present, else the Fallback's
+// figure, else Default.
 func (c ModelCaps) Lookup(model string) int {
-	if c.Overrides != nil {
-		if v, ok := c.Overrides[c.key(model)]; ok {
-			return v
-		}
+	if v, ok := c.LookupKnown(model); ok {
+		return v
 	}
 	return c.Default
 }
 
-// LookupKnown reports whether model has an explicit catalog entry, returning
-// its override. Unlike Lookup, Default is not a match: defaults exist to
-// enrich provider-reported model ids (e.g. a newly released model on a live
-// list), never to vouch for an id the provider itself never catalogued —
-// those must fail closed rather than inherit a fabricated limit.
+// LookupKnown reports whether model has an explicit catalog entry — an
+// override, or a figure from the Fallback — returning it. Unlike Lookup,
+// Default is not a match: defaults exist to enrich provider-reported model ids
+// (e.g. a newly released model on a live list), never to vouch for an id the
+// provider itself never catalogued — those must fail closed rather than
+// inherit a fabricated limit.
 func (c ModelCaps) LookupKnown(model string) (int, bool) {
 	if c.Overrides != nil {
 		if v, ok := c.Overrides[c.key(model)]; ok {
+			return v, true
+		}
+	}
+	if c.Fallback != nil {
+		if v, ok := c.Fallback(model); ok && v > 0 {
 			return v, true
 		}
 	}

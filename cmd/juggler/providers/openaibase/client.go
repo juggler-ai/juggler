@@ -253,9 +253,10 @@ type Client struct {
 	// serve the request is the best authority on what it will accept — and set
 	// only for an endpoint whose reported numbers are known to be unusable.
 	limitDiscoveryDisabled bool
-	// textOnly is set when the provider declares this model's input modalities
-	// and they include no image: images are then withheld from its requests
-	// (see withholdImages). A provider that declares nothing leaves it false.
+	// textOnly is set when the provider declares that this model takes no
+	// image (Descriptor.ImagesWithheldFn, else InputModalitiesFn): images are
+	// then withheld from its requests (see withholdImages). A provider that
+	// declares nothing leaves it false.
 	textOnly bool
 	// sessionHeaders are the configured headers whose value contains
 	// sessionIDPlaceholder. They are kept off the client-wide header set and

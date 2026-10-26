@@ -28,6 +28,7 @@
  */
 
 import {
+  customProvidersCatalog,
   customProvidersSave,
   customProvidersRemove,
   customProvidersSetKey,
@@ -640,10 +641,20 @@ function buildRemoveRow(endpoint, ctx) {
   return row;
 }
 
+/** Numbers each add form's provider list, whose id the name field refers to. */
+let catalogListSeq = 0;
+
 /**
  * The form for a new endpoint: a name and a URL, and a line saying which
  * provider id those will become. Nothing else is asked for — a key, headers and
  * the model list all belong to the card, which exists as soon as this is saved.
+ *
+ * The name field doubles as a way to pick a hosted provider the compiled-in
+ * models.dev catalogue knows: it suggests their names, and naming one fills in
+ * its base URL — so adding Baseten is its name, Add, and the key on the card
+ * that opens. A URL the user typed is never replaced, and a filled-in one
+ * follows the name until they do. A catalogue that cannot be read leaves the
+ * form exactly as it is without one.
  * @param {object} ctx - What the form needs from the tab.
  * @param {string[]} ctx.takenIds - Ids already configured.
  * @param {(endpoints: any[]) => void} ctx.onAdded - Hand back the list with the new endpoint in it.
@@ -690,6 +701,38 @@ export function buildAddEndpointForm(ctx) {
       : '';
   };
   name.input.addEventListener('input', showID);
+
+  const catalogList = document.createElement('datalist');
+  catalogList.id = `custom-endpoint-catalog-${++catalogListSeq}`;
+  name.input.setAttribute('list', catalogList.id);
+  form.appendChild(catalogList);
+
+  /** @type {import('../../services/ops-api.js').CatalogProvider[]} */
+  let known = [];
+  // The URL this form filled in, so a URL the user typed is told apart from it.
+  let filledURL = '';
+  const fillURL = () => {
+    const current = url.input.value.trim();
+    if (current && current !== filledURL) return;
+    const typed = name.input.value.trim().toLowerCase();
+    const match = typed ? known.find(p => p.name.toLowerCase() === typed) : undefined;
+    filledURL = match ? match.api : '';
+    url.input.value = filledURL;
+    if (match) urlField.setStatus(t('Filled in from models.dev'), 'ok');
+    else urlField.setStatus('');
+  };
+  name.input.addEventListener('input', fillURL);
+
+  customProvidersCatalog().then(({ providers }) => {
+    known = Array.isArray(providers) ? providers : [];
+    for (const p of known) {
+      const option = document.createElement('option');
+      option.value = p.name;
+      catalogList.appendChild(option);
+    }
+  }).catch(() => {
+    // Suggestions are a convenience: without them the form is the plain one.
+  });
 
   const actions = document.createElement('div');
   actions.className = 'custom-endpoint-actions';

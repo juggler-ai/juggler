@@ -21,7 +21,14 @@ nothing to say about that exact model id:
    OpenAI, DeepSeek, Z.AI and Cerebras return a bare list of model ids, and so
    does Ollama's OpenAI-compatible route. For those, and for any provider that
    cannot be reached right now, Juggler falls back to figures it ships, taken
-   from each vendor's published documentation.
+   from each vendor's published documentation. A custom endpoint has no table
+   of its own, but when its base URL is a hosted provider that the
+   [models.dev](https://models.dev) catalogue lists — Baseten, Chutes and the
+   like — its models get that catalogue's figures for that provider. Juggler
+   ships a snapshot of the catalogue, refreshed with each release; it does not
+   fetch it while running. The same snapshot tells Juggler which of those
+   models take images, so a model it knows to be text-only is told an image
+   was withheld instead of being sent one it would refuse.
 3. **A conservative default**, for a model neither of the above knows. It is a
    guess, and deliberately a low one: guessing low compacts a conversation
    earlier than it needed to be, while guessing high walks a fully-assembled

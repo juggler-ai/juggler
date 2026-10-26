@@ -1,4 +1,4 @@
-.PHONY: build test test-build test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-types lint-css lint-i18n fix fix-files fix-fmt fix-go fix-js fix-css node-deps help mac-app install-mac app-icon-embed wails-runtime-embed wails-runtime-build test-wails-patches win-icon release-build-mac mac-dmg mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack mac-codesign linux-compat-server
+.PHONY: build test test-build test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-types lint-css lint-i18n fix fix-files fix-fmt fix-go fix-js fix-css node-deps help models-sync mac-app install-mac app-icon-embed wails-runtime-embed wails-runtime-build test-wails-patches win-icon release-build-mac mac-dmg mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack mac-codesign linux-compat-server
 
 # Binary name
 BINARY_NAME=juggler
@@ -677,6 +677,21 @@ test-go: go-build test-build
 		if [ $$rc -ne 0 ]; then echo "✗ the Go package tests failed — their output is above"; exit $$rc; fi; \
 		$(if $(and $(RUN),$(filter test-go,$(MAKECMDGOALS))),scripts/run-matched "$(RUN)" $(BUILD_DIR)/test-go.log || exit 1;) \
 		echo "✓ Go package tests passed"'
+
+## models-sync: Refresh the compiled-in models.dev snapshot
+## (cmd/juggler/providers/modelsdev/snapshot.json) — the one step here that
+## touches the network — then compare the hand-kept built-in model tables
+## against the full catalogue (TestModelsDevDrift). The generator prints what
+## the refresh changed; review the diff and commit it. A drift failure names a
+## built-in limit that disagrees with models.dev: fix the table, or record why
+## ours is right in the test's allowlist. Run it before every release.
+MODELS_DEV_RAW=$(BUILD_DIR)/models-dev-api.json
+models-sync:
+	@mkdir -p $(BUILD_DIR)
+	@echo "── models.dev snapshot ──"
+	@cd cmd/juggler/providers/modelsdev && go run ./gen -o snapshot.json -raw $(abspath $(MODELS_DEV_RAW))
+	@echo "── built-in tables against models.dev ──"
+	@JUGGLER_MODELSDEV_API=$(abspath $(MODELS_DEV_RAW)) $(GOTEST) -count=1 -run '^TestModelsDevDrift$$' -v ./cmd/juggler/providers/audit
 
 ## test-wails-patches: Run the Wails fork's own tests for the packages its
 ## local patches touch (docs/wails-fork.md is the ledger; keep this list in

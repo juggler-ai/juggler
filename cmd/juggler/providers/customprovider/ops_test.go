@@ -6,9 +6,11 @@ package customprovider
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/providers/modelsdev"
 	"juggler/cmd/juggler/providers/provider"
 	"juggler/internal/userpaths/userpathstest"
 )
@@ -46,6 +48,26 @@ func endpointsByID(t *testing.T, result map[string]any) map[string]Endpoint {
 		out[row.ID] = row
 	}
 	return out
+}
+
+// TestOpsCatalogListsKnownProviders: the add form offers the providers the
+// models.dev catalogue knows, by name, with the base URL each one fills in.
+func TestOpsCatalogListsKnownProviders(t *testing.T) {
+	useCatalog(t, modelsdev.Snapshot{Providers: map[string]modelsdev.Provider{
+		"chutes":  {Name: "Chutes", API: "https://llm.chutes.ai/v1", Models: map[string]modelsdev.Model{"m": {Context: 1}}},
+		"baseten": {Name: "Baseten", API: "https://inference.baseten.co/v1", Doc: "https://docs.baseten.co"},
+	}})
+	out, err := execute(t, "catalog", nil)
+	if err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	want := []modelsdev.ProviderEntry{
+		{ID: "baseten", Name: "Baseten", API: "https://inference.baseten.co/v1", Doc: "https://docs.baseten.co"},
+		{ID: "chutes", Name: "Chutes", API: "https://llm.chutes.ai/v1"},
+	}
+	if got, ok := out["providers"].([]modelsdev.ProviderEntry); !ok || !reflect.DeepEqual(got, want) {
+		t.Errorf("catalog providers = %#v, want %#v", out["providers"], want)
+	}
 }
 
 func TestOpsSaveAddsOneEndpointAndLeavesTheRest(t *testing.T) {

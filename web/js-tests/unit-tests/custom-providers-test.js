@@ -687,9 +687,83 @@ export async function runTests(_ctx) {
       name.dispatchEvent(new Event('input', { bubbles: true }));
       /** @type {HTMLElement} */ (form.querySelector('.custom-endpoint-add-save')).click();
       await new Promise(r => setTimeout(r, 0));
-      assert(ops.length === 0, 'an endpoint with no URL was written anyway');
+      // The form reads the provider catalogue as it opens; only a write counts.
+      assert(!ops.some(c => c && c.operation === 'save'), 'an endpoint with no URL was written anyway');
       const status = form.querySelector('.provider-subfield-status[data-kind="error"]');
       assert(!!status && String(status.textContent).length > 0, 'the form gave no reason for refusing');
+    } finally {
+      window.fetch = originalFetch;
+      form.remove();
+    }
+  });
+
+  await run('naming a provider the catalogue knows fills in its base URL', async () => {
+    /** @type {any[]} */
+    const ops = [];
+    const originalFetch = window.fetch;
+    window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ init) => {
+      const body = init && init.body ? JSON.parse(String(init.body)) : null;
+      if (String(url).includes('/api/ops/call')) ops.push(body);
+      const data = body && body.operation === 'catalog'
+        ? { providers: [
+          { id: 'baseten', name: 'Baseten', api: 'https://inference.baseten.co/v1' },
+          { id: 'chutes', name: 'Chutes', api: 'https://llm.chutes.ai/v1' },
+        ] }
+        : { endpoints: [] };
+      return { ok: true, status: 200, json: async () => ({ success: true, data }) };
+    });
+    const form = buildAddEndpointForm({ takenIds: [], onAdded: () => {}, onCancel: () => {} });
+    document.body.appendChild(form);
+    try {
+      const name = input(form, 'custom-endpoint-add-name');
+      const url = input(form, 'custom-endpoint-add-url');
+      await waitFor(() => (name.list?.options.length ?? 0) === 2, {
+        timeoutMs: budgetFor(2000),
+        description: 'the name field to offer the catalogued providers',
+      });
+
+      const type = (/** @type {string} */ value) => {
+        name.value = value;
+        name.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      type('baseten');
+      assert(url.value === 'https://inference.baseten.co/v1',
+        `naming Baseten filled the URL with ${JSON.stringify(url.value)}`);
+      type('Chutes');
+      assert(url.value === 'https://llm.chutes.ai/v1',
+        `a URL the form filled in must follow the name — got ${JSON.stringify(url.value)}`);
+      type('Chutes Lab');
+      assert(url.value === '',
+        `a filled-in URL must not outlive the name that chose it — got ${JSON.stringify(url.value)}`);
+
+      // A URL the user typed is theirs: naming a known provider afterwards
+      // never replaces it.
+      url.value = 'https://proxy.internal/v1';
+      url.dispatchEvent(new Event('input', { bubbles: true }));
+      type('Baseten');
+      assert(url.value === 'https://proxy.internal/v1',
+        `a typed URL was replaced by the catalogue's — got ${JSON.stringify(url.value)}`);
+    } finally {
+      window.fetch = originalFetch;
+      form.remove();
+    }
+  });
+
+  await run('the add form works as before when the catalogue cannot be read', async () => {
+    const originalFetch = window.fetch;
+    window.fetch = /** @type {any} */ (async () => ({
+      ok: false, status: 500, json: async () => ({ success: false, error: 'boom' }),
+    }));
+    const form = buildAddEndpointForm({ takenIds: [], onAdded: () => {}, onCancel: () => {} });
+    document.body.appendChild(form);
+    try {
+      await new Promise(r => setTimeout(r, 0));
+      const name = input(form, 'custom-endpoint-add-name');
+      name.value = 'Baseten';
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+      assert(input(form, 'custom-endpoint-add-url').value === '', 'a URL appeared from nowhere');
+      assert(!form.querySelector('.provider-subfield-status[data-kind="error"]'),
+        'an unreadable catalogue was reported as an error on a form that does not need it');
     } finally {
       window.fetch = originalFetch;
       form.remove();

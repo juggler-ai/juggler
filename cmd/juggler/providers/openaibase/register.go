@@ -84,7 +84,16 @@ type Descriptor struct {
 
 	// InputModalitiesFn looks up the input modalities for a model id during
 	// ListModelsWithInfo (e.g. ["text","image"]). nil ⇒ all models text-only.
+	// Unless ImagesWithheldFn is set, it also decides which models are sent
+	// images: one whose list lacks "image" never is.
 	InputModalitiesFn ModalitiesFunc
+
+	// ImagesWithheldFn, if non-nil, decides which models are never sent an
+	// image, in place of InputModalitiesFn. It is for a provider whose
+	// modality data covers only some of its models: the published label must
+	// call an unknown model text-only by convention, but withholding images
+	// from it on that convention would break a vision model nobody catalogued.
+	ImagesWithheldFn func(modelID string) bool
 
 	// ThinkingSpecFn looks up a model's reasoning-effort support (advertised
 	// levels + native mapping). nil ⇒ the provider exposes no thinking control
@@ -265,7 +274,10 @@ func Register(d Descriptor) {
 			base.quirks.ReasoningReplay = d.ReasoningReplayFn(cfg.Model)
 		}
 		// A model the descriptor declares text-only is never sent an image.
-		if d.InputModalitiesFn != nil {
+		switch {
+		case d.ImagesWithheldFn != nil:
+			base.textOnly = d.ImagesWithheldFn(cfg.Model)
+		case d.InputModalitiesFn != nil:
 			base.textOnly = !slices.Contains(d.InputModalitiesFn(cfg.Model), "image")
 		}
 		client := &openAICompatClient{
@@ -303,12 +315,18 @@ func Register(d Descriptor) {
 // override, which a clamp here would silently undo on the wire while admission
 // and the truncation notice went on quoting it.
 //
+// A Fallback catalogue is knowledge about a model but not a ceiling either: it
+// is third-party data about a server Juggler has no table for, and clamping to
+// it would undo a larger Max output tokens the user set to correct it. Only
+// the descriptor's own overrides clamp.
+//
 // Nil means nothing is authoritative and the snapshot stands unclamped.
 func catalogMaxOutputLookup(d Descriptor, capsSynthesised bool) func(model string) (int, bool) {
 	if !capsSynthesised {
 		return nil
 	}
 	maxOutputCaps := d.MaxOutputCaps
+	maxOutputCaps.Fallback = nil
 	return func(model string) (int, bool) {
 		value, known := maxOutputCaps.LookupKnown(model)
 		return value, known && value > 0

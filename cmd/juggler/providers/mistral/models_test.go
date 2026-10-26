@@ -18,7 +18,10 @@ func TestMistralContextWindow(t *testing.T) {
 		{"mistral-large-latest", 256000},
 		{"mistral-large-2512", 256000},
 		{"mistral-medium-latest", 256000},
-		{"ministral-3b-latest", 256000},
+		// The docs say 256k; the endpoint is reported to serve 131072. The
+		// offline answer is the smaller.
+		{"ministral-3b-latest", 131072},
+		{"ministral-3b-2512", 131072},
 		// Codestral is the one model in the line at half the others' window.
 		{"codestral-latest", 128000},
 		{"codestral-2508", 128000},

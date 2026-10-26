@@ -100,14 +100,17 @@ export const leadingWhitespacePreservedTest = autoApproveTest(
   '   indented'
 );
 
-// `find -newermt <time>` is a read-only time comparison over files in the
-// fixture; README.md is the oldest stable resident, and `!` inverts so the
-// exact stdout is knowable without touching mtimes.
+// `find -newermt <time>` is a read-only time comparison; README.md is the
+// oldest stable resident of the fixture, and `!` inverts so the exact stdout
+// is knowable without touching mtimes. The search starts AT the file rather
+// than at `.`: the fixture root is shared with every other lane's test
+// directory, and a `find .` that lists one a sibling is deleting reports
+// "No such file or directory" and exits 1.
 export const findNewermtAutoApprovesTest = autoApproveTest(
   'cmd-approval-find-newermt',
-  'find . -maxdepth 1 -name README.md ! -newermt "2038-01-01"',
+  'find README.md ! -newermt "2038-01-01"',
   undefined,
-  './README.md'
+  'README.md'
 );
 
 /**

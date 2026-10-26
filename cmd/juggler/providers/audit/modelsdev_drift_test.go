@@ -7,10 +7,13 @@ package audit
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
+	"juggler/cmd/juggler/providers/anthropic"
+	"juggler/cmd/juggler/providers/gemini"
 	"juggler/cmd/juggler/providers/provider"
 )
 
@@ -48,6 +51,28 @@ var modelsDevDisagreements = map[string]string{
 	"mistral/codestral-latest": "an alias of codestral-2508, same reasoning; models.dev's 4096 output cap cites no source",
 }
 
+// offlineKnows answers "does the table cover this id?" for the providers that
+// size models by rule (a family, a normalised id) without publishing a static
+// resolver on their ProviderInfo, so the audit asks the rule rather than
+// reporting every model it covers as missing.
+var offlineKnows = map[string]func(model string) bool{
+	"anthropic": anthropic.CatalogKnows,
+	"gemini":    gemini.CatalogKnows,
+}
+
+// modelsDevNotCatalogued records chat models models.dev lists that a built-in
+// table leaves out on purpose, keyed "provider/model", each with the reason.
+var modelsDevNotCatalogued = map[string]string{}
+
+// isChatModel reports whether a models.dev entry is a model a coding agent
+// could converse with: it calls tools, answers in text, carries no
+// specialised type (embedding, speech, image, realtime, transcription), and
+// is not retired. Everything else models.dev lists for a provider is noise
+// to a table of chat models.
+func isChatModel(toolCall bool, kind, status string, output []string) bool {
+	return toolCall && kind == "" && status != "deprecated" && slices.Contains(output, "text")
+}
+
 // TestModelsDevDrift compares the hand-kept built-in model tables with the
 // models.dev catalogue, without touching any provider's API. It is the half of
 // `make models-sync` that keeps the tables honest between releases.
@@ -56,10 +81,15 @@ var modelsDevDisagreements = map[string]string{
 // more than models.dev states (a window or output cap above its figure), or
 // where our window is so far below it that the table has fallen behind —
 // unless modelsDevDisagreements says why ours is right — and logs a model
-// models.dev does not list. It also logs the
-// models models.dev lists that the table does not — a new release is usually
-// the first sign a table has fallen behind, though plenty of what it lists
-// (embeddings, speech, retired ids) never belongs in one.
+// models.dev does not list.
+//
+// It then names the chat models models.dev lists that the provider cannot
+// size at all: a new release is usually the first sign a table has fallen
+// behind. For a provider in strictCatalogCoverage that is a failure (its
+// endpoint publishes no limits, so the model runs on a guess for good);
+// elsewhere it is a prominent log line. Either way modelsDevNotCatalogued can
+// record a deliberate omission. Embeddings, speech, image and retired models
+// are counted, not listed.
 //
 // Opt-in: it reads the full upstream catalogue that `make models-sync` keeps
 // beside the build, named by JUGGLER_MODELSDEV_API.
@@ -78,6 +108,12 @@ func TestModelsDevDrift(t *testing.T) {
 				Context int64 `json:"context"`
 				Output  int64 `json:"output"`
 			} `json:"limit"`
+			ToolCall   bool   `json:"tool_call"`
+			Type       string `json:"type"`
+			Status     string `json:"status"`
+			Modalities struct {
+				Output []string `json:"output"`
+			} `json:"modalities"`
 		} `json:"models"`
 	}
 	if err := json.Unmarshal(raw, &upstream); err != nil {
@@ -157,18 +193,57 @@ func TestModelsDevDrift(t *testing.T) {
 				}
 			}
 
+			// What models.dev lists and the provider cannot size. Only chat
+			// models count; a model counts as known if the provider resolves
+			// it at all, which is the question admission asks — so a family
+			// rule (Anthropic) or a dated-snapshot rule (OpenAI) covers it
+			// without a table entry.
 			var missing []string
-			for id := range dev.Models {
-				if !seen[id] {
-					missing = append(missing, id)
+			other := 0
+			for id, m := range dev.Models {
+				if seen[id] {
+					continue
 				}
+				if !isChatModel(m.ToolCall, m.Type, m.Status, m.Modalities.Output) {
+					other++
+					continue
+				}
+				if knows := offlineKnows[name]; knows != nil && knows(id) {
+					continue
+				}
+				if info.ResolveModelCapabilities != nil {
+					if _, known := info.ResolveModelCapabilities(id); known {
+						continue
+					}
+				}
+				missing = append(missing, id)
 			}
 			sort.Strings(missing)
+
 			if len(unlisted) > 0 {
 				t.Logf("catalogued here, not listed by models.dev/%s (%d): %s", devID, len(unlisted), strings.Join(unlisted, ", "))
 			}
-			if len(missing) > 0 {
-				t.Logf("listed by models.dev/%s, not catalogued here (%d): %s", devID, len(missing), strings.Join(missing, ", "))
+			var unexplained []string
+			for _, id := range missing {
+				if reason, decided := modelsDevNotCatalogued[name+"/"+id]; decided {
+					t.Logf("%s/%s: left out on purpose: %s", name, id, reason)
+					continue
+				}
+				unexplained = append(unexplained, id)
+			}
+			switch {
+			case len(unexplained) == 0:
+			case strictCatalogCoverage[name]:
+				// This endpoint publishes no limits, so a model the table
+				// cannot size runs on the provider default for good.
+				t.Errorf("CHAT MODELS MISSING from the %s table (%d) — its endpoint publishes no limits, so each runs on a guessed window: %s",
+					name, len(unexplained), strings.Join(unexplained, ", "))
+			default:
+				t.Logf("CHAT MODELS MISSING from the %s table (%d) — sized from the live listing when reachable, the default when not: %s",
+					name, len(unexplained), strings.Join(unexplained, ", "))
+			}
+			if other > 0 {
+				t.Logf("%d other models.dev/%s entries skipped (deprecated, or not a chat model: embeddings, speech, images, realtime)", other, devID)
 			}
 		})
 	}

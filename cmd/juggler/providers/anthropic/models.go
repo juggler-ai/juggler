@@ -86,6 +86,18 @@ func currentLineupLimits(m string) (contextWindow, maxOutput int, ok bool) {
 	return 0, 0, false
 }
 
+// CatalogKnows reports whether the offline catalogue recognises model — by
+// exact id, or by the generation rules catalogMaxOutputTokens applies — rather
+// than answering it with defaults. The models.dev drift audit asks it to tell
+// a model the rules already cover from one they have never heard of.
+func CatalogKnows(model string) bool {
+	if _, ok := ModelContextWindows[model]; ok {
+		return true
+	}
+	_, ok := catalogMaxOutputTokens(model)
+	return ok
+}
+
 // GetMaxOutputTokens returns the maximum number of output tokens a model can
 // emit in a single response — the value to send as the request's max_tokens.
 // Anthropic rejects max_tokens above a model's ceiling (a hard 400) and silently

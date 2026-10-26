@@ -72,6 +72,14 @@ func GetContextWindow(model string) int {
 	return DefaultContextWindow
 }
 
+// CatalogKnows reports whether the offline catalogue has an entry for model,
+// after the same normalisation GetContextWindow applies, rather than answering
+// it with DefaultContextWindow. The models.dev drift audit asks it.
+func CatalogKnows(model string) bool {
+	_, ok := ModelContextWindows[baseModelID(model)]
+	return ok
+}
+
 // GetMaxOutputTokens returns the documented output ceiling for a model, or
 // DefaultMaxOutputTokens when it is not catalogued.
 func GetMaxOutputTokens(model string) int {

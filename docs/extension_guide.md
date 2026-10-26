@@ -738,7 +738,7 @@ exist, and the two that write are called out as the exceptions they are:
 | `services.files` | `onChange(listener)` — files changing on disk, absolute paths. Only inside the open project, and never dot-files: the watcher is rooted at the project and skips them. Offer a way to re-read rather than trusting it to be complete, and never poll for what it does not tell you. |
 | `services.contextItems` | `find(type, from?)` — the nearest context item of a type, as a copy, with the thread it came from; `onChange(listener)` — the items or the focused thread moved, call `find` again; `reveal(threadId)` — bring that thread's column into view. |
 | `services.git` | The ambient half: `status()` — every repository under the project with its branch, upstream divergence, counts and bounded file list, or null before the first read; `error()` — the last read's failure, shown beside the last good status rather than instead of it; `onChange(listener)`; `refresh()`. The deliberate half: `review({signal})` — every repository and every changed file in each of them, with whatever could not be reached named in `warnings`; `diff(repo, path, {signal})` — one file's whole working-tree change against `HEAD`, as structured hunks. |
-| `services.tasks` | `list()` — the background tasks this conversation has running, newest first, or null before the first check; `error()`; `onChange(listener)`; `reveal(itemId)` — select the tool action that started one; `stop(taskId)`. |
+| `services.tasks` | `list()` — every command the project's conversations have running, background or foreground, with the conversation, thread and tool call that started each; the conversation being read first, then newest first; null before the first answer. `error()`; `onChange(listener)`; `reveal(task)` — switch to the task's conversation and select the tool action that started it; `stop(taskId)`. |
 | `services.review` | `draft()` — the unsent review comments on the thread being read, as a copy, or null when there is no conversation to hold any; `onChange(listener)` — they changed, here or in another window, or the reader moved to a thread with different ones; `save({comments})` — replace them; `clear()` — discard them; `compose()` — put them as one ordinary message into that thread's composer for the reader to send, keeping them on the draft. |
 
 `contextItems.find()` resolves the way the columns do: the thread the user is
@@ -784,17 +784,19 @@ cancelled request is never mistaken for a file that turned out to be unchanged.
 `services.tasks` is a **live inventory, not a history**: a task leaves the list
 the moment it ends, however it ended, and nothing survives a server restart. That
 is not a gap to paper over — the history is on the tool action that started the
-task, with its output and its exit code, which is where `reveal` goes. Two things
-follow. `list()` returning null means the host has not checked yet and is not the
-same as an empty list, so say you are still looking rather than that nothing is
-running. And there is no way to ask what tasks *exist*: the host builds the list
-from the ids in this conversation's own transcript and asks the server only which
-of those are alive, so nothing here can show you another conversation's work.
+task, with its output and its exit code, which is where `reveal` goes. It is the
+whole project's, kept by the server and pushed to the board whenever it changes,
+so group or label by `conversationId` rather than assuming every task belongs to
+the conversation on screen — and expect `itemId`, `toolName` and `label` to be
+empty for a conversation this window has not loaded; `reveal` does not need them.
+`list()` returning null means the host has not heard yet and is not the same as
+an empty list, so say you are still looking rather than that nothing is running.
 
 `tasks.stop` is the one thing any service does rather than reports, and it is a
 deliberate exception rather than a precedent: it acts on a process, at the user's
-request, on a surface the conversation already offers a Stop button for. It
-rejects if the task could not be asked to stop — show what came back.
+request, on a surface the conversation already offers a Stop button for. A
+stopped foreground command's tool action reports "Killed by user". It rejects if
+the task could not be asked to stop — show what came back.
 
 **A review draft belongs to a thread, not to your pin or to the project.** It is
 kept where the message it will become would go, in the conversation's own

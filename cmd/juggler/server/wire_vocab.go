@@ -40,6 +40,7 @@ const (
 	framePinboardChanged        frameType = "pinboard-changed"
 	framePinboardReveal         frameType = "pinboard-reveal"
 	frameWorkspacesChanged      frameType = "workspaces-changed"
+	frameProcessesChanged       frameType = "processes-changed"
 	frameProvidersUpdate        frameType = "providers-update"
 	frameUpdateStatus           frameType = "update-status"
 	frameClientsChanged         frameType = "clients-changed"
@@ -64,7 +65,8 @@ var allInboundFrames = []frameType{
 // allOutboundFrames is every frame type the server sends.
 var allOutboundFrames = []frameType{
 	frameDataChannelChunk, frameFileChange, frameProjectChanged, framePluginChanged, frameSettingsChanged,
-	framePinboardChanged, framePinboardReveal, frameWorkspacesChanged, frameViewerRelay, frameProvidersUpdate,
+	framePinboardChanged, framePinboardReveal, frameWorkspacesChanged, frameProcessesChanged, frameViewerRelay,
+	frameProvidersUpdate,
 	frameUpdateStatus, frameClientsChanged, frameShellOutput, frameEngineBridge, frameHeartbeat, frameSession,
 	frameWorkerMessage, frameConversationsChanged, frameNotice, frameSessionMetadataChanged,
 	frameSessionChanged, frameRunOneShot, frameError, frameServerFull, frameServerShutdown,

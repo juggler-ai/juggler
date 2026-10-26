@@ -37,7 +37,13 @@ type shellParams struct {
 	Command   *string  `param:"command"`
 	Cwd       string   `param:"cwd"`
 	ConvID    string   `param:"convId"`
+	ThreadID  string   `param:"threadId"`
 	ToolUseID string   `param:"toolUseId"`
+}
+
+// owner is what the process inventory lists this call's process under.
+func (p shellParams) owner() ProcessOwner {
+	return ProcessOwner{ConvID: p.ConvID, ThreadID: p.ThreadID, ToolUseID: p.ToolUseID}
 }
 
 // timeoutFrom is the optional "timeout" (milliseconds), defaultMs when absent,
@@ -206,6 +212,12 @@ func (ops *ShellOperations) startBackground(params map[string]any) (any, error) 
 		// gap still stops the task: it cancels the context, and a command built
 		// with CommandContext dies at Start rather than escaping.
 		updateShellCmd(shellID, cmd)
+
+		// Listed while it runs. A stop from the inventory is the kill op, so it
+		// reads on the tool action exactly as a TaskStop would.
+		untrack := trackProcess(shellID, ProcessBackground, command, ops.scope.ProjectRoot(), p.owner(),
+			func() { killShell(shellID) })
+		defer untrack()
 
 		cmdDone := make(chan error, 1)
 		go func() {
@@ -400,6 +412,12 @@ func (ops *ShellOperations) execute(ctx context.Context, params map[string]any) 
 		return nil, fmt.Errorf("command start failed: %w", err)
 	}
 
+	// Listed while the caller waits on it; a stop cancels execCtx, which the
+	// select below turns into taking the process group.
+	stopper := newUserStop(cancel)
+	untrack := trackProcess(spillID, ProcessForeground, command, ops.scope.ProjectRoot(), p.owner(), stopper.stop)
+	defer untrack()
+
 	// Wait for command with timeout / caller cancellation.
 	//
 	// The buffer belongs to this goroutine alone, and is closed here rather than
@@ -430,6 +448,9 @@ func (ops *ShellOperations) execute(ctx context.Context, params map[string]any) 
 		select {
 		case <-done:
 		case <-time.After(ops.reapGraceOrDefault()):
+		}
+		if stopper.requested() {
+			return nil, errKilledByUser
 		}
 		if execCtx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("command execution timeout (exceeded %v)", timeout)
@@ -489,11 +510,22 @@ func (ops *ShellOperations) executePythonCode(ctx context.Context, code string, 
 	cmd.Stdout = output
 	cmd.Stderr = output // Merge stderr into stdout - interleaved naturally
 
-	err := cmd.Run()
+	// Started and waited on separately so the process is listed in the inventory
+	// between the two; a stop cancels ctx, which CommandContext turns into a kill.
+	stopper := newUserStop(cancel)
+	err := cmd.Start()
+	if err == nil {
+		untrack := trackProcess(spillID, ProcessPython, pythonLabel(code), ops.scope.ProjectRoot(), p.owner(), stopper.stop)
+		err = cmd.Wait()
+		untrack()
+	}
 	output.closeSpill()
 	exitCode := 0
 
 	if err != nil {
+		if stopper.requested() {
+			return nil, errKilledByUser
+		}
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("python execution timeout (exceeded %v)", timeout)
 		}
@@ -516,6 +548,22 @@ func (ops *ShellOperations) executePythonCode(ctx context.Context, code string, 
 		result["truncated"] = true
 	}
 	return result, nil
+}
+
+// pythonLabel is what the process inventory shows for python code: its first
+// non-blank line, which is usually enough to recognise it, capped so a one-line
+// script does not fill the row.
+func pythonLabel(code string) string {
+	const maxLabel = 200
+	for line := range strings.SplitSeq(code, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			if len(line) > maxLabel {
+				line = strings.ToValidUTF8(line[:maxLabel], "") + "…"
+			}
+			return line
+		}
+	}
+	return "python3"
 }
 
 // validateCwd resolves a user-supplied shell cwd and rejects anything outside

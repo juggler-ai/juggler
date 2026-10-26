@@ -181,7 +181,8 @@ func (s *Server) streamShell(ctx context.Context, resolve workspace.ResolveFunc,
 
 	// Start streaming execution; the workspace closes the channel when it is over.
 	go ws.StreamShell(ctx, workspace.ShellRequest{
-		ShellID: req.ShellID, ConvID: req.ConvId, Command: req.Command, Cwd: req.Cwd, TimeoutMs: req.Timeout,
+		ShellID: req.ShellID, ConvID: req.ConvId, ThreadID: req.ThreadId, ToolUseID: req.ToolUseId,
+		Command: req.Command, Cwd: req.Cwd, TimeoutMs: req.Timeout,
 	}, outputChan)
 
 	// Forward chunks to the requesting engine (see func doc for why not the

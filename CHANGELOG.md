@@ -5,6 +5,7 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Running tasks pin lists every conversation's commands, foreground too; click to jump
 - After repeated approvals, the approval card suggests switching to Auto-approve or YOLO
 - Claude Code conversations recover from a lost tool result instead of hanging; Stop always works
 - The interface is available in Japanese, Korean, German, French, Spanish and Brazilian Portuguese, under Settings → Language
@@ -12,7 +13,7 @@ of changes; this project follows semantic versioning.
 - A window whose server fails to start says why instead of never appearing
 - Per-project environment variables for every command, set in files or the Environment pin
 - New-workspace dialog: found trees no longer add a second Tab stop to the list
-- Background bash runs open the Background tasks pin from their panel or selected badge
+- Background bash runs open the Running tasks pin from their panel or selected badge
 - The message box stays short on phones; an expand button opens it full-height
 - GLM, DeepSeek, Kimi and local models see their own earlier reasoning across tool calls
 - Ctrl+Tab returns to the last-used conversation; hold Ctrl to pick from recent ones

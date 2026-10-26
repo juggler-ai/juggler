@@ -75,6 +75,13 @@ type workspacesChangedFrame struct {
 	Workspaces []workspace.Row `json:"workspaces"`
 }
 
+// processesChangedFrame is the whole of the project's process inventory: every
+// shell process running for any conversation in it (ops.ListProcesses).
+type processesChangedFrame struct {
+	Type      frameType         `json:"type"`
+	Processes []ops.ProcessInfo `json:"processes"`
+}
+
 type pinboardChangedFrame struct {
 	Type  frameType  `json:"type"`
 	Board string     `json:"board"`

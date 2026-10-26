@@ -238,18 +238,19 @@ type Server struct {
 	// dynamic import 404s. A client that reconnects and reads an unchanged boot
 	// id knows the link merely blipped and can catch up with a Yjs state-vector
 	// resync; a changed one means the page itself is stale and must be reloaded.
-	bootID         string
-	startTime      time.Time // Server start time for health/instance endpoint
-	shutdownChan   chan struct{}
-	shutdownOnce   sync.Once
-	workerManager  *worker.Manager     // Go worker manager
-	stopWake       func()              // Drops the system-wake subscription New took for workerManager; nil before New finishes
-	extraRoutes    func(r *mux.Router) // Optional Config.ExtraRoutes hook, invoked at the end of setupRoutes
-	exitWithParent bool                // Config.ExitWithParent: server self-terminates when its parent (the viewer) dies; reported on /api/health/instance
-	loopbackOnly   bool                // Config.LoopbackOnly: bind 127.0.0.1 instead of every interface
-	ingressSecret  string              // Config.IngressSecret: the supervisor's proof that a caller is off loopback ("" when there is no supervisor)
-	allowedHosts   hostcheck.AllowList // Config.AllowedHosts: extra Host names a reverse proxy on this machine serves us under
-	fixedProject   bool                // Config.FixedProject: the project can't be switched or created in place (see setupProjectRoutes)
+	bootID           string
+	startTime        time.Time // Server start time for health/instance endpoint
+	shutdownChan     chan struct{}
+	shutdownOnce     sync.Once
+	workerManager    *worker.Manager     // Go worker manager
+	stopWake         func()              // Drops the system-wake subscription New took for workerManager; nil before New finishes
+	stopProcessWatch func()              // Drops the process-inventory subscription New took; nil before New finishes
+	extraRoutes      func(r *mux.Router) // Optional Config.ExtraRoutes hook, invoked at the end of setupRoutes
+	exitWithParent   bool                // Config.ExitWithParent: server self-terminates when its parent (the viewer) dies; reported on /api/health/instance
+	loopbackOnly     bool                // Config.LoopbackOnly: bind 127.0.0.1 instead of every interface
+	ingressSecret    string              // Config.IngressSecret: the supervisor's proof that a caller is off loopback ("" when there is no supervisor)
+	allowedHosts     hostcheck.AllowList // Config.AllowedHosts: extra Host names a reverse proxy on this machine serves us under
+	fixedProject     bool                // Config.FixedProject: the project can't be switched or created in place (see setupProjectRoutes)
 
 	// conversationCache holds the per-conversation Provider.Conversation
 	// handles: one handle per (convID, providerName, model), opened lazily
@@ -541,6 +542,10 @@ func New(cfg Config) (*Server, error) {
 
 	s.wireWorkerManager()
 	go s.runProviderRefreshActor()
+
+	// The process inventory is process-global as well, so its subscription is
+	// taken beside the wake one, below every error return, and Shutdown drops it.
+	s.stopProcessWatch = s.watchProcesses()
 
 	// When the OS resumes from sleep, cancel any in-flight LLM request whose
 	// connection the sleep likely dropped, so the turn fails fast instead of

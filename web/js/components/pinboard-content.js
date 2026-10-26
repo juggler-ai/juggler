@@ -27,7 +27,7 @@ import pinboardView from '../services/pinboard-view.js';
 import wsService from '../services/websocket.js';
 import gitStatusCache from '../services/git-status-cache.js';
 import gitReviewService from '../services/git-review-service.js';
-import { shellKill, shellStatus } from '../services/ops-api.js';
+import { shellListProcesses, shellStopProcess } from '../services/ops-api.js';
 import { presentPopup } from '../utils/popup-surface.js';
 import { applyMenuRoles, attachMenuKeyboard } from '../utils/menu-roles.js';
 import { reviewDraftBoundsError } from '../utils/review-draft.js';
@@ -40,7 +40,8 @@ import { insertAtCaret } from './composer-paste-tokens.js';
 import findBar from './find-bar.js';
 import { REFRESH_SVG } from '../utils/icons.js';
 import { PINBOARD_BODY_ID } from './pinboard-tabbar.js';
-import { THREAD_FOCUS_CHANGED } from './conversation-tab.js';
+import { THREAD_FOCUS_CHANGED, CONVERSATION_TAB_SHOWN } from './conversation-tab.js';
+import { raiseThisWindow } from '../../sdk/lib/window-control.js';
 import { conversationTabFor } from './conversation-bar.js';
 import { itemGoal } from '../model/thread-alias.js';
 import { satelliteLink } from '../services/pinboard-link.js';
@@ -55,6 +56,7 @@ import { findNearestContextItem } from '../services/nearest-context-item.js';
 /** @typedef {import('juggler/pinboard-item-type').PinAction} PinAction */
 /** @typedef {import('juggler/pinboard-item-type').PinContextItemSnapshot} PinContextItemSnapshot */
 /** @typedef {import('juggler/pinboard-item-type').PinTask} PinTask */
+/** @typedef {import('../services/ops-api.js').ProcessInfo} ProcessInfo */
 
 /**
  * The glyphs an item type may ask for by name in a `PinAction`. An action naming
@@ -63,13 +65,6 @@ import { findNearestContextItem } from '../services/nearest-context-item.js';
  * @type {Record<string, string>}
  */
 const ACTION_ICONS = { refresh: REFRESH_SVG };
-
-/**
- * How often to ask the server which tasks are still running. The answer is a
- * lookup in an in-memory table, so this is cheap — but it is also the only way
- * the board learns a task has ended, so it should not be lazy either.
- */
-const TASK_POLL_MS = 2000;
 
 /**
  * How long a pin's news may wait when frames are not coming.
@@ -193,17 +188,135 @@ export async function composeForThread(thread, text) {
  * columns — a detached board sends it to the window it was detached from, and
  * that window runs this. Both ends therefore do the identical thing, which is
  * what lets a pin be written without knowing which window it is in.
- * @param {{kind: string, id: string|null}} target - What to point at.
+ * A `tool` target names a tool call (`id`) and the thread it ran in (`thread`),
+ * and lands on that call's row in the conversation on screen.
+ * @param {{kind: string, id: string|null, thread?: string|null}} target - What to point at.
  * @returns {void}
  */
 export function revealInConversation(target) {
   const tab = activeTab();
   if (!tab) return;
+  if (target.kind === 'tool') {
+    revealInConversation(resolveToolTarget(tab.getConversation?.(), target));
+    return;
+  }
   if (target.kind === 'thread') {
     tab.revealThread?.(target.id ?? null);
     return;
   }
   if (target.kind === 'item' && target.id) tab.revealItem?.(target.id);
+}
+
+/**
+ * The tool action a tool call left in a conversation, or null. Tool-call ids
+ * repeat across threads — `call_1` is in every sub-thread — so the thread named is
+ * searched first, and the rest only when it holds no such call (a process
+ * started by a caller that did not say which thread it was in).
+ *
+ * Reads fields one at a time and never calls `toJSON`: a background command's
+ * result holds its accumulated output.
+ * @param {any} conversation - The conversation model, loaded or not.
+ * @param {string|null} threadId - The thread it ran in, null for the root.
+ * @param {string} toolUseId - The tool call.
+ * @returns {any} The action's Yjs map, or null.
+ */
+export function findToolAction(conversation, threadId, toolUseId) {
+  if (!conversation || !toolUseId) return null;
+  const threads = conversation.getAllMessageThreads?.() || [];
+  /**
+   * @param {any} thread - One thread of the conversation.
+   * @returns {any} The call's action in it, or null.
+   */
+  const inThread = (thread) => {
+    for (const ymap of thread?.items || []) {
+      if (typeof ymap?.get !== 'function') continue;
+      if (ymap.get('type') === 'tool-action' && ymap.get('toolUseId') === toolUseId) return ymap;
+    }
+    return null;
+  };
+  const named = threads.find((/** @type {any} */ thread) => (thread.threadItemId || null) === (threadId || null));
+  const found = named ? inThread(named) : null;
+  if (found) return found;
+  for (const thread of threads) {
+    if (thread === named) continue;
+    const other = inThread(thread);
+    if (other) return other;
+  }
+  return null;
+}
+
+/**
+ * Turn a reveal of a tool call into a reveal of its row — or, when the row
+ * cannot be found, of the thread it ran in, which is the nearest thing that can.
+ * @param {any} conversation - The conversation the call was made in.
+ * @param {{kind: string, id: string|null, thread?: string|null}} target - A `tool` reveal.
+ * @returns {{kind: string, id: string|null}} An `item` or `thread` reveal.
+ */
+export function resolveToolTarget(conversation, target) {
+  const action = findToolAction(conversation, target.thread ?? null, target.id || '');
+  const itemId = action ? itemField(action, 'itemId') : '';
+  return itemId ? { kind: 'item', id: itemId } : { kind: 'thread', id: target.thread ?? null };
+}
+
+/**
+ * Wait until a conversation's column is the one on screen, so a reveal aimed at
+ * it has something to aim at. Switching mounts the tab and shows it, but not
+ * necessarily in the same turn — a first showing syncs its columns a task later
+ * — and a reveal that arrives before that has no columns to scroll. The tab
+ * says when it is ready with CONVERSATION_TAB_SHOWN.
+ *
+ * It resolves on the deadline rather than hanging: a tab that never arrives is a
+ * reveal that lands nowhere, which is a better outcome than a promise nothing
+ * settles. A timer rather than a frame, because the window may still be behind
+ * another when this runs, and a hidden window paints none.
+ * @param {string} conversationId - The conversation whose column to wait for.
+ * @param {number} [timeoutMs] - How long to wait before giving up.
+ * @returns {Promise<void>} Resolves when the column is up, or on the deadline.
+ */
+export function waitForTab(conversationId, timeoutMs = 1000) {
+  const tab = /** @type {any} */ (document.getElementById(`conversation-tab-${conversationId}`));
+  if (tab?.shown) return Promise.resolve();
+  return new Promise((resolve) => {
+    /** @param {Event} e */
+    const onShown = (e) => {
+      if (/** @type {CustomEvent} */ (e).detail?.conversationId === conversationId) done();
+    };
+    const done = () => {
+      clearTimeout(deadline);
+      document.removeEventListener(CONVERSATION_TAB_SHOWN, onShown);
+      resolve();
+    };
+    const deadline = setTimeout(done, timeoutMs);
+    document.addEventListener(CONVERSATION_TAB_SHOWN, onShown);
+  });
+}
+
+/**
+ * Bring this window forward on a conversation, switching to it if it is not the
+ * one on screen — what every reveal aimed at another conversation does first.
+ *
+ * The switch is the point, not a side effect: the user asked to see something in
+ * that conversation, so recording it as the one they are on is what they meant.
+ * @param {any} session - This viewer's session.
+ * @param {string} conversationId - The conversation to show.
+ * @returns {Promise<boolean>} False when a switch was called for and did not
+ *   happen, so there is no point going on to point at anything. A conversation
+ *   this viewer does not have is not a failure — there was nothing to switch to.
+ */
+export async function showConversation(session, conversationId) {
+  // Raised first, and not at the end. A window nobody is looking at has its
+  // timers throttled, so the wait below can take a second there — and a window
+  // that comes forward a second after the click looks like a window that
+  // ignored it.
+  raiseThisWindow();
+  if (!conversationId || !session?.getConversation?.(conversationId)) return true;
+  if (session.getVisibleConversation?.()?.id === conversationId) return true;
+  // Hydrate before switching: a column built from an unloaded conversation has
+  // no thread to point at yet, and a reveal after this would land on nothing.
+  await session.ensureConversationLoaded?.(conversationId);
+  if (!session.switchConversation?.(conversationId)) return false;
+  await waitForTab(conversationId);
+  return true;
 }
 
 /**
@@ -249,20 +362,6 @@ function cloneData(data) {
   } catch {
     return {};
   }
-}
-
-/**
- * When an item was stamped, as Unix ms. Zero-free: an item the worker has not
- * echoed back carries no timestamp, and that only happens while it is the newest
- * thing in the thread, so it reads as now rather than as the beginning of time.
- * @param {any} ymap - The item.
- * @returns {number} Unix ms, or Infinity when it carries no timestamp yet.
- */
-function itemTime(ymap) {
-  const raw = ymap?.get?.('timestamp');
-  if (!raw) return Infinity;
-  const ms = new Date(String(raw)).getTime();
-  return Number.isNaN(ms) ? Infinity : ms;
 }
 
 class PinboardContent extends JugglerElement {
@@ -326,6 +425,14 @@ class PinboardContent extends JugglerElement {
     this._scrollTops = new Map();
     /** @type {Set<() => void>} @private Watchers of the running-task list. */
     this._taskListeners = new Set();
+    /** @type {(() => void)|null} @private Stops listening to the socket, while anyone watches tasks. */
+    this._unwatchProcesses = null;
+    /**
+     * Counts `processes-changed` frames, so a listing fetched before the latest
+     * frame cannot overwrite it on arrival.
+     * @type {number} @private
+     */
+    this._processFrames = 0;
     /**
      * Watchers of the review draft, each with the observer it currently has on
      * the thread being read. The thread moves under them — that is what
@@ -367,28 +474,16 @@ class PinboardContent extends JugglerElement {
      */
     this._visible = true;
     /**
-     * The tasks confirmed running at the last probe, or null when none has come
-     * back yet. Null is a state of its own: "nothing running" is a claim, and
-     * making it before asking would be a guess.
-     * @type {PinTask[]|null} @private
+     * The project's process inventory as last heard, or null when nothing has
+     * come back yet. Null is a state of its own: "nothing running" is a claim,
+     * and making it before asking would be a guess.
+     * @type {ProcessInfo[]|null} @private
      */
-    this._tasks = null;
-    /** @type {string} @private The last probe's failure, kept beside the last answer. */
+    this._processes = null;
+    /** @type {string} @private The last listing's failure, kept beside the last answer. */
     this._taskError = '';
     /** @type {string} @private What the watchers were last told, to spot a real change. */
     this._taskSignature = '';
-    /** @type {ReturnType<typeof setInterval>|null} @private */
-    this._taskTimer = null;
-    /** @type {boolean} @private Guards against a slow probe overlapping the next tick. */
-    this._taskProbing = false;
-    /**
-     * Bound so the focus listener can be removed again.
-     * @private
-     */
-    this._taskPoll = () => {
-      if (typeof document !== 'undefined' && !document.hasFocus()) return;
-      void this._pollTasks();
-    };
   }
 
   connectedCallback() {
@@ -487,14 +582,10 @@ class PinboardContent extends JugglerElement {
       || (active?.thread?.id ?? null) !== previousThread) {
       this._rebindReviewWatchers();
     }
-    // The running-task list belongs to one conversation. Showing the previous
-    // one's tasks against the new one's name would be a lie for as long as the
-    // next probe takes, so go back to "still looking" and ask again now.
+    // The running-task list is the whole project's, but it puts the
+    // conversation being read first — so a move to another one reorders it.
     if ((active?.conversation?.id || '') !== previousConversation) {
-      this._tasks = null;
-      this._taskError = '';
       this._notifyTaskWatchers();
-      if (this._taskListeners.size > 0) void this._pollTasks();
     }
     this._renderToolbar();
     // Every mounted pin hears this, not only the one on screen: a retained pin
@@ -1324,10 +1415,14 @@ class PinboardContent extends JugglerElement {
         tasks: {
           // A copy, like every other service here: what a pin is handed is a
           // snapshot, and mutating it must not reach the next reader.
-          list: () => (this._tasks ? this._tasks.map((task) => ({ ...task })) : null),
+          // Built afresh on every call, so a pin mutating what it was handed
+          // cannot reach the next reader.
+          list: () => this._taskList(),
           error: () => this._taskError,
           onChange: (listener) => this._watchTasks(listener, signal),
-          reveal: (itemId) => this._reveal({ kind: 'item', id: itemId }),
+          reveal: (task) => (typeof task === 'string'
+            ? this._reveal({ kind: 'item', id: task })
+            : this._revealTask(task)),
           stop: (taskId) => this._stopTask(taskId),
         },
         review: {
@@ -1366,6 +1461,33 @@ class PinboardContent extends JugglerElement {
       return;
     }
     revealInConversation(target);
+  }
+
+  /**
+   * Go to the tool action that started a task, in whichever conversation that
+   * was — switching to it first, because a task manager lists every
+   * conversation's work and the one that started a row is seldom the one on
+   * screen. A detached board asks the window it came from to do the same.
+   *
+   * The row is found by its tool call when the reveal lands rather than from
+   * the item id the list carried, because the list is the server's and the
+   * conversation may not have been loaded when it was drawn.
+   * @param {PinTask} task - The task, as `list` handed it out.
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _revealTask(task) {
+    const conversationId = task?.conversationId || this._active?.conversation?.id || '';
+    const threadId = task?.threadId ?? null;
+    if (isPinboardView()) {
+      satelliteLink.revealToolAction(task?.toolUseId || '', threadId, conversationId);
+      return;
+    }
+    if (!(await showConversation(this._session, conversationId))) return;
+    const conversation = this._session?.getConversation?.(conversationId);
+    revealInConversation(task?.toolUseId
+      ? resolveToolTarget(conversation, { kind: 'tool', id: task.toolUseId, thread: threadId })
+      : { kind: 'thread', id: threadId });
   }
 
   /**
@@ -1724,109 +1846,75 @@ class PinboardContent extends JugglerElement {
   }
 
   /**
-   * Every background task this conversation's transcript says it started, alive
-   * or not. The id is the receipt `shellBackground` returned, stored on the tool
-   * action that spawned it — so `bash` with `run_in_background` and `Monitor`
-   * both land here, and a foreground command, which has no task id, does not.
+   * The running tasks, as a pin is handed them: the server's inventory, with
+   * what the transcript knows about each laid over it where the conversation is
+   * loaded — the action's row, the tool's name, and what it was started for.
    *
-   * This is only half of the answer. The transcript is a record of what was
-   * started and can never be a record of what is still running: the durable
-   * snapshot beside it freezes at whatever it last said, so after a restart it
-   * claims `running` forever. {@link _pollTasks} joins this to the server, which
-   * is the only thing that knows.
+   * The server is the only thing that knows what is running. The transcript
+   * cannot say — the durable snapshot beside a tool action freezes at whatever it
+   * last said, so after a restart it claims `running` forever — and it is read
+   * here only for labels, never to decide what is listed.
    *
-   * Reads fields one at a time with {@link itemField} and never calls `toJSON`: a
-   * background `bash` action's result holds the command's accumulated output.
-   * @returns {PinTask[]} Candidates, newest first.
+   * The conversation being read comes first; within that, newest first.
+   * @returns {PinTask[]|null} Tasks, or null when nothing has come back yet.
    * @private
    */
-  _listTaskCandidates() {
-    const conversationId = this._active?.conversation?.id;
-    const conversation = conversationId ? this._session?.getConversation?.(conversationId) : null;
-    if (!conversation) return [];
-
-    /** @type {(PinTask & {_order: number})[]} */
-    const found = [];
-    let order = 0;
-
-    for (const thread of conversation.getAllMessageThreads?.() || []) {
-      for (const ymap of thread.items || []) {
-        order++;
-        if (typeof ymap?.get !== 'function') continue;
-        if (ymap.get('type') !== 'tool-action') continue;
-
-        const result = ymap.get('result');
-        if (!result) continue;
-        const payload = itemField(itemField(result, 'fullResult'), 'result');
-        const taskId = itemField(payload, 'task_id');
-        if (typeof taskId !== 'string' || !taskId) continue;
-
-        const input = ymap.get('toolInput');
-        found.push({
-          taskId,
-          itemId: ymap.get('itemId'),
-          threadId: thread.threadItemId || null,
-          toolName: String(ymap.get('toolName') || ''),
-          command: String(itemField(input, 'command') || ''),
-          label: String(itemField(input, 'description') || ''),
-          at: itemTime(ymap),
-          _order: order,
-        });
-      }
-    }
-
-    found.sort((a, b) => (b.at - a.at) || (b._order - a._order));
-    return found.map(({ _order, ...task }) => task);
+  _taskList() {
+    if (!this._processes) return null;
+    const activeId = this._active?.conversation?.id || '';
+    const tasks = this._processes.map((process) => this._describeProcess(process));
+    tasks.sort((a, b) => (Number(b.conversationId === activeId) - Number(a.conversationId === activeId))
+      || (b.at - a.at)
+      || a.taskId.localeCompare(b.taskId));
+    return tasks;
   }
 
   /**
-   * Ask the server which of the transcript's tasks are still running, and keep
-   * the ones that are.
-   *
-   * The probe names the ids rather than asking what exists, so there is no
-   * listing to be wrong about and nothing to see beyond what this conversation
-   * already shows. A task that has ended, been reaped, or died with a previous
-   * server simply is not in the answer — which is why an empty board after a
-   * restart needs no special case to be honest.
+   * One process as a task. Reads the action's fields one at a time and never
+   * calls `toJSON`: a background command's result holds its accumulated output.
+   * @param {ProcessInfo} process - The server's entry.
+   * @returns {PinTask} The task.
+   * @private
+   */
+  _describeProcess(process) {
+    const conversationId = process.convId || '';
+    const session = /** @type {any} */ (this._session);
+    const conversation = conversationId ? session?.getConversation?.(conversationId) : null;
+    const name = conversationId
+      ? (session?.getConversationName?.(conversationId) || conversation?.name || '')
+      : '';
+    const action = findToolAction(conversation, process.threadId || null, process.toolUseId || '');
+    return {
+      taskId: process.id,
+      kind: process.kind,
+      conversationId,
+      conversationTitle: name ? displayConversationName(name) : '',
+      threadId: process.threadId || null,
+      toolUseId: process.toolUseId || '',
+      itemId: action ? String(itemField(action, 'itemId') || '') : '',
+      toolName: action ? String(action.get('toolName') || '') : '',
+      command: process.command || '',
+      label: action ? String(itemField(action.get('toolInput'), 'description') || '') : '',
+      at: Number.isFinite(process.startedAt) ? process.startedAt : Infinity,
+    };
+  }
+
+  /**
+   * Ask the server for the whole inventory — for the first watcher, and after
+   * the socket comes back, when frames may have been missed. A frame that lands
+   * while this is out is newer than its answer, and wins.
    * @returns {Promise<void>} Resolves once the list has been refreshed.
    * @private
    */
-  async _pollTasks() {
-    if (this._taskProbing) return;
-    const convId = this._active?.conversation?.id;
-    if (!convId) {
-      this._tasks = [];
-      this._taskError = '';
-      this._notifyTaskWatchers();
-      return;
-    }
-
-    const candidates = this._listTaskCandidates();
-    if (!candidates.length) {
-      this._tasks = [];
-      this._taskError = '';
-      this._notifyTaskWatchers();
-      return;
-    }
-
-    this._taskProbing = true;
+  async _fetchProcesses() {
+    const framesBefore = this._processFrames;
     try {
-      const answer = await shellStatus({
-        convId,
-        taskIds: candidates.map((task) => task.taskId),
-      });
-      // The conversation may have changed while the probe was out; its answer is
-      // about a conversation nobody is looking at any more.
-      if ((this._active?.conversation?.id || '') !== convId) return;
-      const running = new Set(
-        (answer?.tasks || []).filter((task) => task.running).map((task) => task.task_id)
-      );
-      this._tasks = candidates.filter((task) => running.has(task.taskId));
+      const answer = await shellListProcesses();
+      if (this._processFrames !== framesBefore) return;
+      this._processes = Array.isArray(answer?.processes) ? answer.processes : [];
       this._taskError = '';
     } catch (err) {
       this._taskError = errorText(err);
-    } finally {
-      this._taskProbing = false;
     }
     this._notifyTaskWatchers();
   }
@@ -1836,13 +1924,13 @@ class PinboardContent extends JugglerElement {
    * @private
    */
   _notifyTaskWatchers() {
-    // The probe runs every two seconds and almost always comes back with the
-    // same tasks still running. That is not news, and a watcher told about it
-    // rebuilt itself thirty times a minute to draw the identical list. What does
-    // change between identical answers is how long each task has been going,
-    // which is the watcher's own clock to keep.
+    // Frames repeat the whole table, and most of a burst's frames say what the
+    // last one said. That is not news. What does change between identical
+    // answers is how long each task has been going, which is the watcher's own
+    // clock to keep.
     const signature = JSON.stringify({
-      tasks: this._tasks && this._tasks.map((task) => `${task.taskId} ${task.itemId}`),
+      processes: this._processes && this._processes.map((p) => p.id),
+      active: this._active?.conversation?.id || '',
       error: this._taskError,
     });
     if (signature === this._taskSignature) return;
@@ -1853,26 +1941,38 @@ class PinboardContent extends JugglerElement {
   }
 
   /**
-   * Run the poll exactly while something is watching.
+   * Listen to the socket exactly while something is watching, and catch up
+   * when the first watcher arrives or the socket comes back.
    * @private
    */
-  _updateTaskPolling() {
+  _updateTaskWatching() {
     const wanted = this._taskListeners.size > 0;
-    if (wanted === (this._taskTimer !== null)) return;
-    if (wanted) {
-      this._taskTimer = setInterval(this._taskPoll, TASK_POLL_MS);
-      if (typeof window !== 'undefined') window.addEventListener('focus', this._taskPoll);
+    if (wanted === (this._unwatchProcesses !== null)) return;
+    if (!wanted) {
+      this._unwatchProcesses?.();
+      this._unwatchProcesses = null;
       return;
     }
-    if (this._taskTimer) clearInterval(this._taskTimer);
-    this._taskTimer = null;
-    if (typeof window !== 'undefined') window.removeEventListener('focus', this._taskPoll);
+    /** @param {any} data */
+    const onFrame = (data) => {
+      this._processFrames++;
+      this._processes = Array.isArray(data?.processes) ? data.processes : [];
+      this._taskError = '';
+      this._notifyTaskWatchers();
+    };
+    const onOpen = () => { void this._fetchProcesses(); };
+    wsService.on('processes-changed', onFrame);
+    wsService.on('open', onOpen);
+    this._unwatchProcesses = () => {
+      wsService.off('processes-changed', onFrame);
+      wsService.off('open', onOpen);
+    };
+    void this._fetchProcesses();
   }
 
   /**
-   * Subscribe an item type to the running-task list, starting the poll for the
-   * first watcher and stopping it after the last — so nothing asks the server
-   * about tasks for a surface nobody has open.
+   * Subscribe an item type to the running-task list, listening for the first
+   * watcher and stopping after the last.
    *
    * Tied to the pin's signal as well as to the returned function, like every
    * other service here.
@@ -1883,46 +1983,41 @@ class PinboardContent extends JugglerElement {
    */
   _watchTasks(listener, signal) {
     this._taskListeners.add(listener);
-    this._updateTaskPolling();
-    void this._pollTasks();
+    this._updateTaskWatching();
 
     let stopped = false;
     const stop = () => {
       if (stopped) return;
       stopped = true;
       this._taskListeners.delete(listener);
-      this._updateTaskPolling();
+      this._updateTaskWatching();
     };
     signal.addEventListener('abort', stop, { once: true });
     return stop;
   }
 
   /**
-   * Stop a running task, by whichever of the two means actually fits it.
+   * Stop a running task, by whichever means actually fits it.
    *
    * A Monitor's task is owned by its delivery binding, and cancelling that is
    * what stops it: the worker sees the flag, stops the pump and kills the task,
-   * so the binding's own status stays the truth about it. A plain background task
-   * has no binding, and is killed directly — the same op its properties panel's
-   * Stop button calls. Which of the two a task is, is the host's knowledge; a pin
-   * asks for it to stop and does not need to know how.
+   * so the binding's own status stays the truth about it. That needs the
+   * conversation loaded here; when it is not, or the task is anything else, the
+   * server stops the process — a background task exactly as its own Stop button
+   * would, a foreground command so that its tool action reads "Killed by user".
    * @param {string} taskId - The task to stop.
    * @returns {Promise<void>} Resolves once it has been asked to stop.
    * @private
    */
   async _stopTask(taskId) {
-    const convId = this._active?.conversation?.id || '';
-    const task = (this._tasks || []).find((candidate) => candidate.taskId === taskId);
-    const conversation = convId ? this._session?.getConversation?.(convId) : null;
-    const thread = (conversation?.getAllMessageThreads?.() || [])
-      .find((/** @type {any} */ candidate) => (candidate.threadItemId || null) === (task?.threadId ?? null));
-
-    if (thread?.cancelTaskOutputDelivery?.(taskId)) {
-      await this._pollTasks();
-      return;
+    const process = (this._processes || []).find((candidate) => candidate.id === taskId);
+    if (process?.kind === 'background' && process.convId) {
+      const conversation = /** @type {any} */ (this._session)?.getConversation?.(process.convId);
+      const thread = (conversation?.getAllMessageThreads?.() || [])
+        .find((/** @type {any} */ candidate) => (candidate.threadItemId || null) === (process.threadId || null));
+      if (thread?.cancelTaskOutputDelivery?.(taskId)) return;
     }
-    await shellKill({ shellId: taskId, convId });
-    await this._pollTasks();
+    await shellStopProcess({ id: taskId });
   }
 
   /**

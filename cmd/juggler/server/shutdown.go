@@ -194,6 +194,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.stopWake != nil {
 		s.stopWake()
 	}
+	// Likewise the process inventory's: nothing should be published to viewers
+	// that are being shut down.
+	if s.stopProcessWatch != nil {
+		s.stopProcessWatch()
+	}
 
 	st := s.projectState.Load()
 

@@ -201,7 +201,7 @@ export const ownerLink = {
   /** @type {Set<string>} @private Viewer ids of the boards that have said hello. */
   _satellites: new Set(),
 
-  /** @type {((reveal: {kind: string, id: string|null, conversation: string}) => void)|null} @private */
+  /** @type {((reveal: {kind: string, id: string|null, thread: string|null, conversation: string}) => void)|null} @private */
   _onReveal: null,
 
   /** @type {((conversationId: string) => void)|null} @private */
@@ -217,7 +217,7 @@ export const ownerLink = {
    * Start answering boards. Idempotent — the second call replaces the handlers
    * rather than subscribing twice.
    * @param {object} handlers - What the owner can do.
-   * @param {(reveal: {kind: string, id: string|null, conversation: string}) => void} handlers.onReveal -
+   * @param {(reveal: {kind: string, id: string|null, thread: string|null, conversation: string}) => void} handlers.onReveal -
    *   Carry out a board's reveal in this window, in the conversation it names.
    * @param {(conversationId: string) => void} [handlers.onSelect] - Show the
    *   conversation a board names, without pointing at anything inside it.
@@ -246,6 +246,7 @@ export const ownerLink = {
           this._onReveal?.({
             kind: String(message.body?.kind || ''),
             id: message.body?.id ?? null,
+            thread: message.body?.thread ?? null,
             conversation: String(message.body?.conversation || ''),
           });
           break;
@@ -497,6 +498,24 @@ export const satelliteLink = {
   revealItem(itemId, conversationId) {
     if (!this._owner || !itemId) return;
     send(this._owner, REVEAL, { kind: 'item', id: itemId, conversation: conversationId });
+  },
+
+  /**
+   * Ask the owner to go to the row a tool call left, in whichever conversation
+   * made it. The call is named rather than its row because the row is the
+   * owner's to find: this board may never have loaded that conversation.
+   * @param {string} toolUseId - The tool call.
+   * @param {string|null} threadId - The thread it ran in, null for the root.
+   * @param {string} conversationId - The conversation it belongs to.
+   * @returns {void}
+   */
+  revealToolAction(toolUseId, threadId, conversationId) {
+    if (!this._owner) return;
+    if (!toolUseId) {
+      this.revealThread(threadId, conversationId);
+      return;
+    }
+    send(this._owner, REVEAL, { kind: 'tool', id: toolUseId, thread: threadId ?? null, conversation: conversationId });
   },
 
   /**

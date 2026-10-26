@@ -96,7 +96,7 @@ const RECONNECT_JITTER = 0.25;
 const LINK_STABLE_AFTER_MS = 10000;
 
 /**
- * @typedef {'open'|'close'|'error'|'message'|'session'|'file-change'|'project-changed'|'plugin-changed'|'providers-update'|'providers-ready'|'shell-output'|'reconnect-attempt'|'engine-bridge'|'update-status'|'clients-changed'|'pinboard-changed'|'pinboard-reveal'|'viewer-relay'|'workspaces-changed'|'settings-changed'|'server-full'} WSEventType
+ * @typedef {'open'|'close'|'error'|'message'|'session'|'file-change'|'project-changed'|'plugin-changed'|'providers-update'|'providers-ready'|'shell-output'|'reconnect-attempt'|'engine-bridge'|'update-status'|'clients-changed'|'pinboard-changed'|'pinboard-reveal'|'processes-changed'|'viewer-relay'|'workspaces-changed'|'settings-changed'|'server-full'} WSEventType
  */
 
 /**
@@ -121,6 +121,7 @@ const LINK_STABLE_AFTER_MS = 10000;
  *   |import('../protocol/server-wire-types.gen.js').PinboardChangedFrame
  *   |import('../protocol/server-wire-types.gen.js').PinboardRevealFrame
  *   |import('../protocol/server-wire-types.gen.js').WorkspacesChangedFrame
+ *   |import('../protocol/server-wire-types.gen.js').ProcessesChangedFrame
  *   |import('../protocol/server-wire-types.gen.js').ViewerRelayFrame
  *   |import('../protocol/server-wire-types.gen.js').ProvidersUpdateFrame
  *   |import('../protocol/server-wire-types.gen.js').UpdateStatusFrame
@@ -311,6 +312,7 @@ class WebSocketService {
       'clients-changed': [],
       'pinboard-changed': [],
       'pinboard-reveal': [],
+      'processes-changed': [],
       'viewer-relay': [],
       'workspaces-changed': [],
       'settings-changed': [],
@@ -761,6 +763,13 @@ class WebSocketService {
       });
     },
 
+    // The project's process inventory — every shell process any conversation has
+    // running — after one started or exited. The whole table rides the event, so
+    // a viewer that missed one is corrected by the next.
+    'processes-changed': (ws, data) => {
+      ws._emit('processes-changed', { processes: Array.isArray(data.processes) ? data.processes : [] });
+    },
+
     // The session's workspace table after an edit — the places a conversation
     // can work other than the project. The whole table rides the event, as the
     // pinboard's does and for the same reason: it is a short, wholly-owned list,
@@ -1054,13 +1063,17 @@ class WebSocketService {
    * @param {string} [cwd] - Working directory (optional)
    * @param {number} [timeout] - Timeout in milliseconds (optional)
    * @param {string} [workspaceId] - Workspace the command runs in; '' is the project
+   * @param {{threadId?: string, toolUseId?: string}} [owner] - Thread and tool call that
+   *   started it, which the session's process list leads back to
    * @returns {boolean} True if sent successfully
    */
-  sendShellStart(shellId, convId, command, cwd, timeout, workspaceId) {
+  sendShellStart(shellId, convId, command, cwd, timeout, workspaceId, owner = {}) {
     return this._sendJson({
       type: 'shell-start',
       shellId,
       convId,
+      threadId: owner.threadId || '',
+      toolUseId: owner.toolUseId || '',
       command,
       cwd,
       timeout,

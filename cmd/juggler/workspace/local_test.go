@@ -156,6 +156,39 @@ func TestLocalWorkspaceStreamShellRunsInItsTree(t *testing.T) {
 	}
 }
 
+// A streaming command in a workspace is listed in the session's process
+// inventory under the project, carrying the thread and tool call that ran it.
+func TestLocalWorkspaceStreamShellListedWithItsOwner(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only shell command")
+	}
+	tr := newTrees(t)
+	out := make(chan ops.ShellStreamChunk, 16)
+	go tr.resolve(t, "ws_tree").StreamShell(t.Context(), ShellRequest{
+		ShellID: "shell-owned", ConvID: "conv-1", ThreadID: "thread-1", ToolUseID: "call_1",
+		Command: "sleep 30", TimeoutMs: 60000,
+	}, out)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		list := ops.ListProcesses(tr.project)
+		if len(list) == 1 {
+			p := list[0]
+			if p.ID != "shell-owned" || p.ConvID != "conv-1" || p.ThreadID != "thread-1" || p.ToolUseID != "call_1" {
+				t.Fatalf("listed with the wrong owner: %+v", p)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the command was never listed under its project; listed %+v", list)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	ops.StopProcess(tr.project, "shell-owned")
+	for range out {
+	}
+}
+
 type cannedIndex []ops.FileMatch
 
 func (c cannedIndex) Search(string, int) []ops.FileMatch { return c }

@@ -309,6 +309,7 @@ import { runTests as runArrowKeyThreadFocusTests } from '../unit-tests/arrow-key
 import { runTests as runParallelThreadSelectionTests } from '../unit-tests/parallel-thread-selection-test.js';
 import { runTests as runPinboardThreadSourceTests } from '../unit-tests/pinboard-thread-source-test.js';
 import { runTests as runPinboardTasksTests } from '../unit-tests/pinboard-tasks-test.js';
+import { runTests as runPinboardTaskRevealTests } from '../unit-tests/pinboard-task-reveal-test.js';
 import { runTests as runPinboardGitReviewTests } from '../unit-tests/pinboard-git-review-test.js';
 import { runTests as runReviewDraftTests } from '../unit-tests/review-draft-test.js';
 import { runTests as runReviewSendTests } from '../unit-tests/review-send-test.js';
@@ -870,6 +871,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:parallel-thread-selection', run: runParallelThreadSelectionTests },
   { name: 'unit:pinboard-thread-source', run: runPinboardThreadSourceTests },
   { name: 'unit:pinboard-tasks', run: runPinboardTasksTests },
+  { name: 'unit:pinboard-task-reveal', run: runPinboardTaskRevealTests },
   { name: 'unit:pinboard-git-review', run: runPinboardGitReviewTests },
   { name: 'unit:review-draft', run: runReviewDraftTests },
   { name: 'unit:review-send', run: runReviewSendTests },

@@ -433,61 +433,76 @@ import { validateManifest } from './lib/manifest.js';
  */
 
 /**
- * One background task this conversation started and that is still running.
+ * One process a conversation in this project has running: a background task, or
+ * a command a tool call is still waiting on.
  * @typedef {object} PinTask
- * @property {string} taskId - The task's id, as `stop` takes it
- * @property {string} itemId - The tool action that started it, for `reveal`
+ * @property {string} taskId - The process's id, as `stop` takes it
+ * @property {'background'|'foreground'|'python'} kind - How it was started: left
+ *   running in the background (`bash` with `run_in_background`, `Monitor`, an
+ *   extension's long-lived server), a shell command a tool call is waiting on, or
+ *   python code
+ * @property {string} conversationId - The conversation that started it; '' when
+ *   nothing said (an extension that started a task for no conversation)
+ * @property {string} conversationTitle - That conversation's name, for display.
+ *   '' when it has none this viewer knows of.
  * @property {string|null} threadId - The thread it was started in, null for the root
- * @property {string} toolName - The tool that started it, as the transcript names it
- * @property {string} command - The command line it is running. Unbounded — it is
- *   whatever was typed — so give it a bounded space rather than trusting it to be short.
+ * @property {string} toolUseId - The tool call that started it, '' when none did
+ * @property {string} itemId - The tool action that started it, when its
+ *   conversation is loaded in this viewer; '' otherwise. `reveal` does not need
+ *   it — pass the task — but a pin may use it to tell whether the row is at hand.
+ * @property {string} toolName - The tool that started it, as the transcript names
+ *   it; '' when the conversation is not loaded here
+ * @property {string} command - The command line it is running (for python, its
+ *   first line). Unbounded — it is whatever was typed — so give it a bounded
+ *   space rather than trusting it to be short.
  * @property {string} label - What it was started for, when the tool was asked to
- *   say. Empty otherwise.
- * @property {number} at - Unix ms it was started, `Infinity` for one so new the
- *   worker has not echoed it back yet
+ *   say and its conversation is loaded here. Empty otherwise.
+ * @property {number} at - Unix ms it was started
  */
 
 /**
- * The background tasks this conversation has running: `bash` with
- * `run_in_background`, and `Monitor`.
+ * Everything the conversations in this project have running, right now — the
+ * session's task manager.
  *
- * **A live inventory, not a history.** A task leaves the list the moment it ends,
- * however it ended. That is the whole retention policy, and it is deliberate: the
- * transcript is where a task's history lives, so a task that failed is gone from
- * here and still says so — with its output, its exit code and its approval — on
- * the tool action that started it. Which is what `reveal` is for.
+ * **A live inventory, not a history.** A task appears when its process starts
+ * and leaves the list the moment it ends, however it ended. That is the whole
+ * retention policy, and it is deliberate: the transcript is where a task's
+ * history lives, so a task that failed is gone from here and still says so —
+ * with its output, its exit code and its approval — on the tool action that
+ * started it. Which is what `reveal` is for.
  *
- * It is built from two halves because neither is enough alone. The transcript
- * says which tasks were started and can never say which are still running: the
- * durable snapshot beside a tool action freezes at whatever it last said, so
- * after a restart it claims `running` forever. The server knows what is running
- * and is asked only about ids the transcript already named. One consequence is
- * worth relying on: nothing survives a server restart, and the list says so by
- * being empty rather than by explaining itself.
+ * The server is the only source. It keeps the inventory and pushes it whenever
+ * it changes, so the list is neither polled nor rebuilt from a transcript —
+ * which could never say what is still running, because the durable snapshot
+ * beside a tool action freezes at whatever it last said. Nothing survives a
+ * server restart, and the list says so by being empty.
  *
- * It is also the narrowest thing that could work, on purpose. There is no way to
- * ask what tasks exist — not in this conversation, not in another one, not in the
- * process — so a surface built on this can only ever show tasks the conversation
- * in front of the user started.
+ * It lists processes Juggler started, not processes on the machine: something a
+ * command daemonised, or anything started outside Juggler, is not here.
  * @typedef {object} PinTasksService
- * @property {() => PinTask[]|null} list - The tasks running as of the last check,
- *   newest first, or null when none has come back yet. Null is not an empty list:
- *   say you are still looking rather than claiming nothing is running.
- * @property {() => string} error - The last check's failure, or ''. The previous
+ * @property {() => PinTask[]|null} list - The tasks running as of the last word
+ *   from the server: the conversation being read first, then newest first. Null
+ *   when nothing has come back yet. Null is not an empty list: say you are still
+ *   looking rather than claiming nothing is running.
+ * @property {() => string} error - The last listing's failure, or ''. The previous
  *   list is kept beside it, because a transient failure should not empty a
  *   working display — show both.
  * @property {(listener: () => void) => (() => void)} onChange - Called when the
- *   list may have changed. Carries nothing: call `list`. Returns an unsubscribe
- *   function; the host also drops the subscription on teardown. The check runs
- *   only while something is watching, so a board nobody has open asks nothing.
- * @property {(itemId: string) => void} reveal - Select the tool action that
- *   started the task, opening whatever columns it takes to reach it. Like every
- *   reveal, it happens in the window that has the columns — a detached board's
- *   goes back to the window that opened it.
+ *   list may have changed, including when the conversation being read changes
+ *   (which reorders it). Carries nothing: call `list`. Returns an unsubscribe
+ *   function; the host also drops the subscription on teardown. The host listens
+ *   only while something is watching.
+ * @property {(task: PinTask|string) => void} reveal - Go to the tool action that
+ *   started a task, switching to its conversation first and opening whatever
+ *   columns it takes to reach it. Like every reveal, it happens in the window
+ *   that has the columns — a detached board's goes back to the window that opened
+ *   it. An item id is still accepted, and selects that item in the conversation
+ *   on screen.
  * @property {(taskId: string) => Promise<void>} stop - Stop a running task.
  *   Rejects if it could not be asked to stop, so show what came back. The host
- *   picks how — a `Monitor`'s task and a plain one are stopped by different means
- *   — and you do not need to know which.
+ *   picks how — a `Monitor`'s task, a plain background task and a foreground
+ *   command are stopped by different means — and you do not need to know which.
+ *   A stopped foreground command's tool action reports "Killed by user".
  */
 
 /**

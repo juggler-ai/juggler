@@ -114,6 +114,7 @@ func (ops *ShellOperations) probeFnOrDefault() func(dir string) {
 // conversations are read back with those keys.
 var shellParamSpellings = map[string]string{
 	"conv_id":     "convId",
+	"thread_id":   "threadId",
 	"tool_use_id": "toolUseId",
 	"task_id":     "taskId",
 	"shell_id":    "shellId",
@@ -165,6 +166,10 @@ func (ops *ShellOperations) Execute(ctx context.Context, operation string, param
 		return ops.listBackgroundShells(params)
 	case "taskStatus":
 		return ops.taskStatus(params)
+	case "listProcesses":
+		return ops.listProcesses()
+	case "stopProcess":
+		return ops.stopProcess(params)
 	default:
 		return nil, fmt.Errorf("unknown operation: %s", operation)
 	}
@@ -345,11 +350,8 @@ func (ops *ShellOperations) shellsFor(convID string) []map[string]any {
 }
 
 // taskStatus answers one question about tasks the caller already knows the ids
-// of: which of them are still running. It is deliberately not an inventory —
-// there is no way to ask it what exists — so the caller must already hold the
-// ids, which in practice means reading them out of a conversation transcript it
-// is already displaying. That bound is structural, and worth keeping: it is why
-// the board can show running tasks without any endpoint that enumerates them.
+// of, within one conversation: which of them are still running. For what is
+// running across the whole session, ask listProcesses.
 //
 // It carries no output, no command and no exit code. A task the caller does not
 // own reports the same "not running, not found" as one that never existed.
@@ -390,4 +392,31 @@ func (ops *ShellOperations) taskStatus(params map[string]any) (any, error) {
 	}
 
 	return map[string]any{"tasks": tasks}, nil
+}
+
+// listProcesses is the session's task manager: every shell process running for
+// any conversation in the caller's project — background tasks, foreground
+// commands and python — with the conversation, thread and tool call that
+// started each (ProcessInfo). It is an inventory on purpose: the user is the one
+// asking "what is running?", and a list confined to the conversation they happen
+// to be looking at cannot answer it.
+//
+// The project is the boundary, as it is for every id the registry hands out;
+// a workspace's processes are listed under the project it belongs to. Like
+// listBackgroundShells, it carries no output — a reader that wants a task's
+// output asks for it by id through getOutput, where ownership is checked.
+func (ops *ShellOperations) listProcesses() (any, error) {
+	return map[string]any{"processes": ListProcesses(ops.scope.ProjectRoot())}, nil
+}
+
+// stopProcess stops one listed process by its inventory id, within the caller's
+// project. A background task is killed exactly as the kill op kills it; a
+// foreground command ends with "Killed by user", which is what its tool action
+// then reports. Unknown and finished ids answer stopped:false.
+func (ops *ShellOperations) stopProcess(params map[string]any) (any, error) {
+	id, _ := params["id"].(string)
+	if id == "" {
+		return nil, fmt.Errorf("missing id parameter")
+	}
+	return map[string]any{"id": id, "stopped": StopProcess(ops.scope.ProjectRoot(), id)}, nil
 }

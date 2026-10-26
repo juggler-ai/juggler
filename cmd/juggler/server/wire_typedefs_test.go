@@ -44,6 +44,7 @@ var serverFrameTypedefs = []frameTypedef{
 	{entry: wireschema.Entry{Name: "PinboardChangedFrame", Value: pinboardChangedFrame{}, Types: frameTypes(framePinboardChanged)}, out: true},
 	{entry: wireschema.Entry{Name: "PinboardRevealFrame", Value: pinboardRevealFrame{}, Types: frameTypes(framePinboardReveal)}, out: true},
 	{entry: wireschema.Entry{Name: "WorkspacesChangedFrame", Value: workspacesChangedFrame{}, Types: frameTypes(frameWorkspacesChanged)}, out: true},
+	{entry: wireschema.Entry{Name: "ProcessesChangedFrame", Value: processesChangedFrame{}, Types: frameTypes(frameProcessesChanged)}, out: true},
 	{entry: wireschema.Entry{Name: "ViewerRelayFrame", Value: viewerRelayFrame{}, Types: frameTypes(frameViewerRelay)}, out: true},
 	{entry: wireschema.Entry{Name: "ProvidersUpdateFrame", Value: providersUpdateFrame{}, Types: frameTypes(frameProvidersUpdate)}, out: true},
 	{entry: wireschema.Entry{Name: "UpdateStatusFrame", Value: updateStatusMsg{}, Types: frameTypes(frameUpdateStatus)}, out: true},

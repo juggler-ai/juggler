@@ -51,7 +51,23 @@ func (ops *ShellOperations) ExecuteStreaming(
 	timeoutMs int,
 	output chan<- ShellStreamChunk,
 ) {
+	ops.ExecuteStreamingFor(ctx, ProcessOwner{ConvID: convID}, shellID, command, cwd, timeoutMs, output)
+}
+
+// ExecuteStreamingFor is ExecuteStreaming for a command whose owner is known in
+// full, so the process inventory can lead back to the tool call that started it.
+// shellID is the command's inventory id as well as its stream id.
+func (ops *ShellOperations) ExecuteStreamingFor(
+	ctx context.Context,
+	owner ProcessOwner,
+	shellID string,
+	command string,
+	cwd string,
+	timeoutMs int,
+	output chan<- ShellStreamChunk,
+) {
 	defer close(output)
+	convID := owner.ConvID
 
 	// Blocked marks the one error the caller must not retry: the command was
 	// refused outright, so there is no output and nothing about the environment
@@ -108,6 +124,13 @@ func (ops *ShellOperations) ExecuteStreaming(
 		}
 		return
 	}
+
+	// Listed while it runs; a stop cancels ctx, which the cancel branch below
+	// turns into SIGTERM and then the process group. Untracked on return — the
+	// output channel's close is deferred first, so it runs after this.
+	stopper := newUserStop(cancel)
+	untrack := trackProcess(shellID, ProcessForeground, command, ops.scope.ProjectRoot(), owner, stopper.stop)
+	defer untrack()
 
 	// Channel to signal command completion, and the channel that closes the
 	// moment the process is reaped and its pid stops naming it (see stoppingTask).
@@ -265,7 +288,9 @@ func (ops *ShellOperations) ExecuteStreaming(
 		fwd.closeSpill()   // flush the spill before suffix() names it in the marker
 
 		errMsg := "command cancelled"
-		if ctx.Err() == context.DeadlineExceeded {
+		if stopper.requested() {
+			errMsg = killedByUser
+		} else if ctx.Err() == context.DeadlineExceeded {
 			errMsg = fmt.Sprintf("command timeout (exceeded %v)", timeout)
 		}
 		output <- ShellStreamChunk{

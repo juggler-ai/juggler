@@ -6,6 +6,6 @@
 /** @type {import('juggler/pinboard-item-type').PinAgentDescriptor} */
 export default {
   id: 'tasks',
-  description: 'The background tasks this conversation is running.',
+  description: "Every command this project's conversations are running, background or foreground, grouped by conversation.",
   parameters: { type: 'object', properties: {}, required: [] },
 };

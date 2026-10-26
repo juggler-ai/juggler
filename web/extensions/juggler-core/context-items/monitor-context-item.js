@@ -198,6 +198,7 @@ class MonitorContextItem extends ContextItem {
       command,
       timeout: timeoutMs,
       convId: this.conversation.id,
+      threadId: this.messageThread?.threadItemId || '',
       toolUseId: this.toolUseId
     });
 

@@ -85,8 +85,9 @@ Built-in pins:
   commit or any git diff range. Line comments go to the conversation as one
   message. It reads git, so edits made by hand show too.
 - **Memory** — the project facts the assistant keeps.
-- **Background tasks** — commands running now, each with a Stop and a link to
-  the action that started it.
+- **Running tasks** — every command the project's conversations are running now,
+  background or foreground, grouped by conversation, each with a Stop and a link
+  to the action that started it.
 - **File** — a live file or directory (an agent-made pin is held to the project).
 - **Project files** — the project's files as a tree, everything on disk.
 - **Environment** — the variables commands run with in this project, and the

@@ -104,7 +104,8 @@ func (w *local) Operations(toolID string, allowedPaths []string) (ops.Operations
 // StreamShell runs the command under this tree's scope, with no allowed-paths
 // grant: a streaming command's cwd is confined to the root.
 func (w *local) StreamShell(ctx context.Context, req ShellRequest, out chan<- ops.ShellStreamChunk) {
-	ops.NewShellOperations(w.scope(nil)).ExecuteStreaming(ctx, req.ShellID, req.ConvID, req.Command, req.Cwd, req.TimeoutMs, out)
+	owner := ops.ProcessOwner{ConvID: req.ConvID, ThreadID: req.ThreadID, ToolUseID: req.ToolUseID}
+	ops.NewShellOperations(w.scope(nil)).ExecuteStreamingFor(ctx, owner, req.ShellID, req.Command, req.Cwd, req.TimeoutMs, out)
 }
 
 // SearchFiles answers the project's tree from its index, or walks a workspace

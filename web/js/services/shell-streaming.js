@@ -222,7 +222,8 @@ export async function shellStreaming(params, onOutput, signal, workspaceId) {
       command,
       params.cwd,
       params.timeout,
-      workspaceId
+      workspaceId,
+      { threadId: params.threadId, toolUseId: params.toolUseId }
     );
 
     if (!sent) {

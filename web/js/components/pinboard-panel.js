@@ -28,14 +28,14 @@ import pinboardStore from '../services/pinboard-store.js';
 import pinboardView from '../services/pinboard-view.js';
 import pinboardItemRegistry from '../registries/pinboard-item-registry.js';
 import { REGISTRIES_RELOADED } from '../registries/reload-registries.js';
-import { THREAD_FOCUS_CHANGED, CONVERSATION_TAB_SHOWN } from './conversation-tab.js';
+import { THREAD_FOCUS_CHANGED } from './conversation-tab.js';
 import { isEditableTarget } from '../services/key-shortcut-manager.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { t } from '../../sdk/lib/i18n.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
 import { openAddPicker } from './pinboard-add-picker.js';
-import { describePin, revealInConversation, composeForThread } from './pinboard-content.js';
-import { raiseThisWindow, closeThisWindow, isDesktopWindow } from '../../sdk/lib/window-control.js';
+import { describePin, revealInConversation, composeForThread, showConversation } from './pinboard-content.js';
+import { closeThisWindow, isDesktopWindow } from '../../sdk/lib/window-control.js';
 import { ownerLink, satelliteLink, canLinkBoards, onLinkAvailability, frameHintOf } from '../services/pinboard-link.js';
 import { isPinboardView, boardConversationId, ownerViewerId } from '../utils/view-mode.js';
 import { dragGuard } from '../utils/drag-guard.js';
@@ -57,39 +57,6 @@ const POPOUT_ICON_PATH = 'M120-120v-320h80v184l504-504H520v-80h320v320h-80v-184L
 function baseName(path) {
   const parts = path.split(/[/\\]/).filter(Boolean);
   return parts.length ? /** @type {string} */ (parts[parts.length - 1]) : path;
-}
-
-/**
- * Wait until a conversation's column is the one on screen, so a reveal aimed at
- * it has something to aim at. Switching mounts the tab and shows it, but not
- * necessarily in the same turn — a first showing syncs its columns a task later
- * — and a reveal that arrives before that has no columns to scroll. The tab
- * says when it is ready with CONVERSATION_TAB_SHOWN.
- *
- * It resolves on the deadline rather than hanging: a tab that never arrives is a
- * reveal that lands nowhere, which is a better outcome than a promise nothing
- * settles. A timer rather than a frame, because the window may still be behind
- * another when this runs, and a hidden window paints none.
- * @param {string} conversationId - The conversation whose column to wait for.
- * @param {number} [timeoutMs] - How long to wait before giving up.
- * @returns {Promise<void>} Resolves when the column is up, or on the deadline.
- */
-function waitForTab(conversationId, timeoutMs = 1000) {
-  const tab = /** @type {any} */ (document.getElementById(`conversation-tab-${conversationId}`));
-  if (tab?.shown) return Promise.resolve();
-  return new Promise((resolve) => {
-    /** @param {Event} e */
-    const onShown = (e) => {
-      if (/** @type {CustomEvent} */ (e).detail?.conversationId === conversationId) done();
-    };
-    const done = () => {
-      clearTimeout(deadline);
-      document.removeEventListener(CONVERSATION_TAB_SHOWN, onShown);
-      resolve();
-    };
-    const deadline = setTimeout(done, timeoutMs);
-    document.addEventListener(CONVERSATION_TAB_SHOWN, onShown);
-  });
 }
 
 class PinboardPanel extends JugglerElement {
@@ -468,27 +435,14 @@ class PinboardPanel extends JugglerElement {
    * @private
    */
   async _showConversationForBoard(conversationId) {
-    // Raised first, and not at the end. A window nobody is looking at has its
-    // timers throttled, so the wait below can take a second there — and a window
-    // that comes forward a second after the click looks like a window that
-    // ignored it.
-    raiseThisWindow();
-    const session = /** @type {any} */ (this._session);
-    if (!conversationId || !session?.getConversation?.(conversationId)) return true;
-    if (session.getVisibleConversation?.()?.id === conversationId) return true;
-    // Hydrate before switching: a column built from an unloaded conversation has
-    // no thread to point at yet, and a reveal after this would land on nothing.
-    await session.ensureConversationLoaded?.(conversationId);
-    if (!session.switchConversation?.(conversationId)) return false;
-    await waitForTab(conversationId);
-    return true;
+    return showConversation(this._session, conversationId);
   }
 
   /**
    * Carry out one board's reveal in this window's columns. Being pointed at
    * something is a request to go and look at it: show the conversation the board
    * names, then point.
-   * @param {{kind: string, id: string|null, conversation: string}} target - What to reveal.
+   * @param {{kind: string, id: string|null, thread?: string|null, conversation: string}} target - What to reveal.
    * @returns {Promise<void>}
    * @private
    */

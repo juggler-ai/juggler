@@ -444,6 +444,8 @@ function rootedArgs(signal, allowedPaths, workspaceId) {
  *   here: a command whose caller waits for its output must have something that ends it.
  * @property {string} [cwd] - Working directory for command
  * @property {string} [convId] - Conversation that owns this command; buckets its full-output spill file
+ * @property {string} [threadId] - Thread within the conversation that ran it ('' or absent is the root thread)
+ * @property {string} [toolUseId] - Tool call that ran it, so the session's process list can lead back to it
  */
 
 /**
@@ -1094,6 +1096,7 @@ export async function shell(params, signal, workspaceId) {
  *   a dev server, a patch host an extension embeds — needs. Do not pass 0
  *   meaning "forever": 0 is a real duration and the task dies immediately.
  * @property {string} [convId] - Conversation ID for tracking ownership
+ * @property {string} [threadId] - Thread within the conversation that started it ('' or absent is the root thread)
  * @property {string} [toolUseId] - Tool use ID for frontend correlation
  */
 
@@ -1212,18 +1215,51 @@ export async function shellKill(params) {
  */
 
 /**
- * Ask which of these tasks are still running.
+ * Ask which of these tasks, all one conversation's, are still running.
  *
- * Deliberately not an inventory: it answers only about ids the caller already
- * holds, and carries no output, command or exit code. A task belonging to
- * another conversation or another project answers exactly as an unknown id does,
- * so it can neither be enumerated nor confirmed to exist.
+ * It answers only about ids the caller already holds, and carries no output,
+ * command or exit code. A task belonging to another conversation or another
+ * project answers exactly as an unknown id does. For everything running in the
+ * session, ask {@link shellListProcesses}.
  * @param {ShellTaskStatusParams} params
  * @returns {Promise<{tasks: ShellTaskLiveness[]}>} One answer per requested ID
  */
 export async function shellStatus(params) {
   requireParam(params, 'convId', 'conv_id');
   return callOp('shell', 'taskStatus', params);
+}
+
+/**
+ * One shell process running in the session — the server's ops.ProcessInfo.
+ * @typedef {object} ProcessInfo
+ * @property {string} id - Inventory id: a background task's task_id, or a foreground command's own
+ * @property {'background'|'foreground'|'python'} kind - How it was started
+ * @property {string} command - The command line (for python, its first line)
+ * @property {string} [convId] - Conversation that started it
+ * @property {string} [threadId] - Thread within that conversation; absent is the root thread
+ * @property {string} [toolUseId] - Tool call that started it
+ * @property {number} startedAt - Unix milliseconds
+ */
+
+/**
+ * Every shell process running for any conversation in this project. The
+ * `processes-changed` socket frame carries the same list whenever it changes;
+ * this is how a viewer that has seen no frame yet catches up.
+ * @returns {Promise<{processes: ProcessInfo[]}>} Oldest first
+ */
+export async function shellListProcesses() {
+  return callOp('shell', 'listProcesses', {});
+}
+
+/**
+ * Stop one listed process by its inventory id. A background task is killed as
+ * {@link shellKill} kills it; a foreground command ends "Killed by user".
+ * @param {{id: string}} params
+ * @returns {Promise<{id: string, stopped: boolean}>} stopped is false for an unknown or finished id
+ */
+export async function shellStopProcess(params) {
+  requireParam(params, 'id');
+  return callOp('shell', 'stopProcess', params);
 }
 
 // ============================================================================

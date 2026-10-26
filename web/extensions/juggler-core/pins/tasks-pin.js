@@ -18,6 +18,30 @@ injectStylesOnce('tasks-pin-styles', `
   gap: 0.75rem;
   height: 100%;
 }
+.tasks-pin__groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.tasks-pin__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.tasks-pin__heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.tasks-pin__here {
+  color: var(--text-tertiary);
+  font-weight: normal;
+}
 .tasks-pin__list {
   display: flex;
   flex-direction: column;
@@ -65,6 +89,9 @@ injectStylesOnce('tasks-pin-styles', `
 }
 .tasks-pin__tool {
   font-family: var(--font-mono);
+}
+.tasks-pin__kind {
+  text-transform: lowercase;
 }
 .tasks-pin__label {
   color: var(--text-secondary);
@@ -138,6 +165,20 @@ function elapsed(startedAt, now) {
 }
 
 /**
+ * What kind of process a task is, in a word, for when the transcript that would
+ * name its tool is not loaded here.
+ * @param {string} kind - The task's kind.
+ * @returns {string} The word.
+ */
+function kindWord(kind) {
+  switch (kind) {
+    case 'background': return t('background');
+    case 'python': return t('python');
+    default: return t('foreground');
+  }
+}
+
+/**
  * One task's card: the command it is running, then a line of what is known about
  * it — the tool it came from, what it was for, how long it has been at it — and
  * the way to stop it. A card rather than a line because a handful of tasks is all
@@ -145,11 +186,10 @@ function elapsed(startedAt, now) {
  * fitting them all between two ellipses.
  *
  * The card is keyed by task id, so the id the Stop button hands back is the same
- * id the card was built for however long it stands. The action to reveal is
- * carried on the card and read at click time, so nothing here can outlive what it
- * points at.
+ * id the card was built for however long it stands. The task to reveal is looked
+ * up by that id at click time, so a click acts on the task as it is now.
  * @param {import('juggler/pinboard-item-type').PinTask} task - The running task.
- * @param {(itemId: string) => void} reveal - Go to the action that started it.
+ * @param {(taskId: string) => void} reveal - Go to the action that started it.
  * @param {(taskId: string, button: HTMLButtonElement) => void} stop - Stop it.
  * @returns {HTMLElement} The card.
  */
@@ -161,7 +201,7 @@ function buildTaskRow(task, reveal, stop) {
   open.type = 'button';
   open.className = 'tasks-pin__open';
   open.append(createElement('span', 'tasks-pin__command'), createElement('div', 'tasks-pin__meta'));
-  open.addEventListener('click', () => reveal(row.dataset.itemId || ''));
+  open.addEventListener('click', () => reveal(taskId));
 
   const stopBtn = document.createElement('button');
   stopBtn.type = 'button';
@@ -201,9 +241,8 @@ function metaField(key, className, text) {
 function fillTaskRow(row, task, now) {
   const open = /** @type {HTMLElement} */ (row.querySelector('.tasks-pin__open'));
   const stopBtn = /** @type {HTMLElement} */ (row.querySelector('.tasks-pin__stop'));
-  const name = task.command || task.toolName;
+  const name = task.command || task.toolName || kindWord(task.kind);
 
-  if (row.dataset.itemId !== task.itemId) row.dataset.itemId = task.itemId;
   // The tick reads the start time from here, so it can redraw an elapsed time
   // without the task list in front of it.
   if (row.dataset.at !== String(task.at)) row.dataset.at = String(task.at);
@@ -222,7 +261,9 @@ function fillTaskRow(row, task, now) {
   const meta = [];
   // Which tool a command came from is worth a word, except when the command line
   // is the tool's own name and saying it twice would be the only thing said.
+  // Without the transcript to name the tool, how the process runs is the word.
   if (task.command && task.toolName) meta.push(metaField('tool', 'tasks-pin__tool', task.toolName));
+  else meta.push(metaField('kind', 'tasks-pin__kind', kindWord(task.kind)));
   if (task.label) meta.push(metaField('label', 'tasks-pin__label', task.label));
   const since = elapsed(task.at, now);
   if (since) meta.push(metaField('elapsed', 'tasks-pin__elapsed', since));
@@ -230,7 +271,29 @@ function fillTaskRow(row, task, now) {
 }
 
 /**
- * TasksPin — the background tasks this conversation has running.
+ * The tasks, in groups by the conversation that started them, in the order the
+ * list put them — the conversation being read first.
+ * @param {import('juggler/pinboard-item-type').PinTask[]} tasks - The running tasks.
+ * @returns {{conversationId: string, title: string, tasks: import('juggler/pinboard-item-type').PinTask[]}[]} The groups.
+ */
+function groupByConversation(tasks) {
+  /** @type {Map<string, {conversationId: string, title: string, tasks: import('juggler/pinboard-item-type').PinTask[]}>} */
+  const groups = new Map();
+  for (const task of tasks) {
+    let group = groups.get(task.conversationId);
+    if (!group) {
+      group = { conversationId: task.conversationId, title: task.conversationTitle, tasks: [] };
+      groups.set(task.conversationId, group);
+    }
+    group.tasks.push(task);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * TasksPin — the session's task manager: every command the conversations in
+ * this project have running, background and foreground alike, grouped by the
+ * conversation that started it.
  *
  * A live inventory, and only that. A task appears when it starts and is gone the
  * moment it ends, whether it finished, failed or was stopped — so there is no
@@ -245,9 +308,9 @@ function fillTaskRow(row, task, now) {
  * that may be open in another window would be a new place for it to appear and no
  * new way to read it.
  *
- * It lists tasks, not processes. A shell command that daemonised something, or
+ * It lists what Juggler started. A shell command that daemonised something, or
  * anything started outside Juggler, is not here and cannot be — nothing ties a
- * process on this machine to a conversation unless Juggler started it as a task.
+ * process on this machine to a conversation unless Juggler started it.
  * @class
  * @augments PinboardItemType
  */
@@ -255,34 +318,34 @@ class TasksPin extends PinboardItemType {
   /** @type {import('juggler/pinboard-item-type').PinboardItemManifest} */
   static MANIFEST = {
     id: 'tasks',
-    name: 'Background tasks',
-    version: '1.0.0',
-    description: 'Lists the background tasks this conversation is running',
+    name: 'Running tasks',
+    version: '2.0.0',
+    description: "Lists every command this project's conversations are running",
     order: 50,
     defaultPin: true,
   };
 
   /**
-   * @param {import('juggler/pinboard-item-type').PinActiveContext} active - The active context.
-   * @returns {true|string} True when there is a conversation whose tasks to list.
+   * The list is the project's, so there is always something to show.
+   * @returns {true} Always.
    */
-  canAdd(active) {
-    return active?.conversation ? true : t('No active conversation');
+  canAdd() {
+    return true;
   }
 
   /**
    * The tasks themselves, wherever a surface offers to show them — a background
    * run's properties panel and its card's Background badge.
    * @param {import('juggler/pinboard-item-type').PinSource} source - The source to pin.
-   * @returns {boolean} True for this conversation's tasks.
+   * @returns {boolean} True for the tasks.
    */
   static canPinSource(source) {
     return source?.kind === 'tasks';
   }
 
   /**
-   * The pin lists whatever the board's conversation is running, so a request to
-   * show it carries nothing: an empty config is the whole of it.
+   * The pin lists whatever the project is running, so a request to show it
+   * carries nothing: an empty config is the whole of it.
    * @returns {Record<string, any>} The config.
    */
   static configFromSource() {
@@ -290,10 +353,7 @@ class TasksPin extends PinboardItemType {
   }
 
   /**
-   * The name, and nothing else. Which conversation these tasks belong to is the
-   * board's business rather than this pin's: every pin on a board reads the same
-   * conversation, so naming it here would be one tab's answer to a question the
-   * whole board shares.
+   * The name, and nothing else: each group names its own conversation.
    * @returns {import('juggler/pinboard-item-type').PinDescription} The tab's words.
    */
   describe() {
@@ -330,10 +390,20 @@ class TasksPin extends PinboardItemType {
     };
 
     /**
-     * @param {string} itemId - The action to go to.
+     * The tasks as last rendered, by id, so a click reveals the task as it is
+     * rather than as it was when its card was built.
+     * @type {Map<string, import('juggler/pinboard-item-type').PinTask>}
+     */
+    let shown = new Map();
+
+    /**
+     * @param {string} taskId - The task whose action to go to.
      * @returns {void}
      */
-    const reveal = (itemId) => context.services.tasks.reveal(itemId);
+    const reveal = (taskId) => {
+      const task = shown.get(taskId);
+      if (task) context.services.tasks.reveal(task);
+    };
 
     /** @type {ReturnType<typeof setInterval>|null} The elapsed-time clock, while anything is running. */
     let ticker = null;
@@ -368,6 +438,8 @@ class TasksPin extends PinboardItemType {
       const tasks = context.services.tasks.list();
       const error = context.services.tasks.error();
       const now = Date.now();
+      const here = context.active?.conversation?.id || '';
+      shown = new Map((tasks || []).map((task) => [task.taskId, task]));
 
       /** @type {import('../lib/reconcile.js').PartSpec[]} */
       const parts = [];
@@ -377,7 +449,7 @@ class TasksPin extends PinboardItemType {
         // holds before anything has been asked would be a guess.
         const words = tasks === null
           ? t('Looking…')
-          : t('Commands left running in the background appear here.');
+          : t('Commands running in this project appear here.');
         parts.push({
           key: 'empty',
           build: () => pinEmpty(''),
@@ -385,14 +457,34 @@ class TasksPin extends PinboardItemType {
         });
       } else {
         parts.push({
-          key: 'list',
-          build: () => createElement('div', 'tasks-pin__list'),
+          key: 'groups',
+          build: () => createElement('div', 'tasks-pin__groups'),
           fill: (el) => reconcileRows(
             el,
-            tasks,
-            (task) => task.taskId,
-            (task) => buildTaskRow(task, reveal, stop),
-            (row, task) => fillTaskRow(row, task, now)
+            groupByConversation(tasks),
+            (group) => group.conversationId,
+            () => {
+              const section = createElement('section', 'tasks-pin__group');
+              const heading = createElement('h3', 'tasks-pin__heading');
+              heading.append(createElement('span', 'tasks-pin__title'), createElement('span', 'tasks-pin__here'));
+              section.append(heading, createElement('div', 'tasks-pin__list'));
+              return section;
+            },
+            (section, group) => {
+              setText(/** @type {HTMLElement} */ (section.querySelector('.tasks-pin__title')),
+                group.title || (group.conversationId ? t('Untitled') : t('No conversation')));
+              const marker = /** @type {HTMLElement} */ (section.querySelector('.tasks-pin__here'));
+              setText(marker, t('this conversation'));
+              const isHere = Boolean(group.conversationId) && group.conversationId === here;
+              if (marker.hidden === isHere) marker.hidden = !isHere;
+              reconcileRows(
+                /** @type {HTMLElement} */ (section.querySelector('.tasks-pin__list')),
+                group.tasks,
+                (task) => task.taskId,
+                (task) => buildTaskRow(task, reveal, stop),
+                (row, task) => fillTaskRow(row, task, now)
+              );
+            }
           ),
         });
       }
@@ -416,12 +508,11 @@ class TasksPin extends PinboardItemType {
       }
 
       // Always present, because it is what the list means rather than a remark
-      // about it: the title says these are background tasks, but not whose, and
-      // without that an empty card reads as the whole machine.
+      // about it: without it an empty card reads as the whole machine.
       parts.push({
         key: 'note',
         build: () => createElement('div', 'tasks-pin__note'),
-        fill: (el) => setText(el, t('Only what this conversation started, and only while it runs.')),
+        fill: (el) => setText(el, t("Only what this project's conversations started, and only while it runs.")),
       });
       reconcileParts(body, parts);
 

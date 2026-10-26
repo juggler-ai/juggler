@@ -91,11 +91,13 @@ type Workspace interface {
 }
 
 // ShellRequest is one streaming shell command: the shell the engine is waiting
-// on, the conversation that owns it, and what to run where and for how long.
-// Cwd is validated against the workspace's root.
+// on, the conversation, thread and tool call that own it, and what to run where
+// and for how long. Cwd is validated against the workspace's root.
 type ShellRequest struct {
 	ShellID   string
 	ConvID    string
+	ThreadID  string
+	ToolUseID string
 	Command   string
 	Cwd       string
 	TimeoutMs int

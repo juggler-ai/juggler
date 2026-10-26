@@ -133,6 +133,7 @@
       { "type": "plugin-changed", "handledBy": "routes" },
       { "type": "settings-changed", "handledBy": "routes" },
       { "type": "pinboard-changed", "handledBy": "routes" },
+      { "type": "processes-changed", "handledBy": "routes" },
       { "type": "pinboard-reveal", "handledBy": "routes" },
       { "type": "workspaces-changed", "handledBy": "routes" },
       { "type": "viewer-relay", "handledBy": "routes" },

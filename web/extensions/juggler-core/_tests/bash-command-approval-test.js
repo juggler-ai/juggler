@@ -2264,7 +2264,7 @@ export async function runTests() {
     else passed++;
   }
 
-  // === A background run's way to the Background tasks pin ===
+  // === A background run's way to the Running tasks pin ===
   // The properties panel offers a control for it whenever something enabled can
   // show the tasks, and the card's Background badge opens the same pin — but only
   // on a selected card, so the first click on a card still just selects it.

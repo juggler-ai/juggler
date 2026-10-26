@@ -41,8 +41,7 @@ function prettyTimeout(ms) {
 }
 
 /**
- * The conversation's background tasks, as something the board can be asked to
- * show. Named by kind, so this plugin never imports the pin that shows them.
+ * The running tasks, as something the board can be asked to show. Named by kind, so this plugin never imports the pin that shows them.
  * @type {import('juggler/pinboard-item-type').PinSource}
  */
 const TASKS_SOURCE = { kind: 'tasks' };
@@ -750,6 +749,7 @@ class ExecuteContextItem extends ContextItem {
           command,
           timeout: params.timeout ? Number(params.timeout) : undefined,
           convId: this.conversation.id,
+          threadId: this.messageThread?.threadItemId || '',
           toolUseId: this.toolUseId
         }
       );
@@ -813,10 +813,15 @@ class ExecuteContextItem extends ContextItem {
     };
 
     // Tag the command with its owning conversation so the backend buckets any
-    // full-output spill file under that conversation (deleted when it is).
-    const execParams = /** @type {import('../../../js/services/ops-api.js').ShellExecuteParams} */ (
-      { ...params, convId: this.conversation.id }
-    );
+    // full-output spill file under that conversation (deleted when it is), and
+    // with the thread and tool call so the session's process list can lead back
+    // to this action while it runs.
+    const execParams = /** @type {import('../../../js/services/ops-api.js').ShellExecuteParams} */ ({
+      ...params,
+      convId: this.conversation.id,
+      threadId: this.messageThread?.threadItemId || '',
+      toolUseId: this.toolUseId
+    });
 
     // Try streaming execution first, fall back to blocking if WebSocket unavailable
     try {
@@ -1031,7 +1036,7 @@ class ExecuteContextItem extends ContextItem {
    * description (unchanged) as the subtitle line when present. The task id is
    * intentionally omitted here — it lives in the properties panel.
    *
-   * On a selected card the tag opens the Background tasks pin. On an unselected
+   * On a selected card the tag opens the Running tasks pin. On an unselected
    * one it does nothing of its own, so the click selects the card like a click
    * anywhere else on it; that is also why the tag is a span and not a button,
    * which the conversation would treat as a control and select without
@@ -1170,7 +1175,7 @@ class ExecuteContextItem extends ContextItem {
    * @param {import('juggler/context-item').ToolActionRenderContext} ctx
    * @returns {{ skipResultSection?: boolean, controls?: HTMLElement[] } | void} Render result; set
    *   skipResultSection when output is rendered inline, and a background run's
-   *   control to show the Background tasks pin
+   *   control to show the Running tasks pin
    */
   renderToolActionDetails(wrapper, ctx) {
     const { input, helpers, toolAction } = ctx;
@@ -1217,7 +1222,7 @@ class ExecuteContextItem extends ContextItem {
   }
 
   /**
-   * The panel control that opens the Background tasks pin, for the controls
+   * The panel control that opens the Running tasks pin, for the controls
    * block at the top of a background run's panel. Null when nothing enabled
    * can show the tasks: a button that would do nothing is left out.
    * @returns {HTMLElement|null} The control, or null to offer nothing.

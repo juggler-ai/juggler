@@ -4,12 +4,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tasks pin tests — what the board says this conversation is running.
+ * Tasks pin tests — what the board says the project's conversations are running.
  *
  * Mounted with a hand-built PinContext whose `tasks` service the test drives, so
  * a case states what is running rather than arranging for it; the host half —
- * which tool actions are tasks, and joining them to what is actually alive — is
- * asserted against real models in `unit:pinboard-tasks`.
+ * the server's inventory, and what the transcript adds to it — is asserted
+ * against real models in `unit:pinboard-tasks`.
  *
  * Two things here are asserted as the features they are rather than as details.
  * The first is that "still looking" and "nothing running" are different states:
@@ -26,10 +26,11 @@ import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 
 /** juggler-core's English for this pin, standing in for its catalogue. */
 const CORE_TEXT = [
-  'No active conversation', 'Background tasks', 'Stop', 'Reveal the action that started {name}', 'Stop {name}',
+  'Running tasks', 'Stop', 'Reveal the action that started {name}', 'Stop {name}',
   '{seconds}s', '{minutes}m', '{hours}h {minutes}m', 'Looking…',
-  'Commands left running in the background appear here.', "Couldn't check what's running. {error}",
-  "Couldn't stop it. {error}", 'Only what this conversation started, and only while it runs.',
+  'Commands running in this project appear here.', "Couldn't check what's running. {error}",
+  "Couldn't stop it. {error}", "Only what this project's conversations started, and only while it runs.",
+  'background', 'foreground', 'python', 'this conversation', 'Untitled', 'No conversation',
 ];
 
 /**
@@ -76,6 +77,10 @@ export async function runTests(_ctx) {
    */
   const task = (command, overrides = {}) => ({
     taskId: `bg-${++nextId}`,
+    kind: 'background',
+    conversationId: 'c1',
+    conversationTitle: 'Fix the parser',
+    toolUseId: `call_${nextId}`,
     itemId: `item_${nextId}`,
     threadId: null,
     toolName: 'bash',
@@ -99,7 +104,7 @@ export async function runTests(_ctx) {
     const abort = new AbortController();
     /** @type {(() => void)[]} */
     const listeners = [];
-    /** @type {string[]} */
+    /** @type {any[]} */
     const revealed = [];
     /** @type {string[]} */
     const stopped = [];
@@ -127,10 +132,10 @@ export async function runTests(_ctx) {
           };
         },
         /**
-         * @param {string} itemId - The action to reveal.
+         * @param {any} revealedTask - The task whose action to reveal.
          * @returns {number} Ignored; push's return value.
          */
-        reveal: (itemId) => revealed.push(itemId),
+        reveal: (revealedTask) => revealed.push(revealedTask),
         /**
          * @param {string} taskId - The task to stop.
          * @returns {Promise<void>} Resolves, or rejects when the case says so.
@@ -184,28 +189,21 @@ export async function runTests(_ctx) {
   // --- the manifest and its gates ------------------------------------------
 
   await test('the tasks pin is a singleton', () => {
-    assert(!pin.allowsMultiple, 'a second copy would list the same conversation twice');
+    assert(!pin.allowsMultiple, 'a second copy would list the same tasks twice');
   });
 
-  await test('it needs a conversation, and says so', () => {
-    const reason = pin.canAdd(/** @type {any} */ ({ project: { path: '/p' }, conversation: null }));
-    assert(reason === 'No active conversation', `expected the reason, got ${JSON.stringify(reason)}`);
+  await test('the list is the project\'s, so it is addable with or without a conversation', () => {
+    assert(pin.canAdd(/** @type {any} */ ({ project: { path: '/p' }, conversation: null })) === true,
+      'a project with no conversation open can still have things running');
+    assert(pin.canAdd(/** @type {any} */ ({ conversation: { id: 'c1', title: 'x' } })) === true,
+      'and so can one with');
   });
 
-  await test('with a conversation it is addable', () => {
-    const allowed = pin.canAdd(/** @type {any} */ ({ conversation: { id: 'c1', title: 'x' } }));
-    assert(allowed === true, `expected true, got ${JSON.stringify(allowed)}`);
-  });
-
-  await test('the tab says what the pin is, and leaves the conversation to the board', () => {
+  await test('the tab says what the pin is, and leaves conversations to the groups', () => {
     const described = pin.describe({}, /** @type {any} */ ({ conversation: { id: 'c1', title: 'Fix the parser' } }));
-    assert(described.title === 'Background tasks',
-      `expected 'Background tasks', got ${described.title}`);
-    // Every pin on a board reads the same conversation, so naming it on this tab
-    // would be one tab answering for all of them — and the badge is sized for a
-    // tally, so a name in it crowds out the label that says which tab this is.
+    assert(described.title === 'Running tasks', `expected 'Running tasks', got ${described.title}`);
     assert(!described.badge && !described.subtitle,
-      `the conversation belongs to the board, not the tab, got ${JSON.stringify(described)}`);
+      `each group names its own conversation, got ${JSON.stringify(described)}`);
   });
 
   await test('a request to show the tasks reaches this pin, and nothing else does', () => {
@@ -230,7 +228,7 @@ export async function runTests(_ctx) {
   await test('an empty answer says nothing is running', () => {
     const m = mount([]);
     const text = m.text();
-    assert(text.includes('Commands left running in the background appear here.'),
+    assert(text.includes('Commands running in this project appear here.'),
       `expected the empty state:\n${text}`);
     assert(!text.includes('Looking'), `it has its answer now:\n${text}`);
     m.teardown();
@@ -249,7 +247,49 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
+  // --- groups ---------------------------------------------------------------
+
+  await test('tasks are grouped under the conversation that started them', () => {
+    const m = mount([
+      task('npm run build'),
+      task('make test', { conversationId: 'c2', conversationTitle: 'Release prep' }),
+      task('tail -f log'),
+    ]);
+    const groups = [...m.body.querySelectorAll('.tasks-pin__group')];
+    assert(groups.length === 2, `expected two groups, got ${groups.length}`);
+    const titles = groups.map((g) => g.querySelector('.tasks-pin__title')?.textContent);
+    assert(titles[0] === 'Fix the parser' && titles[1] === 'Release prep',
+      `expected each conversation named in list order, got ${JSON.stringify(titles)}`);
+    assert(groups[0].querySelectorAll('.tasks-pin__row').length === 2,
+      'both of the first conversation\'s tasks belong in its group');
+    m.teardown();
+  });
+
+  await test('the conversation being read is marked, and only it', () => {
+    const m = mount([task('a'), task('b', { conversationId: 'c2', conversationTitle: 'Release prep' })]);
+    const markers = /** @type {HTMLElement[]} */ ([...m.body.querySelectorAll('.tasks-pin__here')]);
+    assert(!markers[0].hidden && markers[0].textContent === 'this conversation',
+      `expected the active conversation marked, got ${JSON.stringify(markers[0].textContent)}`);
+    assert(markers[1].hidden, 'another conversation must not be marked as this one');
+    m.teardown();
+  });
+
+  await test('a task no conversation started is grouped as such', () => {
+    const m = mount([task('dev server', { conversationId: '', conversationTitle: '' })]);
+    const title = m.body.querySelector('.tasks-pin__title')?.textContent;
+    assert(title === 'No conversation', `expected it said, got ${JSON.stringify(title)}`);
+    m.teardown();
+  });
+
   // --- what a row says ------------------------------------------------------
+
+  await test('without the transcript to name its tool, how it runs is said instead', () => {
+    const m = mount([task('make test', { kind: 'foreground', toolName: '' })]);
+    const shown = m.body.querySelector('.tasks-pin__kind')?.textContent || '';
+    assert(shown === 'foreground', `expected the kind, got ${JSON.stringify(shown)}`);
+    assert(m.body.querySelector('.tasks-pin__tool') === null, 'there is no tool name to show');
+    m.teardown();
+  });
 
   await test("a monitor's label is shown beside its command", () => {
     const m = mount([task('tail -f build.log', { toolName: 'Monitor', label: 'Watching the build' })]);
@@ -305,24 +345,36 @@ export async function runTests(_ctx) {
 
   // --- reveal ---------------------------------------------------------------
 
-  await test('a row is a real button that reveals the action that started the task', () => {
-    const m = mount([task('npm run build', { itemId: 'item_start' })]);
+  await test('a row is a real button that reveals the task it stands for', () => {
+    const m = mount([task('npm run build', { taskId: 'bg-start', toolUseId: 'call_start' })]);
     const [open] = m.openButtons();
     assert(open instanceof HTMLElement && open.tagName === 'BUTTON',
       'the row must be a button, not a clickable div');
     open.click();
-    assert(m.revealed.length === 1 && m.revealed[0] === 'item_start',
-      `expected the spawning action revealed, got ${JSON.stringify(m.revealed)}`);
+    assert(m.revealed.length === 1 && m.revealed[0].taskId === 'bg-start'
+      && m.revealed[0].toolUseId === 'call_start' && m.revealed[0].conversationId === 'c1',
+    `expected the task handed to reveal whole, got ${JSON.stringify(m.revealed)}`);
     m.teardown();
   });
 
-  await test('each row reveals its own task', () => {
+  await test('each row reveals its own task, in its own conversation', () => {
     const m = mount([
-      task('first', { itemId: 'item_first' }),
-      task('second', { itemId: 'item_second' }),
+      task('first', { taskId: 'bg-first' }),
+      task('second', { taskId: 'bg-second', conversationId: 'c2', conversationTitle: 'Other' }),
     ]);
     m.openButtons()[1].click();
-    assert(m.revealed[0] === 'item_second', `expected the second, got ${JSON.stringify(m.revealed)}`);
+    assert(m.revealed[0].taskId === 'bg-second' && m.revealed[0].conversationId === 'c2',
+      `expected the second, got ${JSON.stringify(m.revealed)}`);
+    m.teardown();
+  });
+
+  await test('a click reveals the task as it is now, not as its card was built', () => {
+    const m = mount([task('npm run build', { taskId: 'bg-move', threadId: null })]);
+    m.setTasks([task('npm run build', { taskId: 'bg-move', threadId: 'thread_later' })]);
+    m.fireChange();
+    m.openButtons()[0].click();
+    assert(m.revealed[0].threadId === 'thread_later',
+      `expected the current task, got ${JSON.stringify(m.revealed[0])}`);
     m.teardown();
   });
 
@@ -372,7 +424,7 @@ export async function runTests(_ctx) {
   await test('it says what the list covers, even when it has something to show', () => {
     const m = mount([task('npm run build')]);
     const text = m.text();
-    assert(text.includes('this conversation started'),
+    assert(text.includes("this project's conversations started"),
       `the pin must say whose tasks these are:\n${text}`);
     assert(text.includes('while it runs'),
       `and that a finished task is not here:\n${text}`);
@@ -382,7 +434,7 @@ export async function runTests(_ctx) {
   await test('it says so with an empty list too, which is where the claim matters most', () => {
     const m = mount([]);
     const text = m.text();
-    assert(text.includes('this conversation started'),
+    assert(text.includes("this project's conversations started"),
       `an empty card is the reading most likely to be over-generalised:\n${text}`);
     // A board is furnished with this tab before anything has ever run, so the
     // empty card is the one most users meet first: it has to say what it is for.
@@ -408,7 +460,7 @@ export async function runTests(_ctx) {
     assert(m.rows().length === 1, 'expected the first list');
     m.setTasks([]);
     m.fireChange();
-    assert(m.text().includes('Commands left running in the background appear here.'),
+    assert(m.text().includes('Commands running in this project appear here.'),
       `expected the empty state after the task ended:\n${m.text()}`);
     m.teardown();
   });
@@ -448,7 +500,7 @@ export async function runTests(_ctx) {
 
   // --- en-XA ----------------------------------------------------------------
 
-  await test('en-XA: the add reason, tab, every state, row controls, elapsed times and errors are translated', async () => {
+  await test('en-XA: the tab, every state, groups, row controls, kinds, elapsed times and errors are translated', async () => {
     await underPseudoLocale('tasks-pin-test', async () => {
       /** @type {Record<string, string>} */
       const shown = {};
@@ -459,11 +511,10 @@ export async function runTests(_ctx) {
        * @param {HTMLElement} body - The pin's body.
        */
       const collect = (where, body) => {
-        shownStrings(body, '.tasks-pin__command, .tasks-pin__tool, .tasks-pin__label')
+        shownStrings(body, '.tasks-pin__command, .tasks-pin__tool, .tasks-pin__label, .tasks-pin__title')
           .forEach((s, i) => { shown[`${where} ${i}`] = s; });
       };
 
-      shown['add reason'] = String(pin.canAdd(/** @type {any} */ ({ conversation: null })));
       shown['tab title'] = String(pin.describe().title);
 
       const looking = mount(null);
@@ -476,11 +527,20 @@ export async function runTests(_ctx) {
 
       const now = Date.now();
       const running = mount([
-        task('7', { toolName: '7', label: '7', at: now - 5000 }),
-        task('7', { toolName: '7', at: now - 90000 }),
-        task('', { toolName: '7', at: now - 3700000 }),
+        task('7', { toolName: '7', label: '7', conversationTitle: '7', at: now - 5000 }),
+        task('7', { toolName: '7', conversationTitle: '7', at: now - 90000 }),
+        task('', { toolName: '7', conversationTitle: '7', at: now - 3700000 }),
+        task('7', { toolName: '', kind: 'foreground', conversationTitle: '7', at: now - 1000 }),
+        task('7', { toolName: '', kind: 'python', conversationId: 'c2', conversationTitle: '', at: now - 1000 }),
+        task('7', { toolName: '', conversationId: '', conversationTitle: '', at: now - 1000 }),
       ], { error: '7' });
-      assert(running.body.querySelectorAll('.tasks-pin__elapsed').length === 3, 'expected three elapsed times');
+      assert(running.body.querySelectorAll('.tasks-pin__elapsed').length === 6, 'expected six elapsed times');
+      // A group's name is the conversation's — data — except where it has none,
+      // and then the words standing in for it are the pin's own.
+      [...running.body.querySelectorAll('.tasks-pin__title')]
+        .map((el) => el.textContent || '')
+        .filter((title) => title !== '7')
+        .forEach((title, i) => { shown[`fallback title ${i}`] = title; });
       assert(running.body.querySelector('.tasks-pin__error'), 'expected the check error');
       collect('running', running.body);
       running.teardown();

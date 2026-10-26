@@ -64,6 +64,14 @@
  */
 
 /**
+ * processesChangedFrame is the whole of the project's process inventory: every
+ * shell process running for any conversation in it (ops.ListProcesses).
+ * @typedef {object} ProcessesChangedFrame
+ * @property {'processes-changed'} type
+ * @property {ProcessInfo[]} processes
+ */
+
+/**
  * viewerRelayFrame delivers one viewer's message to another. From is the
  * sending connection's own viewer id; the payload is opaque to the server.
  * @typedef {object} ViewerRelayFrame
@@ -258,6 +266,8 @@
  * @property {'shell-start'} type
  * @property {string} shellId - Unique ID for this shell execution
  * @property {string} [convId] - Conversation that owns this shell (spill-file bucket)
+ * @property {string} [threadId] - Thread within it that ran the tool call; empty is the root thread
+ * @property {string} [toolUseId] - Tool call that started it, so the process list can lead back to it
  * @property {string} command - Shell command to execute
  * @property {string} [cwd] - Working directory
  * @property {number} [timeout] - Timeout in milliseconds
@@ -311,6 +321,18 @@
  * @property {boolean} [stale] - Provisioning, but no process is provisioning it (see verifyWorkspaces)
  * @property {string} [closedAt] - RFC3339, set when it was finished with; orders the tombstone cap
  * @property {boolean} hostsLocalProviders - HostsLocalProviders is whether a provider Juggler spawns as a subprocess — a CLI agent — can run in this workspace: whether it has a LocalDir. It is what lets the model picker refuse the pairing rather than let a user discover it through a turn that ran on the wrong machine. False for a row that opens to no workspace at all.
+ */
+
+/**
+ * ProcessInfo is one listed process.
+ * @typedef {object} ProcessInfo
+ * @property {string} id
+ * @property {string} kind
+ * @property {string} command
+ * @property {string} [convId]
+ * @property {string} [threadId]
+ * @property {string} [toolUseId]
+ * @property {number} startedAt - Unix milliseconds
  */
 
 /**

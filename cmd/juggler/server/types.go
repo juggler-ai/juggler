@@ -35,6 +35,8 @@ type ShellStartRequest struct {
 	Type        frameType `json:"type"`                  // "shell-start"
 	ShellID     string    `json:"shellId"`               // Unique ID for this shell execution
 	ConvId      string    `json:"convId,omitempty"`      // Conversation that owns this shell (spill-file bucket)
+	ThreadId    string    `json:"threadId,omitempty"`    // Thread within it that ran the tool call; empty is the root thread
+	ToolUseId   string    `json:"toolUseId,omitempty"`   // Tool call that started it, so the process list can lead back to it
 	Command     string    `json:"command"`               // Shell command to execute
 	Cwd         string    `json:"cwd,omitempty"`         // Working directory
 	Timeout     int       `json:"timeout,omitempty"`     // Timeout in milliseconds

@@ -3,20 +3,19 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * What the board can honestly say a conversation is running.
+ * What the board can honestly say the project's conversations are running.
  *
- * `services.tasks` is two halves joined: the transcript says which tasks were
- * started, and the server says which are still alive. Neither is sufficient, and
- * the reason is the thing this suite exists to guard — the durable snapshot
- * beside a tool action freezes at whatever it last said, so a transcript read on
- * its own claims `running` forever, including for a task that died with a
- * previous server. The case that pins it is "a stale snapshot does not resurrect
- * a task the server says is gone", and breaking the join is what should fail it.
+ * `services.tasks` is the server's process inventory — fetched once when the
+ * first pin watches, then replaced whole by every `processes-changed` frame —
+ * with what the transcript knows laid over it for labels. The server decides
+ * what is listed; the transcript never does. The case that pins it is "a stale
+ * snapshot does not resurrect a task the server does not list", because the
+ * durable snapshot beside a tool action freezes at whatever it last said.
  *
  * Against real conversation and thread models with real Yjs items, because the
- * shape this walks — a task id nested three maps deep under a result that also
- * holds the command's accumulated output — is exactly what a hand-built fake
- * would get wrong in its own favour.
+ * shape the labels are read from — a tool action whose result also holds the
+ * command's accumulated output — is exactly what a hand-built fake would get
+ * wrong in its own favour.
  *
  * Driven through a probe item type registered only here, the same way
  * `unit:pinboard-shell` does.
@@ -32,8 +31,9 @@ import {
 } from '../utilities/test-helpers.js';
 import { createUserMessage, createAssistantMessage } from '../../sdk/lib/message.js';
 import pinboardItemRegistry from '../../js/registries/pinboard-item-registry.js';
+import wsService, { WebSocketService } from '../../js/services/websocket.js';
 import PinboardItemType from 'juggler/pinboard-item-type';
-import '../../js/components/pinboard-content.js';
+import { resolveToolTarget } from '../../js/components/pinboard-content.js';
 
 /** The context the probe was mounted with. */
 const probe = { context: /** @type {any} */ (null) };
@@ -100,14 +100,20 @@ export async function runTests() {
 
   // --- the fake server ------------------------------------------------------
 
-  /** Which task ids the registry would say are running. */
-  const alive = new Set();
-  /** Every taskStatus request body seen, so a case can assert what was asked. */
-  const probes = [];
-  /** Every kill request seen. */
-  const kills = [];
-  /** When set, the next taskStatus fails with this. */
+  /**
+   * What the inventory holds, as the server would list it.
+   * @type {any[]}
+   */
+  let inventory = [];
+  /** How many listings were asked for. */
+  let listings = 0;
+  /** Every stopProcess request seen. */
+  const stops = [];
+  /** When set, the next listing fails with this. */
   let opFailure = '';
+  /** When set, the listing waits for this before answering. */
+  /** @type {Promise<void>|null} */
+  let listingGate = null;
 
   const originalFetch = window.fetch;
   /**
@@ -126,27 +132,34 @@ export async function runTests() {
     const body = JSON.parse(String(init?.body || '{}'));
     if (body.toolId !== 'shell') return originalFetch(input, init);
 
-    if (body.operation === 'taskStatus') {
-      probes.push(body.params);
+    if (body.operation === 'listProcesses') {
+      listings++;
+      const answer = inventory.map((p) => ({ ...p }));
+      if (listingGate) await listingGate;
       if (opFailure) {
         return new window.Response(JSON.stringify({ success: false, error: opFailure }), { status: 200 });
       }
-      const tasks = (body.params.taskIds || []).map((/** @type {string} */ id) => ({
-        task_id: id,
-        status: alive.has(id) ? 'running' : 'not_found',
-        running: alive.has(id),
-      }));
-      return new window.Response(JSON.stringify({ success: true, data: { tasks } }), { status: 200 });
+      return new window.Response(JSON.stringify({ success: true, data: { processes: answer } }), { status: 200 });
     }
-    if (body.operation === 'kill') {
-      kills.push(body.params);
-      alive.delete(body.params.shellId);
+    if (body.operation === 'stopProcess') {
+      stops.push(body.params);
       return new window.Response(
-        JSON.stringify({ success: true, data: { shell_id: body.params.shellId, killed: true } }),
+        JSON.stringify({ success: true, data: { id: body.params.id, stopped: true } }),
         { status: 200 }
       );
     }
     return originalFetch(input, init);
+  };
+
+  /**
+   * Deliver a `processes-changed` frame through the socket's own route, as the
+   * server's would arrive.
+   * @param {any[]} processes - The whole inventory.
+   */
+  const pushFrame = (processes) => {
+    inventory = processes;
+    const route = /** @type {any} */ (WebSocketService.TYPED_MESSAGE_ROUTES)['processes-changed'];
+    route(wsService, { type: 'processes-changed', processes: processes.map((p) => ({ ...p })) });
   };
 
   /** @type {any} */
@@ -154,11 +167,12 @@ export async function runTests() {
   /** @type {any} */
   let conversation = null;
   /** @type {any} */
+  let other = null;
+  /** @type {any} */
   let content = null;
   /** @type {(() => void)|null} */
   let watching = null;
 
-  /** Stamps rise so "newest first" has something to sort by. */
   let clock = 1;
 
   /**
@@ -167,20 +181,21 @@ export async function runTests() {
    * @param {object} spec - What this action is.
    * @param {string} spec.tool - The tool name.
    * @param {string} spec.command - The command it ran.
+   * @param {string} spec.toolUseId - The tool call.
    * @param {string} [spec.taskId] - The background task id it was handed, if any.
    * @param {string} [spec.description] - Monitor's label for it.
    * @param {string} [spec.snapshotStatus] - A durable `displayData.backgroundTask` status.
    * @returns {string} The action's item id.
    */
   function addAction(thread, spec) {
-    const { tool, command, taskId, description, snapshotStatus } = spec;
+    const { tool, command, toolUseId, taskId, description, snapshotStatus } = spec;
     /** @type {any} */
     const input = { command };
     if (description !== undefined) input.description = description;
 
     // A background run's result carries the task receipt — and, once it has been
     // running a while, the command's accumulated output beside it. It is here so
-    // the walk is measured against the real shape, where reaching the task id
+    // the walk is measured against the real shape, where reaching a field
     // through toJSON() would copy every byte the command has produced.
     /** @type {any} */
     const result = {
@@ -194,19 +209,13 @@ export async function runTests() {
     };
 
     const message = thread.appendToolAction({
-      toolUseId: `tu_${clock}`,
-      toolName: tool,
-      toolInput: input,
-      state: 'completed',
-      result,
+      toolUseId, toolName: tool, toolInput: input, state: 'completed', result,
     });
 
     const items = thread.items;
     const ymap = items[items.length - 1];
     ymap.set('timestamp', new Date(1700000000000 + clock * 1000).toISOString());
     if (snapshotStatus) {
-      // What the observer leaves behind, and what freezes: after a restart this
-      // still says whatever it last said.
       ymap.set('displayData', { backgroundTask: { taskId, status: snapshotStatus, output: '' } });
     }
     clock++;
@@ -214,41 +223,51 @@ export async function runTests() {
   }
 
   /**
-   * The active-context snapshot the panel hands the content band.
-   * @param {string|null} threadId - The thread being read, null for the root.
-   * @returns {any} The snapshot.
+   * One inventory entry, as the server lists it.
+   * @param {string} id - Its id.
+   * @param {any} [fields] - Everything else.
+   * @returns {any} The entry.
    */
-  const activeContext = (threadId) => ({
-    project: { path: PROJECT, displayName: 'pinboard-tasks' },
-    conversation: { id: conversation.id, title: conversation.name },
-    thread: { id: threadId },
+  const proc = (id, fields = {}) => ({
+    id, kind: 'background', command: `run ${id}`, startedAt: 1700000000000 + clock++ * 1000, ...fields,
   });
 
   /**
-   * The service under test, as a pin receives it.
-   * @returns {any} `services.tasks`.
+   * The active-context snapshot the panel hands the content band.
+   * @param {any} conv - The conversation being read.
+   * @returns {any} The snapshot.
    */
+  const activeContext = (conv) => ({
+    project: { path: PROJECT, displayName: 'pinboard-tasks' },
+    conversation: { id: conv.id, title: conv.name },
+    thread: { id: null },
+  });
+
+  /** @returns {any} `services.tasks`, as a pin receives it. */
   const service = () => probe.context.services.tasks;
 
   /**
-   * Force a fresh check and wait for its answer. Subscribing is what starts a
-   * check, so a second, momentary watcher is the contract's own way to ask for
-   * one — the interval is focus-gated and far too slow for a test either way.
-   * @returns {Promise<any[]>} The task list after the check.
+   * Wait for the list to say what `ok` wants, failing with what it said instead.
+   * @param {(list: any[]|null) => boolean} ok - The condition.
+   * @param {string} what - What is being waited for.
+   * @returns {Promise<any[]>} The list.
    */
-  async function refresh() {
-    const seen = probes.length;
-    const stop = service().onChange(() => {});
-    await waitFor(() => probes.length > seen || opFailure, 'the check to be made');
-    stop();
-    // The answer lands a microtask or two after the request; wait for the state
-    // it produces rather than for a duration.
-    await new Promise((resolve) => { setTimeout(resolve, 0); });
+  const listWhere = async (ok, what) => {
+    await waitFor(() => ok(service().list()), `${what}; list is ${JSON.stringify(service().list())}`);
     return service().list();
-  }
+  };
+
+  /**
+   * @param {any[]|null} list - A task list.
+   * @param {string} id - The task id to look for.
+   * @returns {any} The task, or undefined.
+   */
+  const find = (list, id) => (list || []).find((t) => t.taskId === id);
 
   try {
     session = await createTestSession();
+    other = await createApprovalTestConversation(session);
+    session.setConversationName(other.id, 'Other work');
     conversation = await createApprovalTestConversation(session);
     session.setConversationName(conversation.id, 'Running things');
     const root = conversation.rootMessageThread;
@@ -263,181 +282,200 @@ export async function runTests() {
         initialItems: [createAssistantMessage('Starting.')],
       }).threadId;
     }, conversation._doc.authorId);
+    const sub = conversation.resolveMessageThread(subThread);
 
     content = /** @type {any} */ (document.createElement('pinboard-content'));
     container.appendChild(content);
     content.setSession(session);
-    content.setPin({ id: 'pin_probe', type: 'task-probe', config: {} }, activeContext(null));
+    content.setPin({ id: 'pin_probe', type: 'task-probe', config: {} }, activeContext(conversation));
     await waitFor(() => probe.context, 'the probe pin never mounted');
 
     // --- before anything is asked --------------------------------------------
 
     await run('nothing has been asked yet, so the list is null rather than empty', () => {
       assert(service().list() === null,
-        `"nothing running" is a claim; before a check the answer is null, got ${JSON.stringify(service().list())}`);
+        `"nothing running" is a claim; before a listing the answer is null, got ${JSON.stringify(service().list())}`);
+      assert(listings === 0, 'nobody is watching, so nothing should have been asked');
     });
 
-    // Start watching for the rest of the suite. The first watcher triggers the
-    // first check, which is what turns null into a list.
     watching = service().onChange(() => {});
-    await waitFor(() => service().list() !== null, 'the first check never landed');
 
-    await run('an empty transcript is running nothing', () => {
+    await run('the first watcher asks for the inventory once', async () => {
+      await listWhere((l) => Array.isArray(l), 'the first listing to land');
+      assert(listings === 1, `expected one listing, got ${listings}`);
+      assert(service().list().length === 0, 'an empty inventory is running nothing');
+    });
+
+    // --- what is listed is what the server says --------------------------------
+
+    await run('a frame replaces the list, across every conversation', async () => {
+      addAction(root, { tool: 'bash', command: 'npm run build', toolUseId: 'call_1', taskId: 'bg-build' });
+      pushFrame([
+        proc('bg-build', { command: 'npm run build', convId: conversation.id, toolUseId: 'call_1' }),
+        proc('shell-fg', { kind: 'foreground', command: 'make test', convId: other.id, toolUseId: 'call_9' }),
+      ]);
+      const list = await listWhere((l) => (l || []).length === 2, 'both processes to be listed');
+      const fg = find(list, 'shell-fg');
+      assert(fg.kind === 'foreground', `expected a foreground command, got ${fg.kind}`);
+      assert(fg.conversationId === other.id, `expected it under its own conversation, got ${fg.conversationId}`);
+      assert(fg.conversationTitle === 'Other work', `expected its conversation named, got ${JSON.stringify(fg.conversationTitle)}`);
+    });
+
+    await run('the conversation being read comes first', () => {
       const list = service().list();
-      assert(Array.isArray(list) && list.length === 0, `expected [], got ${JSON.stringify(list)}`);
+      assert(list[0].conversationId === conversation.id,
+        `expected this conversation's task first, got ${JSON.stringify(list.map((/** @type {any} */ t) => t.conversationId))}`);
     });
 
-    // --- what counts as a task ------------------------------------------------
-
-    await run('a background bash the server confirms is running is listed', async () => {
-      const itemId = addAction(root, { tool: 'bash', command: 'npm run build', taskId: 'bg-build' });
-      alive.add('bg-build');
-      const list = await refresh();
-      assert(list.length === 1, `expected one task, got ${JSON.stringify(list)}`);
-      assert(list[0].taskId === 'bg-build', `expected bg-build, got ${list[0].taskId}`);
-      assert(list[0].command === 'npm run build', `expected the command, got ${list[0].command}`);
-      assert(list[0].itemId === itemId, `expected the spawning action, got ${list[0].itemId}`);
-      assert(list[0].threadId === null, `a root-thread task has no thread id, got ${list[0].threadId}`);
-    });
-
-    await run('a foreground command is not a task', async () => {
-      addAction(root, { tool: 'bash', command: 'ls -la' });
-      const list = await refresh();
-      assert(!list.some((/** @type {any} */ t) => t.command === 'ls -la'),
-        `a command with no task receipt was never a background task: ${JSON.stringify(list.map((/** @type {any} */ t) => t.command))}`);
-    });
-
-    await run('a Monitor is a task, and its description is carried as the label', async () => {
-      addAction(root, {
-        tool: 'Monitor', command: 'tail -f build.log', taskId: 'bg-monitor', description: 'Watching the build',
+    await run('a loaded transcript lends the row, the tool and the label', async () => {
+      const itemId = addAction(root, {
+        tool: 'Monitor', command: 'tail -f build.log', toolUseId: 'call_2', taskId: 'bg-monitor',
+        description: 'Watching the build',
       });
-      alive.add('bg-monitor');
-      const list = await refresh();
-      const found = list.find((/** @type {any} */ t) => t.taskId === 'bg-monitor');
-      assert(!!found, `expected the monitor listed: ${JSON.stringify(list.map((/** @type {any} */ t) => t.taskId))}`);
-      assert(found.label === 'Watching the build', `expected the label, got ${JSON.stringify(found.label)}`);
+      pushFrame([...inventory, proc('bg-monitor', { command: 'tail -f build.log', convId: conversation.id, toolUseId: 'call_2' })]);
+      const list = await listWhere((l) => !!find(l, 'bg-monitor'), 'the monitor to be listed');
+      const found = find(list, 'bg-monitor');
+      assert(found.itemId === itemId, `expected the spawning action, got ${found.itemId}`);
       assert(found.toolName === 'Monitor', `expected the tool named, got ${found.toolName}`);
+      assert(found.label === 'Watching the build', `expected the label, got ${JSON.stringify(found.label)}`);
     });
 
-    await run('a task started in a sub-thread says which thread it was', async () => {
-      const sub = conversation.resolveMessageThread(subThread);
-      addAction(sub, { tool: 'bash', command: 'npm test', taskId: 'bg-sub' });
-      alive.add('bg-sub');
-      const list = await refresh();
-      const found = list.find((/** @type {any} */ t) => t.taskId === 'bg-sub');
-      assert(!!found, 'a sub-thread task belongs to the conversation as much as a root one');
+    await run('a tool-call id repeated in a sub-thread resolves to the thread named', async () => {
+      // `call_1` is also the root's build; the thread is what tells them apart.
+      const subItem = addAction(sub, { tool: 'bash', command: 'npm test', toolUseId: 'call_1', taskId: 'bg-sub' });
+      pushFrame([...inventory, proc('bg-sub', { command: 'npm test', convId: conversation.id, threadId: subThread, toolUseId: 'call_1' })]);
+      const list = await listWhere((l) => !!find(l, 'bg-sub'), 'the sub-thread task to be listed');
+      const found = find(list, 'bg-sub');
       assert(found.threadId === subThread, `expected the owning thread ${subThread}, got ${found.threadId}`);
+      assert(found.itemId === subItem, `expected the sub-thread's own row, got ${found.itemId}`);
+      assert(find(list, 'bg-build').itemId !== subItem, "the root's call_1 must not resolve to the sub-thread's row");
     });
 
-    // --- the join, which is the whole point ----------------------------------
-
-    await run('a task the server no longer knows about drops off the list', async () => {
-      alive.delete('bg-build');
-      const list = await refresh();
-      assert(!list.some((/** @type {any} */ t) => t.taskId === 'bg-build'),
-        `a task that has ended is not running: ${JSON.stringify(list.map((/** @type {any} */ t) => t.taskId))}`);
-      // The others are untouched — one task ending is not a reason to lose the rest.
-      assert(list.some((/** @type {any} */ t) => t.taskId === 'bg-monitor'),
-        'the remaining tasks must survive one of them ending');
+    await run('reveal resolves a tool call to its row, in the thread named', () => {
+      const target = resolveToolTarget(conversation, { kind: 'tool', id: 'call_1', thread: subThread });
+      assert(target.kind === 'item' && target.id === find(service().list(), 'bg-sub').itemId,
+        `expected the sub-thread's row, got ${JSON.stringify(target)}`);
+      const missing = resolveToolTarget(conversation, { kind: 'tool', id: 'call_nope', thread: subThread });
+      assert(missing.kind === 'thread' && missing.id === subThread,
+        `a call with no row falls back to its thread, got ${JSON.stringify(missing)}`);
     });
 
-    await run('a stale snapshot does not resurrect a task the server says is gone', async () => {
-      // This is what a restart leaves: the transcript's durable snapshot still
-      // says `running`, because nothing ever goes back to correct it. Believing
-      // it would make the board claim a dead process is alive, for good.
+    await run('a stale snapshot does not resurrect a task the server does not list', async () => {
       addAction(root, {
-        tool: 'bash', command: 'sleep 9999', taskId: 'bg-ghost', snapshotStatus: 'running',
+        tool: 'bash', command: 'sleep 9999', toolUseId: 'call_3', taskId: 'bg-ghost', snapshotStatus: 'running',
       });
-      const list = await refresh();
-      assert(!list.some((/** @type {any} */ t) => t.taskId === 'bg-ghost'),
+      pushFrame(inventory.filter((p) => p.id !== 'bg-build'));
+      const list = await listWhere((l) => !find(l, 'bg-build'), 'the ended task to leave');
+      assert(!find(list, 'bg-ghost'),
         `the server is the only thing that knows what is running: ${JSON.stringify(list.map((/** @type {any} */ t) => t.taskId))}`);
+      assert(!!find(list, 'bg-monitor'), 'the remaining tasks must survive one of them ending');
     });
-
-    await run('the check asks only about ids the transcript already named', () => {
-      const last = probes[probes.length - 1];
-      assert(last.convId === conversation.id, `expected the conversation named, got ${last.convId}`);
-      assert(Array.isArray(last.taskIds), 'the check must name the ids it is asking about');
-      const known = ['bg-build', 'bg-monitor', 'bg-sub', 'bg-ghost'];
-      assert(last.taskIds.every((/** @type {string} */ id) => known.includes(id)),
-        `it must not ask about anything it did not read: ${JSON.stringify(last.taskIds)}`);
-    });
-
-    // --- what never leaves the model -----------------------------------------
 
     await run("the command's output never reaches the pin", () => {
-      const list = service().list();
-      const serialised = JSON.stringify(list);
+      const serialised = JSON.stringify(service().list());
       assert(!serialised.includes('hunter2'),
         `a task's accumulated output must stay in the model:\n${serialised.slice(0, 400)}`);
       assert(!serialised.includes('yyyy'),
         `and so must its bulk — the walk reads fields, it does not copy results:\n${serialised.length} chars`);
     });
 
-    await run('the list handed out is a copy of nothing the model can see change', async () => {
-      const first = await refresh();
+    await run('the list handed out is a copy', () => {
+      const first = service().list();
       first.push({ taskId: 'bg-invented' });
+      first[0].command = 'changed';
       const second = service().list();
-      assert(!second.some((/** @type {any} */ t) => t.taskId === 'bg-invented'),
-        'a caller mutating the list must not change what the next one reads');
+      assert(!find(second, 'bg-invented'), 'a caller mutating the list must not change what the next one reads');
+      assert(second[0].command !== 'changed', 'nor a task in it');
+    });
+
+    await run('reading another conversation reorders the list and says so', async () => {
+      let told = 0;
+      const stop = service().onChange(() => { told++; });
+      content.setActiveContext(activeContext(other));
+      await waitFor(() => told > 0, 'the watchers to be told');
+      stop();
+      const list = service().list();
+      assert(list[0].conversationId === other.id,
+        `expected the other conversation first now, got ${JSON.stringify(list.map((/** @type {any} */ t) => t.conversationId))}`);
+      content.setActiveContext(activeContext(conversation));
     });
 
     // --- stopping -------------------------------------------------------------
 
-    await run('stopping a plain task kills it, naming its conversation', async () => {
-      alive.add('bg-sub');
-      await refresh();
-      const before = kills.length;
+    await run('stopping a plain task asks the server to stop it by id', async () => {
+      const before = stops.length;
       await service().stop('bg-sub');
-      assert(kills.length === before + 1, `expected one kill, got ${kills.length - before}`);
-      assert(kills[kills.length - 1].shellId === 'bg-sub',
-        `expected the named task, got ${kills[kills.length - 1].shellId}`);
-      assert(kills[kills.length - 1].convId === conversation.id,
-        `a bare task id is not enough authority; got ${JSON.stringify(kills[kills.length - 1].convId)}`);
+      assert(stops.length === before + 1, `expected one stop, got ${stops.length - before}`);
+      assert(stops[stops.length - 1].id === 'bg-sub', `expected the named task, got ${JSON.stringify(stops[stops.length - 1])}`);
     });
 
-    await run('a stopped task is gone from the list without waiting for the next check', () => {
-      assert(!(service().list() || []).some((/** @type {any} */ t) => t.taskId === 'bg-sub'),
-        'stopping re-checks, so the row goes at once rather than lingering for two seconds');
+    await run('stopping a foreground command in another conversation asks the server too', async () => {
+      const before = stops.length;
+      await service().stop('shell-fg');
+      assert(stops.length === before + 1 && stops[stops.length - 1].id === 'shell-fg',
+        `expected the foreground command stopped by id, got ${JSON.stringify(stops.slice(before))}`);
     });
 
-    // --- failure --------------------------------------------------------------
+    await run("a Monitor's task is stopped through its delivery binding", async () => {
+      const original = root.cancelTaskOutputDelivery;
+      /** @type {string[]} */
+      const cancelled = [];
+      root.cancelTaskOutputDelivery = (/** @type {string} */ id) => { cancelled.push(id); return true; };
+      try {
+        const before = stops.length;
+        await service().stop('bg-monitor');
+        assert(cancelled.includes('bg-monitor'), 'the binding owns the monitor and must be the one to stop it');
+        assert(stops.length === before, 'and the server must not be asked as well');
+      } finally {
+        root.cancelTaskOutputDelivery = original;
+      }
+    });
 
-    await run('a failed check is reported and the last list is kept', async () => {
-      const before = (service().list() || []).length;
+    // --- failure and catching up ---------------------------------------------
+
+    await run('a failed listing is reported and the last list is kept', async () => {
+      const before = service().list().length;
       opFailure = 'connection refused';
-      const stop = service().onChange(() => {});
+      wsService._emit('open', {});
       await waitFor(() => service().error(), 'the failure to be recorded');
-      stop();
       assert(service().error().includes('connection refused'),
         `expected the underlying text kept, got ${JSON.stringify(service().error())}`);
-      assert((service().list() || []).length === before,
-        'a check that failed is not evidence the tasks stopped');
+      assert(service().list().length === before, 'a listing that failed is not evidence the tasks stopped');
       opFailure = '';
     });
 
-    await run('a later good check clears the failure', async () => {
-      await refresh();
-      assert(service().error() === '', `expected the error cleared, got ${JSON.stringify(service().error())}`);
+    await run('the next frame clears the failure', async () => {
+      pushFrame(inventory);
+      await waitFor(() => service().error() === '', 'the error to clear');
+    });
+
+    await run('a frame landing while a listing is out wins', async () => {
+      /** @type {() => void} */
+      let release = () => {};
+      listingGate = new Promise((resolve) => { release = () => resolve(); });
+      inventory = [proc('bg-old')];
+      const asked = listings;
+      wsService._emit('open', {});
+      await waitFor(() => listings > asked, 'the listing to be asked for');
+      pushFrame([proc('bg-new')]);
+      await listWhere((l) => !!find(l, 'bg-new'), 'the frame to land');
+      listingGate = null;
+      release();
+      // Give the stale answer every chance to land before checking it did not.
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+      assert(!find(service().list(), 'bg-old') && !!find(service().list(), 'bg-new'),
+        `the older listing overwrote the newer frame: ${JSON.stringify(service().list())}`);
     });
 
     // --- watching -------------------------------------------------------------
 
-    await run('unsubscribing stops the checks', async () => {
-      const stop = service().onChange(() => {});
-      await waitFor(() => true, 'never');
-      stop();
-      // The last watcher leaving stops the interval; the one held for this suite
-      // is still here, so this asserts the bookkeeping rather than the timer.
-      assert(typeof stop === 'function', 'onChange must hand back an unsubscribe');
-    });
-
-    await run('teardown drops the watcher the pin never unsubscribed', async () => {
-      const before = probes.length;
-      // Replace the mounted pin: the old one's signal aborts, which is what a
-      // forgetful item type relies on.
-      content.setPin({ id: 'pin_other', type: 'task-probe', config: {} }, activeContext(null));
-      await waitFor(() => probe.context.pin.id === 'pin_other', 'the second pin never mounted');
-      assert(probes.length >= before, 'remounting must not lose the ability to check');
+    await run('with nobody watching, frames are not listened to', async () => {
+      watching?.();
+      watching = null;
+      // The probe pin never subscribed, so the suite's watcher was the last.
+      pushFrame([proc('bg-unheard')]);
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+      assert(!find(service().list(), 'bg-unheard'), 'a frame reached a board nobody is watching');
     });
   } finally {
     // Drain every stub in a finally, so a case that throws cannot strand one for

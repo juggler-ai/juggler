@@ -434,6 +434,12 @@ type liveCLI struct {
 	// only on stderr surfaces in the UI instead of vanishing.
 	recentStderr chan string
 
+	// resultOwed is set when a read ended at the stream's own end_turn: the CLI
+	// still writes that query's `result` envelope after it, and the next read
+	// meets it first. Owned by whichever reader holds content (the foreground
+	// turn or the autonomous drain — one at a time). See passOverQueryTrailer.
+	resultOwed bool
+
 	// control owns the stdio control protocol for this CLI session. Set
 	// when the persistent CLI is spawned with --input-format stream-json
 	// and routes the CLI's mcp_message control_requests back to our

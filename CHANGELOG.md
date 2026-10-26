@@ -28,6 +28,7 @@ of changes; this project follows semantic versioning.
 - Custom endpoint headers can include `{{sessionId}}`, a per-conversation ID
 - Fork a new conversation after any assistant reply, not only at your messages
 - Auto-approve waits longer for a slow or busy reviewer; deciding yourself cancels it
+- Resumed Claude Code sub-threads no longer start out of budget, or with an empty reply
 
 ## [0.7.8] - 2026-10-23
 

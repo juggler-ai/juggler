@@ -19,8 +19,9 @@ import (
 // content_block_start(text) → content_block_delta(text_delta) →
 // content_block_stop → message_delta(stop_reason=end_turn). Usage rides on the
 // message_delta with cache_read_input_tokens set to cacheRead so cost/cache
-// tests can tell turns apart. The parser exits readUntilPause as soon as it sees
-// stop_reason=end_turn, so any trailing `result` envelope is not observed.
+// tests can tell turns apart. It writes no trailing `result` envelope: the read
+// returns at stop_reason=end_turn, and the envelope the real CLI writes after it
+// is a separate concern, covered in trailing_result_test.go.
 func emitTextTurn(out *bufio.Writer, text string, cacheRead int) {
 	emit(out, map[string]any{"type": "stream_event", "event": map[string]any{
 		"type": "content_block_start", "index": 0, "content_block": map[string]any{"type": "text"},

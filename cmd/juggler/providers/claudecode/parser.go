@@ -154,6 +154,12 @@ type turnResult struct {
 	// stream-event numbers and ignore the result-envelope ones.
 	usageFromStream bool
 
+	// streamed records that this read has seen a stream_event, and resultSeen
+	// that it has seen a `result` envelope — between them, whether the read
+	// ended in a way that leaves the query's envelope still to come.
+	streamed   bool
+	resultSeen bool
+
 	// Per-block accumulators for the stream-event parser; the CLI is always
 	// spawned with --include-partial-messages so this is the sole content
 	// path. Lazily initialised on the first stream_event.
@@ -343,9 +349,52 @@ func (c *Client) consumeLine(line string, result *turnResult, callback provider.
 	}
 	switch result.StopReason {
 	case provider.StopReasonEndTurn, provider.StopReasonEmptyResponse:
+		if !result.resultSeen {
+			if live := c.liveProcess(); live != nil {
+				live.resultOwed = true
+			}
+		}
 		return count, true, nil
 	}
 	return count, false, nil
+}
+
+// liveProcess is the running CLI's plumbing, or nil when there is none.
+func (c *Client) liveProcess() *liveCLI {
+	if c.activeSession == nil {
+		return nil
+	}
+	return c.activeSession.live
+}
+
+// passOverQueryTrailer consumes the `result` envelope of a query whose turn has
+// already been returned, and reports whether it did.
+//
+// A read returns at the stream's end_turn, so the envelope the CLI writes after
+// it is read by whoever reads next — the autonomous drain, or the next Submit
+// when no drain is running. To that reader it looks like a whole turn: an
+// instant end_turn with no content, carrying usage summed over every API call of
+// the finished query (millions of tokens after a long tool-use run). Taken as a
+// resumed session's first turn, that charged the run its previous query's whole
+// cost and ended the turn before the model's real reply had been read.
+//
+// Only a clean envelope is passed over, and only as the first thing a read
+// meets: a failure in that position is the CLI reporting one, and ends the turn
+// as it always has. What the envelope teaches beyond usage — the model's window,
+// that the login works — is still learned from it.
+func (c *Client) passOverQueryTrailer(msg *StreamMessage, result *turnResult) bool {
+	live := c.liveProcess()
+	if live == nil || !live.resultOwed {
+		return false
+	}
+	live.resultOwed = false
+	if result.streamed || msg.IsError || msg.Subtype != "success" {
+		return false
+	}
+	jlog.Debug("claudecode: passed over the previous query's result envelope (it closes a turn already returned)")
+	c.learnModelUsage(msg)
+	markClaudeLoginConfirmed()
+	return true
 }
 
 // retryLadder is the retryLadderCap clock. The first api_retry notice of a
@@ -481,8 +530,18 @@ func (c *Client) processStreamLineWithEarlyReturn(line string, result *turnResul
 	case "system":
 		c.onSystemLine(&msg, line, result, callback)
 	case "result":
+		if c.passOverQueryTrailer(&msg, result) {
+			return false, 0, nil
+		}
+		result.resultSeen = true
 		return false, 0, c.onResultLine(&msg, result)
 	case "stream_event":
+		// A new query is streaming, so any envelope owed by the last one is not
+		// coming: the CLI writes it before anything of the next.
+		result.streamed = true
+		if live := c.liveProcess(); live != nil {
+			live.resultOwed = false
+		}
 		return c.handleStreamEvent(msg.Event, result, callback)
 	case "control_request", "control_response", "control_cancel_request":
 		return false, 0, c.onControlLine(&msg)

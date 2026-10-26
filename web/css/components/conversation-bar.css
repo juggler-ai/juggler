@@ -497,7 +497,17 @@ conversation-bar .conversation-tab {
     align-items: center;
     gap: 0.2rem;
     transition: background var(--transition-base), color var(--transition-base);
-    cursor: default;
+
+    /* A click anywhere on the row switches to the tab, so the whole row wears
+       the hand, not just the name's button. */
+    cursor: pointer;
+}
+
+/* The rename editor laid over the row is for typing, not pressing: the hand
+   would otherwise inherit into it, and `auto` gives back the I-beam over the
+   field and the arrow round it. */
+conversation-bar .conversation-tab .inline-rename {
+    cursor: auto;
 }
 
 conversation-bar .conversation-box .conversation-tab {

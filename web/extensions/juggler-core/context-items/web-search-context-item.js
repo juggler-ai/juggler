@@ -56,10 +56,19 @@ class WebSearchContextItem extends ContextItem {
   static DDG_URL = 'https://html.duckduckgo.com/html/';
 
   // Retry policy for DuckDuckGo rate-limit / captcha responses. DuckDuckGo
-  // throttles bursts of requests from one IP, so a blocked response is retried
-  // a few times with exponential backoff + jitter before giving up.
+  // throttles bursts of requests from one IP, and a block lasts seconds to
+  // minutes: a retry inside a second only re-hits it (and can prolong it). So
+  // the waits are 5–10s then 10–15s (base · 2^n plus up to one base of jitter),
+  // ~15–25s in all before the error is surfaced.
   static MAX_RETRIES = 2;
-  static RETRY_BASE_MS = 400;
+  static RETRY_BASE_MS = 5000;
+
+  // After a search exhausts its retries, every search in this realm fails at
+  // once, without contacting DuckDuckGo, until this long has passed — so a
+  // model that retries straight away, or a parallel conversation, does not keep
+  // the block alive. `blockedUntil` is the epoch ms that cooldown ends (0: none).
+  static COOLDOWN_MS = 60000;
+  static blockedUntil = 0;
 
   /**
    * Get tool definitions for WebSearch action
@@ -161,17 +170,24 @@ class WebSearchContextItem extends ContextItem {
    * and 403/429, as `blocked`). A blocked response, or a 200 page with zero
    * result blocks and no genuine "no results" marker, is retried with
    * exponential backoff + jitter up to {@link WebSearchContextItem.MAX_RETRIES}
-   * times before the error is surfaced. A genuine empty result set (the
-   * `no-results` marker on an unblocked page) returns successfully with zero
-   * results.
+   * times before the error is surfaced, which also starts the shared
+   * {@link WebSearchContextItem.COOLDOWN_MS} cooldown; a search during it
+   * fails without a request. A genuine empty result set (the `no-results`
+   * marker on an unblocked page) returns successfully with zero results.
    * @param {string} query - Search query
    * @param {string[]} [allowedDomains] - Allowed domains
    * @param {string[]} [blockedDomains] - Blocked domains
    * @returns {Promise<WebSearchResult>} Search result
    */
   async search(query, allowedDomains, blockedDomains) {
+    const remainingMs = WebSearchContextItem.blockedUntil - Date.now();
+    if (remainingMs > 0) {
+      throw new Error(`DuckDuckGo is rate-limiting this connection, so searches are paused for another ${Math.ceil(remainingMs / 1000)}s. Retrying sooner would only extend the block; carry on without search, or try again after that.`);
+    }
+
     const ddgParams = this.buildDuckDuckGoParams(query);
     const maxAttempts = WebSearchContextItem.MAX_RETRIES + 1;
+    const startedAt = Date.now();
 
     /** @type {WebSearchResultItem[]} */
     let results = [];
@@ -188,9 +204,12 @@ class WebSearchContextItem extends ContextItem {
       // (almost certainly a captcha page). Retry with backoff unless attempts
       // are spent.
       if (attempt === maxAttempts) {
+        WebSearchContextItem.blockedUntil = Date.now() + WebSearchContextItem.COOLDOWN_MS;
+        const spanS = Math.round((Date.now() - startedAt) / 1000);
+        const cooldownS = Math.round(WebSearchContextItem.COOLDOWN_MS / 1000);
         throw new Error(blocked
-          ? `DuckDuckGo refused the search (HTTP ${response.status}) on all ${maxAttempts} attempts: it is rate-limiting this connection. Wait a minute or two before searching again.`
-          : 'No results found - may be blocked or need captcha');
+          ? `DuckDuckGo refused the search (HTTP ${response.status}) on all ${maxAttempts} attempts over ${spanS}s: it is rate-limiting this connection. Searches are paused for ${cooldownS}s.`
+          : `No results found - may be blocked or need captcha. Searches are paused for ${cooldownS}s.`);
       }
       const backoff = WebSearchContextItem.RETRY_BASE_MS * 2 ** (attempt - 1);
       const jitter = Math.floor(Math.random() * WebSearchContextItem.RETRY_BASE_MS);

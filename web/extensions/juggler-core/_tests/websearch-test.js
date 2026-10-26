@@ -275,16 +275,20 @@ function testEmptyResultsHandling() {
 
 /**
  * Build a WebSearch item whose page fetches are answered from `pages` in
- * order, with no backoff wait, recording each request it makes.
+ * order, with no real backoff wait, recording each request it makes and each
+ * wait it asked for. Clears any rate-limit cooldown a previous test left.
  * @param {any} session
  * @param {any} conversation
  * @param {Array<{content: string, status: number, blocked?: boolean}>} pages
- * @returns {{action: WebSearchContextItem, calls: unknown[]}} Item and its request log
+ * @returns {{action: WebSearchContextItem, calls: unknown[], waits: number[]}} Item, its request log and its backoff waits
  */
 function scriptedSearch(session, conversation, pages) {
+  WebSearchContextItem.blockedUntil = 0;
   const action = new WebSearchContextItem({ id: 'web-search', session, conversation, messageThread: conversation.rootMessageThread });
   /** @type {unknown[]} */
   const calls = [];
+  /** @type {number[]} */
+  const waits = [];
   const queue = [...pages];
   /** @type {any} */ (action).fetchSearchPage = async (/** @type {unknown} */ params) => {
     calls.push(params);
@@ -294,8 +298,8 @@ function scriptedSearch(session, conversation, pages) {
     }
     return { url: WebSearchContextItem.DDG_URL, truncated: false, ...page };
   };
-  /** @type {any} */ (action).delay = async () => {};
-  return { action, calls };
+  /** @type {any} */ (action).delay = async (/** @type {number} */ ms) => { waits.push(ms); };
+  return { action, calls, waits };
 }
 
 /**
@@ -353,6 +357,93 @@ async function testBlockedEveryAttemptExplains(session, conversation) {
   } catch (e) {
     const error = /** @type {Error} */ (e);
     return { passed: false, error: error.message };
+  } finally {
+    WebSearchContextItem.blockedUntil = 0;
+  }
+}
+
+/**
+ * Retries of a rate-limited search are spaced far enough apart to give the
+ * limit a chance to lift: every wait is at least a few seconds, and each is
+ * longer than the one before. A sub-second ladder only re-hits a block that
+ * is still in force.
+ * @param {any} session
+ * @param {any} conversation
+ * @returns {Promise<{passed: boolean, error?: string}>} Test result
+ */
+async function testBlockedRetriesAreSpaced(session, conversation) {
+  try {
+    const attempts = WebSearchContextItem.MAX_RETRIES + 1;
+    const pages = Array.from({ length: attempts }, () => ({ content: '', status: 202, blocked: true }));
+    const { action, waits } = scriptedSearch(session, conversation, pages);
+    await action.search('test query').catch(() => {});
+    if (waits.length !== attempts - 1) {
+      throw new Error(`Expected ${attempts - 1} backoff waits, got ${waits.length}`);
+    }
+    if (waits.some(ms => ms < 3000)) {
+      throw new Error(`Every backoff wait should be at least 3s, got ${JSON.stringify(waits)}`);
+    }
+    for (let i = 1; i < waits.length; i++) {
+      if (waits[i] <= waits[i - 1]) {
+        throw new Error(`Backoff waits should grow, got ${JSON.stringify(waits)}`);
+      }
+    }
+    return { passed: true };
+  } catch (e) {
+    const error = /** @type {Error} */ (e);
+    return { passed: false, error: error.message };
+  } finally {
+    WebSearchContextItem.blockedUntil = 0;
+  }
+}
+
+/**
+ * Once a search has exhausted its retries against a rate-limit, the next
+ * search — from any item — fails at once without contacting DuckDuckGo
+ * until the cooldown has passed, and says how long is left.
+ * @param {any} session
+ * @param {any} conversation
+ * @returns {Promise<{passed: boolean, error?: string}>} Test result
+ */
+async function testRateLimitCooldownSkipsNetwork(session, conversation) {
+  try {
+    const attempts = WebSearchContextItem.MAX_RETRIES + 1;
+    const pages = Array.from({ length: attempts }, () => ({ content: '', status: 202, blocked: true }));
+    const first = scriptedSearch(session, conversation, pages);
+    await first.action.search('test query').catch(() => {});
+
+    // A fresh item, so the cooldown must be shared, not per-instance.
+    const second = new WebSearchContextItem({ id: 'web-search', session, conversation, messageThread: conversation.rootMessageThread });
+    let fetched = 0;
+    /** @type {any} */ (second).fetchSearchPage = async () => {
+      fetched++;
+      return { url: WebSearchContextItem.DDG_URL, truncated: false, content: DUCKDUCKGO_HTML_RESPONSE, status: 200 };
+    };
+    let message = '';
+    try {
+      await second.search('another query');
+    } catch (e) {
+      message = /** @type {Error} */ (e).message;
+    }
+    if (fetched !== 0) {
+      throw new Error(`Expected no fetch during the cooldown, got ${fetched}`);
+    }
+    if (!/\d+s/.test(message)) {
+      throw new Error(`Expected the cooldown error to say how long is left, got "${message}"`);
+    }
+
+    // Once the cooldown has lapsed, searches reach the network again.
+    WebSearchContextItem.blockedUntil = Date.now() - 1;
+    const result = await second.search('another query');
+    if (fetched !== 1 || result.results.length !== 3) {
+      throw new Error(`Expected one fetch with 3 results after the cooldown, got ${fetched} fetch(es), ${result.results.length} results`);
+    }
+    return { passed: true };
+  } catch (e) {
+    const error = /** @type {Error} */ (e);
+    return { passed: false, error: error.message };
+  } finally {
+    WebSearchContextItem.blockedUntil = 0;
   }
 }
 
@@ -387,7 +478,9 @@ export async function runTests(_ctx) {
     { name: 'DuckDuckGo params building', fn: () => testDuckDuckGoParamsBuilding(session, conversation) },
     { name: 'Empty and blocked results handling', fn: () => testEmptyResultsHandling() },
     { name: 'Blocked status is retried', fn: () => testBlockedStatusIsRetried(session, conversation) },
-    { name: 'Blocked on every attempt explains', fn: () => testBlockedEveryAttemptExplains(session, conversation) }
+    { name: 'Blocked on every attempt explains', fn: () => testBlockedEveryAttemptExplains(session, conversation) },
+    { name: 'Blocked retries are spaced', fn: () => testBlockedRetriesAreSpaced(session, conversation) },
+    { name: 'Rate-limit cooldown skips the network', fn: () => testRateLimitCooldownSkipsNetwork(session, conversation) }
   ];
 
   let passed = 0;

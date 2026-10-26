@@ -203,7 +203,31 @@ func headlessServerAppOptions() application.Options {
 		},
 		Windows: application.WindowsOptions{
 			AdditionalBrowserArgs:         []string{"--disable-logging"},
+			DisabledFeatures:              serverWebViewDisabledFeatures,
 			DisableQuitOnLastWindowClosed: true,
 		},
 	}
 }
+
+// serverWebViewDisabledFeatures are the Chromium features turned off in the
+// server's WebView2, the engine's and the test pool's alike.
+//
+// IsolateSandboxedIframes would give the sandbox frame that every run_code and
+// query_code program runs in (web/sdk/lib/sandbox-runner.js) a renderer
+// process of its own. The frame is display:none, so WebView2 puts that process
+// into efficiency mode, the idle priority class, however visible the engine
+// page is; on a machine whose cores are busy it is then scheduled only in
+// bursts seconds apart, and every program stalls. Without the feature the
+// frame shares the engine page's renderer and its priority.
+//
+// What the frame's isolation rests on is unchanged: its opaque origin and its
+// CSP, which deny the program the backend, the engine page and its storage
+// (query-sandbox-isolation and query-capability-vs-direct assert this). What is
+// given up is the process boundary, which only matters to code that has
+// escaped V8 itself — such code could read the engine page's memory, the API
+// token included. WebKit, which hosts the engine on macOS and Linux, runs the
+// frame in the page's process anyway: it has no site isolation by default.
+// Revisit this if the sandbox ever has to
+// contain code hostile enough to bring its own V8 exploit, rather than model
+// output whose tool calls are already gated.
+var serverWebViewDisabledFeatures = []string{"IsolateSandboxedIframes"}

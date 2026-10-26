@@ -365,6 +365,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 			// Chromium's LOG() stderr output globally (the WebView2 environment
 			// is shared by every window). No-op off Windows.
 			AdditionalBrowserArgs: []string{"--disable-logging"},
+			DisabledFeatures:      serverWebViewDisabledFeatures,
 			WebviewUserDataPath:   webview2DataPath,
 		},
 	})

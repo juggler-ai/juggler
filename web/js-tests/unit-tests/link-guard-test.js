@@ -119,9 +119,24 @@ export async function runTests(_ctx) {
       anchor.setAttribute('href', LINK_TARGET);
       anchor.setAttribute('download', '');
       host.appendChild(anchor);
-      const e = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-      anchor.dispatchEvent(e);
-      assert(!e.defaultPrevented, 'a download link must be left to the browser');
+      // The guard listens on the document, so a listener on the window hears the
+      // click after it: it reads the guard's verdict there, then cancels the
+      // click itself. Left to the browser, the click would start a real
+      // download, and WebView2 would open its downloads flyout in the pool's
+      // hidden window, where it stays for the rest of the run.
+      let leftAlone = false;
+      /** @param {Event} ev */
+      const verdict = (ev) => {
+        leftAlone = !ev.defaultPrevented;
+        ev.preventDefault();
+      };
+      window.addEventListener('click', verdict);
+      try {
+        anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      } finally {
+        window.removeEventListener('click', verdict);
+      }
+      assert(leftAlone, 'a download link must be left to the browser');
     });
   } finally {
     uninstall();

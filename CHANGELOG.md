@@ -5,6 +5,7 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Claude Code conversations recover from a lost tool result instead of hanging; Stop always works
 - The interface is available in Japanese, Korean, German, French, Spanish and Brazilian Portuguese, under Settings → Language
 - Up to 100 windows can be open at once, up from 11 (or 2 on Windows)
 - A window whose server fails to start says why instead of never appearing

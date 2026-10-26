@@ -164,6 +164,11 @@ type ConversationWorker struct {
 	// sequence sets it to zero on its own worker before the worker runs.
 	retryBackoffLimit time.Duration
 
+	// llmTimeout is the backstop on one LLM call's wait (LLMTimeout). Set at
+	// construction; a test that wants the backstop to fire sets it on its own
+	// worker before the worker runs.
+	llmTimeout time.Duration
+
 	// clock is what a pending-queue drain reads as now, and what arms heldTimer.
 	// The wall clock; a test installs its own before the worker runs.
 	clock workerClock
@@ -333,6 +338,7 @@ func NewConversationWorker(conversationID, authorID string) *ConversationWorker 
 
 		strategyHookTimeout: defaultStrategyHookTimeout,
 		retryBackoffLimit:   defaultRetryBackoffLimit,
+		llmTimeout:          LLMTimeout,
 		clock:               realClock(),
 	}
 	w.injected.Store(&workerDeps{})

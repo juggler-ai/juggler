@@ -1045,10 +1045,16 @@ func (r *run) callLLMWithSink(request json.RawMessage, sink func(StreamChunk)) (
 		r.deliverLLMResponse(turnID, response, err)
 	}()
 
-	response, err := r.waitForLLMResponse(turnID, LLMTimeout)
+	response, err := r.waitForLLMResponse(turnID, r.llmTimeout)
 	if err != nil {
 		var delivered *deliveredLLMError
 		if !errors.As(err, &delivered) {
+			// The wait gave up on a call the provider has not finished — the
+			// timeout backstop, a cancel, the worker stopping. Abandon the call
+			// with it: left running, it holds whatever the provider holds for it
+			// (a claudecode session and CLI turn slot) until the server exits,
+			// and whatever it answers arrives for a turn that has moved on.
+			cancel()
 			return nil, err
 		}
 		// A system-wake cancelled this call: the connection was dropped while

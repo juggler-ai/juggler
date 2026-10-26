@@ -63,17 +63,15 @@ var disallowedNativeTools = []string{
 // expects. Both the parser and the control-protocol router run names
 // through here so the registry-lookup rule lives in exactly one place.
 //
-// The strip is applied in a loop so a doubly-prefixed name (mcp__juggler__
-// repeated, e.g. if tools were ever advertised pre-prefixed in tools/list —
-// see mcp_inproc.go) still resolves correctly. Names that don't start with
-// the full `mcp__juggler__` separator are returned unchanged; in particular
-// the bare server name `mcp__juggler` is left alone so we never silently
-// look up the empty string.
+// The prefix is stripped exactly once, because the CLI adds it exactly once to
+// the unprefixed names tools/list advertises (mcp_inproc.go). A name carrying it
+// twice is therefore no tool at all — the CLI rejects it itself — and must not
+// resolve to one of juggler's (see finishToolUseBlock). Names that don't start
+// with the full `mcp__juggler__` separator are returned unchanged; in particular
+// the bare server name `mcp__juggler` is left alone so we never silently look
+// up the empty string.
 func canonicalToolName(name string) string {
-	for strings.HasPrefix(name, mcpToolPrefix) {
-		name = name[len(mcpToolPrefix):]
-	}
-	return name
+	return strings.TrimPrefix(name, mcpToolPrefix)
 }
 
 // cliNativeToolNames is disallowedNativeTools as a set, for the one question

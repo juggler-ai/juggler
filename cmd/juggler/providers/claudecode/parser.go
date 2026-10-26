@@ -195,6 +195,16 @@ type turnResult struct {
 	bareNameThisCall int
 	bareNameRounds   int
 	bareNames        []string
+
+	// lastModelOutputAt is when the last stream_event arrived — the model
+	// producing something, as opposed to the CLI's own bookkeeping lines.
+	// otherLines counts the other content lines since then and lastOtherLine
+	// names the latest (type/subtype); they reset the idle watchdog without
+	// being progress, so a stranded-call release reports them. See
+	// Client.releaseStrandedCalls.
+	lastModelOutputAt time.Time
+	otherLines        int
+	lastOtherLine     string
 }
 
 // maxBareToolNameRounds is how many consecutive rounds of bare-name tool calls a
@@ -291,10 +301,19 @@ func (c *Client) readUntilPauseOrComplete(ctx context.Context, callback provider
 	ladder := newRetryLadder()
 	defer ladder.timer.Stop()
 
+	// Stranded-call sweep: see releaseStrandedCalls. Polled rather than timed
+	// off any one event, because what ends the wait is an absence — of model
+	// output, while a call stays parked.
+	strandedSweep := time.NewTicker(strandedCallGrace / 4)
+	defer strandedSweep.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return result, toolUseCount, ctx.Err()
+
+		case <-strandedSweep.C:
+			c.releaseStrandedCalls(result, armedAt, callback)
 
 		case <-ladder.timer.C:
 			ladder.armed = false
@@ -321,6 +340,39 @@ func (c *Client) readUntilPauseOrComplete(ctx context.Context, callback provider
 			}
 		}
 	}
+}
+
+// releaseStrandedCalls is the read loop's recovery for a tool round that can
+// never complete. While this loop runs, every tool result juggler holds for the
+// turn has already been delivered, and the CLI's next call would end the loop at
+// its pause. So a tools/call still parked after strandedCallGrace with no model
+// output is one none of those results answered — a tool-delivery desync, however
+// it arose — and the CLI is blocked on it with nothing coming. Left alone, both
+// sides wait until the server restarts; the CLI's own bookkeeping lines can keep
+// the idle watchdog fed throughout. Answering the call lets the CLI carry on and
+// tells the model what happened.
+func (c *Client) releaseStrandedCalls(result *turnResult, armedAt time.Time, callback provider.StructuredStreamCallback) {
+	quietSince := armedAt
+	if result.lastModelOutputAt.After(quietSince) {
+		quietSince = result.lastModelOutputAt
+	}
+	if time.Since(quietSince) < strandedCallGrace {
+		return
+	}
+	lc := c.liveProcess()
+	if lc == nil || lc.control == nil {
+		return
+	}
+	n := lc.control.releaseStrandedCalls(strandedCallGrace)
+	if n == 0 {
+		return
+	}
+	jlog.Error("claudecode: answered %d stranded tools/call(s) the CLI was blocked on with no model output for %v — a tool-delivery desync; %d other line(s) arrived meanwhile (last: %q) (uuid=%s)",
+		n, time.Since(quietSince).Round(time.Second), result.otherLines, result.lastOtherLine, shortID(c.activeSession.sessionUUID))
+	_, _ = callback(provider.StreamChunk{
+		Type:    provider.ContentBlockTypeStatus,
+		Content: "A tool result went missing — the model has been told, so it can retry",
+	})
 }
 
 // consumeLine feeds one stdout line to the parser and reports whether the turn
@@ -524,6 +576,14 @@ func (c *Client) processStreamLineWithEarlyReturn(line string, result *turnResul
 	// events as a safety net.
 	if msg.SessionID != "" && result.SessionID == "" {
 		result.SessionID = msg.SessionID
+	}
+
+	if msg.Type == "stream_event" {
+		result.lastModelOutputAt = time.Now()
+		result.otherLines = 0
+	} else {
+		result.otherLines++
+		result.lastOtherLine = msg.Type + "/" + msg.Subtype
 	}
 
 	switch msg.Type {

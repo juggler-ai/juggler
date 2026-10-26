@@ -25,7 +25,7 @@ func TestCanonicalToolName(t *testing.T) {
 		{"already-canonical name is unchanged", "batch_grep", "batch_grep"},
 		{"unknown unprefixed name passes through", "some_unknown_tool", "some_unknown_tool"},
 		{"bare server name without subtool is left alone", "mcp__juggler", "mcp__juggler"},
-		{"doubly-prefixed name strips both", "mcp__juggler__mcp__juggler__bash", "bash"},
+		{"doubly-prefixed name strips only one", "mcp__juggler__mcp__juggler__bash", "mcp__juggler__bash"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -131,6 +131,29 @@ func TestParser_BareJugglerToolName_SkipsBlock(t *testing.T) {
 	res, _, _, _, err := feedLines(t, c, bareToolUseLines(t, "bash"))
 	if err != nil {
 		t.Fatalf("a bare juggler tool name must be skipped, not fail the turn: %v", err)
+	}
+	if len(res.Blocks) != 0 {
+		t.Fatalf("want no dispatchable blocks, got %+v", res.Blocks)
+	}
+	if res.cliServedThisCall != 1 {
+		t.Errorf("skipped block should be tallied as CLI-served, got %d", res.cliServedThisCall)
+	}
+	if res.StopReason == "tool_use" {
+		t.Error("a batch that parked nothing on our side must not pause the turn")
+	}
+}
+
+// TestParser_DoublePrefixedToolName_SkipsBlock: a model has been seen calling
+// mcp__juggler__mcp__juggler__todo — the prefix written twice. Juggler
+// advertises its tools unprefixed and the CLI adds the prefix once, so no such
+// tool exists: the CLI answers "No such tool available" itself and never sends a
+// tools/call. Dispatching it as `todo` produced a result no parked call would
+// ever claim, and that orphan desynchronised tool delivery until the turn hung.
+func TestParser_DoublePrefixedToolName_SkipsBlock(t *testing.T) {
+	c := newParserClient()
+	res, _, _, _, err := feedLines(t, c, bareToolUseLines(t, mcpToolPrefix+mcpToolPrefix+"bash"))
+	if err != nil {
+		t.Fatalf("a doubly-prefixed tool name must be skipped, not fail the turn: %v", err)
 	}
 	if len(res.Blocks) != 0 {
 		t.Fatalf("want no dispatchable blocks, got %+v", res.Blocks)

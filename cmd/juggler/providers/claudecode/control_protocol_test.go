@@ -1164,3 +1164,50 @@ func TestControlProtocol_ProductionMultiRoundParkThenPause(t *testing.T) {
 		t.Fatalf("normal two-round turn false-tripped the out-of-band detector: %d", n)
 	}
 }
+
+// TestControlProtocol_OrphanResultDoesNotStrandNextRound replays the wedge seen
+// in production. Round A's only call was one the CLI rejected itself, so it
+// never parked, but juggler executed it and delivered the result: an orphan
+// stash, which (the round being closed) opened the next generation early. Round
+// B then parked todo (draining the orphan by name) and bash, and paused. On
+// delivery of B's todo result, finding no parked todo, the actor took itself to
+// be at the start of a new round and opened another generation — moving past
+// the round B bash was parked in, so B's bash result could not see it. The CLI
+// waited on bash until the server was restarted, two hours later.
+//
+// A parked call means its round is still open: the CLI cannot start a new round
+// while one of its calls is unanswered. So a delivery with calls still parked in
+// the current generation belongs to that generation.
+func TestControlProtocol_OrphanResultDoesNotStrandNextRound(t *testing.T) {
+	buf, cp := captureStdin()
+
+	// Round A: the pause, then the result of a call the CLI never parked.
+	cp.noteToolUsePause()
+	if _, err := cp.deliverNextToolResult(makeMCPMatchKey("todo", json.RawMessage(`{"todos":"[]"}`)), &provider.ToolResult{
+		ToolUseID: "tA", Content: "ORPHAN", ResultStatus: provider.ResultStatusSuccess,
+	}); err != nil {
+		t.Fatalf("deliver orphan: %v", err)
+	}
+
+	// Round B, in production order: both calls park, then the pause.
+	park(t, cp, "req-todo", "1", "todo", json.RawMessage(`{"todos":[]}`))
+	bashArgs := json.RawMessage(`{"command":"cat proposal.md"}`)
+	park(t, cp, "req-bash", "2", "bash", bashArgs)
+	cp.noteToolUsePause()
+
+	// The worker delivers round B's results in stream order.
+	if _, err := cp.deliverNextToolResult(makeMCPMatchKey("todo", json.RawMessage(`{"todos":[]}`)), &provider.ToolResult{
+		ToolUseID: "tB1", Content: "TODO-OUT", ResultStatus: provider.ResultStatusSuccess,
+	}); err != nil {
+		t.Fatalf("deliver todo: %v", err)
+	}
+	if _, err := cp.deliverNextToolResult(makeMCPMatchKey("bash", bashArgs), &provider.ToolResult{
+		ToolUseID: "tB2", Content: "BASH-OUT", ResultStatus: provider.ResultStatusSuccess,
+	}); err != nil {
+		t.Fatalf("deliver bash: %v", err)
+	}
+
+	if got := answeredRequestIDs(t, buf); got["req-bash"] != "BASH-OUT" {
+		t.Fatalf("round B's bash was stranded behind a generation the orphan opened: req-bash got %q, want BASH-OUT", got["req-bash"])
+	}
+}

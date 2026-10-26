@@ -36,6 +36,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"juggler/cmd/juggler/providers/provider"
 	"juggler/internal/jlog"
@@ -157,7 +158,8 @@ type pendingMCPCall struct {
 	requestID  string
 	jsonrpcID  json.RawMessage
 	key        mcpMatchKey
-	generation int // tool round this call parked in; matched only against same-generation results
+	generation int       // tool round this call parked in; matched only against same-generation results
+	parkedAt   time.Time // when the CLI sent it, for releaseStrandedCalls
 }
 
 // stashedResult is a worker result delivered before its CLI tools/call had
@@ -556,7 +558,7 @@ func (cp *controlProtocol) recordPendingToolCallLocked(requestID string, jrpc JS
 		cp.openNewGenerationLocked()
 	}
 	toolName := canonicalToolName(params.Name)
-	call := pendingMCPCall{requestID: requestID, jsonrpcID: jrpc.ID, key: makeMCPMatchKey(toolName, params.Arguments), generation: cp.currentGeneration}
+	call := pendingMCPCall{requestID: requestID, jsonrpcID: jrpc.ID, key: makeMCPMatchKey(toolName, params.Arguments), generation: cp.currentGeneration, parkedAt: time.Now()}
 
 	// Exact (name+args) match, FIFO: drain the oldest stash with this key.
 	if i := cp.stashIndexByKey(call.key); i >= 0 {
@@ -633,7 +635,15 @@ func (cp *controlProtocol) deliverNextToolResultLocked(recordedKey mcpMatchKey, 
 	// "stream stalled" → "conversation session ended"). The match attempts above
 	// run at the current generation FIRST, so the normal park-then-pause-then-deliver
 	// order still answers the already-parked call without advancing.
-	if cp.roundClosed {
+	//
+	// Unless a call is still parked in the current generation: the CLI cannot
+	// start a new round while one of its calls is unanswered, so that round is
+	// still open and this result belongs to it. The round is closed but not yet
+	// answered when an orphan result (a call juggler ran that the CLI never
+	// parked) has already drained one of its parks by name — and opening a
+	// generation here would hide the round's remaining parked calls from their
+	// own results, which then stash, and the CLI waits on them forever.
+	if cp.roundClosed && !cp.hasParkedInGenerationLocked(cp.currentGeneration) {
 		cp.openNewGenerationLocked()
 		cp.deliveredSinceGenAdvance = true // this stash IS the new round's delivery
 	}
@@ -767,6 +777,68 @@ func (cp *controlProtocol) hasParkedInGenerationLocked(gen int) bool {
 		}
 	}
 	return false
+}
+
+// strandedCallGrace is how long a parked tools/call may go unanswered, with the
+// model producing nothing, before the read loop treats it as stranded (see
+// Client.releaseStrandedCalls). A package var so tests can shrink it.
+var strandedCallGrace = 2 * time.Minute
+
+// strandedCallMessage is the tool result a stranded call is answered with when
+// juggler holds no result that is its own. Model-facing.
+const strandedCallMessage = "Juggler lost the result of this tool call: its record of which result answers which call fell out of step with the CLI. " +
+	"The call may or may not have run — check its effect before relying on it, and run it again if you still need it."
+
+// releaseStrandedCalls answers every parked tools/call that has waited at least
+// minAge, so a CLI blocked on a call no delivery will ever reach can carry on.
+// Only the read loop calls it, once the model has been silent for the grace
+// window: at that point every result for the round was delivered before the
+// loop began, so a call still parked was missed by all of them.
+//
+// A call whose own (name+args) result is stashed in some other generation is
+// answered with that result — the desync stranded the two apart, but they are
+// still each other's. Anything else is answered with strandedCallMessage as an
+// error, which the model can act on. Returns how many calls were answered.
+func (cp *controlProtocol) releaseStrandedCalls(minAge time.Duration) int {
+	n := 0
+	cp.runOnActor(func() { n = cp.releaseStrandedCallsLocked(minAge) })
+	return n
+}
+
+func (cp *controlProtocol) releaseStrandedCallsLocked(minAge time.Duration) int {
+	var kept []pendingMCPCall
+	released := 0
+	for _, call := range cp.parkedCalls {
+		if time.Since(call.parkedAt) < minAge {
+			kept = append(kept, call)
+			continue
+		}
+		result := &provider.ToolResult{Content: strandedCallMessage, ResultStatus: provider.ResultStatusError}
+		if i := cp.stashIndexByKeyAnyGeneration(call.key); i >= 0 {
+			jlog.Error("claudecode: stranded tools/call key=%q (generation %d) answered with its own result, stashed in generation %d", call.key, call.generation, cp.stashedResults[i].generation)
+			result = cp.takeStashLocked(i)
+		} else {
+			jlog.Error("claudecode: stranded tools/call key=%q (generation %d, parked %v) has no result to pair with — answering it with an error so the CLI can carry on", call.key, call.generation, time.Since(call.parkedAt).Round(time.Second))
+		}
+		if err := cp.answerCallLocked(call, result); err != nil {
+			jlog.Error("claudecode: answering stranded tools/call key=%q: %v", call.key, err)
+		}
+		released++
+	}
+	cp.parkedCalls = kept
+	return released
+}
+
+// stashIndexByKeyAnyGeneration is stashIndexByKey without the generation scope,
+// for releaseStrandedCalls only: an exact (name+args) match is the same call's
+// result whichever round the desync filed it under.
+func (cp *controlProtocol) stashIndexByKeyAnyGeneration(key mcpMatchKey) int {
+	for i := range cp.stashedResults {
+		if cp.stashedResults[i].key == key {
+			return i
+		}
+	}
+	return -1
 }
 
 // outOfBandRoundCount returns how many out-of-band tool rounds openNewGenerationLocked

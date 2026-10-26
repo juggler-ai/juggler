@@ -157,3 +157,74 @@ func TestTurnSemaphore_PausedTurnHoldsNoSlot(t *testing.T) {
 
 	c.dropSession(convID) // tears down the parked CLI
 }
+
+// TestQueuedTurnNeitherHoldsASlotNorDeafensCancel reproduces how one wedged
+// claudecode turn took the whole provider down in production. Each retry of the
+// stuck conversation queued behind the stuck turn on its session — holding one
+// of the process-wide CLI turn slots while it waited, deaf to its own cancel,
+// and having replaced the stuck turn's interrupt with its own. Four such turns
+// and no conversation anywhere could start one; Stop reached none of them.
+//
+// A turn queued on its session must hold no slot, must leave when its context
+// is cancelled, and must not stop cancelSession from interrupting the turn that
+// is actually running.
+func TestQueuedTurnNeitherHoldsASlotNorDeafensCancel(t *testing.T) {
+	setCLIConcurrency(t, 2)
+	tracePath := installFakeClaude(t, fakeModeNoResult, "uuid-queued")
+	c := mkClient(t, "claude-sonnet-4-6")
+	req := provider.MessageRequest{
+		ConversationID: "conv-queued", SystemPrompt: "sys",
+		Messages: []provider.Message{userMsg("hello")},
+	}
+
+	// Turn A: in flight, and stays so (fakeModeNoResult never answers).
+	ctxA, cancelA := context.WithCancel(context.Background())
+	t.Cleanup(cancelA) // runs before mkClient's closeSession, so a failed run still unwinds
+	doneA := make(chan struct{})
+	go func() {
+		defer close(doneA)
+		_, _ = c.streamMessage(ctxA, req, nopCallback())
+	}()
+	waitForFakeCLIUp(t, tracePath)
+
+	// Turn B: the retry, queued behind A on the same session.
+	ctxB, cancelB := context.WithCancel(context.Background())
+	t.Cleanup(cancelB)
+	doneB := make(chan error, 1)
+	go func() {
+		_, err := c.streamMessage(ctxB, req, nopCallback())
+		doneB <- err
+	}()
+
+	// B must not take a slot while it waits. Nothing signals that B has reached
+	// its wait, so watch long enough for a slot grab to show.
+	for deadline := time.Now().Add(300 * time.Millisecond); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if n := cliTurnSlots.inFlight(); n > 1 {
+			t.Fatalf("a turn queued behind another on its session holds a CLI turn slot (inFlight=%d)", n)
+		}
+	}
+
+	cancelB()
+	select {
+	case err := <-doneB:
+		if err == nil {
+			t.Fatal("the queued turn returned no error after its context was cancelled")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a turn queued on its session ignored its own cancel")
+	}
+
+	// Stop must still reach the turn that is running.
+	cancelled := make(chan struct{})
+	go func() {
+		c.cancelSession()
+		close(cancelled)
+	}()
+	for _, ch := range []chan struct{}{doneA, cancelled} {
+		select {
+		case <-ch:
+		case <-time.After(15 * time.Second):
+			t.Fatal("cancelSession did not end the running turn — the queued turn's interrupt displaced it")
+		}
+	}
+}

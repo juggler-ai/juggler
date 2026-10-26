@@ -210,17 +210,20 @@ func (cv *conversation) Close() error {
 // goroutine, so it must not touch activeSession concurrently: it (1) interrupts
 // any in-flight turn so the owning goroutine unwinds and releases the ownership
 // token, then (2) takes the token itself before tearing down. With no turn in
-// flight the token is already free and step 2 is immediate.
+// flight the token is already free and step 2 is immediate. A turn that does
+// not unwind in time keeps its session (see acquireOwnershipAfterInterrupt):
+// the cancel is logged and abandoned rather than allowed to hang the
+// conversation's ops goroutine.
 //
 // The teardown keeps the persisted request projection. It is already honest at
 // this point because every real request path advances it immediately after the
 // complete stdin write; synthetic continuation nudges never claim messages.
 // The next turn resumes only when canResumeWithDelta finds compatible history.
 func (c *Client) cancelSession() {
-	if f := c.turnInterrupt.Load(); f != nil {
-		(*f)() // make the owning turn unwind and release `own`
+	release, ok := c.acquireOwnershipAfterInterrupt()
+	if !ok {
+		return
 	}
-	release := c.acquireOwnership()
 	defer release()
 	if s := c.activeSession; s != nil {
 		s.tearDownLiveCLI()
@@ -232,10 +235,10 @@ func (c *Client) cancelSession() {
 // in-flight turn so it releases the ownership token, then take the token and
 // release the session — KEEPING the sidecar (root thread) for warm resume.
 func (c *Client) closeSession() {
-	if f := c.turnInterrupt.Load(); f != nil {
-		(*f)()
+	release, ok := c.acquireOwnershipAfterInterrupt()
+	if !ok {
+		return
 	}
-	release := c.acquireOwnership()
 	defer release()
 	c.releaseSession()
 }

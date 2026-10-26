@@ -24,6 +24,10 @@
 //   - A slot holder only ever blocks on its own CLI's stdout (or ctx), never
 //     on another conversation making progress. So no slot holder waits on a
 //     slot seeker, the wait graph has no cycle, and the cap cannot deadlock.
+//     That holds because a turn takes its session's ownership token BEFORE a
+//     slot: a turn queued behind another on the same session waits holding
+//     nothing, so however long the turn ahead of it runs, it cannot drain the
+//     pool for every other conversation.
 //   - acquire is ctx-aware: a turn cancelled while queued for a slot bails
 //     immediately rather than hanging, so even a misconfigured cap of 1 can't
 //     wedge a cancellable turn.

@@ -225,12 +225,17 @@ func finishThinkingBlock(pb *partialBlock, result *turnResult, callback provider
 // prose. The CLI rejects it with "No such tool available" and the
 // model usually re-issues it correctly on the same open process, so
 // the turn heals itself; when it doesn't, maxBareToolNameRounds ends it.
+//
+// A name carrying the prefix TWICE (mcp__juggler__mcp__juggler__todo) is the
+// same case from the other side: tools/list advertises unprefixed names and
+// the CLI prefixes each once, so no such tool exists, the CLI rejects it, and
+// no tools/call follows. It is skipped and counted exactly like a bare name.
 func finishToolUseBlock(pb *partialBlock, result *turnResult, callback provider.StructuredStreamCallback) (bool, int, error) {
-	if !strings.HasPrefix(pb.toolName, mcpToolPrefix) {
+	if !isServableToolName(pb.toolName) {
 		if isCLINativeToolName(pb.toolName) {
 			jlog.Error("claudecode: CLI native tool %q leaked past --disallowedTools — skipping the block rather than dispatching it as juggler's own (which deadlocks the conversation). The CLI may have served it itself, unseen by juggler. Add it to disallowedNativeTools.", pb.toolName)
 		} else {
-			jlog.Info("claudecode: model called %q without the %s prefix — skipping the block; the CLI rejects the bare name itself and drives the model's retry", pb.toolName, mcpToolPrefix)
+			jlog.Info("claudecode: model called %q, which is not %s followed by a tool name — skipping the block; the CLI rejects the name itself and drives the model's retry", pb.toolName, mcpToolPrefix)
 			result.bareNameThisCall++
 			result.bareNames = append(result.bareNames, pb.toolName)
 		}
@@ -286,6 +291,14 @@ func finishToolUseBlock(pb *partialBlock, result *turnResult, callback provider.
 	result.Blocks = append(result.Blocks, provider.ContentBlock(chunk))
 	result.dispatchableThisCall++
 	return false, 0, nil
+}
+
+// isServableToolName reports whether a tool_use name is one the CLI will send
+// back to juggler as a tools/call: the mcp__juggler__ prefix exactly once,
+// followed by a name that does not itself start with it.
+func isServableToolName(name string) bool {
+	rest, ok := strings.CutPrefix(name, mcpToolPrefix)
+	return ok && !strings.HasPrefix(rest, mcpToolPrefix)
 }
 
 // onMessageDelta closes one API call: its usage, then its stop reason.

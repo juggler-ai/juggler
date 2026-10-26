@@ -121,17 +121,53 @@ func NewClient(cfg provider.Config) (provider.Provider, error) {
 	return c, nil
 }
 
-// acquireOwnership blocks until this goroutine holds the sole right to mutate
-// activeSession, returning a release func. A nil `own` (test-only direct
-// &Client{} builds that never stream/cancel) yields a no-op so those tests
-// keep working. Callers that race a turn must interrupt it first (see
-// cancelSession) so the held token frees promptly.
-func (c *Client) acquireOwnership() (release func()) {
+// acquireTurnOwnership blocks until this goroutine holds the sole right to
+// mutate activeSession, returning a release func — or gives up with ctx's error
+// when ctx ends first, so a turn queued behind another on this session can be
+// cancelled (by Stop, or by the worker abandoning a call it timed out). A nil
+// `own` (test-only direct &Client{} builds that never stream/cancel) yields a
+// no-op so those tests keep working. Teardown takes the token through
+// acquireOwnershipAfterInterrupt instead.
+func (c *Client) acquireTurnOwnership(ctx context.Context) (release func(), err error) {
 	if c.own == nil {
-		return func() {}
+		return func() {}, nil
 	}
-	<-c.own
-	return func() { c.own <- struct{}{} }
+	select {
+	case <-c.own:
+		return func() { c.own <- struct{}{} }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// interruptUnwindTimeout bounds how long cancelSession / closeSession wait for
+// an interrupted turn to give up ownership. An interrupted turn unwinds within
+// seconds; one that hasn't by now is stuck somewhere its context cannot reach,
+// and waiting longer would freeze the conversation's ops goroutine with it —
+// every later open, cancel and close of the conversation queued behind it.
+const interruptUnwindTimeout = 30 * time.Second
+
+// acquireOwnershipAfterInterrupt interrupts the in-flight turn, if any, and
+// takes the ownership token once it unwinds — the way a teardown (cancel,
+// close), which may race a streaming turn, must take it. ok is false when the
+// turn has not released the token within interruptUnwindTimeout; the caller
+// must then leave activeSession alone, since the turn still owns it.
+func (c *Client) acquireOwnershipAfterInterrupt() (release func(), ok bool) {
+	if f := c.turnInterrupt.Load(); f != nil {
+		(*f)() // make the owning turn unwind and release `own`
+	}
+	if c.own == nil {
+		return func() {}, true
+	}
+	select {
+	case <-c.own:
+		return func() { c.own <- struct{}{} }, true
+	case <-time.After(interruptUnwindTimeout):
+		// activeSession is the turn's, so it is not read here, even for the log.
+		jlog.Error("claudecode: the in-flight turn did not release its session within %v of being interrupted — leaving the session to it rather than freezing the conversation",
+			interruptUnwindTimeout)
+		return nil, false
+	}
 }
 
 // Name returns the provider name
@@ -300,15 +336,33 @@ func (c *Client) streamMessage(ctx context.Context, req provider.MessageRequest,
 		return nil, ctx.Err()
 	}
 
-	// Per-turn cancelable context. Publish its cancel as turnInterrupt BEFORE
-	// the slot wait so Cancel/Close can unblock a turn that is merely queued
-	// (cliTurnSlots.acquire waits on turnCtx) as well as one that is streaming.
 	turnCtx, turnCancel := context.WithCancel(ctx)
+	defer turnCancel()
+
+	// Take sole ownership of activeSession for the streaming window. Cancel /
+	// Close interrupt this turn via turnInterrupt so the token frees promptly,
+	// then take the token to tear down — so activeSession is never mutated by
+	// the turn goroutine and the cache-actor goroutine at the same time.
+	//
+	// Ownership comes FIRST, and its wait honours turnCtx: a turn queued behind
+	// another on this session holds no CLI turn slot while it waits (one stuck
+	// turn must not let its retries drain the process-wide pool), and it leaves
+	// the moment it is cancelled.
+	releaseOwn, err := c.acquireTurnOwnership(turnCtx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseOwn()
+
+	// Only the owner publishes its interrupt. A queued turn publishing its own
+	// would displace the running turn's, and Cancel would then interrupt the
+	// wrong turn and wait forever for the token the running one still holds.
+	// Published before the slot wait so Cancel/Close also reach a turn queued
+	// there (cliTurnSlots.acquire waits on turnCtx); cleared before the token is
+	// released (defers run in reverse), so it never outlives this turn's
+	// ownership.
 	c.turnInterrupt.Store(&turnCancel)
-	defer func() {
-		c.turnInterrupt.Store(nil)
-		turnCancel()
-	}()
+	defer c.turnInterrupt.Store(nil)
 
 	// Throttle concurrently-streaming turns process-wide before doing any
 	// work. Acquired BEFORE stopping the autonomous drain so that, while this
@@ -322,13 +376,6 @@ func (c *Client) streamMessage(ctx context.Context, req provider.MessageRequest,
 		return nil, err
 	}
 	defer release()
-
-	// Take sole ownership of activeSession for the streaming window. Cancel /
-	// Close interrupt this turn via turnInterrupt so the token frees promptly,
-	// then take the token to tear down — so activeSession is never mutated by
-	// the turn goroutine and the cache-actor goroutine at the same time.
-	releaseOwn := c.acquireOwnership()
-	defer releaseOwn()
 
 	// A Submit owns stdout for the duration of its turn: stop any background
 	// autonomous-turn drain so the foreground turn is the sole consumer of

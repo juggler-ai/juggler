@@ -73,6 +73,37 @@ func TestSystemWakeInterruptsInFlightLLM(t *testing.T) {
 	}
 }
 
+// TestLLMTimeoutCancelsTheCall: when the LLMTimeout backstop gives up on a call,
+// the call must be cancelled too. Abandoning only the wait left the provider
+// running on a live context until the server shut down — in the claudecode
+// provider, holding its session and a process-wide CLI turn slot for hours
+// while each retry queued behind it.
+func TestLLMTimeoutCancelsTheCall(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.llmTimeout = 100 * time.Millisecond
+
+	callCancelled := make(chan struct{})
+	w.SetLLMCaller(func(ctx context.Context, _ json.RawMessage, _ func(StreamChunk)) (*LLMResponse, error) {
+		select {
+		case <-ctx.Done():
+			close(callCancelled)
+			return nil, ctx.Err()
+		case <-time.After(wakeBudget):
+			return nil, errors.New("the call's ctx was never cancelled")
+		}
+	})
+
+	if _, err := w.currentRun().callLLM(nil); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("callLLM = %v, want the LLMTimeout error", err)
+	}
+	select {
+	case <-callCancelled:
+	case <-time.After(wakeBudget):
+		t.Fatal("the timed-out call was left running: its context was never cancelled")
+	}
+}
+
 // TestManagerSystemDidWakeFansOut verifies the Manager forwards a system-wake
 // notification to every worker it owns, cancelling each worker's in-flight
 // LLM context. Asserts the manager→worker plumbing independent of provider

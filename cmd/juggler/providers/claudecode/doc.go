@@ -143,7 +143,7 @@
 // buildMessages). If the engine reattaches mid-turn and blindly re-drives every
 // running tool, it re-executes that tool and re-feeds its real result.
 //
-// Four guards — one cure, three defenses:
+// Five guards — one cure, four defenses:
 //
 //   - resultFedTurn (CURE — worker/llm_request.go stamps it; honoured by
 //     resetRunningToolsForReattach in worker/message_handlers.go). Reattach skips
@@ -164,13 +164,25 @@
 //     pair only within the same generation. This bounds a desync to its round —
 //     a call left parked from an earlier round can't be drained by a later
 //     round's same-tool result. It fixes a real multi-round mis-pairing bug,
-//     independent of the reattach genesis.
+//     independent of the reattach genesis. A round stays open while any of its
+//     calls is still parked (the CLI cannot start the next one), so a delivery
+//     never opens a generation past a parked call — otherwise an orphan that
+//     drained one of a round's parks would strand the rest of that round.
 //
 //   - discardStaleBuffers (backstop — control_protocol.go, called at finalizeTurn).
 //     At end_turn every round is resolved, so anything still parked/stashed is an
 //     orphan; clearing it (parked calls answered with an error first — stdio has
 //     no transport timeout) bounds any desync's blast radius to its own turn
 //     rather than poisoning the warm session.
+//
+//   - releaseStrandedCalls (recovery — parser.go / control_protocol.go). The
+//     backstop above needs end_turn, and a desync that strands a call the CLI is
+//     blocked on means end_turn never comes. While a read loop runs every result
+//     for the turn is already delivered, so a call still parked after
+//     strandedCallGrace with no model output will never be answered: the read
+//     loop answers it — with its own result if one is stashed under another
+//     generation, else with an error the model can act on — and the turn goes on.
+//     It catches desyncs of shapes nobody has seen yet, which is its point.
 //
 // canonicalizeScalars (makeMCPMatchKey) is NOT a desync guard: it collapses
 // scalar TYPE drift (40 vs "40") so exact-key routing survives a resume/restart

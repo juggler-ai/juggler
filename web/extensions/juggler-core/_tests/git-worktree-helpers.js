@@ -143,6 +143,36 @@ export async function readIn(session, conversation, path) {
 export const SHELL_WAIT_MS = 15000;
 
 /**
+ * Run a command in the project and hand back what it said, whether or not it
+ * succeeded.
+ *
+ * For the commands whose failure is an answer — `test -e`, `ls` of a tree that
+ * should be gone — and for cleanup. The command is a named wait, so one that
+ * never returns is reported by name rather than as a silent suite timeout.
+ * @param {any} ops - Project-pinned operations.
+ * @param {string} command - What to run.
+ * @returns {Promise<any>} The result.
+ */
+export function shell(ops, command) {
+  return withTimeout(ops.shell({ command }), SHELL_WAIT_MS, `\`${command}\` to return`);
+}
+
+/**
+ * Several steps as one command, each run only if the one before it worked.
+ *
+ * Every command is a process launch, and where commands go through WSL a launch
+ * costs a large and unsteady share of a second. A suite's time is mostly its
+ * fixtures, so a fixture is one launch however many steps it has: that keeps
+ * the suite's cost a matter of what it tests rather than of how many lines its
+ * setup was written in.
+ * @param {...string} steps - The commands, in order.
+ * @returns {string} One command running them all.
+ */
+export function chain(...steps) {
+  return steps.join(' && ');
+}
+
+/**
  * Run a command in the project and insist it worked.
  *
  * Failures carry the command and git's own words: a worktree that could not be
@@ -154,7 +184,7 @@ export const SHELL_WAIT_MS = 15000;
  * @returns {Promise<any>} The result, once it has succeeded.
  */
 export async function mustRun(ops, command) {
-  const result = await withTimeout(ops.shell({ command }), SHELL_WAIT_MS, `\`${command}\` to return`);
+  const result = await shell(ops, command);
   if (!result.success) {
     throw new Error(`\`${command}\` failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
   }
@@ -169,6 +199,9 @@ export async function mustRun(ops, command) {
  * identity and the signing flag are stated per command rather than configured,
  * because the machine running this has a global git config of its own and a
  * developer who signs their commits must not be the reason the suite fails.
+ *
+ * It is one command ({@link chain}): every suite builds several of these, and
+ * as one launch per step they were most of the suite's time.
  * @param {any} ops - Project-pinned operations.
  * @param {string} dir - Directory name for the repository, relative to the project.
  * @param {string} greeting - Contents of the committed discriminator file.
@@ -176,22 +209,26 @@ export async function mustRun(ops, command) {
  */
 export async function buildRepo(ops, dir, greeting) {
   const git = `git -C ${dir} -c user.name=Juggler -c user.email=tests@juggler.invalid -c commit.gpgsign=false`;
-  await mustRun(ops, `mkdir -p ${dir}`);
-  await mustRun(ops, `git -C ${dir} init -q`);
-  // Not `init -b main`, which wants git 2.28, and not the default branch name,
-  // which depends on the machine: checking out an unborn branch names it here.
-  await mustRun(ops, `git -C ${dir} checkout -q -b main`);
-  // The same identity, written into the repository rather than passed per
-  // command, because the provider's own commit is the user's commit and carries
-  // no identity of ours. A repository with one is what every real one has, and
-  // it is what lets this run on a machine that has none.
-  await mustRun(ops, `git -C ${dir} config user.name Juggler`);
-  await mustRun(ops, `git -C ${dir} config user.email tests@juggler.invalid`);
-  await mustRun(ops, `git -C ${dir} config commit.gpgsign false`);
-  await mustRun(ops, `echo ${greeting} > ${dir}/greeting.txt`);
-  await mustRun(ops, `${git} add -A`);
-  await mustRun(ops, `${git} commit -q -m first`);
+  await mustRun(ops, chain(
+    `mkdir -p ${dir}`,
+    `git -C ${dir} init -q`,
+    // Not `init -b main`, which wants git 2.28, and not the default branch
+    // name, which depends on the machine: checking out an unborn branch names
+    // it here.
+    `git -C ${dir} checkout -q -b main`,
+    // The same identity, written into the repository rather than passed per
+    // command, because the provider's own commit is the user's commit and
+    // carries no identity of ours. A repository with one is what every real one
+    // has, and it is what lets this run on a machine that has none.
+    `git -C ${dir} config user.name Juggler`,
+    `git -C ${dir} config user.email tests@juggler.invalid`,
+    `git -C ${dir} config commit.gpgsign false`,
+    `echo ${greeting} > ${dir}/greeting.txt`,
+    `${git} add -A`,
+    `${git} commit -q -m first`
+  ));
 }
+
 
 /**
  * What the repository looks like from the outside: its worktrees and its
@@ -207,9 +244,13 @@ export async function buildRepo(ops, dir, greeting) {
  * @returns {Promise<string>} The two lists, for comparing against each other.
  */
 export async function snapshot(ops, repo) {
-  const worktrees = await mustRun(ops, `git -C ${repo} worktree list --porcelain`);
-  const branches = await mustRun(ops, `git -C ${repo} branch --format='%(refname:short)'`);
-  return `worktrees:\n${worktrees.stdout}\nbranches:\n${branches.stdout}`;
+  const listed = await mustRun(ops, chain(
+    'echo worktrees:',
+    `git -C ${repo} worktree list --porcelain`,
+    'echo branches:',
+    `git -C ${repo} branch --format='%(refname:short)'`
+  ));
+  return String(listed.stdout);
 }
 
 /**
@@ -230,7 +271,7 @@ export async function pathTurnsUp(ops, path, nominalMs) {
   // number chosen for an idle one measures the pool instead of the code.
   const deadline = Date.now() + budgetFor(nominalMs);
   do {
-    if ((await ops.shell({ command: `test -e ${path}` })).success) return true;
+    if ((await shell(ops, `test -e ${path}`)).success) return true;
     await new Promise(resolve => setTimeout(resolve, 25));
   } while (Date.now() < deadline);
   return false;
@@ -250,8 +291,10 @@ export async function pathTurnsUp(ops, path, nominalMs) {
  * @returns {Promise<void>} When the hook is in place.
  */
 export async function giveRepoASlowHook(ops, repo, seconds) {
-  await mustRun(ops, `mkdir -p ${repo}/.juggler`);
-  await mustRun(ops, `printf 'touch hook-ran.txt\\nsleep ${seconds}\\n' > ${repo}/.juggler/worktree-setup`);
+  await mustRun(ops, chain(
+    `mkdir -p ${repo}/.juggler`,
+    `printf 'touch hook-ran.txt\\nsleep ${seconds}\\n' > ${repo}/.juggler/worktree-setup`
+  ));
 }
 
 /**
@@ -329,8 +372,10 @@ export async function waitForScopeField(form) {
 export async function buildSuperproject(ops, outer, inner, at) {
   await buildRepo(ops, outer, `outer-${at}`);
   await buildRepo(ops, inner, `inner-${at}`);
-  await mustRun(ops, `git -C ${outer} -c protocol.file.allow=always submodule add -q ../${inner} ${at}`);
-  await mustRun(ops, `git -C ${outer} commit -q -m submodule`);
+  await mustRun(ops, chain(
+    `git -C ${outer} -c protocol.file.allow=always submodule add -q ../${inner} ${at}`,
+    `git -C ${outer} commit -q -m submodule`
+  ));
 }
 
 /**

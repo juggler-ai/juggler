@@ -28,7 +28,8 @@ import {
   pick,
   waitForRepoField,
   offered,
-  openForm
+  openForm,
+  shell
 } from './git-worktree-helpers.js';
 
 /**
@@ -119,7 +120,7 @@ export async function runTests() {
       } finally {
         session.workspaces = saved;
         if (base) await unregisterWorkspace(base.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${repo}` }).catch(() => {});
+        await shell(ops, `rm -rf ${repo}`).catch(() => {});
       }
     });
 
@@ -189,7 +190,7 @@ export async function runTests() {
       } finally {
         session.workspaces = saved;
         if (base) await unregisterWorkspace(base.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${first} ${second}` }).catch(() => {});
+        await shell(ops, `rm -rf ${first} ${second}`).catch(() => {});
       }
     });
 
@@ -235,7 +236,7 @@ export async function runTests() {
         assert(!form.location.value.startsWith(`${projectPath}${separator}`),
           `which is to say outside the project altogether, got ${JSON.stringify(form.location.value)}`);
       } finally {
-        await ops.shell({ command: `rm -rf ${first} ${second}` }).catch(() => {});
+        await shell(ops, `rm -rf ${first} ${second}`).catch(() => {});
       }
     });
 

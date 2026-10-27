@@ -27,7 +27,9 @@ import {
   waitForRepoField,
   waitForScopeField,
   buildSuperproject,
-  openForm
+  openForm,
+  shell,
+  chain
 } from './git-worktree-helpers.js';
 
 /**
@@ -122,7 +124,7 @@ export async function runTests() {
       } finally {
         session.workspaces = saved;
         if (base) await unregisterWorkspace(base.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${outer} ${inner}` }).catch(() => {});
+        await shell(ops, `rm -rf ${outer} ${inner}`).catch(() => {});
       }
     });
 
@@ -139,8 +141,7 @@ export async function runTests() {
       let base = null;
       try {
         await buildSuperproject(ops, outer, inner, 'held');
-        await mustRun(ops, `mkdir -p ${outer}/.juggler`);
-        await mustRun(ops, `echo exit 0 > ${outer}/.juggler/worktree-setup`);
+        await mustRun(ops, chain(`mkdir -p ${outer}/.juggler`, `echo exit 0 > ${outer}/.juggler/worktree-setup`));
 
         base = await registerWorkspace({
           kind: 'local', root: `${projectPath}${separator}${outer}`, label: outer, state: 'ready'
@@ -155,7 +156,7 @@ export async function runTests() {
       } finally {
         session.workspaces = saved;
         if (base) await unregisterWorkspace(base.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${outer} ${inner}` }).catch(() => {});
+        await shell(ops, `rm -rf ${outer} ${inner}`).catch(() => {});
       }
     });
   });

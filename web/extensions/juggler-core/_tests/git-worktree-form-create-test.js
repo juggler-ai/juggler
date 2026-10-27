@@ -35,7 +35,8 @@ import {
   typeInto,
   pick,
   waitForRepoField,
-  openForm
+  openForm,
+  shell
 } from './git-worktree-helpers.js';
 
 /**
@@ -173,8 +174,7 @@ export async function runTests() {
           `and the conversation's own tools read that tree, got ${JSON.stringify(read)}`);
       } finally {
         if (conversation?.workspaceId) await unregisterWorkspace(conversation.workspaceId).catch(() => {});
-        await ops.shell({ command: `git -C ${repo} worktree remove --force ../../${tree}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ../${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `git -C ${repo} worktree remove --force ../../${tree}; rm -rf ../${tree} ${repo}`).catch(() => {});
       }
     });
 

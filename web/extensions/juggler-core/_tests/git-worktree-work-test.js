@@ -28,7 +28,9 @@ import {
   makeConversation,
   mustRun,
   buildRepo,
-  SHELL_WAIT_MS
+  SHELL_WAIT_MS,
+  shell,
+  chain
 } from './git-worktree-helpers.js';
 
 /**
@@ -190,8 +192,7 @@ export async function runTests() {
           `on its own branch, not the one the repository is standing on, got ${JSON.stringify(branchOf.stdout)}`);
       } finally {
         if (outcome) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `git -C ${repo} worktree remove --force ../${tree}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `git -C ${repo} worktree remove --force ../${tree}; rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
 
@@ -254,8 +255,7 @@ export async function runTests() {
           `landing what is already landed says so plainly, got ${JSON.stringify(again.message)}`);
       } finally {
         if (outcome) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `git -C ${repo} worktree remove --force ../${tree}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `git -C ${repo} worktree remove --force ../${tree}; rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
 
@@ -288,9 +288,11 @@ export async function runTests() {
         // The repository carries on while the worktree works, which is what
         // having a worktree is for — and it is what makes a fast-forward
         // impossible.
-        await mustRun(ops, `echo meanwhile > ${repo}/other.txt`);
-        await mustRun(ops, `git -C ${repo} add -A`);
-        await mustRun(ops, `git -C ${repo} commit -q -m "Meanwhile, on main"`);
+        await mustRun(ops, chain(
+          `echo meanwhile > ${repo}/other.txt`,
+          `git -C ${repo} add -A`,
+          `git -C ${repo} commit -q -m "Meanwhile, on main"`
+        ));
 
         const diverged = await finishWorkspace({ session, workspace: outcome.workspace, actionId: 'land' });
         assert(diverged.done === false,
@@ -311,8 +313,7 @@ export async function runTests() {
           `a repository on no branch is told as that, got ${JSON.stringify(detached.message)}`);
       } finally {
         if (outcome) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `git -C ${repo} worktree remove --force ../${tree}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `git -C ${repo} worktree remove --force ../${tree}; rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
 
@@ -428,8 +429,7 @@ export async function runTests() {
         // root any more, but a tree made by an older build may still hold one,
         // and reading it as the user's work would offer to commit a directory
         // they never made.
-        await mustRun(ops, `mkdir -p ${tree}/.juggler`);
-        await mustRun(ops, `echo leftovers > ${tree}/.juggler/spill.json`);
+        await mustRun(ops, chain(`mkdir -p ${tree}/.juggler`, `echo leftovers > ${tree}/.juggler/spill.json`));
         const ours = await workspaceStatus(session, outcome.workspace);
         assert(ours.dirty === false,
           `a stray .juggler/ is not the user's work, got ${JSON.stringify(ours)}`);
@@ -442,7 +442,7 @@ export async function runTests() {
           `and it is counted once, not twice, got ${JSON.stringify(theirs.detail)}`);
       } finally {
         if (outcome) await outcome.undo().catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
 

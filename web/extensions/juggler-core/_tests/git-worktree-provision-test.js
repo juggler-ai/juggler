@@ -29,7 +29,9 @@ import {
   buildRepo,
   snapshot,
   pathTurnsUp,
-  giveRepoASlowHook
+  giveRepoASlowHook,
+  shell,
+  chain
 } from './git-worktree-helpers.js';
 
 /**
@@ -73,9 +75,10 @@ export async function runTests() {
       let outcome = null;
       try {
         await buildRepo(ops, repo, 'hello-from-the-worktree');
-        await mustRun(ops, `mkdir -p ${repo}/.juggler`);
-        await mustRun(ops,
-          `printf 'echo fetching the submodules\\nsleep 0.3\\necho linked node_modules\\n' > ${repo}/.juggler/worktree-setup`);
+        await mustRun(ops, chain(
+          `mkdir -p ${repo}/.juggler`,
+          `printf 'echo fetching the submodules\\nsleep 0.3\\necho linked node_modules\\n' > ${repo}/.juggler/worktree-setup`
+        ));
 
         /** @type {{step: string, detail: string}[]} */
         const said = [];
@@ -96,7 +99,7 @@ export async function runTests() {
           `and the step is what is happening rather than the file it is happening in, got ${JSON.stringify([...steps])}`);
       } finally {
         if (outcome) await outcome.undo().catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
 
@@ -138,12 +141,11 @@ export async function runTests() {
           `cancelling rejects the provision rather than completing it, got ${rejections.length} rejections`);
         assert(await snapshot(ops, repo) === before,
           'and the repository is exactly as it was found — no worktree registered, no branch left behind');
-        const gone = await ops.shell({ command: `ls ${tree}` });
+        const gone = await shell(ops, `ls ${tree}`);
         assert(gone.success === false,
           'and the half-built tree is gone, hook output and all');
       } finally {
-        await ops.shell({ command: `git -C ${repo} worktree remove --force ../${tree}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `git -C ${repo} worktree remove --force ../${tree}; rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
 
@@ -212,8 +214,7 @@ export async function runTests() {
           'and the repository is as it was found, reconstructed from meta alone');
       } finally {
         if (row) await unregisterWorkspace(row.id).catch(() => {});
-        await ops.shell({ command: `git -C ${repo} worktree remove --force ../${tree}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `git -C ${repo} worktree remove --force ../${tree}; rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
 
@@ -228,8 +229,7 @@ export async function runTests() {
       const tree = `${repo}-feat-tunnels`;
       try {
         await buildRepo(ops, repo, 'hello-from-the-worktree');
-        await mustRun(ops, `mkdir -p ${tree}`);
-        await mustRun(ops, `echo someone-elses-work > ${tree}/precious.txt`);
+        await mustRun(ops, chain(`mkdir -p ${tree}`, `echo someone-elses-work > ${tree}/precious.txt`));
         const before = await snapshot(ops, repo);
 
         /** @type {any} */
@@ -246,7 +246,7 @@ export async function runTests() {
         // AFTER registering a compensation, which then `rm -rf`s the directory
         // on the way out. The refusal is not what saves the files; refusing
         // before anything is recorded is.
-        const survived = await ops.shell({ command: `cat ${tree}/precious.txt` });
+        const survived = await shell(ops, `cat ${tree}/precious.txt`);
         assert(survived.success === true && survived.stdout.includes('someone-elses-work'),
           `what was already there is still there, got ${JSON.stringify(survived.stdout)}`);
         assert(/already something there/.test(String(refusal?.message)),
@@ -254,7 +254,7 @@ export async function runTests() {
         assert(await snapshot(ops, repo) === before,
           'and the repository is untouched');
       } finally {
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
 
@@ -290,7 +290,7 @@ export async function runTests() {
           'and undoing removed the tree while leaving the branch someone else made');
       } finally {
         if (outcome) await outcome.undo().catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
 

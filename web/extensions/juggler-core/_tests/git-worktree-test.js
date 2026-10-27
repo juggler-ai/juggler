@@ -37,7 +37,8 @@ import {
   readIn,
   mustRun,
   buildRepo,
-  snapshot
+  snapshot,
+  shell
 } from './git-worktree-helpers.js';
 
 /**
@@ -82,13 +83,13 @@ export async function runTests() {
         // Before, so that the assertion after it cannot pass against something
         // that was already there — the tree is named for this run alone, but a
         // probe that can only succeed proves nothing whichever way it answers.
-        const before = await ops.shell({ command: `ls ../${tree}` });
+        const before = await shell(ops, `ls ../${tree}`);
         assert(before.success === false,
           `nothing is beside the project under that name yet, got ${JSON.stringify(before.stdout)}`);
 
         await mustRun(ops, `git -C ${repo} worktree add -q -b feat/tunnels ../../${tree} main`);
 
-        const after = await ops.shell({ command: `ls ../${tree}/greeting.txt` });
+        const after = await shell(ops, `ls ../${tree}/greeting.txt`);
         assert(after.success === true,
           `a command confined to the project made a tree beside it, got ${JSON.stringify(after.stderr)}`);
 
@@ -96,7 +97,7 @@ export async function runTests() {
         // command runs in" that the probe above would still pass without, since
         // a relative `..` only means the parent if the command really did start
         // where we think it did.
-        const inside = await ops.shell({ command: `ls ${tree}` });
+        const inside = await shell(ops, `ls ${tree}`);
         assert(inside.success === false,
           `and beside it rather than within it, got ${JSON.stringify(inside.stdout)}`);
 
@@ -108,9 +109,7 @@ export async function runTests() {
       } finally {
         // Ordered, and each tolerant of the step before it having failed: the
         // tree is outside the project, where no fixture reset will ever reach it.
-        await ops.shell({ command: `git -C ${repo} worktree remove --force ../../${tree}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ../${tree}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ${repo}` }).catch(() => {});
+        await shell(ops, `git -C ${repo} worktree remove --force ../../${tree}; rm -rf ../${tree} ${repo}`).catch(() => {});
       }
     });
 
@@ -160,9 +159,7 @@ export async function runTests() {
       } finally {
         session.workspaces = saved;
         if (made) await unregisterWorkspace(made.id).catch(() => {});
-        await ops.shell({ command: `git -C ${repo} worktree remove --force ../../${tree}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ../${tree}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ${repo}` }).catch(() => {});
+        await shell(ops, `git -C ${repo} worktree remove --force ../../${tree}; rm -rf ../${tree} ${repo}`).catch(() => {});
       }
     });
 
@@ -234,7 +231,7 @@ export async function runTests() {
         const listed = await mustRun(ops, `git -C ${repo} worktree list --porcelain`);
         assert(listed.stdout.includes(`branch refs/heads/${BRANCH}`),
           `git has it on the branch it was asked for, got ${JSON.stringify(listed.stdout)}`);
-        const checkedOut = await ops.shell({ command: `ls ${tree}/greeting.txt` });
+        const checkedOut = await shell(ops, `ls ${tree}/greeting.txt`);
         assert(checkedOut.success === true,
           'and the tree holds the commit rather than being an empty directory');
 
@@ -245,11 +242,11 @@ export async function runTests() {
         outcome = null;
         assert(await snapshot(ops, repo) === before,
           'undoing left the repository as it was found');
-        const gone = await ops.shell({ command: `ls ${tree}` });
+        const gone = await shell(ops, `ls ${tree}`);
         assert(gone.success === false, 'and took the tree with it');
       } finally {
         if (outcome) await outcome.undo().catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
 

@@ -26,6 +26,7 @@ import {
   createTestSession,
   releaseTestConversation,
   waitForWorkerReady,
+  withTimeout,
   assert
 } from '../../../js-tests/utilities/test-helpers.js';
 import { fetchJson } from '../../../js/services/http.js';
@@ -123,13 +124,49 @@ function uniqueTag() {
 }
 
 /**
- * Run a command in the project and insist it worked.
- * @param {any} ops - Project-pinned operations.
+ * How long one command in this suite is waited for. Each writes or reads a
+ * file or two; the figure is a bound for a report, not a cost anyone expects
+ * to pay.
+ * @type {number}
+ */
+const SHELL_WAIT_MS = 15000;
+
+/**
+ * Run a command and hand back what it said, whether or not it succeeded.
+ *
+ * For the commands whose failure is an answer — `test -e` of a copy that
+ * should be gone — and for cleanup. The command is a named wait, so one that
+ * never returns is reported by name rather than as a silent suite timeout.
+ * @param {any} ops - Operations, project-pinned or bound to a sandbox.
+ * @param {string} command - What to run.
+ * @returns {Promise<any>} The result.
+ */
+function shell(ops, command) {
+  return withTimeout(ops.shell({ command }), SHELL_WAIT_MS, `\`${command}\` to return`);
+}
+
+/**
+ * Several steps as one command, each run only if the one before it worked.
+ *
+ * Every command is a process launch, and where commands go through WSL a launch
+ * costs a large and unsteady share of a second. A fixture is therefore one
+ * launch however many files it writes, which keeps the suite's cost a matter of
+ * what it tests rather than of how many lines its setup was written in.
+ * @param {...string} steps - The commands, in order.
+ * @returns {string} One command running them all.
+ */
+function chain(...steps) {
+  return steps.join(' && ');
+}
+
+/**
+ * Run a command and insist it worked.
+ * @param {any} ops - Operations, project-pinned or bound to a sandbox.
  * @param {string} command - What to run.
  * @returns {Promise<any>} The result, once it has succeeded.
  */
 async function mustRun(ops, command) {
-  const result = await ops.shell({ command });
+  const result = await shell(ops, command);
   if (!result.success) {
     throw new Error(`\`${command}\` failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`);
   }
@@ -186,9 +223,11 @@ async function makeConversation(session, name, options = {}) {
  * @returns {Promise<void>} When the directory is there.
  */
 async function buildSandboxDirectory(ops, places, greeting) {
-  await mustRun(ops, `mkdir -p ${places.workRel}/src`);
-  await mustRun(ops, `printf '${greeting}' > ${places.workRel}/greeting.txt`);
-  await mustRun(ops, `printf '${greeting}' > ${places.workRel}/src/deep.txt`);
+  await mustRun(ops, chain(
+    `mkdir -p ${places.workRel}/src`,
+    `printf '${greeting}' > ${places.workRel}/greeting.txt`,
+    `printf '${greeting}' > ${places.workRel}/src/deep.txt`
+  ));
 }
 
 /**
@@ -200,7 +239,7 @@ async function buildSandboxDirectory(ops, places, greeting) {
  * @returns {Promise<string>} The listing, or '' when there is no such directory.
  */
 async function sandboxListing(ops) {
-  const result = await ops.shell({ command: 'ls -A .juggler/sandboxes 2>/dev/null || true' });
+  const result = await shell(ops, 'ls -A .juggler/sandboxes 2>/dev/null || true');
   return String(result?.stdout ?? '').trim();
 }
 
@@ -383,13 +422,13 @@ export async function runTests() {
           `and its search finds both copies of the discriminator, got ${JSON.stringify(searched?.matches)}`);
 
         await mustRun(inside, `printf 'written-by-${tag}' > made-here.txt`);
-        const landed = await ops.shell({ command: `cat ${places.workRel}/made-here.txt` });
+        const landed = await shell(ops, `cat ${places.workRel}/made-here.txt`);
         assert(landed.success === true && landed.stdout.includes(`written-by-${tag}`),
           `and a command it runs writes into the copy rather than anywhere else, got ${JSON.stringify(landed.stdout || landed.stderr)}`);
       } finally {
         session.workspaces = saved;
         if (made) await unregisterWorkspace(made.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${places.rel}` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel}`).catch(() => {});
       }
     });
 
@@ -403,11 +442,13 @@ export async function runTests() {
       const source = `probe-src-${tag}`;
       const copy = `probe-copy-${tag}`;
       try {
-        await mustRun(ops, `mkdir -p ${source}/src ${source}/build`);
-        await mustRun(ops, `printf 'build/\\n' > ${source}/.gitignore`);
-        await mustRun(ops, `printf 'package main\\n' > ${source}/main.go`);
-        await mustRun(ops, `printf 'package src\\n' > ${source}/src/util.go`);
-        await mustRun(ops, `printf 'binary\\n' > ${source}/build/artifact.bin`);
+        await mustRun(ops, chain(
+          `mkdir -p ${source}/src ${source}/build`,
+          `printf 'build/\\n' > ${source}/.gitignore`,
+          `printf 'package main\\n' > ${source}/main.go`,
+          `printf 'package src\\n' > ${source}/src/util.go`,
+          `printf 'binary\\n' > ${source}/build/artifact.bin`
+        ));
 
         const copied = await ops.copyTree({ from: source, to: copy });
         assert(copied?.copied === 3,
@@ -415,7 +456,7 @@ export async function runTests() {
         const landed = await mustRun(ops, `ls ${copy} ${copy}/src`);
         assert(landed.stdout.includes('main.go') && landed.stdout.includes('util.go'),
           `the source came across, got ${JSON.stringify(landed.stdout)}`);
-        const ignored = await ops.shell({ command: `test -e ${copy}/build` });
+        const ignored = await shell(ops, `test -e ${copy}/build`);
         assert(ignored.success === false,
           'and the gitignored build output did not');
 
@@ -424,11 +465,14 @@ export async function runTests() {
         assert(differences.length === 0,
           `a copy just taken differs from its source in nothing, got ${JSON.stringify(fresh)}`);
 
-        await mustRun(ops, `printf 'package main // edited\\n' > ${copy}/main.go`);
-        await mustRun(ops, `rm ${copy}/src/util.go`);
-        // A build in the copy makes its own output directory, since the copy
-        // quite rightly did not bring one.
-        await mustRun(ops, `mkdir -p ${copy}/build && printf 'noise\\n' > ${copy}/build/ignored-here.txt`);
+        await mustRun(ops, chain(
+          `printf 'package main // edited\\n' > ${copy}/main.go`,
+          `rm ${copy}/src/util.go`,
+          // A build in the copy makes its own output directory, since the copy
+          // quite rightly did not bring one.
+          `mkdir -p ${copy}/build`,
+          `printf 'noise\\n' > ${copy}/build/ignored-here.txt`
+        ));
         const after = await ops.compareTrees({ left: source, right: copy });
         assert((after?.changed ?? []).join() === 'main.go',
           `an edited file reads as changed, got ${JSON.stringify(after?.changed)}`);
@@ -437,7 +481,7 @@ export async function runTests() {
         assert((after?.added ?? []).length === 0,
           `and work done under an ignored path is not work at all, got ${JSON.stringify(after?.added)}`);
       } finally {
-        await ops.shell({ command: `rm -rf ${source} ${copy}` }).catch(() => {});
+        await shell(ops, `rm -rf ${source} ${copy}`).catch(() => {});
       }
     });
 
@@ -473,7 +517,7 @@ export async function runTests() {
         assert(read.exists === false,
           `while a project conversation has no greeting.txt at all, which is what makes the case above mean anything, got ${JSON.stringify(read)}`);
       } finally {
-        await ops.shell({ command: `rm -rf ${places.rel} in-the-project-${tag}.txt` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel} in-the-project-${tag}.txt`).catch(() => {});
       }
     });
     await run('the provider registers, and names itself for the setup panel', async () => {
@@ -506,22 +550,22 @@ export async function runTests() {
 
         assert(outcome?.workspace?.state === 'ready' && outcome.workspace.root === places.work,
           `the row is ready and rooted at the copy, got ${JSON.stringify(outcome?.workspace)}`);
-        const carried = await ops.shell({ command: `cat ${places.workRel}/probe-${tag}.txt` });
+        const carried = await shell(ops, `cat ${places.workRel}/probe-${tag}.txt`);
         assert(carried.success === true && carried.stdout.includes(`before-${tag}`),
           `the project's file came across, got ${JSON.stringify(carried.stdout || carried.stderr)}`);
-        const snapshot = await ops.shell({ command: `cat ${places.pristineRel}/probe-${tag}.txt` });
+        const snapshot = await shell(ops, `cat ${places.pristineRel}/probe-${tag}.txt`);
         assert(snapshot.success === true && snapshot.stdout.includes(`before-${tag}`),
           `and so did the snapshot beside it, got ${JSON.stringify(snapshot.stdout || snapshot.stderr)}`);
         // The copy is not a clone: a sandbox has no repository of its own, which
         // is what "no git required" means from the inside.
-        const repo = await ops.shell({ command: `test -e ${places.workRel}/.git` });
+        const repo = await shell(ops, `test -e ${places.workRel}/.git`);
         assert(repo.success === false, 'and no .git went with it');
-        const marker = await ops.shell({ command: 'cat .juggler/sandboxes/.gitignore' });
+        const marker = await shell(ops, 'cat .juggler/sandboxes/.gitignore');
         assert(marker.success === true && marker.stdout.includes('*'),
           `the copies ignore themselves, for a project whose own .gitignore says nothing about .juggler, got ${JSON.stringify(marker.stdout)}`);
       } finally {
         if (outcome?.workspace?.id) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${places.rel} probe-${tag}.txt` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel} probe-${tag}.txt`).catch(() => {});
       }
     });
 
@@ -558,7 +602,7 @@ export async function runTests() {
           'and no row describing a copy that is not there');
       } finally {
         if (outcome?.workspace?.id) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${places.rel}` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel}`).catch(() => {});
       }
     });
 
@@ -609,7 +653,7 @@ export async function runTests() {
           'along with the row it registered before it began');
       } finally {
         if (outcome?.workspace?.id) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${places.rel}` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel}`).catch(() => {});
       }
     });
 
@@ -621,8 +665,7 @@ export async function runTests() {
       const name = `occupied-${tag}`;
       const places = sandboxPlaces(projectPath, name);
       try {
-        await mustRun(ops, `mkdir -p ${places.rel}`);
-        await mustRun(ops, `printf 'precious-${tag}' > ${places.rel}/precious.txt`);
+        await mustRun(ops, chain(`mkdir -p ${places.rel}`, `printf 'precious-${tag}' > ${places.rel}/precious.txt`));
 
         let refusal = '';
         try {
@@ -638,11 +681,11 @@ export async function runTests() {
         assert(refusal.includes(places.dir),
           `the refusal says where, got ${JSON.stringify(refusal)}`);
 
-        const survived = await ops.shell({ command: `cat ${places.rel}/precious.txt` });
+        const survived = await shell(ops, `cat ${places.rel}/precious.txt`);
         assert(survived.success === true && survived.stdout.includes(`precious-${tag}`),
           `and what was already there is untouched, got ${JSON.stringify(survived.stdout || survived.stderr)}`);
       } finally {
-        await ops.shell({ command: `rm -rf ${places.rel}` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel}`).catch(() => {});
       }
     });
 
@@ -687,7 +730,7 @@ export async function runTests() {
           `with a word for it in the chip, got ${JSON.stringify(changed?.badge)}`);
       } finally {
         if (outcome?.workspace?.id) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${places.rel}` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel}`).catch(() => {});
       }
     });
 
@@ -758,7 +801,7 @@ export async function runTests() {
           `the count on screen is that same list, counted, got ${JSON.stringify(status?.detail)}`);
       } finally {
         if (outcome?.workspace?.id) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${places.rel}` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel}`).catch(() => {});
       }
     });
 
@@ -890,7 +933,7 @@ export async function runTests() {
           `and the conversation's own tools read the copy, got ${JSON.stringify(read)}`);
       } finally {
         if (conversation?.workspaceId) await unregisterWorkspace(conversation.workspaceId).catch(() => {});
-        await ops.shell({ command: `rm -rf ${places.rel} probe-${tag}.txt` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel} probe-${tag}.txt`).catch(() => {});
       }
     });
 
@@ -901,15 +944,16 @@ export async function runTests() {
       /** @type {any} */
       let outcome = null;
       try {
-        await mustRun(ops, `printf 'original-${tag}' > probe-${tag}.txt`);
-        await mustRun(ops, `printf 'untouched-${tag}' > elsewhere-${tag}.txt`);
+        await mustRun(ops, chain(
+          `printf 'original-${tag}' > probe-${tag}.txt`,
+          `printf 'untouched-${tag}' > elsewhere-${tag}.txt`
+        ));
 
         outcome = await provisionWorkspace({
           session, providerId: PROVIDER_ID, values: { name }, baseWorkspaceId: ''
         });
         const inside = createBoundOps(() => ({ workspaceId: outcome.workspace.id }));
-        await mustRun(inside, `printf 'risky-${tag}' > probe-${tag}.txt`);
-        await mustRun(inside, `printf 'new-${tag}' > invented-${tag}.txt`);
+        await mustRun(inside, chain(`printf 'risky-${tag}' > probe-${tag}.txt`, `printf 'new-${tag}' > invented-${tag}.txt`));
 
         // The project moves on under the copy, somewhere the copy never went.
         // Applying must not be refused over a file nobody is arguing about.
@@ -931,13 +975,13 @@ export async function runTests() {
         assert(untouched.stdout.includes(`moved-on-${tag}`),
           `and what the project did meanwhile is still there, got ${JSON.stringify(untouched.stdout)}`);
 
-        const left = await ops.shell({ command: `test -e ${places.rel}` });
+        const left = await shell(ops, `test -e ${places.rel}`);
         assert(left.success === false, 'and the copy is gone, having nothing left to hold');
         assert(result?.workspace?.state === 'closed',
           `with the row closed behind it, got ${JSON.stringify(result?.workspace?.state)}`);
       } finally {
         if (outcome?.workspace?.id) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${places.rel} probe-${tag}.txt elsewhere-${tag}.txt invented-${tag}.txt` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel} probe-${tag}.txt elsewhere-${tag}.txt invented-${tag}.txt`).catch(() => {});
       }
     });
 
@@ -974,7 +1018,7 @@ export async function runTests() {
           `and the edit is in the project rather than in the bin with the copy, got ${JSON.stringify(applied.stdout)}`);
       } finally {
         if (outcome?.workspace?.id) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${places.rel} probe-${tag}.txt` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel} probe-${tag}.txt`).catch(() => {});
       }
     });
 
@@ -994,8 +1038,7 @@ export async function runTests() {
           session, providerId: PROVIDER_ID, values: { name }, baseWorkspaceId: ''
         });
         const inside = createBoundOps(() => ({ workspaceId: outcome.workspace.id }));
-        await mustRun(inside, `printf 'risky-${tag}' > probe-${tag}.txt`);
-        await mustRun(inside, `printf 'new-${tag}' > invented-${tag}.txt`);
+        await mustRun(inside, chain(`printf 'risky-${tag}' > probe-${tag}.txt`, `printf 'new-${tag}' > invented-${tag}.txt`));
         await mustRun(ops, `printf 'someone-else-${tag}' > probe-${tag}.txt`);
 
         const refused = await finishWorkspace({
@@ -1007,10 +1050,10 @@ export async function runTests() {
         const project = await mustRun(ops, `cat probe-${tag}.txt`);
         assert(project.stdout.includes(`someone-else-${tag}`),
           `the project's own version survives, got ${JSON.stringify(project.stdout)}`);
-        const invented = await ops.shell({ command: `test -e invented-${tag}.txt` });
+        const invented = await shell(ops, `test -e invented-${tag}.txt`);
         assert(invented.success === false,
           'and nothing else was applied either, which is what all-or-nothing means');
-        const copy = await ops.shell({ command: `test -e ${places.workRel}` });
+        const copy = await shell(ops, `test -e ${places.workRel}`);
         assert(copy.success === true, 'while the copy is still there to work it out in');
 
         // The same ending, chosen deliberately: it says what it will do and it
@@ -1025,7 +1068,7 @@ export async function runTests() {
           `and it overwrites, got ${JSON.stringify(overwritten.stdout)}`);
       } finally {
         if (outcome?.workspace?.id) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${places.rel} probe-${tag}.txt invented-${tag}.txt` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel} probe-${tag}.txt invented-${tag}.txt`).catch(() => {});
       }
     });
 
@@ -1053,7 +1096,7 @@ export async function runTests() {
           `applying a change the project already holds is not refused, got ${JSON.stringify(result)}`);
       } finally {
         if (outcome?.workspace?.id) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${places.rel} probe-${tag}.txt` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel} probe-${tag}.txt`).catch(() => {});
       }
     });
 
@@ -1076,7 +1119,7 @@ export async function runTests() {
         });
         assert(keeping?.done === true,
           `leaving it where it is finishes with it, got ${JSON.stringify(keeping)}`);
-        const still = await ops.shell({ command: `test -e ${keptPlaces.workRel}` });
+        const still = await shell(ops, `test -e ${keptPlaces.workRel}`);
         assert(still.success === true, 'and the files stay where they are');
 
         deletedRow = await provisionWorkspace({
@@ -1087,12 +1130,12 @@ export async function runTests() {
         });
         assert(deleting?.done === true,
           `deleting it finishes with it too, got ${JSON.stringify(deleting)}`);
-        const gone = await ops.shell({ command: `test -e ${deletedPlaces.rel}` });
+        const gone = await shell(ops, `test -e ${deletedPlaces.rel}`);
         assert(gone.success === false, 'and takes the copy with it');
       } finally {
         if (keptRow?.workspace?.id) await unregisterWorkspace(keptRow.workspace.id).catch(() => {});
         if (deletedRow?.workspace?.id) await unregisterWorkspace(deletedRow.workspace.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${keptPlaces.rel} ${deletedPlaces.rel}` }).catch(() => {});
+        await shell(ops, `rm -rf ${keptPlaces.rel} ${deletedPlaces.rel}`).catch(() => {});
       }
     });
 
@@ -1156,7 +1199,7 @@ export async function runTests() {
             .filter((/** @type {any} */ entry) => entry.id !== adopted?.id);
         }
       } finally {
-        await ops.shell({ command: `rm -rf ${strayPlaces.rel}` }).catch(() => {});
+        await shell(ops, `rm -rf ${strayPlaces.rel}`).catch(() => {});
       }
     });
 
@@ -1170,8 +1213,7 @@ export async function runTests() {
       /** @type {any} */
       let row = null;
       try {
-        await mustRun(ops, `mkdir -p ${places.workRel}`);
-        await mustRun(ops, `printf 'half-copied' > ${places.workRel}/partial.txt`);
+        await mustRun(ops, chain(`mkdir -p ${places.workRel}`, `printf 'half-copied' > ${places.workRel}/partial.txt`));
         row = await registerWorkspace({
           kind: 'local',
           root: places.work,
@@ -1194,11 +1236,11 @@ export async function runTests() {
         });
         assert(outcome?.removed === true,
           `the cleanup says it removed it, got ${JSON.stringify(outcome)}`);
-        const left = await ops.shell({ command: `test -e ${places.rel}` });
+        const left = await shell(ops, `test -e ${places.rel}`);
         assert(left.success === false, 'and the half-made copy is really gone');
       } finally {
         if (row) await unregisterWorkspace(row.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${places.rel}` }).catch(() => {});
+        await shell(ops, `rm -rf ${places.rel}`).catch(() => {});
       }
     });
 

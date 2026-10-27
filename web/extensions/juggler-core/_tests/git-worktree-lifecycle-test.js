@@ -30,7 +30,8 @@ import {
   mustRun,
   buildRepo,
   snapshot,
-  reconcileCtx
+  reconcileCtx,
+  shell
 } from './git-worktree-helpers.js';
 
 /**
@@ -105,8 +106,7 @@ export async function runTests() {
         'while the tree that does have a row is not offered a second time');
       } finally {
         if (outcome) await outcome.undo().catch(() => {});
-        await ops.shell({ command: `git -C ${repo} worktree remove --force ../${pool}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${pool} ${repo}` }).catch(() => {});
+        await shell(ops, `git -C ${repo} worktree remove --force ../${pool}; rm -rf ${tree} ${pool} ${repo}`).catch(() => {});
       }
     });
 
@@ -162,12 +162,12 @@ export async function runTests() {
         assert(/somebody\/else/.test(String(wrong?.reason ?? '')),
           `saying what it is on now, got ${JSON.stringify(wrong?.reason)}`);
 
-        assert((await ops.shell({ command: `ls ${repo}-moved-tree` })).success === true,
+        assert((await shell(ops, `ls ${repo}-moved-tree`)).success === true,
           'and nothing was removed by the looking: reconcile only looks');
       } finally {
         if (gone) await gone.undo().catch(() => {});
         if (moved) await moved.undo().catch(() => {});
-        await ops.shell({ command: `rm -rf ${repo}-gone-tree ${repo}-moved-tree ${repo}` }).catch(() => {});
+        await shell(ops, `rm -rf ${repo}-gone-tree ${repo}-moved-tree ${repo}`).catch(() => {});
       }
     });
 
@@ -197,7 +197,7 @@ export async function runTests() {
         });
         assert(finished.done === true,
           `discard reports the workspace finished with, got ${JSON.stringify(finished)}`);
-        assert((await ops.shell({ command: `ls ${tree}` })).success === false,
+        assert((await shell(ops, `ls ${tree}`)).success === false,
           'the tree is gone');
         assert(await snapshot(ops, repo) === before,
           'and so is the branch we made, leaving the repository as it was found');
@@ -207,7 +207,7 @@ export async function runTests() {
           `the row is tombstoned rather than deleted, got ${JSON.stringify(row?.state)}`);
       } finally {
         if (outcome) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
 
@@ -351,12 +351,11 @@ export async function runTests() {
           `unbind finishes with the workspace, got ${JSON.stringify(finished)}`);
         assert(await snapshot(ops, repo) === after,
           'while the worktree and its branch are both still registered with git');
-        assert((await ops.shell({ command: `ls ${tree}/greeting.txt` })).success === true,
+        assert((await shell(ops, `ls ${tree}/greeting.txt`)).success === true,
           'and the files are still on disk');
       } finally {
         if (outcome) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `git -C ${repo} worktree remove --force ../${tree}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `git -C ${repo} worktree remove --force ../${tree}; rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
 
@@ -407,8 +406,7 @@ export async function runTests() {
       } finally {
         session.workspaces = saved;
         if (outcome) await unregisterWorkspace(outcome.workspace.id).catch(() => {});
-        await ops.shell({ command: `git -C ${repo} worktree remove --force ../${tree}` }).catch(() => {});
-        await ops.shell({ command: `rm -rf ${tree} ${repo}` }).catch(() => {});
+        await shell(ops, `git -C ${repo} worktree remove --force ../${tree}; rm -rf ${tree} ${repo}`).catch(() => {});
       }
     });
   });

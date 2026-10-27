@@ -43,12 +43,11 @@ func (p restartPolicy) delay(n int) time.Duration {
 	return min(d, p.max)
 }
 
-// startSupervising hands a freshly running child to its session's supervisor.
-// The count is taken here, before the goroutine starts, so it is never seen at
-// zero while a supervisor is about to run.
-func (s *Server) startSupervising(id string, c *child) {
-	s.supervising.Add(1)
-	go s.supervise(id, c)
+// startSupervising hands a freshly running child, and the claim on its
+// session, to the session's supervisor, which releases the claim when it
+// returns.
+func (s *Server) startSupervising(id string, c *child, cl *claim) {
+	go s.supervise(id, c, cl)
 }
 
 // supervise watches a session's child for as long as the session is its to
@@ -67,10 +66,13 @@ func (s *Server) startSupervising(id string, c *child) {
 //
 // A stop or shutdown that claims the session ends supervision: every registry
 // transition here applies only while the session is still this child's (see
-// sessionEntry.owned), and beginRestart fails once a stop has removed it
-// during the backoff.
-func (s *Server) supervise(id string, c *child) {
-	defer s.supervising.Add(-1)
+// sessionEntry.owned). A stop of a running session stops the child, and the
+// supervisor then finds the session no longer its own. A stop during the
+// backoff or a respawn's handshake, and shutdown, cancel the session's
+// context, which ends the backoff at once and kills a child still in its
+// handshake (spawnChild).
+func (s *Server) supervise(id string, c *child, cl *claim) {
+	defer cl.release()
 	p := s.restart.orDefault()
 	crashes := 0
 	for {
@@ -101,13 +103,22 @@ func (s *Server) supervise(id string, c *child) {
 			}
 			jlog.Error("[machineserver] session %s: %s; restarting in %s", id, reason, wait)
 			c = nil
-			time.Sleep(wait)
+			backoff := time.NewTimer(wait)
+			select {
+			case <-backoff.C:
+			case <-cl.ctx.Done():
+				backoff.Stop()
+				return
+			}
 			project, ok := s.reg.beginRestart(id)
 			if !ok {
 				return
 			}
-			spawned, err := spawnChild(s.childBin, project, s.childExtraArgs(id))
+			spawned, err := spawnChild(cl.ctx, s.childBin, project, s.childExtraArgs(id))
 			if err != nil {
+				if cl.ctx.Err() != nil {
+					return
+				}
 				reason = err.Error()
 				continue
 			}

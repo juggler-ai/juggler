@@ -1778,7 +1778,6 @@
   "sample args": "サンプル引数",
   "scripts": "スクリプト",
   "serving speed\u0004Standard": "標準",
-  "session is still starting": "セッションはまだ起動中です",
   "session was removed during spawn": "起動中にセッションが削除されました",
   "settings unavailable": "設定を利用できません",
   "shadowed by {name}": "{name} によって隠されています",

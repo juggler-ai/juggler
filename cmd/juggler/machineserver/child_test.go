@@ -5,6 +5,7 @@
 package machineserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -24,16 +25,32 @@ import (
 // (see TestHelperSessionChild).
 const helperChildEnv = "JUGGLER_MACHINESERVER_HELPER_CHILD"
 
+// helperHangEnv, set to an address, makes the stand-in child hang in its
+// handshake: it dials that address and then waits, never reporting its own.
+// The test listening there knows from the connection that the child is inside
+// spawnChild's handshake, and from the connection closing that it has died.
+const helperHangEnv = "JUGGLER_MACHINESERVER_HELPER_HANG"
+
 // TestHelperSessionChild is not a test: it is the session child that
 // spawnHelperChildren execs, this test binary run again with helperChildEnv
 // set. It does what a child must for spawnChild — prints JUGGLER_ADDR= once it
 // is listening — and answers every request with the ingress secret its
 // environment gave it and the ingress header the request carried. GET
 // /exit/<code> makes it answer, then exit with that code, as a crash (non-zero)
-// or a deliberate shutdown (0) would.
+// or a deliberate shutdown (0) would. With helperHangEnv set it never gets as
+// far as listening.
 func TestHelperSessionChild(t *testing.T) {
 	if os.Getenv(helperChildEnv) != "1" {
 		t.Skip("run only as the stand-in session child")
+	}
+	if addr := os.Getenv(helperHangEnv); addr != "" {
+		conn, err := net.Dial("tcp", addr) //nolint:gosec // the test's own loopback listener
+		if err != nil {
+			os.Exit(1)
+		}
+		time.Sleep(time.Hour)
+		_ = conn.Close()
+		os.Exit(0)
 	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -83,7 +100,7 @@ func spawnHelperChildren(t *testing.T, n int) []*child {
 
 	out := make([]*child, n)
 	for i := range out {
-		c, err := spawnChild("unused", t.TempDir(), nil)
+		c, err := spawnChild(context.Background(), "unused", t.TempDir(), nil)
 		if err != nil {
 			t.Fatalf("spawn stand-in child: %v", err)
 		}

@@ -11,6 +11,7 @@
 package machineserver
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -21,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -57,8 +59,13 @@ type Server struct {
 	uiLocale func() string
 	// restart governs respawning crashed children (zero: the defaults).
 	restart restartPolicy
-	// supervising counts the sessions' supervisor goroutines still running.
-	supervising atomic.Int64
+	// life is the server's root context (see lifetime), and endLife its cancel.
+	lifeOnce sync.Once
+	life     context.Context
+	endLife  context.CancelFunc
+	// work counts the claims on sessions (registry.open) not yet released:
+	// every spawn in flight and every supervisor. Shutdown waits for it.
+	work sync.WaitGroup
 	// testChildren (serve --test) spawns every child as a test server whose
 	// test window loads its session through this server's proxy. Test
 	// binaries only: a production-tagged child panics on --test.
@@ -71,6 +78,21 @@ type Server struct {
 
 // TokenHeader carries the control-API token on a request to /api/server/*.
 const TokenHeader = "X-Juggler-Token"
+
+// lifetime is the server's root context. Every session's context derives from
+// it, and endLifetime cancels it at shutdown. Made on first use, so a Server
+// literal needs none.
+func (s *Server) lifetime() context.Context {
+	s.lifeOnce.Do(func() { s.life, s.endLife = context.WithCancel(context.Background()) })
+	return s.life
+}
+
+// endLifetime cancels the root context: every backoff ends, every child still
+// in its handshake is killed, and no session opens again.
+func (s *Server) endLifetime() {
+	s.lifetime()
+	s.endLife()
+}
 
 // childExtraArgs returns the flags a session child gets beyond the fixed
 // ones. Under --test, each child runs the test harness in a window pointed at
@@ -223,7 +245,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleOpenSession spawns (or reuses) the session child for a project.
-// POST /api/server/sessions {"project": "/abs/or/relative/path"}.
+// POST /api/server/sessions {"project": "/abs/path" or "~/path"}.
 // Reuse returns the live record; a fresh spawn blocks until the child reports
 // its address (bounded by childStartTimeout) and returns 201.
 func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
@@ -241,30 +263,43 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, created := s.reg.reserve(project)
-	if !created {
+	sess, cl, err := s.reg.open(s.lifetime(), project, &s.work)
+	if err != nil {
+		writeMessageError(w, http.StatusServiceUnavailable, msg.New("the machine server is shutting down"))
+		return
+	}
+	if cl == nil {
 		// A running child, or a spawn already in flight (state "starting" —
 		// the caller polls the sessions list until it flips).
 		writeJSON(w, http.StatusOK, sess)
 		return
 	}
 
-	c, err := spawnChild(s.childBin, project, s.childExtraArgs(sess.ID))
+	c, err := spawnChild(cl.ctx, s.childBin, project, s.childExtraArgs(sess.ID))
 	if err != nil {
+		if cl.ctx.Err() != nil {
+			// A stop or shutdown cancelled the spawn, and removes the session
+			// itself once this claim is released.
+			cl.release()
+			writeMessageError(w, http.StatusConflict, msg.New("session was removed during spawn"))
+			return
+		}
 		jlog.Error("[machineserver] spawn failed for %s: %v", project, err)
 		s.reg.setError(sess.ID, err.Error())
+		cl.release()
 		errSess, _ := s.reg.get(sess.ID)
 		writeJSON(w, http.StatusBadGateway, errSess)
 		return
 	}
 	if !s.reg.setRunning(sess.ID, c, c.cmd.Process.Pid) {
-		// The reservation vanished while we were spawning — don't leak an
-		// unsupervised child.
+		// A stop claimed the session as the handshake finished — don't leak
+		// an unsupervised child.
 		c.stop()
+		cl.release()
 		writeMessageError(w, http.StatusConflict, msg.New("session was removed during spawn"))
 		return
 	}
-	s.startSupervising(sess.ID, c)
+	s.startSupervising(sess.ID, c, cl)
 	jlog.Info("[machineserver] session %s: %s at %s (pid %d)", sess.ID, project, c.addr, c.cmd.Process.Pid)
 	s.rememberRecent(project)
 	sess, _ = s.reg.get(sess.ID)
@@ -302,7 +337,10 @@ func (s *Server) handleRecents(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, recentsResponse{Paths: paths})
 }
 
-// handleStopSession stops a session child and drops its registry entry.
+// handleStopSession stops a session child and drops its registry entry. A
+// session with no live child yet — starting, or waiting to restart — is
+// cancelled: a child in its handshake is killed, a backoff ends, and the stop
+// answers once its spawner or supervisor has let it go.
 // DELETE /api/server/sessions/{id}.
 func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
@@ -313,18 +351,19 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	sess, ok := s.reg.get(id)
-	if !ok {
+	if done, ok := s.reg.cancelPending(id); ok {
+		<-done
+		s.reg.remove(id)
+		jlog.Info("[machineserver] session %s stopped before its child was up", id)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if _, ok := s.reg.get(id); !ok {
 		writeMessageError(w, http.StatusNotFound, msg.New("unknown session"))
 		return
 	}
-	if sess.State == SessionStarting {
-		// Its spawner still holds the reservation; removing it now would leak
-		// the child the spawner is about to register.
-		writeMessageError(w, http.StatusConflict, msg.New("session is still starting"))
-		return
-	}
-	// No live child (an errored entry) — just drop the record.
+	// No live child and nothing in flight (an errored entry) — just drop the
+	// record.
 	s.reg.remove(id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -339,26 +378,35 @@ func (s *Server) handleShutdown(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-// stopAllChildren stops every session child concurrently and waits for them.
-// Part of server shutdown: called after the HTTP listener stops accepting.
+// stopAllChildren shuts every session down and waits for it: it ends the
+// server's lifetime (endLifetime), stops each running child concurrently and
+// claims each starting or restarting session for the stop (cancelPending),
+// then waits for every spawn and supervisor to release its claim before it
+// drops the records. The snapshot it takes after ending the lifetime is the
+// registry call open's counting relies on. Part of server shutdown: called
+// once the HTTP listener has stopped accepting.
 func (s *Server) stopAllChildren() {
+	s.endLifetime()
 	done := make(chan struct{})
 	n := 0
 	for _, sess := range s.reg.snapshot() {
 		c, ok := s.reg.beginStop(sess.ID)
 		if !ok {
-			s.reg.remove(sess.ID)
+			s.reg.cancelPending(sess.ID)
 			continue
 		}
 		n++
-		go func(id string, c *child) {
+		go func() {
 			c.stop()
-			s.reg.remove(id)
 			done <- struct{}{}
-		}(sess.ID, c)
+		}()
 	}
 	for range n {
 		<-done
+	}
+	s.work.Wait()
+	for _, sess := range s.reg.snapshot() {
+		s.reg.remove(sess.ID)
 	}
 }
 

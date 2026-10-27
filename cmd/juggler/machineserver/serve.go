@@ -145,8 +145,11 @@ func RunCommand(args []string) int {
 		return 1
 	}
 
-	// Shutdown ordering per the supervisor contract: stop accepting, drain the
-	// children, release the machine lock last (the deferred Release above).
+	// Shutdown ordering per the supervisor contract: end the lifetime, so an
+	// open whose child is in its handshake gives up rather than holding the
+	// drain; stop accepting; drain the children and wait for their
+	// supervisors; release the machine lock last (the deferred Release above).
+	s.endLifetime()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := s.httpSrv.Shutdown(ctx); err != nil {

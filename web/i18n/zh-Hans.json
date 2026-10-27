@@ -1772,7 +1772,6 @@
   "sample args": "示例参数",
   "scripts": "脚本",
   "serving speed\u0004Standard": "标准",
-  "session is still starting": "会话仍在启动中",
   "session was removed during spawn": "会话在创建过程中被移除",
   "settings unavailable": "设置不可用",
   "shadowed by {name}": "被 {name} 遮蔽",

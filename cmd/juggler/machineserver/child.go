@@ -6,6 +6,7 @@ package machineserver
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -65,8 +66,13 @@ var newChildCommand = func(bin, project string, extra []string) *exec.Cmd {
 
 // spawnChild starts a session child for project and waits for its ready
 // handshake (a JUGGLER_ADDR=<host:port> line on stdout). The child keeps
-// running after return; the caller owns stopping it via stop().
-func spawnChild(bin, project string, extra []string) (*child, error) {
+// running after return; the caller owns stopping it via stop(). Once ctx is
+// done nothing is started, and a child still in its handshake is killed and
+// reaped before spawnChild returns ctx's error.
+func spawnChild(ctx context.Context, bin, project string, extra []string) (*child, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("session child for %s not started: %w", project, err)
+	}
 	cmd := newChildCommand(bin, project, extra)
 
 	// A secret of this child's own, by which the proxy vouches for a caller off
@@ -135,9 +141,23 @@ func spawnChild(bin, project string, extra []string) (*child, error) {
 	case <-c.exited:
 		return nil, fmt.Errorf("session child for %s exited before reporting its address (see %s)",
 			project, logpaths.StderrLogPath(project))
+	case <-ctx.Done():
+		c.kill()
+		return nil, fmt.Errorf("session child for %s cancelled before reporting its address: %w", project, ctx.Err())
 	case <-time.After(childStartTimeout):
-		_ = c.contained.Terminate()
+		c.kill()
 		return nil, fmt.Errorf("session child for %s did not report its address within %s", project, childStartTimeout)
+	}
+}
+
+// kill tree-kills a child that never finished its handshake, and returns once
+// it has been reaped (or, as stop does, shortly after the kill as a backstop).
+func (c *child) kill() {
+	_ = c.contained.Terminate()
+	select {
+	case <-c.exited:
+	case <-time.After(childStopGrace):
+		jlog.Error("[machineserver] session child pid %d did not exit after kill", c.cmd.Process.Pid)
 	}
 }
 

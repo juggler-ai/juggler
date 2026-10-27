@@ -5,9 +5,20 @@
 package machineserver
 
 import (
+	"context"
+	"sync"
 	"testing"
 	"time"
 )
+
+// reserve opens a session for project as a test's own spawner would, outside
+// any server's lifetime and uncounted, and reports whether it was created. The
+// claim is dropped: a test that registers its own child stands in for both
+// spawner and supervisor.
+func (r *registry) reserve(project string) (Session, bool) {
+	s, cl, _ := r.open(context.Background(), project, new(sync.WaitGroup))
+	return s, cl != nil
+}
 
 func TestRegistryReserveReuseAndErrorReplace(t *testing.T) {
 	r := newRegistry()

@@ -5,9 +5,12 @@
 package machineserver
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -62,6 +65,39 @@ type Session struct {
 type sessionEntry struct {
 	Session
 	child *child
+	// cancel ends the session's context (claim.ctx), and done is the claim's
+	// channel, closed once its spawner or supervisor has let the session go.
+	// Both are nil only for an entry no claim was made for.
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// claim is a spawner's hold on the session it opened (registry.open): the
+// session's context, which a stop of a session with no live child, or
+// shutdown, cancels; and release, which the spawner — or the supervisor it
+// hands the session to — calls once it is done with the session. A stop
+// waits for that, and shutdown waits for every claim through work.
+type claim struct {
+	ctx  context.Context
+	done chan struct{}
+	work *sync.WaitGroup
+}
+
+// release lets the session go: the count in work drops first, so whatever
+// done wakes sees it dropped.
+func (cl *claim) release() {
+	cl.work.Done()
+	close(cl.done)
+}
+
+// errShuttingDown is open's answer once the server's lifetime has ended.
+var errShuttingDown = errors.New("the machine server is shutting down")
+
+// end cancels the entry's context, as it leaves the registry.
+func (e *sessionEntry) end() {
+	if e.cancel != nil {
+		e.cancel()
+	}
 }
 
 // registry is the actor owning the session table. All access is serialized
@@ -130,43 +166,56 @@ func (r *registry) route(id string) (s Session, secret string, ok bool) {
 	return s, secret, ok
 }
 
-// reserve returns the live session for project when one exists (any state but
-// error — an errored entry is replaced), else inserts a starting entry with a
-// fresh ID. created reports whether the caller now owns the spawn.
-func (r *registry) reserve(project string) (s Session, created bool) {
+// open returns the live session for project when one exists (any state but
+// error — an errored entry is replaced), with a nil claim. Otherwise it
+// inserts a starting entry with a fresh ID and returns the claim on it: the
+// caller now owns the spawn, and holds the claim — counted in work — until it
+// releases it. The session's context derives from parent; once parent is done
+// nothing is opened and the error is errShuttingDown. The count is taken
+// inside the actor, so a shutdown that cancels parent and then makes any
+// registry call before waiting on work never misses a claim.
+func (r *registry) open(parent context.Context, project string, work *sync.WaitGroup) (s Session, cl *claim, err error) {
 	id := newSessionID()
 	r.do(func(m map[string]*sessionEntry) {
+		if parent.Err() != nil {
+			err = errShuttingDown
+			return
+		}
 		for key, e := range m {
 			if e.Project != project {
 				continue
 			}
 			if e.State == SessionError {
+				e.end()
 				delete(m, key)
 				continue
 			}
 			s = e.Session
 			return
 		}
+		ctx, cancel := context.WithCancel(parent)
 		e := &sessionEntry{Session: Session{
 			ID:        id,
 			Project:   project,
 			State:     SessionStarting,
 			StartedAt: time.Now(),
-		}}
+		}, cancel: cancel, done: make(chan struct{})}
 		m[id] = e
-		s, created = e.Session, true
+		work.Add(1)
+		s, cl = e.Session, &claim{ctx: ctx, done: e.done, work: work}
 	})
-	return s, created
+	return s, cl, err
 }
 
 // setRunning records a successful spawn: address, pid, and the child handle.
-// Returns false when the reservation no longer exists — the caller then owns
+// Returns false when the session is no longer starting — removed, or claimed
+// by a stop while the child was in its handshake — and the caller then owns
 // stopping the just-spawned child rather than leaking it unsupervised.
 func (r *registry) setRunning(id string, c *child, pid int) bool {
 	var ok bool
 	r.do(func(m map[string]*sessionEntry) {
 		e, found := m[id]
-		if !found {
+		if !found || e.State != SessionStarting {
 			return
 		}
 		e.State = SessionRunning
@@ -203,10 +252,33 @@ func (r *registry) beginStop(id string) (*child, bool) {
 	return c, c != nil
 }
 
+// cancelPending claims a session with no live child yet — starting, or
+// restarting — for a stop. It turns stopping, which setRunning and
+// beginRestart refuse, and its context is cancelled, which ends a backoff or a
+// spawn's handshake at once. It returns the channel that closes once the
+// session's spawner or supervisor has let it go; ok is false in any other
+// state, or for an entry no claim was made for.
+func (r *registry) cancelPending(id string) (done <-chan struct{}, ok bool) {
+	r.do(func(m map[string]*sessionEntry) {
+		e, found := m[id]
+		if !found || e.done == nil || (e.State != SessionStarting && e.State != SessionRestarting) {
+			return
+		}
+		e.State = SessionStopping
+		e.NextRestartAt = nil
+		e.end()
+		done, ok = e.done, true
+	})
+	return done, ok
+}
+
 // remove drops the session from the registry.
 func (r *registry) remove(id string) {
 	r.do(func(m map[string]*sessionEntry) {
-		delete(m, id)
+		if e, found := m[id]; found {
+			e.end()
+			delete(m, id)
+		}
 	})
 }
 
@@ -231,6 +303,7 @@ func (r *registry) removeOwned(id string, c *child) bool {
 	var ok bool
 	r.do(func(m map[string]*sessionEntry) {
 		if e, found := m[id]; found && e.owned(c) {
+			e.end()
 			delete(m, id)
 			ok = true
 		}
@@ -258,7 +331,7 @@ func (r *registry) setRestarting(id string, c *child, reason string, next time.T
 }
 
 // beginRestart claims a restarting session for its respawn: it turns to
-// starting, which a stop waits out (see handleStopSession), and the restart is
+// starting, which a stop cancels (see cancelPending), and the restart is
 // counted. It returns the project to spawn for; ok is false when the session
 // was stopped during the backoff.
 func (r *registry) beginRestart(id string) (project string, ok bool) {

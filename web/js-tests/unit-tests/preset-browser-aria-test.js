@@ -18,7 +18,7 @@
  * @module unit-tests/preset-browser-aria-test
  */
 
-import { assert, withTimeout } from '../utilities/test-helpers.js';
+import { assert, waitFor, withTimeout } from '../utilities/test-helpers.js';
 import { assertMenuShape } from '../utilities/menu-assertions.js';
 import { closeAllPopups, __resetPopupManagerForTests } from '../../js/utils/popup-manager.js';
 import { systemPromptRegistry } from '../../sdk/lib/system-prompt-registry.js';
@@ -27,7 +27,6 @@ import { ensureUserPresetsLoaded, getDefaultPresetId } from '../../js/services/s
 import apiService from '../../js/services/api.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
-import { budgetFor } from '../utilities/test-deadline.js';
 
 /**
  * A stand-in for the system-prompt context item: the fields the browser reads.
@@ -245,8 +244,8 @@ async function enXACase() {
       reply = () => true;
       const before = dialogs.length;
       /** @type {HTMLElement} */ (manage.querySelector('.sp-preset-delete-btn')).click();
-      const end = Date.now() + budgetFor(3000);
-      while (dialogs.length < before + 2 && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
+      await waitFor(() => dialogs.length >= before + 2,
+        () => `a second notice after the delete confirmation (${dialogs.slice(before).map((d) => d.kind).join(',')})`, 3000);
       assert(dialogs.length === before + 2 && dialogs[before + 1].args[0] === '9',
         `a failed delete said nothing (${dialogs.slice(before).map((d) => d.kind).join(',')})`);
       closeAllPopups();

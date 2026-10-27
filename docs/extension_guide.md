@@ -264,6 +264,7 @@ The full set of specifiers, and what each is for:
 | `juggler/i18n` | `translator(id)` → a `t()` for your UI text, scoped to your extension's catalogue (English source is the key and the fallback); `markForTranslation()`, `markUntranslated()`, `htmlSlots()`/`withHtml()` for markup inside a message, `messageKey()` for a key with a context, `getLocale()`, `registerCatalog()`, and locale-aware `formatNumber`/`formatDate`/`formatRelativeTime`. See [Translating your extension](#translating-your-extension) |
 | `juggler/utils/html` | HTML escaping and templating helpers |
 | `juggler/utils/path-containment` | Path containment checks — use these rather than hand-rolling `startsWith` |
+| `juggler/utils/debounce` | `debounce(fn, wait, { maxWait })` — a trailing-edge debounce whose `maxWait` stops a steady stream of events postponing the call for ever |
 
 - **`juggler/ops`** is the privileged host-operations layer — filesystem, shell,
   search, tree, and web operations that were once built-in-only. These ops run

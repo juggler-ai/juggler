@@ -832,6 +832,20 @@ func (m *Manager) DumpTape(conversationID string) any {
 	return w.tape.DumpAll()
 }
 
+// TapeHead returns when the conversation's worker last recorded a tape entry
+// (Unix milliseconds), or 0 when it has no worker or no tape. The id "*" asks
+// about every worker at once (LastTapeRecordAt).
+func (m *Manager) TapeHead(conversationID string) int64 {
+	if conversationID == "*" {
+		return LastTapeRecordAt()
+	}
+	w := m.Get(conversationID)
+	if w == nil {
+		return 0
+	}
+	return w.tape.Head()
+}
+
 // Remove stops and removes a worker, and refuses to recreate one for that
 // conversation from a later client message. Blocks until the worker is stopped.
 // Reserved for binning and permanent deletion — a conversation removed here

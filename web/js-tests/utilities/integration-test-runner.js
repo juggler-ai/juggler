@@ -23,11 +23,14 @@ import { ITEM_TYPE_TO_TAG } from './test-assertions.js';
 import logger from './test-logger.js';
 import { dumpTape, clearTape, lastTapeTs } from '../../js/utils/event-tape.js';
 import { snapshotOwnConversationIds, deleteOwnConversationsCreatedSince, setCurrentTestName } from './conversation-claims.js';
-import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
-import { askForMoreTime, resetPatience, patienceGranted, whyGivingUp, waitsInFlightReport } from './test-patience.js';
+import { setTestDeadline, clearTestDeadline, moveTestDeadline, progressMark } from './test-deadline.js';
+import { waitsInFlightReport } from './test-patience.js';
+import { watchForStall, watchWorkerProgress, awaitingServer } from './stall-watch.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
 import { fetchMachineLoad, measureTimerGrid, machineLoadLines } from './machine-load.js';
 import { lastConfirmGiveUp } from './ui-operation-executor.js';
+import { connectTestWebSocket } from './ws-connect.js';
+import { reportTestProgress } from './progress-report.js';
 import { apiUrl } from '../../js/utils/api-url.js';
 import { restorePluginConfig } from './plugin-config.js';
 
@@ -75,97 +78,6 @@ function _withDeadline(promise, ms, fallback, label) {
   });
 }
 
-/**
- * How often the stall watchdog looks for progress. Fine enough that the moment
- * a test goes quiet is pinned to within a quarter second, coarse enough to be
- * invisible next to the work it is watching.
- */
-const STALL_TICK_MS = 250;
-
-/**
- * Watch a running test and fail it only once it has stopped getting anywhere.
- *
- * The bound used to be the test's whole runtime: 25 seconds from the first
- * operation, whatever happened in them. That fails a test for the machine's
- * sins — the worker tape of a run killed this way shows deltas still landing
- * and tool commands still being answered at the instant of death — and the
- * failure block would say as much, print the load average that proved it, and
- * fail the build anyway.
- *
- * What the bound should mean is "this test is not getting anywhere", so that is
- * what it measures. Two progress signals, both already recorded and both in
- * this realm:
- *
- *   - the runner's own trace, which advances as each operation completes;
- *   - this lane's event tape, filtered to the conversations the lane owns,
- *     which advances on every socket message, document update and render.
- *
- * Either one moving is proof the test is alive, and resets the clock. Neither
- * moving for the whole window is a stall — and even then the machine gets asked
- * whether it was serving the lane at all (`./test-patience.js`), because a
- * saturated machine can starve a lane into silence without anything being
- * wrong. A wedge on a quiet machine still fails in one window, with the tapes
- * and the trace it always had.
- * @param {RunTrace} trace - The runner's live trace for this test.
- * @param {number} windowMs - How long a test may make no progress at all.
- * @param {(deadlineMs: number) => void} onExtend - Called with the new deadline whenever the window moves, so in-test waits can follow it.
- * @returns {{stalled: Promise<never>, stop: () => void, stalls: () => string}} The rejection to race, its off switch, and a one-line account for the failure block.
- */
-function _watchForStall(trace, windowMs, onExtend) {
-  let stop = () => {};
-  let lastProgressAt = Date.now();
-  let allowanceMs = windowMs;
-  let lastStamp = '';
-  let quietestMs = 0;
-
-  const stalled = new Promise((_, reject) => {
-    let stopped = false;
-    let checking = false;
-    const tick = async () => {
-      if (stopped || checking) return;
-      // Everything that says this test is still alive, as one comparable value.
-      const convIds = Array.from(snapshotOwnConversationIds());
-      const stamp = `${trace.stage}|${trace.opIndex}|${trace.opsCompleted.length}|${trace.currentOpType || ''}|${lastTapeTs(convIds)}`;
-      if (stamp !== lastStamp) {
-        lastStamp = stamp;
-        lastProgressAt = Date.now();
-        allowanceMs = windowMs;
-        onExtend(lastProgressAt + allowanceMs);
-        return;
-      }
-      const quietMs = Date.now() - lastProgressAt;
-      if (quietMs > quietestMs) quietestMs = quietMs;
-      if (quietMs < allowanceMs) return;
-      // Out of window. Ask the machine for its account before believing it.
-      checking = true;
-      const more = await askForMoreTime(windowMs);
-      checking = false;
-      if (stopped) return;
-      if (more) {
-        allowanceMs += more.extendByMs;
-        onExtend(lastProgressAt + allowanceMs);
-        return;
-      }
-      stopped = true;
-      clearInterval(timer);
-      reject(new Error(
-        `Test made no progress for ${Math.round(quietMs / 1000)}s (window ${Math.round(windowMs / 1000)}s) — ${await whyGivingUp()}`
-      ));
-    };
-    const timer = setInterval(tick, STALL_TICK_MS);
-    stop = () => {
-      stopped = true;
-      clearInterval(timer);
-    };
-  });
-
-  return {
-    stalled: /** @type {Promise<never>} */ (stalled),
-    stop,
-    stalls: () => `longest quiet stretch ${Math.round(quietestMs / 1000)}s of an allowed ${Math.round(allowanceMs / 1000)}s`
-  };
-}
-
 // Set the per-iframe trace flag so event-tape.js starts recording. The flag
 // is a single boolean test on every recordTape() call, so production page
 // loads (which never reach this module) pay nothing.
@@ -202,7 +114,7 @@ __tapeChan.onmessage = (/** @type {MessageEvent} */ ev) => {
 
 /**
  * @typedef {object} TestOperation
- * @property {'send-message'|'send-message-no-wait'|'send-thread-message'|'send-thread-message-no-wait'|'assert-input-warning'|'approve'|'approve-no-wait'|'deny'|'wait-for-approval'|'wait-for-thread-approval'|'approve-thread-tool'|'approve-thread-tool-no-wait'|'deny-thread-tool'|'run-command'|'compact-up-to'|'simulate-disconnect'|'wait-for-state'|'wait-for-idle'|'create-conversation'|'duplicate-conversation'|'fork-conversation'|'switch-conversation'|'delete-conversation'|'undo'|'redo'|'set-model'|'assert-document'|'assert-transaction-markers'|'validate-context-snapshot'|'validate-thread-context'|'set-plugin-enabled'|'start-capture-progress'|'wait-for-progress'|'assert-streaming-chunks'|'assert-no-result'|'assert-tool-field'|'cancel'|'cancel-from-root'|'cancel-thread'|'delete-last-item'|'delete-last-item-in-thread'|'delete-first-item-in-thread'|'delete-item-in-thread'|'assert-thread-item-count'|'wait-for-execution'|'rerun-tool'|'rerun-tool-no-wait'|'cancel-via-ui-flow'|'continue'|'continue-sub-thread'|'continue-in-new-thread'|'assert-dom'|'click-dom'|'set-dom-value'|'move-items'|'copy-items'|'copy-items-new-tab'|'move-items-new-tab'|'expand-thread'|'promote-thread'|'start-tool-exec-counter'|'assert-tool-exec-count'|'start-spinner-capture'|'assert-spinner-was-visible'|'capture-tool-result'|'assert-tool-result-changed'|'add-context-item-to-sub-thread'|'add-context-item-to-root'|'add-ai-files-to-sub-thread'|'remove-context-item-from-sub-thread'|'wait-ms'|'at-mention-file'|'wait-for-mock-paused'|'release-mock'|'add-execute-pattern'|'set-strategy'|'run-command-no-wait'|'expect-confirm'|'assert-confirm-shown'|'wait-for-nested-call'|'wait-for-held-call'|'clear-rules'|'restart-engine'|'assert-program-snapshot'} type - Operation type
+ * @property {'send-message'|'send-message-no-wait'|'send-thread-message'|'send-thread-message-no-wait'|'assert-input-warning'|'approve'|'approve-no-wait'|'deny'|'wait-for-approval'|'wait-for-thread-approval'|'approve-thread-tool'|'approve-thread-tool-no-wait'|'deny-thread-tool'|'run-command'|'compact-up-to'|'simulate-disconnect'|'wait-for-state'|'wait-for-idle'|'create-conversation'|'duplicate-conversation'|'fork-conversation'|'switch-conversation'|'delete-conversation'|'undo'|'redo'|'set-model'|'assert-document'|'assert-transaction-markers'|'validate-context-snapshot'|'validate-thread-context'|'set-plugin-enabled'|'start-capture-progress'|'wait-for-progress'|'assert-streaming-chunks'|'assert-no-result'|'assert-tool-field'|'cancel'|'cancel-from-root'|'cancel-thread'|'delete-last-item'|'delete-last-item-in-thread'|'delete-first-item-in-thread'|'delete-item-in-thread'|'assert-thread-item-count'|'wait-for-execution'|'rerun-tool'|'rerun-tool-no-wait'|'cancel-via-ui-flow'|'continue'|'continue-sub-thread'|'continue-in-new-thread'|'assert-dom'|'click-dom'|'set-dom-value'|'move-items'|'copy-items'|'copy-items-new-tab'|'move-items-new-tab'|'expand-thread'|'promote-thread'|'start-tool-exec-counter'|'assert-tool-exec-count'|'start-spinner-capture'|'assert-spinner-was-visible'|'capture-tool-result'|'assert-tool-result-changed'|'add-context-item-to-sub-thread'|'add-context-item-to-root'|'add-ai-files-to-sub-thread'|'remove-context-item-from-sub-thread'|'wait-ms'|'ping-worker'|'stop-undo-capturing'|'at-mention-file'|'wait-for-mock-paused'|'release-mock'|'add-execute-pattern'|'set-strategy'|'run-command-no-wait'|'expect-confirm'|'assert-confirm-shown'|'wait-for-nested-call'|'wait-for-held-call'|'clear-rules'|'restart-engine'|'assert-program-snapshot'} type - Operation type
  * @property {string} [message] - Message text (for send-message)
  * @property {string} [toolUseId] - Tool use ID (for approve/deny/wait-for-approval/streaming operations)
  * @property {string} [response] - Custom response value (for approve - used by AskUserQuestion answers)
@@ -231,6 +143,7 @@ __tapeChan.onmessage = (/** @type {MessageEvent} */ ev) => {
  * @property {number} [index] - Item index (for compact-up-to)
  * @property {number} [threadIndex] - Which thread item (0-based) in root items (for validate-thread-context, continue-sub-thread)
  * @property {number} [ms] - Milliseconds to wait (for wait-ms)
+ * @property {string} [why] - For wait-ms: the real-time window in the code under test the duration must outlast
  * @property {number} [nestedThreadIndex] - Which nested thread inside the outer thread (for validate-thread-context)
  * @property {number} [expectedMessageCount] - Exact message count (for validate-thread-context, validate-context-snapshot)
  * @property {number} [expectedMinMessageCount] - Minimum message count (for validate-thread-context, validate-context-snapshot)
@@ -302,39 +215,6 @@ __tapeChan.onmessage = (/** @type {MessageEvent} */ ev) => {
  * @property {string} [error] - Error message if failed
  * @property {number} durationMs - Test duration in milliseconds
  */
-
-/**
- * Connect WebSocket to a session.
- * @param {any} wsService - WebSocket service
- * @returns {Promise<void>}
- */
-async function connectWebSocket(wsService) {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      wsService.off('open', onOpen);
-      wsService.off('error', onError);
-      reject(new Error('WebSocket connection timeout'));
-    }, 5000);
-
-    const onOpen = () => {
-      clearTimeout(timeout);
-      wsService.off('open', onOpen);
-      wsService.off('error', onError);
-      resolve();
-    };
-
-    const onError = (/** @type {any} */ err) => {
-      clearTimeout(timeout);
-      wsService.off('open', onOpen);
-      wsService.off('error', onError);
-      reject(err);
-    };
-
-    wsService.on('open', onOpen);
-    wsService.on('error', onError);
-    wsService.connect();
-  });
-}
 
 /**
  * Assert that no two items within the same thread array share an itemId.
@@ -503,6 +383,9 @@ async function _collectCrossIframeTapes(convIds, waitMs = 500) {
   };
   chan.onmessage = onMsg;
   chan.postMessage({ kind: 'dump-request', requestId, convIds });
+  // A collection window, not a wait for something: siblings answer if they
+  // can, and a failure block must never wait on one that cannot.
+  // eslint-disable-next-line juggler/no-private-test-wait -- how long a failure block collects sibling tapes is the subject
   await new Promise((r) => setTimeout(r, waitMs));
   chan.close();
   return replies;
@@ -586,14 +469,6 @@ async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeo
   const gaveUp = lastConfirmGiveUp();
   const confirmLines = gaveUp ? [`  ARMED CONFIRM GAVE UP: ${gaveUp}`] : [];
 
-  // A test that was given extra time says so, even when it then failed for an
-  // unrelated reason: the reader needs to know the clock was not the one the
-  // nominal timeouts describe.
-  const patienceLines = () => {
-    const granted = patienceGranted();
-    return granted.line ? [granted.line] : [];
-  };
-
   // Gather every tape source the failure block needs. The convIds we care
   // about are the ones this iframe owns — they are the affected
   // conversations for cross-iframe correlation.
@@ -666,7 +541,6 @@ async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeo
     `  iframe: ${ident.iframe}  visible-conv: ${ident.visibleConversationId || 'none'}  own: [${ident.ownConversationIds.join(', ')}]`,
     ...projectSizeLines(await projectSize),
     ...machineLoadLines(await machineLoad, await timerGrid),
-    ...patienceLines(),
     ...confirmLines,
     ...waitLines,
     ...mockLines,
@@ -931,7 +805,6 @@ export async function runIntegrationTest(testDef, ctx) {
   // The same deadline, where the waits that have no harness to ask can find
   // it — `waitFor` is a free function called from hundreds of sites.
   setTestDeadline(harness._perTestDeadlineMs);
-  resetPatience();
 
   /** @type {RunTrace} */
   const trace = { stage: 'setup', opIndex: -1, opsCompleted: [] };
@@ -939,11 +812,26 @@ export async function runIntegrationTest(testDef, ctx) {
   // The window travels with the test's progress, and the deadline the in-test
   // waits ride travels with it, so a test that is being served slowly is not
   // cut off by a bound armed before it started.
-  const watchdog = _watchForStall(trace, perTestTimeoutMs, (deadlineMs) => {
-    harness._perTestDeadlineMs = deadlineMs;
-    // The same test moving its own deadline, so its waits keep their generation
-    // and are not mistaken for orphans of a test that has ended.
-    setTestDeadline(deadlineMs, { sameTest: true });
+  //
+  // Progress is the runner's own trace (each operation completing), this
+  // lane's event tape filtered to the conversations it owns (every socket
+  // message, document update and render), and the lane's progress mark (every
+  // assertion evaluated and wait satisfied), and the workers of those
+  // conversations getting through their work (watchWorkerProgress). Any of
+  // them moving is proof the test is alive.
+  const workers = watchWorkerProgress(() => Array.from(snapshotOwnConversationIds()));
+  const watchdog = watchForStall({
+    windowMs: perTestTimeoutMs,
+    unobservable: () => workers.unanswered() || awaitingServer(),
+    stamp: () => `${trace.stage}|${trace.opIndex}|${trace.opsCompleted.length}|${trace.currentOpType || ''}|${progressMark()}|${lastTapeTs(Array.from(snapshotOwnConversationIds()))}|${workers.mark()}`,
+    onExtend: (deadlineMs) => {
+      harness._perTestDeadlineMs = deadlineMs;
+      // The same test moving its own deadline, so its waits keep their generation
+      // and are not mistaken for orphans of a test that has ended.
+      moveTestDeadline(deadlineMs);
+      // And the Go harness, which waits on the result while this keeps coming.
+      reportTestProgress();
+    }
   });
 
   // Where the test was parked when it failed. Read before the abort, which
@@ -956,11 +844,13 @@ export async function runIntegrationTest(testDef, ctx) {
       watchdog.stalled.catch((stall) => { waitLines = waitsInFlightReport(); ac.abort(); throw stall; })
     ]);
     watchdog.stop();
+    workers.stop();
 
     return { passed: true, durationMs: Date.now() - startTime };
 
   } catch (error) {
     watchdog.stop();
+    workers.stop();
     waitLines ??= waitsInFlightReport();
     ac.abort();
     const rawMsg = error instanceof Error ? error.message : String(error);
@@ -971,6 +861,13 @@ export async function runIntegrationTest(testDef, ctx) {
     // result would never post and the Go harness would time the subtest out
     // at 60s with zero diagnostics. On the deadline we fall back to the bare
     // message so the failure is always reported, just without the tapes.
+    //
+    // The bound is generous because the build is a dozen fetches to a server
+    // that may be slow rather than wedged — on a slow core a 5s bound threw
+    // away the one block that said where every lane was parked — and it sits
+    // well inside the Go harness's two-minute silence window, so the result
+    // still posts.
+    const DIAGNOSTICS_BUILD_MS = 60_000;
     const errorWithDiag = await _withDeadline(
       _buildFailureMessage({
         testName: testDef.name,
@@ -983,8 +880,8 @@ export async function runIntegrationTest(testDef, ctx) {
         harness,
         waitLines
       }),
-      5000,
-      `[${testDef.name}] ${rawMsg}\n  (failure diagnostics unavailable — this page could not build them in 5s: the server stopped answering it, or this page's main thread was too busy to read the answers; ask the server from outside the page before believing the first)`,
+      DIAGNOSTICS_BUILD_MS,
+      `[${testDef.name}] ${rawMsg}\n  (failure diagnostics unavailable — this page could not build them in ${DIAGNOSTICS_BUILD_MS / 1000}s: the server stopped answering it, or this page's main thread was too busy to read the answers; ask the server from outside the page before believing the first)`,
       `failure-diagnostics build for ${testDef.name}`
     );
     return { passed: false, error: errorWithDiag, durationMs };
@@ -1112,7 +1009,7 @@ async function _initSuite() {
   const wsService = (await import('../../js/services/websocket.js')).default;
   const { default: workerManager } = await import('../../js/services/worker-manager.js');
   if (!wsService.isConnected()) {
-    await connectWebSocket(wsService);
+    await connectTestWebSocket(wsService);
   }
   wsService.on('message', (/** @type {any} */ data) => {
     if (data.type === 'worker-message') {

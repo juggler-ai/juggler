@@ -1408,19 +1408,23 @@ export async function runTests(_ctx) {
       const tab = /** @type {any} */ (document.createElement('div'));
       tab.id = 'conversation-tab-board-wait';
       document.body.appendChild(tab);
+      let switched = false;
       const stand = {
         _session: {
           getConversation: () => ({}),
           getVisibleConversation: () => ({ id: 'somewhere-else' }),
           ensureConversationLoaded: async () => {},
-          switchConversation: () => true,
+          switchConversation: () => { switched = true; return true; },
         },
       };
       try {
         let settled = false;
         const shown = Panel.prototype._showConversationForBoard.call(stand, 'board-wait')
           .then(() => { settled = true; });
-        await new Promise((r) => setTimeout(r, 50));
+        // The switch is the last step before the wait for the tab: a reveal that
+        // skipped that wait would settle in the microtasks after it.
+        await waitFor(() => switched, 'the reveal to switch to the conversation');
+        await new Promise((r) => setTimeout(r, 0));
         assert(!settled, 'before the tab is shown there are no columns to point into');
         tab.dispatchEvent(new CustomEvent(CONVERSATION_TAB_SHOWN, {
           bubbles: true, detail: { conversationId: 'board-wait' },

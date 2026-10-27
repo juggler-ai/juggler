@@ -28,11 +28,31 @@ import { createThreadMessage } from '../../sdk/lib/message.js';
 const SUMMARY = 'Handoff summary: earlier tab set up the build and ran the tests.';
 
 /**
- * Wait for Yjs observers to fire (microtask + small delay).
- * @param {number} [ms=50]
+ * Count the `conversation:changed` announcements for one conversation. The
+ * items observer — the other caller of maybePromoteHandoffThread — announces
+ * it and then runs the promotion in the same synchronous pass, so once an
+ * insert's announcement is seen, whatever that observer would promote it has.
+ * @param {any} session - Session owning the conversation
+ * @param {string} conversationId - Conversation to watch
+ * @returns {{seen: () => number, stop: () => void}} The count, and its unsubscribe
  */
-async function waitForObservers(ms = 50) {
-  await new Promise(resolve => setTimeout(resolve, ms));
+function watchItemsObserver(session, conversationId) {
+  let seen = 0;
+  const stop = session.subscribe('conversation:changed', (/** @type {any} */ e) => {
+    if (e.data?.conversationId === conversationId) seen++;
+  });
+  return { seen: () => seen, stop };
+}
+
+/**
+ * Wait until every auto-name request a promotion has already issued has been
+ * delivered. maybePromoteHandoffThread sends it from behind a dynamic import of
+ * worker-manager; an import of the same, already evaluated, module issued now
+ * settles after every one issued before it, so a request is in by then.
+ * @returns {Promise<void>} Resolves once earlier requests have landed.
+ */
+async function autoNameRequestsDelivered() {
+  await import('../../js/services/worker-manager.js');
 }
 
 /**
@@ -90,7 +110,8 @@ export async function runTests(_ctx) {
     // Idempotent: promotes if the items observer hasn't already. Asserting the
     // end state keeps the test independent of who fired the promotion.
     maybePromoteHandoffThread(mt);
-    await waitForObservers();
+    await waitFor(() => threadTiles(mt).length === 0,
+      () => `the summary thread to be promoted away (${threadTiles(mt).length} thread tile(s) left)`);
 
     assert(threadTiles(mt).length === 0,
       `expected the summary thread to be promoted away, found ${threadTiles(mt).length} thread tile(s)`);
@@ -113,10 +134,15 @@ export async function runTests(_ctx) {
     const conversation = await createTestConversation(session);
     const mt = conversation.rootMessageThread;
 
+    const observer = watchItemsObserver(session, conversation.id);
     const threadId = insertThreadTile(mt, { handoffPromote: true });
 
     const promotedNow = maybePromoteHandoffThread(mt);
-    await waitForObservers();
+    try {
+      await waitFor(() => observer.seen() > 0, 'the items observer to see the inserted thread');
+    } finally {
+      observer.stop();
+    }
 
     assert(promotedNow === false, 'a result-less handoff thread must not be promoted');
     assert(mt.findIndexByItemId(threadId) >= 0, 'the un-summarised thread must still be present');
@@ -137,10 +163,15 @@ export async function runTests(_ctx) {
     const conversation = await createTestConversation(session);
     const mt = conversation.rootMessageThread;
 
+    const observer = watchItemsObserver(session, conversation.id);
     const threadId = insertThreadTile(mt, { result: SUMMARY });
 
     const promotedNow = maybePromoteHandoffThread(mt);
-    await waitForObservers();
+    try {
+      await waitFor(() => observer.seen() > 0, 'the items observer to see the inserted thread');
+    } finally {
+      observer.stop();
+    }
 
     assert(promotedNow === false, 'an unmarked thread must not be promoted');
     assert(mt.findIndexByItemId(threadId) >= 0, 'the unmarked compaction thread must still be present');
@@ -174,7 +205,7 @@ export async function runTests(_ctx) {
       const pendingMt = pending.rootMessageThread;
       insertThreadTile(pendingMt, { handoffPromote: true });
       maybePromoteHandoffThread(pendingMt);
-      await waitForObservers();
+      await autoNameRequestsDelivered();
 
       assert(requests.length === 0,
         'a handoff thread with no summary yet must not request an auto-name');
@@ -185,12 +216,12 @@ export async function runTests(_ctx) {
       maybePromoteHandoffThread(mt);
       // The request is sent from behind a dynamic import, so it lands an
       // unbounded number of tasks after the promotion — wait for it rather than
-      // for a fixed delay, then give a duplicate the same window to show up.
+      // for a fixed delay, then for any duplicate issued alongside it to land.
       await waitFor(() => requests.some(r => r.id === conversation.id), {
         timeoutMs: 2000,
         description: 'the auto-name request after promotion'
       });
-      await waitForObservers();
+      await autoNameRequestsDelivered();
 
       const forConv = requests.filter(r => r.id === conversation.id);
       assert(forConv.length === 1,

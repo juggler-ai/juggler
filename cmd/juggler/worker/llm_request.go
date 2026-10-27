@@ -79,7 +79,7 @@ func (r *run) requestContextAndToolsForItemIDs(itemIDs []string) (*ContextResult
 		SentAt:       time.Now().UnixMilli(),
 	})
 
-	ctxRaw, toolsRaw, err := r.waitForContextAndTools(ContextTimeout, contextReply, toolsReply)
+	ctxRaw, toolsRaw, err := r.waitForContextAndTools(r.contextCheck, r.contextCeiling, contextReply, toolsReply)
 	if err != nil {
 		return nil, nil, err
 	}

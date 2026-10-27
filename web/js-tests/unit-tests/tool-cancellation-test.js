@@ -25,7 +25,8 @@ import {
   initializeRegistries,
   createTestSession,
   createTestConversation,
-  assert
+  assert,
+  waitFor
 } from '../utilities/test-helpers.js';
 import actionExecutor from '../../js/services/action-executor.js';
 import { claimRunning } from '../../js/model/conversation-tool-actions.js';
@@ -120,8 +121,12 @@ function awaitOpStarted(started, what = 'op fetch never started') {
 async function drainExecutor() {
   if (!actionExecutor.hasRunningActions()) return;
   actionExecutor.cancelAllActions();
-  for (let i = 0; i < 100 && actionExecutor.hasRunningActions(); i++) {
-    await new Promise((r) => { setTimeout(r, 10); });
+  // Called from each case's finally, so giving up must not throw: that would
+  // replace the case's own failure with this one. It says why instead.
+  try {
+    await waitFor(() => !actionExecutor.hasRunningActions(), 'the executor to drain after cancelAllActions', 1000);
+  } catch (e) {
+    console.warn('[tool-cancellation] drainExecutor gave up:', e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -382,10 +387,7 @@ export async function runTests(_ctx) {
 
       // shell-start is sent synchronously inside the promise executor; give it a
       // microtask-safe beat rather than assuming the ordering.
-      await Promise.race([
-        (async () => { while (startedShellId === null) await new Promise((r) => setTimeout(r, 10)); })(),
-        new Promise((_r, rej) => setTimeout(() => rej(new Error('shell-start was never sent')), 4000))
-      ]);
+      await waitFor(() => startedShellId !== null, 'shell-start to be sent', 4000);
 
       controller.abort();
 

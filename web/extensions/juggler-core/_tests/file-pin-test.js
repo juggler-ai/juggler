@@ -26,7 +26,7 @@ import { fetchLiveFile, renderLiveFileBody } from '../lib/live-file.js';
 import { writeFile } from '../../../js/services/ops-api.js';
 import pinboardItemRegistry from '../../../js/registries/pinboard-item-registry.js';
 import { addFilePath } from 'juggler/ui';
-import { assert } from '../../../js-tests/utilities/test-helpers.js';
+import { assert, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 
@@ -156,17 +156,105 @@ export async function runTests(ctx) {
    * has neither the placeholder nor any text. Every case here expects content,
    * so wait for content — on a loaded pool that gap is wide enough to read.
    * @param {HTMLElement} body - The pin's body.
-   * @param {number} [timeout] - How long to give it.
    * @returns {Promise<string>} The body's text.
    */
-  async function settled(body, timeout = 5000) {
-    const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) {
+  function settled(body) {
+    return waitFor(() => {
       const text = body.textContent || '';
-      if (!body.querySelector('.file-content-loading') && text.trim()) return text;
-      await new Promise((r) => { setTimeout(r, 20); });
-    }
-    throw new Error(`pin never finished loading (showed "${body.textContent}")`);
+      return !body.querySelector('.file-content-loading') && text.trim() ? text : '';
+    }, () => `the pin to finish loading (it shows "${body.textContent}")`);
+  }
+
+  /**
+   * Watch a pin's arrival check through the one call each round makes on the
+   * body, `checkVisibility`. A round that finds the body hidden does what it
+   * does about that synchronously, before the microtask queued from inside the
+   * call runs — so any timer set between the two is one that round scheduled.
+   * @param {HTMLElement} body - The pin's body.
+   * @returns {{hidden: () => number, scheduledWhileHidden: () => number, restore: () => void}}
+   *   Rounds that found the body hidden, how many of those scheduled a timer,
+   *   and a way to stop watching.
+   */
+  function watchArrivalCheck(body) {
+    let hidden = 0;
+    let scheduledWhileHidden = 0;
+    let timers = 0;
+    const win = /** @type {any} */ (window);
+    const realSetTimeout = win.setTimeout;
+    win.setTimeout = (/** @type {any[]} */ ...args) => {
+      timers++;
+      return realSetTimeout(...args);
+    };
+    /** @type {any} */ (body).checkVisibility = (/** @type {any} */ options) => {
+      const visible = HTMLElement.prototype.checkVisibility.call(body, options);
+      if (!visible) {
+        hidden++;
+        const before = timers;
+        queueMicrotask(() => { if (timers > before) scheduledWhileHidden++; });
+      }
+      return visible;
+    };
+    return {
+      hidden: () => hidden,
+      scheduledWhileHidden: () => scheduledWhileHidden,
+      restore: () => {
+        win.setTimeout = realSetTimeout;
+        delete (/** @type {any} */ (body)).checkVisibility;
+      },
+    };
+  }
+
+  /**
+   * Answer the ops calls for some paths by hand. Every stat is held until the
+   * test answers it, so a test decides exactly when each round of a pin's
+   * arrival check gets its reply; every read answers at once that nothing is
+   * there. Calls for any other path go to the backend.
+   *
+   * A reply is resolved through promises alone, with no network and no task in
+   * between, so two stats answered one after the other in the same task reach
+   * their pins in that order.
+   * @param {string[]} paths - The paths to answer for.
+   * @returns {{stats: (path: string) => number, answer: (path: string, present: boolean) => void, restore: () => void}}
+   *   How many stats each path has had, a way to answer its oldest held one, and a
+   *   way to stop answering.
+   */
+  function holdStats(paths) {
+    const win = /** @type {any} */ (window);
+    const realFetch = win.fetch;
+    /** @type {Map<string, {stats: number, held: ((present: boolean) => void)[]}>} */
+    const byPath = new Map(paths.map((p) => [p, { stats: 0, held: [] }]));
+    /**
+     * @param {any} data - The op's data.
+     * @returns {any} Enough of a Response for the ops client.
+     */
+    const reply = (data) => ({ ok: true, status: 200, json: async () => ({ success: true, data }) });
+    win.fetch = (/** @type {any} */ url, /** @type {any} */ init) => {
+      const request = String(url).includes('/ops/call') ? JSON.parse(init.body) : null;
+      const entry = request && byPath.get(request.params?.path);
+      if (!entry) return realFetch(url, init);
+      if (request.operation !== 'stat') return Promise.resolve(reply({ path: request.params.path, exists: false }));
+      entry.stats++;
+      return new Promise((resolve) => {
+        entry.held.push((present) => resolve(reply({ exists: present, isDirectory: false })));
+      });
+    };
+    /**
+     * @param {string} path - One of the paths.
+     * @returns {{stats: number, held: ((present: boolean) => void)[]}} Its record.
+     */
+    const of = (path) => /** @type {any} */ (byPath.get(path));
+    return {
+      stats: (path) => of(path).stats,
+      answer: (path, present) => {
+        const next = of(path).held.shift();
+        assert(!!next, `a stat for ${path} to answer`);
+        next?.(present);
+      },
+      restore: () => {
+        win.fetch = realFetch;
+        for (const entry of byPath.values()) for (const held of entry.held.splice(0)) held(false);
+      },
+    };
   }
 
   // ========================================================================
@@ -366,14 +454,9 @@ export async function runTests(ctx) {
       const rowHeight = mounted.body.querySelector('.ci-line')?.getBoundingClientRect().height || 0;
       assert(rowHeight > 0, 'could not measure a row');
       const wanted = total * rowHeight;
-      const deadline = Date.now() + 5000;
-      let height = view?.getBoundingClientRect().height || 0;
-      while (Date.now() < deadline && Math.abs(height - wanted) >= rowHeight * 2) {
-        await new Promise((r) => { setTimeout(r, 20); });
-        height = view?.getBoundingClientRect().height || 0;
-      }
-      assert(Math.abs(height - wanted) < rowHeight * 2,
-        `the block is ${height}px tall, want ${total} rows of ${rowHeight}px`);
+      const height = () => view?.getBoundingClientRect().height || 0;
+      await waitFor(() => Math.abs(height() - wanted) < rowHeight * 2,
+        () => `the block to stand ${total} rows of ${rowHeight}px tall (it is ${height()}px)`);
     } finally {
       mounted.teardown();
     }
@@ -422,31 +505,24 @@ export async function runTests(ctx) {
       assert(response.ok, 'the fixture file must actually be removed for this to prove anything');
 
       mounted.fireChange([{ path, event: 'remove' }]);
-      const deadline = Date.now() + 5000;
-      while (Date.now() < deadline && !(mounted.body.textContent || '').includes('File not found')) {
-        await new Promise((r) => { setTimeout(r, 20); });
-      }
-      assert((mounted.body.textContent || '').includes('File not found'),
-        `a pin on a file that has gone says so, got "${mounted.body.textContent}"`);
+      await waitFor(() => (mounted.body.textContent || '').includes('File not found'),
+        () => `a pin on a file that has gone to say so (it shows "${mounted.body.textContent}")`);
     } finally {
       mounted.teardown();
     }
   });
 
   /**
-   * Poll a pin's body until it says something, or give up.
+   * Wait for a pin's body to say something.
    * @param {HTMLElement} body - The pin's body.
    * @param {string} wanted - Text to wait for.
-   * @param {number} timeout - How long to give it.
-   * @returns {Promise<boolean>} Whether it appeared.
+   * @param {string} what - What its appearing means, for the failure.
+   * @param {number} timeout - Nominal time to give it.
+   * @returns {Promise<boolean>} True, once it has appeared.
    */
-  async function eventually(body, wanted, timeout) {
-    const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) {
-      if ((body.textContent || '').includes(wanted)) return true;
-      await new Promise((r) => { setTimeout(r, 20); });
-    }
-    return (body.textContent || '').includes(wanted);
+  function eventually(body, wanted, what, timeout) {
+    return waitFor(() => (body.textContent || '').includes(wanted),
+      () => `${what} (it shows "${body.textContent}")`, timeout);
   }
 
   // The fixture is not reset between runs, so a file one run makes appear would
@@ -462,46 +538,106 @@ export async function runTests(ctx) {
     try {
       assert((await settled(mounted.body)).includes('File not found'), 'it starts missing');
       await writeFixture(name, 'arrived after all');
-      assert(await eventually(mounted.body, 'arrived after all', 5000),
-        `the pin shows the file once it exists, got "${mounted.body.textContent}"`);
+      await eventually(mounted.body, 'arrived after all', 'the pin to show the file once it exists', 5000);
     } finally {
       mounted.teardown();
     }
   });
 
-  await test('a missing file is not checked for while the pin cannot be seen', async () => {
+  await test('a hidden pin stops checking for its missing file until it is shown', async () => {
     const name = `hidden_${unique}.txt`;
     const mounted = mount({ path: `${base}_${name}` });
+    const arrival = watchArrivalCheck(mounted.body);
     try {
       assert((await settled(mounted.body)).includes('File not found'), 'it starts missing');
       mounted.body.style.display = 'none';
+      await waitFor(() => arrival.hidden() > 0, 'a round of the arrival check to find the pin hidden', 8000);
+      // The round that found the pin hidden is the check's last until it is
+      // shown: it set no timer, so nothing is left to read the file written next.
+      assert(arrival.scheduledWhileHidden() === 0,
+        `a round that finds the pin hidden must not schedule another, but ${arrival.scheduledWhileHidden()} of ${arrival.hidden()} did`);
       await writeFixture(name, 'there while nobody looked');
-      await new Promise((r) => { setTimeout(r, 1200); });
       assert((mounted.body.textContent || '').includes('File not found'),
         `a hidden pin waits rather than reading, got "${mounted.body.textContent}"`);
 
       mounted.body.style.display = '';
-      assert(await eventually(mounted.body, 'there while nobody looked', 8000),
-        `shown again, it picks the file up, got "${mounted.body.textContent}"`);
+      await eventually(mounted.body, 'there while nobody looked', 'the pin, shown again, to pick the file up', 8000);
     } finally {
+      arrival.restore();
       mounted.teardown();
     }
   });
 
-  await test('a torn-down pin stops checking for its missing file', async () => {
-    const name = `abandoned_${unique}.txt`;
-    const mounted = mount({ path: `${base}_${name}` });
+  // Against a pin left mounted beside it, whose stats are answered the same way
+  // straight after: whatever the torn-down pin would have done with its answer
+  // it would have done before the control does the same with its own.
+  for (const present of [true, false]) {
+    await test(`a stat in flight when the pin is torn down, answering ${present ? 'present' : 'missing'}, neither draws nor checks again`, async () => {
+      const doomedPath = `${base}_inflight_${present}_${unique}.txt`;
+      const controlPath = `${base}_inflight_control_${present}_${unique}.txt`;
+      const ops = holdStats([doomedPath, controlPath]);
+      const doomed = mount({ path: doomedPath });
+      const control = mount({ path: controlPath });
+      try {
+        // The first stat is the read's own probe; the second is the arrival
+        // check's first round, held in flight.
+        await waitFor(() => ops.stats(doomedPath) === 1 && ops.stats(controlPath) === 1, 'both pins to probe their path');
+        ops.answer(doomedPath, false);
+        ops.answer(controlPath, false);
+        assert((await settled(doomed.body)).includes('File not found'), 'it starts missing');
+        assert((await settled(control.body)).includes('File not found'), 'and so does its control');
+        await waitFor(() => ops.stats(doomedPath) === 2 && ops.stats(controlPath) === 2,
+          'both arrival checks to have a stat in flight', 8000);
+
+        doomed.controller.teardown?.();
+        const shown = doomed.body.textContent;
+        ops.answer(doomedPath, present);
+        ops.answer(controlPath, present);
+
+        await waitFor(() => ops.stats(controlPath) > 2,
+          `the control to act on its answer (${present ? 'read the file' : 'check again'})`, 8000);
+        assert(ops.stats(doomedPath) === 2,
+          `a torn-down pin's stat answering ${present ? 'present' : 'missing'} must start nothing, but it made ${ops.stats(doomedPath) - 2} more call(s)`);
+        assert(doomed.body.textContent === shown,
+          `and draws nothing, but it went from "${shown}" to "${doomed.body.textContent}"`);
+      } finally {
+        doomed.teardown();
+        control.teardown();
+        ops.restore();
+      }
+    });
+  }
+
+  await test('a torn-down pin waiting to be shown stays quiet when it is', async () => {
+    const doomedPath = `${base}_parked_${unique}.txt`;
+    const controlPath = `${base}_parked_control_${unique}.txt`;
+    const ops = holdStats([doomedPath, controlPath]);
+    const doomed = mount({ path: doomedPath });
+    const control = mount({ path: controlPath });
+    const doomedArrival = watchArrivalCheck(doomed.body);
+    const controlArrival = watchArrivalCheck(control.body);
     try {
-      assert((await settled(mounted.body)).includes('File not found'), 'it starts missing');
-      // The controller alone, leaving the body attached and visible, so the only
-      // thing that can stop the check is the teardown.
-      mounted.controller.teardown?.();
-      await writeFixture(name, 'too late');
-      await new Promise((r) => { setTimeout(r, 1200); });
-      assert(!(mounted.body.textContent || '').includes('too late'),
-        `a torn-down pin must not keep reading, got "${mounted.body.textContent}"`);
+      doomed.body.style.display = 'none';
+      control.body.style.display = 'none';
+      await waitFor(() => ops.stats(doomedPath) === 1 && ops.stats(controlPath) === 1, 'both pins to probe their path');
+      ops.answer(doomedPath, false);
+      ops.answer(controlPath, false);
+      await waitFor(() => doomedArrival.hidden() > 0 && controlArrival.hidden() > 0,
+        'both arrival checks to find their pin hidden', 8000);
+
+      doomed.controller.teardown?.();
+      doomed.body.style.display = '';
+      control.body.style.display = '';
+
+      await waitFor(() => ops.stats(controlPath) > 1, 'the control, shown, to check again', 8000);
+      assert(ops.stats(doomedPath) === 1,
+        `a torn-down pin must not check when shown, but it made ${ops.stats(doomedPath) - 1} more stat(s)`);
     } finally {
-      mounted.teardown();
+      controlArrival.restore();
+      doomedArrival.restore();
+      doomed.teardown();
+      control.teardown();
+      ops.restore();
     }
   });
 
@@ -516,13 +652,7 @@ export async function runTests(ctx) {
       assert((await settled(mounted.body)).includes('before'), 'it starts with what was there');
       await writeFile({ path, content: 'after' });
       mounted.fireChange([{ path, event: 'write' }]);
-
-      const deadline = Date.now() + 5000;
-      while (Date.now() < deadline && !(mounted.body.textContent || '').includes('after')) {
-        await new Promise((r) => { setTimeout(r, 20); });
-      }
-      assert((mounted.body.textContent || '').includes('after'),
-        `the pin follows the file, got "${mounted.body.textContent}"`);
+      await eventually(mounted.body, 'after', 'the pin to follow the file', 5000);
     } finally {
       mounted.teardown();
     }
@@ -534,10 +664,37 @@ export async function runTests(ctx) {
     try {
       await settled(mounted.body);
       await writeFile({ path, content: 'changed behind its back' });
-      mounted.fireChange([{ path: `${base}_somebody_else.txt`, event: 'write' }]);
-      await new Promise((r) => { setTimeout(r, 400); });
-      assert((mounted.body.textContent || '').includes('undisturbed'),
+      // A change the pin takes up is answered synchronously, by scheduling the
+      // debounced re-read, so whether it scheduled anything is known the moment
+      // the change has been delivered.
+      /**
+       * @param {string} changed - The path to report changed.
+       * @returns {number} How many timers delivering the change scheduled.
+       */
+      const deliver = (changed) => {
+        const win = /** @type {any} */ (window);
+        const realSetTimeout = win.setTimeout;
+        let scheduled = 0;
+        win.setTimeout = (/** @type {any[]} */ ...args) => {
+          scheduled++;
+          return realSetTimeout(...args);
+        };
+        try {
+          mounted.fireChange([{ path: changed, event: 'write' }]);
+        } finally {
+          win.setTimeout = realSetTimeout;
+        }
+        return scheduled;
+      };
+      assert(deliver(`${base}_somebody_else.txt`) === 0,
         'a pin that re-read on every file change would be a poll with extra steps');
+      assert((mounted.body.textContent || '').includes('undisturbed'), 'and it still shows what it read');
+
+      // The same lever on the pinned file does schedule a re-read, which shows
+      // the content written behind its back — so the silence above was the pin
+      // declining the change, not a delivery that reached nothing.
+      assert(deliver(path) > 0, 'a change to the pinned file schedules a re-read');
+      await eventually(mounted.body, 'changed behind its back', 'the pin to re-read its own file', 5000);
     } finally {
       mounted.teardown();
     }
@@ -552,13 +709,84 @@ export async function runTests(ctx) {
       // A file inside the directory is the directory changing.
       await writeFile({ path: `${base}_dir/appeared.txt`, content: 'new' });
       mounted.fireChange([{ path: `${base}_dir/appeared.txt`, event: 'create' }]);
+      await eventually(mounted.body, 'appeared.txt',
+        'a directory pin to re-list when something inside it changes', 5000);
+    } finally {
+      mounted.teardown();
+    }
+  });
 
-      const deadline = Date.now() + 5000;
-      while (Date.now() < deadline && !(mounted.body.textContent || '').includes('appeared.txt')) {
-        await new Promise((r) => { setTimeout(r, 20); });
+  await test('a sustained burst of changes does not hold the re-read off until it ends', async () => {
+    const path = await writeFixture('busy.txt', 'before the burst');
+    const mounted = mount({ path });
+    try {
+      assert((await settled(mounted.body)).includes('before the burst'), 'it starts with what was there');
+      await writeFile({ path, content: 'during the burst' });
+
+      // Time is a queue this test owns. Every timer the pin schedules while a
+      // change is being delivered goes into it instead of to the browser, and
+      // runs only when the test moves the queue's clock past it — so a burst of
+      // any length takes no real time and is the same on any machine.
+      const win = /** @type {any} */ (window);
+      const realSetTimeout = win.setTimeout;
+      const realClearTimeout = win.clearTimeout;
+      let now = 0;
+      // Far above any id the browser hands out, so a pin clearing one of these
+      // after the test has given the real timers back cancels nothing real.
+      let nextId = 1e9;
+      /** @type {Map<number, {at: number, fn: () => void}>} */
+      const queue = new Map();
+      const deliver = () => {
+        win.setTimeout = (/** @type {() => void} */ fn, /** @type {number} */ ms) => {
+          const id = nextId++;
+          queue.set(id, { at: now + (ms || 0), fn });
+          return id;
+        };
+        try {
+          mounted.fireChange([{ path, event: 'write' }]);
+        } finally {
+          win.setTimeout = realSetTimeout;
+        }
+      };
+      let reReads = 0;
+      /** @param {number} ms - How far to move the clock. */
+      const advance = (ms) => {
+        const end = now + ms;
+        for (;;) {
+          let due = null;
+          for (const [id, entry] of queue) {
+            if (entry.at <= end && (due === null || entry.at < due[1].at)) due = [id, entry];
+          }
+          if (due === null) break;
+          queue.delete(due[0]);
+          now = due[1].at;
+          reReads++;
+          due[1].fn();
+        }
+        now = end;
+      };
+
+      // A change every 100ms for three seconds: closer together than the pin's
+      // 150ms settling time for twenty times as long, as a watcher on a busy
+      // tree reports them on a slow core.
+      // Cancelling is the queue's for the whole burst, not just each delivery:
+      // a timer the pin set in one delivery may be cancelled by a later one, or
+      // by another of its timers as the clock runs.
+      win.clearTimeout = (/** @type {any} */ id) => {
+        if (!queue.delete(id)) realClearTimeout(id);
+      };
+      try {
+        for (let t = 0; t < 3000; t += 100) {
+          deliver();
+          advance(100);
+        }
+      } finally {
+        win.clearTimeout = realClearTimeout;
       }
-      assert((mounted.body.textContent || '').includes('appeared.txt'),
-        `a directory pin re-lists when something inside it changes, got "${mounted.body.textContent}"`);
+      assert(reReads > 0,
+        'three seconds of changes 100ms apart never let the pin re-read — it shows the old file for as long as the burst lasts');
+      await eventually(mounted.body, 'during the burst', 'the re-read the burst let through to show the file', 5000);
+      queue.clear();
     } finally {
       mounted.teardown();
     }
@@ -829,10 +1057,8 @@ export async function runTests(ctx) {
         const mounted = mount({ path: '/1/2.txt' });
         try {
           shown.loading = String(mounted.body.querySelector('.file-content-loading')?.textContent);
-          const deadline = Date.now() + 5000;
-          while (!mounted.body.querySelector('.file-pin__note') && Date.now() < deadline) {
-            await new Promise((r) => { setTimeout(r, 20); });
-          }
+          await waitFor(() => mounted.body.querySelector('.file-pin__note'),
+            () => `the cut-short note (the pin shows "${mounted.body.textContent}")`);
           shown['cut-short note'] = String(mounted.body.querySelector('.file-pin__note')?.textContent);
           shown['refresh action'] = String(mounted.controller.getActions?.()[0]?.label);
         } finally {

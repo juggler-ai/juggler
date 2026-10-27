@@ -37,14 +37,31 @@ import '../../js/components/conversation-tab.js';
 import '../../js/components/action-confirmation.js'; // registers <action-confirmation>
 
 /**
- * Settle long enough for the engage's deferred frame to have run — and, in the
- * draft case, to have run and decided to do nothing. Two macrotasks, because
- * the shimmed frame below is itself a macrotask.
- * @returns {Promise<void>} Resolves once the deferred engage has had its chance.
+ * Count the macrotask ticks of the tab's post-rebuild focus re-assertion
+ * (`_reassertInputFocus`) that are scheduled and have not yet run. The chain
+ * re-focuses the message box whenever focus is lost to <body>, so until it has
+ * drained it would mask a real focus theft with a pass that has nothing to do
+ * with the guard. Installed on the instance, so the chain's own recursive calls
+ * come through it; each call is watched for the timer it schedules.
+ * @param {any} tab - The conversation-tab, before its first rebuild.
+ * @returns {() => number} Re-assertion ticks still pending.
  */
-async function settleEngageWindow() {
-  await new Promise(resolve => setTimeout(resolve, 0));
-  await new Promise(resolve => setTimeout(resolve, 50));
+function trackFocusReassertion(tab) {
+  let pending = 0;
+  const realReassert = tab._reassertInputFocus;
+  tab._reassertInputFocus = (/** @type {any[]} */ ...args) => {
+    const realSetTimeout = window.setTimeout;
+    /** @type {any} */ (window).setTimeout = (/** @type {() => void} */ fn, /** @type {number} */ ms) => {
+      pending++;
+      return realSetTimeout(() => { pending--; fn(); }, ms);
+    };
+    try {
+      realReassert.apply(tab, args);
+    } finally {
+      window.setTimeout = realSetTimeout;
+    }
+  };
+  return () => pending;
 }
 
 /**
@@ -77,6 +94,21 @@ export async function runTests() {
     if (t) { clearTimeout(t); pendingFrames.delete(id); }
   };
 
+  /**
+   * Engage the selected approval and wait for the frame it deferred onto to
+   * have run — in the draft case, to have run and decided to do nothing. The
+   * engage requests exactly one frame, synchronously, so it is the newest id.
+   * @param {any} tab - The conversation-tab under test.
+   * @returns {Promise<void>} Resolves once the deferred engage has decided.
+   */
+  const engageAndSettle = async (tab) => {
+    const before = nextFrameId;
+    tab._engageSelectedApproval();
+    assert(nextFrameId > before, 'the engage should defer onto a frame');
+    const engageFrame = nextFrameId - 1;
+    await waitFor(() => !pendingFrames.has(engageFrame), 'the deferred engage frame to run');
+  };
+
   const container = document.createElement('div');
   container.style.cssText = 'position:absolute;left:0;top:0;width:1200px;height:800px;';
   document.body.appendChild(container);
@@ -93,6 +125,7 @@ export async function runTests() {
     conversation = await createApprovalTestConversation(session);
 
     tab = /** @type {any} */ (document.createElement('conversation-tab'));
+    const reassertTicksPending = trackFocusReassertion(tab);
     container.appendChild(tab);
     tab.setConversation(conversation);
     tab.setActive();
@@ -106,11 +139,12 @@ export async function runTests() {
       tab.querySelector('composer-box textarea')
     );
 
-    // Let the post-rebuild focus re-assertion window lapse before touching
-    // focus. _reassertInputFocus retries for ~150ms after a column build,
+    // Let the post-rebuild focus re-assertion drain before touching focus.
+    // _reassertInputFocus retries across a few ticks after a column build,
     // re-focusing the box whenever focus is lost to <body> — which would mask a
     // real focus theft with a pass that has nothing to do with the guard.
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await waitFor(() => reassertTicksPending() === 0,
+      () => `the post-rebuild focus re-assertion to drain (${reassertTicksPending()} tick(s) pending)`);
 
     const column = /** @type {any} */ (tab.querySelector('conversation-area'));
     assert(!!column, 'tab should have a conversation-area column');
@@ -161,8 +195,7 @@ export async function runTests() {
       'precondition: the message box holds focus while a draft is being typed'
     );
 
-    tab._engageSelectedApproval();
-    await settleEngageWindow();
+    await engageAndSettle(tab);
 
     assert(
       document.activeElement === textarea,

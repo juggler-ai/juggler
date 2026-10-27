@@ -7,8 +7,8 @@
  * What every run_code program suite is built out of.
  *
  * The program tests are split across several files because one file is one
- * suite, and a suite that runs for thirty seconds on an idle machine has no
- * headroom left on a loaded one (UNIT_SUITE_BUDGET_MS, integration-test-executor.js).
+ * suite, and a suite that runs for thirty seconds on an idle machine is past
+ * the size at which suites are split (SUITE_SPLIT_MS, integration-test-executor.js).
  * The preamble, the teardown and the helpers that drive an item live here so
  * that splitting them costs no duplication.
  *
@@ -68,7 +68,7 @@ import {
   withTimeout
 } from '../../../js-tests/utilities/test-helpers.js';
 import { budgetFor } from '../../../js-tests/utilities/test-deadline.js';
-import { pollPatiently, trackWait, whyGivingUp } from '../../../js-tests/utilities/test-patience.js';
+import { pollPatiently, whyGivingUp } from '../../../js-tests/utilities/test-patience.js';
 import { createToolActionMessage } from '../../../sdk/lib/message.js';
 import { readFile, loadProgramSnapshot } from '../../../js/services/ops-api.js';
 import actionExecutor from '../../../js/services/action-executor.js';
@@ -456,20 +456,23 @@ export async function runProgramSuite(defineCases) {
    * @returns {Promise<void>}
    */
   const waitSnapshotGone = async (item, what) => {
-    // Each probe is a fetch, so this cannot be a pollPatiently (its probe is
-    // synchronous); it is listed by hand instead, and each read is bounded.
-    const close = trackWait(what);
-    let outcome = 'gave up';
-    try {
-      const until = Date.now() + budgetFor(10000);
-      while (await withTimeout(snapshotOf(item), budgetFor(5000), `a read of the snapshot, ${what}`)) {
-        if (Date.now() > until) throw new Error(`timed out waiting for ${what} — ${await whyGivingUp()}`);
-        await new Promise((resolve) => setTimeout(resolve, 50));
+    // Each probe is a fetch and the wait's probe is synchronous, so the probe
+    // keeps one bounded read in flight and answers from the last to come back;
+    // a read that fails fails the wait.
+    /** @type {Promise<void>|null} */
+    let reading = null;
+    let gone = false;
+    /** @type {unknown} */
+    let failed = null;
+    await waitUntil(() => {
+      if (failed) throw failed;
+      if (!gone && !reading) {
+        reading = withTimeout(snapshotOf(item), budgetFor(5000), `a read of the snapshot, ${what}`)
+          .then((snapshot) => { gone = !snapshot; }, (err) => { failed = err; })
+          .finally(() => { reading = null; });
       }
-      outcome = 'satisfied';
-    } finally {
-      close(outcome);
-    }
+      return gone;
+    }, what, 10000);
   };
 
   /**

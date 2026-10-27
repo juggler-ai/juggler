@@ -9,6 +9,7 @@ import PinboardItemType from 'juggler/pinboard-item-type';
 import { projectEnvGet, projectEnvApprove, projectEnvSet } from 'juggler/ops';
 import { translator, markForTranslation } from 'juggler/i18n';
 import { createElement, errorText, injectStylesOnce } from 'juggler/ui';
+import { debounce } from 'juggler/utils/debounce';
 import { pinEmpty } from '../lib/pin-empty.js';
 
 const t = translator('@juggler/core');
@@ -55,6 +56,12 @@ const WATCHED = ['.juggler/env.json', '.juggler/env.local.json'];
 
 /** Coalesces a burst of watcher events into one read. */
 const REFRESH_DEBOUNCE_MS = 150;
+
+/**
+ * The longest a burst may hold the read off, so a stream of rewrites (a script
+ * setting variables in a loop) still shows its progress rather than nothing.
+ */
+const REFRESH_MAX_WAIT_MS = 1000;
 
 /**
  * EnvPin — the environment variables shell commands get in this project.
@@ -111,8 +118,6 @@ class EnvPin extends PinboardItemType {
     /** `scope:NAME` of the values shown in full, kept across redraws. */
     const revealed = new Set();
     let generation = 0;
-    /** @type {ReturnType<typeof setTimeout>|undefined} */
-    let pending;
 
     /**
      * Show a failure above everything, replacing the previous one.
@@ -272,10 +277,7 @@ class EnvPin extends PinboardItemType {
       return section;
     };
 
-    const refresh = () => {
-      clearTimeout(pending);
-      pending = setTimeout(() => { void render(); }, REFRESH_DEBOUNCE_MS);
-    };
+    const refresh = debounce(() => { void render(); }, REFRESH_DEBOUNCE_MS, { maxWait: REFRESH_MAX_WAIT_MS });
 
     const stopWatching = context.services.files.onChange((changes) => {
       const root = (context.active?.project?.path || '').replace(/\/+$/, '');
@@ -293,7 +295,7 @@ class EnvPin extends PinboardItemType {
         if (moved) void render();
       },
       teardown: () => {
-        clearTimeout(pending);
+        refresh.cancel();
         stopWatching();
       },
       getActions: () => [

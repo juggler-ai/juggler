@@ -7,6 +7,7 @@
 package testing
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -23,6 +24,10 @@ import (
 type auditRec struct {
 	queued, dispatched, resultPosted, resultServed         int
 	queuedAt, dispatchedAt, resultPostedAt, resultServedAt time.Time
+	// progress counts the lane's reports that the test is still making
+	// progress (HandlePostProgress), and progressAt is when the last came.
+	progress   int
+	progressAt time.Time
 }
 
 // TestAudit is the wire form of an auditRec: counts, plus how long ago each
@@ -39,6 +44,8 @@ type TestAudit struct {
 	DispatchedAgeMs   int64    `json:"dispatchedAgeMs"`
 	ResultPostedAgeMs int64    `json:"resultPostedAgeMs"`
 	ResultServedAgeMs int64    `json:"resultServedAgeMs"`
+	Progress          int      `json:"progress"`
+	ProgressAgeMs     int64    `json:"progressAgeMs"`
 	PendingDepth      int      `json:"pendingDepth"`
 	PendingNames      []string `json:"pendingNames"`
 	BufferedResults   int      `json:"bufferedResults"`
@@ -88,9 +95,12 @@ func (api *TestRunAPI) HandleAudit(w http.ResponseWriter, r *http.Request) {
 			out.DispatchedAgeMs = ageMs(rec.dispatchedAt)
 			out.ResultPostedAgeMs = ageMs(rec.resultPostedAt)
 			out.ResultServedAgeMs = ageMs(rec.resultServedAt)
+			out.Progress = rec.progress
+			out.ProgressAgeMs = ageMs(rec.progressAt)
 		} else {
 			out.QueuedAgeMs, out.DispatchedAgeMs = -1, -1
 			out.ResultPostedAgeMs, out.ResultServedAgeMs = -1, -1
+			out.ProgressAgeMs = -1
 		}
 		out.PendingDepth = len(s.pending)
 		for _, e := range s.pending {
@@ -99,4 +109,28 @@ func (api *TestRunAPI) HandleAudit(w http.ResponseWriter, r *http.Request) {
 		out.BufferedResults = len(s.resultBufs[name])
 	})
 	handlers.WriteJSON(w, r, 0, out)
+}
+
+// HandlePostProgress records that a test is still making progress.
+// POST /api/test/progress  body: {"name":"..."}
+//
+// The lane posts this whenever its own stall watchdog sees the test move (the
+// runner's `_watchForStall`). The harness waits on the result for as long as
+// these keep coming, so a test that is slow on a slow core is waited for and
+// one that has stopped is not, with no wall-clock guess at how long a test may
+// take.
+func (api *TestRunAPI) HandlePostProgress(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	api.withState(func(s *actorState) {
+		rec := s.auditFor(body.Name)
+		rec.progress++
+		rec.progressAt = time.Now()
+	})
+	w.WriteHeader(http.StatusNoContent)
 }

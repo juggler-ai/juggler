@@ -33,7 +33,8 @@ import {
   initializeRegistries,
   createTestSession,
   createApprovalTestConversation,
-  assert
+  assert,
+  waitFor
 } from '../utilities/test-helpers.js';
 import { createUserMessage, createAssistantMessage } from '../../sdk/lib/message.js';
 import '../../js/components/conversation-tab.js';
@@ -168,11 +169,8 @@ export async function runTests() {
       `${travelled} back to ${list.scrollTop}`);
 
     // …and hands the view back once the scroll settles, rather than staying off.
-    for (let i = 0; i < 40 && rootCol._scroll.programmatic; i++) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    assert(!rootCol._scroll.programmatic,
-      'the programmatic-scroll window must close once the view settles');
+    await waitFor(() => !rootCol._scroll.programmatic,
+      { timeoutMs: 2000, intervalMs: 50, description: 'the programmatic-scroll window to close once the view settles' });
 
     // The control: with no scroll of ours in flight the anchor still corrects, so
     // the guard above is specific rather than a blanket disable.

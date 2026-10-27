@@ -29,6 +29,34 @@ import '../../js/components/conversation-tab.js';
 import '../../js/components/action-confirmation.js'; // registers <action-confirmation>
 
 /**
+ * Count the macrotask ticks of the tab's post-rebuild focus re-assertion
+ * (`_reassertInputFocus`) that are scheduled and have not yet run. The chain
+ * re-focuses the message box whenever focus is lost to <body>, so until it has
+ * drained it would hand focus back on the hand-back's behalf. Installed on the
+ * instance, so the chain's own recursive calls come through it; each call is
+ * watched for the timer it schedules.
+ * @param {any} tab - The conversation-tab, before its first rebuild.
+ * @returns {() => number} Re-assertion ticks still pending.
+ */
+function trackFocusReassertion(tab) {
+  let pending = 0;
+  const realReassert = tab._reassertInputFocus;
+  tab._reassertInputFocus = (/** @type {any[]} */ ...args) => {
+    const realSetTimeout = window.setTimeout;
+    /** @type {any} */ (window).setTimeout = (/** @type {() => void} */ fn, /** @type {number} */ ms) => {
+      pending++;
+      return realSetTimeout(() => { pending--; fn(); }, ms);
+    };
+    try {
+      realReassert.apply(tab, args);
+    } finally {
+      window.setTimeout = realSetTimeout;
+    }
+  };
+  return () => pending;
+}
+
+/**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated results.
  */
 export async function runTests() {
@@ -48,6 +76,7 @@ export async function runTests() {
     const conversation = await createApprovalTestConversation(session);
 
     const tab = /** @type {any} */ (document.createElement('conversation-tab'));
+    const reassertTicksPending = trackFocusReassertion(tab);
     container.appendChild(tab);
     tab.setConversation(conversation);
     tab.setActive();
@@ -62,11 +91,12 @@ export async function runTests() {
     );
     assert(!!textarea, 'active tab should have a composer-box textarea');
 
-    // Let the post-rebuild focus re-assertion window lapse before touching
-    // focus. _reassertInputFocus retries for ~150ms after a column build,
+    // Let the post-rebuild focus re-assertion drain before touching focus.
+    // _reassertInputFocus retries across a few ticks after a column build,
     // re-focusing the box whenever focus is lost to <body> — which would mask
     // the behaviour under test with a pass that has nothing to do with it.
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await waitFor(() => reassertTicksPending() === 0,
+      () => `the post-rebuild focus re-assertion to drain (${reassertTicksPending()} tick(s) pending)`);
 
     // Mount the approval inside the message-list wrapper, where
     // tool-action-message puts one: the wrapper's capture-phase click handler

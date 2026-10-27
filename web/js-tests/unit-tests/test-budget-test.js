@@ -19,8 +19,11 @@
  */
 
 import { assert, waitFor } from '../utilities/test-helpers.js';
-import { budgetFor, testDeadlineMs, setTestDeadline } from '../utilities/test-deadline.js';
+import { budgetFor, deadlineTimer, testDeadlineMs, setTestDeadline, pinTestDeadline } from '../utilities/test-deadline.js';
+import { watchForStall } from '../utilities/stall-watch.js';
+import { trackWait, waitsInFlightReport } from '../utilities/test-patience.js';
 import UIDriver from '../utilities/ui-driver.js';
+import { UITestHarness } from '../utilities/ui-test-harness.js';
 import { executeUIOperation, lastConfirmGiveUp, disarmConfirm, waitForNestedCall } from '../utilities/ui-operation-executor.js';
 import { afterEngineReload, REGISTRIES_CHANNEL } from '../utilities/plugin-config.js';
 
@@ -37,12 +40,20 @@ import { afterEngineReload, REGISTRIES_CHANNEL } from '../utilities/plugin-confi
  */
 
 /**
- * The Go harness stops polling for this test's result at 60s
- * (`browser_suite_test.go`), so a deadline at or past that reports nothing:
- * the subtest dies on a bare poll timeout with no message, which is precisely
- * the shape of half the entries in the flaky-test log.
+ * The Go harness gives up on a test's result once the lane has reported no
+ * progress for this long (`pollResultWhileProgressing`,
+ * `browser_suite_test.go`), so a deadline at or past it reports nothing: the
+ * subtest dies on a bare poll timeout with no message.
  */
-const GO_RESULT_POLL_MS = 60000;
+const GO_SILENCE_WINDOW_MS = 120000;
+
+/**
+ * A nominal no correct wait in this file comes anywhere near: a wait that is
+ * meant to give up on a spent deadline gives up at once, and one that wrongly
+ * rides its nominal instead never does — so the case fails as a stalled suite
+ * naming that wait, rather than on a reading of how fast this core is.
+ */
+const NEVER_MS = 10 * 60_000;
 
 /**
  * Run the budget-contract tests.
@@ -66,8 +77,8 @@ export async function runTests(_ctx) {
       `the armed deadline has already passed (${remaining}ms remaining), so every wait in this suite fails instantly`
     );
     assert(
-      remaining < GO_RESULT_POLL_MS,
-      `the armed deadline leaves ${remaining}ms, past the Go harness's ${GO_RESULT_POLL_MS}ms result poll — a failure here would be reported as a bare poll timeout with no message`
+      remaining < GO_SILENCE_WINDOW_MS,
+      `the armed deadline leaves ${remaining}ms, past the Go harness's ${GO_SILENCE_WINDOW_MS}ms silence window — a failure here would be reported as a bare poll timeout with no message`
     );
     passed++;
   } catch (e) {
@@ -106,34 +117,92 @@ export async function runTests(_ctx) {
     errors.push(`a driver built without an explicit deadline still rides it: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // waitFor is the most-used wait in the unit suites and the one with no
-  // harness to ask. It deliberately keeps its caller's timeout rather than
-  // riding the deadline — making it patient was measured and cost the suite
-  // two of three clean runs (see its own doc comment). What it must do is stay
-  // bounded and say what it was waiting for.
-  try {
-    const started = Date.now();
-    let threw = null;
+  // The runner's stall watchdog moves a progressing test's deadline forward
+  // (`watchForStall`, stall-watch.js) by setting it on the
+  // UITestHarness. Its waits run on the inner harness and the driver, so those
+  // must read the deadline as it stands now, not as it stood at setup: a copy
+  // taken then expires ~26s in and gives every later wait a 0ms budget, however
+  // live the test is. On a slow core every long integration test reached that.
+  {
+    /** @type {UITestHarness|null} */
+    let harness = null;
     try {
-      await waitFor(() => false, { timeoutMs: 100, description: 'a condition that is never true' });
+      harness = new UITestHarness({ llmResponses: [], fixture: 'unit-test-fixture', fixtureDir: '', approvalFlow: false });
+      const armedAt = Date.now() + 2000;
+      harness._perTestDeadlineMs = armedAt;
+      await harness.setup();
+      // As the watchdog does when the test makes progress.
+      const movedTo = Date.now() + 120000;
+      harness._perTestDeadlineMs = movedTo;
+      const inner = /** @type {any} */ (harness.innerHarness)._deadline(6000);
+      const driverBudget = /** @type {any} */ (harness.driver)._budget(3000);
+      assert(inner === movedTo,
+        `the inner harness bounds its waits by ${inner ? new Date(inner).toISOString() : inner}, not by the deadline the runner moved to (${new Date(movedTo).toISOString()}); it kept the one from setup`);
+      assert(driverBudget > 60000,
+        `the driver budgets ${driverBudget}ms for a wait after the deadline moved two minutes out; it kept the one from setup`);
+      passed++;
     } catch (e) {
-      threw = e;
+      failed++;
+      errors.push(`a moved deadline reaches the inner harness and the driver: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      await harness?.teardown().catch(() => {});
     }
-    assert(threw !== null, 'waitFor resolved for a condition that is never true');
-    const message = threw instanceof Error ? threw.message : String(threw);
-    assert(
-      message.includes('a condition that is never true'),
-      `waitFor's timeout must name what it was waiting for, got: ${message}`
-    );
-    const elapsed = Date.now() - started;
-    assert(
-      elapsed < 5000,
-      `waitFor with an explicit 100ms timeout took ${elapsed}ms; it must keep its caller's bound, not spend the suite's budget`
-    );
-    passed++;
-  } catch (e) {
-    failed++;
-    errors.push(`waitFor stays bounded and names its condition: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // A wait already running when the deadline moves must follow it too: every
+  // wait turns its budget into a timer as it starts, and a long one started in
+  // a progressing test outlives the deadline it started under.
+  {
+    const MOVE_MS = 1500;
+    const original = testDeadlineMs();
+    // Pinned, so the only move the wait sees is this case's own.
+    const unpin = pinTestDeadline(original, { shared: true });
+    try {
+      const started = Date.now();
+      const expiredAt = await new Promise((resolve) => {
+        deadlineTimer(() => resolve(Date.now()), 100);
+        setTestDeadline(original + MOVE_MS, { shared: true, sameTest: true });
+      });
+      const waited = /** @type {number} */ (expiredAt) - started;
+      assert(waited >= MOVE_MS,
+        `a 100ms wait running when the deadline moved ${MOVE_MS}ms expired after ${waited}ms; it ignored the move`);
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`a running wait follows a moved deadline: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      unpin();
+    }
+  }
+
+  // waitFor is the most-used wait in the unit suites and the one with no
+  // harness to ask. It keeps its caller's timeout, following the deadline past
+  // it only as far as the deadline moves, so with the deadline held far off and
+  // nothing moving it gives up on its own 100ms. A waitFor that rode the
+  // deadline instead would still be waiting when the suite's watchdog fired,
+  // and the suite would fail naming this wait.
+  {
+    const unpin = pinTestDeadline(Date.now() + NEVER_MS, { shared: true });
+    try {
+      let threw = null;
+      try {
+        await waitFor(() => false, { timeoutMs: 100, description: 'a condition that is never true' });
+      } catch (e) {
+        threw = e;
+      }
+      assert(threw !== null, 'waitFor resolved for a condition that is never true');
+      const message = threw instanceof Error ? threw.message : String(threw);
+      assert(
+        message.includes('a condition that is never true'),
+        `waitFor's timeout must name what it was waiting for, got: ${message}`
+      );
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`waitFor stays bounded and names its condition: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      unpin();
+    }
   }
 
   // A cap expressed only as a multiple of a wait's own nominal stops binding
@@ -144,10 +213,9 @@ export async function runTests(_ctx) {
   // how two Windows suites failed with no diagnostic. A wait may take a share
   // of a shared budget, never all of it.
   try {
-    const armedDeadline = testDeadlineMs();
+    const budget = 45000;
+    const unpin = pinTestDeadline(Date.now() + budget, { shared: true });
     try {
-      const budget = 45000;
-      setTestDeadline(Date.now() + budget, { shared: true });
       // A nominal whose slack multiple (6x) is larger than the whole budget:
       // only a share cap can bound this.
       const generous = budgetFor(10000);
@@ -158,11 +226,11 @@ export async function runTests(_ctx) {
         `a single wait took ${generous}ms of a ${budget}ms budget, leaving too little for later cases`);
       // A deadline belonging to one test is still spendable in full, so
       // mock-LLM waits keep the patience they were given.
-      setTestDeadline(Date.now() + budget);
+      setTestDeadline(Date.now() + budget, { sameTest: true });
       assert(budgetFor(10000) > Math.ceil(budget / 2),
         'a per-test deadline is not shared, so a wait may still spend it');
     } finally {
-      setTestDeadline(armedDeadline, { shared: true });
+      unpin();
     }
     passed++;
   } catch (e) {
@@ -181,14 +249,15 @@ export async function runTests(_ctx) {
   // give up it must leave a record, so the hang that follows names its cause
   // instead of arriving as an anonymous timeout.
   try {
-    const armedDeadline = testDeadlineMs();
+    // A deadline already spent collapses budgetFor to nothing, so a watcher
+    // riding it gives up at once while one pinned to its nominal never does.
+    const unpin = pinTestDeadline(Date.now() - 4900);
     try {
-      // A deadline already spent collapses budgetFor to nothing, so a watcher
-      // riding it gives up at once while one pinned to its nominal 5s does not.
-      setTestDeadline(Date.now() - 4900);
-      await executeUIOperation(/** @type {any} */ ({}), { type: 'expect-confirm', answer: true });
+      await executeUIOperation(/** @type {any} */ ({}), { type: 'expect-confirm', answer: true, timeoutMs: NEVER_MS });
+      // Generous: giving up includes taking the machine readings, which on a
+      // slow core is seconds. A watcher on its nominal is still waiting after it.
       await waitFor(() => lastConfirmGiveUp() !== null, {
-        timeoutMs: 1000,
+        timeoutMs: 30000,
         description: 'the armed confirmation watcher to give up and say so'
       });
       const giveUp = lastConfirmGiveUp() || '';
@@ -198,7 +267,7 @@ export async function runTests(_ctx) {
       );
     } finally {
       disarmConfirm();
-      setTestDeadline(armedDeadline);
+      unpin();
     }
     passed++;
   } catch (e) {
@@ -211,28 +280,27 @@ export async function runTests(_ctx) {
   // runs out it must say what it was waiting for: a silent one becomes a test
   // that times out on a turn offered the wrong tools.
   try {
-    const armedDeadline = testDeadlineMs();
+    // A deadline all but spent: a wait riding it budgets a fraction of a
+    // second, one pinned to its nominal 10s budgets the nominal. The message
+    // names the budget it chose, which is the behaviour, however long it took.
+    const unpin = pinTestDeadline(Date.now() - 900);
     try {
-      // A deadline all but spent: a wait riding it gives up within a second,
-      // one pinned to its nominal 10s does not.
-      setTestDeadline(Date.now() - 900);
-      const started = Date.now();
       let threw = null;
       try {
         await afterEngineReload(async () => {}, 'a write that never happened');
       } catch (e) {
         threw = e;
       }
-      const elapsed = Date.now() - started;
       assert(threw !== null, 'the reload wait resolved with no acknowledgement from the engine');
       const message = threw instanceof Error ? threw.message : String(threw);
       assert(
         message.includes('a write that never happened') && message.includes(REGISTRIES_CHANNEL),
         `the reload wait must name its trigger and the channel it listened on, got: ${message}`
       );
-      assert(elapsed < 5000, `the reload wait took ${elapsed}ms against a spent deadline; it is not riding it`);
+      const budget = Number(/within (\d+)ms/.exec(message)?.[1] ?? NaN);
+      assert(budget <= 1000, `the reload wait budgeted ${budget}ms against a spent deadline; it is not riding it (${message})`);
     } finally {
-      setTestDeadline(armedDeadline, { shared: true });
+      unpin();
     }
     passed++;
   } catch (e) {
@@ -245,26 +313,24 @@ export async function runTests(_ctx) {
   // are written by the engine, so a silent timeout here would hide whether the
   // program never started or the call never got there.
   try {
-    const armedDeadline = testDeadlineMs();
+    // Against a spent deadline and a nominal it could never reach: a wait
+    // riding the deadline gives up at once, one on its nominal never does.
+    const unpin = pinTestDeadline(Date.now() - 900);
     try {
-      setTestDeadline(Date.now() - 900);
-      const started = Date.now();
       let threw = null;
       try {
-        await waitForNestedCall({}, 'prog_x', 'bash', 'running');
+        await waitForNestedCall({}, 'prog_x', 'bash', 'running', NEVER_MS);
       } catch (e) {
         threw = e;
       }
-      const elapsed = Date.now() - started;
       assert(threw !== null, 'the nested-call wait resolved with no program to watch');
       const message = threw instanceof Error ? threw.message : String(threw);
       assert(
         message.includes('prog_x') && message.includes('bash call to be running') && message.includes('rows were none'),
         `the nested-call wait must name the program, the call and the rows it saw, got: ${message}`
       );
-      assert(elapsed < 5000, `the nested-call wait took ${elapsed}ms against a spent deadline; it is not riding it`);
     } finally {
-      setTestDeadline(armedDeadline, { shared: true });
+      unpin();
     }
     passed++;
   } catch (e) {
@@ -284,23 +350,128 @@ export async function runTests(_ctx) {
   // seconds and is reported as a suite that stopped making progress. Nothing
   // else would notice: the tax is spread a tick at a time across every wait in
   // the run. The page size goes in the failure because it says which one it is.
+  //
+  // What identifies a grid is its shape, not its speed: past the nesting limit
+  // EVERY hop lands on the quantum, a second give or take. A slow core, or a
+  // main thread another lane is holding, makes hops long and ragged — some
+  // near zero, some well past a second — and that is not this fault, so a
+  // total-time bound cannot tell the two apart and fails a slow core for
+  // nothing.
   try {
-    // Past the ten-deep nesting the alignment applies from, and short enough
-    // to cost nothing when the timers are the ones we asked for.
+    // Ten deep is where the alignment applies from; six past it is enough
+    // that a slow core's ragged hops cannot all happen to land on a second.
     const links = 16;
-    const started = Date.now();
+    const nesting = 10;
+    /** @type {number[]} */
+    const hops = [];
     for (let i = 0; i < links; i++) {
+      const at = Date.now();
       await new Promise((resolve) => { setTimeout(resolve, 0); });
+      hops.push(Date.now() - at);
     }
-    const elapsed = Date.now() - started;
+    const past = hops.slice(nesting);
+    const onGrid = past.filter((h) => h >= 900 && h <= 1100).length;
     assert(
-      elapsed < 3000,
-      `${links} chained zero-delay timers took ${elapsed}ms in a page of ${window.innerWidth}x${window.innerHeight}; unthrottled they cost a few ms each, and this is what a 1s grid looks like — a page of no size means the pool's web view never took one, a page with a size means the hidden-page alignment is still on, and either way every wait in every suite is being charged a tick`
+      onGrid < past.length,
+      `every one of the ${past.length} zero-delay timer hops past the nesting limit took about a second (${past.join(', ')}ms) in a page of ${window.innerWidth}x${window.innerHeight}; that is a 1s grid — a page of no size means the pool's web view never took one, a page with a size means the hidden-page alignment is still on, and either way every wait in every suite is being charged a tick`
     );
     passed++;
   } catch (e) {
     failed++;
     errors.push(`the pool's timers are the ones the suite asked for: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // The unit runner bounds a suite by progress, not by wall time: every
+  // assertion is progress, so the deadline this suite's waits ride moves
+  // forward while its cases keep passing. Without that, a late case on a slow
+  // core starts with whatever was left of a budget armed when the suite began,
+  // and its waits are given nothing.
+  try {
+    const before = testDeadlineMs();
+    assert(true, 'progress');
+    await waitFor(() => testDeadlineMs() > before, {
+      timeoutMs: 30000,
+      description: () => `the unit runner to move this suite's deadline on progress (armed ${new Date(before).toISOString()}, now ${new Date(testDeadlineMs()).toISOString()})`
+    });
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`progress moves a unit suite's deadline: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // The watchdog's two halves. Work whose stamp keeps changing is never
+  // stalled, however many ticks it takes; work whose stamp never changes is,
+  // one window after it last moved, and the report taken then names the wait
+  // it is parked on. Both are about what the stamp did, not how fast anything ran.
+  {
+    /** @type {ReturnType<typeof watchForStall>|null} */
+    let watch = null;
+    try {
+      let reads = 0;
+      let moves = 0;
+      let stalled = false;
+      watch = watchForStall({ stamp: () => String(reads++), windowMs: 300, onExtend: () => { moves++; }, subject: 'progressing work' });
+      watch.stalled.catch(() => { stalled = true; });
+      await waitFor(() => moves >= 4, { timeoutMs: 30000, description: 'the watchdog to see four changes of stamp' });
+      assert(!stalled, 'work whose stamp changed at every tick was reported as stalled');
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`progress keeps the watchdog quiet: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      watch?.stop();
+    }
+  }
+  // Time this realm is not run is not silence: the watchdog sees progress only
+  // through this lane's own code, so a main thread held elsewhere — a slow
+  // core, a sibling lane's work — would otherwise read as a stalled test.
+  // Holding the thread here for longer than the window must not stall it.
+  {
+    /** @type {ReturnType<typeof watchForStall>|null} */
+    let watch = null;
+    try {
+      let stalled = false;
+      watch = watchForStall({ stamp: () => 'unchanging', windowMs: 2000, onExtend: () => {}, subject: 'unscheduled work' });
+      watch.stalled.catch(() => { stalled = true; });
+      const holdUntil = Date.now() + 3000;
+      // eslint-disable-next-line juggler/no-private-test-wait -- holding this realm's main thread is the subject
+      while (Date.now() < holdUntil) { /* the realm is not run */ }
+      const w = watch;
+      await waitFor(() => w.stalls().includes('not run'), { timeoutMs: 10000, description: () => `the watchdog to discount the held thread (${w.stalls()})` });
+      assert(!stalled, `3s in which this realm was not run counted against a 2s window: ${w.stalls()}`);
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`time the lane is not run is not silence: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      watch?.stop();
+    }
+  }
+  {
+    const close = trackWait('a deliberate wedge');
+    /** @type {ReturnType<typeof watchForStall>|null} */
+    let watch = null;
+    try {
+      watch = watchForStall({ stamp: () => 'unchanging', windowMs: 300, onExtend: () => {}, subject: 'wedged work' });
+      /** @type {string[]} */
+      let parked = [];
+      const stall = await watch.stalled.then(() => null, (/** @type {unknown} */ e) => {
+        parked = waitsInFlightReport();
+        return e;
+      });
+      const message = stall instanceof Error ? stall.message : String(stall);
+      assert(message.includes('wedged work made no progress'),
+        `a wedge must be reported as the subject making no progress, got: ${message}`);
+      assert(parked.some((l) => l.includes('a deliberate wedge')),
+        `the report taken at the stall must name the wait it is parked on, got: ${parked.join(' | ')}`);
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`a wedge stalls and names its wait: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      watch?.stop();
+      close('abandoned');
+    }
   }
 
   // A lane is a page as well as a clock, and a page has to have a size. The

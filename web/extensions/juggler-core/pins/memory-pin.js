@@ -140,8 +140,17 @@ class MemoryPin extends PinboardItemType {
     const body = createElement('div', 'memory-pin');
     container.replaceChildren(body);
 
-    // Only the newest read may draw: a refresh can overtake the read it replaced.
-    let generation = 0;
+    /**
+     * The read in flight and everything it owes, or null when the pin is idle.
+     * One read at a time: a read superseded by the next trigger is a read whose
+     * answer is thrown away, and when reads take longer than the gap between
+     * triggers — a slow core — every answer is, and the pin never draws.
+     * @type {Promise<void>|null}
+     */
+    let reading = null;
+
+    /** A trigger arrived while a read was out, so one more read is owed after it. */
+    let dirty = false;
 
     /** @type {ReturnType<typeof setTimeout>|undefined} The settling period before a read. */
     let pending;
@@ -156,8 +165,7 @@ class MemoryPin extends PinboardItemType {
     /** The file as it was last drawn, so an unchanged file redraws nothing. */
     let drawn = /** @type {string|null} */ (null);
 
-    const render = async () => {
-      const mine = ++generation;
+    const readAndDraw = async () => {
       const path = memoryPath(context.pin.config);
       let content = '';
       try {
@@ -169,7 +177,10 @@ class MemoryPin extends PinboardItemType {
         // leaves the same empty state, which the next refresh corrects.
         content = '';
       }
-      if (mine !== generation || context.signal.aborted) return;
+      if (context.signal.aborted) return;
+      // Read for a path the pin has since moved off: the move marked the pin
+      // dirty, so the read owed after this one draws the right file.
+      if (path !== memoryPath(context.pin.config)) return;
       // A `remember` in this conversation is one line added to a file this pin
       // may not even be showing, and most context-item changes are not memory at
       // all. The same bytes on screen are the same entries on screen.
@@ -220,6 +231,29 @@ class MemoryPin extends PinboardItemType {
         list.appendChild(li);
       }
       body.replaceChildren(list);
+    };
+
+    /**
+     * Read the file and draw it, or, with a read already out, owe one more after
+     * it. Settles once the pin has drawn a read begun after this call.
+     * @returns {Promise<void>}
+     */
+    const render = () => {
+      if (reading) {
+        dirty = true;
+        return reading;
+      }
+      reading = (async () => {
+        try {
+          do {
+            dirty = false;
+            await readAndDraw();
+          } while (dirty && !context.signal.aborted);
+        } finally {
+          reading = null;
+        }
+      })();
+      return reading;
     };
 
     /** @returns {void} */

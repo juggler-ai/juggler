@@ -34,6 +34,7 @@ import { closeAllPopups, __resetPopupManagerForTests } from '../../js/utils/popu
 import { noteProjectSize } from './project-size.js';
 import { forgetOwnConversation } from './conversation-claims.js';
 import { pollPatiently, racePatiently, whyGivingUp } from './test-patience.js';
+import { noteProgress } from './test-deadline.js';
 
 
 /**
@@ -505,11 +506,9 @@ export async function executeToolsAndGetContext(conversation, session, toolCalls
     }
   }
 
-  // Add assistant done message (normally added by strategy)
+  // Add assistant done message (normally added by strategy). The write is to
+  // this realm's own doc, which buildContext reads synchronously below.
   conversation.rootMessageThread.addEvent({ type: 'assistant', content: 'Done.' });
-
-  // Small delay for Yjs sync
-  await new Promise(resolve => setTimeout(resolve, 100));
 
   // Build context from conversation state
   const rootThread = conversation.rootMessageThread;
@@ -566,11 +565,14 @@ function extractToolOutcomes(items, toolCalls) {
 }
 
 /**
- * Simple assertion helper
+ * Simple assertion helper. Each call, passing or not, is progress for the
+ * stall watchdog (`noteProgress`, test-deadline.js): a suite evaluating
+ * assertions is alive.
  * @param {boolean} condition - Condition to check
  * @param {string} message - Error message if condition is false
  */
 export function assert(condition, message) {
+  noteProgress();
   if (!condition) {
     throw new Error(message);
   }
@@ -913,16 +915,16 @@ export async function waitForPendingApproval(conversation, toolUseId, timeoutMs 
  * interleaves with its two siblings'. Read the 2026-09-05 entry in
  * scratch/flaky-tests.md before giving this wait a bigger number again.
  *
- * What it does do is refuse to fail for a reason that isn't the code's fault:
- * reaching `timeoutMs` is not the end but a question, and a machine that was not
- * serving this lane buys another slice (`./test-patience.js`). On a quiet machine
- * that question is answered "no" and this behaves exactly as it always did,
- * failing on the nominal — which is what keeps the 2026-09-05 measurement from
- * applying to it.
+ * What it does do is follow the test's progress: reaching `timeoutMs` ends the
+ * wait only if the deadline has not moved since it began, and the stall
+ * watchdog moves it every time the test makes progress (`./test-patience.js`).
+ * So a wait in a test that is being served slowly — a slow core — keeps going,
+ * and one in a test where nothing is moving fails on its nominal, as it always
+ * did.
  *
  * This is the one polling wait for tests: a suite does not declare its own
  * `waitFor` (lint forbids it in the test trees), because a private copy polls a
- * bare wall clock and so fails on a busy machine that this one would wait out.
+ * bare wall clock and so fails on a slow core that this one would wait out.
  * The second argument is the options object or, as a shorthand, the
  * description followed by an optional `timeoutMs`. A description may be a
  * function, called only on failure, for a message built from the state at that

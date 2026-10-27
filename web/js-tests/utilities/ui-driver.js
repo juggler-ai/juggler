@@ -10,7 +10,7 @@
  */
 
 import { getMessageSelector } from './test-assertions.js';
-import { budgetFor } from './test-deadline.js';
+import { budgetFor, deadlineTimer } from './test-deadline.js';
 
 /**
  * @typedef {object} RenderedMessage
@@ -26,18 +26,20 @@ import { budgetFor } from './test-deadline.js';
 class UIDriver {
   /**
    * @param {HTMLElement} container - DOM element containing the conversation-tab
-   * @param {{deadlineMs?: number}} [opts] - Per-test deadline the waits ride
+   * @param {{deadline?: () => number}} [opts] - Reads the per-test deadline the waits ride, as it stands when each one asks
    */
-  constructor(container, { deadlineMs = 0 } = {}) {
+  constructor(container, { deadline = () => 0 } = {}) {
     /** @type {HTMLElement} @private */
     this._container = container;
 
     /**
-     * Absolute time the runner will fail this test at, or 0 when unknown.
-     * @type {number}
+     * When the runner will fail this test, or 0 when unknown, read each time a
+     * wait asks. The runner moves it while the test makes progress, so a
+     * value taken at construction would cut a live test off.
+     * @type {() => number}
      * @private
      */
-    this._perTestDeadlineMs = deadlineMs;
+    this._deadline = deadline;
   }
 
   /**
@@ -59,7 +61,7 @@ class UIDriver {
     // its own — falls back to the one armed for the test in progress, so those
     // waits ride the budget too instead of reverting to a nominal chosen when
     // a lane had the pool to itself.
-    return budgetFor(fallbackMs, this._perTestDeadlineMs);
+    return budgetFor(fallbackMs, this._deadline());
   }
 
   // =========================================================================
@@ -247,13 +249,14 @@ class UIDriver {
 
     return new Promise((resolve, reject) => {
       let stableTimer = /** @type {ReturnType<typeof setTimeout>|null} */ (null);
-      let overallTimer = /** @type {ReturnType<typeof setTimeout>|null} */ (null);
+      /** @type {() => void} */
+      let cancelOverall = () => {};
 
       const observer = new MutationObserver(() => {
         if (stableTimer) clearTimeout(stableTimer);
         stableTimer = setTimeout(() => {
           observer.disconnect();
-          if (overallTimer) clearTimeout(overallTimer);
+          cancelOverall();
           resolve();
         }, stabilityMs);
       });
@@ -267,11 +270,12 @@ class UIDriver {
 
       stableTimer = setTimeout(() => {
         observer.disconnect();
-        if (overallTimer) clearTimeout(overallTimer);
+        cancelOverall();
         resolve();
       }, stabilityMs);
 
-      overallTimer = setTimeout(() => {
+      // Follows the test's deadline as the runner moves it (deadlineTimer).
+      cancelOverall = deadlineTimer(() => {
         observer.disconnect();
         if (stableTimer) clearTimeout(stableTimer);
         reject(new Error(`waitForDOMStable: DOM did not stabilize within ${budgetMs}ms`));
@@ -424,6 +428,12 @@ class UIDriver {
         return;
       }
 
+      // Follows the test's deadline as the runner moves it (deadlineTimer).
+      const cancelTimer = deadlineTimer(() => {
+        observer.disconnect();
+        reject(new Error(errorMessage));
+      }, budgetMs);
+
       const observer = new MutationObserver(() => {
         // A macrotask after each mutation lets Web Component renders
         // settle before evaluating; predicate is then re-checked.
@@ -432,7 +442,7 @@ class UIDriver {
           const result = check();
           if (result) {
             observer.disconnect();
-            clearTimeout(timer);
+            cancelTimer();
             resolve(result);
           }
         }, 0);
@@ -445,11 +455,6 @@ class UIDriver {
         attributes: true,
         characterData: true
       });
-
-      const timer = setTimeout(() => {
-        observer.disconnect();
-        reject(new Error(errorMessage));
-      }, budgetMs);
     });
   }
 }

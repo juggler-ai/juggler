@@ -32,7 +32,8 @@ import {
   initializeRegistries,
   createTestSession,
   createTestConversation,
-  assert
+  assert,
+  waitFor
 } from '../../../js-tests/utilities/test-helpers.js';
 import RunCodeContextItem, { pausableTimer } from '../context-items/run-code-context-item.js';
 import { renderProgramSdk, describeProgramTool } from '../context-items/code/render-sdk.js';
@@ -488,20 +489,33 @@ export async function runTests(_ctx) {
     assert(second.calls.length === 0, `and the write is not made again: ${JSON.stringify(second.calls)}`);
   });
 
-  // The program's clock stops while a call waits on the user. Only what must
-  // not happen is checked against time (the timer is cleared while paused);
-  // what must happen is waited for, so a busy machine only makes it slower.
+  // The program's clock stops while a call waits on the user. What must not
+  // happen is fenced by a longer timer armed after the one under test: timers
+  // fire in the order of their deadlines, so had the paused or stopped timer
+  // still been armed it would have fired first, however slow the core. What
+  // must happen is waited for, so a busy machine only makes it slower.
+  /**
+   * Wait for a timer of `ms`, armed now, to fire.
+   * @param {number} ms - Longer than any timer it fences
+   * @param {string} what - Named in the failure
+   * @returns {Promise<void>}
+   */
+  const timerFence = async (ms, what) => {
+    let fenced = false;
+    setTimeout(() => { fenced = true; }, ms);
+    await waitFor(() => fenced, what);
+  };
+
   await test('a pausable timer counts only the time it runs', async () => {
     let fired = 0;
     const timer = pausableTimer(150, () => { fired++; });
     timer.pause();
     timer.pause();
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await timerFence(400, 'a timer outlasting the paused one to fire');
     assert(fired === 0, 'it does not fire while paused, however long');
     timer.resume();
     timer.resume();
-    const until = Date.now() + 10000;
-    while (fired === 0 && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => fired > 0, 'the resumed timer to fire', 10000);
     assert(fired === 1, `it fires once resumed, once: ${fired}`);
 
     let stoppedFired = 0;
@@ -509,7 +523,7 @@ export async function runTests(_ctx) {
     stopped.pause();
     stopped.stop();
     stopped.resume();
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await timerFence(200, 'a timer outlasting the stopped one to fire');
     assert(stoppedFired === 0, 'a stopped timer never fires, even resumed');
   });
 

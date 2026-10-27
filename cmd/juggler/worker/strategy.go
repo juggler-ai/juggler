@@ -26,7 +26,6 @@ const (
 	// gets stuck thinking-only or the provider returns an empty stream.
 	MaxBarrenTurns = 3
 	MaxLLMRetries  = 3
-	ContextTimeout = 30 * time.Second
 
 	// MaxLLMRetryWindow caps the total wall-clock time a retry sequence may
 	// spend failing before the error is surfaced instead of retried again.
@@ -61,6 +60,25 @@ const (
 	// retryPolicy). There is no server-suggested delay; a short pause lets a
 	// flaky connection or just-slept machine settle before the fresh attempt.
 	TransientRetryWait = 1 * time.Second
+)
+
+// A turn opens by asking the engine for its context and tools, and how long it
+// may wait for them is bounded by the engine, not by the clock: the engine is
+// the only responder, so the request can be answered for exactly as long as the
+// engine it was sent to is still attached — and the server detaches an engine
+// whose realm has stopped turning (engineLivenessWindow, server/engine_liveness.go).
+// A fixed span fails a turn whose engine is merely slow: on a slow core the
+// answer is still being built when any span picked on a fast one runs out.
+const (
+	// ContextTimeout is how often the wait checks that the engine it asked is
+	// still the one attached. A worker reads it from contextCheck, which a test
+	// may shrink on its own worker.
+	ContextTimeout = 30 * time.Second
+
+	// ContextCeiling bounds the one case liveness cannot: an engine that stays
+	// attached and never answers this request. Far past any answer a working
+	// engine gives on any core; read from the worker's contextCeiling.
+	ContextCeiling = 10 * time.Minute
 )
 
 // runStrategyLoop orchestrates the LLM conversation loop.

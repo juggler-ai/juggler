@@ -94,6 +94,14 @@ func (a *windowApp) startup() {
 		// navigation, though WebKit still throttles it as a hidden page.
 	}
 
+	// The processes behind both windows' pages, for the harness's slow-core
+	// mode (server.SetTestProcessPIDs). Read live on every ask: an engine
+	// reload or a crashed page comes back in a new web process.
+	win, engineWin := a.win, a.engineWin
+	a.srv.SetTestProcessPIDs(func() []int {
+		return application.InvokeSyncWithResult(func() []int { return webProcessPIDs(win, engineWin) })
+	})
+
 	// Test slot: keep the pool window hidden so it doesn't flash on screen on
 	// every `make test`. Custom-element paths that depend on first paint
 	// (at-mention popup, footer cache reflow, undo-redo prune) are driven off

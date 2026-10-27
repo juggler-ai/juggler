@@ -59,6 +59,15 @@ const AUTO_LOAD_RETRY_BASE_MS = 500;
 const AUTO_LOAD_RETRY_MAX_MS = 30000;
 
 /**
+ * How long a new conversation's worker may say nothing before the wait for its
+ * items array gives up — the engine's liveness window, a worker busy with one
+ * heavy message on a slow core saying nothing for a while. The array normally
+ * ends the wait as it lands, so the figure is paid only by a worker that has
+ * stopped.
+ */
+const ITEMS_ARRAY_SILENCE_MS = 30000;
+
+/**
  * Builds, loads and destroys conversations on behalf of one WorkerManager.
  */
 export class ConversationLoader {
@@ -273,22 +282,45 @@ export class ConversationLoader {
    * the system-prompt placeholder while the array is still absent creates a
    * competing browser-side root["items"], which Yjs Map-conflict resolution
    * later discards in favour of the worker's — dropping SYSTEM_1. Answered by
-   * the document as the array lands (Conversation#whenItemsArray). Bounded so a
-   * pathological worker that never ships an array can't hang conversation
-   * creation; on timeout the caller proceeds anyway and
-   * ensureSystemPromptPlaceholder creates the array locally, accepting the
-   * risk above.
+   * the document as the array lands, in the task it lands in.
+   *
+   * Only the worker can bring the array, so the wait is bounded by the worker
+   * ({@link WorkerManager#watchSilence}), not by a span of time: on a slow core
+   * the array-bearing sync can still be in flight long after any fixed figure,
+   * and while the worker is still sending this conversation anything it is
+   * still working through what precedes it. Expiry is the worker saying
+   * nothing for {@link ITEMS_ARRAY_SILENCE_MS} — the engine's liveness window —
+   * or the watch's ceiling however chatty it is. Expiry rejects: seeding into a
+   * local array then would build the rival array above and lose SYSTEM_1
+   * silently, so the creation fails instead (its caller terminates the worker).
    * @param {import('../model/conversation.js').default} conversation
-   * @param {number} [timeoutMs=2000] - Max time to wait for the array to sync.
-   * @returns {Promise<boolean>} True once the items array is present, false on timeout.
+   * @returns {Promise<true>} Resolves once the items array is present.
+   * @throws {Error} When the worker falls silent, or the ceiling passes, with no array.
    * @private
    */
-  async _waitForItemsArray(conversation, timeoutMs = 2000) {
-    const present = await conversation.whenItemsArray(timeoutMs);
-    if (!present) {
-      console.warn(`[ConversationLoader] items array not synced within ${timeoutMs}ms for ${conversation.id}; SYSTEM_1 may create a local array`);
-    }
-    return present;
+  async _waitForItemsArray(conversation) {
+    conversation.flushPendingSyncs();
+    if (conversation.hasRootItemsArray) return true;
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      /** @param {Error} [err] - Why the wait failed; absent when the array arrived */
+      const done = (err) => {
+        if (finished) return;
+        finished = true;
+        stopWatching();
+        off();
+        if (err) reject(err);
+        else resolve(true);
+      };
+      const off = conversation.onDocumentChange(() => {
+        if (conversation.hasRootItemsArray) done();
+      });
+      const stopWatching = this._wm.watchSilence(conversation.id, ITEMS_ARRAY_SILENCE_MS, (expiry) => {
+        conversation.flushPendingSyncs();
+        if (conversation.hasRootItemsArray) { done(); return; }
+        done(new Error(`[ConversationLoader] items array never synced for ${conversation.id}: ${expiry.describe()}`));
+      });
+    });
   }
 
   // ==========================================================================

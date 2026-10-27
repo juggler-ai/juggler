@@ -52,11 +52,12 @@ export const undoPendingApprovalStaysUndoneTest = {
     // strategy loop re-fire and re-insert. Either way, the tool-action
     // keeps reappearing and undo "does nothing". With the fix, the
     // stack drains and the tool-action turn is gone.
-    { type: 'undo' }, { type: 'wait-ms', ms: 100 },
-    { type: 'undo' }, { type: 'wait-ms', ms: 100 },
-    { type: 'undo' }, { type: 'wait-ms', ms: 100 },
-    { type: 'undo' }, { type: 'wait-ms', ms: 100 },
-    { type: 'undo' }, { type: 'wait-ms', ms: 300 }
+    // Each undo is let land in the worker before the next.
+    { type: 'undo' }, { type: 'ping-worker' },
+    { type: 'undo' }, { type: 'ping-worker' },
+    { type: 'undo' }, { type: 'ping-worker' },
+    { type: 'undo' }, { type: 'ping-worker' },
+    { type: 'undo' }, { type: 'ping-worker' }
   ],
 
   // After five undos the assistant + tool-action turn is gone. The
@@ -136,13 +137,13 @@ export const undoRedoRestoresPendingTest = {
     { type: 'send-message', message: 'Run the test command' },
     { type: 'wait-for-approval', toolUseId: 'call_1' },
     { type: 'undo' },
-    { type: 'wait-ms', ms: 200 },
+    { type: 'ping-worker' },
     { type: 'redo' },
-    // Wait for the pending state to settle after redo. With the bug
+    // Let the redo land before the document is checked. With the bug
     // suppressing this isn't possible; without the bug, the engine must
     // observe the redo and the doc's recorded `state` should still be
     // 'pending'.
-    { type: 'wait-ms', ms: 500 }
+    { type: 'ping-worker' }
   ],
 
   expectedDocument: {
@@ -197,10 +198,11 @@ export const undoPendingApprovalDoesNotRedispatchTest = {
     { type: 'send-message', message: 'Run the test command' },
     { type: 'wait-for-approval', toolUseId: 'call_1' },
     { type: 'undo' },
-    // Give a stale docChangeChan / awaiting_llm marker time to tickle the
+    // The fence: once the worker has processed the undo, a stale
+    // docChangeChan / awaiting_llm marker has had its chance to tickle the
     // reducer. With the regression, an `error` item appears here because
     // the mock response queue is exhausted.
-    { type: 'wait-ms', ms: 600 }
+    { type: 'ping-worker' }
   ],
 
   customAssertions: (/** @type {any} */ conversation) => {
@@ -256,11 +258,10 @@ export const undoRedoAutoApprovedRestoresResultTest = {
 
   operations: [
     { type: 'send-message', message: 'Run echo' },
-    // Generous waits: under parallel test load the engine→worker
-    // yjs-sync roundtrip after undo/redo can take several hundred
-    // ms before the redo-restored items settle into the doc.
-    { type: 'undo' }, { type: 'wait-ms', ms: 500 },
-    { type: 'redo' }, { type: 'wait-ms', ms: 800 }
+    // Each lands in the worker before the next; the final document check
+    // waits for the redo-restored items to settle into the doc.
+    { type: 'undo' }, { type: 'ping-worker' },
+    { type: 'redo' }, { type: 'ping-worker' }
   ],
 
   expectedDocument: {

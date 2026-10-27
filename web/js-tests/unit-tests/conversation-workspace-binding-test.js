@@ -290,16 +290,43 @@ export async function runTests() {
         assert(/abort/i.test(String(rejections[0]?.name ?? rejections[0])),
           `and rejects with the caller's abort rather than some later failure, got ${String(rejections[0])}`);
 
+        // The rejection above is the browser's: an aborted request settles here
+        // at once, and the server kills the process group only when it has seen
+        // the request's context cancelled — on a slow core, well after. So the
+        // kill is waited for, not assumed: the cancelled loop gone from the
+        // process list. (The bracket keeps the probe's own command line from
+        // matching itself.) A cancel that never kills leaves it there, and the
+        // case fails here, saying so.
+        let gone = false;
+        /** @type {Promise<void>|null} */
+        let probing = null;
+        await waitFor(() => {
+          probing ??= ops.shell({ command: `! ps -ef | grep -q "ws-cancel-[r]elease-${tag}"` })
+            .then((/** @type {any} */ r) => { gone = Boolean(r?.success); })
+            .finally(() => { probing = null; });
+          return gone;
+        }, { timeoutMs: budgetFor(10000), description: 'the cancelled command to be killed — it is still in the process list' });
+
         // Everything that was going to stop has stopped by now. Anything still
         // in that loop is something the cancel did not reach, and this is what
-        // lets it say so.
+        // lets it say so. A witness running the same loop, started before the
+        // release, is what says the release has been seen: once its marker is
+        // there, a surviving command — polling the same file at the same pace,
+        // and polling it for longer — has written its own, however slow the
+        // core. Waiting for the second marker NOT to appear could only end on a
+        // clock, which proves nothing on a slow one.
+        const witness = `ws-cancel-witness-${tag}.txt`;
+        const witnessRun = ops.shell({ command: `while [ ! -e ${release} ]; do sleep 0.1; done; echo yes > ${witness}` });
         await ops.writeFile({ path: release, content: 'go' });
         // A release that was never written would hold the second marker back on
         // its own, and this case would pass without a single process having
         // been killed. It is the same guard the first marker gets above.
         assert(await fileTurnsUp(ops, release, budgetFor(3000)),
           'the release the command waits on was never written, so nothing below is a test of anything');
-        assert(!(await fileTurnsUp(ops, finished, budgetFor(3000))),
+        assert(await fileTurnsUp(ops, witness, budgetFor(10000)),
+          'the witness never saw the release, so the absence below would prove nothing');
+        await witnessRun;
+        assert(!(await ops.stat({ path: finished })).exists,
           'and the command died with it — the second marker means it ran to completion in a tree nobody was watching any more');
       } finally {
         session.workspaces = saved;

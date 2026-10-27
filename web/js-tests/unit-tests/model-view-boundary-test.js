@@ -27,6 +27,7 @@ import {
   createTestSession,
   createApprovalTestConversation,
   trackTestSession,
+  waitFor,
   assert
 } from '../utilities/test-helpers.js';
 import LLMState from '../../js/services/llm-state.js';
@@ -134,7 +135,8 @@ export async function runTests() {
     host.appendChild(tab);
     tab.setConversation(conversation);
     tab.setActive();
-    await new Promise((resolve) => { setTimeout(resolve, 20); });
+    await waitFor(() => !!tab.querySelector('conversation-area') && !!tab.getComposer(),
+      "the tab's root column and composer to build");
     const llmState = conversation.llmState;
 
     await run('a requested turn scrolls the tab\'s own root column', () => {

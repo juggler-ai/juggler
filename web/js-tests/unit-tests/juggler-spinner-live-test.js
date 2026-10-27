@@ -296,13 +296,10 @@ export async function runTests() {
         missed = list.filter(a => !wasAsked(a)).length;
         return count === EXPECTED_ANIMS && missed === 0;
       };
-      for (let i = 0; i < 40 && !landed(); i++) {
-        await new Promise(r => setTimeout(r, 25));
-      }
-      if (!landed()) {
-        throw new Error(
-          `expected all ${EXPECTED_ANIMS} animations asked for 1.75, saw ${count} of which ${missed} never were`);
-      }
+      await waitFor(landed, {
+        timeoutMs: 1000,
+        description: () => `all ${EXPECTED_ANIMS} animations to be asked for 1.75 (saw ${count}, of which ${missed} never were)`,
+      });
     } finally {
       animProto.updatePlaybackRate = realUpdate;
     }
@@ -318,7 +315,12 @@ export async function runTests() {
   // the cascade's current time, or a new club flies at its own phase.
   try {
     const el = mount(true); mounted.push(el);
-    await new Promise(r => setTimeout(r, 120)); // let the cascade get off frame 0
+    // Put the cascade well off frame 0, so a new club left at its own phase
+    // shows as a spread. Set rather than waited for: this page is hidden and
+    // produces no frames, so its animations need not advance on their own.
+    for (const node of Array.from(el.querySelectorAll('.spinner-orbit, .spinner-club'))) {
+      for (const a of /** @type {any} */ (node).getAnimations()) a.currentTime = 500;
+    }
     el.clubs = 5;
     const times = [];
     for (const node of Array.from(el.querySelectorAll('.spinner-orbit'))) {
@@ -464,7 +466,9 @@ export async function runTests() {
     llm.start(id);
     llm.updateStatus(id, 'streaming', { outputTokens: 0 });
     llm._sampleThroughput(id, root, 0);
-    await new Promise(r => setTimeout(r, 60));
+    // Date the anchor 60ms back, so the next sample measures a real interval.
+    const anchor = llm._throughput.get(id)?.get(root);
+    if (anchor) anchor.at -= 60;
     llm._sampleThroughput(id, root, 30);
     const streaming = llm.getThroughput(id, root);
     if (!(streaming > 0)) throw new Error(`streaming with advancing tokens should be > 0, got ${streaming}`);

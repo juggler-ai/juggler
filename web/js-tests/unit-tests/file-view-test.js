@@ -17,6 +17,7 @@ import '../../js/components/file-view.js';
 import { fileSourceFromText } from '../../sdk/file-source.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
+import { waitFor } from '../utilities/test-helpers.js';
 
 /**
  * @param {boolean} cond - Assertion condition
@@ -41,10 +42,12 @@ async function mountView(showPath) {
   view.showPath = showPath;
   view.setSource(fileSourceFromText({ path: 'src/notes.txt', text: 'hello\nworld\n' }));
   document.body.appendChild(view);
-  for (let i = 0; i < 100; i++) {
-    if (view.querySelector('.file-view-content, .file-content-warning, .file-content-not-found')) break;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  // A view that never settles is still returned: each caller's checks then say
+  // which part of it is missing, rather than one timeout ending the suite.
+  await waitFor(
+    () => view.querySelector('.file-view-content, .file-content-warning, .file-content-not-found'),
+    { timeoutMs: 2000, description: '<file-view> to render its content' }
+  ).catch(() => {});
   return view;
 }
 

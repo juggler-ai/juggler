@@ -11,7 +11,7 @@
  */
 
 import { runIntegrationTests } from './integration-test-runner.js';
-import { destroyTrackedTestSessions, neutralizeStrayOverlays } from './test-helpers.js';
+import { destroyTrackedTestSessions, neutralizeStrayOverlays, waitFor } from './test-helpers.js';
 import { whenRegistriesSettled } from '../../js/registries/reload-registries.js';
 import { tests as readFileTests } from '../integration-tests/read-file-tests.js';
 import { tests as writeFileTests } from '../integration-tests/write-file-tests.js';
@@ -123,6 +123,7 @@ import { runTests as runReadTruncationTests } from '../unit-tests/read-truncatio
 import { runTests as runPathInputQuotesTests } from '../unit-tests/path-input-quotes-test.js';
 import { runTests as runPathInputMenuTests } from '../unit-tests/path-input-menu-test.js';
 import { runTests as runPathContainmentTests } from '../unit-tests/path-containment-test.js';
+import { runTests as runDebounceTests } from '../unit-tests/debounce-test.js';
 import { runTests as runSearchActionTests } from '../unit-tests/search-action-test.js';
 import { runTests as runToolCancellationTests } from '../unit-tests/tool-cancellation-test.js';
 import { runTests as runUnboundedAwaitTests } from '../unit-tests/unbounded-await-test.js';
@@ -459,6 +460,7 @@ import { runTests as runPopupSurfaceTests } from '../unit-tests/popup-surface-te
 import { runTests as runModelDisplayTests } from '../unit-tests/model-display-test.js';
 import { runTests as runEngineProjectSwitchTests } from '../unit-tests/engine-project-switch-test.js';
 import { runTests as runWindowTitleTests } from '../unit-tests/window-title-test.js';
+import { runTests as runContextSyncWaitTests } from '../unit-tests/context-sync-wait-test.js';
 import { runTests as runConversationNoticesTests } from '../unit-tests/conversation-notices-test.js';
 import './golden-comparator.js'; // Initialize window.__integrationTestHelpers
 import logger from './test-logger.js';
@@ -468,10 +470,14 @@ import {
   deleteOwnConversationsCreatedSince,
   setCurrentTestName
 } from './conversation-claims.js';
-import { setTestDeadline, clearTestDeadline } from './test-deadline.js';
-import { racePatiently, resetPatience, patienceGranted, waitsInFlightReport } from './test-patience.js';
+import { setTestDeadline, clearTestDeadline, moveTestDeadline, progressMark } from './test-deadline.js';
+import { waitsInFlightReport } from './test-patience.js';
+import { watchForStall, watchWorkerProgress, awaitingServer, installFetchTracking } from './stall-watch.js';
+import { lastTapeTs } from '../../js/utils/event-tape.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
 import { machineLoadReport } from './machine-load.js';
+import { setReportedTest, reportTestProgress } from './progress-report.js';
+import { connectTestWebSocket } from './ws-connect.js';
 import wsService from '../../js/services/websocket.js';
 
 // Action progress events fire in the engine, which has no document this page
@@ -675,6 +681,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:path-input-quotes', run: runPathInputQuotesTests },
   { name: 'unit:path-input-menu', run: runPathInputMenuTests, needsExclusiveRun: true },
   { name: 'unit:path-containment', run: runPathContainmentTests },
+  { name: 'unit:debounce', run: runDebounceTests },
   { name: 'unit:mobile-composer', run: runMobileComposerTests },
   { name: 'unit:composer-send-latch', run: runComposerSendLatchTests },
   { name: 'unit:composer-autoresize-defer', run: runComposerAutoresizeDeferTests },
@@ -1011,6 +1018,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:model-display', run: runModelDisplayTests },
   { name: 'unit:engine-project-switch', run: runEngineProjectSwitchTests },
   { name: 'unit:window-title', run: runWindowTitleTests },
+  { name: 'unit:context-sync-wait', run: runContextSyncWaitTests },
   { name: 'unit:conversation-notices', run: runConversationNoticesTests },
 ];
 
@@ -1183,29 +1191,31 @@ export async function runTests(ctx) {
 }
 
 /**
- * How long a unit suite may run for.
+ * How long a unit suite may make no progress at all — not how long it may run.
  *
- * The Go harness stops polling for this test's result at 120s (`testTimeout`,
- * `browser_suite_test.go`), so the number to pick is one that still leaves the
- * failure reported HERE, naming the suite, rather than there as a bare poll
- * timeout naming nothing. 45s leaves the patience a loaded machine may grant on
- * top of it, the result POST (itself retried for up to 10s) and the suite's
- * conversation cleanup room to finish inside that window.
+ * Progress is an assertion evaluated, a wait satisfied, or this lane's event
+ * tape advancing on the conversations it owns (`stall-watch.js`), so a suite
+ * whose cases are passing is never cut off however slow its core is, and a
+ * suite parked on something that will never come fails one window after it
+ * last moved, naming the wait it is parked on.
  *
- * It buys nothing on a passing suite — the slowest of them is about six
- * seconds idle, and a lane's work under a full concurrent run has been seen to
- * cost five to nine times its idle cost.
- *
- * That headroom is the reason a suite is split rather than allowed to grow. A
- * suite approaching ten seconds idle has none left on a loaded Windows runner,
- * where every shell a case spawns costs an order of magnitude more than here,
- * and it fails as a suite that "stopped making progress" — naming no case and
- * no wait. `conversation-workspace` and `git-worktree` both reached that point
- * and were split; the budget is not the number to raise when the next one does.
- * A passing suite that crosses ten seconds of its own time says so
- * ({@link suiteBudgetWarning}), so the next one is found before it fails.
+ * Forty-five seconds of silence is far past anything a healthy case does
+ * between two assertions, and still leaves the failure reported HERE, naming
+ * the suite, well inside the Go harness's own silence window (two minutes of
+ * no progress reports, `pollResultWhileProgressing`, browser_suite_test.go).
  */
-const UNIT_SUITE_BUDGET_MS = 45000;
+const UNIT_SUITE_STALL_WINDOW_MS = 45000;
+
+/**
+ * The absolute ceiling on a unit suite, however much progress it reports.
+ *
+ * The stall window catches a wedge; this catches the one shape it cannot — a
+ * suite that keeps making progress and never finishes, a loop re-running a
+ * case. Generous enough that no correct suite on any core reaches it, and
+ * under the Go harness's twelve-minute ceiling so the failure is still
+ * reported here.
+ */
+const UNIT_SUITE_CEILING_MS = 8 * 60_000;
 
 /**
  * The document-wide state a suite can change for every suite after it: the
@@ -1280,20 +1290,13 @@ function classSet(value) {
  */
 async function runUnitSuiteWithConvCleanup(suite, ctx) {
   setCurrentTestName(suite.name);
-  // Arm the budget every wait in this suite rides, and bound the suite itself.
+  // Arm the deadline every wait in this suite rides, and bound the suite itself.
   //
   // Without the deadline, a unit suite's waits fall back to nominal timeouts
-  // chosen when a lane had the pool to itself — the reason a full run kept
-  // losing one arbitrary unit suite to load. Without the hard bound, a suite
-  // that wedges never posts a result at all and the Go side reports a bare
-  // "timeout polling /api/test/result after 1m0s" naming nothing; here it at
-  // least says which suite stopped and when.
-  setTestDeadline(Date.now() + UNIT_SUITE_BUDGET_MS, { shared: true });
-  // A fresh patience ledger per suite, for the same reason the deadline is
-  // re-armed per suite: without it, one loaded suite's extensions are charged to
-  // its successors, and the suite that eventually fails reports time it was
-  // never given.
-  resetPatience();
+  // chosen when a lane had the pool to itself. Without the bound, a suite that
+  // wedges never posts a result at all and the Go side reports a bare poll
+  // timeout naming nothing; here it says which suite stopped, and where.
+  setTestDeadline(Date.now() + UNIT_SUITE_STALL_WINDOW_MS, { shared: true });
   // Unit suites share one document AND one popup-manager registry, so an
   // overlay a prior suite left open leaks into this one. The confirm/alert host
   // is a reused <modal-dialog> singleton (see modal-dialog.js): showConfirm and
@@ -1310,41 +1313,62 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
   const before = snapshotOwnConversationIds();
   const documentBefore = snapshotDocumentState();
   try {
-    // A timeout is reported as a failed result rather than thrown, so one
-    // wedged suite fails alone instead of ending the lane's whole run.
+    // A stall is reported as a failed result rather than thrown, so one wedged
+    // suite fails alone instead of ending the lane's whole run.
     //
-    // The budget is a floor, not a ceiling: a suite still being served by a
-    // machine that is merely slow buys more of it (`./test-patience.js`), so the
-    // "stopped making progress" this reports on expiry is now something it has
-    // actually established rather than a wall-clock reading of a busy laptop.
-    //
-    // Untracked: this race is running whenever anything in the suite is, so
-    // listed among the suite's own waits it would name nothing.
+    // The deadline moves with the suite's progress, and every wait inside it
+    // follows (`deadlineMoves`, test-deadline.js), so a late case on a slow
+    // core starts with a whole window rather than whatever was left of a
+    // budget armed when the suite began.
     const startedAt = Date.now();
-    const settled = await racePatiently(suite.run(ctx), UNIT_SUITE_BUDGET_MS, { track: false });
-    if (!settled) {
+    const workers = watchWorkerProgress(() => Array.from(snapshotOwnConversationIds()));
+    const watchdog = watchForStall({
+      subject: `${suite.name}: unit suite`,
+      windowMs: UNIT_SUITE_STALL_WINDOW_MS,
+      unobservable: () => workers.unanswered() || awaitingServer(),
+      stamp: () => `${progressMark()}|${lastTapeTs(Array.from(snapshotOwnConversationIds()))}|${workers.mark()}`,
+      onExtend: (deadlineMs) => {
+        moveTestDeadline(deadlineMs, { shared: true });
+        reportTestProgress();
+      }
+    });
+    /** @type {ReturnType<typeof setTimeout>|undefined} */
+    let ceilingTimer;
+    /** @type {{value: {passed: number, failed: number, errors: string[], budgetWarning?: string}} | {stopped: string}} */
+    let settled;
+    try {
+      settled = await Promise.race([
+        suite.run(ctx).then((value) => ({ value })),
+        watchdog.stalled.catch((/** @type {unknown} */ e) => ({ stopped: e instanceof Error ? e.message : String(e) })),
+        new Promise((resolve) => {
+          ceilingTimer = setTimeout(() => resolve({
+            stopped: `${suite.name}: unit suite still running after its ${UNIT_SUITE_CEILING_MS / 60_000}-minute ceiling, though it kept reporting progress — a case is looping`
+          }), UNIT_SUITE_CEILING_MS);
+        })
+      ]);
+    } finally {
+      watchdog.stop();
+      workers.stop();
+      clearTimeout(ceilingTimer);
+    }
+    if ('stopped' in settled) {
       // Taken before anything else is awaited, so the waits it describes are
-      // as they stood when the budget ran out.
+      // as they stood when the suite stopped.
       const parked = waitsInFlightReport();
-      const granted = patienceGranted();
       return {
         passed: 0,
         failed: 1,
         errors: [
-          `${suite.name}: unit suite timed out after ${UNIT_SUITE_BUDGET_MS}ms${granted.totalMs ? ` plus ${Math.round(granted.totalMs / 1000)}s granted for load` : ''} — it stopped making progress and never returned a result`,
+          `${settled.stopped} — it never returned a result (${watchdog.stalls()}, ${Math.round((Date.now() - startedAt) / 1000)}s in all)`,
           ...parked,
           ...projectSizeLines(await fetchProjectSize()),
-          ...await machineLoadReport(),
-          ...(granted.line ? [granted.line] : [])
+          ...await machineLoadReport()
         ]
       };
     }
     const result = settled.value;
     // Read before the cleanup below, which is the runner's time, not the suite's.
-    result.budgetWarning = suiteBudgetWarning(suite.name, {
-      wallMs: Date.now() - startedAt,
-      grantedMs: patienceGranted().totalMs
-    });
+    result.budgetWarning = suiteBudgetWarning(suite.name, { wallMs: Date.now() - startedAt });
     // Checked before the cleanup below, so what it finds is the suite's own.
     const leaks = restoreDocumentState(documentBefore);
     if (leaks.length > 0) {
@@ -1402,16 +1426,7 @@ async function setupWebSocketForUnitTests() {
   const { default: wsService } = await import('../../js/services/websocket.js');
   const { default: workerManager } = await import('../../js/services/worker-manager.js');
 
-  if (!wsService.isConnected()) {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('WebSocket connect timeout')), 5000);
-      const onOpen = () => { clearTimeout(timeout); wsService.off('open', onOpen); wsService.off('error', onError); resolve(undefined); };
-      const onError = () => { clearTimeout(timeout); wsService.off('open', onOpen); wsService.off('error', onError); reject(new Error('WebSocket error')); };
-      wsService.on('open', onOpen);
-      wsService.on('error', onError);
-      wsService.connect();
-    });
-  }
+  if (!wsService.isConnected()) await connectTestWebSocket(wsService);
 
   wsService.on('message', (/** @type {any} */ data) => {
     if (data.type === 'worker-message') {
@@ -1421,20 +1436,30 @@ async function setupWebSocketForUnitTests() {
 }
 
 /**
+ * How long the engine's handshake may sit on one step before the lane reports
+ * it stuck. The bound is on a step, not on the whole connect: a handshake that
+ * keeps moving — server answering, then socket open, then live — is being
+ * served, however slowly, and a slow core takes its time over every step.
+ */
+const ENGINE_STEP_WINDOW_MS = 30_000;
+
+/** The ceiling on the whole connect, for a handshake that flaps between steps forever. */
+const ENGINE_CONNECT_CEILING_MS = 5 * 60_000;
+
+/**
  * Wait for the engine iframe to connect to the server.
- * Polls GET /api/engine/status until connected: true (timeout 30s).
+ * Polls GET /api/engine/status until connected: true, one request at a time.
  *
  * The handshake has three steps a poll can see — the server answering at all,
  * the engine's socket open (`socket`), and its realm heartbeating within the
  * liveness window (`connected`) — and each failure stops at a different one.
- * So the timeout names every distinct step it saw, in order, with how long it
+ * So the failure names every distinct step it saw, in order, with how long it
  * stayed there: "socket never opened" and "opened, then went silent for 30s"
  * are different faults.
  * @returns {Promise<void>}
  */
 async function waitForEngineConnected() {
   const started = Date.now();
-  const deadline = started + 30_000;
   /** @type {{step: string, detail: string, at: number}[]} */
   const steps = [];
   /**
@@ -1447,13 +1472,16 @@ async function waitForEngineConnected() {
     else steps.push({ step, detail, at: Date.now() - started });
   };
   let polls = 0;
-  while (Date.now() < deadline) {
+  let connected = false;
+  /** @type {Promise<void>|null} */
+  let inFlight = null;
+  const poll = async () => {
     polls++;
     try {
       const resp = await fetch(apiUrl('/engine/status'));
       if (resp.ok) {
         const data = await resp.json();
-        if (data.connected) return;
+        if (data.connected) { connected = true; return; }
         if (data.socket) saw('socket open but not live', `silent ${data.silentFor ?? '?'}, ${data.queuedWrites ?? '?'} queued writes`);
         else saw('answered, no engine socket');
       } else {
@@ -1462,13 +1490,33 @@ async function waitForEngineConnected() {
     } catch (e) {
       saw('status unanswered', e instanceof Error ? e.message : String(e));
     }
-    await new Promise(r => setTimeout(r, 200));
-  }
+  };
   const render = (/** @type {{step: string, detail: string, at: number}} */ s) =>
     `+${(s.at / 1000).toFixed(1)}s ${s.step}${s.detail ? ` (${s.detail})` : ''}`;
-  const last = steps[steps.length - 1];
-  throw new Error(`Engine did not connect within 30s — last step seen: ${last ? render(last) : 'none'}; ` +
-    `${polls} poll(s), every step: ${steps.map(render).join(' → ') || 'no poll completed'}`);
+  const account = () => {
+    const last = steps[steps.length - 1];
+    return `last step seen: ${last ? render(last) : 'none'}; ${polls} poll(s), every step: ${steps.map(render).join(' → ') || 'no poll completed'}`;
+  };
+  const watch = watchForStall({
+    subject: 'Engine connect',
+    windowMs: ENGINE_STEP_WINDOW_MS,
+    stamp: () => `${steps.length}|${polls > 0}`,
+    onExtend: () => {}
+  });
+  try {
+    await Promise.race([
+      waitFor(() => {
+        if (connected) return true;
+        inFlight ??= poll().finally(() => { inFlight = null; });
+        return false;
+      }, { timeoutMs: ENGINE_CONNECT_CEILING_MS, intervalMs: 200, description: () => `the engine to connect — ${account()}` }),
+      watch.stalled
+    ]);
+  } catch (e) {
+    throw new Error(`Engine did not connect: ${e instanceof Error ? e.message : String(e)} — ${account()}`, { cause: e });
+  } finally {
+    watch.stop();
+  }
 }
 
 /**
@@ -1478,6 +1526,8 @@ async function waitForEngineConnected() {
  * @returns {Promise<{passed: number, failed: number, errors: string[], budgetWarning?: string}>} Test results; a unit suite's carry its {@link suiteBudgetWarning}
  */
 export async function runTestByName(testName, ctx) {
+  installFetchTracking();
+  setReportedTest(testName);
   installClaimAutoRegistration();
   await waitForEngineConnected();
   await ensureExtensionSuitesLoaded();
@@ -1565,7 +1615,7 @@ export function suiteVerdict(name, result) {
 
 /**
  * Own wall time past which a passing unit suite is flagged as due a split —
- * the line `UNIT_SUITE_BUDGET_MS` draws, enforced while it is still a warning.
+ * the size past which a suite is split rather than allowed to grow.
  */
 const SUITE_SPLIT_MS = 10_000;
 
@@ -1577,20 +1627,16 @@ const SUITE_SPLIT_MS = 10_000;
  * that "stopped making progress". The Go harness writes what this returns to
  * the file `check` and `test-all` report from, never as a failure.
  *
- * The time is the suite's own: wall time less whatever patience granted it for
- * a machine that was not serving the lane. It is still wall time in a
- * concurrent run, where a lane costs several times its idle cost, so the
- * reader weighs it against the run's `machine:` line the way the VOID rule
- * weighs a failure — and times it alone before splitting anything.
+ * The time is wall time, and in a concurrent run — or on a slow core — a lane
+ * costs several times its idle cost, so the reader weighs it against the run's
+ * `machine:` line and times the suite alone before splitting anything.
  * @param {string} name - The suite.
- * @param {{wallMs: number, grantedMs: number}} timing - Its wall time, and the patience granted within it.
+ * @param {{wallMs: number}} timing - Its wall time.
  * @returns {string} The warning, or '' for a suite within the line.
  */
-export function suiteBudgetWarning(name, { wallMs, grantedMs }) {
-  const ownMs = wallMs - grantedMs;
-  if (ownMs <= SUITE_SPLIT_MS) return '';
-  const granted = grantedMs > 0 ? ` (of ${(wallMs / 1000).toFixed(1)}s, ${(grantedMs / 1000).toFixed(1)}s granted for load)` : '';
-  return `${name} ${(ownMs / 1000).toFixed(1)}s${granted}`;
+export function suiteBudgetWarning(name, { wallMs }) {
+  if (wallMs <= SUITE_SPLIT_MS) return '';
+  return `${name} ${(wallMs / 1000).toFixed(1)}s`;
 }
 
 /**

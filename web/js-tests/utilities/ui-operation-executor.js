@@ -19,10 +19,11 @@ import {
 } from './test-assertions.js';
 import { threadRunSettled } from '../../js/model/run-records.js';
 import { SecondViewer } from './second-viewer.js';
-import { budgetFor } from './test-deadline.js';
-import { askForMoreTime, whyGivingUp } from './test-patience.js';
+import { budgetFor, deadlineTimer } from './test-deadline.js';
+import { whyGivingUp } from './test-patience.js';
 import { apiUrl } from '../../js/utils/api-url.js';
 import { pingWorker } from './worker-test-hooks.js';
+import workerManager from '../../js/services/worker-manager.js';
 import { setPluginEnabled } from './plugin-config.js';
 import { waitFor } from './test-helpers.js';
 import { assertMenuShape } from './menu-assertions.js';
@@ -103,8 +104,8 @@ function waitForConfirmDialog(buttonSelector, timeoutMs) {
   /** @type {() => void} */
   let cancel = () => {};
   const promise = new Promise((resolve, reject) => {
-    /** @type {ReturnType<typeof setTimeout>|undefined} */
-    let timer;
+    /** @type {() => void} */
+    let cancelTimer = () => {};
     let done = false;
     const observer = new MutationObserver(() => {
       const hit = find();
@@ -116,19 +117,13 @@ function waitForConfirmDialog(buttonSelector, timeoutMs) {
     const stop = () => {
       done = true;
       observer.disconnect();
-      clearTimeout(timer);
+      cancelTimer();
     };
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-    // Out of time is a question, not a verdict: a machine that was not serving
-    // this lane buys another slice rather than failing a dialog that simply had
-    // not been painted yet.
+    // The bound follows the test's deadline, so a dialog that simply has not
+    // been painted yet on a slow core is waited for while the test progresses.
     const expire = async () => {
-      const more = await askForMoreTime(timeoutMs);
       if (done) return;
-      if (more) {
-        timer = setTimeout(expire, more.extendByMs);
-        return;
-      }
       stop();
       const shown = document.querySelector('modal-dialog.show');
       reject(new Error(
@@ -137,7 +132,7 @@ function waitForConfirmDialog(buttonSelector, timeoutMs) {
 					` — ${await whyGivingUp()}`
       ));
     };
-    timer = setTimeout(expire, timeoutMs);
+    cancelTimer = deadlineTimer(() => { void expire(); }, timeoutMs);
     cancel = () => {
       stop();
       reject(new Error('expect-confirm: superseded before the dialog appeared'));
@@ -148,7 +143,8 @@ function waitForConfirmDialog(buttonSelector, timeoutMs) {
 
 /**
  * Resolve when an element matching `selector` exists in the DOM, observing
- * mutations (no polling). Rejects on timeout. The timeout is fail-fast only.
+ * mutations (no polling). Rejects once the nominal has run out with the test's
+ * deadline standing still (`deadlineTimer`), so a slow core is waited for.
  * @param {string} selector - CSS selector
  * @param {number} [timeoutMs=3000]
  * @returns {Promise<HTMLElement>} Resolves with the matched element
@@ -161,20 +157,21 @@ function waitForElement(selector, timeoutMs = 3000) {
       const el = document.querySelector(selector);
       if (el) {
         observer.disconnect();
-        clearTimeout(timer);
+        cancelTimer();
         resolve(/** @type {HTMLElement} */ (el));
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
-    const timer = setTimeout(() => {
+    const cancelTimer = deadlineTimer(() => {
       observer.disconnect();
       reject(new Error(`waitForElement: '${selector}' did not appear within ${timeoutMs}ms`));
-    }, timeoutMs);
+    }, budgetFor(timeoutMs));
   });
 }
 
 /**
- * Resolve when no element matching `selector` exists in the DOM. Mutation-driven.
+ * Resolve when no element matching `selector` exists in the DOM. Mutation-driven,
+ * and bounded like {@link waitForElement}.
  * @param {string} selector - CSS selector
  * @param {number} [timeoutMs=3000]
  * @returns {Promise<void>}
@@ -185,16 +182,35 @@ function waitForElementGone(selector, timeoutMs = 3000) {
     const observer = new MutationObserver(() => {
       if (!document.querySelector(selector)) {
         observer.disconnect();
-        clearTimeout(timer);
+        cancelTimer();
         resolve();
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
-    const timer = setTimeout(() => {
+    const cancelTimer = deadlineTimer(() => {
       observer.disconnect();
       reject(new Error(`waitForElementGone: '${selector}' still present after ${timeoutMs}ms`));
-    }, timeoutMs);
+    }, budgetFor(timeoutMs));
   });
+}
+
+/**
+ * The positive fence before asserting something is ABSENT from the page.
+ *
+ * "It did not appear" is only evidence once whatever would have carried it has
+ * been and gone. A DOM-quiet window alone is not that: on a slow core the page
+ * is quiet for a long time before the worker's next update arrives, so an
+ * absence asserted then passes whether or not the effect is coming. The worker
+ * ping returns only once the worker has drained every message before it and
+ * flushed its document updates, and those updates' renders are what the DOM
+ * then settles on — so after this, an effect that was coming has arrived.
+ * @param {UITestHarness} harness - The test's harness.
+ * @param {any} driver - Its UIDriver.
+ * @returns {Promise<void>}
+ */
+async function fenceBeforeAbsence(harness, driver) {
+  if (harness.conversation?.id) await pingWorker(harness.conversation.id);
+  await driver.waitForDOMStable();
 }
 
 /**
@@ -483,6 +499,7 @@ export async function executeUIOperation(harness, op) {
       };
 
       if (op.absent) {
+        await fenceBeforeAbsence(harness, driver);
         const { match } = findMatch();
         if (match) {
           throw new Error(`assert-input-warning: expected no visible warning containing "${needle}", but found "${match.textContent}"`);
@@ -494,22 +511,13 @@ export async function executeUIOperation(harness, op) {
       // flow (conversation.showWarning → app-level showNotice) and can land a
       // beat AFTER the triggering op's promise resolves — the composer may
       // still be (re)mounting, or the doc-stable point may precede the notice
-      // under multi-lane load. A single check races that gap, so poll up to a
-      // bounded deadline (mirroring the waitForDocumentMatch fence the runner
-      // uses for final assertions). A genuinely-missing notice still fails —
-      // just after the poll window rather than instantly.
-      const deadline = Date.now() + 2000;
-      let result = findMatch();
-      while (!result.match && Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 50));
-        result = findMatch();
-      }
-      if (!result.match) {
-        throw new Error(
-          `assert-input-warning: expected a visible warning containing "${needle}"; ` +
-					`visible warnings: ${JSON.stringify(result.warnings.map(w => w.textContent))}`
-        );
-      }
+      // under multi-lane load. A single check races that gap, so wait for it.
+      await waitFor(() => findMatch().match, {
+        timeoutMs: 2000,
+        intervalMs: 50,
+        description: () => `assert-input-warning: a visible warning containing "${needle}"; ` +
+          `visible warnings: ${JSON.stringify(findMatch().warnings.map(w => w.textContent))}`
+      });
       break;
     }
 
@@ -693,7 +701,33 @@ export async function executeUIOperation(harness, op) {
     }
 
     case 'wait-ms': {
+      // Only for a duration that is itself what the test is about — one that
+      // must outlast a real-time window in the code under test — and it says
+      // which. A wait-ms used to let something land is a guess at this core's
+      // speed: wait for the thing (wait-for-state, ping-worker, assert-dom).
+      if (!op.why) throw new Error('wait-ms requires a why: the real-time window in the code under test this duration must outlast');
+      // eslint-disable-next-line juggler/no-private-test-wait -- the duration is the subject, named by op.why
       await new Promise(r => setTimeout(r, op.ms ?? 300));
+      break;
+    }
+
+    case 'stop-undo-capturing': {
+      // Close the worker's undo capture window, as the app's own logical
+      // boundaries do, so the next mutation starts a group of its own rather
+      // than merging with whatever landed within the window before it. The
+      // pings put the stop after everything before this op and the next op
+      // after the stop.
+      await pingWorker(harness.conversation.id);
+      workerManager.stopUndoCapturing(harness.conversation.id);
+      await pingWorker(harness.conversation.id);
+      break;
+    }
+
+    case 'ping-worker': {
+      // The positive barrier: returns once the worker has processed every
+      // message sent before it and flushed its document updates, so whatever
+      // the operations before this were going to cause has been caused.
+      await pingWorker(harness.conversation.id);
       break;
     }
 
@@ -1348,6 +1382,7 @@ export async function executeUIOperation(harness, op) {
         throw new Error('assert-dom operation requires selector');
       }
       await driver.waitForDOMStable();
+      if (op.absent) await fenceBeforeAbsence(harness, driver);
       const container = op.global
         ? driver.getContainer()
         : (driver.getConversationArea() || driver.getContainer());

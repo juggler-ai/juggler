@@ -22,6 +22,117 @@ import (
 	"juggler/internal/machineload"
 )
 
+// --- main-thread silence accounting (pure) ---
+
+// silenceTick is one watchdog tick fed to mainThreadSilence: how long after the
+// previous one it arrived, and whether the main thread had answered by then.
+type silenceTick struct {
+	after    time.Duration
+	answered bool
+}
+
+// replaySilence feeds ticks to a fresh mainThreadSilence on a fake clock and
+// returns the reading of each.
+func replaySilence(tick, budget time.Duration, ticks []silenceTick) []silenceReading {
+	now := time.Unix(1_000_000, 0)
+	s := newMainThreadSilence(tick, budget, now)
+	out := make([]silenceReading, 0, len(ticks))
+	for _, tk := range ticks {
+		now = now.Add(tk.after)
+		out = append(out, s.observe(now, tk.answered, false))
+	}
+	return out
+}
+
+// TestMainThreadSilenceDiscountsUnservedGap: a process that was stopped (a slow
+// core, SIGSTOP, a laptop asleep) stopped its watchdog too, so the gap between
+// two of its ticks is not time the main thread spent ignoring a ping. Resuming
+// must not condemn a main thread that answers once it is run again.
+func TestMainThreadSilenceDiscountsUnservedGap(t *testing.T) {
+	const tick, budget = time.Second, 12 * time.Second
+	cases := []struct {
+		name  string
+		ticks []silenceTick
+	}{
+		{"healthy, then stopped a minute", []silenceTick{
+			{tick, true}, {tick, true},
+			{time.Minute, false}, // first tick after resume: the ping just went out
+			{tick, true},
+		}},
+		{"stopped, then the ticker fires straight away", []silenceTick{
+			{tick, true},
+			{time.Minute, false},
+			{50 * time.Millisecond, false}, // the dropped tick's phase catches up
+			{tick, true},
+		}},
+		{"already silent a while, then stopped", []silenceTick{
+			{tick, true},
+			{tick, false}, {tick, false}, {tick, false}, {tick, false},
+			{tick, false}, {tick, false}, {tick, false}, {tick, false},
+			{10 * time.Minute, false},
+			{tick, true},
+		}},
+		{"stopped repeatedly", []silenceTick{
+			{tick, true},
+			{30 * time.Second, false}, {30 * time.Second, false},
+			{30 * time.Second, false}, {30 * time.Second, false},
+			{tick, true},
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			for i, r := range replaySilence(tick, budget, c.ticks) {
+				if r.wedged {
+					t.Fatalf("tick %d (%v after the previous): declared wedged after %v of counted silence; the watchdog was not running for the gap",
+						i, c.ticks[i].after, r.silent)
+				}
+			}
+		})
+	}
+}
+
+// TestMainThreadSilenceDetectsBlockedMainThread: with the watchdog running on
+// schedule, a main thread that never answers is a wedge, declared once the
+// served silence reaches the budget — and an earlier stop does not delay it
+// past the budget of time actually served.
+func TestMainThreadSilenceDetectsBlockedMainThread(t *testing.T) {
+	const tick, budget = time.Second, 12 * time.Second
+	cases := []struct {
+		name   string
+		prefix []silenceTick
+	}{
+		{"on schedule throughout", []silenceTick{{tick, true}}},
+		{"after a stop", []silenceTick{{tick, true}, {time.Minute, false}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ticks := append([]silenceTick(nil), c.prefix...)
+			for range 3 * budget / tick {
+				// A little late, as a busy machine delivers ticks.
+				ticks = append(ticks, silenceTick{tick + 100*time.Millisecond, false})
+			}
+			warns := 0
+			for i, r := range replaySilence(tick, budget, ticks) {
+				if r.warn {
+					warns++
+				}
+				if !r.wedged {
+					continue
+				}
+				served := time.Duration(i-len(c.prefix)+1) * (tick + 100*time.Millisecond)
+				if served > budget+2*tick {
+					t.Fatalf("declared wedged after %v of served silence; want within the %v budget (+ one tick to confirm)", served, budget)
+				}
+				if warns != 1 {
+					t.Fatalf("warned %d times before the wedge; want exactly once", warns)
+				}
+				return
+			}
+			t.Fatalf("a main thread that never answered was never declared wedged")
+		})
+	}
+}
+
 // --- crash-loop guard (pure) ---
 
 func TestRelaunchDecision(t *testing.T) {

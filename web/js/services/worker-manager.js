@@ -74,6 +74,22 @@ const WORKER_READY_TIMEOUT_MS = 60000;
 /**
  * Manages conversation workers
  */
+/**
+ * The longest {@link WorkerManager#sendWithAck} waits for an answer from a
+ * worker that keeps talking. Silence is the real bound; this only stops a
+ * request the worker has lost from waiting for ever behind its chatter.
+ */
+const ACK_CEILING_MS = 10 * 60_000;
+
+/**
+ * How often a pending ack looks at the worker's silence, and how late that look
+ * may run and still count its whole gap as silence observed. A look that runs
+ * later than this was this realm not being run — a slow core, a main thread
+ * held elsewhere — and in that gap no reply could have been handled whatever
+ * the worker sent, so the excess is not counted against the worker.
+ */
+const ACK_CHECK_MS = 1000;
+
 export class WorkerManager {
   constructor() {
     /**
@@ -169,6 +185,14 @@ export class WorkerManager {
      * @private
      */
     this._ackCounter = 0;
+
+    /**
+     * When each conversation's worker was last heard from (Date.now()), for
+     * {@link WorkerManager#sendWithAck}'s bound.
+     * @type {Map<string, number>}
+     * @private
+     */
+    this._lastHeardAt = new Map();
 
     /**
      * Per-instance salt for request/ack ids. The worker broadcasts an ack to
@@ -385,6 +409,7 @@ export class WorkerManager {
     const entry = this._workers.get(conversationId);
     this._workers.delete(conversationId);
     this._spawning.delete(conversationId);
+    this._lastHeardAt.delete(conversationId);
     if (entry) this._abandonPendingReady(entry, `Conversation ${conversationId} was closed while its worker was starting`);
     // A createThread awaiting this conversation can never be answered now: its
     // reply arrives as a worker message for a worker this manager no longer
@@ -744,13 +769,22 @@ export class WorkerManager {
   }
 
   /**
-   * Send a command to worker and wait for acknowledgment
+   * Send a command to worker and wait for acknowledgment.
+   *
+   * `timeout` bounds how long the worker may say NOTHING, not how long the
+   * request may take. The worker handles one conversation's messages in
+   * order, so while it is still sending this conversation anything — syncs,
+   * statuses, other acks — it is working through the queue in front of this
+   * request, and an undo the worker is about to perform must not be rejected
+   * because the core it runs on is slow: the caller would report a failure
+   * for an action that then happens. Only silence for the whole window, or
+   * {@link ACK_CEILING_MS} with no answer however chatty the worker, rejects.
    * @param {string} conversationId - Conversation ID
    * @param {{type: string, [key: string]: unknown}} message - Message to send (will have ackId added)
-   * @param {number} [timeout=5000] - Timeout in ms
+   * @param {number} [timeout=30000] - How long the worker may be silent, in ms; the default is the engine's liveness window, a worker busy with one heavy message on a slow core saying nothing for a while
    * @returns {Promise<*>} Resolves with result from worker (if any)
    */
-  sendWithAck(conversationId, message, timeout = 5000) {
+  sendWithAck(conversationId, message, timeout = 30000) {
     return new Promise((resolve, reject) => {
       // Salt the ackId with this instance id. The worker broadcasts its ack to
       // ALL registered clients (callbacks.broadcast), and settleAck matches
@@ -761,18 +795,18 @@ export class WorkerManager {
       // globally unique, so a broadcast ack for another client's request is
       // simply absent from this client's _pendingAcks.
       const ackId = `${this._instanceId}_ack_${++this._ackCounter}`;
-      const timeoutId = setTimeout(() => {
+      const stopWatching = this.watchSilence(conversationId, timeout, (expiry) => {
         this._pendingAcks.delete(ackId);
-        reject(new Error(`[WorkerManager] Ack timeout for ${message.type} (${ackId})`));
-      }, timeout);
+        reject(new Error(`[WorkerManager] Ack timeout for ${message.type} (${ackId}): ${expiry.describe()}`));
+      });
 
       this._pendingAcks.set(ackId, {
         resolve: (/** @type {*} */ result) => {
-          clearTimeout(timeoutId);
+          stopWatching();
           resolve(result);
         },
         reject: (/** @type {Error} */ err) => {
-          clearTimeout(timeoutId);
+          stopWatching();
           reject(err);
         }
       });
@@ -798,6 +832,51 @@ export class WorkerManager {
     });
   }
 
+
+  /**
+   * Call `onExpire` once a conversation's worker has said nothing for
+   * `silenceMs`, or `ceilingMs` has passed however much it said — the one
+   * bound on waiting for something only that worker can bring about. While
+   * the worker sends this conversation anything it is still working, however
+   * slow the core it runs on, so only its silence (or the ceiling) is
+   * expiry. Silence is counted from the call, moved on past any stretch this
+   * realm was not run ({@link ACK_CHECK_MS}).
+   * @param {string} conversationId - Conversation whose worker is watched
+   * @param {number} silenceMs - How long the worker may say nothing
+   * @param {(expiry: {silent: boolean, quietMs: number, elapsedMs: number, describe: () => string}) => void} onExpire - Called once, on expiry
+   * @param {number} [ceilingMs] - The longest the watch lasts however chatty the worker
+   * @returns {() => void} Stops the watch
+   */
+  watchSilence(conversationId, silenceMs, onExpire, ceilingMs = ACK_CEILING_MS) {
+    const startedAt = Date.now();
+    let quietFrom = startedAt;
+    let lastCheckAt = startedAt;
+    /** @type {ReturnType<typeof setTimeout>} */
+    let timeoutId;
+    const check = () => {
+      const now = Date.now();
+      const unobserved = now - lastCheckAt - ACK_CHECK_MS * 2;
+      lastCheckAt = now;
+      if (unobserved > 0) quietFrom += unobserved;
+      const quietMs = now - Math.max(quietFrom, this._lastHeardAt.get(conversationId) ?? 0);
+      const elapsedMs = now - startedAt;
+      if (quietMs < silenceMs && elapsedMs < ceilingMs) {
+        timeoutId = setTimeout(check, Math.min(ACK_CHECK_MS, silenceMs - quietMs));
+        return;
+      }
+      const silent = quietMs >= silenceMs;
+      onExpire({
+        silent,
+        quietMs,
+        elapsedMs,
+        describe: () => (silent
+          ? `the worker said nothing for ${Math.round(quietMs / 1000)}s`
+          : `no answer in ${Math.round(elapsedMs / 1000)}s, though the worker kept talking`)
+      });
+    };
+    timeoutId = setTimeout(check, Math.min(ACK_CHECK_MS, silenceMs));
+    return () => clearTimeout(timeoutId);
+  }
 
   /**
    * Settle the {@link WorkerManager#sendWithAck} an `ack` answers. An ack for
@@ -1035,6 +1114,7 @@ export class WorkerManager {
    * @private
    */
   _handleWorkerMessage(conversationId, data) {
+    this._lastHeardAt.set(conversationId, Date.now());
     routeWorkerMessage(this, conversationId, data);
   }
 

@@ -28,6 +28,7 @@ import {
   initializeRegistries,
   createTestSession,
   createTestConversation,
+  waitFor,
   assert
 } from '../utilities/test-helpers.js';
 import ContextItem from 'juggler/context-item';
@@ -127,11 +128,10 @@ async function startHangingTool(session, conversation, toolUseId) {
   // it rejecting with nobody attached. Claim it here so an abandoned probe can
   // never surface as an unhandled rejection in the lane.
   run.catch(() => {});
-  const deadline = Date.now() + budgetFor(4000);
-  while (actionExecutor.executingSetFor(conversation.id).every((e) => e.toolUseId !== toolUseId)) {
-    if (Date.now() > deadline) throw new Error(`the probe for ${toolUseId} never reached the executor`);
-    await new Promise((r) => { setTimeout(r, 5); });
-  }
+  await waitFor(
+    () => actionExecutor.executingSetFor(conversation.id).some((e) => e.toolUseId === toolUseId),
+    { timeoutMs: budgetFor(4000), intervalMs: 5, description: `the probe for ${toolUseId} to reach the executor` }
+  );
   return { run };
 }
 

@@ -16,7 +16,7 @@
  * @module unit-tests/key-shortcut-manager-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 import { fetchJson } from '../../js/services/http.js';
 import { apiUrl } from '../../js/utils/api-url.js';
 import {
@@ -588,9 +588,11 @@ export async function runTests(_ctx) {
     textarea.value = '';
     // Wind the gesture back to just inside the window, then hold the key across
     // the moment it would otherwise expire: each repeat carries the window along.
-    keyShortcutManager._lastEditingUseAt.set('bin-conversation', Date.now() - (EDIT_GESTURE_WINDOW_MS - 60));
+    const woundBack = Date.now() - (EDIT_GESTURE_WINDOW_MS - 60);
+    keyShortcutManager._lastEditingUseAt.set('bin-conversation', woundBack);
     pressBinChord(textarea, true);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitFor(() => Date.now() > woundBack + EDIT_GESTURE_WINDOW_MS,
+      'the wound-back gesture window to expire');
     pressBinChord(textarea, true);
     assert(presses() === 0, 'auto-repeat extends the cooldown for as long as the key is held');
   }));

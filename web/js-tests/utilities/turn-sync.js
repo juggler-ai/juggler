@@ -18,6 +18,13 @@ import { inspectTurn, observeUntil as observeUntilTerminal, scanToolStates } fro
 import { threadRunSettled } from '../../js/model/run-records.js';
 import { TOOL_STATES } from '../../sdk/lib/message.js';
 import { trackWait } from './test-patience.js';
+import { deadlineTimer } from './test-deadline.js';
+
+/**
+ * Longer than any test runs. The model's own wait is handed this so its timer
+ * never decides; the deadline-following timer below does.
+ */
+const NO_TIMEOUT_MS = 2 ** 31 - 1;
 
 export { scanToolStates };
 
@@ -138,17 +145,32 @@ export async function observeUntil(conversation, predicate, { deadlineMs, signal
     catch (e) { return `(the state could not be read: ${e instanceof Error ? e.message : String(e)})`; }
   };
   const close = trackWait(() => `${label || 'a condition on the conversation'} — saw ${saw()}`);
+  // The model's wait gets no timer of its own. Expiry is the
+  // deadline-following timer's, which waits on as long as the runner keeps
+  // moving the deadline for a test that is making progress.
+  const stop = new AbortController();
+  let expired = false;
+  const onOuterAbort = () => stop.abort();
+  signal?.addEventListener('abort', onOuterAbort, { once: true });
+  if (signal?.aborted) stop.abort();
+  const cancelTimer = deadlineTimer(() => { expired = true; stop.abort(); }, effectiveTimeoutMs);
   try {
-    await observeUntilTerminal(conversation, predicate, { timeoutMs: effectiveTimeoutMs, signal, label });
+    await observeUntilTerminal(conversation, predicate, { timeoutMs: NO_TIMEOUT_MS, signal: stop.signal, label });
     close('satisfied');
   } catch (err) {
     close('threw');
+    if (expired && err instanceof Error && /^Aborted waiting for condition/.test(err.message)) {
+      err.message = err.message.replace(/^Aborted/, 'Timeout');
+    }
     // The predicate's own throw is a constraint violation with its own words;
     // only the wait's timeout or abort is missing what it saw.
     if (err instanceof Error && /waiting for condition/.test(err.message)) {
       err.message = `${err.message} — saw ${saw()}`;
     }
     throw err;
+  } finally {
+    cancelTimer();
+    signal?.removeEventListener('abort', onOuterAbort);
   }
 }
 

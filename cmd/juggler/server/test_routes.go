@@ -49,6 +49,7 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 		HandleDeleteFile(w http.ResponseWriter, r *http.Request)
 		HandleMkdir(w http.ResponseWriter, r *http.Request)
 		HandleDumpTape(w http.ResponseWriter, r *http.Request)
+		HandleTapeHead(w http.ResponseWriter, r *http.Request)
 		HandleExtensionTests(w http.ResponseWriter, r *http.Request)
 	}
 	tapi, ok := testAPI.(taskAPI)
@@ -58,6 +59,7 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 	api.HandleFunc("/delete-file", tapi.HandleDeleteFile).Methods("POST")
 	api.HandleFunc("/mkdir", tapi.HandleMkdir).Methods("POST")
 	api.HandleFunc("/dump-tape", tapi.HandleDumpTape).Methods("GET")
+	api.HandleFunc("/tape-head", tapi.HandleTapeHead).Methods("GET")
 	api.HandleFunc("/extension-tests", tapi.HandleExtensionTests).Methods("GET")
 
 	// Wire the worker manager's tape dumper into the test API so the
@@ -67,11 +69,13 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 	// interfaces would otherwise not satisfy method-signature equality).
 	type tapeDumperSetter interface {
 		SetTapeDumper(fn func(string) any)
+		SetTapeHead(fn func(string) int64)
 	}
 	tds, ok := testAPI.(tapeDumperSetter)
 	mustMatch(ok, "tape-dumper")
 	if s.workerManager != nil {
 		tds.SetTapeDumper(s.workerManager.DumpTape)
+		tds.SetTapeHead(s.workerManager.TapeHead)
 	}
 
 	// Conversation-ownership guard: in the multi-lane pool, a conversation may
@@ -98,6 +102,7 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 		HandleGetNames(w http.ResponseWriter, r *http.Request)
 		HandleJSTrace(w http.ResponseWriter, r *http.Request)
 		HandleAudit(w http.ResponseWriter, r *http.Request)
+		HandlePostProgress(w http.ResponseWriter, r *http.Request)
 		HandleMachine(w http.ResponseWriter, r *http.Request)
 	}
 	rapi, ok := testAPI.(runAPI)
@@ -114,6 +119,9 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 	// lost. Both the queue and the result buffer are destructive reads, so this
 	// is the only record that outlives the loss.
 	api.HandleFunc("/audit", rapi.HandleAudit).Methods("GET")
+	// A lane's report that its test is still making progress, which the
+	// harness waits on the result for as long as it keeps getting.
+	api.HandleFunc("/progress", rapi.HandlePostProgress).Methods("POST")
 	// The machine's load average, read by a failing lane so its failure block
 	// says whether anything was running. A page has no way to ask.
 	api.HandleFunc("/machine", rapi.HandleMachine).Methods("GET")
@@ -125,6 +133,17 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 	// as the supervisor replaces a dead one. The engine is shared by every lane
 	// of this server, so only a test scheduled alone may call it.
 	api.HandleFunc("/restart-engine", s.handleTestRestartEngine).Methods("POST")
+
+	// The processes outside this server's tree that run its pages, for the
+	// harness's slow-core mode (SetTestProcessPIDs). An empty list where there
+	// are none to report or no lister is installed.
+	api.HandleFunc("/process-pids", func(w http.ResponseWriter, r *http.Request) {
+		pids := []int{}
+		if fn := s.testProcessPIDs.Load(); fn != nil {
+			pids = append(pids, (*fn)()...)
+		}
+		handlers.WriteJSON(w, r, 0, map[string]any{"pids": pids})
+	}).Methods("GET")
 
 	// Browser-side diagnostic logger — POST a JSON body and the message lands
 	// in the subprocess stderr (captured per-fixture by main_test.go). Lets

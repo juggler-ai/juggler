@@ -8,6 +8,7 @@ import { translator } from 'juggler/i18n';
 import { basename } from 'juggler/item-utils';
 import { buildPickerPanel, createElement, injectStylesOnce } from 'juggler/ui';
 import { stat } from 'juggler/ops';
+import { debounce } from 'juggler/utils/debounce';
 import { fetchLiveFile, renderLiveFileBody } from '../lib/live-file.js';
 import { absoluteFilePinPath, normalizeFilePinParameters } from '../lib/file-pin-config.js';
 import { pathPinController } from '../lib/path-pin.js';
@@ -33,6 +34,13 @@ injectStylesOnce('file-pin-styles', `
  * would be several reads to show one file.
  */
 const REFRESH_DEBOUNCE_MS = 150;
+
+/**
+ * The longest a burst may hold the re-read off. A watcher on a busy tree can
+ * report changes closer together than the settling time for as long as it is
+ * busy, and without a ceiling the pin would show the old file throughout.
+ */
+const REFRESH_MAX_WAIT_MS = 1000;
 
 /**
  * How long a pin showing a missing path waits between checks for it to appear,
@@ -215,18 +223,25 @@ class FilePin extends PinboardItemType {
 
     // Only the newest read may draw: a refresh can overtake the read it replaced.
     let generation = 0;
-    /** @type {ReturnType<typeof setTimeout>|undefined} */
-    let pending;
-    /** @type {ReturnType<typeof setTimeout>|undefined} */
-    let arrivalCheck;
+    /** Stops whatever the arrival check is waiting on: its next round's timer, or the watch for the pin being shown. */
+    let stopArrival = () => {};
+    // Set by teardown and read after every await, so work in flight when the pin
+    // goes neither draws into it nor starts anything further.
+    let tornDown = false;
+    const live = () => !tornDown && !context.signal.aborted;
 
     /**
      * Keep checking for a path that was not there. The watcher reports a file
      * appearing only inside the project, outside dot-directories and gitignored
      * ones, so for a pin in the missing state this check is how the file showing
-     * up gets noticed. It checks only while the pin can be seen, uses a stat
-     * rather than a read, and stops at the first render, change of path or
-     * teardown.
+     * up gets noticed. It uses a stat rather than a read, and stops at the first
+     * render, change of path or teardown.
+     *
+     * It checks only while the pin can be seen. A round that finds the pin hidden
+     * schedules nothing further: the check waits, without a timer, for a change
+     * to the attributes of the pin or anything above it, or to the window's size,
+     * to make it visible, and then checks at once and backs off from where it
+     * left off.
      *
      * A failed read did not necessarily find nothing there; it may have been
      * refused. In that case the check is only kept up once a stat agrees the path
@@ -238,38 +253,63 @@ class FilePin extends PinboardItemType {
     const awaitArrival = (mine, knownMissing) => {
       let step = 0;
       let missing = knownMissing;
-      const next = () => {
-        arrivalCheck = setTimeout(async () => {
-          if (mine !== generation || context.signal.aborted) return;
-          if (!container.isConnected || !container.checkVisibility()) {
-            next();
-            return;
-          }
-          /** @type {boolean|null} */
-          let present = null;
-          try {
-            const metadata = await stat({
-              path: absoluteFilePinPath(context.pin.config, context.active),
-              userInitiated: userMade(context.pin.config),
-            });
-            present = metadata.exists !== false;
-          } catch {
-            // Not a missing path: whatever refused the stat will refuse the read.
-          }
-          if (mine !== generation || context.signal.aborted || present === null) return;
-          if (!present) {
-            missing = true;
-            next();
-          } else if (missing) {
-            void render();
-          }
-        }, ARRIVAL_CHECK_MS[Math.min(step++, ARRIVAL_CHECK_MS.length - 1)]);
+      const current = () => mine === generation && live();
+      const visible = () => container.isConnected && container.checkVisibility();
+
+      const round = async () => {
+        if (!current()) return;
+        if (!visible()) {
+          whenShown();
+          return;
+        }
+        /** @type {boolean|null} */
+        let present = null;
+        try {
+          const metadata = await stat({
+            path: absoluteFilePinPath(context.pin.config, context.active),
+            userInitiated: userMade(context.pin.config),
+          });
+          present = metadata.exists !== false;
+        } catch {
+          // Not a missing path: whatever refused the stat will refuse the read.
+        }
+        if (!current() || present === null) return;
+        if (!present) {
+          missing = true;
+          next();
+        } else if (missing) {
+          void render();
+        }
       };
+
+      const next = () => {
+        const timer = setTimeout(round, ARRIVAL_CHECK_MS[Math.min(step++, ARRIVAL_CHECK_MS.length - 1)]);
+        stopArrival = () => clearTimeout(timer);
+      };
+
+      const whenShown = () => {
+        const check = () => {
+          if (!visible()) return;
+          stop();
+          void round();
+        };
+        const observer = new MutationObserver(check);
+        for (let node = /** @type {Element|null} */ (container); node; node = node.parentElement) {
+          observer.observe(node, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+        }
+        window.addEventListener('resize', check);
+        const stop = () => {
+          observer.disconnect();
+          window.removeEventListener('resize', check);
+        };
+        stopArrival = stop;
+      };
+
       next();
     };
 
     const render = async () => {
-      clearTimeout(arrivalCheck);
+      stopArrival();
       const mine = ++generation;
       const path = absoluteFilePinPath(context.pin.config, context.active);
       // Say which file the body below belongs to, so selecting part of it can be
@@ -297,7 +337,7 @@ class FilePin extends PinboardItemType {
         whole: true,
         userInitiated,
       });
-      if (mine !== generation || context.signal.aborted) return;
+      if (mine !== generation || !live()) return;
 
       renderLiveFileBody(body, result, {
         absolutePath: path,
@@ -318,10 +358,7 @@ class FilePin extends PinboardItemType {
       }
     };
 
-    const refresh = () => {
-      clearTimeout(pending);
-      pending = setTimeout(() => { void render(); }, REFRESH_DEBOUNCE_MS);
-    };
+    const refresh = debounce(() => { void render(); }, REFRESH_DEBOUNCE_MS, { maxWait: REFRESH_MAX_WAIT_MS });
 
     const stopWatching = context.services.files.onChange((changes) => {
       const target = absoluteFilePinPath(context.pin.config, context.active);
@@ -338,8 +375,9 @@ class FilePin extends PinboardItemType {
       targetOf: (c) => absoluteFilePinPath(c.pin.config, c.active),
       render,
       teardown: () => {
-        clearTimeout(pending);
-        clearTimeout(arrivalCheck);
+        tornDown = true;
+        refresh.cancel();
+        stopArrival();
         stopWatching();
       },
     });

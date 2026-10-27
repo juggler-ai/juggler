@@ -15,6 +15,7 @@
 
 import TestScorer from './test-scorer.js';
 import logger from './test-logger.js';
+import { connectTestWebSocket } from './ws-connect.js';
 
 /**
  * @typedef {object} TestResult
@@ -183,32 +184,9 @@ class UnitTestExecutor {
    * @private
    */
   async _connectWebSocket(wsService) {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        wsService.off('open', onOpen);
-        wsService.off('error', onError);
-        reject(new Error('WebSocket connection timeout'));
-      }, 5000);
-
-      const onOpen = () => {
-        clearTimeout(timeout);
-        wsService.off('open', onOpen);
-        wsService.off('error', onError);
-        resolve();
-      };
-
-      const onError = () => {
-        clearTimeout(timeout);
-        wsService.off('open', onOpen);
-        wsService.off('error', onError);
-        reject(new Error('WebSocket connection error'));
-      };
-
-      wsService.on('open', onOpen);
-      wsService.on('error', onError);
-      wsService.connect();
-    });
+    return connectTestWebSocket(wsService);
   }
+
 
   /**
    * Create mock services for test session.

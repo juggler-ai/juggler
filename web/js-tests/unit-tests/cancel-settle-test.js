@@ -18,6 +18,7 @@
 import { assert } from '../utilities/test-helpers.js';
 import Conversation from '../../js/model/conversation.js';
 import actionExecutor from '../../js/services/action-executor.js';
+import { WorkerManager } from '../../js/services/worker-manager.js';
 import contextItemRegistry from '../../js/registries/context-item-registry.js';
 
 /** The action id the fake class is registered under for the walk. */
@@ -161,6 +162,7 @@ export async function runTests() {
       Object.defineProperty(conv, key, { value, writable: true, configurable: true });
     pin('id', 'conv-settle');
     pin('_actionExecutor', executor);
+    pin('_workerManager', new WorkerManager());
     pin('processingState', undefined);
     pin('stopProcessing', () => {});
     pin('showWarning', () => {});
@@ -188,6 +190,78 @@ export async function runTests() {
     await waiting;
     assert(settled, 'never settled');
     assert(intervals === 0, `cancelAndSettle started ${intervals} interval timer(s)`);
+  });
+
+  await run('a cancel waits while the worker keeps talking, and fails on its silence', async () => {
+    const executor = freshExecutor();
+    const wm = /** @type {any} */ (new WorkerManager());
+    const conv = Object.create(Conversation.prototype);
+    const pin = (/** @type {string} */ key, /** @type {any} */ value) =>
+      Object.defineProperty(conv, key, { value, writable: true, configurable: true });
+    pin('id', 'conv-slow-cancel');
+    pin('_actionExecutor', executor);
+    pin('_workerManager', wm);
+    pin('processingState', undefined);
+    pin('stopProcessing', () => {});
+    pin('showWarning', () => {});
+    pin('observeMetadata', () => {});
+    pin('unobserveMetadata', () => {});
+
+    const a = gated(executor, 'conv-slow-cancel');
+    await a.started;
+
+    // The clock and the timers are in hand: time passes one second per step,
+    // and every timer armed meanwhile fires at that step.
+    /** @type {Array<() => void>} */
+    let timers = [];
+    const realSetTimeout = window.setTimeout;
+    const realNow = Date.now;
+    let clock = realNow();
+    /**
+     * Run `fn` with the clock stopped and timers captured rather than scheduled.
+     * @param {() => void} fn - What to run.
+     */
+    const inHand = (fn) => {
+      window.setTimeout = /** @type {any} */ ((/** @type {() => void} */ cb) => { timers.push(cb); return 0; });
+      Date.now = () => clock;
+      try { fn(); } finally { window.setTimeout = realSetTimeout; Date.now = realNow; }
+    };
+    /** @type {unknown} */
+    let outcome = null;
+    /**
+     * Advance a second and fire whatever was armed.
+     * @param {boolean} talking - Whether the worker is heard from in it.
+     */
+    const step = async (talking) => {
+      clock += 1000;
+      if (talking) wm._lastHeardAt.set(conv.id, clock);
+      const due = timers;
+      timers = [];
+      inHand(() => { for (const fire of due) fire(); });
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+
+    try {
+      inHand(() => {
+        conv.cancelAndSettle('test').then(() => { outcome = 'settled'; }, (/** @type {unknown} */ e) => { outcome = e; });
+      });
+      // A slow core: the cancel is still being carried out a minute on, the
+      // worker reporting all the while.
+      for (let i = 0; i < 60; i++) await step(true);
+      assert(outcome === null,
+        `a cancel the worker is still carrying out was settled after a minute: ${String(outcome)}`);
+      assert(timers.length > 0, 'and it stopped watching while the turn was still active');
+
+      // Then the worker goes quiet for good: the wait fails, and never reads as settled.
+      for (let i = 0; i < 300 && outcome === null; i++) await step(false);
+      assert(outcome instanceof Error && /said nothing/.test(outcome.message),
+        `a cancel the worker fell silent on must fail, saying so; got ${outcome instanceof Error ? outcome.message : String(outcome)}`);
+      assert(conv.isTurnActive(), 'the turn is still active, so nothing may treat the wait as settled');
+    } finally {
+      a.release();
+      await a.done;
+    }
   });
 
   return { passed, failed, errors };

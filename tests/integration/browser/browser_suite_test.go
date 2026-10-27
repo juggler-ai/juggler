@@ -282,29 +282,67 @@ func listBrowserTests(srv testServerEntry) (names, exclusive []string, err error
 	return payload.Names, payload.Exclusive, nil
 }
 
+// The lane in the browser is the authority on when a test has failed: it fails
+// one that has made no progress for its window (`perTestTimeoutMs`, 25s), then
+// spends up to 5s building the failure block, which it posts with tapes and a
+// trace attached. The harness's wait exists for the case where no result is
+// posted at all: the lane itself died, or the server stopped answering.
+//
+// So the harness waits while the lane keeps saying its test is moving
+// (POST /api/test/progress, reportTestProgress in
+// web/js-tests/utilities/progress-report.js), and gives up only after
+// resultSilenceWindow with neither a result nor a report. A fixed wall-clock
+// wait failed every long test on a slow core while it was still running, as a
+// bare "timeout polling /api/test/result" naming nothing.
+const (
+	// resultSilenceWindow sits clear of the lane's own worst case for a test
+	// that has stopped (its 25s window, the diagnostics build, the result
+	// POST's retries), so a stopped test is reported by the lane, not here.
+	resultSilenceWindow = 120 * time.Second
+	// resultCeiling is the backstop for a lane that reports progress forever.
+	// Under the package's 15m -timeout (Makefile), so it reports first.
+	resultCeiling = 12 * time.Minute
+)
+
+// pollResultWhileProgressing waits for name's result on srv for as long as its
+// lane keeps reporting progress, up to resultCeiling.
+func pollResultWhileProgressing(srv testServerEntry, name string, out any) error {
+	started := time.Now()
+	for {
+		err := pollServer(srv, "/api/test/result?name="+name, resultSilenceWindow, out)
+		if err == nil || srv.proc.dead() {
+			return err
+		}
+		a, aerr := fetchAudit(srv.addr, name)
+		if aerr != nil {
+			return err
+		}
+		recent := a.ProgressAgeMs >= 0 && time.Duration(a.ProgressAgeMs)*time.Millisecond < resultSilenceWindow
+		if !recent {
+			return fmt.Errorf("%w — no result, and the lane last reported progress %s", err, progressAgo(a.ProgressAgeMs))
+		}
+		if time.Since(started) >= resultCeiling {
+			return fmt.Errorf("%w — the lane was still reporting progress (%d reports, the last %s ago) after %v, the ceiling for one test",
+				err, a.Progress, agoString(a.ProgressAgeMs), resultCeiling)
+		}
+	}
+}
+
+// progressAgo renders a progress report's age for a failure line.
+func progressAgo(ms int64) string {
+	if ms < 0 {
+		return "never"
+	}
+	return agoString(ms) + " ago"
+}
+
 // runOneBrowserTest triggers one named test via the HTTP API and polls for its result.
 func runOneBrowserTest(t *testing.T, srv testServerEntry) {
 	name := t.Name()[len("TestBrowser/"):]
 
-	// Backstop, not the bound. The lane in the browser is the authority on when a
-	// test has failed: it fails one that has made no progress for its window
-	// (`perTestTimeoutMs`, 25s), having first asked the machine whether it was
-	// being served at all and taken at most `MAX_TEST_EXTENSION_MS` (30s) more if
-	// it was not — then spends up to 5s building the failure block. That is a
-	// little under a minute of lane-side worst case, all of it ending in a posted
-	// result with tapes and a trace attached.
-	//
-	// This timeout exists for the case where no result is posted at all: the lane
-	// itself died, or the server stopped answering. So it has to sit clear of the
-	// lane's worst case rather than cut into it — a poll that expires first turns
-	// every honestly-slow test into a bare "timeout polling /api/test/result"
-	// naming nothing, which is the one failure with no diagnostics in it.
-	// See web/js-tests/utilities/test-patience.js for the two constants above.
-	const testTimeout = 120 * time.Second
-
 	// Outer watchdog: dumps goroutines if the inner polling deadline somehow
 	// doesn't fire (e.g. the goroutine running this test is itself stuck).
-	helpers.PerTestTimeout(t, 2*testTimeout)
+	helpers.PerTestTimeout(t, resultCeiling+resultSilenceWindow)
 
 	// All iframes in a subprocess share the SessionManager's working dir
 	// (srv.fixture) — the server-side path validator joins relative tool-
@@ -325,7 +363,7 @@ func runOneBrowserTest(t *testing.T, srv testServerEntry) {
 		Errors        []string `json:"errors"`
 		BudgetWarning string   `json:"budgetWarning"`
 	}
-	if err := pollServer(srv, "/api/test/result?name="+name, testTimeout, &result); err != nil {
+	if err := pollResultWhileProgressing(srv, name, &result); err != nil {
 		// A dead server makes the queue audit unanswerable, so the audit's own
 		// "unavailable (connection refused)" would be the only clue. Report the
 		// death instead: it says what the audit cannot.
@@ -541,9 +579,29 @@ type testAudit struct {
 	DispatchedAgeMs   int64    `json:"dispatchedAgeMs"`
 	ResultPostedAgeMs int64    `json:"resultPostedAgeMs"`
 	ResultServedAgeMs int64    `json:"resultServedAgeMs"`
+	Progress          int      `json:"progress"`
+	ProgressAgeMs     int64    `json:"progressAgeMs"`
 	PendingDepth      int      `json:"pendingDepth"`
 	PendingNames      []string `json:"pendingNames"`
 	BufferedResults   int      `json:"bufferedResults"`
+}
+
+// fetchAudit reads the server's audit record for one test.
+func fetchAudit(addr, testName string) (testAudit, error) {
+	var a testAudit
+	client := &http.Client{Timeout: harnessHTTPTimeout}
+	resp, err := client.Get("http://" + addr + "/api/test/audit?name=" + neturlEscape(testName))
+	if err != nil {
+		return a, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return a, fmt.Errorf("endpoint returned %d (unwired?)", resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&a); err != nil {
+		return a, fmt.Errorf("undecodable (%v)", err)
+	}
+	return a, nil
 }
 
 // agoString renders a millisecond age as a short duration.
@@ -564,24 +622,16 @@ func agoString(ms int64) string {
 // that can: both the pending queue and the result buffer are destructive reads,
 // so each hop's evidence is consumed by the read that takes it.
 func queueAudit(addr, testName string) string {
-	client := &http.Client{Timeout: harnessHTTPTimeout}
-	resp, err := client.Get("http://" + addr + "/api/test/audit?name=" + neturlEscape(testName))
+	a, err := fetchAudit(addr, testName)
 	if err != nil {
 		return fmt.Sprintf("QUEUE AUDIT: unavailable (%v)", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Sprintf("QUEUE AUDIT: endpoint returned %d (unwired?)", resp.StatusCode)
-	}
-	var a testAudit
-	if err := json.NewDecoder(resp.Body).Decode(&a); err != nil {
-		return fmt.Sprintf("QUEUE AUDIT: undecodable (%v)", err)
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "QUEUE AUDIT for %s: queued=%d dispatched=%d resultPosted=%d resultServed=%d "+
-		"(pending depth %d, buffered results %d)\n",
-		a.Name, a.Queued, a.Dispatched, a.ResultPosted, a.ResultServed, a.PendingDepth, a.BufferedResults)
+		"progress reports=%d, last %s (pending depth %d, buffered results %d)\n",
+		a.Name, a.Queued, a.Dispatched, a.ResultPosted, a.ResultServed,
+		a.Progress, progressAgo(a.ProgressAgeMs), a.PendingDepth, a.BufferedResults)
 
 	switch {
 	case a.Queued == 0:

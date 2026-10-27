@@ -17,7 +17,7 @@ import (
 // progress — so a command that goes unanswered has two very different causes:
 //
 //   - the engine received it and DECLINED to act on the TOOL (an unknown tool, a
-//     worker-managed manifest, an execution already in flight). It says so, in an
+//     worker-managed manifest). It says so, in an
 //     evaluate-noact/execute-noact trace. The tool really is stuck and failing it
 //     is the right recovery: the parked turn unblocks and the model sees why.
 //   - the engine received it and could not REACH the tool — it holds no loaded
@@ -393,13 +393,11 @@ func TestEngineNoActReasons_AreAllClassified(t *testing.T) {
 		t.Fatalf("read %s: %v", protocols, err)
 	}
 
-	// Reasons that mean the engine DID reach the tool: the tool is what is stuck,
-	// so the attempt cap applies and no hold is wanted. Listed rather than assumed
-	// so that adding one is a decision, not a default.
-	engaged := map[string]bool{
-		"in-flight":         true,
-		"already-executing": true,
-	}
+	// Reasons that mean the engine DID reach the tool and is still working on it:
+	// no hold is wanted, and they reset the attempt cap rather than count against
+	// it. Listed rather than assumed so that adding one is a decision, not a
+	// default.
+	engaged := engineInFlightReasons
 
 	found := map[string]bool{}
 	for _, m := range regexp.MustCompile(`sendEngineTrace\([^\n]*?reason:\s*'([^']+)'`).FindAllSubmatch(src, -1) {
@@ -420,8 +418,8 @@ func TestEngineNoActReasons_AreAllClassified(t *testing.T) {
 			"of, so it is being treated as the tool's own fault by default. Decide: if "+
 			"it means the engine could not REACH the tool, add it to "+
 			"engineUnreachableReasons (tool_command_state.go) so the tool is held while "+
-			"the engine recovers; if it means the engine reached the tool and declined, "+
-			"add it to this test's `engaged` list", reason)
+			"the engine recovers; if it means the engine reached the tool and is still "+
+			"working on it, add it to engineInFlightReasons", reason)
 	}
 	for reason := range engineUnreachableReasons {
 		if !found[reason] {
@@ -429,6 +427,105 @@ func TestEngineNoActReasons_AreAllClassified(t *testing.T) {
 				"trace in %s emits it. If the engine renamed it, the rename silently "+
 				"turned that decline back into a tool failure", reason, protocols)
 		}
+	}
+}
+
+// TestEngineInFlight_ToolIsNotEscalated is the slow-core reproduction. The engine
+// answers every re-drive with "I have it, I'm still on it" — evaluate-noact
+// in-flight while action.prepare() is still running, execute-noact
+// already-executing while the run is still going — for far longer than the
+// attempts cap, and then finishes. Those answers are progress, not declines: a
+// tool failed while the engine is still working on it is failed for running on a
+// slow machine, and the result the engine was about to write is thrown away.
+func TestEngineInFlight_ToolIsNotEscalated(t *testing.T) {
+	for _, tc := range []struct {
+		name, state, event, reason string
+	}{
+		{"evaluate", StateUnevaluated, "evaluate-noact", "in-flight"},
+		{"execute", StateApproved, "execute-noact", "already-executing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newReattachHarness(t, "conv-engine-in-flight-"+tc.name)
+			h.w.doc.InsertMessage(0, ConversationItem{
+				Type: ItemTypeToolAction, ItemID: "ta-1", ToolUseID: "tu-1",
+				ToolName: "bash", State: tc.state,
+			})
+			h.w.tools.redriveAfter = 0
+
+			for i := 0; i < 3*maxToolCommandAttempts; i++ {
+				h.w.tools.recordTrace("tu-1", tc.event, tc.reason, time.Now())
+				h.w.driveToolActions()
+			}
+			h.flush(t)
+			if it, ok := findToolItem(h.w.currentRun().getTargetItems(), "tu-1"); !ok || it.State != tc.state {
+				t.Fatalf("a tool the engine reported %q on every re-drive was escalated after %d "+
+					"attempts: state=%q (ok=%v). The engine was still working on it",
+					tc.reason, 3*maxToolCommandAttempts, it.State, ok)
+			}
+
+			// The engine finishes: the doc advances and the worker stops commanding it.
+			setToolState(h.w, "tu-1", StateRunning)
+			h.w.driveToolActions()
+			h.flush(t)
+			if it, _ := findToolItem(h.w.currentRun().getTargetItems(), "tu-1"); it.State != StateRunning {
+				t.Fatalf("after the engine claimed the tool: state=%q, want running", it.State)
+			}
+		})
+	}
+}
+
+// TestEngineInFlightThenSilent_StillEscalates: an in-flight answer buys time
+// only while it keeps coming. An engine that said it had the tool and then went
+// silent is mute, and once the phase has outlasted the mute hold the tool is
+// failed as before — the in-flight answers must not leave a permanent pass.
+func TestEngineInFlightThenSilent_StillEscalates(t *testing.T) {
+	h := newReattachHarness(t, "conv-engine-in-flight-then-silent")
+	insertApprovedTool(h)
+	h.w.tools.redriveAfter = 0
+
+	for i := 0; i < 2*maxToolCommandAttempts; i++ {
+		h.w.tools.recordTrace("tu-1", "execute-noact", "already-executing", time.Now())
+		h.w.driveToolActions()
+	}
+	h.w.tools.entry("tu-1").firstDispatchedAt = time.Now().Add(-2 * engineUnprovenHold)
+
+	driveToEscalation(h, traceNothing)
+	h.flush(t)
+
+	if it, ok := findToolItem(h.w.currentRun().getTargetItems(), "tu-1"); !ok || it.State != StateCompleted {
+		t.Fatalf("an engine silent past the mute hold must still have the tool failed, "+
+			"in-flight answers earlier in the phase notwithstanding: state=%q (ok=%v)", it.State, ok)
+	}
+}
+
+// TestEngineInFlightForever_EscalatesAtCeiling: an engine that goes on saying
+// "still in flight" for an absurdly long time is wedged inside the tool, and
+// doc.go's rule stands — degrade to a recoverable error, never an infinite wait.
+// The message must carry the engine's word for it, because "never carried it
+// out" sends the reader after a tool the engine says it is still running.
+func TestEngineInFlightForever_EscalatesAtCeiling(t *testing.T) {
+	h := newReattachHarness(t, "conv-engine-in-flight-forever")
+	insertApprovedTool(h)
+	h.w.tools.redriveAfter = 0
+	h.w.driveToolActions()
+	h.w.tools.entry("tu-1").firstDispatchedAt = time.Now().Add(-24 * time.Hour)
+
+	for i := 0; i <= maxToolCommandAttempts+1; i++ {
+		h.w.tools.recordTrace("tu-1", "execute-noact", "already-executing", time.Now())
+		h.w.driveToolActions()
+		if it, _ := findToolItem(h.w.currentRun().getTargetItems(), "tu-1"); it.State == StateCompleted {
+			break
+		}
+	}
+	h.flush(t)
+
+	if it, ok := findToolItem(h.w.currentRun().getTargetItems(), "tu-1"); !ok || it.State != StateCompleted {
+		t.Fatalf("a tool in flight for a day must be failed so the turn can continue: state=%q (ok=%v)", it.State, ok)
+	}
+	text := toolResultText(h.w.currentRun().buildMessages(nil), "tu-1")
+	if !strings.Contains(text, "already-executing") || strings.Contains(text, "never carried it out") {
+		t.Fatalf("the failure must say the engine reported the tool still in progress, "+
+			"in its own word for it: %q", text)
 	}
 }
 

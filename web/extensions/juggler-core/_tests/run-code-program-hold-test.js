@@ -159,20 +159,35 @@ export async function runTests(_ctx) {
     await test('time spent waiting on the user is not counted against the program', async () => {
       const log = `rc-clock-${Date.now()}.txt`;
       const command = heldCommand(log);
-      const code = `await tools.bash({ command: ${JSON.stringify(command)} }); return "done";`;
-      // Generous enough that everything before the hold fits in it on a busy
-      // machine; the wait outlasts it.
-      const { conversation, mt, item } = await setup(code, { strategy: 'default', timeout: 4000 });
+      const programOf = (/** @type {string} */ cmd) => `await tools.bash({ command: ${JSON.stringify(cmd)} }); return "done";`;
+      const code = programOf(command);
+      // The program's timeout must hold everything it does except the wait, on
+      // whatever core this is, and the wait must outlast it. So the program's
+      // own work is measured here first: the same program under YOLO, where
+      // nothing is held. A fixed timeout is a guess at this core's speed — 4s
+      // was ample on a fast one and was spent before the hold on a slow one.
+      const cal = await setup(programOf(heldCommand(`rc-clock-cal-${Date.now()}.txt`)));
+      const calDone = await ended(startAsAction(cal.conversation, cal.mt, cal.item.toolUseId), 'the unheld program to end');
+      assert(calDone.state === 'completed' && calDone.result?.content === 'done',
+        `the same program, unheld, finishes: ${JSON.stringify(calDone.result)}`);
+      const ownMs = Number(calDone.result?.fullResult?.durationMs);
+      assert(ownMs > 0, `the unheld run reports its duration: ${JSON.stringify(calDone.result)}`);
+      // Four times the measured cost: room for the held run's extra handover
+      // and for a slow core's unevenness, and never below the 4s that is ample
+      // on a fast one.
+      const timeoutMs = Math.max(4000, Math.ceil(ownMs * 4));
+      const { conversation, mt, item } = await setup(code, { strategy: 'default', timeout: timeoutMs });
       const id = item.toolUseId;
       await assertParks(conversation, mt, command);
       const started = Date.now();
       const finished = startAsAction(conversation, mt, id);
       await waitHeld(mt, id, 'bash');
       // The duration here is the subject, not a guess: the answer must come
-      // after the program's own 4s timeout would have fired had the hold been
+      // after the program's own timeout would have fired had the hold been
       // counted. Measured from the start, so a slow run up to the hold already
       // counts towards it.
-      const pastTimeoutMs = 4000 + 500 - (Date.now() - started);
+      const pastTimeoutMs = timeoutMs + 500 - (Date.now() - started);
+      // eslint-disable-next-line juggler/no-private-test-wait -- the hold must outlast the program's own timeout; the duration is the subject
       if (pastTimeoutMs > 0) await new Promise((resolve) => setTimeout(resolve, pastTimeoutMs));
       answerHeld(conversation, mt, id, 'yes');
       const done = await ended(finished);

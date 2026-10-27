@@ -48,6 +48,7 @@ import {
   __setBackIntegrationForTests,
 } from '../../js/utils/popup-manager.js';
 import { modelGestureShouldHandle } from '../../js/services/model-cycler.js';
+import { waitFor } from '../utilities/test-helpers.js';
 
 const OVERLAY_MARKER = 'jugglerOverlay';
 
@@ -180,13 +181,19 @@ export async function runTests() {
   /** @type {'sync'|'deferred'|'never'} */
   let backAnswer = 'deferred';
   let backAnswerDelay = 0;
+  /** Deferred answers queued and not yet delivered — each a pop that could still land. */
+  let backAnswersOwed = 0;
   window.history.pushState = function (state) { pushCount++; lastPushState = state; };
   window.history.back = function () {
     backCount++;
     if (backAnswer === 'never') return;
     const answer = () => window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
-    if (backAnswer === 'sync') answer();
-    else setTimeout(answer, backAnswerDelay);
+    if (backAnswer === 'sync') {
+      answer();
+      return;
+    }
+    backAnswersOwed++;
+    setTimeout(() => { backAnswersOwed--; answer(); }, backAnswerDelay);
   };
 
   try {
@@ -262,7 +269,10 @@ export async function runTests() {
     /** @type {() => void} */
     let relAfterSettle = () => {};
     relAfterSettle = markPopupOpen(() => { dismissedAfterSettle++; relAfterSettle(); });
-    await new Promise((r) => setTimeout(r, 100)); // long enough for a late pop to land
+    // A late pop is one of the stub's queued answers: once every one has been
+    // delivered and handled, there is none left to spend on this overlay.
+    await waitFor(() => backAnswersOwed === 0, 'every queued back() answer to be delivered');
+    await tick();
     tally(check(dismissedAfterSettle === 0,
       `settle: the pop it waited for is not spent on the next overlay (closed ${dismissedAfterSettle}×)`, errors));
     const drainSettled = nextPopstate();

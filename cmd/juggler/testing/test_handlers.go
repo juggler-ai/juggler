@@ -40,6 +40,7 @@ type TestAPI struct {
 	webExtDir     string
 	session       SessionResetter
 	tapeDumper    func(string) any
+	tapeHead      func(string) int64
 	convOwnership *ConvOwnership
 }
 
@@ -61,6 +62,13 @@ func NewTestAPIWithSession(projectRoot string, session SessionResetter) *TestAPI
 // HandleDumpTape returns an empty list.
 func (api *TestAPI) SetTapeDumper(fn func(string) any) {
 	api.tapeDumper = fn
+}
+
+// SetTapeHead wires the worker manager so the tape-head endpoint can say when
+// each conversation's worker last recorded anything. Optional; if unset,
+// HandleTapeHead reports 0 for every conversation.
+func (api *TestAPI) SetTapeHead(fn func(string) int64) {
+	api.tapeHead = fn
 }
 
 // RecordConvOwner / CheckConvDelete / ReleaseConvOwner expose the ownership
@@ -361,6 +369,27 @@ func (api *TestAPI) HandleDumpTape(w http.ResponseWriter, r *http.Request) {
 		entries = []any{}
 	}
 	handlers.WriteJSON(w, r, 0, map[string]any{"entries": entries})
+}
+
+// HandleTapeHead reports, for each conversation in the comma-separated
+// convIds, when its worker last recorded a tape entry (Unix milliseconds, 0 for
+// none), and under "*" when any worker did. A lane's stall watchdog polls it as
+// progress: a worker working through a backlog, or a server working through
+// the other lanes' work in front of this one's, is visible here long before
+// the lane hears any of it.
+func (api *TestAPI) HandleTapeHead(w http.ResponseWriter, r *http.Request) {
+	heads := map[string]int64{}
+	for _, id := range append(strings.Split(r.URL.Query().Get("convIds"), ","), "*") {
+		if id = strings.TrimSpace(id); id == "" {
+			continue
+		}
+		if api.tapeHead != nil {
+			heads[id] = api.tapeHead(id)
+		} else {
+			heads[id] = 0
+		}
+	}
+	handlers.WriteJSON(w, r, 0, map[string]any{"heads": heads})
 }
 
 // HandleMkdir creates a directory (mkdir -p) within a fixture dir. Used by

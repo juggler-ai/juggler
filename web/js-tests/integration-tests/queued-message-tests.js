@@ -49,6 +49,7 @@
  */
 
 import { textResponse, toolUseResponse } from '../utilities/integration-test-runner.js';
+import { waitFor } from '../utilities/test-helpers.js';
 
 // README.md content as returned by the read tool (cat -n style), matching the
 // unit-test-fixture used across the approval suite.
@@ -329,6 +330,9 @@ export const queuedDuringApprovalContinuesOnDenyTest = {
     { type: 'send-message-no-wait', message: 'run it' },
     { type: 'wait-for-approval', toolUseId: 'call_1' },
     { type: 'send-message-no-wait', message: 'redirect please' },
+    // The deny promotes whatever is queued when the worker handles it, so the
+    // queued message must be in the doc first.
+    { type: 'wait-for-state', condition: { pendingContent: 'redirect please' } },
     { type: 'deny', toolUseId: 'call_1' },
     { type: 'wait-for-idle' }
   ],
@@ -493,62 +497,40 @@ export const queuedItemSelectableAndDeletableTest = {
   customAssertions: async (conversation) => {
     // The worker is the single writer of pendingItems; wait for its write to
     // sync back to this doc (deterministic condition, not a fixed delay).
-    const deadline = Date.now() + 3000;
-    let target = null;
-    while (Date.now() < deadline) {
-      target = pendingItemsOf(conversation).find(
-        (/** @type {any} */ it) => it.get?.('content') === 'queued to delete');
-      if (target) break;
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    if (!target) {
-      throw new Error('Queued message did not land in pendingItems');
-    }
+    const target = await waitFor(() => pendingItemsOf(conversation).find(
+      (/** @type {any} */ it) => it.get?.('content') === 'queued to delete'),
+    { timeoutMs: 3000, intervalMs: 20, description: 'the queued message to land in pendingItems' });
     const itemId = target.get('itemId');
 
     // Selection parity: the queued item must render with a message-id so the
     // id+DOM selection path (and the properties panel) can target it, plus the
     // queue-only inline trashcan affordance.
-    let el = null;
-    let inlineDelete = null;
-    const renderDeadline = Date.now() + 3000;
-    while (Date.now() < renderDeadline) {
-      el = document.querySelector(`[message-id="${itemId}"]`);
-      inlineDelete = el
-        ? /** @type {HTMLButtonElement|null} */ (el.querySelector('.queued-message-delete-btn .icon-trashcan')?.closest('button'))
-        : null;
-      if (el && inlineDelete) break;
-      await new Promise((r) => setTimeout(r, 20));
-    }
+    const queuedEl = () => document.querySelector(`[message-id="${itemId}"]`);
+    const inlineDeleteOf = (/** @type {Element|null} */ el) => (el
+      ? /** @type {HTMLButtonElement|null} */ (el.querySelector('.queued-message-delete-btn .icon-trashcan')?.closest('button'))
+      : null);
+    const { el, inlineDelete } = await waitFor(() => {
+      const found = queuedEl();
+      const button = inlineDeleteOf(found);
+      return found && button ? { el: found, inlineDelete: button } : null;
+    }, {
+      timeoutMs: 3000,
+      intervalMs: 20,
+      description: () => (queuedEl()
+        ? `queued item ${itemId} to render an inline trashcan delete button`
+        : `queued item ${itemId} to render with a message-id (selectable)`),
+    });
 
-    if (!el) {
-      throw new Error(`Queued item ${itemId} is not rendered with a message-id (not selectable)`);
-    }
     if (!el.classList.contains('queued-message')) {
       throw new Error('Queued item did not get the queued-message class');
-    }
-    if (!inlineDelete) {
-      throw new Error('Queued item did not render an inline trashcan delete button');
     }
 
     // Inline delete removes it from the queue without requiring the properties panel.
     inlineDelete.click();
 
-    const removeDeadline = Date.now() + 2000;
-    while (Date.now() < removeDeadline) {
-      const stillPending = pendingItemsOf(conversation).some(
-        (/** @type {any} */ it) => it.get?.('itemId') === itemId
-      );
-      if (!stillPending) break;
-      await new Promise((r) => setTimeout(r, 20));
-    }
-
-    const stillPending = pendingItemsOf(conversation).some(
+    await waitFor(() => !pendingItemsOf(conversation).some(
       (/** @type {any} */ it) => it.get?.('itemId') === itemId
-    );
-    if (stillPending) {
-      throw new Error('Inline trashcan did not remove the queued item from pendingItems');
-    }
+    ), { timeoutMs: 2000, intervalMs: 20, description: 'the inline trashcan to remove the queued item from pendingItems' });
   }
 };
 
@@ -651,14 +633,9 @@ export const queuedItemPropertiesPanelTest = {
     const pendingOf = () => (('pendingItems' in thread) ? thread.pendingItems : []);
 
     // Wait for the worker's pending write to sync back.
-    const deadline = Date.now() + 3000;
-    let target = null;
-    while (Date.now() < deadline) {
-      target = pendingOf().find((/** @type {any} */ it) => it.get?.('content') === 'queued message body');
-      if (target) break;
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    if (!target) throw new Error('Queued message did not land in pendingItems');
+    const target = await waitFor(
+      () => pendingOf().find((/** @type {any} */ it) => it.get?.('content') === 'queued message body'),
+      { timeoutMs: 3000, intervalMs: 20, description: 'the queued message to land in pendingItems' });
     const itemId = target.get('itemId');
 
     // Select it via the real selection path (what a click ultimately calls).
@@ -670,41 +647,30 @@ export const queuedItemPropertiesPanelTest = {
 
     // The properties-panel column should appear and render the message content
     // plus a delete button (panel render is debounced ~150ms).
-    let panel = null;
-    let removeBtn = null;
-    const pDeadline = Date.now() + 3000;
-    while (Date.now() < pDeadline) {
-      panel = /** @type {any} */ (document.querySelector('properties-panel'));
-      removeBtn = panel ? panel.querySelector('.properties-panel-btn.danger') : null;
+    const panelOf = () => /** @type {any} */ (document.querySelector('properties-panel'));
+    const showsQueued = (/** @type {any} */ panel) => {
       const text = panel ? (panel.textContent || '') : '';
-      if (panel && removeBtn && text.includes('queued message body') &&
-				!text.includes('Select an item to view details')) {
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 30));
-    }
-
-    if (!panel) {
-      throw new Error('No properties-panel appeared for the selected queued message');
-    }
-    const panelText = panel.textContent || '';
-    if (panelText.includes('Select an item to view details') || !panelText.includes('queued message body')) {
-      throw new Error('Properties panel did not render the queued message content');
-    }
-    if (!removeBtn) {
-      throw new Error('Properties panel has no delete button for the queued message');
-    }
+      return text.includes('queued message body') && !text.includes('Select an item to view details');
+    };
+    const removeBtn = await waitFor(() => {
+      const panel = panelOf();
+      const btn = panel ? panel.querySelector('.properties-panel-btn.danger') : null;
+      return showsQueued(panel) ? btn : null;
+    }, {
+      timeoutMs: 3000,
+      intervalMs: 30,
+      description: () => {
+        const panel = panelOf();
+        if (!panel) return 'a properties-panel for the selected queued message';
+        if (!showsQueued(panel)) return 'the properties panel to render the queued message content';
+        return 'a delete button for the queued message in the properties panel';
+      },
+    });
 
     // Click delete → the message leaves the queue.
     removeBtn.click();
-    const removeDeadline = Date.now() + 2000;
-    while (Date.now() < removeDeadline) {
-      if (!pendingOf().some((/** @type {any} */ it) => it.get?.('itemId') === itemId)) break;
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    if (pendingOf().some((/** @type {any} */ it) => it.get?.('itemId') === itemId)) {
-      throw new Error('Remove-from-queue did not remove the message from pendingItems');
-    }
+    await waitFor(() => !pendingOf().some((/** @type {any} */ it) => it.get?.('itemId') === itemId),
+      { timeoutMs: 2000, intervalMs: 20, description: 'remove-from-queue to remove the message from pendingItems' });
   }
 };
 

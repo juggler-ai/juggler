@@ -6,6 +6,7 @@ package worker
 
 import (
 	"os"
+	"sync/atomic"
 	"time"
 )
 
@@ -28,6 +29,7 @@ type EventTape struct {
 	enabled bool
 	in      chan EventTapeEntry
 	dumps   chan chan []EventTapeEntry
+	heads   chan chan int64
 }
 
 const eventTapeCapacity = 2000
@@ -36,6 +38,19 @@ const eventTapeCapacity = 2000
 // Resolved once at process startup; subsequent env mutations are ignored to
 // keep the per-Record hot path branch-free after construction.
 var tracingEnabled = os.Getenv("JUGGLER_TRACE") != ""
+
+// lastAnyRecord is when any worker's tape last recorded anything (Unix
+// milliseconds): the server getting through someone's work. See
+// LastTapeRecordAt.
+var lastAnyRecord atomic.Int64
+
+// LastTapeRecordAt returns when any worker in this process last recorded a tape
+// entry, or 0 before the first. A test lane whose own request is queued behind
+// its siblings' work sees nothing move on its own conversation's tape while the
+// server works through theirs; this moving says the queue is being served.
+func LastTapeRecordAt() int64 {
+	return lastAnyRecord.Load()
+}
 
 // NewEventTape constructs a fresh tape. Capacity is fixed; entries beyond it
 // overwrite the oldest. The owner goroutine is spawned only when tracing is
@@ -51,6 +66,7 @@ func NewEventTape() *EventTape {
 		// 256 covers the typical observer-tick fan-out comfortably.
 		in:    make(chan EventTapeEntry, 256),
 		dumps: make(chan chan []EventTapeEntry, 4),
+		heads: make(chan chan int64, 4),
 	}
 	go t.run()
 	return t
@@ -61,8 +77,10 @@ func NewEventTape() *EventTape {
 func (t *EventTape) run() {
 	buf := make([]EventTapeEntry, eventTapeCapacity)
 	var head, size int
+	var lastTS int64
 
 	appendEntry := func(e EventTapeEntry) {
+		lastTS = e.TS
 		if size < eventTapeCapacity {
 			buf[size] = e
 			size++
@@ -110,6 +128,20 @@ func (t *EventTape) run() {
 				}
 			}
 			reply <- snapshot()
+		case reply := <-t.heads:
+			for drained := false; !drained; {
+				select {
+				case e, ok := <-t.in:
+					if !ok {
+						drained = true
+						break
+					}
+					appendEntry(e)
+				default:
+					drained = true
+				}
+			}
+			reply <- lastTS
 		}
 	}
 }
@@ -127,6 +159,7 @@ func (t *EventTape) Record(kind string, summary map[string]any) {
 		Kind:    kind,
 		Summary: summary,
 	}
+	lastAnyRecord.Store(entry.TS)
 	select {
 	case t.in <- entry:
 	default:
@@ -143,5 +176,18 @@ func (t *EventTape) DumpAll() []EventTapeEntry {
 	}
 	reply := make(chan []EventTapeEntry, 1)
 	t.dumps <- reply
+	return <-reply
+}
+
+// Head returns when the newest entry was recorded (Unix milliseconds), or 0
+// for an empty or disabled tape. The cheap half of DumpAll: a test lane polls
+// it to learn whether this worker is still getting through its work, which a
+// lane cannot see from its own events while the worker is busy with a backlog.
+func (t *EventTape) Head() int64 {
+	if t == nil || !t.enabled {
+		return 0
+	}
+	reply := make(chan int64, 1)
+	t.heads <- reply
 	return <-reply
 }

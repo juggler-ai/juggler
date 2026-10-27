@@ -195,9 +195,10 @@ export async function runTests(_ctx) {
     const card = await mountCard(stubSession(), '',
       (state) => state.urls.some(url => url.startsWith('/api/default-model')));
     try {
-      // The lookup came back with nothing; give a usage fetch, were one coming,
-      // long enough to be recorded before asserting that none was.
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // The lookup came back with nothing. The card draws its empty state once it
+      // has decided there is no provider, which is after any usage fetch it
+      // would have started.
+      await waitFor(() => card.html().includes('No usage data'), 'the card to draw its empty state');
       assert(card.usageURLs().length === 0,
         `nothing to show must fetch no usage, got ${JSON.stringify(card.usageURLs())}`);
       assert(card.html().includes('No usage data'), 'the card must report its own empty state');

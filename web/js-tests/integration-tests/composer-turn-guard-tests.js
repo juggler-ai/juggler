@@ -143,9 +143,9 @@ export const newThreadWithDraftDoesNotRunTest = {
     // Mimic the New Thread button with text typed in the box.
     { type: 'run-command', command: 'thread', args: '--draft-message Draft for the new thread' },
     { type: 'wait-for-state', condition: { hasThreadItem: true } },
-    // Settle window: if the worker were going to dispatch the thread, it
-    // would have by now.
-    { type: 'wait-ms', ms: 600 }
+    // The fence: once the worker has processed the thread's creation, any
+    // dispatch it was going to make has been made.
+    { type: 'ping-worker' }
   ],
 
   customAssertions: (conversation) => {
@@ -191,7 +191,7 @@ export const newThreadWhileToolPendingDoesNotRunTest = {
     // Press "New Thread" (the button dispatches /thread).
     { type: 'send-message-no-wait', message: '/thread' },
     { type: 'assert-input-warning', textContains: 'Wait for the current turn' },
-    { type: 'wait-ms', ms: 200 }
+    { type: 'ping-worker' }
   ],
 
   customAssertions: (conversation) => {

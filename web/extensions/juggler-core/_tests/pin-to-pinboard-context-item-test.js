@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import PinToPinboardContextItem from '../context-items/pin-to-pinboard-context-item.js';
-import { assert } from '../../../js-tests/utilities/test-helpers.js';
+import { assert, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 import pinboardStore from '../../../js/services/pinboard-store.js';
 import pinboardView from '../../../js/services/pinboard-view.js';
 import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
@@ -67,12 +67,8 @@ export async function runTests(_ctx) {
       result: { pin: 'agent_file', type: 'file', parameters: { path } },
     }));
     const link = /** @type {HTMLElement} */ (ui.summary);
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline && link.textContent !== path) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    assert(link.textContent === path,
-      `the card should name the file, not its pin type, got "${link.textContent}"`);
+    await waitFor(() => link.textContent === path,
+      () => `the card to name the file, not its pin type (it says "${link.textContent}")`);
   });
 
   // The tool reads the installed pin types before every tool list is built, and
@@ -243,7 +239,7 @@ export async function runTests(_ctx) {
     await withBoard([], async (sent) => {
       const ui = item.getStatusUI(/** @type {any} */ ({ success: true, result: made }));
       /** @type {HTMLElement} */ (ui.summary).click();
-      for (let i = 0; i < 20 && !pinboardView.isOpen(); i++) await new Promise((resolve) => setTimeout(resolve, 10));
+      await waitFor(() => pinboardView.isOpen(), 'the Pinboard to open on the restored pin');
       const [add] = sent.flat();
       assert(add?.op === 'add' && add.id === made.pin && add.type === made.type,
         'the pin should be restored with its own id, so the next click finds it');

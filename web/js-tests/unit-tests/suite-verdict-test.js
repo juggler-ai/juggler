@@ -67,18 +67,13 @@ export async function runTests(_ctx) {
 
   // A passing suite prints nothing, so the warning is the only way one creeping
   // towards its budget is found before it fails instead of by its sightings.
-  run('a passing suite over ten seconds of its own time is flagged, naming itself and the time', () => {
-    const w = suiteBudgetWarning('unit:slow', { wallMs: 12_340, grantedMs: 0 });
+  run('a passing suite over ten seconds is flagged, naming itself and the time', () => {
+    const w = suiteBudgetWarning('unit:slow', { wallMs: 12_340 });
     if (!w.includes('unit:slow') || !w.includes('12.3s')) throw new Error(`got ${JSON.stringify(w)}`);
   });
 
-  run('time granted for load is not the suite\u2019s own', () => {
-    const w = suiteBudgetWarning('unit:loaded', { wallMs: 12_000, grantedMs: 4_000 });
-    if (w !== '') throw new Error(`8s of its own was flagged: ${JSON.stringify(w)}`);
-  });
-
   run('under ten seconds is not flagged', () => {
-    const w = suiteBudgetWarning('unit:fine', { wallMs: 9_900, grantedMs: 0 });
+    const w = suiteBudgetWarning('unit:fine', { wallMs: 9_900 });
     if (w !== '') throw new Error(`got ${JSON.stringify(w)}`);
   });
 

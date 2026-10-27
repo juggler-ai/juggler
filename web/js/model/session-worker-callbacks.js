@@ -20,16 +20,20 @@ import workerManager from '../services/worker-manager.js';
 const DEFAULT_CONTEXT_WINDOW = 128000;
 
 /**
- * How long the engine's context callback waits for a requested context item
- * whose yjs-sync from the worker is still in flight (the post-reload race)
- * before rendering without it. Context rendering is ENGINE-ONLY, so this
+ * How long the conversation's document may go without a change before the
+ * engine's context callback stops waiting for a requested context item whose
+ * yjs-sync from the worker is still in flight (the post-reload race), and
+ * renders without it. While syncs keep landing the item may be among them; once
+ * the document has gone quiet this long it is not coming (see
+ * {@link waitForSyncedItems}). Context rendering is ENGINE-ONLY, so this
  * callback is the sole responder and MUST always reply: a silent bail has no
- * other client to answer and wedges the worker's turn for the full 30s
- * ContextTimeout, surfacing to the user as
- * "Failed to get context/tools: context/tools request timed out". Kept far
- * below that timeout so a genuinely dead engine still surfaces promptly.
+ * other client to answer and leaves the worker's turn waiting until its
+ * ceiling.
  */
-const CONTEXT_SYNC_WAIT_MS = 3000;
+const CONTEXT_SYNC_QUIET_MS = 3000;
+
+/** The most the callback waits for in-flight items however busy the document. */
+const CONTEXT_SYNC_CEILING_MS = 2 * 60_000;
 import contextItemRegistry from '../registries/context-item-registry.js';
 import { FormattingHelpers } from '../../sdk/lib/formatting-helpers.js';
 import { resolveToolName } from '../services/tool-generator.js';
@@ -38,6 +42,36 @@ import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { assembleSystemPrompt, systemPositionItems as systemPositionItemsOf, contextPositionOf } from '../services/system-prompt-builder.js';
 import { buildExtensionSystemPromptContributions } from '../services/extensions.js';
 import { estimateTokens } from '../utils/token-estimate.js';
+
+/**
+ * Wait for requested context items still being synced into `conv`'s document.
+ *
+ * Bounded by the document, not the clock: the wait goes on while the document
+ * keeps changing — syncs landing, any of which may carry the item — and ends
+ * once it has been quiet for `quietMs`, or at `ceilingMs` however busy it is.
+ * A fixed span left the item out of the model's context whenever a slow core
+ * took longer than the span to apply the syncs in front of it.
+ * @param {any} conv - The conversation (whenDocument and onDocumentChange).
+ * @param {() => boolean} done - Whether every requested item is present.
+ * @param {{quietMs: number, ceilingMs: number, now?: () => number}} opts - The quiet span, the ceiling, and the clock (a test's own).
+ * @returns {Promise<boolean>} Whether they all arrived.
+ */
+export async function waitForSyncedItems(conv, done, { quietMs, ceilingMs, now = Date.now }) {
+  const started = now();
+  let lastChange = started;
+  const off = conv.onDocumentChange(() => { lastChange = now(); });
+  try {
+    for (;;) {
+      if (done()) return true;
+      const quietLeft = quietMs - (now() - lastChange);
+      const ceilingLeft = ceilingMs - (now() - started);
+      if (quietLeft <= 0 || ceilingLeft <= 0) return false;
+      if (await conv.whenDocument(done, Math.min(quietLeft, ceilingLeft))) return true;
+    }
+  } finally {
+    off();
+  }
+}
 
 /**
  * Install engine-role worker callbacks: context requests, tool definitions
@@ -58,9 +92,8 @@ export function setupWorkerCallbacks(session) {
       // the engine's load of this conversation (loadAndFlush); if it's still
       // absent the load genuinely failed and waiting cannot help. Respond with
       // empty context so the turn proceeds degraded rather than leaving the
-      // worker's reply channel unfed — an unanswered request wedges the turn for
-      // the full 30s ContextTimeout and surfaces as
-      // "Failed to get context/tools: context/tools request timed out".
+      // worker's reply channel unfed — an unanswered request leaves the turn
+      // waiting until the worker's ceiling (ContextCeiling) and then fails it.
       console.warn(`[ContextCallback] conv ${conversationId} not loaded (req=${req.requestId}); responding empty so the turn is not wedged`);
       workerManager.sendRenderContextItemsResponse(conversationId, req.requestId, [], '');
       return;
@@ -83,16 +116,17 @@ export function setupWorkerCallbacks(session) {
     // A requested item can be missing purely because its yjs-sync from the
     // worker is still in flight — the post-reload race: the app reloaded, the
     // engine is re-hydrating, and the item's sync hasn't landed yet. Wait
-    // briefly for it, asked again as each sync lands (Conversation#whenDocument).
-    // We do NOT bail: context is engine-only, so bailing wedges the turn (see
-    // above). After the budget we render whatever HAS synced — the render loop
+    // for it while syncs keep landing (waitForSyncedItems). We do NOT bail:
+    // context is engine-only, so bailing wedges the turn (see above). Once the
+    // document has gone quiet we render whatever HAS synced — the render loop
     // below simply skips any still-missing id, and it'll be present on the next
     // turn.
     if (missingContextIds().length > 0) {
-      await conv.whenDocument(() => missingContextIds().length === 0, CONTEXT_SYNC_WAIT_MS);
+      await waitForSyncedItems(conv, () => missingContextIds().length === 0,
+        { quietMs: CONTEXT_SYNC_QUIET_MS, ceilingMs: CONTEXT_SYNC_CEILING_MS });
       const missing = missingContextIds();
       if (missing.length > 0) {
-        console.warn(`[ContextCallback] conv ${conversationId} rendering without ${missing.length} not-yet-synced item(s) [${missing.join(', ')}] after ${CONTEXT_SYNC_WAIT_MS}ms (req=${req.requestId}); turn proceeds rather than wedging`);
+        console.warn(`[ContextCallback] conv ${conversationId} rendering without ${missing.length} not-yet-synced item(s) [${missing.join(', ')}] after the document went quiet for ${CONTEXT_SYNC_QUIET_MS}ms (req=${req.requestId}); turn proceeds rather than wedging`);
       }
     }
 

@@ -60,6 +60,7 @@ import contextItemRegistry from '../../js/registries/context-item-registry.js';
 import strategyRegistry from '../../js/registries/strategy-registry.js';
 import providersCache from '../../js/services/providers-cache.js';
 import { apiUrl } from '../../js/utils/api-url.js';
+import { connectTestWebSocket } from './ws-connect.js';
 
 
 /**
@@ -291,32 +292,9 @@ class TestExecutor {
    * @private
    */
   async _connectWebSocket(wsService) {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        wsService.off('open', onOpen);
-        wsService.off('error', onError);
-        reject(new Error('WebSocket connection timeout'));
-      }, 5000);
-
-      const onOpen = () => {
-        clearTimeout(timeout);
-        wsService.off('open', onOpen);
-        wsService.off('error', onError);
-        resolve();
-      };
-
-      const onError = () => {
-        clearTimeout(timeout);
-        wsService.off('open', onOpen);
-        wsService.off('error', onError);
-        reject(new Error('WebSocket connection error'));
-      };
-
-      wsService.on('open', onOpen);
-      wsService.on('error', onError);
-      wsService.connect();
-    });
+    return connectTestWebSocket(wsService);
   }
+
 
   /**
    * Load an existing session (used when Go runner pre-creates the session)

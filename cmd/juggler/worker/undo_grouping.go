@@ -7,7 +7,8 @@ package worker
 import "time"
 
 // historyNavRecoil is how long, after an undo or redo, the reducer stays still
-// for the Yjs echoes of that history step.
+// for the Yjs echoes of that history step. Its length is not what keeps the
+// step undone on a slow core; see navRecoilUntilMs.
 const historyNavRecoil = 500 * time.Millisecond
 
 // undoGrouping is the worker's state for making undo mean what the user did:
@@ -33,14 +34,19 @@ type undoGrouping struct {
 	// thread + trailing user message and immediately dispatch ActionCallLLM,
 	// undoing the user's undo in front of their eyes).
 	observerMuted bool
-	// navRecoilUntilMs is set briefly after undo/redo. Browser/engine Yjs sync
-	// echoes can arrive after the synchronous UndoManager transaction and
-	// reintroduce a stale processingState.activity="awaiting_llm" marker. During
-	// this window doc updates still apply and save, but they must not drive the
-	// thread reducer forward from whatever last item shape the history step
-	// exposed. Explicit send/continue intent ends the window at once; otherwise
-	// it expires so later user actions delivered as Yjs sync (e.g. approval
-	// clicks) work.
+	// navRecoilUntilMs is set briefly after undo/redo. During this window doc
+	// updates still apply and save, but every items change releases the LLM
+	// claims and skips the reducer instead of driving it forward from whatever
+	// last item shape the history step exposed. Explicit send/continue intent
+	// ends the window at once; otherwise it expires so later user actions
+	// delivered as Yjs sync (e.g. approval clicks) work.
+	//
+	// The window is a second line, not the one undo stays undone by: the history
+	// step itself releases every claim (handleUndoOrRedo), the UndoManager's scope
+	// is the items array only, and no client writes processingState, so an echo
+	// reaching the reducer after the window — as it does on a slow core — finds
+	// no awaiting_llm to dispatch on and rests exactly as it would inside it
+	// (TestUndoEchoAfterRecoilDoesNotRedispatch).
 	navRecoilUntilMs int64
 	// compactionMergeFrom, when >= 0, is the undo-stack index whose entry holds
 	// the viewer-side compaction insert. While set, every undo group the

@@ -416,6 +416,7 @@ export async function runTests(_ctx) {
       handle.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       assert(clicks === 0, 'swiping off a control does not also press it');
 
+      // eslint-disable-next-line juggler/no-private-test-wait -- the hold must outlast CLICK_SWALLOW_MS (100ms), the guard this case is about
       await new Promise((resolve) => { setTimeout(resolve, 150); });
       handle.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       assert(clicks === 1, `a later click is the user's own, got ${clicks}`);

@@ -23,7 +23,27 @@ import (
 // never reached a handler, which is not the tool's fault and would repeat for
 // every later tool; that case is held instead, up to engineUnprovenHold (see
 // engineUnproven).
+//
+// Nor does it count an engine answering that it is still working on the tool
+// (engineInFlightReasons): each such answer resets the count, so the cap only
+// measures commands that go unanswered or are declined for a real reason. Those
+// answers are bounded by engineInFlightCeiling instead.
 const maxToolCommandAttempts = 6
+
+// engineInFlightCeiling bounds how long a delivery phase may go on with the
+// engine answering, re-drive after re-drive, that it already has the tool in
+// hand ('in-flight' / 'already-executing'). Those answers reset the attempts
+// count, so without this an engine wedged inside one evaluation or run would
+// hold the turn forever, against doc.go's rule.
+//
+// 30 minutes, because it must outlast the longest legitimate stretch the engine
+// can spend inside one tool: a command run under the 20-minute execution cap
+// (maxExecTimeoutMs in ops/shell_exec.go, MAX_EXEC_TIMEOUT_MS in the web
+// client), or an evaluation awaiting an edit-family prepare() round-trip, on a
+// core slow enough to stretch either. Anything still "in flight" past that is
+// stuck, not slow. Measured from the phase start (firstDispatchedAt), which the
+// in-flight answers do not move.
+const engineInFlightCeiling = 30 * time.Minute
 
 // defaultRedriveInterval is how long driveToolActions waits before re-dispatching
 // a tool-command still stuck at the state it was last sent at. Doc-state
@@ -193,7 +213,12 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 		if !w.tools.shouldRedrive(c.id, c.state, now) {
 			continue // already dispatched at this state and not yet stale
 		}
-		if n := w.tools.recordDispatch(c.id, c.state, now); n > maxToolCommandAttempts {
+		n := w.tools.recordDispatch(c.id, c.state, now)
+		if w.engineInFlightTooLong(c.id, now) {
+			escalate = append(escalate, c)
+			continue
+		}
+		if n > maxToolCommandAttempts {
 			// Attempts are exhausted, but they only bound how long we wait on an
 			// engine that is ANSWERING. An engine that has said nothing at all since
 			// this phase began was never reached, so failing the tool would blame it
@@ -555,6 +580,19 @@ func (w *ConversationWorker) engineUnproven(id string, now time.Time) bool {
 	return now.Sub(phaseStart) < engineUnprovenHold
 }
 
+// engineInFlightTooLong reports whether the engine is still answering for this
+// tool that it has it in hand, and has gone on doing so past
+// engineInFlightCeiling since the phase began. The in-flight answers reset the
+// attempts cap, so this is the only thing that ends such a phase.
+func (w *ConversationWorker) engineInFlightTooLong(id string, now time.Time) bool {
+	inFlight, _ := w.tools.inFlightSincePrevDispatch(id)
+	if !inFlight {
+		return false
+	}
+	phaseStart := w.tools.phaseStartedAt(id)
+	return !phaseStart.IsZero() && now.Sub(phaseStart) >= engineInFlightCeiling
+}
+
 // noteHeldToolCommand announces, once per delivery phase, that a tool has passed
 // the attempts cap and is being kept alive by the unproven/unreachable hold
 // rather than escalated.
@@ -627,12 +665,15 @@ func (w *ConversationWorker) engineLivenessSummary(id string) (engine, lastTrace
 // bookkeeping for the id is cleared.
 func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
 	engine, lastTrace, toolTrace := w.engineLivenessSummary(id)
-	// Three very different faults share this exit, and the message must say which
+	// Four very different faults share this exit, and the message must say which
 	// — reporting any of the others as a tool failure sends every investigation
 	// after the tool:
 	//
 	//   - the engine answered for this tool and could not carry the command out.
 	//     The tool is what is broken.
+	//   - the engine answered that it was still working on the tool, and went on
+	//     saying so past engineInFlightCeiling. The tool's evaluation or run is
+	//     wedged inside the engine; the reason it gave says which.
 	//   - the engine answered only to say it could not reach the tool, and has
 	//     gone on saying so past engineUnreachableHold. Its conversation load is
 	//     what is broken; the reason it gave says which part.
@@ -645,9 +686,12 @@ func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
 	// constantly, and one trace at the head of the phase is what a since-suspended
 	// engine leaves behind.
 	unreachable, unreachableReason := w.tools.unreachableSincePrevDispatch(id)
+	inFlight, inFlightReason := w.tools.inFlightSincePrevDispatch(id)
 	mute := !unreachable && !w.tools.answeredSincePrevDispatch(id)
 	verdict := "unhandled"
 	switch {
+	case inFlight:
+		verdict = "in-flight:" + inFlightReason
 	case unreachable:
 		verdict = "unreachable:" + unreachableReason
 	case mute:
@@ -656,6 +700,11 @@ func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
 	content := fmt.Sprintf("Couldn't run this tool: the engine acknowledged the request but never carried it out, after %d attempts. Failed so the turn can continue.",
 		maxToolCommandAttempts)
 	switch {
+	case inFlight:
+		// Not "never carried it out": the engine said every time that it was
+		// carrying it out. Keep its word for which half was stuck.
+		content = fmt.Sprintf("Couldn't run this tool: the engine kept reporting it as still in progress for over %s without finishing it. Failed so the turn can continue. (engine reason: %s)",
+			engineInFlightCeiling, inFlightReason)
 	case unreachable:
 		// The engine said exactly why, every time it declined. Lead in plain
 		// English and keep its own word for it — that token is what distinguishes a
@@ -690,8 +739,8 @@ func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
 	if len(failed) == 0 {
 		return
 	}
-	w.log.Error("[worker] tool-command for %s (%s) in %s stayed at state=%q unhandled %d× (verdict=%s); failing the tool to unblock the turn (engine=%s lastEngineTrace=%s lastToolTrace=%s)",
-		id, toolName, w.conversationID, expectState, maxToolCommandAttempts, verdict, engine, lastTrace, toolTrace)
+	w.log.Error("[worker] tool-command for %s (%s) in %s stayed at state=%q (verdict=%s, attempt cap %d); failing the tool to unblock the turn (engine=%s lastEngineTrace=%s lastToolTrace=%s)",
+		id, toolName, w.conversationID, expectState, verdict, maxToolCommandAttempts, engine, lastTrace, toolTrace)
 	w.tape.Record("tool-command-attempts-escalate", map[string]any{
 		"id": id, "tool": toolName, "state": expectState, "attempts": maxToolCommandAttempts,
 		"engine": engine, "lastEngineTrace": lastTrace, "lastToolTrace": toolTrace,

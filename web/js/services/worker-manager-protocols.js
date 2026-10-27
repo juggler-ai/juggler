@@ -32,11 +32,11 @@ import {
 
 // ── context/tools round-trip stamps ──────────────────────────────────────────
 //
-// The worker gives `render-context-items-request` and `request-tools` 30s
-// between them (ContextTimeout) and reports a miss as "Failed to get
-// context/tools: context/tools request timed out". Three separate stages can
-// spend that budget — the request's trip to the engine, the engine's own work,
-// and the reply's trip back — and the worker can distinguish them only if the
+// The worker waits for `render-context-items-request` and `request-tools` for
+// as long as the engine it asked stays attached (ContextTimeout, worker
+// strategy.go). Three separate stages can spend that wait — the request's trip
+// to the engine, the engine's own work, and the reply's trip back — and the
+// worker can distinguish them only if the
 // reply says when the engine picked the request up and when it answered. Both
 // realms run on one machine and one wall clock, so those stamps subtract
 // directly against the worker's own.
@@ -54,12 +54,29 @@ import {
 const MAX_TRACKED_ROUND_TRIPS = 128;
 
 /**
+ * How often the engine says it is still working on a request it has picked up
+ * and not yet answered (`request-working`, an engine-trace on that
+ * conversation's worker tape).
+ *
+ * A request can spend a long time inside the engine — a conversation load, a
+ * sync flush, a registry rebuild, every other conversation's requests ahead of
+ * it in one realm — and none of that is visible outside until the reply. On a
+ * slow core that silence is long enough to read as a wedge to anything
+ * watching the worker. The trace is sent only while a request is in flight, so
+ * an idle engine sends nothing, and it says which request and for how long.
+ */
+const REQUEST_WORKING_INTERVAL_MS = 5000;
+/** @type {ReturnType<typeof setInterval> | null} */
+let _requestWorkingTimer = null;
+
+/**
  * Record the moment a worker request arrived, so the reply can report how long
- * each stage of the round-trip took.
+ * each stage of the round-trip took, and say it has been picked up.
  * @param {any} wm - WorkerManager instance
  * @param {any} data - Worker message payload, carrying `requestId` and `sentAt`
+ * @param {string} [conversationId] - The conversation it came from, for the request-working traces
  */
-export function beginRoundTrip(wm, data) {
+export function beginRoundTrip(wm, data, conversationId = '') {
   const requestId = data?.requestId;
   if (!requestId) return;
   if (!wm._roundTripStamps) wm._roundTripStamps = new Map();
@@ -67,7 +84,29 @@ export function beginRoundTrip(wm, data) {
   if (stamps.size >= MAX_TRACKED_ROUND_TRIPS) {
     stamps.delete(stamps.keys().next().value);
   }
-  stamps.set(requestId, { sentAt: Number(data.sentAt) || 0, receivedAt: Date.now() });
+  stamps.set(requestId, { sentAt: Number(data.sentAt) || 0, receivedAt: Date.now(), conversationId });
+  if (!conversationId) return;
+  sendEngineTrace(wm, conversationId, 'request-recv', { requestId });
+  _requestWorkingTimer ??= setInterval(() => sendRequestWorkingTraces(wm), REQUEST_WORKING_INTERVAL_MS);
+}
+
+/**
+ * One request-working tick: a trace for each request still in flight, and the
+ * timer disarmed once none is. Exported so tests can drive a tick.
+ * @param {any} wm - WorkerManager instance
+ */
+export function sendRequestWorkingTraces(wm) {
+  const stamps = /** @type {Map<string, {receivedAt: number, conversationId?: string}>|undefined} */ (wm._roundTripStamps);
+  let any = false;
+  for (const [requestId, s] of stamps ?? []) {
+    if (!s.conversationId) continue;
+    any = true;
+    sendEngineTrace(wm, s.conversationId, 'request-working', { requestId, workingMs: Date.now() - s.receivedAt });
+  }
+  if (!any && _requestWorkingTimer) {
+    clearInterval(_requestWorkingTimer);
+    _requestWorkingTimer = null;
+  }
 }
 
 /**
@@ -215,8 +254,8 @@ export function __resetToolExecutionReporterForTest() {
  * Like every other engine command handler (handleExecuteTool, handleCancelTool,
  * handleRunStrategyHook), this first ensures the engine has actually LOADED the
  * conversation. Being the sole responder, the engine MUST always reply — an
- * unanswered request wedges the worker's requestContextAndTools for the whole
- * 30s ContextTimeout. Awaiting the load here (a freshly-created conversation or
+ * unanswered request wedges the worker's requestContextAndTools until its
+ * ceiling (ContextCeiling). Awaiting the load here (a freshly-created conversation or
  * cold engine can have its first context request arrive before auto-load
  * finishes) narrows that race; the callback itself closes it by waiting briefly
  * for still-in-flight item syncs and then responding regardless (see
@@ -229,7 +268,7 @@ export function __resetToolExecutionReporterForTest() {
 export async function handleRenderContextItemsRequest(wm, conversationId, data) {
   if (!isEngine()) return;
   if (!wm._onContextRequest) return;
-  beginRoundTrip(wm, data);
+  beginRoundTrip(wm, data, conversationId);
   // loadAndFlush applies any batched/deferred syncs before rendering so the
   // callback sees the turn's items (e.g. the just-synced user message / context
   // items). Without this the callback's "requested context-item not in local
@@ -288,7 +327,7 @@ export function sendRenderContextItemsResponse(wm, conversationId, requestId, co
 export async function handleRequestTools(wm, conversationId, data) {
   if (!isEngine()) return;
   if (!wm._onToolsRequest) return;
-  beginRoundTrip(wm, data);
+  beginRoundTrip(wm, data, conversationId);
   await loadAndFlush(wm, conversationId, 'request-tools');
   await whenRegistriesRebuilt();
   wm._onToolsRequest(data, conversationId);
@@ -822,8 +861,9 @@ export async function handleExecuteTool(wm, conversationId, toolUseId) {
   // held session), diverges its transcript and burns the whole prompt cache.
   // The executor's map outranks doc state here: this engine is the sole
   // executor, so if it says the id is running, it is. Repair the doc rather than
-  // just declining — a tool left at approved is re-driven to the worker's
-  // attempt cap and escalated to a terminal error while it is still running.
+  // just declining — a tool left at approved is re-driven, answered in-flight
+  // each time, until the worker's in-flight ceiling escalates it to a terminal
+  // error while it is still running.
   const inFlight = c._actionExecutor?.runningActionFor(toolUseId, c.id);
   if (inFlight) {
     if (handOverToHeldCall(c, mt, ymap, toolUseId)) {

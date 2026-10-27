@@ -116,7 +116,7 @@ export const moveItemsUndoTest = {
     { type: 'wait-for-state', condition: { hasThreadItem: true } },
     // Separate the /thread creation from the move so the undo capture window
     // doesn't merge them into one group (undo must reverse ONLY the move).
-    { type: 'wait-ms', ms: 500 },
+    { type: 'stop-undo-capturing' },
     { type: 'move-items', from: 'root', indices: [1], to: 'thread' },
     { type: 'undo' }
   ],
@@ -207,7 +207,7 @@ export const expandThreadUndoTest = {
     { type: 'wait-for-state', condition: { hasThreadItem: true } },
     { type: 'move-items', from: 'root', indices: [1, 2], to: 'thread' },
     // Separate the move from the expand so undo targets only the expand.
-    { type: 'wait-ms', ms: 500 },
+    { type: 'stop-undo-capturing' },
     { type: 'expand-thread' },
     { type: 'undo' }
   ],

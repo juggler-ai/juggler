@@ -169,6 +169,17 @@ type ConversationWorker struct {
 	// worker before the worker runs.
 	llmTimeout time.Duration
 
+	// contextCheck and contextCeiling bound a turn's wait for the engine's
+	// context and tools (ContextTimeout, ContextCeiling). Set at construction;
+	// a test that wants either to fire sets it on its own worker before the
+	// worker runs.
+	contextCheck, contextCeiling time.Duration
+
+	// historyNavStopCheck and historyNavStopCeiling bound undo/redo's wait for
+	// the turns it stops (defaultHistoryNavStopCheck, defaultHistoryNavStopCeiling).
+	// Set at construction; a test sets them on its own worker before it runs.
+	historyNavStopCheck, historyNavStopCeiling time.Duration
+
 	// clock is what a pending-queue drain reads as now, and what arms heldTimer.
 	// The wall clock; a test installs its own before the worker runs.
 	clock workerClock
@@ -336,10 +347,14 @@ func NewConversationWorker(conversationID, authorID string) *ConversationWorker 
 		// worker's; Send enqueues here so it never drops.
 		inbox: newWorkerInbox(done),
 
-		strategyHookTimeout: defaultStrategyHookTimeout,
-		retryBackoffLimit:   defaultRetryBackoffLimit,
-		llmTimeout:          LLMTimeout,
-		clock:               realClock(),
+		strategyHookTimeout:   defaultStrategyHookTimeout,
+		retryBackoffLimit:     defaultRetryBackoffLimit,
+		llmTimeout:            LLMTimeout,
+		contextCheck:          ContextTimeout,
+		contextCeiling:        ContextCeiling,
+		historyNavStopCheck:   defaultHistoryNavStopCheck,
+		historyNavStopCeiling: defaultHistoryNavStopCeiling,
+		clock:                 realClock(),
 	}
 	w.injected.Store(&workerDeps{})
 	// The actor-only seams hold the worker's guard, which exists only once w does.

@@ -25,6 +25,7 @@ import HtmlFileViewer from '../../extensions/juggler-core/viewers/html-file-view
 import TextFileViewer from '../../extensions/juggler-core/viewers/text-file-viewer.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
+import { waitFor } from '../utilities/test-helpers.js';
 
 /** The viewer's English messages, registered pseudo-localised under its extension id. */
 const CORE_TEXT = [
@@ -208,9 +209,10 @@ export async function runTests() {
     tally(check(!served.host.querySelector('iframe') && served.host.textContent?.includes('<h1>Report</h1>') === true,
       'Source should replace the preview with the markup', errors));
     toggle?.click();
-    for (let i = 0; i < 50 && !served.host.querySelector('iframe'); i++) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+    // A frame that never returns falls through to the check below, which
+    // records it beside the suite's other results rather than ending the suite.
+    await waitFor(() => served.host.querySelector('iframe'),
+      { timeoutMs: 1000, description: 'Preview to bring the frame back' }).catch(() => {});
     tally(check(!!served.host.querySelector('iframe'), 'Preview should bring the frame back', errors));
   } finally {
     dispose(served);

@@ -200,6 +200,10 @@ type wsFleet struct {
 	// engineRecovery reloads the engine host when eviction alone did not bring it
 	// back. Installed by the app layer, which owns the window; nil elsewhere.
 	engineRecovery atomic.Pointer[EngineRecovery]
+	// testProcessPIDs lists the processes outside this server's tree that run
+	// its pages (see SetTestProcessPIDs). Installed by the test-pool host; nil
+	// elsewhere.
+	testProcessPIDs atomic.Pointer[ProcessPIDs]
 	// serverBeatIntervalNs overrides serverBeatInterval when non-zero, and with it
 	// the link-check tick derived from it. Test-only seam (see link_liveness.go).
 	serverBeatIntervalNs atomic.Int64

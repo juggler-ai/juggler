@@ -19,7 +19,7 @@ import (
 // whole transcript serialised to JSON, which the run-record readers then parse
 // straight back. That cost grows with everything the conversation's sub-threads
 // have said, until each event takes long enough for a context/tools reply to
-// miss ContextTimeout waiting its turn.
+// spend most of a turn's wait waiting its turn.
 //
 // The reducer decides on none of it. decideNextAction, effectiveItems and the
 // walk-down read types, tool states, aliases, run records and the round-trip

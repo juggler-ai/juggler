@@ -19,7 +19,7 @@
  * @module unit-tests/load-queue-recycle
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 import ConversationLoadQueue from '../../js/services/conversation-load-queue.js';
 
 /**
@@ -73,19 +73,15 @@ function stubWorkerManager(handler) {
 }
 
 /**
- * Resolve once `predicate` holds, or reject at the deadline — so a regression
+ * Resolve once `predicate` holds, or reject past the nominal — so a regression
  * fails the test rather than hanging the lane to its budget.
  * @param {() => boolean} predicate - Condition to wait for
- * @param {string} what - Message for the timeout
- * @param {number} [ms] - Patience budget
+ * @param {string} what - What is being waited for, for the timeout
+ * @param {number} [ms] - Nominal patience
  * @returns {Promise<void>} Resolves when the predicate holds
  */
 async function until(predicate, what, ms = 2000) {
-  const deadline = Date.now() + ms;
-  while (!predicate()) {
-    if (Date.now() > deadline) throw new Error(what);
-    await new Promise((r) => { setTimeout(r, 5); });
-  }
+  await waitFor(predicate, { timeoutMs: ms, intervalMs: 5, description: what });
 }
 
 /**

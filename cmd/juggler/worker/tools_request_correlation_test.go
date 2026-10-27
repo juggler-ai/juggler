@@ -7,7 +7,9 @@ package worker
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 )
 
 // newToolsRequestHarness wires a worker whose client answers every request-tools
@@ -200,5 +202,62 @@ func TestToolsReplyForAnotherRequestIsIgnored(t *testing.T) {
 	}
 	if got := offeredToolName(t, w); got != "turn-2" {
 		t.Fatalf("turn 2 was offered %q: a reply to an earlier request was accepted as this turn's tool list", got)
+	}
+}
+
+// shrinkContextWait sets the context wait's check interval and ceiling on one
+// worker.
+func shrinkContextWait(w *ConversationWorker, window, ceiling time.Duration) {
+	w.contextCheck, w.contextCeiling = window, ceiling
+}
+
+// TestContextWaitOutlastsItsWindowWhileTheEngineIsAttached pins what bounds a
+// turn's wait for its context and tools: the engine it asked going away, not a
+// fixed span of wall time. An engine on a slow core is still building the
+// answer when any span picked on a fast one runs out, and failing the turn
+// then reports "context/tools request timed out" for an engine that was about
+// to answer. The reply here lands six windows late, from an engine attached
+// throughout.
+func TestContextWaitOutlastsItsWindowWhileTheEngineIsAttached(t *testing.T) {
+	const window = 50 * time.Millisecond
+	w, _ := newToolsRequestHarness(t, func(w *ConversationWorker, _ int, requestID string) {
+		// Off the callback goroutine: the wait asks that goroutine which
+		// engine is attached, so blocking it here would deadlock the test.
+		time.AfterFunc(6*window, func() { sendToolsReply(w, requestID, "slow-engine-tool") })
+	})
+	shrinkContextWait(w, window, time.Minute)
+	if got := offeredToolName(t, w); got != "slow-engine-tool" {
+		t.Fatalf("offered %q, want the slow engine's answer", got)
+	}
+}
+
+// TestContextWaitFailsWhenTheEngineAskedGoesAway is the other half: an engine
+// that detaches can never answer a request sent before, so the turn fails at
+// the next check and says why, rather than waiting out the ceiling.
+func TestContextWaitFailsWhenTheEngineAskedGoesAway(t *testing.T) {
+	w, _ := newToolsRequestHarness(t, func(w *ConversationWorker, _ int, _ string) {
+		go w.SetEngineClientID("")
+	})
+	shrinkContextWait(w, 20*time.Millisecond, time.Minute)
+	started := time.Now()
+	_, _, err := w.currentRun().requestContextAndToolsForItemIDs(nil)
+	if err == nil || !strings.Contains(err.Error(), "no longer attached") {
+		t.Fatalf("want a failure naming the engine that went away, got %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 30*time.Second {
+		t.Fatalf("the departed engine was waited on for %s; it can never answer", elapsed)
+	}
+}
+
+// TestContextWaitHasACeilingForAnEngineThatNeverAnswers bounds the case
+// liveness cannot: an engine that stays attached and never answers this
+// request. The failure says the engine was still there, which points at the
+// lost request rather than at the link.
+func TestContextWaitHasACeilingForAnEngineThatNeverAnswers(t *testing.T) {
+	w, _ := newToolsRequestHarness(t, func(*ConversationWorker, int, string) {})
+	shrinkContextWait(w, 20*time.Millisecond, 200*time.Millisecond)
+	_, _, err := w.currentRun().requestContextAndToolsForItemIDs(nil)
+	if err == nil || !strings.Contains(err.Error(), "still attached") || !strings.Contains(err.Error(), "tools") {
+		t.Fatalf("want a ceiling failure naming the attached engine and the missing half, got %v", err)
 	}
 }

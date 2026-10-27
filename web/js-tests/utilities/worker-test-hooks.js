@@ -41,10 +41,12 @@ export async function pingWorker(conversationId) {
  */
 export async function setMockResponses(conversationId, responses) {
   recordTape('mock-llm', conversationId, { action: 'set', count: responses.length });
+  // The ack's default bound is the worker's silence (sendWithAck), which is
+  // the honest one here: the worker answers as soon as it reaches this.
   await workerManager.sendWithAck(conversationId, {
     type: 'set-mock-responses',
     responses
-  }, 5000);
+  });
 }
 
 /**

@@ -22,7 +22,7 @@
  * @module unit-tests/worker-inbound-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { WorkerManager } from '../../js/services/worker-manager.js';
@@ -217,7 +217,9 @@ export async function runTests(_ctx) {
     const conv = 'conv_inbound_error_xa';
     const wm = managerWithEntry(conv);
     const english = 'Couldn\'t open this conversation: the server no longer has it.';
-    const waiting = wm.waitForWorkerReady(conv, 60000).then(() => null, (/** @type {Error} */ e) => e);
+    // The error is what must fail the waiter, so its own timeout is set past
+    // anything the pseudo-locale's catalogue load below can take on a slow core.
+    const waiting = wm.waitForWorkerReady(conv, 10 * 60_000).then(() => null, (/** @type {Error} */ e) => e);
     await underPseudoLocale('worker-inbound-test', async () => {
       await captureConsole(conv, () => {
         routeWorkerMessage(wm, conv, /** @type {any} */ ({ type: 'error', message: english, text: { key: english } }));
@@ -287,6 +289,58 @@ export async function runTests(_ctx) {
     routeWorkerMessage(wm, conv, /** @type {any} */ ({ type: 'ack', ackId: sent[0].ackId, result: { blob: 1 } }));
     const result = await soon(pending, 'the ack\'d request');
     assert(result && result.blob === 1, `the ack's result must reach the caller; got ${JSON.stringify(result)}`);
+  });
+
+  // The ack's bound is the worker's silence, not the request's age: an undo
+  // still queued behind a slow worker's other work must not be rejected while
+  // the worker goes on to perform it. The timer is captured and fired by hand,
+  // so the case says what the bound does at its expiry rather than measuring
+  // how fast this core runs a timer.
+  await run('an ack waits while the worker keeps talking, and fails on its silence', async () => {
+    const conv = 'conv_inbound_talking';
+    const wm = managerWithEntry(conv);
+    /** @type {any[]} */
+    const sent = [];
+    wm.sendToWorker = (/** @type {string} */ _id, /** @type {any} */ msg) => { sent.push(msg); return Promise.resolve(); };
+    /** @type {Array<() => void>} */
+    const timers = [];
+    const realSetTimeout = window.setTimeout;
+    /**
+     * Run `fn` with timers captured rather than scheduled.
+     * @template T
+     * @param {() => T} fn - What to run.
+     * @returns {T} Its value.
+     */
+    const capturing = (fn) => {
+      window.setTimeout = /** @type {any} */ ((/** @type {() => void} */ cb) => { timers.push(cb); return 0; });
+      try { return fn(); } finally { window.setTimeout = realSetTimeout; }
+    };
+    /** @type {unknown} */
+    let outcome = null;
+    const pending = capturing(() => wm.sendWithAck(conv, { type: 'undo' }, 10000));
+    pending.then(() => { outcome = 'resolved'; }, (/** @type {unknown} */ e) => { outcome = e; });
+    assert(timers.length === 1, `the request arms one timer; got ${timers.length}`);
+    // The window ends with the worker heard from just now.
+    wm._lastHeardAt.set(conv, Date.now());
+    capturing(() => /** @type {() => void} */ (timers.shift())());
+    await Promise.resolve();
+    assert(outcome === null, `a request to a worker still talking was settled at its window: ${String(outcome)}`);
+    assert(timers.length === 1, `and it waits on, re-armed; got ${timers.length} timer(s)`);
+    routeWorkerMessage(wm, conv, /** @type {any} */ ({ type: 'ack', ackId: sent[0].ackId, result: { ok: 1 } }));
+    const result = await soon(pending, 'the request answered after its first window');
+    assert(result?.ok === 1, `the late ack still reaches the caller; got ${JSON.stringify(result)}`);
+
+    // Silent for its whole window: it fails, and says so.
+    timers.length = 0;
+    wm._lastHeardAt.delete(conv);
+    const startedAt = Date.now();
+    const silent = capturing(() => wm.sendWithAck(conv, { type: 'redo' }, 1));
+    await waitFor(() => Date.now() - startedAt >= 2, 'the silent request\'s 1ms window to pass');
+    capturing(() => /** @type {() => void} */ (timers.shift())());
+    const err = await soon(silent.then(() => null, (/** @type {Error} */ e) => e), 'the silent request');
+    assert(err instanceof Error && err.message.includes('Ack timeout') && err.message.includes('said nothing'),
+      `a worker silent for the whole window fails the request, saying so; got ${err && err.message}`);
+    assert(wm._pendingAcks.size === 0, 'and leaves no pending ack behind');
   });
 
   await run('an ack\'d request that never left fails at once with why, not as an ack timeout', async () => {

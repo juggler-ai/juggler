@@ -264,20 +264,28 @@ export const propertiesPanelShowsAttachmentsTest = {
     }
     area.selectItem(itemId);
 
-    // The panel render is debounced; poll for the attachment section.
+    // The panel render is debounced; wait for the attachment section.
     const expectedSrc = apiService.assetURL(conversation.id, ref.id);
-    let img = null;
-    let nameEl = null;
-    let metaEl = null;
-    const deadline = Date.now() + 3000;
-    while (Date.now() < deadline) {
+    const attachmentSection = () => {
       const panel = /** @type {any} */ (document.querySelector('properties-panel'));
-      img = panel ? panel.querySelector('.properties-panel-attachment-thumb') : null;
-      nameEl = panel ? panel.querySelector('.properties-panel-attachment-name') : null;
-      metaEl = panel ? panel.querySelector('.properties-panel-attachment-meta') : null;
-      if (img && nameEl && metaEl) break;
-      await new Promise((r) => setTimeout(r, 30));
-    }
+      return {
+        img: panel ? panel.querySelector('.properties-panel-attachment-thumb') : null,
+        nameEl: panel ? panel.querySelector('.properties-panel-attachment-name') : null,
+        metaEl: panel ? panel.querySelector('.properties-panel-attachment-meta') : null,
+      };
+    };
+    const { img, nameEl, metaEl } = await waitFor(() => {
+      const section = attachmentSection();
+      return section.img && section.nameEl && section.metaEl ? section : null;
+    }, {
+      timeoutMs: 3000,
+      intervalMs: 30,
+      description: () => {
+        const section = attachmentSection();
+        const missing = Object.entries(section).filter(([, el]) => !el).map(([key]) => key);
+        return `the properties panel's attachment section (missing: ${missing.join(', ')})`;
+      },
+    });
 
     if (!nameEl || nameEl.textContent !== 'diagram.png') {
       throw new Error(`Attachment filename not rendered; got ${nameEl ? JSON.stringify(nameEl.textContent) : 'null'}`);

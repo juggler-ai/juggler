@@ -107,10 +107,10 @@ export class UITestHarness {
     this._innerHarness = new IntegrationTestHarness(this._options);
     // The runner sets the per-test deadline + abort on THIS wrapper, but the
     // condition waits (cancelExecution, rerunTool, waitForExecution, …) run on
-    // the inner harness — forward them so those waits actually stay patient up
-    // to the deadline and tear down on abort instead of firing on their short
-    // caller sub-timeouts.
-    this._innerHarness._perTestDeadlineMs = this._perTestDeadlineMs || 0;
+    // the inner harness. It reads the deadline from here on every wait, never
+    // a copy: the runner's stall watchdog moves this one while the test makes
+    // progress.
+    this._innerHarness._deadlineSource = () => this._perTestDeadlineMs || 0;
     this._innerHarness._abortSignal = this._abortSignal || null;
     await this._innerHarness.setup();
 
@@ -154,16 +154,16 @@ export class UITestHarness {
     };
     document.addEventListener('send-message', this._sendMessageHandler);
 
-    // 6. Create UIDriver. It gets the per-test deadline for the same reason the
-    // inner harness does: its DOM waits are bounded by the budget the runner
-    // will actually fail on, not by their own nominal sub-timeouts.
-    this._driver = new UIDriver(this._container, { deadlineMs: this._perTestDeadlineMs || 0 });
+    // 6. Create UIDriver. It reads the per-test deadline from here for the
+    // same reason the inner harness does: its DOM waits are bounded by the
+    // budget the runner will actually fail on, as it stands when they ask.
+    this._driver = new UIDriver(this._container, { deadline: () => this._perTestDeadlineMs || 0 });
 
-    // 7. Wait for initial DOM to settle.
-    // setTimeout (a macrotask) — not requestAnimationFrame, because hidden
-    // WKWebViews throttle rAF to near-zero, hanging the test.
+    // 7. Let the initial render's own tasks run. A macrotask, not
+    // requestAnimationFrame, because hidden WKWebViews throttle rAF to
+    // near-zero, hanging the test. Nothing waits on a clock here: every
+    // operation after setup waits for the state it needs.
     await new Promise(r => setTimeout(r, 0));
-    await new Promise(r => setTimeout(r, 50));
   }
 
   /**

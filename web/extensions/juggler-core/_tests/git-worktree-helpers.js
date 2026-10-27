@@ -267,14 +267,33 @@ export async function snapshot(ops, repo) {
  * @returns {Promise<boolean>} Whether it turned up inside the budget.
  */
 export async function pathTurnsUp(ops, path, nominalMs) {
-  // The budget rather than the nominal: nine lanes share this machine, and a
-  // number chosen for an idle one measures the pool instead of the code.
-  const deadline = Date.now() + budgetFor(nominalMs);
-  do {
-    if ((await shell(ops, `test -e ${path}`)).success) return true;
-    await new Promise(resolve => setTimeout(resolve, 25));
-  } while (Date.now() < deadline);
-  return false;
+  // The wait's probe is synchronous and this one is a command, so the probe
+  // keeps one command in flight and answers from the last to come back. A
+  // command that could not be run is thrown, not taken for an absence.
+  /** @type {Promise<void>|null} */
+  let looking = null;
+  let found = false;
+  /** @type {unknown} */
+  let failed = null;
+  const probe = () => {
+    if (failed) throw failed;
+    if (!found && !looking) {
+      looking = shell(ops, `test -e ${path}`)
+        .then((r) => { found = !!r.success; }, (err) => { failed = err; })
+        .finally(() => { looking = null; });
+    }
+    return found;
+  };
+  try {
+    // The budget rather than the nominal: nine lanes share this machine, and a
+    // number chosen for an idle one measures the pool instead of the code.
+    await waitFor(probe, `${path} to turn up`, budgetFor(nominalMs));
+    return true;
+  } catch {
+    // Only the wait running out is an answer; a probe's own failure is not.
+    if (failed) throw failed;
+    return false;
+  }
 }
 
 /**

@@ -21,7 +21,7 @@
  * @module unit-tests/engine-autoload-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 import { WorkerManager } from '../../js/services/worker-manager.js';
 import ConversationSyncReducer from '../../js/model/conversation-sync-reducer.js';
 
@@ -181,8 +181,10 @@ export async function runTests(_ctx) {
    * for it syncs before this realm has adopted the conversation, which is the
    * window a headless run fell into and never came back from — the load won the
    * spawn, and the run waited on a conversation the worker never synced to.
+   * `consulted` reports whether the load has asked the sync reducer about a
+   * create in flight — the moment it decides between waiting and loading.
    * @param {string} convId - The conversation being created.
-   * @returns {{probe: ReturnType<typeof probeManager>, sync: ConversationSyncReducer, applied: unknown[], adopt: () => void}} The probe.
+   * @returns {{probe: ReturnType<typeof probeManager>, sync: ConversationSyncReducer, applied: unknown[], adopt: () => void, consulted: () => boolean}} The probe.
    */
   const creating = (convId) => {
     const probe = probeManager();
@@ -192,19 +194,28 @@ export async function runTests(_ctx) {
     const applied = [];
     const created = { handleYjsSyncMessage: (/** @type {unknown} */ bytes) => applied.push(bytes) };
     let adopted = false;
+    let consulted = false;
+    const whenLocalCreateSettles = sync.whenLocalCreateSettles.bind(sync);
+    sync.whenLocalCreateSettles = (/** @type {string} */ id) => {
+      consulted = true;
+      return whenLocalCreateSettles(id);
+    };
     probe.wm._session.sync = sync;
     probe.wm._session.getConversation = (/** @type {string} */ id) => (adopted && id === convId ? created : null);
     sync.beginLocalCreate(convId);
-    return { probe, sync, applied, adopt: () => { adopted = true; } };
+    return { probe, sync, applied, adopt: () => { adopted = true; }, consulted: () => consulted };
   };
 
   await run('a sync for a conversation this realm is creating waits for that create, not a load of its own', async () => {
     const convId = 'conv_autoload_creating';
-    const { probe, sync, applied, adopt } = creating(convId);
+    const { probe, sync, applied, adopt, consulted } = creating(convId);
 
     probe.wm.loader.autoLoad(convId, 'AAEC');
     const pending = probe.wm.loader.pendingAutoLoad(convId);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Fenced on the load's decision: once it has asked about the create, it has
+    // either parked on it or gone on to load, so a load that raced the create
+    // has already been counted.
+    await waitFor(() => consulted() || probe.attempts() > 0, 'the auto-load to decide whether to wait for the create');
     assert(
       probe.attempts() === 0,
       `a load started while this realm's own create was in flight; it races the create for the worker (${probe.attempts()} loads)`

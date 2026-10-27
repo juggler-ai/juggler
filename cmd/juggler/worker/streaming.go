@@ -768,9 +768,17 @@ func (r *run) waitForLLMResponse(turnID string, timeout time.Duration) (*LLMResp
 
 // waitForContextAndTools waits on the private channels registered for this pair.
 // A nil context channel means only the tools response is required.
-func (r *run) waitForContextAndTools(timeout time.Duration, contextReply, toolsReply <-chan json.RawMessage) (json.RawMessage, json.RawMessage, error) {
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
+//
+// It waits for as long as the engine that was asked stays attached, checking
+// every `check`, and at most `ceiling` (see ContextTimeout). An engine that
+// goes away can never answer, so that fails at the next check and says so.
+func (r *run) waitForContextAndTools(check, ceiling time.Duration, contextReply, toolsReply <-chan json.RawMessage) (json.RawMessage, json.RawMessage, error) {
+	asked := r.callbacks.engineClientID()
+	started := time.Now()
+	ticker := time.NewTicker(check)
+	defer ticker.Stop()
+	ceilingTimer := time.NewTimer(ceiling)
+	defer ceilingTimer.Stop()
 
 	var contextResult, toolsResult json.RawMessage
 	needContext := contextReply != nil
@@ -794,18 +802,21 @@ func (r *run) waitForContextAndTools(timeout time.Duration, contextReply, toolsR
 			if r.loadState() == StateCancelling {
 				return nil, nil, ErrCancelled
 			}
-		case <-timer.C:
-			// Report which half never answered — the context reply is engine-only
-			// (single responder), so a wedge is almost always the context side.
-			// Naming it turns an opaque timeout into an actionable diagnosis.
-			var missing []string
-			if contextResult == nil {
-				missing = append(missing, "context")
+		case <-ticker.C:
+			now := r.callbacks.engineClientID()
+			if asked != "" && now == asked {
+				continue
 			}
-			if toolsResult == nil {
-				missing = append(missing, "tools")
+			if asked == "" {
+				return nil, nil, fmt.Errorf("context/tools request had no engine attached to answer it (no %s response after %s)", missingHalves(contextResult, toolsResult), time.Since(started).Round(time.Millisecond))
 			}
-			return nil, nil, fmt.Errorf("context/tools request timed out after %s (no %s response)", timeout, strings.Join(missing, "+"))
+			attached := now
+			if attached == "" {
+				attached = "none"
+			}
+			return nil, nil, fmt.Errorf("context/tools request's engine %s is no longer attached (now %s; no %s response after %s)", asked, attached, missingHalves(contextResult, toolsResult), time.Since(started).Round(time.Millisecond))
+		case <-ceilingTimer.C:
+			return nil, nil, fmt.Errorf("context/tools request unanswered after %s by engine %s, still attached (no %s response)", ceiling, asked, missingHalves(contextResult, toolsResult))
 		case <-r.done:
 			return nil, nil, fmt.Errorf("worker stopped")
 		}
@@ -915,4 +926,19 @@ func (r *run) waitForRetryDelay(d time.Duration) RetryWaitResult {
 			return RetryWaitResult{Cancelled: true}
 		}
 	}
+}
+
+// missingHalves names which half of a context/tools request never answered —
+// the context reply is engine-only (single responder), so a wedge is almost
+// always the context side. Naming it turns an opaque failure into an
+// actionable diagnosis.
+func missingHalves(contextResult, toolsResult json.RawMessage) string {
+	var missing []string
+	if contextResult == nil {
+		missing = append(missing, "context")
+	}
+	if toolsResult == nil {
+		missing = append(missing, "tools")
+	}
+	return strings.Join(missing, "+")
 }

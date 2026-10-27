@@ -440,6 +440,8 @@ func TestMain(m *testing.M) {
 	}
 
 	awaitEngines(startedPool.entries)
+	// After boot, so the mode prices the tests rather than the engines' start.
+	startedPool.stopSlowCore = startSlowCore(startedPool.entries)
 
 	code := m.Run()
 
@@ -499,6 +501,9 @@ func awaitEngines(entries []testServerEntry) {
 type poolHandle struct {
 	entries []testServerEntry
 	once    sync.Once
+	// stopSlowCore ends slow-core mode (slow_core_test.go) and resumes what it
+	// stopped; nil until the mode is started.
+	stopSlowCore func()
 }
 
 func (p *poolHandle) add(e testServerEntry) {
@@ -507,6 +512,10 @@ func (p *poolHandle) add(e testServerEntry) {
 
 func (p *poolHandle) shutdown() {
 	p.once.Do(func() {
+		// First: a stopped process acts on no SIGTERM.
+		if p.stopSlowCore != nil {
+			p.stopSlowCore()
+		}
 		cleanupPool(p.entries)
 		for _, e := range p.entries {
 			os.RemoveAll(e.fixture)

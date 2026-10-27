@@ -233,12 +233,19 @@ export const footerUndoOfferSurvivesRewindOverRunningTurnTest = {
 
     // Rewind to the first user message (index 1, after the system prompt): the
     // app's rollback is this call.
+    const turnsBefore = /** @type {any} */ (conversation).completedTurns ?? 0;
     const removed = conversation.deleteRangeWithCleanup(root, 1);
     if (removed < 2) throw new Error(`Expected a span removed, got ${removed}`);
 
-    await waitFor(() => status() === 'idle', 'the stopped turn settles', 5000);
-    // Let the settle's own frames — status, undoState — reach the footer.
-    await new Promise(r => setTimeout(r, 300));
+    // The settle's frames — status, undoState — reach the footer no later than
+    // the worker's completedTurns bump, the stopped turn's last write, so once
+    // it has landed anything that would retire the offer already has.
+    await waitFor(
+      () => status() === 'idle' && (/** @type {any} */ (conversation).completedTurns ?? 0) > turnsBefore,
+      () => `the stopped turn settles (status ${JSON.stringify(status())}, completedTurns ${/** @type {any} */ (conversation).completedTurns} from ${turnsBefore})`,
+      5000
+    );
+    await new Promise(r => setTimeout(r, 0));
     if (!offerVisible(footer)) {
       throw new Error('Undo offer was retired by the turn the rewind itself stopped');
     }

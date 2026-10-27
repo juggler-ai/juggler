@@ -17,7 +17,7 @@
  * @module unit-tests/conversation-sync-test
  */
 
-import { assert, trackTestSession } from '../utilities/test-helpers.js';
+import { assert, trackTestSession, waitFor } from '../utilities/test-helpers.js';
 import Session from '../../js/model/session.js';
 import ConversationSyncReducer from '../../js/model/conversation-sync-reducer.js';
 import workerManager from '../../js/services/worker-manager.js';
@@ -167,8 +167,7 @@ export async function runTests(_ctx) {
     // must not say "Auto-naming…" for ever.
     session.setAutoNaming('c1', true, { timeoutMs: 20 });
     assert(session.isAutoNaming('c1') === true, 'the mark was not set');
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    assert(session.isAutoNaming('c1') === false, 'the mark outlived its timeout');
+    await waitFor(() => session.isAutoNaming('c1') === false, 'the mark to clear after its 20ms timeout');
   });
 
   await run('an unknown op is reported and changes nothing', async () => {
@@ -250,6 +249,96 @@ export async function runTests(_ctx) {
       unsubscribe();
       /** @type {any} */ (loader).loadExisting = loadExisting;
       /** @type {any} */ (workerManager).clearUndoStacks = clearUndoStacks;
+    }
+  });
+
+  await run('a duplicate waits out a slow flush, and refuses on the worker\'s silence', async () => {
+    /** @type {string[]} */
+    const posted = [];
+    const session = /** @type {any} */ (trackTestSession(new Session(/** @type {any} */ ({
+      createConversation: async (/** @type {string} */ name, /** @type {string} */ id) => { posted.push(id); return { id, name }; },
+      reorderConversations: async () => null,
+      updateSession: async () => ({ success: true })
+    }))));
+    session.registry.insert('src', { id: 'src', name: 'Source', isTurnActive: () => false }, 'test');
+
+    const wm = /** @type {any} */ (workerManager);
+    const loader = wm.loader;
+    const saved = {
+      loadExisting: loader.loadExisting,
+      clearUndoStacks: wm.clearUndoStacks,
+      isWorkerReady: wm.isWorkerReady,
+      sendToWorker: wm.sendToWorker
+    };
+    loader.loadExisting = async (/** @type {string} */ id) => ({ id, name: 'Source copy' });
+    wm.clearUndoStacks = async () => {};
+    wm.isWorkerReady = () => true;
+    /** @type {any[]} */
+    const sent = [];
+    wm.sendToWorker = (/** @type {string} */ _id, /** @type {any} */ msg) => { sent.push(msg); return Promise.resolve(); };
+    wm._lastHeardAt.delete('src');
+
+    // The clock and the timers are in hand: time passes one second per step,
+    // and every timer armed meanwhile fires at that step.
+    /** @type {Array<() => void>} */
+    let timers = [];
+    const realSetTimeout = window.setTimeout;
+    const realNow = Date.now;
+    let clock = realNow();
+    /**
+     * Run `fn` with the clock stopped and timers captured rather than scheduled.
+     * @template T
+     * @param {() => T} fn - What to run.
+     * @returns {T} Its value.
+     */
+    const inHand = (fn) => {
+      window.setTimeout = /** @type {any} */ ((/** @type {() => void} */ cb) => { timers.push(cb); return 0; });
+      Date.now = () => clock;
+      try { return fn(); } finally { window.setTimeout = realSetTimeout; Date.now = realNow; }
+    };
+    const step = async () => {
+      clock += 1000;
+      const due = timers;
+      timers = [];
+      inHand(() => { for (const fire of due) fire(); });
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+
+    try {
+      // A slow core: the worker is busy with the message ahead of the flush
+      // and says nothing for ten seconds before answering it.
+      /** @type {unknown} */
+      let outcome = null;
+      const first = inHand(() => session.duplicateConversation('src'));
+      first.then((/** @type {unknown} */ id) => { outcome = id; }, (/** @type {unknown} */ e) => { outcome = e; });
+      const flush = sent.find((m) => m.type === 'flush-persistence');
+      assert(flush, `the duplicate did not ask the worker to flush: ${JSON.stringify(sent)}`);
+      for (let i = 0; i < 10; i++) await step();
+      assert(posted.length === 0 && outcome === null,
+        `the duplicate copied the source before its flush was answered: ${posted.length} POST(s), outcome ${String(outcome)}`);
+      wm.settleAck(flush.ackId);
+      const cloneId = await first;
+      assert(typeof cloneId === 'string' && posted.length === 1,
+        `once flushed, the duplicate goes ahead; got ${String(cloneId)} after ${posted.length} POST(s)`);
+
+      // The worker never answers: the duplicate refuses rather than copy a
+      // source it cannot vouch for.
+      sent.length = 0;
+      timers = [];
+      wm._lastHeardAt.delete('src');
+      outcome = null;
+      const second = inHand(() => session.duplicateConversation('src'));
+      second.then((/** @type {unknown} */ id) => { outcome = id; }, (/** @type {unknown} */ e) => { outcome = e; });
+      for (let i = 0; i < 300 && outcome === null; i++) await step();
+      assert(outcome instanceof Error && /said nothing/.test(outcome.message),
+        `a duplicate whose worker fell silent must fail, saying so; got ${outcome instanceof Error ? outcome.message : String(outcome)}`);
+      assert(posted.length === 1, `and copy nothing: ${posted.length} POST(s)`);
+    } finally {
+      loader.loadExisting = saved.loadExisting;
+      wm.clearUndoStacks = saved.clearUndoStacks;
+      wm.isWorkerReady = saved.isWorkerReady;
+      wm.sendToWorker = saved.sendToWorker;
     }
   });
 

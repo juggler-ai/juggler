@@ -165,10 +165,13 @@ export async function runTests(_ctx) {
       assert(report === '\n\nChanges the program made:\n- bash: sleep 30 (interrupted)', `the cut-off call is reported: ${JSON.stringify(report)}`);
       // The record is final once the program has ended: the worker has already
       // written the cancelled state, and the model is sent this record. Rows
-      // are written on a 250ms throttle, so a write still scheduled would land
-      // inside this window.
+      // are written on a 250ms throttle timer, and timers fire in the order of
+      // their deadlines, so a write still scheduled has landed by the time a
+      // longer timer armed now has fired, however slow the core.
       const final = JSON.stringify(displayOf(mt, item.toolUseId));
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      let fenced = false;
+      setTimeout(() => { fenced = true; }, 600);
+      await waitUntil(() => fenced, 'a timer armed after any pending row write to fire');
       const later = JSON.stringify(displayOf(mt, item.toolUseId));
       assert(later === final, `the record was written after the program ended:\n${final}\n→ ${later}`);
     });

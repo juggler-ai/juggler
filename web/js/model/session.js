@@ -18,6 +18,7 @@ import {
 import workerManager from '../services/worker-manager.js';
 import { markForTranslation, t } from '../../sdk/lib/i18n.js';
 import { isEngine } from '../../sdk/lib/client-role.js';
+import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { recordTape } from '../utils/event-tape.js';
 import { isTabReorderEnabled } from '../utils/attention-manager.js';
 import { approvePermittedPendingApprovals } from './conversation-tool-actions.js';
@@ -31,14 +32,6 @@ import ProjectSwitchController from './project-switch-controller.js';
 import SessionPersistence, { normalizeHistoryEntry } from './session-persistence.js';
 import SessionEvents from './session-events.js';
 import { seedCreationDefaults, seedConversationAutoItems as seedAutoItems } from './conversation-seeder.js';
-
-/**
- * How long a duplicate waits for the source worker's flush ack before copying
- * without it. The ack is normally one round-trip; this bounds a duplicate the
- * user is waiting on when the worker is slow to answer.
- * @type {number}
- */
-const DUPLICATE_FLUSH_ACK_TIMEOUT_MS = 5000;
 
 /**
  * The rename route's documented refusals (PATCH
@@ -1480,7 +1473,7 @@ class Session {
     // never asked this afterwards, so there is no window in which it is open
     // with no answer and nothing for a later hop to fill in — it shows what its
     // first turn would carry from the moment it exists.
-    await this.initialiseConversation(conversation, { workspaceId });
+    await this.initialiseConversation(conversation, { workspaceId }, { atCreation: true });
 
     // Ask the UI to open inline rename on the freshly-activated tab. Fired
     // last, once the tab is created, active, and settled, so the editor positions
@@ -1512,9 +1505,12 @@ class Session {
    * returns at once, and concurrent callers all await the one in-flight pass.
    * @param {import('./conversation.js').default} conversation - The conversation to initialise.
    * @param {{workspaceId?: string}} [patch] - The choices being committed.
+   * @param {{atCreation?: boolean}} [options] - `atCreation`: the conversation is
+   *   being created by this call's caller, so every undo group it holds is the
+   *   creation's own seeding.
    * @returns {Promise<void>}
    */
-  async initialiseConversation(conversation, patch = {}) {
+  async initialiseConversation(conversation, patch = {}, { atCreation = false } = {}) {
     if (!conversation || conversation.initialised) return;
     const inFlight = this._initialising.get(conversation.id);
     if (inFlight) return inFlight;
@@ -1522,9 +1518,15 @@ class Session {
     const pass = (async () => {
       if (patch.workspaceId) conversation.workspaceId = patch.workspaceId;
 
-      // Asked BEFORE the seeds, because the seeds put undo groups on the stack
-      // themselves and would otherwise be the answer.
-      const usersOwnHistory = conversation.canUndo?.() === true;
+      // A conversation being created has no history of its user's: everything
+      // on its stack is the creation's own — the loader's system-prompt
+      // placeholder and the creation defaults. That is decided from the call,
+      // not from canUndo(), because canUndo() reads the worker's undo state,
+      // which reports those groups whenever the worker gets to it: before this
+      // line on a slow core or after any pause, after it on a fast one.
+      // Otherwise it is asked BEFORE the seeds, because the seeds put undo
+      // groups on the stack themselves and would otherwise be the answer.
+      const usersOwnHistory = !atCreation && conversation.canUndo?.() === true;
 
       // Auto-add the bound tree's AI assistant files + seed always-present
       // items (e.g. memory) — unless that has already been done for this very
@@ -1626,7 +1628,9 @@ class Session {
    *   Default false: plain duplicate/branch fork a running conversation, and the
    *   clone loads stopped. /handoff opts in because its follow-up is an LLM turn
    *   that a half-forked, still-running source can't cleanly seed.
-   * @returns {Promise<string|null>} New conversation ID, or null if source not found
+   * @returns {Promise<string|null>} New conversation ID, or null if source not
+   *   found; rejects, copying nothing, when the source's worker falls silent
+   *   before confirming its flush
    */
   async duplicateConversation(conversationId, { nameSuffix = 'copy', refuseWhileActive = false } = {}) {
     const source = this.getConversation(conversationId);
@@ -1653,12 +1657,15 @@ class Session {
     // answers — without this, a duplicate taken just after an edit (the
     // initialised flag a fresh conversation writes last) copies the document
     // from before it. Skipped mid-turn, where the server snapshots the live
-    // document instead and the worker's loop may not answer promptly.
+    // document instead and the worker's loop may not answer promptly. The ack's
+    // own bound is the worker's silence, so a worker still working through
+    // its queue on a slow core is waited for; one that falls silent fails the
+    // duplicate rather than have it copy a source nobody can vouch for.
     if (!source.isTurnActive() && workerManager.isWorkerReady(conversationId)) {
       try {
-        await workerManager.flushPersistence(conversationId, DUPLICATE_FLUSH_ACK_TIMEOUT_MS);
+        await workerManager.flushPersistence(conversationId);
       } catch (err) {
-        console.warn(`[Session] Duplicating ${conversationId} without a flush barrier:`, err);
+        throw new Error(`Duplicating ${conversationId} failed: its latest edits could not be confirmed saved (${extractErrorMessage(err)})`, { cause: err });
       }
     }
 

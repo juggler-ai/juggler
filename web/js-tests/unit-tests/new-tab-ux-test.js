@@ -23,7 +23,8 @@
 import {
   initializeRegistries,
   createTestSession,
-  assert
+  assert,
+  waitFor
 } from '../utilities/test-helpers.js';
 import { unclaimedConversationIds } from '../utilities/conversation-claims.js';
 import { isAutoNameEnabled, setAutoNameEnabledCached } from '../../js/services/auto-name-setting.js';
@@ -137,22 +138,40 @@ export async function runTests() {
     // shared session — counting their already-deleted conversations would
     // overstate the cap pressure. At genuine peak (31+ live claimed
     // conversations) the only resource that frees room is siblings
-    // finishing, so poll briefly rather than fail on the first look.
-    const makeRoomDeadline = Date.now() + 10000;
-    while (session.conversations.size >= MAX_CONVERSATIONS - 1) {
+    // finishing, so poll rather than fail on the first look: each look that
+    // finds no room, with no pass already running, starts one.
+    const roomy = () => session.conversations.size < MAX_CONVERSATIONS - 1;
+    const makeRoomPass = async () => {
       await session.persistence.load();
       for (const id of Array.from(session.conversations.keys())) {
-        if (session.conversations.size < MAX_CONVERSATIONS - 1) break;
+        if (roomy()) break;
         if (unclaimedConversationIds([id]).length === 1) {
           await session.deleteConversation(id, 'new-tab-ux:make-room-leftover');
         }
       }
-      if (session.conversations.size < MAX_CONVERSATIONS - 1 || Date.now() >= makeRoomDeadline) break;
-      await new Promise(r => setTimeout(r, 250)); // poll: waiting on sibling lanes to release claims
+    };
+    /** @type {Promise<void>|null} */
+    let pass = null;
+    /** @type {unknown} */
+    let passFailure = null;
+    try {
+      await waitFor(() => {
+        if (passFailure) throw passFailure;
+        if (pass) return false;
+        if (roomy()) return true;
+        pass = makeRoomPass()
+          .catch((e) => { passFailure = e ?? new Error('a make-room pass failed'); })
+          .finally(() => { pass = null; });
+        return false;
+      }, {
+        timeoutMs: 10000,
+        intervalMs: 250,
+        description: () => `room under the ${MAX_CONVERSATIONS} cap; ` +
+          `size=${session.conversations.size} (every remaining conversation is claimed by a live lane)`
+      });
+    } finally {
+      await pass;
     }
-    assert(session.conversations.size < MAX_CONVERSATIONS - 1,
-      `could not make room under the ${MAX_CONVERSATIONS} cap; ` +
-			`size=${session.conversations.size} (every remaining conversation is claimed by a live lane)`);
 
     const idsBefore = new Set(session.conversations.keys());
 

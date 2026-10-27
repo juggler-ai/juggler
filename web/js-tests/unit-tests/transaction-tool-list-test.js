@@ -298,18 +298,23 @@ export async function runTests(_ctx) {
   // other end. `offered` is a strategy's own output, so a thread whose strategy
   // returns a fixed list gives a deterministic live list to compare against.
   /**
-   * A thread whose live tool list is exactly `tools`.
+   * A thread whose live tool list is exactly `tools`. `asked` counts the times
+   * the live list was read, which is the comparison's last asynchronous step.
    * @param {Array<Record<string, unknown>>} tools - The tools this thread offers
-   * @returns {{strategy: object}} A stand-in message thread
+   * @returns {{asked: number, strategy: object}} A stand-in message thread
    */
-  const threadOffering = (tools) => ({
-    strategy: {
-      /**
-       * @returns {Array<Record<string, unknown>>} The fixed live list
-       */
-      filterTools() { return tools; },
-    },
-  });
+  const threadOffering = (tools) => {
+    const thread = {
+      asked: 0,
+      strategy: {
+        /**
+         * @returns {Array<Record<string, unknown>>} The fixed live list
+         */
+        filterTools() { thread.asked++; return tools; },
+      },
+    };
+    return thread;
+  };
 
   /**
    * Wait for the drift annotation, which lands a few microtasks after render.
@@ -344,14 +349,17 @@ export async function runTests(_ctx) {
 
   await run('a live list matching the recorded one says nothing at all', async () => {
     const host = document.createElement('div');
+    const thread = threadOffering([tool('bash')]);
     renderTransactionDetail(
       host,
       { id: 'txn_8', input: { systemPrompt: '', messages: [], tools: [tool('bash')] } },
       undefined,
-      { messageThread: threadOffering([tool('bash')]) }
+      { messageThread: thread }
     );
     const row = openToolsRow(host);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Once the live list has been read, a drift line is a microtask away at most.
+    await waitFor(() => thread.asked > 0, 'the live tool list to be compared');
+    await new Promise((resolve) => setTimeout(resolve, 0));
     assert(!row.querySelector('.tx-tools-drift'), 'no drift means no line');
   });
 
@@ -361,8 +369,9 @@ export async function runTests(_ctx) {
       id: 'txn_9',
       input: { systemPrompt: '', messages: [], tools: [tool('bash')] },
     });
+    // The header is drawn with the row, and only a thread starts the comparison
+    // that could add a drift line later, so both hold as soon as it renders.
     const row = openToolsRow(host);
-    await new Promise((resolve) => setTimeout(resolve, 50));
     assert(row.querySelector('.tx-tools-sent'), 'the header must not depend on having a thread');
     assert(!row.querySelector('.tx-tools-drift'), 'nothing to compare against means no drift line');
   });

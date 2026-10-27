@@ -17,7 +17,8 @@ import {
   initializeRegistries,
   createTestSession,
   releaseTestConversation,
-  waitForWorkerReady
+  waitForWorkerReady,
+  waitFor
 } from '../utilities/test-helpers.js';
 import { DEFAULT_FILE_EDITING_META_KEY } from '../../js/services/file-editing-permission.js';
 import { fetchJson } from '../../js/services/http.js';
@@ -115,12 +116,31 @@ export async function queryIn(session, conversation, code) {
  * @returns {Promise<boolean>} Whether it turned up inside the window.
  */
 export async function fileTurnsUp(ops, path, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  do {
-    if ((await ops.stat({ path })).exists) return true;
-    await new Promise(resolve => setTimeout(resolve, 25));
-  } while (Date.now() < deadline);
-  return false;
+  // The wait's probe is synchronous and this one is a stat, so the probe keeps
+  // one stat in flight and answers from the last to come back. A stat that
+  // failed is thrown, not taken for an absence.
+  /** @type {Promise<void>|null} */
+  let looking = null;
+  let found = false;
+  /** @type {unknown} */
+  let failed = null;
+  const probe = () => {
+    if (failed) throw failed;
+    if (!found && !looking) {
+      looking = ops.stat({ path })
+        .then((/** @type {any} */ s) => { found = !!s.exists; }, (/** @type {unknown} */ err) => { failed = err; })
+        .finally(() => { looking = null; });
+    }
+    return found;
+  };
+  try {
+    await waitFor(probe, `${path} to turn up`, timeoutMs);
+    return true;
+  } catch {
+    // Only the wait running out is an answer; a probe's own failure is not.
+    if (failed) throw failed;
+    return false;
+  }
 }
 
 /**
@@ -464,6 +484,7 @@ export class FixtureProvider extends WorkspaceProvider {
     FixtureProvider.lastFinish = { actionId, input: ctx?.input };
     FixtureProvider.finishCalls++;
     if (FixtureProvider.finishDelayMs) {
+      // eslint-disable-next-line juggler/no-private-test-wait -- the fixture's configured delay keeps a press in flight; the duration is the subject
       await new Promise(resolve => setTimeout(resolve, FixtureProvider.finishDelayMs));
     }
     if (FixtureProvider.finishError) throw new Error(FixtureProvider.finishError);

@@ -244,6 +244,7 @@ export async function runTests() {
     assert(clicks === 0, `the click after a swipe must not reach the tab, got ${clicks}`);
 
     // Only that one: the guard lapses, it doesn't deafen the drawer.
+    // eslint-disable-next-line juggler/no-private-test-wait -- the hold must outlast swipe-dismiss.js's CLICK_SWALLOW_MS guard (100ms), which is the subject
     await new Promise((resolve) => setTimeout(resolve, 150));
     tab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     assert(clicks === 1, `a later click must reach the tab, got ${clicks}`);

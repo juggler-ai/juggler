@@ -1268,9 +1268,29 @@ func (w *ConversationWorker) handleEndUndoCoalesce(payload json.RawMessage) {
 	w.reply(AckMessage{Type: msgAck, AckID: ackID})
 }
 
-// cancelAndWaitForIdle stops any in-flight strategy loop and blocks (briefly)
-// until the worker reaches StateIdle. Called before undo/redo so the document
-// rollback can't be raced by the strategy's deferred writes.
+// How long undo/redo waits for the turns it stops. A stopped turn's goroutine
+// returning is the idle the wait resolves on; while it has not, the turn is
+// still writing its way out, and on a slow core that takes as long as it takes —
+// so a goroutine still running is reason to keep waiting, not a fault. A
+// worker reads them from its own fields, which a test may shrink.
+const (
+	// defaultHistoryNavStopCheck is how often a wait still in progress says so
+	// in the log, so a long one reads as a slow unwind rather than a hung worker.
+	defaultHistoryNavStopCheck = 2 * time.Second
+
+	// defaultHistoryNavStopCeiling bounds the one case liveness cannot: a turn
+	// that never returns. Far past any unwind on any core, and inside the
+	// viewer's 30s ack silence window (sendWithAck), so the refusal reaches the
+	// client as an answer rather than as an ack timeout.
+	defaultHistoryNavStopCeiling = 20 * time.Second
+)
+
+// cancelAndWaitForIdle stops any in-flight strategy loop and blocks until every
+// stopped turn's goroutine has returned, bounded by w.historyNavStopCeiling. It
+// reports false when one is still running at the ceiling, or the worker is
+// stopping: the caller then refuses the history step, because applying it under
+// a live turn lets that turn's deferred writes overwrite the restored state.
+// Called before undo/redo.
 func (r *run) cancelAndWaitForIdle() bool {
 	runs := r.sched.runs()
 	if len(runs) == 0 {
@@ -1290,12 +1310,26 @@ func (r *run) cancelAndWaitForIdle() bool {
 		target.logCancel(cancelReasonUndoRedo)
 		target.abortTurn(live.threadItemID)
 	}
+	started := time.Now()
+	ceiling := time.NewTimer(r.historyNavStopCeiling)
+	defer ceiling.Stop()
+	check := time.NewTicker(r.historyNavStopCheck)
+	defer check.Stop()
 	for _, live := range runs {
-		select {
-		case <-live.t.finished:
-		case <-time.After(time.Second):
-			r.log.Error("Timed out waiting for thread %s before history navigation", live.threadItemID)
-			return false
+		for waiting := true; waiting; {
+			select {
+			case <-live.t.finished:
+				waiting = false
+			case <-check.C:
+				r.log.Info("⏳ History navigation still waiting for thread %q to unwind after %s",
+					live.threadItemID, time.Since(started).Round(time.Millisecond))
+			case <-ceiling.C:
+				r.log.Error("Refusing history navigation: thread %q was still running %s after it was stopped",
+					live.threadItemID, r.historyNavStopCeiling)
+				return false
+			case <-r.done:
+				return false
+			}
 		}
 	}
 	return true

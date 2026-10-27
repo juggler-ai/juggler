@@ -18,7 +18,7 @@
  * @module unit-tests/autocomplete-aria-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 import { __resetPopupManagerForTests } from '../../js/utils/popup-manager.js';
 import { CompletionMenu } from '../../js/components/completion-menu.js';
 import '../../js/components/path-input.js';
@@ -112,8 +112,8 @@ export async function runTests() {
       textarea.value = '/';
       textarea.selectionStart = textarea.selectionEnd = 1;
       completions.handleInput();
-      await new Promise((r) => setTimeout(r, 200)); // the fetch is debounced
-      assert(completions.isActive(), 'composer: the completion never opened');
+      // The fetch is debounced, so the list opens a few ticks later.
+      await waitFor(() => completions.isActive(), 'composer: the completion to open');
       const options = assertListbox(textarea, 'composer');
       assertActive(textarea, options, -1, 'composer opened');
       completions.move(1);

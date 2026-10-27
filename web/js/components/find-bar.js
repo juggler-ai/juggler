@@ -7,6 +7,7 @@ import { isMac, formatBindingLabel } from '../services/key-shortcut-manager.js';
 import { EXPAND_LESS_SVG, EXPAND_MORE_SVG } from '../utils/icons.js';
 import { t } from '../../sdk/lib/i18n.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
+import { debounce } from '../../sdk/lib/debounce.js';
 
 /**
  * The presentational find (⌘F) bar. A panel-mounted singleton (module-level
@@ -31,6 +32,12 @@ import { escapeHtml } from '../../sdk/lib/html.js';
 const SEARCH_DEBOUNCE_MS = 120;
 /** Debounce for the streaming MutationObserver before refreshing matches. */
 const OBSERVER_DEBOUNCE_MS = 150;
+/**
+ * The longest a stream of mutations may hold that refresh off. A streaming turn
+ * changes the panel faster than the debounce for as long as it streams, and the
+ * counter should follow the new text, a second behind, rather than freeze.
+ */
+const OBSERVER_MAX_WAIT_MS = 1000;
 
 /**
  * What a find-capable panel says about itself when the bar asks for somewhere to
@@ -94,8 +101,11 @@ class FindBar {
     this._observer = null;
     /** @type {number|null} @private - Pending search-debounce timer. */
     this._searchTimer = null;
-    /** @type {number|null} @private - Pending observer-debounce timer. */
-    this._observerTimer = null;
+    /**
+     * The observer's coalesced refresh.
+     * @private
+     */
+    this._observerRefresh = debounce(() => this._onPanelMutated(), OBSERVER_DEBOUNCE_MS, { maxWait: OBSERVER_MAX_WAIT_MS });
     /** @type {string} @private - Query retained across opens so ⌘F re-runs the last find. */
     this._query = '';
     /** @type {boolean} @private - Case-sensitive toggle, retained across opens. */
@@ -412,13 +422,7 @@ class FindBar {
     if (this._observer || !this._target) return;
     const target = this._target.watch || this._target.root;
     if (!target) return;
-    this._observer = new MutationObserver(() => {
-      if (this._observerTimer !== null) clearTimeout(this._observerTimer);
-      this._observerTimer = window.setTimeout(() => {
-        this._observerTimer = null;
-        this._onPanelMutated();
-      }, OBSERVER_DEBOUNCE_MS);
-    });
+    this._observer = new MutationObserver(() => this._observerRefresh());
     this._observer.observe(target, { subtree: true, childList: true, characterData: true });
   }
 
@@ -458,10 +462,7 @@ class FindBar {
       this._observer.disconnect();
       this._observer = null;
     }
-    if (this._observerTimer !== null) {
-      clearTimeout(this._observerTimer);
-      this._observerTimer = null;
-    }
+    this._observerRefresh.cancel();
   }
 
   /**

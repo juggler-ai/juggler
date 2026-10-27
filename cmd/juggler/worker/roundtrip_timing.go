@@ -13,7 +13,8 @@ import (
 )
 
 // A turn opens by asking the engine for its context and its tool list, and
-// waits ContextTimeout for both. Three stages can spend that budget and they
+// waits for both while the engine stays attached (ContextTimeout). Three stages
+// can spend that wait and they
 // call for three different fixes: the request queueing behind other traffic on
 // the way out, the engine's own work (its fetches share a six-connection
 // browser pool with every tool call), and the reply's trip back. The worker
@@ -23,11 +24,11 @@ import (
 //
 // This matters most for the round-trip that never finishes in time: the reply
 // usually does arrive, just too late to be wanted, and it carries the only
-// account of where the 30s went.
+// account of where the time went.
 
 // slowRoundTripMS is the elapsed time at which a completed round-trip is worth
-// a line in the log. Well clear of a healthy turn's few milliseconds, and well
-// under ContextTimeout, so the log shows the approach as well as the arrival.
+// a line in the log. Well clear of a healthy turn's few milliseconds, so the
+// log shows a slow engine's approach as well as its arrival.
 const slowRoundTripMS = int64(5 * time.Second / time.Millisecond)
 
 // roundTripIsSlow reports whether an elapsed round-trip earns a log line.
@@ -85,8 +86,8 @@ func reportRoundTrip(name string, payload json.RawMessage) {
 }
 
 // reportDroppedReply logs a reply that arrived for a request no longer waiting
-// for it: the turn that asked has ended — it missed ContextTimeout, or it was
-// cancelled — so nothing can use the answer. Its stamps are the only account of
+// for it: the turn that asked has ended — its engine went away, it reached
+// ContextCeiling, or it was cancelled — so nothing can use the answer. Its stamps are the only account of
 // where that budget went, so they are worth a line anyway. Read the elapsed
 // time before concluding anything: near the timeout is the round-trip that lost
 // the turn; a fast one means the request was abandoned, or answered twice.

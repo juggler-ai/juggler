@@ -12,7 +12,7 @@
  * @module unit-tests/mcp-settings-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 import {
   configFormToConfig as mcpFormToConfig,
   upsertConfigEntry as mcpUpsertMap,
@@ -387,6 +387,7 @@ export async function runTests(_ctx) {
       ops: {
         list: async () => [{ name: 'linear', status: 'running' }],
         getConfig: async () => {
+          // eslint-disable-next-line juggler/no-private-test-wait -- the fake backend's slowness is the subject: the deep link must arrive before the config
           await new Promise((resolve) => setTimeout(resolve, delayMs));
           return config;
         },
@@ -655,8 +656,7 @@ export async function runTests(_ctx) {
        * @param {string} what
        */
       const until = async (cond, what) => {
-        for (let i = 0; i < 400 && !cond(); i++) await new Promise((r) => setTimeout(r, 5));
-        assert(cond(), `timed out waiting for ${what}`);
+        await waitFor(cond, { timeoutMs: 2000, intervalMs: 5, description: what });
       };
       /**
        * @param {string} selector

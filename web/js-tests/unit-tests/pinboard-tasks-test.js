@@ -454,15 +454,29 @@ export async function runTests() {
       let release = () => {};
       listingGate = new Promise((resolve) => { release = () => resolve(); });
       inventory = [proc('bg-old')];
-      const asked = listings;
-      wsService._emit('open', {});
-      await waitFor(() => listings > asked, 'the listing to be asked for');
-      pushFrame([proc('bg-new')]);
-      await listWhere((l) => !!find(l, 'bg-new'), 'the frame to land');
-      listingGate = null;
-      release();
-      // Give the stale answer every chance to land before checking it did not.
-      await new Promise((resolve) => { setTimeout(resolve, 50); });
+      // Counts finished listings, so the check below runs once the stale answer
+      // has been handled rather than after a guess at how long that takes.
+      const fetchProcesses = content._fetchProcesses;
+      let fetched = 0;
+      content._fetchProcesses = async function () {
+        try {
+          return await fetchProcesses.call(this);
+        } finally {
+          fetched++;
+        }
+      };
+      try {
+        const asked = listings;
+        wsService._emit('open', {});
+        await waitFor(() => listings > asked, 'the listing to be asked for');
+        pushFrame([proc('bg-new')]);
+        await listWhere((l) => !!find(l, 'bg-new'), 'the frame to land');
+        listingGate = null;
+        release();
+        await waitFor(() => fetched > 0, 'the stale listing to be handled');
+      } finally {
+        delete content._fetchProcesses;
+      }
       assert(!find(service().list(), 'bg-old') && !!find(service().list(), 'bg-new'),
         `the older listing overwrote the newer frame: ${JSON.stringify(service().list())}`);
     });
@@ -473,8 +487,17 @@ export async function runTests() {
       watching?.();
       watching = null;
       // The probe pin never subscribed, so the suite's watcher was the last.
-      pushFrame([proc('bg-unheard')]);
-      await new Promise((resolve) => { setTimeout(resolve, 50); });
+      // A listener of the test's own, registered last, hears the frame after any
+      // the board left behind would have.
+      let heard = 0;
+      const hear = () => { heard++; };
+      wsService.on('processes-changed', hear);
+      try {
+        pushFrame([proc('bg-unheard')]);
+        await waitFor(() => heard > 0, 'the frame to be delivered');
+      } finally {
+        wsService.off('processes-changed', hear);
+      }
       assert(!find(service().list(), 'bg-unheard'), 'a frame reached a board nobody is watching');
     });
   } finally {

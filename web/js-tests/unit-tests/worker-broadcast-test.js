@@ -39,7 +39,7 @@ import {
   whenRegistriesSettled,
 } from '../../js/registries/reload-registries.js';
 import { budgetFor } from '../utilities/test-deadline.js';
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 
 /**
  * @typedef {object} TestResult
@@ -213,11 +213,7 @@ export async function runTests(_ctx) {
     __holdNextRegistryRebuildForTests(new Promise((resolve) => { release = () => resolve(undefined); }));
     const reloading = reloadRegistries();
     try {
-      const deadline = Date.now() + budgetFor(5000);
-      while (contextItemRegistry.isInitialized()) {
-        if (Date.now() >= deadline) throw new Error('the rebuild never reset the registries');
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      }
+      await waitFor(() => !contextItemRegistry.isInitialized(), 'the rebuild to reset the registries', 5000);
       await during(release);
     } finally {
       release();
@@ -353,6 +349,7 @@ export async function runTests(_ctx) {
       const reloading = reloadRegistries();
       try {
         turn.processingState.status = 'idle';
+        // eslint-disable-next-line juggler/no-private-test-wait -- negative window with no fence: the claim is that no clock wakes the reload, so no later event exists to wait for
         await new Promise((resolve) => setTimeout(resolve, 250));
         assert(registriesPopulated(), `the reload went ahead before anything announced the turn had ended (strategies=${strategyRegistry.isInitialized()} items=${contextItemRegistry.isInitialized()} busy=${anyLocalConversationBusy()})`);
         turn.announce();

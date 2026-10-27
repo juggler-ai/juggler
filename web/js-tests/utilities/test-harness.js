@@ -27,7 +27,7 @@ import { waitForTurnComplete, observeUntil, findItemRecursive, hasIncompleteAppr
 // cross-lane operations treat claimed conversations as untouchable. Harnesses
 // register every conversation they create so both hold.
 import { registerOwnConversation as _registerOwnConversation } from './conversation-claims.js';
-import { budgetFor, deadlineFor } from './test-deadline.js';
+import { budgetFor, deadlineFor, deadlineTimer } from './test-deadline.js';
 
 
 /**
@@ -69,6 +69,26 @@ import { budgetFor, deadlineFor } from './test-deadline.js';
 /**
  * Integration test harness that exercises real code paths with mock LLM responses.
  */
+/**
+ * A tool-action a cancel has not finished with: anything not yet CANCELLED or
+ * COMPLETED, searched recursively. "RUNNING with a result set" counts — it is
+ * the window in which the worker's cancel transaction (state=cancelled,
+ * result=interrupted) is still racing the engine's earlier claim through the
+ * Yjs merge, and a wait that ends there lets the test read the doc before the
+ * cancelled write wins. On a slow core that window is wide.
+ * @param {any[]} items - Items to search.
+ * @param {{pendingIsSettled?: boolean}} [opts] - Whether a tool still awaiting approval counts as settled, for a cancel that leaves approvals alone.
+ * @returns {boolean} True while some tool-action is unsettled.
+ */
+function hasUnsettledToolAction(items, { pendingIsSettled = false } = {}) {
+  return Boolean(findItemRecursive(items, (/** @type {*} */ item) => {
+    if (item.get('type') !== 'tool-action') return false;
+    const state = item.get('state');
+    if (state === TOOL_STATES.CANCELLED || state === TOOL_STATES.COMPLETED) return false;
+    return !(pendingIsSettled && state === TOOL_STATES.PENDING);
+  }));
+}
+
 export class IntegrationTestHarness {
   /**
    * @param {TestHarnessOptions} options - Test configuration
@@ -96,6 +116,16 @@ export class IntegrationTestHarness {
     this._perTestDeadlineMs = 0;
 
     /**
+     * Where this test's own deadline is read from, every time a wait asks.
+     * By default it is the field above. A UITestHarness points it at its own
+     * field instead, which is the one the runner's stall watchdog moves while
+     * the test makes progress: a value copied at setup would expire ~26s in
+     * and leave every later wait a 0ms budget, however live the test.
+     * @type {() => number} @private
+     */
+    this._deadlineSource = () => this._perTestDeadlineMs;
+
+    /**
      * The deadline a wait should be bounded by: this test's own when the
      * runner set one, otherwise one derived from the deadline armed for the
      * suite in progress (see test-deadline.js). A unit suite drives this
@@ -105,7 +135,7 @@ export class IntegrationTestHarness {
      * @returns {number} A deadline, or 0 when the wait should use its nominal
      * @private
      */
-    this._deadline = (fallbackMs) => deadlineFor(fallbackMs, this._perTestDeadlineMs);
+    this._deadline = (fallbackMs) => deadlineFor(fallbackMs, this._deadlineSource());
 
     /**
      * Per-test AbortController signal, set by the runner. When the per-test
@@ -289,6 +319,8 @@ export class IntegrationTestHarness {
    * "settling" round (microtask + animation frame). Driven by the items
    * observer, not a clock — but the bound is "one settle round" rather
    * than "the predicate became true" because there's no concrete predicate.
+   * The safety net follows the test's deadline (`deadlineTimer`), so a doc
+   * that is still settling on a slow core is waited for.
    * @param {number} [timeoutMs=2000] - Fail-fast safety net
    * @private
    */
@@ -298,10 +330,10 @@ export class IntegrationTestHarness {
     await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
       let dirty = true;
       const onChange = () => { dirty = true; };
-      const overall = setTimeout(() => {
+      const cancelOverall = deadlineTimer(() => {
         rootThread.unobserveItemsDeep?.(onChange);
         reject(new Error('Timeout waiting for items to be stable'));
-      }, timeoutMs);
+      }, budgetFor(timeoutMs));
       rootThread.observeItemsDeep?.(onChange);
       // Use setTimeout(0) rather than requestAnimationFrame: hidden
       // WKWebViews throttle rAF to near-zero, which would hang the test.
@@ -310,7 +342,7 @@ export class IntegrationTestHarness {
       const tick = () => {
         if (!dirty) {
           rootThread.unobserveItemsDeep?.(onChange);
-          clearTimeout(overall);
+          cancelOverall();
           resolve();
           return;
         }
@@ -535,14 +567,8 @@ export class IntegrationTestHarness {
     // worker writes `state='cancelled'`, and the test goes green.
     // Sub-thread active column → settle it (same first-class branch app.js takes).
     if (await this._conversation.cancelActiveTurn()) {
-      await this._waitForCondition((items, ps) => {
-        if (ps?.status !== 'idle') return false;
-        const isUnsettled = (/** @type {*} */ item) =>
-          item.get('type') === 'tool-action' &&
-					item.get('state') !== TOOL_STATES.CANCELLED &&
-					item.get('state') !== TOOL_STATES.COMPLETED;
-        return !findItemRecursive(items, isUnsettled);
-      }, { timeoutMs, label: 'idle after sub-thread cancel (UI flow)' });
+      await this._waitForCondition((items, ps) => ps?.status === 'idle' && !hasUnsettledToolAction(items),
+        { timeoutMs, label: 'idle after sub-thread cancel (UI flow)' });
       return;
     }
 
@@ -567,22 +593,10 @@ export class IntegrationTestHarness {
       this._conversation.stopProcessing();
     }
 
-    await this._waitForCondition((items, ps) => {
-      if (ps?.status !== 'idle') return false;
-      // Require every tool-action to be in a terminal state (CANCELLED
-      // or COMPLETED). A "state=RUNNING with result set" is a transient
-      // race window: the worker's CancelInFlightToolActions transaction
-      // (state=cancelled+result=interrupted) is in flight while the
-      // frontend's prior _claimRunning write is also racing through
-      // Y.js merge. Accepting RUNNING+result here lets the test assert
-      // the doc before the cancelled write wins; wait for the terminal
-      // state instead.
-      const isUnsettled = (/** @type {*} */ item) =>
-        item.get('type') === 'tool-action' &&
-				item.get('state') !== TOOL_STATES.CANCELLED &&
-				item.get('state') !== TOOL_STATES.COMPLETED;
-      return !findItemRecursive(items, isUnsettled);
-    }, { timeoutMs, label: 'idle after UI cancel flow' });
+    // Every tool-action terminal, not merely given a result
+    // (hasUnsettledToolAction says why).
+    await this._waitForCondition((items, ps) => ps?.status === 'idle' && !hasUnsettledToolAction(items),
+      { timeoutMs, label: 'idle after UI cancel flow' });
   }
 
   /**
@@ -834,7 +848,7 @@ export class IntegrationTestHarness {
     this._conversation = conv;
 
     // Wait for worker to be fully ready
-    await workerManager.waitForWorkerReady(convId, 5000);
+    await workerManager.waitForWorkerReady(convId, budgetFor(5000));
 
     // Inject mock responses into the new conversation's worker. An explicit
     // per-conversation list takes priority — required when two conversations
@@ -1311,6 +1325,7 @@ export class IntegrationTestHarness {
 
     // Wait before allowing reconnection
     if (reconnectMs > 0) {
+      // eslint-disable-next-line juggler/no-private-test-wait -- the outage's length is what a reconnection test chooses
       await new Promise(resolve => setTimeout(resolve, reconnectMs));
     }
 
@@ -1328,6 +1343,7 @@ export class IntegrationTestHarness {
    * @param {boolean} [condition.hasThreadItem] - Whether any thread item exists
    * @param {boolean} [condition.hasCompactionBarrier] - Whether compaction barrier exists
    * @param {number} [condition.completedThreadCount] - Minimum count of threads whose run has settled
+   * @param {string} [condition.pendingContent] - Content of a message that must be in the root thread's pendingItems queue
    * @param {number} [condition.atMostThreadCount] - Constraint: fail immediately if total thread count exceeds this
    * @param {number} [condition.maxCompletedThreadCount] - Constraint: fail immediately if settled thread count exceeds this
    * @param {boolean} [condition.mainThreadBusy] - Whether the main thread footer shows a spinner
@@ -1340,10 +1356,11 @@ export class IntegrationTestHarness {
       throw new Error('Conversation not initialized');
     }
 
-    // atMostThreadCount is a constraint: it must hold throughout the wait window.
-    // If it's the only key, the call is purely a constraint check that succeeds
-    // after timeoutMs elapses with no violation. If combined with goal conditions,
-    // goals must be met AND the constraint must hold the whole time.
+    // atMostThreadCount is a constraint: it must hold throughout the wait window,
+    // and goals must be met while it does. A constraint alone has no goal to
+    // end the wait, so all it could do is pass when a timer ran out — a
+    // negative window, which a slow core satisfies vacuously. It is refused:
+    // pair it with the goal whose arrival shows the effect would have landed.
     const isConstraintKey = (/** @type {string} */ k) => k === 'atMostThreadCount' ||
 			k === 'maxCompletedThreadCount';
     const hasConstraintOnly = Object.keys(condition).length > 0 &&
@@ -1380,6 +1397,11 @@ export class IntegrationTestHarness {
           item.get('type') === 'thread' && threadRunSettled(item)
         ).length;
         if (threadCount < condition.completedThreadCount) goalsMet = false;
+      }
+      if (condition.pendingContent !== undefined) {
+        const pending = this.rootThread.pendingItems || [];
+        const queued = pending.some((/** @type {any} */ it) => it.get?.('content') === condition.pendingContent);
+        if (!queued) goalsMet = false;
       }
       if (condition.anyThreadResultIncludes !== undefined) {
         const needle = condition.anyThreadResultIncludes;
@@ -1432,23 +1454,7 @@ export class IntegrationTestHarness {
     };
 
     if (hasConstraintOnly) {
-      // Constraint-only: observe for the full window, throw on any violation.
-      // We listen on the doc root deeply (covers items mutations, and
-      // survives a just-created conversation whose items array doesn't
-      // exist yet — root.get('items') would be undefined there).
-      // @ts-ignore - _doc access needed for low-level Yjs observers in test harness
-      const root = this._conversation._doc.root;
-      await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
-        const cleanup = () => root.unobserveDeep(check);
-        const timer = setTimeout(() => { cleanup(); resolve(); }, timeoutMs);
-        const check = () => {
-          try { evaluate(this.rootThread.items || []); }
-          catch (err) { clearTimeout(timer); cleanup(); reject(err); }
-        };
-        root.observeDeep(check);
-        try { check(); } catch (err) { clearTimeout(timer); reject(err); }
-      }));
-      return;
+      throw new Error(`wait-for-state: ${JSON.stringify(condition)} is a constraint with no goal, which can only pass by a timer running out; add the goal it must hold until`);
     }
 
     await this._waitForCondition(items => evaluate(items),
@@ -1520,7 +1526,7 @@ export class IntegrationTestHarness {
     if (this.getProgressCount(toolUseId) >= minEvents) return;
     const budgetMs = budgetFor(timeoutMs);
     await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      const cancelTimeout = deadlineTimer(() => {
         document.removeEventListener('action-progress', listener);
         reject(new Error(
           `Timeout after ${budgetMs}ms waiting for ${minEvents} progress events, got ${this.getProgressCount(toolUseId)}`
@@ -1529,7 +1535,7 @@ export class IntegrationTestHarness {
       const listener = (/** @type {Event} */ e) => {
         if (/** @type {CustomEvent} */ (e).detail?.toolUseId !== toolUseId) return;
         if (this.getProgressCount(toolUseId) >= minEvents) {
-          clearTimeout(timeout);
+          cancelTimeout();
           document.removeEventListener('action-progress', listener);
           resolve();
         }
@@ -1567,7 +1573,7 @@ export class IntegrationTestHarness {
     if (seen()) return;
     const budgetMs = budgetFor(timeoutMs);
     await /** @type {Promise<void>} */ (new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      const cancelTimeout = deadlineTimer(() => {
         document.removeEventListener('action-progress', listener);
         const last = capture.events[capture.events.length - 1];
         reject(new Error(
@@ -1579,7 +1585,7 @@ export class IntegrationTestHarness {
       const listener = (/** @type {Event} */ e) => {
         if (/** @type {CustomEvent} */ (e).detail?.toolUseId !== toolUseId) return;
         if (seen()) {
-          clearTimeout(timeout);
+          cancelTimeout();
           document.removeEventListener('action-progress', listener);
           resolve();
         }
@@ -1810,22 +1816,22 @@ export class IntegrationTestHarness {
     // if a sub-thread is the live processing column, INTERRUPT it (worker-truth
     // cancel, thread left OPEN — no result stamp) instead of adding a root
     // cancellation message. Must run before any stop clears the status threadId.
+    // A bare Escape leaves approvals the user has not answered alone, so a
+    // pending tool counts as settled here; one the cancel reached must be
+    // terminal, not merely given a result (hasUnsettledToolAction says why).
+    const settled = (/** @type {any[]} */ items, /** @type {any} */ ps) => ps?.status === 'idle'
+      && !hasIncompleteApprovedTools(items)
+      && !hasUnsettledToolAction(items, { pendingIsSettled: true });
     if (await this._conversation.cancelActiveTurn()) {
-      await this._waitForCondition((items, ps) => {
-        if (ps?.status !== 'idle') return false;
-        return !hasIncompleteApprovedTools(items);
-      }, { timeoutMs, label: 'idle after sub-thread interrupt' });
+      await this._waitForCondition(settled, { timeoutMs, label: 'idle after sub-thread interrupt' });
       return;
     }
     this._conversation.addCancellationMessage();
 
     // Wait for full quiescence: processingState=idle, no in-flight browser
     // actions (cancelled actions still need to unwind their finally blocks),
-    // and no approved tools still missing results.
-    await this._waitForCondition((items, ps) => {
-      if (ps?.status !== 'idle') return false;
-      return !hasIncompleteApprovedTools(items);
-    }, { timeoutMs, label: 'idle after cancellation' });
+    // no approved tools still missing results, and none caught mid-cancel.
+    await this._waitForCondition(settled, { timeoutMs, label: 'idle after cancellation' });
   }
 
   /**

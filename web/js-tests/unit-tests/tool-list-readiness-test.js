@@ -86,6 +86,7 @@ export async function runTests(_ctx) {
 
       /** @returns {Promise<void>} Resolves once its tools are known */
       static async prepareToolDefinitions() {
+        // eslint-disable-next-line juggler/no-private-test-wait -- the stub's slow discovery is the subject: the list must wait for a prepare that spans a timer
         await new Promise((resolve) => setTimeout(resolve, 10));
         discovered = true;
       }

@@ -9,32 +9,14 @@
  * @module unit-tests/project-picker-recents-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
-import { budgetFor, testGeneration } from '../utilities/test-deadline.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
+import { budgetFor } from '../utilities/test-deadline.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 import { t, isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import apiService from '../../js/services/api.js';
 import { closePopupById } from '../../js/utils/popup-manager.js';
 import { endProjectOpen, openProjectInWindow } from '../../js/components/project-opening.js';
 import { buildPickerPanel, openProjectPicker, openNewProjectPanel } from '../../js/components/project-picker.js';
-
-/**
- * Yield to timers until `ready()` holds, riding the test's deadline (`ms` is
- * the nominal, used only when none is armed). Gives up early once the test it
- * belongs to has been abandoned.
- * @param {() => unknown} ready
- * @param {number} [ms]
- * @returns {Promise<boolean>} Whether it came true.
- */
-async function waitUntil(ready, ms = 3000) {
-  const gen = testGeneration();
-  const end = Date.now() + budgetFor(ms);
-  while (!ready()) {
-    if (Date.now() > end || testGeneration() !== gen) return false;
-    await new Promise((r) => setTimeout(r, 10));
-  }
-  return true;
-}
 
 /**
  * Wait for a promise to settle, riding the test's deadline (`ms` is the
@@ -225,7 +207,7 @@ export async function runTests() {
     try {
       const openBtn = /** @type {HTMLButtonElement} */ (element.querySelector('.pp-btn-open'));
       element.querySelector('path-input')?.dispatchEvent(new CustomEvent('path-change', { detail: { value: '/work/here' } }));
-      assert(await waitUntil(() => !openBtn.disabled), 'the open button never enabled');
+      await waitFor(() => !openBtn.disabled, 'the open button to enable', 3000);
       openBtn.click();
       await settleWithin(promise, 1000);
       assert(launched.length === 1 && launched[0] === '/work/here',
@@ -314,7 +296,7 @@ export async function runTests() {
           recent.click();
           check(status.textContent, 'checking');
           const before = status.className;
-          assert(await waitUntil(() => status.className !== before), 'the status never settled');
+          await waitFor(() => status.className !== before, 'the status to settle', 3000);
           return status.textContent;
         };
         check(await statusFor({ valid: true, current: true }), 'current project');
@@ -337,7 +319,7 @@ export async function runTests() {
         let popup = /** @type {HTMLElement|null} */ (document.querySelector('.pp-panel-popup'));
         assert(!!popup, 'the switching picker never presented');
         collect(/** @type {HTMLElement} */ (popup), 'switching');
-        assert(await waitUntil(() => popup?.querySelector('.pp-recent-item')), 'the recents never drew');
+        await waitFor(() => popup?.querySelector('.pp-recent-item'), 'the recents to draw', 3000);
         /** @type {HTMLElement} */ (/** @type {HTMLElement} */ (popup).querySelector('.pp-recent-item')).click();
         await switching;
         endProjectOpen();
@@ -371,9 +353,9 @@ export async function runTests() {
         const newWindowBtn = /** @type {HTMLButtonElement|null} */ (popup?.querySelector('.pp-btn-newwindow') ?? null);
         assert(!!newWindowBtn, 'the empty-window picker offered no new window');
         popup?.querySelector('path-input')?.dispatchEvent(new CustomEvent('path-change', { detail: { value: '/1' } }));
-        assert(await waitUntil(() => newWindowBtn && !newWindowBtn.disabled), 'the new-window button never enabled');
+        await waitFor(() => newWindowBtn && !newWindowBtn.disabled, 'the new-window button to enable', 3000);
         /** @type {HTMLButtonElement} */ (newWindowBtn).click();
-        assert(await waitUntil(() => modals.some((m) => m.type === 'alert')), 'a failed new window showed no alert');
+        await waitFor(() => modals.some((m) => m.type === 'alert'), 'an alert for the failed new window', 3000);
         check(modals.find((m) => m.type === 'alert').title, 'new window failed');
         modals.length = 0;
         closePopupById('project-picker');
@@ -396,7 +378,7 @@ export async function runTests() {
         nameEl.value = '1';
         nameEl.dispatchEvent(new Event('input'));
         /** @type {HTMLElement} */ (/** @type {HTMLElement} */ (made).querySelector('.pp-btn-open')).click();
-        assert(await waitUntil(() => modals.some((m) => m.type === 'alert')), 'a failed create showed no alert');
+        await waitFor(() => modals.some((m) => m.type === 'alert'), 'an alert for the failed create', 3000);
         endProjectOpen();
         check(modals.find((m) => m.type === 'alert').title, 'create failed');
 
@@ -466,7 +448,7 @@ export async function runTests() {
         const switching = openProjectPicker('/1', busySession);
         const popup = /** @type {HTMLElement|null} */ (document.querySelector('.pp-panel-popup'));
         assert(!!popup, 'the switching picker never presented');
-        assert(await waitUntil(() => popup?.querySelector('.pp-recent-item')), 'the recents never drew');
+        await waitFor(() => popup?.querySelector('.pp-recent-item'), 'the recents to draw', 3000);
         /** @type {HTMLElement} */ (/** @type {HTMLElement} */ (popup).querySelector('.pp-recent-item')).click();
         await switching;
         message = modals.find((m) => m.type === 'confirm')?.message || '';

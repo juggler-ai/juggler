@@ -12,17 +12,15 @@ import (
 // The run() loop is the only consumer of a conversation's inbox, and every
 // reply a turn waits on — context, tools, approvals — reaches the turn only
 // when the loop dispatches it. A loop that spends long on each event therefore
-// shows up far from its cause: as a [roundtrip] reply that took most of
-// ContextTimeout "coming back", and as a turn failing with "context/tools
-// request timed out" while the engine answered in milliseconds. Each slow
+// shows up far from its cause: as a [roundtrip] reply that took most of its
+// time "coming back" while the engine answered in milliseconds. Each slow
 // iteration is logged with what it was handling and how its time divided
 // between the event and the reducer pass that follows every event, so the
 // backlog behind such a timeout can be attributed rather than inferred.
 
 // slowLoopIteration is the duration at which one run() iteration earns a log
 // line: far above a healthy iteration's microseconds-to-milliseconds, and low
-// enough that a backlog building towards ContextTimeout is visible long before
-// it costs a turn.
+// enough that a backlog is visible long before it costs a turn.
 const slowLoopIteration = 250 * time.Millisecond
 
 // describeSlowIteration reports a run() iteration that took long enough to log,

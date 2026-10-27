@@ -10,6 +10,7 @@ import noRawUiString from './eslint-rules/no-raw-ui-string.js';
 import testHooksInTestsOnly from './eslint-rules/test-hooks-in-tests-only.js';
 import sdkBoundary from './eslint-rules/sdk-boundary.js';
 import escapeHtmlInterpolation from './eslint-rules/escape-html-interpolation.js';
+import noPrivateTestWait from './eslint-rules/no-private-test-wait.js';
 import { readFileSync } from 'node:fs';
 import { URL } from 'node:url';
 
@@ -22,6 +23,7 @@ const jugglerPlugin = {
     'test-hooks-in-tests-only': testHooksInTestsOnly,
     'sdk-boundary': sdkBoundary,
     'escape-html-interpolation': escapeHtmlInterpolation,
+    'no-private-test-wait': noPrivateTestWait,
   },
 };
 
@@ -63,9 +65,9 @@ const TEST_CONSOLE_SELECTORS = [
 ];
 
 // Test files: one polling wait, the shared one. A private `waitFor` polls a bare
-// wall clock, so it fails on a busy machine that the shared helper — which asks
-// the machine for more time before giving up — would have waited out.
-const LOCAL_WAITFOR_MESSAGE = 'Do not declare a local waitFor. Import waitFor from js-tests/utilities/test-helpers.js: it takes (predicate, description, timeoutMs) or (predicate, options), returns the predicate\'s value, and is load-aware where a private copy is not.';
+// wall clock, so it fails on a slow core that the shared helper — which follows
+// the test's progress past its nominal — would have waited out.
+const LOCAL_WAITFOR_MESSAGE = 'Do not declare a local waitFor. Import waitFor from js-tests/utilities/test-helpers.js: it takes (predicate, description, timeoutMs) or (predicate, options), returns the predicate\'s value, and follows the test\'s progress where a private copy does not.';
 const TEST_LOCAL_WAITFOR_SELECTORS = [
   { selector: "FunctionDeclaration[id.name='waitFor']", message: LOCAL_WAITFOR_MESSAGE },
   { selector: "VariableDeclarator[id.name='waitFor']", message: LOCAL_WAITFOR_MESSAGE },
@@ -673,6 +675,23 @@ export default [
       }],
 
       'no-restricted-syntax': ['error', ...TEST_CONSOLE_SELECTORS, ...TEST_LOCAL_WAITFOR_SELECTORS],
+    },
+  },
+  // Tests wait through the one wait primitive, never a private loop or a fixed
+  // sleep (juggler/no-private-test-wait). The primitives themselves, and the
+  // timer-grid probe that measures the clock, are where clocks belong.
+  {
+    files: ['web/js-tests/**/*.js', 'web/extensions/**/_tests/**/*.js'],
+    ignores: [
+      'web/js-tests/utilities/test-helpers.js',
+      'web/js-tests/utilities/test-patience.js',
+      'web/js-tests/utilities/test-deadline.js',
+      'web/js-tests/utilities/stall-watch.js',
+      'web/js-tests/utilities/machine-load.js',
+    ],
+    plugins: { juggler: jugglerPlugin },
+    rules: {
+      'juggler/no-private-test-wait': 'error',
     },
   },
   // The shared waitFor is declared here, so this one file keeps only the

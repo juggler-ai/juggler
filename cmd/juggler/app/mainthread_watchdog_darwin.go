@@ -93,8 +93,10 @@ func jugglerOnDidWake() {
 }
 
 // startMainThreadWatchdog runs a background goroutine that pings the macOS
-// main thread every pingInterval and force-exits if the ping fails to
-// round-trip within tolerance for too many consecutive cycles. This
+// main thread every pingInterval and recovers if no ping round-trips for
+// hangThreshold of served time — time in which the watchdog itself was run, so
+// a process that was stopped or starved is not condemned for the gap (see
+// mainThreadSilence). This
 // catches the WebKit DisplayLink lock-ordering deadlock that happens
 // across sleep/wake (see mainthread_watchdog_darwin.m for the full story).
 //
@@ -131,8 +133,12 @@ func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string) {
 
 	go func() {
 		const (
-			pingInterval = 2 * time.Second
-			// hangThreshold: main thread unresponsive this long → recover.
+			// pingInterval is also the resolution at which mainThreadSilence
+			// tells a stopped process from a silent main thread, so it is
+			// short; a ping is one dispatch onto the main queue.
+			pingInterval = time.Second
+			// hangThreshold: main thread unresponsive this long, counted in
+			// time the watchdog was actually run (mainThreadSilence) → recover.
 			// Short because recovery is a same-PID re-exec blip (the viewer
 			// just reconnects) rather than a process death — a shorter freeze
 			// for the user, still well clear of any legitimate main-thread work
@@ -143,9 +149,8 @@ func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string) {
 		)
 
 		lastPongSeen := uint64(C.juggler_mainthread_pong_counter())
-		lastProgress := time.Now()
+		silence := newMainThreadSilence(pingInterval, hangThreshold, time.Now())
 		postWakeIgnoreUntil := time.Now()
-		warned := false
 		// The sample started by the current stall, if any. Only ever touched
 		// from this goroutine, so it needs no synchronisation of its own.
 		var sample *stallSample
@@ -161,8 +166,7 @@ func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string) {
 			case <-ticker.C:
 			case <-ch:
 				postWakeIgnoreUntil = time.Now().Add(postWakeGrace)
-				lastProgress = time.Now() // don't count the sleep as a hang
-				warned = false
+				silence.reset(time.Now()) // don't count the sleep as a hang
 				continue
 			}
 
@@ -170,47 +174,37 @@ func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string) {
 			// inside a few ms and bumps the counter.
 			C.juggler_mainthread_ping()
 
-			// Look for progress since last tick.
-			now := time.Now()
-			cur := uint64(C.juggler_mainthread_pong_counter())
-			if cur != lastPongSeen {
-				lastPongSeen = cur
-				lastProgress = now
-				if warned {
-					jlog.Info("Main thread recovered.")
-					warned = false
-					// Let the sample finish and keep its file. A stall that
-					// came back on its own is the more informative of the two
-					// outcomes: it says the deadlock has a way out, and the
-					// stacks are the only record of what it was waiting on.
-					sample = nil
-				}
-				continue
-			}
-
-			// No progress. Ignore during the post-wake grace window — many
+			// Look for progress since last tick. During the post-wake grace
+			// window silence is still accounted but never acted on — many
 			// macOS subsystems take several seconds to wake up and a brief
 			// stall is normal.
-			if now.Before(postWakeIgnoreUntil) {
-				continue
+			now := time.Now()
+			cur := uint64(C.juggler_mainthread_pong_counter())
+			answered := cur != lastPongSeen
+			lastPongSeen = cur
+			r := silence.observe(now, answered, now.Before(postWakeIgnoreUntil))
+			if r.recovered {
+				jlog.Info("Main thread recovered.")
+				// Let the sample finish and keep its file. A stall that
+				// came back on its own is the more informative of the two
+				// outcomes: it says the deadlock has a way out, and the
+				// stacks are the only record of what it was waiting on.
+				sample = nil
 			}
-
-			stalled := now.Sub(lastProgress)
-			if !warned && stalled > pingInterval*3 {
+			if r.warn {
 				action := "force-exit"
 				if allowRelaunch {
 					action = "re-exec a fresh server in place"
 				}
 				jlog.Error("Main thread unresponsive for %v (likely WebKit DisplayLink deadlock). Will %s at %v.",
-					stalled.Round(time.Second), action, hangThreshold)
-				warned = true
+					r.silent.Round(time.Second), action, hangThreshold)
 				// Capture native stacks while the stall is still on — under
 				// the test pool too, where a wedge kills every lane at once and
 				// the sample is the only record of what the main thread was
 				// waiting on.
 				sample = captureStallSample(logPath, os.Getpid(), now)
 			}
-			if stalled >= hangThreshold {
+			if r.wedged {
 				// Bypass deferred cleanups (they'd try to use the wedged
 				// main thread). Write directly to stderr — jlog might be
 				// blocked behind something.
@@ -231,6 +225,82 @@ func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string) {
 			}
 		}
 	}()
+}
+
+// silenceLateSlack is how far past twice its interval a tick may arrive and
+// still count as on schedule — scheduler jitter on a busy machine, not a stop.
+const silenceLateSlack = 250 * time.Millisecond
+
+// mainThreadSilence accounts how long the main thread has gone without
+// answering a ping, and decides when that silence is a wedge.
+//
+// Only served time counts: time in which the watchdog itself ran on schedule.
+// A tick that arrives more than 2×tick + silenceLateSlack after the previous
+// one means the whole process was not run for the gap (a slow core, a stopped
+// process, a machine asleep) — the main thread had no chance to answer, so the
+// gap counts as one tick and the excess is discarded. Such a tick also starts
+// a resume: no wedge is declared until a full tick has been served since, so
+// the ping sent on resuming gets one fresh interval to be answered in.
+type mainThreadSilence struct {
+	tick, budget time.Duration
+	lastTick     time.Time
+	silent       time.Duration // served silence in the current stall
+	sinceResume  time.Duration // served time since the last unserved gap
+	warned       bool
+}
+
+// silenceReading is what one observation concluded.
+type silenceReading struct {
+	silent    time.Duration // served silence counted so far in this stall
+	warn      bool          // first observation past the warning mark this stall
+	recovered bool          // the main thread answered after a warned stall
+	wedged    bool          // the silence is a wedge: act on it
+}
+
+// newMainThreadSilence starts the count at now. tick is the interval the
+// watchdog observes at; budget is the served silence that makes a wedge.
+func newMainThreadSilence(tick, budget time.Duration, now time.Time) *mainThreadSilence {
+	return &mainThreadSilence{tick: tick, budget: budget, lastTick: now, sinceResume: tick}
+}
+
+// reset starts a fresh count at now, discarding the current stall, and treats
+// now as a resume.
+func (s *mainThreadSilence) reset(now time.Time) {
+	s.lastTick = now
+	s.silent = 0
+	s.sinceResume = 0
+	s.warned = false
+}
+
+// observe records one watchdog tick at now. answered reports whether the main
+// thread answered a ping since the previous tick; quiet accounts the tick but
+// suppresses any warning or wedge.
+func (s *mainThreadSilence) observe(now time.Time, answered, quiet bool) silenceReading {
+	served := now.Sub(s.lastTick)
+	s.lastTick = now
+	if served > 2*s.tick+silenceLateSlack {
+		served = s.tick
+		s.sinceResume = 0
+	} else {
+		s.sinceResume += served
+	}
+	if answered {
+		r := silenceReading{recovered: s.warned}
+		s.silent = 0
+		s.warned = false
+		return r
+	}
+	s.silent += served
+	r := silenceReading{silent: s.silent}
+	if quiet {
+		return r
+	}
+	if !s.warned && s.silent > s.budget/2 {
+		s.warned = true
+		r.warn = true
+	}
+	r.wedged = s.silent >= s.budget && s.sinceResume >= s.tick
+	return r
 }
 
 // relaunchDecision decides whether to re-exec after a wedge, given the current

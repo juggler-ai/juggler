@@ -15,16 +15,9 @@ import {
   initializeRegistries,
   createTestSession,
   createApprovalTestConversation,
-  assert
+  assert,
+  waitFor
 } from '../utilities/test-helpers.js';
-
-/**
- * Wait for Yjs observers to fire (microtask + small delay).
- * @param {number} [ms=100]
- */
-async function waitForObservers(ms = 100) {
-  await new Promise(resolve => setTimeout(resolve, ms));
-}
 
 /**
  * Run all observer-decoupling tests.
@@ -49,17 +42,16 @@ export async function runTests(_ctx) {
     // Add messages to simulate a conversation
     conversation.rootMessageThread.addUserMessage('test message 1');
     conversation.rootMessageThread.addUserMessage('test message 2');
-    await waitForObservers();
+    await waitFor(() => !conversation.rootMessageThread.items.every((/** @type {any} */ it) => it.get('preventUserDeletion')),
+      'the user messages to land in the thread');
 
     // Set some processing state that should be reset on clear
     conversation._iterationCount = 5;
 
     // Clear using the pure method — observer should reset state
     conversation.rootMessageThread.clear();
-    await waitForObservers();
-
-    assert(conversation._iterationCount === 0,
-      `_iterationCount should be 0, got ${conversation._iterationCount}`);
+    await waitFor(() => conversation._iterationCount === 0,
+      () => `_iterationCount to be reset to 0 on clear, got ${conversation._iterationCount}`);
 
     passed++;
   } catch (e) {
@@ -81,7 +73,8 @@ export async function runTests(_ctx) {
 
     // Change strategy via setStrategy (pure metadata write)
     root.setStrategy('read-only');
-    await waitForObservers();
+    await waitFor(() => /** @type {any} */ (root.strategy?.constructor)?.MANIFEST?.id === 'read-only',
+      () => `the observer to build the read-only strategy, currentStrategyId is '${root.currentStrategyId}'`);
 
     // Observer should have created the strategy instance
     assert(root.currentStrategyId === 'read-only',
@@ -94,7 +87,8 @@ export async function runTests(_ctx) {
 
     // Switch back
     root.setStrategy('default');
-    await waitForObservers();
+    await waitFor(() => root.currentStrategyId === 'default',
+      () => `the strategy to switch back to 'default', got '${root.currentStrategyId}'`);
 
     assert(root.currentStrategyId === 'default',
       `strategy should be 'default', got '${root.currentStrategyId}'`);
@@ -121,18 +115,14 @@ export async function runTests(_ctx) {
 
     // Set model config via the setter (pure metadata write)
     conversation.rootMessageThread.modelConfig = { provider: 'test', model: 'test-model' };
-    await waitForObservers();
-
-    assert(calls.fetch > 0, '_fetchContextWindow should have been called by observer');
+    await waitFor(() => calls.fetch > 0, 'the observer to call _fetchContextWindow');
 
     // Clearing model config should clear the context window the footer divides
     // by — the one on the conversation, which is where _fetchContextWindow puts it.
     /** @type {any} */ (conversation).contextWindow = 99999;
     conversation.rootMessageThread.modelConfig = null;
-    await waitForObservers();
-
-    assert(/** @type {any} */ (conversation).contextWindow === null,
-      `contextWindow should be null after clearing modelConfig, got ${/** @type {any} */ (conversation).contextWindow}`);
+    await waitFor(() => /** @type {any} */ (conversation).contextWindow === null,
+      () => `contextWindow to be null after clearing modelConfig, got ${/** @type {any} */ (conversation).contextWindow}`);
 
     passed++;
   } catch (e) {
@@ -150,20 +140,21 @@ export async function runTests(_ctx) {
     const conversation = await createApprovalTestConversation(session);
     // Only the list below decides the window: the observer's own fetch would
     // resolve against the test server's providers, at a time of its choosing.
-    conversation._fetchContextWindow = async () => {};
+    let fetches = 0;
+    conversation._fetchContextWindow = async () => { fetches++; };
     const providers = [
       { name: 'zai', modelsWithContext: [{ id: 'glm-4.5', contextWindow: 128000 }] },
       { name: 'claudecode', modelsWithContext: [{ id: 'opus', contextWindow: 0 }] },
     ];
 
     conversation.rootMessageThread.modelConfig = { provider: 'zai', model: 'glm-4.5' };
-    await waitForObservers();
+    await waitFor(() => fetches === 1, () => `the observer to react to glm-4.5, fetches=${fetches}`);
     conversation.applyProvidersContextWindow(providers);
     assert(/** @type {any} */ (conversation).contextWindow === 128000,
       `contextWindow should be 128000 on glm-4.5, got ${/** @type {any} */ (conversation).contextWindow}`);
 
     conversation.rootMessageThread.modelConfig = { provider: 'claudecode', model: 'opus' };
-    await waitForObservers();
+    await waitFor(() => fetches === 2, () => `the observer to react to opus, fetches=${fetches}`);
     assert(conversation.applyProvidersContextWindow(providers) === true,
       'retiring the old window should report a change, so the footer repaints');
     assert(/** @type {any} */ (conversation).contextWindow === null,

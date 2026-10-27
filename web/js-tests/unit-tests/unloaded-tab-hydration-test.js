@@ -26,7 +26,8 @@
 import {
   createTestSession,
   createTestConversation,
-  assert
+  assert,
+  waitFor
 } from '../utilities/test-helpers.js';
 
 /**
@@ -58,11 +59,7 @@ async function parkAsStub(session, id, name, loadState) {
  * @returns {Promise<void>} Resolves when the predicate holds
  */
 async function until(predicate, what, ms = 8000) {
-  const deadline = Date.now() + ms;
-  while (!predicate()) {
-    if (Date.now() > deadline) throw new Error(what);
-    await new Promise((r) => { setTimeout(r, 20); });
-  }
+  await waitFor(predicate, { timeoutMs: ms, intervalMs: 20, description: what });
 }
 
 /**

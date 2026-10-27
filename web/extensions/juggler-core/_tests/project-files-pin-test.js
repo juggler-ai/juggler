@@ -30,7 +30,6 @@ import { writeFile, mkdir } from '../../../js/services/ops-api.js';
 import { describePin } from '../../../js/components/pinboard-content.js';
 import { assert, waitFor } from '../../../js-tests/utilities/test-helpers.js';
 import { underPseudoLocale, shownStrings } from '../../../js-tests/utilities/pseudo-locale.js';
-import { budgetFor } from '../../../js-tests/utilities/test-deadline.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 
 /** The English messages the en-XA case draws, served as juggler-core's. */
@@ -800,13 +799,8 @@ export async function runTests(ctx) {
 
         const mounted = mount('/1');
         try {
-          const until = Date.now() + budgetFor(5000);
-          const wait = async (/** @type {() => boolean} */ check, /** @type {string} */ what) => {
-            while (!check()) {
-              if (Date.now() > until) throw new Error(`timed out waiting for ${what}: "${mounted.body.textContent}"`);
-              await new Promise((r) => { setTimeout(r, 20); });
-            }
-          };
+          const wait = (/** @type {() => boolean} */ check, /** @type {string} */ what) => waitFor(check,
+            () => `${what}: "${mounted.body.textContent}"`);
           const rowOf = (/** @type {string} */ name) => /** @type {HTMLElement|undefined} */ (
             [...mounted.body.querySelectorAll('.project-files-pin__row')]
               .find((el) => el.querySelector('.project-files-pin__name')?.textContent === name));

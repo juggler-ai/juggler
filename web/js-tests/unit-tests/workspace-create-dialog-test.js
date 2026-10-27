@@ -749,6 +749,7 @@ export async function runTests() {
 
         // The probe the dialog runs as it opens, settled and asking for a redraw.
         await probeSetupAdoptions(session);
+        // eslint-disable-next-line juggler/no-private-test-wait -- negative window: the redraw the probe asks for has no observable completion to fence on
         await new Promise((resolve) => setTimeout(resolve, 50));
 
         const still = /** @type {HTMLInputElement|null} */ (document.querySelector('.workspace-create-overlay #fixture-dir'));
@@ -775,6 +776,7 @@ export async function runTests() {
 
         // Empty, the form is not ready, and Enter is no way round the button.
         enter();
+        // eslint-disable-next-line juggler/no-private-test-wait -- negative window: a refused Enter leaves nothing behind to fence on
         await new Promise((resolve) => setTimeout(resolve, 50));
         assert(document.querySelector('.workspace-create-overlay #fixture-dir'),
           'Enter with Create disabled does nothing');

@@ -65,15 +65,25 @@ type toolCommandState struct {
 	unreachableAtDispatch int
 	lastUnreachableReason string
 
+	// inFlightAtDispatch / lastInFlightReason record the dispatch count as of the
+	// last trace saying the engine already has this tool in hand and is still
+	// working on it (engineInFlightReasons), and the reason it gave. Such a trace
+	// also resets attempts, so only the engineInFlightCeiling bounds it; these
+	// fields are what lets the worker tell that ceiling apart from the cap.
+	inFlightAtDispatch int
+	lastInFlightReason string
+
 	// firstDispatchedAt stamps when the CURRENT delivery phase began — the first
 	// dispatch at this state. It bounds how long an unproven engine is waited out
 	// (engineUnprovenHold), so a tool is never held indefinitely no matter how
 	// long the engine stays unreachable.
 	firstDispatchedAt time.Time
 
-	// attempts counts consecutive dispatches at the current dispatchedState; past
-	// maxToolCommandAttempts the tool is escalated to a terminal error. Reset to 1
-	// whenever the demanded state changes (a fresh delivery phase).
+	// attempts counts consecutive unanswered-or-declined dispatches at the current
+	// dispatchedState; past maxToolCommandAttempts the tool is escalated to a
+	// terminal error. Reset to 1 whenever the demanded state changes (a fresh
+	// delivery phase), and to 0 by an in-flight answer (recordTrace), which is
+	// progress rather than a failed attempt.
 	attempts int
 
 	// heldNoted records that this delivery phase has already announced itself as
@@ -217,6 +227,27 @@ var engineUnreachableReasons = map[string]bool{
 // engine's document contains (handleEngineTrace → engineSession.forgetDocument).
 const engineReasonConvNotLoaded = "conv-not-loaded"
 
+// engineInFlightReasons are the no-act `reason` values that mean the engine
+// already holds this tool and is still working on it: 'in-flight' (an
+// evaluation of it is still running, typically awaiting action.prepare()) and
+// 'already-executing' (its executor is still running it). The re-driven command
+// is declined only because the first one is still being carried out.
+//
+// That is progress, not a failed attempt, so it resets the attempts count
+// instead of adding to it — otherwise a tool whose evaluation or run simply
+// takes longer than maxToolCommandAttempts re-drives (as it does on a slow core)
+// is failed while the engine is still working on it, and the result the engine
+// was about to write is thrown away. It still counts as engagement: the engine
+// reached the tool, so no unproven hold applies, and an engine that goes silent
+// afterwards is weighed like any other. The bound on an engine that says this
+// forever is engineInFlightCeiling.
+//
+// Same wire contract as engineUnreachableReasons, checked by the same test.
+var engineInFlightReasons = map[string]bool{
+	"in-flight":         true,
+	"already-executing": true,
+}
+
 // engineLivenessOnlyEvents are engine traces that prove the engine received a
 // command and nothing more. They are stamped as liveness — the engine is alive
 // and running handlers — but must NOT count as engagement with the tool.
@@ -254,6 +285,10 @@ func (t *toolCommandTracker) recordTrace(id, event, reason string, now time.Time
 	if engineUnreachableReasons[reason] {
 		s.unreachableAtDispatch, s.lastUnreachableReason = s.dispatches, reason
 		return
+	}
+	if engineInFlightReasons[reason] {
+		s.inFlightAtDispatch, s.lastInFlightReason = s.dispatches, reason
+		s.attempts = 0
 	}
 	s.engagedAtDispatch = s.dispatches
 }
@@ -300,6 +335,22 @@ func (t *toolCommandTracker) unreachableSincePrevDispatch(id string) (bool, stri
 		return false, ""
 	}
 	return true, s.lastUnreachableReason
+}
+
+// inFlightSincePrevDispatch reports whether the engine's word on THIS tool,
+// since the dispatch before the last, was that it is still working on it
+// (engineInFlightReasons), along with the reason it gave. Measured like
+// unreachableSincePrevDispatch, so an engine that said so once and fell silent
+// reads as mute, not as still in flight.
+func (t *toolCommandTracker) inFlightSincePrevDispatch(id string) (bool, string) {
+	s := t.lookup(id)
+	if s == nil || s.inFlightAtDispatch == 0 {
+		return false, ""
+	}
+	if s.inFlightAtDispatch < s.dispatches-1 {
+		return false, ""
+	}
+	return true, s.lastInFlightReason
 }
 
 // lastTracedAt returns when an engine-trace naming id last arrived, or the zero

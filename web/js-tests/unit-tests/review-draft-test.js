@@ -325,9 +325,17 @@ export async function runTests() {
       await waitFor(() => told > 0, 'nobody was told the draft changed');
       assert(service().draft().comments.length === 2, 'and the change is there to read');
       stop();
-      await service().save({ comments: [comment('s1', 'Edited again')] });
       const after = told;
-      await new Promise((resolve) => { setTimeout(resolve, 50); });
+      // A watcher still subscribed is told of the save by the same change the
+      // unsubscribed one would have been told by.
+      let witnessed = 0;
+      const stopWitness = service().onChange(() => { witnessed++; });
+      try {
+        await service().save({ comments: [comment('s1', 'Edited again')] });
+        await waitFor(() => witnessed > 0, 'a watcher still subscribed to be told of the save');
+      } finally {
+        stopWitness();
+      }
       assert(told === after, 'and unsubscribing stops it');
     });
 

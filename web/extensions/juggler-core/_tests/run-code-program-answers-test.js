@@ -41,10 +41,13 @@ export async function runTests(_ctx) {
         `the denial is the item's result, not overwritten by the program's: ${done.state} ${JSON.stringify(done.result)}`);
       assert(await absent(log), 'neither the held call nor anything after it ran');
       await waitUntil(() => !actionExecutor.runningActionFor(id, conversation.id), 'the program to end');
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      // The fence for "it stays so": the worker drops a settled program's
+      // snapshot only after saving a document with the item settled
+      // (sweepPrograms rides the save), so a write that overwrote the denial
+      // would already be in the document by then.
+      await waitSnapshotGone(item, 'the worker to drop the denied program\'s snapshot');
       const later = mt.getToolAction(id).toJSON();
       assert(later.state === 'cancelled' && later.result?.content === 'Action was cancelled.', `and it stays so: ${JSON.stringify(later.result)}`);
-      await waitSnapshotGone(item, 'the worker to drop the denied program\'s snapshot');
     });
 
     await test('cancelling a program while it holds a call ends it, unrun', async () => {

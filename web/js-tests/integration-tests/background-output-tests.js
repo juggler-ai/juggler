@@ -20,24 +20,9 @@
  */
 
 import { textResponse, toolUseResponse } from '../utilities/integration-test-runner.js';
+import { waitFor } from '../utilities/test-helpers.js';
 
 const MARKER = 'BG_PANEL_4X7';
-
-/**
- * Poll until `probe` returns something truthy, or the deadline passes.
- * @param {() => any} probe - Called on each attempt.
- * @param {number} timeoutMs - How long to keep trying.
- * @returns {Promise<any>} The truthy value, or null on timeout.
- */
-async function pollFor(probe, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const value = probe();
-    if (value) return value;
-    if (Date.now() >= deadline) return null;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-}
 
 /**
  * Text of the properties-panel subsection under the given heading.
@@ -109,30 +94,30 @@ export const backgroundOutputInPanelTest = {
     area.selectItem(action.get('itemId'));
 
     // The panel render is debounced and the output section polls on an interval.
-    const output = await pollFor(() => {
-      const text = sectionText('Output');
-      return text.includes(MARKER) ? text : null;
-    }, 6000);
-    if (output === null) {
-      throw new Error(`[background-output] the panel never showed the task's output; Output section was ${JSON.stringify(sectionText('Output'))}`);
-    }
+    await waitFor(() => sectionText('Output').includes(MARKER), {
+      timeoutMs: 6000,
+      intervalMs: 50,
+      description: () => `[background-output] the panel to show the task's output; Output section was ${JSON.stringify(sectionText('Output'))}`,
+    });
 
     // The exit code lands only through the live poll — the tool-action's own
     // outcome is frozen at the moment the process was spawned.
-    const status = await pollFor(() => {
-      const text = sectionText('Output');
-      return text.includes('Exit 0') ? text : null;
-    }, 6000);
-    if (status === null) {
-      throw new Error(`[background-output] the output section never reported the exit code; got ${JSON.stringify(sectionText('Output'))}`);
-    }
+    await waitFor(() => sectionText('Output').includes('Exit 0'), {
+      timeoutMs: 6000,
+      intervalMs: 50,
+      description: () => `[background-output] the output section to report the exit code; got ${JSON.stringify(sectionText('Output'))}`,
+    });
 
-    const durable = await pollFor(() => {
+    const backgroundTask = () => {
       const displayData = action.get('displayData');
-      const task = (displayData?.toJSON ? displayData.toJSON() : displayData)?.backgroundTask;
-      return task?.status === 'completed' ? task : null;
-    }, 6000);
-    if (!durable || durable.taskId !== taskId || durable.output !== `${MARKER}\n` || durable.exitCode !== 0) {
+      return (displayData?.toJSON ? displayData.toJSON() : displayData)?.backgroundTask;
+    };
+    const durable = await waitFor(() => (backgroundTask()?.status === 'completed' ? backgroundTask() : null), {
+      timeoutMs: 6000,
+      intervalMs: 50,
+      description: () => `[background-output] the completed task to be persisted on the tool action; got ${JSON.stringify(backgroundTask())}`,
+    });
+    if (durable.taskId !== taskId || durable.output !== `${MARKER}\n` || durable.exitCode !== 0) {
       throw new Error(`[background-output] completed output was not persisted on the tool action; got ${JSON.stringify(durable)}`);
     }
 
@@ -183,24 +168,26 @@ export const backgroundStopFromPanelTest = {
 
     // The button appears only once a poll has reported the task running, so a
     // task that ended before the panel opened never offers a pointless Stop.
-    const stopBtn = await pollFor(visibleStopButton, 6000);
-    if (!stopBtn) {
-      throw new Error(`[background-stop] no Stop button appeared for the running task; Output section was ${JSON.stringify(sectionText('Output'))}`);
-    }
+    const stopBtn = await waitFor(visibleStopButton, {
+      timeoutMs: 6000,
+      intervalMs: 50,
+      description: () => `[background-stop] a Stop button for the running task; Output section was ${JSON.stringify(sectionText('Output'))}`,
+    });
 
     stopBtn.click();
 
-    const stopped = await pollFor(() => {
-      const text = sectionText('Output');
-      return text.includes('Killed by user') ? text : null;
-    }, 6000);
-    if (stopped === null) {
-      throw new Error(`[background-stop] the task never reported being killed; Output section was ${JSON.stringify(sectionText('Output'))}`);
-    }
+    await waitFor(() => sectionText('Output').includes('Killed by user'), {
+      timeoutMs: 6000,
+      intervalMs: 50,
+      description: () => `[background-stop] the task to report being killed; Output section was ${JSON.stringify(sectionText('Output'))}`,
+    });
 
     // Nothing left to stop: the control goes once the task is no longer running.
-    const gone = await pollFor(() => visibleStopButton() === null, 3000);
-    if (!gone) throw new Error('[background-stop] the Stop button stayed on show after the task was killed');
+    await waitFor(() => visibleStopButton() === null, {
+      timeoutMs: 3000,
+      intervalMs: 50,
+      description: '[background-stop] the Stop button to go once the task was killed',
+    });
   }
 };
 

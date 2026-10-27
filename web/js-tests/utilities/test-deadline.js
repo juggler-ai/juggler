@@ -86,6 +86,26 @@ const MAX_SHARE_OF_SHARED_BUDGET = 1 / 3;
 let generation = 0;
 
 /**
+ * How many things this lane's running test has done that prove it is alive: an
+ * assertion evaluated, a wait satisfied. Read by the stall watchdog
+ * (`stall-watch.js`) as part of its stamp, so a unit suite whose cases are
+ * passing is never mistaken for a stalled one, however slow its core. Only its
+ * changing matters, never its value.
+ * @type {number}
+ */
+let progress = 0;
+
+/** Record that the running test did something that proves it alive. */
+export function noteProgress() {
+  progress++;
+}
+
+/** @returns {number} A mark that changes whenever {@link noteProgress} is called. */
+export function progressMark() {
+  return progress;
+}
+
+/**
  * Arm the deadline for the test now starting.
  *
  * `shared` says the deadline covers a whole suite of cases rather than one
@@ -104,12 +124,57 @@ export function setTestDeadline(deadlineMs, { shared = false, sameTest = false }
 }
 
 /**
+ * Whether a case has taken the deadline into its own hands
+ * ({@link pinTestDeadline}), so the stall watchdog's moves must leave it be.
+ */
+let pinned = false;
+
+/**
+ * Move the running test's deadline because it made progress — what the stall
+ * watchdog does (`stall-watch.js`). A re-arm of the same test, so its waits
+ * keep their generation and follow the move. Ignored while a case has the
+ * deadline pinned.
+ * @param {number} deadlineMs - The new absolute deadline.
+ * @param {{shared?: boolean}} [options] - Whether many cases ride it.
+ */
+export function moveTestDeadline(deadlineMs, { shared = false } = {}) {
+  if (pinned) return;
+  setTestDeadline(deadlineMs, { shared, sameTest: true });
+}
+
+/**
+ * Hold the deadline at a value of the caller's choosing, for a case that tests
+ * how waits behave against a particular deadline — one already spent, one far
+ * off. The watchdog moves the deadline whenever the suite makes progress, and
+ * the case's own assertions are progress, so without this the deadline a case
+ * set would be replaced under it within a quarter second. The case may still
+ * call {@link setTestDeadline} itself while pinned.
+ *
+ * The returned function puts back exactly what was armed before, shared or
+ * not, which a case re-arming the deadline by hand cannot reliably do.
+ * @param {number} deadlineMs - The deadline to hold.
+ * @param {{shared?: boolean}} [options] - Whether to arm it as shared.
+ * @returns {() => void} Releases the pin and restores the previous deadline.
+ */
+export function pinTestDeadline(deadlineMs, { shared = false } = {}) {
+  const before = { deadline: currentDeadlineMs, shared: sharedBudgetMs, wasPinned: pinned };
+  pinned = true;
+  setTestDeadline(deadlineMs, { shared, sameTest: true });
+  return () => {
+    currentDeadlineMs = before.deadline;
+    sharedBudgetMs = before.shared;
+    pinned = before.wasPinned;
+  };
+}
+
+/**
  * Disarm it, so anything running between tests (cleanup, the lane loop) falls
  * back to its own nominal timeouts rather than to a deadline that has passed —
  * and so every wait still running from the test just finished knows it has been
  * abandoned and stops.
  */
 export function clearTestDeadline() {
+  pinned = false;
   currentDeadlineMs = 0;
   sharedBudgetMs = 0;
   generation++;
@@ -152,6 +217,55 @@ export function budgetFor(fallbackMs, deadlineMs = 0) {
   const capped = Math.min(remaining, fallbackMs * SHARED_DEADLINE_SLACK);
   if (!sharedBudgetMs) return capped;
   return Math.min(capped, Math.ceil(sharedBudgetMs * MAX_SHARE_OF_SHARED_BUDGET));
+}
+
+/**
+ * How far the armed deadline has moved since this was last asked, so a wait can
+ * follow a test that is still making progress.
+ *
+ * A wait turns its budget into a timer when it starts. The runner's stall
+ * watchdog then moves the test's deadline forward every time the test makes
+ * progress, and a timer set before that knows nothing of it. Each wait that
+ * started more than one window into a progressing test would expire on the old
+ * deadline, however live the test. On a slow core that was every long
+ * integration test. A wait asks this when its timer fires, and is owed
+ * exactly the distance the deadline moved: no more, so a wait capped at a
+ * share of its suite stays capped, and nothing once its test has ended.
+ * @returns {() => number} Milliseconds the deadline has moved since the last call (or since this was made); 0 once the test it belongs to has ended.
+ */
+export function deadlineMoves() {
+  const mine = generation;
+  let seen = currentDeadlineMs;
+  return () => {
+    if (generation !== mine || !seen || currentDeadlineMs <= seen) return 0;
+    const by = currentDeadlineMs - seen;
+    seen = currentDeadlineMs;
+    return by;
+  };
+}
+
+/**
+ * A `setTimeout` for a wait's budget that follows the test's deadline: when it
+ * fires and the deadline has moved since it was set, it sets itself again for
+ * the distance moved instead of expiring (see {@link deadlineMoves}).
+ * @param {() => void} onExpired - Called once, when the budget is spent and the deadline has not moved.
+ * @param {number} budgetMs - The wait's budget as it stood when it began.
+ * @returns {() => void} Cancels it.
+ */
+export function deadlineTimer(onExpired, budgetMs) {
+  const moved = deadlineMoves();
+  /** @type {ReturnType<typeof setTimeout>} */
+  let timer;
+  const fire = () => {
+    const by = moved();
+    if (by > 0) {
+      timer = setTimeout(fire, by);
+      return;
+    }
+    onExpired();
+  };
+  timer = setTimeout(fire, budgetMs);
+  return () => clearTimeout(timer);
 }
 
 /**

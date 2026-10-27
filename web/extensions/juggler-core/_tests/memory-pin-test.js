@@ -434,6 +434,51 @@ export async function runTests(ctx) {
     m.teardown();
   });
 
+  await test('a read slower than the triggers between them still draws, one read at a time', async () => {
+    // Every read is held here until the case answers it, so a read can be made
+    // to outlast the trigger after it — which is what every read looks like on
+    // a slow core. A pin that lets the newer trigger supersede the read in
+    // flight discards every answer it gets and never draws.
+    /** @type {((content: string) => void)[]} */
+    const held = [];
+    let inFlight = 0;
+    let mostInFlight = 0;
+    let reads = 0;
+    const realFetch = window.fetch;
+    window.fetch = /** @type {any} */ (async (/** @type {any} */ url, /** @type {any} */ init) => {
+      if (!String(url).includes('/ops/call')) return realFetch(url, init);
+      const { operation } = JSON.parse(init.body);
+      if (operation !== 'loadFile') return realFetch(url, init);
+      reads++;
+      inFlight++;
+      mostInFlight = Math.max(mostInFlight, inFlight);
+      const content = await new Promise((resolve) => held.push(resolve));
+      inFlight--;
+      return new window.Response(JSON.stringify({ success: true, data: { content } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    const m = mount('/1/single-flight.md');
+    try {
+      const refresh = m.controller.getActions().find((/** @type {any} */ a) => a.id === 'refresh');
+      for (let i = 0; i < 4; i++) {
+        await waitFor(() => held.length > 0, () => `read ${i + 1} to go out (${reads} issued)`);
+        void refresh.run();
+        /** @type {(content: string) => void} */ (held.shift())(`# Memory\n\n- [2026-06-14] Version ${i}\n`);
+      }
+      await until(m.body, (t) => t.includes('Version 3'), 5000, undefined,
+        () => `${reads} read(s) issued, at most ${mostInFlight} at once, ${held.length} held`);
+      await waitFor(() => held.length > 0, 'the read the last trigger owed');
+      /** @type {(content: string) => void} */ (held.shift())('# Memory\n\n- [2026-06-14] Version 4\n');
+      await until(m.body, (t) => t.includes('Version 4'));
+      assert(mostInFlight === 1, `expected one read at a time, saw ${mostInFlight} at once`);
+      assert(reads === 5, `expected the mount's read and one per trigger it was busy for, got ${reads}`);
+    } finally {
+      window.fetch = realFetch;
+      for (const resolve of held.splice(0)) resolve('');
+      m.teardown();
+    }
+  });
+
   // --- en-XA ----------------------------------------------------------------
 
   await test('en-XA: the add reason, tab title, empty state, entry controls and delete error are translated', async () => {

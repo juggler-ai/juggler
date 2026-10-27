@@ -19,6 +19,16 @@ import { itemRunRecord } from '../../js/model/thread-alias.js';
 import { getThreadStatus } from '../../js/utils/thread-display.js';
 
 /**
+ * The command every case here cancels. It says when it has started, and the
+ * cancel waits for that (`wait-for-action-output`), so the cancel lands on a
+ * command that is running rather than one still being spawned. It then runs
+ * far longer than any cancel takes to arrive, however slow the core: a command
+ * that could finish on its own first would turn "cancelled" into "completed"
+ * whenever the cancel was slow, and the case would be testing the core.
+ */
+const CANCELLED_COMMAND = 'env echo "started"; sleep 120';
+
+/**
  * Assert a thread's open run was settled as cancelled — the signal a parked
  * parent reads to stop waiting. A stop writes no summary, so this is the only
  * record that the run is over.
@@ -70,7 +80,7 @@ export const cancelDuringThreadTest = {
   llmResponses: [
     toolUseResponse('call_1', 'create_thread', { goal: 'Run task', prompt: 'Execute bash' }),
     toolUseResponse('call_2', 'bash',
-      { command: 'env echo "started"; sleep 10' },
+      { command: CANCELLED_COMMAND },
       'Running command.'
     ),
     textResponse('Thread should not see this.'),
@@ -83,6 +93,7 @@ export const cancelDuringThreadTest = {
     { type: 'start-capture-progress', toolUseId: 'call_2' },
     { type: 'approve-thread-tool-no-wait', toolUseId: 'call_2' },
     { type: 'wait-for-progress', toolUseId: 'call_2', minEvents: 1 },
+    { type: 'wait-for-action-output', toolUseId: 'call_2', contains: 'started' },
     { type: 'cancel' }
   ],
 
@@ -285,7 +296,7 @@ export const threadAutoResumeParentTest = {
   llmResponses: [
     toolUseResponse('call_1', 'create_thread', { goal: 'Do task', prompt: 'Run it' }),
     toolUseResponse('call_2', 'bash',
-      { command: 'env echo "started"; sleep 10' },
+      { command: CANCELLED_COMMAND },
       'Running.'
     ),
     // After interrupt + continue, thread gets this:
@@ -300,6 +311,7 @@ export const threadAutoResumeParentTest = {
     { type: 'start-capture-progress', toolUseId: 'call_2' },
     { type: 'approve-thread-tool-no-wait', toolUseId: 'call_2' },
     { type: 'wait-for-progress', toolUseId: 'call_2', minEvents: 1 },
+    { type: 'wait-for-action-output', toolUseId: 'call_2', contains: 'started' },
     // Interrupt during thread execution — the thread stops, and a stopped
     // thread still takes work.
     { type: 'cancel' },
@@ -343,7 +355,7 @@ export const cancelFromRootSettlesThreadTest = {
   llmResponses: [
     toolUseResponse('call_1', 'create_thread', { goal: 'Run task', prompt: 'Execute bash' }),
     toolUseResponse('call_2', 'bash',
-      { command: 'env echo "started"; sleep 10' },
+      { command: CANCELLED_COMMAND },
       'Running command.'
     ),
     textResponse('Thread should not see this.'),
@@ -356,6 +368,7 @@ export const cancelFromRootSettlesThreadTest = {
     { type: 'start-capture-progress', toolUseId: 'call_2' },
     { type: 'approve-thread-tool-no-wait', toolUseId: 'call_2' },
     { type: 'wait-for-progress', toolUseId: 'call_2', minEvents: 1 },
+    { type: 'wait-for-action-output', toolUseId: 'call_2', contains: 'started' },
     { type: 'cancel-from-root' }
   ],
 
@@ -457,7 +470,7 @@ export const cancelThreadSettlesRunTest = {
 
   llmResponses: [
     toolUseResponse('call_1', 'bash',
-      { command: 'env echo "started"; sleep 10' },
+      { command: CANCELLED_COMMAND },
       'Running long command.'
     ),
     // Must NOT be consumed — cancel stops the loop.
@@ -473,6 +486,7 @@ export const cancelThreadSettlesRunTest = {
     { type: 'start-capture-progress', toolUseId: 'call_1' },
     { type: 'approve-thread-tool-no-wait', toolUseId: 'call_1' },
     { type: 'wait-for-progress', toolUseId: 'call_1', minEvents: 1 },
+    { type: 'wait-for-action-output', toolUseId: 'call_1', contains: 'started' },
     // Explicit per-thread stop. Post-fix this cancels the worker turn and
     // settles the thread.
     { type: 'cancel-thread' },
@@ -527,7 +541,7 @@ export const threadTileStopButtonTest = {
   llmResponses: [
     toolUseResponse('call_1', 'create_thread', { goal: 'Run task', prompt: 'Execute bash' }),
     toolUseResponse('call_2', 'bash',
-      { command: 'env echo "started"; sleep 10' },
+      { command: CANCELLED_COMMAND },
       'Running command.'
     ),
     textResponse('Thread should not see this.'),
@@ -540,6 +554,7 @@ export const threadTileStopButtonTest = {
     { type: 'start-capture-progress', toolUseId: 'call_2' },
     { type: 'approve-thread-tool-no-wait', toolUseId: 'call_2' },
     { type: 'wait-for-progress', toolUseId: 'call_2', minEvents: 1 },
+    { type: 'wait-for-action-output', toolUseId: 'call_2', contains: 'started' },
     // The running tile must show a stop button (scoped to the root column).
     { type: 'assert-dom', selector: 'thread-message .thread-stop-btn' },
     // Clicking it settles the thread via the unified cancel.
@@ -595,7 +610,7 @@ export const resumeAfterCancelReportsToCallerTest = {
   llmResponses: [
     toolUseResponse('call_1', 'create_thread', { goal: 'Do task', prompt: 'Run it' }),
     toolUseResponse('call_2', 'bash',
-      { command: 'env echo "started"; sleep 10' },
+      { command: CANCELLED_COMMAND },
       'Running.'
     ),
     textResponse('Task done'),
@@ -608,6 +623,7 @@ export const resumeAfterCancelReportsToCallerTest = {
     { type: 'start-capture-progress', toolUseId: 'call_2' },
     { type: 'approve-thread-tool-no-wait', toolUseId: 'call_2' },
     { type: 'wait-for-progress', toolUseId: 'call_2', minEvents: 1 },
+    { type: 'wait-for-action-output', toolUseId: 'call_2', contains: 'started' },
     // Stopped from the root vantage: unlike an interrupt from inside the
     // thread, this settles the run as cancelled.
     { type: 'cancel-from-root' },
@@ -671,7 +687,7 @@ export const continueAfterCancelReportsToCallerTest = {
   llmResponses: [
     toolUseResponse('call_1', 'create_thread', { goal: 'Do task', prompt: 'Run it' }),
     toolUseResponse('call_2', 'bash',
-      { command: 'env echo "started"; sleep 10' },
+      { command: CANCELLED_COMMAND },
       'Running.'
     ),
     textResponse('Task done'),
@@ -684,6 +700,7 @@ export const continueAfterCancelReportsToCallerTest = {
     { type: 'start-capture-progress', toolUseId: 'call_2' },
     { type: 'approve-thread-tool-no-wait', toolUseId: 'call_2' },
     { type: 'wait-for-progress', toolUseId: 'call_2', minEvents: 1 },
+    { type: 'wait-for-action-output', toolUseId: 'call_2', contains: 'started' },
     // Stopped from the root vantage, which settles the run as cancelled.
     { type: 'cancel-from-root' },
     // The user opens the stopped thread and clicks Continue.
@@ -749,7 +766,7 @@ export const unfinishedTileStopSettlesRunTest = {
   llmResponses: [
     toolUseResponse('call_1', 'create_thread', { goal: 'Run task', prompt: 'Execute bash' }),
     toolUseResponse('call_2', 'bash',
-      { command: 'env echo "started"; sleep 10' },
+      { command: CANCELLED_COMMAND },
       'Running command.'
     ),
     textResponse('Thread should not see this.'),
@@ -762,6 +779,7 @@ export const unfinishedTileStopSettlesRunTest = {
     { type: 'start-capture-progress', toolUseId: 'call_2' },
     { type: 'approve-thread-tool-no-wait', toolUseId: 'call_2' },
     { type: 'wait-for-progress', toolUseId: 'call_2', minEvents: 1 },
+    { type: 'wait-for-action-output', toolUseId: 'call_2', contains: 'started' },
     // Own-vantage interrupt: the run is left open, and nothing is driving it.
     { type: 'cancel' },
     // The tile still offers a Stop — the run is open, so there is a caller to

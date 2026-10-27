@@ -10,6 +10,7 @@ import PinboardItemType from 'juggler/pinboard-item-type';
 import { expandDirectory, openPath } from 'juggler/ops';
 import { translator } from 'juggler/i18n';
 import { createElement, createFileActions, errorText, injectStylesOnce, pinFile } from 'juggler/ui';
+import { debounce } from 'juggler/utils/debounce';
 import { reconcileRows, setText } from '../lib/reconcile.js';
 import { pinEmpty } from '../lib/pin-empty.js';
 
@@ -109,6 +110,13 @@ injectStylesOnce('project-files-pin-styles', `
  * per event would be several reads to show one file.
  */
 const REFRESH_DEBOUNCE_MS = 150;
+
+/**
+ * The longest a burst may hold those reads off. A build or a checkout writing
+ * into an open folder reports changes closer together than the settling time
+ * for as long as it runs, and the tree should follow it, a second behind.
+ */
+const REFRESH_MAX_WAIT_MS = 1000;
 
 /**
  * How long a folder may take to open before the tree admits it is reading.
@@ -428,8 +436,6 @@ class ProjectFilesPin extends PinboardItemType {
     let statusText = '';
     /** Bumped when every read in flight is answering a question nobody is asking. */
     let generation = 0;
-    /** @type {ReturnType<typeof setTimeout>|undefined} */
-    let pending;
     /** @type {Set<string>} */
     const pendingDirs = new Set();
 
@@ -759,6 +765,12 @@ class ProjectFilesPin extends PinboardItemType {
 
     list.addEventListener('keydown', onKeydown);
 
+    const rereadPending = debounce(() => {
+      const dirs = [...pendingDirs];
+      pendingDirs.clear();
+      for (const dir of dirs) void readDirectory(dir);
+    }, REFRESH_DEBOUNCE_MS, { maxWait: REFRESH_MAX_WAIT_MS });
+
     // Only the directories on screen, and only when something in them moved: a
     // write to one file is one directory to re-read, not a tree.
     const stopWatching = context.services.files.onChange((changes) => {
@@ -767,12 +779,7 @@ class ProjectFilesPin extends PinboardItemType {
         if (dir && entries.has(dir)) pendingDirs.add(dir);
       }
       if (pendingDirs.size === 0) return;
-      clearTimeout(pending);
-      pending = setTimeout(() => {
-        const dirs = [...pendingDirs];
-        pendingDirs.clear();
-        for (const dir of dirs) void readDirectory(dir);
-      }, REFRESH_DEBOUNCE_MS);
+      rereadPending();
     });
 
     /**
@@ -833,7 +840,7 @@ class ProjectFilesPin extends PinboardItemType {
         render();
       },
       teardown: () => {
-        clearTimeout(pending);
+        rereadPending.cancel();
         stopWatching();
       },
       focus: () => moveTo(activePath),

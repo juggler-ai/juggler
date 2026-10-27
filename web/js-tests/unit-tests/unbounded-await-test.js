@@ -27,7 +27,7 @@
  * @module unit-tests/unbounded-await
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 import { __setOpCallTimeoutForTest } from '../../js/services/ops-api.js';
 import { readFile } from '../../js/services/ops-api.js';
 import { runInSandbox } from '../../sdk/lib/sandbox-runner.js';
@@ -236,9 +236,7 @@ export async function runTests(_ctx) {
         'for (;;) { await tick(); await new Promise((r) => setTimeout(r, 10)); }',
         { capabilities: { tick: () => { ticks++; } }, timeoutMs: 60000, signal: controller.signal }
       );
-      await within((async () => {
-        while (ticks < 3) await new Promise((r) => { setTimeout(r, 10); });
-      })(), 15000, 'the looping script never got going');
+      await waitFor(() => ticks >= 3, () => `the looping script to get going (ticks=${ticks})`, 15000);
       controller.abort();
 
       let threw = null;
@@ -251,12 +249,30 @@ export async function runTests(_ctx) {
       assert(/** @type {any} */ (threw).name === 'AbortError',
         `the abort must surface as an AbortError, got ${/** @type {any} */ (threw).name}: ${/** @type {any} */ (threw).message}`);
 
-      // Let anything already in flight at the abort land, then watch for more.
-      await new Promise((r) => { setTimeout(r, 200); });
-      const ticksAfterAbort = ticks;
-      await new Promise((r) => { setTimeout(r, 500); });
+      // Measured in a witness's progress rather than the clock: a second script of
+      // the same shape, in the same frame, calls its capability round after round.
+      // Calls in flight at the abort land within its first rounds; in any one
+      // round after, a script still running would have called its own too, so
+      // ten is ample.
+      let witnessTicks = 0;
+      const witness = new AbortController();
+      const witnessRun = runInSandbox(
+        'for (;;) { await tick(); await new Promise((r) => setTimeout(r, 10)); }',
+        { capabilities: { tick: () => { witnessTicks++; } }, timeoutMs: 60000, signal: witness.signal }
+      ).catch(() => {});
+      let ticksAfterAbort = 0;
+      try {
+        await waitFor(() => witnessTicks >= 5, () => `the witness script to get going (ticks=${witnessTicks})`, 15000);
+        ticksAfterAbort = ticks;
+        const settledAt = witnessTicks;
+        await waitFor(() => witnessTicks >= settledAt + 10,
+          () => `the witness script to run 10 more rounds (ticks=${witnessTicks})`, 15000);
+      } finally {
+        witness.abort();
+        await witnessRun;
+      }
       assert(ticks === ticksAfterAbort,
-        `the script kept running after the abort: ${ticksAfterAbort} capability calls became ${ticks} over 500ms`);
+        `the script kept running after the abort: ${ticksAfterAbort} capability calls became ${ticks} over 10 of a witness's rounds`);
 
       passed++;
     } catch (e) {
@@ -336,9 +352,11 @@ export async function runTests(_ctx) {
       await within(ready, 15000, 'the sandbox frame never signalled ready');
 
       /**
-       * Start a script that reports in once, then spins.
+       * Start a script that reports in once, then says on the console that it is
+       * spinning — a synchronous post, so the loop is running once it arrives —
+       * and spins.
        * @param {number} timeoutMs - The script's budget
-       * @returns {{port: MessagePort, started: Promise<void>, result: Promise<any>}} The run
+       * @returns {{port: MessagePort, started: Promise<void>, spinning: Promise<void>, result: Promise<any>}} The run
        */
       const startSpinner = (timeoutMs) => {
         const channel = new MessageChannel();
@@ -346,10 +364,14 @@ export async function runTests(_ctx) {
         /** @type {() => void} */
         let markStarted = () => {};
         const started = new Promise((resolve) => { markStarted = () => resolve(undefined); });
+        /** @type {() => void} */
+        let markSpinning = () => {};
+        const spinning = new Promise((resolve) => { markSpinning = () => resolve(undefined); });
         const result = new Promise((resolve) => {
           port.onmessage = (e) => {
             const m = e.data || {};
             if (m.kind === 'result') { resolve(m); return; }
+            if (m.kind === 'console') { markSpinning(); return; }
             if (m.kind === 'started') {
               port.postMessage({ kind: 'reply', id: m.id, ok: true, value: null });
               markStarted();
@@ -358,17 +380,16 @@ export async function runTests(_ctx) {
         });
         /** @type {Window} */ (frame.contentWindow).postMessage({
           type: 'sandbox-execute',
-          code: 'await started();\nfor (;;) {}',
+          code: 'await started();\nconsole.log("spinning");\nfor (;;) {}',
           timeoutMs,
           capabilities: [{ name: 'started', callable: true }]
         }, '*', [channel.port2]);
-        return { port, started, result };
+        return { port, started, spinning, result };
       };
 
       const escape = startSpinner(60000);
       await within(escape.started, 15000, 'the spinning script never got going');
-      // Long enough for the reply to land and the loop to begin.
-      await new Promise((r) => { setTimeout(r, 100); });
+      await within(escape.spinning, 15000, 'the script never reached its loop');
       escape.port.postMessage({ kind: 'abort' });
       const cancelled = await within(escape.result, 4000,
         'the frame never ended a spinning script on abort — it would run to its timeout');

@@ -26,11 +26,13 @@ import { writeFile } from '../../js/services/ops-api.js';
 import { createBoundOps } from '../../sdk/ops.js';
 import { rebindConversation } from '../../js/services/workspace-rebinding.js';
 import { placeForNewConversation } from '../../js/services/workspace-provisioning.js';
+import workerManager from '../../js/services/worker-manager.js';
 import {
   runWorkspaceSuite,
   countSeeds,
   makeConversation,
-  seededFile
+  seededFile,
+  syncUndoState
 } from '../utilities/conversation-workspace-helpers.js';
 
 /**
@@ -70,6 +72,35 @@ export async function runTests() {
         `bound to the project folder, got ${JSON.stringify(conversation.workspaceId)}`);
       assert(conversation.seededFor === '',
         `which is also the tree those seeds are for, got ${JSON.stringify(conversation.seededFor)}`);
+    });
+
+    await run('nothing a conversation is born with is undoable, however late it is initialised', async () => {
+      // The loader seeds the system-prompt placeholder before the conversation
+      // is initialised, and that is an undo group of its own. How soon the
+      // worker reports it depends on the core: here it has been reported before
+      // initialisation asks, as on a slow one or after any pause at all.
+      const loader = workerManager.loader;
+      const createNew = loader.createNew;
+      let reported = false;
+      loader.createNew = async (/** @type {any[]} */ ...args) => {
+        const born = await createNew.apply(loader, args);
+        await syncUndoState(born);
+        reported = born.canUndo() === true;
+        return born;
+      };
+      /** @type {any} */
+      let conversation = null;
+      try {
+        conversation = await makeConversation(session, 'born-reported');
+        release(conversation);
+      } finally {
+        loader.createNew = createNew;
+      }
+      assert(reported, 'precondition: the placeholder\'s undo group had reached the document before initialisation');
+
+      await syncUndoState(conversation);
+      assert(conversation.canUndo() === false,
+        'the conversation was born with an undoable history, so undo would take its system prompt away');
     });
 
     await run('initialising it against the tree it was seeded for adds nothing back', async () => {

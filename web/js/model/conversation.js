@@ -85,10 +85,11 @@ export const SEEDED_FOR_KEY = 'seededFor';
 export const UNATTENDED_KEY = 'unattended';
 
 /**
- * Hard ceiling on the cancel-settle wait so a wedged worker doesn't hang
- * the UI forever. Cancel + idle normally completes in <100ms.
+ * How long the worker may say nothing while a cancel settles before the wait
+ * fails — the engine's liveness window, as for an acked request. A worker
+ * that keeps talking is still carrying the cancel out, however slow its core.
  */
-const CANCEL_CEILING_MS = 5000;
+const CANCEL_SILENCE_MS = 30000;
 
 /**
  * The share of the model's context window a single tool result may occupy.
@@ -2510,9 +2511,13 @@ class Conversation {
    * metadata observer hears the worker's frame (it replaces `processingState`
    * whole on every transition, so a shallow `keysChanged` sees each one), and
    * the executor's `onSettled` hears the conversation's last action unwind.
-   * The ceiling is only for a wedged worker that never writes idle.
+   * The wait is bounded by the worker's silence
+   * ({@link WorkerManager#watchSilence}), not by a span of time: it rejects
+   * only once the worker has said nothing for {@link CANCEL_SILENCE_MS} (or the
+   * watch's ceiling has passed), and a rejection means the turn may still be
+   * live — the caller must not go on to mutate the conversation.
    * @param {string} [reason] - What caused the cancel, for the worker's log.
-   * @returns {Promise<void>}
+   * @returns {Promise<void>} Resolves once settled; rejects on the worker's silence
    */
   async cancelAndSettle(reason) {
     const settled = () => !this.isTurnActive();
@@ -2528,14 +2533,16 @@ class Conversation {
 
     if (settled()) return;
 
-    await new Promise((resolve) => {
+    await new Promise((resolve, reject) => {
       let finished = false;
-      const done = () => {
+      /** @param {Error} [err] - Why the wait failed; absent when it settled */
+      const done = (err) => {
         finished = true;
-        clearTimeout(timeoutId);
+        stopWatching();
         offActions();
         this.unobserveMetadata(metaObserver);
-        resolve(undefined);
+        if (err) reject(err);
+        else resolve(undefined);
       };
       const finish = () => {
         if (!finished && settled()) done();
@@ -2545,7 +2552,11 @@ class Conversation {
       };
       this.observeMetadata(metaObserver);
       const offActions = this._actionExecutor.onSettled(this.id, finish);
-      const timeoutId = setTimeout(() => { if (!finished) done(); }, CANCEL_CEILING_MS);
+      const stopWatching = this._workerManager.watchSilence(this.id, CANCEL_SILENCE_MS, (expiry) => {
+        if (finished) return;
+        if (settled()) { done(); return; }
+        done(new Error(`Conversation ${this.id}: the cancel did not settle — ${expiry.describe()}`));
+      });
     });
   }
 

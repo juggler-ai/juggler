@@ -36,6 +36,8 @@
  * @module utilities/second-viewer
  */
 
+import { budgetFor, deadlineTimer } from './test-deadline.js';
+import { waitFor } from './test-helpers.js';
 import ConversationDocument from '../../js/model/conversation-document.js';
 import { wsUrl } from '../../js/utils/api-url.js';
 
@@ -104,9 +106,11 @@ export class SecondViewer {
 
     return new Promise((resolve, reject) => {
       const ws = /** @type {WebSocket} */ (this._ws);
-      const timer = setTimeout(() => reject(new Error('SecondViewer: WS open timeout')), 5000);
+      // Decided by the socket's own open or error; the bound follows the
+      // test's deadline so a slow core's handshake is waited for.
+      const cancelTimer = deadlineTimer(() => reject(new Error('SecondViewer: WS open timeout')), budgetFor(5000));
       ws.onopen = () => {
-        clearTimeout(timer);
+        cancelTimer();
         ws.send(JSON.stringify({
           type: 'worker-message',
           conversationId: this.conversationId,
@@ -126,7 +130,7 @@ export class SecondViewer {
         resolve();
       };
       ws.onerror = () => {
-        clearTimeout(timer);
+        cancelTimer();
         reject(new Error('SecondViewer: WS error'));
       };
     });
@@ -150,7 +154,6 @@ export class SecondViewer {
    * @returns {Promise<void>}
    */
   async waitForConverge(expected, { timeoutMs = 5000 } = {}) {
-    const deadline = Date.now() + timeoutMs;
     const matches = () => {
       const got = this.items();
       if (got.length !== expected.length) return false;
@@ -162,16 +165,14 @@ export class SecondViewer {
       }
       return true;
     };
-    while (Date.now() < deadline) {
-      if (matches()) return;
-      await new Promise(r => setTimeout(r, 20));
-    }
-    throw new Error(
-      `SecondViewer(${this.conversationId}) did not converge.\n` +
-			`  expected: ${JSON.stringify(expected)}\n` +
-			`  actual:   ${JSON.stringify(this.items())}\n` +
-			`  syncedOnce: ${this._syncedOnce}`
-    );
+    await waitFor(matches, {
+      timeoutMs,
+      intervalMs: 20,
+      description: () => `SecondViewer(${this.conversationId}) to converge.\n` +
+        `  expected: ${JSON.stringify(expected)}\n` +
+        `  actual:   ${JSON.stringify(this.items())}\n` +
+        `  syncedOnce: ${this._syncedOnce}`
+    });
   }
 
   /**

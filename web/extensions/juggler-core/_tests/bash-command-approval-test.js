@@ -1959,6 +1959,63 @@ export async function runTests() {
     } else passed++;
   }
 
+  // === Suggestions in a conversation bound to a workspace ===
+  //
+  // The contract is that a suggestion, once added, makes isPermitted true. A
+  // bound conversation runs its commands in the workspace, not the project, so
+  // a suggestion worked out from the project's directory grants a folder the
+  // command never touches — and "Don't ask again" asks again.
+  {
+    const PROJECT = `${TEST_HOME}/src/app`;
+    const TREE = `${TEST_HOME}/trees/app-feat`;
+    const command = 'cat ../shared/notes.txt';
+    /**
+     * An ExecuteContextItem for a conversation working in TREE.
+     * @param {{allowedPaths?: string[], patterns?: string[]}} [state] - Grants beyond the tree itself
+     * @returns {ExecuteContextItem} The probe
+     */
+    const makeBound = (state = {}) => {
+      const session = { platform: 'darwin', home: TEST_HOME, projectPath: PROJECT };
+      const mt = {
+        getWorkingRoot: () => TREE,
+        getAllowedPaths: () => [TREE, ...(state.allowedPaths || [])],
+        getRulesFor: (/** @type {string} */ key) => key === 'execute'
+          ? (state.patterns || []).map(v => ({ kind: 'glob', value: v, scope: 'conversation' }))
+          : []
+      };
+      return new ExecuteContextItem({ id: 'bound-probe', session, conversation: { session }, messageThread: /** @type {any} */ (mt) });
+    };
+    /**
+     * Whether a suggestion, once granted, approves the command.
+     * @param {any} s - A suggestion
+     * @returns {boolean} isPermitted with it added
+     */
+    const grants = (s) => makeBound({
+      allowedPaths: s.allowedPaths || [],
+      patterns: (s.rules || []).map((/** @type {any} */ r) => r.value)
+    }).isPermitted({ command });
+
+    const item = makeBound();
+    const suggestions = item.getApprovalSuggestions({ command });
+    if (!item.isPermitted({ command }) && suggestions.length > 0 && suggestions.every(grants)) passed++;
+    else {
+      failed++;
+      errors.push(`bound suggestions: every suggestion for "${command}" in ${TREE} must approve it, got ${JSON.stringify(suggestions)}`);
+    }
+
+    const revised = item.reviseApprovalSuggestion({
+      index: 0,
+      original: { allowedPaths: [`${TEST_HOME}/x`], patterns: ['~/x'] },
+      editedText: '~/trees/shared',
+      params: { command }
+    });
+    if (revised.valid === true && grants(revised)) passed++;
+    else {
+      failed++;
+      errors.push(`bound revise: granting ~/trees/shared must approve "${command}" run in ${TREE}, got ${JSON.stringify(revised)}`);
+    }
+  }
+
   // === reviseApprovalSuggestion (editable suggested approval patterns) ===
   //
   // Drives the plugin hook directly through a real ExecuteContextItem instance

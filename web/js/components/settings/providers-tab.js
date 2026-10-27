@@ -98,6 +98,8 @@ export class ProvidersTab {
     // republishing it, so that republication is how the change arrives.
     /** @type {(() => void)|null} @private - Drops the providers-update subscription; null while not taken. */
     this._providersUpdateOff = null;
+    /** @type {(() => void)|null} @private - Stops waiting for the list a provider switch publishes; null while none is awaited. */
+    this._switchWatchOff = null;
     this.connect();
   }
 
@@ -127,6 +129,7 @@ export class ProvidersTab {
   dispose() {
     this._providersUpdateOff?.();
     this._providersUpdateOff = null;
+    this._switchWatchOff?.();
   }
 
   /**
@@ -998,15 +1001,26 @@ export class ProvidersTab {
     button.addEventListener('click', async () => {
       button.disabled = true;
       status.textContent = t('Switching…');
-      const next = this._nextProvidersUpdate((list) =>
-        list.some((p) => p.name === provider.name && !p.credentialed));
+      // The card is redrawn from the list that shows the switch, whenever that
+      // arrives. Not by a deadline: the server asks the provider again before
+      // acting, and a guess at how long that takes is a guess at the machine —
+      // a redraw from the list in hand when the guess ran out would keep this
+      // notice up for good, offering a switch that has already happened. Taken
+      // before asking, or the push can land first; dropped by dispose().
+      this._switchWatchOff?.();
+      const off = wsService.on('providers-update', (/** @type {unknown} */ data) => {
+        if (!Array.isArray(data) || !data.some((p) => p.name === provider.name && !p.credentialed)) return;
+        this._switchWatchOff?.();
+        this.providers = data;
+        this.renderProviderFields();
+        this.updateAllButtons();
+      });
+      this._switchWatchOff = () => { off(); this._switchWatchOff = null; };
       try {
         await providersCache.switchProvider(provider.name);
         status.textContent = t('Switched. {name} is on.', { name: target.displayName });
-        this.providers = await next;
-        this.renderProviderFields();
-        this.updateAllButtons();
       } catch (err) {
+        this._switchWatchOff?.();
         button.disabled = false;
         status.textContent = httpErrorText(err, t("Couldn't switch provider"));
       }

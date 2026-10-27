@@ -67,7 +67,6 @@ const CORE_TEXT = [
   '{repo} starts uninitialised; {hook} runs in the new tree.',
   '{repo} starts uninitialised — there is no {hook} to fill it in.',
   'git will not take that as a branch name.',
-  "{what, select, repo {Couldn't use that repository path: {value} contains a character that cannot appear in a command.} branch {Couldn't use that branch name: {value} contains a character that cannot appear in a command.} base {Couldn't use that base: {value} contains a character that cannot appear in a command.} other {Couldn't use that location: {value} contains a character that cannot appear in a command.}}",
   "Couldn't make a worktree: the base workspace has no root.",
   "Couldn't make a worktree: no branch was named.",
   "Couldn't make a worktree at {location}: it is not on the same drive as {repoRoot}.",
@@ -284,11 +283,7 @@ export async function runTests() {
             }
           };
           shown['no-root refusal'] = await thrown(() => hooks._repoRoot({}, { session: { workspaceRoot: () => '' } }));
-          shown['repository refusal'] = await thrown(() => hooks._repoRoot({ repo: '4"' }, ctx));
-          shown['branch refusal'] = await thrown(() => hooks._places({ branch: '4"' }, ctx));
           shown['no-branch refusal'] = await thrown(() => hooks._places({ branch: '' }, ctx));
-          shown['base refusal'] = await thrown(() => hooks._places({ branch: '4', base: '4"' }, ctx));
-          shown['location refusal'] = await thrown(() => hooks._places({ branch: '4', location: '/1/4"' }, ctx));
           shown['other-drive refusal'] = await thrown(() => hooks._places({ branch: '4', location: 'D:\\2' },
             { ...ctx, session: { workspaceRoot: () => 'C:\\1' } }));
           shown['silent failure'] = await thrown(() => hooks._mustRun(ctx, '', '5'));

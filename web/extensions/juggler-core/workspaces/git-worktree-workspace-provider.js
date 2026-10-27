@@ -76,12 +76,6 @@ const COMMIT_TIMEOUT_MS = 5 * 60 * 1000;
 const BRANCH_CHECK_DELAY_MS = 200;
 
 /**
- * Characters that would not survive being quoted into a command.
- * @type {RegExp}
- */
-const UNQUOTABLE = /["'`$\\\n\r]/;
-
-/**
  * Whether a changed path is Juggler's own rather than the user's work.
  *
  * Nothing of ours is written into a workspace root — spill and the CLI's resume
@@ -103,27 +97,6 @@ function isOurs(path) {
  */
 function slug(branch) {
   return branch.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'worktree';
-}
-
-/**
- * Refuse a value that would not survive being quoted into a command.
- *
- * Every path and branch name below is interpolated into a shell string inside
- * double quotes. These values come from a form rather than from the model, so
- * this is not the boundary the app's safety rests on — but a provider that
- * builds shell commands should still decline to be talked out of its own
- * quoting, and the refusal costs one line.
- * @param {string} value - What is about to be quoted.
- * @param {'repo'|'branch'|'base'|'location'} what - Which value it is, for the refusal.
- * @returns {string} The value, when it is safe.
- * @throws {Error} When it is not.
- */
-function shellSafe(value, what) {
-  if (UNQUOTABLE.test(value)) {
-    throw new Error(t("{what, select, repo {Couldn't use that repository path: {value} contains a character that cannot appear in a command.} branch {Couldn't use that branch name: {value} contains a character that cannot appear in a command.} base {Couldn't use that base: {value} contains a character that cannot appear in a command.} other {Couldn't use that location: {value} contains a character that cannot appear in a command.}}",
-      { what, value: JSON.stringify(value) }));
-  }
-  return value;
 }
 
 /**
@@ -168,10 +141,12 @@ function parseWorktrees(text) {
  * A value wrapped in single quotes for a POSIX shell, with any single quotes in
  * it escaped the only way that works.
  *
- * Used for a commit message and nothing else. The values everywhere else in this
- * file are branch names and paths, which go in double quotes and are refused
- * outright if they hold anything awkward — but a commit message is prose, and
- * refusing an apostrophe would be absurd.
+ * Every value this file puts into a command goes through here: paths, branch
+ * names, the commit message. Inside single quotes the shell expands nothing, so
+ * a name holding `$(…)` or a backtick is passed to git as the name it is. That
+ * matters most for the values nobody typed — an adopted tree's path and branch
+ * come straight from `git worktree list`, and git allows both characters in
+ * either.
  * @param {string} value - Anything at all.
  * @returns {string} A single shell word.
  */
@@ -655,9 +630,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     const named = form.branch.value.trim();
     if (!named || form.verdicts.has(named)) return;
 
-    const usable = UNQUOTABLE.test(named)
-      ? false
-      : Boolean((await this._inRepo(form.ctx, '', `git check-ref-format "refs/heads/${named}"`))?.success);
+    const usable = Boolean((await this._inRepo(form.ctx, '', `git check-ref-format ${singleQuoted(`refs/heads/${named}`)}`))?.success);
     if (this._form !== form) return;
     form.verdicts.set(named, usable);
     this._showBranchVerdict();
@@ -751,7 +724,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    * @returns {Promise<boolean>} Whether there is a hook to run.
    */
   async _hasSetupHook(ctx) {
-    const found = await this._inRepo(ctx, '', `test -f "${SETUP_HOOK}"`);
+    const found = await this._inRepo(ctx, '', `test -f ${singleQuoted(SETUP_HOOK)}`);
     return Boolean(found?.success);
   }
 
@@ -790,7 +763,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
   _repoRoot(values, ctx) {
     const baseRoot = ctx?.session?.workspaceRoot?.(ctx?.baseWorkspaceId ?? '');
     if (!baseRoot) throw new Error(t("Couldn't make a worktree: the base workspace has no root."));
-    const chosen = shellSafe(String(values?.repo ?? '').trim(), 'repo');
+    const chosen = String(values?.repo ?? '').trim();
     // A submodule can be worked on from either end, and `scope` says which was
     // asked for. `project` makes the enclosing repository the subject: the tree
     // is a tree of that, and the submodule arrives inside it as a submodule —
@@ -814,9 +787,9 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    * @returns {{repoRoot: string, repoRel: string, location: string, treeRel: string, branch: string, base: string}} Everywhere involved.
    */
   _places(values, ctx) {
-    const branch = shellSafe(String(values?.branch ?? '').trim(), 'branch');
+    const branch = String(values?.branch ?? '').trim();
     if (!branch) throw new Error(t("Couldn't make a worktree: no branch was named."));
-    const base = shellSafe(String(values?.base ?? 'HEAD').trim() || 'HEAD', 'base');
+    const base = String(values?.base ?? 'HEAD').trim() || 'HEAD';
 
     const { repoRel, repoRoot, beside } = this._repoRoot(values, ctx);
     const location = String(values?.location ?? '').trim() || defaultLocation(repoRoot, branch, beside);
@@ -824,12 +797,6 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     if (!treeRel) {
       throw new Error(t("Couldn't make a worktree at {location}: it is not on the same drive as {repoRoot}.", { location, repoRoot }));
     }
-    // The relative path is what the commands below are given, and so it is the
-    // one that has to survive being quoted. The absolute location is checked by
-    // nothing here because it reaches no command — and a Windows one is written
-    // `C:\src\app`, so refusing a backslash would refuse every path on the
-    // platform.
-    shellSafe(treeRel, 'location');
     return { repoRoot, repoRel, location, treeRel, branch, base };
   }
 
@@ -847,7 +814,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    * @returns {Promise<any>} The shell result, success or not.
    */
   _inRepo(ctx, repoRel, command, params = {}) {
-    const full = repoRel && repoRel !== '.' ? `cd "${repoRel}" && ${command}` : command;
+    const full = repoRel && repoRel !== '.' ? `cd ${singleQuoted(repoRel)} && ${command}` : command;
     return ctx.ops.shell({ command: full, ...params }, ctx.signal);
   }
 
@@ -888,7 +855,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    * @throws {Error} With the command's own error text.
    */
   async _mustStream(ctx, repoRel, command, report, params = {}) {
-    const full = repoRel && repoRel !== '.' ? `cd "${repoRel}" && ${command}` : command;
+    const full = repoRel && repoRel !== '.' ? `cd ${singleQuoted(repoRel)} && ${command}` : command;
     let rest = '';
     const result = await ctx.ops.shellStreaming({ command: full, ...params }, (/** @type {any} */ chunk) => {
       if (!chunk?.data) return;
@@ -929,7 +896,8 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    * @returns {Promise<void>} Once the file says what it should, or is left alone.
    */
   async _relativeGitfile(ctx, repoRel, treeRel, location, repoRoot) {
-    const read = await this._inRepo(ctx, repoRel, `cat "${treeRel}/.git"`);
+    const gitfile = singleQuoted(`${treeRel}/.git`);
+    const read = await this._inRepo(ctx, repoRel, `cat ${gitfile}`);
     const written = /^gitdir:\s*(.+?)\s*$/m.exec(String(read?.stdout ?? ''))?.[1];
     if (!read?.success || !written) return;
     const target = written.replace(/\\/g, '/');
@@ -938,9 +906,8 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     const back = relativePath(location, repoRoot);
     if (!name || !back) return;
 
-    const gitfile = `"${treeRel}/.git"`;
-    await this._inRepo(ctx, repoRel, `printf 'gitdir: %s\\n' "${back}/.git/worktrees/${name}" > ${gitfile}`);
-    const holds = await this._inRepo(ctx, repoRel, `git -C "${treeRel}" rev-parse --git-dir`);
+    await this._inRepo(ctx, repoRel, `printf 'gitdir: %s\\n' ${singleQuoted(`${back}/.git/worktrees/${name}`)} > ${gitfile}`);
+    const holds = await this._inRepo(ctx, repoRel, `git -C ${singleQuoted(treeRel)} rev-parse --git-dir`);
     if (!holds?.success) {
       await this._inRepo(ctx, repoRel, `printf 'gitdir: %s\\n' ${singleQuoted(written)} > ${gitfile}`);
     }
@@ -968,14 +935,14 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     // what makes the compensation below safe to run unconditionally: it removes
     // a path that did not exist a moment ago, so it can never take away a tree
     // somebody else made and we merely failed to add to.
-    const occupied = await this._inRepo(ctx, repoRel, `test -e "${treeRel}"`);
+    const occupied = await this._inRepo(ctx, repoRel, `test -e ${singleQuoted(treeRel)}`);
     if (occupied?.success) {
       throw new Error(t("Couldn't make a worktree at {location}: there is already something there.", { location }));
     }
 
     // A branch that already exists is checked out rather than created, and is
     // never deleted when undoing — it was the user's before we touched it.
-    const existing = await this._inRepo(ctx, repoRel, `git rev-parse --verify --quiet "refs/heads/${branch}"`);
+    const existing = await this._inRepo(ctx, repoRel, `git rev-parse --verify --quiet ${singleQuoted(`refs/heads/${branch}`)}`);
     const branchCreatedByUs = !existing?.success;
 
     const meta = {
@@ -994,20 +961,20 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     // which is why every command in it tolerates absence.
     await ctx.checkpoint(meta);
     ctx.rollback.push(async () => {
-      await this._inRepo(ctx, repoRel, `git worktree remove --force "${treeRel}"`);
-      await this._inRepo(ctx, repoRel, `rm -rf "${treeRel}"`);
+      await this._inRepo(ctx, repoRel, `git worktree remove --force ${singleQuoted(treeRel)}`);
+      await this._inRepo(ctx, repoRel, `rm -rf ${singleQuoted(treeRel)}`);
       await this._inRepo(ctx, repoRel, 'git worktree prune');
       if (branchCreatedByUs) {
-        await this._inRepo(ctx, repoRel, `git branch -D "${branch}"`);
+        await this._inRepo(ctx, repoRel, `git branch -D ${singleQuoted(branch)}`);
       }
     });
-    const create = branchCreatedByUs ? `-b "${branch}" "${treeRel}" "${base}"` : `"${treeRel}" "${branch}"`;
+    const create = branchCreatedByUs ? `-b ${singleQuoted(branch)} ${singleQuoted(treeRel)} ${singleQuoted(base)}` : `${singleQuoted(treeRel)} ${singleQuoted(branch)}`;
     await this._mustRun(ctx, repoRel, `git worktree add -q ${create}`);
     await this._relativeGitfile(ctx, repoRel, treeRel, location, repoRoot);
 
     // The hook is the repository's, not the tree's: it usually lives under a
     // gitignored `.juggler/`, so a fresh checkout would not have a copy of it.
-    const hasHook = await this._inRepo(ctx, repoRel, `test -f "${SETUP_HOOK}"`);
+    const hasHook = await this._inRepo(ctx, repoRel, `test -f ${singleQuoted(SETUP_HOOK)}`);
     if (hasHook?.success) {
       const backToRepo = relativePath(location, repoRoot) ?? '..';
       // Every other step of this takes a second and is worth a line. This one
@@ -1020,7 +987,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
       await this._mustStream(
         ctx,
         repoRel,
-        `cd "${treeRel}" && sh "${backToRepo}/${SETUP_HOOK}"`,
+        `cd ${singleQuoted(treeRel)} && sh ${singleQuoted(`${backToRepo}/${SETUP_HOOK}`)}`,
         (line) => ctx.progress(step, line),
         { timeout: HOOK_TIMEOUT_MS }
       );
@@ -1356,7 +1323,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
    * @returns {Promise<any>} The shell result, success or not.
    */
   _inRepoFromBase(ctx, repoRel, command) {
-    const full = repoRel && repoRel !== '.' ? `cd "${repoRel}" && ${command}` : command;
+    const full = repoRel && repoRel !== '.' ? `cd ${singleQuoted(repoRel)} && ${command}` : command;
     return ctx.baseOps.shell({ command: full }, ctx.signal);
   }
 
@@ -1422,7 +1389,7 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
       };
     }
 
-    const merged = await this._inRepoFromBase(ctx, where.repoRel, `git merge --ff-only "${branch}"`);
+    const merged = await this._inRepoFromBase(ctx, where.repoRel, `git merge --ff-only ${singleQuoted(branch)}`);
     if (!merged?.success) {
       const detail = gitSaid(merged);
       return {
@@ -1476,12 +1443,12 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     const repoRel = where.repoRel;
 
     const steps = [
-      repoRel === '.' ? '' : `cd "${repoRel}" || exit 1`,
-      `git worktree remove --force "${treeRel}"`,
-      `rm -rf "${treeRel}"`,
+      repoRel === '.' ? '' : `cd ${singleQuoted(repoRel)} || exit 1`,
+      `git worktree remove --force ${singleQuoted(treeRel)}`,
+      `rm -rf ${singleQuoted(treeRel)}`,
       'git worktree prune',
-      meta.branchCreatedByUs && branch ? `git branch -D "${branch}"` : '',
-      `test -e "${treeRel}" && echo STILL-THERE || echo REMOVED`
+      meta.branchCreatedByUs && branch ? `git branch -D ${singleQuoted(branch)}` : '',
+      `test -e ${singleQuoted(treeRel)} && echo STILL-THERE || echo REMOVED`
     ].filter(Boolean).join('; ');
 
     const result = await ctx.baseOps.shell({ command: steps }, ctx.signal);
@@ -1652,17 +1619,17 @@ class GitWorktreeWorkspaceProvider extends WorkspaceProvider {
     const repoRel = (projectPath && relativePath(projectPath, meta.repoDir)) || meta.repoDir;
     const treeRel = String(meta?.treeRel);
 
-    await this._inRepo(ctx, repoRel, `git worktree remove --force "${treeRel}"`);
-    await this._inRepo(ctx, repoRel, `rm -rf "${treeRel}"`);
+    await this._inRepo(ctx, repoRel, `git worktree remove --force ${singleQuoted(treeRel)}`);
+    await this._inRepo(ctx, repoRel, `rm -rf ${singleQuoted(treeRel)}`);
     await this._inRepo(ctx, repoRel, 'git worktree prune');
     if (meta.branchCreatedByUs && meta.branch) {
-      await this._inRepo(ctx, repoRel, `git branch -D "${String(meta?.branch)}"`);
+      await this._inRepo(ctx, repoRel, `git branch -D ${singleQuoted(String(meta?.branch))}`);
     }
 
     // Asked rather than assumed: `remove` fails for a tree that was never made
     // and for a tree that will not go, and those are opposite answers to the one
     // question the host has — is there anything left to worry about.
-    const left = await this._inRepo(ctx, repoRel, `test -e "${treeRel}"`);
+    const left = await this._inRepo(ctx, repoRel, `test -e ${singleQuoted(treeRel)}`);
     return { removed: !left?.success };
   }
 }

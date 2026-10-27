@@ -29,13 +29,27 @@ import { isCommandAutoApproved, isCatastrophicDeletion } from './command-approva
  */
 export function isShellCommandPermitted(command, { messageThread, session, writeEnabled = false }) {
   if (!command || !messageThread) return false;
-  const patterns = messageThread.getRulesFor('execute')
-    .filter((/** @type {any} */ r) => r.kind === 'glob')
-    .map((/** @type {any} */ r) => /** @type {string} */ (r.value));
-  return isCommandAutoApproved(command, {
+  return isCommandAutoApproved(command, shellApprovalContext(messageThread, session, writeEnabled));
+}
+
+/**
+ * What the analyser judges a command against, for this conversation: the one
+ * reading of the conversation's state that permission, the "Don't ask again"
+ * suggestions and the user's edits to them all share.
+ *
+ * They have to share it. A suggestion is only worth offering if adding it makes
+ * {@link isShellCommandPermitted} true, and that is checked by a dry run of the
+ * analyser — so a dry run fed a different directory or different roots proves
+ * nothing about the check that will actually be made.
+ * @param {any} messageThread - Owning message thread (source of rules, allowed paths, working root)
+ * @param {any} session - Owning session (platform, home, project path)
+ * @param {boolean} [writeEnabled] - Whether file-writing is auto-approved
+ * @returns {{platform: string, home: string, cwd: string, allowedRoots: string[], patterns: string[], writeEnabled: boolean}} The analyser's options
+ */
+export function shellApprovalContext(messageThread, session, writeEnabled = false) {
+  return {
     platform: session?.platform || 'darwin',
     home: session?.home || '',
-    allowedRoots: shellRoots(messageThread, session),
     // The server runs every shell command at the scope ROOT, which is the
     // workspace root for a conversation bound to one and the project path for
     // one that is not. That is the directory a relative path — and a leading
@@ -43,9 +57,12 @@ export function isShellCommandPermitted(command, { messageThread, session, write
     // conversation's commands would be approved against a tree they will not
     // run in.
     cwd: workingRootOf(messageThread, session),
-    patterns,
+    allowedRoots: shellRoots(messageThread, session),
+    patterns: (messageThread?.getRulesFor?.('execute') || [])
+      .filter((/** @type {any} */ r) => r.kind === 'glob')
+      .map((/** @type {any} */ r) => /** @type {string} */ (r.value)),
     writeEnabled
-  });
+  };
 }
 
 /**
@@ -54,7 +71,7 @@ export function isShellCommandPermitted(command, { messageThread, session, write
  * @param {any} session - Owning session
  * @returns {string} The working root, or '' when nothing can say
  */
-function workingRootOf(messageThread, session) {
+export function workingRootOf(messageThread, session) {
   return messageThread?.getWorkingRoot?.() || session?.projectPath || '';
 }
 
@@ -72,7 +89,7 @@ function workingRootOf(messageThread, session) {
  * @returns {string[]} Allowed roots
  */
 function shellRoots(messageThread, session) {
-  const roots = messageThread.getAllowedPaths();
+  const roots = messageThread?.getAllowedPaths?.() || [];
   const projectPath = session?.projectPath || '';
   if (!projectPath || roots.includes(projectPath)) return roots;
   return [...roots, projectPath];

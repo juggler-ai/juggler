@@ -9,7 +9,7 @@ import { shellKill, MAX_EXEC_TIMEOUT_MS, DEFAULT_EXEC_TIMEOUT_MS } from 'juggler
 import { createHighlightedCode, createSummaryWithSubtitle, renderLiveTaskOutput, pinSource, canPinSource } from 'juggler/ui';
 import { resolveAgainstCwd, posixNormalize, canonicalRoot, isGrantableRoot } from 'juggler/utils/path-containment';
 import { isCommandAutoApproved, suggestApprovalPatterns, MAX_SUGGESTED_PATTERN_LENGTH } from './execute/command-approval.js';
-import { isShellCommandPermitted, isShellCommandCatastrophic } from './execute/command-permission.js';
+import { isShellCommandPermitted, isShellCommandCatastrophic, shellApprovalContext, workingRootOf } from './execute/command-permission.js';
 import { renderExecutePermissionSection } from './execute/permission-section.js';
 import { homeBase, tildeify, untildeify } from './path-approval.js';
 
@@ -437,17 +437,11 @@ class ExecuteContextItem extends ContextItem {
     const command = /** @type {string} */ (toolInput?.command || toolInput?.code || '');
     if (!command) return [];
     const mt = this.messageThread;
-    const platform = this.conversation.session?.platform || 'darwin';
-    const home = this.conversation.session?.home || '';
-    const cwd = this.conversation.session?.projectPath || '';
+    const { platform, home, cwd, allowedRoots, patterns, writeEnabled } =
+      shellApprovalContext(mt, this.conversation.session, ExecuteContextItem._isFileWritingEnabled(mt));
     const interpreters = platform === 'windows'
       ? ExecuteContextItem.WINDOWS_INTERPRETERS
       : ExecuteContextItem.UNIX_INTERPRETERS;
-    const allowedRoots = mt?.getAllowedPaths?.() || [];
-    const patterns = (mt?.getRulesFor('execute') || [])
-      .filter(r => r.kind === 'glob')
-      .map(r => /** @type {string} */ (r.value));
-    const writeEnabled = ExecuteContextItem._isFileWritingEnabled(mt);
 
     /**
      * Dry-run a prospective suggestion against the original command.
@@ -532,14 +526,8 @@ class ExecuteContextItem extends ContextItem {
   reviseApprovalSuggestion({ original, editedText, params }) {
     const command = /** @type {string} */ (params?.command || params?.code || '');
     const mt = this.messageThread;
-    const platform = this.conversation.session?.platform || 'darwin';
-    const home = this.conversation.session?.home || '';
-    const cwd = this.conversation.session?.projectPath || '';
-    const allowedRoots = mt?.getAllowedPaths?.() || [];
-    const patterns = (mt?.getRulesFor('execute') || [])
-      .filter(r => r.kind === 'glob')
-      .map(r => /** @type {string} */ (r.value));
-    const writeEnabled = ExecuteContextItem._isFileWritingEnabled(mt);
+    const { platform, home, cwd, allowedRoots, patterns, writeEnabled } =
+      shellApprovalContext(mt, this.conversation.session, ExecuteContextItem._isFileWritingEnabled(mt));
 
     /**
      * Dry-run the edited grant against the original command — the same guard
@@ -1104,7 +1092,7 @@ class ExecuteContextItem extends ContextItem {
     // panel all still see the command as written.
     const session = this.conversation?.session;
     const tileCommand = stripLeadingProjectCd(command, {
-      cwd: session?.projectPath || '',
+      cwd: workingRootOf(this.messageThread, session),
       home: session?.home || '',
       platform: session?.platform || ''
     });

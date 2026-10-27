@@ -737,7 +737,6 @@
   "{url} (cached) (truncated)": "{url} (em cache) (truncado)",
   "{url} (truncated)": "{url} (truncado)",
   "{verb, select, update {Couldn't update preset} other {Couldn't save preset}}": "{verb, select, update {Não foi possível atualizar a predefinição} other {Não foi possível salvar a predefinição}}",
-  "{what, select, repo {Couldn't use that repository path: {value} contains a character that cannot appear in a command.} branch {Couldn't use that branch name: {value} contains a character that cannot appear in a command.} base {Couldn't use that base: {value} contains a character that cannot appear in a command.} other {Couldn't use that location: {value} contains a character that cannot appear in a command.}}": "{what, select, repo {Não foi possível usar esse caminho de repositório: {value} contém um caractere que não pode aparecer num comando.} branch {Não foi possível usar esse nome de branch: {value} contém um caractere que não pode aparecer num comando.} base {Não foi possível usar essa base: {value} contém um caractere que não pode aparecer num comando.} other {Não foi possível usar esse local: {value} contém um caractere que não pode aparecer num comando.}}",
   "… (truncated)": "… (truncado)",
   "…{count} more not shown": "…mais {count} não mostrados",
   "⚠ Write outside the project folder: {path}": "⚠ Gravação fora da pasta do projeto: {path}"

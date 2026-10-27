@@ -737,7 +737,6 @@
   "{url} (cached) (truncated)": "{url}（缓存）（已截断）",
   "{url} (truncated)": "{url}（已截断）",
   "{verb, select, update {Couldn't update preset} other {Couldn't save preset}}": "{verb, select, update {无法更新预设} other {无法保存预设}}",
-  "{what, select, repo {Couldn't use that repository path: {value} contains a character that cannot appear in a command.} branch {Couldn't use that branch name: {value} contains a character that cannot appear in a command.} base {Couldn't use that base: {value} contains a character that cannot appear in a command.} other {Couldn't use that location: {value} contains a character that cannot appear in a command.}}": "{what, select, repo {无法使用该仓库路径：{value} 含有一个不能出现在命令中的字符。} branch {无法使用该分支名：{value} 含有一个不能出现在命令中的字符。} base {无法使用该基线：{value} 含有一个不能出现在命令中的字符。} other {无法使用该位置：{value} 含有一个不能出现在命令中的字符。}}",
   "… (truncated)": "……（已截断）",
   "…{count} more not shown": "……另有 {count} 个未显示",
   "⚠ Write outside the project folder: {path}": "⚠ 在项目文件夹之外写入：{path}"

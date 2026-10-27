@@ -273,9 +273,9 @@ export async function runTests() {
       assert(fromBase.length === 1,
         `while the base ran it, in one shell, got ${JSON.stringify(fromBase)}`);
       const removal = fromBase[0] ?? '';
-      assert(/^cd "app" \|\| exit 1;/.test(removal),
+      assert(/^cd 'app' \|\| exit 1;/.test(removal),
         `starting by stepping INTO the repository rather than out of the tree, got ${JSON.stringify(removal)}`);
-      assert(removal.includes('git worktree remove --force "../app-feat-tunnels"'),
+      assert(removal.includes("git worktree remove --force '../app-feat-tunnels'"),
         `and naming the tree relative to that repository, got ${JSON.stringify(removal)}`);
       assert(!/[A-Za-z]:[/\\]/.test(removal),
         `while no command carries an absolute Windows path, got ${JSON.stringify(removal)}`);
@@ -321,6 +321,49 @@ export async function runTests() {
         `a tree that is still there is not reported as finished with, got ${JSON.stringify(finished)}`);
       assert(/cannot remove working tree: it is locked/.test(String(finished.message)),
         `and the message carries what the shell said, got ${JSON.stringify(finished.message)}`);
+    });
+
+    await run('an adopted tree whose name is shell syntax is removed, not run', async () => {
+      // An adopted tree's path comes from `git worktree list`, not from the
+      // setup form, so nothing about it was ever checked before it reaches a
+      // command. Git allows `$(…)` in a directory name and in a branch name, and
+      // a name quoted the way a path usually is would be expanded by the shell
+      // that was asked to delete it.
+      const tag = uniqueTag();
+      const repo = `wt-repo-${tag}`;
+      const repoRoot = `${projectPath}${separator}${repo}`;
+      const marker = `injected-${tag}`;
+      const tree = `${repo}-$(touch\${IFS}${marker})`;
+      try {
+        await buildRepo(ops, repo, `hello-${tag}`);
+        await mustRun(ops, `git -C ${repo} worktree add -q -b pool/${tag} '../${tree}' main`);
+
+        const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+        // A finished row is how a repository is put in front of reconcile
+        // without claiming any of its trees.
+        const parked = { id: `parked-${tag}`, state: 'closed', meta: { repoDir: repoRoot } };
+        const report = await provider.reconcile([parked], reconcileCtx(session, ops));
+        const offered = (report.orphanedArtifacts ?? [])
+          .find((/** @type {any} */ found) => found.workspace?.meta?.treeRel === `../${tree}`);
+        assert(offered,
+          `precondition: the tree is offered for adoption, got ${JSON.stringify(report.orphanedArtifacts)}`);
+
+        const finished = await provider.finish(offered.workspace, 'discard', {
+          session,
+          baseWorkspaceId: '',
+          ops,
+          baseOps: ops,
+          signal: new AbortController().signal
+        });
+
+        const ran = await shell(ops, `test -e ${repo}/${marker} || test -e ${marker}`);
+        assert(ran.success === false,
+          'the name was a path to remove, and nothing in it was run as a command');
+        assert((await shell(ops, `test -e '${tree}'`)).success === false,
+          `and the tree it names is the one that went, got ${JSON.stringify(finished)}`);
+      } finally {
+        await shell(ops, `git -C ${repo} worktree remove --force '../${tree}'; rm -rf '${tree}' ${repo} ${marker}`).catch(() => {});
+      }
     });
 
     await run('unbinding leaves the tree and the branch exactly where they are', async () => {

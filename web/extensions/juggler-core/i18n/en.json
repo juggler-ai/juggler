@@ -737,7 +737,6 @@
   "{url} (cached) (truncated)": "{url} (cached) (truncated)",
   "{url} (truncated)": "{url} (truncated)",
   "{verb, select, update {Couldn't update preset} other {Couldn't save preset}}": "{verb, select, update {Couldn't update preset} other {Couldn't save preset}}",
-  "{what, select, repo {Couldn't use that repository path: {value} contains a character that cannot appear in a command.} branch {Couldn't use that branch name: {value} contains a character that cannot appear in a command.} base {Couldn't use that base: {value} contains a character that cannot appear in a command.} other {Couldn't use that location: {value} contains a character that cannot appear in a command.}}": "{what, select, repo {Couldn't use that repository path: {value} contains a character that cannot appear in a command.} branch {Couldn't use that branch name: {value} contains a character that cannot appear in a command.} base {Couldn't use that base: {value} contains a character that cannot appear in a command.} other {Couldn't use that location: {value} contains a character that cannot appear in a command.}}",
   "… (truncated)": "… (truncated)",
   "…{count} more not shown": "…{count} more not shown",
   "⚠ Write outside the project folder: {path}": "⚠ Write outside the project folder: {path}"

@@ -737,7 +737,6 @@
   "{url} (cached) (truncated)": "[{url} (çåçĥéð) (ţŕûñçåţéð) ·····]",
   "{url} (truncated)": "[{url} (ţŕûñçåţéð) ···]",
   "{verb, select, update {Couldn't update preset} other {Couldn't save preset}}": "[{verb, select, update {Çöûļðñ''ţ ûþðåţé þŕéšéţ} other {Çöûļðñ''ţ šåṽé þŕéšéţ}} ·······]",
-  "{what, select, repo {Couldn't use that repository path: {value} contains a character that cannot appear in a command.} branch {Couldn't use that branch name: {value} contains a character that cannot appear in a command.} base {Couldn't use that base: {value} contains a character that cannot appear in a command.} other {Couldn't use that location: {value} contains a character that cannot appear in a command.}}": "[{what, select, repo {Çöûļðñ''ţ ûšé ţĥåţ ŕéþöšîţöŕý þåţĥ: {value} çöñţåîñš å çĥåŕåçţéŕ ţĥåţ çåññöţ åþþéåŕ îñ å çöɱɱåñð.} branch {Çöûļðñ''ţ ûšé ţĥåţ ƀŕåñçĥ ñåɱé: {value} çöñţåîñš å çĥåŕåçţéŕ ţĥåţ çåññöţ åþþéåŕ îñ å çöɱɱåñð.} base {Çöûļðñ''ţ ûšé ţĥåţ ƀåšé: {value} çöñţåîñš å çĥåŕåçţéŕ ţĥåţ çåññöţ åþþéåŕ îñ å çöɱɱåñð.} other {Çöûļðñ''ţ ûšé ţĥåţ ļöçåţîöñ: {value} çöñţåîñš å çĥåŕåçţéŕ ţĥåţ çåññöţ åþþéåŕ îñ å çöɱɱåñð.}} ·························]",
   "… (truncated)": "[… (ţŕûñçåţéð) ···]",
   "…{count} more not shown": "[…{count} ɱöŕé ñöţ šĥöŵñ ····]",
   "⚠ Write outside the project folder: {path}": "[⚠ Ŵŕîţé öûţšîðé ţĥé þŕöĵéçţ ƒöļðéŕ: {path} ··········]"

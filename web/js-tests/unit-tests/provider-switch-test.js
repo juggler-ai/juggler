@@ -19,7 +19,7 @@
  * @module unit-tests/provider-switch-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 import wsService from '../../js/services/websocket.js';
 import { ProvidersTab } from '../../js/components/settings/providers-tab.js';
 import '../../js/components/model-picker/model-picker.js';
@@ -181,8 +181,10 @@ export async function runTests(_ctx) {
       off.credentialed = false;
       off.available = false;
       wsService._emit('providers-update', [off]);
-      await settle();
-      assert(!host.querySelector('.provider-switch-notice'), 'the notice outlived the switch');
+      // The card redraws once the switch request has answered AND this list has
+      // arrived, which is more async hops than any fixed number of ticks.
+      await waitFor(() => !host.querySelector('.provider-switch-notice'),
+        { description: 'the card to be redrawn from the switched list, without the notice' });
       const toggle = /** @type {HTMLInputElement|null} */ (host.querySelector('#localai-toggle'));
       assert(toggle && !toggle.checked, 'LocalAI still reads as switched on after the switch');
     });

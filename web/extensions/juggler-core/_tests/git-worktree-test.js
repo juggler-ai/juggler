@@ -287,7 +287,7 @@ export async function runTests() {
       const built = await provider.provision({ branch: BRANCH, base: 'main' }, ctx);
       assert(built.workspace.root === 'C:\\src\\app-feat-tunnels',
         `the tree is registered beside the repository in the server's own terms, got ${JSON.stringify(built.workspace.root)}`);
-      assert(ran.some(command => command.includes('git worktree add -q -b "feat/tunnels" "../app-feat-tunnels"')),
+      assert(ran.some(command => command.includes("git worktree add -q -b 'feat/tunnels' '../app-feat-tunnels'")),
         `and git is asked for it by a path relative to the repository, got ${JSON.stringify(ran)}`);
       const absolute = ran.filter(command => /[A-Za-z]:[/\\]/.test(command));
       assert(absolute.length === 0,

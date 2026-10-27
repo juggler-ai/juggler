@@ -737,7 +737,6 @@
   "{url} (cached) (truncated)": "{url}（キャッシュ）（切り詰め）",
   "{url} (truncated)": "{url}（切り詰め）",
   "{verb, select, update {Couldn't update preset} other {Couldn't save preset}}": "{verb, select, update {プリセットを更新できませんでした} other {プリセットを保存できませんでした}}",
-  "{what, select, repo {Couldn't use that repository path: {value} contains a character that cannot appear in a command.} branch {Couldn't use that branch name: {value} contains a character that cannot appear in a command.} base {Couldn't use that base: {value} contains a character that cannot appear in a command.} other {Couldn't use that location: {value} contains a character that cannot appear in a command.}}": "{what, select, repo {そのリポジトリのパスは使用できません: {value} にはコマンドに含められない文字が含まれています。} branch {そのブランチ名は使用できません: {value} にはコマンドに含められない文字が含まれています。} base {そのベースは使用できません: {value} にはコマンドに含められない文字が含まれています。} other {その場所は使用できません: {value} にはコマンドに含められない文字が含まれています。}}",
   "… (truncated)": "…（切り詰め）",
   "…{count} more not shown": "…ほか {count} 件は表示されていません",
   "⚠ Write outside the project folder: {path}": "⚠ プロジェクトフォルダ外への書き込み: {path}"

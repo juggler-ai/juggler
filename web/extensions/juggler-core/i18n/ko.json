@@ -737,7 +737,6 @@
   "{url} (cached) (truncated)": "{url}(캐시됨)(잘림)",
   "{url} (truncated)": "{url}(잘림)",
   "{verb, select, update {Couldn't update preset} other {Couldn't save preset}}": "{verb, select, update {프리셋을 업데이트할 수 없습니다} other {프리셋을 저장할 수 없습니다}}",
-  "{what, select, repo {Couldn't use that repository path: {value} contains a character that cannot appear in a command.} branch {Couldn't use that branch name: {value} contains a character that cannot appear in a command.} base {Couldn't use that base: {value} contains a character that cannot appear in a command.} other {Couldn't use that location: {value} contains a character that cannot appear in a command.}}": "{what, select, repo {해당 저장소 경로를 사용할 수 없습니다: {value}에 명령에 쓸 수 없는 문자가 포함되어 있습니다.} branch {해당 브랜치 이름을 사용할 수 없습니다: {value}에 명령에 쓸 수 없는 문자가 포함되어 있습니다.} base {해당 기준을 사용할 수 없습니다: {value}에 명령에 쓸 수 없는 문자가 포함되어 있습니다.} other {해당 위치를 사용할 수 없습니다: {value}에 명령에 쓸 수 없는 문자가 포함되어 있습니다.}}",
   "… (truncated)": "…(잘림)",
   "…{count} more not shown": "…표시되지 않은 항목 {count}개 더 있음",
   "⚠ Write outside the project folder: {path}": "⚠ 프로젝트 폴더 밖에 쓰기: {path}"

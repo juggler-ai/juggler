@@ -131,6 +131,21 @@ func (s *stallSample) settle(budget time.Duration) bool {
 	}
 }
 
+// finish waits for the sampler to exit by itself, however long its
+// symbolication takes, and reports that the sample was written. It is for a
+// wedge that ends in exit rather than re-exec: no replacement server will take
+// this pid, so the reason settle kills the sampler does not apply, and on a
+// saturated machine — where wedges are seen — symbolication outlasts any grace
+// worth giving a user. The sampler is a child doing a fixed amount of work, so
+// its exit is the bound. A nil *stallSample finishes immediately.
+func (s *stallSample) finish() bool {
+	if s == nil {
+		return true
+	}
+	<-s.done
+	return true
+}
+
 // stallSampleNote is the stderr line naming a wedge's sample, written just
 // before a force-exit. Stderr, because a server with a log file and no terminal
 // discards jlog's console output — the browser test pool's servers among them —

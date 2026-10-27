@@ -56,6 +56,30 @@ func RobustReadFile(path string) ([]byte, error) {
 	}
 }
 
+// removeAll is the removal RobustRemoveAll retries; a test substitutes it to
+// act between attempts.
+var removeAll = os.RemoveAll
+
+// RobustRemoveAll removes path and everything under it, retrying on the same
+// transient sharing-violation / access-denied errors, which Windows raises while
+// another handle — a directory watcher, a scanner, a child process still
+// exiting — briefly holds something inside the tree. The window is the one Go's
+// own testing.TempDir cleanup gives the same two errors for the same reason
+// (testing.removeAll); a tree is larger than one file, so it is longer than the
+// rename's. POSIX unlinks an open file without complaint, so its build removes
+// directly.
+func RobustRemoveAll(path string) error {
+	const maxWait = 2 * time.Second
+	start := time.Now()
+	for {
+		err := removeAll(path)
+		if err == nil || !isTransient(err) || time.Since(start) >= maxWait {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func isTransient(err error) bool {
 	return errors.Is(err, errAccessDenied) || errors.Is(err, errSharingViolation)
 }

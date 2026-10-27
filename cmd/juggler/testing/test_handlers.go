@@ -17,6 +17,7 @@ import (
 
 	"juggler/cmd/juggler/extmanifest"
 	"juggler/cmd/juggler/server/handlers"
+	"juggler/internal/atomicio"
 )
 
 // SessionResetter is the minimum SessionManager surface the test API needs
@@ -271,7 +272,9 @@ func (api *TestAPI) HandleResetFixture(w http.ResponseWriter, r *http.Request) {
 			continue // Skip runtime state directory
 		}
 		entryPath := filepath.Join(fixtureDir, entry.Name())
-		if err := os.RemoveAll(entryPath); err != nil {
+		// The previous test's watchers and child processes can still hold a
+		// file here for a moment on Windows; that is not the fixture's fault.
+		if err := atomicio.RobustRemoveAll(entryPath); err != nil {
 			http.Error(w, "RemoveAll failed for "+entry.Name()+": "+err.Error(), http.StatusInternalServerError)
 			return
 		}

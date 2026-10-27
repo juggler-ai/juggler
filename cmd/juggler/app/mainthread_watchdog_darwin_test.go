@@ -286,6 +286,27 @@ func TestStallSampleNote(t *testing.T) {
 	}
 }
 
+// TestStallSampleFinishNeverKills pins the test-mode wedge's wait: a sample is
+// waited for until its sampler exits, never cancelled, because nothing will
+// reuse the pid and the sample is the only record of the wedge.
+func TestStallSampleFinishNeverKills(t *testing.T) {
+	if !(*stallSample)(nil).finish() {
+		t.Error("a nil sample did not finish; nothing was started, so there is nothing to wait for")
+	}
+	done := make(chan struct{})
+	s := &stallSample{
+		path:   "/logs/mainthread-stall-1.sample.log",
+		done:   done,
+		cancel: func() { t.Error("finish killed the sampler") },
+	}
+	finished := make(chan bool, 1)
+	go func() { finished <- s.finish() }()
+	close(done) // the sampler exits by itself
+	if !<-finished {
+		t.Error("finish reported a sampler that exited by itself as unfinished")
+	}
+}
+
 // --- argv / env / addr helpers (pure) ---
 
 func TestRelaunchArgs(t *testing.T) {

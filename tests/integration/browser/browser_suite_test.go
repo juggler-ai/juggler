@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -189,9 +190,12 @@ func resetFixture(t *testing.T, s testServerEntry) {
 	if err != nil {
 		t.Fatalf("reset-fixture failed for %s: %v", s.addr, err)
 	}
+	// The handler's error body names the entry and the OS error; without it a
+	// failed reset says only that something in the fixture could not be cleared.
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		t.Fatalf("reset-fixture %s returned %d", s.addr, resp.StatusCode)
+		t.Fatalf("reset-fixture %s returned %d: %s", s.addr, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 }
 

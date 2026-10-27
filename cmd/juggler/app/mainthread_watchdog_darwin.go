@@ -208,8 +208,9 @@ func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string) {
 				// Bypass deferred cleanups (they'd try to use the wedged
 				// main thread). Write directly to stderr — jlog might be
 				// blocked behind something.
-				settled := sample.settle(stallSampleGrace)
+				var settled bool
 				if allowRelaunch {
+					settled = sample.settle(stallSampleGrace)
 					if !settled {
 						jlog.Error("Main-thread sample didn't finish within %v; killed it rather than let it sample the replacement server.",
 							stallSampleGrace)
@@ -218,6 +219,11 @@ func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string) {
 					// success. Falls through to os.Exit only if exec fails or
 					// the crash-loop guard refuses.
 					relaunchInPlace(addr, time.Since(procStart))
+				} else {
+					// Test mode exits rather than re-execs: nothing will
+					// reuse this pid, and the sample is the only record of
+					// the wedge, so it is waited for in full.
+					settled = sample.finish()
 				}
 				_, _ = os.Stderr.WriteString(stallSampleNote(sample, settled) +
 					"\nFATAL: main thread wedged — force-exiting so the next launch can recover.\n")

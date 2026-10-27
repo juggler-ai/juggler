@@ -44,7 +44,7 @@ import {
 } from '../utilities/test-helpers.js';
 import { createUserMessage } from '../../sdk/lib/message.js';
 import '../../js/components/conversation-tab.js';
-import { setTipsShown } from '../../js/services/tips-manager.js';
+import { setGuidanceShown } from '../../js/services/guidance/nudge-engine.js';
 import { setReplySuggestionsEnabledCached } from '../../js/services/reply-suggestions-setting.js';
 import { isolatePrefs } from '../utilities/pref-isolation.js';
 
@@ -294,7 +294,7 @@ export async function runTests() {
     await waitFor(() => !!row && row.hidden === false && row.querySelectorAll('.reply-suggestion').length > 0,
       { description: 'a fresh conversation to offer starter prompts above its composer' });
 
-    setTipsShown(false);
+    setGuidanceShown(false);
     assert(getComputedStyle(/** @type {HTMLElement} */ (tips)).display === 'none',
       'with tips switched off the tip strip should not be displayed');
     assert(hint.classList.contains('hidden') === false && !!hint.querySelector('.empty-hint-keys'),
@@ -305,7 +305,7 @@ export async function runTests() {
     assert(row?.hidden === true,
       'with "Suggest prompts" off the row should offer nothing in a fresh conversation');
 
-    setTipsShown(true);
+    setGuidanceShown(true);
     setReplySuggestionsEnabledCached(true);
     const tipsBack = getComputedStyle(/** @type {HTMLElement} */ (tips)).display !== 'none'
       && !!tips.querySelector('.empty-hint-tips__tip');

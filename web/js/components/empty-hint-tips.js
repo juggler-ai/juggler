@@ -5,7 +5,8 @@
 /**
  * <empty-hint-tips> — the rolling tip at the foot of the starting hint (see
  * {@link module:components/empty-hint-stack}): one tip from
- * {@link module:services/tips-manager} at a time under a lightbulb, rotating on
+ * the nudge catalogue ({@link module:services/guidance/nudge-catalogue}) at a
+ * time under a lightbulb, rotating on
  * its own, with ‹ › buttons either side. Each step slides the old tip out and
  * the new one in from the side it came from, so the strip reads as a window on
  * a row of tips rather than one line of text that changes.
@@ -20,7 +21,7 @@
  * so only the feature tips rotate — keyed off the same `(hover: none) and
  * (pointer: coarse)` query the rest of the hint hides its keyboard rows by.
  *
- * Settings › Defaults can switch the strip off (tips-manager's areTipsShown);
+ * Settings › Appearance can switch the strip off (the engine's guidanceShown);
  * it then stays in the stack empty and hidden, and comes back on the switch's
  * event.
  *
@@ -31,10 +32,10 @@
 
 import JugglerElement from './juggler-element.js';
 import keyShortcutManager from '../services/key-shortcut-manager.js';
-import { allTips, isSeen, areTipsShown, TIPS_CHANGED_EVENT } from '../services/tips-manager.js';
+import { allTips, isTipLearnt, guidanceShown, GUIDANCE_CHANGED_EVENT } from '../services/guidance/nudge-engine.js';
 import { t } from '../../sdk/lib/i18n.js';
 
-/** @typedef {import('../services/tips-manager.js').Tip} Tip */
+/** @typedef {import('../services/guidance/nudge-engine.js').Tip} Tip */
 
 /**
  * Rotate to the next tip this often (ms): long enough to read the longest tip,
@@ -85,8 +86,8 @@ class EmptyHintTips extends JugglerElement {
 
   connectedCallback() {
     const onPrefChanged = () => this._sync();
-    window.addEventListener(TIPS_CHANGED_EVENT, onPrefChanged);
-    this.addCleanup(() => window.removeEventListener(TIPS_CHANGED_EVENT, onPrefChanged));
+    window.addEventListener(GUIDANCE_CHANGED_EVENT, onPrefChanged);
+    this.addCleanup(() => window.removeEventListener(GUIDANCE_CHANGED_EVENT, onPrefChanged));
     this.addCleanup(() => this._stopRotation());
     // Every mount starts afresh: a re-attached strip opens on the next tip, and
     // the rotation its last disconnect stopped is started again by the build.
@@ -101,7 +102,7 @@ class EmptyHintTips extends JugglerElement {
    * @private
    */
   _sync() {
-    const shown = areTipsShown();
+    const shown = guidanceShown();
     this.hidden = !shown;
     if (!shown) {
       this._stopRotation();
@@ -153,7 +154,7 @@ class EmptyHintTips extends JugglerElement {
     for (let i = 0; i < n; i++) {
       const idx = (from + i) % n;
       const tip = this._tips[idx];
-      if (tip && !isSeen(tip.id)) return idx;
+      if (tip && !isTipLearnt(tip.id)) return idx;
     }
     return from;
   }

@@ -11,7 +11,7 @@
 
 import { getMode, setMode, MODES, THEME_MODE_EVENT } from '../../utils/theme-manager.js';
 import { t, markForTranslation } from '../../../sdk/lib/i18n.js';
-import { areTipsShown, setTipsShown } from '../../services/tips-manager.js';
+import { guidanceShown, setGuidanceShown } from '../../services/guidance/nudge-engine.js';
 import { buildToggleRow } from './notifications-tab.js';
 
 /**
@@ -87,8 +87,8 @@ export function buildSelectRow({ id, name, description, options, value }) {
 }
 
 /**
- * Appearance tab: the explicit theme mode, and whether new conversations show
- * the rolling tip (services/tips-manager.js). The UI language has a tab of its
+ * Appearance tab: the explicit theme mode, and whether tips and hints are shown
+ * (services/guidance/nudge-engine.js). The UI language has a tab of its
  * own (language-tab.js).
  *
  * The header button is a two-state light switch and never says the word
@@ -146,11 +146,12 @@ export class AppearanceTab {
     const themeRow = this._buildThemeRow(getMode());
     container.appendChild(themeRow.row);
     container.appendChild(buildToggleRow(
-      t('Show tips in new conversations'),
-      t('A rolling tip about a feature you might not have found yet, under the ' +
-      'composer hints in a conversation with nothing in it.'),
-      areTipsShown(),
-      (on) => setTipsShown(on),
+      t('Show tips and hints'),
+      t('Tips about features you might not have found yet, and an occasional hint '
+      + 'when one would help. Off, a suggestion about the conversation you’re in '
+      + '— such as compacting a long one — stays as a plain button.'),
+      guidanceShown(),
+      (on) => setGuidanceShown(on),
     ).row);
 
     // Keep the menu in step with the header button, which changes the same

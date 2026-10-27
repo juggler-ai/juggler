@@ -94,7 +94,7 @@ import '../../js/components/update-notice.js';
 import '../../js/components/action-confirmation.js';
 import '../../js/components/composer.js';
 import '../../js/components/conversation-area.js';
-import { TIPS_CHANGED_EVENT } from '../../js/services/tips-manager.js';
+import { GUIDANCE_CHANGED_EVENT } from '../../js/services/guidance/nudge-engine.js';
 import { CONTEXT_CACHE_IMPACT_CHANGED } from '../../js/services/context-cache-impact.js';
 import fileViewerRegistry from '../../js/registries/file-viewer-registry.js';
 import { closeAllPopups } from '../../js/utils/popup-manager.js';
@@ -1078,7 +1078,7 @@ export async function runTests() {
       const heard = () => {
         const before = [selects, hints];
         area.dispatchEvent(new CustomEvent('select-item-requested', { detail: { messageId: 'x' } }));
-        window.dispatchEvent(new Event(TIPS_CHANGED_EVENT));
+        window.dispatchEvent(new Event(GUIDANCE_CHANGED_EVENT));
         const background = countEvents(area, 'item-selected', () => {
           area.querySelector('conversation-message-list-wrapper')
             ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));

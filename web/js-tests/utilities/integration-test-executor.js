@@ -330,6 +330,10 @@ import { runTests as runJumpToAttentionRevealTests } from '../unit-tests/jump-to
 import { runTests as runColumnBuilderTests } from '../unit-tests/column-builder-test.js';
 import { runTests as runEmptyConversationHintTests } from '../unit-tests/empty-conversation-hint-test.js';
 import { runTests as runEmptyHintTipsTests } from '../unit-tests/empty-hint-tips-test.js';
+import { runTests as runUsageSignalsTests } from '../unit-tests/usage-signals-test.js';
+import { runTests as runNudgeEngineTests } from '../unit-tests/nudge-engine-test.js';
+import { runTests as runJugglerNudgeTests } from '../unit-tests/juggler-nudge-test.js';
+import { runTests as runGuidanceSurfacesTests } from '../unit-tests/guidance-surfaces-test.js';
 import { runTests as runNoConversationsOnboardingTests } from '../unit-tests/no-conversations-onboarding-test.js';
 import { runTests as runNoProjectOnboardingTests } from '../unit-tests/no-project-onboarding-test.js';
 import { runTests as runStandInPanelTests } from '../unit-tests/stand-in-panel-test.js';
@@ -903,6 +907,10 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:column-builder', run: runColumnBuilderTests },
   { name: 'unit:empty-conversation-hint', run: runEmptyConversationHintTests },
   { name: 'unit:empty-hint-tips', run: runEmptyHintTipsTests },
+  { name: 'unit:usage-signals', run: runUsageSignalsTests },
+  { name: 'unit:nudge-engine', run: runNudgeEngineTests },
+  { name: 'unit:juggler-nudge', run: runJugglerNudgeTests },
+  { name: 'unit:guidance-surfaces', run: runGuidanceSurfacesTests },
   { name: 'unit:no-conversations-onboarding', run: runNoConversationsOnboardingTests },
   { name: 'unit:no-project-onboarding', run: runNoProjectOnboardingTests },
   { name: 'unit:stand-in-panel', run: runStandInPanelTests },

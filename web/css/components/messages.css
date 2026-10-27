@@ -256,6 +256,70 @@ conversation-empty-hint.no-room-for-tips .empty-hint-tips {
     padding: 0;
 }
 
+/* Guidance (juggler-nudge.js): one hint at a time — its copy, then its buttons
+   and ×. Quieter than the Undo offer: a suggestion, not news. Compact, it is its
+   buttons alone, sitting in the footer like any other control. In the starting
+   hint it takes the tip strip's width and gives way with it when the band is
+   short, and takes back the clicks the hint passes through. */
+.juggler-nudge {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    font-size: var(--font-size-sm);
+    pointer-events: auto;
+}
+
+.juggler-nudge[hidden] {
+    display: none;
+}
+
+.juggler-nudge--compact {
+    padding: 0;
+    border: none;
+}
+
+.juggler-nudge__text {
+    flex: 1 1 16rem;
+    min-width: 0;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+.juggler-nudge__title {
+    font-weight: 600;
+}
+
+.juggler-nudge__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+}
+
+.juggler-nudge__dismiss {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+}
+
+.empty-hint-nudge {
+    width: 31rem;
+    max-width: 100%;
+    text-align: left;
+}
+
+conversation-empty-hint.no-room-for-tips .empty-hint-nudge {
+    display: none;
+}
+
 /* Subtle jump-to-top / jump-to-bottom controls, overlaid top-right of the
    message list. Each button hides itself when there's nowhere to travel in its
    direction (see ColumnScroll.updateControls), so the group only ever shows the moves

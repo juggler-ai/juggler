@@ -5,7 +5,7 @@
 /**
  * The rolling tip strip (`components/empty-hint-tips.js`) follows the UI
  * language: every tip in the rotation — shortcut tips (title from the shortcut
- * table, body from tips-manager) and feature tips alike — and the strip's own
+ * table, body from the nudge catalogue) and feature tips alike — and the strip's own
  * ‹ › buttons.
  *
  * The strip only reads the "seen" pref, so no user pref is written here. Key

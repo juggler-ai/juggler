@@ -270,6 +270,7 @@
 				"empty-*",
 				"error-*",
 				"footer-*",
+				"juggler-nudge*",
 				"llm-busy-text",
 				"llm-next-steps",
 				"message-action-btn",

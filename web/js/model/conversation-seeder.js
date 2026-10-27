@@ -35,6 +35,7 @@ import { isDefaultFileEditingOn, setFileEditingAllowed } from '../services/file-
 import { resolveDefaultStrategyId, BUILTIN_DEFAULT_STRATEGY_ID } from '../services/default-strategy.js';
 import { workspaceInstructionRoots } from '../services/workspace-provisioning.js';
 import { BUILTIN_DEFAULT_ID } from '../../sdk/lib/system-prompt-registry.js';
+import { reportFact } from '../services/guidance/facts.js';
 
 /**
  * Copy the session's new-task preferences into a freshly created conversation.
@@ -207,6 +208,11 @@ export async function addAIAssistantFiles(session, conversation, messageThread =
       }
     })
   );
+
+  // What was found is a fact guidance may act on (a project with no
+  // instruction file at all is offered help writing one); nothing else here
+  // knows or decides anything about that.
+  reportFact('instruction-files', conversation.id, candidates.filter(Boolean).length);
 
   // Add discovered files sequentially so each executeContextItem sees a
   // stable thread state (avoids racing duplicate inserts of the same

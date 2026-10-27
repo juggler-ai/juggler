@@ -217,6 +217,11 @@ Key invariants:
 
   If a phone viewing remotely should not be able to change it for the desktop,
   it is not `User`. The full rules are in the module header.
+- **Guidance — tips, hints, "you might want to…" — lives in
+  `web/js/services/guidance/` and nowhere else.** A new hint is one entry in
+  `nudge-catalogue.js` (its header is the how-to); feature code only reports
+  what happened at a choke point (`recordUsage`, `reportFact`) and never shows,
+  hides or retires a hint itself. `TestGuidanceStaysCentral` enforces it.
 - **Event feeds are not interchangeable** — `onLLMStatusChange` and
   `conversation:changed` answer different questions. Which to use, and why
   handlers on the latter stay read-only and unbatched: `session.js`.

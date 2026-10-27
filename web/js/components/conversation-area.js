@@ -58,7 +58,8 @@ import { isFileDrag, installFileDropGuard, markFileDropAccepted } from '../utils
 import { ReplySuggestionsController } from '../services/reply-suggestions-controller.js';
 import { STARTER_PROMPTS } from '../utils/starter-prompts.js';
 import { areReplySuggestionsEnabled, REPLY_SUGGESTIONS_SETTING_EVENT } from '../services/reply-suggestions-setting.js';
-import { TIPS_CHANGED_EVENT } from '../services/tips-manager.js';
+import { GUIDANCE_CHANGED_EVENT } from '../services/guidance/nudge-engine.js';
+import { COMMAND_MENU_REQUESTED_EVENT } from './juggler-nudge.js';
 import { t } from '../../sdk/lib/i18n.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
 
@@ -1073,10 +1074,15 @@ class ConversationArea extends JugglerElement {
       const { messageId } = /** @type {CustomEvent} */ (e).detail;
       if (messageId) this._selectItem(messageId, 'user');
     });
-    // The tip or starter-prompt switch in Settings › Defaults.
+    // A hint (components/juggler-nudge.js) asking for the command menu.
+    this.on(this, COMMAND_MENU_REQUESTED_EVENT, (e) => {
+      e.stopPropagation();
+      /** @type {any} */ (this.composer)?.openCommandMenu?.();
+    });
+    // The tips switch in Settings › Appearance, or the starter-prompt switch.
     const hintChanged = () => this._handleNewConversationHintChanged();
     this.onWindow(REPLY_SUGGESTIONS_SETTING_EVENT, hintChanged);
-    this.onWindow(TIPS_CHANGED_EVENT, hintChanged);
+    this.onWindow(GUIDANCE_CHANGED_EVENT, hintChanged);
   }
 
   /**
@@ -1623,6 +1629,15 @@ class ConversationArea extends JugglerElement {
 
     const hasHistory = this._hasConversationalHistory(items);
     hint.classList.toggle('hidden', hasHistory);
+    // The hint's guidance slot learns where it is; the engine decides the rest.
+    const conversation = this._messageThread?.conversation;
+    for (const nudge of /** @type {NodeListOf<any>} */ (hint.querySelectorAll('juggler-nudge'))) {
+      nudge.context = hasHistory ? { turnActive: true } : {
+        conversationId: conversation?.id,
+        thread: this._messageThread,
+        turnActive: false,
+      };
+    }
     if (hasHistory) {
       // Retired: drop the band measurements too, so a later re-show starts from
       // the element's layout, not a band staler than the DOM.
@@ -1701,7 +1716,7 @@ class ConversationArea extends JugglerElement {
     // the tip back.
     hint.classList.remove('no-room-for-tips');
     let fits = bandHeight - stack.offsetHeight >= EMPTY_HINT_CLEARANCE_PX;
-    if (!fits && stack.querySelector('.empty-hint-tips:not([hidden])')) {
+    if (!fits && stack.querySelector('.empty-hint-tips:not([hidden]), juggler-nudge:not([hidden])')) {
       hint.classList.add('no-room-for-tips');
       fits = bandHeight - stack.offsetHeight >= EMPTY_HINT_CLEARANCE_PX;
     }

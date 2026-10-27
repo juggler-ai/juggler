@@ -1323,6 +1323,21 @@ class Composer extends JugglerElement {
   }
 
   /**
+   * Open the slash-command menu, as typing "/" into an empty box does. A draft
+   * already in the box is left alone — the menu is offered, never forced.
+   * @returns {void}
+   */
+  openCommandMenu() {
+    const textarea = this.querySelector('textarea');
+    if (!textarea || textarea.value.trim() !== '') {
+      textarea?.focus();
+      return;
+    }
+    this.setDraft('/');
+    this._completions?.handleInput();
+  }
+
+  /**
    * Put a stored user message back into the box as the live draft: its text AND
    * its staged image attachments, since a message is one unit. Used by the
    * rewind and branch flows, which delete a message and hand it back for

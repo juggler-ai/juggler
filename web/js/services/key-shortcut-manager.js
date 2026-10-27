@@ -30,6 +30,7 @@
 import { isAnyPopupOpen } from '../utils/popup-manager.js';
 import { hasNativeHost } from '../../sdk/lib/window-control.js';
 import { markForTranslation, t } from '../../sdk/lib/i18n.js';
+import { recordUsage } from './guidance/usage-signals.js';
 
 /**
  * A platform-agnostic key binding.
@@ -1035,6 +1036,9 @@ class KeyShortcutManager {
       if (acted) {
         e.preventDefault();
         e.stopPropagation();
+        // The one place a shortcut's use is reported: guidance retires what it
+        // teaches from this, so no handler reports its own.
+        recordUsage(`shortcut:${def.id}`);
       }
       return;
     }

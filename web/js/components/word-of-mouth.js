@@ -9,7 +9,9 @@
  * in the rail and only takes a slot the extension cards leave free.
  *
  * The card appears once a week has passed since the first message the user
- * sent from a composer AND messages went out on three distinct local days. The
+ * sent from a composer AND messages went out on three distinct local days —
+ * both read from the usage record (services/guidance/usage-signals.js, event
+ * `composer:send`), which is where every count of use is kept. The
  * first time it is mounted it is recorded as asked (a `User` preference, so
  * every project and window shares it): from then on it stays in that page until
  * hidden, and no other window or later launch shows it. × and Dismiss are the
@@ -19,12 +21,11 @@
  */
 
 import { getUserPref, cachedUserPref, setUserPref, reconcilePref, notifyPrefChanged } from '../services/prefs.js';
+import { usageFirst, usageDays, USAGE_CHANGED_EVENT } from '../services/guidance/usage-signals.js';
 import { INFO_CARDS_CHANGED_EVENT, hideCard } from '../services/info-cards-manager.js';
 import { copyToClipboard } from '../../sdk/lib/clipboard.js';
 import { t, markForTranslation } from '../../sdk/lib/i18n.js';
 
-/** `{first: number, days: string[]}` — the first send, and up to three local days of use. */
-const USAGE_PREF = 'juggler-word-of-mouth-usage';
 /** Epoch ms of the first time the card was put up, anywhere. */
 const ASKED_PREF = 'juggler-word-of-mouth-asked';
 
@@ -42,36 +43,12 @@ let loaded = false;
 let shownHere = false;
 
 /**
- * @param {number} ms
- * @returns {string} The local calendar day, `YYYY-MM-DD`.
- */
-function localDay(ms) {
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-/**
- * The usage record after a send at `now`, or null if it is unchanged (the same
- * day again, or three days already known).
- * @param {any} usage
- * @param {number} now
- * @returns {{first: number, days: string[]}|null} The new record, or null.
- */
-function recordDay(usage, now) {
-  const day = localDay(now);
-  if (!usage || !Array.isArray(usage.days)) return { first: now, days: [day] };
-  if (usage.days.length >= MIN_DISTINCT_DAYS || usage.days.includes(day)) return null;
-  return { first: usage.first, days: [...usage.days, day] };
-}
-
-/**
- * @param {any} usage
  * @param {number} now
  * @returns {boolean} Whether enough use has been seen to ask.
  */
-function isEligible(usage, now) {
-  return !!usage && Array.isArray(usage.days) && usage.days.length >= MIN_DISTINCT_DAYS
-    && now - usage.first >= MIN_ELAPSED_MS;
+function isEligible(now) {
+  const first = usageFirst('composer:send');
+  return first !== null && usageDays('composer:send') >= MIN_DISTINCT_DAYS && now - first >= MIN_ELAPSED_MS;
 }
 
 /**
@@ -79,34 +56,22 @@ function isEligible(usage, now) {
  * @returns {Promise<void>}
  */
 export async function startWordOfMouth() {
-  await Promise.all([getUserPref(USAGE_PREF), getUserPref(ASKED_PREF)]);
+  await getUserPref(ASKED_PREF);
   // Another window putting the card up re-syncs this window's rail.
   void reconcilePref('user', ASKED_PREF, INFO_CARDS_CHANGED_EVENT);
   loaded = true;
   notifyPrefChanged(INFO_CARDS_CHANGED_EVENT);
-}
-
-/**
- * A composer send has been answered. An accepted message that is not a slash
- * command is a day of use.
- * @param {string} message
- * @param {string|null|undefined} refusal - Conversation.sendMessage's answer: null when delivered.
- * @returns {void}
- */
-export function noteComposerSend(message, refusal) {
-  if (!loaded || refusal !== null || String(message || '').startsWith('/')) return;
-  const now = Date.now();
-  const next = recordDay(cachedUserPref(USAGE_PREF, null), now);
-  if (!next) return;
-  void setUserPref(USAGE_PREF, next);
-  if (isEligible(next, now)) notifyPrefChanged(INFO_CARDS_CHANGED_EVENT);
+  // A send that makes the card eligible re-syncs the rail too.
+  window.addEventListener(USAGE_CHANGED_EVENT, () => {
+    if (!shownHere && isEligible(Date.now())) notifyPrefChanged(INFO_CARDS_CHANGED_EVENT);
+  });
 }
 
 /** @returns {boolean} Whether the card should be in the rail. */
 function shouldShowAsk() {
   if (!loaded) return false;
   if (shownHere) return true;
-  return !cachedUserPref(ASKED_PREF, null) && isEligible(cachedUserPref(USAGE_PREF, null), Date.now());
+  return !cachedUserPref(ASKED_PREF, null) && isEligible(Date.now());
 }
 
 /**

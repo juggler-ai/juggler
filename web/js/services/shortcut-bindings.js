@@ -19,7 +19,6 @@ import {
   jumpToAttentionConversation,
   toggleActiveFileEditing,
 } from './conversation-commands.js';
-import { markSeen } from './tips-manager.js';
 import { getModelSelector } from './model-cycler.js';
 import findBar, { findPanelFor } from '../components/find-bar.js';
 
@@ -49,9 +48,9 @@ function stepActiveTabSelection(direction) {
 export function registerConversationShortcuts(session) {
   // new/bin always "handle" the key (they attempt on the visible conversation);
   // jump/toggle report whether they acted so an inapplicable press falls through.
-  keyShortcutManager.register('new-conversation', () => { createNewConversation(); markSeen('new-conversation'); return true; });
-  keyShortcutManager.register('bin-conversation', () => { binActiveConversation(); markSeen('bin-conversation'); return true; });
-  keyShortcutManager.register('rename-conversation', () => { renameActiveConversation(); markSeen('rename-conversation'); return true; });
+  keyShortcutManager.register('new-conversation', () => { createNewConversation(); return true; });
+  keyShortcutManager.register('bin-conversation', () => { binActiveConversation(); return true; });
+  keyShortcutManager.register('rename-conversation', () => { renameActiveConversation(); return true; });
   // Prev/next-tab (Page Up/Down everywhere, ⌥⌘↑/↓ on macOS) go through the
   // conversation bar's juggler:cycle-tab event, which moves to the adjacent tab
   // in strip order (wrapping) and commits focus to its composer. Always
@@ -59,12 +58,10 @@ export function registerConversationShortcuts(session) {
   // walks the tabs in order of use — see recent-tab-switcher.js.)
   keyShortcutManager.register('prev-tab', () => {
     window.dispatchEvent(new CustomEvent('juggler:cycle-tab', { detail: { direction: 'prev' } }));
-    markSeen('prev-tab');
     return true;
   });
   keyShortcutManager.register('next-tab', () => {
     window.dispatchEvent(new CustomEvent('juggler:cycle-tab', { detail: { direction: 'next' } }));
-    markSeen('next-tab');
     return true;
   });
   // Move-tab (⇧Page Up/Down) moves the visible tab past its neighbour in the
@@ -85,16 +82,8 @@ export function registerConversationShortcuts(session) {
   // conversation to walk, so the field keeps its own meaning for the key.
   keyShortcutManager.register('select-prev-item', () => stepActiveTabSelection('prev'));
   keyShortcutManager.register('select-next-item', () => stepActiveTabSelection('next'));
-  keyShortcutManager.register('jump-to-attention', () => {
-    const acted = jumpToAttentionConversation(session);
-    if (acted) markSeen('jump-to-attention');
-    return acted;
-  });
-  keyShortcutManager.register('toggle-file-editing', () => {
-    const acted = toggleActiveFileEditing(session);
-    if (acted) markSeen('toggle-file-editing');
-    return acted;
-  });
+  keyShortcutManager.register('jump-to-attention', () => jumpToAttentionConversation(session));
+  keyShortcutManager.register('toggle-file-editing', () => toggleActiveFileEditing(session));
   // Find opens/refocuses the find bar against the panel the user is in: the
   // nearest find-capable ancestor of whatever holds focus (so a composer means
   // its own column, and a clicked-into properties panel means that panel), else
@@ -112,7 +101,6 @@ export function registerConversationShortcuts(session) {
     const panel = findPanelFor(document.activeElement) || tab?.getFindColumn?.();
     if (!panel) return false;
     findBar.open(panel);
-    markSeen('find-in-conversation');
     return true;
   });
   // Opens the model picker and leaves it open — the counterpart to ⌥⌘M, which

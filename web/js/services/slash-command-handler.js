@@ -10,6 +10,7 @@
 import commandRegistry from '../registries/command-registry.js';
 import { t } from '../../sdk/lib/i18n.js';
 import { uiPort } from './ui-port.js';
+import { recordUsage } from './guidance/usage-signals.js';
 
 /**
  * @typedef {object} SlashCommandResult
@@ -161,6 +162,10 @@ class SlashCommandHandler {
       }
       await conv.cancelAndSettle('slash command');
     }
+
+    // Every way a command runs — typed, picked from a menu, or a guidance
+    // button — arrives here, so this is the one place its use is reported.
+    if (CommandClass.MANIFEST?.id) recordUsage(`slash:${CommandClass.MANIFEST.id}`);
 
     const command = new CommandClass({
       messageThread: messageThread || undefined

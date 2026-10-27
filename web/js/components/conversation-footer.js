@@ -40,6 +40,7 @@
  * settled.
  */
 import JugglerElement from './juggler-element.js';
+import './juggler-nudge.js';
 import { findRoundTripTxnIds, findLastRoundTripItemId } from '../utils/transaction-anchor.js';
 import { formatRelativeDateTime } from '../utils/format.js';
 import providersCache from '../services/providers-cache.js';
@@ -205,6 +206,20 @@ class ConversationFooter extends JugglerElement {
   _statusOnly = false;
 
   /**
+   * The meter's last reading, as the guidance slot is told it.
+   * @type {{total: number, budget: number}|null}
+   * @private
+   */
+  _nudgeTokens = null;
+
+  /**
+   * Whether the last update() was of a running turn, as the guidance slot is told it.
+   * @type {boolean}
+   * @private
+   */
+  _nudgeBusy = false;
+
+  /**
    * Metadata observer watching `undoState` while the Undo offer is showing,
    * so the offer can retire the moment its undo entry stops being the one
    * `undo()` would pop. Attached on show, detached on hide — an offer is rare
@@ -277,6 +292,7 @@ class ConversationFooter extends JugglerElement {
       this._pendingTxnId = '';
       this._blobRetries.clear();
       this._lastLiveUsage = null;
+      this._nudgeTokens = null;
       this._cancelBlobRetry();
     }
     this._cancelDeferredTokenDisplayUpdate();
@@ -286,6 +302,7 @@ class ConversationFooter extends JugglerElement {
     this._messageThread = mt;
     if (this.isConnected) this._listen();
     this._updateTokenDisplay();
+    this._syncNudge();
   }
 
   /** @private */
@@ -355,6 +372,7 @@ class ConversationFooter extends JugglerElement {
     this._statusOnly = on;
     this._applyStatusOnly();
     if (!on) this._updateTokenDisplay();
+    this._syncNudge();
   }
 
   /**
@@ -690,6 +708,7 @@ class ConversationFooter extends JugglerElement {
           budget,
           processing: true,
         });
+        this._setNudgeReading({ total: live.inputTokens, budget });
         return;
       }
     }
@@ -737,6 +756,42 @@ class ConversationFooter extends JugglerElement {
       processing,
       approximate: anchor?.inputTokensApproximate ?? false,
     });
+    this._setNudgeReading({ total: anchor?.inputTokens ?? 0, budget });
+  }
+
+  /**
+   * The meter's reading, kept for the footer's guidance slot.
+   * @param {{total: number, budget: number}} tokens
+   * @private
+   */
+  _setNudgeReading(tokens) {
+    const last = this._nudgeTokens;
+    if (last && last.total === tokens.total && last.budget === tokens.budget) return;
+    this._nudgeTokens = tokens;
+    this._syncNudge();
+  }
+
+  /**
+   * Tell the footer's guidance slot (components/juggler-nudge.js) where it is:
+   * which conversation and thread, whether a turn is running, and the meter's
+   * reading. The engine decides what, if anything, it shows. A status-only
+   * footer is a lens on a run of rows, not a thread, so it carries no guidance.
+   * @private
+   */
+  _syncNudge() {
+    const nudge = /** @type {any} */ (this.querySelector('juggler-nudge'));
+    if (!nudge) return;
+    const thread = this._messageThread;
+    if (this._statusOnly || !thread) {
+      nudge.context = { turnActive: true };
+      return;
+    }
+    nudge.context = {
+      conversationId: thread.conversation?.id,
+      thread,
+      turnActive: this._nudgeBusy === true,
+      ...(this._nudgeTokens ? { tokens: this._nudgeTokens } : {}),
+    };
   }
 
   connectedCallback() {
@@ -778,6 +833,7 @@ class ConversationFooter extends JugglerElement {
                     ${escapeHtml(t('Undo'))}
                 </button>
             </div>
+            <juggler-nudge surface="footer" class="juggler-nudge footer-nudge" hidden></juggler-nudge>
             <div class="footer-meta">
                 <token-display></token-display>
                 <div class="footer-activity hidden">
@@ -1006,6 +1062,10 @@ class ConversationFooter extends JugglerElement {
     // on screen. This is also what dismisses the offer once the user has moved
     // on and sent their next message.
     if (state.isProcessing && this._undoObserver) this._hideUndoOffer();
+    if (this._nudgeBusy !== state.isProcessing) {
+      this._nudgeBusy = state.isProcessing;
+      this._syncNudge();
+    }
 
     if (this._statusOnly) {
       // A run that isn't doing anything has nothing to say, and an empty strip

@@ -34,7 +34,7 @@ import { CLOSE_FLUSH_ACK_TIMEOUT_MS } from './utils/constants.js';
 import providersCache from './services/providers-cache.js';
 import { setupHeaderControls } from './utils/header-controls.js';
 import { registerConversationShortcuts } from './services/shortcut-bindings.js';
-import { markSeen } from './services/tips-manager.js';
+import { recordUsage } from './services/guidance/usage-signals.js';
 import { updateWindowTitle } from './utils/window-title.js';
 import { initAttention } from './utils/attention-manager.js';
 import { watchTurnsForEscape, provideEscapeApp } from './services/escape-behaviour.js';
@@ -58,7 +58,7 @@ import { markUntranslated } from '../sdk/lib/i18n.js';
 import { openCommandManager } from './components/command-editor-dialog.js';
 import { exportConversation } from './components/conversation-export-dialog.js';
 import { setFaultSink, reportFault } from './utils/fault-report.js';
-import { startWordOfMouth, noteComposerSend } from './components/word-of-mouth.js';
+import { startWordOfMouth } from './components/word-of-mouth.js';
 
 /**
  * Route this page's faults to the app log, and catch the ones nothing else
@@ -654,8 +654,8 @@ class JugglerApp {
     // validation (including model selection) happens inside sendMessage().
     const refusal = await conversation.sendMessage(message, threadItemId, messageThread, { attachments: attachments || [], skills: skills || [], schedule: schedule || undefined });
     // This is the composer's send path — a message the user wrote — so an
-    // accepted one is a day of use.
-    noteComposerSend(message, refusal);
+    // accepted one that is not a slash command is a use of the app.
+    if (refusal === null && !String(message || '').startsWith('/')) recordUsage('composer:send');
   }
 
   /**
@@ -1047,9 +1047,10 @@ class JugglerApp {
         conversation.cancelPoliteStop(pauseThreadId);
       } else {
         conversation.requestPoliteStop(pauseThreadId);
-        // Learn-by-doing: retire the onboarding tip the moment the shift+Escape
-        // shortcut is actually used (not the Pause button, which is toggle:true).
-        if (!toggle) markSeen('pause-conversation');
+        // shift+Escape is owned by popup-manager rather than the shortcut
+        // dispatcher, so its use is reported here (not the Pause button's,
+        // which is toggle:true).
+        if (!toggle) recordUsage('shortcut:pause-conversation');
       }
       return;
     }

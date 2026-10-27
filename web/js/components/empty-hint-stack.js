@@ -4,7 +4,9 @@
 
 /**
  * What a conversation with no history says before its first message: the four
- * composer gestures a first-time user has no way to guess, then one rolling tip
+ * composer gestures a first-time user has no way to guess, then the hint's
+ * guidance slot ({@link module:components/juggler-nudge}, surface
+ * `empty-hint`, usually empty) and one rolling tip
  * ({@link module:components/empty-hint-tips}) for everything past the composer.
  *
  * Two places show it, and exactly one of them at a time. A conversation with
@@ -25,6 +27,7 @@ import { formatBindingLabel, isMac } from '../services/key-shortcut-manager.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
 import { t } from '../../sdk/lib/i18n.js';
 import './empty-hint-tips.js';
+import './juggler-nudge.js';
 
 /**
  * The hint's content as one block.
@@ -61,6 +64,7 @@ export function emptyHintStackMarkup() {
         </div>
       </div>
       <p class="empty-hint-lead empty-hint-pointer">${escapeHtml(t('Drag-and-drop a file or image to attach it'))}</p>
+      <juggler-nudge surface="empty-hint" class="juggler-nudge empty-hint-nudge" hidden></juggler-nudge>
       <empty-hint-tips class="empty-hint-tips"></empty-hint-tips>
     </div>
   `;

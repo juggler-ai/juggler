@@ -3,7 +3,7 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 import keyShortcutManager, { eventMatchesBinding } from './key-shortcut-manager.js';
-import { markSeen } from './tips-manager.js';
+import { recordUsage } from './guidance/usage-signals.js';
 import { isForeignPopupOpen } from '../utils/popup-manager.js';
 
 /**
@@ -200,11 +200,9 @@ class HoldToCycleController {
       // press-and-release with no re-press is a pure peek that changes nothing.
       this._config.onGestureStart(1, true);
 
-      // Learn-by-doing: engaging the gesture retires its onboarding tip. The tip
-      // id equals the shortcut id for every cycler (cycle-model / cycle-thinking
-      // / strategy-switch), and we're past the canCycle gate, so this only fires
-      // on a real, applicable use. Idempotent; a no-op for ids with no tip.
-      markSeen(shortcutId);
+      // The cycler's key is external to the shortcut dispatcher, so its use is
+      // reported here — past the canCycle gate, so only a real, applicable use.
+      recordUsage(`shortcut:${shortcutId}`);
 
       this._phase = 'active';
       this._beginPointerIdle();

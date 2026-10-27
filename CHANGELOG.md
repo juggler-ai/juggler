@@ -5,6 +5,9 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Long conversations offer Compact and Hand off buttons beside the context meter
+- New /init drafts an AGENTS.md; projects without one are offered it
+- Occasional hints for features you haven't found, gone once you use them
 - Custom endpoints suggest models.dev providers, filling the URL and each model's limits
 - Running tasks pin lists every conversation's commands, foreground too; click to jump
 - After repeated approvals, the approval card suggests switching to Auto-approve or YOLO

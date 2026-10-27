@@ -204,20 +204,19 @@ func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string) {
 				jlog.Error("Main thread unresponsive for %v (likely WebKit DisplayLink deadlock). Will %s at %v.",
 					stalled.Round(time.Second), action, hangThreshold)
 				warned = true
-				// Capture native stacks while the stall is still on. Only in
-				// the real app: under the test pool a stall is a result the
-				// harness reports, and sampling would spend CPU on the loaded
-				// machine that caused it.
-				if allowRelaunch {
-					sample = captureStallSample(logPath, os.Getpid(), now)
-				}
+				// Capture native stacks while the stall is still on — under
+				// the test pool too, where a wedge kills every lane at once and
+				// the sample is the only record of what the main thread was
+				// waiting on.
+				sample = captureStallSample(logPath, os.Getpid(), now)
 			}
 			if stalled >= hangThreshold {
 				// Bypass deferred cleanups (they'd try to use the wedged
 				// main thread). Write directly to stderr — jlog might be
 				// blocked behind something.
+				settled := sample.settle(stallSampleGrace)
 				if allowRelaunch {
-					if !sample.settle(stallSampleGrace) {
+					if !settled {
 						jlog.Error("Main-thread sample didn't finish within %v; killed it rather than let it sample the replacement server.",
 							stallSampleGrace)
 					}
@@ -226,7 +225,7 @@ func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string) {
 					// the crash-loop guard refuses.
 					relaunchInPlace(addr, time.Since(procStart))
 				}
-				_, _ = os.Stderr.WriteString(
+				_, _ = os.Stderr.WriteString(stallSampleNote(sample, settled) +
 					"\nFATAL: main thread wedged — force-exiting so the next launch can recover.\n")
 				os.Exit(1)
 			}

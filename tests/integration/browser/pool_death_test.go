@@ -72,6 +72,66 @@ func TestPoolDeathQuotesTheStderrTail(t *testing.T) {
 	}
 }
 
+// stallSampleFixture is the shape /usr/bin/sample writes: a header, then a call
+// graph in which each thread is a heading line followed by its "+" frames.
+const stallSampleFixture = `Analysis of sampling juggler-testsrv (pid 4242) every 10 milliseconds
+Process:         juggler-testsrv [4242]
+
+Call graph:
+    190 Thread_6908   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 190 start  (in dyld) + 6688  [0x18298be80]
+    +   190 -[NSApplication run]  (in AppKit) + 396  [0x1873cb90c]
+    +     190 -[WKWebView _wedgedHere]  (in WebKit) + 40  [0x1a0000000]
+    190 Thread_7066: com.apple.NSEventThread
+    + 190 thread_start  (in libsystem_pthread.dylib) + 8  [0x182d5ccec]
+    +   190 _NSEventThread  (in AppKit) + 184  [0x1874fc844]
+
+Total number in stack (recursive counted multiple times):
+Binary Images:
+       0x100000000 -        0x100ffffff +juggler-testsrv (0) <UUID> /bin/juggler-testsrv
+`
+
+// TestPoolDeathQuotesTheMainThreadSample guards the only record of what a
+// wedged pool server's main thread was doing: the watchdog samples it before
+// force-exiting and names the sample on stderr, but the sample lives in the
+// pool's throwaway log dir, which is deleted when the run ends. The failing
+// test must quote the main thread's stack, and the whole sample must be copied
+// beside the stderr logs, which CI prints in full.
+func TestPoolDeathQuotesTheMainThreadSample(t *testing.T) {
+	samplePath := filepath.Join(t.TempDir(), "mainthread-stall-20261027-090139.sample.log")
+	if err := os.WriteFile(samplePath, []byte(stallSampleFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stderr := "8:58AM INF Platform Info: MacOS\n" +
+		stallSampleStderrPrefix + samplePath + "\n" +
+		"\nFATAL: main thread wedged — force-exiting so the next launch can recover.\n"
+	p := deadProc(t, stderr, errors.New("exit status 1"))
+
+	report := poolDeath(testServerEntry{addr: "127.0.0.1:1", proc: p})
+	for _, want := range []string{"com.apple.main-thread", "-[WKWebView _wedgedHere]"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("post-mortem omits the main thread's %q:\n%s", want, report)
+		}
+	}
+	for _, unwanted := range []string{"_NSEventThread", "Binary Images"} {
+		if strings.Contains(report, unwanted) {
+			t.Errorf("post-mortem quoted %q, beyond the main thread:\n%s", unwanted, report)
+		}
+	}
+
+	kept := filepath.Join(filepath.Dir(p.stderrPath), "juggler-stall-sample-4242.log")
+	data, err := os.ReadFile(kept)
+	if err != nil {
+		t.Fatalf("the full sample was not kept beside the stderr logs: %v\n%s", err, report)
+	}
+	if string(data) != stallSampleFixture {
+		t.Errorf("the kept sample differs from the original:\n%s", data)
+	}
+	if !strings.Contains(report, kept) {
+		t.Errorf("post-mortem doesn't say where the full sample is kept (%s):\n%s", kept, report)
+	}
+}
+
 // TestPoolDeathIsSilentWhileTheServerLives keeps the report out of ordinary
 // failures: a test that fails with its server running must not be told the pool
 // died.

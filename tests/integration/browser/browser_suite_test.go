@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -444,11 +445,75 @@ func poolDeath(srv testServerEntry) string {
 		return b.String()
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	samplePath := ""
+	for _, line := range lines {
+		if after, ok := strings.CutPrefix(line, stallSampleStderrPrefix); ok {
+			samplePath = strings.TrimSpace(after)
+		}
+	}
 	if len(lines) > poolStderrTailLines {
 		lines = lines[len(lines)-poolStderrTailLines:]
 	}
 	for _, line := range lines {
 		fmt.Fprintf(&b, "  | %s\n", line)
+	}
+	if samplePath != "" {
+		b.WriteString(stallSampleReport(samplePath, p))
+	}
+	return b.String()
+}
+
+// stallSampleStderrPrefix opens the line a pool server's main-thread watchdog
+// writes to stderr when it force-exits with a native sample of the wedged
+// thread (stallSampleNote, cmd/juggler/app).
+const stallSampleStderrPrefix = "Main-thread sample: "
+
+// stallSampleMainThreadLines caps how much of the main thread's call graph
+// stallSampleReport quotes. A wedged thread is one stack standing still, so the
+// tree is narrow; the cap only guards against a sample that caught it moving.
+const stallSampleMainThreadLines = 120
+
+// stallSampleReport quotes the main thread's call graph from the sample a
+// wedged pool server took of itself, and keeps the whole sample beside the
+// stderr logs. The sample is written into the pool's throwaway log dir, which
+// is deleted when the run ends — before CI's dump step, which prints every log
+// beside the stderr files and so prints the kept copy in full. The main thread
+// alone names where it is stuck; the other threads are what say who holds the
+// lock it waits on, which is why the whole file is kept.
+func stallSampleReport(samplePath string, p *poolProc) string {
+	var b strings.Builder
+	data, err := os.ReadFile(samplePath)
+	if err != nil {
+		fmt.Fprintf(&b, "Main-thread sample %s unreadable: %v\n", samplePath, err)
+		return b.String()
+	}
+	kept := filepath.Join(filepath.Dir(p.stderrPath), fmt.Sprintf("juggler-stall-sample-%d.log", p.pid))
+	if err := os.WriteFile(kept, data, 0o644); err != nil {
+		fmt.Fprintf(&b, "Main-thread sample (couldn't keep a copy at %s: %v):\n", kept, err)
+	} else {
+		fmt.Fprintf(&b, "Main-thread sample (all threads kept at %s):\n", kept)
+	}
+	// /usr/bin/sample's call graph gives each thread a heading line naming it,
+	// then its frames, each opening "    +".
+	inMain, quoted := false, 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if !inMain {
+			inMain = strings.Contains(line, "com.apple.main-thread")
+			if !inMain {
+				continue
+			}
+		} else if !strings.HasPrefix(line, "    +") {
+			break
+		}
+		if quoted == stallSampleMainThreadLines {
+			fmt.Fprintf(&b, "  ¦ … (cut at %d lines; the kept copy has the rest)\n", stallSampleMainThreadLines)
+			break
+		}
+		fmt.Fprintf(&b, "  ¦ %s\n", line)
+		quoted++
+	}
+	if quoted == 0 {
+		b.WriteString("  (no main-thread call graph in it)\n")
 	}
 	return b.String()
 }

@@ -156,6 +156,25 @@ func TestExecUntilRunnable(t *testing.T) {
 	})
 }
 
+// --- the stderr line a test-mode wedge leaves for the harness ---
+
+// TestStallSampleNote pins the line the browser harness looks for on a dead
+// pool server's stderr (tests/integration/browser, stallSampleStderrPrefix):
+// the watchdog's jlog lines go only to a log file under the test pool, so this
+// line is the one way the harness learns a sample exists.
+func TestStallSampleNote(t *testing.T) {
+	if got := stallSampleNote(nil, true); got != "" {
+		t.Errorf("stallSampleNote(nil) = %q; want nothing, since no sample was taken", got)
+	}
+	s := &stallSample{path: "/logs/mainthread-stall-1.sample.log"}
+	if got, want := stallSampleNote(s, true), "\nMain-thread sample: /logs/mainthread-stall-1.sample.log\n"; got != want {
+		t.Errorf("stallSampleNote(settled) = %q; want %q", got, want)
+	}
+	if got := stallSampleNote(s, false); !strings.Contains(got, "didn't finish") || strings.Contains(got, "Main-thread sample: ") {
+		t.Errorf("stallSampleNote(unsettled) = %q; want it to say the sample didn't finish, and not name it as a sample", got)
+	}
+}
+
 // --- argv / env / addr helpers (pure) ---
 
 func TestRelaunchArgs(t *testing.T) {

@@ -327,7 +327,9 @@ jobs:
       # log — to <tempdir>/juggler-test-logs/juggler-stderr-*.log (see
       # startJugglerSubprocess in tests/integration/browser/main_test.go).
       # That directory is a fixed path, not the run's throwaway log dir, so it
-      # survives the pool shutdown. Without this, a hung WebView surfaces only as an opaque
+      # survives the pool shutdown — which is why a macOS server killed by the
+      # main-thread watchdog has its native sample copied there too
+      # (juggler-stall-sample-<pid>.log, see stallSampleReport). Without this, a hung WebView surfaces only as an opaque
       # "timeout polling /api/test/names" and every fix is a blind guess.
       #
       # Every OS, and every candidate temp dir: the harness uses Go's

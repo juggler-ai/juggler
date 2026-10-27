@@ -22,6 +22,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -128,6 +129,24 @@ func (s *stallSample) settle(budget time.Duration) bool {
 		s.cancel()
 		return false
 	}
+}
+
+// stallSampleNote is the stderr line naming a wedge's sample, written just
+// before a force-exit. Stderr, because a server with a log file and no terminal
+// discards jlog's console output — the browser test pool's servers among them —
+// so the harness, which keeps only their stderr, would otherwise never learn a
+// sample was taken. Its "Main-thread sample: " prefix is matched by
+// stallSampleStderrPrefix in tests/integration/browser. Empty when nothing was
+// sampled; a sample settle had to kill is reported without its path, since the
+// file it left is partial at best.
+func stallSampleNote(s *stallSample, settled bool) string {
+	if s == nil {
+		return ""
+	}
+	if !settled {
+		return fmt.Sprintf("\nMain-thread sample didn't finish within %v; killed it.\n", stallSampleGrace)
+	}
+	return "\nMain-thread sample: " + s.path + "\n"
 }
 
 // stallSamplePath places a sample file beside the server log that will describe

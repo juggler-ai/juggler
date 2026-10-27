@@ -26,6 +26,7 @@ import UIDriver from '../utilities/ui-driver.js';
 import { UITestHarness } from '../utilities/ui-test-harness.js';
 import { executeUIOperation, lastConfirmGiveUp, disarmConfirm, waitForNestedCall } from '../utilities/ui-operation-executor.js';
 import { afterEngineReload, REGISTRIES_CHANNEL } from '../utilities/plugin-config.js';
+import { setReportedTest, reportTestProgress } from '../utilities/progress-report.js';
 
 /**
  * @typedef {object} TestContext
@@ -493,6 +494,33 @@ export async function runTests(_ctx) {
   } catch (e) {
     failed++;
     errors.push(`a lane has a page with a size to lay out in: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // The progress report is the harness talking to itself, so a suite that
+  // stubs `window.fetch` must not see it: a stub that rejects requests it does
+  // not expect would fail its test whenever a report happens to fall inside
+  // the stub's lifetime, which on a slow core is whenever the stub lives
+  // longer than the report interval.
+  {
+    const realFetch = window.fetch;
+    /** @type {string[]} */
+    const seen = [];
+    try {
+      window.fetch = /** @type {any} */ (async (/** @type {any} */ input) => {
+        seen.push(String(typeof input === 'string' ? input : input.url));
+        throw new Error('stubbed');
+      });
+      setReportedTest('unit:test-budget'); // this suite's queued name; also lifts the rate limit
+      reportTestProgress();
+      window.fetch = realFetch;
+      assert(seen.length === 0, `a suite's fetch stub received the harness's progress report: ${JSON.stringify(seen)}`);
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`a fetch stub never sees the progress report: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      window.fetch = realFetch;
+    }
   }
 
   return { passed, failed, errors };

@@ -23,6 +23,14 @@ import { apiUrl } from '../../js/utils/api-url.js';
  */
 const REPORT_EVERY_MS = 1000;
 
+/**
+ * The page's own `fetch`, taken before any test runs. Suites stub
+ * `window.fetch` and some reject whatever they do not expect, so a report sent
+ * through the global would land in the stub whenever it fell inside one's
+ * lifetime, and fail that suite for the harness's own traffic.
+ */
+const pageFetch = window.fetch.bind(window);
+
 /** The name the harness queued the running test under; '' between tests. */
 let queuedName = '';
 let lastReportedAt = 0;
@@ -48,7 +56,7 @@ export function reportTestProgress() {
   const now = Date.now();
   if (!name || now - lastReportedAt < REPORT_EVERY_MS) return;
   lastReportedAt = now;
-  void fetch(apiUrl('/test/progress'), {
+  void pageFetch(apiUrl('/test/progress'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name })

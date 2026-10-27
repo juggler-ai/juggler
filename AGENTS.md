@@ -297,8 +297,8 @@ patch ledger and the full procedure. In short, to rebase:
    (wailsapp/wails); `git cherry -v upstream/master juggler-changes` — drop the
    `-` patches, upstream has them.
 2. `git switch -c juggler-changes-rebase-<date> juggler-changes && git rebase
-   upstream/master`. Changelog conflicts: keep upstream's side plus the patch's
-   own line. Keep every patch upstream-PR-ready — upstream commit style, no
+   upstream/master`. Changelog conflicts: keep upstream's side whole; a patch
+   adds no line of its own. Keep every patch upstream-PR-ready — upstream commit style, no
    juggler-specific references.
 3. Bump the `require` label in `go.mod` to upstream's nearest tag; `go mod tidy`.
 4. `make test-wails-patches` (the fork's tests for the patched packages — no

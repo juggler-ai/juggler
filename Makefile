@@ -701,7 +701,7 @@ models-sync:
 ## The Windows-only packages compile and run on Windows; elsewhere they are
 ## cross-vetted for windows/amd64, so a patch that breaks the Windows build is
 ## caught on every OS. ~20s; ~45s under -race.
-WAILS_PATCH_PKGS=./pkg/application ./pkg/updater
+WAILS_PATCH_PKGS=./pkg/application
 WAILS_PATCH_PKGS_WINDOWS=./pkg/w32 ./internal/webview2/pkg/edge
 ifeq ($(OS),Windows_NT)
 WAILS_PATCH_PKGS+=$(WAILS_PATCH_PKGS_WINDOWS)

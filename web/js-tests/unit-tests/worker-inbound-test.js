@@ -186,6 +186,33 @@ export async function runTests(_ctx) {
     assert(outcome.message.includes('no longer has'), `the rejection must carry the worker's words; got: ${outcome.message}`);
   });
 
+  await run('closing a conversation while its worker starts fails the spawn and its waiters at once; a new spawn starts afresh', async () => {
+    // Left alone, the closed spawn is answered by nothing: its entry is gone,
+    // so neither a ready nor an error can find it, and it waits out the full
+    // ready timeout — with a re-spawn of the same id joining it.
+    const conv = 'conv_inbound_close_starting';
+    const wm = /** @type {any} */ (new WorkerManager());
+    wm._config = {};
+    let inits = 0;
+    wm._sendInit = () => { inits++; return true; };
+    await captureConsole(conv, async () => {
+      const spawning = wm.spawnWorker(conv, { loadFromDisk: true }).then(() => null, (/** @type {Error} */ e) => e);
+      const waiting = wm.waitForWorkerReady(conv).then(() => null, (/** @type {Error} */ e) => e);
+      wm.terminate(conv);
+      const again = wm.spawnWorker(conv, { loadFromDisk: true });
+
+      const spawnErr = await soon(spawning, 'the closed spawn');
+      assert(spawnErr instanceof Error && spawnErr.message.includes('closed'), `the spawn must fail as closed; got ${spawnErr && spawnErr.message}`);
+      const waitErr = await soon(waiting, 'the closed spawn\'s ready wait');
+      assert(waitErr instanceof Error && waitErr.message.includes('closed'), `its ready wait must fail as closed; got ${waitErr && waitErr.message}`);
+
+      assert(inits === 2, `a spawn after the close must send its own init, not join the closed one; got ${inits} init(s)`);
+      assert(wm.workerState(conv) === 'starting', 'the closed spawn\'s cleanup must leave the new spawn\'s entry alone');
+      wm.markReady(conv, { created: '2026-10-26T00:00:00Z' });
+      await soon(again, 'the new spawn');
+    });
+  });
+
   await run('en-XA: an error before ready that carries a message fails the waiters translated', async () => {
     const conv = 'conv_inbound_error_xa';
     const wm = managerWithEntry(conv);

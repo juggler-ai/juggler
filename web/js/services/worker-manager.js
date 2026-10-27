@@ -328,9 +328,10 @@ export class WorkerManager {
     try {
       await readyPromise;
     } catch (error) {
-      // Clean up on failure
+      // Clean up on failure — this spawn's entry only: one closed while
+      // starting may already have been replaced by a new spawn's.
       console.error(`[WorkerManager] Worker failed for ${conversationId}, cleaning up:`, error);
-      this._workers.delete(conversationId);
+      if (this._workers.get(conversationId) === entry) this._workers.delete(conversationId);
       throw error;
     }
   }
@@ -377,7 +378,14 @@ export class WorkerManager {
    * @param {string} conversationId - Conversation ID
    */
   terminate(conversationId) {
+    // A spawn still starting can never be answered once its entry is gone —
+    // neither a ready nor an error finds it — so fail it and its waiters now,
+    // rather than at the ready timeout, and let a new spawn start afresh
+    // instead of joining it.
+    const entry = this._workers.get(conversationId);
     this._workers.delete(conversationId);
+    this._spawning.delete(conversationId);
+    if (entry) this._abandonPendingReady(entry, `Conversation ${conversationId} was closed while its worker was starting`);
     // A createThread awaiting this conversation can never be answered now: its
     // reply arrives as a worker message for a worker this manager no longer
     // holds. Unwind it here rather than leaving the awaiter — and the closure
@@ -415,6 +423,7 @@ export class WorkerManager {
    * happened to reuse the same id.
    */
   terminateAll() {
+    for (const entry of this._workers.values()) this._abandonPendingReady(entry, 'Worker manager terminated');
     this._workers.clear();
     this._spawning.clear();
     this.loader.reset();
@@ -899,7 +908,19 @@ export class WorkerManager {
    */
   failPendingReady(conversationId, message) {
     const entry = this._workers.get(conversationId);
-    if (!entry || entry.ready || !entry.readyRejectors?.length) return;
+    if (entry) this._abandonPendingReady(entry, message);
+  }
+
+  /**
+   * Fail everything waiting on one entry's `ready`. A no-op once it is ready,
+   * or with nobody waiting.
+   * @param {WorkerEntry} entry - The entry
+   * @param {string} message - The reason, given to each waiter
+   * @returns {void}
+   * @private
+   */
+  _abandonPendingReady(entry, message) {
+    if (entry.ready || !entry.readyRejectors?.length) return;
     const rejectors = entry.readyRejectors;
     entry.readyRejectors = [];
     entry.readyCallbacks = [];
@@ -1256,7 +1277,7 @@ export class WorkerManager {
     try {
       await promise;
     } finally {
-      this._spawning.delete(conversationId);
+      if (this._spawning.get(conversationId) === promise) this._spawning.delete(conversationId);
     }
   }
 }

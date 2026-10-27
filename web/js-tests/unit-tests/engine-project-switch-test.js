@@ -314,6 +314,12 @@ export async function runTests() {
       ['conv_old_a', { destroy: () => { destroyed++; } }],
       ['conv_old_b', { destroy: () => { destroyed++; } }]
     ]);
+    // What the old project held: the stand-in registry holds only these. The
+    // session is still live on the server every lane shares, which never
+    // switched project, so that server's broadcasts can land stubs in the
+    // stand-in after the switch (seen: the fixture's own conversation and a
+    // sibling's). The map need not end empty, only without these.
+    const old = new Set(stale.keys());
     const restore = await switchProject(session, {
       before: { sessionPermissionRules: [] },
       after: { sessionPermissionRules: [RUN_RULE] },
@@ -326,7 +332,8 @@ export async function runTests() {
       assert(workerManager._config.projectPath === NEW_PROJECT,
         `worker config repointed, got ${workerManager._config.projectPath}`);
       assert(destroyed === 2, `both stale conversations were destroyed, got ${destroyed}`);
-      assert(session.conversations.size === 0, 'the previous project\'s conversation map is emptied');
+      const kept = [...session.conversations.keys()].filter((id) => old.has(id));
+      assert(kept.length === 0, `the previous project's conversations are released, kept ${JSON.stringify(kept)}`);
       assert(session.visibleConversationId === null, 'no conversation from the old project stays visible');
     } finally {
       restore();

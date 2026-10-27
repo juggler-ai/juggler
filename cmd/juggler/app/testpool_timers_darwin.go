@@ -25,8 +25,20 @@ package app
 // throttled default in place instead of raising.
 @interface WKPreferences (JugglerHiddenPageTimers)
 - (void)_setHiddenPageDOMTimerThrottlingEnabled:(BOOL)enabled;
+- (BOOL)_hiddenPageDOMTimerThrottlingEnabled;
 - (void)_setHiddenPageDOMTimerThrottlingAutoIncreasesEnabled:(BOOL)enabled;
 @end
+
+// What unthrottleHiddenPageTimers found. Anything below unthrottledOK is a
+// failure; the flags above it qualify a success.
+enum {
+	unthrottledNoWebView = 0,
+	unthrottledNoSetter = -1,
+	unthrottledDidNotStick = -2,
+	unthrottledOK = 1,
+	unthrottledNoGetter = 2,
+	unthrottledNoAutoIncrease = 4,
+};
 
 // findWebView returns the first WKWebView in a view tree. Wails owns the
 // WKWebView and exposes only the NSWindow, so the view hierarchy is the seam
@@ -45,36 +57,68 @@ static WKWebView* findWebView(NSView* view) {
 }
 
 // unthrottleHiddenPageTimers switches the alignment off for one window's web
-// view. Returns 0 when there is no web view to configure or the SPI is gone, so
-// the caller can say so rather than silently running a throttled pool.
+// view and reads it back. Returns a failure (at or below
+// unthrottledNoWebView) when there is no web view to configure, the SPI is
+// gone, or the preference reads back still on, so the caller can say which
+// rather than silently running a throttled pool; a success carries which
+// companion selectors this WebKit no longer answers.
 static int unthrottleHiddenPageTimers(void* nsWindow) {
 	if (nsWindow == NULL) {
-		return 0;
+		return unthrottledNoWebView;
 	}
 	NSWindow* window = (__bridge NSWindow*)nsWindow;
 	WKWebView* webView = findWebView(window.contentView);
 	if (webView == nil) {
-		return 0;
+		return unthrottledNoWebView;
 	}
 	WKPreferences* prefs = webView.configuration.preferences;
 	if (![prefs respondsToSelector:@selector(_setHiddenPageDOMTimerThrottlingEnabled:)]) {
-		return 0;
+		return unthrottledNoSetter;
 	}
 	[prefs _setHiddenPageDOMTimerThrottlingEnabled:NO];
+	int status = unthrottledOK;
+	if (![prefs respondsToSelector:@selector(_hiddenPageDOMTimerThrottlingEnabled)]) {
+		status |= unthrottledNoGetter;
+	} else if ([prefs _hiddenPageDOMTimerThrottlingEnabled]) {
+		return unthrottledDidNotStick;
+	}
 	// The companion auto-increase escalates a long-hidden page's grid from 1s
 	// toward 30s. Switching the alignment off makes it moot, but leaving it
 	// armed would re-throttle any page that somehow re-enabled the first.
 	if ([prefs respondsToSelector:@selector(_setHiddenPageDOMTimerThrottlingAutoIncreasesEnabled:)]) {
 		[prefs _setHiddenPageDOMTimerThrottlingAutoIncreasesEnabled:NO];
+	} else {
+		status |= unthrottledNoAutoIncrease;
 	}
-	return 1;
+	return status;
 }
 */
 import "C"
 
 import (
+	"sync"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"juggler/internal/jlog"
 )
+
+// unthrottleReported holds the reasons already logged, so a pool that retries
+// says each one once.
+var unthrottleReported sync.Map
+
+// reportUnthrottle logs why the switch failed, as an error, or what this
+// WebKit lacked beside a switch that took, as information — once per reason.
+func reportUnthrottle(reason string, failed bool) {
+	if _, seen := unthrottleReported.LoadOrStore(reason, true); seen {
+		return
+	}
+	if failed {
+		jlog.Error("[test-pool] %s", reason)
+	} else {
+		jlog.Info("[test-pool] %s", reason)
+	}
+}
 
 // unthrottleHiddenPageTimers stops the test pool's hidden window coarsening the
 // timers of the code under test, so a suite is priced in the work it does
@@ -99,7 +143,26 @@ func unthrottleHiddenPageTimers(win *application.WebviewWindow) bool {
 	if handle == nil {
 		return false
 	}
-	return C.unthrottleHiddenPageTimers(handle) != 0
+	status := C.unthrottleHiddenPageTimers(handle)
+	switch status {
+	case C.unthrottledNoWebView:
+		return false
+	case C.unthrottledNoSetter:
+		reportUnthrottle("this WebKit does not answer -_setHiddenPageDOMTimerThrottlingEnabled:, so hidden-page timer alignment cannot be switched off", true)
+		return false
+	case C.unthrottledDidNotStick:
+		reportUnthrottle("-_setHiddenPageDOMTimerThrottlingEnabled:NO was sent, and the preference still reads back on", true)
+		return false
+	}
+	if status&C.unthrottledNoGetter != 0 {
+		reportUnthrottle("this WebKit does not answer -_hiddenPageDOMTimerThrottlingEnabled, so the switch is sent but cannot be read back", false)
+	}
+	// macOS 27's WebKit has no auto-increase selector; with the alignment off
+	// there is no grid for it to escalate.
+	if status&C.unthrottledNoAutoIncrease != 0 {
+		reportUnthrottle("this WebKit does not answer -_setHiddenPageDOMTimerThrottlingAutoIncreasesEnabled:; moot with the alignment off", false)
+	}
+	return true
 }
 
 // ensureHiddenPoolWebViewSized reports that the pool's web view has a size,

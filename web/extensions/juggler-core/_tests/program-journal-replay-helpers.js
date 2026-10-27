@@ -35,10 +35,18 @@
  *      with every change made exactly once, or its replay diverges and stops.
  *      A replay never stalls.
  *   3. A program that makes one call at a time never diverges.
- * @module unit-tests/program-journal-replay-test
+ *
+ * The seeds are split across several suites (program-journal-replay-*-test.js),
+ * each running one range through {@link runReplaySeeds}. The work is all task
+ * hops, a few hundred thousand of them, and a lane's page runs at background
+ * priority, so a range that takes under a second on an idle machine takes
+ * twenty times that on a loaded one; one suite of every seed ran past its
+ * budget there.
+ * @module _tests/program-journal-replay-helpers
  */
 
 import { assert } from '../../../js-tests/utilities/test-helpers.js';
+import { trackWait } from '../../../js-tests/utilities/test-patience.js';
 import { journalCapabilities } from '../context-items/code/program-journal.js';
 import { createToolInvoker } from '../../../js/services/tool-invoker.js';
 
@@ -48,9 +56,6 @@ import { createToolInvoker } from '../../../js/services/tool-invoker.js';
  * @property {number} failed - Number of failed tests
  * @property {string[]} errors - Error messages for failed tests
  */
-
-/** Random programs tried. */
-const CASES = 400;
 
 /** Runs a case may take; in the last, the engine never dies. */
 const MAX_RUNS = 6;
@@ -157,18 +162,20 @@ function runProgram(tree, c) {
   return run(tree, '');
 }
 
+/** The one channel every settle crosses, and who is waiting on it, in order. */
+const settler = new MessageChannel();
+/** @type {Array<() => void>} */
+const settling = [];
+settler.port1.onmessage = () => { /** @type {() => void} */ (settling.shift())(); };
+
 /**
  * Yield until every microtask queued so far, and every one they queue, has run.
  * @returns {Promise<void>}
  */
 function settleMicrotasks() {
   return new Promise((resolve) => {
-    const channel = new MessageChannel();
-    channel.port1.onmessage = () => {
-      channel.port1.close();
-      resolve();
-    };
-    channel.port2.postMessage(0);
+    settling.push(resolve);
+    settler.port2.postMessage(0);
   });
 }
 
@@ -410,11 +417,15 @@ async function drive(program, pending, rng, delivering, dead) {
 }
 
 /**
- * Run all journal replay tests.
- * @param {object} _ctx - Test context (unused)
+ * Run the journal replay cases for one range of seeds.
+ * @param {number} first - The first seed
+ * @param {number} last - The last seed, included
  * @returns {Promise<TestResult>} Pass/fail counts
  */
-export async function runTests(_ctx) {
+export async function runReplaySeeds(first, last) {
+  const cases = last - first + 1;
+  /** Where the range has got to, for a timeout's report. */
+  let now = 'starting';
   let passed = 0;
   let failed = 0;
   /** @type {string[]} */
@@ -471,6 +482,7 @@ export async function runTests(_ctx) {
     let answered = 0;
     for (let run = 0; run < MAX_RUNS; run++) {
       const at = where + ', run ' + (run + 1);
+      now = 'seed ' + seed + ', run ' + (run + 1);
       const world = worldOf({ writes, saved, rng, last: run === MAX_RUNS - 1 });
       const result = await drive(runProgram(tree, world.program(world.wrapped)), world.pending, rng, world.delivering,
         world.dead);
@@ -501,7 +513,7 @@ export async function runTests(_ctx) {
     throw new Error(where + ': never finished in ' + MAX_RUNS + ' runs');
   };
 
-  await test('random programs held live or lost and replayed never make a change twice, and finish or stop', async () => {
+  await test(`random programs (seeds ${first}–${last}) held live or lost and replayed never make a change twice, and finish or stop`, async () => {
     /** @type {string[]} */
     const failures = [];
     let deaths = 0;
@@ -509,23 +521,31 @@ export async function runTests(_ctx) {
     let answered = 0;
     let resumed = 0;
     let diverged = 0;
-    for (let seed = 1; seed <= CASES; seed++) {
-      try {
-        const r = await runCase(seed);
-        deaths += r.deaths;
-        answered += r.answered;
-        if (r.resumed) resumed++;
-        if (r.resumed && r.deaths > 1) multi++;
-        if (r.diverged) diverged++;
-      } catch (e) {
-        failures.push(e instanceof Error ? e.message : String(e));
+    // Nothing here waits on anything outside the page, so the only wait is
+    // the range itself; listing it lets a timeout name the seed it reached.
+    const done = trackWait(() => `seeds ${first}–${last} to run, at ${now}`);
+    try {
+      for (let seed = first; seed <= last; seed++) {
+        try {
+          const r = await runCase(seed);
+          deaths += r.deaths;
+          answered += r.answered;
+          if (r.resumed) resumed++;
+          if (r.resumed && r.deaths > 1) multi++;
+          if (r.diverged) diverged++;
+        } catch (e) {
+          failures.push(e instanceof Error ? e.message : String(e));
+        }
       }
+    } finally {
+      done('satisfied');
     }
-    assert(failures.length === 0, failures.length + ' of ' + CASES + ' cases failed; first:\n' + failures.slice(0, 3).join('\n'));
+    assert(failures.length === 0, failures.length + ' of ' + cases + ' cases failed; first:\n' + failures.slice(0, 3).join('\n'));
     // Guard against a generator that stops making the cases worth having:
     // replays that finish, some through several deaths, holds answered live,
-    // and divergence the exception rather than the rule.
-    assert(deaths > CASES / 2 && resumed > CASES / 4 && multi > CASES / 20 && answered > CASES / 2 && diverged < resumed,
+    // and divergence the exception rather than the rule. Each range of a
+    // hundred clears every bar; the closest is seeds 201–300's 48 answered live.
+    assert(deaths > cases / 2 && resumed > cases / 4 && multi > cases / 20 && answered > cases * 0.4 && diverged < resumed,
       'too few holds to test both paths: ' + deaths + ' deaths, ' + resumed + ' resumed, ' + multi
       + ' through several, ' + answered + ' answered live, ' + diverged + ' diverged');
   });

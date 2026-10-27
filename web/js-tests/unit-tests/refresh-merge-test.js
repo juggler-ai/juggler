@@ -26,21 +26,31 @@ import {
   createTestConversation,
   assert
 } from '../utilities/test-helpers.js';
+import { pollPatiently, racePatiently } from '../utilities/test-patience.js';
 
 /**
- * Resolve once `predicate` holds, or reject at the deadline — so a regression
- * fails the test rather than hanging the lane to its budget.
+ * Resolve once `predicate` holds, or reject when its patience runs out — so a
+ * regression fails the test rather than hanging the lane to its budget.
  * @param {() => boolean} predicate - Condition to wait for
- * @param {string} what - Message for the timeout
- * @param {number} [ms] - Patience budget
+ * @param {string} what - What is waited for, and the failure's message
  * @returns {Promise<void>} Resolves when the predicate holds
  */
-async function until(predicate, what, ms = 8000) {
-  const deadline = Date.now() + ms;
-  while (!predicate()) {
-    if (Date.now() > deadline) throw new Error(what);
-    await new Promise((r) => { setTimeout(r, 20); });
-  }
+async function until(predicate, what) {
+  if (!await pollPatiently(predicate, { nominalMs: 8000, intervalMs: 20, what })) throw new Error(what);
+}
+
+/**
+ * Refresh the session, as a wait a timeout can name. The refresh loads, one
+ * after another, every conversation the shared project lists that this lane
+ * does not hold — every sibling lane's — so its cost is theirs as much as ours.
+ * @param {any} session - The session
+ * @returns {Promise<void>} Resolves when the refresh has finished
+ */
+async function refresh(session) {
+  const unloaded = () => [...session.conversations.values()].filter((c) => c.loadState !== 'loaded').length;
+  const done = await racePatiently(session.persistence.refreshFromServer(), 15000,
+    { what: () => `the refresh to finish (${session.conversations.size} conversations, ${unloaded()} not loaded)` });
+  if (!done) throw new Error(`the refresh never finished (${session.conversations.size} conversations, ${unloaded()} not loaded)`);
 }
 
 /**
@@ -104,7 +114,7 @@ export async function runTests(_ctx) {
         session.registry.insert(arrivalId, stub, 'test');
       });
 
-      await session.persistence.refreshFromServer();
+      await refresh(session);
 
       assert(session.conversations.has(arrivalId),
         'a conversation that arrived during the refresh was dropped by it — a restore racing a refresh loses the tab it just brought back');
@@ -140,7 +150,7 @@ export async function runTests(_ctx) {
       );
       session.registry.insert(live.id, stub, 'test');
 
-      await session.persistence.refreshFromServer();
+      await refresh(session);
       await until(() => session.conversations.get(live.id)?.loadState === 'loaded',
         'the refresh left an unloaded stub parked — it listed the conversation and hydrated nothing');
 

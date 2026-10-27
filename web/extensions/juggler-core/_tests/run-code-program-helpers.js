@@ -97,13 +97,13 @@ let seq = 0;
  * is listed while it runs, so a suite timeout names it, and a loaded machine
  * extends it.
  * @param {() => boolean} predicate - What to wait for
- * @param {string} what - Named in the failure
+ * @param {string | (() => string)} what - Named in the failure; a function is read when the failure is
  * @param {number} [nominalMs] - Nominal timeout
  * @returns {Promise<void>}
  */
 export async function waitUntil(predicate, what, nominalMs = 10000) {
   if (await pollPatiently(predicate, { nominalMs: budgetFor(nominalMs), intervalMs: 20, what })) return;
-  throw new Error(`timed out waiting for ${what} — ${await whyGivingUp()}`);
+  throw new Error(`timed out waiting for ${typeof what === 'function' ? what() : what} — ${await whyGivingUp()}`);
 }
 
 /**
@@ -348,10 +348,27 @@ export async function runProgramSuite(defineCases) {
    * @returns {Promise<any>} The tool-action, plain
    */
   const waitHeld = async (mt, toolUseId, name, also) => {
+    // What the item is doing instead, for a failure: still running with the
+    // call's row held means the snapshot save before the hold is slow; still
+    // running without it, the path to the call; ended, the hold was refused
+    // or never asked for.
+    const seen = () => {
+      const t = mt.getToolAction(toolUseId)?.toJSON();
+      const content = typeof t?.result?.content === 'string' ? t.result.content.slice(0, 200) : t?.result?.content;
+      return `state=${t?.state} heldCall=${t?.heldCall?.name ?? 'none'} rows=[${rowBrief(mt, toolUseId)}]`
+        + (t?.result ? ` result=${JSON.stringify(content)}` : '');
+    };
+    /** @type {string|null} */
+    let ended = null;
     await waitUntil(() => {
       const t = mt.getToolAction(toolUseId)?.toJSON();
+      if (t?.state === 'completed' || t?.state === 'cancelled') {
+        ended = seen();
+        return true;
+      }
       return t?.state === 'pending' && t.heldCall?.name === name && (!also || also(t));
-    }, `the program to hold ${name}`);
+    }, () => `the program to hold ${name} (${seen()})`);
+    if (ended) throw new Error(`the program ended without holding ${name}: ${ended}`);
     return mt.getToolAction(toolUseId).toJSON();
   };
 

@@ -196,6 +196,79 @@ func TestRetryingAServerThatStillFailsUpdatesTheStandIn(t *testing.T) {
 	}
 }
 
+// A window onto a server by URL whose page has given up waiting for it is
+// replaced by the stand-in it would have opened as — but only once the app has
+// found the server still silent itself, and only for a window that has one.
+func TestAWindowWhoseServerIsLostBecomesItsStandIn(t *testing.T) {
+	type opened struct {
+		spec windowSpec
+		si   *standIn
+		opts windowOpts
+	}
+	var got []opened
+	saved := openLostServerStandIn
+	openLostServerStandIn = func(_ *appState, spec windowSpec, si *standIn, opts windowOpts) {
+		got = append(got, opened{spec, si, opts})
+	}
+	t.Cleanup(func() { openLostServerStandIn = saved })
+
+	replaced := func(t *testing.T, rec *httptest.ResponseRecorder) bool {
+		t.Helper()
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		var body struct {
+			Replaced *bool `json:"replaced"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Replaced == nil {
+			t.Fatalf("want {replaced:bool}, got %q (%v)", rec.Body.String(), err)
+		}
+		return *body.Replaced
+	}
+
+	a := newTestAppState(t)
+
+	// Still down: the stand-in opens in the window's place, filed as the same
+	// server, so it stays in the workspace set and Try again reaches it.
+	down := addressWithNoServer(t)
+	lost := &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: down, connected: true}, serverURL: down}
+	a.reg(func(st *regState) { st.windows["w1"] = lost })
+	if !replaced(t, controlRequest(a, http.MethodPost, "/win/w1/server-lost")) {
+		t.Fatal("a window onto a server still down was not replaced")
+	}
+	if len(got) != 1 || got[0].spec != lost.spec || got[0].si.kind != standInUnreachable || got[0].opts.replaces != "w1" {
+		t.Fatalf("opened %+v, want one unreachable stand-in for %+v in w1's place", got, lost.spec)
+	}
+
+	// Answering after all: the page's own reconnect is the one to finish the job.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+	back := &winEntry{id: "w2", role: roleMain, spec: windowSpec{url: srv.URL, connected: true}, serverURL: srv.URL}
+	a.reg(func(st *regState) { st.windows["w2"] = back })
+	if replaced(t, controlRequest(a, http.MethodPost, "/win/w2/server-lost")) {
+		t.Fatal("a window onto a server that answers was replaced")
+	}
+
+	// Nothing else has a stand-in to become: a project window's server is this
+	// app's to restart, a stand-in already is one, and a detached pinboard is
+	// not the window the stand-in would be.
+	project := &winEntry{id: "w3", role: roleMain, spec: windowSpec{project: t.TempDir()}}
+	a.reg(func(st *regState) { st.windows["w3"] = project })
+	registerStandIn(a, "w4", windowSpec{url: down, connected: true}, unreachableStandIn(down))
+	board := &winEntry{id: "w5", role: rolePinboard, spec: windowSpec{url: down, connected: true}, serverURL: down}
+	a.reg(func(st *regState) { st.windows["w5"] = board })
+	for _, id := range []string{"w3", "w4", "w5"} {
+		if rec := controlRequest(a, http.MethodPost, "/win/"+id+"/server-lost"); rec.Code != http.StatusConflict {
+			t.Fatalf("%s: status = %d, want 409", id, rec.Code)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("opened %d stand-ins, want just the one", len(got))
+	}
+}
+
 // "Open a local window instead" makes the stand-in the empty window its page
 // already is, where it stands: no second server, and the server it stood in for
 // leaves the workspace set.

@@ -10,6 +10,7 @@
 import LLMState from './services/llm-state.js';
 import ConnectionManager from './services/connection-manager.js';
 import DisconnectionOverlay from './components/disconnection-overlay.js';
+import { watchForLostServer } from './services/server-lost.js';
 import StartupOverlay from './components/startup-overlay.js';
 import { setAppPhase } from './services/app-phase.js';
 import UIEventManager from './services/ui-event-manager.js';
@@ -452,6 +453,9 @@ class JugglerApp {
         wsService: wsService
       }
     });
+    // A desktop window onto a server by URL stops reconnecting after a minute
+    // and asks the app for its "can't reach the server" stand-in instead.
+    watchForLostServer();
 
     // Initialize UI event manager with callbacks. UI elements are per-tab, so
     // UIEventManager listens at document level.

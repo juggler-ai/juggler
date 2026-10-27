@@ -41,6 +41,7 @@ func TestWindowControlRouting(t *testing.T) {
 		{"save-file refuses an empty body", "/win/w1/save-file?name=a.html", http.StatusBadRequest},
 		{"connect refuses an address with no host", "/win/w1/connect?url=http%3A%2F%2F", http.StatusBadRequest},
 		{"retry-server refuses a window that is not the unreachable page", "/win/w1/retry-server", http.StatusConflict},
+		{"server-lost refuses a window that is not on a server by URL", "/win/w1/server-lost", http.StatusConflict},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -58,7 +59,7 @@ func TestWindowControlActionTable(t *testing.T) {
 	want := []string{
 		"theme", "title", "locale", "folder-dropped", "control", "attention", "zoom",
 		"drafts-flushed", "pick-directory", "pick-file", "save-file", "updater",
-		"connect", "stand-in", "retry-server", "open-local", "quit",
+		"connect", "stand-in", "retry-server", "open-local", "server-lost", "quit",
 	}
 	if len(windowActions) != len(want) {
 		t.Fatalf("windowActions has %d entries, want %d: %v", len(windowActions), len(want), want)

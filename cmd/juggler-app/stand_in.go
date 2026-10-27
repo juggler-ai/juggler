@@ -270,6 +270,43 @@ func (a *appState) retryStandIn(e *winEntry, spec windowSpec, opts windowOpts) b
 	return true
 }
 
+// openLostServerStandIn opens the stand-in for a window whose server has gone,
+// in that window's place. A variable so a test can stand in for the local
+// server a stand-in starts.
+var openLostServerStandIn = func(a *appState, spec windowSpec, si *standIn, opts windowOpts) {
+	go a.openStandIn(spec, si, opts, "server lost")
+}
+
+// controlServerLost is a window onto a server by URL saying its page has been
+// reconnecting for long enough to stop (see web/js/services/server-lost.js).
+// The page's word is not taken for it: the server gets remoteReachBudget to
+// answer the app, as it would when the window opens, and the window is
+// replaced by the stand-in it would have opened as only if it does not. That
+// stand-in is filed under the same server, so it keeps the window's place in
+// the workspace set, and its Try again is the way back.
+//
+// Answered {replaced}: false leaves the page to its own reconnect, which a
+// server that answers the app should let through soon. Only a main window onto
+// a server by URL has such a stand-in: a project window's server is this app's
+// to restart, a stand-in already is one, and a stand-in is always a main
+// window, never a detached pinboard. Those are answered 409.
+func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *winEntry) {
+	spec, si := a.standInOf(e)
+	if si != nil || !spec.isURL() || e.role != roleMain {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), remoteReachBudget)
+	defer cancel()
+	if _, _, reached := readWindowState(ctx, normalizeURL(spec.url), roleMain); reached {
+		writeJSON(w, http.StatusOK, map[string]bool{"replaced": false})
+		return
+	}
+	logf("window %s: %s lost; opening its stand-in", e.id, spec.url)
+	openLostServerStandIn(a, spec, unreachableStandIn(spec.url), windowOpts{theme: a.windowTheme(e), replaces: e.id})
+	writeJSON(w, http.StatusOK, map[string]bool{"replaced": true})
+}
+
 // controlOpenLocal is a stand-in's way out: an empty local window in its place.
 // That is what drops the server or project it stood in for from the workspace
 // set, which a plain close of the last window would not (an empty set is never

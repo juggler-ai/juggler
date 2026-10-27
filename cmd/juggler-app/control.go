@@ -144,6 +144,7 @@ var windowActions = map[string]windowAction{
 	"stand-in":     (*appState).controlStandIn,
 	"retry-server": (*appState).controlRetryServer,
 	"open-local":   (*appState).controlOpenLocal,
+	"server-lost":  (*appState).controlServerLost,
 	"quit":         (*appState).controlQuit,
 }
 

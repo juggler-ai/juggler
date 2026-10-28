@@ -13,9 +13,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -24,6 +26,10 @@ import (
 	"juggler/internal/jlog"
 )
 
+// Everything Windows decides about running a command lives in this file: which
+// shell runs it, which Python, how the environment reaches them, and how the
+// process tree is contained and killed. shell_ops_unix.go is its twin.
+//
 // Approved shell strings must run through a POSIX shell, not cmd.exe/PowerShell:
 // the command-approval analyser tokenises and proves each command as sh/bash
 // syntax, so running the same string through a different language would mean the
@@ -31,17 +37,26 @@ import (
 //
 // On Windows we resolve that POSIX shell in priority order:
 //
-//  1. WSL (`wsl.exe -e sh -c …`) — a full Linux userland (real coreutils,
-//     python3); its interop layer translates cmd.Dir (a Windows path) to
-//     /mnt/<drive>/…, so relative paths in approved commands resolve unchanged.
-//     But bare presence of wsl.exe means nothing: Windows ships a stub on PATH
-//     that errors ("WSL is not installed") until a distro is provisioned, so we
-//     must actually run it to know (see probeWSL).
-//  2. A Git-for-Windows POSIX shell (`bash.exe -c …`). The approval analyser
-//     explicitly supports git-bash-shaped commands — same POSIX tokenisation as
-//     WSL sh — so the executed language stays identical to the validated one.
+//  1. Git for Windows (`bash.exe -c …`). It runs the host's own toolchain — the
+//     make, go, node and git a Windows developer has installed — against the
+//     project's own Windows paths, so a build here is a build of this machine's
+//     software. The approval analyser explicitly supports git-bash-shaped
+//     commands, so the executed language stays identical to the validated one.
+//  2. WSL (`wsl.exe -e sh -c …`), only where there is no Git for Windows. It is a
+//     Linux userland reaching the project through /mnt/<drive>/…: Windows tools
+//     are not on its PATH under their bare names, and its builds are Linux
+//     builds. Its interop layer translates cmd.Dir to that mount, so relative
+//     paths in approved commands resolve unchanged. Bare presence of wsl.exe
+//     means nothing: Windows ships a stub on PATH that errors ("WSL is not
+//     installed") until a distro is provisioned, so we must actually run it to
+//     know (see probeWSL).
 //  3. Nothing: command-start fails with a message saying which of these was
 //     tried and why it failed, instead of a cryptic wsl.exe error.
+//
+// Python follows the shell into the same world: a native Windows Python beside
+// Git Bash, WSL's python3 inside WSL. Mixing them would hand Python code paths
+// in one form and shell commands paths in the other, and would make a Git Bash
+// host pay a WSL boot for its first command.
 
 // winPOSIX describes the POSIX toolchain resolved for this Windows host: the
 // argv prefix used to run an approved shell string, and the one used to run a
@@ -53,6 +68,11 @@ type winPOSIX struct {
 	shellErr  error
 	pythonErr error
 }
+
+var (
+	wslShell  = []string{"wsl.exe", "-e", "sh", "-c"}
+	wslPython = []string{"wsl.exe", "-e", "python3", "-"}
+)
 
 const (
 	// wslListTimeout bounds `wsl.exe -l -q`, which asks the WSL service for its
@@ -69,53 +89,161 @@ const (
 )
 
 // winShellCache keeps the first toolchain that has a shell for the rest of the
-// server run, so the WSL probe is paid once. A resolution with no shell is
-// retried (see toolchainCache), which also picks up a WSL or Git install
-// completed after startup.
+// server run, so resolution — and on a WSL host its probe — is paid once. A
+// resolution with no shell is retried (see toolchainCache), which also picks
+// up a Git or WSL install completed after startup.
 var winShellCache = newToolchainCache(resolveWinPOSIX, winShellRetry)
 
 func winShell() winPOSIX { return winShellCache.get() }
 
+// toolchainCache memoises a toolchain resolution that succeeded and retries one
+// that did not.
+//
+// A failed resolution must not be kept for the life of the server. The failure
+// that matters in practice is transient: WSL2 parks its VM when idle, and the
+// probe that boots it again can outlast its deadline, so a perfectly good WSL
+// reads as "no shell" at whatever moment a project's first command happened to
+// run. Cached, that one slow boot would fail every command until a restart.
+//
+// A failure is retried at most once per retryAfter, so a burst of commands on a
+// host that genuinely has no shell does not pay a probe each. Callers block on
+// gate while a probe runs, which also keeps two probes from racing.
+type toolchainCache[T any] struct {
+	gate       chan struct{} // size-1 semaphore; the project forbids sync.Mutex
+	resolve    func() (T, bool)
+	retryAfter time.Duration
+	now        func() time.Time
+
+	value    T
+	settled  bool // value came from a successful resolve and is final
+	failedAt time.Time
+	failed   bool
+}
+
+func newToolchainCache[T any](resolve func() (T, bool), retryAfter time.Duration) *toolchainCache[T] {
+	return &toolchainCache[T]{
+		gate:       make(chan struct{}, 1),
+		resolve:    resolve,
+		retryAfter: retryAfter,
+		now:        time.Now,
+	}
+}
+
+// get returns the cached success, the recent failure, or a fresh resolution.
+func (c *toolchainCache[T]) get() T {
+	c.gate <- struct{}{}
+	defer func() { <-c.gate }()
+
+	if c.settled {
+		return c.value
+	}
+	if c.failed && c.now().Sub(c.failedAt) < c.retryAfter {
+		return c.value
+	}
+	v, ok := c.resolve()
+	c.value = v
+	if ok {
+		c.settled = true
+	} else {
+		c.failed = true
+		c.failedAt = c.now()
+	}
+	return v
+}
+
+// winProbes are the host lookups resolution is built from, separate so the
+// order they are consulted in is testable without the host's installs.
+type winProbes struct {
+	gitBash func() string
+	python  func() string
+	wsl     func() wslProbe
+}
+
+var hostProbes = winProbes{gitBash: findGitBashShell, python: findWindowsPython, wsl: probeWSL}
+
 // resolveWinPOSIX resolves the toolchain and reports whether it is worth
 // keeping: it is exactly when it has a shell. Each outcome is logged, since the
 // error the user sees is all they have otherwise.
-func resolveWinPOSIX() (winPOSIX, bool) {
+func resolveWinPOSIX() (winPOSIX, bool) { return resolveWinPOSIXWith(hostProbes) }
+
+func resolveWinPOSIXWith(probes winProbes) (winPOSIX, bool) {
 	start := time.Now()
-	wsl := probeWSL()
+	elapsed := func() time.Duration { return time.Since(start).Round(time.Millisecond) }
+
+	if sh := probes.gitBash(); sh != "" {
+		res := winPOSIX{shell: []string{sh, "-c"}}
+		if py := probes.python(); py != "" {
+			res.python = []string{py, "-"}
+		} else {
+			res.pythonErr = errors.New("no Python interpreter available: commands run in Git for Windows, which bundles none; install Python for Windows")
+		}
+		jlog.Info("ops: POSIX shell is %s, probed in %s", sh, elapsed())
+		return res, true
+	}
+
+	wsl := probes.wsl()
 	if wsl.ready {
-		jlog.Info("ops: POSIX shell is WSL (distros: %s), probed in %s", strings.Join(wsl.distros, ", "), time.Since(start).Round(time.Millisecond))
-		return winPOSIX{
-			shell:  []string{"wsl.exe", "-e", "sh", "-c"},
-			python: []string{"wsl.exe", "-e", "python3", "-"},
-		}, true
+		jlog.Info("ops: POSIX shell is WSL (distros: %s), no Git for Windows found, probed in %s", strings.Join(wsl.distros, ", "), elapsed())
+		return winPOSIX{shell: wslShell, python: wslPython}, true
 	}
 
 	res := winPOSIX{shellErr: noShellError(wsl), pythonErr: noPythonError(wsl)}
-
-	// Fall back to a Git-for-Windows POSIX shell for command execution.
-	if sh := findGitBashShell(); sh != "" {
-		res.shell = []string{sh, "-c"}
-		res.shellErr = nil
-	}
-
-	// Python has no git-bash equivalent (Git for Windows bundles no interpreter),
-	// so use a native Windows Python if one is installed. It reads a program from
-	// stdin via `-` and takes a Windows working directory natively.
-	if py := findWindowsPython(); py != "" {
+	// No shell, but a native Python still runs a Python program.
+	if py := probes.python(); py != "" {
 		res.python = []string{py, "-"}
 		res.pythonErr = nil
 	}
+	jlog.Error("ops: no POSIX shell, probed in %s, retrying after %s: %v", elapsed(), winShellRetry, res.shellErr)
+	return res, false
+}
 
-	elapsed := time.Since(start).Round(time.Millisecond)
-	switch {
-	case res.shell != nil && wsl.err != nil:
-		jlog.Info("ops: WSL unusable (%v); POSIX shell is %s, probed in %s", wsl.err, res.shell[0], elapsed)
-	case res.shell != nil:
-		jlog.Info("ops: POSIX shell is %s, probed in %s", res.shell[0], elapsed)
-	default:
-		jlog.Error("ops: no POSIX shell, probed in %s, retrying after %s: %v", elapsed, winShellRetry, res.shellErr)
+// shellEnv adapts the environment applyProjectEnv built to the shell the
+// command runs in. Only WSL needs anything: a variable set on wsl.exe reaches
+// the Linux side only when WSLENV lists it.
+func shellEnv(cmd *exec.Cmd, env []string, overrides map[string]string) []string {
+	if len(cmd.Args) == 0 || !strings.EqualFold(filepath.Base(cmd.Args[0]), "wsl.exe") {
+		return env
 	}
-	return res, res.shell != nil
+	return withWSLENV(env, overrides)
+}
+
+// withWSLENV lists every overridden name but PATH in env's WSLENV, with /u
+// (Windows to WSL), keeping whatever the list already held — the inherited
+// one, or one the user set as an override. PATH is left to WSL, which builds a
+// Linux PATH of its own that this Windows-form list would replace.
+func withWSLENV(env []string, overrides map[string]string) []string {
+	out := make([]string, 0, len(env)+1)
+	var list []string
+	had := false
+	for _, kv := range env {
+		name, value, _ := strings.Cut(kv, "=")
+		if strings.EqualFold(name, "WSLENV") {
+			if value != "" {
+				list = strings.Split(value, ":")
+			}
+			had = true
+			continue
+		}
+		out = append(out, kv)
+	}
+
+	names := make([]string, 0, len(overrides))
+	for k := range overrides {
+		names = append(names, k)
+	}
+	slices.Sort(names)
+	for _, k := range names {
+		if strings.EqualFold(k, "PATH") || strings.EqualFold(k, "WSLENV") {
+			continue
+		}
+		if !slices.ContainsFunc(list, func(e string) bool { n, _, _ := strings.Cut(e, "/"); return strings.EqualFold(n, k) }) {
+			list = append(list, k+"/u")
+		}
+	}
+	if len(list) > 0 || had {
+		out = append(out, "WSLENV="+strings.Join(list, ":"))
+	}
+	return out
 }
 
 // wslProbe is what probeWSL learned. No distros means WSL is absent for our
@@ -169,30 +297,65 @@ func runWSL(timeout time.Duration, args ...string) (out []byte, timedOut bool, e
 	return out, errors.Is(ctx.Err(), context.DeadlineExceeded), err
 }
 
-// noShellError says why there is no shell, distinguishing a WSL that is there
-// but failing from one that is not there at all: telling a user with a working
-// but slow WSL to install WSL sends them the wrong way.
+// parseWSLDistroList returns the distro names printed by `wsl.exe -l -q`.
+//
+// wsl.exe writes UTF-16LE to a pipe unless WSL_UTF8=1 is honoured, which older
+// builds ignore, so both encodings are accepted: output with a NUL in it is
+// decoded as UTF-16LE (a BOM is dropped either way). Blank lines are skipped,
+// and so is anything that is not a plain name — the stub wsl.exe on a host with
+// no WSL prints its install instructions to the same stream.
+func parseWSLDistroList(out []byte) []string {
+	var names []string
+	for _, line := range strings.Split(decodeWSLOutput(out), "\n") {
+		name := strings.TrimSpace(strings.ReplaceAll(line, "\x00", ""))
+		if name == "" || strings.ContainsAny(name, " \t:") {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names
+}
+
+// decodeWSLOutput turns wsl.exe's own output into text, in whichever of its two
+// encodings it arrived (see parseWSLDistroList), with any BOM removed.
+func decodeWSLOutput(out []byte) string {
+	text := string(out)
+	if strings.IndexByte(text, 0) >= 0 {
+		units := make([]uint16, 0, len(out)/2)
+		for i := 0; i+1 < len(out); i += 2 {
+			units = append(units, uint16(out[i])|uint16(out[i+1])<<8)
+		}
+		text = string(utf16.Decode(units))
+	}
+	return strings.TrimPrefix(text, "\uFEFF")
+}
+
+// noShellError says why there is no shell. Git for Windows is the remedy it
+// leads with, since it is the shell resolution prefers; but it distinguishes a
+// WSL that is there but failing from one that is not there at all, since
+// telling a user with a working but slow WSL to install WSL sends them the
+// wrong way.
 func noShellError(wsl wslProbe) error {
 	switch {
 	case wsl.timedOut:
-		return fmt.Errorf("WSL is installed but not responding (%w); it may still be starting, and the next command will try again. Git for Windows would give a fallback shell", wsl.err)
+		return fmt.Errorf("no POSIX shell available: Git for Windows is not installed, and WSL is installed but not responding (%w); it may still be starting, and the next command will try again. Installing Git for Windows gives a shell that does not depend on it", wsl.err)
 	case wsl.err != nil:
-		return fmt.Errorf("WSL is installed but cannot run a shell (%w); check the default distro with `wsl --list --verbose`, or install Git for Windows", wsl.err)
+		return fmt.Errorf("no POSIX shell available: Git for Windows is not installed, and WSL is installed but cannot run a shell (%w); install Git for Windows, or check the default distro with `wsl --list --verbose`", wsl.err)
 	}
-	return errors.New("no POSIX shell available: install WSL (`wsl --install`) or Git for Windows")
+	return errors.New("no POSIX shell available: install Git for Windows (or WSL, with `wsl --install`)")
 }
 
 func noPythonError(wsl wslProbe) error {
 	if wsl.err != nil {
 		return fmt.Errorf("no Python interpreter available: WSL cannot be used (%w) and no Python for Windows was found", wsl.err)
 	}
-	return errors.New("no Python interpreter available: install WSL (`wsl --install`) or Python for Windows")
+	return errors.New("no Python interpreter available: install Python for Windows")
 }
 
 // findGitBashShell locates a Git-for-Windows POSIX shell, preferring an explicit
 // Git install over a PATH lookup so it can never resolve to
-// C:\Windows\System32\bash.exe — that is the WSL launcher, which wslUsable has
-// already ruled out.
+// C:\Windows\System32\bash.exe — that is the WSL launcher, and a bash.exe that
+// opens WSL is not the shell this lookup is for.
 func findGitBashShell() string {
 	var candidates []string
 	for _, root := range gitInstallRoots() {
@@ -266,8 +429,8 @@ func newShellCmd(ctx context.Context, command string) *exec.Cmd {
 }
 
 // newPythonCmd builds the command that runs Python with the program supplied on
-// stdin (caller sets cmd.Stdin), using the resolved interpreter — WSL's python3
-// when WSL is in use, otherwise a native Windows Python.
+// stdin (caller sets cmd.Stdin), using the interpreter resolved beside the
+// shell — a native Windows Python with Git Bash, WSL's python3 inside WSL.
 func newPythonCmd(ctx context.Context) *exec.Cmd {
 	return pythonCmdFrom(ctx, winShell())
 }

@@ -25,6 +25,13 @@ func newPythonCmd(ctx context.Context) *exec.Cmd {
 	return exec.CommandContext(ctx, "python3", "-")
 }
 
+// shellEnv adapts the environment applyProjectEnv built to the shell the
+// command runs in. The local sh reads it as it is; the Windows twin has to
+// route it into WSL when WSL is the shell.
+func shellEnv(_ *exec.Cmd, env []string, _ map[string]string) []string {
+	return env
+}
+
 // setProcGroup sets up process group for the command so we can kill all children
 func setProcGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

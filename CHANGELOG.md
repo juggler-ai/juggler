@@ -28,6 +28,7 @@ of changes; this project follows semantic versioning.
 - A `juggler run` reply cut off at Max output before acting is told to continue
 - A model call still streaming output is no longer cut off after 30 minutes
 - run_code and query_code programs no longer stall for seconds on busy Windows machines
+- Windows commands run in Git Bash when installed, falling back to WSL
 - `juggler run` no longer hangs when its new conversation syncs before it opens
 - `juggler run` no longer sometimes refuses its prompt as "no provider configured"
 - One undo always takes back a finished sub-thread's reply together with its result

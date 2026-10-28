@@ -393,7 +393,7 @@ func (ops *ShellOperations) execute(ctx context.Context, params map[string]any) 
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Execute command in a POSIX shell (sh on Unix, WSL sh on Windows).
+	// Execute command in the platform's POSIX shell (see newShellCmd).
 	cmd := newShellCmd(execCtx, command)
 	// Set process group so we can kill all child processes on timeout (Unix only)
 	setProcGroup(cmd)
@@ -496,8 +496,8 @@ func (ops *ShellOperations) executePythonCode(ctx context.Context, code string, 
 	defer cancel()
 
 	// Execute python with code passed via stdin
-	// Using "-" tells python to read from stdin. On Unix this is python3; on
-	// Windows it is routed through WSL (see newPythonCmd).
+	// Using "-" tells python to read from stdin; which interpreter is the
+	// platform's call (see newPythonCmd).
 	cmd := newPythonCmd(ctx)
 	cmd.Dir = ops.scope.Root()
 	ops.applyProjectEnv(cmd)

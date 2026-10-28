@@ -7,9 +7,7 @@ package ops
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -34,12 +32,8 @@ func writeEnvFile(t *testing.T, path, content string) {
 // PROJECT even when the command runs in a workspace, and the unapproved project
 // file contributes nothing.
 func TestShellCommandsGetProjectEnv(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("sh/python3 commands are POSIX-only here; WSLENV is covered by TestEnvWithOverrides")
-	}
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 not installed")
-	}
+	requirePOSIXShell(t)
+	requirePython(t)
 	t.Setenv("JUGGLER_CONFIG_DIR", t.TempDir())
 	project, workspace := t.TempDir(), t.TempDir()
 	writeEnvFile(t, projectenv.Path(projectenv.ScopeLocal, project), `{"JUGGLER_T_LOCAL":"from-local"}`)
@@ -106,28 +100,18 @@ func TestShellCommandsGetProjectEnv(t *testing.T) {
 }
 
 // The overrides replace an inherited variable rather than adding a duplicate,
-// and on Windows each name but PATH is listed in WSLENV so it crosses into WSL.
+// matching names case-insensitively where the platform does.
 func TestEnvWithOverrides(t *testing.T) {
-	base := []string{"PATH=/bin", "KEEP=1", "WSLENV=EXISTING/p"}
-	got := envWithOverrides(base, map[string]string{"PATH": "/opt/bin", "NEW": "x"}, false)
+	got := envWithOverrides([]string{"PATH=/bin", "KEEP=1", "path=/x"}, map[string]string{"PATH": "/opt/bin", "NEW": "x"}, false)
 	slices.Sort(got)
-	want := []string{"KEEP=1", "NEW=x", "PATH=/opt/bin", "WSLENV=EXISTING/p"}
+	want := []string{"KEEP=1", "NEW=x", "PATH=/opt/bin", "path=/x"}
 	if !slices.Equal(got, want) {
-		t.Fatalf("unix env %v, want %v", got, want)
+		t.Fatalf("case-sensitive env %v, want %v", got, want)
 	}
 
-	got = envWithOverrides([]string{"Path=C:\\bin", "WSLENV=EXISTING/p"}, map[string]string{"PATH": "C:\\x", "NEW": "x"}, true)
+	got = envWithOverrides([]string{"Path=C:\\bin", "KEEP=1"}, map[string]string{"PATH": "C:\\x"}, true)
 	slices.Sort(got)
-	// PATH is a Windows path list here; WSL builds its own Linux PATH, and
-	// shipping this one across would replace it, so it is never listed.
-	want = []string{"NEW=x", "PATH=C:\\x", "WSLENV=EXISTING/p:NEW/u"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("windows env %v, want %v (names are case-insensitive there)", got, want)
-	}
-
-	got = envWithOverrides([]string{"A=1"}, map[string]string{"B": "2"}, true)
-	slices.Sort(got)
-	if want := []string{"A=1", "B=2", "WSLENV=B/u"}; !slices.Equal(got, want) {
-		t.Fatalf("windows env without WSLENV %v, want %v", got, want)
+	if want := []string{"KEEP=1", "PATH=C:\\x"}; !slices.Equal(got, want) {
+		t.Fatalf("case-folding env %v, want %v", got, want)
 	}
 }

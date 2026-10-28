@@ -68,8 +68,9 @@ press Refresh.
 ## Where they do not reach
 
 - **Workspaces** use the project's files, not any `.juggler/` a branch carries.
-- **Windows:** commands run in WSL, and each variable but `PATH` is passed in
-  through `WSLENV`. WSL builds its own Linux `PATH`.
+- **Windows:** commands run in Git Bash, which sees every variable as set. On a
+  machine without Git for Windows they run in WSL instead, and each variable
+  but `PATH` is passed in through `WSLENV`; WSL builds its own Linux `PATH`.
 - **MCP servers and agent providers** have their own `env` settings and do not
   read these files. A provider that runs commands with its own shell tool, such
   as the Claude Code CLI, does not see them either.

@@ -7,7 +7,6 @@ package ops
 import (
 	"context"
 	"os/exec"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -80,9 +79,7 @@ func waitForEscalation(t *testing.T, escalations func() int, owed string) {
 // output pipe, so cmd.Wait returns at once and by the time the escalation is due
 // there is nothing of ours left to take.
 func TestStreamingCancelDoesNotForceKillAReapedPid(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	shellOps := NewShellOperations(NewPathScope(t.TempDir(), nil))
 	// The kill grace is what the reap has to beat, so give it seconds rather
@@ -132,9 +129,7 @@ func TestStreamingCancelDoesNotForceKillAReapedPid(t *testing.T) {
 // has not returned when the grace expires and the group still has to be taken.
 // Without this, "never escalate" would pass the test above by doing nothing.
 func TestStreamingCancelStillForceKillsWhatOutlivesTheGrace(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX process-group semantics only")
-	}
+	requireGracefulStop(t)
 
 	shellOps := NewShellOperations(NewPathScope(t.TempDir(), nil))
 	shellOps.killGrace = 100 * time.Millisecond
@@ -202,9 +197,7 @@ func startLoneProcessTask(t *testing.T, root, convID string) string {
 // cancelled context immediately and its spawner reaps it, so the escalation
 // scheduled for killEscalationGrace later has no target of ours.
 func TestKilledBackgroundTaskIsNotForceKilledAfterItIsReaped(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	id := startLoneProcessTask(t, t.TempDir(), "conv-kill")
 	escalations := countEscalations(t)
@@ -233,9 +226,7 @@ func TestKilledBackgroundTaskIsNotForceKilledAfterItIsReaped(t *testing.T) {
 // left in the task's process group outlives the leader and holds the output pipe
 // open, so the task is not reaped and its group still has to be taken.
 func TestKilledBackgroundTaskStillForceKillsSurvivors(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX process-group semantics only")
-	}
+	requireGracefulStop(t)
 
 	// startTestTask returns once its `sleep 30` child exists, so the polite
 	// stop — which signals only the shell — always leaves it behind.
@@ -253,9 +244,7 @@ func TestKilledBackgroundTaskStillForceKillsSurvivors(t *testing.T) {
 // and shutdown stop, which signals every task and then takes the groups of any
 // that ignored it after one shared grace.
 func TestStopBackgroundTasksDoesNotForceKillReapedPids(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	root := t.TempDir()
 	id := startLoneProcessTask(t, root, "conv-stop")

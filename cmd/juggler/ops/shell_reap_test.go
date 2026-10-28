@@ -7,7 +7,6 @@ package ops
 import (
 	"context"
 	"os/exec"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -36,9 +35,7 @@ func escapeGroupSleep(seconds string) string {
 // instead be bounded by killGrace + reapGrace and return promptly, well before
 // the grandchild's own lifetime elapses.
 func TestExecuteStreaming_TimeoutReturnsDespiteEscapedChild(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX process-group semantics only")
-	}
+	requirePOSIXShell(t)
 	// The escaped grandchild sleeps far longer than the test's own bound, so if
 	// teardown ever waited on it the test would blow past the assertion below.
 	escaped := escapeGroupSleep("15")
@@ -97,9 +94,7 @@ func TestExecuteStreaming_TimeoutReturnsDespiteEscapedChild(t *testing.T) {
 // blocked until every holder of the internal pipe has gone, and a grandchild
 // that escaped the process group is not reached by the kill.
 func TestExecute_TimeoutReturnsDespiteEscapedChild(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX process-group semantics only")
-	}
+	requirePOSIXShell(t)
 	escaped := escapeGroupSleep("15")
 	if escaped == "" {
 		t.Skip("no setsid/perl available to launch a group-escaping child")

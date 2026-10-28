@@ -9,7 +9,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -199,9 +198,7 @@ func TestSpill_BandNoMarkerNoFile(t *testing.T) {
 // must not stream its full output. We assert the streamed total is bounded, the
 // head and tail both survive, and a truncation marker is present.
 func TestExecuteStreaming_BoundsLargeOutput(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("seq/sh streaming command is POSIX-only")
-	}
+	requirePOSIXShell(t)
 
 	root := t.TempDir()
 	shellOps := NewShellOperations(NewPathScope(root, nil))
@@ -312,9 +309,7 @@ func TestSpillFileReadableInScope(t *testing.T) {
 // TestExecuteStreaming_SmallOutputNotTruncated verifies the common case is
 // untouched: output under budget streams verbatim with no marker.
 func TestExecuteStreaming_SmallOutputNotTruncated(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	shellOps := NewShellOperations(NewPathScope(t.TempDir(), nil))
 	out := make(chan ShellStreamChunk, 64)
@@ -406,9 +401,7 @@ func TestUTF8SafeChunk_FlushAtEOF(t *testing.T) {
 // a stream of multi-byte runes long enough to cross many 4096-byte read
 // boundaries must arrive intact, with no U+FFFD replacement characters.
 func TestExecuteStreaming_NoRuneSplitCorruption(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	shellOps := NewShellOperations(NewPathScope(t.TempDir(), nil))
 	out := make(chan ShellStreamChunk, 4096)

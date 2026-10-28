@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -77,11 +76,7 @@ func TestOSResolvePath(t *testing.T) {
 // the client has nothing to report, and a user whose file type has no handler
 // sees a button that does nothing at all.
 func TestSettleLaunchReportsARefusal(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("uses a POSIX shell to stand in for a launcher")
-	}
-
-	err := settleLaunch(exec.Command("sh", "-c", "echo 'no application knows how' >&2; exit 3"), false)
+	err := settleLaunch(posixShellCommand(t, "echo 'no application knows how' >&2; exit 3"), false)
 	if err == nil {
 		t.Fatal("a launcher that exited non-zero must be reported, not swallowed")
 	}
@@ -94,10 +89,7 @@ func TestSettleLaunchReportsARefusal(t *testing.T) {
 
 // A launcher that did its job says nothing.
 func TestSettleLaunchIsQuietOnSuccess(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("uses a POSIX shell to stand in for a launcher")
-	}
-	if err := settleLaunch(exec.Command("sh", "-c", "exit 0"), false); err != nil {
+	if err := settleLaunch(posixShellCommand(t, "exit 0"), false); err != nil {
 		t.Fatalf("a launcher that succeeded must report nothing: %v", err)
 	}
 }
@@ -115,14 +107,11 @@ func TestSettleLaunchReportsAMissingLauncher(t *testing.T) {
 // does afterwards is the application's business. The op must not sit on the
 // request waiting for a window to be closed.
 func TestSettleLaunchDoesNotWaitForTheApplication(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("uses a POSIX shell to stand in for a launcher")
-	}
 	restore := launchSettle
 	launchSettle = 50 * time.Millisecond
 	t.Cleanup(func() { launchSettle = restore })
 
-	cmd := exec.Command("sh", "-c", "sleep 30")
+	cmd := posixShellCommand(t, "sleep 30")
 	started := time.Now()
 	if err := settleLaunch(cmd, false); err != nil {
 		t.Fatalf("a launcher still running has not failed: %v", err)

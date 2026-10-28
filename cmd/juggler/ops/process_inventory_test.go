@@ -6,7 +6,6 @@ package ops
 
 import (
 	"context"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -53,18 +52,11 @@ func findProcess(list []ProcessInfo, kind string) (ProcessInfo, bool) {
 	return ProcessInfo{}, false
 }
 
-func skipOnWindows(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
-}
-
 // A background task is listed, with the conversation, thread and tool call that
 // started it, for exactly as long as its process runs; a stop through the
 // inventory ends it.
 func TestProcessInventory_BackgroundListedUntilStopped(t *testing.T) {
-	skipOnWindows(t)
+	requirePOSIXShell(t)
 	root := t.TempDir()
 	res, err := NewShellOperations(NewPathScope(root, nil)).startBackground(map[string]any{
 		"command": "sleep 30", "convId": "conv-a", "threadId": "thread-a", "toolUseId": "call_1",
@@ -93,7 +85,7 @@ func TestProcessInventory_BackgroundListedUntilStopped(t *testing.T) {
 
 // The inventory is per project: another project neither lists nor stops it.
 func TestProcessInventory_ScopedToProject(t *testing.T) {
-	skipOnWindows(t)
+	requirePOSIXShell(t)
 	root, other := t.TempDir(), t.TempDir()
 	res, err := NewShellOperations(NewPathScope(root, nil)).startBackground(map[string]any{"command": "sleep 30"})
 	if err != nil {
@@ -113,7 +105,7 @@ func TestProcessInventory_ScopedToProject(t *testing.T) {
 
 // A workspace's processes belong to the project it was made from.
 func TestProcessInventory_WorkspaceListedUnderItsProject(t *testing.T) {
-	skipOnWindows(t)
+	requirePOSIXShell(t)
 	project, tree := t.TempDir(), t.TempDir()
 	scope := NewPathScope(tree, nil).WithProjectRoot(project)
 	res, err := NewShellOperations(scope).startBackground(map[string]any{"command": "sleep 30"})
@@ -128,7 +120,7 @@ func TestProcessInventory_WorkspaceListedUnderItsProject(t *testing.T) {
 // A foreground streaming command is listed while it runs and can be stopped from
 // the inventory, which ends the stream with a user-kill verdict.
 func TestProcessInventory_ForegroundStreamingListedAndStoppable(t *testing.T) {
-	skipOnWindows(t)
+	requirePOSIXShell(t)
 	root := t.TempDir()
 	out := make(chan ShellStreamChunk, 64)
 	owner := ProcessOwner{ConvID: "conv-b", ThreadID: "thread-b", ToolUseID: "call_2"}
@@ -167,7 +159,7 @@ func TestProcessInventory_ForegroundStreamingListedAndStoppable(t *testing.T) {
 
 // The one-shot execute op is listed too, and a stop ends the call.
 func TestProcessInventory_ExecuteListedAndStoppable(t *testing.T) {
-	skipOnWindows(t)
+	requirePOSIXShell(t)
 	root := t.TempDir()
 	errCh := make(chan error, 1)
 	go func() {
@@ -198,7 +190,7 @@ func TestProcessInventory_ExecuteListedAndStoppable(t *testing.T) {
 
 // Python code run through execute is listed as python.
 func TestProcessInventory_PythonListed(t *testing.T) {
-	skipOnWindows(t)
+	requirePython(t)
 	root := t.TempDir()
 	done := make(chan struct{})
 	go func() {
@@ -221,7 +213,7 @@ func TestProcessInventory_PythonListed(t *testing.T) {
 
 // The shell ops list and stop through the inventory, within the caller's project.
 func TestProcessInventory_ShellOps(t *testing.T) {
-	skipOnWindows(t)
+	requirePOSIXShell(t)
 	root := t.TempDir()
 	shellOps := NewShellOperations(NewPathScope(root, nil))
 	res, err := shellOps.Execute(context.Background(), "startBackground", map[string]any{"command": "sleep 30"})
@@ -252,7 +244,7 @@ func TestProcessInventory_ShellOps(t *testing.T) {
 
 // Every change to the table is announced, with the project it happened in.
 func TestProcessInventory_AnnouncesChanges(t *testing.T) {
-	skipOnWindows(t)
+	requirePOSIXShell(t)
 	root := t.TempDir()
 	changed := make(chan string, 16)
 	remove := OnProcessesChanged(func(projectRoot string) {

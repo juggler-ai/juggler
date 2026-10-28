@@ -861,15 +861,20 @@ NPM_BIN := tooling/node_modules/.bin
 ## is the ONLY place the toolchain is installed — a single tooling/node_modules,
 ## never duplicated. Fails hard when npm is unavailable instead of skipping: a
 ## `make lint` that reports success without ever running eslint/stylelint/tsc is
-## worse than a clear error.
+## worse than a clear error. An install is kept only while it matches the
+## lockfile it was made from (a copy kept beside it), so a pull that moves a
+## pinned version reinstalls rather than linting with the old one.
+NODE_DEPS_STAMP := tooling/node_modules/.installed-package-lock.json
 node-deps:
-	@if [ ! -x $(NPM_BIN)/eslint ] || [ ! -x $(NPM_BIN)/stylelint ] || [ ! -x $(NPM_BIN)/tsc ]; then \
+	@if [ ! -x $(NPM_BIN)/eslint ] || [ ! -x $(NPM_BIN)/stylelint ] || [ ! -x $(NPM_BIN)/tsc ] \
+		|| ! cmp -s tooling/package-lock.json $(NODE_DEPS_STAMP); then \
 		if ! command -v npm > /dev/null 2>&1; then \
 			echo "npm not found on PATH — cannot lint JS/CSS. Install Node.js and retry." >&2; \
 			exit 2; \
 		fi; \
 		echo "Installing JS/CSS linters (cd tooling && npm ci)..."; \
 		(cd tooling && npm ci --no-audit --no-fund --ignore-scripts) || exit 2; \
+		cp tooling/package-lock.json $(NODE_DEPS_STAMP); \
 	fi
 
 ## lint-types: Run TypeScript type checking on JavaScript files

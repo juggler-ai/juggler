@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -323,9 +322,7 @@ func TestParamContract(t *testing.T) {
 	})
 
 	t.Run("shell", func(t *testing.T) {
-		if runtime.GOOS == "windows" {
-			t.Skip("POSIX-only shell command")
-		}
+		requirePOSIXShell(t)
 		runParamCases(t, NewShellOperations(scope), shellView, []paramCase{
 			{name: "execute command missing", op: "execute", params: map[string]any{},
 				wantErr: "missing 'command' or 'code' parameter"},

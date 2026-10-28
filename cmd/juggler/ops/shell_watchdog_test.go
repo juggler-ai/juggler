@@ -6,7 +6,6 @@ package ops
 
 import (
 	"context"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -48,9 +47,7 @@ func drain(out <-chan ShellStreamChunk) []ShellStreamChunk {
 // fast (a normal stat of the temp dir), so the awaiting-permission path must
 // NOT fire.
 func TestExecuteStreaming_NeutralHeartbeat(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	dir := t.TempDir()
 	shellOps := NewShellOperations(NewPathScope(dir, nil))
@@ -58,8 +55,16 @@ func TestExecuteStreaming_NeutralHeartbeat(t *testing.T) {
 	shellOps.probeDeadline = 20 * time.Millisecond
 	shellOps.heartbeatInterval = 80 * time.Millisecond
 
+	// The command is stopped and drained before the test returns: it runs in
+	// the temp dir, which Windows will not remove while a process works in it.
+	ctx, cancel := context.WithCancel(context.Background())
 	out := make(chan ShellStreamChunk, 64)
-	go shellOps.ExecuteStreaming(context.Background(), "shell-hb", "", "sleep 2", "", 30000, out)
+	go shellOps.ExecuteStreaming(ctx, "shell-hb", "", "sleep 2", "", 30000, out)
+	defer func() {
+		cancel()
+		for range out {
+		}
+	}()
 
 	c := awaitChunk(t, out, `Status:"running"`, func(c ShellStreamChunk) bool {
 		return c.Status != ""
@@ -80,9 +85,7 @@ func TestExecuteStreaming_NeutralHeartbeat(t *testing.T) {
 // the correct way to exercise this path). Once released, the command completes
 // normally.
 func TestExecuteStreaming_AwaitingPermission(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	dir := t.TempDir()
 	shellOps := NewShellOperations(NewPathScope(dir, nil))
@@ -120,9 +123,7 @@ func TestExecuteStreaming_AwaitingPermission(t *testing.T) {
 // that emits output promptly produces NO status chunk at all — the watchdog
 // stands down on the first byte.
 func TestExecuteStreaming_NoStatusWhenChatty(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	dir := t.TempDir()
 	shellOps := NewShellOperations(NewPathScope(dir, nil))

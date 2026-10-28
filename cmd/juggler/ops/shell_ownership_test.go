@@ -5,7 +5,6 @@
 package ops
 
 import (
-	"runtime"
 	"testing"
 	"time"
 )
@@ -62,9 +61,7 @@ func statusOf(t *testing.T, res any) string {
 // id-addressed ops must refuse it, and refuse it as "not found" — saying
 // anything more would confirm the task exists somewhere the caller cannot see.
 func TestTaskFromAnotherProjectIsUnreachable(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	projectA, projectB := t.TempDir(), t.TempDir()
 	id := startTestTask(t, projectA, "conv-a")
@@ -105,9 +102,7 @@ func TestTaskFromAnotherProjectIsUnreachable(t *testing.T) {
 // falls back to the project check alone so a third-party caller that never knew
 // about convId keeps working.
 func TestConversationIsCheckedWhenGiven(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	root := t.TempDir()
 	id := startTestTask(t, root, "conv-owner")
@@ -142,9 +137,7 @@ func TestConversationIsCheckedWhenGiven(t *testing.T) {
 // old list op dangerous: an omitted convId meant "every task in the process",
 // and each row carried the task's full output.
 func TestListBackgroundShellsRequiresConversation(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	root := t.TempDir()
 	startTestTask(t, root, "conv-a")
@@ -170,9 +163,7 @@ func TestListBackgroundShellsRequiresConversation(t *testing.T) {
 // TestListBackgroundShellsIsScopedToProject: two conversations with the same id
 // in different projects are different conversations.
 func TestListBackgroundShellsIsScopedToProject(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	projectA, projectB := t.TempDir(), t.TempDir()
 	startTestTask(t, projectA, "shared-conv-id")
@@ -192,9 +183,7 @@ func TestListBackgroundShellsIsScopedToProject(t *testing.T) {
 // — no output, no command. A task the caller does not own reads exactly like one
 // that never existed.
 func TestTaskStatusAnswersOnlyLiveness(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	projectA, projectB := t.TempDir(), t.TempDir()
 	mine := startTestTask(t, projectA, "conv-a")
@@ -247,9 +236,7 @@ func TestTaskStatusAnswersOnlyLiveness(t *testing.T) {
 // TestStopBackgroundTasksIsScopedToProject covers the orphan fix at a project
 // switch: the project being left has its tasks stopped, and nothing else does.
 func TestStopBackgroundTasksIsScopedToProject(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	leaving, staying := t.TempDir(), t.TempDir()
 	doomed := startTestTask(t, leaving, "conv-a")
@@ -272,9 +259,7 @@ func TestStopBackgroundTasksIsScopedToProject(t *testing.T) {
 // TestStopBackgroundTasksStopsEveryProject is the shutdown path: no root named,
 // so nothing is left behind to be reparented to init.
 func TestStopBackgroundTasksStopsEveryProject(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	first := startTestTask(t, t.TempDir(), "conv-a")
 	second := startTestTask(t, t.TempDir(), "conv-b")

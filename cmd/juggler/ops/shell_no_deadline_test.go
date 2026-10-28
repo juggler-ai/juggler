@@ -8,7 +8,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -68,9 +67,7 @@ func startNoDeadlineTask(t *testing.T) (*ShellOperations, string) {
 // duration is an expired one and the task asking to run forever would be the one
 // task that died instantly. Still running a beat later is the whole claim.
 func TestStartBackground_NoDeadlineKeepsRunning(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell command syntax is POSIX")
-	}
+	requirePOSIXShell(t)
 	_, id := startNoDeadlineTask(t)
 
 	time.Sleep(750 * time.Millisecond)
@@ -83,9 +80,7 @@ func TestStartBackground_NoDeadlineKeepsRunning(t *testing.T) {
 // No deadline must not mean no way out: cancel is still the only thing that ends
 // the task, and kill is still what calls it.
 func TestStartBackground_NoDeadlineStillKillable(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell command syntax is POSIX")
-	}
+	requirePOSIXShell(t)
 	shellOps, id := startNoDeadlineTask(t)
 
 	res, err := shellOps.kill(map[string]any{"shellId": id})
@@ -110,9 +105,7 @@ func TestStartBackground_NoDeadlineStillKillable(t *testing.T) {
 // which is what cmd.Wait() waits on. Both halves are asserted here: the task
 // reaches a terminal status, and the file stops growing once it has.
 func TestStartBackground_OrdinaryTimeoutStillExpires(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell command syntax is POSIX")
-	}
+	requirePOSIXShell(t)
 	dir := t.TempDir()
 	ticks := filepath.Join(dir, "ticks")
 	shellOps := NewShellOperations(NewPathScope(dir, nil))
@@ -160,9 +153,7 @@ func fileSize(t *testing.T, path string) int64 {
 // teardown is bounded by the reap grace and closes the pipe itself rather than
 // leaving the task at "running" for as long as the escapee cares to live.
 func TestStartBackground_TimeoutEndsTheTaskDespiteEscapedChild(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX process-group semantics only")
-	}
+	requirePOSIXShell(t)
 	// The escapee outlives the assertion below by a distance, so a teardown that
 	// waited on it could not pass by luck.
 	escaped := escapeGroupSleep("15")
@@ -201,9 +192,7 @@ func TestStartBackground_TimeoutEndsTheTaskDespiteEscapedChild(t *testing.T) {
 // exactly why 0 could not be the sentinel. Pinned so nobody later decides it
 // should mean forever after all without noticing what it already means.
 func TestStartBackground_ZeroTimeoutIsNotForever(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell command syntax is POSIX")
-	}
+	requirePOSIXShell(t)
 	shellOps := NewShellOperations(NewPathScope(t.TempDir(), nil))
 	res, err := shellOps.startBackground(map[string]any{
 		"command": "sleep 30",

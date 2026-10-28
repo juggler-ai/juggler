@@ -7,7 +7,6 @@ package ops
 import (
 	"context"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -38,9 +37,7 @@ func waitForOutput(t *testing.T, id, want string, deadline time.Duration) TaskSn
 // emits A, sleeps, emits B, then sleeps long enough that both substrings are
 // observed (and B's status asserted to be "running") well before exit.
 func TestStartBackground_PublishesOutputWhileRunning(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	dir := t.TempDir()
 	shellOps := NewShellOperations(NewPathScope(dir, nil))
@@ -80,9 +77,7 @@ func TestStartBackground_PublishesOutputWhileRunning(t *testing.T) {
 // publishes its output exactly once (the incremental append + final status-only
 // update must not double-write).
 func TestStartBackground_CompletedOutputNotDoubled(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	dir := t.TempDir()
 	shellOps := NewShellOperations(NewPathScope(dir, nil))
@@ -120,9 +115,7 @@ func TestStartBackground_CompletedOutputNotDoubled(t *testing.T) {
 }
 
 func TestStartBackground_PublishesDurableFinalSnapshot(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	snapshots := make(chan BackgroundTaskSnapshot, 16)
 	SetBackgroundTaskObserver(func(snapshot BackgroundTaskSnapshot) {
@@ -166,9 +159,7 @@ func TestStartBackground_PublishesDurableFinalSnapshot(t *testing.T) {
 // output it has already seen. Monitor's own delivery cursor (getState) is
 // independent and unaffected — asserted by reading full state alongside.
 func TestGetOutput_ReturnsDeltaNotCumulative(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	dir := t.TempDir()
 	shellOps := NewShellOperations(NewPathScope(dir, nil))
@@ -531,9 +522,7 @@ func TestExecuteStreaming_RefusalIsReportedAsBlocked(t *testing.T) {
 // one thing it means. A timeout also ends with Error set, but the command DID
 // run, so its output is real and a retry is not automatically futile.
 func TestExecuteStreaming_TimeoutIsNotReportedAsBlocked(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 
 	dir := t.TempDir()
 	shellOps := NewShellOperations(NewPathScope(dir, nil))

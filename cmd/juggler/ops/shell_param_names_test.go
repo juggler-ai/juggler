@@ -5,7 +5,6 @@
 package ops
 
 import (
-	"runtime"
 	"testing"
 	"time"
 )
@@ -28,9 +27,7 @@ var (
 )
 
 func TestShellOpReadsItsParamsInEitherSpelling(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 	for _, n := range []paramNames{camelNames, snakeNames} {
 		t.Run(n.name, func(t *testing.T) {
 			ctx := t.Context()

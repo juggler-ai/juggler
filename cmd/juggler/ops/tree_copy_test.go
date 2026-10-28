@@ -317,9 +317,7 @@ func startWritingTask(t *testing.T, dir string) string {
 // with "directory not empty" — and a removal that succeeded would leave it
 // running in a directory that no longer exists.
 func TestCopyTreeDeletionStopsTasksRunningInIt(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX-only shell command")
-	}
+	requirePOSIXShell(t)
 	root := t.TempDir()
 	doomed := filepath.Join(root, "sandboxes", "try-it", "work")
 	if err := os.MkdirAll(doomed, 0o755); err != nil {

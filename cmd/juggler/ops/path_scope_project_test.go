@@ -8,7 +8,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -17,9 +16,7 @@ import (
 // one still spills into the PROJECT's .juggler/ — otherwise a fresh worktree is
 // reported dirty by `git status`, and removing it takes the spill with it.
 func TestSpillDir_FollowsTheProjectNotTheWorkspace(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("seq/sh streaming command is POSIX-only")
-	}
+	requirePOSIXShell(t)
 	project := t.TempDir()
 	workspace := t.TempDir()
 

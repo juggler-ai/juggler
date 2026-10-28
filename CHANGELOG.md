@@ -42,6 +42,7 @@ of changes; this project follows semantic versioning.
 - Queued messages left behind by a restart now get answered
 - Settings shows long model names in full, in a wider models and limits list
 - Deleting items mid-turn asks before stopping the turn; running tools are deletable
+- A server whose main thread recovers from a long stall is no longer restarted
 
 ## [0.7.8] - 2026-10-23
 

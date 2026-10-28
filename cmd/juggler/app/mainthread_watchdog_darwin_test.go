@@ -133,6 +133,96 @@ func TestMainThreadSilenceDetectsBlockedMainThread(t *testing.T) {
 	}
 }
 
+// --- acting on a wedge ---
+
+// fakeMainThread drives a watchdogLoop by hand: every tick the test sends
+// advances its clock by one interval, so silence accrues as served time without
+// a real clock, and every answer the test grants bumps the pong count. The loop
+// owns all of it — its ping, clock and pong reads all run on the loop's
+// goroutine — so it needs no locking.
+type fakeMainThread struct {
+	clock    time.Time
+	pong     uint64
+	ticks    chan time.Time
+	captured *stallSample
+	wedged   chan *stallSample
+}
+
+func newWatchdogUnderTest(answerWhileSampled bool) (*fakeMainThread, *watchdogLoop) {
+	f := &fakeMainThread{
+		clock:  time.Unix(1_000_000, 0),
+		ticks:  make(chan time.Time),
+		wedged: make(chan *stallSample, 1),
+	}
+	w := &watchdogLoop{
+		tick:   watchdogPingInterval,
+		budget: watchdogHangThreshold,
+		ticks:  f.ticks,
+		wake:   func() <-chan struct{} { return nil },
+		now:    func() time.Time { return f.clock },
+		ping:   func() { f.clock = f.clock.Add(watchdogPingInterval) },
+		pongs:  func() uint64 { return f.pong },
+		capture: func(time.Time) *stallSample {
+			f.captured = &stallSample{path: "/logs/mainthread-stall-1.sample.log"}
+			return f.captured
+		},
+		awaitSample: func(*stallSample) bool {
+			if answerWhileSampled {
+				f.pong++
+			}
+			return true
+		},
+		onWedge: func(s *stallSample, _ bool) { f.wedged <- s },
+	}
+	return f, w
+}
+
+// TestWatchdogSparesAMainThreadThatAnswersWhileSampled: the wedge verdict is
+// reached before its sample is written, and writing it — symbolication on a
+// saturated machine — took 58s in a CI run whose pool server started up slowly.
+// The main thread answered within a second of the verdict, its lanes ran tests
+// for the next fifty, and then the watchdog killed it on the stale verdict and
+// every lane with it. A main thread that answered meanwhile was busy, not
+// wedged.
+func TestWatchdogSparesAMainThreadThatAnswersWhileSampled(t *testing.T) {
+	f, w := newWatchdogUnderTest(true)
+	done := make(chan struct{})
+	go func() { defer close(done); w.run() }()
+	// Twice the budget of silence: the first stall is declared and answered,
+	// and the loop must go on watching rather than act or return.
+	for range 2 * watchdogHangThreshold / watchdogPingInterval {
+		select {
+		case f.ticks <- time.Time{}:
+		case s := <-f.wedged:
+			t.Fatalf("acted on a wedge (sample %v) although the main thread answered while its sample was written", s)
+		case <-done:
+			t.Fatal("the watchdog stopped watching after a stall the main thread came back from")
+		}
+	}
+	if f.captured == nil {
+		t.Fatal("the stall was never sampled, so its wedge was never declared: the test proved nothing")
+	}
+}
+
+// TestWatchdogActsOnAWedgeThatOutlastsItsSample: a main thread still silent
+// once its sample is written is wedged, and the watchdog acts on it with that
+// sample.
+func TestWatchdogActsOnAWedgeThatOutlastsItsSample(t *testing.T) {
+	f, w := newWatchdogUnderTest(false)
+	go w.run()
+	for range 2 * watchdogHangThreshold / watchdogPingInterval {
+		select {
+		case f.ticks <- time.Time{}:
+		case s := <-f.wedged:
+			if s == nil || s != f.captured {
+				t.Fatalf("acted on the wedge with sample %v; want the one its warning started (%v)", s, f.captured)
+			}
+			return
+		}
+	}
+	t.Fatal("a main thread silent through its own sample was never acted on")
+}
+
 // --- crash-loop guard (pure) ---
 
 func TestRelaunchDecision(t *testing.T) {

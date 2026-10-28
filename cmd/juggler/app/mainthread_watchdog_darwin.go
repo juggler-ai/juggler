@@ -131,106 +131,165 @@ func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string) {
 	// are necessary and they compose.
 	C.juggler_register_sleepwake_observers()
 
+	ticker := time.NewTicker(watchdogPingInterval)
+	w := &watchdogLoop{
+		tick:   watchdogPingInterval,
+		budget: watchdogHangThreshold,
+		ticks:  ticker.C,
+		wake:   func() <-chan struct{} { return *wakeNudge.Load() },
+		now:    time.Now,
+		ping:   func() { C.juggler_mainthread_ping() },
+		pongs:  func() uint64 { return uint64(C.juggler_mainthread_pong_counter()) },
+		capture: func(now time.Time) *stallSample {
+			return captureStallSample(logPath, os.Getpid(), now)
+		},
+		allowRelaunch: allowRelaunch,
+		awaitSample: func(s *stallSample) bool {
+			if !allowRelaunch {
+				// Test mode exits rather than re-execs: nothing will reuse
+				// this pid, and the sample is the only record of the wedge,
+				// so it is waited for in full.
+				return s.finish()
+			}
+			settled := s.settle(stallSampleGrace)
+			if !settled {
+				jlog.Error("Main-thread sample didn't finish within %v; killed it rather than let it sample the replacement server.",
+					stallSampleGrace)
+			}
+			return settled
+		},
+		onWedge: func(s *stallSample, settled bool) {
+			// Bypass deferred cleanups (they'd try to use the wedged main
+			// thread). Write directly to stderr — jlog might be blocked
+			// behind something.
+			if allowRelaunch {
+				// Re-exec a fresh image in place; does not return on success.
+				// Falls through to os.Exit only if exec fails or the
+				// crash-loop guard refuses.
+				relaunchInPlace(addr, time.Since(procStart))
+			}
+			_, _ = os.Stderr.WriteString(stallSampleNote(s, settled) +
+				"\nFATAL: main thread wedged — force-exiting so the next launch can recover.\n")
+			os.Exit(1)
+		},
+	}
 	go func() {
-		const (
-			// pingInterval is also the resolution at which mainThreadSilence
-			// tells a stopped process from a silent main thread, so it is
-			// short; a ping is one dispatch onto the main queue.
-			pingInterval = time.Second
-			// hangThreshold: main thread unresponsive this long, counted in
-			// time the watchdog was actually run (mainThreadSilence) → recover.
-			// Short because recovery is a same-PID re-exec blip (the viewer
-			// just reconnects) rather than a process death — a shorter freeze
-			// for the user, still well clear of any legitimate main-thread work
-			// (window create/destroy + theme ops are all sub-second; the
-			// engine-connect wait runs off the main thread).
-			hangThreshold = 12 * time.Second
-			postWakeGrace = 15 * time.Second // give the system time to settle after wake
-		)
-
-		lastPongSeen := uint64(C.juggler_mainthread_pong_counter())
-		silence := newMainThreadSilence(pingInterval, hangThreshold, time.Now())
-		postWakeIgnoreUntil := time.Now()
-		// The sample started by the current stall, if any. Only ever touched
-		// from this goroutine, so it needs no synchronisation of its own.
-		var sample *stallSample
-
-		ticker := time.NewTicker(pingInterval)
 		defer ticker.Stop()
-
-		for {
-			// Wait one tick, but break out early on a wake nudge so we can
-			// reset the grace window before the next ping.
-			ch := *wakeNudge.Load()
-			select {
-			case <-ticker.C:
-			case <-ch:
-				postWakeIgnoreUntil = time.Now().Add(postWakeGrace)
-				silence.reset(time.Now()) // don't count the sleep as a hang
-				continue
-			}
-
-			// Send a ping. If the main thread is healthy, the block runs
-			// inside a few ms and bumps the counter.
-			C.juggler_mainthread_ping()
-
-			// Look for progress since last tick. During the post-wake grace
-			// window silence is still accounted but never acted on — many
-			// macOS subsystems take several seconds to wake up and a brief
-			// stall is normal.
-			now := time.Now()
-			cur := uint64(C.juggler_mainthread_pong_counter())
-			answered := cur != lastPongSeen
-			lastPongSeen = cur
-			r := silence.observe(now, answered, now.Before(postWakeIgnoreUntil))
-			if r.recovered {
-				jlog.Info("Main thread recovered.")
-				// Let the sample finish and keep its file. A stall that
-				// came back on its own is the more informative of the two
-				// outcomes: it says the deadlock has a way out, and the
-				// stacks are the only record of what it was waiting on.
-				sample = nil
-			}
-			if r.warn {
-				action := "force-exit"
-				if allowRelaunch {
-					action = "re-exec a fresh server in place"
-				}
-				jlog.Error("Main thread unresponsive for %v (likely WebKit DisplayLink deadlock). Will %s at %v.",
-					r.silent.Round(time.Second), action, hangThreshold)
-				// Capture native stacks while the stall is still on — under
-				// the test pool too, where a wedge kills every lane at once and
-				// the sample is the only record of what the main thread was
-				// waiting on.
-				sample = captureStallSample(logPath, os.Getpid(), now)
-			}
-			if r.wedged {
-				// Bypass deferred cleanups (they'd try to use the wedged
-				// main thread). Write directly to stderr — jlog might be
-				// blocked behind something.
-				var settled bool
-				if allowRelaunch {
-					settled = sample.settle(stallSampleGrace)
-					if !settled {
-						jlog.Error("Main-thread sample didn't finish within %v; killed it rather than let it sample the replacement server.",
-							stallSampleGrace)
-					}
-					// Re-exec a fresh image in place; does not return on
-					// success. Falls through to os.Exit only if exec fails or
-					// the crash-loop guard refuses.
-					relaunchInPlace(addr, time.Since(procStart))
-				} else {
-					// Test mode exits rather than re-execs: nothing will
-					// reuse this pid, and the sample is the only record of
-					// the wedge, so it is waited for in full.
-					settled = sample.finish()
-				}
-				_, _ = os.Stderr.WriteString(stallSampleNote(sample, settled) +
-					"\nFATAL: main thread wedged — force-exiting so the next launch can recover.\n")
-				os.Exit(1)
-			}
-		}
+		w.run()
 	}()
+}
+
+const (
+	// watchdogPingInterval is also the resolution at which mainThreadSilence
+	// tells a stopped process from a silent main thread, so it is short; a ping
+	// is one dispatch onto the main queue.
+	watchdogPingInterval = time.Second
+	// watchdogHangThreshold: main thread unresponsive this long, counted in
+	// time the watchdog was actually run (mainThreadSilence) → recover. Short
+	// because recovery is a same-PID re-exec blip (the viewer just reconnects)
+	// rather than a process death — a shorter freeze for the user, still well
+	// clear of any legitimate main-thread work (window create/destroy + theme
+	// ops are all sub-second; the engine-connect wait runs off the main thread).
+	watchdogHangThreshold = 12 * time.Second
+	// watchdogPostWakeGrace gives the system time to settle after wake.
+	watchdogPostWakeGrace = 15 * time.Second
+)
+
+// watchdogLoop is the main-thread watchdog's loop, with everything it touches
+// outside itself — the main-thread probe, the clock, the sampler and the exit —
+// supplied by startMainThreadWatchdog, so it can be run against a fake main
+// thread.
+type watchdogLoop struct {
+	tick, budget time.Duration
+	ticks        <-chan time.Time
+	// wake returns the channel the next system wake closes.
+	wake func() <-chan struct{}
+	now  func() time.Time
+	// ping asks the main thread to answer; pongs counts its answers so far.
+	ping  func()
+	pongs func() uint64
+	// capture starts a stall sample at the warning; nil when none was started.
+	capture       func(now time.Time) *stallSample
+	allowRelaunch bool
+	// awaitSample waits for a wedge's sample and reports whether it was written.
+	awaitSample func(*stallSample) bool
+	// onWedge acts on a wedge that still stands once its sample is written. It
+	// does not return in production; run returns if it does.
+	onWedge func(s *stallSample, settled bool)
+}
+
+// run watches until it acts on a wedge.
+func (w *watchdogLoop) run() {
+	lastPongSeen := w.pongs()
+	silence := newMainThreadSilence(w.tick, w.budget, w.now())
+	postWakeIgnoreUntil := w.now()
+	// The sample started by the current stall, if any. Only ever touched from
+	// this goroutine, so it needs no synchronisation of its own.
+	var sample *stallSample
+
+	for {
+		// Wait one tick, but break out early on a wake nudge so we can reset
+		// the grace window before the next ping.
+		select {
+		case <-w.ticks:
+		case <-w.wake():
+			postWakeIgnoreUntil = w.now().Add(watchdogPostWakeGrace)
+			silence.reset(w.now()) // don't count the sleep as a hang
+			continue
+		}
+
+		// Send a ping. If the main thread is healthy, the block runs inside a
+		// few ms and bumps the counter.
+		w.ping()
+
+		// Look for progress since last tick. During the post-wake grace window
+		// silence is still accounted but never acted on — many macOS
+		// subsystems take several seconds to wake up and a brief stall is
+		// normal.
+		now := w.now()
+		cur := w.pongs()
+		answered := cur != lastPongSeen
+		lastPongSeen = cur
+		r := silence.observe(now, answered, now.Before(postWakeIgnoreUntil))
+		if r.recovered {
+			jlog.Info("Main thread recovered.")
+			// Let the sample finish and keep its file. A stall that came back
+			// on its own is the more informative of the two outcomes: it says
+			// the deadlock has a way out, and the stacks are the only record of
+			// what it was waiting on.
+			sample = nil
+		}
+		if r.warn {
+			action := "force-exit"
+			if w.allowRelaunch {
+				action = "re-exec a fresh server in place"
+			}
+			jlog.Error("Main thread unresponsive for %v (likely WebKit DisplayLink deadlock). Will %s at %v.",
+				r.silent.Round(time.Second), action, w.budget)
+			// Capture native stacks while the stall is still on — under the
+			// test pool too, where a wedge kills every lane at once and the
+			// sample is the only record of what the main thread was waiting on.
+			sample = w.capture(now)
+		}
+		if !r.wedged {
+			continue
+		}
+		settled := w.awaitSample(sample)
+		// The verdict is as old as the wait for the sample, which on a
+		// saturated machine — where stalls are seen — runs to a minute. Act on
+		// it only if the main thread is still silent now: one that answered
+		// meanwhile was busy, not wedged, and killing it takes down a server
+		// that is working.
+		if cur := w.pongs(); cur != lastPongSeen {
+			lastPongSeen = cur
+			jlog.Info("Main thread answered while its stall sample was written — busy, not wedged; carrying on.")
+			silence.reset(w.now())
+			sample = nil
+			continue
+		}
+		w.onWedge(sample, settled)
+		return
+	}
 }
 
 // silenceLateSlack is how far past twice its interval a tick may arrive and

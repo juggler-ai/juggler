@@ -196,6 +196,8 @@ import { runTests as runThinkingStreamTests } from '../unit-tests/thinking-strea
 import { runTests as runStreamingRowScopeTests } from '../unit-tests/streaming-row-scope-test.js';
 import { runTests as runThinkingMessageTests } from '../unit-tests/thinking-message-test.js';
 import { runTests as runStreamingMarkdownTests } from '../unit-tests/streaming-markdown-test.js';
+import { runTests as runFileRefsTests } from '../unit-tests/file-refs-test.js';
+import { runTests as runFileRefLinksTests } from '../unit-tests/file-ref-links-test.js';
 import { runTests as runMarkdownSanitizerTests } from '../unit-tests/markdown-sanitizer-test.js';
 import { runTests as runMarkdownScopedCssTests } from '../unit-tests/markdown-scoped-css-test.js';
 import { runTests as runSelectionColourTests } from '../unit-tests/selection-colour-test.js';
@@ -828,6 +830,8 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:streaming-row-scope', run: runStreamingRowScopeTests },
   { name: 'unit:thinking-message', run: runThinkingMessageTests },
   { name: 'unit:streaming-markdown', run: runStreamingMarkdownTests },
+  { name: 'unit:file-refs', run: runFileRefsTests },
+  { name: 'unit:file-ref-links', run: runFileRefLinksTests },
   { name: 'unit:markdown-sanitizer', run: runMarkdownSanitizerTests },
   { name: 'unit:markdown-scoped-css', run: runMarkdownScopedCssTests },
   { name: 'unit:selection-colour', run: runSelectionColourTests },

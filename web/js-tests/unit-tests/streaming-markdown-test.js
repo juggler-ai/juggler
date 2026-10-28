@@ -168,6 +168,32 @@ export async function runTests(_ctx) {
       `expected roughly linear parse cost, parsed ${parsedChars} chars for ${text.length} of text`);
   });
 
+  await run('a decorate hook sees each parsed segment detached, at the parser\'s cost', () => {
+    const text = mdParagraphs(40);
+    let decoratedChars = 0;
+    let attachedCalls = 0;
+    const decorate = (/** @type {HTMLElement} */ holder) => {
+      if (holder.isConnected) attachedCalls++;
+      decoratedChars += (holder.textContent || '').length;
+      holder.querySelectorAll('p').forEach((p) => { p.dataset.decorated = '1'; });
+    };
+    const host = mount();
+    try {
+      const s = createStreamingMarkdown(host, { escapeXml: false, detect: false, decorate });
+      for (let i = 1; i <= 40; i++) s.update(text.slice(0, Math.round((text.length * i) / 40)));
+      s.settle();
+      assert(decoratedChars > 0, 'the hook must actually run');
+      assert(attachedCalls === 0, `the hook ran ${attachedCalls} time(s) over the live document`);
+      // Same bound as the parser's: decorating the whole host per update would
+      // cost ~20x the text here.
+      assert(decoratedChars < text.length * 4,
+        `expected roughly linear decoration cost, decorated ${decoratedChars} chars for ${text.length} of text`);
+      const paras = [...host.querySelectorAll('p')];
+      assert(paras.length === 40 && paras.every((p) => p.dataset.decorated === '1'),
+        'every rendered paragraph keeps what the hook did to it');
+    } finally { host.remove(); }
+  });
+
   await run('plain paragraphs stream to the same DOM as one render', () => {
     assertSameAsOneShot('verbatim prose', paragraphs(12));
     assertSameAsOneShot('markdown paragraphs', mdParagraphs(12));

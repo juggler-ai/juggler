@@ -5,6 +5,7 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- File paths in replies are clickable and open the file on the Pinboard
 - Long conversations offer Compact and Hand off buttons beside the context meter
 - New /init drafts an AGENTS.md; projects without one are offered it
 - Occasional hints for features you haven't found, gone once you use them

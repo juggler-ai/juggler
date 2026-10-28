@@ -152,6 +152,7 @@
 				"code-block-wrap",
 				"code-copy-button",
 				"markdown",
+				"markdown-file-ref",
 				"markdown-html-scope",
 				"quote-copy-button"
 			]

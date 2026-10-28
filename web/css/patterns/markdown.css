@@ -72,6 +72,24 @@
     color: var(--accent-green);
 }
 
+/* Inline code naming a file in the conversation's tree, which pins it when
+   clicked (utils/file-refs.js, services/file-ref-links.js). Marked only once the
+   file is known to exist, so the cue is quiet: the code keeps its colour and
+   gains an underline, firming up on hover like a link does. The rule carries
+   one class of specificity: enough to keep the pointer over the text cursor
+   Windows sets on every code element (tokens/theme-dark.css), and no more. The
+   hover rule names `code` outright, so it cannot be read as competing with
+   `a:hover` for an element it never styles. */
+:where(.markdown) :where(code).markdown-file-ref {
+    cursor: pointer;
+    text-decoration: underline dotted color-mix(in srgb, currentcolor 50%, transparent);
+    text-underline-offset: 0.2em;
+}
+
+:where(.markdown) code.markdown-file-ref:where(:hover, :focus-visible) {
+    text-decoration: underline solid currentcolor;
+}
+
 :where(.markdown) pre {
     background: rgb(0 0 0 / 3%);
     padding: 0.875rem;

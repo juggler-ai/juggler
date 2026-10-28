@@ -206,12 +206,18 @@ export function findSealPoint(text, from) {
  * @param {boolean} [options.detect=true] - Choose between Markdown and verbatim
  *   per update. False renders as Markdown always, for a source that is known to
  *   be Markdown (an assistant reply) rather than possibly raw prose.
+ * @param {(holder: HTMLElement) => void} [options.decorate] - Called with each
+ *   freshly parsed segment while it is still detached, after the code blocks
+ *   are decorated: sealed segments once, the live tail once per update. It may
+ *   change the nodes it is given, and nothing else — what it does to a sealed
+ *   segment is kept, and the tail is rebuilt, so it must be cheap and
+ *   idempotent per segment.
  * @returns {{update: (text: string) => void, reset: () => void, settle: () => void}}
  *   Controller. `settle` highlights the live tail immediately; it is armed
  *   automatically on a quiet period, so callers rarely need to call it.
  */
 export function createStreamingMarkdown(host, options = {}) {
-  const { escapeXml = true, detect = true } = options;
+  const { escapeXml = true, detect = true, decorate } = options;
 
   /** @type {'markdown'|'plain'|null} */
   let mode = null;
@@ -293,6 +299,7 @@ export function createStreamingMarkdown(host, options = {}) {
     const holder = document.createElement('div');
     holder.innerHTML = renderMarkdown(md, { escapeXml });
     decorateCodeBlocks(holder, { highlight });
+    decorate?.(holder);
     return holder;
   };
 

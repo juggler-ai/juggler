@@ -5,6 +5,7 @@
 import BaseMessage from './base-message.js';
 import { createStreamingMarkdown } from '../utils/streaming-markdown.js';
 import { stripThinkingTags } from '../utils/content-utils.js';
+import { decorateFileRefs } from '../utils/file-refs.js';
 import '../utils/icon-message-renderer.js';
 
 /**
@@ -52,8 +53,24 @@ class AssistantMessage extends BaseMessage {
     // An assistant reply is Markdown by definition, so it never falls back to
     // verbatim the way a provider's raw reasoning can, and its own inline HTML
     // is left for the renderer's sanitizer rather than escaped up front.
-    this._stream = createStreamingMarkdown(body, { escapeXml: false, detect: false });
+    this._stream = createStreamingMarkdown(body, {
+      escapeXml: false,
+      detect: false,
+      decorate: (holder) => { void decorateFileRefs(holder, this._fileRefContext()); },
+    });
     this._stream.update(stripThinkingTags(this.content));
+  }
+
+  /**
+   * The tree this reply's file references resolve in: where its conversation
+   * works, asked afresh per segment so a message rendered before its row was
+   * attached simply decorates nothing until it is.
+   * @returns {{root: string, workspaceId: string}} Root '' when not known.
+   * @private
+   */
+  _fileRefContext() {
+    const root = this._getMessageThread()?.getWorkingRoot?.() || '';
+    return { root, workspaceId: this._getConversation()?.workspaceId || '' };
   }
 
   /**

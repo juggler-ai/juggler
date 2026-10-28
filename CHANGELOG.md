@@ -5,6 +5,7 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Usage-limit errors that give a reset time offer to auto-continue then
 - File paths in replies are clickable and open the file on the Pinboard
 - Long conversations offer Compact and Hand off buttons beside the context meter
 - New /init drafts an AGENTS.md; projects without one are offered it

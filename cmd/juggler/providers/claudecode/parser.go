@@ -783,6 +783,16 @@ func cliAPIError(status int, text string) error {
 	if isRejectedTranscriptText(status, text) {
 		return &rejectedTranscriptError{text: text}
 	}
+	// A subscription cap states when it lifts only in its text. Read as a
+	// dated rate limit, it rests the conversation until then instead of being
+	// retried into, and the row can offer to continue at that time.
+	var cause error
+	if status != 0 {
+		cause = &provider.APIError{Provider: "claudecode", Status: status, Message: text}
+	}
+	if limited := usageLimitError(text, cause, time.Now()); limited != nil {
+		return limited
+	}
 	if status == 0 {
 		return errors.New(text)
 	}

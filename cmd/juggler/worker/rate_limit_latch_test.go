@@ -5,6 +5,7 @@
 package worker
 
 import (
+	"encoding/json"
 	"regexp"
 	"strings"
 	"testing"
@@ -225,6 +226,31 @@ func TestRateLimitReport_LeadsTheProviderTextAndNamesTheReset(t *testing.T) {
 	}
 	if until := w.rateLimitedUntil("openaicodex"); until.IsZero() {
 		t.Fatal("reporting a dated cap must also latch it — otherwise the next thread goes and finds it again")
+	}
+}
+
+// TestRateLimitReport_CarriesTheResetForTheRow: the row offers to continue when
+// the cap lifts, and must read that instant from the item rather than from the
+// sentence, whose clock is rounded to the minute and written for a reader.
+func TestRateLimitReport_CarriesTheResetForTheRow(t *testing.T) {
+	w, _ := rateLimitedWorker(t, "test-rate-limit-reset-data")
+
+	w.driveStrategyLoop(t, "", true)
+
+	items := errorItems(w)
+	if len(items) != 1 {
+		t.Fatalf("error items = %d, want 1: %+v", len(items), items)
+	}
+	var data map[string]any
+	if err := json.Unmarshal(items[0].Data, &data); err != nil {
+		t.Fatalf("error item data: %v", err)
+	}
+	resetAt, ok := data["resetAt"].(float64)
+	if !ok {
+		t.Fatalf("data = %v, carries no resetAt for the row to continue at", data)
+	}
+	if want := w.rateLimitedUntil("openaicodex").UnixMilli(); int64(resetAt) != want {
+		t.Fatalf("resetAt = %d, want the latched reset %d", int64(resetAt), want)
 	}
 }
 

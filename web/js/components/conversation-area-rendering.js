@@ -1023,8 +1023,11 @@ function createErrorBubble(message, itemIndex) {
   // The worker classifies the failure; the row only reads the verdict. Matching
   // on the error text here instead would put the taxonomy in two places and let
   // them disagree.
-  const kind = readItemData(message)?.errorKind;
+  const data = readItemData(message);
+  const kind = data?.errorKind;
   if (kind) attributes['error-kind'] = String(kind);
+  // When a usage cap the provider dated lifts, epoch ms (worker restOnRateLimit).
+  if (typeof data?.resetAt === 'number' && Number.isFinite(data.resetAt)) attributes['reset-at'] = String(data.resetAt);
   return createMessageElement('error-message', {
     itemId: message.get('itemId'),
     itemIndex,

@@ -305,6 +305,9 @@ func (r *run) restOnRateLimit(rateLimit *RateLimitError, err error, errorData ma
 	} else {
 		r.log.Info("Usage limit on %s stands until %s — latched, so no thread here calls it again until the user sends", providerName, rateLimit.ResetAt.Format(time.RFC3339))
 		report := rateLimitReport(providerName, rateLimit.ResetAt, time.Now(), err.Error())
+		// The instant itself, epoch ms, for the row's offer to continue when the
+		// cap lifts: the sentence's clock is rounded and written for a reader.
+		errorData["resetAt"] = rateLimit.ResetAt.UnixMilli()
 		r.sendErrorWithData(report.English(), &report, "", errorData)
 	}
 	r.promotePendingItems(r.t.thread.itemID, restDrain(r.clock.Now()))

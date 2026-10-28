@@ -5,9 +5,40 @@
 import BaseMessage, { FINAL_ITEM_ATTR } from './base-message.js';
 import { createErrorArticle } from '../utils/icon-message-renderer.js';
 import { openSettings } from '../services/settings-launcher.js';
-import { RETRY_SVG } from '../utils/icons.js';
-import { t, markForTranslation } from '../../sdk/lib/i18n.js';
+import { RETRY_SVG, CLOCK_SVG } from '../utils/icons.js';
+import { formatClockTime } from './composer-schedule.js';
+import { t, formatDate, markForTranslation } from '../../sdk/lib/i18n.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
+
+/**
+ * The message an Auto-continue sends when the cap lifts: what the user would
+ * type to pick the turn up again. It goes to the model, not to the reader, so it
+ * is the same in every locale.
+ */
+const AUTO_CONTINUE_MESSAGE = 'continue';
+
+/**
+ * Whether a thread's queue already holds a held send — a message waiting for a
+ * time or for the run to end.
+ * @param {any} thread - The message thread
+ * @returns {boolean} True when one is waiting.
+ */
+function holdsHeldSend(thread) {
+  const pending = thread?.pendingItems;
+  if (!Array.isArray(pending)) return false;
+  return pending.some((entry) => typeof entry?.get?.('notBefore') === 'number' || !!entry?.get?.('hold'));
+}
+
+/**
+ * When a cap lifts, as the reader's clock says it: the time alone when that is
+ * today, with the date before it otherwise.
+ * @param {number} epochMs
+ * @returns {string} The formatted time.
+ */
+function formatResetTime(epochMs) {
+  if (new Date(epochMs).toDateString() === new Date().toDateString()) return formatClockTime(epochMs);
+  return formatDate(epochMs, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+}
 
 /**
  * Signatures that identify an error as a failure to reach the provider at all,
@@ -64,10 +95,26 @@ const SETUP_ERROR_KIND = 'setup';
  * which is precisely what a first-time reader of one of these errors does not
  * know. A setup problem leads with Choose another model as well: a provider
  * that isn't installed is one the reader may never have meant to use.
+ *
+ * A usage cap the provider dated (`reset-at`) carries Auto-continue, ahead of
+ * Retry and under the same last-item gate: a "continue" held until the reset,
+ * exactly as if the user had typed it and scheduled it with Send later. The
+ * worker fires it itself, with or without a window open. It is not offered once
+ * the reset has passed (Retry does the same thing now), nor on a thread whose
+ * queue already holds a send, which already says what happens next.
  */
 class ErrorMessage extends BaseMessage {
   static get observedAttributes() {
-    return ['content', 'error-kind', FINAL_ITEM_ATTR];
+    return ['content', 'error-kind', 'reset-at', FINAL_ITEM_ATTR];
+  }
+
+  /**
+   * When the usage cap this error reports lifts, if the provider said.
+   * @returns {number|null} Epoch ms, or null when no reset was stated.
+   */
+  get resetAt() {
+    const value = Number(this.getAttribute('reset-at'));
+    return this.hasAttribute('reset-at') && Number.isFinite(value) ? value : null;
   }
 
   /**
@@ -132,6 +179,22 @@ class ErrorMessage extends BaseMessage {
         actions.appendChild(settingsBtn);
       }
 
+      const resetAt = this.resetAt;
+      if (this.isFinalItem && resetAt !== null && resetAt > Date.now() && !holdsHeldSend(this._getMessageThread())) {
+        const time = formatResetTime(resetAt);
+        const autoBtn = document.createElement('button');
+        autoBtn.type = 'button';
+        autoBtn.className = 'message-action-btn error-autocontinue-btn';
+        autoBtn.title = t('Send “continue” when the usage limit resets');
+        autoBtn.innerHTML = `${CLOCK_SVG}${escapeHtml(t('Auto-continue at {time}', { time }))}`;
+        autoBtn.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          this._autoContinue(autoBtn, resetAt, time);
+        });
+        actions.appendChild(autoBtn);
+      }
+
       if (this.isFinalItem) {
         const retryBtn = document.createElement('button');
         retryBtn.type = 'button';
@@ -192,6 +255,33 @@ class ErrorMessage extends BaseMessage {
     thread.continue(() => {
       if (id) thread.removeItemById(id);
     });
+  }
+
+  /**
+   * Schedule "continue" for the reset: the composer's Send later path, with the
+   * message supplied here rather than typed, so the box and its draft are left
+   * alone. The button stands down at once so a second press cannot queue a
+   * second continue; a refused send gives it back.
+   * @param {HTMLButtonElement} button - The pressed button
+   * @param {number} resetAt - Epoch ms the send is held until
+   * @param {string} time - The reset as the button showed it
+   * @private
+   */
+  async _autoContinue(button, resetAt, time) {
+    const thread = /** @type {any} */ (this._getMessageThread());
+    if (!thread?.conversation || button.disabled) return;
+    button.disabled = true;
+    const label = button.innerHTML;
+    button.innerHTML = `${CLOCK_SVG}${escapeHtml(t('Continues at {time}', { time }))}`;
+    const refusal = await thread.conversation.sendMessage(AUTO_CONTINUE_MESSAGE, thread.threadItemId ?? null, thread, {
+      consumeComposer: false,
+      interpretCommands: false,
+      schedule: { notBefore: resetAt },
+    });
+    if (refusal) {
+      button.disabled = false;
+      button.innerHTML = label;
+    }
   }
 }
 

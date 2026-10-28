@@ -65,6 +65,7 @@ import { runTests as runCacheMissWarningTests } from '../unit-tests/cache-miss-w
 import { runTests as runFileContentFreezeTests } from '../unit-tests/file-content-freeze-test.js';
 import { runTests as runErrorRetryGateTests } from '../unit-tests/error-retry-gate-test.js';
 import { runTests as runAuthErrorActionTests } from '../unit-tests/auth-error-action-test.js';
+import { runTests as runAutoContinueErrorTests } from '../unit-tests/auto-continue-error-test.js';
 import { runTests as runKeylessSignInStatusTests } from '../unit-tests/keyless-signin-status-test.js';
 import { runTests as runTokenCacheUnknownTests } from '../unit-tests/token-cache-unknown-test.js';
 import { runTests as runCompactionStatusTests } from '../unit-tests/compaction-status-test.js';
@@ -647,6 +648,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:file-content-freeze', run: runFileContentFreezeTests },
   { name: 'unit:error-retry-gate', run: runErrorRetryGateTests },
   { name: 'unit:auth-error-action', run: runAuthErrorActionTests },
+  { name: 'unit:auto-continue-error', run: runAutoContinueErrorTests },
   { name: 'unit:keyless-signin-status', run: runKeylessSignInStatusTests },
   { name: 'unit:token-cache-unknown', run: runTokenCacheUnknownTests },
   { name: 'unit:compaction-status', run: runCompactionStatusTests },

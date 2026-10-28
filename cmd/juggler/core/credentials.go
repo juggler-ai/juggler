@@ -379,12 +379,12 @@ type codexAuthFile struct {
 }
 
 // codexRefreshMargin treats an access token as spent this long before its `exp`.
-// It matches the window the Codex app itself refreshes in, and mirrors
+// It matches the window the ChatGPT app itself refreshes in, and mirrors
 // copilotRefreshMargin.
 const codexRefreshMargin = 5 * time.Minute
 
 func codexSignInHint(path string) string {
-	return fmt.Sprintf("sign in with the Codex app or run `codex login` (checked %s)", path)
+	return fmt.Sprintf("sign in with the ChatGPT app or run `codex login` (checked %s)", path)
 }
 
 func loadCodexCLIAccessToken() (string, string, error) {
@@ -414,7 +414,7 @@ func loadCodexCLIAccessToken() (string, string, error) {
 	// Reject inside the margin, not at the instant of expiry: a token with
 	// seconds left passes a bare check and is then rejected mid-stream, which
 	// surfaces as an opaque upstream failure instead of a sign-in prompt. The
-	// Codex app refreshes in the same window, so a token this close to expiry is
+	// ChatGPT app refreshes in the same window, so a token this close to expiry is
 	// one it is already replacing.
 	if jwtExpired(auth.Tokens.AccessToken, time.Now().Add(codexRefreshMargin)) {
 		return "", "", fmt.Errorf("codex access token is expired; %s", hint)

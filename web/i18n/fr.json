@@ -1286,7 +1286,7 @@
   "Sign-in check failed": "Échec de la vérification de la connexion",
   "Sign-in failed": "Échec de la connexion",
   "Signed in": "Connecté",
-  "Signed in via Codex app/CLI": "Connecté via l’app ou le CLI Codex",
+  "Signed in via ChatGPT app or Codex CLI": "Connecté via l’app ChatGPT ou le CLI Codex",
   "Signed in via your editor's Copilot login": "Connecté via la connexion Copilot de votre éditeur",
   "Signed in via your editor's Copilot login to {host}": "Connecté à {host} via la connexion Copilot de votre éditeur",
   "Signed in with GitHub": "Connecté avec GitHub",

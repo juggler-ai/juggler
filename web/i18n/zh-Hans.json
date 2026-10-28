@@ -1271,7 +1271,7 @@
   "Sign-in check failed": "登录检查失败",
   "Sign-in failed": "登录失败",
   "Signed in": "已登录",
-  "Signed in via Codex app/CLI": "已通过 Codex 应用/CLI 登录",
+  "Signed in via ChatGPT app or Codex CLI": "已通过 ChatGPT 应用或 Codex CLI 登录",
   "Signed in via your editor's Copilot login": "已通过你编辑器的 Copilot 登录",
   "Signed in via your editor's Copilot login to {host}": "已通过你编辑器的 Copilot 登录到 {host}",
   "Signed in with GitHub": "已使用 GitHub 登录",

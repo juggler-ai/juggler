@@ -48,7 +48,7 @@ func lookupOAuthBearerSource(name string) (OAuthBearerResolver, bool) {
 }
 
 // resolveCodexCredential resolves the OpenAI Codex (ChatGPT-plan) bearer from
-// the local Codex app/CLI login.
+// the local ChatGPT app or Codex CLI login.
 func resolveCodexCredential() (ProviderCredential, error) {
 	token, accountID, err := loadCodexCLIAccessToken()
 	if err != nil {
@@ -62,5 +62,5 @@ func resolveCodexCredential() (ProviderCredential, error) {
 		BearerToken: token,
 		Headers:     headers,
 		KeySource:   KeySourceCodexCLI,
-	}.withAuthHint(msg.New("Signed in via Codex app/CLI")), nil
+	}.withAuthHint(msg.New("Signed in via ChatGPT app or Codex CLI")), nil
 }

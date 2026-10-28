@@ -1162,7 +1162,7 @@ func newRateLimitError(wait time.Duration, stated bool, msg string, cause error)
 // from an error wrapping ErrProviderUnavailable: everything the LLM caller
 // appended after the sentinel. Only the resolver knows which of the several
 // user-fixable states this is ("no API key configured", "codex access token is
-// expired; sign in with the Codex app…"), and Guard B's lead can't convey it.
+// expired; sign in with the ChatGPT app…"), and Guard B's lead can't convey it.
 // The text is located by the sentinel rather than by trimming a prefix because
 // the error reaches Guard B already wrapped (classifyLLMError, delivery). An
 // error carrying nothing beyond the sentinel yields "".

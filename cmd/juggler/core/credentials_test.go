@@ -145,7 +145,7 @@ func TestLoadCodexCLIAccessTokenRejectsInvalidAuth(t *testing.T) {
 				t.Fatal("expected error")
 			}
 			msg := err.Error()
-			if !strings.Contains(msg, "Codex") || !strings.Contains(msg, "Codex app") || !strings.Contains(msg, "codex login") {
+			if !strings.Contains(msg, "Codex") || !strings.Contains(msg, "ChatGPT app") || !strings.Contains(msg, "codex login") {
 				t.Fatalf("error should mention Codex sign-in options, got %q", msg)
 			}
 			if !strings.Contains(msg, filepath.Join(dir, "auth.json")) {

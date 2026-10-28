@@ -1286,7 +1286,7 @@
   "Sign-in check failed": "로그인 확인 실패",
   "Sign-in failed": "로그인 실패",
   "Signed in": "로그인됨",
-  "Signed in via Codex app/CLI": "Codex 앱/CLI를 통해 로그인됨",
+  "Signed in via ChatGPT app or Codex CLI": "ChatGPT 앱 또는 Codex CLI를 통해 로그인됨",
   "Signed in via your editor's Copilot login": "편집기의 Copilot 로그인을 통해 로그인됨",
   "Signed in via your editor's Copilot login to {host}": "편집기의 Copilot 로그인을 통해 {host}에 로그인됨",
   "Signed in with GitHub": "GitHub로 로그인됨",

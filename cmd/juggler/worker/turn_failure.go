@@ -173,7 +173,7 @@ func (r *run) turnErrorData(duration time.Duration) map[string]any {
 func (r *run) reportProviderUnavailable(err error, duration time.Duration) {
 	errorData := r.turnErrorData(duration)
 	// Carry the resolver's own account of what is wrong ("codex access
-	// token is expired; sign in with the Codex app or run `codex
+	// token is expired; sign in with the ChatGPT app or run `codex
 	// login`"). The lead says what to do, the detail says why, and a
 	// credential failure is barely actionable without it — an expired
 	// sign-in reads as a lie when reported as "isn't configured".

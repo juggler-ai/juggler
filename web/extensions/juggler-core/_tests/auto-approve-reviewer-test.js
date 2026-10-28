@@ -575,7 +575,7 @@ export async function runTests(_ctx) {
     // The card is the only place this message is shown, so a real server error
     // — remedy and all — must survive in full rather than end mid-instruction.
     const cause = 'quick complete: provider "openaicodex" unavailable: codex access token is expired; '
-      + 'sign in with the Codex app or run `codex login` in a terminal, then try again';
+      + 'sign in with the ChatGPT app or run `codex login` in a terminal, then try again';
     const note = reviewFailureNote(new Error(`HTTP 400: ${cause}`));
     assert(note === `Auto-approve couldn't run — ${cause}`,
       `the whole cause should be shown, got ${JSON.stringify(note)}`);

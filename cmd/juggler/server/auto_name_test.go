@@ -260,7 +260,7 @@ func TestAutoNamePromptListsTitlesInUse(t *testing.T) {
 // login from an outage. The "quick complete:" plumbing prefixes are ours, not
 // the provider's, and stay out of it.
 func TestAutoNameFailedNotice(t *testing.T) {
-	const codexHint = "codex access token is expired; sign in with the Codex app or run `codex login` (checked /home/u/.codex/auth.json)"
+	const codexHint = "codex access token is expired; sign in with the ChatGPT app or run `codex login` (checked /home/u/.codex/auth.json)"
 
 	tests := []struct {
 		name    string

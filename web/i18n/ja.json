@@ -1286,7 +1286,7 @@
   "Sign-in check failed": "サインインの確認に失敗しました",
   "Sign-in failed": "サインインに失敗しました",
   "Signed in": "サインイン済み",
-  "Signed in via Codex app/CLI": "Codex アプリ/CLI 経由でサインイン済み",
+  "Signed in via ChatGPT app or Codex CLI": "ChatGPT アプリまたは Codex CLI 経由でサインイン済み",
   "Signed in via your editor's Copilot login": "エディタの Copilot ログイン経由でサインイン済み",
   "Signed in via your editor's Copilot login to {host}": "エディタの Copilot ログイン経由で {host} にサインイン済み",
   "Signed in with GitHub": "GitHub でサインイン済み",

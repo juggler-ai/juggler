@@ -1286,7 +1286,7 @@
   "Sign-in check failed": "Anmeldeprüfung fehlgeschlagen",
   "Sign-in failed": "Anmeldung fehlgeschlagen",
   "Signed in": "Angemeldet",
-  "Signed in via Codex app/CLI": "Angemeldet über Codex-App/CLI",
+  "Signed in via ChatGPT app or Codex CLI": "Angemeldet über ChatGPT-App oder Codex-CLI",
   "Signed in via your editor's Copilot login": "Angemeldet über die Copilot-Anmeldung Ihres Editors",
   "Signed in via your editor's Copilot login to {host}": "Angemeldet über die Copilot-Anmeldung Ihres Editors bei {host}",
   "Signed in with GitHub": "Mit GitHub angemeldet",

@@ -1286,7 +1286,7 @@
   "Sign-in check failed": "Falló la comprobación del inicio de sesión",
   "Sign-in failed": "No se pudo iniciar sesión",
   "Signed in": "Sesión iniciada",
-  "Signed in via Codex app/CLI": "Sesión iniciada mediante la app/CLI de Codex",
+  "Signed in via ChatGPT app or Codex CLI": "Sesión iniciada mediante la app de ChatGPT o la CLI de Codex",
   "Signed in via your editor's Copilot login": "Sesión iniciada mediante el inicio de sesión de Copilot de tu editor",
   "Signed in via your editor's Copilot login to {host}": "Sesión iniciada en {host} mediante el inicio de sesión de Copilot de tu editor",
   "Signed in with GitHub": "Sesión iniciada con GitHub",

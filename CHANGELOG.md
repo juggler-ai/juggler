@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-10-28
+
 - Usage-limit errors that give a reset time offer to auto-continue then
 - File paths in replies are clickable and open the file on the Pinboard
 - Long conversations offer Compact and Hand off buttons beside the context meter

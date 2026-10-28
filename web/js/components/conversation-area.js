@@ -999,8 +999,7 @@ class ConversationArea extends JugglerElement {
     if (actionsEl && parentThread && threadItemId) {
       const idx = parentThread.findIndexByItemId(threadItemId);
       if (idx >= 0) {
-        appendDeleteControls(actionsEl, parentThread, threadItemId, (e) => {
-          e.stopPropagation();
+        appendDeleteControls(actionsEl, parentThread, threadItemId, () => {
           const clickIdx = parentThread.findIndexByItemId(threadItemId);
           if (clickIdx < 0) return;
           const neighborId = findNeighborItemId(parentThread.items, clickIdx, parentThread);

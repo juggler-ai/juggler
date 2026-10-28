@@ -41,6 +41,7 @@ of changes; this project follows semantic versioning.
 - Scheduled sends now fire from the server, even with every window closed
 - Queued messages left behind by a restart now get answered
 - Settings shows long model names in full, in a wider models and limits list
+- Deleting items mid-turn asks before stopping the turn; running tools are deletable
 
 ## [0.7.8] - 2026-10-23
 

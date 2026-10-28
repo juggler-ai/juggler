@@ -1082,20 +1082,12 @@ class PropertiesPanel extends JugglerElement {
       controls.appendChild(retryBtn);
     }
 
-    // Find item index for delete operations
+    // A busy tool is deletable too: the delete controls stop the work it
+    // belongs to before deleting (see appendDeleteControls).
     const taItemId = toolAction.get('itemId');
-    if (taItemId && this._messageThread) {
-      const itemIndex = this._messageThread.findIndexByItemId(taItemId);
-
-      // A busy tool cannot be deleted on its own: deleting the item does not
-      // stop the tool, and the result it finishes with has nowhere to land.
-      const taState = toolAction.get('state');
-      const busy = taState === TOOL_STATES.RUNNING || taState === TOOL_STATES.APPROVED;
-      if (itemIndex >= 0) {
-        appendDeleteControls(controls, this._messageThread, taItemId,
-          () => this._deleteItem(taItemId),
-          busy ? t('Stop the tool before deleting it') : undefined);
-      }
+    if (taItemId && this._messageThread && this._messageThread.findIndexByItemId(taItemId) >= 0) {
+      appendDeleteControls(controls, this._messageThread, taItemId,
+        () => this._deleteItem(taItemId));
     }
 
     return controls;

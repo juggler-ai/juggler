@@ -148,10 +148,10 @@ export async function runTests() {
       const contextItem = { id: '5', refresh() {}, preventUserDeletion: () => false };
       collect('context item controls', shownStrings(wrapped(panel._renderContextItemControls(contextItem))));
 
-      // Tool-action controls: a busy tool with a result (Re-run, blocked Delete).
+      // Tool-action controls: a busy tool with a result (Re-run, the deletes).
       const toolControls = panel._renderToolActionControls(tool);
-      const blocked = /** @type {HTMLButtonElement|null} */ (toolControls.querySelector('button[disabled]'));
-      assert(!!blocked?.title, 'the busy tool drew no blocked-Delete tooltip');
+      assert(toolControls.querySelectorAll('.properties-panel-btn.danger').length === 3,
+        'the busy tool should draw all three delete buttons');
       collect('tool action controls', shownStrings(wrapped(toolControls)));
 
       // Token chips: an estimate, then a provider-reported count.

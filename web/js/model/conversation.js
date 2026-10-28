@@ -625,17 +625,18 @@ class Conversation {
 
   /**
    * Run a user-driven delete with full orchestration: cancels pending
-   * approvals, stops processing, seals the undo group around the delete, and
+   * approvals, stops any live turn, seals the undo group around the delete, and
    * announces a span removal so the column footer can offer an undo.
    *
    * Every user-facing multi-item delete goes through here, so the announcement
    * cannot be forgotten by a new call site.
    *
-   * Intentionally does NOT call `cancelAndSettle()` — that would also
-   * cancel any in-flight tool actions, but rerun/edit flows orchestrate
-   * an action *immediately after* this delete and would have it cancelled
-   * out from under them. Only the LLM turn is stopped here; deletion of
-   * specific items is the caller's contract.
+   * Synchronous: a live turn is stopped (`stopProcessing`, which cancels the
+   * running tool actions with it) but not waited for, so the delete goes ahead
+   * while the cancel is still on its way to the worker. A caller that must not
+   * delete under a live turn settles it first — the panel delete controls ask
+   * and await `cancelAndSettle()` before calling in. Neither the stop nor the
+   * delete asks the user; that is the caller's business.
    * @param {import('./message-thread.js').default} messageThread
    * @param {() => number} deleteFn - Performs the delete, returns items removed
    * @returns {number} How many items were deleted

@@ -360,6 +360,12 @@ export const scheduledSendRunEndTest = {
 /**
  * A send armed for 1.5s from now on an idle conversation is answered when the
  * time comes, with nothing in the client polling for it.
+ *
+ * The queued state is not waited for: the worker holds the send for 1.5s of its
+ * own clock, and a lane slower than that receives the queue entry and its
+ * promotion in one sync, so the entry is never seen. What the hold does
+ * guarantee is checked instead — the reply never arrives before `notBefore`,
+ * which a late lane only makes truer.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
 export const scheduledSendFiredByWorkerTest = {
@@ -381,14 +387,18 @@ export const scheduledSendFiredByWorkerTest = {
     const harness = /** @type {any} */ (ctx).harness;
     const composer = boundComposer(harness);
     typeInto(composer, SCHEDULED_TEXT);
-    const blocked = await composer.sendMessage({ schedule: { notBefore: Date.now() + 1500 } });
+    const notBefore = Date.now() + 1500;
+    const blocked = await composer.sendMessage({ schedule: { notBefore } });
     if (blocked) throw new Error(`scheduled send refused: ${blocked}`);
-    await waitForQueued(conversation, composer);
-    assertBoxConsumed(conversation, composer);
-    log('queued', snapshot(conversation, composer));
+    log('armed', snapshot(conversation, composer));
 
     await waitFor(() => !conversation.isTurnActive() && assistantIndex(conversation, 'Scheduled reply.') >= 0,
       { timeoutMs: 15000, description: () => `the worker to fire the due send: ${JSON.stringify(snapshot(conversation, composer))}` });
+    const answeredAt = Date.now();
+    if (answeredAt < notBefore) {
+      throw new Error(`the held send was answered ${notBefore - answeredAt}ms before its time`);
+    }
+    assertBoxConsumed(conversation, composer);
     if (pendingEntries(conversation).length !== 0) {
       throw new Error(`the fired send must leave the queue: ${JSON.stringify(pendingEntries(conversation))}`);
     }

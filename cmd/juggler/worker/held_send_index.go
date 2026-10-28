@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"juggler/internal/atomicio"
 	"juggler/internal/jlog"
 )
 
@@ -78,7 +79,7 @@ func (x *heldIndexState) file(path string) map[string]heldIndexEntry {
 		return f
 	}
 	f := map[string]heldIndexEntry{}
-	data, err := os.ReadFile(path)
+	data, err := atomicio.RobustReadFile(path)
 	switch {
 	case err == nil:
 		if err := json.Unmarshal(data, &f); err != nil {
@@ -92,13 +93,13 @@ func (x *heldIndexState) file(path string) map[string]heldIndexEntry {
 	return f
 }
 
-// write writes the index for path: to a temporary file beside it, then
-// renamed over it, so a reader never sees half a file. An empty index is
+// write writes the index for path atomically, so a reader never sees half a
+// file, and outlasting a reader that briefly holds it open. An empty index is
 // deleted.
 func (x *heldIndexState) write(path string) {
 	f := x.files[path]
 	if len(f) == 0 {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		if err := atomicio.RobustRemoveAll(path); err != nil {
 			jlog.Error("[held-index] removing %s: %v", path, err)
 		}
 		return
@@ -112,13 +113,8 @@ func (x *heldIndexState) write(path string) {
 		jlog.Error("[held-index] creating %s: %v", filepath.Dir(path), err)
 		return
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		jlog.Error("[held-index] writing %s: %v", tmp, err)
-		return
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		jlog.Error("[held-index] replacing %s: %v", path, err)
+	if err := atomicio.WriteFile(path, data, 0o644); err != nil {
+		jlog.Error("[held-index] writing %s: %v", path, err)
 	}
 }
 

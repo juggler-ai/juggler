@@ -107,8 +107,14 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 	}
 	rapi, ok := testAPI.(runAPI)
 	mustMatch(ok, "run-API")
+	// How far each lane of the pool got, read by the harness when a wait on
+	// the pool gives up (laneTrace).
+	lanes := newLaneTrace()
+	wait := LaneWait(lanes.waitPolling)
+	s.testLaneWait.Store(&wait)
+	api.HandleFunc("/lanes", lanes.handleReport).Methods("GET")
 	api.HandleFunc("/run", rapi.HandleRun).Methods("POST")
-	api.HandleFunc("/pending", rapi.HandlePending).Methods("GET")
+	api.HandleFunc("/pending", lanes.wrap(lanes.polled, rapi.HandlePending)).Methods("GET")
 	api.HandleFunc("/result", rapi.HandlePostResult).Methods("POST")
 	api.HandleFunc("/result", rapi.HandleGetResult).Methods("GET")
 	api.HandleFunc("/names", rapi.HandlePostNames).Methods("POST")
@@ -156,11 +162,11 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 	}).Methods("POST")
 
 	// Headless test runner page (test binary only)
-	s.router.HandleFunc("/headless-test", s.serveHeadlessTest).Methods("GET")
+	s.router.HandleFunc("/headless-test", lanes.wrap(lanes.servedLanePage, s.serveHeadlessTest)).Methods("GET")
 
 	// Test-pool host page: tiles N iframes of /headless-test for the
 	// "one window, N iframes" stress topology.
-	s.router.HandleFunc("/test-pool", s.serveTestPool).Methods("GET")
+	s.router.HandleFunc("/test-pool", lanes.wrap(func(string) { lanes.servedPool() }, s.serveTestPool)).Methods("GET")
 
 	// Last, so a test API that panicked a match above leaves a server that
 	// behaves as production does (see testCapabilities).

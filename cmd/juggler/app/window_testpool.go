@@ -62,7 +62,53 @@ type windowApp struct {
 	saves *windowgeom.Debouncer
 
 	onWindowReady func(*application.App, *application.WebviewWindow)
+	// requestQuit is the serialized shutdown path, which the engine's startup
+	// takes when the engine never comes up (startEngineHost).
+	requestQuit func()
+
+	// poolURL and poolLanes are the test-pool page this window loads and how
+	// many lanes it tiles; empty and zero for any other window.
+	poolURL   string
+	poolLanes int
 }
+
+// reloadStalledPool loads the test-pool window again, once, if its lanes have
+// not all asked for work by engineReloadAfter — the engine's own startup
+// policy (startEngineHost), for the same failure. On Windows a web view's first
+// load occasionally hangs with nothing reported, its pages served and none of
+// their script ever running, and a reload clears it. One that is still stalled
+// after the reload is left for the harness, whose lane report then shows it.
+func (a *windowApp) reloadStalledPool() {
+	if a.srv.WaitForTestLanes(a.poolLanes, engineReloadAfter) {
+		return
+	}
+	jlog.Info("[test-pool] lanes not all polling after %v; loading the pool window again", engineReloadAfter)
+	a.win.SetURL(a.poolURL)
+}
+
+// builtWindowHost is an engine host over an engine window already built with
+// the options its caller wants: the test pool's, which differ from
+// newEngineWindow's. It is started, reloaded and given up on exactly as
+// production's webviewHost is, by startEngineHost.
+type builtWindowHost struct {
+	win  *application.WebviewWindow
+	addr string
+}
+
+func (h *builtWindowHost) Describe() string { return "webview" }
+
+func (h *builtWindowHost) Start(addr string) error {
+	h.addr = addr
+	h.win.Run()
+	return nil
+}
+
+func (h *builtWindowHost) Recover() {
+	jlog.Info("[engine] reloading the engine WebView")
+	reloadEngineWindow(h.win, h.addr)
+}
+
+func (h *builtWindowHost) Stop() {}
 
 // startup runs after the application has finished launching, on the main
 // thread. Saved size/position/maximised/fullscreen state was applied by
@@ -81,12 +127,13 @@ func (a *windowApp) startup() {
 	// honouring the Hidden:true option (Show() would flash it on screen first).
 	// Once created, the WKWebView loads /engine and connects as the sole engine
 	// client. Owned by this process — independent of any user UI.
+	//
+	// Started through startEngineHost, as production's engine is: an engine
+	// whose first load fails — a module fetch WebView2 drops is enough — is
+	// loaded again rather than left down for the life of the server, and the
+	// server gets the same recovery lever and readiness gate.
 	if a.engineWin != nil {
-		a.engineWin.Run()
-		// The same recovery lever production's engine host hands the server:
-		// reloading the page replaces the engine's realm with a fresh one.
-		engineWin, addr := a.engineWin, a.srv.GetAddr()
-		a.srv.SetEngineRecovery(func() { reloadEngineWindow(engineWin, addr) })
+		startEngineHost(&builtWindowHost{win: a.engineWin}, a.srv, a.requestQuit)
 		// Engine stays Hidden:true. Under WebKit's default inactive scheduling
 		// policy (Suspend), a WKWebView in a never-shown window runs no timers
 		// at all. KeepRunningWhenHidden sets a policy on the WKWebViewConfiguration
@@ -108,6 +155,9 @@ func (a *windowApp) startup() {
 	// macrotasks (setTimeout), not requestAnimationFrame, so they run fine in
 	// a non-composited window.
 	if a.headless && a.testMode {
+		if a.poolLanes > 0 {
+			go a.reloadStalledPool()
+		}
 		return
 	}
 
@@ -300,6 +350,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 		geom:          windowgeom.NewTracker(saved, nil),
 		saves:         windowgeom.NewDebouncer(),
 		onWindowReady: onWindowReady,
+		requestQuit:   requestQuit,
 	}
 	go wa.saveLoop()
 
@@ -405,6 +456,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 	mainURL := "http://" + srv.GetAddr() + "/?window=1"
 	if headless && testMode && testIframes > 0 {
 		mainURL = fmt.Sprintf("http://%s/test-pool?n=%d", srv.GetAddr(), testIframes)
+		wa.poolURL, wa.poolLanes = mainURL, testIframes
 	}
 	if testWindowURL != "" {
 		mainURL = testWindowURL

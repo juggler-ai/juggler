@@ -281,9 +281,19 @@ func listBrowserTests(srv testServerEntry) (names, exclusive []string, err error
 		Exclusive []string `json:"exclusive"`
 	}
 	if err := pollServer(srv, "/api/test/names", listDiscoveryTimeout, &payload); err != nil {
-		return nil, nil, fmt.Errorf("waiting for test names: %w%s", err, prefixedPoolDeath(srv))
+		return nil, nil, fmt.Errorf("waiting for test names: %w%s", err, poolStall(srv, "__list__"))
 	}
 	return payload.Names, payload.Exclusive, nil
+}
+
+// poolStall is the evidence for a wait on srv that gave up with no lane having
+// answered name: the death block if the subprocess died, and otherwise the
+// queue audit, how far each lane got, and the machine's load.
+func poolStall(srv testServerEntry, name string) string {
+	if death := prefixedPoolDeath(srv); death != "" {
+		return death
+	}
+	return "\n" + queueAudit(srv.addr, name) + laneReport(srv.addr) + machineload.Line()
 }
 
 // The lane in the browser is the authority on when a test has failed: it fails
@@ -657,6 +667,56 @@ func queueAudit(addr, testName string) string {
 	default:
 		fmt.Fprintf(&b, "LOST AT: a result was posted %s ago and is still buffered unserved — the "+
 			"harness was polling a key the result was not filed under.\n", agoString(a.ResultPostedAgeMs))
+	}
+	return b.String()
+}
+
+// laneReport says how far each lane of the server behind addr got: whether the
+// pool window loaded its page, whether each lane's page was served, and when
+// each lane last asked for work. It is for a wait that gave up on the pool as a
+// whole — the listing, or a test no lane ever took — where the queue audit can
+// only say the work was never taken, not why. Best-effort, like projectSize.
+func laneReport(addr string) string {
+	client := &http.Client{Timeout: harnessHTTPTimeout}
+	resp, err := client.Get("http://" + addr + "/api/test/lanes")
+	if err != nil {
+		return fmt.Sprintf("LANES: unavailable (%v)", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Sprintf("LANES: endpoint returned %d", resp.StatusCode)
+	}
+	type mark struct {
+		Count int   `json:"count"`
+		AgoMs int64 `json:"agoMs"`
+	}
+	var rep struct {
+		UptimeMs   int64 `json:"uptimeMs"`
+		PoolServed mark  `json:"poolServed"`
+		Lanes      []struct {
+			Lane       string `json:"lane"`
+			PageServed mark   `json:"pageServed"`
+			Polled     mark   `json:"polled"`
+		} `json:"lanes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rep); err != nil {
+		return fmt.Sprintf("LANES: undecodable (%v)", err)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "LANES (server up %s): pool page served %d time(s), last %s\n",
+		agoString(rep.UptimeMs), rep.PoolServed.Count, progressAgo(rep.PoolServed.AgoMs))
+	if rep.PoolServed.Count == 0 {
+		b.WriteString("  STALLED AT: the pool window never requested /test-pool — it never navigated.\n")
+	}
+	for _, l := range rep.Lanes {
+		fmt.Fprintf(&b, "  lane %s: page served %d time(s), last %s; polled %d time(s), last %s\n",
+			l.Lane, l.PageServed.Count, progressAgo(l.PageServed.AgoMs), l.Polled.Count, progressAgo(l.Polled.AgoMs))
+		if l.PageServed.Count > 0 && l.Polled.Count == 0 {
+			fmt.Fprintf(&b, "  STALLED AT: lane %s loaded its page and never reached its poll loop.\n", l.Lane)
+		}
+	}
+	if rep.PoolServed.Count > 0 && len(rep.Lanes) == 0 {
+		b.WriteString("  STALLED AT: the pool page loaded and no lane page was ever requested.\n")
 	}
 	return b.String()
 }

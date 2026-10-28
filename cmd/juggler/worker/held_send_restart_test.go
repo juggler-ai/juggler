@@ -6,6 +6,7 @@ package worker
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	ycrdt "github.com/skyterra/y-crdt"
 
 	"juggler/cmd/juggler/core"
+	"juggler/internal/atomicio"
 )
 
 // A held send outlives the server: the held-send index names every conversation
@@ -71,7 +73,7 @@ func (s *heldStore) writeDoc(t *testing.T, id string, doc *ConversationDocument)
 // index reads the project's held-send index from disk.
 func (s *heldStore) index(t *testing.T) map[string]heldIndexEntry {
 	t.Helper()
-	data, err := os.ReadFile(heldIndexPath(s.project))
+	data, err := atomicio.RobustReadFile(heldIndexPath(s.project))
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -315,5 +317,44 @@ func TestACloneDropsHeldSends(t *testing.T) {
 
 	if _, changed, _ := WithoutHeldSends(clone.ToState()); changed {
 		t.Error("a state with no held sends was reported changed")
+	}
+}
+
+// TestHeldIndexWritesOutlastAReader: every write and the final removal of the
+// index land while another process keeps opening the file — a scanner, the
+// search indexer, or a test polling it. Windows refuses to replace or delete a
+// file someone has open, for as long as they have it open.
+func TestHeldIndexWritesOutlastAReader(t *testing.T) {
+	store := newHeldStore(t)
+	path := heldIndexPath(store.project)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_, _ = os.ReadFile(path)
+			}
+		}
+	}()
+	defer func() { close(stop); <-done }()
+
+	x := newHeldSendIndex()
+	const n = 20
+	for i := range n {
+		id := fmt.Sprintf("conv-%d", i)
+		x.publish(store.project, id, heldIndexEntry{Due: true}, true)
+		if _, ok := store.index(t)[id]; !ok {
+			t.Fatalf("write %d did not reach the index on disk", i)
+		}
+	}
+	for i := range n {
+		x.publish(store.project, fmt.Sprintf("conv-%d", i), heldIndexEntry{}, false)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the emptied index is still on disk (stat err %v)", err)
 	}
 }

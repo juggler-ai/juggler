@@ -74,7 +74,7 @@ func setHTMLSecurityHeadersFramed(w http.ResponseWriter, nonce string, sameOrigi
 		"http://127.0.0.1:* http://localhost:* http://[::1]:* " +
 		"https://127.0.0.1:* https://localhost:* https://[::1]:*"
 	csp := "default-src 'self'; " +
-		"script-src 'self' 'nonce-" + nonce + "' https://cdnjs.cloudflare.com; " +
+		"script-src 'self' 'nonce-" + nonce + "'; " +
 		"style-src 'self' 'unsafe-inline'; " +
 		"img-src 'self' data: blob:; " +
 		// The media file viewer plays from the content route, or from a blob of

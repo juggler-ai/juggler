@@ -25,6 +25,34 @@
         window.addEventListener('unhandledrejection', (e) => {
             window.__earlyErrors.push('unhandled rejection: ' + (e.reason && e.reason.message || e.reason));
         });
+
+        // A script, module or stylesheet that fails to load fires `error` on its
+        // element, not on window, so only a capture-phase listener hears it. A
+        // module that never loads leaves this lane without its poll loop for
+        // good, taking no work while its page reads as served; the browser
+        // occasionally drops one such fetch. Until the poll loop starts
+        // (__laneBooted), the lane says so on the server's stderr and loads
+        // itself again — at most twice, so a file that is really missing fails
+        // where the harness can see it rather than reloading forever.
+        window.__laneBooted = false;
+        window.addEventListener('error', (e) => {
+            const el = e.target;
+            if (!el || el === window || !(el.src || el.href)) return;
+            const what = 'failed to load ' + (el.src || el.href);
+            window.__earlyErrors.push(what);
+            if (window.__laneBooted) return;
+            const url = new URL(location.href);
+            const attempt = Number(url.searchParams.get('bootAttempt') || '0') + 1;
+            const base = window.__jugglerBase || '';
+            fetch(base + '/api/test/debug-log', {
+                method: 'POST',
+                body: JSON.stringify({ lane: url.searchParams.get('lane'), attempt, error: what }),
+            }).catch(() => {}).finally(() => {
+                if (attempt > 2) return;
+                url.searchParams.set('bootAttempt', String(attempt));
+                location.replace(url.href);
+            });
+        }, true);
     </script>
 
     <!-- Fonts (self-hosted; see web/css/base/fonts.css) -->
@@ -145,7 +173,6 @@
     <script src="{{.BasePath}}/v{{.StaticVersion}}/js/vendor/prism-makefile.js"></script>
     <script src="{{.BasePath}}/v{{.StaticVersion}}/js/vendor/prism-cmake.js"></script>
     <script src="{{.BasePath}}/v{{.StaticVersion}}/js/vendor/prism-diff.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/diff_match_patch/20121119/diff_match_patch.js"></script>
 
     <!-- Import map for user/project plugins to import base classes via bare specifiers -->
     <script type="importmap" nonce="{{.CSPNonce}}">
@@ -265,11 +292,14 @@
             }
         }
 
-        // Poll /api/test/pending for the next entry. Resolves when an entry is available.
+        // Poll /api/test/pending for the next entry. Resolves when an entry is
+        // available. Each poll names its lane, so the server can say which
+        // lanes were alive when the harness gives up on the pool.
+        const pendingUrl = apiUrl('/test/pending?lane=' + encodeURIComponent(urlParams.get('lane') ?? ''));
         async function waitForNextEntry() {
             while (true) {
                 try {
-                    const resp = await fetch(apiUrl('/test/pending'));
+                    const resp = await fetch(pendingUrl);
                     if (resp.status === 200) {
                         return await resp.json();
                     }
@@ -346,6 +376,15 @@
             // rarely: at 25 a lane recycles about twice in a full run.
             const LANE_RECYCLE_EVERY = 25;
             let testsSinceLoad = 0;
+
+            // The lane is up: a load failure from here on is a test's to report,
+            // and a later recycle starts with its boot retries unspent.
+            window.__laneBooted = true;
+            const bootUrl = new URL(location.href);
+            if (bootUrl.searchParams.has('bootAttempt')) {
+                bootUrl.searchParams.delete('bootAttempt');
+                history.replaceState(history.state, '', bootUrl.href);
+            }
 
             while (true) {
                 // Nothing here may be allowed to throw: this loop IS the lane.

@@ -4,6 +4,8 @@
 
 package server
 
+import "time"
+
 // ProcessPIDs lists processes that do this server's work without being in its
 // process tree. Installed by the app layer, which owns the web views.
 type ProcessPIDs func() []int
@@ -23,4 +25,19 @@ func (s *Server) SetTestProcessPIDs(fn ProcessPIDs) {
 		return
 	}
 	s.testProcessPIDs.Store(&fn)
+}
+
+// LaneWait reports whether n distinct lanes of a test pool have asked for work
+// within timeout.
+type LaneWait func(n int, timeout time.Duration) bool
+
+// WaitForTestLanes reports whether n distinct lanes of this server's test pool
+// have asked for work within timeout. The app layer's pool window waits on it
+// to tell a first load that hung from one that is running. A server with no
+// test routes has no lanes to wait for and reports true.
+func (s *Server) WaitForTestLanes(n int, timeout time.Duration) bool {
+	if fn := s.testLaneWait.Load(); fn != nil {
+		return (*fn)(n, timeout)
+	}
+	return true
 }

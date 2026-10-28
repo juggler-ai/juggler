@@ -204,6 +204,9 @@ type wsFleet struct {
 	// its pages (see SetTestProcessPIDs). Installed by the test-pool host; nil
 	// elsewhere.
 	testProcessPIDs atomic.Pointer[ProcessPIDs]
+	// testLaneWait waits for a test pool's lanes to ask for work (see
+	// WaitForTestLanes). Installed by RegisterTestRoutes; nil elsewhere.
+	testLaneWait atomic.Pointer[LaneWait]
 	// serverBeatIntervalNs overrides serverBeatInterval when non-zero, and with it
 	// the link-check tick derived from it. Test-only seam (see link_liveness.go).
 	serverBeatIntervalNs atomic.Int64

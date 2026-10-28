@@ -8,12 +8,12 @@
          Each maps to a curated re-export façade in web/sdk/ (decoupled from internal
          file layout). See docs/extension_guide.md.
 
-         MUST come before the parser-blocking diff-match-patch <script src> below.
-         Firefox rejects an import map once a module load or preload has started,
-         and its preload scanner speculatively preloads the body's module scripts
-         while the parser is blocked on that classic script — so an import map
-         placed after it is silently discarded and every bare juggler/* specifier
-         fails to resolve. -->
+         MUST come before any parser-blocking classic <script src>. Firefox
+         rejects an import map once a module load or preload has started, and
+         its preload scanner speculatively preloads the body's module scripts
+         while the parser is blocked on a classic script — so an import map
+         placed after one is silently discarded and every bare juggler/*
+         specifier fails to resolve. -->
     <script type="importmap" nonce="{{.CSPNonce}}">
     {
         "imports": {
@@ -41,10 +41,6 @@
         }
     }
     </script>
-
-    <!-- diff-match-patch for proper diff algorithm. A parser-blocking classic
-         script — must stay AFTER the import map above (see the note there). -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/diff_match_patch/20121119/diff_match_patch.js"></script>
 </head>
 <body>
     <!-- Asset prefix for versioned static paths -->

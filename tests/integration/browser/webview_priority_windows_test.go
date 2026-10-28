@@ -125,7 +125,7 @@ func bootSandboxFrame(t *testing.T, srv testServerEntry) {
 		Errors  []string `json:"errors"`
 	}
 	if err := pollServer(srv, "/api/test/result?name="+sandboxBootTest, 120*time.Second, &result); err != nil {
-		t.Fatalf("waiting for %s on %s: %v%s", sandboxBootTest, srv.addr, err, prefixedPoolDeath(srv))
+		t.Fatalf("waiting for %s on %s: %v%s", sandboxBootTest, srv.addr, err, poolStall(srv, sandboxBootTest))
 	}
 	if !result.Passed {
 		t.Fatalf("%s failed on %s, so its sandbox frame may not exist: %s %s",

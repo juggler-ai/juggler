@@ -5,7 +5,7 @@
 
 import EditBase from './edit-base.js';
 import { normalizeFilePath, basename } from 'juggler/item-utils';
-import { checkFileFreshness, recordWrittenHash, restageBaseline, acquirePathLock } from './read-history.js';
+import { checkFileFreshness, awaitsReadInTurn, recordWrittenHash, restageBaseline, acquirePathLock } from './read-history.js';
 import { absolutePathKey } from './path-approval.js';
 import { translator, markUntranslated } from 'juggler/i18n';
 
@@ -31,13 +31,19 @@ const t = translator('@juggler/core');
 const SEARCH_NOT_FOUND = 'SEARCH_NOT_FOUND';
 
 /**
+ * execute's code for an edit whose validation counted on a same-turn read of
+ * the file that then did not land (it failed, or was refused).
+ */
+const NOT_READ = 'NOT_READ';
+
+/**
  * What execute returns when old_str stopped matching between approval and
- * execute: a structured failure in the SDK's shape (`success: false` plus an
- * `errorCode`), which the action executor hands to {@link
- * ReplaceTextContextItem#formatError}.
+ * execute, or when the same-turn read validation counted on never landed: a
+ * structured failure in the SDK's shape (`success: false` plus an `errorCode`),
+ * which the action executor hands to {@link ReplaceTextContextItem#formatError}.
  * @typedef {object} SearchNotFoundResult
  * @property {false} success - Always false
- * @property {string} errorCode - SEARCH_NOT_FOUND
+ * @property {string} errorCode - SEARCH_NOT_FOUND or NOT_READ
  * @property {string} path - The file the edit named
  * @property {string} message - The explanation for the model
  */
@@ -175,8 +181,13 @@ class ReplaceTextContextItem extends EditBase {
     // read/write/edit/batch_read or a pinned file — so it survives relaunch,
     // extra clients, and both realms. Checked before the dryRun so a never-read
     // file gets the read-first message rather than a search-mismatch one.
+    // A read of the file earlier in this edit's own turn has not run yet — a
+    // batch is evaluated before any of it executes — so the guard is deferred
+    // to execute, which the worker holds until that read has settled.
     const neverRead = checkFileFreshness(this.conversation, this.session, params.path, undefined, this.toolUseId);
-    if (!neverRead.ok) {
+    const awaitsRead = !neverRead.ok &&
+      awaitsReadInTurn(this.conversation, this.session, params.path, this.toolUseId);
+    if (!neverRead.ok && !awaitsRead) {
       return { valid: false, error: neverRead.error };
     }
 
@@ -202,8 +213,8 @@ class ReplaceTextContextItem extends EditBase {
     }
 
     // Staleness is deliberately NOT re-checked on a successful match. Reaching
-    // here means the file was seen this session (the read-before-edit guard
-    // above) AND old_str uniquely matched the file's CURRENT bytes (the dryRun
+    // here means the file was seen this session, or is being read earlier in
+    // this turn (the read-before-edit guard above), AND old_str uniquely matched the file's CURRENT bytes (the dryRun
     // succeeded). Replacing text that is present verbatim is lossless even if
     // the file changed out-of-band since it was read — any surrounding change is
     // preserved — so refusing would only burn a turn on a needless re-read
@@ -217,7 +228,7 @@ class ReplaceTextContextItem extends EditBase {
     // Cache dryRun result for getApprovalConfig()
     return {
       valid: true,
-      params: { ...params, _dryRunResult: result }
+      params: { ...params, _dryRunResult: result, ...(awaitsRead ? { _awaitsRead: true } : {}) }
     };
   }
 
@@ -294,7 +305,18 @@ class ReplaceTextContextItem extends EditBase {
     const anyParams = /** @type {any} */ (normalizedParams);
     const dryRunResult = /** @type {{contentHash?: string, oldContent?: string, newContent?: string}|undefined} */ (anyParams._dryRunResult);
     delete anyParams._dryRunResult;
+    const awaitsRead = anyParams._awaitsRead === true;
+    delete anyParams._awaitsRead;
     const frozenHash = dryRunResult?.contentHash;
+
+    // validate() deferred the read-before-edit guard to a same-turn read that
+    // had not run yet; that read has settled now, so apply the guard.
+    if (awaitsRead) {
+      const seen = checkFileFreshness(this.conversation, this.session, anyParams.path, undefined, this.toolUseId);
+      if (!seen.ok) {
+        return { success: false, errorCode: NOT_READ, path: anyParams.path, message: seen.error };
+      }
+    }
     const oldFull = dryRunResult?.oldContent;
     const newFull = dryRunResult?.newContent;
 

@@ -550,3 +550,59 @@ export function checkFileFreshness(conversation, session, path, currentHash, too
     error: markUntranslated(`Refusing to edit '${path}': the file has changed on disk since it was last read. Re-read the file, then retry against its current content.`)
   };
 }
+
+/**
+ * Tools whose input names the files they will read, so a call still in flight
+ * can be matched to a path before it has a result.
+ * @type {Set<string>}
+ */
+const PENDING_READ_TOOLS = new Set(['read', 'batch_read']);
+
+/**
+ * Whether a read of `path` emitted earlier in the same turn as the mutation
+ * `toolUseId` has yet to finish.
+ *
+ * Every call of a turn is evaluated before any of them runs, so an edit issued
+ * in one batch after a read of its file is validated while that read has no
+ * result — and the transcript, which only credits finished reads, says the file
+ * was never seen. The worker runs the edit (a "write" call) only once every
+ * earlier call of its turn has settled (tool_ordering.go), so by execute the read
+ * has either landed or failed: the guard can be applied there instead. A turn is
+ * the calls sharing a `transactionId` in one thread, the worker's own grouping.
+ * A read that finished is not counted here; checkFileFreshness already has it,
+ * or it failed and proves nothing.
+ * @param {object|undefined} conversation - Conversation instance
+ * @param {object|undefined} session - Session (for path resolution)
+ * @param {string|undefined} path - File path the mutation targets
+ * @param {string|undefined} toolUseId - The mutation's own tool-use id
+ * @returns {boolean} True when such a read is still unfinished
+ */
+export function awaitsReadInTurn(conversation, session, path, toolUseId) {
+  const target = pathMatchKey(session, path);
+  if (!conversation || !target || !toolUseId) return false;
+  const threads = /** @type {any} */ (conversation).getAllMessageThreads?.() || [];
+  for (const thread of threads) {
+    const items = [...(thread.items || [])];
+    const own = items.findIndex((m) => typeof m?.get === 'function' &&
+      m.get('type') === 'tool-action' && m.get('toolUseId') === toolUseId);
+    if (own < 0) continue;
+    const turn = items[own].get('transactionId');
+    if (!turn) return false;
+    for (const ymap of items.slice(0, own)) {
+      if (typeof ymap?.get !== 'function' || ymap.get('type') !== 'tool-action') continue;
+      if (ymap.get('transactionId') !== turn) continue;
+      const toolName = ymap.get('toolName');
+      if (!PENDING_READ_TOOLS.has(toolName)) continue;
+      const state = ymap.get('state');
+      if (state === 'completed' || state === 'cancelled') continue;
+      const rawInput = ymap.get('toolInput');
+      const toolInput = rawInput?.toJSON ? rawInput.toJSON() : rawInput;
+      const paths = toolName === 'batch_read'
+        ? ylist(toolInput?.files).map((f) => /** @type {any} */ (f)?.file_path)
+        : [toolInputPath(toolInput, true)];
+      if (paths.some((p) => p && pathMatchKey(session, p) === target)) return true;
+    }
+    return false;
+  }
+  return false;
+}

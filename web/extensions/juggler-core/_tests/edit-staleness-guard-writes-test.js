@@ -15,7 +15,40 @@
 import { createTestConversation, assert } from '../../../js-tests/utilities/test-helpers.js';
 import { writeFile, readFile } from '../../../js/services/ops-api.js';
 import { recordWrittenHash, __resetWrittenHashesForTest } from '../context-items/read-history.js';
+import { handleNewToolAction } from '../../../js/model/conversation-tool-actions.js';
+import { createToolActionMessage, TOOL_STATES } from '../../../sdk/lib/message.js';
 import { BOGUS_HASH, makeGuardHarness } from './edit-staleness-helpers.js';
+
+/**
+ * States for the calls of a case that drives validate and execute itself. The
+ * conversation's worker and engine are live, so a seeded call they would run —
+ * an approved one, or one a reattach resets from running — races the case's
+ * own execute and edits the file under it. The edit's own record only places
+ * it in its turn, so it is terminal; the reads are parked, which nothing runs
+ * and the deferred guard still counts as unfinished.
+ */
+const OWN_RECORD = TOOL_STATES.CANCELLED;
+const UNRUN_READ = TOOL_STATES.PENDING;
+
+/**
+ * Append one call of a model turn: a tool-action stamped with the turn's
+ * `transactionId`, as the worker writes a turn's calls. A `running` call gets
+ * the claim stamp a real claim leaves, so nothing takes it for stuck.
+ * @param {any} conversation - Conversation instance
+ * @param {string} turn - The turn's transactionId
+ * @param {string} toolUseId - The call's id
+ * @param {string} toolName - The tool called
+ * @param {Record<string, unknown>} toolInput - Its input
+ * @param {string} [state] - Its lifecycle state; absent means not yet evaluated
+ * @returns {void}
+ */
+function addTurnCall(conversation, turn, toolUseId, toolName, toolInput, state) {
+  conversation.rootMessageThread.addEvent({
+    ...createToolActionMessage({ toolUseId, toolName, toolInput, ...(state ? { state } : {}) }),
+    transactionId: turn,
+    ...(state === TOOL_STATES.RUNNING ? { runningStartedAt: Date.now() } : {})
+  });
+}
 
 /**
  * @typedef {import('./edit-staleness-helpers.js').TestResult} TestResult
@@ -219,6 +252,98 @@ export async function runTests(_ctx) {
     const final = await readFile({ path: 'guard-parallel-w.txt' });
     assert(final.content === 'three\n',
       `last overwrite should win, got ${JSON.stringify(final.content)}`);
+  });
+
+  // =========================================================================
+  // Read then edit in ONE batch: every call of a turn is evaluated before any
+  // runs, so the edit validates while its read is still unfinished. Validation
+  // defers the guard to execute, which the worker holds until the read has
+  // settled; there the guard applies against what the read actually did.
+  // =========================================================================
+  await test('a read earlier in the same turn lets the edit through evaluation', async () => {
+    const conversation = await createTestConversation(session);
+    await writeFile({ path: 'guard-turn-eval.txt', content: 'hello world\n' });
+    addTurnCall(conversation, 'turn-eval', 'turn-eval-read', 'read',
+      { file_path: 'guard-turn-eval.txt' }, TOOL_STATES.RUNNING);
+    addTurnCall(conversation, 'turn-eval', 'turn-eval-edit', 'edit',
+      { file_path: 'guard-turn-eval.txt', old_string: 'world', new_string: 'there' });
+
+    // The engine path, which is the one that must hand the call its id.
+    const prevEngine = /** @type {any} */ (globalThis).JUGGLER_ENGINE;
+    /** @type {any} */ (globalThis).JUGGLER_ENGINE = true;
+    try {
+      await handleNewToolAction(conversation.rootMessageThread, 'turn-eval-edit', conversation);
+    } finally {
+      /** @type {any} */ (globalThis).JUGGLER_ENGINE = prevEngine;
+    }
+    const ta = conversation.rootMessageThread.getToolAction('turn-eval-edit');
+    const result = ta?.get('result');
+    assert(!result, `the edit must not be refused at evaluation, got ${JSON.stringify(result?.toJSON?.() ?? result)}`);
+    assert(ta?.get('state') === TOOL_STATES.APPROVED || ta?.get('state') === TOOL_STATES.PENDING,
+      `the edit should be awaiting its turn, got ${ta?.get('state')}`);
+  });
+
+  await test('the deferred guard applies at execute once the read has landed', async () => {
+    const conversation = await createTestConversation(session);
+    const v0 = await writeFile({ path: 'guard-turn-ok.txt', content: 'hello world\n' });
+    addTurnCall(conversation, 'turn-ok', 'turn-ok-read', 'read',
+      { file_path: 'guard-turn-ok.txt' }, UNRUN_READ);
+    addTurnCall(conversation, 'turn-ok', 'turn-ok-edit', 'edit',
+      { file_path: 'guard-turn-ok.txt', old_string: 'world', new_string: 'there' }, OWN_RECORD);
+
+    const edit = mkItem(EditClass, conversation, 'turn-ok-edit');
+    const res = await edit.validate({ file_path: 'guard-turn-ok.txt', old_string: 'world', new_string: 'there' });
+    assert(res.valid === true, `an edit behind a same-turn read must validate, got ${JSON.stringify(res)}`);
+
+    conversation.rootMessageThread.completeToolAction('turn-ok-read', {
+      content: 'read ok',
+      isError: false,
+      fullResult: { state: 'completed', success: true, result: { exists: true, contentHash: v0.contentHash } }
+    });
+    const out = await edit.execute(res.params);
+    assert(out && /** @type {any} */ (out).success !== false, `the edit should apply, got ${JSON.stringify(out)}`);
+    const final = await readFile({ path: 'guard-turn-ok.txt' });
+    assert(final.content === 'hello there\n', `the edit should be on disk, got ${JSON.stringify(final.content)}`);
+  });
+
+  await test('the deferred guard refuses at execute when the read failed', async () => {
+    const conversation = await createTestConversation(session);
+    await writeFile({ path: 'guard-turn-fail.txt', content: 'hello world\n' });
+    addTurnCall(conversation, 'turn-fail', 'turn-fail-read', 'read',
+      { file_path: 'guard-turn-fail.txt' }, UNRUN_READ);
+    addTurnCall(conversation, 'turn-fail', 'turn-fail-edit', 'edit',
+      { file_path: 'guard-turn-fail.txt', old_string: 'world', new_string: 'there' }, OWN_RECORD);
+
+    const edit = mkItem(EditClass, conversation, 'turn-fail-edit');
+    const res = await edit.validate({ file_path: 'guard-turn-fail.txt', old_string: 'world', new_string: 'there' });
+    assert(res.valid === true, `an edit behind a same-turn read must validate, got ${JSON.stringify(res)}`);
+
+    conversation.rootMessageThread.completeToolAction('turn-fail-read', {
+      content: 'Tool execution failed: denied',
+      isError: true,
+      fullResult: { state: 'error', success: false, error: 'denied' }
+    });
+    const out = /** @type {any} */ (await edit.execute(res.params));
+    assert(out?.success === false && /has not been read/i.test(out?.message || ''),
+      `an edit whose read failed must be refused, got ${JSON.stringify(out)}`);
+    const final = await readFile({ path: 'guard-turn-fail.txt' });
+    assert(final.content === 'hello world\n', `the file must be untouched, got ${JSON.stringify(final.content)}`);
+  });
+
+  await test('a read in another turn, or after the edit, does not count', async () => {
+    const conversation = await createTestConversation(session);
+    await writeFile({ path: 'guard-turn-not.txt', content: 'hello world\n' });
+    addTurnCall(conversation, 'turn-not-a', 'turn-not-read-a', 'read',
+      { file_path: 'guard-turn-not.txt' }, UNRUN_READ);
+    addTurnCall(conversation, 'turn-not-b', 'turn-not-edit', 'edit',
+      { file_path: 'guard-turn-not.txt', old_string: 'world', new_string: 'there' }, OWN_RECORD);
+    addTurnCall(conversation, 'turn-not-b', 'turn-not-read-b', 'read',
+      { file_path: 'guard-turn-not.txt' }, UNRUN_READ);
+
+    const edit = mkItem(EditClass, conversation, 'turn-not-edit');
+    const res = await edit.validate({ file_path: 'guard-turn-not.txt', old_string: 'world', new_string: 'there' });
+    assert(res.valid === false && /has not been read/i.test(res.error || ''),
+      `only an earlier read of the edit's own turn may defer the guard, got ${JSON.stringify(res)}`);
   });
 
   return results();

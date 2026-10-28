@@ -207,9 +207,9 @@ export async function decideToolCall(call) {
  * @param {any} toolDef - The tool's definition, if it has one
  * @param {{messageThread: any, conversation: any, toolName: string, toolInput: Record<string, unknown>, toolUseId: string}} call - The call
  * @param {{bindToolUseId?: boolean}} [opts] - `bindToolUseId` hands the call's
- *   id to the action, as the executor does. A call outside the transcript (a
- *   program tool's sub-call) needs it: its id is how validation finds the reads its
- *   program has made. The evaluate path leaves it unbound, as it always has.
+ *   id to the action, as the executor does. Validation finds the call's place
+ *   by it: a program tool's sub-call, the reads its program has made; a call in
+ *   the transcript, the earlier calls of its own turn.
  * @returns {Promise<ToolCallDecision>} The ruling
  */
 async function decideForAction(ActionClass, toolDef, call, opts = {}) {
@@ -443,7 +443,7 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
 
   const decision = await decideForAction(ActionClass, toolDef, {
     messageThread, conversation, toolName, toolInput: toolInputPlain, toolUseId
-  });
+  }, { bindToolUseId: true });
 
   if (decision.verdict === 'invalid') {
     const errorMessage = decision.reason;

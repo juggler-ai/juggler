@@ -110,7 +110,7 @@ func RunOpenCommand(args []string, env CLIEnv) int {
 	if c.Started {
 		fmt.Fprintf(env.Stderr, "Started the Juggler server at http://%s/.\n", c.addr)
 	}
-	sess, err := c.OpenSession(project)
+	sess, _, err := c.OpenSession(project)
 	if err != nil {
 		return cliFail(env, "open", err)
 	}
@@ -229,7 +229,7 @@ func cliStopSession(env CLIEnv, which string) int {
 		fmt.Fprintf(env.Stderr, "juggler server stop: no session is running for %q (see `juggler server sessions`)\n", which)
 		return 1
 	}
-	if err := c.do(http.MethodDelete, "/sessions/"+target.ID, nil, nil); err != nil {
+	if err := c.StopSession(target.ID); err != nil {
 		return cliFail(env, "server stop", err)
 	}
 	fmt.Fprintf(env.Stdout, "Stopped session %s (%s).\n", target.ID, target.Project)

@@ -244,6 +244,8 @@ type statusResponse struct {
 	Sessions  int       `json:"sessions"`
 	// Implicit is serve --implicit (see ServerInfo.Implicit).
 	Implicit bool `json:"implicit,omitempty"`
+	// Attached is how many clients hold the server up (see attach).
+	Attached int `json:"attached"`
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
@@ -260,6 +262,7 @@ func (s *Server) status() statusResponse {
 		StartedAt: s.startedAt,
 		Sessions:  len(s.reg.snapshot()),
 		Implicit:  s.implicit,
+		Attached:  int(s.attached.Load()),
 	}
 }
 
@@ -272,12 +275,9 @@ func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 // the open is waiting on it.
 var awaitingSpawn = func(string) {}
 
-// handleOpenSession spawns (or reuses) the session child for a project.
-// POST /api/server/sessions {"project": "/abs/path" or "~/path"}.
-// Reuse returns the live record; a fresh spawn blocks until the child reports
-// its address (bounded by childStartTimeout) and returns 201. A spawn already
-// in flight answers "starting" at once, or with "wait": true once that spawn
-// has settled, as a fresh one would (see awaitSpawn).
+// handleOpenSession spawns (or reuses) the session child for a project (see
+// openSession). POST /api/server/sessions {"project": "/abs/path" or
+// "~/path", "wait": bool}.
 func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Project string `json:"project"`
@@ -293,22 +293,46 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	res := s.openSession(r.Context(), project, req.Wait)
+	switch {
+	case res.status == 0:
+		// The caller went while it waited: there is no one to answer.
+	case res.refusal != nil:
+		writeMessageError(w, res.status, *res.refusal)
+	default:
+		writeJSON(w, res.status, res.sess)
+	}
+}
 
+// openResult is how an open went: the session's record and the status that
+// reports it, or a refusal. A zero status means the caller went before there
+// was an answer.
+type openResult struct {
+	sess    Session
+	status  int
+	refusal *msg.Message
+}
+
+// openSession spawns (or reuses) the session child for project, an absolute
+// folder (resolveProject). Reuse answers 200 with the live record; a fresh
+// spawn waits until the child reports its address (bounded by
+// childStartTimeout) and answers 201. A spawn already in flight answers
+// "starting" at once, or with wait once that spawn has settled, as a fresh one
+// would (see awaitStarted). A wait ends early when caller ends. The server
+// shutting down refuses with 503.
+func (s *Server) openSession(caller context.Context, project string, wait bool) openResult {
 	sess, cl, err := s.reg.open(s.lifetime(), project, &s.work)
 	if err != nil {
-		writeMessageError(w, http.StatusServiceUnavailable, msg.New("the machine server is shutting down"))
-		return
+		return refused(http.StatusServiceUnavailable, msg.New("the machine server is shutting down"))
 	}
 	if cl == nil {
 		// A running child, or a spawn already in flight (state "starting"),
 		// which the caller either waits for here or polls the sessions list
 		// until it flips.
-		if req.Wait {
-			s.awaitSpawn(w, r, sess.ID)
-			return
+		if wait {
+			return s.awaitStarted(caller, sess.ID)
 		}
-		writeJSON(w, http.StatusOK, sess)
-		return
+		return openResult{sess: sess, status: http.StatusOK}
 	}
 
 	c, err := spawnChild(cl.ctx, s.childBin, project, s.childExtraArgs(sess.ID))
@@ -317,54 +341,56 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 			// A stop or shutdown cancelled the spawn, and removes the session
 			// itself once this claim is released.
 			cl.release()
-			writeMessageError(w, http.StatusConflict, msg.New("session was removed during spawn"))
-			return
+			return refused(http.StatusConflict, msg.New("session was removed during spawn"))
 		}
 		jlog.Error("[machineserver] spawn failed for %s: %v", project, err)
 		s.reg.setError(sess.ID, err.Error())
 		cl.release()
 		errSess, _ := s.reg.get(sess.ID)
-		writeJSON(w, http.StatusBadGateway, errSess)
-		return
+		return openResult{sess: errSess, status: http.StatusBadGateway}
 	}
 	if !s.reg.setRunning(sess.ID, c, c.cmd.Process.Pid) {
 		// A stop claimed the session as the handshake finished — don't leak
 		// an unsupervised child.
 		c.stop()
 		cl.release()
-		writeMessageError(w, http.StatusConflict, msg.New("session was removed during spawn"))
-		return
+		return refused(http.StatusConflict, msg.New("session was removed during spawn"))
 	}
 	s.startSupervising(sess.ID, c, cl)
 	jlog.Info("[machineserver] session %s: %s at %s (pid %d)", sess.ID, project, c.addr, c.cmd.Process.Pid)
 	s.rememberRecent(project)
 	sess, _ = s.reg.get(sess.ID)
-	writeJSON(w, http.StatusCreated, sess)
+	return openResult{sess: sess, status: http.StatusCreated}
 }
 
-// awaitSpawn answers an open with "wait" for session id, which another open
+// refused is an openResult that refuses with status and m.
+func refused(status int, m msg.Message) openResult {
+	return openResult{status: status, refusal: &m}
+}
+
+// awaitStarted answers an open with "wait" for session id, which another open
 // is spawning or has spawned: once the session is no longer starting, with
 // its record — 200 running, 502 errored — or 409 if a stop removed it. A
 // session waiting to restart is answered as it stands: its backoff is not a
 // spawn in flight. The wait is bounded by the spawn's own handshake timeout
 // and by the caller staying.
-func (s *Server) awaitSpawn(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) awaitStarted(caller context.Context, id string) openResult {
 	if started := s.reg.whenStarted(id); started != nil {
 		awaitingSpawn(id)
 		select {
 		case <-started:
-		case <-r.Context().Done():
-			return
+		case <-caller.Done():
+			return openResult{}
 		}
 	}
 	sess, ok := s.reg.get(id)
 	switch {
 	case !ok:
-		writeMessageError(w, http.StatusConflict, msg.New("session was removed during spawn"))
+		return refused(http.StatusConflict, msg.New("session was removed during spawn"))
 	case sess.State == SessionError:
-		writeJSON(w, http.StatusBadGateway, sess)
+		return openResult{sess: sess, status: http.StatusBadGateway}
 	default:
-		writeJSON(w, http.StatusOK, sess)
+		return openResult{sess: sess, status: http.StatusOK}
 	}
 }
 

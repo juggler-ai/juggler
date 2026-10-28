@@ -10,28 +10,23 @@ import (
 	"juggler/cmd/juggler/server"
 )
 
-// TestLANOnLaunch pins the LAN-at-launch decision: an explicit --public always
-// wins, only a GUI launch consults the saved preference, and a terminal launch
-// stays localhost-only regardless of the saved value.
+// TestLANOnLaunch pins the LAN-at-launch decision: only a GUI launch consults
+// the saved preference, and any other launch stays localhost-only regardless
+// of the saved value.
 func TestLANOnLaunch(t *testing.T) {
 	cases := []struct {
-		name      string
-		publicSet bool
-		public    bool
-		gui       bool
-		saved     bool
-		want      bool
+		name  string
+		gui   bool
+		saved bool
+		want  bool
 	}{
-		{"flag-on wins over saved-off", true, true, true, false, true},
-		{"flag-off wins over saved-on", true, false, true, true, false},
-		{"gui launch honours saved-on", false, false, true, true, true},
-		{"gui launch honours saved-off", false, false, true, false, false},
-		{"terminal launch ignores saved-on", false, false, false, true, false},
+		{"gui launch honours saved-on", true, true, true},
+		{"gui launch honours saved-off", true, false, false},
+		{"other launch ignores saved-on", false, true, false},
 	}
 	for _, c := range cases {
-		if got := lanOnLaunch(c.publicSet, c.public, c.gui, c.saved); got != c.want {
-			t.Errorf("%s: lanOnLaunch(%v,%v,%v,%v) = %v, want %v",
-				c.name, c.publicSet, c.public, c.gui, c.saved, got, c.want)
+		if got := lanOnLaunch(c.gui, c.saved); got != c.want {
+			t.Errorf("%s: lanOnLaunch(%v,%v) = %v, want %v", c.name, c.gui, c.saved, got, c.want)
 		}
 	}
 }

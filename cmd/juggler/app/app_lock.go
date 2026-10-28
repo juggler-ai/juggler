@@ -120,14 +120,14 @@ func (a *App) waitForDepartingInstance(existing *core.InstanceInfo) error {
 }
 
 // supersedeRunningInstance handles a live holder that means to stay: report it,
-// then prompt (or obey --kill-existing) to stop it and take the lock.
+// then prompt to stop it and take the lock.
 func (a *App) supersedeRunningInstance(existing *core.InstanceInfo) error {
 	fmt.Println()
 	fmt.Println("⚠️  Juggler is already running for this project!")
 	fmt.Printf("   URL: http://%s:%d/\n", existing.Host, existing.Port)
 	fmt.Println()
 
-	shouldKill := a.flags.killExisting || promptKillInstance()
+	shouldKill := promptKillInstance()
 	if !shouldKill {
 		fmt.Println("Exiting. Use the URL above to open the existing instance.")
 		os.Exit(0)

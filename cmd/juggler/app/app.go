@@ -16,28 +16,26 @@ import (
 
 // appFlags holds the CLI flags parsed by main.
 type appFlags struct {
-	verbose        bool // -v/--verbose: console log level → Debug
-	dev            bool // --dev: enable the web inspector / right-click menu (no source checkout needed)
-	assetsFromDisk bool // --assets-from-disk: serve web/ from disk, no cache, reload templates per request (implies dev)
-	killExisting   bool // --kill-existing: on lock collision, kill the holder instead of prompting
-	window         bool
-	project        string              // explicit --project value (raw, may be relative)
-	projectSet     bool                // true if --project was passed
-	hasTerminal    bool                // true if launched with a controlling TTY
-	port           int                 // --port overrides config port (0 = OS-assigned)
-	portSet        bool                // true if --port was passed (allows --port 0 = OS-assigned)
-	testMode       bool                // --test enables test API routes and prints JUGGLER_ADDR
-	testIframes    int                 // --test-iframes N: open viewer at /test-pool?n=N (tiled iframe lanes)
-	testWindowURL  string              // --test-window-url: the page the test window loads, in place of this server's own (a machine server's proxy for its test children)
-	public         bool                // --public: open LAN access on startup
-	publicSet      bool                // true if --public was passed (an explicit value overrides the direct-terminal LAN default)
-	startupWAN     []server.TunnelMode // WAN tunnel modes whose startup flag was passed, in registration order (flags are registered per tunnel-mode spec)
-	allowHosts     []string            // --allow-host (repeatable): extra Host names to accept, added to the saved connectivity.allowedHosts
-	sessionChild   bool                // --session-child: supervised child of a machine server (`juggler serve`); binds loopback only, ignores saved LAN/WAN-on-launch, refuses lock contention instead of prompting
-	exitWithParent bool                // --exit-with-parent: self-terminate if the parent process dies (set by juggler-app for servers it owns)
-	logFile        string              // --log-file: explicit log file path, overriding the centrally-derived one (set by juggler-app per spawned server)
-	logFileSet     bool                // true if --log-file was passed
-	oneShot        *oneShotOptions     // `juggler run`: the prompt to run unattended, and how to report it (nil for every other launch)
+	verbose        bool            // -v/--verbose: console log level → Debug
+	dev            bool            // --dev: enable the web inspector / right-click menu (no source checkout needed)
+	assetsFromDisk bool            // --assets-from-disk: serve web/ from disk, no cache, reload templates per request (implies dev)
+	window         bool            // --window: open the desktop app on this server (the test harness's debug lane)
+	project        string          // explicit --project value (raw, may be relative)
+	projectSet     bool            // true if --project was passed
+	hasTerminal    bool            // true if launched with a controlling TTY
+	port           int             // --port overrides config port (0 = OS-assigned)
+	portSet        bool            // true if --port was passed (allows --port 0 = OS-assigned)
+	testMode       bool            // --test enables test API routes and prints JUGGLER_ADDR
+	testIframes    int             // --test-iframes N: open viewer at /test-pool?n=N (tiled iframe lanes)
+	testWindowURL  string          // --test-window-url: the page the test window loads, in place of this server's own (a machine server's proxy for its test children)
+	allowHosts     []string        // --allow-host (repeatable): extra Host names to accept, added to the saved connectivity.allowedHosts
+	standalone     bool            // --standalone: serve the project in this process rather than on the machine server (see standaloneLaunch)
+	retired        []string        // retired flags that were passed (see refusal)
+	sessionChild   bool            // --session-child: supervised child of a machine server (`juggler serve`); binds loopback only, ignores saved LAN/WAN-on-launch, refuses lock contention instead of prompting
+	exitWithParent bool            // --exit-with-parent: self-terminate if the parent process dies (set by juggler-app for servers it owns)
+	logFile        string          // --log-file: explicit log file path, overriding the centrally-derived one (set by juggler-app per spawned server)
+	logFileSet     bool            // true if --log-file was passed
+	oneShot        *oneShotOptions // `juggler run`: the prompt to run unattended, and how to report it (nil for every other launch)
 }
 
 // App owns the startup phases, the resources they allocate, and the LIFO

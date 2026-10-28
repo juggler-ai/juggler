@@ -6,6 +6,7 @@ of changes; this project follows semantic versioning.
 ## [Unreleased]
 
 - Quick successive edits undo as one step even when the machine is busy
+- `juggler` in a folder opens it on this machine's one server, starting it if needed
 
 ## [0.7.9] - 2026-10-28
 

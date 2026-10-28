@@ -376,9 +376,9 @@ func (a *App) initEngineWatcher() error {
 			jlog.Error("Engine did not connect within %v — server is shutting down", engineStartupTimeout)
 			return
 		}
-		// The interactive banner offers keys nobody is there to press.
+		// A run's stdout is its answer, so it gets no banner.
 		if a.flags.oneShot == nil {
-			a.printInteractiveBanner()
+			a.printSessionBanner()
 		}
 		a.server.StartBackgroundServices()
 	}()
@@ -393,25 +393,10 @@ func (a *App) serve() error {
 	return nil
 }
 
-// printInteractiveBanner shows the session info box with TTY-aware hints,
-// then any active LAN/tunnel status. WAN toggle hints come from the
-// tunnel-mode registry — a build with no registered modes lists none.
-func (a *App) printInteractiveBanner() {
-	lines := []string{""}
-	if !a.flags.window {
-		lines = append(lines, "Type 'w' + Enter  -  Open a native window")
-	}
-	lines = append(lines,
-		"Type 'b' + Enter  -  Open this URL in your default browser",
-		"Type 'p' + Enter  -  Enable/disable LAN access",
-	)
-	for _, spec := range server.TunnelModes() {
-		if spec.ToggleKey != "" && spec.ToggleHelp != "" {
-			lines = append(lines, fmt.Sprintf("Type '%s' + Enter  -  %s", spec.ToggleKey, spec.ToggleHelp))
-		}
-	}
-	lines = append(lines, "", "Ctrl+C  - Quit")
-	a.server.PrintSessionInfo(lines...)
+// printSessionBanner shows the session info box, then the LAN status when
+// LAN access is on.
+func (a *App) printSessionBanner() {
+	a.server.PrintSessionInfo()
 	if a.server.IsPublicMode() {
 		a.server.PrintLANStatus(true)
 	}

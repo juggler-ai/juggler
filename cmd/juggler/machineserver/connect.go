@@ -187,42 +187,56 @@ func (c *Client) SessionURL(id string) string {
 }
 
 // OpenSession opens (or finds) the session for project, an absolute folder,
-// and returns it once it is running. A spawn already in flight for the
-// project is waited for; a session that is not running then — its spawn
-// failed, or it is waiting to restart after a crash — is an error.
-func (c *Client) OpenSession(project string) (Session, error) {
-	var sess Session
-	if err := c.do(http.MethodPost, "/sessions", map[string]any{"project": project, "wait": true}, &sess); err != nil {
-		return Session{}, err
+// and returns it once it is running, with whether this call spawned it. A
+// spawn already in flight for the project is waited for, and is another
+// caller's; a session that is not running then — its spawn failed, or it is
+// waiting to restart after a crash — is an error.
+func (c *Client) OpenSession(project string) (sess Session, opened bool, err error) {
+	status, err := c.send(http.MethodPost, "/sessions", map[string]any{"project": project, "wait": true}, &sess)
+	if err != nil {
+		return Session{}, false, err
 	}
 	switch sess.State {
 	case SessionRunning:
-		return sess, nil
+		return sess, status == http.StatusCreated, nil
 	case SessionRestarting:
-		return sess, fmt.Errorf("the session for %s is restarting after a crash (%s); try again shortly", project, sess.Error)
+		return sess, false, fmt.Errorf("the session for %s is restarting after a crash (%s); try again shortly", project, sess.Error)
 	default:
 		if sess.Error != "" {
-			return sess, errors.New(sess.Error)
+			return sess, false, errors.New(sess.Error)
 		}
-		return sess, fmt.Errorf("the session for %s is %s", project, sess.State)
+		return sess, false, fmt.Errorf("the session for %s is %s", project, sess.State)
 	}
 }
 
+// StopSession stops the session id.
+func (c *Client) StopSession(id string) error {
+	return c.do(http.MethodDelete, "/sessions/"+id, nil, nil)
+}
+
 // do sends one control-API request and decodes a JSON answer into out (when
-// non-nil). A server that does not answer is reported as no server at all;
-// one that refuses says why.
+// non-nil), as send does.
 func (c *Client) do(method, path string, body, out any) error {
+	_, err := c.send(method, path, body, out)
+	return err
+}
+
+// send sends one control-API request, decodes a JSON answer into out (when
+// non-nil), and returns the status it was answered with. A server that does
+// not answer is reported as no server at all; one that refuses says why
+// (*refusalError).
+func (c *Client) send(method, path string, body, out any) (int, error) {
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		rd = bytes.NewReader(b)
 	}
 	req, err := http.NewRequest(method, "http://"+c.addr+"/api/server"+path, rd) //nolint:noctx // bounded by the client's timeout
 	if err != nil {
-		return err
+		return 0, err
 	}
 	req.Header.Set(TokenHeader, c.token)
 	if body != nil {
@@ -230,18 +244,26 @@ func (c *Client) do(method, path string, body, out any) error {
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w (server.json names %s, which is not answering)", errNoServer, c.addr)
+		return 0, fmt.Errorf("%w (server.json names %s, which is not answering)", errNoServer, c.addr)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return responseError(resp)
+		return resp.StatusCode, responseError(resp)
 	}
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if out != nil && len(data) > 0 {
-		return json.Unmarshal(data, out)
+		return resp.StatusCode, json.Unmarshal(data, out)
 	}
-	return nil
+	return resp.StatusCode, nil
 }
+
+// refusalError is a control-API refusal: its status, and what it says.
+type refusalError struct {
+	status int
+	text   string
+}
+
+func (e *refusalError) Error() string { return e.text }
 
 // responseError is the error a control-API refusal says: the error field of
 // its JSON body, or the body itself.
@@ -249,7 +271,15 @@ func responseError(resp *http.Response) error {
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	var sess Session
 	if json.Unmarshal(data, &sess) == nil && sess.Error != "" {
-		return errors.New(sess.Error)
+		return &refusalError{status: resp.StatusCode, text: sess.Error}
 	}
-	return errors.New(strings.TrimSpace(string(data)))
+	return &refusalError{status: resp.StatusCode, text: strings.TrimSpace(string(data))}
+}
+
+// serverGoing reports whether err says the server is gone or on its way out:
+// it did not answer, or refused because it is shutting down (503). Either
+// way, Connect again finds out what is there now.
+func serverGoing(err error) bool {
+	var r *refusalError
+	return errors.Is(err, errNoServer) || (errors.As(err, &r) && r.status == http.StatusServiceUnavailable)
 }

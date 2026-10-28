@@ -5,7 +5,6 @@
 package app
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,7 +18,6 @@ import (
 	"juggler/internal/jlog"
 	"juggler/internal/sysopen"
 
-	"github.com/mattn/go-isatty"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -102,9 +100,9 @@ func (a *App) waitForExit() {
 	// quit blocks on <-ready, and its callers include Wails event listeners.
 	requestQuit := func() { go quit() }
 
-	// 'w' opens a desktop window: the server is windowless, so it launches the
-	// juggler-app process pointed at this server's URL. The app owns the visible
-	// UI and connects back over HTTP/WebSocket like any viewer.
+	// --window opens a desktop window: the server is windowless, so it launches
+	// the juggler-app process pointed at this server's URL. The app owns the
+	// visible UI and connects back over HTTP/WebSocket like any viewer.
 	launchWindow := func() {
 		devMode := a.devModeEnabled()
 		if err := launchDesktopApp(a.serverURL(), devMode); err != nil {
@@ -170,13 +168,6 @@ func (a *App) waitForExit() {
 			func(line string) { jlog.Info("%s", line) }, quit)
 	}
 
-	// togglePublic flips the LAN gate and prints the new status.
-	togglePublic := func() {
-		enabled := !a.server.IsPublicMode()
-		a.server.SetPublicMode(enabled)
-		a.server.PrintLANStatus(enabled)
-	}
-
 	// startTunnelMode brings up the given WAN tunnel mode in the background and
 	// prints its status box once the guest URL is ready. Only one tunnel is ever
 	// active: StartTunnelMode stops any tunnel running in a different mode first.
@@ -187,8 +178,8 @@ func (a *App) waitForExit() {
 		go func() {
 			if _, err := a.server.StartTunnelMode(spec.Mode); err != nil {
 				if !strings.Contains(err.Error(), "context canceled") {
-					// context-canceled is expected when the user presses the key
-					// again while the connection is still starting.
+					// context-canceled is expected when the tunnel is stopped
+					// while the connection is still starting.
 					jlog.Error("Tunnel: %v", err)
 				}
 				return
@@ -199,60 +190,8 @@ func (a *App) waitForExit() {
 		}()
 	}
 
-	// toggleTunnelMode stops the tunnel when this exact mode is already active (or
-	// still starting), otherwise starts it — switching away from another mode if
-	// one is running.
-	toggleTunnelMode := func(spec server.TunnelModeSpec) {
-		if a.server.IsTunnelActive() {
-			// A tunnel still mid-startup has no known mode yet; pressing the key
-			// again cancels it, matching the single-tunnel toggle semantics.
-			if info, ok := a.server.GetTunnelInfo(); !ok || info.Mode == spec.Mode {
-				a.server.StopTunnel()
-				jlog.Info("🌐 Tunnel stopped.")
-				return
-			}
-		}
-		startTunnelMode(spec)
-	}
-
-	// One interactive toggle per registered tunnel mode with a ToggleKey. A
-	// build with no registered modes gets no WAN keys at all.
-	wanToggles := map[string]func(){}
-	for _, spec := range server.TunnelModes() {
-		if spec.ToggleKey == "" {
-			continue
-		}
-		wanToggles[spec.ToggleKey] = func() {
-			if !spec.IsAvailable() {
-				if spec.UnavailableMessage != "" {
-					jlog.Info("%s", spec.UnavailableMessage)
-				}
-				return
-			}
-			toggleTunnelMode(spec)
-		}
-	}
-
-	// Honour startup WAN flags. Only one tunnel can run, so if several were
-	// passed the last one in registration order wins. An explicit flag always
-	// beats the saved preference; only when no flag is given does a GUI launch
-	// fall back to the saved "Start WAN on launch" mode.
-	if a.server != nil && len(a.flags.startupWAN) > 0 {
-		mode := a.flags.startupWAN[len(a.flags.startupWAN)-1]
-		if len(a.flags.startupWAN) > 1 {
-			jlog.Info("Several WAN startup flags given; starting %q only (one WAN tunnel at a time).", mode)
-		}
-		for _, spec := range server.TunnelModes() {
-			if spec.Mode != mode {
-				continue
-			}
-			if !spec.IsAvailable() {
-				jlog.Error("Tunnel: %s", spec.UnavailableMessage)
-			} else {
-				startTunnelMode(spec)
-			}
-		}
-	} else if a.server != nil {
+	// A GUI launch starts the saved "Start WAN on launch" mode.
+	if a.server != nil {
 		if spec, ok := savedWANModeToStart(a.isGUILaunch(), a.connectivity.WANOnLaunch, server.TunnelModes()); ok {
 			startTunnelMode(spec)
 		} else if a.isGUILaunch() && a.connectivity.WANOnLaunch != "" {
@@ -260,11 +199,6 @@ func (a *App) waitForExit() {
 			// — skip it but keep the value on disk so it revives if the mode returns.
 			jlog.Debug("Connectivity: saved WAN mode %q unavailable; not starting", a.connectivity.WANOnLaunch)
 		}
-	}
-
-	// Key reader (TTY headless mode only).
-	if !a.flags.window && a.stdinIsTTY() && a.server != nil && a.flags.oneShot == nil {
-		go readKeys(a.serverURL(), quit, launchWindow, togglePublic, wanToggles)
 	}
 
 	// A window-mode launch (icon/Finder/--window) opens the desktop app pointed
@@ -287,31 +221,19 @@ func (a *App) waitForExit() {
 	runWindowApp(a.server, devMode, !a.flags.window, a.flags.testMode, a.flags.testIframes, a.flags.testWindowURL, selected, done, teardownDone, requestQuit, onWindowReady)
 }
 
-func (a *App) stdinIsTTY() bool {
-	return isatty.IsTerminal(os.Stdin.Fd())
-}
-
 // resolveLANDefault decides whether LAN access starts enabled. LAN exposure with
-// no authentication is opt-in, never a silent default: an explicit --public
-// (either value) always wins, and otherwise only a GUI launch consults the saved
-// "Start LAN on launch" preference. A terminal launch defaults to localhost-only
-// and the user enables it at runtime with the 'p' key.
+// no authentication is opt-in, never a silent default: only a GUI launch
+// consults the saved "Start LAN on launch" preference, and every other launch
+// starts localhost-only.
 func (a *App) resolveLANDefault() bool {
-	return lanOnLaunch(a.flags.publicSet, a.flags.public, a.isGUILaunch(), a.connectivity.LANOnLaunch)
+	return lanOnLaunch(a.isGUILaunch(), a.connectivity.LANOnLaunch)
 }
 
 // lanOnLaunch is the pure LAN-at-launch decision, factored out so the saved
-// preference can be injected in tests rather than read from the real home dir.
-// --public wins (flag beats preference); otherwise a GUI launch honours savedLAN
-// and any non-GUI launch stays localhost-only.
-func lanOnLaunch(publicSet, public, guiLaunch, savedLAN bool) bool {
-	if publicSet {
-		return public
-	}
-	if guiLaunch {
-		return savedLAN
-	}
-	return false
+// preference can be injected in tests rather than read from the real home dir:
+// a GUI launch honours savedLAN, and any other launch stays localhost-only.
+func lanOnLaunch(guiLaunch, savedLAN bool) bool {
+	return guiLaunch && savedLAN
 }
 
 // isGUILaunch reports whether this is a desktop-app/icon launch (no controlling
@@ -346,32 +268,6 @@ func savedWANModeToStart(guiLaunch bool, savedWAN string, specs []server.TunnelM
 
 func (a *App) serverURL() string {
 	return fmt.Sprintf("http://%s/", a.server.GetAddr())
-}
-
-// readKeys reads single-letter commands from stdin. 'b' opens the user's
-// default browser. 'w' opens a native desktop window (launches juggler-app).
-// 'p' toggles LAN access. Each registered WAN tunnel mode contributes its own
-// toggle key via wanToggles (empty when no modes are registered). All keys
-// work for the lifetime of the process.
-func readKeys(serverURL string, quit func(), launchWindow, togglePublic func(), wanToggles map[string]func()) {
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		key := strings.TrimSpace(strings.ToLower(scanner.Text()))
-		switch key {
-		case "w":
-			launchWindow()
-		case "b":
-			if err := openInBrowser(serverURL); err != nil {
-				jlog.Error("Failed to open browser: %v", err)
-			}
-		case "p":
-			togglePublic()
-		default:
-			if toggle, ok := wanToggles[key]; ok {
-				toggle()
-			}
-		}
-	}
 }
 
 // watchQuitRequests is the graceful half of the signal handling: it reports

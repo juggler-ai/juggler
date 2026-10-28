@@ -54,9 +54,9 @@ func (s *Server) startSupervising(id string, c *child, cl *claim) {
 // watch, polling its activity while it runs.
 //
 //   - A clean exit (status 0) is a deliberate shutdown — the child's own
-//     shutdown route, or a standalone server taking the project with
-//     --kill-existing — so the session goes. Restarting it would fight that
-//     server for the project lock.
+//     shutdown route, or a standalone server that took the project over — so
+//     the session goes. Restarting it would fight that server for the
+//     project lock.
 //   - A crash (any other status, or a signal) turns the session to restarting
 //     and respawns its project under the same ID after restartPolicy.delay,
 //     so the /s/<id>/ a user holds keeps working. A respawn that fails counts

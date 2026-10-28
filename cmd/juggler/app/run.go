@@ -33,7 +33,6 @@ import (
 	"juggler/cmd/juggler/providers/builtin"
 	"juggler/cmd/juggler/providers/customprovider"
 	"juggler/cmd/juggler/providers/streamidle"
-	"juggler/cmd/juggler/server"
 	"juggler/internal/enginehost"
 	"juggler/internal/ingress"
 	"juggler/internal/srcroot"
@@ -135,6 +134,15 @@ func Run(cfg Config) int {
 			fmt.Printf("juggler %s (commit: %s, built: %s)\n",
 				core.Version, core.Commit, core.BuildDate)
 			return 0
+		}
+		if why := flags.refusal(); why != "" {
+			fmt.Fprintln(os.Stderr, why)
+			return 2
+		}
+		// Bare juggler rides the machine server; only a launch marked as more
+		// than that serves one project in this process (standaloneLaunch).
+		if !flags.standaloneLaunch() {
+			return runBare(flags)
 		}
 	}
 
@@ -303,34 +311,24 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 	dev := flag.Bool("dev", false, "Enable dev mode: the web inspector and full right-click menu (no source checkout required)")
 	assetsFromDisk := flag.Bool("assets-from-disk", false, "Developer flag: serve web assets from the on-disk web/ tree (requires a source checkout) instead of the embedded FS, disabling caching and reloading templates per request; implies --dev")
 	version := flag.Bool("version", false, "Print version and exit")
-	killExisting := flag.Bool("kill-existing", false, "If another instance holds the lock, kill it instead of prompting")
-	window := flag.Bool("window", false, "Open a native window instead of printing the server URL")
-	project := flag.String("project", "", "Project folder to open (defaults to cwd in terminal, none in window/app mode)")
-	port := flag.Int("port", 0, "Override config port (0 = use config value)")
+	window := flag.Bool("window", false, "Open the desktop app on this server (with --test: its debug lane)")
+	project := flag.String("project", "", "Project folder to open (defaults to the current folder when run from a terminal)")
+	port := flag.Int("port", 0, "Port for the Juggler server, when this starts it (0 = OS-assigned)")
 	testMode := flag.Bool("test", false, "Enable test API routes and print JUGGLER_ADDR to stdout")
 	testIframes := flag.Int("test-iframes", 0, "Test-mode only: open the viewer window at /test-pool?n=N (tiled iframes acting as parallel test lanes) instead of the production UI")
 	testWindowURL := flag.String("test-window-url", "", "Test-mode only: the URL the test window loads instead of this server's own (set by `juggler serve --test` to the session's proxied URL)")
-	public := flag.Bool("public", false, "Force LAN access on/off at startup (default: on for a direct terminal server, off otherwise; press 'p' to toggle at runtime)")
 	var allowHosts []string
 	flag.Func("allow-host", "Also accept requests for `name`: the name a reverse proxy on this machine (tailscale serve, caddy) serves Juggler under. Its callers count as remote. Repeatable; only name a host whose DNS you control", func(v string) error {
 		allowHosts = append(allowHosts, v)
 		return nil
 	})
 	flag.Func("updates-managed-by", "For packagers: the package manager (`name`, e.g. Nix) that installs Juggler's updates. Juggler then never updates itself, and points its update notices there. Same as setting "+core.UpdatesManagedByEnv, core.SetUpdatesManagedBy)
-	// WAN startup flags come from the tunnel-mode registry: each registered
-	// mode with a FlagName contributes one bool flag. A build with no
-	// registered modes has no WAN flags at all.
-	type wanFlag struct {
-		mode server.TunnelMode
-		val  *bool
+	// Retired flags stay registered, hidden, so a launch that passes one is
+	// told why it no longer applies (refusal) rather than that it is unknown.
+	for _, name := range retiredFlagNames() {
+		flag.Bool(name, false, "")
 	}
-	var wanFlags []wanFlag
-	for _, spec := range server.TunnelModes() {
-		if spec.FlagName == "" {
-			continue
-		}
-		wanFlags = append(wanFlags, wanFlag{mode: spec.Mode, val: flag.Bool(spec.FlagName, false, spec.FlagUsage)})
-	}
+	standalone := flag.Bool("standalone", false, "Serve the project in this process rather than on the machine server (tests and developer runs)")
 	sessionChild := flag.Bool("session-child", false, "Run as a machine-server session child (spawned by `juggler serve`; not a user-facing mode)")
 	exitWithParent := flag.Bool("exit-with-parent", false, "Self-terminate if the parent process dies (set by juggler-app for servers it owns, so they never outlive the app)")
 	logFile := flag.String("log-file", "", "Explicit log file path, overriding the centrally-derived per-platform log path (set by juggler-app per spawned server)")
@@ -339,33 +337,22 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 
 	projectSet := false
 	portSet := false
-	publicSet := false
 	logFileSet := false
+	var retired []string
 	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "project" {
+		switch {
+		case f.Name == "project":
 			projectSet = true
-		}
-		if f.Name == "port" {
+		case f.Name == "port":
 			portSet = true
-		}
-		if f.Name == "public" {
-			publicSet = true
-		}
-		if f.Name == "log-file" {
+		case f.Name == "log-file":
 			logFileSet = true
+		case isRetiredFlag(f.Name):
+			retired = append(retired, f.Name)
 		}
 	})
-	// WAN modes explicitly requested at startup, in registration order.
-	var startupWAN []server.TunnelMode
-	for _, f := range wanFlags {
-		if *f.val {
-			startupWAN = append(startupWAN, f.mode)
-		}
-	}
 	// The server never opens a window on its own. The visible UI is the separate
 	// juggler-app desktop process; this binary is the headless engine + server.
-	// A bare launch (terminal or icon) runs as a server — the user opens the app
-	// (or presses 'w' in a terminal session, or passes --window) to get a GUI.
 	// This is what stops the server impersonating the app on a Windows
 	// double-click. hasTerminal still distinguishes a shell launch from an icon
 	// launch for the project default (cwd vs none); see resolveStartupProject.
@@ -374,7 +361,6 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 		verbose:        *verbose,
 		dev:            *dev,
 		assetsFromDisk: *assetsFromDisk,
-		killExisting:   *killExisting,
 		window:         *window,
 		project:        *project,
 		projectSet:     projectSet,
@@ -384,10 +370,9 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 		testMode:       *testMode,
 		testIframes:    *testIframes,
 		testWindowURL:  *testWindowURL,
-		public:         *public,
-		publicSet:      publicSet,
-		startupWAN:     startupWAN,
 		allowHosts:     allowHosts,
+		standalone:     *standalone,
+		retired:        retired,
 		sessionChild:   *sessionChild,
 		exitWithParent: *exitWithParent,
 		logFile:        *logFile,
@@ -401,6 +386,8 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 // passes --exit-with-parent/--log-file to servers it spawns), so they must keep
 // working — they're just undocumented.
 var hiddenFlags = map[string]bool{
+	"window":           true,
+	"standalone":       true,
 	"assets-from-disk": true,
 	"test":             true,
 	"test-iframes":     true,
@@ -411,13 +398,12 @@ var hiddenFlags = map[string]bool{
 }
 
 // usage prints a curated --help listing: only the user-facing flags, formatted
-// like flag.PrintDefaults. WAN flags contributed by tunnel modes appear
-// automatically since they aren't in hiddenFlags.
+// like flag.PrintDefaults. Hidden and retired flags are left out.
 func usage() {
 	out := flag.CommandLine.Output()
 	fmt.Fprintf(out, "Juggler — AI code agent\n\nUsage: %s [options]\n\nOptions:\n", filepath.Base(os.Args[0]))
 	flag.VisitAll(func(f *flag.Flag) {
-		if hiddenFlags[f.Name] {
+		if hiddenFlags[f.Name] || isRetiredFlag(f.Name) {
 			return
 		}
 		dash := "--"

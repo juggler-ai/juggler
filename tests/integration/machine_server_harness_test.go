@@ -251,15 +251,15 @@ func startSessionChild(t *testing.T, project, ingressSecret string) string {
 		"--session-child", "--port", "0", "--project", project)
 }
 
-// startStandaloneServer runs a per-project server for project the way a
-// terminal launch does (no --session-child, no --test, so the API token and
+// startStandaloneServer runs a per-project server for project in its own
+// process (--standalone; no --session-child, no --test, so the API token and
 // every production gate are in force), on an ephemeral port with no window,
 // with extraArgs after the rest. It returns the server's address once printed;
 // the server is killed, with its process group, when the test ends.
 func startStandaloneServer(t *testing.T, project string, extraArgs ...string) string {
 	t.Helper()
 	iso := newIsolatedRun(t)
-	args := append([]string{"--port", "0", "--window=false", "--project", project}, extraArgs...)
+	args := append([]string{"--standalone", "--port", "0", "--window=false", "--project", project}, extraArgs...)
 	return startServerProcess(t, iso, iso.env, args...)
 }
 

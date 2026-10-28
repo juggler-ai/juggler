@@ -110,7 +110,7 @@ func TestNodeEngineHostBootsAndConnects(t *testing.T) {
 func startNodeEngineServer(t *testing.T, binary, proj, logFile string) *headlessServer {
 	t.Helper()
 	cmd := exec.Command(binary,
-		"--window=false", "--port", "0",
+		"--standalone", "--window=false", "--port", "0",
 		"--project", proj, "--log-file", logFile)
 	cmd.Env = append(os.Environ(), "JUGGLER_ENGINE_HOST=node")
 	helpers.SetProcGroupAttr(cmd)

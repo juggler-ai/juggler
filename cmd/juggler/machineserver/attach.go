@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"juggler/cmd/juggler/msg"
 )
 
 // handleAttach holds the caller attached (see attach) for as long as it keeps
@@ -18,11 +20,18 @@ import (
 // once the caller is counted, and then sends nothing more. The response ends
 // when the caller goes — its connection closing, however its process ended —
 // or when the server's lifetime ends, so a held attachment never stalls the
-// shutdown's drain. POST /api/server/attach, with no body.
+// shutdown's drain. A server already shutting down refuses with 503, as an
+// open does, so a client that caught it on its way out learns so from the
+// answer rather than from an attachment that ends a moment later.
+// POST /api/server/attach, with no body.
 func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	// net/http notices a caller going only once it has read the request body
 	// to its end, so read it first.
 	_, _ = io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, 1<<10))
+	if s.lifetime().Err() != nil {
+		writeMessageError(w, http.StatusServiceUnavailable, msg.New("the machine server is shutting down"))
+		return
+	}
 	detach := s.attach()
 	defer detach()
 	w.Header().Set("Content-Type", "application/x-ndjson")

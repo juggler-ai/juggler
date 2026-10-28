@@ -229,9 +229,12 @@ func TestOpenSessionWaitsForRunning(t *testing.T) {
 	if err := os.Mkdir(proj, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	sess, err := c.OpenSession(proj)
-	if err != nil || sess.State != SessionRunning || sess.Project != proj {
-		t.Fatalf("OpenSession: %+v, %v; want running for %s", sess, err, proj)
+	sess, opened, err := c.OpenSession(proj)
+	if err != nil || sess.State != SessionRunning || sess.Project != proj || !opened {
+		t.Fatalf("OpenSession: %+v, opened %v, %v; want running for %s, spawned by this open", sess, opened, err, proj)
+	}
+	if again, opened, err := c.OpenSession(proj); err != nil || again.ID != sess.ID || opened {
+		t.Fatalf("second OpenSession: %+v, opened %v, %v; want %s found, not spawned", again, opened, err, sess.ID)
 	}
 	if !strings.HasSuffix(c.SessionURL(sess.ID), "/s/"+sess.ID+"/") {
 		t.Fatalf("SessionURL(%s) = %s", sess.ID, c.SessionURL(sess.ID))

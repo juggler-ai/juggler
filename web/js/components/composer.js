@@ -2476,60 +2476,62 @@ class Composer extends JugglerElement {
                         <permission-controls></permission-controls>
                         <model-selector id="conversation-model-selector"></model-selector>
                     </input-controls-config>
-                    <input-controls-actions>
-                        <button class="commands-button input-ctrl-btn" id="commands-button"
-                                title="${escapeHtml(t('Commands'))}"
-                                aria-label="${escapeHtml(t('Commands menu'))}"
-                                aria-haspopup="menu" aria-expanded="false">
-                            <span class="icon-slash"></span>
-                        </button>
-                        <button class="skill-button input-ctrl-btn" id="skill-button"
-                                title="${escapeHtml(t('Load a skill ($)'))}"
-                                aria-label="${escapeHtml(t('Load a skill'))}"
-                                aria-haspopup="menu" aria-expanded="false">
-                            <span class="skill-glyph" aria-hidden="true">$</span>
-                        </button>
-                        <button class="more-actions-btn input-ctrl-btn" id="more-actions-button"
-                                title="${escapeHtml(t('More actions'))}"
-                                aria-label="${escapeHtml(t('More actions'))}"
-                                aria-haspopup="menu" aria-expanded="false">
-                            <span class="more-actions-icon">${KEBAB_SVG}</span>
-                        </button>
-                        <button class="schedule-send-btn input-ctrl-btn"
-                                title="${escapeHtml(t('Send later'))}"
-                                aria-label="${escapeHtml(t('Send later'))}"
-                                aria-haspopup="dialog" aria-expanded="false">
-                            <span class="schedule-send-icon">${CLOCK_SVG}</span>
-                        </button>
-                        <button class="expand-input-btn input-ctrl-btn" hidden
-                                title="${escapeHtml(t('Expand the message box'))}"
-                                aria-label="${escapeHtml(t('Expand the message box'))}"
-                                aria-pressed="false">
-                            <span class="expand-input-icon">${OPEN_IN_FULL_SVG}</span>
-                            <span class="shrink-input-icon">${CLOSE_FULLSCREEN_SVG}</span>
-                        </button>
-                    </input-controls-actions>
-                    <input-controls-send>
-                        <button class="new-thread-btn input-ctrl-btn" title="${escapeHtml(t('Create a new sub-thread'))}">
-                            ${escapeHtml(t('New Thread'))}
-                            <span class="new-thread-arrow">${THREAD_ARROW_SVG}</span>
-                        </button>
-                        <button class="context-cache-warning-btn" id="context-cache-warning" hidden
-                                title="${escapeHtml(t('Items in the conversation have changed, so the next message will cause a cache-miss'))}"
-                                aria-label="${escapeHtml(t('Items in the conversation have changed, so the next message will cause a cache-miss'))}">
-                            <span class="icon-warning" aria-hidden="true"></span>
-                        </button>
-                        <button class="attach-btn input-ctrl-btn" id="attach-button"
-                                title="${escapeHtml(t('Attach files — or drop or paste them here'))}"
-                                aria-label="${escapeHtml(t('Attach files'))}">
-                            <span class="attach-icon">${PAPERCLIP_SVG}</span>
-                        </button>
-                        <button class="send-btn is-empty" id="send-button"
-                                title="${escapeHtml(t('Send message'))}"
-                                aria-label="${escapeHtml(t('Send message'))}">
-                            <span class="send-icon">${SEND_ARROW_SVG}</span>
-                        </button>
-                    </input-controls-send>
+                    <input-controls-tools>
+                        <input-controls-actions>
+                            <button class="commands-button input-ctrl-btn" id="commands-button"
+                                    title="${escapeHtml(t('Commands'))}"
+                                    aria-label="${escapeHtml(t('Commands menu'))}"
+                                    aria-haspopup="menu" aria-expanded="false">
+                                <span class="icon-slash"></span>
+                            </button>
+                            <button class="skill-button input-ctrl-btn" id="skill-button"
+                                    title="${escapeHtml(t('Load a skill ($)'))}"
+                                    aria-label="${escapeHtml(t('Load a skill'))}"
+                                    aria-haspopup="menu" aria-expanded="false">
+                                <span class="skill-glyph" aria-hidden="true">$</span>
+                            </button>
+                            <button class="more-actions-btn input-ctrl-btn" id="more-actions-button"
+                                    title="${escapeHtml(t('More actions'))}"
+                                    aria-label="${escapeHtml(t('More actions'))}"
+                                    aria-haspopup="menu" aria-expanded="false">
+                                <span class="more-actions-icon">${KEBAB_SVG}</span>
+                            </button>
+                            <button class="schedule-send-btn input-ctrl-btn"
+                                    title="${escapeHtml(t('Send later'))}"
+                                    aria-label="${escapeHtml(t('Send later'))}"
+                                    aria-haspopup="dialog" aria-expanded="false">
+                                <span class="schedule-send-icon">${CLOCK_SVG}</span>
+                            </button>
+                            <button class="expand-input-btn input-ctrl-btn" hidden
+                                    title="${escapeHtml(t('Expand the message box'))}"
+                                    aria-label="${escapeHtml(t('Expand the message box'))}"
+                                    aria-pressed="false">
+                                <span class="expand-input-icon">${OPEN_IN_FULL_SVG}</span>
+                                <span class="shrink-input-icon">${CLOSE_FULLSCREEN_SVG}</span>
+                            </button>
+                            <button class="attach-btn input-ctrl-btn" id="attach-button"
+                                    title="${escapeHtml(t('Attach files — or drop or paste them here'))}"
+                                    aria-label="${escapeHtml(t('Attach files'))}">
+                                <span class="attach-icon">${PAPERCLIP_SVG}</span>
+                            </button>
+                        </input-controls-actions>
+                        <input-controls-send>
+                            <button class="new-thread-btn input-ctrl-btn" title="${escapeHtml(t('Create a new sub-thread'))}">
+                                <span class="new-thread-arrow" aria-hidden="true">${THREAD_ARROW_SVG}</span>
+                                <span class="new-thread-label">${escapeHtml(t('Thread'))}</span>
+                            </button>
+                            <button class="context-cache-warning-btn" id="context-cache-warning" hidden
+                                    title="${escapeHtml(t('Items in the conversation have changed, so the next message will cause a cache-miss'))}"
+                                    aria-label="${escapeHtml(t('Items in the conversation have changed, so the next message will cause a cache-miss'))}">
+                                <span class="icon-warning" aria-hidden="true"></span>
+                            </button>
+                            <button class="send-btn is-empty" id="send-button"
+                                    title="${escapeHtml(t('Send message'))}"
+                                    aria-label="${escapeHtml(t('Send message'))}">
+                                <span class="send-icon">${SEND_ARROW_SVG}</span>
+                            </button>
+                        </input-controls-send>
+                    </input-controls-tools>
                 </input-controls>
             </composer-box-wrapper>
         `;

@@ -264,13 +264,15 @@ class PermissionControls extends JugglerElement {
   }
 
   render() {
+    // The `hidden` attribute rather than an inline display, so the composer's
+    // settings bar can tell which of its segments is first and last on screen.
     if (!this.shouldShowControls()) {
       this.innerHTML = '';
-      this.style.display = 'none';
+      this.hidden = true;
       return;
     }
 
-    this.style.display = '';
+    this.hidden = false;
 
     if (!this.messageThread) {
       this.innerHTML = '';

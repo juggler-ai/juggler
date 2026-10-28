@@ -5,11 +5,12 @@
 /**
  * The composer's attach button: where it sits and what it takes.
  *
- * It sits beside Send, where the eye already goes, and it takes any file —
+ * It ends the tool tray, nearest Send, and it takes any file —
  * routed exactly as the same file dropped on the box would be (images upload,
  * everything else is staged as a text snapshot). The staging itself is
- * covered by `unit:dropped-file`; this suite asserts placement and routing.
- * The touch layout's copy of the button is asserted in `unit:mobile-composer`.
+ * covered by `unit:dropped-file`; this suite asserts routing. Its place on the
+ * row is asserted in `unit:composer-row`, and on the touch row in
+ * `unit:mobile-composer`.
  * @module unit-tests/composer-attach-button-test
  */
 
@@ -61,15 +62,9 @@ export async function runTests() {
     }
   };
 
-  await test('sits-beside-send', (box) => {
+  await test('labelled', (box) => {
     const btn = /** @type {HTMLElement|null} */ (box.querySelector('#attach-button'));
     assert(!!btn, 'the composer must render an #attach-button');
-    const send = box.querySelector('#send-button');
-    assert(btn.parentElement?.tagName.toLowerCase() === 'input-controls-send',
-      `the attach button must live in the send cluster, got ${btn.parentElement?.tagName}`);
-    assert(btn.nextElementSibling === send,
-      'the attach button must sit immediately before the send button');
-    assert(btn.getBoundingClientRect().width > 0, 'the attach button must be displayed on desktop');
     assert(btn.getAttribute('aria-label') === 'Attach files',
       `the attach button must be labelled "Attach files", got ${btn.getAttribute('aria-label')}`);
   });

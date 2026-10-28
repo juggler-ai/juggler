@@ -74,9 +74,7 @@ composer-box composer-config-strip > permission-controls {
 
 /* Strip the pill chrome off the controls in here: no border, no fill, no
    horizontal padding, inheriting the strip's size and colour so the three read
-   as one line of text rather than three controls. The min-width floors go too
-   — they are sized for pills, and a 7rem floor on a text segment would put the
-   separators in arbitrary places.
+   as one line of text rather than three controls.
 
    The vertical padding stays, and is the only reason these are tappable: text
    this size is a 14px-tall target, which on the device this layout is for is
@@ -119,6 +117,11 @@ composer-box composer-box-wrapper {
     display: flex;
     flex-direction: column;
     padding: 0.875rem 1rem 1rem;
+
+    /* The query container for the controls row's width (its content box is
+       exactly the row's): the settings bar's segments may go below their labels
+       when the row is too narrow for them. Width only: the box grows with what is typed. */
+    container: composer-row / inline-size;
 
     /* Positioning context for the paste-placeholder mirror, which is absolutely
        positioned to overlay the textarea exactly. */
@@ -322,8 +325,8 @@ composer-box .commands-button {
 }
 
 composer-box .commands-button .icon-slash {
-    width: 0.75rem;
-    height: 0.75rem;
+    width: 0.875rem;
+    height: 0.875rem;
 }
 
 /* Skill button - icon-only, centered (mirrors the commands button). Its glyph is
@@ -392,21 +395,9 @@ composer-box[expanded] textarea:not(.field-input) {
     flex: 1 1 0;
 }
 
-/* Attach-files button — a paperclip beside Send, where the eye already goes.
-   The same 2rem circle as its send-cluster neighbours, but a ghost (no fill)
-   so the accent send stays the one primary control. The glyph is larger than
-   the row's other icons: this is the button people go looking for.
-
-   Qualified with .input-ctrl-btn, the co-class it carries for the shared
-   hover wash and press scale, so the circle outranks that utility's pill. */
-composer-box .attach-btn.input-ctrl-btn {
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
-    border-radius: 50%;
-}
-
+/* Attach-files button — the tray's last button, the end nearest Send. Its
+   circle is the tray's (input-controls-actions .input-ctrl-btn); the glyph is
+   larger than the tray's other icons: this is the button people go looking for. */
 composer-box .attach-btn .attach-icon {
     display: flex;
     width: 1.125rem;
@@ -492,13 +483,11 @@ composer-box .paste-mirror .paste-token.expanding {
 }
 
 
-/* Strategy selector shares the .input-ctrl-btn ghost-pill style; only its
-   slightly smaller label and the chevron affordance are unique. The min-width
-   floor fits the common names so the label caps and ellipsises past it rather
-   than resizing the button. */
+/* Strategy selector shares the .input-ctrl-btn style; only its slightly
+   smaller label is unique. Sized to its content, like every settings-bar
+   segment. */
 composer-box .strategy-selector-button {
     font-size: var(--font-size-xs);
-    min-width: var(--config-strategy-min);
 }
 
 /* Current strategy's colour is carried by the label text (not a border, which
@@ -518,33 +507,47 @@ composer-box .strategy-selector-button[data-has-color="true"] .strategy-icon {
     color: var(--strategy-color);
 }
 
-/* Input controls row. Three unbreakable clusters — config (permission /
-   strategy / model), actions (the icon buttons), send — laid out in one source
-   order everywhere: config, actions, send. `container-type: inline-size` makes
-   this row the query container for the narrow-width fold below; height is not
-   contained, so the row is free to grow to a second line.
+/* Input controls row: two flex items, the settings bar (config: strategy /
+   permissions / model) and the tools (the tray of actions, then send). Plain
+   flex wrapping does the layout: both on one line while they fit, the tools on
+   a line of their own once they don't. Narrowing the column then changes one
+   thing at a time, each only when it no longer fits — see the tools, the
+   Thread pill and the narrow-row rules below.
 
-   The --config-* custom properties are the width-stability floors: each
-   variable-width config control gets a min-width sized to its common label so
-   cycling model/thinking/strategy doesn't jog the button under its own anchored
-   popup; an outlier label ellipsises past the cap instead of growing the row. */
+   The --config-*-name-max custom properties cap an outlier strategy or model
+   name, which ellipsises past the cap instead of growing the row. The segments
+   are otherwise sized to their labels — any slack would show inside the bar's
+   outline — so they change width as the model or strategy cycles. */
 composer-box input-controls {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 0.375rem;
     margin-top: 1rem;
-    container-type: inline-size;
 
-    /* Button min-width floors: sized to comfortably exceed the COMMON label so
-       the button width pins to the floor and cycling among common values leaves
-       it steady (the slack sits past the trailing chip/chevron). The name-max
-       values only cap a pathological outlier, which ellipsises. */
-    --config-perm-min: 6rem;
-    --config-strategy-min: 7rem;
     --config-strategy-name-max: 9rem;
-    --config-model-min: 13rem;
     --config-model-name-max: 13rem;
+
+    /* The row's one height and one material. Everything on the row — the
+       settings bar, the tool tray, the Thread pill, Send and the cache warning —
+       is exactly --composer-row-h tall, outer edge to outer edge, and the three
+       outlined shapes share the fill and fully round ends (--radius-pill). */
+    --composer-row-h: 1.875rem;
+    --composer-row-fill: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+/* The settings bar, the tool tray and the Thread pill: one outline, one fill,
+   one height, one end radius, so the row reads as three shapes rather than a
+   scatter of loose labels. The bar and the tray draw their border INSIDE that
+   height (border-box), and the controls in them fill what is left. */
+composer-box input-controls-config,
+composer-box input-controls-actions,
+composer-box .new-thread-btn.input-ctrl-btn {
+    box-sizing: border-box;
+    height: var(--composer-row-h);
+    border: 0.0625rem solid var(--border-color);
+    border-radius: var(--radius-pill);
+    background: var(--composer-row-fill);
 }
 
 /* Each cluster is a nowrap flex unit: it can never split mid-cluster, so the
@@ -567,6 +570,99 @@ composer-box input-controls-send {
     flex-shrink: 0;
 }
 
+/* ── Settings bar: strategy | permissions | model ────────────────────────────
+   The three config controls are segments of one bar, in that order
+   (composer-box._applyConfigPlacement). A segment some visible segment follows
+   draws the divider on its right, so none is ever left dangling at the bar's
+   edge whichever of them is hidden. Segments fill the bar's inner height. */
+composer-box input-controls-config {
+    align-items: stretch;
+    gap: 0;
+
+    /* The bar never runs past the row: alone on a line narrower than its
+       content, it is that line's width and its labels give way inside it — the
+       permission counts truncate, the model name ellipsises. Clamping the bar's size (rather than
+       letting it shrink) also keeps it from being squeezed to share a line:
+       flex breaks lines on that clamped size, so the tools wrap away first.
+       `min-width: 0` is what lets the clamp take effect; without it the bar
+       keeps `min-width: auto`, the whole labels, and overflows the column. */
+    min-width: 0;
+    max-width: 100%;
+}
+
+composer-box input-controls-config > :is(strategy-selector, permission-controls):not(:empty):has(~ :not([hidden], :empty)) {
+    border-right: 0.0625rem solid var(--border-color);
+}
+
+composer-box input-controls-config .input-ctrl-btn:is(.strategy-selector-button, .permission-btn, .model-selector-button) {
+    height: calc(var(--composer-row-h) - 0.125rem);
+    padding: 0 0.625rem;
+    border-radius: 0;
+}
+
+/* The bar's rounded ends belong to whichever segments are first and last on
+   screen. The strategy hides on a delegated thread and the permissions under a
+   strategy without approval controls, both with the `hidden` attribute, and
+   the permissions segment is empty until a thread is bound — so "first" is the
+   first one no shown sibling precedes, and "last" the last one none follows.
+   A lone segment takes both ends. */
+composer-box input-controls-config > :not([hidden], :empty, :not([hidden], :empty) ~ *) .input-ctrl-btn {
+    border-top-left-radius: var(--radius-pill);
+    border-bottom-left-radius: var(--radius-pill);
+}
+
+composer-box input-controls-config > :not([hidden], :empty, :has(~ :not([hidden], :empty))) .input-ctrl-btn {
+    border-top-right-radius: var(--radius-pill);
+    border-bottom-right-radius: var(--radius-pill);
+}
+
+/* Inside the bar a segment answers the pointer with its fill alone: a hover
+   ring would draw a pill inside the pill. Both themes, because the light
+   theme's own hover rule sets a border colour. */
+composer-box input-controls-config .input-ctrl-btn:hover:not(:disabled),
+composer-box input-controls-config .input-ctrl-btn.open,
+:root[data-theme="light"] composer-box input-controls-config .input-ctrl-btn:hover:not(:disabled),
+:root[data-theme="light"] composer-box input-controls-config .input-ctrl-btn.open {
+    border-color: transparent;
+}
+
+/* Every segment opens a menu, and says so: a ▾ after its label. Without it the
+   permissions segment ("✓ Edits on · 2 paths") reads as a status line, not a
+   control. Drawn in CSS so the same buttons elsewhere (the touch strip, a
+   settings row) stay as they are. */
+composer-box input-controls-config .input-ctrl-btn::after {
+    content: "";
+    flex-shrink: 0;
+    width: 0.3rem;
+    height: 0.3rem;
+    margin: -0.1875rem 0 0 0.125rem;
+    border-right: 0.09rem solid currentcolor;
+    border-bottom: 0.09rem solid currentcolor;
+    transform: rotate(45deg);
+    opacity: 0.6;
+}
+
+/* ── Tool tray: /, $, send later, expand, attach ─────────────────────────────
+   Round buttons filling the tray's inner height, a little apart. Attach is last,
+   at the end nearest Send, where the eye already goes. */
+composer-box input-controls-actions {
+    gap: 0.25rem;
+}
+
+/* ⋮ is not listed: it is touch-only, and shaped by its own rule there. */
+composer-box input-controls-actions .input-ctrl-btn:is(.commands-button, .skill-button, .schedule-send-btn, .expand-input-btn, .attach-btn) {
+    justify-content: center;
+    width: calc(var(--composer-row-h) - 0.125rem);
+    height: calc(var(--composer-row-h) - 0.125rem);
+    padding: 0;
+    border-radius: 50%;
+}
+
+composer-box input-controls-actions .input-ctrl-btn:hover:not(:disabled),
+:root[data-theme="light"] composer-box input-controls-actions .input-ctrl-btn:hover:not(:disabled) {
+    border-color: transparent;
+}
+
 /* The send cluster hugs the right edge; the elastic gap sits to its left, so
    config/actions growth spills into that gap and never shifts the send cluster
    (or its New-Thread neighbour). */
@@ -574,17 +670,12 @@ composer-box input-controls-send {
     margin-left: auto;
 }
 
-/* Permission pill: floor covers the toggled head ("✓ Edits on" / "🔒 Edits
-   off"); the "· N cmds · M paths" detail extends past the floor and only
-   changes on rule edits, never during a cycle. */
 composer-box .permission-btn {
-    min-width: var(--config-perm-min);
     justify-content: flex-start;
 }
 
-/* Strategy name: content-sized so the chevron sits flush against it (same
-   rationale as .model-name — the button's min-width floor supplies the stable
-   width, with the slack past the chevron). max-width bounds an outlier name. */
+/* Strategy name: content-sized so the chevron sits flush against it.
+   max-width bounds an outlier name. */
 composer-box .strategy-selector-button .strategy-name {
     flex: 0 1 auto;
     max-width: var(--config-strategy-name-max);
@@ -594,56 +685,80 @@ composer-box .strategy-selector-button .strategy-name {
     white-space: nowrap;
 }
 
-/* Narrow-column fold: below the threshold, config takes the whole first row and
-   actions + send flow onto a second row (send still margin-left:auto, so it
-   stays bottom-right).
+/* The permission counts truncate when the bar is short of room (see the bar's
+   max-width), before anything else on it has to. */
+composer-box input-controls-config .permission-btn .permission-detail {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 
-   The threshold is set ABOVE the one-line fit width (config ~25rem + actions
-   ~6.5rem + send ~12rem ≈ 44rem at the floors), NOT at some smaller value. If it
-   sat below the fit width, the 40–44rem band would be above the fold but below
-   the fit, so flexbox would NATURALLY wrap instead — and because the send
-   cluster is last with margin-left:auto, it wraps alone onto row 2, leaving a
-   packed top row and a near-empty bottom one. Folding at 46rem pre-empts that
-   natural wrap with the balanced split (config row 1, actions+send row 2) the
-   moment one line stops fitting.
+/* The tools: the tray, then send pushed to the far end (input-controls-send's
+   margin-left:auto). One flex item of the row, so the row can only ever break
+   between the bar and the tools — never leave send alone on a second line.
+   Its basis is what the tray and a labelled send cluster need side by side;
+   it grows to fill whatever its line has left. Its own width, not the
+   column's, decides the Thread pill's label below, so the pill keeps its word
+   whenever the tools have the room. When even the folded pill cannot share a
+   line with the tray, send wraps under the tray, still at the far end. */
+composer-box input-controls-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    flex-grow: 1;
+    flex-basis: 17rem;
+    min-width: 0;
+    container: composer-tools / inline-size;
+}
 
-   Below the fold the config cluster is allowed to wrap internally and its
-   buttons to shrink: the width-stability floors and `flex-shrink: 0` are what
-   keep the buttons steady at comfortable widths, but at narrow widths they'd
-   force the three config buttons to spill past the column edge and get lost.
-   Correctness (never lose a control) beats stability here — so we drop the
-   floors, let the buttons shrink (a long model name ellipsises), and let the
-   cluster wrap to as many lines as it needs rather than overflow. */
-@container (max-width: 46rem) {
-    /* `min-width: 0` is what lets the shrink chain inside the cluster run at
-       all. Without it the cluster keeps `min-width: auto`, whose floor is its
-       min-content — and min-content is computed from the widest item's own
-       min-content, which for a `white-space: nowrap` model name is that name at
-       its full max-width cap. A floor sized to the content the shrinking is
-       supposed to remove holds the cluster at its unshrunk width whatever the
-       items inside it are told to do, and the overflow lands on the controls
-       that follow: the model pill spills past the column edge, taking the
-       schedule and send buttons with it. */
-    composer-box input-controls-config {
-        flex-basis: 100%;
-        flex-wrap: wrap;
+/* Too little room beside the tray for "↪ Thread": the pill drops its word and
+   becomes a round icon — the same height and outline, the word still in its
+   tooltip. */
+@container composer-tools (max-width: 16.5rem) {
+    composer-box .new-thread-btn.input-ctrl-btn {
+        width: var(--composer-row-h);
+        padding: 0;
+        justify-content: center;
+    }
+
+    composer-box .new-thread-btn .new-thread-label {
+        display: none;
+    }
+}
+
+/* A narrow row (about the bar's width with common labels): correctness —
+   never lose a control — comes first. The segments may shrink as far as they
+   must: the permission counts go entirely
+   (still one click away in the popup), so the segment keeps "✓ Edits on"
+   whole, and strategy and model share the shortfall, both ellipsising. The
+   bar never wraps: a bar broken across two lines is no longer one outlined
+   shape. */
+@container composer-row (max-width: 26.5rem) {
+    /* The config cluster's flex items are the custom-element WRAPPERS, not the
+       buttons inside them, so each must be able to go below its content too.
+       permission-controls and model-selector shrink by default; the strategy
+       selector is pinned flex-shrink:0 upstream, so re-enable it. */
+    composer-box input-controls-config > permission-controls,
+    composer-box input-controls-config > model-selector {
         min-width: 0;
     }
 
-    /* The config cluster's flex items are the custom-element WRAPPERS, not the
-       buttons inside them. A wrapper must be able to shrink below its content
-       width (min-width:0 + flex-shrink:1) or a single one wider than the row
-       overflows the column instead of wrapping — losing the control entirely.
-       permission-controls / model-selector default to flex-shrink:1, but
-       strategy-selector is pinned flex-shrink:0 upstream, so re-enable it. */
-    composer-box input-controls-config > permission-controls,
-    composer-box input-controls-config > strategy-selector,
-    composer-box input-controls-config > model-selector {
+    composer-box input-controls-config > strategy-selector {
         min-width: 0;
         flex-shrink: 1;
     }
 
-    /* And the button inside each wrapper: drop its stability floor and let it
+    composer-box input-controls-config > permission-controls {
+        min-width: max-content;
+    }
+
+    composer-box input-controls-config .permission-btn .permission-detail {
+        display: none;
+    }
+
+    /* And the button inside each wrapper: let it go below its content and
        clip so the ellipsised label (.model-name / .strategy-name) actually
        shrinks with the wrapper rather than forcing an overflow. */
     composer-box input-controls-config .permission-btn,
@@ -653,30 +768,15 @@ composer-box .strategy-selector-button .strategy-name {
         overflow: hidden;
         flex-shrink: 1;
     }
-
-    /* The other two clusters hold fixed-size buttons that cannot ellipsise, so
-       the only way for them to fit a column narrower than the cluster itself is
-       to break across lines.
-
-       Wrapping has to be paid for with `flex-shrink: 1` and `min-width: 0`, and
-       neither is optional: a flex item with `flex-shrink: 0` is laid out at its
-       flex base size, which for these is max-content — every button on one line
-       — so the box never becomes narrow enough for its own wrapping to engage
-       and it simply overhangs the column. Shrinking is what makes the box
-       narrow; wrapping is what keeps the buttons inside it once it is. The
-       spill the outer `flex-shrink: 0` guards against cannot happen here
-       precisely because these two now wrap. */
-    composer-box input-controls-actions,
-    composer-box input-controls-send {
-        flex-wrap: wrap;
-        flex-shrink: 1;
-        min-width: 0;
-        justify-content: flex-end;
-    }
 }
 
-/* New thread button shares the .input-ctrl-btn ghost-pill style; the trailing
-   branch-off arrow sits to the right of the label. */
+/* Thread pill — the branch-off arrow then "Thread". Its outline, fill and
+   height are the row's shared chrome (above, with the bar and the tray); with
+   too little room in the tools it folds to the arrow alone (above). */
+composer-box .new-thread-btn.input-ctrl-btn {
+    padding: 0 0.6875rem 0 0.625rem;
+}
+
 .new-thread-btn .new-thread-arrow {
     display: flex;
     align-items: center;
@@ -697,8 +797,8 @@ composer-box .schedule-send-btn {
 composer-box .schedule-send-btn .schedule-send-icon {
     display: flex;
     align-items: center;
-    width: 0.875rem;
-    height: 0.875rem;
+    width: 1rem;
+    height: 1rem;
 }
 
 /* Delay picker — extends the .dropdown-menu base (surface, border, shadow,
@@ -866,8 +966,8 @@ composer-box .send-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
+    width: var(--composer-row-h);
+    height: var(--composer-row-h);
     padding: 0;
     border: none;
     border-radius: 50%;
@@ -907,8 +1007,8 @@ composer-box .context-cache-warning-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
+    width: var(--composer-row-h);
+    height: var(--composer-row-h);
     padding: 0;
     border: none;
     border-radius: 50%;
@@ -1069,6 +1169,30 @@ composer-box.touch-composer .attach-btn.input-ctrl-btn:focus:not(:disabled) {
    contributing a stray gap. */
 composer-box.touch-composer input-controls {
     flex-wrap: nowrap;
+
+    /* A finger needs a 2rem target; every row height follows from this. */
+    --composer-row-h: 2rem;
+}
+
+/* No tray on touch: what it held is in the "⋮" sheet, bar the paperclip. The
+   cluster stretches across the row and the paperclip, its last button, takes the
+   free space before it, so it lands beside Send: [⋮] … [attach][send]. */
+composer-box.touch-composer input-controls-tools {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+}
+
+composer-box.touch-composer input-controls-actions {
+    flex: 1 1 auto;
+    height: auto;
+    border: none;
+    background: none;
+}
+
+composer-box.touch-composer .attach-btn.input-ctrl-btn {
+    width: var(--composer-row-h);
+    height: var(--composer-row-h);
+    margin-left: auto;
 }
 
 composer-box.touch-composer input-controls-config:empty {

@@ -389,6 +389,16 @@ export async function runTests() {
         assert(rect.right <= contentRight + 0.5,
           `#${id} must lie inside the bubble (right edge ${Math.round(rect.right)}, bubble ends ${Math.round(contentRight)})`);
       }
+
+      // [⋮] … [attach][send]: the paperclip sits beside Send, the free space
+      // before it, even though it lives at the end of the desktop tool tray.
+      const more = /** @type {HTMLElement} */ (box.querySelector('#more-actions-button')).getBoundingClientRect();
+      const clip = /** @type {HTMLElement} */ (box.querySelector('#attach-button')).getBoundingClientRect();
+      const send = /** @type {HTMLElement} */ (box.querySelector('#send-button')).getBoundingClientRect();
+      assert(send.left - clip.right >= 0 && send.left - clip.right <= 12,
+        `the paperclip must sit just before Send (gap ${Math.round(send.left - clip.right)}px)`);
+      assert(clip.left - more.right > 3 * clip.width,
+        `the free space must lie between ⋮ and the paperclip (gap ${Math.round(clip.left - more.right)}px)`);
       passed++;
     } catch (e) {
       failed++;

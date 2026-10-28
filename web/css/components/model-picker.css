@@ -70,20 +70,18 @@ model-chip:not(composer-box *) .model-selector-button .model-name {
 }
 
 
-/* Model Selector in composer-box — floor its width so cycling the model/thinking
-   level doesn't resize the button under its own open popup. The label caps and
-   ellipsises past the floor rather than growing the row. */
+/* Model Selector in composer-box — a segment of the settings bar, sized to its
+   content: inside an outlined bar any slack past the label shows as an empty
+   run, so the button hugs its name, chips and ▾ (and so changes width as the
+   model cycles). */
 composer-box .model-selector-button {
-    min-width: var(--config-model-min);
     justify-content: flex-start;
 }
 
 /* Model name: sized to its content so it sits flush against the thinking chip
    (NOT a fixed slot — a fixed slot would strand the chip out to the right with a
-   dead gap between it and the name). Stability comes from the button's min-width
-   floor above: the slack sits at the button's right edge, past the chip, reading
-   as padding. `max-width` only bounds a pathologically long id, which ellipsises
-   with the full name kept in the title/popup. */
+   dead gap between it and the name). `max-width` only bounds a pathologically
+   long id, which ellipsises with the full name kept in the title/popup. */
 composer-box .model-selector-button .model-name {
     flex: 0 1 auto;
     max-width: var(--config-model-name-max);

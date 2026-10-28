@@ -39,7 +39,21 @@ type OperationTracker struct {
 	// (settleIntoThreadGroupLocked). Entries are by identity: one whose group has
 	// left the stack matches nothing.
 	threadGroups map[string]*ycrdt.StackItem
+	// clientGroups holds, per client, the undo group that client's latest
+	// tracked edit landed in, so its next edit can be grouped by the client's
+	// clock (ApplyClientEdit). Entries are by identity, like threadGroups.
+	clientGroups map[string]*ycrdt.StackItem
 }
+
+// undoCaptureTimeoutMs is the UndoManager's capture window: a tracked change
+// landing within it of the previous one merges into the same undo group, and
+// streaming token updates (many rapid writes) coalesce into one undo that way.
+// The UndoManager measures it on its own clock, when each transaction is
+// applied here on the worker, which for a client's edit is not when the user
+// made it — ApplyClientEdit corrects that from the client's own measurement.
+// Logical boundaries are explicit: StopCapturing() fires at every turn-idle,
+// slash command, context-item change, and undo/redo (which zeroes LastChange).
+const undoCaptureTimeoutMs = 250
 
 // auxiliaryTypes are inserted without starting a new undo group —
 // they attach to whatever turn is currently being captured.
@@ -160,19 +174,7 @@ func (t *OperationTracker) ensureUndoManager() *ycrdt.UndoManager {
 
 	um := ycrdt.NewUndoManager(
 		items,
-		// captureTimeout ms: changes landing within this window of the previous
-		// one merge into the same undo group. Measured by the UndoManager's own
-		// wall clock at the moment each browser-originated transaction is applied
-		// here on the worker — NOT when the browser issued it. So the window must
-		// comfortably exceed worst-case WS+apply jitter, or two operations the
-		// browser issued back-to-back (e.g. two rapid thread-item deletes) land
-		// >window apart on the worker and wrongly split into separate groups.
-		// Logical boundaries are still explicit: StopCapturing() fires at every turn-idle,
-		// slash command, context-item change, and undo/redo (which zeroes
-		// LastChange), so a larger window never over-merges distinct user actions —
-		// it only makes genuinely-rapid sequences group deterministically. Streaming
-		// token updates (many rapid writes) likewise want to coalesce into one undo.
-		250,
+		undoCaptureTimeoutMs,
 		func(item *ycrdt.Item) bool {
 			// Only allow tombstoning items that live within the conversation
 			// `items` scope:
@@ -781,6 +783,55 @@ func (t *OperationTracker) StopCapturing() {
 	t.stopCapturingLocked()
 }
 
+// ApplyClientEdit applies a client's yjs-sync frame and groups it for undo by
+// the client's clock rather than the worker's. sinceEditMs is the client's own
+// measurement of how long after its previous local edit this one was made (nil
+// when it has none to give, which leaves grouping to the worker's clock).
+//
+// It decides only against the group the client's previous edit landed in, and
+// only while that group is still on top with the capture window open: an edit
+// made within the window of it joins it however late it arrived, and one made
+// after the window starts a group of its own however soon it arrived. Anything
+// that has put a boundary there since — StopCapturing, another writer's group,
+// an undo — leaves the decision to the UndoManager, as it does for every other
+// writer. A frame the UndoManager does not track leaves its clock as it was.
+func (t *OperationTracker) ApplyClientEdit(origin string, update []byte, sinceEditMs *int) {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	um := t.undoManager
+	ownGroupOnTop := um != nil && origin != "" && um.LastChange != 0 &&
+		len(um.UndoStack) > 0 && um.UndoStack[len(um.UndoStack)-1] == t.clientGroups[origin]
+	steered := ownGroupOnTop && sinceEditMs != nil
+	lastChange := ycrdt.Number(0)
+	if steered {
+		lastChange = um.LastChange
+		if *sinceEditMs < undoCaptureTimeoutMs {
+			um.LastChange = ycrdt.Number(ycrdt.GetUnixTime())
+		} else {
+			um.StopCapturing()
+		}
+	}
+
+	seq := t.undoSeq
+	t.doc.applySyncUpdateLocked(update, nil)
+	// Every transaction the UndoManager tracks emits stack-item-added, whose
+	// handler bumps undoSeq; nothing else under this hold does.
+	tracked := um != nil && t.undoSeq != seq
+	if !tracked {
+		if steered {
+			um.LastChange = lastChange
+		}
+		return
+	}
+	if origin == "" {
+		return
+	}
+	if t.clientGroups == nil {
+		t.clientGroups = make(map[string]*ycrdt.StackItem)
+	}
+	t.clientGroups[origin] = um.UndoStack[len(um.UndoStack)-1]
+}
+
 // stopCapturingLocked is StopCapturing for a caller already holding ycrdtMu, so
 // a decision and the undo-group boundary that precedes its write can share one
 // hold. The UndoManager's own StopCapturing only resets its capture clock.
@@ -851,6 +902,7 @@ func (t *OperationTracker) ClearHistory() {
 	}
 	t.undoManager.Clear()
 	t.threadGroups = nil
+	t.clientGroups = nil
 	t.emitUndoState()
 }
 

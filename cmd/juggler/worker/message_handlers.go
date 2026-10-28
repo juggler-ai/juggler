@@ -873,7 +873,7 @@ func (r *run) handleYjsSync(payload json.RawMessage) {
 	if msg.EngineDerived {
 		applyErr = r.doc.ApplyEngineDerivedSyncUpdate(msg.Bytes)
 	} else {
-		applyErr = r.doc.ApplySyncUpdate(msg.Bytes)
+		r.tracker.ApplyClientEdit(r.inbox.origin(), msg.Bytes, msg.SinceEditMs)
 	}
 	// `origin` identifies WHICH client's sync this was — when a flake's
 	// worker doc diverges from a viewer's, the writer of the divergent

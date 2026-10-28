@@ -43,7 +43,7 @@ export function setupYjsObservers(c) {
 
   // Register sync callback to send updates to worker
   c._doc.setOnSyncBroadcast(
-    (/** @type {Uint8Array} */ update, /** @type {{engineDerived?: boolean} | undefined} */ opts) => {
+    (/** @type {Uint8Array} */ update, /** @type {import('../utils/document-sync-manager.js').SyncBroadcastOptions | undefined} */ opts) => {
       // Convert Uint8Array to base64 string for Go compatibility
       // (Go's json.Unmarshal expects base64 for []byte fields)
       const base64Bytes = bytesToBase64(update);
@@ -61,6 +61,9 @@ export function setupYjsObservers(c) {
         bytes: base64Bytes
       };
       if (opts?.engineDerived) msg.engineDerived = true;
+      // How long after this client's previous edit the user made this one, so
+      // the worker groups undo steps by the user's timing, not its own.
+      if (opts?.sinceEditMs !== undefined) msg.sinceEditMs = opts.sinceEditMs;
       workerManager.sendToWorker(c.id, msg);
     }
     // No onUndoStateChange callback - main thread receives undo state FROM worker

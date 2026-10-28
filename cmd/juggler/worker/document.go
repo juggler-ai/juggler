@@ -306,9 +306,17 @@ func (cd *ConversationDocument) applySyncUpdateWithOrigin(update []byte, origin 
 	}
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
+	cd.applySyncUpdateLocked(update, origin)
+	return nil
+}
+
+// applySyncUpdateLocked is the apply for a caller already holding ycrdtMu.
+func (cd *ConversationDocument) applySyncUpdateLocked(update []byte, origin any) {
+	if len(update) == 0 {
+		return
+	}
 	ycrdt.ApplyUpdate(cd.doc, update, origin)
 	cd.refreshItemsCache()
-	return nil
 }
 
 // =============================================================================

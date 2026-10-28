@@ -5,6 +5,8 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- Quick successive edits undo as one step even when the machine is busy
+
 ## [0.7.9] - 2026-10-28
 
 - Usage-limit errors that give a reset time offer to auto-continue then

@@ -87,7 +87,18 @@ export const ENGINE_DERIVED_ORIGIN = 'engine-derived';
 const EMPTY_UPDATE_LENGTH = Y.encodeStateAsUpdate(new Y.Doc()).length;
 
 /**
- * @typedef {(bytes: Uint8Array, opts?: {engineDerived?: boolean}) => void} SyncBroadcastCallback
+ * What the sync manager knows about an outgoing update beyond its bytes.
+ * @typedef {object} SyncBroadcastOptions
+ * @property {boolean} [engineDerived] - The update's origin was
+ *   ENGINE_DERIVED_ORIGIN.
+ * @property {number} [sinceEditMs] - Milliseconds since this doc's previous
+ *   local edit, on a local edit that has one. The worker groups edits into undo
+ *   steps by this rather than by when it applies them, which a loaded machine
+ *   can space far further apart than the user made them.
+ */
+
+/**
+ * @typedef {(bytes: Uint8Array, opts?: SyncBroadcastOptions) => void} SyncBroadcastCallback
  */
 
 /**
@@ -159,13 +170,27 @@ class DocumentSyncManager {
     /** @type {number} */
     this._lastBatchAt = 0;
 
+    /**
+     * When this doc last made a local edit the worker's undo tracks
+     * (performance.now()), or null before the first. Engine-derived writes are
+     * not tracked there, so they neither carry nor move it.
+     * @type {number|null}
+     */
+    this._lastLocalEditAt = null;
+
     // Update handler for sync (bound to preserve 'this')
     /** @type {(update: Uint8Array, origin: any) => void} */
     this._updateHandler = (update, origin) => {
       // Don't broadcast updates that came from remote (avoid echo)
       if (origin !== this && this.onSyncBroadcast) {
-        const engineDerived = origin === ENGINE_DERIVED_ORIGIN;
-        this.onSyncBroadcast(update, engineDerived ? { engineDerived: true } : undefined);
+        if (origin === ENGINE_DERIVED_ORIGIN) {
+          this.onSyncBroadcast(update, { engineDerived: true });
+          return;
+        }
+        const now = performance.now();
+        const previous = this._lastLocalEditAt;
+        this._lastLocalEditAt = now;
+        this.onSyncBroadcast(update, previous === null ? undefined : { sinceEditMs: Math.round(now - previous) });
       }
     };
   }

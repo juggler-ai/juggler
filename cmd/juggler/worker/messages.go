@@ -608,10 +608,19 @@ type ToolDefinition struct {
 // transaction origin is the "engine-derived" sentinel (see
 // web/js/model/conversation-tool-actions.js); the worker applies them with
 // a non-nil, non-tracked origin so they bypass the UndoManager.
+//
+// SinceEditMs is how long after the sending client's previous local edit this
+// one was made, measured by that client's clock — absent on a client's first
+// edit and on frames that are not one local edit (initial and full-state
+// pushes, resync replies). The UndoManager's capture window is measured on the
+// worker, when each frame is applied, and a loaded machine can space two frames
+// the user made back to back further apart than the window; this is what lets
+// the worker group them as the user made them (OperationTracker.ApplyClientEdit).
 type YjsSyncMessage struct {
 	Type          wireMsgType `json:"type"` // "yjs-sync"
 	Bytes         []byte      `json:"bytes"`
 	EngineDerived bool        `json:"engineDerived,omitempty"`
+	SinceEditMs   *int        `json:"sinceEditMs,omitempty"`
 }
 
 // ResyncRequestMessage asks the worker to send only the Yjs ops the client is

@@ -307,6 +307,84 @@ func TestMachineServerCLI(t *testing.T) {
 	}
 }
 
+// TestOpenStartsAnImplicitServer: `juggler open` with no server running
+// starts one — detached, marked implicit — and prints the URL of a session
+// that is already running. The command returning at all shows the server holds
+// none of its output: a server writing to an inherited pipe would keep it open,
+// and the run would wait on it.
+func TestOpenStartsAnImplicitServer(t *testing.T) {
+	iso := newIsolatedRun(t)
+	ms := &machineServer{t: t, Home: iso.home, ConfigDir: configDirUnder(iso.home), Logs: iso.logs, iso: iso, children: map[int]string{}}
+	project := newProjectDir(t)
+
+	code, out, errOut := ms.cli("open", project)
+	infoPath := filepath.Join(ms.ConfigDir, "server.json")
+	if _, err := os.Stat(infoPath); err == nil {
+		info := ms.readServerInfo()
+		ms.Addr, ms.Token = info.Addr, info.Token
+		t.Cleanup(func() { ms.stopDetached(infoPath, info.PID) })
+		if !info.Implicit {
+			t.Errorf("server.json %+v: want the server juggler open started marked implicit", info)
+		}
+	}
+	if code != 0 {
+		t.Fatalf("juggler open with no server: exit %d, stdout %q, stderr %q", code, out, errOut)
+	}
+	if !strings.Contains(errOut, "Started the Juggler server") {
+		t.Errorf("juggler open with no server: stderr %q, want it to say it started the server", errOut)
+	}
+	list := ms.mustListSessions()
+	if len(list) != 1 || list[0].Project != project || list[0].State != machineserver.SessionRunning {
+		t.Fatalf("sessions after juggler open = %+v, want one running for %s", list, project)
+	}
+	ms.noteChild(list[0])
+	if want := "http://" + ms.Addr + "/s/" + list[0].ID + "/"; strings.TrimSpace(out) != want {
+		t.Fatalf("juggler open printed %q, want %q", out, want)
+	}
+
+	// A second open finds the server rather than starting another.
+	if code, out2, errOut := ms.cli("open", project); code != 0 || strings.TrimSpace(out2) != strings.TrimSpace(out) || strings.Contains(errOut, "Started") {
+		t.Fatalf("second juggler open: exit %d, stdout %q, stderr %q; want the same session on the same server", code, out2, errOut)
+	}
+}
+
+// stopDetached shuts down a machine server the test did not start itself, so
+// cannot wait on: it asks over the control API, then waits for the server to
+// let go of server.json, and checks no session child it saw is still serving.
+func (ms *machineServer) stopDetached(infoPath string, pid int) {
+	t := ms.t
+	if sessions, err := ms.listSessions(); err == nil {
+		for _, s := range sessions {
+			ms.noteChild(s)
+		}
+	}
+	if resp, err := ms.do(http.MethodPost, "/api/server/shutdown", nil); err == nil {
+		_ = resp.Body.Close()
+	}
+	deadline := time.Now().Add(machineServerStopTimeout)
+	for {
+		if _, err := os.Stat(infoPath); os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("the machine server (pid %d) did not exit within %s of a shutdown request — killing it", pid, machineServerStopTimeout)
+			if p, err := os.FindProcess(pid); err == nil {
+				_ = p.Kill()
+			}
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	for childPID, addr := range ms.children {
+		if addr != "" && dialable(addr) {
+			t.Errorf("session child pid %d at %s is still serving after the machine server exited", childPID, addr)
+		}
+		if p, err := os.FindProcess(childPID); err == nil {
+			_ = p.Kill()
+		}
+	}
+}
+
 // machineConfigPattern finds the configuration the sessions page hands its
 // script, which carries the control-API token.
 var machineConfigPattern = regexp.MustCompile(`(?s)<script type="application/json" id="machine-config">(.*?)</script>`)

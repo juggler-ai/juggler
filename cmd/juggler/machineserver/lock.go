@@ -29,6 +29,9 @@ type ServerInfo struct {
 	// Token is the control-API token (the Server's tokenGuard). This file is
 	// how a client on this machine, running as this user, comes to hold it.
 	Token string `json:"token"`
+	// Implicit marks a server a client started on demand (serve --implicit),
+	// rather than one run by hand.
+	Implicit bool `json:"implicit,omitempty"`
 }
 
 // MachineLock enforces one machine server per machine via a flock under the
@@ -50,11 +53,12 @@ func NewMachineLock(configDir string) *MachineLock {
 	}
 }
 
-// TryAcquire attempts to become the machine server. On success it writes our
-// ServerInfo (with an empty Addr until UpdateAddr) and returns acquired=true.
+// TryAcquire attempts to become the machine server. On success it writes want
+// as our ServerInfo, with this process's PID and start time and an empty Addr
+// until UpdateAddr, and returns acquired=true.
 // When the lock is held elsewhere it returns the holder's info, when readable,
 // so the caller can report where the running server lives.
-func (l *MachineLock) TryAcquire(version, token string) (acquired bool, existing *ServerInfo, err error) {
+func (l *MachineLock) TryAcquire(want ServerInfo) (acquired bool, existing *ServerInfo, err error) {
 	if err := os.MkdirAll(filepath.Dir(l.lockPath), 0700); err != nil {
 		return false, nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
@@ -66,12 +70,10 @@ func (l *MachineLock) TryAcquire(version, token string) (acquired bool, existing
 	if !locked {
 		return false, l.readInfo(), nil
 	}
-	l.info = ServerInfo{
-		PID:       os.Getpid(),
-		Version:   version,
-		StartedAt: time.Now(),
-		Token:     token,
-	}
+	l.info = want
+	l.info.PID = os.Getpid()
+	l.info.Addr = ""
+	l.info.StartedAt = time.Now()
 	if err := l.writeInfo(); err != nil {
 		if unlockErr := l.flock.Unlock(); unlockErr != nil {
 			jlog.Error("[machineserver] failed to release lock after write failure: %v", unlockErr)
@@ -130,6 +132,29 @@ func (l *MachineLock) writeInfo() error {
 		_ = os.Remove(tmp.Name())
 	}
 	return werr
+}
+
+// held reports whether a machine server holds the lock, by trying to take it
+// and, on success, letting it go at once. A server starting in that instant
+// loses the lock to the probe and exits as if another held it — which is why
+// Connect starts a server again when the one it started has gone. A lock it
+// cannot try is reported held, so nothing starts a second server over it.
+func (l *MachineLock) held() bool {
+	if _, err := os.Stat(l.lockPath); err != nil {
+		return false
+	}
+	probe := flock.New(l.lockPath)
+	locked, err := probe.TryLock()
+	if err != nil {
+		return true
+	}
+	if locked {
+		if err := probe.Unlock(); err != nil {
+			jlog.Error("[machineserver] failed to release the lock probe: %v", err)
+		}
+		return false
+	}
+	return true
 }
 
 // readInfo returns the on-disk ServerInfo, or nil when it is missing or

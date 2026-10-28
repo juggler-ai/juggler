@@ -48,6 +48,8 @@ type Server struct {
 	// token is the control API's credential, minted per process and published
 	// only in server.json (see tokenGuard). Empty refuses every caller.
 	token string
+	// implicit is serve --implicit: a client started this server on demand.
+	implicit bool
 	// lan is LAN access: off at startup, and while off every caller off
 	// loopback is refused (see lanGate).
 	lan atomic.Bool
@@ -74,6 +76,14 @@ type Server struct {
 	// serves this server under (serve --allow-host and the saved setting).
 	// See hostGuard and callerKind.
 	allowedHosts hostcheck.AllowList
+	// idleTimeout is how long an implicit server waits, once nothing holds it
+	// up, before it shuts down (see watchIdle); zero is defaultIdleTimeout.
+	idleTimeout time.Duration
+	// attached counts the clients holding the server up (see attach).
+	attached atomic.Int64
+	// stirred is when (UnixNano) a client last did anything here: a control
+	// API request the token admitted, an attach or a detach (see stir).
+	stirred atomic.Int64
 }
 
 // TokenHeader carries the control-API token on a request to /api/server/*.
@@ -123,6 +133,7 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("/sessions/{id}", s.handleStopSession).Methods("DELETE")
 	api.HandleFunc("/recents", s.handleRecents).Methods("GET")
 	api.HandleFunc("/shutdown", s.handleShutdown).Methods("POST")
+	api.HandleFunc("/attach", s.handleAttach).Methods("POST")
 	r.HandleFunc("/s/{id}", s.redirectSession)
 	r.PathPrefix("/s/{id}/").HandlerFunc(s.handleSessionProxy)
 	r.HandleFunc("/", s.handlePage).Methods("GET")
@@ -149,7 +160,10 @@ func mintToken() string {
 // port — another account on this machine, or a page that got past the Host
 // and Origin guards. A custom header also forces a CORS preflight on any
 // cross-origin fetch, which the origin guard then refuses. A server with no
-// token refuses everyone; an empty header never matches.
+// token refuses everyone; an empty header never matches. A request it admits
+// stirs the idle clock (see watchIdle): a client that has just found the
+// server, or opened a session whose URL it will load later, gets the whole
+// idle timeout before the server can go.
 func (s *Server) tokenGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got := r.Header.Get(TokenHeader)
@@ -157,6 +171,7 @@ func (s *Server) tokenGuard(next http.Handler) http.Handler {
 			http.Error(w, "Unauthorized: missing or invalid server token", http.StatusUnauthorized)
 			return
 		}
+		s.stir()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -227,30 +242,46 @@ type statusResponse struct {
 	Version   string    `json:"version"`
 	StartedAt time.Time `json:"startedAt"`
 	Sessions  int       `json:"sessions"`
+	// Implicit is serve --implicit (see ServerInfo.Implicit).
+	Implicit bool `json:"implicit,omitempty"`
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, statusResponse{
+	writeJSON(w, http.StatusOK, s.status())
+}
+
+// status is the server's status record, as GET /api/server/status serves it.
+func (s *Server) status() statusResponse {
+	return statusResponse{
 		Status:    "ok",
 		PID:       os.Getpid(),
 		Addr:      s.addr,
 		Version:   core.Version,
 		StartedAt: s.startedAt,
 		Sessions:  len(s.reg.snapshot()),
-	})
+		Implicit:  s.implicit,
+	}
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.reg.snapshot())
 }
 
+// awaitingSpawn is called as an open with "wait" starts waiting for the spawn
+// in flight for session id. A seam for tests, which settle the spawn only once
+// the open is waiting on it.
+var awaitingSpawn = func(string) {}
+
 // handleOpenSession spawns (or reuses) the session child for a project.
 // POST /api/server/sessions {"project": "/abs/path" or "~/path"}.
 // Reuse returns the live record; a fresh spawn blocks until the child reports
-// its address (bounded by childStartTimeout) and returns 201.
+// its address (bounded by childStartTimeout) and returns 201. A spawn already
+// in flight answers "starting" at once, or with "wait": true once that spawn
+// has settled, as a fresh one would (see awaitSpawn).
 func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Project string `json:"project"`
+		Wait    bool   `json:"wait"`
 	}
 	body := http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(body).Decode(&req); err != nil {
@@ -269,8 +300,13 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cl == nil {
-		// A running child, or a spawn already in flight (state "starting" —
-		// the caller polls the sessions list until it flips).
+		// A running child, or a spawn already in flight (state "starting"),
+		// which the caller either waits for here or polls the sessions list
+		// until it flips.
+		if req.Wait {
+			s.awaitSpawn(w, r, sess.ID)
+			return
+		}
 		writeJSON(w, http.StatusOK, sess)
 		return
 	}
@@ -304,6 +340,32 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 	s.rememberRecent(project)
 	sess, _ = s.reg.get(sess.ID)
 	writeJSON(w, http.StatusCreated, sess)
+}
+
+// awaitSpawn answers an open with "wait" for session id, which another open
+// is spawning or has spawned: once the session is no longer starting, with
+// its record — 200 running, 502 errored — or 409 if a stop removed it. A
+// session waiting to restart is answered as it stands: its backoff is not a
+// spawn in flight. The wait is bounded by the spawn's own handshake timeout
+// and by the caller staying.
+func (s *Server) awaitSpawn(w http.ResponseWriter, r *http.Request, id string) {
+	if started := s.reg.whenStarted(id); started != nil {
+		awaitingSpawn(id)
+		select {
+		case <-started:
+		case <-r.Context().Done():
+			return
+		}
+	}
+	sess, ok := s.reg.get(id)
+	switch {
+	case !ok:
+		writeMessageError(w, http.StatusConflict, msg.New("session was removed during spawn"))
+	case sess.State == SessionError:
+		writeJSON(w, http.StatusBadGateway, sess)
+	default:
+		writeJSON(w, http.StatusOK, sess)
+	}
 }
 
 // rememberRecent puts project at the front of the machine's recents. A failure
@@ -372,6 +434,13 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 // Responds 202 first; the run loop drains children after.
 func (s *Server) handleShutdown(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
+	jlog.Info("[machineserver] shutdown requested via control API")
+	s.requestShutdown()
+}
+
+// requestShutdown asks serve's run loop to shut the server down, the one path
+// every shutdown takes. A request while one is pending adds nothing.
+func (s *Server) requestShutdown() {
 	select {
 	case s.shutdownReq <- struct{}{}:
 	default:

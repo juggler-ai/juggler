@@ -5,7 +5,6 @@
 package machineserver
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -13,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -22,13 +20,15 @@ import (
 
 // The command line's view of the machine server: `juggler server
 // status|sessions|stop` and `juggler open <project>`. Each finds the running
-// server the way any client on this machine does — server.json for its address
-// and control-API token — and drives the control API. None starts a server.
+// server the way any client on this machine does (Connect) and drives the
+// control API. Only open starts a server when none is running.
 
-// CLIEnv is where a CLI command writes, and how it opens a URL in a browser.
+// CLIEnv is where a CLI command writes, how it opens a URL in a browser, and
+// how open starts a server when none is running (nil: it doesn't).
 type CLIEnv struct {
 	Stdout, Stderr io.Writer
 	OpenBrowser    func(url string) error
+	Start          Starter
 }
 
 // errNoServer is every command's answer when no machine server is running.
@@ -80,8 +80,9 @@ func RunServerCommand(args []string, env CLIEnv) int {
 }
 
 // RunOpenCommand runs `juggler open [--browser] <project>`: it opens (or finds)
-// the session for the folder and prints its URL. The folder is taken as typed:
-// relative to where the command runs, or under ~.
+// the session for the folder and prints its URL once the session is running,
+// starting this machine's server first when none is running. The folder is
+// taken as typed: relative to where the command runs, or under ~.
 func RunOpenCommand(args []string, env CLIEnv) int {
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
@@ -102,15 +103,18 @@ func RunOpenCommand(args []string, env CLIEnv) int {
 		fmt.Fprintf(env.Stderr, "juggler open: %v\n", err)
 		return 1
 	}
-	c, err := discover()
+	c, err := Connect(ConnectOptions{Start: env.Start})
 	if err != nil {
 		return cliFail(env, "open", err)
 	}
-	var sess Session
-	if err := c.do(http.MethodPost, "/sessions", map[string]string{"project": project}, &sess); err != nil {
+	if c.Started {
+		fmt.Fprintf(env.Stderr, "Started the Juggler server at http://%s/.\n", c.addr)
+	}
+	sess, err := c.OpenSession(project)
+	if err != nil {
 		return cliFail(env, "open", err)
 	}
-	url := c.sessionURL(sess.ID)
+	url := c.SessionURL(sess.ID)
 	fmt.Fprintln(env.Stdout, url)
 	if *browser && env.OpenBrowser != nil {
 		if err := env.OpenBrowser(url); err != nil {
@@ -122,7 +126,7 @@ func RunOpenCommand(args []string, env CLIEnv) int {
 }
 
 func cliStatus(env CLIEnv) int {
-	c, err := discover()
+	c, err := Connect(ConnectOptions{})
 	if err != nil {
 		return cliFail(env, "server status", err)
 	}
@@ -140,7 +144,7 @@ func cliStatus(env CLIEnv) int {
 }
 
 func cliSessions(env CLIEnv, asJSON bool) int {
-	c, err := discover()
+	c, err := Connect(ConnectOptions{})
 	if err != nil {
 		return cliFail(env, "server sessions", err)
 	}
@@ -191,7 +195,7 @@ func cliState(s Session) string {
 }
 
 func cliShutdown(env CLIEnv) int {
-	c, err := discover()
+	c, err := Connect(ConnectOptions{})
 	if err != nil {
 		return cliFail(env, "server stop", err)
 	}
@@ -205,7 +209,7 @@ func cliShutdown(env CLIEnv) int {
 // cliStopSession stops the session named by its ID, or by its project folder
 // as typed.
 func cliStopSession(env CLIEnv, which string) int {
-	c, err := discover()
+	c, err := Connect(ConnectOptions{})
 	if err != nil {
 		return cliFail(env, "server stop", err)
 	}
@@ -245,64 +249,4 @@ func cliPath(p string) (string, error) {
 func cliFail(env CLIEnv, cmd string, err error) int {
 	fmt.Fprintf(env.Stderr, "juggler %s: %v\n", cmd, err)
 	return 1
-}
-
-// controlClient calls the running machine server's control API.
-type controlClient struct {
-	addr  string
-	token string
-	http  *http.Client
-}
-
-// discover finds the running machine server through server.json.
-func discover() (*controlClient, error) {
-	info := NewMachineLock(userpaths.ConfigDir()).readInfo()
-	if info == nil || info.Addr == "" {
-		return nil, errNoServer
-	}
-	return &controlClient{addr: info.Addr, token: info.Token, http: &http.Client{Timeout: cliTimeout}}, nil
-}
-
-// sessionURL is where a session is served on this server.
-func (c *controlClient) sessionURL(id string) string {
-	return "http://" + c.addr + "/s/" + id + "/"
-}
-
-// do sends one control-API request and decodes a JSON answer into out (when
-// non-nil). A server that does not answer is reported as no server at all;
-// one that refuses says why.
-func (c *controlClient) do(method, path string, body, out any) error {
-	var rd io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		rd = bytes.NewReader(b)
-	}
-	req, err := http.NewRequest(method, "http://"+c.addr+"/api/server"+path, rd) //nolint:noctx // bounded by the client's timeout
-	if err != nil {
-		return err
-	}
-	req.Header.Set(TokenHeader, c.token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("%w (server.json names %s, which is not answering)", errNoServer, c.addr)
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode >= 300 {
-		var sess Session
-		if json.Unmarshal(data, &sess) == nil && sess.Error != "" {
-			return errors.New(sess.Error)
-		}
-		return errors.New(strings.TrimSpace(string(data)))
-	}
-	if out != nil && len(data) > 0 {
-		return json.Unmarshal(data, out)
-	}
-	return nil
 }

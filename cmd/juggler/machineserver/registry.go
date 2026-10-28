@@ -70,6 +70,30 @@ type sessionEntry struct {
 	// Both are nil only for an entry no claim was made for.
 	cancel context.CancelFunc
 	done   chan struct{}
+	// started is open while the session is starting, and closes as it leaves
+	// that state or the registry (see setState) — what an open that waits for a
+	// spawn in flight blocks on.
+	started chan struct{}
+}
+
+// setState moves the entry to st, opening started as it enters starting and
+// closing it as it leaves. Every state change goes through here.
+func (e *sessionEntry) setState(st SessionState) {
+	if st == SessionStarting && e.started == nil {
+		e.started = make(chan struct{})
+	}
+	e.State = st
+	if st != SessionStarting {
+		e.closeStarted()
+	}
+}
+
+// closeStarted wakes whatever waits on the session's spawn.
+func (e *sessionEntry) closeStarted() {
+	if e.started != nil {
+		close(e.started)
+		e.started = nil
+	}
 }
 
 // claim is a spawner's hold on the session it opened (registry.open): the
@@ -93,11 +117,13 @@ func (cl *claim) release() {
 // errShuttingDown is open's answer once the server's lifetime has ended.
 var errShuttingDown = errors.New("the machine server is shutting down")
 
-// end cancels the entry's context, as it leaves the registry.
+// end cancels the entry's context, and wakes whatever waits on its spawn, as
+// it leaves the registry.
 func (e *sessionEntry) end() {
 	if e.cancel != nil {
 		e.cancel()
 	}
+	e.closeStarted()
 }
 
 // registry is the actor owning the session table. All access is serialized
@@ -166,6 +192,19 @@ func (r *registry) route(id string) (s Session, secret string, ok bool) {
 	return s, secret, ok
 }
 
+// whenStarted returns the channel that closes once session id is no longer
+// starting — running, errored, stopped or gone — or nil when it is not
+// starting now.
+func (r *registry) whenStarted(id string) <-chan struct{} {
+	var ch chan struct{}
+	r.do(func(m map[string]*sessionEntry) {
+		if e, found := m[id]; found && e.State == SessionStarting {
+			ch = e.started
+		}
+	})
+	return ch
+}
+
 // open returns the live session for project when one exists (any state but
 // error — an errored entry is replaced), with a nil claim. Otherwise it
 // inserts a starting entry with a fresh ID and returns the claim on it: the
@@ -197,9 +236,9 @@ func (r *registry) open(parent context.Context, project string, work *sync.WaitG
 		e := &sessionEntry{Session: Session{
 			ID:        id,
 			Project:   project,
-			State:     SessionStarting,
 			StartedAt: time.Now(),
 		}, cancel: cancel, done: make(chan struct{})}
+		e.setState(SessionStarting)
 		m[id] = e
 		work.Add(1)
 		s, cl = e.Session, &claim{ctx: ctx, done: e.done, work: work}
@@ -218,7 +257,7 @@ func (r *registry) setRunning(id string, c *child, pid int) bool {
 		if !found || e.State != SessionStarting {
 			return
 		}
-		e.State = SessionRunning
+		e.setState(SessionRunning)
 		e.Error = ""
 		e.Addr = c.addr
 		e.PID = pid
@@ -232,7 +271,7 @@ func (r *registry) setRunning(id string, c *child, pid int) bool {
 func (r *registry) setError(id, msg string) {
 	r.do(func(m map[string]*sessionEntry) {
 		if e, ok := m[id]; ok {
-			e.State = SessionError
+			e.setState(SessionError)
 			e.Error = msg
 			e.clearChild()
 		}
@@ -245,7 +284,7 @@ func (r *registry) beginStop(id string) (*child, bool) {
 	var c *child
 	r.do(func(m map[string]*sessionEntry) {
 		if e, ok := m[id]; ok && e.child != nil && e.State == SessionRunning {
-			e.State = SessionStopping
+			e.setState(SessionStopping)
 			c = e.child
 		}
 	})
@@ -264,7 +303,7 @@ func (r *registry) cancelPending(id string) (done <-chan struct{}, ok bool) {
 		if !found || e.done == nil || (e.State != SessionStarting && e.State != SessionRestarting) {
 			return
 		}
-		e.State = SessionStopping
+		e.setState(SessionStopping)
 		e.NextRestartAt = nil
 		e.end()
 		done, ok = e.done, true
@@ -321,7 +360,7 @@ func (r *registry) setRestarting(id string, c *child, reason string, next time.T
 		if !found || !e.owned(c) {
 			return
 		}
-		e.State = SessionRestarting
+		e.setState(SessionRestarting)
 		e.Error = reason
 		e.NextRestartAt = &next
 		e.clearChild()
@@ -340,7 +379,7 @@ func (r *registry) beginRestart(id string) (project string, ok bool) {
 		if !found || e.State != SessionRestarting {
 			return
 		}
-		e.State = SessionStarting
+		e.setState(SessionStarting)
 		e.NextRestartAt = nil
 		e.Restarts++
 		project, ok = e.Project, true
@@ -353,7 +392,7 @@ func (r *registry) beginRestart(id string) (project string, ok bool) {
 func (r *registry) failOwned(id string, c *child, msg string) {
 	r.do(func(m map[string]*sessionEntry) {
 		if e, found := m[id]; found && e.owned(c) {
-			e.State = SessionError
+			e.setState(SessionError)
 			e.Error = msg
 			e.NextRestartAt = nil
 			e.clearChild()

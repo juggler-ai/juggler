@@ -15,7 +15,7 @@ func TestMachineLockAcquireConflictAndRelease(t *testing.T) {
 	dir := t.TempDir()
 
 	l1 := NewMachineLock(dir)
-	acquired, existing, err := l1.TryAcquire("v1", "token-1")
+	acquired, existing, err := l1.TryAcquire(ServerInfo{Version: "v1", Token: "token-1"})
 	if err != nil || !acquired || existing != nil {
 		t.Fatalf("first acquire: acquired=%v existing=%v err=%v", acquired, existing, err)
 	}
@@ -25,7 +25,7 @@ func TestMachineLockAcquireConflictAndRelease(t *testing.T) {
 
 	// A second acquire against the same dir must fail and report the holder.
 	l2 := NewMachineLock(dir)
-	acquired, existing, err = l2.TryAcquire("v2", "token-2")
+	acquired, existing, err = l2.TryAcquire(ServerInfo{Version: "v2", Token: "token-2"})
 	if err != nil {
 		t.Fatalf("second acquire: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestMachineLockAcquireConflictAndRelease(t *testing.T) {
 	if err := l1.Release(); err != nil {
 		t.Fatalf("release: %v", err)
 	}
-	acquired, _, err = l2.TryAcquire("v2", "token-2")
+	acquired, _, err = l2.TryAcquire(ServerInfo{Version: "v2", Token: "token-2"})
 	if err != nil || !acquired {
 		t.Fatalf("acquire after release: acquired=%v err=%v", acquired, err)
 	}
@@ -61,7 +61,7 @@ func TestServerInfoIsPrivateToItsOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := NewMachineLock(dir)
-	if acquired, _, err := l.TryAcquire("v1", "token-1"); err != nil || !acquired {
+	if acquired, _, err := l.TryAcquire(ServerInfo{Version: "v1", Token: "token-1"}); err != nil || !acquired {
 		t.Fatalf("acquire: acquired=%v err=%v", acquired, err)
 	}
 	defer func() { _ = l.Release() }()

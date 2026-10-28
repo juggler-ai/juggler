@@ -85,12 +85,17 @@ func Run(cfg Config) int {
 	}
 
 	// `juggler server status|sessions|stop` and `juggler open <project>` are
-	// clients of a running machine server: they find it through server.json
-	// and drive its control API, and boot nothing themselves.
+	// clients of the machine server: they find it through server.json and
+	// drive its control API. Only open starts one when none is running — this
+	// binary's `serve --implicit`, detached — and neither boots a server in
+	// this process.
 	if len(os.Args) > 1 && (os.Args[1] == "server" || os.Args[1] == "open") {
 		env := machineserver.CLIEnv{Stdout: os.Stdout, Stderr: os.Stderr, OpenBrowser: openInBrowser}
 		if os.Args[1] == "server" {
 			return machineserver.RunServerCommand(os.Args[2:], env)
+		}
+		if exe, err := os.Executable(); err == nil {
+			env.Start = machineserver.DetachedStarter(exe)
 		}
 		return machineserver.RunOpenCommand(os.Args[2:], env)
 	}

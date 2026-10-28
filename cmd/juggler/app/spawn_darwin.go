@@ -10,7 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
+
+	"juggler/internal/detach"
 )
 
 // launchDetached starts a new juggler instance on macOS.
@@ -62,14 +63,11 @@ func appBundlePath(exe string) string {
 	return ""
 }
 
-// execDetached runs the binary directly in its own session (Setsid) so it
-// survives this process exiting. stdio goes to the null device so the child is
-// not tied to our console.
+// execDetached runs the binary directly, detached (see the detach package),
+// so it survives this process exiting.
 func execDetached(exe string, args []string) error {
-	cmd := exec.Command(exe, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
-	if err := cmd.Start(); err != nil {
+	cmd, err := detach.Start(detach.Command(exe, args...))
+	if err != nil {
 		return err
 	}
 	// Release so the OS reaps the child instead of leaving a zombie when this

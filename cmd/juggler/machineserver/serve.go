@@ -12,16 +12,18 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"juggler/cmd/juggler/core"
 	"juggler/internal/jlog"
-	"juggler/internal/logpaths"
 	"juggler/internal/userpaths"
 )
+
+// serveListening is called with the server once RunCommand is serving, before
+// its idle watch starts. A seam for the stand-in server in tests.
+var serveListening = func(*Server) {}
 
 // RunCommand runs `juggler serve` to completion and returns the process exit
 // code. One machine server per machine, enforced by the flock under
@@ -31,6 +33,7 @@ func RunCommand(args []string) int {
 	port := fs.Int("port", 0, "Port for the machine server (0 = OS-assigned; the bound address is recorded in ~/.juggler/server.json)")
 	verbose := fs.Bool("verbose", false, "Verbose logging (debug level)")
 	fs.BoolVar(verbose, "v", false, "Verbose logging (debug level) (shorthand)")
+	implicit := fs.Bool("implicit", false, "Mark this server as started on demand by a client (bare juggler, the desktop app) rather than by hand; recorded in ~/.juggler/server.json")
 	testChildren := fs.Bool("test", false, "Test harness only: spawn session children as test servers driven through this server's proxy")
 	var allowHosts []string
 	fs.Func("allow-host", "Also accept requests for `name`: the name a reverse proxy on this machine (tailscale serve, caddy) serves Juggler under. Its callers count as remote. Repeatable; only name a host whose DNS you control", func(v string) error {
@@ -53,7 +56,7 @@ func RunCommand(args []string) int {
 		Component:    "serve",
 		MaxSizeMB:    10,
 		MaxBackups:   5,
-		LogFilePath:  filepath.Join(logpaths.LogDir(), "serve.log"),
+		LogFilePath:  serveLogPath(),
 	})
 	defer jlog.Close()
 
@@ -65,7 +68,7 @@ func RunCommand(args []string) int {
 
 	token := mintToken()
 	lock := NewMachineLock(userpaths.ConfigDir())
-	acquired, existing, err := lock.TryAcquire(core.Version, token)
+	acquired, existing, err := lock.TryAcquire(ServerInfo{Version: core.Version, Token: token, Implicit: *implicit})
 	if err != nil {
 		jlog.Error("serve: %v", err)
 		return 1
@@ -106,6 +109,8 @@ func RunCommand(args []string) int {
 		startedAt:    time.Now(),
 		shutdownReq:  make(chan struct{}, 1),
 		token:        token,
+		implicit:     *implicit,
+		idleTimeout:  serveIdleTimeout,
 		testChildren: *testChildren,
 		allowedHosts: allowed,
 	}
@@ -132,13 +137,23 @@ func RunCommand(args []string) int {
 	errCh := make(chan error, 1)
 	go func() { errCh <- s.httpSrv.Serve(ln) }()
 
+	serveListening(s)
+
+	// An implicit server shuts itself down once idle (watchIdle); one started
+	// by hand stays until it is stopped.
+	if s.implicit {
+		tick := time.NewTicker(idleCheckEvery(s.idleTimeout))
+		defer tick.Stop()
+		go s.watchIdle(tick.C, nil)
+	}
+
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	select {
 	case got := <-sig:
 		jlog.Info("serve: received %v — shutting down", got)
 	case <-s.shutdownReq:
-		jlog.Info("serve: shutdown requested via control API")
+		jlog.Info("serve: shutting down")
 	case err := <-errCh:
 		jlog.Error("serve: http server failed: %v", err)
 		s.stopAllChildren()

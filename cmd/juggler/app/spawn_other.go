@@ -6,20 +6,15 @@
 
 package app
 
-import (
-	"os/exec"
-	"syscall"
-)
+import "juggler/internal/detach"
 
 // launchDetached starts a new juggler instance on Linux (and other unix). There
 // is no single-instance window manager convention to defeat, so we exec the
-// binary directly in its own session (Setsid) so it outlives this process.
-// stdio goes to the null device to fully detach the child from our console.
+// binary directly, detached (see the detach package), so it outlives this
+// process.
 func launchDetached(exe string, args []string) error {
-	cmd := exec.Command(exe, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
-	if err := cmd.Start(); err != nil {
+	cmd, err := detach.Start(detach.Command(exe, args...))
+	if err != nil {
 		return err
 	}
 	return cmd.Process.Release()

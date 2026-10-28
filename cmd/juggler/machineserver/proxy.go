@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 
 	"juggler/internal/ingress"
 )
@@ -86,6 +87,11 @@ func (s *Server) handleSessionProxy(w http.ResponseWriter, r *http.Request) {
 		// Flush streamed responses immediately — the UI relies on
 		// incremental delivery, not just WebSocket frames.
 		FlushInterval: -1,
+	}
+	// A viewer's socket is an attached client (see attach) for as long as it
+	// is open: for an upgrade, ServeHTTP returns only once the socket closes.
+	if websocket.IsWebSocketUpgrade(r) {
+		defer s.attach()()
 	}
 	proxy.ServeHTTP(w, r)
 }

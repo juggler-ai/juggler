@@ -132,12 +132,24 @@ export function makeUserCommandClass(def) {
     };
 
     /**
+     * The prompt this command produces for an invocation. A scheduled send of a
+     * `send`-mode command holds this text, since sending it is all the command
+     * would do (SlashCommandHandler.resolveScheduled).
+     * @param {string[]} args - Invocation arguments
+     * @param {string} [rest] - The argument text as typed
+     * @returns {string} The expanded prompt
+     */
+    static expand(args, rest) {
+      return expandTemplate(def.body || '', args, rest);
+    }
+
+    /**
      * @param {string[]} args - Invocation arguments
      * @param {string} [rest] - The argument text as typed
      * @returns {Promise<import('juggler/command-type').CommandResult>} Result
      */
     async execute(args, rest) {
-      const text = expandTemplate(def.body || '', args, rest);
+      const text = UserCommand.expand(args, rest);
       const thread = this.messageThread;
       if (!thread) return { handled: true, error: true, message: t('No conversation is open.') };
 

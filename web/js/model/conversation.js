@@ -900,8 +900,8 @@ class Conversation {
   /**
    * Ask for the box showing `threadId` to be emptied, on the session feed as
    * `composer:clear-requested`. The tab showing this conversation answers, and
-   * only when its visible box is bound to that thread, so a scheduled send fired
-   * on a hidden thread leaves the visible column's draft alone. Given
+   * only when its visible box is bound to that thread, so a send to a hidden
+   * thread leaves the visible column's draft alone. Given
    * `onlyIfText`, it also answers only when the box holds exactly that text.
    * @param {string|null} threadId - The thread the send went to (null for root).
    * @param {string} [onlyIfText] - Clear only a box holding this text (compared trimmed).
@@ -1925,7 +1925,9 @@ class Conversation {
    *   `schedule` holds the send ("Send later"): the worker queues it at once,
    *   even on an idle thread, and fires it itself. It takes the queueing path —
    *   never refused as busy, never dismissing a pending approval — and asks for
-   *   no turn now. A slash command can't be held and is refused.
+   *   no turn now. A held slash command is held as the message running it
+   *   would send (a user-defined `send`-mode command's expanded prompt), or
+   *   refused with the reason it can't be (SlashCommandHandler.resolveScheduled).
    * @returns {Promise<string|null>} null when the message was delivered (or a
    *   slash command was handled); otherwise a short reason describing which
    *   guard dropped it. The drop is silent for users (the UI guard normally
@@ -1935,16 +1937,27 @@ class Conversation {
   async sendMessage(userMessage, threadItemId = null, messageThread, options = {}) {
     const consumeComposer = options.consumeComposer !== false;
     const schedule = options.schedule;
+    let interpretCommands = options.interpretCommands !== false;
+    // What goes to the worker. `userMessage` stays what was typed, which is
+    // what up-arrow history keeps.
+    let outgoingMessage = userMessage;
 
-    // A command runs here and now, so there is nothing a hold could keep back:
-    // a held send that reads as one is refused, its text left in the box.
-    if (schedule && options.interpretCommands !== false && /^\/[a-zA-Z]/.test(userMessage)) {
-      this.showWarning(t("Slash commands can't be scheduled"), 5000);
-      return 'slash command scheduled';
+    // A command runs here and now, and the worker that fires a held send can
+    // only deliver a message. So a held send that reads as a command is held as
+    // the message running it would send, and is not run; one that would do
+    // anything else is refused, saying why, its text left in the box.
+    if (schedule && interpretCommands && /^\/[a-zA-Z]/.test(userMessage)) {
+      const held = await slashCommandHandler.resolveScheduled(userMessage);
+      if ('refusal' in held) {
+        this.showWarning(held.refusal, 8000);
+        return 'slash command scheduled';
+      }
+      outgoingMessage = held.text;
+      interpretCommands = false;
     }
 
     // Check for slash commands first (these work even when processing)
-    if (options.interpretCommands !== false && userMessage.startsWith('/')) {
+    if (interpretCommands && userMessage.startsWith('/')) {
       // Clear the box BEFORE running the command, not after. A command like
       // /handoff clones the conversation part-way through execute(), and the
       // clone is taken from the source's persisted draft — so if the command
@@ -1954,15 +1967,15 @@ class Conversation {
       // slashCommandHandler.execute() treats as handled (`/foo`, not a bare
       // "/" or "/123"), so genuinely-unhandled input still falls through to a
       // normal send and survives a validation failure in the box. Guarded so a
-      // scheduled send firing on a hidden thread doesn't wipe the visible
-      // column's in-progress draft. (A command that sets a draft — 'draft' run
-      // mode's setDraft side effect — runs after this, so it isn't clobbered.)
+      // command run for a hidden thread doesn't wipe the visible column's
+      // in-progress draft. (A command that sets a draft — 'draft' run mode's
+      // setDraft side effect — runs after this, so it isn't clobbered.)
       //
       // Only clear when the box's current text IS this command — i.e. the user
       // typed `/foo` and submitted it, so the box holds exactly what we're about
       // to consume. When the command was invoked another way (picked from the
-      // slash/commands menu, a scheduled or programmatic send) the box instead
-      // holds an unrelated in-progress draft; clearInput() would destroy it
+      // slash/commands menu or a programmatic send) the box instead holds an
+      // unrelated in-progress draft; clearInput() would destroy it
       // non-undoably (setText('') wipes the native undo stack), so leave it be.
       // The request is answered synchronously, so the box is judged as it
       // stands before the command can change the active column.
@@ -2150,7 +2163,7 @@ class Conversation {
     // Route to worker - the worker owns the strategy loop. Turns are driven
     // exclusively by the Go worker; there is no viewer-side fallback loop.
     if (this._workerManager.isWorkerReady(this.id)) {
-      this._workerManager.sendMessage(this.id, userMessage, messageThread?.threadItemId || threadItemId, options.attachments, options.skills, schedule);
+      this._workerManager.sendMessage(this.id, outgoingMessage, messageThread?.threadItemId || threadItemId, options.attachments, options.skills, schedule);
       const acceptedConfig = messageThread?.modelConfig || this.modelConfig;
       if (acceptedConfig?.provider && acceptedConfig?.model) {
         recentModels.record(acceptedConfig.provider, acceptedConfig.model, acceptedConfig.thinking, acceptedConfig.serviceTier);

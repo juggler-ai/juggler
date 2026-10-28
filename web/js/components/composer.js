@@ -1481,8 +1481,9 @@ class Composer extends JugglerElement {
    * message at once, whatever the thread is doing, and fires it at `notBefore`
    * (epoch ms) or when the thread's run ends (`hold: 'run-end'`). The box is
    * consumed exactly as by a plain send, and the message's reads ride the queue
-   * with it. A slash command can't be held — it would run now — so it is
-   * refused before anything is read.
+   * with it. A slash command is held only when running it would just send its
+   * prompt (a user-defined `send`-mode command); any other is refused, saying
+   * why, before anything is read.
    * @param {{schedule?: import('../model/conversation.js').SendSchedule}} [options]
    * @returns {Promise<string|null>} null when the message was dispatched;
    *   otherwise a short reason describing which guard blocked the send.
@@ -1533,13 +1534,6 @@ class Composer extends JugglerElement {
       return 'message too large';
     }
 
-    // Refused here, before any mention is read into the queue for it: the same
-    // test Conversation.sendMessage uses to run text as a command.
-    if (schedule && /^\/[a-zA-Z]/.test(message)) {
-      this.showWarning(t("Slash commands can't be scheduled"));
-      return 'slash command scheduled';
-    }
-
     // Held for the whole resolve-and-dispatch body below. Released in the
     // `finally` so a mention read that rejects (an unreadable path, a dropped
     // connection) leaves the box usable rather than latched shut — sendMessage()
@@ -1547,6 +1541,18 @@ class Composer extends JugglerElement {
     // surfaces nowhere and would otherwise strand the flag set.
     this._sending = true;
     try {
+      // A held slash command is refused here, before any mention is read into
+      // the queue for it, unless it is one a held send can carry (see
+      // SlashCommandHandler.resolveScheduled). One that can is dispatched as
+      // typed: Conversation.sendMessage expands it, as it would run it.
+      if (schedule && /^\/[a-zA-Z]/.test(message)) {
+        const held = await slashCommandHandler.resolveScheduled(message);
+        if ('refusal' in held) {
+          this.showWarning(held.refusal);
+          return 'slash command scheduled';
+        }
+      }
+
       // A send while a turn is in flight on THIS thread is QUEUED, not refused
       // (MessageThread.sendWillQueue), so we don't block here; we just nudge
       // the status into view so the user sees the queued bubble land.

@@ -8,8 +8,9 @@
  * The picker keeps no timer of its own. Each choice is one call to the
  * composer's `sendMessage({schedule})`, which hands the message to the worker
  * as a held send; the worker queues it and fires it. So what is tested here is
- * what the picker draws (under en-XA), the refusal of a scheduled slash
- * command, and that each choice asks for the right hold.
+ * what the picker draws (under en-XA), which scheduled slash commands are
+ * refused and that each refusal says why, and that each choice asks for the
+ * right hold.
  * @module unit-tests/scheduled-send-test
  */
 
@@ -22,6 +23,9 @@ import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import '../../js/components/composer.js';
 import MessageThread from '../../js/model/message-thread.js';
+import commandRegistry from '../../js/registries/command-registry.js';
+import slashCommandHandler from '../../js/services/slash-command-handler.js';
+import { makeUserCommandClass } from '../../js/plugins/user-command-factory.js';
 
 /**
  * A stand-in for MessageThread with a plain `draft` record.
@@ -103,8 +107,9 @@ export async function runTests() {
   // ── Test 1: every state the clock button and picker draw, under en-XA ─────
   // Walks the button over a non-empty box, the picker with and without a
   // running turn and at zero delay, and the refusal of a scheduled slash
-  // command. A wall-clock time is Intl's output (data), so any `H:MM` in a
-  // shown string is mapped to a digit before the check. The clock button's own
+  // command. A wall-clock time is Intl's output and a command name is the
+  // user's input (both data), so any `H:MM` or `/name` in a shown string is
+  // mapped to a digit before the check. The clock button's own
   // aria-label is composer.js's markup, so only the title this module sets is
   // read from it.
   {
@@ -158,7 +163,7 @@ export async function runTests() {
       });
 
       const raw = shown
-        .map((s) => s.replace(/\d{1,2}[:.]\d{2}/g, '0'))
+        .map((s) => s.replace(/\d{1,2}[:.]\d{2}/g, '0').replace(/\/[a-z][a-z-]*/g, '/0'))
         .filter((s) => !isPseudoLocalized(s));
       assert(shown.length >= 20, `expected at least 20 strings, found ${shown.length}`);
       assert(raw.length === 0, `plain English under en-XA: ${JSON.stringify(raw)}`);
@@ -206,6 +211,47 @@ export async function runTests() {
       errors.push('picker-sends-held: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       closeAllPopups();
+      container.remove();
+      __resetPopupManagerForTests();
+    }
+  }
+
+  // ── Test 3: which slash commands a held send can carry, and why not ───────
+  // Only a user-defined send-mode command can be held, as its expanded prompt;
+  // every other kind is refused by the composer with a reason naming it.
+  {
+    __resetPopupManagerForTests();
+    const { box, textarea, container } = mountComposer();
+    const realLookup = commandRegistry.getByNameOrAlias;
+    /** @type {Record<string, any>} */
+    const probes = {
+      'probe-later': makeUserCommandClass({ name: 'probe-later', scope: 'project', body: 'Later: $ARGUMENTS ($1)', frontmatter: {} }),
+      'probe-draft': makeUserCommandClass({ name: 'probe-draft', scope: 'project', body: 'Draft $1', frontmatter: { run: 'draft' } }),
+      'probe-sub': makeUserCommandClass({ name: 'probe-sub', scope: 'project', body: 'Sub $1', frontmatter: { run: 'subthread' } }),
+    };
+    commandRegistry.getByNameOrAlias = (/** @type {string} */ name) => probes[name] || realLookup.call(commandRegistry, name);
+    try {
+      const held = await slashCommandHandler.resolveScheduled('/probe-later alpha beta');
+      assert('text' in held && held.text === 'Later: alpha beta (alpha)',
+        `a send-mode user command must resolve to its expanded prompt, got ${JSON.stringify(held)}`);
+
+      const warnings = /** @type {string[]} */ ([]);
+      box.showWarning = (/** @type {string} */ m) => { warnings.push(m); };
+      for (const name of ['probe-draft', 'probe-sub', 'compact', 'no-such-command']) {
+        warnings.length = 0;
+        textarea.value = `/${name} x`;
+        const reason = await box.sendMessage({ schedule: { notBefore: Date.now() + 60000 } });
+        assert(reason === 'slash command scheduled', `/${name} must be refused when scheduled, got ${reason}`);
+        assert(warnings.length === 1 && warnings[0].includes(`/${name}`),
+          `the refusal of /${name} must name it, got ${JSON.stringify(warnings)}`);
+        assert(textarea.value === `/${name} x`, `a refused /${name} must stay in the box`);
+      }
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push('scheduled-commands: ' + (e instanceof Error ? `${e.message}\n${e.stack}` : String(e)));
+    } finally {
+      commandRegistry.getByNameOrAlias = realLookup;
       container.remove();
       __resetPopupManagerForTests();
     }

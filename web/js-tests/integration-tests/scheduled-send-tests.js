@@ -23,6 +23,8 @@
 import { textResponse, toolUseResponse } from '../utilities/integration-test-runner.js';
 import { waitFor } from '../utilities/test-helpers.js';
 import logger from '../utilities/test-logger.js';
+import commandRegistry from '../../js/registries/command-registry.js';
+import { makeUserCommandClass } from '../../js/plugins/user-command-factory.js';
 
 const SCHEDULED_TEXT = 'scheduled follow-up';
 
@@ -457,10 +459,65 @@ export const scheduledSendReleasedFromQueueTest = {
   }
 };
 
+// ============================================================================
+// TEST 6: a user-defined send-mode command is held as its expanded prompt
+// ============================================================================
+
+/**
+ * Scheduling `/probe-later …`, a user command whose run mode is `send`, holds
+ * the prompt it expands to: the box empties, the queue holds the expanded text
+ * (not the command), and no turn starts.
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+export const scheduledSendUserCommandTest = {
+  name: 'scheduled-send-user-command',
+  description: 'A scheduled send-mode user command is queued as its expanded prompt',
+  fixture: 'unit-test-fixture',
+  timeoutMs: 60000,
+
+  llmResponses: [
+    textResponse('First done.')
+  ],
+
+  operations: [
+    { type: 'send-message', message: 'first message' }
+  ],
+
+  customAssertions: async (conversation, ctx) => {
+    const harness = /** @type {any} */ (ctx).harness;
+    const composer = boundComposer(harness);
+    const realLookup = commandRegistry.getByNameOrAlias;
+    const Probe = makeUserCommandClass({
+      name: 'probe-later', scope: 'project', body: `${SCHEDULED_TEXT}: $ARGUMENTS`, frontmatter: {},
+    });
+    commandRegistry.getByNameOrAlias = (/** @type {string} */ name) =>
+      (name === 'probe-later' ? Probe : realLookup.call(commandRegistry, name));
+    try {
+      typeInto(composer, '/probe-later check the build');
+      const blocked = await composer.sendMessage({ schedule: { notBefore: Date.now() + 60 * 60000 } });
+      if (blocked) throw new Error(`scheduled user command refused: ${blocked}`);
+      const { entries, index } = await waitForQueued(conversation, composer);
+      log('queued', snapshot(conversation, composer));
+
+      assertBoxConsumed(conversation, composer);
+      const expected = `${SCHEDULED_TEXT}: check the build`;
+      if (entries[index].content !== expected) {
+        throw new Error(`the held send must be the expanded prompt ${JSON.stringify(expected)}, got ${JSON.stringify(entries[index].content)}`);
+      }
+      if (conversation.isTurnActive() || transcriptUserContents(conversation).includes(expected)) {
+        throw new Error(`a held command must not run now: ${JSON.stringify(snapshot(conversation, composer))}`);
+      }
+    } finally {
+      commandRegistry.getByNameOrAlias = realLookup;
+    }
+  }
+};
+
 export const tests = [
   scheduledSendQueuedMidTurnTest,
   scheduledSendQueuedWhenIdleTest,
   scheduledSendRunEndTest,
   scheduledSendFiredByWorkerTest,
-  scheduledSendReleasedFromQueueTest
+  scheduledSendReleasedFromQueueTest,
+  scheduledSendUserCommandTest
 ];

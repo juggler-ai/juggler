@@ -40,6 +40,7 @@ of changes; this project follows semantic versioning.
 - Auto-approve waits longer for a slow or busy reviewer; deciding yourself cancels it
 - Resumed Claude Code sub-threads no longer start out of budget, or with an empty reply
 - Scheduled sends now fire from the server, even with every window closed
+- Your own send-mode slash commands can be scheduled; others say why they can't
 - Queued messages left behind by a restart now get answered
 - Settings shows long model names in full, in a wider models and limits list
 - Deleting items mid-turn asks before stopping the turn; running tools are deletable

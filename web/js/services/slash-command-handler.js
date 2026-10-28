@@ -198,6 +198,54 @@ class SlashCommandHandler {
   }
 
   /**
+   * What a scheduled send of a slash command would deliver when it fires.
+   *
+   * A held send is given to the worker at once and fired by it later, and the
+   * worker can only deliver a message: it has no command interpreter, and the
+   * page that has one may be closed by then. So a command can be scheduled only
+   * when running it would just send a message. A user-defined `send`-mode
+   * command is exactly that, so it resolves to its expanded prompt, which is
+   * held in its place. Every other command resolves to a refusal that says why,
+   * naming the command as typed:
+   * - a `draft`-mode command fills the message box for editing, so there is no
+   *   message yet;
+   * - a `subthread`-mode command starts a sub-thread, which the worker can't do
+   *   when a held send fires;
+   * - a built-in or extension command acts on the app itself, so it can only
+   *   run now.
+   * @param {string} input - Full user input, leading `/` included
+   * @returns {Promise<{text: string}|{refusal: string}>} The text to hold, or why
+   *   the command can't be held
+   */
+  async resolveScheduled(input) {
+    await this.init();
+
+    const { name: commandName, args, rest } = parseInvocation(input);
+    const CommandClass = /** @type {any} */ (commandRegistry.getByNameOrAlias(commandName));
+    if (!CommandClass) {
+      return { refusal: t('Unknown command: /{command}', { command: commandName }) };
+    }
+
+    const manifest = CommandClass.MANIFEST || {};
+    if (!manifest.userDefined) {
+      return {
+        refusal: t("/{command} does something in the app rather than send a message, so it can only run now. Only messages and your own prompt commands can be scheduled.", { command: commandName })
+      };
+    }
+    if (manifest.runMode === 'draft') {
+      return {
+        refusal: t('/{command} puts its prompt in the message box for you to edit, so there is nothing to send later yet. Run it, then schedule the message.', { command: commandName })
+      };
+    }
+    if (manifest.runMode === 'subthread') {
+      return {
+        refusal: t("/{command} runs in a sub-thread, and a scheduled send can only deliver a message to this thread. Run it now instead.", { command: commandName })
+      };
+    }
+    return { text: CommandClass.expand(args, rest) };
+  }
+
+  /**
    * Get all registered commands (for menu UI and /help)
    * @returns {SlashCommand[]} Array of registered commands
    */

@@ -294,8 +294,36 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 
 		case shellReq := <-shellStartChan:
 			jlog.Debug("Shell start: shellID=%s", shellReq.ShellID)
-			ctx, cancel := context.WithCancel(clientCtx)
-			if !s.viewerStartShell(shellReq.ShellID, cancel) {
+			// A viewer's shell is this connection's: it ends with it, and its
+			// output goes to it. The engine's outlives it (see engineRecipient):
+			// the server's lifetime bounds it, its output follows the engine to
+			// whichever connection it has, and it records its own completion,
+			// since this loop may be gone by then.
+			var (
+				ctx      context.Context
+				cancel   context.CancelFunc
+				started  bool
+				to       Sender = client
+				complete        = func(id string) {
+					select {
+					case shellCompleteChan <- id:
+					default:
+					}
+				}
+			)
+			if role == ClientRoleEngine {
+				ctx, cancel = s.serverLifetimeContext()
+				started = s.viewerStartEngineShell(shellReq.ShellID, cancel)
+				to = engineRecipient{s}
+				complete = func(id string) {
+					jlog.Debug("Shell complete: shellID=%s", id)
+					s.viewerCompleteShell(id)
+				}
+			} else {
+				ctx, cancel = context.WithCancel(clientCtx)
+				started = s.viewerStartShell(shellReq.ShellID, cancel)
+			}
+			if !started {
 				cancel()
 				jlog.Error("Shell start REJECTED (ID already in use): shellID=%s", shellReq.ShellID)
 				// Route the rejection to the requester (not the viewer group) so
@@ -304,7 +332,7 @@ func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClien
 				client.Send(shellRefusedFrame(shellReq.ShellID, "Shell ID already in use"))
 				continue
 			}
-			go s.processShellRequest(ctx, shellReq, client, shellCompleteChan)
+			go s.processShellRequest(ctx, shellReq, to, complete)
 		}
 	}
 }

@@ -512,6 +512,53 @@ wsService.on('engine-bridge', (/** @type {any} */ frame) => {
 });
 
 /**
+ * What each `contextmenu` a test left to the platform was sent at, since the
+ * suite running began. See {@link takeContextMenusLeftToPlatform}.
+ * @type {string[]}
+ */
+const _contextMenusLeftToPlatform = [];
+
+// No `contextmenu` reaches WebKit's own menu in a lane: every one still
+// uncancelled once its dispatch has run is cancelled here, and charged to the
+// suite that sent it. WebCore builds its context menu for any uncancelled
+// `contextmenu`, synthetic or not — no isTrusted check. Over editable text
+// that menu has a Spelling submenu, and filling it in asks the UI process,
+// synchronously, whether the Spelling panel is showing. AppKit answers by
+// building the panel on the main thread: a nib and its string tables read
+// from disk, which on a starved runner outlasted the main-thread watchdog and
+// took the pool down with every lane in it.
+//
+// The check has to see the event after every other listener, so the capture
+// listener (re)appends it as a bubble listener on `window`: added during the
+// dispatch, it runs after any `window` listener registered before it, whoever
+// loaded first. Removed first, so one an event stopped short of it is not left
+// behind to run in the next. A non-bubbling event never gets back to `window`;
+// none of the tests send one.
+/**
+ * @param {Event} e - The `contextmenu` event, at the end of its dispatch.
+ * @returns {void}
+ */
+function cancelContextMenuLeftToPlatform(e) {
+  if (e.defaultPrevented) return;
+  e.preventDefault();
+  const target = /** @type {any} */ (e.target);
+  _contextMenusLeftToPlatform.push(target instanceof Element ? `<${target.localName}>` : String(target));
+}
+window.addEventListener('contextmenu', () => {
+  window.removeEventListener('contextmenu', cancelContextMenuLeftToPlatform);
+  window.addEventListener('contextmenu', cancelContextMenuLeftToPlatform, { once: true });
+}, { capture: true });
+
+/**
+ * Empty the record of `contextmenu` events left to the platform, returning
+ * what it held.
+ * @returns {string[]} What each was sent at, in order.
+ */
+function takeContextMenusLeftToPlatform() {
+  return _contextMenusLeftToPlatform.splice(0);
+}
+
+/**
  * @typedef {object} TestContext
  * @property {string} fixtureDir - Fixture directory path
  */
@@ -1320,6 +1367,7 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
   neutralizeStrayOverlays();
   const before = snapshotOwnConversationIds();
   const documentBefore = snapshotDocumentState();
+  takeContextMenusLeftToPlatform();
   try {
     // A stall is reported as a failed result rather than thrown, so one wedged
     // suite fails alone instead of ending the lane's whole run.
@@ -1382,6 +1430,11 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
     if (leaks.length > 0) {
       result.failed++;
       result.errors = [...result.errors, `${suite.name}: ${leaks.join('; ')} — put back what it changes, or every suite after it on this lane runs under it`];
+    }
+    const leftToPlatform = takeContextMenusLeftToPlatform();
+    if (leftToPlatform.length > 0) {
+      result.failed++;
+      result.errors = [...result.errors, `${suite.name}: left ${leftToPlatform.length} contextmenu event(s) uncancelled at the end of dispatch (sent at ${leftToPlatform.join(', ')}) — WebKit builds its own menu for one, synthetic or not, and over editable text that blocks the pool's main thread on AppKit building the Spelling panel. Read whether the app cancelled it from a listener on the target, then cancel it there`];
     }
     // Every lane shares one project, so how many conversations were in it is a
     // property of the run rather than of this suite — and a suite that fails

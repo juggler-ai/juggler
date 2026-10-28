@@ -30,6 +30,21 @@ func (s *Server) ShutdownChan() <-chan struct{} {
 	return s.shutdownChan
 }
 
+// serverLifetimeContext is a context for work that belongs to the server
+// rather than to any one connection: it ends when shutdown is requested, or
+// when cancel is called.
+func (s *Server) serverLifetimeContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-s.ShutdownChan():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
+}
+
 // newHTTPServer builds an http.Server with the shared handler and timeouts.
 // Used for both the local listener and the tunnel, so both get
 // identical keep-alive, body-limit and header-timeout behaviour.

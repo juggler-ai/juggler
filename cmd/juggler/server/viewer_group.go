@@ -44,6 +44,7 @@ type viewerOp struct {
 	convID     string
 	shellID    string
 	cancel     context.CancelFunc
+	engine     bool // a shell the engine started (see shellEntry)
 	boolResult chan bool
 	intResult  chan int
 }
@@ -93,10 +94,19 @@ func newClientMailbox(sender Sender) *mailbox.Mailbox[outboundMsg] {
 	})
 }
 
+// shellEntry is one running streaming shell. engine marks one the engine
+// started: the engine is the only client that comes back to the same realm
+// after losing its socket, still awaiting the command, so its shells are not
+// swept when the group empties — only when the group itself stops.
+type shellEntry struct {
+	cancel context.CancelFunc
+	engine bool
+}
+
 func (g *viewerGroup) run() {
 	clients := make(map[string]viewerEntry)
 	requests := make(map[string]context.CancelFunc)
-	shells := make(map[string]context.CancelFunc)
+	shells := make(map[string]shellEntry)
 
 	// Fan a message out to every connection presenting the given viewer id. It is
 	// normally one, but a duplicated tab can carry a copied id, and delivering to
@@ -112,13 +122,18 @@ func (g *viewerGroup) run() {
 		}
 	}
 
-	cancelAll := func() {
+	// cancelAll cancels every request and shell; withEngineShells false spares
+	// the engine's (see shellEntry).
+	cancelAll := func(withEngineShells bool) {
 		for id, cancel := range requests {
 			cancel()
 			delete(requests, id)
 		}
-		for id, cancel := range shells {
-			cancel()
+		for id, sh := range shells {
+			if sh.engine && !withEngineShells {
+				continue
+			}
+			sh.cancel()
 			delete(shells, id)
 		}
 	}
@@ -135,7 +150,7 @@ func (g *viewerGroup) run() {
 			delete(clients, op.clientID)
 			remaining := len(clients)
 			if remaining == 0 {
-				cancelAll()
+				cancelAll(false)
 			}
 			if op.intResult != nil {
 				op.intResult <- remaining
@@ -177,7 +192,7 @@ func (g *viewerGroup) run() {
 			if _, exists := shells[op.shellID]; exists {
 				op.boolResult <- false
 			} else {
-				shells[op.shellID] = op.cancel
+				shells[op.shellID] = shellEntry{cancel: op.cancel, engine: op.engine}
 				op.boolResult <- true
 			}
 
@@ -185,9 +200,9 @@ func (g *viewerGroup) run() {
 			delete(shells, op.shellID)
 
 		case vgCancelShell:
-			cancel, exists := shells[op.shellID]
+			sh, exists := shells[op.shellID]
 			if exists {
-				cancel()
+				sh.cancel()
 				delete(shells, op.shellID)
 			}
 			op.boolResult <- exists
@@ -196,7 +211,7 @@ func (g *viewerGroup) run() {
 			for _, e := range clients {
 				e.mb.Stop()
 			}
-			cancelAll()
+			cancelAll(true)
 			return
 		}
 	}
@@ -229,9 +244,9 @@ func (g *viewerGroup) cancelRequest(convID string) bool {
 	return <-r
 }
 
-func (g *viewerGroup) startShell(shellID string, cancel context.CancelFunc) bool {
+func (g *viewerGroup) startShell(shellID string, cancel context.CancelFunc, engine bool) bool {
 	r := make(chan bool, 1)
-	g.ch <- viewerOp{kind: vgStartShell, shellID: shellID, cancel: cancel, boolResult: r}
+	g.ch <- viewerOp{kind: vgStartShell, shellID: shellID, cancel: cancel, engine: engine, boolResult: r}
 	return <-r
 }
 
@@ -458,7 +473,16 @@ func (s *Server) viewerCancelRequest(convID string) bool {
 // Returns false if the shell ID is already active.
 func (s *Server) viewerStartShell(shellID string, cancel context.CancelFunc) bool {
 	if g := s.viewers(); g != nil {
-		return g.startShell(shellID, cancel)
+		return g.startShell(shellID, cancel, false)
+	}
+	return false
+}
+
+// viewerStartEngineShell is viewerStartShell for a shell the engine started,
+// which the group spares when it empties (see shellEntry).
+func (s *Server) viewerStartEngineShell(shellID string, cancel context.CancelFunc) bool {
+	if g := s.viewers(); g != nil {
+		return g.startShell(shellID, cancel, true)
 	}
 	return false
 }

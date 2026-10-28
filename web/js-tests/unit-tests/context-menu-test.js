@@ -131,6 +131,33 @@ function press(el, pointerType) {
 }
 
 /**
+ * Send a `contextmenu` at `el` and report whether the service left it to the
+ * platform: uncancelled once the service's capture listener has run. It is
+ * cancelled after that reading all the same, at the target, so it never
+ * reaches WebKit's own menu — which a synthetic event reaches as readily as a
+ * real one, and which over editable text has AppKit build its Spelling panel
+ * on the main thread (the harness fails any suite that lets one through).
+ * @param {Element} el - Where to send it.
+ * @param {MouseEvent} event - A bubbling, cancelable `contextmenu`.
+ * @returns {boolean} True when the service did not cancel it.
+ */
+function leftToPlatform(el, event) {
+  let leftAlone = false;
+  /** @param {Event} e */
+  const read = (e) => {
+    leftAlone = !e.defaultPrevented;
+    e.preventDefault();
+  };
+  el.addEventListener('contextmenu', read, { once: true });
+  try {
+    el.dispatchEvent(event);
+  } finally {
+    el.removeEventListener('contextmenu', read);
+  }
+  return leftAlone;
+}
+
+/**
  * @param {boolean} cond
  * @param {string} msg
  * @param {string[]} errors
@@ -420,7 +447,7 @@ export async function runTests() {
     try {
       selectPara();
       press(touchPara, 'touch');
-      const touchLeftAlone = touchPara.dispatchEvent(new PointerEvent('contextmenu', {
+      const touchLeftAlone = leftToPlatform(touchPara, new PointerEvent('contextmenu', {
         bubbles: true, cancelable: true, clientX: 20, clientY: 20, pointerType: 'touch',
       }));
       tally(check(touchLeftAlone && !menuOpen(),
@@ -431,7 +458,7 @@ export async function runTests() {
       // started it says it was a finger.
       selectPara();
       press(touchPara, 'touch');
-      const fallbackLeftAlone = touchPara.dispatchEvent(new MouseEvent('contextmenu', {
+      const fallbackLeftAlone = leftToPlatform(touchPara, new MouseEvent('contextmenu', {
         bubbles: true, cancelable: true, clientX: 20, clientY: 20,
       }));
       tally(check(fallbackLeftAlone && !menuOpen(),
@@ -444,7 +471,7 @@ export async function runTests() {
       for (const pointerType of ['', 'mouse']) {
         selectPara();
         press(touchPara, 'touch');
-        const releaseLeftAlone = touchPara.dispatchEvent(new PointerEvent('contextmenu', {
+        const releaseLeftAlone = leftToPlatform(touchPara, new PointerEvent('contextmenu', {
           bubbles: true, cancelable: true, clientX: 20, clientY: 20, pointerType,
         }));
         tally(check(releaseLeftAlone && !menuOpen(),
@@ -456,7 +483,7 @@ export async function runTests() {
       selection?.removeAllRanges();
       touchField.focus();
       touchField.setSelectionRange(0, 5);
-      const fieldLeftAlone = touchField.dispatchEvent(new PointerEvent('contextmenu', {
+      const fieldLeftAlone = leftToPlatform(touchField, new PointerEvent('contextmenu', {
         bubbles: true, cancelable: true, clientX: 20, clientY: 20, pointerType: 'touch',
       }));
       tally(check(fieldLeftAlone && !menuOpen(),

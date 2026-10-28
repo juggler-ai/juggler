@@ -145,9 +145,8 @@ func TestProcessShellRequest_DeliversToRequesterNotViewerGroup(t *testing.T) {
 	viewer := testWSClient("viewer")
 	s.joinViewerGroup(viewer)
 
-	complete := make(chan string, 1)
 	s.processShellRequest(context.Background(),
-		ShellStartRequest{ShellID: "sh-test", Command: "echo hi"}, engine, complete)
+		ShellStartRequest{ShellID: "sh-test", Command: "echo hi"}, engine, func(string) {})
 
 	if !awaitShellDone(t, engine, "sh-test") {
 		t.Fatal("engine requester never received shell-output done chunk")
@@ -186,9 +185,8 @@ func TestProcessShellRequest_SurvivesViewerGroupSwap(t *testing.T) {
 	s.projectState.Store(&projectState{sessionManager: newMgr, viewers: newViewerGroup()})
 	old.viewers.stop()
 
-	complete := make(chan string, 1)
 	s.processShellRequest(context.Background(),
-		ShellStartRequest{ShellID: "sh2", Command: "echo hi"}, engine, complete)
+		ShellStartRequest{ShellID: "sh2", Command: "echo hi"}, engine, func(string) {})
 
 	if !awaitShellDone(t, engine, "sh2") {
 		t.Fatal("engine never received shell-output after viewer-group swap (bash-wedge regression)")

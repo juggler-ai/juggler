@@ -285,11 +285,10 @@ export async function runTests() {
   }
 
   // ── Test 6: a narrow column never pushes a control outside the bubble ─────
-  // The narrow-column fold (composer.css, `@container (max-width: 46rem)`) is
-  // there so the config controls wrap and ellipsise rather than spill: its own
-  // comment states that never losing a control beats width stability. A column
-  // can be dragged down to COL_MIN_WIDTH_REM, so the invariant has to hold
-  // there — a control laid out past the bubble's content edge cannot be tapped.
+  // A column can be dragged down to COL_MIN_WIDTH_REM, so the invariant has to
+  // hold there — a control laid out past the bubble's content edge cannot be
+  // tapped. (`unit:composer-row` holds the same invariant, status line
+  // included, across the widths in between.)
   {
     const container = document.createElement('div');
     container.style.cssText =
@@ -350,8 +349,8 @@ export async function runTests() {
       const homed = Array.from(/** @type {HTMLElement} */ (strip).children).map((el) => el.tagName.toLowerCase());
       assert(homed.join(' ') === 'model-selector strategy-selector permission-controls',
         `the strip must hold model, strategy and permissions in that order, got: ${homed.join(' ') || '(empty)'}`);
-      assert(!box.querySelector('input-controls-config > *'),
-        'the touch controls row must keep none of the config controls');
+      assert(!box.querySelector('input-controls :is(strategy-selector, permission-controls, model-selector), composer-status-line > *'),
+        'the touch controls row and status line must keep none of the config controls');
 
       // Permissions is last, so no separator is left dangling at the line end.
       const trailing = getComputedStyle(

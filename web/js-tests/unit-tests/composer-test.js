@@ -25,7 +25,7 @@ import '../../js/components/composer.js';
 const STAND_IN_EXTENSION = 'composer-test-ext';
 
 /** Other components the box hosts, whose text is theirs to translate. */
-const HOSTED = 'strategy-selector, permission-controls, model-selector, composer-config-strip, composer-box-attachments';
+const HOSTED = 'strategy-selector, permission-controls, model-selector, composer-config-strip, composer-status-line, composer-box-attachments';
 
 /** The placeholder states `_derivePlaceholderState()` can return. */
 const PLACEHOLDER_STATES = ['fresh', 'ready', 'cancelled', 'error', 'idle', 'long'];

@@ -152,9 +152,11 @@ A tool call that needs permission shows a card with these buttons:
 - **Yes** approves just this call.
 - **Yes + Don't Ask Again for <pattern>** also saves that pattern, for example
   "make *", for this conversation. Click the pencil on the button to edit the
-  pattern. The permissions button in the composer lists saved patterns and
-  allowed folders. There you can edit them, add patterns for all conversations,
-  and turn file edits on or off (⌘E on macOS).
+  pattern. The permissions button ("Edits on" / "Edits off", in the line of
+  settings under the message box with the strategy and model; above the text
+  on a touch screen) lists saved patterns and allowed folders. There you can
+  edit them, add patterns for all conversations, and turn file edits on or off
+  (⌘E on macOS).
 - **No** refuses this call. It also refuses every other call waiting with it and
   stops the turn.
 

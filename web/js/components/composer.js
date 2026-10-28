@@ -1044,15 +1044,15 @@ class Composer extends JugglerElement {
   }
 
   /**
-   * Home the three config controls — strategy, permissions, model — in the row
-   * or in the strip, depending on the layout in force.
+   * Home the three config controls — strategy, permissions, model — in the
+   * status line or in the strip, depending on the layout in force.
    *
-   * On a pointer big enough to hit a pill they sit inline in the controls row.
-   * On touch they move to `<composer-config-strip>` above the textarea, where
-   * they render as a line of plain text rather than three pills. The controls
-   * row is then just the "⋮" and Send, which is what makes it stable: text
-   * ellipsises in the space it is given, whereas three pills on a phone-width
-   * row cannot all fit and push the controls after them off the edge.
+   * On a fine pointer they sit in `<composer-status-line>`, under the bubble,
+   * so the bubble holds only what one message needs. On touch they move to
+   * `<composer-config-strip>` above the textarea, inside the bubble, where a
+   * thumb reaches them. Either way they render as a line of text rather than
+   * pills: text ellipsises in the space it is given, so the line never wraps
+   * and never pushes a control off the edge.
    *
    * The elements MOVE rather than being rebuilt — each one owns live state its
    * host set on it (the strategy selector's messageThread, the model chip's
@@ -1064,20 +1064,20 @@ class Composer extends JugglerElement {
    */
   _applyConfigPlacement() {
     const strip = this.querySelector('composer-config-strip');
-    const inlineRow = this.querySelector('input-controls-config');
-    if (!strip || !inlineRow) return;
+    const statusLine = this.querySelector('composer-status-line');
+    if (!strip || !statusLine) return;
 
     const touch = this._isTouchComposer();
     // The class the whole touch layout hangs off. Written here, from the same
     // predicate that decides where the controls go and whether Enter sends, so
     // that CSS and DOM can never describe different layouts.
     this.classList.toggle('touch-composer', touch);
-    const home = touch ? strip : inlineRow;
+    const home = touch ? strip : statusLine;
 
     // Appending in order both moves and re-sorts, so one pass settles the
     // layout whichever home the controls were in before. The orders differ:
-    // inline, strategy leads so its fixed left edge anchors the permission
-    // button beside it. In the strip the model leads, because the model is what
+    // on the status line the model comes last, pushed to the right-hand end
+    // under Send. In the strip the model leads, because the model is what
     // a glance at the strip is usually looking for, and — load-bearing —
     // permissions comes LAST because it is the one of the three that is never
     // hidden. The strip's separators hang off `:not(:last-child)`, so a final
@@ -1096,7 +1096,7 @@ class Composer extends JugglerElement {
     // `:empty` — it still lays out, and the flex gap beside it still counts, so
     // the rule that collapses the unused home would silently not apply and the
     // row would be a few pixels wider than it has any content for.
-    const vacated = touch ? inlineRow : strip;
+    const vacated = touch ? statusLine : strip;
     vacated.textContent = '';
   }
 
@@ -2471,11 +2471,6 @@ class Composer extends JugglerElement {
                 ></textarea>
                 <input type="file" class="attach-file-input" multiple hidden />
                 <input-controls>
-                    <input-controls-config>
-                        <strategy-selector></strategy-selector>
-                        <permission-controls></permission-controls>
-                        <model-selector id="conversation-model-selector"></model-selector>
-                    </input-controls-config>
                     <input-controls-tools>
                         <input-controls-actions>
                             <button class="commands-button input-ctrl-btn" id="commands-button"
@@ -2534,6 +2529,11 @@ class Composer extends JugglerElement {
                     </input-controls-tools>
                 </input-controls>
             </composer-box-wrapper>
+            <composer-status-line>
+                <strategy-selector></strategy-selector>
+                <permission-controls></permission-controls>
+                <model-selector id="conversation-model-selector"></model-selector>
+            </composer-status-line>
         `;
     // Home the config controls synchronously, in the same frame as the DOM they
     // belong to: deferring it would paint the row once with three pills in it

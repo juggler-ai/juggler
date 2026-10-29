@@ -25,7 +25,7 @@ import '../../js/components/composer.js';
 const STAND_IN_EXTENSION = 'composer-test-ext';
 
 /** Other components the box hosts, whose text is theirs to translate. */
-const HOSTED = 'strategy-selector, permission-controls, model-selector, composer-config-strip, composer-status-line, composer-box-attachments';
+const HOSTED = 'strategy-selector, permission-controls, model-selector, composer-status-line, composer-box-attachments';
 
 /** The placeholder states `_derivePlaceholderState()` can return. */
 const PLACEHOLDER_STATES = ['fresh', 'ready', 'cancelled', 'error', 'idle', 'long'];
@@ -76,6 +76,47 @@ export async function runTests() {
       errors.push(`${name}: ${e instanceof Error ? `${e.message}\n${e.stack}` : String(e)}`);
     }
   };
+
+  // The controls row is part of the box: a click on its empty space, between
+  // or beside the buttons, is a click on the box, and the caret belongs in the
+  // textarea. A mouse press there must not take focus off it, and the click
+  // must give focus back to it. A button keeps its click to itself.
+  await run('a click on the controls row\'s empty space focuses the textarea', async () => {
+    const { box, container, textarea } = mountComposer();
+    try {
+      box.isCoarsePointer = () => false;
+      const empties = ['input-controls', 'input-controls-tools', 'input-controls-actions', 'input-controls-send'];
+      for (const sel of empties) {
+        const el = /** @type {HTMLElement|null} */ (box.querySelector(sel));
+        assert(!!el, `the composer must render a ${sel}`);
+        el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'mouse' }));
+        const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+        el.dispatchEvent(down);
+        assert(down.defaultPrevented,
+          `a mouse press on the empty ${sel} must not take focus off the textarea`);
+
+        textarea.blur();
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        assert(document.activeElement === textarea,
+          `a click on the empty ${sel} must focus the textarea, got ${document.activeElement?.tagName}`);
+      }
+
+      // The paperclip opens the hidden file input with a .click() of its own,
+      // which bubbles through the bubble too. Fire that click without opening
+      // a real picker.
+      const fileInput = /** @type {HTMLInputElement} */ (box.querySelector('.attach-file-input'));
+      fileInput.click = () => {
+        fileInput.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      };
+      textarea.blur();
+      /** @type {HTMLElement} */ (box.querySelector('#attach-button')).dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+      assert(document.activeElement !== textarea,
+        'a click on a control button must not focus the textarea');
+    } finally {
+      container.remove();
+    }
+  });
 
   await run('en-XA: the box\'s titles, placeholders and warnings draw no plain English', async () => {
     const { box, container, textarea, warnings } = mountComposer();

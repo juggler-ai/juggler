@@ -536,17 +536,21 @@ class Composer extends JugglerElement {
    * @private
    */
   _bindFocusRetention(textarea) {
-    // Click on the empty wrapper area focuses the textarea. Skip clicks that
-    // land on a control button (or anywhere in input-controls): those must not
-    // programmatically focus the textarea, because on mobile that pops the
-    // onscreen keyboard just from opening a popup. On desktop the caret already
-    // stays in the textarea via the mousedown preventDefault below, so skipping
-    // here changes nothing there — focus still "remains" on the composer.
+    // A click anywhere in the bubble that is not on a control focuses the
+    // textarea — the controls row's empty space included, between and beside
+    // its buttons, which is as much the box as the padding round the text.
+    // Clicks on a control button are skipped: they must not programmatically
+    // focus the textarea, because on mobile that pops the onscreen keyboard
+    // just from opening a popup. On desktop the caret already stays in the
+    // textarea via the mousedown preventDefault below, so skipping here changes
+    // nothing there — focus still "remains" on the composer. Inputs are skipped
+    // for the same reason: the paperclip opens the hidden file input with a
+    // click that bubbles through here.
     const wrapper = this.querySelector('composer-box-wrapper');
     if (wrapper) {
       this._listen(wrapper, 'click', (e) => {
         const target = /** @type {Element|null} */ (e.target);
-        if (target && target.closest('button, .input-ctrl-btn, input-controls')) return;
+        if (target && target.closest('button, input, .input-ctrl-btn')) return;
         textarea.focus();
       });
     }
@@ -568,7 +572,10 @@ class Composer extends JugglerElement {
     // editor) are untouched by this.
     //
     // The expand button keeps focus for every pointer: it opens no popup, and
-    // resizing the box is something done mid-edit, keyboard up.
+    // resizing the box is something done mid-edit, keyboard up. A mouse press
+    // on the row's empty space keeps it too: the default would blur the
+    // textarea onto nothing, and the click that follows hands focus back to it
+    // (above), so without this the caret would blink out and back.
     const inputControls = this.querySelector('input-controls');
     if (inputControls) {
       let lastPointerType = 'mouse';
@@ -578,8 +585,7 @@ class Composer extends JugglerElement {
       this._listen(inputControls, 'mousedown', (e) => {
         const target = /** @type {Element|null} */ (e.target);
         if (!target) return;
-        if (target.closest('.expand-input-btn')
-          || (lastPointerType === 'mouse' && target.closest('button, .input-ctrl-btn'))) {
+        if (target.closest('.expand-input-btn') || lastPointerType === 'mouse') {
           e.preventDefault();
         }
       }, true);
@@ -1021,7 +1027,7 @@ class Composer extends JugglerElement {
    * Whether this composer should behave as a touch composer: Enter inserts a
    * newline (the onscreen keyboard's return key) and the touch-only Send / "⋮"
    * affordances are active. Gated on a coarse pointer with no hover. This is
-   * the single source of that decision — _applyConfigPlacement turns it into
+   * the single source of that decision — _applyTouchLayout turns it into
    * the `touch-composer` class the CSS layout selects on — so the key
    * behaviour and the layout cannot disagree. A narrow DESKTOP window (fine
    * pointer) keeps Enter-to-send.
@@ -1037,71 +1043,26 @@ class Composer extends JugglerElement {
   /**
    * Follow the pointer type for as long as this box is mounted, so a device
    * that changes it mid-session — an iPad gaining a trackpad, a convertible
-   * folding back into a tablet — re-homes the config controls to match. The CSS
-   * half of the touch layout re-evaluates on its own; without this the DOM half
-   * would not, and the two would disagree.
+   * folding back into a tablet — switches layout to match. The touch layout
+   * hangs off a class rather than the media query, so without this the class
+   * would keep describing the pointer the box was mounted with.
    * @private
    */
   _watchPointerType() {
     if (typeof window.matchMedia !== 'function') return;
-    this.on(window.matchMedia(COARSE_POINTER_QUERY), 'change', () => this._applyConfigPlacement());
+    this.on(window.matchMedia(COARSE_POINTER_QUERY), 'change', () => this._applyTouchLayout());
   }
 
   /**
-   * Home the three config controls — strategy, permissions, model — in the
-   * status line or in the strip, depending on the layout in force.
-   *
-   * On a fine pointer they sit in `<composer-status-line>`, under the bubble,
-   * so the bubble holds only what one message needs. On touch they move to
-   * `<composer-config-strip>` above the textarea, inside the bubble, where a
-   * thumb reaches them. Either way they render as a line of text rather than
-   * pills: text ellipsises in the space it is given, so the line never wraps
-   * and never pushes a control off the edge.
-   *
-   * The elements MOVE rather than being rebuilt — each one owns live state its
-   * host set on it (the strategy selector's messageThread, the model chip's
-   * config), and all of that is plain properties, untouched by the disconnect
-   * and reconnect a re-parent causes. Listeners are not: an element drops them
-   * on disconnect, so one that listens to what it is bound to must take them
-   * up again on connect, as permission-controls does.
+   * Write the `touch-composer` class the CSS touch layout selects on, from
+   * _isTouchComposer(). The config controls — strategy, permissions, model —
+   * stay in `<composer-status-line>` under the bubble on every layout; on touch
+   * the CSS only enlarges their tap targets and folds the row's secondary
+   * actions into the "⋮" sheet.
    * @private
    */
-  _applyConfigPlacement() {
-    const strip = this.querySelector('composer-config-strip');
-    const statusLine = this.querySelector('composer-status-line');
-    if (!strip || !statusLine) return;
-
-    const touch = this._isTouchComposer();
-    // The class the whole touch layout hangs off. Written here, from the same
-    // predicate that decides where the controls go and whether Enter sends, so
-    // that CSS and DOM can never describe different layouts.
-    this.classList.toggle('touch-composer', touch);
-    const home = touch ? strip : statusLine;
-
-    // Appending in order both moves and re-sorts, so one pass settles the
-    // layout whichever home the controls were in before. The orders differ:
-    // on the status line the model comes last, pushed to the right-hand end
-    // under Send. In the strip the model leads, because the model is what
-    // a glance at the strip is usually looking for, and — load-bearing —
-    // permissions comes LAST because it is the one of the three that is never
-    // hidden. The strip's separators hang off `:not(:last-child)`, so a final
-    // slot that can vanish (the strategy selector hides itself on a delegated
-    // thread) would strand a dangling "·" at the end of the line.
-    const order = touch
-      ? ['model-selector', 'strategy-selector', 'permission-controls']
-      : ['strategy-selector', 'permission-controls', 'model-selector'];
-    for (const selector of order) {
-      const control = this.querySelector(selector);
-      if (control) home.appendChild(control);
-    }
-
-    // Empty the home they left. Moving the elements out leaves the whitespace
-    // between them behind as text nodes, and a box holding "\n        " is not
-    // `:empty` — it still lays out, and the flex gap beside it still counts, so
-    // the rule that collapses the unused home would silently not apply and the
-    // row would be a few pixels wider than it has any content for.
-    const vacated = touch ? statusLine : strip;
-    vacated.textContent = '';
+  _applyTouchLayout() {
+    this.classList.toggle('touch-composer', this._isTouchComposer());
   }
 
   /**
@@ -2463,7 +2424,6 @@ class Composer extends JugglerElement {
   render() {
     this.innerHTML = `
             <composer-box-wrapper>
-                <composer-config-strip></composer-config-strip>
                 <composer-box-attachments></composer-box-attachments>
                 <composer-shell-runs hidden></composer-shell-runs>
                 <div class="paste-mirror" aria-hidden="true" hidden></div>
@@ -2540,10 +2500,10 @@ class Composer extends JugglerElement {
                 <model-selector id="conversation-model-selector"></model-selector>
             </composer-status-line>
         `;
-    // Home the config controls synchronously, in the same frame as the DOM they
-    // belong to: deferring it would paint the row once with three pills in it
-    // before moving them to the strip.
-    this._applyConfigPlacement();
+    // Apply the touch layout synchronously, in the same frame as the DOM it
+    // styles: deferring it would paint a touch row once with the desktop's
+    // controls in it.
+    this._applyTouchLayout();
     // Seed the placeholder synchronously: the textarea exists as of the write
     // above, and the box is on screen before the deferred setup below runs.
     this._updatePlaceholder();

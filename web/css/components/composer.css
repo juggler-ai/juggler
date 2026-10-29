@@ -23,95 +23,6 @@ reply-suggestions .reply-suggestion {
     transition: background var(--transition-base), box-shadow var(--transition-base);
 }
 
-/* Config strip — the touch layout's home for strategy, model and permissions
-   (composer-box._applyConfigPlacement moves the live elements here). One line
-   of small secondary text above the textarea, dot-separated, each segment
-   still the control it always was: tapping opens the same popup the pill does.
-
-   Text, not pills, is the whole point. Three pills cannot fit a phone-width
-   row, and the row they overflow is the one holding "⋮" and Send. As text the
-   same three states cost a fraction of the width, stay readable, and leave the
-   controls row with nothing in it that can push anything off the edge.
-
-   Empty on every other layout — the controls are in the row instead — and an
-   empty strip must take no space, hence :empty. */
-composer-box composer-config-strip {
-    display: flex;
-    align-items: center;
-    min-width: 0;
-    margin-bottom: 0.25rem;
-    overflow: hidden;
-    font-size: var(--font-size-sm);
-    color: var(--text-secondary);
-}
-
-composer-box composer-config-strip:empty {
-    display: none;
-}
-
-/* The separator rides the element BEFORE each gap rather than after it, so a
-   segment that hides itself (the strategy selector does, on a delegated
-   thread) takes its own separator with it into display:none. That only holds
-   while the last slot is a segment that never hides — see the ordering note in
-   _applyConfigPlacement. */
-composer-box composer-config-strip > *:not(:last-child)::after {
-    content: "·";
-    margin: 0 0.375rem;
-    color: var(--text-tertiary);
-}
-
-/* Only the model can grow without bound, so only the model absorbs the
-   shortfall; the other two sit at their natural width and stay whole. */
-composer-box composer-config-strip > model-selector {
-    min-width: 0;
-    flex-shrink: 1;
-}
-
-composer-box composer-config-strip > strategy-selector,
-composer-box composer-config-strip > permission-controls {
-    flex-shrink: 0;
-}
-
-/* Strip the pill chrome off the controls in here: no border, no fill, no
-   horizontal padding, inheriting the strip's size and colour so the three read
-   as one line of text rather than three controls.
-
-   The vertical padding stays, and is the only reason these are tappable: text
-   this size is a 14px-tall target, which on the device this layout is for is
-   not a target at all. It buys height without costing the line any width.
-
-   A tinted strategy name keeps its colour — that rule paints .strategy-name,
-   not the button, so it survives `color: inherit` and gives the line its one
-   piece of colour. */
-composer-box composer-config-strip .input-ctrl-btn {
-    min-width: 0;
-    max-width: 100%;
-    padding: 0.375rem 0;
-    border: none;
-    border-radius: 0;
-    background: none;
-    color: inherit;
-    font-size: inherit;
-}
-
-/* The pill's label cap is a pill measurement too; in the strip the model name
-   is simply whatever room is left after the other two segments. */
-composer-box composer-config-strip .model-name {
-    max-width: none;
-}
-
-composer-box composer-config-strip .input-ctrl-btn:hover:not(:disabled) {
-    background: none;
-    border-color: transparent;
-    color: var(--text-primary);
-}
-
-/* The icons belong to the pill, not to a line of text. */
-composer-box composer-config-strip .icon-auto-awesome,
-composer-box composer-config-strip .strategy-icon {
-    display: none;
-}
-
 /* Composer wrapper - the visual bubble containing textarea and button */
 composer-box composer-box-wrapper {
     display: flex;
@@ -650,12 +561,10 @@ composer-box input-controls-tools {
 }
 
 /* ── Status line: strategy · permissions … model ────────────────────────────
-   The desktop home of the session's settings (composer-box.
-   _applyConfigPlacement moves the live controls here): one line of quiet text
-   buttons under the bubble, like an editor's status bar. Strategy and
-   permissions read from the left; the model closes the line at the right-hand
-   end, under Send. Empty on touch, where the controls are in the strip, and
-   then it takes no space.
+   The home of the session's settings on every layout, touch included: one
+   line of quiet text buttons under the bubble, like an editor's status bar.
+   Strategy and permissions read from the left; the model closes the line at
+   the right-hand end, under Send.
 
    One line, never wrapping, whatever the labels or the locale say. Every
    control may go below its label, so none can push past the edge: the model
@@ -728,8 +637,8 @@ composer-box composer-status-line .input-ctrl-btn.open,
 
 /* Every control opens a menu, and says so: a ▾ after its label. Without it the
    permissions control ("✓ Edits on · 2 paths") reads as a status, not a
-   control. Drawn in CSS so the same buttons elsewhere (the touch strip, a
-   settings row) stay as they are. */
+   control. Drawn in CSS so the same buttons elsewhere (a settings row) stay as
+   they are. */
 composer-box composer-status-line .input-ctrl-btn::after {
     content: "";
     flex-shrink: 0;
@@ -1086,16 +995,15 @@ composer-box .context-cache-warning-btn .icon-warning {
 }
 
 /* Touch composer layout: Enter inserts a newline, so a Send button is the send
-   affordance, the secondary actions collapse into the "⋮" sheet, and the config
-   controls move up to the text strip. What is left on the row is
-   [⋮] … [attach][send].
+   affordance and the secondary actions collapse into the "⋮" sheet. What is
+   left on the row is [⋮] … [attach][send]. The config controls stay in the
+   status line under the bubble, as on desktop, with finger-sized targets.
    Desktop keeps the full visible row.
 
    Selected on a class, NOT on `@media (hover: none) and (pointer: coarse)`,
    even though that media query is what decides it. The class is written by
-   composer-box._applyConfigPlacement from _isTouchComposer(), so the layout,
-   the DOM placement of the config controls and the Enter-key behaviour are all
-   three driven by one predicate and cannot drift apart. It also puts the whole
+   composer-box._applyTouchLayout from _isTouchComposer(), so the layout and
+   the Enter-key behaviour are driven by one predicate and cannot drift apart. It also puts the whole
    touch layout inside reach of the test harness, which can set the override but
    cannot drive matchMedia — this block was unreachable and untested for as long
    as it was a media query, which is how `.more-actions-btn` came to be revealed
@@ -1192,6 +1100,14 @@ composer-box.touch-composer .attach-btn.input-ctrl-btn {
     width: var(--composer-row-h);
     height: var(--composer-row-h);
     margin-left: auto;
+}
+
+/* The status line's text buttons are a 1.5rem-tall target on desktop, too
+   small for a finger. The extra height is vertical padding only, so it costs
+   the line no width. */
+composer-box.touch-composer composer-status-line button.input-ctrl-btn {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
 }
 
 /* Compact the permission text to just "✓ Edits on" — the cmd/path counts are

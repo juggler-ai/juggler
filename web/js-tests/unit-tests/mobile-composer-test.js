@@ -163,10 +163,10 @@ export async function runTests() {
       const threadRow = rows.find((r) => r.textContent?.includes('New Thread') && !r.hasAttribute('data-command'));
       assert(!!threadRow, 'actions sheet must have a "New Thread" action row');
 
-      // Strategy is NOT in the sheet: on touch it is on show in the config
-      // strip, which is also the control that changes it.
+      // Strategy is NOT in the sheet: on touch it is on show in the status
+      // line, which is also the control that changes it.
       assert(!sheet.querySelector('strategy-selector'),
-        'strategy-selector must stay in the config strip, not move into the sheet');
+        'strategy-selector must stay in the status line, not move into the sheet');
 
       // Clicking New Thread dispatches the /thread command (via _createThread).
       /** @type {HTMLElement} */ (threadRow).click();
@@ -215,13 +215,11 @@ export async function runTests() {
     }
   }
 
-  // ── Test 5: the strategy menu opened from the config strip is dismissible ─
-  // The strip's segments are the same selectors the inline row holds, re-homed
-  // by _applyConfigPlacement — a re-parent, which disconnects and reconnects
-  // the element. That must leave a selector whose menu still presents on
-  // <body>, still closes, and still releases its open-popup token (a leaked one
-  // makes Escape stop dismissing popups AND stop reaching the running turn for
-  // the rest of the session).
+  // ── Test 5: the strategy menu opened from the status line is dismissible ──
+  // On touch the menu presents as a bottom sheet with a scrim. It must still
+  // present on <body>, still close, and still release its open-popup token (a
+  // leaked one makes Escape stop dismissing popups AND stop reaching the
+  // running turn for the rest of the session).
   {
     __resetPopupManagerForTests();
     // presentInlineMenu and presentPopup both defer a frame, and the hidden
@@ -234,12 +232,12 @@ export async function runTests() {
     const { box, container } = mountTouchComposer();
     try {
       const selector = /** @type {any} */ (
-        box.querySelector('composer-config-strip strategy-selector'));
-      assert(!!selector, 'the strategy selector must be homed in the config strip');
+        box.querySelector('composer-status-line strategy-selector'));
+      assert(!!selector, 'the strategy selector must be in the status line');
 
       const strategyBtn = /** @type {HTMLElement|null} */ (
         selector.querySelector('.strategy-selector-button'));
-      assert(!!strategyBtn, 'the re-homed selector must render its button');
+      assert(!!strategyBtn, 'the selector must render its button');
       /** @type {HTMLElement} */ (strategyBtn).click();
       await nextTask(); // presentInlineMenu's frame: relocate + present
       await nextTask(); // presentPopup's own frame: place it
@@ -248,9 +246,9 @@ export async function runTests() {
       assert(!!menu, 'the strategy menu must be presented on <body>, not torn down by the re-parent');
       assert(menu.parentElement === document.body,
         'the presented menu must be hosted on <body>');
-      const strip = box.querySelector('composer-config-strip');
-      assert(!!strip && strip.contains(selector),
-        'the selector itself must stay in the config strip');
+      const line = box.querySelector('composer-status-line');
+      assert(!!line && line.contains(selector),
+        'the selector itself must stay in the status line');
 
       // Escape / Back / scrim-tap all route through closeAllPopups.
       closeAllPopups();
@@ -320,11 +318,10 @@ export async function runTests() {
     }
   }
 
-  // ── Test 7: the touch composer's config strip, at phone width ────────────
-  // The three config controls move out of the controls row and into the strip,
-  // leaving a row that cannot overflow. The strip itself must hold one line
-  // whatever the model is called: the model segment ellipsises, the other two
-  // stay whole, and nothing leaves the bubble.
+  // ── Test 7: the touch composer's status line, at phone width ─────────────
+  // Touch lays the settings out as the desktop does: one line under the bubble,
+  // not inside it. The bubble keeps only the controls row, and the line holds
+  // one line whatever the model is called, inside the composer.
   {
     const container = document.createElement('div');
     container.style.cssText = 'position:absolute;left:0;top:0;width:390px;';
@@ -333,45 +330,48 @@ export async function runTests() {
     container.appendChild(box);
     document.body.appendChild(container);
     try {
-      const strip = /** @type {HTMLElement|null} */ (box.querySelector('composer-config-strip'));
-      assert(!!strip, 'the touch composer must render a composer-config-strip');
+      const line = /** @type {HTMLElement|null} */ (box.querySelector('composer-status-line'));
+      assert(!!line, 'the touch composer must render a composer-status-line');
 
-      // All three controls are homed in the strip, in reading order, and the
-      // controls row keeps none of them.
-      const homed = Array.from(/** @type {HTMLElement} */ (strip).children).map((el) => el.tagName.toLowerCase());
-      assert(homed.join(' ') === 'model-selector strategy-selector permission-controls',
-        `the strip must hold model, strategy and permissions in that order, got: ${homed.join(' ') || '(empty)'}`);
-      assert(!box.querySelector('input-controls :is(strategy-selector, permission-controls, model-selector), composer-status-line > *'),
-        'the touch controls row and status line must keep none of the config controls');
+      // All three controls are in the status line, in the desktop's order, and
+      // the bubble keeps none of them.
+      const homed = Array.from(/** @type {HTMLElement} */ (line).children).map((el) => el.tagName.toLowerCase());
+      assert(homed.join(' ') === 'strategy-selector permission-controls model-selector',
+        `the status line must hold strategy, permissions and model in that order, got: ${homed.join(' ') || '(empty)'}`);
+      assert(!box.querySelector('composer-box-wrapper :is(strategy-selector, permission-controls, model-selector)'),
+        'the touch bubble must hold none of the config controls');
 
-      // Permissions is last, so no separator is left dangling at the line end.
-      const trailing = getComputedStyle(
-        /** @type {HTMLElement} */ (strip.lastElementChild), '::after').content;
-      assert(trailing === 'none' || trailing === 'normal' || trailing === '""',
-        `the last strip segment must not render a trailing separator, got ${trailing}`);
-
-      // A long model id must ellipsise inside the strip, not widen it.
+      // A long model id must ellipsise inside the line, not widen it.
       const modelName = /** @type {HTMLElement|null} */ (box.querySelector('.model-name'));
-      assert(!!modelName, 'the strip must render a .model-name');
+      assert(!!modelName, 'the status line must render a .model-name');
       /** @type {HTMLElement} */ (modelName).textContent =
         'anthropic/claude-sonnet-4-5-20260930-thinking-preview';
 
       const wrapper = /** @type {HTMLElement} */ (box.querySelector('composer-box-wrapper'));
-      const padRight = parseFloat(getComputedStyle(wrapper).paddingRight) || 0;
-      const contentRight = wrapper.getBoundingClientRect().right - padRight;
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const lineRect = /** @type {HTMLElement} */ (line).getBoundingClientRect();
+      assert(lineRect.height > 0, 'the touch status line must be laid out, not collapsed');
+      assert(lineRect.top >= wrapperRect.bottom - 0.5,
+        `the status line must sit under the bubble (line top ${Math.round(lineRect.top)}, bubble bottom ${Math.round(wrapperRect.bottom)})`);
+      assert(lineRect.right <= box.getBoundingClientRect().right + 0.5,
+        `the status line must stay inside the composer (right edge ${Math.round(lineRect.right)}, box ends ${Math.round(box.getBoundingClientRect().right)})`);
+      for (const btn of /** @type {HTMLElement} */ (line).querySelectorAll('button.input-ctrl-btn')) {
+        const r = btn.getBoundingClientRect();
+        if (r.width === 0) continue;
+        assert(r.right <= lineRect.right + 0.5,
+          `${btn.className.split(' ')[0]} must lie inside the status line (right edge ${Math.round(r.right)}, line ends ${Math.round(lineRect.right)})`);
+      }
 
-      const stripRect = /** @type {HTMLElement} */ (strip).getBoundingClientRect();
-      assert(stripRect.right <= contentRight + 0.5,
-        `the config strip must stay inside the bubble (right edge ${Math.round(stripRect.right)}, bubble ends ${Math.round(contentRight)})`);
-
-      // One line: the strip is no taller than the tallest single segment.
-      const tallest = Math.max(...Array.from(/** @type {HTMLElement} */ (strip).children)
+      // One line: the line is no taller than the tallest single control.
+      const tallest = Math.max(...Array.from(/** @type {HTMLElement} */ (line).children)
         .map((el) => el.getBoundingClientRect().height));
-      assert(stripRect.height <= tallest + 1,
-        `the config strip must stay on one line (height ${Math.round(stripRect.height)} vs segment ${Math.round(tallest)})`);
+      assert(lineRect.height <= tallest + 1,
+        `the status line must stay on one line (height ${Math.round(lineRect.height)} vs control ${Math.round(tallest)})`);
 
-      // And the row that is left over holds the three controls that matter, all
-      // inside the bubble.
+      const contentRight = wrapperRect.right - (parseFloat(getComputedStyle(wrapper).paddingRight) || 0);
+
+      // And the row in the bubble holds the three controls that matter, all
+      // inside it.
       for (const id of ['more-actions-button', 'attach-button', 'send-button']) {
         const btn = /** @type {HTMLElement|null} */ (box.querySelector('#' + id));
         assert(!!btn, `the touch controls row must render #${id}`);
@@ -393,7 +393,7 @@ export async function runTests() {
       passed++;
     } catch (e) {
       failed++;
-      errors.push('touch-config-strip: ' + (e instanceof Error ? e.message : String(e)));
+      errors.push('touch-status-line: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       container.remove();
     }

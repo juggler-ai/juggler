@@ -11,7 +11,7 @@
 #
 # This is the only counted debt in the CSS lint. Every other check has no
 # exceptions.
-patterns/icons.css > components/composer.css 180
+patterns/icons.css > components/composer.css 140
 patterns/icons.css > components/messages.css 140
 layout/app-shell.css > patterns/icons.css 130
 patterns/icons.css > components/properties-panel.css 100
@@ -32,7 +32,7 @@ patterns/markdown.css > components/properties-panel.css 27
 patterns/buttons.css > components/diff-viewer.css 26
 patterns/markdown.css > components/conversation-bar.css 26
 patterns/markdown.css > components/onboarding.css 24
-layout/app-shell.css > components/composer.css 16
+layout/app-shell.css > components/composer.css 14
 patterns/markdown.css > components/context-items.css 16
 patterns/markdown.css > components/overlays-and-updates.css 19
 patterns/markdown.css > components/approvals.css 11
@@ -46,7 +46,7 @@ patterns/markdown.css > components/model-picker.css 16
 patterns/modal-dialog.css > components/diff-viewer.css 4
 layout/app-header.css > patterns/buttons.css 10
 patterns/code.css > components/plugin-catalog.css 6
-patterns/menus.css > components/composer.css 12
+patterns/menus.css > components/composer.css 9
 patterns/icons.css > components/plugin-catalog.css 10
 patterns/icons.css > components/settings.css 10
 patterns/icons.css > components/strategy-bar.css 10
@@ -75,7 +75,7 @@ base/elements.css > components/skills-marketplace.css 6
 layout/app-header.css > components/popup-sheet.css 5
 layout/app-shell.css > patterns/menus.css 6
 patterns/markdown.css > components/about-modal.css 7
-patterns/markdown.css > components/composer.css 7
+patterns/markdown.css > components/composer.css 5
 base/elements.css > components/messages.css 6
 base/elements.css > components/pinboard.css 5
 layout/app-header.css > components/pinboard.css 1

@@ -29,7 +29,6 @@ import ConversationBin from './conversation-bin.js';
 import { busyState } from './processing-status.js';
 import ConversationSyncReducer from './conversation-sync-reducer.js';
 import ConversationRegistry from './conversation-registry.js';
-import ProjectSwitchController from './project-switch-controller.js';
 import SessionPersistence, { normalizeHistoryEntry } from './session-persistence.js';
 import SessionEvents from './session-events.js';
 import { seedCreationDefaults, seedConversationAutoItems as seedAutoItems } from './conversation-seeder.js';
@@ -374,20 +373,6 @@ class Session {
     });
 
     /**
-     * What this realm does when the server switches project at runtime: a
-     * viewer reloads, the persistent engine repoints its root, releases the
-     * old project's conversations and reseeds the new one's session state.
-     * @type {ProjectSwitchController}
-     */
-    this.projectSwitch = new ProjectSwitchController({
-      projectPath: () => this.projectPath,
-      setProjectPath: (path) => { this.projectPath = path; },
-      registry: () => this.registry,
-      fetchManifest: () => this._apiService.getSession(),
-      adoptManifest: (data) => this.persistence.adoptManifest(data, { notify: true })
-    });
-
-    /**
      * The load from and the save to the server: the manifest read, the
      * refresh another view asks for, and the debounced save of session-level
      * state. Each host entry is read at call time, so a test that replaces the
@@ -509,7 +494,7 @@ class Session {
    * The engine's counterpart to the viewer's delete/bin handling. The engine
    * loads a conversation lazily — the first time a worker syncs one to it — and
    * otherwise never lets go: the Yjs document, its observers and the worker
-   * entry stay for the process lifetime, across project switches, including
+   * entry stay for the process lifetime, including
    * conversations the user threw away long ago. That is unbounded growth in the
    * one realm that has to stay responsive, and a WebView out of memory presents
    * exactly like a wedged realm.
@@ -819,7 +804,6 @@ class Session {
     if (ws) {
       this._socketSubscriptions = [
         ws.on('file-change', (changes) => this._onFileChange(changes)),
-        ws.on('project-changed', (data) => this.projectSwitch.projectChanged(data)),
         ws.on('providers-update', (providers) => this._onProvidersUpdate(providers)),
         ws.on('workspaces-changed', (data) => this._onWorkspacesChanged(data))
       ];

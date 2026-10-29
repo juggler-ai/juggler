@@ -178,9 +178,9 @@ func (ops *ShellOperations) Execute(ctx context.Context, operation string, param
 // ownedTask resolves a caller-supplied task id to a shell the caller is entitled
 // to act on, or nil. Two checks, and they are not the same kind of thing:
 //
-//   - Project. The registry is process-global and survives a project switch, so a
-//     bare id would otherwise reach a task belonging to a project this caller is
-//     no longer (or was never) in. Comparing the spawn-time root against the
+//   - Project. The registry is process-global, spanning every tree this process
+//     works in, so a bare id would otherwise reach a task belonging to a tree
+//     this caller is not in. Comparing the spawn-time root against the
 //     caller's current scope root is a genuine boundary between sessions.
 //   - Conversation. Optional, and enforced only when the caller names one. This
 //     is scoping rather than privilege: /api/ops/call authenticates with a single

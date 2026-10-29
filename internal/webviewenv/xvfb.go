@@ -40,7 +40,11 @@ const xvfbMarkerEnv = "JUGGLER_XVFB_RELAUNCHED"
 // Must be called early in startup — before any lock is taken, port bound, or
 // GTK/WebKit state initialised — because the exec'd child redoes all of that
 // from scratch.
-func MaybeRelaunchUnderXvfb() string {
+//
+// extraEnv (NAME=value entries) is added to the relaunch's environment alone:
+// what the caller has taken out of its own environment so its other children
+// never inherit it, but the relaunched image needs.
+func MaybeRelaunchUnderXvfb(extraEnv ...string) string {
 	exe, err := os.Executable()
 	if err != nil {
 		exe = os.Args[0]
@@ -54,7 +58,7 @@ func MaybeRelaunchUnderXvfb() string {
 	fmt.Fprintf(os.Stderr,
 		"no display detected — relaunching under xvfb-run so the engine webview can start (set %s=1 to disable)\n",
 		noXvfbEnv)
-	env := append(os.Environ(), xvfbMarkerEnv+"=1")
+	env := append(append(os.Environ(), extraEnv...), xvfbMarkerEnv+"=1")
 	if err := execReplace(argv[0], argv, env); err != nil {
 		return fmt.Sprintf("relaunch under xvfb-run failed: %v", err)
 	}

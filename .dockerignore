@@ -3,7 +3,7 @@
 # including bin/ and node_modules, and every build ships it to the daemon.
 #
 # Nothing here is generated at build time: the go:embed inputs
-# (cmd/juggler/server/wails_runtime.js and the app icon) are tracked files, and
+# (cmd/juggler/webui/wails_runtime.js and the app icon) are tracked files, and
 # the Makefile targets that refresh them are idempotent syncs run before docker.
 
 .git

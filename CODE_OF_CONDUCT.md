@@ -11,6 +11,6 @@ contributing.
 
 ## Enforcement
 
-To report a concern, email **julianstorer@gmail.com**. Reports are handled
+To report a concern, email **info@juggler.studio**. Reports are handled
 privately; we will respond as promptly as we can and take appropriate action,
 which may include warnings or removal from project spaces.

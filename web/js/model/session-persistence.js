@@ -48,7 +48,7 @@ import { normalizeAttachments } from '../utils/attachments.js';
 /**
  * The session-level fields the manifest sets, as the session holds them.
  * @typedef {object} PersistedState
- * @property {string} projectPath - The project root ('' = no project)
+ * @property {string} projectPath - The project root ('' until the manifest sets it)
  * @property {import('./session.js').Workspace[]} workspaces - The registered workspaces
  * @property {boolean|undefined} projectHostsLocalProviders - Whether the project can host a provider Juggler spawns
  * @property {string} platform - darwin/linux/windows
@@ -235,9 +235,8 @@ export default class SessionPersistence {
         state.projectPath = data.projectPath;
         // Seed the live project root the query_code sandbox delegates read.
         // The engine's boot-time root (env / sandbox template) is authoritative
-        // until this point; keeping the global in step here means a later
-        // project switch (ProjectSwitchController.apply) is the only thing that moves
-        // it, and the sandbox never lags the loaded project.
+        // until this point; keeping the global in step here means the sandbox
+        // never lags the loaded project.
         if (isEngine()) {
           Object.assign(globalThis, { __jugglerProjectRoot: toSandboxRoot(data.projectPath) });
         }
@@ -258,10 +257,6 @@ export default class SessionPersistence {
       if (!this._workerManagerInitialized) {
         workerManager.init({
           projectPath: data.projectPath || '',
-          // globalThis.location works in both the window (Location) and the
-          // engine worker (WorkerLocation); window.* would throw off-thread and
-          // abort session load, leaving the worker engine unable to execute tools.
-          apiBaseUrl: globalThis.location.origin
         }, host.session());
 
         // Set up callbacks for worker requests, engine only. Context rendering
@@ -352,15 +347,10 @@ export default class SessionPersistence {
         // conversation so the user lands on a usable tab.
         await host.createInitialConversation();
       }
-      // No-project mode (empty projectPath): seed nothing. The
-      // <no-project-overlay> shows the project picker, and the initial
-      // conversation is created once the user opens a real project — the
-      // server's project-changed broadcast triggers a full page reload, which
-      // re-runs this path with a populated projectPath. Seeding here would
-      // build a phantom tab in an ephemeral temp dir whose writes the backend
-      // silently discards; worse, createConversation awaits a worker Yjs sync,
-      // so a flaky/absent worker connection would hang the whole load and
-      // strand the UI with no picker and nowhere to type.
+      // An empty projectPath seeds nothing: a tab there would live in an
+      // ephemeral temp dir whose writes the backend silently discards, and
+      // createConversation awaits a worker Yjs sync, so a flaky or absent
+      // worker connection would hang the whole load.
 
       // Refresh all context items to get fresh content (data from storage is stale)
       this._refreshAllContextItems();

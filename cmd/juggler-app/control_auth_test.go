@@ -13,8 +13,8 @@ import (
 // The control listener is on loopback, but anything on this machine — any web
 // page included, since a page may POST anywhere — can reach a loopback port.
 // Window ids are w1, w2…, so the address alone authorised nothing: a page could
-// open projects, close windows or restart the app. Only a caller holding this
-// launch's secret, which reaches nothing but the app's own windows, gets in.
+// open projects, close windows or restart the app. Only a caller holding a
+// window's secret, which reaches nothing but that window's page, gets in.
 func TestControlEndpointRequiresTheSecret(t *testing.T) {
 	a := newTestAppState(t)
 	registerTestWindow(a, "w1")
@@ -25,6 +25,7 @@ func TestControlEndpointRequiresTheSecret(t *testing.T) {
 	t.Cleanup(func() { _ = ln.Close() })
 	a.serveControl(ln)
 	origin := fmt.Sprintf("http://127.0.0.1:%d", a.ctlPort)
+	secret := controlSecretOf(a, "w1")
 
 	do := func(method, url, from string) (int, http.Header) {
 		t.Helper()
@@ -46,6 +47,7 @@ func TestControlEndpointRequiresTheSecret(t *testing.T) {
 	for _, url := range []string{
 		origin + "/win/w1/zoom?zoom=0",
 		origin + "/not-the-secret/win/w1/zoom?zoom=0",
+		origin + "/" + secret[:len(secret)-1] + "/win/w1/zoom?zoom=0",
 	} {
 		code, header := do(http.MethodPost, url, "https://evil.example")
 		if code != http.StatusNotFound {
@@ -60,7 +62,7 @@ func TestControlEndpointRequiresTheSecret(t *testing.T) {
 	}
 
 	// The window's own page, which holds the secret in its ?nativeCtl=.
-	base := a.controlBase("w1")
+	base := a.controlBase("w1", secret)
 	page := "http://127.0.0.1:8080"
 	code, header := do(http.MethodPost, base+"/zoom?zoom=0", page)
 	if code != http.StatusNoContent {
@@ -71,8 +73,5 @@ func TestControlEndpointRequiresTheSecret(t *testing.T) {
 	}
 	if code, _ := do(http.MethodGet, base+"/zoom?zoom=0", page); code != http.StatusMethodNotAllowed {
 		t.Errorf("GET with the secret = %d, want 405: every action is a POST", code)
-	}
-	if code, _ := do(http.MethodPost, origin+"/"+a.ctlSecret[:len(a.ctlSecret)-1]+"/win/w1/zoom?zoom=0", page); code != http.StatusNotFound {
-		t.Errorf("a near-miss secret = %d, want 404", code)
 	}
 }

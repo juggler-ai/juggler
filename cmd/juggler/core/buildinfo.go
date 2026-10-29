@@ -67,6 +67,13 @@ func resolveVersion(stamped, embedded string) string {
 	}
 }
 
+// IsDevVersion reports whether v names a build somebody made from source:
+// every such build of one source tree reports the same version.
+func IsDevVersion(v string) bool {
+	v = strings.TrimSpace(v)
+	return v == bareDevVersion || strings.HasSuffix(v, devSuffix)
+}
+
 // IsTestVersion reports whether v names a server built to be driven by the test
 // suites rather than run by anybody.
 //

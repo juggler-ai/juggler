@@ -5,12 +5,9 @@
 package core
 
 import (
-	"bytes"
 	"log"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/mdp/qrterminal/v3"
 )
 
 // ANSI color codes
@@ -74,28 +71,4 @@ func PrintProminentBox(title string, content string, color string) {
 
 	// Bottom border
 	log.Printf("%s%s╚%s╝%s", ColorBold, color, strings.Repeat("═", boxWidth-2), ColorReset)
-}
-
-// PrintQRCode prints a compact half-block QR code for url to the console.
-func PrintQRCode(url string) {
-	PrintLabeledQRCode("", url)
-}
-
-// PrintLabeledQRCode prints a compact half-block QR code for url, preceded by an
-// optional caption line identifying it (e.g. which network it targets).
-//
-// The whole code is rendered into a buffer first and emitted with a single
-// log.Print, rather than letting qrterminal write line-by-line straight to
-// stdout. That matters because the status boxes and the asynchronous engine
-// boot lines ("[engine] START (boot)") go through the log package to stderr —
-// a different stream. Per-line writes to a second stream interleave with those
-// log lines, splitting other text through the middle of the code. One
-// serialized write on the same stream as the logs keeps the code intact.
-func PrintLabeledQRCode(label, url string) {
-	var buf bytes.Buffer
-	if label != "" {
-		buf.WriteString(label + "\n")
-	}
-	qrterminal.GenerateHalfBlock(url, qrterminal.L, &buf)
-	log.Print(strings.TrimRight(buf.String(), "\n"))
 }

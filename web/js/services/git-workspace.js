@@ -66,9 +66,8 @@ export function setGitWorkspace(id) {
 }
 
 /**
- * Watch for the tree changing. Each git service takes one of these and does with
- * it what it already does for a project switch — the two events are the same
- * event, in that what was being described has been replaced.
+ * Watch for the tree changing. Each git service takes one of these and lets go
+ * of what it knew: what was being described has been replaced.
  * @param {() => void} listener - Called after the tree changes.
  * @returns {() => void} Unsubscribe.
  */

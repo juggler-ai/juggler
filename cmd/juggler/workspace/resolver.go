@@ -28,8 +28,7 @@ type Resolver struct {
 
 // NewResolver builds a Resolver over the live project path, the session's
 // workspace table and the project's path index. Each is read on every Resolve,
-// so a project switch or a workspace registered a moment ago is seen without
-// rebuilding anything. lookup may be nil in a server with no session, in which
+// so a workspace registered a moment ago is seen without rebuilding anything. lookup may be nil in a server with no session, in which
 // case only the project resolves; index may be nil, in which case the project's
 // "@" search is a prefix scan only.
 func NewResolver(project func() string, lookup core.WorkspaceLookup, index func() ops.PathSearcher) *Resolver {

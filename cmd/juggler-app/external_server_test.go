@@ -7,7 +7,6 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -30,20 +29,17 @@ func TestWindowPageURLMarksAWindowOnAnExternalServer(t *testing.T) {
 
 func TestAWindowOnAnExternalServerCannotOpenAProjectInANewWindow(t *testing.T) {
 	a := newTestAppState(t)
-	e := &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: "http://remote:8080"}, serverURL: "http://remote:8080"}
-	a.reg(func(st *regState) { st.windows["w1"] = e })
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: "http://remote:8080"}, serverURL: "http://remote:8080"})
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/win/w1/new?project=%2Fhome%2Fremote%2Fproj", nil)
-	a.handleWindowControl(rec, req)
+	rec := controlRequest(a, http.MethodPost, "/win/w1/new?project=%2Fhome%2Fremote%2Fproj")
 
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want %d: a remote path must not spawn a local server", rec.Code, http.StatusConflict)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d: a remote path must not spawn a local server", rec.Code, http.StatusForbidden)
 	}
 	var body struct {
 		Error string `json:"error"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || !strings.Contains(body.Error, "Switch") {
-		t.Fatalf("the refusal should tell the page what to do instead, got %q (%v)", rec.Body.String(), err)
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || !strings.Contains(body.Error, "another computer") {
+		t.Fatalf("the refusal should say why, got %q (%v)", rec.Body.String(), err)
 	}
 }

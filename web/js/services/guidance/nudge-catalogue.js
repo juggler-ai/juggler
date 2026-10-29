@@ -156,7 +156,7 @@ export const NUDGES = Object.freeze([
     surface: 'footer',
     scope: 'conversation',
     title: markForTranslation('This conversation is getting long.'),
-    body: markForTranslation('Compact it to fold the older turns into a summary, or hand off to a new conversation that starts from one.'),
+    body: markForTranslation('Compact it to fold the older turns into a summary, or hand off, which continues the task in a fresh conversation.'),
     when: (ctx) => !ctx.thread?.threadItemId && !!ctx.tokens
       && (ctx.tokens.total >= LONG_CONVERSATION_TOKENS
         || (ctx.tokens.budget > 0 && ctx.tokens.total / ctx.tokens.budget >= LONG_CONVERSATION_FRACTION)),

@@ -319,20 +319,13 @@ conversation-tabs-container {
     position: relative;
 }
 
-/* The tab column gives way in three states, each a class on <body> toggled by
-   the element that takes its room. The consequence is stated here rather than
-   as inline styles written onto a sibling from the outside. (The overlays are
+/* The tab column gives way in states, each a class on <body> toggled by the
+   element that takes its room. The consequence is stated here rather than as
+   inline styles written onto a sibling from the outside. (The overlay is
    styled in components/onboarding.css.)
 
-   No project loaded: there are no conversations either, so <no-project-overlay>
-   gets the whole main area. The sidebar answers the same state in
-   components/conversation-bar.css. */
-body.no-project conversation-tabs-container {
-    display: none;
-}
-
-/* One state along: a project is loaded and the sidebar must stay — it holds the
-   "+" that ends this state — but the tab column has no tabs to hold, so
+   No conversations: the sidebar must stay — it holds the "+" that ends this
+   state — but the tab column has no tabs to hold, so
    <no-conversations-overlay> takes the room it would claim. */
 body.no-conversations conversation-tabs-container {
     display: none;

@@ -1149,10 +1149,6 @@ settings-panel .provider-toggle:focus-visible + .toggle-switch {
 
 /* Connectivity tab */
 
-settings-panel .connectivity-wan-error {
-    color: var(--accent-red);
-}
-
 /* The proxy-mode picker reuses the shared settings-panel native-select styling
    (.settings-select / .chime-select). The Manual URL field is sized like
    .mcp-input; the box is .field-input. */
@@ -1175,21 +1171,26 @@ settings-panel .proxy-status:empty {
     display: none;
 }
 
-/* "Start on launch" toggle: a compact labelled checkbox sharing the control
-   column with the Start/Stop button. Muted so it reads as a secondary
-   preference rather than a primary action. */
-settings-panel .connectivity-launch-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    color: var(--text-secondary);
-    font-size: var(--font-size-base);
-    cursor: pointer;
-    user-select: none;
+/* The Connectivity form is one column of rows, evenly spaced: the LAN and
+   tunnel sections are wrappers the layout looks through, so a row's spacing
+   never depends on which wrapper it sits in or where. */
+settings-panel #connectivity-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
 }
 
-settings-panel .connectivity-launch-checkbox {
-    cursor: pointer;
+settings-panel #connectivity-form .provider-field {
+    margin-bottom: 0;
+}
+
+settings-panel .connectivity-section:not([hidden]) {
+    display: contents;
+}
+
+/* A way in's Start/Stop sits at its natural width, like a switch would. */
+settings-panel #connectivity-form .provider-control > .settings-btn {
+    align-self: flex-start;
 }
 
 /* Connected-clients box: a "Connected clients" label on the left, and on the
@@ -1249,13 +1250,6 @@ settings-panel .connectivity-client-origin {
 
 settings-panel .connectivity-client-meta {
     color: var(--text-tertiary);
-}
-
-settings-panel .connectivity-url-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem 1rem;
-    margin-top: 0.75rem;
 }
 
 /* MCP servers tab: server list, status dots, stderr log viewer, and the
@@ -1611,84 +1605,6 @@ settings-panel .chime-rotary-label {
 
 settings-panel .chime-preview-btn {
     margin-left: 0.25rem;
-}
-
-/* Keep the Start/Stop button from crowding the QR/URL block above it. Only the
-   block/list that sits directly in the control column gets the gap; QR blocks
-   nested inside a multi-address list defer to the list's own spacing. */
-settings-panel .provider-control > .connectivity-url-block,
-settings-panel .provider-control > .connectivity-url-list {
-    margin-bottom: 0.5rem;
-}
-
-settings-panel .connectivity-url-block {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    margin-top: 0.75rem;
-}
-
-settings-panel .connectivity-url-list .connectivity-url-block {
-    margin-top: 0;
-}
-
-settings-panel .connectivity-url-row {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.375rem;
-    max-width: 100%;
-    margin-bottom: 0.5rem;
-}
-
-settings-panel .connectivity-url {
-    display: block;
-    font-size: var(--font-size-md);
-    color: var(--accent-blue);
-    word-break: break-all;
-    text-align: center;
-}
-
-settings-panel .connectivity-url-copy {
-    position: relative;
-    flex: 0 0 auto;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0.25rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background var(--transition-base), color var(--transition-base);
-}
-
-settings-panel .connectivity-url-copy svg {
-    width: 0.875rem;
-    height: 0.875rem;
-}
-
-settings-panel .connectivity-url-copy:hover {
-    background: var(--bg-raised);
-    color: var(--text-primary);
-}
-
-settings-panel .connectivity-qr {
-    width: 8rem;
-    height: 8rem;
-    display: block;
-    border-radius: var(--radius-md);
-    color: var(--text-primary);
-}
-
-settings-panel .connectivity-qr svg {
-    display: block;
-    width: 100%;
-    height: 100%;
 }
 
 /* Desktop / tablet (>36rem): the tabs no longer fit as a single horizontal row,

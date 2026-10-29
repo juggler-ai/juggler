@@ -28,7 +28,7 @@ import { assert } from '../utilities/test-helpers.js';
 
 /** The fields that wear `.field-input`, by the selector of their own base rule. */
 const FIELD_MEMBERS = [
-  '.pp-body .pp-name-input', 'path-input .path-input-field', '.pinboard-add-picker__filter',
+  'path-input .path-input-field', '.pinboard-add-picker__filter',
   'settings-panel .model-visibility-filter', 'settings-panel .copilot-host-field input',
   'settings-panel .settings-select', 'settings-panel .chime-select', 'settings-panel .proxy-mode-select',
   'settings-panel .proxy-url-input', 'settings-panel .mcp-input', 'settings-panel .provider-input-wrapper',

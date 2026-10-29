@@ -7,34 +7,20 @@ package server
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"time"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/tunnel"
 	"juggler/internal/ingress"
 )
 
-// PrintSessionInfo prints a prominent box with the server URL and optional
-// extra lines (e.g. interactive key hints).
-func (s *Server) PrintSessionInfo(extraLines ...string) {
-	content := fmt.Sprintf("http://%s/", s.addr)
-	for _, line := range extraLines {
-		content += "\n" + line
-	}
-	core.PrintProminentBox("JUGGLER IS RUNNING", content, core.ColorCyan)
-}
-
-// SetPublicMode enables or disables LAN access. When disabled (default), the
-// lanGateMiddleware rejects connections from non-loopback IPs with 403.
-func (s *Server) SetPublicMode(enabled bool) {
-	s.publicMode.Store(enabled)
-}
-
-// IsPublicMode reports whether LAN access is currently enabled.
-func (s *Server) IsPublicMode() bool {
-	return s.publicMode.Load()
+// PrintSessionInfo prints a prominent box with the server URL.
+func (s *Server) PrintSessionInfo() {
+	core.PrintProminentBox("JUGGLER IS RUNNING", fmt.Sprintf("http://%s/", s.addr), core.ColorCyan)
 }
 
 // isLoopbackAddr reports whether a "host:port" RemoteAddr originates from a
@@ -49,19 +35,18 @@ func isLoopbackAddr(remoteAddr string) bool {
 }
 
 // isLocalDirect reports whether a request came from this machine over a plain
-// loopback connection. Remote-ingress requests are excluded explicitly: remote
-// transports reach the server over loopback too (an http-over-DataChannel
-// dispatch, a tunnel forwarder hop, or a machine server's proxy), so the address
-// alone would admit them.
+// loopback connection. Remote-ingress requests are excluded explicitly: every
+// remote caller reaches a session child over loopback, through its machine
+// server's proxy, so the address alone would admit them.
 func isLocalDirect(r *http.Request) bool {
 	return isLoopbackAddr(r.RemoteAddr) && !isRemoteIngress(r)
 }
 
 // engineRoleAllowed reports whether a request may claim the engine WS role. The
 // engine is the in-process WebView, reachable only over loopback. Remote-ingress
-// requests are excluded explicitly — remote transports reach the server over
-// loopback (an http-over-DataChannel dispatch, or a tunnel forwarder hop), so a
-// remote guest could otherwise claim the engine slot.
+// requests are excluded explicitly — remote callers reach the server over
+// loopback through the machine server's proxy, so a remote guest could
+// otherwise claim the engine slot.
 func engineRoleAllowed(r *http.Request) bool {
 	return isLocalDirect(r)
 }
@@ -84,27 +69,6 @@ func localViewerOnly(next http.HandlerFunc) http.Handler {
 	})
 }
 
-// lanGateMiddleware rejects non-loopback connections when public mode is off.
-// Requests arriving over an explicitly-granted remote transport (an established
-// WebRTC DataChannel, or a tunnel the user opened) are admitted regardless: each
-// is the user's explicit grant of remote access (possession of an unguessable id
-// plus a completed handshake, or an explicitly-started tunnel). They are
-// identified by the remote-ingress context tag (see MarkRemoteIngress). The
-// engine WS upgrade refuses the tag, so no remote transport can claim the
-// in-process engine slot.
-func (s *Server) lanGateMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.publicMode.Load() && !isRemoteIngress(r) {
-			ip, _, err := net.SplitHostPort(r.RemoteAddr)
-			if err == nil && !net.ParseIP(ip).IsLoopback() {
-				writeLocalhostOnlyPage(w)
-				return
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // supervisorIngressKind is the MarkRemoteIngress kind for a request the
 // machine server forwarded from a caller off loopback.
 const supervisorIngressKind = "machine-server"
@@ -114,65 +78,72 @@ const supervisorIngressKind = "machine-server"
 // the child over loopback for every caller, so it vouches for a caller off
 // loopback with the secret it spawned the child with, and this tags that
 // request as remote ingress: from then on the engine role refuses it and
-// localViewerOnly treats it as remote, exactly as for a tunnel or data-channel
-// guest. Anything else — another value, a server spawned with no secret, a
+// localViewerOnly treats it as remote. Anything else — another value, a server spawned with no secret, a
 // connection that is not loopback, so cannot be the supervisor's — leaves the
 // request untagged. The header is removed either way, so nothing downstream
 // can read the secret back.
 //
 // Alongside the secret, the supervisor says how the caller reached it
-// (ingress.KindHeader) and from where (ingress.AddrHeader). Those are believed
-// only with the secret, and only for display: a LAN caller is listed by its
-// address (see clientInfoFromRequest), while the request stays remote ingress.
+// (ingress.KindHeader), from where (ingress.AddrHeader), and who its transport
+// says it is (ingress.UserHeader). Those are believed only with the secret,
+// and only for display: a LAN caller is listed by its address and a tunnel's
+// by its name (see clientInfoFromRequest), while the request stays remote
+// ingress. Nothing is granted on a name.
 func (s *Server) supervisorIngressMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got := r.Header.Get(ingress.Header)
 		kind := r.Header.Get(ingress.KindHeader)
 		addr := r.Header.Get(ingress.AddrHeader)
+		user := r.Header.Get(ingress.UserHeader)
 		r.Header.Del(ingress.Header)
 		r.Header.Del(ingress.KindHeader)
 		r.Header.Del(ingress.AddrHeader)
+		r.Header.Del(ingress.UserHeader)
 		if s.ingressSecret != "" && got != "" && isLoopbackAddr(r.RemoteAddr) &&
 			subtle.ConstantTimeCompare([]byte(got), []byte(s.ingressSecret)) == 1 {
 			r = MarkRemoteIngress(r, supervisedIngressKind(kind))
 			if ip := supervisedLANCallerIP(kind, addr); ip != "" {
 				r = r.WithContext(context.WithValue(r.Context(), supervisedLANCallerKey{}, ip))
 			}
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// proxyIngressMiddleware tags a request from the user's own reverse proxy as
-// remote ingress of kind ingress.KindProxy. Such a proxy (tailscale serve,
-// caddy) runs on this machine and connects over loopback, so by address its
-// callers — anyone who can reach the proxy — would be local: past the LAN
-// gate, able to claim the engine slot and write this machine's UI preferences.
-// What identifies its traffic is the Host it forwards, one of allowedHosts,
-// which this machine's own clients never send. A request is tagged only when
-// both hold: an off-loopback caller naming an allowed host is left untagged,
-// so the LAN gate still decides it, and the name only passes it through the
-// Host check. A local process sending the name only demotes itself to remote.
-// A request already tagged by a transport keeps its own kind.
-func (s *Server) proxyIngressMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isRemoteIngress(r) && isLoopbackAddr(r.RemoteAddr) && s.allowedHosts.Has(r.Host) {
-			r = MarkRemoteIngress(r, ingress.KindProxy)
+			if name := supervisedCallerName(user); name != "" {
+				r = r.WithContext(context.WithValue(r.Context(), supervisedCallerNameKey{}, name))
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
 // supervisedIngressKind is the remote-ingress tag for a caller the supervisor
-// vouched for, given the transport it names. A transport this server titles
-// itself (the user's reverse proxy) keeps its own kind. Any other caller is
-// supervisorIngressKind, including a LAN one, which its address names instead
-// (supervisedLANCallerIP).
+// vouched for, given the transport it names. A transport this server can title
+// — the user's reverse proxy, a registered tunnel mode — keeps its own kind.
+// Any other caller is supervisorIngressKind, including a LAN one, which its
+// address names instead (supervisedLANCallerIP).
 func supervisedIngressKind(kind string) string {
 	if kind == ingress.KindProxy {
 		return ingress.KindProxy
 	}
+	if _, ok := tunnel.Find(tunnel.Mode(kind)); ok && kind != "" {
+		return kind
+	}
 	return supervisorIngressKind
+}
+
+// supervisedCallerNameKey carries, on a request the supervisor vouched for,
+// the caller's name as its transport gave it. Read by clientInfoFromRequest.
+type supervisedCallerNameKey struct{}
+
+// supervisedCallerName returns the display name in a vouched-for caller's
+// identity (tunnel.CallerIdentity, as JSON), or "" for none or one that does
+// not parse.
+func supervisedCallerName(user string) string {
+	if user == "" {
+		return ""
+	}
+	var who tunnel.CallerIdentity
+	if err := json.Unmarshal([]byte(user), &who); err != nil {
+		return ""
+	}
+	return who.Name
 }
 
 // supervisedLANCallerKey carries, on a request the supervisor vouched for, the
@@ -196,132 +167,19 @@ func supervisedLANCallerIP(kind, addr string) string {
 	return ip.String()
 }
 
-// writeLocalhostOnlyPage renders the 403 page shown when a non-loopback client
-// hits a server whose public (LAN) mode is off. Styled, centred, and responsive
-// so it reads cleanly on a phone; inline CSS only (the served CSP allows
-// 'unsafe-inline' for style but no remote fonts, so it uses a system stack).
-func writeLocalhostOnlyPage(w http.ResponseWriter) {
-	const page = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Juggler — localhost only</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; }
-  html, body {
-    margin: 0;
-    height: 100%;
-    background: #0d1117;
-    color: #e6edf3;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
-  }
-  body {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: clamp(1.25rem, 5vw, 3rem);
-  }
-  .card {
-    width: 100%;
-    max-width: 34rem;
-    text-align: center;
-  }
-  .mark {
-    font-size: clamp(1.6rem, 6vw, 2.25rem);
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    margin: 0 0 1.75rem;
-  }
-  h1 {
-    font-size: clamp(1.25rem, 4.5vw, 1.5rem);
-    font-weight: 600;
-    margin: 0 0 1rem;
-    line-height: 1.25;
-  }
-  p {
-    font-size: clamp(0.95rem, 3.6vw, 1.0625rem);
-    line-height: 1.6;
-    margin: 0 0 1rem;
-    color: #c9d1d9;
-  }
-  p:last-of-type { margin-bottom: 0; }
-  code, kbd {
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-    font-size: 0.9em;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    padding: 0.1em 0.4em;
-    color: #e6edf3;
-  }
-  kbd { box-shadow: 0 1px 0 #30363d; }
-  .steps {
-    text-align: left;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 12px;
-    padding: clamp(1rem, 4vw, 1.5rem);
-    margin: 1.75rem 0 0;
-  }
-  .steps h2 {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #8b949e;
-    margin: 0 0 0.85rem;
-  }
-  .steps ol {
-    margin: 0;
-    padding-left: 1.25rem;
-    color: #c9d1d9;
-    font-size: clamp(0.9rem, 3.5vw, 1rem);
-    line-height: 1.6;
-  }
-  .steps li { margin-bottom: 0.5rem; }
-  .steps li:last-child { margin-bottom: 0; }
-  .steps li::marker { color: #58a6ff; font-weight: 600; }
-</style>
-</head>
-<body>
-  <main class="card">
-    <h1>This Juggler server is localhost-only</h1>
-    <p>For security reasons, this server is only accepting connections from its local host machine.</p>
-    <p>To let other devices on the same network connect, turn on LAN access:</p>
-    <div class="steps">
-      <h2>Enable LAN access</h2>
-      <ol>
-        <li>In Juggler, open <strong>Settings &rarr; Connectivity</strong> and start <strong>LAN access</strong>, or</li>
-        <li>If you&rsquo;re running it in a terminal, press <kbd>p</kbd> + <kbd>enter</kbd>.</li>
-      </ol>
-    </div>
-  </main>
-</body>
-</html>`
-
-	setHTMLSecurityHeaders(w, generateCSPNonce())
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusForbidden)
-	_, _ = w.Write([]byte(page))
-}
-
 // remoteIngressContextKey carries the MarkRemoteIngress kind on a request
 // context. Private: taggers use MarkRemoteIngress, readers use RemoteIngressKind.
 type remoteIngressContextKey struct{}
 
 // MarkRemoteIngress returns r tagged as having arrived through an
 // explicitly-granted remote-access transport of the given kind (a short
-// transport name, e.g. "datachannel" or a tunnel mode). Remote transports reach
-// the router indirectly — a synthetic http-over-DataChannel dispatch, or a
-// tunnel forwarder's loopback hop — so such requests look loopback by
-// RemoteAddr, and the tag, not the address, is what identifies them:
-// lanGateMiddleware and hostAllowed honour it to admit traffic the user
-// explicitly granted remote access, while engineRoleAllowed and the engine WS
-// upgrade refuse it so a remote client can never claim the in-process engine
-// slot. Exported so external tunnel providers can tag their ingress.
+// transport name: the machine server, the user's reverse proxy, a tunnel
+// mode). Remote callers reach a session child through its machine server's
+// proxy, over loopback, so such requests look loopback by RemoteAddr, and the
+// tag, not the address, is what identifies them: hostAllowed honours it to
+// admit traffic the machine server already checked, while engineRoleAllowed
+// and the engine WS upgrade refuse it so a remote client can never claim the
+// in-process engine slot.
 func MarkRemoteIngress(r *http.Request, kind string) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), remoteIngressContextKey{}, kind))
 }
@@ -353,6 +211,7 @@ func clientInfoFromRequest(r *http.Request) ClientInfo {
 	if kind := RemoteIngressKind(r); kind != "" {
 		info.Origin = "remote"
 		info.Detail = remoteTransportLabel(kind)
+		info.Name, _ = r.Context().Value(supervisedCallerNameKey{}).(string)
 		return info
 	}
 	if isLoopbackAddr(r.RemoteAddr) {
@@ -391,111 +250,18 @@ func sanitiseViewerID(id string) string {
 }
 
 // remoteTransportLabel turns a remote-ingress kind (see MarkRemoteIngress) into a
-// short human label: the WebRTC data channel, or a registered tunnel mode's
-// title, falling back to the raw kind for anything unrecognised.
+// short human label: the machine server, the user's reverse proxy, or a
+// registered tunnel mode's title, falling back to the raw kind for anything
+// unrecognised.
 func remoteTransportLabel(kind string) string {
-	if kind == dataChannelIngressKind {
-		return "Peer-to-peer"
-	}
 	if kind == supervisorIngressKind {
 		return "Via machine server"
 	}
 	if kind == ingress.KindProxy {
 		return "Via reverse proxy"
 	}
-	if spec, ok := findTunnelMode(TunnelMode(kind)); ok {
+	if spec, ok := tunnel.Find(tunnel.Mode(kind)); ok {
 		return spec.Title.English()
 	}
 	return kind
-}
-
-// lanAddress is a reachable LAN address (IPv4 or IPv6) together with the name of
-// the network interface it belongs to, so each can be labelled when several
-// exist.
-type lanAddress struct {
-	iface string
-	ip    string
-}
-
-// getLANAddresses returns reachable addresses of active non-loopback network
-// interfaces, each tagged with its interface name. Both IPv4 and IPv6 global /
-// unique-local unicast addresses are included; loopback, link-local (needs a
-// zone to be usable), and multicast addresses are skipped. IPv4 addresses are
-// listed before IPv6 so the primary, most-broadly-reachable URL comes first.
-func getLANAddresses() []lanAddress {
-	var v4, v6 []lanAddress
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return nil
-	}
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		ifAddrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range ifAddrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() ||
-				ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
-				continue
-			}
-			if ip4 := ip.To4(); ip4 != nil {
-				v4 = append(v4, lanAddress{iface: iface.Name, ip: ip4.String()})
-			} else {
-				v6 = append(v6, lanAddress{iface: iface.Name, ip: ip.String()})
-			}
-		}
-	}
-	return append(v4, v6...)
-}
-
-// PrintLANStatus prints the LAN access status box and, when enabled, QR codes
-// for each detected LAN address.
-func (s *Server) PrintLANStatus(enabled bool) {
-	_, port, _ := net.SplitHostPort(s.addr)
-	if !enabled {
-		core.PrintProminentBox("LAN ACCESS DISABLED", "Server is now localhost-only", core.ColorYellow)
-		return
-	}
-	lanAddrs := getLANAddresses()
-	if len(lanAddrs) == 0 {
-		core.PrintProminentBox("LAN ACCESS ENABLED", "(no LAN interfaces detected)", core.ColorGreen)
-		return
-	}
-	multi := len(lanAddrs) > 1
-	var content string
-	for i, a := range lanAddrs {
-		if i > 0 {
-			content += "\n"
-		}
-		url := fmt.Sprintf("http://%s/", net.JoinHostPort(a.ip, port))
-		// Prefix each URL with its interface name when there is more than one, so
-		// the labelled QR codes below can be matched back to a line here.
-		if multi {
-			content += fmt.Sprintf("%s:  %s", a.iface, url)
-		} else {
-			content += url
-		}
-	}
-	content += "\n\n⚠  No password — anyone on your network can drive this agent\n   (it runs commands and edits files). Press 'p' to restrict to localhost."
-	core.PrintProminentBox("LAN ACCESS ENABLED", content, core.ColorGreen)
-	for _, a := range lanAddrs {
-		url := fmt.Sprintf("http://%s/", net.JoinHostPort(a.ip, port))
-		// With several networks, caption each code so it is unambiguous which
-		// network it connects to; a lone network needs no caption.
-		if multi {
-			core.PrintLabeledQRCode(fmt.Sprintf("%s — %s", a.iface, url), url)
-		} else {
-			core.PrintQRCode(url)
-		}
-	}
 }

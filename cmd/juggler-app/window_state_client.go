@@ -21,8 +21,10 @@ import (
 // stores it in the current project's session (via /api/session/window-state), so
 // it is per-project and travels with the session. The desktop app is just a
 // conduit: it reads the saved frame when opening a window and writes the frame
-// back as the user moves/resizes it. That holds for a server this app runs; a
-// window onto a server by URL keeps its frame on this machine (remote_frames.go).
+// back as the user moves/resizes it. That holds for a session on this machine's
+// server; a window onto a server by URL keeps its frame on this machine
+// (remote_frames.go), and an empty window, on the server's own page, has no
+// session to keep one in.
 //
 // Each window ROLE gets its own slot in that session. A project has never had
 // only one window — a second one for the same project already cascades off the
@@ -42,16 +44,14 @@ func windowStateURL(serverURL, role string) string {
 // currently serving. Returns (zero, false) when nothing is saved or the server
 // can't be reached — the caller then uses a default placement.
 //
-// A freshly spawned server prints its address before it starts accepting
-// connections, so the first few requests can fail on connection refused; we
-// retry transport errors briefly. A response (even non-200) is authoritative
-// and ends the loop.
+// Transport errors are retried briefly, for a server that is not accepting
+// yet. A response (even non-200) is authoritative and ends the loop.
 //
-// serverURL is always one the app owns, from windowSpec.resolve: the address a
-// server it spawned printed, a verified instance lock's, --url, or one the user
-// typed into Connect to Server. A control request reaches here by naming a
-// project folder, or — from a window on a server this app resolved itself, and
-// only after normaliseServerURL — the address the user typed (controlConnect).
+// serverURL is always one the app owns, from resolveWindow: a session on this
+// machine's server, --url, or one the user typed into Connect to Server. A
+// control request reaches here by naming a project folder, or — from a window
+// on this machine's server, and only after normaliseServerURL — the address the
+// user typed (controlConnect).
 func fetchWindowState(serverURL, role string) (core.WindowState, bool) {
 	ws, ok, _ := readWindowState(context.Background(), serverURL, role)
 	return ws, ok
@@ -94,14 +94,18 @@ func readWindowState(ctx context.Context, serverURL, role string) (ws core.Windo
 }
 
 // openingState reads the saved geometry a window onto spec opens with, and
-// whether its server answered. A project's server is one this app just resolved
-// (spawned, or found by its lock), so it is waited for as long as a start takes
-// and counted as reached; a server by URL gets remoteReachBudget.
+// whether its server answered. A project's session is one this app just opened
+// on this machine's server, so it is counted as reached; an empty window has no
+// session and opens at the default frame; a server by URL gets
+// remoteReachBudget.
 //
 // A server by URL is still asked, because its answer is what says it is there,
 // but what it holds is another machine's frame: the window opens at the one kept
 // on this machine instead (see remote_frames.go).
 func (a *appState) openingState(spec windowSpec, serverURL, role string) (ws core.WindowState, hasState, reached bool) {
+	if spec == (windowSpec{}) {
+		return core.WindowState{}, false, true
+	}
 	if !spec.isURL() {
 		ws, hasState = fetchWindowState(serverURL, role)
 		return ws, hasState, true
@@ -121,19 +125,19 @@ func (a *appState) openingState(spec windowSpec, serverURL, role string) (ws cor
 //
 // A stand-in's frame goes where the window it stands in for keeps its own, so
 // that window comes back where the stand-in was: on this machine, under the
-// server by URL — not in the session of the server the stand-in's page comes
-// from. A locked project's session cannot be reached, so a stand-in for one
-// keeps none.
+// server by URL. A local window's session is not there to keep one, so its
+// stand-in keeps none; nor does an empty window, which has no session.
 func (a *appState) storeFrame(ctx context.Context, e *winEntry, ws core.WindowState) {
 	spec, si := a.standInOf(e)
+	serverURL := a.serverURLOf(e)
 	switch {
 	case si != nil && spec.isURL():
 		a.remoteFrames.put(normalizeURL(spec.url), e.role, ws)
-	case si != nil:
+	case si != nil, spec == (windowSpec{}):
 	case spec.isURL():
-		a.remoteFrames.put(e.serverURL, e.role, ws)
+		a.remoteFrames.put(serverURL, e.role, ws)
 	default:
-		putWindowStateCtx(ctx, e.serverURL, e.role, ws)
+		putWindowStateCtx(ctx, serverURL, e.role, ws)
 	}
 }
 

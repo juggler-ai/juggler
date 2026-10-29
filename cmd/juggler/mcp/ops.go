@@ -31,7 +31,7 @@ func Register() {
 }
 
 // StartDiscovery begins connecting the configured servers for a project. Call it
-// as soon as the project is known, and again on a project switch.
+// as soon as the project is known.
 //
 // Without it, nothing starts a server until the first client asks for a snapshot
 // — and that client is the engine building a turn's tool list, so the request

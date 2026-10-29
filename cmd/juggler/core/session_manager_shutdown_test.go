@@ -29,9 +29,9 @@ func stillRunning() string {
 }
 
 // Shutdown is documented as a barrier: once it returns, no goroutine of this
-// manager writes into the project directory again. The project switch releases
-// the project's lock the moment it returns, so a straggler writes into a
-// directory whose next owner is already there.
+// manager writes into the project directory again. The server releases the
+// project's lock the moment it returns, so a straggler writes into a directory
+// whose next owner may already be there.
 //
 // EmptyBin defers the OS-trash of the moved-aside staging directory to a
 // background goroutine, which puts it on the wrong side of that promise unless

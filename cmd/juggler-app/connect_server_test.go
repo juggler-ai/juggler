@@ -111,18 +111,16 @@ func TestNormaliseServerURL(t *testing.T) {
 // What a page can ask the app to connect to is bounded by which page asks. A
 // window on a server by URL is showing a page that server sent; if it could
 // name another host, every server ever connected to could put windows onto
-// anywhere, carrying this app's control secret with them.
+// anywhere, with a place in the workspace set.
 func TestAWindowOnAServerByURLCannotConnectToAnother(t *testing.T) {
 	for _, spec := range []windowSpec{{url: "http://devbox:8080"}, {url: "http://devbox:8080", connected: true}} {
 		a := newTestAppState(t)
-		e := &winEntry{id: "w1", role: roleMain, spec: spec, serverURL: spec.url}
-		a.reg(func(st *regState) { st.windows["w1"] = e })
+		registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: spec, serverURL: spec.url})
 
-		rec := httptest.NewRecorder()
-		a.handleWindowControl(rec, httptest.NewRequest(http.MethodPost, "/win/w1/connect?url=http%3A%2F%2Felsewhere%3A1", nil))
+		rec := controlRequest(a, http.MethodPost, "/win/w1/connect?url=http%3A%2F%2Felsewhere%3A1")
 
-		if rec.Code != http.StatusConflict {
-			t.Fatalf("%+v: status = %d, want %d", spec, rec.Code, http.StatusConflict)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%+v: status = %d, want %d", spec, rec.Code, http.StatusForbidden)
 		}
 		var body struct {
 			Error string `json:"error"`
@@ -135,11 +133,9 @@ func TestAWindowOnAServerByURLCannotConnectToAnother(t *testing.T) {
 
 func TestConnectRefusesAnAddressThatIsNotAServer(t *testing.T) {
 	a := newTestAppState(t)
-	e := &winEntry{id: "w1", role: roleMain, spec: windowSpec{}, serverURL: "http://127.0.0.1:4000"}
-	a.reg(func(st *regState) { st.windows["w1"] = e })
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{}, serverURL: "http://127.0.0.1:4000"})
 
-	rec := httptest.NewRecorder()
-	a.handleWindowControl(rec, httptest.NewRequest(http.MethodPost, "/win/w1/connect?url=file%3A%2F%2F%2Fetc", nil))
+	rec := controlRequest(a, http.MethodPost, "/win/w1/connect?url=file%3A%2F%2F%2Fetc")
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
@@ -156,12 +152,10 @@ func TestConnectRefusesAnAddressThatIsNotAServer(t *testing.T) {
 // working window cannot be made to replace itself.
 func TestOnlyAnUnreachableServerWindowTakesItsRecoveryActions(t *testing.T) {
 	a := newTestAppState(t)
-	e := &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: "http://devbox:8080", connected: true}, serverURL: "http://devbox:8080"}
-	a.reg(func(st *regState) { st.windows["w1"] = e })
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:4000/s/x"})
 
 	for _, action := range []string{"retry-server", "open-local"} {
-		rec := httptest.NewRecorder()
-		a.handleWindowControl(rec, httptest.NewRequest(http.MethodPost, "/win/w1/"+action, nil))
+		rec := controlRequest(a, http.MethodPost, "/win/w1/"+action)
 		if rec.Code != http.StatusConflict {
 			t.Errorf("%s on a window showing its server: status = %d, want %d", action, rec.Code, http.StatusConflict)
 		}
@@ -229,16 +223,17 @@ func TestReadWindowStateReportsAnAnsweringServerReached(t *testing.T) {
 	}
 }
 
-// The unreachable-server page has no server behind it, so its two buttons post
-// straight to this app's control endpoint for the window showing it.
+// A stand-in's page has no server behind it, so its buttons post straight to
+// this app's control endpoint for the window showing it.
 func TestUnreachableServerPagePostsToItsWindow(t *testing.T) {
 	base := "http://127.0.0.1:5000/secret/win/w7"
-	page := unreachableServerPage(unreachableServerText{
-		title:       "Can't reach the server",
-		message:     `Juggler could not connect to http://dev<box>:8080.`,
-		retry:       "Try again",
-		trying:      "Trying…",
-		openLocal:   "Open a local window instead",
+	page := standInPage(standInPageText{
+		title:   "Can't reach the server",
+		message: `Juggler could not connect to http://dev<box>:8080.`,
+		buttons: []standInPageButton{
+			{label: "Try again", action: "retry-server", busy: "Trying…", primary: true},
+			{label: "Open a local window instead", action: "open-local"},
+		},
 		controlBase: base,
 	})
 

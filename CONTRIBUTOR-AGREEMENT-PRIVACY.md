@@ -12,7 +12,7 @@ its service under its own privacy terms.
 
 Julian Storer is the controller of the records described here. Questions,
 correction requests, and privacy requests may be sent to
-`julianstorer@gmail.com`.
+`info@juggler.studio`.
 
 ## Information collected
 
@@ -94,7 +94,7 @@ Git history, perform an agreement, comply with law, or establish, exercise, or
 defend legal rights. Public Git and GitHub records may also remain in forks,
 clones, and repository history outside Julian Storer’s control.
 
-To exercise a right, contact `julianstorer@gmail.com`. Reasonable identity
+To exercise a right, contact `info@juggler.studio`. Reasonable identity
 verification may be required before private records are disclosed or changed.
 
 ## Changes

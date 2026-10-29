@@ -5,6 +5,8 @@
 package machineserver
 
 import (
+	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -12,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
-	"github.com/gorilla/websocket"
 
 	"juggler/internal/ingress"
 )
@@ -27,7 +28,8 @@ import (
 // a caller off loopback is forwarded with the child's ingress secret
 // (internal/ingress), which the child turns into its remote-ingress tag — so
 // such a caller cannot take the engine slot or pass for a local viewer — and
-// with how it arrived and from where, for the child's clients list.
+// with how it arrived, from where, and who a tunnel's transport says it is,
+// for the child's clients list.
 func (s *Server) handleSessionProxy(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	sess, secret, ok := s.reg.route(id)
@@ -47,9 +49,34 @@ func (s *Server) handleSessionProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Who a tunnel's transport says the caller is, passed on as it said it.
+	var user string
+	if tag, ok := ingressOf(r); ok && !tag.caller.IsZero() {
+		if b, err := json.Marshal(tag.caller); err == nil {
+			user = string(b)
+		}
+	}
+
 	target := &url.URL{Scheme: "http", Host: sess.Addr}
 	prefix := "/s/" + id
+	var release func()
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
 	proxy := &httputil.ReverseProxy{
+		ModifyResponse: func(resp *http.Response) error {
+			if resp.StatusCode != http.StatusSwitchingProtocols || !strings.EqualFold(resp.Header.Get("Upgrade"), "websocket") {
+				return nil
+			}
+			var held bool
+			release, held = s.reg.holdViewer(id)
+			if !held {
+				return fmt.Errorf("session is stopping")
+			}
+			return nil
+		},
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
 			// Strip the session prefix: the child serves the same tree it
@@ -74,9 +101,13 @@ func (s *Server) handleSessionProxy(w http.ResponseWriter, r *http.Request) {
 			pr.Out.Header.Del(ingress.Header)
 			pr.Out.Header.Del(ingress.KindHeader)
 			pr.Out.Header.Del(ingress.AddrHeader)
+			pr.Out.Header.Del(ingress.UserHeader)
 			if remote {
 				pr.Out.Header.Set(ingress.Header, secret)
 				pr.Out.Header.Set(ingress.KindHeader, kind)
+				if user != "" {
+					pr.Out.Header.Set(ingress.UserHeader, user)
+				}
 				// A LAN caller's address is its own. A proxied caller's is the
 				// proxy's loopback hop, which says nothing about who it is.
 				if kind == ingress.KindLAN {
@@ -88,11 +119,6 @@ func (s *Server) handleSessionProxy(w http.ResponseWriter, r *http.Request) {
 		// incremental delivery, not just WebSocket frames.
 		FlushInterval: -1,
 	}
-	// A viewer's socket is an attached client (see attach) for as long as it
-	// is open: for an upgrade, ServeHTTP returns only once the socket closes.
-	if websocket.IsWebSocketUpgrade(r) {
-		defer s.attach()()
-	}
 	proxy.ServeHTTP(w, r)
 }
 
@@ -102,14 +128,16 @@ func (s *Server) handleSessionProxy(w http.ResponseWriter, r *http.Request) {
 //   - ingress.KindLAN: off loopback, on this server's own listener. An address
 //     that does not parse counts too, so a doubt costs the caller local trust
 //     rather than granting it.
+//   - a tunnel's mode: it came through that tunnel (ingressOf), whose
+//     forwarder or data channel reaches this server from inside the machine.
 //   - ingress.KindProxy: on loopback, but naming one of allowedHosts. That is a
 //     reverse proxy on this machine (tailscale serve) forwarding a caller from
 //     wherever it serves. Its socket is local and its caller is not. A local
 //     process that sends the name only demotes itself to remote.
-//
-// Transports that end on this server over loopback (tunnels) add their kinds
-// here.
 func (s *Server) callerKind(r *http.Request) string {
+	if tag, ok := ingressOf(r); ok {
+		return string(tag.tunnel.mode)
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return ingress.KindLAN

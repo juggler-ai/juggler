@@ -21,6 +21,8 @@
 // variable is never extracted, and so never translated.
 package msg
 
+import "maps"
+
 // Message is user-facing text: an English template and its parameters. On the
 // wire it is {"key": template, "params": {...}, "context": ...}, params and
 // context omitted when empty — the argument serverText() takes.
@@ -111,13 +113,27 @@ func (m Message) IsZero() bool {
 // plural rules and number format; the pseudo-locale en-XA uses English ones.
 // Unlike t(), which uses the locale along the fallback chain the translation
 // was found in, the plural rules are always locale's.
+//
+// A parameter that is itself a Message (a name the server knows, such as a
+// tunnel mode's title) is formatted the same way first. That is Go's alone:
+// serverText() takes only scalars, so such a message is for Go to draw.
 func Format(locale string, catalog map[string]string, m Message) string {
+	params := m.Params
+	cloned := false
+	for name, v := range m.Params {
+		if inner, ok := v.(Message); ok {
+			if !cloned {
+				params, cloned = maps.Clone(m.Params), true
+			}
+			params[name] = Format(locale, catalog, inner)
+		}
+	}
 	if translated, ok := catalog[m.CatalogKey()]; ok && translated != "" {
-		if out, ok := renderStrict(translated, m.Params, formatLocale(locale)); ok {
+		if out, ok := renderStrict(translated, params, formatLocale(locale)); ok {
 			return out
 		}
 	}
-	return m.English()
+	return render(m.Key, params, sourceLocale)
 }
 
 // Error is an error whose text is a Message. Error() is the English, so it

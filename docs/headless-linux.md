@@ -48,27 +48,38 @@ repository, or with a version manager.
 ## 3. Run it
 
 ```bash
-juggler
+juggler serve --lan
 ```
 
-The server prints its URL and a QR code. It is localhost-only by default —
-press `p` in its terminal (or start with `--public`) to allow other devices on
-your network to connect. The default port is 3939 (`--port` overrides).
+This is the machine's Juggler server, with no session of its own: its page,
+at `http://<host>:3939/`, lists the sessions running here and opens new ones in
+any folder. The default port is 3939, or the next free one (`--port`
+overrides).
+
+`--lan` turns on LAN access, so other devices on your network can connect.
+Without it the server accepts connections from this machine only. LAN access is
+off whenever the server starts, unless `--lan` or the saved
+`connectivity.lanOnLaunch` in `~/.juggler/settings.json` turns it on, and
+`juggler server lan on|off` switches it while it runs. There is no password: anyone who can reach the address can use
+the server, so turn it on only on networks you trust.
+
+`juggler server status`, `juggler server sessions` and `juggler server stop`
+manage it from another terminal on the same machine.
 
 ## Connecting from the desktop app
 
-On the machine you work at, choose **Session ▸ Connect to Server…** (or
-**Connect to a server URL…** in an empty window) and enter the server's address,
-such as `http://devbox:3939`. The app opens a window onto that server and,
-like a project window, reopens it each time it starts — so a normal launch
-goes straight to the headless server.
+On the machine you work at, choose **Session ▸ Connect to Server…**, or use
+**Connect to another computer** on the sessions page of an empty window, and
+enter the server's address, such as `http://devbox:3939`. The window becomes
+one onto that server's sessions page; open a session there and it shows in the
+same window. Like a project window, it reopens each time the app starts, on the
+server's page — so a normal launch goes straight to the headless server.
 
 If the server isn't answering when the app starts, the window says so and
 offers **Try again** or **Open a local window instead**; the second one also
-stops the app reopening that server. The server must accept connections from
-other devices (see above), and an address it doesn't recognise as local, such
-as a public DNS name, must be listed under `connectivity.allowedHosts` in its
-settings.
+stops the app reopening that server. The server must have LAN access on (see
+above), and an address it doesn't recognise as local, such as a public DNS
+name, must be listed under `connectivity.allowedHosts` in its settings.
 
 `juggler-app --url <address>` opens a one-off window onto a server, which the
 app doesn't reopen next time.
@@ -88,21 +99,27 @@ before the prompt: `--project <dir>` (defaults to the current directory),
 `--json` for the whole outcome — conversation id and folder, turns, the answer —
 as one object. A prompt of `-` is read from stdin.
 
-Exit codes:
+Exit codes, and the `status` `--json` reports with each:
 
-| Code | Meaning |
-|---|---|
-| 0 | Finished. |
-| 1 | The turn failed. |
-| 2 | The command line was wrong. |
-| 3 | A tool wanted a human, and there wasn't one. |
-| 4 | The run outlived `--timeout`. |
+| Code | `status` | Meaning |
+|---|---|---|
+| 0 | `completed` | Finished. |
+| 1 | `failed` | The turn failed, or the run was interrupted (Ctrl-C, SIGTERM). |
+| 2 | — | The command line was wrong. |
+| 3 | `parked` | A tool wanted a human, and there wasn't one. |
+| 4 | `timeout` | The run outlived `--timeout`. |
 
 The run approves its own tools, so it can edit files and execute commands
 without asking. Give it a project you are willing to have changed — a checkout,
 a container, a copy — rather than anything you cannot restore. Where a run went
 wrong is in its conversation folder under `.juggler/`, named on every non-zero
 exit; the model used is whichever one is configured as the default.
+
+Each run starts a session of its own for the project and stops it before
+exiting, so nothing it started is left running. A project already open in
+Juggler elsewhere can't be used by a run until that session ends (exit 1). The
+run's conversation stays in the project, so the next session that opens it
+shows it.
 
 ## Choosing the engine host
 
@@ -155,6 +172,7 @@ docker build -t juggler packaging/docker
 docker run -it -p 3939:3939 -v "$PWD:/work" -w /work juggler
 ```
 
-The image starts the server with `--public` (required for the port mapping to
-be reachable; the container boundary takes the place of the localhost-only
-default — don't publish the port beyond networks you trust).
+The image runs `juggler serve --lan`: the port mapping reaches the server from
+outside the container, which it counts as the LAN. The container boundary takes
+the place of the localhost-only default, so don't publish the port beyond
+networks you trust.

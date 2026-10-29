@@ -132,8 +132,7 @@ func awaitShellDone(t *testing.T, c *WSClient, shellID string) bool {
 // guard for the bash-wedge bug. shell-output is consumed solely by the engine's
 // shellStreaming, which resolves the bash tool on the `done` chunk. The
 // chunk must reach the client that REQUESTED the shell — not the project's
-// viewer group — because the persistent engine is not a reliable viewer-group
-// member (it never reloads to re-join after a SwitchProject).
+// viewer group — because the engine is not a viewer-group member.
 func TestProcessShellRequest_DeliversToRequesterNotViewerGroup(t *testing.T) {
 	s := newTestServerStateWithProject(t)
 
@@ -158,37 +157,5 @@ func TestProcessShellRequest_DeliversToRequesterNotViewerGroup(t *testing.T) {
 	case msg := <-viewer.send:
 		t.Fatalf("viewer-group member unexpectedly received a message on the shell path: %+v", msg)
 	default:
-	}
-}
-
-// TestProcessShellRequest_SurvivesViewerGroupSwap reproduces the exact failure:
-// the engine joined the original project's viewer group, then a SwitchProject
-// replaced that group with a fresh one (and stopped the old one) without the
-// engine re-joining. bash must still complete. Under the old viewer-group
-// broadcast this stranded the engine (output went to the new group, which the
-// engine was never in); read/grep over HTTP and worker-messages were unaffected,
-// so only bash wedged.
-func TestProcessShellRequest_SurvivesViewerGroupSwap(t *testing.T) {
-	s := newTestServerStateWithProject(t)
-
-	engine := testWSClient("engine")
-	s.joinViewerGroup(engine) // engine joined the ORIGINAL group
-
-	// Simulate SwitchProject: a brand-new viewer group replaces the old one,
-	// the old one is stopped, and the persistent engine never re-joins.
-	old := s.projectState.Load()
-	newMgr, err := core.NewSessionManagerForPath(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewSessionManagerForPath: %v", err)
-	}
-	t.Cleanup(newMgr.Shutdown)
-	s.projectState.Store(&projectState{sessionManager: newMgr, viewers: newViewerGroup()})
-	old.viewers.stop()
-
-	s.processShellRequest(context.Background(),
-		ShellStartRequest{ShellID: "sh2", Command: "echo hi"}, engine, func(string) {})
-
-	if !awaitShellDone(t, engine, "sh2") {
-		t.Fatal("engine never received shell-output after viewer-group swap (bash-wedge regression)")
 	}
 }

@@ -46,8 +46,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Per-instance token gate for local viewer upgrades (§S.1) — the defense
 	// against a same-machine cross-site page opening a socket to the agent.
 	// Remote ingress is exempt: those are the user's explicit remote grants
-	// (possession of the unguessable URL), authorized exactly like the LAN gate
-	// authorizes them, and their transport need not thread the token through
+	// (possession of the unguessable URL), and their transport need not thread the token through
 	// the WS handshake. Skipped entirely on a test server (test.authDisabled), where the headless
 	// harness drives many synthetic viewers without a token.
 	//
@@ -135,13 +134,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 // the engine whichever engine connection is current (engineRecipient) — NOT to
 // the project's viewer group. shell-output is consumed solely by the
 // engine's shellStreaming, which resolves the bash tool on the `done`
-// chunk. The engine is persistent across SwitchProject, but the viewer group is
-// per-project and replaced on every switch — and the engine, unlike viewers,
-// never reloads to re-join the new group. Broadcasting via the viewer group
-// therefore stranded the engine's bash results after any project switch (read/
-// grep over HTTP and worker-messages kept working, so only bash wedged). Sending
-// to the requester is project-independent and order-preserving (the WSClient
-// writer goroutine serializes its sends). Viewers still see live bash output via
+// chunk, and the engine is not a member of the viewer group. Sending to the
+// requester is order-preserving (the WSClient writer goroutine serializes its
+// sends). Viewers still see live bash output via
 // the separate engine-bridge/action-progress channel, untouched here.
 //
 // complete is called with the shell's id once it is over and its output has

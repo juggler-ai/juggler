@@ -87,11 +87,10 @@ async function runInWorkerSandbox(code, capabilities, timeoutMs, env, callerRoot
   }));
 
   // The caller's own root when it named one — a tool's is its conversation's
-  // workspace, which is not necessarily the project. Otherwise the LIVE project
-  // root (kept current across a runtime project switch by session.js
-  // _applyEngineProjectRoot), falling back to the boot value from the delegate
-  // closure. The Node engine runs on this same thread, so the global is in step
-  // with the loaded project.
+  // workspace, which is not necessarily the project. Otherwise the project root
+  // the session manifest set (the Node engine runs on this same thread, so the
+  // global is the loaded session's), falling back to the boot value from the
+  // delegate closure before the manifest has loaded.
   const liveProjectRoot =
     callerRoot || (globalThis.__jugglerProjectRoot ?? env.projectRoot);
 

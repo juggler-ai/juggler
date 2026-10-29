@@ -27,7 +27,6 @@
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import api from './api.js';
 import { gitWorkspaceId, onGitWorkspaceChange } from './git-workspace.js';
-import wsService from './websocket.js';
 
 /**
  * @typedef {object} GitStatusSnapshot
@@ -201,8 +200,7 @@ const gitStatusCache = {
   },
 
   /**
-   * Forget everything known about the working tree, as a project switch does.
-   * Exported for tests, which cannot otherwise get back to the initial state.
+   * Forget everything known about the working tree. Exported for tests, which cannot otherwise get back to the initial state.
    * @returns {void}
    */
   reset() {
@@ -217,17 +215,6 @@ const gitStatusCache = {
     notifyIfChanged();
   },
 };
-
-/**
- * Start again against a different project. Whatever is known describes the
- * previous one, and showing another project's counts until the next poll comes
- * round would be wrong for as long as twenty seconds — so drop it and ask at once.
- * @returns {void}
- */
-function retarget() {
-  gitStatusCache.reset();
-  if (_listeners.size > 0) void gitStatusCache.refresh();
-}
 
 /**
  * Follow the user to a conversation that works in another tree, without
@@ -249,10 +236,8 @@ function follow() {
   if (_listeners.size > 0) void gitStatusCache.refresh();
 }
 
-// A project switch replaces the tree this describes.
-wsService.on('project-changed', retarget);
-
-// So does the user moving to a conversation that works somewhere else.
+// The user moving to a conversation that works in another tree replaces the
+// tree this describes.
 onGitWorkspaceChange(follow);
 
 export default gitStatusCache;

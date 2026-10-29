@@ -94,7 +94,7 @@ func TestOneShotRefusesASecondRunInFlight(t *testing.T) {
 
 func TestStartOneShotRefusesWithoutAnEngine(t *testing.T) {
 	s := &Server{}
-	ch, err := s.StartOneShot(OneShotRequest{Prompt: "hello", StrategyID: "yolo"})
+	ch, err := s.startOneShot(OneShotRequest{Prompt: "hello", StrategyID: "yolo"})
 	if err == nil {
 		t.Fatal("dispatched a run with no engine connected")
 	}

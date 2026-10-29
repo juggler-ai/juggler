@@ -22,7 +22,7 @@ import (
 const MaxFileContentBytes = 100 << 20
 
 // FilesAPI serves file bytes for rendering. The project path is looked up via a
-// provider func so runtime project switches retarget it, matching OpsAPI.
+// provider func.
 type FilesAPI struct {
 	pathProvider func() string
 }

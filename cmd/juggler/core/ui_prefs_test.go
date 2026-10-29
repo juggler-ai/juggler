@@ -167,7 +167,7 @@ func TestUIPrefsSurviveReopeningTheProject(t *testing.T) {
 	}
 	board := WindowRolePinboardFor("board_a")
 
-	m := startManager(store, dir, "")
+	m := startManager(store, dir)
 	if err := m.MergeWindowUIPrefs(board, uiPatch(t, `{"juggler-info-cards-hidden": {"hidden":["tips"]}}`)); err != nil {
 		t.Fatalf("merge window: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestUIPrefsSurviveReopeningTheProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	m2 := startManager(store2, dir, "")
+	m2 := startManager(store2, dir)
 	t.Cleanup(m2.Shutdown)
 
 	wantUIPref(t, m2.GetWindowUIPrefs(board), "juggler-info-cards-hidden", `{"hidden":["tips"]}`)

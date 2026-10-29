@@ -177,7 +177,7 @@ func windowRole(r *http.Request) string {
 // project's session for the requested window role, so the desktop app can reopen
 // that window where the user left it. Geometry is per-project session state and
 // travels with the session. `hasState` is false when this project has never
-// saved one for that role (first open, or a no-project window).
+// saved one for that role (first open).
 func (api *SessionAPI) HandleGetWindowState(w http.ResponseWriter, r *http.Request) {
 	ws, ok := api.manager().GetWindowState(windowRole(r))
 	WriteJSON(w, r, 0, map[string]any{"windowState": ws, "hasState": ok})
@@ -185,8 +185,8 @@ func (api *SessionAPI) HandleGetWindowState(w http.ResponseWriter, r *http.Reque
 
 // HandleSetWindowState persists the native-window geometry for one window role
 // into this project's session. The desktop app posts it (debounced) as the user
-// moves/resizes the window and once more at close. A no-project session no-ops
-// (see SessionManager.SetWindowState).
+// moves/resizes the window and once more at close. Before the session is
+// loaded it no-ops (see SessionManager.SetWindowState).
 func (api *SessionAPI) HandleSetWindowState(w http.ResponseWriter, r *http.Request) {
 	ws, ok := DecodeJSON[core.WindowState](w, r)
 	if !ok {
@@ -890,8 +890,8 @@ func (api *SessionAPI) HandleUploadAsset(w http.ResponseWriter, r *http.Request)
 }
 
 // convDirOf resolves a conversation's folder through the current session
-// manager, for the stores that keep files in it. With no project loaded there
-// is no manager, and no conversation to keep anything for.
+// manager, for the stores that keep files in it. With no manager there is no
+// conversation to keep anything for.
 func (api *SessionAPI) convDirOf(convID string) (string, bool) {
 	sm := api.manager()
 	if sm == nil {

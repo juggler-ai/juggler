@@ -23,7 +23,7 @@ func managerWithStoredAppearance(t *testing.T, theme string, zoom int) *SessionM
 	if err := store.Save(seed); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	m := startManager(store, dir, "")
+	m := startManager(store, dir)
 	t.Cleanup(m.Shutdown)
 	return m
 }

@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 
+	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/msg"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -31,27 +32,35 @@ import (
 //
 // Loopback is not a boundary on its own: any web page in any browser on this
 // machine can POST to 127.0.0.1, and window ids are a counter. The secret is
-// what authorises a request. It is minted per launch, travels only in the URLs
-// of this app's own windows, and is checked before anything else — method,
-// routing, CORS — so a request without it learns nothing and is granted no
-// origin.
+// what authorises a request, and what it authorises is one window: each
+// window's page is given a secret of its own (winEntry.ctlSecret), and a
+// request acts only on the window whose secret it holds — the id in its path
+// must name that same window. The secret is checked before anything else —
+// method, routing, CORS — so a request without one learns nothing and is
+// granted no origin.
+//
+// A window on a server by URL hands its secret to that server with every page
+// load (in the request line, and to the page's script), so that server is
+// trusted with nothing beyond what its page needs in its own window: the
+// remote column of windowActions. Delivering the secret some other way would
+// not change that, since the page's script must hold it to use it.
 
 // listenControl binds the control endpoint to an OS-assigned loopback port.
 func listenControl() (net.Listener, error) {
 	return net.Listen("tcp", "127.0.0.1:0")
 }
 
-// serveControl records the listener's loopback port and mints this launch's
-// secret (both baked into window URLs as ?nativeCtl=, see controlBase), then
-// starts handling control requests on ln. Call once, before building any
-// window.
+// serveControl records the listener's loopback port (baked into window URLs as
+// ?nativeCtl=, see controlBase), then starts handling control requests on ln.
+// Call once, before building any window.
 func (a *appState) serveControl(ln net.Listener) {
 	a.ctlPort = ln.Addr().(*net.TCPAddr).Port
-	a.ctlSecret = mintControlSecret()
 	go func() { _ = http.Serve(ln, http.HandlerFunc(a.handleControl)) }()
 }
 
-// mintControlSecret returns a random secret for the control endpoint.
+// mintControlSecret returns a random secret for one page load of one window:
+// minted as the window is built, and again each time it is navigated in place
+// (navigateWindow), so a secret never outlives the page it was given to.
 func mintControlSecret() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -62,19 +71,48 @@ func mintControlSecret() string {
 	return hex.EncodeToString(b)
 }
 
-// controlBase is the ?nativeCtl= value for window id: the base every page-side
-// call appends its action to.
-func (a *appState) controlBase(id string) string {
-	return fmt.Sprintf("http://127.0.0.1:%d/%s/win/%s", a.ctlPort, a.ctlSecret, id)
+// controlBase is the ?nativeCtl= value for window id holding secret: the base
+// every page-side call appends its action to.
+func (a *appState) controlBase(id, secret string) string {
+	return fmt.Sprintf("http://127.0.0.1:%d/%s/win/%s", a.ctlPort, secret, id)
 }
 
-// handleControl admits a request only when its path opens with this launch's
-// secret and it is a POST (or the CORS preflight for one), then hands the rest
-// of the path to handleWindowControl. Anything else is a bare 404 or 405 with
-// no CORS headers, so a page that lacks the secret cannot read even that.
+// windowBySecret is the open window whose page holds secret, or nil, and
+// whether that page is served by a server by URL (remotePage). Every window's
+// secret is compared, in constant time, whichever matches.
+func (a *appState) windowBySecret(secret string) (e *winEntry, remote bool) {
+	a.reg(func(st *regState) {
+		for _, w := range st.windows {
+			if w.ctlSecret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(w.ctlSecret)) == 1 {
+				e, remote = w, w.remotePage()
+			}
+		}
+	})
+	return e, remote
+}
+
+// remotePage is whether e's page was served by a server by URL — another
+// machine's, as far as the app can know — rather than by this machine's server
+// or by the app itself (a stand-in). Read on the registry goroutine.
+func (e *winEntry) remotePage() bool {
+	return e.standIn == nil && e.spec.isURL()
+}
+
+// handleControl admits a request only when its path opens with an open
+// window's secret and it is a POST (or the CORS preflight for one), then
+// dispatches /win/<id>/<action> for that window: the id must be the secret's
+// window, the action one in windowActions, and one its page may ask for (the
+// remote column). Anything without a secret is a bare 404 or 405 with no CORS
+// headers, so a page that lacks one cannot read even that. A refused action is
+// a 403 saying why.
 func (a *appState) handleControl(w http.ResponseWriter, r *http.Request) {
 	secret, rest, ok := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
-	if !ok || a.ctlSecret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(a.ctlSecret)) != 1 {
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	e, remote := a.windowBySecret(secret)
+	if e == nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -82,11 +120,35 @@ func (a *appState) handleControl(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	r2 := r.Clone(r.Context())
-	r2.URL.Path = "/" + rest
-	r2.URL.RawPath = ""
-	a.handleWindowControl(w, r2)
+	if preflight(w, r) {
+		return
+	}
+	setCORS(w, r)
+
+	id, action, ok := strings.Cut(strings.TrimPrefix(rest, "win/"), "/")
+	if !ok || !strings.HasPrefix(rest, "win/") || id != e.id {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	act, ok := windowActions[action]
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if remote && (act.remote == nil || !act.remote(r)) {
+		refusal := remoteWindowRefusal
+		if act.refusal != nil {
+			refusal = *act.refusal
+		}
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": refusal.English(), "message": refusal})
+		return
+	}
+	act.handle(a, w, r, e)
 }
+
+// remoteWindowRefusal is why a window on a server by URL is refused an action
+// that is not its own window's (windowActions).
+var remoteWindowRefusal = msg.New("This window shows a server on another computer, so Juggler will not do that for it.")
 
 // setCORS lets the page read the reply. It runs only behind handleControl,
 // whose secret is what authorises the caller; the page's origin is whatever
@@ -117,74 +179,87 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// windowAction handles /win/<id>/<action> for a window that exists.
+// windowAction handles /win/<id>/<action> for the window whose secret the
+// request holds.
 type windowAction func(a *appState, w http.ResponseWriter, r *http.Request, e *winEntry)
 
-// windowActions is every action addressed to an existing window, by the name
-// the page posts. "new" and "open" are not here: neither needs the window to be
-// one this app still has (see handleWindowControl).
-var windowActions = map[string]windowAction{
-	"theme":          (*appState).controlTheme,
-	"title":          (*appState).controlTitle,
-	"locale":         (*appState).controlLocale,
-	"folder-dropped": (*appState).controlFolderDropped,
-	"control":        (*appState).controlWindowState,
-	"attention":      (*appState).controlAttention,
-	"zoom":           (*appState).controlZoom,
-	"drafts-flushed": (*appState).controlDraftsFlushed,
-	"pick-directory": func(a *appState, w http.ResponseWriter, r *http.Request, e *winEntry) {
-		a.controlPickPath(w, r, e, "pick-directory")
-	},
-	"pick-file": func(a *appState, w http.ResponseWriter, r *http.Request, e *winEntry) {
-		a.controlPickPath(w, r, e, "pick-file")
-	},
-	"save-file":    (*appState).controlSaveFile,
-	"updater":      (*appState).handleUpdaterControl,
-	"connect":      (*appState).controlConnect,
-	"stand-in":     (*appState).controlStandIn,
-	"retry-server": (*appState).controlRetryServer,
-	"open-local":   (*appState).controlOpenLocal,
-	"server-lost":  (*appState).controlServerLost,
-	"quit":         (*appState).controlQuit,
+// controlAction is one action a page may post, and who may post it.
+type controlAction struct {
+	handle windowAction
+	// remote is what a window on a server by URL (winEntry.remotePage) may ask
+	// of it: nil for nothing, else which requests. Every other window — this
+	// machine's server's pages and the app's own stand-ins — may ask for any.
+	remote remoteGrant
+	// refusal, when set, is what a remote window is told in place of
+	// remoteWindowRefusal.
+	refusal *msg.Message
 }
 
-// handleWindowControl dispatches /win/<id>/<action>, for a request
-// handleControl has already authorised. The id selects the target window from
-// the registry; an unknown action or window is a 404.
-func (a *appState) handleWindowControl(w http.ResponseWriter, r *http.Request) {
-	if preflight(w, r) {
-		return
-	}
-	setCORS(w, r)
+// remoteGrant decides whether a window on a server by URL may make request r.
+type remoteGrant func(r *http.Request) bool
 
-	rest := strings.TrimPrefix(r.URL.Path, "/win/")
-	parts := strings.SplitN(rest, "/", 2)
-	if len(parts) != 2 || parts[0] == "" {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	id, action := parts[0], parts[1]
+// anyRequest grants a remote window every request for an action.
+func anyRequest(*http.Request) bool { return true }
 
-	switch action {
-	case "new":
-		a.controlNewWindow(w, r, id)
-		return
-	case "open":
-		controlOpenURL(w, r)
-		return
-	}
+// boardOnly grants a remote window "new" for a detached board alone, which
+// controlNewWindow opens on the asking window's own spec — the same server —
+// whatever else the query names. A plain new window is this machine's server's
+// page, and a project there is this machine's path.
+func boardOnly(r *http.Request) bool { return windowOptsFromQuery(r.URL.Query()).isPinboard() }
 
-	handle, ok := windowActions[action]
-	if !ok {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	e := a.window(id)
-	if e == nil {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	handle(a, w, r, e)
+// windowActions is every action a page may post, by the name it posts, and
+// what a window on a server by URL may ask of it: the one place that is
+// decided.
+//
+// What a remote window keeps, and why each is its own window's business or the
+// user's own choice:
+//   - theme, title, control, attention: its own native window's colour, name,
+//     minimise/maximise/close/raise/fullscreen state and Dock bounce. (theme
+//     also seeds the next window's bare-frame colour, from a fixed set.)
+//   - drafts-flushed: its reply to a close or quit the app announced to it.
+//   - attach, server-page: moving itself to a session of its own server, or
+//     back to that server's page (attachRemote, controlServerPage).
+//   - server-lost: its page giving up on its server; the app checks for itself
+//     and replaces only this window, with a stand-in of its own.
+//   - open: a link followed to the system browser, as a browser tab would;
+//     http and https only (isBrowserURL).
+//   - new, for a board only (boardOnly): another window onto the same server.
+//   - save-file: what a browser download is — the user picks where in the
+//     Save dialog, and the page learns only whether it was saved
+//     (controlSaveFile).
+//
+// Refused it, as app-wide or on this machine's files: locale (the app's
+// language and menus), zoom (the next window's zoom), folder-dropped,
+// pick-directory and pick-file (they answer with a local path), updater,
+// connect, quit, and the stand-in actions retry-server, restart-server and
+// open-local, which no page of another server shows.
+var windowActions = map[string]controlAction{
+	"theme":          {handle: (*appState).controlTheme, remote: anyRequest},
+	"title":          {handle: (*appState).controlTitle, remote: anyRequest},
+	"control":        {handle: (*appState).controlWindowState, remote: anyRequest},
+	"attention":      {handle: (*appState).controlAttention, remote: anyRequest},
+	"drafts-flushed": {handle: (*appState).controlDraftsFlushed, remote: anyRequest},
+	"attach":         {handle: (*appState).controlAttach, remote: anyRequest},
+	"server-page":    {handle: (*appState).controlServerPage, remote: anyRequest},
+	"server-lost":    {handle: (*appState).controlServerLost, remote: anyRequest},
+	"open":           {handle: controlOpenURL, remote: anyRequest},
+	"new":            {handle: (*appState).controlNewWindow, remote: boardOnly},
+	"save-file":      {handle: (*appState).controlSaveFile, remote: anyRequest},
+	"locale":         {handle: (*appState).controlLocale},
+	"zoom":           {handle: (*appState).controlZoom},
+	"folder-dropped": {handle: (*appState).controlFolderDropped},
+	"pick-directory": {handle: func(a *appState, w http.ResponseWriter, r *http.Request, e *winEntry) {
+		a.controlPickPath(w, r, e, "pick-directory")
+	}},
+	"pick-file": {handle: func(a *appState, w http.ResponseWriter, r *http.Request, e *winEntry) {
+		a.controlPickPath(w, r, e, "pick-file")
+	}},
+	"updater":        {handle: (*appState).handleUpdaterControl},
+	"connect":        {handle: (*appState).controlConnect, refusal: &connectFromURLWindowRefusal},
+	"quit":           {handle: (*appState).controlQuit},
+	"retry-server":   {handle: (*appState).controlRetryServer},
+	"restart-server": {handle: (*appState).controlRestartServer},
+	"open-local":     {handle: (*appState).controlOpenLocal},
 }
 
 // controlNewWindow opens another window, carrying whatever the caller handed
@@ -201,47 +276,139 @@ func (a *appState) handleWindowControl(w http.ResponseWriter, r *http.Request) {
 // window closing this way — one left open on a conversation with work running
 // in it is the reason to detach a board at all — and comes back when the
 // window it belonged to does.
-func (a *appState) controlNewWindow(w http.ResponseWriter, r *http.Request, id string) {
+//
+// A window on a server by URL may ask for a board alone (boardOnly), which
+// opens on its own server: the paths its page offers may be on another
+// machine, and any other new window is this machine's.
+func (a *appState) controlNewWindow(w http.ResponseWriter, r *http.Request, e *winEntry) {
 	opts := windowOptsFromQuery(r.URL.Query())
-	// What the asking page shows, which for a stand-in is an empty window on a
-	// server this app spawned (pageSpecOf).
+	// What the asking page shows (pageSpecOf): a stand-in's shows nothing a
+	// board could be a view of.
 	if opts.isPinboard() {
-		spec, ok := a.pageSpecOf(id)
+		spec, ok := a.pageSpecOf(e.id)
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		opts.openedBy = id
-		a.openWindow(spec, opts)
+		opts.openedBy = e.id
+		openNewWindow(a, spec, opts)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	project := r.URL.Query().Get("project")
-	// A window on a server this app did not start (--url) offers that
-	// server's paths, which may be on another machine. Opening one here
-	// would spawn a local server for a folder that is not here, so the page
-	// is told to switch in place instead.
-	if spec, ok := a.pageSpecOf(id); ok && spec.isURL() && project != "" {
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"error":   urlWindowNewWindowRefusal.English(),
-			"message": urlWindowNewWindowRefusal,
-		})
-		return
-	}
-	a.openWindowForProject(project, opts)
+	a.openWindowForProject(r.URL.Query().Get("project"), opts)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// urlWindowNewWindowRefusal is why a window on a server by URL cannot open one
-// of that server's projects in a new window (controlNewWindow).
-var urlWindowNewWindowRefusal = msg.New("This window is connected to a server by URL, so its projects cannot open in a new window. Use Switch to open it here.")
+// openNewWindow opens the board controlNewWindow was asked for. A variable so a
+// test can see which window it asked for without a native one.
+var openNewWindow = (*appState).openWindow
+
+// controlAttach shows a session in the window that asked, in place of the
+// server's page it was showing: what choosing a folder or a session there
+// does, after the page has opened the session (web/machine/sessions-view.js).
+//
+// On this machine's server the window becomes that project's window. Only a
+// main window showing that server's page may ask (409 otherwise), and only for
+// a session the server is running (404 otherwise).
+//
+// A window on a server by URL (another machine's) shows the session on that
+// server and stays the server's window (attachRemote).
+func (a *appState) controlAttach(w http.ResponseWriter, r *http.Request, e *winEntry) {
+	page, ok := a.pageSpecOf(e.id)
+	if ok && page.isURL() && e.role == roleMain {
+		a.attachRemote(w, r, e, page)
+		return
+	}
+	if !ok || page != (windowSpec{}) || e.role != roleMain {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	c := a.attachedClient()
+	if c == nil || a.serverURLOf(e) != "http://"+c.Addr() {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": attachNoServer.English(), "message": attachNoServer})
+		return
+	}
+	id := r.URL.Query().Get("session")
+	list, err := c.ListSessions()
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	for _, s := range list {
+		if s.ID == id && s.State == machineserver.SessionRunning {
+			a.navigateWindow(e, windowSpec{project: s.Project}, strings.TrimSuffix(c.SessionURL(id), "/"))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	}
+	writeJSON(w, http.StatusNotFound, map[string]any{"error": attachNotRunning.English(), "message": attachNotRunning})
+}
+
+// attachRemote shows session ?session= of the window's server by URL in the
+// window: its page has opened the session through that server's own control
+// API, which this app holds no credential for, so the app only moves the
+// window to /s/<id>/ there. The id must be one (normaliseID), so the page can
+// send the window nowhere but a session of its own server. The window keeps
+// its spec, so it reopens on the server's page.
+func (a *appState) attachRemote(w http.ResponseWriter, r *http.Request, e *winEntry, spec windowSpec) {
+	id := normaliseID(r.URL.Query().Get("session"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": attachNotRunning.English(), "message": attachNotRunning})
+		return
+	}
+	a.navigateWindow(e, spec, strings.TrimRight(spec.url, "/")+"/s/"+id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// controlServerPage shows the window's server's sessions page in it again:
+// Session ▸ Open… in a window on a server by URL, where another project is
+// another session of that server. A window on this machine's server opens a
+// new window for that instead (409 here).
+func (a *appState) controlServerPage(w http.ResponseWriter, _ *http.Request, e *winEntry) {
+	page, ok := a.pageSpecOf(e.id)
+	if !ok || !page.isURL() || e.role != roleMain {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	a.navigateWindow(e, page, page.url)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+var (
+	attachNoServer   = msg.New("This window is not showing the Juggler server's page any more.")
+	attachNotRunning = msg.New("That session is not running.")
+)
+
+// navigateWindow makes e the window for spec, showing serverURL, in place, and
+// returns the page it loads. A window on a server by URL stays marked external.
+// The page it loads holds a new secret, and the one the page it replaces held
+// opens nothing any more.
+func (a *appState) navigateWindow(e *winEntry, spec windowSpec, serverURL string) string {
+	var opts windowOpts
+	var secret string
+	a.reg(func(st *regState) {
+		e.spec, e.serverURL = spec, serverURL
+		e.ctlSecret = mintControlSecret()
+		secret = e.ctlSecret
+		opts = windowOpts{theme: e.currentTheme, zoom: st.lastZoom, external: spec.isURL()}
+	})
+	logf("window %s: now %+v at %s", e.id, spec.entry(), serverURL)
+	a.persistWorkspace()
+	a.rememberRecentProject(spec.project)
+	a.syncFileDrop(e, spec)
+	page := windowPageURL(serverURL, a.controlBase(e.id, secret), opts)
+	if e.win != nil {
+		application.InvokeAsync(func() { e.win.SetURL(page) })
+	}
+	return page
+}
 
 // controlOpenURL hands a URL to the system browser. WebKit only auto-routes
 // target="_blank" links to the default browser for external https URLs; a
-// plain http://<lan-ip> link (e.g. the connectivity panel's LAN address) is
+// plain http://<lan-ip> link (a server's LAN address, say) is
 // treated as an in-app popup request, which this windowless-popup app
-// declines — so the page routes such clicks here instead. No window needed.
-func controlOpenURL(w http.ResponseWriter, r *http.Request) {
+// declines — so the page routes such clicks here instead.
+func controlOpenURL(_ *appState, w http.ResponseWriter, r *http.Request, _ *winEntry) {
 	target := r.URL.Query().Get("url")
 	if !isBrowserURL(target) {
 		w.WriteHeader(http.StatusBadRequest)
@@ -299,37 +466,30 @@ func (a *appState) controlTheme(w http.ResponseWriter, r *http.Request, e *winEn
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// controlTitle takes the page's report of the project it's viewing. Two uses:
-// the display title names the window in the macOS "Window" menu (which lists
-// windows by NSWindow title, else every window reads "Juggler"); and the raw
-// project path becomes the window's workspace identity, so a relaunch reopens
-// the right project (projects are chosen in-page, so this report is the only
-// way the app learns which one a window actually shows).
+// controlTitle takes the page's title for its window, which names the window
+// in the macOS "Window" menu (which lists windows by NSWindow title, else every
+// window reads "Juggler") and in the Windows/Linux taskbar. What the window
+// views is the app's own record (windowSpec), never the page's report.
 func (a *appState) controlTitle(w http.ResponseWriter, r *http.Request, e *winEntry) {
-	// A stand-in names what it stands in for until a project is opened in it,
-	// which setWindowProject below takes as its no longer standing in.
-	project := r.URL.Query().Get("project")
 	title := strings.TrimSpace(r.URL.Query().Get("title"))
-	if _, si := a.standInOf(e); si != nil && strings.TrimSpace(project) == "" {
-		title = a.tr(si.windowTitle)
-	}
 	if title == "" {
 		title = a.tr(appWindowTitle)
 	}
 	application.InvokeAsync(func() { e.win.SetTitle(title) })
-	a.setWindowProject(e, project)
-	// The same report says whether this window is empty, which is the one
-	// state that accepts a dropped folder.
-	a.syncFileDrop(e, project)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // controlFolderDropped takes the paths from a file drop on this window's native
 // drag overlay. They are reported by the page because that is where the native
-// side hands them over (see the bridge in no-project-overlay.js), but nothing is
+// side hands them over (see the bridge in web/machine/sessions-page.js), but nothing is
 // decided there: which of them names a project needs the filesystem, and
-// filling the window needs the other windows.
+// filling the window needs the other windows. Only a window with that overlay
+// (takesFolderDrops) can have had a drop to report; any other is answered 409.
 func (a *appState) controlFolderDropped(w http.ResponseWriter, r *http.Request, e *winEntry) {
+	if spec, ok := a.pageSpecOf(e.id); !ok || !takesFolderDrops(spec) {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
 	a.openDroppedFolderInWindow(e, r.URL.Query()["path"])
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -477,7 +637,9 @@ const maxSaveFileBytes = 64 << 20
 // file on disk; a browser client has no native host, never reaches here, and
 // downloads instead.
 //
-// Answers {"path": ...} with where it was written, or "" when the user cancelled.
+// Answers {"path": ...} with where it was written — only the suggested name, to
+// a window on a server by URL — or "" when the user cancelled. Nothing is
+// written unless the user chose a path in the dialog.
 // A request that could never be written (see saveFileRequest) is refused before
 // the dialog goes up.
 func (a *appState) controlSaveFile(w http.ResponseWriter, r *http.Request, e *winEntry) {
@@ -486,14 +648,7 @@ func (a *appState) controlSaveFile(w http.ResponseWriter, r *http.Request, e *wi
 		w.WriteHeader(status)
 		return
 	}
-	dialog := a.app.Dialog.SaveFile().
-		SetFilename(name).
-		CanCreateDirectories(true).
-		AttachToWindow(e.win)
-	if dir := usableDirectory(a.pickerDirectory()); dir != "" {
-		dialog = dialog.SetDirectory(dir)
-	}
-	path, err := dialog.PromptForSingleSelection()
+	path, err := promptSaveFile(a, e, name)
 	if err != nil {
 		logf("save-file dialog failed: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -509,7 +664,29 @@ func (a *appState) controlSaveFile(w http.ResponseWriter, r *http.Request, e *wi
 		return
 	}
 	a.setPickerDirectory(filepath.Dir(path))
+	// A page another machine's server sent learns that the file was saved, as
+	// a download would tell it, and not where on this machine: it is answered
+	// with the name it suggested.
+	var remote bool
+	a.reg(func(*regState) { remote = e.remotePage() })
+	if remote {
+		path = name
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"path": path})
+}
+
+// promptSaveFile shows the native Save dialog for e, suggesting name, and
+// returns the path chosen, or "" when the user cancelled. A variable so a test
+// can answer for the user without a native window.
+var promptSaveFile = func(a *appState, e *winEntry, name string) (string, error) {
+	dialog := a.app.Dialog.SaveFile().
+		SetFilename(name).
+		CanCreateDirectories(true).
+		AttachToWindow(e.win)
+	if dir := usableDirectory(a.pickerDirectory()); dir != "" {
+		dialog = dialog.SetDirectory(dir)
+	}
+	return dialog.PromptForSingleSelection()
 }
 
 // saveFileRequest reads a save-file request: the suggested file name from
@@ -592,11 +769,11 @@ func usableDirectory(path string) string {
 // depends on which window (hence which server) asked — see appManagedServer.
 type updaterStateResponse struct {
 	UpdaterSnapshot
-	// AppManagedServer is true when this window's server was spawned by this app
-	// (recorded in st.servers), and so will be replaced by a bundle swap +
-	// relaunch. When false the window views a server the app did not start (a
-	// terminal/URL/LAN server) — restarting the app won't update it, and the
-	// page scopes its messaging accordingly (edge case 18).
+	// AppManagedServer is true when this window views this machine's server,
+	// which the relaunched app restarts at its own version once it is free to
+	// (see versionMismatchError). When false the window views a server by URL
+	// — restarting the app won't update it, and the page scopes its messaging
+	// accordingly (edge case 18).
 	AppManagedServer bool `json:"appManagedServer"`
 }
 
@@ -610,7 +787,7 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 	case "state":
 		snap := updaterSnapshot()
 		var managed bool
-		a.reg(func(st *regState) { _, managed = st.servers[e.serverURL] })
+		a.reg(func(*regState) { managed = e.standIn == nil && !e.spec.isURL() })
 		writeJSON(w, http.StatusOK, updaterStateResponse{UpdaterSnapshot: snap, AppManagedServer: managed})
 	case "install":
 		// Fire-and-forget; the overlay guards against a double-start itself. The
@@ -632,7 +809,7 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 }
 
 // handleUpdaterRestart relaunches into the staged update. It first re-checks
-// in-flight turns across every server the restart will stop (the exact tally
+// the sessions running a turn, which the restart will stop (the exact tally
 // confirmThenQuit does) and, unless force=1, returns 409 with the busy
 // count so the page can confirm the discard and re-POST with force=1.
 //
@@ -645,11 +822,7 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 // the app keeps running and the page can surface the reason.
 func (a *appState) handleUpdaterRestart(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("force") != "1" {
-		total := 0
-		for _, u := range a.ownedServerURLs() {
-			total += serverBusy(u)
-		}
-		if total > 0 {
+		if total := a.busySessions(); total > 0 {
 			writeJSON(w, http.StatusConflict, map[string]any{
 				"busy":        total,
 				"message":     restartBusyMessage(total).English(),

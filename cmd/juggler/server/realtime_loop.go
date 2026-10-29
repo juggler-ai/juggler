@@ -21,14 +21,14 @@ import (
 type ClientInfo struct {
 	Origin      string // "local" (same machine), "lan", or "remote"
 	Detail      string // LAN IP, or the remote transport label; empty for local
+	Name        string // who a remote caller is, as its transport named it; usually empty
 	UserAgent   string // raw User-Agent, when the transport carried one
 	ConnectedAt int64  // connection time, unix milliseconds
 	Owner       string // viewer id of the window a detached pinboard belongs to; empty for a window of its own
 }
 
 // RealtimeClient is the transport-independent server-side client surface used
-// by the WebSocket protocol. A client may be backed by a real WebSocket
-// or by a WebRTC DataChannel; the JSON message protocol above it is identical.
+// by the WebSocket protocol.
 type RealtimeClient interface {
 	Sender
 	Close()
@@ -48,8 +48,7 @@ type RealtimeClient interface {
 func (s *Server) runRealtimeClientLoop(ctx context.Context, client RealtimeClient, msgCh <-chan []byte, done <-chan struct{}) {
 	role := client.ClientRole()
 
-	// Track engine client and register on worker manager. WebRTC currently only
-	// accepts viewer clients, but keeping this generic preserves the protocol seam.
+	// Track engine client and register on worker manager.
 	if role == ClientRoleEngine {
 		if wsClient, ok := client.(*WSClient); ok {
 			s.engineClient.Store(wsClient)

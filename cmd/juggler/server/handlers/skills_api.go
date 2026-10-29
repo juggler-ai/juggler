@@ -27,14 +27,13 @@ type SkillDetail struct {
 
 // SkillsAPI serves Agent Skills over HTTP: discovery and read only. Where the
 // skill roots are and how a skill is read is core/skills.go's. The project path
-// is read through a provider func so a runtime project switch is reflected
-// without reconstructing the handler (mirrors UserCommandsAPI / ConfigAPI).
+// is read through a provider func (as UserCommandsAPI and ConfigAPI read it).
 type SkillsAPI struct {
 	projectPathProvider func() string
 }
 
 // NewSkillsAPI creates a SkillsAPI. projectPathProvider returns the current
-// project root ("" in no-project mode).
+// project root.
 func NewSkillsAPI(projectPathProvider func() string) *SkillsAPI {
 	return &SkillsAPI{projectPathProvider: projectPathProvider}
 }

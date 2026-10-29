@@ -16,12 +16,11 @@
 
    Each selector is held to one class at most, its scope in :where(), so that
    from down here it never outranks a component's own rule. A label is never
-   a <p>: the onboarding overlays style <p> by tag. (The
+   a <p>: the onboarding overlay styles <p> by tag. (The
    skill load panel's section titles also carry .skills-section-title, which
    is how they are reached.) */
 
 /* The eyebrow: the label over a group of rows, a menu section or a panel. */
-:where(no-project-overlay) .np-recents-label,
 .pp-recents-label,
 .model-picker-recent-label,
 .model-current-label,

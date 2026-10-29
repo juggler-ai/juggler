@@ -63,7 +63,7 @@ CI builds but ours does not.
 
 ## The bundled runtime
 
-`/wails/runtime.js` is served from `cmd/juggler/server/wails_runtime.js`, a
+`/wails/runtime.js` is served from `cmd/juggler/webui/wails_runtime.js`, a
 copy of the fork's committed bundle
 `v3/internal/assetserver/bundledassets/runtime.js`. The `wails-runtime-embed`
 step of every build makes that copy. Upstream's CI requires a PR's committed

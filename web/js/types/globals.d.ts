@@ -80,7 +80,7 @@ interface Window {
 	/**
 	 * Opaque per-project key injected pre-paint by the server, namespacing this
 	 * device's stored preferences so they belong to the project they were set
-	 * in (see services/prefs.js). Empty/absent for a no-project window.
+	 * in (see services/prefs.js). Empty/absent when the server gives none.
 	 */
 	__projectKey?: string;
 

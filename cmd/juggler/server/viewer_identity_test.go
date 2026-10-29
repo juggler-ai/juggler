@@ -221,8 +221,8 @@ func TestViewerSocket_PopOutNamesItsOwner(t *testing.T) {
 }
 
 // TestClientHub_DescriptorOmitsAnAbsentViewerID: a client with no id of its own
-// (the WebRTC data channel has nowhere to carry one) leaves the field off the
-// wire rather than publishing an empty name others might try to address.
+// leaves the field off the wire rather than publishing an empty name others
+// might try to address.
 func TestClientHub_DescriptorOmitsAnAbsentViewerID(t *testing.T) {
 	d := clientDescriptor{ID: "c1", Origin: "local"}
 	encoded, err := json.Marshal(d)

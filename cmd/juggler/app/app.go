@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"sync/atomic"
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/server"
@@ -16,26 +15,23 @@ import (
 
 // appFlags holds the CLI flags parsed by main.
 type appFlags struct {
-	verbose        bool            // -v/--verbose: console log level → Debug
-	dev            bool            // --dev: enable the web inspector / right-click menu (no source checkout needed)
-	assetsFromDisk bool            // --assets-from-disk: serve web/ from disk, no cache, reload templates per request (implies dev)
-	window         bool            // --window: open the desktop app on this server (the test harness's debug lane)
-	project        string          // explicit --project value (raw, may be relative)
-	projectSet     bool            // true if --project was passed
-	hasTerminal    bool            // true if launched with a controlling TTY
-	port           int             // --port overrides config port (0 = OS-assigned)
-	portSet        bool            // true if --port was passed (allows --port 0 = OS-assigned)
-	testMode       bool            // --test enables test API routes and prints JUGGLER_ADDR
-	testIframes    int             // --test-iframes N: open viewer at /test-pool?n=N (tiled iframe lanes)
-	testWindowURL  string          // --test-window-url: the page the test window loads, in place of this server's own (a machine server's proxy for its test children)
-	allowHosts     []string        // --allow-host (repeatable): extra Host names to accept, added to the saved connectivity.allowedHosts
-	standalone     bool            // --standalone: serve the project in this process rather than on the machine server (see standaloneLaunch)
-	retired        []string        // retired flags that were passed (see refusal)
-	sessionChild   bool            // --session-child: supervised child of a machine server (`juggler serve`); binds loopback only, ignores saved LAN/WAN-on-launch, refuses lock contention instead of prompting
-	exitWithParent bool            // --exit-with-parent: self-terminate if the parent process dies (set by juggler-app for servers it owns)
-	logFile        string          // --log-file: explicit log file path, overriding the centrally-derived one (set by juggler-app per spawned server)
-	logFileSet     bool            // true if --log-file was passed
-	oneShot        *oneShotOptions // `juggler run`: the prompt to run unattended, and how to report it (nil for every other launch)
+	verbose        bool     // -v/--verbose: console log level → Debug
+	dev            bool     // --dev: enable the web inspector / right-click menu (no source checkout needed)
+	assetsFromDisk bool     // --assets-from-disk: serve web/ from disk, no cache, reload templates per request (implies dev)
+	window         bool     // --window: with --test, show the harness's debug lane window
+	project        string   // explicit --project value (raw, may be relative)
+	projectSet     bool     // true if --project was passed
+	hasTerminal    bool     // true if launched with a controlling TTY
+	port           int      // --port overrides config port (0 = OS-assigned)
+	portSet        bool     // true if --port was passed (allows --port 0 = OS-assigned)
+	testMode       bool     // --test enables test API routes and prints JUGGLER_ADDR
+	testIframes    int      // --test-iframes N: open viewer at /test-pool?n=N (tiled iframe lanes)
+	testWindowURL  string   // --test-window-url: the page the test window loads, in place of this server's own (a machine server's proxy for its test children)
+	allowHosts     []string // --allow-host (repeatable): extra Host names the machine server bare juggler starts accepts, added to the saved connectivity.allowedHosts
+	sessionChild   bool     // --session-child: supervised child of a machine server (`juggler serve`), or of `juggler run`; binds loopback only
+	exitWithParent bool     // --exit-with-parent: self-terminate if the parent process dies (set by `juggler run` for the child it spawns)
+	logFile        string   // --log-file: explicit log file path, overriding the centrally-derived one (set by the machine server per child)
+	logFileSet     bool     // true if --log-file was passed
 }
 
 // App owns the startup phases, the resources they allocate, and the LIFO
@@ -51,29 +47,13 @@ type App struct {
 	session     *core.SessionManager
 	server      *server.Server
 
-	// connectivity holds launch-time LAN/WAN preferences, read once from the
-	// global settings at boot (see initServer). Populated only on a GUI launch;
-	// the zero value (no LAN, no WAN) is what a terminal or test launch uses, so
-	// the saved toggles never affect those launches.
-	connectivity core.ConnectivitySettings
-
-	// ingressSecret is the secret a machine server spawned this session child
-	// with (internal/ingress), handed to the server as Config.IngressSecret.
-	// Empty for every launch but a session child.
-	ingressSecret string
+	// spawner is what this session child's spawner handed it in its
+	// environment, taken out of it at startup (takeSpawnerEnv). Zero for every
+	// launch but a session child.
+	spawner spawnerEnv
 
 	serverErrChan chan error
 	cleanups      []func()
-
-	// exitCode is the status the process leaves with. Written by `juggler run`
-	// from its own goroutine and read on the shutdown path, so it is atomic
-	// rather than a plain field. Zero for every other launch.
-	exitCode atomic.Int32
-
-	// exitProcess terminates the process, for the launches that must choose their
-	// own status rather than inherit the native quit's. Nil outside tests, which
-	// substitute it to observe the status instead of being killed by it.
-	exitProcess func(int)
 
 	// cleanupOnce gates the teardown stack so it runs exactly once no matter
 	// which shutdown path gets there first.
@@ -108,7 +88,7 @@ func (a *App) startupPhases() []struct {
 	name string
 	fn   func() error
 } {
-	phases := []struct {
+	return []struct {
 		name string
 		fn   func() error
 	}{
@@ -122,15 +102,6 @@ func (a *App) startupPhases() []struct {
 		{"serve", a.serve},
 		{"engine watcher", a.initEngineWatcher},
 	}
-	// `juggler run` adds the phase that drives it. Last, because it needs the
-	// server it talks to and the engine host the wait loop is about to start.
-	if a.flags.oneShot != nil {
-		phases = append(phases, struct {
-			name string
-			fn   func() error
-		}{"one-shot", a.startOneShot})
-	}
-	return phases
 }
 
 // assetsFromDiskEnabled reports whether web assets should be served from the
@@ -164,15 +135,11 @@ func (a *App) runCleanups() {
 	})
 }
 
-// releaseResources gives back everything this process holds: any WAN tunnel,
-// then the teardown stack (server shutdown, provider subprocesses, the instance
-// lock). Every exit path that owns those resources goes through it, and it is
-// safe to call more than once — StopTunnel is a no-op with no tunnel up and
-// runCleanups is gated.
+// releaseResources gives back everything this process holds: the teardown
+// stack (server shutdown, provider subprocesses, the instance lock). Every
+// exit path that owns those resources goes through it, and it is safe to call
+// more than once — runCleanups is gated.
 func (a *App) releaseResources() {
-	if a.server != nil {
-		a.server.StopTunnel()
-	}
 	a.runCleanups()
 }
 
@@ -187,30 +154,9 @@ func (a *App) releaseResources() {
 // group and so does not even receive the terminal's Ctrl-C) is orphaned,
 // carrying on with a control channel that no longer has anyone on the other
 // end. Teardown must therefore be complete before quitNative is called.
-//
-// The same property decides where a run reports its status. `juggler run` owns
-// the process's exit code, but the only statement that reads it is Run's caller
-// — unreachable through a quit that never unwinds, which would report the
-// native quit's own success instead and call every failed, parked or timed-out
-// run a success. So a run leaves here, where teardown above is complete and the
-// status is still ours to set.
 func (a *App) beginShutdown(quitNative func()) {
 	a.releaseResources()
-	if a.flags.oneShot != nil {
-		a.exit(int(a.exitCode.Load()))
-		return
-	}
 	quitNative()
-}
-
-// exit ends the process. Indirected so the shutdown tests can watch the status
-// go by instead of terminating the test binary; a nil exitProcess is os.Exit.
-func (a *App) exit(code int) {
-	if a.exitProcess != nil {
-		a.exitProcess(code)
-		return
-	}
-	os.Exit(code)
 }
 
 // fatal prints to stderr. Used only by phases that run before jlog.Init —

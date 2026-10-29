@@ -23,7 +23,7 @@ func newManagerForTest(t *testing.T) *SessionManager {
 	if err := store.Save(NewSession()); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
-	m := startManager(store, dir, "")
+	m := startManager(store, dir)
 	t.Cleanup(m.Shutdown)
 	return m
 }
@@ -64,7 +64,7 @@ func TestWindowStatePersistsToDisk(t *testing.T) {
 	if err := store.Save(NewSession()); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	m := startManager(store, dir, "")
+	m := startManager(store, dir)
 	want := WindowState{X: 5, Y: 6, Width: 800, Height: 600, HasPos: true, Maximised: true}
 	if err := m.SetWindowState(WindowRoleMain, want); err != nil {
 		t.Fatalf("SetWindowState: %v", err)
@@ -76,7 +76,7 @@ func TestWindowStatePersistsToDisk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	m2 := startManager(store2, dir, "")
+	m2 := startManager(store2, dir)
 	t.Cleanup(m2.Shutdown)
 	got, ok := m2.GetWindowState(WindowRoleMain)
 	if !ok {
@@ -170,7 +170,7 @@ func TestWindowStateMigratesASingleSavedFrame(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	m := startManager(store, dir, "")
+	m := startManager(store, dir)
 	got, ok := m.GetWindowState(WindowRoleMain)
 	if !ok || !got.SameFrame(old) {
 		t.Fatalf("an older session's frame is the main window's: got %+v want %+v", got, old)
@@ -190,7 +190,7 @@ func TestWindowStateMigratesASingleSavedFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	m2 := startManager(store2, dir, "")
+	m2 := startManager(store2, dir)
 	t.Cleanup(m2.Shutdown)
 	if got, ok := m2.GetWindowState(WindowRoleMain); !ok || !got.SameFrame(old) {
 		t.Fatalf("the migrated frame did not survive the reopen: got %+v want %+v", got, old)

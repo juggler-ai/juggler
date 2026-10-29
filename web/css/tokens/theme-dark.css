@@ -215,6 +215,10 @@
     --bg-tertiary: #282e33;           /* Between secondary and raised */
     --border-subtle: rgb(255 255 255 / 8%); /* Very subtle borders */
     --error-color: var(--accent-red); /* Error state color */
+
+    /* A QR code is dark on light in every theme: scanners read an inverted one badly. */
+    --qr-light: #fff;
+    --qr-dark: #000;
     --accent-text: #6cb6ff;           /* Accent text for highlighted items */
     --accent-green-muted: #166534;    /* Muted green for permission buttons */
 

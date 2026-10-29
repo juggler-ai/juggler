@@ -145,8 +145,8 @@ export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS,
       // What the sandbox exposes as `projectRoot` is the caller's own root when
       // it has one — a tool's is its conversation's workspace, which is not
       // necessarily the project. A caller that names none falls back to the live
-      // engine value (updated on a runtime project switch — see
-      // ProjectSwitchController.apply), NOT the frozen sandbox.html template. This realm
+      // engine value (seeded from the session manifest — see
+      // SessionPersistence), NOT the frozen sandbox.html template. This realm
       // (the engine worker) is where the session runs and keeps it current; the
       // main-thread iframe host can't read this worker's global, so pass it across.
       const projectRoot = callerRoot || /** @type {{__jugglerProjectRoot?: string}} */ (globalThis).__jugglerProjectRoot;

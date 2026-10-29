@@ -10,9 +10,6 @@
  * deliberately allows (deleting the last one is refused instead). The session
  * re-seeds a conversation on its next load, so this is a live-session state
  * that ends the moment the user starts one — which is all this says.
- *
- * <no-project-overlay> handles the state before this one, and the two never
- * show together: that one needs a project absent, this one needs it present.
  */
 
 import JugglerElement from './juggler-element.js';
@@ -86,9 +83,9 @@ class NoConversationsOverlay extends JugglerElement {
     const session = this._session;
     const empty = !!session && !!session.projectPath && session.conversations.size === 0;
 
-    // The tab column is hidden by one class on <body>, whose rule lives beside
-    // <no-project-overlay>'s in the layout layer, for the reason given there.
-    // The sidebar is NOT hidden: it holds the "+" this copy points at.
+    // The tab column is hidden by one class on <body>, whose rule lives in the
+    // layout layer, for the reason given there. The sidebar is NOT hidden: it
+    // holds the "+" this copy points at.
     document.body.classList.toggle('no-conversations', empty);
 
     if (!empty) {

@@ -95,7 +95,10 @@ func (s *settingsStore) set(next core.GlobalSettings, uiPrefs map[string]json.Ra
 			}
 			gs.UI = ui
 			gs.Updates.Mode = next.Updates.Mode
-			gs.Connectivity = next.Connectivity
+			// Of connectivity, only the allowed hosts are this API's: what
+			// opens at start is the machine server's (PUT /api/server/launch),
+			// kept as it stands on disk whatever the request said.
+			gs.Connectivity.AllowedHosts = next.Connectivity.AllowedHosts
 			gs.Network = next.Network
 			gs.Models = next.Models
 			gs.UILocale = next.UILocale
@@ -310,11 +313,6 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	// A non-empty mode must be one we recognise; empty normalises to automatic.
 	if incoming.Updates.Mode != "" && !core.IsKnownUpdateMode(incoming.Updates.Mode) {
 		handlers.WriteMessageError(w, r, http.StatusBadRequest, msg.New("invalid update mode"))
-		return
-	}
-	// A non-empty wanOnLaunch must name a registered tunnel mode; "" means none.
-	if incoming.Connectivity.WANOnLaunch != "" && !isRegisteredTunnelMode(incoming.Connectivity.WANOnLaunch) {
-		handlers.WriteMessageError(w, r, http.StatusBadRequest, msg.New("invalid WAN launch mode"))
 		return
 	}
 	// Allowed hosts the request sends must each be a name the server would

@@ -63,7 +63,6 @@ function undoFlag(undoState, key) {
 /**
  * @typedef {object} WorkerConfig
  * @property {string} projectPath - Project path
- * @property {string} [apiBaseUrl] - API base URL for backend calls
  */
 
 // ============================================================================
@@ -230,25 +229,6 @@ export class WorkerManager {
    */
   get session() {
     return this._session;
-  }
-
-  /**
-   * Repoint the project root every subsequently-spawned worker is initialised
-   * with, after a runtime project switch.
-   *
-   * `init` runs once per client, but the engine is persistent across
-   * SwitchProject and keeps spawning workers afterwards (a yjs-sync for an
-   * unknown conversation triggers `loader.autoLoad` → `spawnWorker`).
-   * The config is sent verbatim in each worker's `init` message and becomes the
-   * worker's `projectPath` server-side, which is what its transcript logs,
-   * persistence and transaction store are keyed on — so a stale value writes
-   * the new project's conversation into the previous project's directory.
-   * No-op before `init` (nothing to repoint yet).
-   * @param {string} projectPath - The switched-to project root ("" = no project)
-   */
-  setProjectPath(projectPath) {
-    if (!this._config) return;
-    this._config = { ...this._config, projectPath: projectPath || '' };
   }
 
   /**

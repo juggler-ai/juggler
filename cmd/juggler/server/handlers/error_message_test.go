@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -85,54 +84,5 @@ func TestOperationRefusalCarriesMessage(t *testing.T) {
 	}
 	if got := resp.Message.Params["name"]; got != "feat/done" {
 		t.Errorf("params.name = %v, want %q", got, "feat/done")
-	}
-}
-
-// TestCheckProjectCarriesMessage: /project/check answers 200 with its refusal
-// in "error", so the message to translate it by rides beside it as
-// "errorMessage".
-func TestCheckProjectCarriesMessage(t *testing.T) {
-	api, _ := newProjectTestAPI()
-	missing := filepath.Join(t.TempDir(), "nope")
-	rec := httptest.NewRecorder()
-	api.HandleCheckProject(rec, httptest.NewRequest(http.MethodGet, "/api/project/check?path="+missing, nil))
-
-	var resp struct {
-		Valid        bool   `json:"valid"`
-		Error        string `json:"error"`
-		ErrorMessage *struct {
-			Key string `json:"key"`
-		} `json:"errorMessage"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode %q: %v", rec.Body.String(), err)
-	}
-	if resp.Valid || resp.Error != "path not found" {
-		t.Fatalf("response = %s, want an invalid path reading %q", rec.Body.String(), "path not found")
-	}
-	if resp.ErrorMessage == nil || resp.ErrorMessage.Key != "path not found" {
-		t.Fatalf("errorMessage = %+v, want key %q", resp.ErrorMessage, "path not found")
-	}
-}
-
-// TestNewProjectErrorCarriesMessage: an interpolated refusal travels as its
-// template and the value, not as the sentence with the value baked in.
-func TestNewProjectErrorCarriesMessage(t *testing.T) {
-	api, _ := newProjectTestAPI()
-	parent := filepath.Join(t.TempDir(), "typo")
-
-	rec := serveNewProject(api, parent, "myapp")
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400 (body %q)", rec.Code, rec.Body.String())
-	}
-	env := decodeErrorEnvelope(t, rec)
-	if env.Error != "parent folder not found: "+parent {
-		t.Errorf("error = %q, want the English unchanged", env.Error)
-	}
-	if env.Message == nil || env.Message.Key != "parent folder not found: {path}" {
-		t.Fatalf("message = %+v, want key %q", env.Message, "parent folder not found: {path}")
-	}
-	if got := env.Message.Params["path"]; got != parent {
-		t.Errorf("params.path = %v, want %q", got, parent)
 	}
 }

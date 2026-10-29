@@ -36,9 +36,7 @@ func frameTypes(types ...frameType) []string {
 // two structs send (conversations-changed) has an entry for each, and one
 // struct sent under several types (a bare frame) is an entry per type.
 var serverFrameTypedefs = []frameTypedef{
-	{entry: wireschema.Entry{Name: "DataChannelChunkFrame", Value: webRTCChunk{}, Types: frameTypes(frameDataChannelChunk)}, out: true},
 	{entry: wireschema.Entry{Name: "FileChangeFrame", Value: fileChangeFrame{}, Types: frameTypes(frameFileChange)}, out: true},
-	{entry: wireschema.Entry{Name: "ProjectChangedFrame", Value: projectChangedFrame{}, Types: frameTypes(frameProjectChanged)}, out: true},
 	{entry: wireschema.Entry{Name: "PluginChangedFrame", Value: pluginChangedFrame{}, Types: frameTypes(framePluginChanged)}, out: true},
 	{entry: wireschema.Entry{Name: "SettingsChangedFrame", Value: settingsChangedFrame{}, Types: frameTypes(frameSettingsChanged)}, out: true},
 	{entry: wireschema.Entry{Name: "PinboardChangedFrame", Value: pinboardChangedFrame{}, Types: frameTypes(framePinboardChanged)}, out: true},

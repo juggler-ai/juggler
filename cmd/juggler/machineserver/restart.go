@@ -54,9 +54,8 @@ func (s *Server) startSupervising(id string, c *child, cl *claim) {
 // watch, polling its activity while it runs.
 //
 //   - A clean exit (status 0) is a deliberate shutdown — the child's own
-//     shutdown route, or a standalone server that took the project over — so
-//     the session goes. Restarting it would fight that server for the
-//     project lock.
+//     shutdown route — so the session goes. Restarting it would undo a stop
+//     someone asked for.
 //   - A crash (any other status, or a signal) turns the session to restarting
 //     and respawns its project under the same ID after restartPolicy.delay,
 //     so the /s/<id>/ a user holds keeps working. A respawn that fails counts
@@ -79,6 +78,9 @@ func (s *Server) supervise(id string, c *child, cl *claim) {
 		started := time.Now()
 		go s.pollActivity(id, c, activityPollInterval)
 		<-c.exited
+		if decision := s.reg.retirementDecision(id, c); decision != nil {
+			<-decision
+		}
 		if c.exitedCleanly() {
 			if s.reg.removeOwned(id, c) {
 				jlog.Info("[machineserver] session %s: child exited cleanly; session ended", id)
@@ -114,7 +116,7 @@ func (s *Server) supervise(id string, c *child, cl *claim) {
 			if !ok {
 				return
 			}
-			spawned, err := spawnChild(cl.ctx, s.childBin, project, s.childExtraArgs(id))
+			spawned, err := spawnChild(cl.ctx, s.childBin, project, s.childExtraArgs(id), s.childEnv(id))
 			if err != nil {
 				if cl.ctx.Err() != nil {
 					return

@@ -17,7 +17,8 @@
  *   3. The network button carries the count of other connected clients, in
  *      its badge and its accessible name; the project chip carries none.
  *   4. Undo/redo act on the conversation, so they sit beside the project chip,
- *      and join the button row on a phone.
+ *      and join the button row on a phone. The chip is a read-only label: no
+ *      button, no chevron, and part of a desktop window's drag region.
  *   5. The app-wide controls come in groups (network, view, app, panel) whose
  *      spacing grows with the header; with room, the network count is a label.
  *   6. Below 900px, help and zoom fold into a "…" menu that offers them back,
@@ -62,7 +63,7 @@ function msg(e) {
  * @returns {Promise<HTMLElement>} The served `.app-header`.
  */
 async function servedHeader() {
-  const res = await fetch(serverPath('/index.html'));
+  const res = await fetch(serverPath('/'));
   assert(res.ok, `precondition: index.html is served (HTTP ${res.status})`);
   // A document with no browsing context: its scripts never run and its custom
   // elements never upgrade.
@@ -317,7 +318,24 @@ export async function runTests() {
       const drag = wide.doc.defaultView?.getComputedStyle(wide.el('#control-undo-button'))
         .getPropertyValue('--wails-draggable').trim();
       assert(drag === 'no-drag', `undo is clickable in a desktop window, not a drag handle (got "${drag}")`);
+      // The project path is a label, so it drags the window like the rest of
+      // the title bar; the new-window button welded to it does not.
+      const dragOf = (/** @type {string} */ sel) => wide.doc.defaultView?.getComputedStyle(wide.el(sel))
+        .getPropertyValue('--wails-draggable').trim();
+      assert(dragOf('#project-path-chip') !== 'no-drag',
+        `the project path is part of the drag region (got "${dragOf('#project-path-chip')}")`);
+      assert(dragOf('#project-new-window-button') === 'no-drag',
+        `the new-window button is clickable in a desktop window (got "${dragOf('#project-new-window-button')}")`);
       wide.doc.body.classList.remove('window-mode');
+
+      // A session stays on its project, so its path is read-only: a label with
+      // nothing to click, not a button that leads somewhere.
+      const path = wide.el('#project-path-chip');
+      assert(path.tagName !== 'BUTTON' && !path.classList.contains('btn-ghost') && !path.hasAttribute('aria-haspopup'),
+        `the project path is not a button (got <${path.tagName.toLowerCase()} class="${path.className}">)`);
+      assert(!path.querySelector('.ppd-chevron'), 'the project path carries no chevron');
+      assert(wide.doc.defaultView?.getComputedStyle(path).cursor !== 'pointer',
+        'the project path has no pointer cursor');
 
       // A detached board window keeps none of the opener's conversation controls.
       wide.doc.documentElement.dataset.view = 'pinboard';

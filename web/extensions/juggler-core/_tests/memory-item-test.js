@@ -274,11 +274,10 @@ export async function runTests(ctx) {
     assert(second === 'FACT', `transient read failure on an existing file must serve last-known-good, got: ${JSON.stringify(second)}`);
   });
 
-  await test('last-known-good never crosses a project switch for the relative default path', async () => {
-    // The production path is relative, and the engine — with this module's
-    // cache — outlives a project switch while the server re-resolves the path
-    // against the new project. So the same path string names a different file
-    // after a switch, and the previous project's facts must not be served for it.
+  await test('last-known-good is keyed by the file, not the relative path string', async () => {
+    // The production path is relative, and the server resolves it against the
+    // caller's root. So the same path string can name a different file for an
+    // item under another root, and one file's facts must not be served for it.
     const root = session.projectPath;
     assert(!!root && (ctx.fixtureDir === root || ctx.fixtureDir.startsWith(`${root}/`)),
       `precondition: the fixture (${ctx.fixtureDir}) must be, or sit under, the session's project (${root})`);
@@ -305,13 +304,13 @@ export async function runTests(ctx) {
     assert(same === 'PREVIOUS PROJECT FACT',
       `a blip within one project must still serve its last-known-good, got ${JSON.stringify(same)}`);
 
-    // After the switch the server resolves `rel` in the new project, where the
-    // file exists (here, the same file on disk stands in for it) and the read blips.
+    // Under another root the server resolves `rel` there, where the file
+    // exists (here, the same file on disk stands in for it) and the read blips.
     const after = itemIn(`${root}-another-project`);
     after.signal = blip();
     const crossed = await after.__readForTests(rel);
     assert(crossed !== 'PREVIOUS PROJECT FACT',
-      'the previous project\'s memory was served as the new project\'s last-known-good — the next remember would write it into the new project');
+      'one root\'s memory was served as another\'s last-known-good — the next remember would write it there');
   });
 
   await test('unseeded memory block survives a transient read blip via createContextText', async () => {

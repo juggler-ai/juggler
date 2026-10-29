@@ -32,15 +32,12 @@ const pluginReloadDebounce = 300 * time.Millisecond
 // walks the project tree and registers fsnotify watches), kicks off the
 // broadcast goroutine, starts the plugin-directory watcher, and then kicks off
 // the remaining background services (provider refresh, update checker), and
-// loads the conversations holding queued sends (Manager.LoadHeldConversations). Call
+// loads the conversations holding queued sends (loadHeldConversations). Call
 // this once, after the engine is up and the server is serving — earlier and
 // you'd be holding kernel watch handles for events with no audience.
-//
-// In no-project boot mode this is a no-op for the file watcher; the watcher
-// will be created later when the user picks a project via SwitchProject.
 func (s *Server) StartBackgroundServices() {
 	st := s.projectState.Load()
-	if st != nil && st.projectPath != "" && st.fileWatcher == nil {
+	if st != nil && st.fileWatcher == nil {
 		fw, err := core.NewFileWatcher(st.projectPath)
 		if err != nil {
 			jlog.Error("Failed to create file watcher: %v", err)
@@ -62,8 +59,14 @@ func (s *Server) StartBackgroundServices() {
 	s.startEngineSupervisor()
 	// Here rather than when the worker manager is wired: the conversations it
 	// loads may fire a send at once, and its turn asks the engine for context.
-	if st != nil && st.projectPath != "" && s.workerManager != nil {
-		go s.workerManager.LoadHeldConversations(st.projectPath)
+	go s.loadHeldConversations()
+}
+
+// loadHeldConversations loads the project's conversations holding queued sends,
+// so they fire with nobody opening them.
+func (s *Server) loadHeldConversations() {
+	if path := s.ProjectPath(); path != "" && s.workerManager != nil {
+		s.workerManager.LoadHeldConversations(path)
 	}
 }
 

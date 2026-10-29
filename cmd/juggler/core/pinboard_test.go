@@ -240,7 +240,7 @@ func TestSessionManagerPinboardPersistsAcrossReopen(t *testing.T) {
 	if err := store.Save(NewSession()); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
-	m := startManager(store, dir, "")
+	m := startManager(store, dir)
 	if _, err := m.ApplyPinboardOps(MainBoardID, []PinboardOp{addOp("a", nil), addOp("b", nil)}); err != nil {
 		t.Fatalf("ApplyPinboardOps: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestSessionManagerPinboardPersistsAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	m2 := startManager(reopened, dir, "")
+	m2 := startManager(reopened, dir)
 	t.Cleanup(m2.Shutdown)
 	if got := pinIDs(m2.GetPinboard(MainBoardID)); got != "a,b" {
 		t.Fatalf("board after reopen: got %q want %q", got, "a,b")
@@ -521,7 +521,7 @@ func TestDetachedBoardsSurviveReopen(t *testing.T) {
 	if err := store.Save(NewSession()); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
-	m := startManager(store, dir, "")
+	m := startManager(store, dir)
 	if _, _, err := m.CreateConversation("One", "conv_1"); err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
@@ -534,7 +534,7 @@ func TestDetachedBoardsSurviveReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	m2 := startManager(reopened, dir, "")
+	m2 := startManager(reopened, dir)
 	t.Cleanup(m2.Shutdown)
 
 	claimed := m2.ClaimDetachedBoards()
@@ -618,7 +618,7 @@ func TestClaimDetachedBoardsDropsBoardsWhoseConversationHasGone(t *testing.T) {
 	if err := store.Save(NewSession()); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
-	m := startManager(store, dir, "")
+	m := startManager(store, dir)
 
 	living, _, err := m.CreateConversation("Living")
 	if err != nil {
@@ -661,7 +661,7 @@ func TestClaimDetachedBoardsDropsBoardsWhoseConversationHasGone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	m2 := startManager(reopened, dir, "")
+	m2 := startManager(reopened, dir)
 	t.Cleanup(m2.Shutdown)
 	if again := m2.ClaimDetachedBoards(); len(again) != 1 || again[0].ID != "board_live" {
 		t.Fatalf("the next run must not be given them either, got %+v", again)
@@ -697,7 +697,7 @@ func TestAnEmptiedBoardIsNotFurnishedAgain(t *testing.T) {
 	if err := store.Save(NewSession()); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
-	m := startManager(store, dir, "")
+	m := startManager(store, dir)
 	if !m.ClaimBoardSeed(MainBoardID) {
 		t.Fatal("first claim")
 	}
@@ -714,7 +714,7 @@ func TestAnEmptiedBoardIsNotFurnishedAgain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}
-	m2 := startManager(reopened, dir, "")
+	m2 := startManager(reopened, dir)
 	t.Cleanup(m2.Shutdown)
 	if m2.ClaimBoardSeed(MainBoardID) {
 		t.Fatal("a board the user emptied must stay empty, not be furnished again")

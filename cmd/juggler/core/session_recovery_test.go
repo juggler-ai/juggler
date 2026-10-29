@@ -136,7 +136,7 @@ func TestManager_MissingGlobalsNoSplitBrain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSessionStore: %v", err)
 	}
-	m := startManager(fresh, dir, "")
+	m := startManager(fresh, dir)
 	t.Cleanup(m.Shutdown)
 
 	order := m.GetSession().ConversationOrder

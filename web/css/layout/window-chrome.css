@@ -27,7 +27,7 @@
 /* Opt interactive regions out of drag — custom property inherits into their children too */
 :where(.window-mode) header-actions,
 :where(.window-mode) .header-history,
-:where(.window-mode) project-path-display,
+:where(.window-mode) .ppd-new-window-button,
 :where(.window-mode) .sidebar-toggle-button {
     --wails-draggable: no-drag;
 }

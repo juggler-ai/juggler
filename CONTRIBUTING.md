@@ -175,7 +175,7 @@ when submitted.
 If an employer or another entity may own your work, both layers must be covered:
 you sign the ICLA, and an authorized representative of the entity executes the
 [Corporate Contributor License Agreement](CCLA.md). Contact
-`julianstorer@gmail.com` to arrange private execution and authorization of your
+`info@juggler.studio` to arrange private execution and authorization of your
 GitHub identity. Do not post a signed CCLA, company address, or employee roster
 in a public issue or pull request.
 

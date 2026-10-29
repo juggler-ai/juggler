@@ -10,7 +10,7 @@ your contributions.
 
 This Agreement must be executed privately by an authorized signatory. Do not
 put a completed signature block or contributor roster in a public pull request.
-Contact `julianstorer@gmail.com` to arrange execution and roster updates. Each
+Contact `info@juggler.studio` to arrange execution and roster updates. Each
 individual contributor must also execute Juggler’s Individual Contributor
 License Agreement ([`CLA.md`](CLA.md)); this Agreement covers rights owned or
 controlled by the entity, while the ICLA covers rights held by the individual.
@@ -108,7 +108,7 @@ You represent that:
 4. the signatory and each person who authorizes a roster update has authority to
    bind you for that purpose; and
 5. you will keep the roster accurate and promptly notify us at
-   `julianstorer@gmail.com` if you learn of facts that make these
+   `info@juggler.studio` if you learn of facts that make these
    representations materially inaccurate.
 
 You are not required to support a Contribution. Except for the representations
@@ -135,7 +135,7 @@ Every commit must contain a matching `Signed-off-by:` line, as described in
 ## 8. Termination
 
 You may terminate this Agreement for Contributions submitted after we receive
-written notice at `julianstorer@gmail.com`. Rights already granted for
+written notice at `info@juggler.studio`. Rights already granted for
 Contributions submitted before termination remain effective and irrevocable.
 
 ## 9. Assignment and successors
@@ -168,7 +168,7 @@ is not a waiver. Nothing in this Agreement grants rights in either party’s
 trademarks, trade names, or identity except as necessary to identify the
 Project, a Contribution, or its authorship.
 
-Notices must be sent to `julianstorer@gmail.com` and to the entity contact in
+Notices must be sent to `info@juggler.studio` and to the entity contact in
 the signature block, unless either party designates a replacement in writing.
 Our handling of contributor-agreement records is described in
 [`CONTRIBUTOR-AGREEMENT-PRIVACY.md`](CONTRIBUTOR-AGREEMENT-PRIVACY.md).
@@ -198,7 +198,7 @@ Date:
 
 ```text
 Name: Julian Storer
-Email: julianstorer@gmail.com
+Email: info@juggler.studio
 Signature:
 Date:
 ```
@@ -206,7 +206,7 @@ Date:
 ## Private roster of Authorized Contributors
 
 Provide the initial roster with the signed Agreement and send later updates to
-`julianstorer@gmail.com`. For each person, include full name, GitHub username,
+`info@juggler.studio`. For each person, include full name, GitHub username,
 GitHub numeric account ID if known, email address, and effective date. We will
 acknowledge accepted updates in writing and retain prior versions as evidence.
 Do **not** submit this information in a public issue or pull request.

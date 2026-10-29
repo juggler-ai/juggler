@@ -3,7 +3,7 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 // clientHub is the process-scoped actor that owns the set of all connected
-// WebSocket clients. Use it for full-fleet broadcasts (project-changed,
+// WebSocket clients. Use it for full-fleet broadcasts (
 // providers-update, session-changed, shutdown notices) — anything that
 // needs to reach engine and every viewer regardless of project.
 //
@@ -56,6 +56,7 @@ type clientDescriptor struct {
 	OwnerViewerID string `json:"ownerViewerId,omitempty"`
 	Origin        string `json:"origin"`
 	Detail        string `json:"detail"`
+	Name          string `json:"name,omitempty"`
 	UserAgent     string `json:"userAgent"`
 	ConnectedAt   int64  `json:"connectedAt"`
 }
@@ -112,6 +113,7 @@ func (h *clientHub) run() {
 				OwnerViewerID: info.Owner,
 				Origin:        info.Origin,
 				Detail:        info.Detail,
+				Name:          info.Name,
 				UserAgent:     info.UserAgent,
 				ConnectedAt:   info.ConnectedAt,
 			})

@@ -354,7 +354,7 @@ class WorkspaceProvider {
    * An instance is short-lived and belongs to one job: a setup section the user
    * is filling in, or a single provision. The things a hook needs arrive in that
    * hook's `ctx` rather than being captured here, because a provider outlives
-   * neither a rebind nor a project switch.
+   * a rebind.
    * @param {{session?: import('../js/model/session.js').default}} [context] - What little is known before any hook runs
    */
   constructor(context = {}) {

@@ -16,7 +16,7 @@ import (
 // GitStatusAPI serves the three git views of a working tree — the status card,
 // the review manifest and one file's diff — for the tree a request names: the
 // root repo plus any nested subrepos/submodules. Each request's tree is
-// resolved afresh, so a runtime project switch retargets the scan. What git
+// resolved afresh. What git
 // says is the workspace's business; this is only which tree, and the HTTP
 // around the answer.
 type GitStatusAPI struct {

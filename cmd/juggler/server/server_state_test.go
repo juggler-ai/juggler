@@ -143,20 +143,27 @@ func TestServerState_Shells(t *testing.T) {
 		t.Error("CancelShell should return true")
 	}
 
-	// Start multiple shells and cancel all via leaveViewerGroup (which cancels all)
-	_, cancel4 := context.WithCancel(ctx)
-	_, cancel5 := context.WithCancel(ctx)
+	// Leaving the last viewer preserves shells and their registration.
+	ctx4, cancel4 := context.WithCancel(ctx)
+	ctx5, cancel5 := context.WithCancel(ctx)
 	s.viewerStartShell("sh2", cancel4)
 	s.viewerStartShell("sh3", cancel5)
+	engineCtx, engineCancel := context.WithCancel(ctx)
+	s.viewerStartEngineShell("engine", engineCancel)
 
-	// leaveViewerGroup with last client cancels all
 	s.leaveViewerGroup("c1")
 
-	// Rejoin and verify shells are cleared
+	// A synchronous registration follows the leave in the actor's mailbox.
 	s.joinViewerGroup(c)
 	_, cancel6 := context.WithCancel(ctx)
 	defer cancel6()
-	if !s.viewerStartShell("sh2", cancel6) {
-		t.Error("sh2 should be available after session cleanup")
+	if s.viewerStartShell("sh2", cancel6) {
+		t.Error("sh2 registration was lost when the last viewer left")
+	}
+	if ctx4.Err() != nil || ctx5.Err() != nil || engineCtx.Err() != nil {
+		t.Error("leaving the last viewer cancelled shells")
+	}
+	if !s.viewerCancelShell("sh2") || ctx4.Err() == nil {
+		t.Error("explicit cancellation must still cancel sh2")
 	}
 }

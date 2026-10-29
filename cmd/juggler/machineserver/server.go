@@ -11,6 +11,7 @@
 package machineserver
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -18,10 +19,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +34,8 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/msg"
+	"juggler/cmd/juggler/tunnel"
+	"juggler/cmd/juggler/webui"
 	"juggler/internal/hostcheck"
 	"juggler/internal/ingress"
 	"juggler/internal/jlog"
@@ -50,9 +56,12 @@ type Server struct {
 	token string
 	// implicit is serve --implicit: a client started this server on demand.
 	implicit bool
-	// lan is LAN access: off at startup, and while off every caller off
-	// loopback is refused (see lanGate).
+	// lan is LAN access: off unless serve --lan or this machine turns it on
+	// (lan.go), and while off every caller off loopback is refused (lanGate).
 	lan atomic.Bool
+	// assets is the web tree the sessions page and its assets are served from
+	// (ServeOptions.Assets); nil serves no page.
+	assets fs.FS
 	// recents is the machine's recent-projects list: every project a session
 	// is opened for goes to its front, and the sessions page offers it back.
 	recents *core.RecentsStore
@@ -72,18 +81,37 @@ type Server struct {
 	// test window loads its session through this server's proxy. Test
 	// binaries only: a production-tagged child panics on --test.
 	testChildren bool
+	// childDev and childAssetsFromDisk (serve --dev, --assets-from-disk) are
+	// the developer flags this server passes to every child it spawns.
+	childDev            bool
+	childAssetsFromDisk bool
 	// allowedHosts are the extra Host names a reverse proxy on this machine
 	// serves this server under (serve --allow-host and the saved setting).
 	// See hostGuard and callerKind.
 	allowedHosts hostcheck.AllowList
-	// idleTimeout is how long an implicit server waits, once nothing holds it
-	// up, before it shuts down (see watchIdle); zero is defaultIdleTimeout.
-	idleTimeout time.Duration
+	// starter holds startup until this pid attaches or dies; zero holds nothing.
+	starter     int
+	starterGone atomic.Bool
 	// attached counts the clients holding the server up (see attach).
 	attached atomic.Int64
-	// stirred is when (UnixNano) a client last did anything here: a control
-	// API request the token admitted, an attach or a detach (see stir).
-	stirred atomic.Int64
+	// closing is raised while a conditional shutdown decides (shutdownIf);
+	// an attach that sees it refuses.
+	closing atomic.Bool
+	// attachments are the held POST /api/server/attach requests, by id
+	// (*attachment; see checkAttachments).
+	attachments sync.Map
+	// build is what this server reports as its build (BuildOf its own
+	// binary); "" reports its version alone.
+	build string
+	// peer answers a tunnel's WebRTC offers (ServeOptions.Peer); nil answers none.
+	peer Peer
+	// tunnel is the running tunnel, if any (tunnel.go).
+	tunnel atomic.Pointer[runningTunnel]
+	// ingress is the in-process listener a tunnel's data channels dial, and
+	// ingressSrv what serves it; both started on first use (ingressServer).
+	ingressOnce sync.Once
+	ingress     atomic.Pointer[pipeListener]
+	ingressSrv  atomic.Pointer[http.Server]
 }
 
 // TokenHeader carries the control-API token on a request to /api/server/*.
@@ -105,23 +133,48 @@ func (s *Server) endLifetime() {
 }
 
 // childExtraArgs returns the flags a session child gets beyond the fixed
-// ones. Under --test, each child runs the test harness in a window pointed at
-// its own session URL here, so a browser test drives it through the proxy.
+// ones: this server's developer flags, and under --test the test harness, in
+// a window pointed at the child's own session URL here, so a browser test
+// drives it through the proxy (always from on-disk assets).
 func (s *Server) childExtraArgs(sessionID string) []string {
-	if !s.testChildren {
+	var args []string
+	if s.childDev {
+		args = append(args, "--dev")
+	}
+	if s.childAssetsFromDisk || s.testChildren {
+		args = append(args, "--assets-from-disk")
+	}
+	if s.testChildren {
+		args = append(args, "--test", "--test-window-url", "http://"+s.addr+"/s/"+sessionID+"/")
+	}
+	return args
+}
+
+// childEnv is what the child for session id is told of this server: its
+// loopback address and control token (ingress.SupervisorAddrEnv/TokenEnv), by
+// which the child serves its viewer's switches for LAN access and tunnels, and
+// the session's id (SupervisorSessionEnv), by which it asks for the links that
+// open it. It widens nothing: server.json already gives both to any process
+// of this user, and the id is in every URL of the session. A server with no
+// address or token yet tells nothing.
+func (s *Server) childEnv(id string) []string {
+	if s.addr == "" || s.token == "" {
 		return nil
 	}
-	return []string{"--test", "--assets-from-disk",
-		"--test-window-url", "http://" + s.addr + "/s/" + sessionID + "/"}
+	return []string{
+		ingress.SupervisorAddrEnv + "=" + s.addr,
+		ingress.SupervisorTokenEnv + "=" + s.token,
+		ingress.SupervisorSessionEnv + "=" + id,
+	}
 }
 
 // routes builds the machine server's handler: the sessions page at / and the
 // assets it loads, the control API under /api/server, and the /s/<id>/ session
 // proxy. Everything is wrapped in the
-// LAN gate, then the host guard, then the origin guard, so no caller off
-// loopback gets in while LAN access is off, and neither a DNS-rebinding page
-// nor a drive-by page on another origin can drive the control API or ride the
-// proxy. The control API alone also takes the token (tokenGuard); a session's
+// tunnel gate, the LAN gate, then the host guard, then the origin guard, so no
+// caller gets in through a tunnel that has closed, none off loopback while LAN
+// access is off, and neither a DNS-rebinding page nor a drive-by page on
+// another origin can drive the control API or ride the proxy. The control API alone also takes the token (tokenGuard); a session's
 // routes are guarded by its child, with the child's own token.
 func (s *Server) routes() http.Handler {
 	r := mux.NewRouter()
@@ -132,13 +185,28 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("/sessions", s.handleOpenSession).Methods("POST")
 	api.HandleFunc("/sessions/{id}", s.handleStopSession).Methods("DELETE")
 	api.HandleFunc("/recents", s.handleRecents).Methods("GET")
-	api.HandleFunc("/shutdown", s.handleShutdown).Methods("POST")
+	api.HandleFunc("/folders", s.handleCreateFolder).Methods("POST")
+	api.HandleFunc("/shutdown", s.localOnly(s.handleShutdown)).Methods("POST")
+	// Reading the ways in is this machine's alone, as switching them is: a
+	// LAN viewer who could read the running tunnel's link would carry its
+	// grant off the network.
+	api.HandleFunc("/lan", s.localOnly(s.handleGetLAN)).Methods("GET")
+	api.HandleFunc("/lan", s.localOnly(s.handleSetLAN)).Methods("PUT")
+	api.HandleFunc("/tunnel", s.localOnly(s.handleGetTunnel)).Methods("GET")
+	api.HandleFunc("/tunnel", s.localOnly(s.handleSetTunnel)).Methods("PUT")
+	api.HandleFunc("/launch", s.localOnly(s.handleGetLaunch)).Methods("GET")
+	api.HandleFunc("/launch", s.localOnly(s.handleSetLaunch)).Methods("PUT")
 	api.HandleFunc("/attach", s.handleAttach).Methods("POST")
+	api.HandleFunc("/attach/{id}/beat", s.handleBeat).Methods("POST")
+	r.HandleFunc("/api/version", s.handleVersion).Methods("GET")
 	r.HandleFunc("/s/{id}", s.redirectSession)
 	r.PathPrefix("/s/{id}/").HandlerFunc(s.handleSessionProxy)
 	r.HandleFunc("/", s.handlePage).Methods("GET")
-	r.PathPrefix("/v" + assetVersion + "/").Handler(assetHandler()).Methods("GET")
-	return s.lanGate(s.hostGuard(originGuard(r)))
+	r.PathPrefix("/v" + assetVersion + "/").Handler(s.assetHandler()).Methods("GET")
+	// What a desktop window showing the page drags by (page.go, IsWindow).
+	r.HandleFunc("/wails/runtime.js", webui.ServeWailsRuntime).Methods("GET")
+	r.HandleFunc("/wails/custom.js", webui.ServeWailsCustomJS).Methods("GET", "HEAD")
+	return s.tunnelGate(s.lanGate(s.hostGuard(originGuard(r))))
 }
 
 // mintToken returns a fresh random control-API token.
@@ -160,10 +228,7 @@ func mintToken() string {
 // port — another account on this machine, or a page that got past the Host
 // and Origin guards. A custom header also forces a CORS preflight on any
 // cross-origin fetch, which the origin guard then refuses. A server with no
-// token refuses everyone; an empty header never matches. A request it admits
-// stirs the idle clock (see watchIdle): a client that has just found the
-// server, or opened a session whose URL it will load later, gets the whole
-// idle timeout before the server can go.
+// token refuses everyone; an empty header never matches.
 func (s *Server) tokenGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got := r.Header.Get(TokenHeader)
@@ -171,18 +236,16 @@ func (s *Server) tokenGuard(next http.Handler) http.Handler {
 			http.Error(w, "Unauthorized: missing or invalid server token", http.StatusUnauthorized)
 			return
 		}
-		s.stir()
 		next.ServeHTTP(w, r)
 	})
 }
 
 // lanGate refuses every caller off loopback while LAN access is off, whatever
-// it asks for, before anything is forwarded. It is the machine server's half
-// of exposure: behind the proxy a child's own LAN gate cannot hold, since every
-// caller reaches the child from here over loopback, and one the proxy vouches
-// for as remote is admitted by the child's gate on that tag. A caller through
-// the user's own reverse proxy (ingress.KindProxy) is not refused: naming the
-// proxy's host is the user's grant, as opening a tunnel is.
+// it asks for, before anything is forwarded. Exposure is the machine server's
+// alone: a child binds loopback and every caller reaches it from here. A
+// caller through the user's own reverse proxy (ingress.KindProxy) is not
+// refused: naming the proxy's host is the user's grant. Nor is a tunnel's,
+// whose gate is the tunnel's own (tunnelGate).
 func (s *Server) lanGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.lan.Load() && s.callerKind(r) == ingress.KindLAN {
@@ -203,10 +266,11 @@ func (s *Server) lanGate(next http.Handler) http.Handler {
 // which skips its own Host check and its viewer-socket token. So the check is
 // made here, once, before anything is forwarded. The user's allowed hosts
 // pass too: a name they list is one whose DNS they control, which is what a
-// rebinding page lacks.
+// rebinding page lacks. So does a tunnel's caller naming the tunnel's own
+// public host (tunnelHostAllowed).
 func (s *Server) hostGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !hostcheck.NamesThisMachine(r.Host) && !s.allowedHosts.Has(r.Host) {
+		if !hostcheck.NamesThisMachine(r.Host) && !s.allowedHosts.Has(r.Host) && !tunnelHostAllowed(r) {
 			http.Error(w, hostcheck.Refusal(r.Host), http.StatusForbidden)
 			return
 		}
@@ -246,6 +310,21 @@ type statusResponse struct {
 	Implicit bool `json:"implicit,omitempty"`
 	// Attached is how many clients hold the server up (see attach).
 	Attached int `json:"attached"`
+	// AwaitingStarter is the client that started the server not yet attached,
+	// which holds it up until it does or dies (ServeOptions.StartedBy).
+	AwaitingStarter bool `json:"awaitingStarter,omitempty"`
+	// Build is which build of Version the server is (BuildOf).
+	Build string `json:"build,omitempty"`
+	// LAN is whether LAN access is on (lan.go).
+	LAN bool `json:"lan"`
+	// Tunnel is the mode of the running tunnel, if any (tunnel.go).
+	Tunnel string `json:"tunnel,omitempty"`
+	// TunnelTitle is that mode's title (tunnel.ModeSpec.Title), for a client
+	// process with no modes registered to name it by.
+	TunnelTitle *msg.Message `json:"tunnelTitle,omitempty"`
+	// PeerIdentity is the fingerprint this machine presents to a peer, while a
+	// tunnel is open and if it answers offers.
+	PeerIdentity string `json:"peerIdentity,omitempty"`
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
@@ -254,7 +333,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 
 // status is the server's status record, as GET /api/server/status serves it.
 func (s *Server) status() statusResponse {
-	return statusResponse{
+	st := statusResponse{
 		Status:    "ok",
 		PID:       os.Getpid(),
 		Addr:      s.addr,
@@ -263,7 +342,29 @@ func (s *Server) status() statusResponse {
 		Sessions:  len(s.reg.snapshot()),
 		Implicit:  s.implicit,
 		Attached:  int(s.attached.Load()),
+		Build:     cmp.Or(s.build, core.Version),
+		LAN:       s.lan.Load(),
+		// The same reading of the hold as heldUp's.
+		AwaitingStarter: s.starter > 0 && !s.starterGone.Load(),
 	}
+	// The peer identity is named while a tunnel is open, the only time a peer
+	// can reach this machine. Asking for it reads or mints it, which every
+	// client's status probe would otherwise do on a machine that never opens
+	// one.
+	if t := s.tunnel.Load(); t != nil {
+		st.Tunnel = string(t.mode)
+		st.TunnelTitle = modeTitle(st.Tunnel)
+		if s.peer != nil {
+			st.PeerIdentity = s.peer.Fingerprint()
+		}
+	}
+	return st
+}
+
+// handleVersion serves the version and rendezvous protocol, with no token: a
+// rendezvous bootstrap checks it before it loads the page. GET /api/version.
+func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, versionResponse{Version: core.Version, ProtocolVersion: tunnel.RendezvousProtocolVersion})
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, _ *http.Request) {
@@ -326,6 +427,16 @@ func (s *Server) openSession(caller context.Context, project string, wait bool) 
 		return refused(http.StatusServiceUnavailable, msg.New("the machine server is shutting down"))
 	}
 	if cl == nil {
+		if sess.State == SessionStopping {
+			if done := s.reg.whenStopped(sess.ID); done != nil {
+				select {
+				case <-done:
+				case <-caller.Done():
+					return openResult{}
+				}
+			}
+			return s.openSession(caller, project, wait)
+		}
 		// A running child, or a spawn already in flight (state "starting"),
 		// which the caller either waits for here or polls the sessions list
 		// until it flips.
@@ -335,7 +446,7 @@ func (s *Server) openSession(caller context.Context, project string, wait bool) 
 		return openResult{sess: sess, status: http.StatusOK}
 	}
 
-	c, err := spawnChild(cl.ctx, s.childBin, project, s.childExtraArgs(sess.ID))
+	c, err := spawnChild(cl.ctx, s.childBin, project, s.childExtraArgs(sess.ID), s.childEnv(sess.ID))
 	if err != nil {
 		if cl.ctx.Err() != nil {
 			// A stop or shutdown cancelled the spawn, and removes the session
@@ -431,37 +542,128 @@ func (s *Server) handleRecents(w http.ResponseWriter, _ *http.Request) {
 // answers once its spawner or supervisor has let it go.
 // DELETE /api/server/sessions/{id}.
 func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
-	id := mux.Vars(r)["id"]
-	if c, ok := s.reg.beginStop(id); ok {
-		c.stop()
-		s.reg.remove(id)
-		jlog.Info("[machineserver] session %s stopped", id)
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if done, ok := s.reg.cancelPending(id); ok {
-		<-done
-		s.reg.remove(id)
-		jlog.Info("[machineserver] session %s stopped before its child was up", id)
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if _, ok := s.reg.get(id); !ok {
+	if !s.stopSession(mux.Vars(r)["id"]) {
 		writeMessageError(w, http.StatusNotFound, msg.New("unknown session"))
 		return
 	}
-	// No live child and nothing in flight (an errored entry) — just drop the
-	// record.
-	s.reg.remove(id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// stopSession joins any existing teardown or owns it. A retirement still
+// being decided is taken over (takeRetirement): the child is stopped rather
+// than waited on. Only a completed teardown removes a child.
+func (s *Server) stopSession(id string) bool {
+	found := false
+	for {
+		if c, ok := s.reg.beginStop(id); ok {
+			c.stop()
+			s.reg.remove(id)
+			return true
+		}
+		if c, ok := s.reg.takeRetirement(id); ok {
+			c.stop()
+			s.reg.remove(id)
+			return true
+		}
+		if done, ok := s.reg.cancelPending(id); ok {
+			<-done
+			s.reg.remove(id)
+			return true
+		}
+		if done := s.reg.whenStopped(id); done != nil {
+			found = true
+			<-done
+			continue
+		}
+		var exists, removed bool
+		s.reg.do(func(m map[string]*sessionEntry) {
+			e := m[id]
+			exists = e != nil
+			if exists && e.State == SessionError {
+				e.end()
+				delete(m, id)
+				removed = true
+			}
+		})
+		if removed || !exists {
+			return found || removed
+		}
+		// A lifecycle transition occurred between the actor calls above.
+		found = true
+	}
+}
+
 // handleShutdown asks the whole machine server to shut down gracefully.
-// Responds 202 first; the run loop drains children after.
-func (s *Server) handleShutdown(w http.ResponseWriter, _ *http.Request) {
+// Responds 202 first; the run loop drains children after. With "expect"
+// (shutdownRequest) the shutdown happens only if the server holds no more
+// than that (shutdownIf), and is otherwise refused 409 with what it holds.
+// This machine only (localOnly): a viewer on the LAN stops sessions, not the
+// server. POST /api/server/shutdown [{"expect": Occupancy}].
+func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
+	var req shutdownRequest
+	body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeMessageError(w, http.StatusBadRequest, msg.New("invalid request body: {error}", "error", err.Error()))
+			return
+		}
+	}
+	if req.Expect != nil {
+		if now, ok := s.shutdownIf(*req.Expect); !ok {
+			m := msg.New("the Juggler server is in use, so it was not stopped")
+			writeJSON(w, http.StatusConflict, shutdownRefusal{errorBody: errorBody{Error: m.English(), Message: &m}, Occupancy: now})
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		jlog.Info("[machineserver] conditional shutdown requested via control API")
+		return
+	}
 	w.WriteHeader(http.StatusAccepted)
 	jlog.Info("[machineserver] shutdown requested via control API")
 	s.requestShutdown()
+}
+
+// shutdownRefusal is the 409 answer to a conditional shutdown refused.
+type shutdownRefusal struct {
+	errorBody
+	Occupancy Occupancy `json:"occupancy"`
+}
+
+// shutdownIf begins the shutdown if the server holds no more than expect
+// (Occupancy.Covers), and returns what it holds. The decision and the end of
+// the lifetime are one step on the registry actor, so no session opens (open
+// checks the lifetime on the actor) between them. An attach is not on the
+// actor: closing is raised before the client count is read, and an attach
+// counts itself before it reads closing (handleAttach), so of the two at least
+// one sees the other and refuses.
+func (s *Server) shutdownIf(expect Occupancy) (Occupancy, bool) {
+	var now Occupancy
+	ok := false
+	s.reg.do(func(m map[string]*sessionEntry) {
+		s.closing.Store(true)
+		now = Occupancy{Sessions: make([]Session, 0, len(m)), Clients: int(s.attached.Load()), LAN: s.lan.Load(), HandStarted: !s.implicit}
+		for _, e := range m {
+			now.Sessions = append(now.Sessions, e.Session)
+		}
+		sort.Slice(now.Sessions, func(i, j int) bool { return now.Sessions[i].StartedAt.Before(now.Sessions[j].StartedAt) })
+		if s.starter > 0 && !s.starterGone.Load() {
+			now.Clients++
+		}
+		if t := s.tunnel.Load(); t != nil {
+			now.Tunnel = string(t.mode)
+			now.TunnelTitle = modeTitle(now.Tunnel)
+		}
+		if !expect.Covers(now) {
+			s.closing.Store(false)
+			return
+		}
+		s.endLifetime()
+		ok = true
+	})
+	if ok {
+		s.requestShutdown()
+	}
+	return now, ok
 }
 
 // requestShutdown asks serve's run loop to shut the server down, the one path
@@ -483,26 +685,17 @@ func (s *Server) requestShutdown() {
 func (s *Server) stopAllChildren() {
 	s.endLifetime()
 	done := make(chan struct{})
-	n := 0
-	for _, sess := range s.reg.snapshot() {
-		c, ok := s.reg.beginStop(sess.ID)
-		if !ok {
-			s.reg.cancelPending(sess.ID)
-			continue
-		}
-		n++
+	sessions := s.reg.snapshot()
+	for _, sess := range sessions {
 		go func() {
-			c.stop()
+			s.stopSession(sess.ID)
 			done <- struct{}{}
 		}()
 	}
-	for range n {
+	for range sessions {
 		<-done
 	}
 	s.work.Wait()
-	for _, sess := range s.reg.snapshot() {
-		s.reg.remove(sess.ID)
-	}
 }
 
 // resolveProject validates a control-API project path: absolute, or under ~

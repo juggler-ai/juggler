@@ -91,7 +91,7 @@ export function registerConversationShortcuts(session) {
   // focuses+selects-all if already open, so repeated presses behave like the
   // platform find field (Esc / ✕ close). Falls through (returns false) when
   // nothing on screen can be searched, so the browser's native find still works
-  // on empty/project-picker views.
+  // on a view with no conversation open.
   //
   // The pinboard is NOT reached from here. An open board holds a popup token and
   // the manager stands every command down behind an overlay, so the board

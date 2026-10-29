@@ -5,14 +5,29 @@
  */
 
 /* The machine server's sessions page (web/machine/). It sits on the app's
-   tokens and element defaults (css/tokens/*, css/base/*) and nothing else of
-   the app's sheets, so every rule here is the page's own, under ms-. */
+   tokens and element defaults (css/tokens/*, css/base/*) and its shell — the
+   header bar and the desktop window's chrome (css/layout/app-shell.css,
+   window-chrome.css, app-header.css) — and every rule here is the page's own,
+   under ms-. */
 
 html,
 body {
     min-height: 100%;
     background: var(--bg-primary);
     color: var(--text-primary);
+}
+
+/* The wordmark is the session page's About button; here it is only a mark. */
+.app-header .logo {
+    cursor: default;
+}
+
+/* Under the header, which <app-container> pins to the window, the page
+   scrolls on its own. */
+.ms-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .ms-page {
@@ -30,12 +45,6 @@ body {
     display: flex;
     align-items: center;
     gap: var(--spacing-md);
-}
-
-.ms-logo {
-    width: 2.25rem;
-    height: 2.25rem;
-    flex: none;
 }
 
 .ms-title {
@@ -110,13 +119,26 @@ body {
     border-top: 1px solid var(--border-divider);
 }
 
+/* A running session's whole row opens it, as its Open link does. */
+.ms-session-openable {
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.ms-session-openable:hover {
+    background: color-mix(in srgb, var(--bg-secondary) 94%, var(--text-primary));
+}
+
+/* A row's lines — name, path, status — at the leading and spacing of the
+   app's other list rows (settings' provider rows). */
 .ms-session-main,
 .ms-recent-main {
     flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.125rem;
+    gap: 0.25rem;
+    line-height: var(--leading-tight);
 }
 
 .ms-session-name,
@@ -151,6 +173,18 @@ body {
     padding: var(--spacing-xl) var(--spacing-lg);
     color: var(--text-secondary);
     text-align: center;
+}
+
+/* Until the first list arrives: the app's spinner (css/patterns/spinner.css). */
+.ms-sessions-loading {
+    display: flex;
+    justify-content: center;
+    padding: var(--spacing-xl) var(--spacing-lg);
+    color: var(--text-secondary);
+}
+
+.ms-sessions-loading juggler-spinner {
+    --size: 2rem;
 }
 
 /* Status dot: what a session is doing at a glance. */
@@ -282,9 +316,72 @@ body {
     padding-inline: var(--spacing-lg);
 }
 
+.ms-launch .ms-folder-name {
+    flex: 0 1 12rem;
+}
+
 .ms-launch-error {
     color: var(--error-color);
     font-size: var(--font-size-sm);
+}
+
+/* A section's muted explanation */
+
+.ms-lan-note {
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+}
+
+/* The machine's ways in (a viewer on this machine only): LAN access and each
+   tunnel mode, a card each, as a session's Settings → Connectivity draws them
+   (css/components/connectivity.css has their cards and checkboxes). The two
+   wrappers are looked through, so every row is the section's gap from the
+   next. A row is a grid, so its error line and address cards span it under
+   its title and controls. The controls column fits a button and checkbox at
+   their own width, but never more than 40% of the row: a mode that cannot
+   start says why there, and that reason (an install line with a URL) wraps
+   inside the column rather than squeezing the title to a word a line. */
+
+.ms-exposure-way:not([hidden]) {
+    display: contents;
+}
+
+.ms-exposure-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) fit-content(40%);
+    align-items: start;
+    gap: var(--spacing-md) var(--spacing-lg);
+    padding: var(--spacing-md) var(--spacing-lg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    background: var(--bg-secondary);
+}
+
+.ms-exposure-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    line-height: var(--leading-tight);
+}
+
+.ms-exposure-title {
+    font-weight: var(--font-weight-medium);
+}
+
+.ms-exposure-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--spacing-sm);
+}
+
+.ms-exposure-controls .connectivity-launch {
+    align-self: flex-end;
+}
+
+.ms-exposure-controls .connectivity-note {
+    overflow-wrap: anywhere;
 }
 
 /* Notices */
@@ -315,5 +412,16 @@ body {
     .ms-actions {
         width: 100%;
         justify-content: flex-end;
+    }
+
+    .ms-exposure-row {
+        grid-template-columns: minmax(0, 1fr);
+        padding: var(--spacing-md);
+    }
+
+    .ms-exposure-controls,
+    .ms-exposure-controls .connectivity-launch {
+        align-items: flex-start;
+        align-self: flex-start;
     }
 }

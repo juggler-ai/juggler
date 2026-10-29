@@ -54,12 +54,12 @@ See [`docs/distribution.md`](docs/distribution.md) for the complete app/server l
 ### Running the server directly
 
 ```bash
-juggler
+cd my-project && juggler
 ```
 
-The server serves the web UI and prints its URL and a QR code. Type `b` and press Enter to open it in your browser.
+Juggler runs one server per machine, on port 3939 (or the next free one). `juggler` starts it in the terminal if none is running, opens a session for the current folder and prints its URL. Type `b` and press Enter to open it in your browser. The server's own page, at the root of that URL, lists every session and opens new ones in any folder. `juggler serve` runs the server alone, with no session of its own.
 
-It listens on localhost by default, so nothing off your machine can reach it. Press `p` in the terminal, or launch with `--public`, to accept connections from your LAN. LAN access has no password: enable it only on networks you trust.
+The server accepts connections from your machine only until you turn on LAN access: Start LAN access on the sessions page or in any session's Settings → Connectivity, `juggler server lan on`, or `juggler serve --lan`. It is off whenever the server starts, unless you tick "Start whenever Juggler starts" beside it. LAN access has no password, so turn it on only on networks you trust. While it is on, both show each address with a QR code for a phone; in a session's Settings → Connectivity the code opens that session.
 
 To serve it through a reverse proxy on the same machine, such as `tailscale serve`, launch with `--allow-host <name>` for the name the proxy publishes. The flag is repeatable. Requests under that name count as remote viewers; see [SECURITY.md](SECURITY.md).
 

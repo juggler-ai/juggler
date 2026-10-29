@@ -39,9 +39,9 @@ type BackgroundShell struct {
 	reaped chan struct{}
 
 	// ProjectRoot is the project this shell was spawned under — the directory it
-	// runs in. The registry is process-global and outlives a project switch, so
-	// without this a task started in one project stays readable and killable from
-	// the next. Every lookup that acts on a caller-supplied id compares it against
+	// runs in. The registry is process-global, spanning every tree this process
+	// works in, so without this a task started in one stays readable and
+	// killable from another. Every lookup that acts on a caller-supplied id compares it against
 	// the caller's current scope root, which is the boundary the id itself is not.
 	ProjectRoot string
 
@@ -153,8 +153,8 @@ var (
 // Every send goes through here rather than to registryOps, because every
 // accessor waits for a reply and the mailbox is buffered — a send into a
 // mailbox nobody had started would land, and its caller would wait forever.
-// StopBackgroundTasks is called from a project switch and from shutdown, where
-// that wait would block the release of everything sequenced behind it.
+// StopBackgroundTasks is called from shutdown, where that wait would block the
+// release of everything sequenced behind it.
 func registryCh() chan<- registryOp {
 	registryStart.Do(func() { go runShellRegistry() })
 	return registryOps

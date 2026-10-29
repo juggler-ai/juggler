@@ -6,7 +6,7 @@
 
 /* Header-bar buttons use the shared .btn-ghost house style
    (patterns/buttons.css); their size/padding/icon come from the co-classes
-   (btn-circular-control, btn-icon-header, ppd-chip, ppd-new-window-button). */
+   (btn-circular-control, btn-icon-header, ppd-new-window-button). */
 
 strategy-selector {
     display: flex;

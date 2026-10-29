@@ -24,8 +24,6 @@ import (
 	"juggler/internal/jlog"
 	"juggler/internal/srcroot"
 	"juggler/web"
-
-	"github.com/pion/webrtc/v4"
 )
 
 // generateCSPNonce returns a fresh per-response base64 nonce for inline scripts.
@@ -321,8 +319,8 @@ func (s *Server) serveSandbox(w http.ResponseWriter, r *http.Request) {
 // serveFavicon serves the logo SVG directly as the favicon. Serving the bytes
 // (rather than 301-redirecting to the versioned asset path) is robust across
 // every transport: a fetch/service-worker context that doesn't follow a
-// cross-path redirect — e.g. a request proxied over a WebRTC DataChannel —
-// still gets the icon.
+// cross-path redirect — a request a rendezvous page tunnels over a data
+// channel — still gets the icon.
 func (s *Server) serveFavicon(w http.ResponseWriter, r *http.Request) {
 	content, err := s.readWebAsset("resources/juggler-logo.svg", web.Files)
 	if err != nil {
@@ -341,17 +339,17 @@ const projectStorageKeyLen = 16
 // projectStorageKey derives an opaque, stable per-project key that the viewer
 // uses to namespace its own localStorage.
 //
-// The page origin identifies a *port*, not a project: every project's server
-// defaults to the same port, so a bare key can hold the value another project
-// left behind; one process can switch project in place; and a viewer reaching
-// the server over the studio relay sees a single origin for every project on
-// every machine it connects to. Keyed by this, a cached preference belongs to
+// The page origin identifies the machine server, not a project: every session
+// it runs is served from that one origin under /s/<id>/, so a bare key can hold
+// the value another project left behind; and a viewer reaching the server over
+// the studio relay sees a single origin for every project on every machine it
+// connects to. Keyed by this, a cached preference belongs to
 // the project it was set in.
 //
 // It hashes the path rather than carrying it because the key is visible in a
 // localStorage that origin shares with other pages, and where a project lives is
-// nobody else's business. Empty for a no-project window, where the viewer falls
-// back to the bare key.
+// nobody else's business. Empty for an empty path, where the viewer falls back
+// to the bare key.
 func projectStorageKey(projectPath string) string {
 	if projectPath == "" {
 		return ""
@@ -473,8 +471,6 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		UILocalePinned   bool
 		UICatalog        map[string]string
 		ProjectKey       string
-		ICEServers       []webrtc.ICEServer
-		FixedProject     bool
 	}{
 		StaticVersion: s.staticVersion,
 		HarnessPage:   s.test.harnessPage,
@@ -495,8 +491,6 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		// Namespaces the viewer's localStorage so a cached zoom/theme belongs to
 		// the project it was set in, whichever origin the viewer arrived on.
 		ProjectKey: projectStorageKey(s.ProjectPath()),
-		// Rendered as JSON by the template's script context.
-		ICEServers: defaultICEServers,
 		// The desktop app opens the page with ?window=1; remote browsers never
 		// have it. Mirrors the client-side check in index.html and gates the
 		// Wails runtime <script>, which only does anything in a native window.
@@ -508,9 +502,6 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		// believes it owns what the server will refuse it.
 		RemoteViewer: !isLocalDirect(r),
 		CSPNonce:     nonce,
-		// Marks the page so its project chip leads to the sessions page rather
-		// than a picker the server would refuse (see setupProjectRoutes).
-		FixedProject: s.fixedProject,
 	}
 
 	if err := s.indexTemplate.Execute(w, data); err != nil {
@@ -535,8 +526,7 @@ func findWebDir() string {
 }
 
 // findStaticDir finds the static directory by looking for the juggler project root.
-// Falls back to bootProjectPath when no project is loaded so dev-mode static
-// serving works in no-project boots.
+// Falls back to bootProjectPath when ProjectPath is empty.
 func (s *Server) findStaticDir() (string, error) {
 	root := s.ProjectPath()
 	if root == "" {
@@ -560,8 +550,8 @@ func (s *Server) cacheControlMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		// Skip API routes and index.html (they have their own cache headers)
-		if strings.HasPrefix(path, "/api/") || path == "/" || path == "/index.html" {
+		// Skip API routes and the index (they have their own cache headers)
+		if strings.HasPrefix(path, "/api/") || path == "/" {
 			next.ServeHTTP(w, r)
 			return
 		}

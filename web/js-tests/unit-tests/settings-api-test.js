@@ -7,9 +7,8 @@
  *
  * Driven against a stubbed `fetch`, these pin the wire each function puts on it
  * (method, URL, body) and the failure policy it keeps: a single-key config write
- * is a PUT of exactly that key; a load given a fallback resolves to it; a
- * failing write throws with the caller's prefix; and the QR fetch, which reads
- * text rather than JSON, answers null instead of throwing.
+ * is a PUT of exactly that key; a load given a fallback resolves to it; and a
+ * failing write throws with the caller's prefix.
  * @module unit-tests/settings-api-test
  */
 
@@ -160,27 +159,6 @@ export async function runTests(_ctx) {
       assert(calls[0].method === 'PUT' && calls[0].url === '/api/settings', `requested ${calls[0].method} ${calls[0].url}`);
       assert(JSON.stringify(calls[0].body) === JSON.stringify(doc), `body was ${JSON.stringify(calls[0].body)}`);
       assert(JSON.stringify(got) === JSON.stringify(doc), `returned ${JSON.stringify(got)}`);
-    } finally {
-      restore();
-    }
-  });
-
-  await run('the QR fetch returns the SVG text, and null on a refusal or a dead link', async () => {
-    let mode = 'ok';
-    const { calls, restore } = stubFetch(() => {
-      if (mode === 'throw') throw new TypeError('network down');
-      if (mode === 'refuse') return { ok: false, status: 400, text: async () => 'bad url' };
-      return { ok: true, status: 200, text: async () => '<svg/>' };
-    });
-    try {
-      const svg = await settingsApi.getConnectivityQRSvg('http://10.0.0.2:1234/?a=b');
-      assert(svg === '<svg/>', `got ${svg}`);
-      assert(calls[0].url === `/api/connectivity/qr?url=${encodeURIComponent('http://10.0.0.2:1234/?a=b')}`,
-        `url was ${calls[0].url}`);
-      mode = 'refuse';
-      assert(await settingsApi.getConnectivityQRSvg('x') === null, 'a refusal did not answer null');
-      mode = 'throw';
-      assert(await settingsApi.getConnectivityQRSvg('x') === null, 'a dead link did not answer null');
     } finally {
       restore();
     }

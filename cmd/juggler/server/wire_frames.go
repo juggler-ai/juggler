@@ -132,11 +132,6 @@ type pluginChangedFrame struct {
 	Path string    `json:"path"`
 }
 
-type projectChangedFrame struct {
-	Type        frameType `json:"type"`
-	ProjectPath string    `json:"projectPath"`
-}
-
 type settingsChangedFrame struct {
 	Type     frameType           `json:"type"`
 	Settings core.GlobalSettings `json:"settings"`

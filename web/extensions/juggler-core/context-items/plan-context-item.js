@@ -889,7 +889,7 @@ class PlanContextItem extends ContextItem {
     // Create the new plan item directly from our own class rather than a
     // registry lookup. The plan tool requires approval, so this runs after a
     // long async gap; if the context-item registry is reloaded in that window
-    // (extension hot-reload, project switch), a `createItem('plan')` lookup can
+    // (an extension hot-reload), a `createItem('plan')` lookup can
     // momentarily miss and throw "No context item found for type: plan" — the
     // tool then fails even though the plan tool is what's executing. We ARE the
     // plan class, so `this.constructor` is always present and reset-proof.

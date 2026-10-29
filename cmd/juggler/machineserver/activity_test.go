@@ -15,9 +15,14 @@ import (
 	"juggler/internal/apipaths"
 )
 
+// stubChildToken is the API token a stubChild demands, as a real child demands
+// the one its spawner minted for it.
+const stubChildToken = "stub-child-token"
+
 // stubChild stands in for a session child's activity endpoint: it answers
 // /api/health/active from busy, or 500 while failing is set, and counts the
-// polls it has answered.
+// polls it has answered. A poll without the child's token is refused and not
+// counted.
 type stubChild struct {
 	srv     *httptest.Server
 	busy    atomic.Bool
@@ -31,6 +36,10 @@ func newStubChild(t *testing.T) *stubChild {
 	sc.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != apipaths.HealthActive {
 			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get(TokenHeader) != stubChildToken {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		defer sc.polls.Add(1)
@@ -56,7 +65,7 @@ func runningSession(t *testing.T, sc *stubChild) (*registry, string, func()) {
 	r := newRegistry()
 	s := &Server{reg: r}
 	sess, _ := r.reserve("/p")
-	c := &child{addr: sc.srv.Listener.Addr().String(), exited: make(chan struct{})}
+	c := &child{addr: sc.srv.Listener.Addr().String(), apiToken: stubChildToken, exited: make(chan struct{})}
 	r.setRunning(sess.ID, c, 1)
 	done := make(chan struct{})
 	go func() {

@@ -7,35 +7,42 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"juggler/cmd/juggler/machineserver"
+	"juggler/cmd/juggler/msg"
 	"juggler/internal/atomicio"
 	"juggler/internal/userpaths"
 )
 
-// A standalone (no --url/--project) launch restores the set of windows that was
+// A launch with neither --url nor --project restores the set of windows that was
 // open last time, each at its remembered geometry. The set lives in
-// ~/.juggler/workspace.json; per-window size/position is session state, held
-// server-side in each project's session.json (via /api/session/window-state,
-// see window_state_client.go) — except for a window onto a server by URL, whose
-// frame stays on this machine (remote_frames.go). Together they reopen "the
-// most recently opened set of sessions" where the user left them.
+// ~/.juggler/workspace.json, keyed by project; each project's window reopens
+// that project's session on this machine's server, and its size/position is
+// session state, held server-side in the project's session.json (via
+// /api/session/window-state, see window_state_client.go) — except for a window
+// onto a server by URL, whose frame stays on this machine (remote_frames.go).
+// Together they reopen "the most recently opened set of sessions" where the
+// user left them.
 //
 // The store is owned by a single goroutine (no mutex, per the concurrency
 // rule); saves are ordered, and flush waits for durability at quit.
 
-// windowSpec identifies what a window views: a local project (possibly "" for a
-// no-project window, whose server we spawn) or an explicit external server URL.
-// It is the single source of a window's geometry key and its workspace entry.
+// windowSpec identifies what a window views: a local project's session on this
+// machine's server, no project (an empty window, which shows that server's own
+// page), or an explicit external server URL. It is the single source of a
+// window's geometry key and its workspace entry.
 //
 // A URL comes from one of two places, and connected says which. A server the
 // user connected to by typing its address (Session ▸ Connect to Server…) is
 // one they mean to come back to, so it is restored like a project. A --url
-// launch is a one-shot connection to an address someone else supplied — most
-// often the server's own 'w' key, naming a local port valid for that run only —
-// so restoring it would open a window onto a dead server.
+// launch is a one-shot connection to an address someone else supplied — a
+// script or a shortcut, naming a server that may be up for that run only — so
+// restoring it could open a window onto a dead server.
 type windowSpec struct {
 	project   string
 	url       string
@@ -45,9 +52,15 @@ type windowSpec struct {
 func (s windowSpec) isURL() bool { return s.url != "" }
 
 // restorable reports whether a next launch should bring this window back: a
-// project window (which re-spawns or re-discovers its server) or a connected
-// server, never a --url one.
-func (s windowSpec) restorable() bool { return !s.isURL() || s.connected }
+// project window (which reopens its session) or a connected server — never a
+// --url one, and never an empty window, which views no session (a launch with
+// nothing to restore opens one anyway).
+func (s windowSpec) restorable() bool {
+	if s.isURL() {
+		return s.connected
+	}
+	return s.project != ""
+}
 
 // sameView reports whether two specs show the same thing. How a URL window came
 // to be open is not part of what it shows, so a --url launch finds a connected
@@ -69,18 +82,73 @@ func (s windowSpec) entry() workspaceEntry {
 	return workspaceEntry{Project: s.project}
 }
 
-// resolve turns a spec into a connectable server URL. A project spec
-// discovers/spawns a local server (caller owns the returned proc); a URL spec
-// just normalises the URL (proc nil — we don't own remote servers).
-func (s windowSpec) resolve() (string, *serverProc, error) {
-	if s.isURL() {
-		return normalizeURL(s.url), nil, nil
+// openFailedError is a project's session that this machine's server would not
+// open. Its window shows the server's own page instead (serverURL), saying why.
+type openFailedError struct {
+	project   string
+	serverURL string
+	server    serverProc
+	err       error
+}
+
+func (e *openFailedError) Error() string {
+	return fmt.Sprintf("open the session for %s: %v", e.project, e.err)
+}
+
+func (e *openFailedError) Unwrap() error { return e.err }
+
+// notice is what the server's page says in place of the session: why it did
+// not open, in the shell's UI language. The reason is the server's English,
+// passed as a parameter, as a log line would be.
+func (e *openFailedError) notice(a *appState) string {
+	return a.tr(msg.New("The session for {project} could not be opened: {error}", "project", e.project, "error", e.err.Error()))
+}
+
+// resolveWindow returns the URL a window for spec loads, before the window's
+// own query: a server by URL as given; on this machine's server, an empty
+// window's server page or a project's session (opened now, or found running).
+// It also returns which process of this machine's server that is (zero for a
+// server by URL). A server that cannot be had is the serverClient's error; a
+// session it will not open is an *openFailedError.
+func (a *appState) resolveWindow(spec windowSpec) (string, serverProc, error) {
+	if spec.isURL() {
+		return normalizeURL(spec.url), serverProc{}, nil
 	}
-	addr, proc, err := discoverOrSpawnServer(s.project)
-	if err != nil {
-		return "", nil, err
+	for attempt := 1; ; attempt++ {
+		c, err := a.serverClient()
+		if err != nil {
+			return "", serverProc{}, err
+		}
+		root := "http://" + c.Addr()
+		if spec.project == "" {
+			return root, procOf(c), nil
+		}
+		project := expandProject(spec.project)
+		sess, _, err := c.OpenSession(project)
+		if err == nil {
+			return strings.TrimSuffix(c.SessionURL(sess.ID), "/"), procOf(c), nil
+		}
+		if machineserver.ServerGoing(err) && attempt < connectAttempts {
+			// Caught the server on its way out: once it has gone, the next
+			// serverClient finds or starts the one there is now.
+			a.awaitServerGone(c)
+			continue
+		}
+		return "", serverProc{}, &openFailedError{project: project, serverURL: root, server: procOf(c), err: err}
 	}
-	return "http://" + addr, proc, nil
+}
+
+// expandProject resolves project to an absolute path (expanding a leading ~),
+// or "" when project is empty.
+func expandProject(project string) string {
+	if project == "" {
+		return ""
+	}
+	project = userpaths.ExpandHome(project)
+	if abs, err := filepath.Abs(project); err == nil {
+		return abs
+	}
+	return project
 }
 
 // workspaceEntry is the on-disk form of one open window.
@@ -223,9 +291,9 @@ func (w *workspaceStore) load() []windowSpec {
 	specs := make([]windowSpec, 0, len(f.Windows))
 	for _, e := range f.Windows {
 		s := e.spec()
-		// Never restore a --url window (see windowSpec): its address is not
-		// expected to be valid next launch. Skipping such entries here also clears
-		// any stale ones from workspace.json.
+		// Never restore a --url window (see windowSpec), whose address is not
+		// expected to be valid next launch, or an empty one. Skipping such
+		// entries here also clears any stale ones from workspace.json.
 		if !s.restorable() {
 			continue
 		}

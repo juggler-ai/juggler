@@ -15,13 +15,20 @@ import (
 
 	"juggler/cmd/juggler/ops"
 	"juggler/internal/jlog"
+	"juggler/internal/portbind"
 )
+
+// taskStopGrace is how long a background task has to act on the polite stop
+// signal before its process group is taken. Short on purpose: it is paid on the
+// shutdown path, where the alternative to a brisk kill is a hang.
+const taskStopGrace = 250 * time.Millisecond
 
 // initiateShutdown triggers the server shutdown process
 func (s *Server) initiateShutdown() {
-	s.StopTunnel()
 	s.shutdownOnce.Do(func() {
-		close(s.shutdownChan)
+		if s.shutdownChan != nil {
+			close(s.shutdownChan)
+		}
 	})
 }
 
@@ -294,36 +301,6 @@ func (s *Server) broadcastShutdownNotice() {
 	s.shutdownAllClients()
 }
 
-// viewerListenConfig is how the port that serves viewers is bound.
-//
-// Keep-alive probes are enabled with an explicit period so a peer whose host
-// simply vanished — a suspended laptop, a dropped tunnel, a killed VM — gets
-// reaped by the kernel instead of lingering as a half-open connection holding
-// an fd and a registered WSClient. Nothing above the transport can notice such
-// a peer on its own: it never sends, so no read fails, and a write to it only
-// fails if there is something to send (see wsWriteTimeout). Probes are the
-// only thing that detects a silent idle client that is already gone.
-//
-// Idle 30s then 9 probes 10s apart declares the connection dead about two
-// minutes after the peer disappears, for two packets a minute on a live idle
-// connection. The listener binds all interfaces, so these settings also apply
-// to loopback peers (the engine, local viewers); that is harmless, since a
-// loopback peer cannot go half-open without its process dying, and probes that
-// never leave the machine cost nothing.
-var viewerListenConfig = net.ListenConfig{
-	KeepAliveConfig: net.KeepAliveConfig{
-		Enable:   true,
-		Idle:     30 * time.Second,
-		Interval: 10 * time.Second,
-		Count:    9,
-	},
-}
-
-// listenForViewers binds bindAddr with the viewer keep-alive settings.
-func listenForViewers(bindAddr string) (net.Listener, error) {
-	return viewerListenConfig.Listen(context.Background(), "tcp", bindAddr)
-}
-
 // findAvailablePort tries to bind to the configured port, or finds an available one
 func (s *Server) findAvailablePort() (net.Listener, string, error) {
 	// Parse the configured address
@@ -337,48 +314,19 @@ func (s *Server) findAvailablePort() (net.Listener, string, error) {
 		return nil, "", fmt.Errorf("invalid port: %w", err)
 	}
 
-	// Bind to all interfaces so LAN gate middleware can control access, unless
-	// this server is LoopbackOnly, when nothing off the machine may connect at
-	// all. The display address (returned as the second value) keeps the
-	// configured hostname so the banner shows "localhost" rather than "0.0.0.0".
-	bindHost := ""
-	if s.loopbackOnly {
-		bindHost = "127.0.0.1"
-	}
-	listener, err := bindFirstFree(bindHost, port, listenForViewers)
+	// Loopback alone: a session child (or the --test harness) has no LAN gate,
+	// and callers from elsewhere reach it only through the machine server,
+	// which owns all exposure. The display address (returned as the second
+	// value) keeps the configured hostname. No tuned keep-alive
+	// (portbind.KeepAlive): a loopback peer cannot go half-open without its
+	// process dying, and a remote viewer's host connects to the machine server,
+	// whose listener has it.
+	listener, err := portbind.FirstFree("127.0.0.1", port, func(addr string) (net.Listener, error) {
+		return net.Listen("tcp", addr)
+	})
 	if err != nil {
 		return nil, "", err
 	}
 	_, actualPort, _ := net.SplitHostPort(listener.Addr().String())
 	return listener, net.JoinHostPort(host, actualPort), nil
-}
-
-// maxPortSearch is how many ports past the configured one bindFirstFree tries.
-// The desktop app gives every window its own server, so each open window holds
-// one port of this range, and the range is how many windows can be open at
-// once. A busy port fails its bind at once, so a long search costs nothing worth
-// measuring.
-const maxPortSearch = 100
-
-// bindFirstFree listens on bindHost at port, or at the first of the next
-// maxPortSearch ports that is free. Only a port that is unavailable moves the
-// search on (portUnavailable); any other failure is returned as it is, since
-// the next port would fail the same way.
-func bindFirstFree(bindHost string, port int, listen func(string) (net.Listener, error)) (net.Listener, error) {
-	for i := 0; i <= maxPortSearch; i++ {
-		listener, err := listen(net.JoinHostPort(bindHost, strconv.Itoa(port+i)))
-		if err == nil {
-			if i > 0 {
-				jlog.Info("✅ Found available port: %d", port+i)
-			}
-			return listener, nil
-		}
-		if !portUnavailable(err) {
-			return nil, err
-		}
-		if i == 0 {
-			jlog.Info("⚠️  Port %d is busy, searching for available port...", port)
-		}
-	}
-	return nil, fmt.Errorf("could not find available port after %d attempts", maxPortSearch)
 }

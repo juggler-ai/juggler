@@ -76,7 +76,7 @@ func TestThreadBusyAsksBothRecordsOfOneThread(t *testing.T) {
 var busyQuestions = []string{
 	"threadActivity", "threadActivityLocked", "getActivity", "hasActiveRun",
 	"subtreeHasActiveRun", "isActivelyRunning", "anyRunState", "threadBusy",
-	"threadBusyLocked",
+	"threadBusyLocked", "sessionHeld",
 }
 
 // retiredBusyQuestions were merged away and may not come back in production

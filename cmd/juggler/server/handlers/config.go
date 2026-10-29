@@ -60,8 +60,7 @@ const (
 )
 
 // ConfigAPI handles configuration-related HTTP requests. It reads the
-// project path through a provider func so that runtime project switches
-// transparently retarget config I/O. onCredsChanged is invoked whenever
+// project path through a provider func. onCredsChanged is invoked whenever
 // the credentials store has been mutated, so the server can refresh and
 // broadcast the provider list.
 type ConfigAPI struct {
@@ -78,8 +77,8 @@ type ConfigAPI struct {
 }
 
 // NewConfigAPI creates a new ConfigAPI. pathProvider must return the current
-// project path on each call (empty string indicates no-project mode, in
-// which case config reads/writes return errors). onCredsChanged is called
+// project path on each call (for an empty one, config reads/writes return
+// errors). onCredsChanged is called
 // after every credential mutation; may be nil for handlers that don't need
 // to refresh the provider list (e.g. one-shot CLI tools).
 func NewConfigAPI(pathProvider func() string, onCredsChanged func(), onPluginsChanged func()) (*ConfigAPI, error) {

@@ -7,12 +7,28 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/gorilla/mux"
 
+	"juggler/cmd/juggler/msg"
+	"juggler/cmd/juggler/tunnel"
 	"juggler/internal/ingress"
 )
+
+// testTunnelMode is a tunnel mode registered for this package's tests, as a
+// distribution registers its own before app.Run.
+const testTunnelMode = "relay-test"
+
+func TestMain(m *testing.M) {
+	tunnel.RegisterMode(tunnel.ModeSpec{
+		Mode:  testTunnelMode,
+		Title: msg.New("Test relay"),
+		New:   func(tunnel.Host) tunnel.Provider { return nil },
+	})
+	os.Exit(m.Run())
+}
 
 // TestSupervisorIngressHeader checks the child's half of caller identity: only
 // its supervisor's secret, arriving over loopback, tags a request as remote
@@ -60,23 +76,30 @@ func TestSupervisorIngressHeader(t *testing.T) {
 }
 
 // TestSupervisorIngressNamesTheTransport checks the child believes what its
-// supervisor says about a remote caller — how it arrived and from where — only
-// alongside the secret, so the clients list shows a LAN viewer by its address
-// while the request stays remote ingress. Anything it cannot read falls back
-// to "Via machine server", and the headers never reach a handler.
+// supervisor says about a remote caller — how it arrived, from where, and who
+// its transport says it is — only alongside the secret, so the clients list
+// shows a LAN viewer by its address and a tunnel's by the tunnel's title and
+// the caller's name, while the request stays remote ingress. Anything it
+// cannot read falls back to "Via machine server", and the headers never reach
+// a handler.
 func TestSupervisorIngressNamesTheTransport(t *testing.T) {
 	cases := []struct {
-		name, secret, kind, addr string
-		wantOrigin, wantDetail   string
-		wantRemote               bool
+		name, secret, kind, addr, user   string
+		wantOrigin, wantDetail, wantName string
+		wantRemote                       bool
 	}{
-		{"a LAN caller", "right", ingress.KindLAN, "192.168.1.20:54321", "lan", "192.168.1.20", true},
-		{"an IPv6 LAN caller", "right", ingress.KindLAN, "[fe80::1]:54321", "lan", "fe80::1", true},
-		{"a caller through the user's reverse proxy", "right", ingress.KindProxy, "", "remote", "Via reverse proxy", true},
-		{"no transport named", "right", "", "", "remote", "Via machine server", true},
-		{"a transport it does not know", "right", "carrier-pigeon", "192.168.1.20:54321", "remote", "Via machine server", true},
-		{"a LAN caller with no usable address", "right", ingress.KindLAN, "nonsense", "remote", "Via machine server", true},
-		{"a LAN claim without the secret", "wrong", ingress.KindLAN, "192.168.1.20:54321", "local", "", false},
+		{name: "a tunnel's caller", secret: "right", kind: testTunnelMode, wantOrigin: "remote", wantDetail: "Test relay", wantRemote: true},
+		{name: "a tunnel's named caller", secret: "right", kind: testTunnelMode, user: `{"issuer":"https://id.example","subject":"u1","name":"Alice"}`,
+			wantOrigin: "remote", wantDetail: "Test relay", wantName: "Alice", wantRemote: true},
+		{name: "a name that does not parse", secret: "right", kind: testTunnelMode, user: "{", wantOrigin: "remote", wantDetail: "Test relay", wantRemote: true},
+		{name: "a name without the secret", secret: "wrong", kind: testTunnelMode, user: `{"name":"Mallory"}`, wantOrigin: "local"},
+		{"a LAN caller", "right", ingress.KindLAN, "192.168.1.20:54321", "", "lan", "192.168.1.20", "", true},
+		{"an IPv6 LAN caller", "right", ingress.KindLAN, "[fe80::1]:54321", "", "lan", "fe80::1", "", true},
+		{"a caller through the user's reverse proxy", "right", ingress.KindProxy, "", "", "remote", "Via reverse proxy", "", true},
+		{"no transport named", "right", "", "", "", "remote", "Via machine server", "", true},
+		{"a transport it does not know", "right", "carrier-pigeon", "192.168.1.20:54321", "", "remote", "Via machine server", "", true},
+		{"a LAN caller with no usable address", "right", ingress.KindLAN, "nonsense", "", "remote", "Via machine server", "", true},
+		{"a LAN claim without the secret", "wrong", ingress.KindLAN, "192.168.1.20:54321", "", "local", "", "", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -88,7 +111,7 @@ func TestSupervisorIngressNamesTheTransport(t *testing.T) {
 			s.router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 				got = clientInfoFromRequest(r)
 				remote = isRemoteIngress(r)
-				for _, h := range []string{ingress.Header, ingress.KindHeader, ingress.AddrHeader} {
+				for _, h := range []string{ingress.Header, ingress.KindHeader, ingress.AddrHeader, ingress.UserHeader} {
 					if v := r.Header.Get(h); v != "" {
 						leaked = append(leaked, h+"="+v)
 					}
@@ -103,9 +126,12 @@ func TestSupervisorIngressNamesTheTransport(t *testing.T) {
 			if c.addr != "" {
 				req.Header.Set(ingress.AddrHeader, c.addr)
 			}
+			if c.user != "" {
+				req.Header.Set(ingress.UserHeader, c.user)
+			}
 			s.router.ServeHTTP(httptest.NewRecorder(), req)
-			if got.Origin != c.wantOrigin || got.Detail != c.wantDetail {
-				t.Errorf("client info = %+v, want origin %q detail %q", got, c.wantOrigin, c.wantDetail)
+			if got.Origin != c.wantOrigin || got.Detail != c.wantDetail || got.Name != c.wantName {
+				t.Errorf("client info = %+v, want origin %q detail %q name %q", got, c.wantOrigin, c.wantDetail, c.wantName)
 			}
 			if remote != c.wantRemote {
 				t.Errorf("remote ingress = %v, want %v", remote, c.wantRemote)

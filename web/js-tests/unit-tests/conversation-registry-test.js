@@ -197,18 +197,6 @@ export async function runTests() {
     assert(registry.name('z') === '', 'a name for a conversation neither held nor listed is dropped');
   });
 
-  await run('a project switch leaves nothing behind', () => {
-    const { registry } = makeSession();
-    registry.insert('a', stub('a'), 'test');
-    registry.setName('a', 'Alpha');
-    registry.touch('a');
-    registry.select({ kind: 'conversation', id: 'a' });
-    registry.reset();
-    assert(registry.size === 0 && registry.name('a') === '' && registry.selection === null
-      && registry.loadedConversationId === null && registry.fallback() === undefined,
-    'reset must clear the map, the names, the selection and the most-recently-used list together');
-  });
-
   await run('replacing the list records each arrival and departure', async () => {
     await withTape(async () => {
       const { registry } = makeSession();

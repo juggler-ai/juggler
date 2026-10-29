@@ -47,7 +47,6 @@ func (f *fastSender) SendRaw(_ []byte) bool { return true }
 // chunk makes the client resolve a real command's output as empty.
 func TestViewerGroup_BroadcastOrderPreservedPerClient(t *testing.T) {
 	g := newViewerGroup()
-	defer g.stop()
 
 	// Unbuffered recv: each delivery blocks until the test consumes it, so
 	// any cross-broadcast race is forced to express itself as misordering.
@@ -76,7 +75,6 @@ func TestViewerGroup_BroadcastOrderPreservedPerClient(t *testing.T) {
 // the same per-client queue.
 func TestViewerGroup_RawAndJSONBroadcastsShareOrdering(t *testing.T) {
 	g := newViewerGroup()
-	defer g.stop()
 
 	recv := make(chan string)
 	s := &orderProbeSender{recv: recv}
@@ -127,7 +125,6 @@ func (o *orderProbeSender) SendRaw(data []byte) bool {
 
 func TestViewerGroup_BlockingSenderDoesNotStallActor(t *testing.T) {
 	g := newViewerGroup()
-	defer g.stop()
 
 	slow := &blockingSender{id: "slow", released: make(chan struct{})}
 	fast := &fastSender{id: "fast", recv: make(chan any, 16)}
@@ -147,7 +144,7 @@ func TestViewerGroup_BlockingSenderDoesNotStallActor(t *testing.T) {
 	go func() {
 		_, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ok := g.startShell("shell-1", cancel, false)
+		ok := g.startShell("shell-1", cancel)
 		done <- ok
 	}()
 

@@ -86,19 +86,6 @@ class EngineApp {
       wsService.sendEngineBridge('juggler-registries', { phase: 'reloaded' });
     });
 
-    // The enabled/disabled capability set is per-project — the server resolves
-    // it with core.LoadConfig(projectPath) — so a project switch changes which
-    // context items, strategies and commands should be registered. A viewer
-    // picks that up by reloading the page; the engine is persistent across the
-    // switch and would otherwise keep serving the previous project's set,
-    // offering the model tools this project disables (or withholding ones it
-    // enables). Same deferred reload as a plugin toggle.
-    wsService.on('project-changed', async () => {
-      console.info('[Engine] Project changed — reloading registries');
-      await reloadRegistries();
-      console.info('[Engine] Project registries reloaded');
-    });
-
     // Initialize services
     this._llmState = new LLMState();
 
@@ -164,8 +151,8 @@ class EngineApp {
    * one.
    *
    * The engine never let go of a conversation once it had loaded it: the Yjs
-   * document, its observers and the worker entry survived deletion, binning and
-   * project switches, so a long-lived engine accumulated every conversation it
+   * document, its observers and the worker entry survived deletion and
+   * binning, so a long-lived engine accumulated every conversation it
    * had ever been synced — in the one realm that has to stay responsive, and
    * where an exhausted WebView is indistinguishable from a wedged one.
    *

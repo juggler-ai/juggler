@@ -176,7 +176,7 @@ func (ix *PathIndex) remove(p string) {
 
 // Search returns up to limit matches for query, ranked by relevance. It is
 // called from arbitrary HTTP goroutines; the work runs on the owner goroutine.
-// Returns nil if the index has been stopped (project switched / torn down).
+// Returns nil if the index has been stopped (torn down).
 func (ix *PathIndex) Search(query string, limit int) []ops.FileMatch {
 	if ix == nil {
 		return nil

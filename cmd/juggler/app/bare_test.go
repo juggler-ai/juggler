@@ -9,12 +9,12 @@ import (
 	"testing"
 )
 
-// TestOnlyMarkedLaunchesServeOneProjectInProcess: a launch serves its project
-// in this process only when something marks it as more than a person's bare
-// juggler — a machine server's child, the test harness, the desktop app, a
-// developer flag, or --standalone. Everything else is bare juggler, which
-// rides the machine server, whatever else it was given.
-func TestOnlyMarkedLaunchesServeOneProjectInProcess(t *testing.T) {
+// TestOnlyChildrenAndTheHarnessServeOneProjectInProcess: a launch serves its
+// project in this process only as a machine server's session child or as the
+// test harness. Everything else is bare juggler, which rides the machine
+// server, whatever else it was given: the developer flags go to the server it
+// starts, which passes them to its children.
+func TestOnlyChildrenAndTheHarnessServeOneProjectInProcess(t *testing.T) {
 	for _, c := range []struct {
 		name  string
 		flags appFlags
@@ -23,11 +23,11 @@ func TestOnlyMarkedLaunchesServeOneProjectInProcess(t *testing.T) {
 		{"bare", appFlags{}, false},
 		{"bare with a project, port and terminal", appFlags{project: "/p", projectSet: true, port: 3939, portSet: true, hasTerminal: true}, false},
 		{"session child", appFlags{sessionChild: true}, true},
+		{"session child that dies with its parent", appFlags{sessionChild: true, exitWithParent: true}, true},
 		{"test harness", appFlags{testMode: true}, true},
-		{"desktop app's server", appFlags{exitWithParent: true}, true},
-		{"dev", appFlags{dev: true}, true},
-		{"assets from disk", appFlags{assetsFromDisk: true}, true},
-		{"standalone", appFlags{standalone: true}, true},
+		{"exit with parent alone", appFlags{exitWithParent: true}, false},
+		{"dev", appFlags{dev: true}, false},
+		{"assets from disk", appFlags{assetsFromDisk: true}, false},
 	} {
 		if got := c.flags.standaloneLaunch(); got != c.want {
 			t.Errorf("%s: standaloneLaunch() = %v, want %v", c.name, got, c.want)
@@ -35,22 +35,20 @@ func TestOnlyMarkedLaunchesServeOneProjectInProcess(t *testing.T) {
 	}
 }
 
-// TestRetiredFlagsAreRefusedWithAReason: the per-project exposure flags and
-// --kill-existing are refused on every launch, saying why; --window only on a
-// bare launch, since the test harness still opens its debug lane with it. A
-// launch with none of them is refused nothing.
-func TestRetiredFlagsAreRefusedWithAReason(t *testing.T) {
+// TestWindowIsRefusedOnABareLaunch: --window is refused on a bare launch,
+// saying why, since bare juggler has no server of its own to open a window on,
+// and on a session child, whose windows are the desktop app's to open; the test
+// harness still opens its debug lane with it. A launch without it is refused
+// nothing.
+func TestWindowIsRefusedOnABareLaunch(t *testing.T) {
 	for _, c := range []struct {
 		name  string
 		flags appFlags
 		want  string // "" is not refused
 	}{
 		{"nothing retired", appFlags{project: "/p", projectSet: true}, ""},
-		{"--public", appFlags{retired: []string{"public"}}, "--public"},
-		{"--public, standalone", appFlags{retired: []string{"public"}, standalone: true}, "--public"},
-		{"a WAN flag", appFlags{retired: []string{"p2p"}}, "--p2p"},
-		{"--kill-existing", appFlags{retired: []string{"kill-existing"}}, "--kill-existing"},
 		{"--window, bare", appFlags{window: true}, "--window"},
+		{"--window, session child", appFlags{window: true, sessionChild: true}, "--window"},
 		{"--window, test harness", appFlags{window: true, testMode: true}, ""},
 	} {
 		got := c.flags.refusal()

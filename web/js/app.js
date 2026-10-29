@@ -587,9 +587,7 @@ class JugglerApp {
     setupHeaderControls(session);
 
     // Name the native OS window after the session's project so the macOS
-    // "Window" menu and the Windows/Linux taskbar can tell windows apart
-    // (project switches reload the page, so session:loaded carries the
-    // current path each time).
+    // "Window" menu and the Windows/Linux taskbar can tell windows apart.
     const syncWindowTitle = () => updateWindowTitle(session.projectPath || '');
     // The native host's menus and dialogs follow this page's language.
     reportUILocale();
@@ -606,14 +604,7 @@ class JugglerApp {
     });
     syncWindowTitle();
 
-    // Wire the no-project overlay to the session so it can show/hide
-    // based on whether a project is loaded.
-    const overlay = /** @type {SessionAwareElement|null} */ (document.querySelector('no-project-overlay'));
-    if (overlay && typeof overlay.setSession === 'function') {
-      overlay.setSession(session);
-    }
-
-    // Its counterpart for a loaded project whose last conversation was binned.
+    // The empty state of a project whose last conversation was binned.
     const noConversations = /** @type {SessionAwareElement|null} */ (document.querySelector('no-conversations-overlay'));
     if (noConversations && typeof noConversations.setSession === 'function') {
       noConversations.setSession(session);

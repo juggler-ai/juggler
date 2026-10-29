@@ -10,10 +10,9 @@
  * happened or what to do. Two things now fill that state, and both must hold:
  *
  *   1. <no-conversations-overlay> shows only when a project is loaded AND no
- *      conversation is open — never in the no-project state, which
- *      <no-project-overlay> owns, or the two would stack. It hides the tab
- *      column (via `body.no-conversations`) but NOT the sidebar, which holds
- *      the button it points at.
+ *      conversation is open. It hides the tab column (via
+ *      `body.no-conversations`) but NOT the sidebar, which holds the button
+ *      it points at.
  *   2. The conversation bar's "+" always carries its name, is emphasised
  *      only while the list is empty, and is laid out as a row of the list —
  *      as is "New workspace or group", and both shorten rather than wrap in a
@@ -121,13 +120,11 @@ export async function runTests() {
     assert(overlay.hidden === false, 'binning the last conversation did not bring the overlay back');
     passed++;
 
-    // --- 4: never in the no-project state -----------------------------------
-    // Both overlays key off an empty conversation map; only the project path
-    // tells them apart. Showing both would stack two logos in one panel.
+    // --- 4: never with no project loaded -------------------------------------
+    // An empty conversation map with no project says nothing about binning.
     const noProject = createStubSession('', []);
     overlay.setSession(noProject);
-    assert(overlay.hidden === true,
-      'the overlay showed with no project loaded, where <no-project-overlay> belongs');
+    assert(overlay.hidden === true, 'the overlay showed with no project loaded');
     assert(!document.body.classList.contains('no-conversations'),
       'body.no-conversations was left set in the no-project state');
     passed++;

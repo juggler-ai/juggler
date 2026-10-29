@@ -24,9 +24,8 @@ import { externalServerHost } from './project-open-mode.js';
  * Derive the window title from the session's project path: the app name plus
  * the project's own directory name. Only the last path component is used —
  * taskbars and window menus have little room and truncate from the end, so a
- * full path would clip away the one part that tells two windows apart. A window
- * with no project yet (freshly opened, still at the picker) gets a placeholder
- * so its entry stays meaningful. A window on a server the app did not start
+ * full path would clip away the one part that tells two windows apart. With no
+ * project it gets a placeholder so its entry stays meaningful. A window on a server the app did not start
  * adds that server's host after the name, so a remote window never reads like a
  * local one of the same project.
  * @param {string} projectPath - Absolute project path, or '' when none is set.
@@ -47,21 +46,15 @@ export function windowTitleForProject(projectPath, serverHost = '') {
 }
 
 /**
- * Push the current project to the native window host: its title (which names
- * the window in the macOS "Window" menu and in the Windows/Linux taskbar and
- * window switcher) and — crucially — the raw project path, which is the
- * window's persistent identity. Projects are chosen in-page (the picker
- * switches the server's project), so the host process only learns which project
- * a window actually views from this report; it keys per-window geometry and the
- * restore set on it. One-way and best-effort: only native windows (window-mode)
- * have a host to report to; everything else skips the call.
+ * Title the native window after the project it views — the title names the
+ * window in the macOS "Window" menu and in the Windows/Linux taskbar and window
+ * switcher. One-way and best-effort: only native windows (window-mode) have a
+ * host to report to; everything else skips the call.
  * @param {string} projectPath - Absolute project path, or '' when none is set.
  * @returns {void}
  */
 export function updateWindowTitle(projectPath) {
   if (!isDesktopWindow()) return;
   const title = windowTitleForProject(projectPath, externalServerHost());
-  const query = '?title=' + encodeURIComponent(title)
-    + '&project=' + encodeURIComponent(projectPath || '');
-  postWindowControl('title', query);
+  postWindowControl('title', '?title=' + encodeURIComponent(title));
 }

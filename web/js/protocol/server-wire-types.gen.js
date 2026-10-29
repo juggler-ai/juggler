@@ -8,24 +8,9 @@
 /* eslint-disable jsdoc/require-property-description -- a property's description is its Go field's comment, and not every field has one */
 
 /**
- * @typedef {object} DataChannelChunkFrame
- * @property {'__juggler_dc_chunk'} type
- * @property {string} id
- * @property {number} index
- * @property {number} total
- * @property {string} data
- */
-
-/**
  * @typedef {object} FileChangeFrame
  * @property {'file-change'} type
  * @property {FileChange[]} changes
- */
-
-/**
- * @typedef {object} ProjectChangedFrame
- * @property {'project-changed'} type
- * @property {string} projectPath
  */
 
 /**
@@ -386,6 +371,7 @@
  * @property {string} [ownerViewerId]
  * @property {string} origin
  * @property {string} detail
+ * @property {string} [name]
  * @property {string} userAgent
  * @property {number} connectedAt
  */

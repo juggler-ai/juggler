@@ -5,32 +5,41 @@
 package app
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/server"
+	"juggler/internal/apipaths"
 )
 
 // `juggler run "<prompt>"` — one prompt, unattended, exiting with a status.
 //
-// It is the same server every other launch boots. What differs is that nobody
-// is watching it: there is no window, no keyboard, and nothing to answer a
-// question with. So the run configures the conversation so that nothing needs
-// answering (see engine-one-shot.js), and everything that could still wait
-// forever is bounded here instead — the engine connecting, the turn finishing,
-// and the process exiting once it has.
+// The run is a client. It spawns a session child for its project — the
+// per-project server a machine server spawns, but its own and shared with
+// nobody — asks it over POST /api/one-shot to carry the prompt out, stops it,
+// and reports. Nothing it starts outlives it: the child is stopped before the
+// run exits, and dies with it (--exit-with-parent) if the run is killed.
+//
+// Nobody is watching: there is no window, no keyboard, and nothing to answer a
+// question with. So the child configures the conversation so that nothing
+// needs answering (see engine-one-shot.js), and the deadline is this side's.
 //
 // stdout carries the answer and nothing else, so a caller can pipe it. Every
-// other word, including the address line the server normally prints there, goes
-// to stderr.
+// other word goes to stderr.
 
 // Exit codes. A caller needs to tell these apart without reading prose, because
 // the difference between "the model answered and was wrong" and "something
@@ -38,7 +47,7 @@ import (
 const (
 	// exitRunCompleted: the turn ran to its end.
 	exitRunCompleted = 0
-	// exitRunFailed: the turn errored, or never started.
+	// exitRunFailed: the turn errored, never started, or was interrupted.
 	exitRunFailed = 1
 	// exitRunUsage: the command line was wrong. Matches `juggler serve`.
 	exitRunUsage = 2
@@ -46,12 +55,22 @@ const (
 	exitRunParked = 3
 	// exitRunTimeout: the run outlived its deadline and was abandoned.
 	exitRunTimeout = 4
+	// exitRunForced: a second Ctrl-C, which exits without waiting for the
+	// child to stop (it follows, as its parent has gone).
+	exitRunForced = 130
 )
 
 // defaultRunTimeout bounds a run that names no deadline of its own. Long enough
 // for real work on a real repository; short enough that a wedged run in a
 // container is not still there tomorrow.
 const defaultRunTimeout = 30 * time.Minute
+
+// Why a run stopped before the child answered, as the causes of its context.
+var (
+	errRunInterrupted = errors.New("the run was interrupted")
+	errRunTimedOut    = errors.New("the run timed out")
+	errChildGone      = errors.New("the run's session stopped before the run finished")
+)
 
 // oneShotOptions is a parsed `juggler run` invocation.
 type oneShotOptions struct {
@@ -109,17 +128,16 @@ func parseOneShotFlags(args []string) (*oneShotOptions, int) {
 		return nil, exitRunUsage
 	}
 
-	// A run with no --project means "here". Resolved to an explicit path rather
-	// than left to the ordinary startup default, which asks whether there is a
-	// terminal attached — and for an unattended run there is not.
+	// A run with no --project means "here". Absolute either way, since the
+	// child it spawns is told the folder by path.
 	dir := *project
 	if dir == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Couldn't work out which folder to run in: %v\n", err)
-			return nil, exitRunUsage
-		}
-		dir = wd
+		dir = "."
+	}
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Couldn't work out which folder to run in: %v\n", err)
+		return nil, exitRunUsage
 	}
 
 	return &oneShotOptions{
@@ -132,101 +150,170 @@ func parseOneShotFlags(args []string) (*oneShotOptions, int) {
 	}, exitRunCompleted
 }
 
-// startupOut is where startup chatter goes. A run's stdout carries its answer
-// and nothing else, so that everything a caller pipes came from the model —
-// which puts the address line and the progress notes on stderr, still said, just
-// not in the middle of the answer.
-func (a *App) startupOut() io.Writer {
-	if a.flags.oneShot != nil {
-		return os.Stderr
-	}
-	return os.Stdout
-}
-
-// appFlags builds the launch these options describe: headless, in the resolved
-// project, with the run itself carried on the flags so the phase list picks it
-// up.
-func (o *oneShotOptions) appFlags(hasTerminal bool) appFlags {
-	return appFlags{
-		project:     o.project,
-		projectSet:  true,
-		hasTerminal: hasTerminal,
-		oneShot:     o,
-	}
-}
-
-// startOneShot is the startup phase that drives the run. It returns at once:
-// the run happens on its own goroutine, so the app reaches its wait loop and
-// the engine host it boots there is the thing the run is waiting for.
-func (a *App) startOneShot() error {
-	opts := a.flags.oneShot
+// runOneShot is `juggler run`; args are the words after `run`. It returns the
+// process exit code.
+func runOneShot(args []string) int {
+	opts, code := parseOneShotFlags(args)
 	if opts == nil {
-		return nil
+		return code
 	}
-	go func() {
-		code, result := a.awaitOneShot(opts)
-		a.reportOneShot(opts, code, result)
-		a.exitCode.Store(int32(code))
-		// Exit through the server's own shutdown request, so this unwinds by the
-		// same path as every other exit — which is what shuts the server down,
-		// closes the conversations and reaps the provider subprocesses.
-		a.server.RequestShutdown()
-	}()
-	return nil
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+	return runOneShotWith(opts, sigs, os.Stdout, os.Stderr)
 }
 
-// awaitOneShot dispatches the run and waits for it, and owns every deadline in
-// the process. Returns the exit code and whatever the engine managed to report.
-func (a *App) awaitOneShot(opts *oneShotOptions) (int, server.OneShotResult) {
+// runOneShotWith spawns the run's session child, runs the prompt on it, stops
+// it, and reports. The first signal interrupts the run, which still stops the
+// child and reports; a second exits at once.
+func runOneShotWith(opts *oneShotOptions, sigs <-chan os.Signal, stdout, stderr io.Writer) int {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	finished := make(chan struct{})
+	defer close(finished)
+	go func() {
+		select {
+		case <-sigs:
+		case <-finished:
+			return
+		}
+		cancel(errRunInterrupted)
+		select {
+		case <-sigs:
+			fmt.Fprintln(stderr, "Interrupted again: exiting without waiting for the run's session to stop.")
+			os.Exit(exitRunForced)
+		case <-finished:
+		}
+	}()
+
+	child, err := machineserver.SpawnSessionChild(ctx, opts.project, "--exit-with-parent")
+	if err != nil {
+		why := spawnFailure(opts.project, err)
+		if cause := context.Cause(ctx); cause != nil {
+			why = cause.Error()
+		}
+		result := server.OneShotResult{Status: server.OneShotFailed, ErrorText: why}
+		reportOneShot(stdout, stderr, opts, exitRunFailed, result)
+		return exitRunFailed
+	}
+
+	runCtx, stopRun := context.WithCancelCause(ctx)
+	go func() {
+		select {
+		case <-child.Exited():
+			stopRun(errChildGone)
+		case <-runCtx.Done():
+		}
+	}()
+	code, result := runAgainstChild(runCtx, child.Addr(), child.Token(), opts)
+	stopRun(nil)
+	// Stopped before the report, so the conversation it names has been saved.
+	child.Stop()
+	reportOneShot(stdout, stderr, opts, code, result)
+	return code
+}
+
+// runAgainstChild asks the session child at addr to run opts' prompt, and
+// waits for its answer until ctx ends or the run's own deadline passes. Leaving
+// lets go of the request, which is what tells the child to give the run up. It
+// returns the exit code and whatever the child reported.
+func runAgainstChild(ctx context.Context, addr, token string, opts *oneShotOptions) (int, server.OneShotResult) {
 	failed := func(format string, args ...any) (int, server.OneShotResult) {
 		return exitRunFailed, server.OneShotResult{Status: server.OneShotFailed, ErrorText: fmt.Sprintf(format, args...)}
 	}
-
-	if a.projectPath == "" {
-		return failed("there is no project to run in")
+	// Why the wait ended early, when it did: the deadline, Ctrl-C, or the child.
+	stopped := func(ctx context.Context, err error) (int, server.OneShotResult) {
+		switch cause := context.Cause(ctx); {
+		case errors.Is(cause, errRunTimedOut):
+			return exitRunTimeout, server.OneShotResult{
+				Status:    server.OneShotTimedOut,
+				ErrorText: fmt.Sprintf("the run did not finish within %v", opts.timeout),
+			}
+		case cause != nil:
+			return failed("%v", cause)
+		default:
+			return failed("couldn't reach the run's session: %v", err)
+		}
 	}
-	if !a.server.WaitForEngineConnected(engineConnectTimeout) {
-		return failed("the engine did not start within %v, so there is nothing to run the prompt", engineConnectTimeout)
-	}
 
-	replies, err := a.server.StartOneShot(server.OneShotRequest{
+	ctx, cancel := context.WithTimeoutCause(ctx, opts.timeout, errRunTimedOut)
+	defer cancel()
+	body, err := json.Marshal(server.OneShotRequest{
 		Prompt:     opts.prompt,
 		StrategyID: opts.strategy,
 		Name:       opts.name,
-		Timeout:    opts.timeout,
+		TimeoutMs:  opts.timeout.Milliseconds(),
 	})
 	if err != nil {
 		return failed("%v", err)
 	}
-
-	select {
-	case result := <-replies:
-		switch result.Status {
-		case server.OneShotCompleted:
-			return exitRunCompleted, result
-		case server.OneShotParked:
-			return exitRunParked, result
-		default:
-			return exitRunFailed, result
-		}
-	case <-time.After(opts.timeout):
-		a.server.CancelOneShot()
-		return exitRunTimeout, server.OneShotResult{
-			Status:    "timeout",
-			ErrorText: fmt.Sprintf("the run did not finish within %v", opts.timeout),
-		}
-	case <-a.server.ShutdownChan():
-		a.server.CancelOneShot()
-		return failed("the server shut down before the run finished")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+apipaths.OneShot, bytes.NewReader(body))
+	if err != nil {
+		return failed("%v", err)
 	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Juggler-Token", token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return stopped(ctx, err)
+	}
+	defer resp.Body.Close()
+	answer, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return stopped(ctx, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		var refusal struct {
+			Error string `json:"error"`
+		}
+		why := strings.TrimSpace(string(answer))
+		if json.Unmarshal(answer, &refusal) == nil && refusal.Error != "" {
+			why = refusal.Error
+		}
+		return failed("the run's session refused it (%d): %s", resp.StatusCode, why)
+	}
+	var result server.OneShotResult
+	if err := json.Unmarshal(answer, &result); err != nil {
+		return failed("the run's session answered something unreadable: %v", err)
+	}
+	switch result.Status {
+	case server.OneShotCompleted:
+		return exitRunCompleted, result
+	case server.OneShotParked:
+		return exitRunParked, result
+	case server.OneShotFailed:
+		return exitRunFailed, result
+	default:
+		// A status this side does not know — the timeout among them, which is
+		// this side's to report — is a failure, reported as one, so the status
+		// and the exit code still agree.
+		if result.ErrorText == "" {
+			result.ErrorText = fmt.Sprintf("the run's session answered with status %q", result.Status)
+		} else {
+			result.ErrorText = fmt.Sprintf("the run's session answered with status %q: %s", result.Status, result.ErrorText)
+		}
+		result.Status = server.OneShotFailed
+		return exitRunFailed, result
+	}
+}
+
+// spawnFailure explains a session child that could not be started for
+// project. The usual reason is a project already open in a session elsewhere,
+// whose lock the child cannot take; that is said in those words rather than as
+// a pointer to the child's crash log.
+func spawnFailure(project string, err error) string {
+	if locked, _, lockErr := core.CheckProjectLocked(project); lockErr == nil && locked {
+		return fmt.Sprintf("%s is open in another Juggler session, so this run can't use it; close it there, or wait for it to finish, then run again", project)
+	}
+	return err.Error()
 }
 
 // reportOneShot writes the outcome: the answer on stdout, the account of it on
 // stderr. Where the conversation ended up is on stderr too, and on every exit
 // path — a run that failed or timed out is the one whose trajectory somebody
 // wants to read.
-func (a *App) reportOneShot(opts *oneShotOptions, code int, result server.OneShotResult) {
-	dir := a.conversationDir(opts.name, result.ConversationID)
+func reportOneShot(stdout, stderr io.Writer, opts *oneShotOptions, code int, result server.OneShotResult) {
+	dir := conversationDir(opts.project, opts.name, result.ConversationID)
 
 	if opts.asJSON {
 		payload := map[string]any{
@@ -241,31 +328,31 @@ func (a *App) reportOneShot(opts *oneShotOptions, code int, result server.OneSho
 		}
 		encoded, err := json.MarshalIndent(payload, "", "  ")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Couldn't render the outcome as JSON: %v\n", err)
+			fmt.Fprintf(stderr, "Couldn't render the outcome as JSON: %v\n", err)
 			return
 		}
-		fmt.Println(string(encoded))
+		fmt.Fprintln(stdout, string(encoded))
 		return
 	}
 
 	if result.FinalText != "" {
-		fmt.Println(result.FinalText)
+		fmt.Fprintln(stdout, result.FinalText)
 	}
 	switch code {
 	case exitRunCompleted:
 	case exitRunParked:
 		if result.ParkedTool != "" {
-			fmt.Fprintf(os.Stderr, "Stopped: %s wanted an answer, and there is nobody here to give one.\n", result.ParkedTool)
+			fmt.Fprintf(stderr, "Stopped: %s wanted an answer, and there is nobody here to give one.\n", result.ParkedTool)
 		} else {
-			fmt.Fprintln(os.Stderr, "Stopped: a tool wanted an answer, and there is nobody here to give one.")
+			fmt.Fprintln(stderr, "Stopped: a tool wanted an answer, and there is nobody here to give one.")
 		}
 	case exitRunTimeout:
-		fmt.Fprintf(os.Stderr, "%s\n", capitalise(result.ErrorText))
+		fmt.Fprintf(stderr, "%s\n", capitalise(result.ErrorText))
 	default:
-		fmt.Fprintf(os.Stderr, "Couldn't finish the run: %s\n", result.ErrorText)
+		fmt.Fprintf(stderr, "Couldn't finish the run: %s\n", result.ErrorText)
 	}
 	if dir != "" && code != exitRunCompleted {
-		fmt.Fprintf(os.Stderr, "The conversation is in %s\n", dir)
+		fmt.Fprintf(stderr, "The conversation is in %s\n", dir)
 	}
 }
 
@@ -273,8 +360,8 @@ func (a *App) reportOneShot(opts *oneShotOptions, code int, result server.OneSho
 // transaction blobs — the only record of what actually went to the model — can
 // be read. The id is the exact answer when the engine got far enough to report
 // one; the name is the fallback, which is why each run's name is unique.
-func (a *App) conversationDir(name, id string) string {
-	index, err := core.ScanConvDirs(filepath.Join(a.projectPath, ".juggler"))
+func conversationDir(project, name, id string) string {
+	index, err := core.ScanConvDirs(filepath.Join(project, ".juggler"))
 	if err != nil {
 		return ""
 	}

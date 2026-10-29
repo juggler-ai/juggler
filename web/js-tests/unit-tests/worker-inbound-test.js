@@ -184,15 +184,15 @@ function wsChunkFrames(id, text, total) {
 
 /**
  * Split a text message into the `__juggler_dc_chunk` envelopes a DataChannel
- * carries it as.
+ * carries it as, each as the raw frame text the server marshals (`type` first).
  * @param {string} id - The run id
  * @param {string} text - The message
  * @param {number} total - How many envelopes
- * @returns {Array<{type: string, id: string, index: number, total: number, data: string}>} The envelopes
+ * @returns {string[]} The frames
  */
 function dcChunkFrames(id, text, total) {
   const size = Math.ceil(text.length / total);
-  return Array.from({ length: total }, (_, index) => ({
+  return Array.from({ length: total }, (_, index) => JSON.stringify({
     type: '__juggler_dc_chunk', id, index, total, data: text.slice(index * size, (index + 1) * size)
   }));
 }
@@ -445,8 +445,11 @@ export async function runTests(_ctx) {
     // Silent for its whole window: it fails, and says so.
     timers.length = 0;
     wm._lastHeardAt.delete(conv);
-    const startedAt = Date.now();
     const silent = capturing(() => wm.sendWithAck(conv, { type: 'redo' }, 1));
+    // Measured from after the call, which is no earlier than the window's own
+    // start inside it: from before, a stall between the two leaves the window
+    // unspent when the captured check runs, and it re-arms into `timers`.
+    const startedAt = Date.now();
     await waitFor(() => Date.now() - startedAt >= 2, 'the silent request\'s 1ms window to pass');
     capturing(() => /** @type {() => void} */ (timers.shift())());
     const err = await soon(silent.then(() => null, (/** @type {Error} */ e) => e), 'the silent request');
@@ -511,8 +514,8 @@ export async function runTests(_ctx) {
       const arrivals = [
         [40_000, () => wsService._handleBinaryMessage(ws[0])],
         [80_000, () => wsService._handleBinaryMessage(ws[1])],
-        [120_000, () => wsService._handleTransportChunk(dc[0])],
-        [160_000, () => wsService._handleTransportChunk(dc[1])],
+        [120_000, () => wsService._observeStudioFrame(dc[0])],
+        [160_000, () => wsService._observeStudioFrame(dc[1])],
         [210_000, () => wm._handleWorkerMessage(conv, { type: 'debug-sync-progress' })],
       ];
       for (const [at, arrive] of arrivals) {
@@ -526,10 +529,21 @@ export async function runTests(_ctx) {
       assert(outcome === 'pending', `the wait must still be open 50s after the worker last spoke; got ${outcome}`);
       clock.run(() => wm.markReady(conv, { created: '2026-10-29T00:00:00Z' }));
       await soon(spawning, 'the spawn whose ready arrived');
-      // Finish both runs, so neither is left part-way in the shared service.
+      // Finish the WebSocket run, so it is not left part-way in the shared
+      // service's reassembler; studio frames are only counted, never held.
       wsService._handleBinaryMessage(ws[2]);
-      wsService._handleTransportChunk(dc[2]);
     });
+  });
+
+  // A binary message crosses a studio link as binary pieces ("JDB1", in
+  // cmd/juggler/tunnel/peer/chunk.go), each one progress like a chunk envelope.
+  await run('a studio link\'s binary pieces are chunk progress, as its chunk envelopes are', async () => {
+    const before = wsService.receiveProgress.chunks;
+    wsService._observeStudioFrame(new ArrayBuffer(16 + 8));
+    assert(wsService.receiveProgress.chunks === before + 1,
+      `a binary piece must count as a chunk frame; ${wsService.receiveProgress.chunks - before} counted`);
+    wsService._observeStudioFrame(IGNORED_MESSAGE);
+    assert(wsService.receiveProgress.chunks === before + 1, 'a whole text frame is not a chunk frame');
   });
 
   await run('a starting worker\'s link silent for the ready timeout fails the spawn, saying what it waited and received', async () => {

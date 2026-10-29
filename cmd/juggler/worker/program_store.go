@@ -36,7 +36,7 @@ var ErrBadProgramKey = errors.New("program store: invalid tool-use id")
 var ErrProgramTooLarge = errors.New("program store: snapshot too large")
 
 // ErrUnknownConversation is returned for a conversation the path provider does
-// not know: deleted, binned, or no project loaded.
+// not know: deleted or binned.
 var ErrUnknownConversation = errors.New("program store: unknown conversation")
 
 // programKeyRe is the path guard: a tool-use id is used as a file name only if

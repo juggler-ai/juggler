@@ -183,14 +183,27 @@ function prefersReducedMotion() {
  * Hiding them keeps that churn out of the accessibility tree entirely, so the
  * only thing assistive tech ever sees is the host's fixed "Loading" label — a
  * cascade that grows to seven clubs and back announces nothing.
- * @param {number} index - Slot index, 0-based.
- * @param {number} count - Total clubs in the cascade.
+ *
+ * The markup carries no slot: {@link placeClub} sets it.
  * @returns {string} HTML for one pivot/orbit/club triple.
  */
-function clubHTML(index, count) {
-  const angle = (360 / count) * index;
-  return `<span class="spinner-pivot" aria-hidden="true" style="--spinner-angle: ${angle.toFixed(3)}deg; --spinner-phase: ${index}">`
+function clubHTML() {
+  return '<span class="spinner-pivot" aria-hidden="true">'
         + `<span class="spinner-orbit"><span class="spinner-club">${CLUB_SVG_HTML}</span></span></span>`;
+}
+
+/**
+ * Put a club's pivot in its slot on the orbit. Through the CSSOM, never a
+ * style attribute in markup: a page whose CSP forbids inline styles (the
+ * machine server's sessions page) drops a parsed style attribute, and every
+ * club would sit in slot 0.
+ * @param {HTMLElement} pivot - The club's .spinner-pivot.
+ * @param {number} index - Slot index, 0-based.
+ * @param {number} count - Total clubs in the cascade.
+ */
+function placeClub(pivot, index, count) {
+  pivot.style.setProperty('--spinner-angle', `${((360 / count) * index).toFixed(3)}deg`);
+  pivot.style.setProperty('--spinner-phase', String(index));
 }
 
 class JugglerSpinner extends JugglerElement {
@@ -460,7 +473,7 @@ class JugglerSpinner extends JugglerElement {
 
     /** @type {Element[]} */ const added = [];
     for (let i = survivors.length; i < count; i++) {
-      this.insertAdjacentHTML('beforeend', clubHTML(i, count));
+      this.insertAdjacentHTML('beforeend', clubHTML());
       const el = this.lastElementChild;
       if (!el) continue;
       el.classList.add('spinner-faded');
@@ -471,11 +484,7 @@ class JugglerSpinner extends JugglerElement {
     // the flip's delay calc, and _syncPhase below forces a style recalc — so a
     // sync done first would read the phases of the old spacing.
     this.style.setProperty('--spinner-n', String(count));
-    survivors.concat(added).forEach((pivot, i) => {
-      const el = /** @type {HTMLElement} */ (pivot);
-      el.style.setProperty('--spinner-angle', `${((360 / count) * i).toFixed(3)}deg`);
-      el.style.setProperty('--spinner-phase', String(i));
-    });
+    survivors.concat(added).forEach((pivot, i) => placeClub(/** @type {HTMLElement} */ (pivot), i, count));
 
     // The survivors' flip delays have just changed with --spinner-n, which shifts
     // each flip a fraction of a turn in one frame. That shift is deliberate and
@@ -747,9 +756,8 @@ class JugglerSpinner extends JugglerElement {
   _renderClubs(count) {
     this._invalidateAnimations();
     this.style.setProperty('--spinner-n', String(count));
-    let html = '';
-    for (let i = 0; i < count; i++) html += clubHTML(i, count);
-    this.innerHTML = html;
+    this.innerHTML = clubHTML().repeat(count);
+    Array.from(this.children).forEach((pivot, i) => placeClub(/** @type {HTMLElement} */ (pivot), i, count));
   }
 
   disconnectedCallback() {

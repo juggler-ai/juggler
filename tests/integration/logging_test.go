@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"juggler/internal/ingress"
 	"juggler/internal/logpaths"
 	"juggler/internal/srcroot"
 	"juggler/tests/helpers"
@@ -83,16 +84,16 @@ type headlessServer struct {
 	cmd *exec.Cmd
 }
 
-// startHeadlessServer spawns `juggler --standalone --window=false --port 0
-// --project <proj> --log-file <logFile>` — one project's server in its own
-// process — and returns once it prints JUGGLER_ADDR (its deterministic "bound
+// startHeadlessServer spawns `juggler --session-child --port 0 --project
+// <proj> --log-file <logFile>` — one project's server in its own process, as
+// the machine server spawns it — and returns once it prints JUGGLER_ADDR (its deterministic "bound
 // and serving" signal — the same channel the desktop app reads on spawn).
 func startHeadlessServer(t *testing.T, binary, proj, logFile string) *headlessServer {
 	t.Helper()
 	cmd := exec.Command(binary,
-		"--standalone", "--window=false", "--port", "0",
+		"--session-child", "--port", "0",
 		"--project", proj, "--log-file", logFile)
-	cmd.Env = os.Environ()
+	cmd.Env = sessionChildEnv(os.Environ())
 	helpers.SetProcGroupAttr(cmd)
 
 	stdout, err := cmd.StdoutPipe()
@@ -182,4 +183,11 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// sessionChildEnv is env with the ingress secret and API token a session child
+// refuses to start without, as its spawner hands them over.
+func sessionChildEnv(env []string) []string {
+	env = helpers.EnvWithOverride(env, ingress.SecretEnv, ingress.NewSecret())
+	return helpers.EnvWithOverride(env, ingress.TokenEnv, ingress.NewSecret())
 }

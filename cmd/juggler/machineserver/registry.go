@@ -74,6 +74,19 @@ type sessionEntry struct {
 	// that state or the registry (see setState) — what an open that waits for a
 	// spawn in flight blocks on.
 	started chan struct{}
+	// viewers belongs to the registry actor; unviewedSince is when the last
+	// viewer left, or an open renewed the session's grace.
+	viewers       int
+	unviewedSince time.Time
+	// stopped closes only after teardown has finished and the entry leaves.
+	stopped chan struct{}
+	// retiring is open while the child is asked whether to retire, and closes
+	// once it has answered or exited (see retireUnviewed).
+	retiring chan struct{}
+	// retireTaken marks a decision an explicit stop has taken over
+	// (takeRetirement): whatever the child answers, the stop removes the
+	// session.
+	retireTaken bool
 }
 
 // setState moves the entry to st, opening started as it enters starting and
@@ -81,6 +94,9 @@ type sessionEntry struct {
 func (e *sessionEntry) setState(st SessionState) {
 	if st == SessionStarting && e.started == nil {
 		e.started = make(chan struct{})
+	}
+	if st == SessionStopping && e.stopped == nil {
+		e.stopped = make(chan struct{})
 	}
 	e.State = st
 	if st != SessionStarting {
@@ -124,6 +140,11 @@ func (e *sessionEntry) end() {
 		e.cancel()
 	}
 	e.closeStarted()
+	e.closeRetiring()
+	if e.stopped != nil {
+		close(e.stopped)
+		e.stopped = nil
+	}
 }
 
 // registry is the actor owning the session table. All access is serialized
@@ -229,6 +250,9 @@ func (r *registry) open(parent context.Context, project string, work *sync.WaitG
 				delete(m, key)
 				continue
 			}
+			if e.viewers == 0 {
+				e.unviewedSince = time.Now()
+			}
 			s = e.Session
 			return
 		}
@@ -237,7 +261,7 @@ func (r *registry) open(parent context.Context, project string, work *sync.WaitG
 			ID:        id,
 			Project:   project,
 			StartedAt: time.Now(),
-		}, cancel: cancel, done: make(chan struct{})}
+		}, cancel: cancel, done: make(chan struct{}), unviewedSince: time.Now()}
 		e.setState(SessionStarting)
 		m[id] = e
 		work.Add(1)
@@ -262,6 +286,9 @@ func (r *registry) setRunning(id string, c *child, pid int) bool {
 		e.Addr = c.addr
 		e.PID = pid
 		e.child = c
+		if e.viewers == 0 {
+			e.unviewedSince = time.Now()
+		}
 		ok = true
 	})
 	return ok
@@ -305,7 +332,9 @@ func (r *registry) cancelPending(id string) (done <-chan struct{}, ok bool) {
 		}
 		e.setState(SessionStopping)
 		e.NextRestartAt = nil
-		e.end()
+		if e.cancel != nil {
+			e.cancel()
+		}
 		done, ok = e.done, true
 	})
 	return done, ok

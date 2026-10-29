@@ -17,8 +17,7 @@ import (
 // pageServingHandlers serve pages and static assets, which handlers/doc.go
 // keeps in package server whatever they read.
 var pageServingHandlers = map[string]string{
-	"serveTestPool":      "the browser-test pool's host page",
-	"handleWailsRuntime": "the embedded @wailsio/runtime bundle",
+	"serveTestPool": "the browser-test pool's host page",
 }
 
 // TestServerHandlersReadServerState is the structural guard on the placement

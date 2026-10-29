@@ -34,7 +34,6 @@ import (
 	"juggler/cmd/juggler/providers/customprovider"
 	"juggler/cmd/juggler/providers/streamidle"
 	"juggler/internal/enginehost"
-	"juggler/internal/ingress"
 	"juggler/internal/srcroot"
 	"juggler/internal/webviewenv"
 	"juggler/web"
@@ -78,38 +77,35 @@ func Run(cfg Config) int {
 	// `juggler serve` runs the machine server: a project-less supervisor that
 	// spawns per-project session children and proxies clients to them. It has
 	// its own small flag set and must not boot the engine/webview path, so
-	// dispatch it before flag parsing like the other subcommands.
+	// dispatch it before flag parsing like the other subcommands. A server the
+	// desktop app starts inherits a GUI launch's stripped PATH, and its tunnels
+	// and session children look tools up on it (cloudflared), so it repairs
+	// PATH as a GUI launch does.
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
-		return machineserver.RunCommand(os.Args[2:])
+		repairPathForServe()
+		var notes []string
+		if pathRepairReport != "" {
+			notes = append(notes, "[path] "+pathRepairReport)
+		}
+		return machineserver.RunCommand(os.Args[2:], web.Files, machinePeer(), notes...)
 	}
 
 	// `juggler server status|sessions|stop` and `juggler open <project>` are
 	// clients of the machine server: they find it through server.json and
-	// drive its control API. Only open starts one when none is running — this
-	// binary's `serve --implicit`, detached — and neither boots a server in
-	// this process.
+	// drive its control API. Neither starts a server.
 	if len(os.Args) > 1 && (os.Args[1] == "server" || os.Args[1] == "open") {
 		env := machineserver.CLIEnv{Stdout: os.Stdout, Stderr: os.Stderr, OpenBrowser: openInBrowser}
 		if os.Args[1] == "server" {
 			return machineserver.RunServerCommand(os.Args[2:], env)
 		}
-		if exe, err := os.Executable(); err == nil {
-			env.Start = machineserver.DetachedStarter(exe)
-		}
 		return machineserver.RunOpenCommand(os.Args[2:], env)
 	}
 
 	// `juggler run "<prompt>"` runs one prompt to completion and exits with a
-	// status. Unlike the subcommands above it needs the whole server — the
-	// engine is what carries the run out — so it parses its own flags here and
-	// then falls through into the ordinary startup with them (see one_shot.go).
-	var oneShot *oneShotOptions
+	// status. It is a client too: it spawns a session child of its own for the
+	// project, runs the prompt there, and stops it (see one_shot.go).
 	if len(os.Args) > 1 && os.Args[1] == "run" {
-		opts, code := parseOneShotFlags(os.Args[2:])
-		if opts == nil {
-			return code
-		}
-		oneShot = opts
+		return runOneShot(os.Args[2:])
 	}
 
 	// Determine terminal-vs-icon launch first, before anything writes to stdout.
@@ -117,50 +113,64 @@ func Run(cfg Config) int {
 	// a side effect (see launchedFromTerminal), so this must run early.
 	hasTerminal := launchedFromTerminal()
 
+	// Every launch takes what a spawner hands a session child (the ingress
+	// secret, the API token, the machine server's address and control token)
+	// out of its environment before it spawns anything, so no process it starts
+	// — the login-shell probe below, node, a tool's shell — inherits them. Only
+	// a session child keeps them, and a re-exec of itself (Xvfb, the main-thread
+	// watchdog) hands them on explicitly (spawnerEnv.environ).
+	taken := takeSpawnerEnv()
+
+	flags, version := parseFlags(hasTerminal)
+	if version {
+		fmt.Printf("juggler %s (commit: %s, built: %s)\n",
+			core.Version, core.Commit, core.BuildDate)
+		return 0
+	}
+	if why := flags.refusal(); why != "" {
+		fmt.Fprintln(os.Stderr, why)
+		return 2
+	}
+	spawner, err := taken.keep(flags.sessionChild)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "juggler: %v\n", err)
+		return 2
+	}
+
 	// A GUI launch inherits a stripped PATH that omits everything the user's
 	// shell adds (Homebrew, version managers, ~/go/bin, ~/.local/bin, rustup,
 	// …). Repair PATH before any child process (bash tool, git, the claude CLI)
 	// is spawned so they resolve tools the same way a terminal launch would.
-	// No-op for a terminal launch and on Windows.
-	repairPathForGUILaunch(hasTerminal)
+	// No-op for a terminal launch and on Windows. A session child never has a
+	// terminal and never probes: it inherits its spawner's PATH, which a
+	// machine server repaired before spawning it (repairPathForServe) and a
+	// `juggler run` has from wherever it was run, and a probe would cost every
+	// session open a login shell's start-up.
+	if !flags.sessionChild {
+		repairPathForGUILaunch(hasTerminal)
+	}
 
-	var flags appFlags
-	if oneShot != nil {
-		flags = oneShot.appFlags(hasTerminal)
-	} else {
-		var version bool
-		flags, version = parseFlags(hasTerminal)
-		if version {
-			fmt.Printf("juggler %s (commit: %s, built: %s)\n",
-				core.Version, core.Commit, core.BuildDate)
-			return 0
-		}
-		if why := flags.refusal(); why != "" {
-			fmt.Fprintln(os.Stderr, why)
-			return 2
-		}
-		// Bare juggler rides the machine server; only a launch marked as more
-		// than that serves one project in this process (standaloneLaunch).
-		if !flags.standaloneLaunch() {
-			return runBare(flags)
-		}
+	// --assets-from-disk is a developer flag that serves the web/ tree off disk;
+	// a stock binary shipped on its own has no such tree. Fail fast and clearly
+	// here, before bare juggler hands it to a server's children, rather than
+	// deep inside server startup with a cryptic template error.
+	if flags.assetsFromDisk && !assetsFromDiskAvailable() {
+		fmt.Fprintln(os.Stderr, assetsFromDiskUnavailableMsg)
+		return 1
+	}
+	// Bare juggler rides the machine server; only a session child or the test
+	// harness serves one project in this process (standaloneLaunch).
+	if !flags.standaloneLaunch() {
+		return runBare(flags)
 	}
 
 	// When Node is unavailable, retain the established WebKit fallback: a
 	// headless Linux host can bring up the hidden engine webview under Xvfb. Node
 	// hosts skip this relaunch entirely so auto mode is not forced back onto GTK.
 	if runtime.GOOS != "linux" || os.Getenv(enginehost.EnvVar) == "webview" || !probeNode().OK {
-		if note := webviewenv.MaybeRelaunchUnderXvfb(); note != "" {
+		if note := webviewenv.MaybeRelaunchUnderXvfb(spawner.environ()...); note != "" {
 			fmt.Fprintln(os.Stderr, note)
 		}
-	}
-
-	// --assets-from-disk is a developer flag that serves the web/ tree off disk;
-	// a stock binary shipped on its own has no such tree. Fail fast and clearly
-	// here rather than deep inside server startup with a cryptic template error.
-	if flags.assetsFromDisk && !assetsFromDiskAvailable() {
-		fmt.Fprintln(os.Stderr, assetsFromDiskUnavailableMsg)
-		return 1
 	}
 
 	// Install the asset overlay before anything reads web.Files.
@@ -178,48 +188,28 @@ func Run(cfg Config) int {
 	}
 	registerProviders()
 
-	// Self-terminate if our parent dies, so a server spawned by juggler-app (or
-	// the test harness) never outlives its owner. The app passes
-	// --exit-with-parent; the test harness relies on --test. A machine-server
-	// session child watches its parent only on Windows, where a server restart
-	// is a new process and the child must notice the old one die; on unix the
-	// supervisor owns child lifetime outright (and survives restart by re-exec,
-	// keeping its PID).
-	app := &App{flags: flags, config: cfg}
-	// Every launch takes the ingress secret out of its environment, so no
-	// process it spawns inherits it; only a session child has a supervisor to
-	// keep it for. Taken here rather than earlier because the Xvfb relaunch
-	// above must pass it on.
-	if secret := ingress.TakeSecret(); flags.sessionChild {
-		app.ingressSecret = secret
-	}
-	// A run that never reports has not finished, whatever else brought the
-	// process down — a Ctrl-C, an engine that never started, a server error. So
-	// failure is where a run starts, and only its own report lowers it.
-	if oneShot != nil {
-		app.exitCode.Store(exitRunFailed)
-	}
+	// Self-terminate if our parent dies, so a server spawned by `juggler run`
+	// (or the test harness) never outlives its owner: `juggler run` passes
+	// --exit-with-parent to its child; the test harness relies on --test. A
+	// machine server contains each child it spawns (childcontain: Pdeathsig on
+	// Linux, its reaper on macOS, a kill-on-close Job Object on Windows), so the
+	// child dies with its supervisor; on Windows the child watches its parent
+	// as well.
+	app := &App{flags: flags, config: cfg, spawner: spawner}
 	if flags.testMode || flags.exitWithParent || (flags.sessionChild && runtime.GOOS == "windows") {
 		startParentWatchdog(app.releaseResources)
 	}
 
-	// The banner is for a person watching a server start. A run has no such
-	// audience, and its stdout is the answer.
-	if oneShot == nil {
-		printBanner()
-	}
+	printBanner()
 
 	// Neither return below is reached when the launch owns the native app:
 	// beginShutdown calls app.Quit(), and [NSApp terminate:] ends the process
-	// without unwinding the stack. A one-shot run therefore exits from inside
-	// beginShutdown via a.exit(...), and App.exitProcess is the seam tests
-	// replace to observe the status. These returns serve the paths that do
-	// unwind, so a status set here must also be set on the exit path above.
+	// without unwinding the stack. They serve the paths that do unwind.
 	if err := app.Run(); err != nil {
 		reportStartupFailure(os.Stderr, err)
 		return 1
 	}
-	return int(app.exitCode.Load())
+	return 0
 }
 
 // reportStartupFailure explains a launch that never got off the ground.
@@ -311,9 +301,9 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 	dev := flag.Bool("dev", false, "Enable dev mode: the web inspector and full right-click menu (no source checkout required)")
 	assetsFromDisk := flag.Bool("assets-from-disk", false, "Developer flag: serve web assets from the on-disk web/ tree (requires a source checkout) instead of the embedded FS, disabling caching and reloading templates per request; implies --dev")
 	version := flag.Bool("version", false, "Print version and exit")
-	window := flag.Bool("window", false, "Open the desktop app on this server (with --test: its debug lane)")
+	window := flag.Bool("window", false, "Test-mode only: show the test harness's debug lane window")
 	project := flag.String("project", "", "Project folder to open (defaults to the current folder when run from a terminal)")
-	port := flag.Int("port", 0, "Port for the Juggler server, when this starts it (0 = OS-assigned)")
+	port := flag.Int("port", 0, "Port for the Juggler server, when this starts it, or the first free one after it (default 3939)")
 	testMode := flag.Bool("test", false, "Enable test API routes and print JUGGLER_ADDR to stdout")
 	testIframes := flag.Int("test-iframes", 0, "Test-mode only: open the viewer window at /test-pool?n=N (tiled iframes acting as parallel test lanes) instead of the production UI")
 	testWindowURL := flag.String("test-window-url", "", "Test-mode only: the URL the test window loads instead of this server's own (set by `juggler serve --test` to the session's proxied URL)")
@@ -323,32 +313,23 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 		return nil
 	})
 	flag.Func("updates-managed-by", "For packagers: the package manager (`name`, e.g. Nix) that installs Juggler's updates. Juggler then never updates itself, and points its update notices there. Same as setting "+core.UpdatesManagedByEnv, core.SetUpdatesManagedBy)
-	// Retired flags stay registered, hidden, so a launch that passes one is
-	// told why it no longer applies (refusal) rather than that it is unknown.
-	for _, name := range retiredFlagNames() {
-		flag.Bool(name, false, "")
-	}
-	standalone := flag.Bool("standalone", false, "Serve the project in this process rather than on the machine server (tests and developer runs)")
 	sessionChild := flag.Bool("session-child", false, "Run as a machine-server session child (spawned by `juggler serve`; not a user-facing mode)")
-	exitWithParent := flag.Bool("exit-with-parent", false, "Self-terminate if the parent process dies (set by juggler-app for servers it owns, so they never outlive the app)")
-	logFile := flag.String("log-file", "", "Explicit log file path, overriding the centrally-derived per-platform log path (set by juggler-app per spawned server)")
+	exitWithParent := flag.Bool("exit-with-parent", false, "Self-terminate if the parent process dies (set by `juggler run` for the session child it spawns)")
+	logFile := flag.String("log-file", "", "Explicit log file path, overriding the centrally-derived per-platform log path (set by the machine server per session child)")
 	flag.Usage = usage
 	flag.Parse()
 
 	projectSet := false
 	portSet := false
 	logFileSet := false
-	var retired []string
 	flag.Visit(func(f *flag.Flag) {
-		switch {
-		case f.Name == "project":
+		switch f.Name {
+		case "project":
 			projectSet = true
-		case f.Name == "port":
+		case "port":
 			portSet = true
-		case f.Name == "log-file":
+		case "log-file":
 			logFileSet = true
-		case isRetiredFlag(f.Name):
-			retired = append(retired, f.Name)
 		}
 	})
 	// The server never opens a window on its own. The visible UI is the separate
@@ -371,8 +352,6 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 		testIframes:    *testIframes,
 		testWindowURL:  *testWindowURL,
 		allowHosts:     allowHosts,
-		standalone:     *standalone,
-		retired:        retired,
 		sessionChild:   *sessionChild,
 		exitWithParent: *exitWithParent,
 		logFile:        *logFile,
@@ -382,12 +361,12 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 
 // hiddenFlags are registered and functional but omitted from --help: developer,
 // test-harness, and internal flags an end user has no reason to set. Several are
-// load-bearing (the test harness passes --test/--assets-from-disk; juggler-app
-// passes --exit-with-parent/--log-file to servers it spawns), so they must keep
-// working — they're just undocumented.
+// load-bearing (the test harness passes --test/--assets-from-disk; the machine
+// server passes --session-child/--log-file to its children, and `juggler run`
+// --exit-with-parent to its own), so they must keep working — they're just
+// undocumented.
 var hiddenFlags = map[string]bool{
 	"window":           true,
-	"standalone":       true,
 	"assets-from-disk": true,
 	"test":             true,
 	"test-iframes":     true,
@@ -398,12 +377,12 @@ var hiddenFlags = map[string]bool{
 }
 
 // usage prints a curated --help listing: only the user-facing flags, formatted
-// like flag.PrintDefaults. Hidden and retired flags are left out.
+// like flag.PrintDefaults. Hidden flags are left out.
 func usage() {
 	out := flag.CommandLine.Output()
 	fmt.Fprintf(out, "Juggler — AI code agent\n\nUsage: %s [options]\n\nOptions:\n", filepath.Base(os.Args[0]))
 	flag.VisitAll(func(f *flag.Flag) {
-		if hiddenFlags[f.Name] || isRetiredFlag(f.Name) {
+		if hiddenFlags[f.Name] {
 			return
 		}
 		dash := "--"

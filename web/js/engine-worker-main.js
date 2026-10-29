@@ -101,7 +101,7 @@ function runSandboxForWorker(data) {
       });
   }
   // Forward the engine's live project root (from the worker realm) so the
-  // sandbox binding tracks a runtime project switch instead of the frozen
+  // sandbox binding follows the loaded session rather than the frozen
   // sandbox.html template value.
   const controller = new AbortController();
   runControllers.set(data.id, controller);

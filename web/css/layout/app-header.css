@@ -111,10 +111,8 @@
     display: none;
 }
 
-/* The chip: a button styled to signpost "click to change project". Border,
-   background and hover chrome come from the shared .btn-ghost house style
-   (patterns/buttons.css); this owns only the chip's layout (path + folder/chevron
-   icons) and typography. */
+/* The chip: the session's project path, read-only — a session stays on its
+   project, so it is a label with no button chrome and no action. */
 :where(.app-header) .ppd-chip {
     display: inline-flex;
     align-items: center;
@@ -131,23 +129,6 @@
     min-width: 0;
     white-space: nowrap;
     text-overflow: ellipsis;
-}
-
-:where(.app-header) .ppd-chevron {
-    width: 1.125rem;
-    height: 1.125rem;
-    flex-shrink: 0;
-    fill: var(--text-tertiary);
-    transition: fill var(--transition-base);
-}
-
-:where(.app-header) .ppd-chip:hover .ppd-chevron {
-    fill: var(--text-secondary);
-}
-
-:where(.app-header) project-path-display.is-empty .ppd-chip {
-    font-style: italic;
-    opacity: 0.85;
 }
 
 /* Inline "open new window" button welded to the right of the chip. Native

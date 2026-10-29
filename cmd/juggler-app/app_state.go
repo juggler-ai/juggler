@@ -7,7 +7,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/msg"
 	"juggler/internal/userpaths"
 	"juggler/internal/webviewenv"
@@ -28,8 +29,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-// appWindowTitle is a window's title until its page reports the project it
-// shows (controlTitle).
+// appWindowTitle is a window's title until its page reports one (controlTitle).
 var appWindowTitle = msg.New("Juggler")
 
 const (
@@ -105,15 +105,36 @@ func linuxGpuPolicy(enabled bool) application.WebviewGpuPolicy {
 // this only carries the window's workspace identity (spec) and the live frame
 // state the save loop needs.
 type winEntry struct {
-	id        string
-	win       *application.WebviewWindow
-	spec      windowSpec // what this window views (project or URL) — its workspace identity
-	serverURL string     // the server this window posts/reads its geometry to (immutable)
+	id  string
+	win *application.WebviewWindow
 
-	// standIn is set while this window stands in for spec, which it cannot show
-	// (stand_in.go): its page is then an empty window's, on serverURL — a server
-	// this app spawned for it — or a static page when serverURL is empty. Owned
-	// by the registry goroutine, like spec, since both change when it stops.
+	// ctlSecret is the control endpoint's secret for the page this window
+	// shows, in its ?nativeCtl= (control.go): it authorises requests for this
+	// window and no other. Minted with the window and again at every in-place
+	// navigation (navigateWindow). Owned by the registry goroutine.
+	ctlSecret string
+	// spec is what this window views (project or URL) — its workspace identity
+	// — and serverURL where its page is served from, which it posts and reads
+	// its geometry to: a session's /s/<id> on this machine's server, that
+	// server's root for an empty window, or a server by URL. Both change when
+	// an empty window opens a session in place (controlAttach), so both are
+	// owned by the registry goroutine (serverURLOf).
+	spec      windowSpec
+	serverURL string
+	// server is the process of this machine's server the window's page is
+	// served by, zero for a server by URL: an address alone does not tell a
+	// server from the one started after it at the same port. It stays with the
+	// window when it opens a session in place, on the same server. Immutable.
+	server serverProc
+	// replacing is set once the window has been claimed for replacement by
+	// its stand-in (claimReplacement), so that the app's attachment ending and
+	// the page's own report do not both replace it. Owned by the registry
+	// goroutine.
+	replacing bool
+
+	// standIn is set when this window stands in for spec, which it cannot show
+	// (stand_in.go): its page is then a static one, and serverURL is empty.
+	// Immutable.
 	standIn *standIn
 
 	// fileDrop is whether native file drop is currently on for this window —
@@ -165,20 +186,12 @@ type winEntry struct {
 	saves    *windowgeom.Debouncer
 	stopSave chan struct{}
 
-	// forceClose is set (via the registry goroutine) once the busy-work close
-	// guard has been satisfied — either the server had no in-flight turn or the
-	// user confirmed the discard. The close gate reads it (through closeAllowed)
-	// to skip straight past the prompt. Owned by the registry goroutine like the
-	// rest of winEntry's shared fields.
-	forceClose bool
-
 	// settling is set while the close gate is running for this window, and
 	// settled once it has finished and the close it re-issues may proceed to
-	// teardown. They are separate because the gate can take seconds — a prompt
-	// waits on the user, a flush on the page — and the window stays clickable
-	// throughout, so further closes must be turned away without either starting
-	// a second gate or being mistaken for a settled one. Owned by the registry
-	// goroutine, like forceClose above them.
+	// teardown. They are separate because the gate can take seconds — a flush
+	// waits on the page — and the window stays clickable throughout, so further
+	// closes must be turned away without either starting a second gate or being
+	// mistaken for a settled one. Owned by the registry goroutine.
 	settling bool
 	settled  bool
 
@@ -186,7 +199,7 @@ type winEntry struct {
 	// being taken down with the window that opened it, rather than closed on its
 	// own. The difference is the whole of what the board keeps: a window put away
 	// with its owner comes back with it, and one closed on its own is finished
-	// with. Owned by the registry goroutine, like forceClose beside it.
+	// with. Owned by the registry goroutine.
 	retainBoard bool
 
 	// closing is set once this window's teardown has been claimed, so only the
@@ -205,13 +218,10 @@ type winEntry struct {
 	flushDone chan struct{}
 }
 
-// regState is the registry's owned data: the open windows and the servers this
-// app spawned, keyed by server URL. Servers are reference-counted by how many
-// windows view them, so closing the window that happened to spawn a server
-// doesn't kill it while another window still shares it.
+// regState is the registry's owned data: the open windows, and what the next
+// window built inherits.
 type regState struct {
 	windows map[string]*winEntry
-	servers map[string]*serverProc // url -> spawned server we own (and must stop)
 
 	// lastTheme is the most recent page-reported theme across all windows. It
 	// seeds the native background colour of the next window built without an
@@ -239,6 +249,11 @@ type regState struct {
 	// ShouldQuit hook allows termination and per-window close hooks stop
 	// guarding, so teardown doesn't re-prompt window by window.
 	quitting bool
+
+	// confirmingQuit is set while a quit is being decided (confirmThenQuit):
+	// its busy tally and, with work running, its dialog. A quit asked for
+	// meanwhile is that one.
+	confirmingQuit bool
 }
 
 // appState owns the single desktop process and its many windows. It runs one
@@ -249,7 +264,6 @@ type appState struct {
 	app       *application.App
 	devMode   bool
 	ctlPort   int
-	ctlSecret string // authorises control requests; see control.go
 	workspace *workspaceStore
 	// remoteFrames keeps the frames of windows onto servers by URL on this
 	// machine, rather than in a session another machine's windows share.
@@ -269,9 +283,16 @@ type appState struct {
 	regOps chan func(*regState)
 	ids    chan string
 
-	// spawnServerOn starts a replacement server (see restartServer); nil means
-	// the real spawnServerOn. A test seam.
-	spawnServerOn func(project, port string) (string, *serverProc, error)
+	// connOps serves the app's connection to this machine's server
+	// (server_conn.go), found through connectOpts. onAttached, when set, is
+	// told each time the app attaches; it is read on the connection's
+	// goroutine, so set it there.
+	connOps     chan func(*connState)
+	connectOpts machineserver.ConnectOptions
+	onAttached  func()
+	// serverBuild is the build of server the app uses (machineserver.BuildOf
+	// its bundled server); "" is its own version.
+	serverBuild string
 
 	// locale is the shell's UI language and catalogue (see locale.go).
 	locale atomic.Pointer[appLocale]
@@ -296,12 +317,15 @@ func newAppState(devMode int) *appState {
 		gpuNote:      gpuNote,
 		regOps:       make(chan func(*regState), 32),
 		ids:          make(chan string),
+		connectOpts:  machineserver.ConnectOptions{Start: startServer},
+		serverBuild:  bundledServerBuild(),
 	}
+	a.startConn()
 	go func() {
 		// Seed lastTheme from the persisted last-used theme so the very first
 		// window built this launch (before any page has reported) paints its bare
 		// frame to match instead of flashing the dark default (see workspace.go).
-		st := &regState{windows: map[string]*winEntry{}, servers: map[string]*serverProc{}, lastTheme: a.workspace.loadLastTheme(), lastZoom: a.workspace.loadLastZoom()}
+		st := &regState{windows: map[string]*winEntry{}, lastTheme: a.workspace.loadLastTheme(), lastZoom: a.workspace.loadLastZoom()}
 		for op := range a.regOps {
 			op(st)
 		}
@@ -357,12 +381,11 @@ func (a *appState) openerFrame(id string) core.WindowState {
 const singleInstanceID = "studio.juggler.juggler"
 
 // initApplication constructs the single Wails application with the
-// single-instance guard installed. It MUST be called before the caller spawns
-// any server: if this is a second instance, application.New notifies the first
-// instance with our argv and os.Exit()s from inside this call — doing it first
-// means a redundant second launch never spawns a throwaway server. Also wires
-// the quit-time server cleanup hook and the native menu (neither needs a
-// window).
+// single-instance guard installed. It MUST be called before the caller reaches
+// for the server: if this is a second instance, application.New notifies the
+// first instance with our argv and os.Exit()s from inside this call — doing it
+// first means a redundant second launch never starts or attaches to anything.
+// Also wires the quit-time hook and the native menu (neither needs a window).
 func (a *appState) initApplication() {
 	// Route Wails' own logger/errors/warnings/panics into jlog. Without this a
 	// production build discards them (default logger is io.Discard, no
@@ -411,10 +434,10 @@ func (a *appState) initApplication() {
 
 	// On quit: snapshot the still-open window set (so Cmd+Q with several windows
 	// restores all of them, not just whatever survived a teardown race), then
-	// stop our spawned servers. macOS terminate ([NSApp terminate:]) doesn't
-	// reliably return from app.Run(), so the post-Run cleanup can be skipped on a
-	// Cmd+Q — this hook fires first. The servers' own --exit-with-parent watchdog
-	// is the backstop for crashes/kills that bypass this entirely.
+	// let the server go. macOS terminate ([NSApp terminate:]) doesn't reliably
+	// return from app.Run(), so the post-Run cleanup can be skipped on a Cmd+Q —
+	// this hook fires first. A crash or kill that bypasses it ends the held
+	// attachment with the process, which the server sees at once.
 	a.app.Event.OnApplicationEvent(events.Mac.ApplicationWillTerminate, func(_ *application.ApplicationEvent) {
 		// Mark teardown authoritatively: any termination path that reached here is
 		// really quitting (not just the ShouldQuit-guarded ones). onSecondInstance
@@ -424,7 +447,7 @@ func (a *appState) initApplication() {
 		a.reg(func(st *regState) { st.quitting = true })
 		a.persistWorkspaceSync()
 		a.saveAllWindowGeometry()
-		a.signalAllServers()
+		a.detachServer()
 	})
 
 	// A folder dropped on the Dock icon, or sent here by Finder's "Open With".
@@ -446,38 +469,30 @@ func (a *appState) initApplication() {
 // run opens windows for the given specs and runs the event loop. Blocks on the
 // calling (main) goroutine. initApplication must have run first.
 //
-// The first spec that resolves becomes the initial window, built BEFORE Run so
-// the app never starts with zero windows (a zero-window launch makes Cocoa exit
-// immediately). The rest are opened once the app has launched. If no spec
-// resolves (e.g. every restored project is gone), it falls back to a fresh
-// no-project window so the app still starts.
+// The first spec becomes the initial window, built BEFORE Run so the app never
+// starts with zero windows (a zero-window launch makes Cocoa exit immediately).
+// It is always built — as its stand-in when it cannot be shown. The rest are
+// opened once the app has launched, unless the first stopped at a server of
+// another version: no window can open until it is restarted, so the first
+// window's stand-in holds their places and opens them once it is.
 func (a *appState) run(specs []windowSpec) error {
 	if len(specs) == 0 {
 		specs = []windowSpec{{}}
 	}
-
-	var initial *winEntry
-	var rest []windowSpec
-	for i, s := range specs {
-		if initial = a.tryBuildInitial(s); initial != nil {
-			rest = specs[i+1:]
-			break
-		}
+	plan := a.planWindow(specs[0], windowOpts{})
+	rest := specs[1:]
+	if plan.standIn != nil && plan.standIn.kind == standInMismatch {
+		held := *plan.standIn
+		held.held = rest
+		plan.standIn, rest = &held, nil
 	}
-	if initial == nil {
-		serverURL, proc, err := windowSpec{}.resolve()
-		if err != nil {
-			return fmt.Errorf("start initial window: %w", err)
-		}
-		saved, hasSaved := fetchWindowState(serverURL, roleMain)
-		initial = a.buildWindow(windowSpec{}, serverURL, proc, saved, hasSaved, windowOpts{})
-	}
+	initial := a.buildPlanned(plan)
 
-	// Take up the settings' UI language from the first server there is, ahead of
-	// its page, which reports the same thing once it loads (controlLocale). A
-	// stand-in's static page has no server and leaves this to the next window.
-	if initial.serverURL != "" {
-		go a.adoptLocale(initial.serverURL, startupLocale())
+	// Take up the settings' UI language from the first window's session, ahead
+	// of its page, which reports the same thing once it loads (controlLocale).
+	// A stand-in's static page has no server and leaves this to the next window.
+	if plan.serverURL != "" {
+		go a.adoptLocale(plan.serverURL, startupLocale())
 	}
 
 	// Crash loudly if the initial window never becomes visible (e.g. the webview
@@ -534,27 +549,10 @@ func (a *appState) run(specs []windowSpec) error {
 	return err
 }
 
-// tryBuildInitial resolves spec's server and builds a window for it. A server
-// that cannot be resolved — a locked project, one that failed to start — and a
-// server by URL that does not answer all resolve to a stand-in for the window
-// (stand_in.go), which says why; nil only when no native window could be made.
-func (a *appState) tryBuildInitial(spec windowSpec) *winEntry {
-	serverURL, proc, err := spec.resolve()
-	if err != nil {
-		logf("restore: cannot resolve %+v: %v", spec.entry(), err)
-		return a.buildStandInWindow(spec, standInFor(spec, err), a.prepareStandIn(spec), windowOpts{})
-	}
-	saved, hasSaved, reached := a.openingState(spec, serverURL, roleMain)
-	if !reached {
-		return a.buildStandInWindow(spec, unreachableStandIn(spec.url), a.prepareStandIn(spec), windowOpts{})
-	}
-	return a.buildWindow(spec, serverURL, proc, saved, hasSaved, windowOpts{})
-}
-
 // startupSpecs decides which windows to open at launch. An explicit --url or
 // --project opens exactly that one window; with neither, it restores the last
-// open set (falling back to a single no-project window when there's nothing
-// saved).
+// open set (falling back to a single window on the server's page when there's
+// nothing saved).
 func (a *appState) startupSpecs(rawURL, project string) []windowSpec {
 	if u := strings.TrimSpace(rawURL); u != "" {
 		return []windowSpec{{url: normalizeURL(u)}}
@@ -590,10 +588,9 @@ func (a *appState) onSecondInstance(data application.SecondInstanceData) {
 	logf("second instance: url=%q project=%q", rawURL, project)
 
 	// A bare relaunch (no --url/--project — e.g. double-clicking the icon again)
-	// should surface the running app, not spin up a redundant server and window:
-	// focus an existing window if there is one, and only open a fresh one when
-	// none remain. This is the standard single-instance behaviour and avoids
-	// spawning extra servers that become orphan candidates.
+	// should surface the running app, not open a redundant window: focus an
+	// existing window if there is one, and only open a fresh one when none
+	// remain. This is the standard single-instance behaviour.
 	if rawURL == "" && project == "" {
 		if a.focusAnyWindow() {
 			logf("second instance: raised existing window (bare relaunch)")
@@ -678,56 +675,77 @@ func focusEntry(e *winEntry) bool {
 	return true
 }
 
-// openWindow resolves a server for the spec (spawning/discovering for a project,
-// or connecting to a URL), reads that session's saved geometry, and opens a new
-// in-process window onto it. The blocking resolve + geometry fetch run off the
-// main thread; the window is then created on the main thread.
+// windowPlan is a window resolved and ready to build: what it is filed as, the
+// page it loads and the frame it opens at — or the stand-in it opens as.
+type windowPlan struct {
+	spec      windowSpec
+	opts      windowOpts
+	serverURL string
+	server    serverProc
+	saved     core.WindowState
+	hasSaved  bool
+	standIn   *standIn
+}
+
+// planWindow resolves spec (resolveWindow) and reads the frame its window opens
+// at. A server that cannot be had, and a server by URL that does not answer,
+// plan the window's stand-in; a session the server will not open plans the
+// server's own page, saying why. Blocking, so never on the main thread.
+func (a *appState) planWindow(spec windowSpec, opts windowOpts) windowPlan {
+	p := windowPlan{spec: spec, opts: opts}
+	serverURL, server, err := a.resolveWindow(spec)
+	var failed *openFailedError
+	switch {
+	case errors.As(err, &failed):
+		logf("window for %+v: %v; showing the server's page", spec.entry(), err)
+		p.spec = windowSpec{}
+		p.opts.notice = failed.notice(a)
+		serverURL, server = failed.serverURL, failed.server
+	case err != nil:
+		logf("window for %+v: %v", spec.entry(), err)
+		p.standIn = standInFor(err)
+		return p
+	}
+	// The server records a project in the recents when it starts its session;
+	// one found already running is recorded here, so a folder opened in its
+	// own window always reaches the picker's recents.
+	if p.spec.project != "" {
+		a.rememberRecentProject(p.spec.project)
+	}
+	saved, hasSaved, reached := a.openingState(p.spec, serverURL, opts.role())
+	if !reached {
+		p.standIn = unreachableStandIn(spec.url)
+		return p
+	}
+	p.serverURL, p.server, p.saved, p.hasSaved = serverURL, server, saved, hasSaved
+	return p
+}
+
+// buildPlanned builds the window p plans, without showing it. Safe before
+// app.Run() (the initial window) or, on the main thread, after it.
+func (a *appState) buildPlanned(p windowPlan) *winEntry {
+	if p.standIn != nil {
+		return a.buildStandInWindow(p.spec, p.standIn, p.opts.theme)
+	}
+	return a.buildWindow(p.spec, p.serverURL, p.server, p.saved, p.hasSaved, p.opts)
+}
+
+// openWindow opens a new window onto spec: it resolves it and reads its frame
+// off the main thread (planWindow), then builds and shows it on the main
+// thread.
 func (a *appState) openWindow(spec windowSpec, opts windowOpts) {
 	opts.theme = normaliseTheme(opts.theme)
 	opts.mode = normaliseMode(opts.mode)
 	go func() {
-		serverURL, proc, err := resolveSpec(spec)
-		if err != nil {
-			logf("open window failed to resolve %+v: %v", spec, err)
-			si := standInFor(spec, err)
-			a.openStandIn(spec, si, opts, "opened "+si.kind+" stand-in")
-			return
+		p := a.planWindow(spec, opts)
+		why := "opened dynamically"
+		if p.standIn != nil {
+			why = "opened " + p.standIn.kind + " stand-in"
 		}
-		a.openResolvedWindow(spec, serverURL, proc, opts)
+		application.InvokeAsync(func() {
+			a.showOpened(a.buildPlanned(p), p.opts, why)
+		})
 	}()
-}
-
-// openResolvedWindow is openWindow once spec has resolved to serverURL (proc
-// being the server spawned for it, if any): it reads the saved geometry and
-// opens the window, or a stand-in for it if the server does not answer.
-// Blocking, so never on the main thread.
-func (a *appState) openResolvedWindow(spec windowSpec, serverURL string, proc *serverProc, opts windowOpts) {
-	// A window born onto a project (New Window, the page's "open in new
-	// window", restore, or a second instance) never routes through the
-	// server's POST /api/project switch, which is the only other place the
-	// recents list is updated. Without this, a folder first opened in its own
-	// window would never appear in the picker's recents.
-	if spec.project != "" {
-		a.rememberRecentProject(spec.project)
-	}
-	saved, hasSaved, reached := a.openingState(spec, serverURL, opts.role())
-	if !reached {
-		a.openStandIn(spec, unreachableStandIn(spec.url), opts, "opened unreachable server")
-		return
-	}
-	application.InvokeAsync(func() {
-		e := a.buildWindow(spec, serverURL, proc, saved, hasSaved, opts)
-		a.showOpened(e, opts, "opened dynamically")
-	})
-}
-
-// openStandIn opens a stand-in for spec, which cannot be shown. Blocking, so
-// never on the main thread: the stand-in's own server is started first.
-func (a *appState) openStandIn(spec windowSpec, si *standIn, opts windowOpts, why string) {
-	host := a.prepareStandIn(spec)
-	application.InvokeAsync(func() {
-		a.showOpened(a.buildStandInWindow(spec, si, host, opts), opts, why)
-	})
 }
 
 // showOpened reveals a window built after launch, and closes the one it was
@@ -774,9 +792,9 @@ func (a *appState) openDroppedFolder(path string) {
 //     onto one project is never what the gesture meant, and the project lock
 //     would refuse it anyway.
 //  2. The window that took the drop is empty. Fill it, by handing the page an
-//     announcement — which is also what routes the open through the endpoint
-//     that validates the path and records it in recents. Leaving a blank window
-//     next to a new one is the shabbier answer.
+//     announcement — the server's page opens the folder's session and asks
+//     for it in this window (controlAttach). Leaving a blank window next to a
+//     new one is the shabbier answer.
 //  3. Otherwise open a window for it.
 func (a *appState) openDroppedFolderInWindow(e *winEntry, paths []string) {
 	folder := droppedProjectFolder(paths)
@@ -795,15 +813,16 @@ func (a *appState) openDroppedFolderInWindow(e *winEntry, paths []string) {
 	a.openWindowForProject(folder, windowOpts{})
 }
 
-// emptyMainWindow returns an open app window showing no project, or nil. A
-// board is not a candidate: it is a view of a conversation, with nowhere to put
-// a project.
+// emptyMainWindow returns an open app window showing no project — this
+// machine's server's page — or nil. A board is not a candidate: it is a view of
+// a conversation, with nowhere to put a project; nor is a stand-in, whose page
+// opens nothing.
 func (a *appState) emptyMainWindow() *winEntry {
 	var match *winEntry
 	a.reg(func(st *regState) {
 		best := -1
 		for _, w := range st.windows {
-			if isBoardRole(w.role) || w.spec.isURL() || w.spec.project != "" {
+			if isBoardRole(w.role) || w.standIn != nil || w.spec.isURL() || w.spec.project != "" {
 				continue
 			}
 			if n := winNum(w.id); n > best {
@@ -995,59 +1014,21 @@ func (a *appState) openWindowOrigins() map[[2]int]bool {
 	return origins
 }
 
-// setWindowProject updates a window's workspace identity to the project the page
-// reports it is now viewing. Projects are chosen in-page (the picker switches the
-// server's project), so this report is how the app learns which project a window
-// actually shows — it's what makes the restore set point at real projects.
-// URL windows keep their URL identity; an empty report never downgrades a window
-// that already has a project (avoids a transient reload blanking it). Geometry is
-// unaffected — it lives in the session, which the server itself switched.
-//
-// A stand-in's page is an empty window's, so a project opened in it is the
-// window it now is, and it stops standing in; until then it keeps the identity
-// it stands in for.
-func (a *appState) setWindowProject(e *winEntry, project string) {
-	project = strings.TrimSpace(project)
-	if e == nil {
-		return
-	}
-	if _, si := a.standInOf(e); si != nil {
-		if project != "" {
-			a.stopStandingIn(e, windowSpec{project: project})
-		}
-		return
-	}
-	changed := false
-	a.reg(func(st *regState) {
-		if e.spec.isURL() {
-			return
-		}
-		if project == "" && e.spec.project != "" {
-			return
-		}
-		if e.spec.project != project {
-			e.spec = windowSpec{project: project}
-			changed = true
-		}
-	})
-	if changed {
-		a.persistWorkspace()
-	}
+// takesFolderDrops is whether a window for spec has native folder drop on:
+// only one showing this machine's server's page, where a dropped folder opens
+// its project. A project's window leaves drops to its composer; a window on a
+// server by URL is on another machine, where this machine's paths mean nothing.
+func takesFolderDrops(spec windowSpec) bool {
+	return !spec.isURL() && strings.TrimSpace(spec.project) == ""
 }
 
-// syncFileDrop keeps native file drop on exactly while a window shows no
-// project, from the project the page has just reported.
-//
-// It cannot ride setWindowProject's "changed" flag: that deliberately ignores a
-// report of "" once a window has a project, so the workspace identity survives
-// a momentary blank — but closing a project is precisely when drop has to come
-// back. So this reads every report instead, and dedupes against what the window
-// was last told.
-func (a *appState) syncFileDrop(e *winEntry, project string) {
+// syncFileDrop keeps native file drop as takesFolderDrops says for the
+// window's spec, deduped against what the window was last told.
+func (a *appState) syncFileDrop(e *winEntry, spec windowSpec) {
 	if e == nil || e.win == nil {
 		return
 	}
-	want := strings.TrimSpace(project) == ""
+	want := takesFolderDrops(spec)
 	changed := false
 	a.reg(func(st *regState) {
 		if e.fileDrop == want {
@@ -1097,10 +1078,9 @@ func jsString(s string) string {
 }
 
 // rememberRecentProject records an opened project folder in the user-level
-// recents list the in-page picker reads (GET /api/recents). The server updates
-// that list when a project is switched in place (POST /api/project), but a
-// window opened directly onto a project bypasses that path, so the app records
-// it here. The path is expanded and absolutised to dedupe against the absolute
+// recents list the sessions page offers. The machine server records a project
+// when it starts its session; a window onto one already running is recorded
+// here. The path is expanded and absolutised to dedupe against the absolute
 // paths the server stores. Best-effort: a failure only costs a missing recents
 // entry, so errors are ignored.
 func (a *appState) rememberRecentProject(project string) {
@@ -1119,66 +1099,15 @@ func (a *appState) rememberRecentProject(project string) {
 	_ = store.Add(abs)
 }
 
-// buildLockedProjectWindow opens the static locked-project page, a clear
-// recovery explanation when an OS-level project lock cannot be verified, for
-// when not even a stand-in's local server could be started. It has no server or
-// spawned process, so closing it cannot affect another session.
-func (a *appState) buildLockedProjectWindow(spec windowSpec, si *standIn, inheritedTheme string) *winEntry {
-	page := lockedProjectPage(a.tr(si.title), a.trParagraphs(si.message))
-	return a.buildPlaceholderWindow(spec, si, func(string) string { return page }, inheritedTheme)
-}
-
-// buildPlaceholderWindow opens a native window onto a static page standing in
-// for the one spec would show, when there is no server to show it from. The
-// window is registered under spec as a stand-in (si), so it keeps its place in
-// the workspace set for as long as it is open, with no server and no spawned
-// process — closing it cannot affect another session. page renders the window's
-// URL from its id, for a page whose buttons address this window's control
-// endpoint.
-func (a *appState) buildPlaceholderWindow(spec windowSpec, si *standIn, page func(id string) string, inheritedTheme string) *winEntry {
-	title := a.tr(si.windowTitle)
+// buildWindow constructs a WebviewWindow viewing serverURL, on server (zero for
+// a server by URL), and registers it, without showing it. Safe to call before
+// app.Run() (initial window) or, on the main thread, after it (dynamic
+// windows). Show it with showWindow once the app
+// has launched.
+func (a *appState) buildWindow(spec windowSpec, serverURL string, server serverProc, saved core.WindowState, hasSaved bool, opts windowOpts) *winEntry {
 	id := <-a.ids
-	startupTheme := normaliseTheme(inheritedTheme)
-	if startupTheme == "" {
-		a.reg(func(st *regState) { startupTheme = st.lastTheme })
-	}
-	bgTheme := startupTheme
-	if bgTheme == "" {
-		bgTheme = "dark"
-	}
-	win := a.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            title,
-		URL:              page(id),
-		Width:            defaultWindowWidth,
-		Height:           defaultWindowHeight,
-		MinWidth:         minWindowWidth,
-		MinHeight:        minWindowHeight,
-		InitialPosition:  application.WindowCentered,
-		Hidden:           platformWindowHidden,
-		Frameless:        platformFrameless,
-		BackgroundColour: themeColours[bgTheme],
-		Mac:              application.MacWindow{TitleBar: application.MacTitleBar{AppearsTransparent: true, HideTitle: true, HideToolbarSeparator: true, FullSizeContent: true}},
-		Linux:            application.LinuxWindow{WebviewGpuPolicy: a.gpuPolicy},
-		Windows:          application.WindowsWindow{DisableFramelessWindowDecorations: false},
-	})
-	if win == nil {
-		fatalf("Window.NewWithOptions returned nil for placeholder window %s (%+v)", id, spec.entry())
-	}
-	e := &winEntry{id: id, win: win, spec: spec, standIn: si, role: roleMain, currentTheme: startupTheme, geom: windowgeom.NewTracker(core.WindowState{}, a.app.Screen.GetAll), saves: windowgeom.NewDebouncer(), stopSave: make(chan struct{})}
-	a.reg(func(st *regState) { st.windows[id] = e })
-	a.persistWorkspace()
-	win.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) { a.handleWindowClosed(e) })
-	return e
-}
-
-// buildWindow constructs a WebviewWindow viewing serverURL and registers it,
-// without showing it. Safe to call before app.Run() (initial window) or, on the
-// main thread, after it (dynamic windows). serverProc is the server this app
-// spawned for the window, or nil for a shared/remote server. Show it with
-// showWindow once the app has launched.
-func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *serverProc, saved core.WindowState, hasSaved bool, opts windowOpts) *winEntry {
-	id := <-a.ids
-	nativeCtl := a.controlBase(id)
+	secret := mintControlSecret()
+	nativeCtl := a.controlBase(id, secret)
 
 	// Resolve the startup appearance before building the URL/options, from what
 	// this window inherits (see startupPrefs).
@@ -1189,18 +1118,9 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 
 	resolved := opts
 	resolved.theme, resolved.mode, resolved.zoom = startupTheme, startupMode, startupZoom
-	// What the page is, not what the window is filed as: a stand-in's page is an
-	// empty window's, on a server this app spawned.
-	pageSpec := spec
-	if opts.standIn != nil {
-		pageSpec = windowSpec{}
-	}
-	resolved.external = pageSpec.isURL()
+	resolved.external = spec.isURL()
 	fullURL := windowPageURL(serverURL, nativeCtl, resolved)
 	title := a.tr(appWindowTitle)
-	if opts.standIn != nil {
-		title = a.tr(opts.standIn.windowTitle)
-	}
 
 	// Resolve the native background colour to paint before the page's first
 	// frame. On Windows the window is created visible (platformWindowHidden is
@@ -1261,8 +1181,9 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 		// before its first paint doesn't flash black. On macOS applyWindowChrome
 		// repaints the NSWindow too; this covers Windows/Linux where it's a no-op.
 		BackgroundColour: themeColours[bgTheme],
-		// File drop is on for a window with no project and off for one with a
-		// project, and syncFileDrop keeps it that way as the window changes state.
+		// File drop is on for a window showing this machine's server's page and
+		// off otherwise (takesFolderDrops), and syncFileDrop keeps it that way as
+		// the window changes state.
 		//
 		// The two drag mechanisms cannot coexist. Native drop is the only way to
 		// learn a dropped folder's PATH — WebKit withholds it from the page for
@@ -1281,10 +1202,10 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 		// re-enables it — see installFileDropGuard in composer.js.)
 		//
 		// What the overlay catches arrives back here through the page: the native
-		// side hands the paths to window._wails.handlePlatformFileDrop, which
-		// no-project-overlay.js implements and reports to the "folder-dropped"
-		// window-control action.
-		EnableFileDrop: pageSpec.project == "",
+		// side hands the paths to window._wails.handlePlatformFileDrop, which the
+		// server's page (web/machine/sessions-page.js) implements and reports to
+		// the "folder-dropped" window-control action.
+		EnableFileDrop: takesFolderDrops(spec),
 		Mac: application.MacWindow{
 			TitleBar: application.MacTitleBar{
 				AppearsTransparent:   true,
@@ -1337,13 +1258,14 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 	e := &winEntry{
 		id:            id,
 		win:           win,
+		ctlSecret:     secret,
 		spec:          spec,
 		serverURL:     serverURL,
-		standIn:       opts.standIn,
+		server:        server,
 		role:          opts.role(),
 		board:         opts.board,
 		openedBy:      opts.openedBy,
-		fileDrop:      pageSpec.project == "", // matches EnableFileDrop in the options above
+		fileDrop:      takesFolderDrops(spec), // matches EnableFileDrop in the options above
 		sizeDefaulted: frame.Width <= 0 || frame.Height <= 0,
 		geom:          windowgeom.NewTracker(windowgeom.Seed(place), a.app.Screen.GetAll),
 		saves:         windowgeom.NewDebouncer(),
@@ -1351,8 +1273,7 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 		currentTheme:  startupTheme,
 	}
 	a.reg(func(st *regState) { st.windows[id] = e })
-	a.adoptServer(serverURL, serverProc)
-	// The open set changed — remember it so a standalone launch restores it.
+	// The open set changed — remember it so a launch with neither --url nor --project restores it.
 	a.persistWorkspace()
 
 	// Persist geometry on every move/resize (debounced) so the window reopens
@@ -1361,9 +1282,9 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, serverProc *se
 	win.OnWindowEvent(events.Common.WindowDidMove, func(_ *application.WindowEvent) { e.triggerSave() })
 	win.OnWindowEvent(events.Common.WindowDidResize, func(_ *application.WindowEvent) { e.triggerSave() })
 
-	// Settle the close before the window can be torn down: confirming a discard
-	// and flushing the page's drafts both need a live webview, and this hook is
-	// the last point in the close that still has one. It cancels, settles on its
+	// Settle the close before the window can be torn down: flushing the page's
+	// drafts needs a live webview, and this hook is the last point in the close
+	// that still has one. It cancels, settles on its
 	// own goroutine, and re-issues the close — which then falls straight through
 	// here. See close_gate.go.
 	win.RegisterHook(events.Common.WindowClosing, func(ev *application.WindowEvent) {
@@ -1465,8 +1386,8 @@ func (a *appState) claimClose(e *winEntry) bool {
 	return first
 }
 
-// onShutdown records the workspace and stops the spawned servers as the app
-// goes down. Wails runs it first in its own teardown, before it closes the
+// onShutdown records the workspace and lets the server go as the app goes
+// down. Wails runs it first in its own teardown, before it closes the
 // windows — which is the last moment the open set is still the set the user
 // left, and the last moment a window's own teardown could still be racing the
 // process.
@@ -1479,7 +1400,7 @@ func (a *appState) onShutdown() {
 	a.reg(func(st *regState) { st.quitting = true })
 	a.persistWorkspaceSync()
 	a.saveAllWindowGeometry()
-	a.signalAllServers()
+	a.detachServer()
 }
 
 // quitGeometryBudget bounds how long a quit waits for the windows' final
@@ -1488,25 +1409,26 @@ func (a *appState) onShutdown() {
 const quitGeometryBudget = time.Second
 
 // saveAllWindowGeometry records every open window's frame (see storeFrame) and
-// waits for the writes. It runs at quit, before the servers are asked to stop,
+// waits for the writes. It runs at quit, before the app lets the server go,
 // because nothing later can: a window's own final write in handleWindowClosed
 // never happens on a quit — Wails drops its windows before their close events
-// reach them, and the servers are gone by then anyway. Without it the frame a
-// window reopens at is whatever its last move or resize wrote, however long ago.
+// reach them. Without it the frame a window reopens at is whatever its last
+// move or resize wrote, however long ago.
 func (a *appState) saveAllWindowGeometry() {
 	var wins []*winEntry
 	a.reg(func(st *regState) {
 		for _, e := range st.windows {
-			wins = append(wins, e)
+			// Only a frame with somewhere to go (storeFrame): a window's
+			// session or a server by URL's place on this machine.
+			if keeps := e.serverURL != "" && e.spec != (windowSpec{}); keeps || (e.standIn != nil && e.spec.isURL()) {
+				wins = append(wins, e)
+			}
 		}
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), quitGeometryBudget)
 	defer cancel()
 	var wg sync.WaitGroup
 	for _, e := range wins {
-		if e.serverURL == "" {
-			continue
-		}
 		s, ok := a.currentWindowState(e)
 		if !ok {
 			continue
@@ -1544,9 +1466,6 @@ func markBoardsClosingWith(st *regState, e *winEntry) (boards []*winEntry) {
 			continue
 		}
 		w.retainBoard = true
-		// The close guard for this server was satisfied a moment ago by the
-		// window that owned these, so they are not made to ask about it again.
-		w.forceClose = true
 		boards = append(boards, w)
 	}
 	// A settled order, so a test and a user get the same one.
@@ -1572,9 +1491,10 @@ func (a *appState) boardFinishedWith(e *winEntry) bool {
 	return finished
 }
 
-// handleWindowClosed removes the closed window, stops its server when no other
-// window still views it, and quits the app when no windows remain. Runs on the
-// Wails WindowClosing goroutine.
+// handleWindowClosed removes the closed window, takes its boards with it, and
+// quits the app when no windows remain. Closing a window stops nothing on the
+// server: a session lives while it has viewers. Runs on the Wails
+// WindowClosing goroutine.
 func (a *appState) handleWindowClosed(e *winEntry) {
 	// WindowClosing can arrive more than once for the same window: the close gate
 	// re-issues the close it cancelled, and both of this window's listener
@@ -1584,10 +1504,9 @@ func (a *appState) handleWindowClosed(e *winEntry) {
 		return
 	}
 	// Authoritative final geometry write, while the window is still readable
-	// (its native getters work until Wails' built-in listener destroys it) AND
-	// the server is still up (we may stop it just below). A pending debounced
-	// write may not have fired yet, so capture and post now; then stop the save
-	// loop. currentWindowState no-ops if the window is already gone, leaving the
+	// (its native getters work until Wails' built-in listener destroys it). A
+	// pending debounced write may not have fired yet, so capture and post now;
+	// then stop the save loop. currentWindowState no-ops if the window is already gone, leaving the
 	// last good write intact.
 	if s, ok := a.currentWindowState(e); ok {
 		a.storeFrame(context.Background(), e, s)
@@ -1598,14 +1517,14 @@ func (a *appState) handleWindowClosed(e *winEntry) {
 	// the session is written before anything below can take the process down. A
 	// board onto a server by URL has its frame on this machine, so it goes here.
 	if a.boardFinishedWith(e) {
-		forgetBoard(e.serverURL, e.board)
+		serverURL := a.serverURLOf(e)
+		forgetBoard(serverURL, e.board)
 		if e.spec.isURL() {
-			a.remoteFrames.forget(e.serverURL, e.role)
+			a.remoteFrames.forget(serverURL, e.role)
 		}
 	}
 	close(e.stopSave)
 
-	var orphanServer *serverProc
 	remaining := -1
 	// The boards this window opened, which go with it.
 	var boards []*winEntry
@@ -1613,26 +1532,10 @@ func (a *appState) handleWindowClosed(e *winEntry) {
 		delete(st.windows, e.id)
 		remaining = len(st.windows)
 		boards = markBoardsClosingWith(st, e)
-		// If no surviving window views this server, hand back the spawned proc
-		// (if any) so we can stop it.
-		stillViewed := false
-		for _, w := range st.windows {
-			if w.serverURL == e.serverURL {
-				stillViewed = true
-				break
-			}
-		}
-		if !stillViewed {
-			orphanServer = st.servers[e.serverURL]
-			delete(st.servers, e.serverURL)
-		}
 	})
 	for _, b := range boards {
 		win := b.win
 		application.InvokeAsync(func() { win.Close() })
-	}
-	if orphanServer != nil {
-		go orphanServer.stop()
 	}
 	// Persist the shrunken set (so a closed window doesn't reappear next launch).
 	// When this was the last window the set is now empty; persistWorkspace skips
@@ -1783,13 +1686,15 @@ func (a *appState) persistWorkspaceSync() { a.persistWorkspaceTo(true) }
 // restorableSpecs is the open windows, in open order, that a next launch should
 // bring back.
 //
-// Two kinds are left out. A --url window points at an externally-supplied or
+// Three kinds are left out. A --url window points at an externally-supplied or
 // ephemeral address that won't be valid next launch (see windowSpec; load()
-// ignores them too) — a server the user connected to is kept. And a window is
+// ignores them too) — a server the user connected to is kept. An empty window
+// views no session (windowSpec.restorable). And a window is
 // remembered as the project it views, which is not what a detached board is:
 // two boards on two conversations of one project are one entry, and neither of
 // them is the pin it was opened on. There is nothing here to restore a board
-// from, rather than a preference not to.
+// from, rather than a preference not to. A stand-in holding the places of
+// windows a launch has yet to open (standIn.held) keeps them, after its own.
 //
 // Must run on the registry goroutine.
 func restorableSpecs(st *regState) []windowSpec {
@@ -1799,6 +1704,9 @@ func restorableSpecs(st *regState) []windowSpec {
 			continue
 		}
 		specs = append(specs, w.spec)
+		if w.standIn != nil {
+			specs = append(specs, w.standIn.held...)
+		}
 	}
 	return specs
 }
@@ -1842,40 +1750,9 @@ func winNum(id string) int {
 	return n
 }
 
-// stopAllServers stops every server this app spawned and waits for them all.
-// Called after the event loop returns (the clean-exit path).
-//
-// The servers are taken out of the registry first and stopped outside it, side
-// by side: each can take up to serverStopGrace to finish an exchange in flight,
-// and every window operation waits on the registry, so stopping them inside it
-// one after another would freeze the app for the sum of their shutdowns.
-func (a *appState) stopAllServers() {
-	var procs []*serverProc
-	a.reg(func(st *regState) {
-		for url, proc := range st.servers {
-			procs = append(procs, proc)
-			delete(st.servers, url)
-		}
-	})
-	var wg sync.WaitGroup
-	for _, proc := range procs {
-		wg.Go(proc.stop)
-	}
-	wg.Wait()
-}
-
-// signalAllServers asks every spawned server to exit without waiting for any of
-// them. Used from the terminate hook, where the process is about to exit and
-// can't block — the servers shut down on the request, and their
-// --exit-with-parent watchdog catches any that miss it.
-func (a *appState) signalAllServers() {
-	var procs []*serverProc
-	a.reg(func(st *regState) {
-		for _, proc := range st.servers {
-			procs = append(procs, proc)
-		}
-	})
-	for _, proc := range procs {
-		proc.interrupt()
-	}
+// serverURLOf is where window e's page is served from now (see winEntry).
+func (a *appState) serverURLOf(e *winEntry) string {
+	var u string
+	a.reg(func(*regState) { u = e.serverURL })
+	return u
 }

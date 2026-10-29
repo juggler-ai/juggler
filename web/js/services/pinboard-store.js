@@ -131,17 +131,6 @@ wsService.on('pinboard-changed', (/** @type {any} */ data) => {
   adopt(sanitize(data?.pins));
 });
 
-// A project switch replaces the session, and with it the board. Drop the old one
-// rather than showing another project's pins until a reload happens to arrive.
-wsService.on('project-changed', () => {
-  _loaded = false;
-  adopt([]);
-  void pinboardStore.load().catch(() => {
-    // The shell reports a board it can't load; a background refresh that fails
-    // has nowhere useful to say so.
-  });
-});
-
 /**
  * Send a batch of operations and adopt the board the server returns.
  * @param {PinboardOp[]} operations - The edits to apply.

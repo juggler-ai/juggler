@@ -5,8 +5,8 @@
 package core
 
 import (
+	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"sort"
 	"sync"
@@ -46,7 +46,6 @@ type SessionManager struct {
 	// for the last of them to stop touching the project directory before it
 	// returns.
 	goroutines  sync.WaitGroup
-	scratchDir  string // non-empty in no-project mode; removed on Shutdown
 	projectPath string
 	// binSizeKick nudges the background bin-size monitor to recompute now
 	// (buffered/size-1: sends are non-blocking and coalesce).
@@ -79,35 +78,24 @@ type sessionState struct {
 type sessionTask func(*sessionState)
 
 // NewSessionManagerForPath constructs a SessionManager for the given project
-// path, or an ephemeral one (backed by a temp directory) if the path is empty.
-// The ephemeral mode supports "no project loaded" startup without forcing the
-// rest of the server to special-case a nil manager.
+// path. A session belongs to a project folder, so an empty path is an error.
 func NewSessionManagerForPath(projectPath string) (*SessionManager, error) {
 	if projectPath == "" {
-		scratch, err := os.MkdirTemp("", "juggler-noproject-")
-		if err != nil {
-			return nil, fmt.Errorf("failed to create scratch dir: %w", err)
-		}
-		store, err := NewFileSessionStore(scratch)
-		if err != nil {
-			return nil, err
-		}
-		return startManager(store, "", scratch), nil
+		return nil, errors.New("a session needs a project folder")
 	}
 	store, err := NewFileSessionStore(projectPath)
 	if err != nil {
 		return nil, err
 	}
-	return startManager(store, projectPath, ""), nil
+	return startManager(store, projectPath), nil
 }
 
-func startManager(store *FileSessionStore, projectPath, scratchDir string) *SessionManager {
+func startManager(store *FileSessionStore, projectPath string) *SessionManager {
 	m := &SessionManager{
 		state:        &sessionState{store: store},
 		readChan:     make(chan sessionTask, 64),
 		writeChan:    make(chan sessionTask, 64),
 		shutdownChan: make(chan struct{}),
-		scratchDir:   scratchDir,
 		projectPath:  projectPath,
 		binSizeKick:  make(chan struct{}, 1),
 	}
@@ -261,22 +249,18 @@ func (m *SessionManager) run() {
 	}
 }
 
-// Shutdown gracefully shuts down the actor goroutine and removes any
-// ephemeral scratch directory created for no-project mode.
+// Shutdown gracefully shuts down the actor goroutine.
 //
 // It is a barrier: once it returns, no goroutine of this manager will write
-// into the project directory again. Callers depend on that — the project switch
-// releases the project's lock immediately afterwards, and a task still in flight
-// would write into a directory whose next owner is already there.
+// into the project directory again. Callers depend on that — the server
+// releases the project's lock immediately afterwards, and a task still in
+// flight would write into a directory whose next owner is already there.
 func (m *SessionManager) Shutdown() {
 	m.shutdownOnce.Do(func() {
 		close(m.shutdownChan)
 		// A task already picked off the queue runs to completion, so waiting is
 		// the only thing that makes the last write ordered before the return.
 		m.goroutines.Wait()
-		if m.scratchDir != "" {
-			os.RemoveAll(m.scratchDir)
-		}
 	})
 }
 
@@ -517,15 +501,13 @@ func (m *SessionManager) SaveConversationBinary(convID string, yjsData []byte) e
 // SaveConversationBinaryIfOwned persists the Yjs document only when convID is a
 // conversation this project already owns (has a registered on-disk folder),
 // reporting whether the save happened. It is the persistence path for the
-// conversation-worker manager, which is server-lifetime: its workers can
-// outlive a SwitchProject, so a worker created under one project must never
-// write its conversation into whichever project is loaded now. Unlike
+// conversation-worker manager, whose workers must never write a conversation
+// this project does not own into it. Unlike
 // SaveConversationBinary — which fabricates an "Untitled--<id>" folder for an
 // unknown id (a deliberate low-level store convenience some tests rely on) —
-// this refuses the unowned id and returns (false, nil): a benign no-op, since
-// the project that actually owns the conversation persists it when it is the
-// loaded project. The ownership check and the write happen in one actor turn,
-// so a concurrent SwitchProject can never wedge a save between them.
+// this refuses the unowned id and returns (false, nil): a benign no-op. The
+// ownership check and the write happen in one actor turn, so nothing can
+// change ownership between them.
 func (m *SessionManager) SaveConversationBinaryIfOwned(convID string, yjsData []byte) (bool, error) {
 	return runWrite(m, func(s *sessionState) (bool, error) {
 		if _, ok := s.store.ConvDir(convID); !ok {
@@ -879,8 +861,8 @@ func (m *SessionManager) GetWindowState(role string) (WindowState, bool) {
 // caller could not have filled in. MergeWindowUIPrefs owns those.
 func (m *SessionManager) SetWindowState(role string, ws WindowState) error {
 	_, err := runWrite(m, func(s *sessionState) (struct{}, error) {
-		// No session loaded (e.g. a no-project window still at the picker) —
-		// there's nowhere to store geometry, so no-op rather than panic.
+		// No session loaded — there's nowhere to store geometry, so no-op
+		// rather than panic.
 		if s.session == nil {
 			return struct{}{}, nil
 		}
@@ -978,8 +960,8 @@ func (m *SessionManager) GetPinboard(boardID string) []Pin {
 // board need no setting up: the first pin added to a project is an add against
 // "main", and the board is whatever that leaves behind.
 //
-// A no-project session (still at the picker) has nowhere to store a board, so it
-// yields an empty one rather than an error.
+// Before the session is loaded there is nowhere to store a board, so it yields
+// an empty one rather than an error.
 func (m *SessionManager) ApplyPinboardOps(boardID string, ops []PinboardOp) ([]Pin, error) {
 	return runWrite(m, func(s *sessionState) ([]Pin, error) {
 		if s.session == nil {
@@ -1046,7 +1028,7 @@ func (m *SessionManager) ClaimBoardSeed(boardID string) bool {
 func (m *SessionManager) CreateBoard(boardID, conversationID string, pins []Pin) (Board, error) {
 	return runWrite(m, func(s *sessionState) (Board, error) {
 		if s.session == nil {
-			return Board{}, fmt.Errorf("no project is open")
+			return Board{}, errNoSession
 		}
 		if !ValidBoardID(boardID) {
 			return Board{}, fmt.Errorf("invalid board id %q", boardID)

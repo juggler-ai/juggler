@@ -240,27 +240,16 @@ func newIsolatedRun(t *testing.T) isolatedRun {
 
 // startSessionChild runs one session child for project directly, spawned as
 // the machine server spawns it (--session-child, an ephemeral loopback port,
-// the ingress secret in its environment) but with a secret the test chose, so
-// the test can stand in for the supervisor. It returns the child's address
-// once printed; the child is killed, with its process group, when the test
-// ends.
-func startSessionChild(t *testing.T, project, ingressSecret string) string {
+// the ingress secret and API token in its environment) but with a secret and
+// token the test chose, so the test can stand in for the supervisor. It
+// returns the child's address once printed; the child is killed, with its
+// process group, when the test ends.
+func startSessionChild(t *testing.T, project, ingressSecret, apiToken string) string {
 	t.Helper()
 	iso := newIsolatedRun(t)
-	return startServerProcess(t, iso, helpers.EnvWithOverride(iso.env, ingress.SecretEnv, ingressSecret),
-		"--session-child", "--port", "0", "--project", project)
-}
-
-// startStandaloneServer runs a per-project server for project in its own
-// process (--standalone; no --session-child, no --test, so the API token and
-// every production gate are in force), on an ephemeral port with no window,
-// with extraArgs after the rest. It returns the server's address once printed;
-// the server is killed, with its process group, when the test ends.
-func startStandaloneServer(t *testing.T, project string, extraArgs ...string) string {
-	t.Helper()
-	iso := newIsolatedRun(t)
-	args := append([]string{"--standalone", "--port", "0", "--window=false", "--project", project}, extraArgs...)
-	return startServerProcess(t, iso, iso.env, args...)
+	env := helpers.EnvWithOverride(iso.env, ingress.SecretEnv, ingressSecret)
+	env = helpers.EnvWithOverride(env, ingress.TokenEnv, apiToken)
+	return startServerProcess(t, iso, env, "--session-child", "--port", "0", "--project", project)
 }
 
 // startServerProcess runs the suite's binary with args under env, returns the
@@ -442,6 +431,23 @@ func (ms *machineServer) readServerInfo() machineserver.ServerInfo {
 		ms.t.Fatalf("parse server.json %q: %v", b, err)
 	}
 	return info
+}
+
+// holdSession holds the session id as a terminal's named attachment does, until
+// the test ends. A test whose window loads the session on its own clock holds it
+// so: the unviewed grace is wall time, which a window loading on a saturated
+// machine can outrun before its socket counts as a viewer.
+func (ms *machineServer) holdSession(id string) {
+	ms.t.Helper()
+	c, err := machineserver.Connect(machineserver.ConnectOptions{ConfigDir: ms.ConfigDir})
+	if err != nil {
+		ms.t.Fatalf("connect to hold session %s: %v", id, err)
+	}
+	a, err := c.Attach(id)
+	if err != nil {
+		ms.t.Fatalf("hold session %s: %v", id, err)
+	}
+	ms.t.Cleanup(a.Close)
 }
 
 // setDefaultModel stores ref as the explicit default model under the machine

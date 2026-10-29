@@ -22,7 +22,7 @@ import { assert } from '../utilities/test-helpers.js';
 
 /** Every eyebrow, by the selector its own sheet styles it under. */
 const EYEBROWS = [
-  'no-project-overlay .np-recents-label', '.pp-recents-label',
+  '.pp-recents-label',
   '.model-picker-recent-label', '.model-current-label', '.model-thinking-label', '.model-speed-label',
   '.actions-sheet .actions-sheet-section-header', '.pending-messages-label',
   '.thread-result-final .thread-result-label', '.permissions-popup .plugin-section-heading',

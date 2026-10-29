@@ -14,7 +14,6 @@ require (
 	github.com/laurent22/go-trash v0.0.0-20250304161307-725f51160fe4
 	github.com/mattn/go-ieproxy v0.0.12
 	github.com/mattn/go-isatty v0.0.24
-	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/openai/openai-go/v3 v3.86.0
 	github.com/pion/webrtc/v4 v4.2.25

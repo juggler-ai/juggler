@@ -288,17 +288,15 @@ class ConnectionManager {
     // registered unconditionally and its handler has no not-found answer (see
     // HandleGetSession), so a 404 here comes from a request the load
     // makes afterwards — and reloading the page would only repeat that request,
-    // in a loop, with the user unable to reach the picker.
+    // in a loop, with the user unable to reach any control.
     let loadError = null;
     try {
       await this._session.persistence.load();
     } catch (error) {
       const errorMessage = extractErrorMessage(error);
       // Don't strand the UI on a failed load. Fall through to wire the
-      // session into the UI anyway: the <no-project-overlay> project
-      // picker is the user's recovery path (opening a project triggers a
-      // full reload that retries the load), and we surface the failure
-      // explicitly below rather than silently bricking with no controls.
+      // session into the UI anyway, and surface the failure explicitly
+      // below rather than silently bricking with no controls.
       console.error('[ConnectionManager] Session load failed:', errorMessage);
       loadError = errorMessage;
     }

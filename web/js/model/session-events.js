@@ -29,8 +29,7 @@ import { reportFault } from '../utils/fault-report.js';
 /**
  * Every name announced on the session feed.
  *
- * Session-level: `session:loaded` (a load or a project switch adopted a
- * manifest), `session:saved`, `session:save-error`, `session:metadata-changed`
+ * Session-level: `session:loaded` (a load adopted a manifest), `session:saved`, `session:save-error`, `session:metadata-changed`
  * (`data.keys` names what moved), `session:workspaces-changed`,
  * `workspace:selected`.
  *

@@ -6,6 +6,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -25,26 +26,23 @@ import (
 	"juggler/internal/srcroot"
 )
 
-// loadConfig determines the project path (from --project, cwd, or none) and
-// loads .juggler/config.json from it. If no project is selected (window-mode
-// launch with no --project), the app starts in no-project mode using a
-// default in-memory config; the user picks a project later via the UI.
+// loadConfig determines the project path (from --project or cwd) and loads
+// .juggler/config.json from it. A launch that serves in this process serves
+// one project, so finding none is fatal: another folder is another session,
+// opened from the machine server's sessions page.
 // Runs before logging is initialised, so failures go to stderr directly.
 func (a *App) loadConfig() error {
 	projectPath, err := a.resolveStartupProject()
+	if err == nil && projectPath == "" {
+		err = errors.New("no project folder: pass --project <folder>, or run juggler from a project folder")
+	}
 	if err != nil {
 		fatal("%v", err)
 		return err
 	}
 	a.projectPath = projectPath
 
-	if projectPath == "" {
-		fmt.Fprintln(a.startupOut(), "📋 Starting in no-project mode (open a project from the UI)")
-		a.cfg = core.DefaultConfig()
-		return nil
-	}
-
-	fmt.Fprintln(a.startupOut(), "📋 Loading configuration...")
+	fmt.Println("📋 Loading configuration...")
 	cfg, err := core.LoadConfig(projectPath)
 	if err != nil {
 		fatal("Failed to load config: %v", err)
@@ -55,14 +53,17 @@ func (a *App) loadConfig() error {
 }
 
 // resolveStartupProject returns the absolute project path to open at startup,
-// or "" for no-project mode. Rules:
+// or "" for none. Rules:
 //   - --project <path> always wins; resolved to absolute and validated.
 //   - else if launched with a controlling terminal: use cwd, UNLESS cwd is a
 //     "silly" well-known location (home, Desktop, Documents, a system folder,
 //     the filesystem root, …) with no existing .juggler/. Adopting such a cwd
-//     would scatter a stray .juggler/ where the user doesn't expect one, so we
-//     fall back to no-project mode and let them pick a folder in the UI.
-//   - else (window/app launch with no flag): no-project mode.
+//     would scatter a stray .juggler/ where the user doesn't expect one, so
+//     there is none.
+//   - else (no terminal and no flag): none.
+//
+// The cwd rule is bare juggler's (runBare); a session child and the test
+// harness are always given --project.
 func (a *App) resolveStartupProject() (string, error) {
 	if a.flags.projectSet {
 		raw := a.flags.project
@@ -93,7 +94,7 @@ func (a *App) resolveStartupProject() (string, error) {
 		if !hasJugglerDir(wd) {
 			home, _ := os.UserHomeDir()
 			if core.IsUnsuitableProjectRoot(wd, home) {
-				fmt.Fprintf(a.startupOut(), "ℹ️  %s looks like a system/home location; not creating a session here.\n", wd)
+				fmt.Printf("ℹ️  %s looks like a system/home location; not creating a session here.\n", wd)
 				return "", nil
 			}
 		}
@@ -120,10 +121,8 @@ func hasJugglerDir(dir string) bool {
 // initLogging brings up jlog according to config + --verbose, and registers
 // jlog.Close as the last cleanup to run. The log file path is resolved centrally
 // from the project by internal/logpaths (one process → one well-known file in
-// the platform log dir), so a no-project/host launch — exactly the case that bricks
-// silently on a fresh Windows double-click with no terminal to catch stderr —
-// still leaves a diagnostic trail in host.log. An explicit --log-file overrides
-// the derived path (used by the desktop app when it spawns servers).
+// the platform log dir). An explicit --log-file overrides the derived path (the
+// machine server passes one to each session child it spawns).
 func (a *App) initLogging() error {
 	opts := jlog.Options{
 		ConsoleLevel: jlog.LevelInfo,
@@ -155,9 +154,9 @@ func (a *App) initLogging() error {
 		"gen":     nonEmptyOr(os.Getenv("JUGGLER_RELAUNCH_GEN"), "0"),
 	}
 
-	// With a file sink and no controlling terminal — an app- or icon-spawned
-	// server — nothing watches stderr interactively, and a parent (the desktop
-	// app) captures that stderr to a per-project crash file. Silencing the
+	// With a file sink and no controlling terminal — a session child — nothing
+	// watches stderr interactively, and its parent (the machine server) captures
+	// that stderr to a per-project crash file. Silencing the
 	// console keeps every jlog line out of that crash file, leaving it to catch
 	// only genuine panics / pre-init output. A direct terminal launch keeps its
 	// console.
@@ -206,10 +205,9 @@ func (a *App) logProviders() error {
 	return nil
 }
 
-// initNetwork applies the saved proxy policy to the shared HTTP layer. Unlike
-// the connectivity prefs (GUI-launch only), proxy settings apply on every launch
-// — terminal included — and must be set before any provider client, model-list
-// probe, or update check runs, hence this early phase. Test mode never reads a
+// initNetwork applies the saved proxy policy to the shared HTTP layer. It must
+// be set before any provider client, model-list probe, or update check runs,
+// hence this early phase. Test mode never reads a
 // developer's real settings.json; there httpx keeps its env-based default (and
 // loopback traffic bypasses the proxy regardless). A load failure is non-fatal:
 // LoadGlobalSettings still returns normalised defaults (system) to apply.
@@ -227,9 +225,7 @@ func (a *App) initNetwork() error {
 
 // initSession constructs the session store and manager. The manager spawns
 // its own actor goroutine internally; Shutdown/cleanup of session state is
-// handled by the server when it shuts down. In no-project mode, we still
-// create a SessionManager (with empty projectPath) so the server has
-// something to wire up; switching to a real project rebuilds it.
+// handled by the server when it shuts down.
 func (a *App) initSession() error {
 	jlog.Info("💾 Creating session manager...")
 	mgr, err := core.NewSessionManagerForPath(a.projectPath)
@@ -262,12 +258,6 @@ func (a *App) initServer() error {
 		return fmt.Errorf("assets-from-disk requested but no source checkout found")
 	}
 
-	allowedHosts, err := a.resolveAllowedHosts()
-	if err != nil {
-		jlog.Error("%v", err)
-		return err
-	}
-
 	srv, err := server.New(server.Config{
 		SessionManager: a.session,
 		Host:           a.cfg.Server.Host,
@@ -277,11 +267,9 @@ func (a *App) initServer() error {
 		ProjectPath:    a.projectPath,
 		BootLock:       a.lock,
 		ExtraRoutes:    a.config.ExtraRoutes,
-		ExitWithParent: a.flags.exitWithParent,
-		LoopbackOnly:   a.flags.sessionChild,
-		IngressSecret:  a.ingressSecret,
-		FixedProject:   a.flags.sessionChild,
-		AllowedHosts:   allowedHosts,
+		IngressSecret:  a.spawner.ingressSecret,
+		APIToken:       a.spawner.apiToken,
+		Supervisor:     a.spawner.supervisor,
 	})
 	if err != nil {
 		jlog.Error("Failed to create server: %v", err)
@@ -303,9 +291,6 @@ func (a *App) initServer() error {
 		jlog.Error("Failed to bind port: %v", err)
 		return err
 	}
-	if names := allowedHosts.Names(); len(names) > 0 {
-		jlog.Info("🔀 Also serving under %s (reverse proxy on this machine; its callers count as remote)", strings.Join(names, ", "))
-	}
 
 	// Start MCP discovery at the first point the project is known, so servers are
 	// connecting while the engine boots. Deferred to the engine's first request
@@ -313,12 +298,11 @@ func (a *App) initServer() error {
 	// discovery, and it ships without a single MCP tool.
 	srv.StartMCP()
 
-	// Record the address we actually bound to so discovery clients (the test
-	// harness via stdout, a desktop app that spawned us as a subprocess, a peer
-	// reading instance.json) all see the real port — findAvailablePort may have
-	// moved past a busy one. The stdout line is the spawn-time channel; the lock
-	// file is the discover-an-already-running-instance channel.
-	fmt.Fprintf(a.startupOut(), "JUGGLER_ADDR=%s\n", srv.GetAddr())
+	// Tell the spawner (the machine server, `juggler run` or the test harness)
+	// the address actually bound — findAvailablePort may have moved past the
+	// one asked for — and record it in instance.json beside the lock
+	// (InstanceLock.UpdateAddr).
+	fmt.Printf("JUGGLER_ADDR=%s\n", srv.GetAddr())
 	if a.lock != nil {
 		if host, portStr, err := net.SplitHostPort(srv.GetAddr()); err == nil {
 			if port, err := strconv.Atoi(portStr); err == nil {
@@ -327,23 +311,6 @@ func (a *App) initServer() error {
 				}
 			}
 		}
-	}
-
-	// Read launch-time connectivity prefs once (read-only at boot). Only a
-	// GUI/desktop-app launch honours them; a terminal launch uses CLI flags and
-	// test mode must never read a developer's real settings.json — isGUILaunch is
-	// false in both cases, so we skip the read and leave the zero value (no
-	// LAN/WAN on launch).
-	if a.isGUILaunch() {
-		if gs, err := core.LoadGlobalSettings(); err != nil {
-			jlog.Debug("Connectivity: settings load failed, ignoring launch prefs: %v", err)
-		} else {
-			a.connectivity = gs.Connectivity
-		}
-	}
-
-	if a.resolveLANDefault() {
-		srv.SetPublicMode(true)
 	}
 
 	if a.flags.testMode {
@@ -376,10 +343,7 @@ func (a *App) initEngineWatcher() error {
 			jlog.Error("Engine did not connect within %v — server is shutting down", engineStartupTimeout)
 			return
 		}
-		// A run's stdout is its answer, so it gets no banner.
-		if a.flags.oneShot == nil {
-			a.printSessionBanner()
-		}
+		a.server.PrintSessionInfo()
 		a.server.StartBackgroundServices()
 	}()
 	return nil
@@ -391,13 +355,4 @@ func (a *App) serve() error {
 	a.serverErrChan = make(chan error, 1)
 	go func() { a.serverErrChan <- a.server.Serve() }()
 	return nil
-}
-
-// printSessionBanner shows the session info box, then the LAN status when
-// LAN access is on.
-func (a *App) printSessionBanner() {
-	a.server.PrintSessionInfo()
-	if a.server.IsPublicMode() {
-		a.server.PrintLANStatus(true)
-	}
 }

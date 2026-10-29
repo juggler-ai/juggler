@@ -13,12 +13,14 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"juggler/internal/ingress"
 	"juggler/internal/machineload/machineloadtest"
 )
 
@@ -472,6 +474,58 @@ func TestEnvWith(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("envWith should keep exactly one JUGGLER_RELAUNCH_GEN entry, got %d", n)
+	}
+}
+
+// TestSessionChildRelaunchCarriesWhatItsSpawnerGaveIt: a session child takes
+// its spawner's secrets out of its environment at startup, so nothing it spawns
+// inherits them, yet the image the watchdog re-execs in its place is the same
+// session child and refuses to start without them. The relaunch hands them on
+// in the exec's own environment, and the process's environment stays clear.
+func TestSessionChildRelaunchCarriesWhatItsSpawnerGaveIt(t *testing.T) {
+	given := map[string]string{
+		ingress.SecretEnv:            "the-secret",
+		ingress.TokenEnv:             "the-token",
+		ingress.SupervisorAddrEnv:    "127.0.0.1:3939",
+		ingress.SupervisorTokenEnv:   "the-control-token",
+		ingress.SupervisorSessionEnv: "s1",
+	}
+	for k, v := range given {
+		t.Setenv(k, v)
+	}
+
+	kept, err := takeSpawnerEnv().keep(true)
+	if err != nil {
+		t.Fatalf("keep: %v", err)
+	}
+	for k := range given {
+		if v, ok := os.LookupEnv(k); ok {
+			t.Errorf("%s is still in the process environment (%q)", k, v)
+		}
+	}
+
+	env := relaunchEnviron(os.Environ(), kept.environ(), 2)
+	for k, v := range given {
+		if !slices.Contains(env, k+"="+v) {
+			t.Errorf("the relaunch environment lacks %s=%s", k, v)
+		}
+	}
+	if !slices.Contains(env, relaunchGenEnv+"=2") {
+		t.Errorf("the relaunch environment lacks %s=2", relaunchGenEnv)
+	}
+	for k := range given {
+		if v, ok := os.LookupEnv(k); ok {
+			t.Errorf("building the relaunch environment put %s back in the process environment (%q)", k, v)
+		}
+	}
+
+	// Any other launch keeps nothing, so its relaunch carries nothing.
+	for k, v := range given {
+		t.Setenv(k, v)
+	}
+	other, err := takeSpawnerEnv().keep(false)
+	if err != nil || len(other.environ()) != 0 {
+		t.Errorf("another launch kept %v (%v), want nothing", other.environ(), err)
 	}
 }
 

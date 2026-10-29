@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{.HTMLLang}}"{{if .UILocale}} data-ui-locale="{{.UILocale}}"{{end}}{{if .UILocalePinned}} data-ui-locale-pinned="1"{{end}}{{if .FixedProject}} data-fixed-project="1"{{end}}>
+<html lang="{{.HTMLLang}}"{{if .UILocale}} data-ui-locale="{{.UILocale}}"{{end}}{{if .UILocalePinned}} data-ui-locale-pinned="1"{{end}}>
 <head>
     <meta charset="UTF-8">
     {{if .UICatalog}}<!-- The UI language's catalogue, read by web/sdk/lib/i18n.js when it
@@ -75,11 +75,12 @@
             }
             var owner = isWindow && !remoteViewer;
             // Opaque per-project key from the server, namespacing this origin's
-            // localStorage. The origin identifies a port, not a project — the
-            // next project's server reuses it, and a viewer arriving over the
-            // studio relay sees one origin for every project on every machine —
-            // so a bare key would hand this project whatever the last one left
-            // behind. Empty for a no-project window, which uses the bare key.
+            // localStorage. The origin identifies the machine server, not a
+            // project — every session it runs is served from it under
+            // /s/<id>/, and a viewer arriving over the studio relay sees one
+            // origin for every project on every machine — so a bare key would
+            // hand this project whatever another left behind. A page the
+            // server injected none into uses the bare key.
             window.__projectKey = "{{.ProjectKey}}";
             // This client's cached machine preference: the machine's in the
             // server's own window, this device's own copy (@viewer) in any other
@@ -162,9 +163,10 @@
             // Mark window-mode when loaded inside a native desktop window.
             if (isWindow) {
                 document.documentElement.dataset.windowMode = '1';
-                // A window on a server the app did not start (--url) switches
-                // projects in place: that server's paths may be on another
-                // machine, so the app cannot open one in a window of its own.
+                // A window on a server by URL (another computer's) opens that
+                // server's other projects in place, through its sessions page:
+                // its paths may be on another machine, so the app cannot open
+                // one in a window of its own.
                 if (params.get('external') === '1') {
                     document.documentElement.dataset.externalServer = '1';
                 }
@@ -245,6 +247,7 @@
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/about-modal.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/approvals.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/overlays-and-updates.css">
+    <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/connectivity.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/settings.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/escape-arm-cue.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/components/find-bar.css">
@@ -304,7 +307,7 @@
     <script src="{{.BasePath}}/v{{.StaticVersion}}/js/vendor/prism-diff.js"></script>
 </head>
 <body>
-    {{if .IsWindowMode}}<script type="module" src="/wails/runtime.js"></script>{{end}}
+    {{if .IsWindowMode}}<script type="module" src="{{.BasePath}}/wails/runtime.js"></script>{{end}}
     <!-- Thin no-drag strip pinned to the top edge of the window. Without it,
          the draggable .app-header extends to y=0 and overlaps the macOS
          top-edge resize zone, so dragging the top border to resize fights a
@@ -328,9 +331,6 @@
         // behind the machine server's session proxy. Every /api and WebSocket
         // URL is built on it (utils/api-url.js).
         window.__jugglerBase = '{{.BasePath}}';
-        // The ICE servers this server answers WebRTC offers with, so the
-        // viewer's own offer uses the same ones (services/websocket.js).
-        window.__jugglerIceServers = {{.ICEServers}};
         (function () {
             const token = window.__jugglerToken;
             if (!token || typeof window.fetch !== 'function') return;
@@ -389,20 +389,14 @@
                  that knows either. -->
             <div class="app-header__board-title" id="board-title"></div>
 
-            <!-- Project control: a chip showing the current project (click to
-                 change it) + an inline "open new window" button. The chip is
-                 always available; the new-window button is native-window-only
-                 (hidden by CSS in remote browser tabs — they have no host to
-                 spawn a window). -->
+            <!-- Project: the session's folder, read-only (a session stays on
+                 its project), + an inline "open new window" button. The
+                 new-window button is native-window-only (hidden by CSS in
+                 remote browser tabs — they have no host to spawn a window). -->
             <project-path-display id="project-path-display" title="Project directory">
-                <button class="btn-ghost ppd-chip" id="project-path-chip" type="button"
-                        title="Change project folder" aria-label="Change project folder"
-                        aria-haspopup="dialog" aria-expanded="false">
+                <span class="ppd-chip" id="project-path-chip">
                     <span class="ppd-path"></span>
-                    <svg class="ppd-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true">
-                        <path d="M480-360 280-560h400L480-360Z"/>
-                    </svg>
-                </button>
+                </span>
                 <button class="btn-ghost ppd-new-window-button" id="project-new-window-button" type="button"
                         title="Open a new window" aria-label="Open a new window">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true">
@@ -571,9 +565,7 @@
             <conversation-tabs-container>
                 <!-- conversation-tab elements will be dynamically created here -->
             </conversation-tabs-container>
-            <!-- No-project overlay; shown when no project folder is loaded. -->
-            <no-project-overlay hidden></no-project-overlay>
-            <!-- Shown when a project is loaded but no conversation is open. -->
+            <!-- Shown when no conversation is open. -->
             <no-conversations-overlay hidden></no-conversations-overlay>
             <!-- Shown instead of a conversation while a workspace box in the
                  tab strip holds the selection. In a column container of its
@@ -663,7 +655,6 @@
     <!-- New context-first components -->
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/conversation-bar.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/conversation-tab.js"></script>
-    <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/no-project-overlay.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/no-conversations-overlay.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/workspace-panel.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/properties-panel.js"></script>

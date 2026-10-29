@@ -9,9 +9,10 @@
 # carries a Node runtime and needs no display: no Xvfb, no X or Wayland server.
 # It still installs the GTK4/WebKitGTK runtime, because the server binary lists
 # those libraries in DT_NEEDED and the dynamic loader resolves them at exec
-# whichever host the engine ends up running in. `--public` makes the mapped port
-# reachable from outside the container — the container boundary replaces the
-# usual localhost-only default, so only publish the port on networks you trust.
+# whichever host the engine ends up running in. `serve --lan` turns on LAN
+# access, which the mapped port needs: a connection through it arrives from
+# outside the container. The container boundary replaces the usual
+# localhost-only default, so only publish the port on networks you trust.
 
 FROM ubuntu:24.04
 
@@ -57,4 +58,4 @@ COPY juggler /usr/local/bin/juggler
 EXPOSE 3939
 
 ENTRYPOINT ["/usr/local/bin/juggler"]
-CMD ["--public"]
+CMD ["serve", "--lan"]

@@ -88,8 +88,6 @@ func TestFramesKeepTheirShape(t *testing.T) {
 			fileChangeFrame{Type: frameFileChange, Changes: []core.FileChange{{}}}},
 		{"plugin-changed", map[string]any{"type": "plugin-changed", "path": "config/plugins"},
 			pluginChangedFrame{Type: framePluginChanged, Path: "config/plugins"}},
-		{"project-changed", map[string]any{"type": "project-changed", "projectPath": "/p"},
-			projectChangedFrame{Type: frameProjectChanged, ProjectPath: "/p"}},
 		{"settings-changed", map[string]any{"type": "settings-changed", "settings": core.GlobalSettings{}},
 			settingsChangedFrame{Type: frameSettingsChanged, Settings: core.GlobalSettings{}}},
 		{"run-one-shot", map[string]any{"type": "run-one-shot", "requestId": "r", "prompt": "p", "strategyId": "", "name": "n", "timeoutMs": int64(5000)},

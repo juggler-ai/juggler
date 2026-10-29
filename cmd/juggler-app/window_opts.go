@@ -101,21 +101,21 @@ type windowOpts struct {
 
 	// external marks a window onto a server this app did not start (--url).
 	// Like openedBy it never comes off the wire: buildWindow sets it from the
-	// window's spec. The page reads it to keep project switches in place, since
-	// the paths that server offers belong to its machine, not this one.
+	// window's spec. The page reads it to name that server in the window's
+	// title and to keep its folders on that server, since the paths it offers
+	// belong to its machine, not this one.
 	external bool
 
 	// replaces is the id of a window this one takes the place of: it is closed
 	// once this one is up, never before, so the app is not left with no window
 	// (which quits it). Set by the control endpoint, never off the wire — the
-	// empty window a server was connected from, or an unreachable-server page
-	// being retried or traded for a local window.
+	// empty window a server was connected from, or a stand-in being answered.
 	replaces string
 
-	// standIn makes the window a stand-in for the one its spec names, which
-	// cannot be shown (stand_in.go): its page is an empty window's, told so by
-	// ?standIn=. Set by buildStandInWindow, never off the wire.
-	standIn *standIn
+	// notice is what the server's page says as it opens in a window: why the
+	// window shows it rather than the session it was opened for (see
+	// openFailedError). Set by planWindow, never off the wire.
+	notice string
 
 	// panel is where the board was on screen in the window that asked, so the
 	// new window can open over it: a pop-out is the panel leaving the window,
@@ -327,8 +327,8 @@ func windowPageURL(serverURL, nativeCtl string, opts windowOpts) string {
 	if opts.external {
 		u += "&external=1"
 	}
-	if opts.standIn != nil {
-		u += "&standIn=" + url.QueryEscape(opts.standIn.kind)
+	if opts.notice != "" {
+		u += "&notice=" + url.QueryEscape(opts.notice)
 	}
 	if opts.view != "" {
 		u += "&view=" + url.QueryEscape(opts.view)

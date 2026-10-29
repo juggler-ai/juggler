@@ -530,53 +530,20 @@ func TestWorkspace_Validate(t *testing.T) {
 func managerForWorkspaceTest(t *testing.T) (*SessionManager, string) {
 	t.Helper()
 	store, dir := newStoreForTest(t)
-	m := startManager(store, dir, "")
+	m := startManager(store, dir)
 	t.Cleanup(m.Shutdown)
 	return m, dir
 }
 
-// Every write to the table is refused when no project is open.
-//
-// A workspace is a place a conversation works, and in no-project mode there is
-// no conversation and nowhere for a row to live: the session is backed by a
-// scratch directory this process deletes on the way out. Accepting a
-// registration would file it there and report success, telling the user a
-// workspace exists that goes away when the window closes.
-//
-// The refusal has to be keyed on the project path rather than on the session,
-// because there IS one — NewSessionManagerForPath("") makes a real session over
-// the scratch dir, precisely so the rest of the server need not special-case a
-// nil manager.
-func TestWorkspaceWrites_RefusedWithNoProjectOpen(t *testing.T) {
+// A session belongs to a project folder. Every server is started for one (a
+// machine server's session child, the test harness), so there is no
+// project-less session to build: asking for one is an error, not a scratch
+// session that pretends to be somewhere.
+func TestSessionManagerRequiresAProject(t *testing.T) {
 	m, err := NewSessionManagerForPath("")
-	if err != nil {
-		t.Fatalf("NewSessionManagerForPath(\"\"): %v", err)
-	}
-	t.Cleanup(m.Shutdown)
-
-	if _, err := m.RegisterWorkspace(Workspace{Root: t.TempDir(), State: WorkspaceStateReady}); err == nil {
-		t.Fatal("RegisterWorkspace succeeded with no project open")
-	} else if !strings.Contains(err.Error(), "no project") {
-		t.Fatalf("RegisterWorkspace error = %q, want it to say no project is open", err)
-	}
-	if listed := m.ListWorkspaces(); len(listed) != 0 {
-		t.Fatalf("ListWorkspaces = %+v, want nothing registered", listed)
-	}
-
-	// The other writes go the same way. Readers are left alone: asking an empty
-	// table a question is harmless, and refusing List would make every surface
-	// that shows workspaces handle an error it could do nothing about.
-	if _, err := m.UpdateWorkspace("ws_anything", WorkspacePatch{}); err == nil {
-		t.Fatal("UpdateWorkspace succeeded with no project open")
-	}
-	if _, err := m.CloseWorkspace("ws_anything"); err == nil {
-		t.Fatal("CloseWorkspace succeeded with no project open")
-	}
-	if err := m.UnregisterWorkspace("ws_anything"); err == nil {
-		t.Fatal("UnregisterWorkspace succeeded with no project open")
-	}
-	if m.ClaimWorkspaceReconcile() {
-		t.Fatal("ClaimWorkspaceReconcile handed out the once-per-run job with no project to reconcile")
+	if err == nil {
+		m.Shutdown()
+		t.Fatal(`NewSessionManagerForPath("") built a session with no project`)
 	}
 }
 
@@ -1061,7 +1028,7 @@ func TestSaveLoad_KeepsManifestFieldsThisBuildDoesNotKnow(t *testing.T) {
 // client per run is told to. A later run asks again.
 func TestClaimWorkspaceReconcile_AnswersOncePerRun(t *testing.T) {
 	store, dir := newStoreForTest(t)
-	m := startManager(store, dir, "")
+	m := startManager(store, dir)
 	t.Cleanup(m.Shutdown)
 
 	if !m.ClaimWorkspaceReconcile() {
@@ -1077,7 +1044,7 @@ func TestClaimWorkspaceReconcile_AnswersOncePerRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSessionStore: %v", err)
 	}
-	m2 := startManager(fresh, dir, "")
+	m2 := startManager(fresh, dir)
 	t.Cleanup(m2.Shutdown)
 	if !m2.ClaimWorkspaceReconcile() {
 		t.Fatalf("the next run was not offered the reconcile")

@@ -4,13 +4,11 @@
  *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
  */
 
-/* The full-area placeholders that fill the main area when there is nothing to
-   show in it: <no-project-overlay> (no project loaded) and
-   <no-conversations-overlay> (a project, but every conversation binned). They
-   share the .onboarding-* panel because they are one idiom — logo, centred
-   copy, a pointer at the control that ends the state. */
+/* The full-area placeholder that fills the main area when there is nothing to
+   show in it: <no-conversations-overlay> (a project, but every conversation
+   binned). Its .onboarding-* panel is the idiom — logo, centred copy, a
+   pointer at the control that ends the state. */
 
-no-project-overlay,
 no-conversations-overlay {
     flex: 1;
     display: flex;
@@ -19,7 +17,6 @@ no-conversations-overlay {
     padding: 3rem;
 }
 
-no-project-overlay .onboarding-panel,
 no-conversations-overlay .onboarding-panel {
     max-width: 34rem;
     text-align: center;
@@ -28,7 +25,6 @@ no-conversations-overlay .onboarding-panel {
     user-select: none;
 }
 
-no-project-overlay .onboarding-logo,
 no-conversations-overlay .onboarding-logo {
     height: 3rem;
     aspect-ratio: 79.433 / 31.038;
@@ -41,7 +37,6 @@ no-conversations-overlay .onboarding-logo {
     opacity: 0.85;
 }
 
-no-project-overlay h1,
 no-conversations-overlay h1 {
     margin: 0 0 1rem;
     color: var(--text-primary);
@@ -49,171 +44,19 @@ no-conversations-overlay h1 {
     font-weight: 600;
 }
 
-no-project-overlay p,
 no-conversations-overlay p {
     margin: 0 auto 0.875rem;
     font-size: var(--font-size-body-lg);
     line-height: 1.6;
 }
 
-no-project-overlay p:last-child,
 no-conversations-overlay p:last-child {
     margin-bottom: 0;
 }
 
-no-project-overlay .onboarding-link {
-    margin: 0;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--accent-blue);
-    font: inherit;
-    cursor: pointer;
-}
-
-no-project-overlay .onboarding-link:hover {
-    text-decoration: underline;
-}
-
-/* The ways into a project, given as buttons rather than as links inside a
-   sentence: this is the one screen where the reader may not yet know that the
-   coloured words are clickable. Stacked in one column, every button as wide as
-   the widest, so two or three of them read as one list of choices rather than
-   a row that wraps unevenly. */
-
-/* Vertical rhythm here is padding, not margin: the markdown pattern layer
-   resets the margins of a scope's first and last child, and it sits below this
-   one, so a margin set here is a margin that stops working the day one of these
-   panels renders inside a markdown scope. Padding is not part of that reset. */
-no-project-overlay .np-actions {
-    display: grid;
-    justify-content: center;
-    gap: 0.5rem;
-    padding: 1.5rem 0 0.75rem;
-}
-
-no-project-overlay .np-action {
-    border: none;
-    border-radius: var(--radius-lg);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: var(--font-size-md);
-    padding: 0.5rem 1rem;
-    transition: background var(--transition-base), opacity var(--transition-base);
-}
-
-/* The neutral fill, for the actions with no role (patterns/buttons.css). */
-no-project-overlay .np-action:not(.btn-primary) {
-    background: var(--bg-raised);
-    color: var(--text-primary);
-}
-
-no-project-overlay .np-action:not(.btn-primary):hover {
-    background: var(--bg-tertiary);
-}
-
-/* Shown only while a folder is actually over the window, which the native side
-   reports to the host element (see _setDropActive in no-project-overlay.js).
-   Anywhere in the window accepts the drop, so the outline answers for the window
-   and is merely drawn on the panel, which is the thing worth pointing at. A
-   permanent dashed box would shout at everyone to announce something almost
-   nobody is doing. */
-no-project-overlay.folder-drop-active .onboarding-panel {
-    outline: 0.125rem dashed var(--accent-blue);
-    outline-offset: 1rem;
-    border-radius: var(--radius-lg);
-}
-
-no-project-overlay .np-drop-hint,
-no-project-overlay .np-stand-in-status {
-    font-size: var(--font-size-base);
-    color: var(--text-secondary);
-}
-
-/* A stand-in's explanation names things the reader may have to act on — the
-   address to check, the lock file to delete — so, unlike the rest of the
-   panel, it can be selected and copied. */
-no-project-overlay .np-stand-in-detail {
-    user-select: text;
-}
-
-no-project-overlay .np-recents {
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-    max-width: 100%;
-    padding: 1.25rem 0;
-    text-align: left;
-}
-
-no-project-overlay .np-recents-label {
-    color: var(--text-secondary);
-    padding: 0.25rem 0.125rem;
-}
-
-no-project-overlay .np-recent {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-md);
-    color: var(--text-primary);
-    cursor: pointer;
-    font-family: var(--font-mono);
-    font-size: var(--font-size-base);
-    overflow: hidden;
-    padding: 0.3125rem 0.5rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    transition: background 100ms ease;
-}
-
-no-project-overlay .np-recent:hover {
-    background: var(--bg-raised);
-}
-
-/* The prerequisite that otherwise fails silently at the first message, so it
-   gets a light that is on or off rather than a sentence to read past. */
-no-project-overlay .np-provider {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 0.375rem;
-    padding: 1.25rem 0 0;
-    font-size: var(--font-size-base);
-}
-
-no-project-overlay .np-provider:empty {
-    display: none;
-}
-
-no-project-overlay .np-provider-dot {
-    width: 0.5rem;
-    height: 0.5rem;
-    border-radius: 50%;
-    background: var(--accent-green);
-    flex: none;
-}
-
-no-project-overlay .np-provider--none .np-provider-dot {
-    background: var(--accent-yellow);
-}
-
-no-project-overlay .np-provider-text {
-    color: var(--text-secondary);
-}
-
-no-project-overlay .np-footnote {
-    padding-top: 1.5rem;
-    font-size: var(--font-size-base);
-    color: var(--text-secondary);
-}
-
 /* The first-run setup wizard's chrome (components/onboarding/step-modal.js).
    It lives in this sheet rather than one of its own because it is the same
-   idiom as the overlays above — what is shown when there is nothing to work
+   idiom as the overlay above — what is shown when there is nothing to work
    with yet — and a fourth place to keep in sync buys nothing. The screens'
    own content classes are styled beside the code that emits them. */
 

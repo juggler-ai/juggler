@@ -279,8 +279,10 @@ Key invariants:
 - Liveness proves nothing about the UI: the server's viewer-silence window is
   fed by a bare `setInterval` heartbeat, and the client's stall timer by the
   server's own heartbeat, stamped before parsing. A viewer whose render layer is
-  dead keeps both happy. To place a wedge, ask `GET /api/health/active` (false =
-  the server is idle and the bug is client-side), then check whether `doc.yjs`
+  dead keeps both happy. To place a wedge, run `juggler server sessions` — its
+  STATE column is each session's `GET /api/health/active`, which needs the
+  session's API token, as the machine server polls it (idle = the server is idle
+  and the bug is client-side) — then check whether `doc.yjs`
   changed when the user acted (unchanged = the input never reached the server).
 
 ## Paths

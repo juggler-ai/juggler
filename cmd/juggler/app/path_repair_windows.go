@@ -12,3 +12,7 @@ package app
 // installed tools are found without help. Kept as a stub so Run() can call it
 // unconditionally across platforms.
 func repairPathForGUILaunch(hasTerminal bool) {}
+
+// repairPathForServe is a no-op on Windows for the same reason, and must not
+// call launchedFromTerminal: there that detaches an icon launch's console.
+func repairPathForServe() {}

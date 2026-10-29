@@ -7,28 +7,33 @@ package main
 import (
 	"testing"
 	"time"
+
+	"juggler/cmd/juggler/machineserver"
 )
 
-// newTestAppState builds just enough appState to exercise the registry: the ops
-// channel and the goroutine that owns regState. It deliberately skips
+// newTestAppState builds just enough appState to exercise the registry and the
+// server connection: the ops channels and the goroutines that own them. It deliberately skips
 // newAppState, which resolves GPU policy and loads the persisted workspace —
 // filesystem work the handshake has nothing to do with.
 func newTestAppState(t *testing.T) *appState {
 	t.Helper()
 	a := &appState{regOps: make(chan func(*regState), 32)}
-	st := &regState{windows: map[string]*winEntry{}, servers: map[string]*serverProc{}}
+	st := &regState{windows: map[string]*winEntry{}}
 	go func() {
 		for op := range a.regOps {
 			op(st)
 		}
 	}()
 	t.Cleanup(func() { close(a.regOps) })
+	// With no server to find, until a test starts one (newStubMachineServer).
+	a.connectOpts = machineserver.ConnectOptions{ConfigDir: t.TempDir()}
+	a.startConn()
 	return a
 }
 
 // registerTestWindow adds a bare entry the handshake can be armed against.
 func registerTestWindow(a *appState, id string) *winEntry {
-	e := &winEntry{id: id}
+	e := withSecret(&winEntry{id: id})
 	a.reg(func(st *regState) { st.windows[id] = e })
 	return e
 }

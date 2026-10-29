@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"juggler/cmd/juggler/core"
 	"juggler/internal/enginehost"
 	"juggler/internal/srcroot"
 	"juggler/tests/helpers"
@@ -78,6 +79,7 @@ func TestOneShotRunWritesAFileUnattended(t *testing.T) {
 	if code != 0 {
 		t.Fatal(report("`juggler run` exited %d, want 0.\nstdout:\n%s", code, stdout))
 	}
+	assertNothingOutlivedTheRun(t, proj, cfgDir)
 
 	outcome := decodeOnlyJSONObject(t, stdout, stderr)
 	if outcome.Status != "completed" {
@@ -129,16 +131,9 @@ func TestOneShotRunWritesAFileUnattended(t *testing.T) {
 // documented exit codes when the run does NOT succeed.
 //
 // The whole point of the command is to be read by something unattended, and the
-// only thing a caller is guaranteed to see is the exit status. That status used
-// to be discarded on every launch that owns a native application: the run stored
-// the code it earned and then asked to shut down, which reached [NSApp
-// terminate:] and ended the process without unwinding, so the statement that
-// reads the code never ran and the process reported the native quit's own 0. A
-// batch runner would have scored every timed-out instance a success. The
-// engine-host split is what hid it — this test forces the node host, which
-// returns from its wait rather than terminating, so it can only ever see the
-// generic half of the contract; TestBeginShutdownReportsTheRunStatus covers the
-// path that actually broke.
+// only thing a caller is guaranteed to see is the exit status, and the JSON
+// payload must agree with it: a batch runner reading either one must score a
+// timed-out instance as timed out, never as a success.
 //
 // The gateway here accepts the completion and then never answers it, which is
 // the shape of the failure this has to survive: a provider that has taken the
@@ -147,7 +142,7 @@ func TestOneShotRunReportsATimeoutInItsExitStatus(t *testing.T) {
 	binary := oneShotBinary(t)
 
 	proj := t.TempDir()
-	gateway := startStalledGateway(t)
+	gateway, calls := startStalledGateway(t)
 	cfgDir := writeOneShotConfig(t, gateway.URL+"/v1")
 
 	stdout, stderr, code := runOneShot(t, binary, proj, cfgDir, 10*time.Second,
@@ -159,6 +154,7 @@ func TestOneShotRunReportsATimeoutInItsExitStatus(t *testing.T) {
 	if code != 4 {
 		t.Fatal(report("`juggler run` exited %d, want 4 (timed out).\nstdout:\n%s", code, stdout))
 	}
+	assertNothingOutlivedTheRun(t, proj, cfgDir)
 
 	outcome := decodeOnlyJSONObject(t, stdout, stderr)
 	if outcome.Status != "timeout" {
@@ -178,6 +174,51 @@ func TestOneShotRunReportsATimeoutInItsExitStatus(t *testing.T) {
 	// all, and then there is no directory to name — under load this test reached
 	// exactly that state. Anything reading a timed-out run's trajectory has to
 	// cope with the field being empty.
+
+	// The turn ended with the run: its session was stopped before the run
+	// exited, so the provider call it was stalled in is closed, not left
+	// running in a process nobody is waiting on.
+	if calls.seen.Load() > 0 && !calls.awaitAllEnded(time.Minute) {
+		t.Error(report("%d stalled provider call(s) still open after `juggler run` exited", calls.open.Load()))
+	}
+}
+
+// TestOneShotRunRefusesAProjectOpenElsewhere: a project already open in a
+// session elsewhere holds its lock, so the session a run spawns for it cannot
+// start. The run fails, and says that in so many words.
+func TestOneShotRunRefusesAProjectOpenElsewhere(t *testing.T) {
+	binary := oneShotBinary(t)
+
+	proj := t.TempDir()
+	lock := core.NewInstanceLock(proj)
+	if res, err := lock.TryAcquire(); err != nil || !res.Acquired {
+		t.Fatalf("hold the project lock: %+v, %v", res, err)
+	}
+	t.Cleanup(func() { _ = lock.Release() })
+	cfgDir := writeOneShotConfig(t, "http://127.0.0.1:1/v1")
+
+	stdout, stderr, code := runOneShot(t, binary, proj, cfgDir, time.Minute, "Say something.")
+	if code != 1 {
+		t.Fatalf("`juggler run` exited %d, want 1.\nstdout:\n%s\n%s", code, stdout, tailLog(stderr))
+	}
+	outcome := decodeOnlyJSONObject(t, stdout, stderr)
+	if !strings.Contains(outcome.ErrorText, "open in another Juggler session") {
+		t.Errorf("errorText %q does not say the project is open elsewhere", outcome.ErrorText)
+	}
+}
+
+// assertNothingOutlivedTheRun checks that `juggler run` left nothing behind:
+// the session it spawned has let go of the project (a process that has died
+// holds no lock, however it died), and no machine server was started in its
+// config directory.
+func assertNothingOutlivedTheRun(t *testing.T, proj, cfgDir string) {
+	t.Helper()
+	if locked, info, err := core.CheckProjectLocked(proj); err != nil || locked {
+		t.Errorf("after `juggler run` exited, its project is still locked (%+v, %v): its session outlived it", info, err)
+	}
+	if _, err := os.Stat(filepath.Join(cfgDir, "server.json")); err == nil {
+		t.Error("`juggler run` left a machine server's server.json in its config directory")
+	}
 }
 
 // oneShotBinary returns the shipped binary to run, skipping the test when the
@@ -497,10 +538,15 @@ func startFakeGateway(t *testing.T, wantPath string) *httptest.Server {
 //
 // The blocked handlers are released before the server is closed, because Close
 // waits for outstanding requests and would otherwise hang the test at teardown.
-func startStalledGateway(t *testing.T) *httptest.Server {
+// A handler also returns when its caller goes, which it can see only once it
+// has read the request body to its end, and the gateway counts the
+// requests still held open, which is how a test sees that a stalled turn
+// really ended rather than being left running somewhere.
+func startStalledGateway(t *testing.T) (*httptest.Server, *stalledCalls) {
 	t.Helper()
 	release := make(chan struct{})
 	var releaseOnce sync.Once
+	calls := &stalledCalls{changed: make(chan struct{}, 1)}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/models" {
@@ -508,13 +554,51 @@ func startStalledGateway(t *testing.T) *httptest.Server {
 			fmt.Fprintf(w, `{"object":"list","data":[{"id":%q,"object":"model","owned_by":"juggler-test"}]}`, oneShotModelID)
 			return
 		}
-		<-release
+		calls.note(1)
+		defer calls.note(-1)
+		// net/http notices a caller going only once the body has been read.
+		_, _ = io.Copy(io.Discard, r.Body)
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
 	}))
 	t.Cleanup(func() {
 		releaseOnce.Do(func() { close(release) })
 		srv.Close()
 	})
-	return srv
+	return srv, calls
+}
+
+// stalledCalls counts the requests a stalled gateway is holding open.
+type stalledCalls struct {
+	open, seen atomic.Int64
+	changed    chan struct{}
+}
+
+func (c *stalledCalls) note(delta int64) {
+	if delta > 0 {
+		c.seen.Add(1)
+	}
+	c.open.Add(delta)
+	select {
+	case c.changed <- struct{}{}:
+	default:
+	}
+}
+
+// awaitAllEnded waits until the gateway holds no request open, each step
+// following a caller going; budget is only patience before failing.
+func (c *stalledCalls) awaitAllEnded(budget time.Duration) bool {
+	deadline := time.After(budget)
+	for c.open.Load() > 0 {
+		select {
+		case <-c.changed:
+		case <-deadline:
+			return false
+		}
+	}
+	return true
 }
 
 // writeSSE sends chat.completion.chunk objects as a Server-Sent Events stream:

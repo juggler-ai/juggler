@@ -10,11 +10,9 @@ import (
 	"os/exec"
 	"os/signal"
 	goruntime "runtime"
-	"strings"
 	"sync"
 	"syscall"
 
-	"juggler/cmd/juggler/server"
 	"juggler/internal/jlog"
 	"juggler/internal/sysopen"
 
@@ -77,9 +75,6 @@ func (a *App) waitForExit() {
 	var quitOnce sync.Once
 	quit := func() {
 		quitOnce.Do(func() {
-			if a.server != nil {
-				a.server.StopTunnel()
-			}
 			signalDone()
 			<-ready
 			a.beginShutdown(func() {
@@ -99,16 +94,6 @@ func (a *App) waitForExit() {
 	// never saved, provider subprocesses orphaned. On its own goroutine because
 	// quit blocks on <-ready, and its callers include Wails event listeners.
 	requestQuit := func() { go quit() }
-
-	// --window opens a desktop window: the server is windowless, so it launches
-	// the juggler-app process pointed at this server's URL. The app owns the
-	// visible UI and connects back over HTTP/WebSocket like any viewer.
-	launchWindow := func() {
-		devMode := a.devModeEnabled()
-		if err := launchDesktopApp(a.serverURL(), devMode); err != nil {
-			jlog.Error("Failed to open window: %v", err)
-		}
-	}
 
 	// Two independent signal pipelines:
 	//
@@ -168,46 +153,6 @@ func (a *App) waitForExit() {
 			func(line string) { jlog.Info("%s", line) }, quit)
 	}
 
-	// startTunnelMode brings up the given WAN tunnel mode in the background and
-	// prints its status box once the guest URL is ready. Only one tunnel is ever
-	// active: StartTunnelMode stops any tunnel running in a different mode first.
-	startTunnelMode := func(spec server.TunnelModeSpec) {
-		if spec.ConnectingMessage != "" {
-			jlog.Info("%s", spec.ConnectingMessage)
-		}
-		go func() {
-			if _, err := a.server.StartTunnelMode(spec.Mode); err != nil {
-				if !strings.Contains(err.Error(), "context canceled") {
-					// context-canceled is expected when the tunnel is stopped
-					// while the connection is still starting.
-					jlog.Error("Tunnel: %v", err)
-				}
-				return
-			}
-			if info, ok := a.server.GetTunnelInfo(); ok {
-				printTunnelStatus(info)
-			}
-		}()
-	}
-
-	// A GUI launch starts the saved "Start WAN on launch" mode.
-	if a.server != nil {
-		if spec, ok := savedWANModeToStart(a.isGUILaunch(), a.connectivity.WANOnLaunch, server.TunnelModes()); ok {
-			startTunnelMode(spec)
-		} else if a.isGUILaunch() && a.connectivity.WANOnLaunch != "" {
-			// Saved mode isn't registered or isn't available in this build/machine
-			// — skip it but keep the value on disk so it revives if the mode returns.
-			jlog.Debug("Connectivity: saved WAN mode %q unavailable; not starting", a.connectivity.WANOnLaunch)
-		}
-	}
-
-	// A window-mode launch (icon/Finder/--window) opens the desktop app pointed
-	// at this server. Skipped in test mode, which hosts its own test window via
-	// runWindowApp.
-	if a.flags.window && !a.flags.testMode && a.server != nil {
-		launchWindow()
-	}
-
 	devMode := a.devModeEnabled()
 	selected := selectedEngineHost{}
 	if !a.flags.testMode {
@@ -218,56 +163,7 @@ func (a *App) waitForExit() {
 			return
 		}
 	}
-	runWindowApp(a.server, devMode, !a.flags.window, a.flags.testMode, a.flags.testIframes, a.flags.testWindowURL, selected, done, teardownDone, requestQuit, onWindowReady)
-}
-
-// resolveLANDefault decides whether LAN access starts enabled. LAN exposure with
-// no authentication is opt-in, never a silent default: only a GUI launch
-// consults the saved "Start LAN on launch" preference, and every other launch
-// starts localhost-only.
-func (a *App) resolveLANDefault() bool {
-	return lanOnLaunch(a.isGUILaunch(), a.connectivity.LANOnLaunch)
-}
-
-// lanOnLaunch is the pure LAN-at-launch decision, factored out so the saved
-// preference can be injected in tests rather than read from the real home dir:
-// a GUI launch honours savedLAN, and any other launch stays localhost-only.
-func lanOnLaunch(guiLaunch, savedLAN bool) bool {
-	return guiLaunch && savedLAN
-}
-
-// isGUILaunch reports whether this is a desktop-app/icon launch (no controlling
-// terminal) that isn't the test harness or a machine-server session child. Only
-// such a launch applies the saved connectivity preferences; a terminal launch
-// uses CLI flags, test mode must not read the developer's real settings, and a
-// session child is reached only through its supervisor, which owns exposure.
-func (a *App) isGUILaunch() bool {
-	return !a.flags.hasTerminal && !a.flags.testMode && !a.flags.sessionChild
-}
-
-// savedWANModeToStart returns the tunnel-mode spec to auto-start from the saved
-// "Start WAN on launch" preference, or ok=false. It honours the preference only
-// on a GUI launch, only when savedWAN is non-empty, and only when savedWAN names
-// a registered mode that is currently available. An unknown or unavailable saved
-// mode yields ok=false so the caller skips it, leaving the value on disk to
-// revive if the mode returns. Pure over its specs argument for testability.
-func savedWANModeToStart(guiLaunch bool, savedWAN string, specs []server.TunnelModeSpec) (server.TunnelModeSpec, bool) {
-	if !guiLaunch || savedWAN == "" {
-		return server.TunnelModeSpec{}, false
-	}
-	for _, spec := range specs {
-		if string(spec.Mode) == savedWAN {
-			if spec.IsAvailable() {
-				return spec, true
-			}
-			return server.TunnelModeSpec{}, false
-		}
-	}
-	return server.TunnelModeSpec{}, false
-}
-
-func (a *App) serverURL() string {
-	return fmt.Sprintf("http://%s/", a.server.GetAddr())
+	runWindowApp(a.server, devMode, !a.flags.window, a.flags.testMode, a.flags.testIframes, a.flags.testWindowURL, selected, a.spawner.environ(), done, teardownDone, requestQuit, onWindowReady)
 }
 
 // watchQuitRequests is the graceful half of the signal handling: it reports

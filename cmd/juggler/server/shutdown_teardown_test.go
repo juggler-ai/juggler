@@ -19,7 +19,7 @@ func heldLock(t *testing.T) (*core.InstanceLock, func() bool) {
 	t.Helper()
 	dir := t.TempDir()
 	lock := core.NewInstanceLock(dir)
-	res, err := lock.TryAcquire(1234, "127.0.0.1")
+	res, err := lock.TryAcquire()
 	if err != nil || !res.Acquired {
 		t.Fatalf("could not take the lock: acquired=%v err=%v", res.Acquired, err)
 	}
@@ -27,7 +27,7 @@ func heldLock(t *testing.T) (*core.InstanceLock, func() bool) {
 
 	return lock, func() bool {
 		probe := core.NewInstanceLock(dir)
-		res, err := probe.TryAcquire(1234, "127.0.0.1")
+		res, err := probe.TryAcquire()
 		if err != nil || !res.Acquired {
 			return false
 		}

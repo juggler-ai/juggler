@@ -53,6 +53,13 @@ func repairPathForGUILaunch(hasTerminal bool) {
 	_ = os.Setenv("PATH", mergePath(os.Getenv("PATH"), loginPath))
 }
 
+// repairPathForServe is repairPathForGUILaunch for `juggler serve`, which is
+// dispatched before Run's own terminal check: a server started by the desktop
+// app (or detached by bare juggler) has no terminal, and repairs.
+func repairPathForServe() {
+	repairPathForGUILaunch(launchedFromTerminal())
+}
+
 // loginPathMarker brackets the PATH in the probe's output. An interactive
 // shell's rc files may print anything — a greeting, a fortune, a version
 // manager's notice — to the same stdout before and after the command runs, and

@@ -223,8 +223,8 @@
     overflow: hidden;
 }
 
-/* When the picker is presented as a button-anchored popup (openProjectPicker
-   via presentPopup) rather than embedded in a centred overlay, it becomes a
+/* When a panel is presented as a button-anchored popup (the connect-server
+   panel, via presentPopup) rather than embedded in a centred overlay, it becomes a
    positioned surface: positionDropdown sets --dropdown-x/y and an inline
    max-height, the bottom-sheet rules take over on a phone. Scoped to the
    modifier class so inline `.pp-panel` consumers stay plain cards. */
@@ -269,7 +269,7 @@
     gap: 0.5rem;
 }
 
-/* path-input component used inside project picker */
+/* path-input component used inside the path picker (project-picker.js) */
 .pp-path-input {
     flex: 1;
     display: block;
@@ -282,11 +282,8 @@
     white-space: nowrap;
 }
 
-/* The folder-name field in the new-project panel. Matched to the path field
-   above it: the two are read as one answer, and a name in a different typeface
-   from the path it lands in reads as a different kind of thing. The server
-   address in the connect panel is the same kind of typed location. */
-.pp-body .pp-name-input,
+/* The server address in the connect panel: a typed location, so in the path
+   field's typeface. */
 .pp-body .pp-address-input {
     display: block;
     width: 100%;
@@ -335,7 +332,6 @@ path-input .path-input-field {
 
 .pp-status--idle { color: transparent; }
 .pp-status--checking { color: var(--text-secondary); }
-.pp-status--valid { color: var(--accent-green); }
 .pp-status--invalid { color: var(--accent-red); }
 
 .pp-recents {
@@ -411,23 +407,6 @@ path-input .path-input-field {
 }
 
 .pp-btn-open:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-
-/* Secondary action: open the chosen folder in a separate window/process.
-   Rendered only in native window mode (the caller passes onNewWindow). */
-.pp-btn-newwindow {
-    background: transparent;
-    color: var(--text-primary);
-    border: 0.0625rem solid var(--border-color);
-}
-
-.pp-btn-newwindow:hover:not(:disabled) {
-    background: var(--bg-raised);
-}
-
-.pp-btn-newwindow:disabled {
     opacity: 0.4;
     cursor: not-allowed;
 }

@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// The registry is process-global and outlives a project switch, so a bare task
-// id used to reach any task in the process. These tests pin the two checks that
+// The registry is process-global, spanning every tree the process works in, so
+// a bare task id used to reach any task in the process. These tests pin the two checks that
 // close that — the project a task was spawned in, and the conversation that owns
 // it — plus the deliberate stop of every task whose handle is about to become
 // unreachable.
@@ -56,8 +56,8 @@ func statusOf(t *testing.T, res any) string {
 }
 
 // TestTaskFromAnotherProjectIsUnreachable is the leak this phase closes: the
-// registry survives a project switch, so without the project stamp a task
-// started in one project stayed readable and killable from the next. All three
+// registry spans every tree the process works in, so without the project stamp
+// a task started in one stayed readable and killable from another. All three
 // id-addressed ops must refuse it, and refuse it as "not found" — saying
 // anything more would confirm the task exists somewhere the caller cannot see.
 func TestTaskFromAnotherProjectIsUnreachable(t *testing.T) {
@@ -233,8 +233,8 @@ func TestTaskStatusAnswersOnlyLiveness(t *testing.T) {
 	}
 }
 
-// TestStopBackgroundTasksIsScopedToProject covers the orphan fix at a project
-// switch: the project being left has its tasks stopped, and nothing else does.
+// TestStopBackgroundTasksIsScopedToProject: naming a root stops that root's
+// tasks, and nothing else.
 func TestStopBackgroundTasksIsScopedToProject(t *testing.T) {
 	requirePOSIXShell(t)
 
@@ -242,13 +242,13 @@ func TestStopBackgroundTasksIsScopedToProject(t *testing.T) {
 	doomed := startTestTask(t, leaving, "conv-a")
 	spared := startTestTask(t, staying, "conv-b")
 
-	if stopped := StopBackgroundTasks(leaving, "Stopped when the project changed", 10*time.Millisecond); stopped != 1 {
+	if stopped := StopBackgroundTasks(leaving, "Stopped for the test", 10*time.Millisecond); stopped != 1 {
 		t.Fatalf("expected to stop exactly the leaving project's task, stopped %d", stopped)
 	}
 
 	if s := TaskState(doomed); s.Status != "failed" {
 		t.Fatalf("the leaving project's task should be stopped, got %q", s.Status)
-	} else if s.Error != "Stopped when the project changed" {
+	} else if s.Error != "Stopped for the test" {
 		t.Fatalf("the reason should say what happened, got %q", s.Error)
 	}
 	if s := TaskState(spared); s.Status != "running" {

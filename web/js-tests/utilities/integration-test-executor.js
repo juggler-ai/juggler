@@ -341,9 +341,6 @@ import { runTests as runNudgeEngineTests } from '../unit-tests/nudge-engine-test
 import { runTests as runJugglerNudgeTests } from '../unit-tests/juggler-nudge-test.js';
 import { runTests as runGuidanceSurfacesTests } from '../unit-tests/guidance-surfaces-test.js';
 import { runTests as runNoConversationsOnboardingTests } from '../unit-tests/no-conversations-onboarding-test.js';
-import { runTests as runNoProjectOnboardingTests } from '../unit-tests/no-project-onboarding-test.js';
-import { runTests as runStandInPanelTests } from '../unit-tests/stand-in-panel-test.js';
-import { runTests as runProjectPickerExternalTests } from '../unit-tests/project-picker-external-test.js';
 import { runTests as runConnectServerPanelTests } from '../unit-tests/connect-server-panel-test.js';
 import { runTests as runProjectFixedTests } from '../unit-tests/project-fixed-test.js';
 import { runTests as runMachineSessionsPageTests } from '../unit-tests/machine-sessions-page-test.js';
@@ -470,7 +467,6 @@ import { runTests as runAppMessagesTests } from '../unit-tests/app-messages-test
 import { runTests as runPopupBackButtonTests } from '../unit-tests/popup-back-button-test.js';
 import { runTests as runPopupSurfaceTests } from '../unit-tests/popup-surface-test.js';
 import { runTests as runModelDisplayTests } from '../unit-tests/model-display-test.js';
-import { runTests as runEngineProjectSwitchTests } from '../unit-tests/engine-project-switch-test.js';
 import { runTests as runWindowTitleTests } from '../unit-tests/window-title-test.js';
 import { runTests as runContextSyncWaitTests } from '../unit-tests/context-sync-wait-test.js';
 import { runTests as runConversationNoticesTests } from '../unit-tests/conversation-notices-test.js';
@@ -974,9 +970,6 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:juggler-nudge', run: runJugglerNudgeTests },
   { name: 'unit:guidance-surfaces', run: runGuidanceSurfacesTests },
   { name: 'unit:no-conversations-onboarding', run: runNoConversationsOnboardingTests },
-  { name: 'unit:no-project-onboarding', run: runNoProjectOnboardingTests },
-  { name: 'unit:stand-in-panel', run: runStandInPanelTests },
-  { name: 'unit:project-picker-external', run: runProjectPickerExternalTests },
   { name: 'unit:connect-server-panel', run: runConnectServerPanelTests },
   { name: 'unit:project-fixed', run: runProjectFixedTests },
   { name: 'unit:machine-sessions-page', run: runMachineSessionsPageTests },
@@ -1087,7 +1080,6 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:popup-back-button', run: runPopupBackButtonTests },
   { name: 'unit:popup-surface', run: runPopupSurfaceTests, needsExclusiveRun: true },
   { name: 'unit:model-display', run: runModelDisplayTests },
-  { name: 'unit:engine-project-switch', run: runEngineProjectSwitchTests },
   { name: 'unit:window-title', run: runWindowTitleTests },
   { name: 'unit:context-sync-wait', run: runContextSyncWaitTests },
   { name: 'unit:conversation-notices', run: runConversationNoticesTests },
@@ -1302,8 +1294,8 @@ const UNIT_CASE_GAP_MS = 8 * 60_000;
 /**
  * The document-wide state a suite can change for every suite after it: the
  * attributes of `<html>` and `<body>` (classes, `data-theme`, `data-view`,
- * inline style). Product CSS keys whole regions off them — `body.no-project`
- * hides the conversation bar — and a lane's page outlives every suite it runs,
+ * inline style). Product CSS keys whole regions off them — `data-view`
+ * restyles the layout — and a lane's page outlives every suite it runs,
  * so one left behind silently restyles the rest of the lane.
  * @returns {{html: Map<string, string>, body: Map<string, string>}} The attributes, by name.
  */

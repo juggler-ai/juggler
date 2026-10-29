@@ -711,10 +711,7 @@ export async function runTests(_ctx) {
       const stub = stubFetch(() => ({ ok: true, json: async () => ({ pins: [] }) }));
       try {
         const removal = pinboardView.remove('pin_r');
-        // Called directly rather than provoked with the `project-changed`
-        // broadcast that is one of its real causes: that event is also handled by
-        // session.js, which answers it with `window.location.reload()`, and
-        // firing it here would take the lane's whole realm down with it.
+        // The refresh that can land inside the removal, performed directly.
         await pinboardStore.load();
         await removal;
       } finally {

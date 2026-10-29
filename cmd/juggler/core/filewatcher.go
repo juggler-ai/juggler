@@ -122,7 +122,7 @@ const maxWatchedDirs = 1000
 
 // maxCreateWalk bounds the sub-walk triggered when a directory is created (or
 // moved in) so a large moved-in tree can't hog the watch goroutine. Staleness
-// past this bound is acceptable — a project switch rebuilds the index.
+// past this bound is acceptable — the next start rebuilds the index.
 const maxCreateWalk = 20000
 
 // maxCreateWalkReports bounds how many of the paths that sub-walk finds are

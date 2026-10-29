@@ -19,7 +19,9 @@ func workspacePath(t *testing.T) string {
 
 // What one run saves, the next one reads back: the open windows in order, the
 // last theme and the last zoom. Each is saved on its own, so saving one must
-// keep the others.
+// keep the others. An empty window (the server's page) is not one of them: it
+// views no session, and becomes a project's window only by opening one there,
+// which records it as that project's.
 func TestTheWorkspaceComesBackAsItWasSaved(t *testing.T) {
 	path := workspacePath(t)
 	w := newWorkspaceStoreAt(path)
@@ -28,9 +30,12 @@ func TestTheWorkspaceComesBackAsItWasSaved(t *testing.T) {
 	w.flush([]workspaceEntry{{Project: "/a"}, {Server: "http://remote:3000"}, {Project: ""}})
 
 	next := newWorkspaceStoreAt(path)
-	want := []windowSpec{{project: "/a"}, {url: "http://remote:3000", connected: true}, {}}
+	want := []windowSpec{{project: "/a"}, {url: "http://remote:3000", connected: true}}
 	if got := next.load(); !reflect.DeepEqual(got, want) {
 		t.Errorf("load() = %+v, want %+v", got, want)
+	}
+	if (windowSpec{}).restorable() {
+		t.Error("an empty window is restorable")
 	}
 	if got := next.loadLastTheme(); got != "light" {
 		t.Errorf("loadLastTheme() = %q, want light", got)

@@ -443,8 +443,8 @@ self.addEventListener('message', (event) => {
             // The host derives the capability from the API token it holds; this
             // frame never sees the token itself.
             const importBase = ORIGIN + '/sandbox-import/' + (typeof importCapability === 'string' && importCapability ? importCapability : '-');
-            // The engine passes its live project root so `projectRoot` tracks a
-            // runtime project switch; fall back to the serve-time template value
+            // The engine passes its live project root so `projectRoot` follows
+            // the loaded session; fall back to the serve-time template value
             // (PROJECT_ROOT) when the host doesn't supply one.
             const effectiveProjectRoot =
                 typeof event.data.projectRoot === 'string' && event.data.projectRoot

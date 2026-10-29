@@ -9,7 +9,9 @@ import (
 	"encoding/hex"
 	"html/template"
 	"io/fs"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -17,13 +19,17 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/webui"
 	"juggler/internal/jlog"
-	"juggler/web"
 )
 
 // The sessions page: GET / on the machine server. It lists the sessions this
 // server runs and opens, stops and launches them through the control API. It is
-// its own small page (web/machine/), drawing only the app's fonts, theme tokens
-// and element defaults from the asset tree, not the session client.
+// its own small page (web/machine/), drawing on the app's fonts, theme tokens,
+// element defaults and shell — the header bar and a desktop window's chrome —
+// from the asset tree, not the session client.
+//
+// The asset tree is the server's assets (ServeOptions.Assets), handed in by
+// the binary that serves, so a client that links this package for Connect does
+// not carry the tree with it.
 
 // assetVersion names this process's versioned asset root, /v<assetVersion>/.
 // It is fresh per process, so the root can be cached for good.
@@ -45,9 +51,14 @@ var assetRoots = []string{"css", "js", "machine", "resources", "sdk"}
 const pageTemplate = "machine/index.html"
 
 // assetHandler serves files of the web tree under /v<assetVersion>/, from
-// assetRoots only. Directories and HTML (page templates) are not served.
-func assetHandler() http.Handler {
-	files := webui.AssetHandler(http.FileServer(http.FS(web.Files)))
+// assetRoots only. Directories and HTML (page templates) are not served, and a
+// server with no assets serves none.
+func (s *Server) assetHandler() http.Handler {
+	if s.assets == nil {
+		return http.NotFoundHandler()
+	}
+	tree := s.assets
+	files := webui.AssetHandler(http.FileServer(http.FS(tree)))
 	prefix := "/v" + assetVersion + "/"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rel := strings.TrimPrefix(r.URL.Path, prefix)
@@ -56,7 +67,7 @@ func assetHandler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		if info, err := fs.Stat(web.Files, rel); err != nil || info.IsDir() {
+		if info, err := fs.Stat(tree, rel); err != nil || info.IsDir() {
 			http.NotFound(w, r)
 			return
 		}
@@ -79,11 +90,20 @@ type pageConfig struct {
 	Token   string `json:"token"`
 	Version string `json:"version"`
 	Host    string `json:"host"`
+	// Local is whether the page was loaded on this machine, which alone may
+	// switch LAN access and tunnels and choose what opens at start
+	// (localOnly). The page offers them only then; the routes refuse anyone
+	// else whatever the page shows.
+	Local bool `json:"local"`
 }
 
 // handlePage serves the sessions page. GET /.
-func (s *Server) handlePage(w http.ResponseWriter, _ *http.Request) {
-	tmpl, err := template.ParseFS(web.Files, pageTemplate)
+func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
+	if s.assets == nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	tmpl, err := template.ParseFS(s.assets, pageTemplate)
 	if err != nil {
 		jlog.Error("[machineserver] sessions page template: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -98,7 +118,7 @@ func (s *Server) handlePage(w http.ResponseWriter, _ *http.Request) {
 	var catalog map[string]string
 	if locale != "" {
 		lang = locale
-		catalog = webui.LoadCatalog(func(p string) ([]byte, error) { return fs.ReadFile(web.Files, p) }, locale)
+		catalog = webui.LoadCatalog(func(p string) ([]byte, error) { return fs.ReadFile(s.assets, p) }, locale)
 	}
 	host, _ := os.Hostname()
 
@@ -109,12 +129,20 @@ func (s *Server) handlePage(w http.ResponseWriter, _ *http.Request) {
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "no-referrer")
+	connectSrc := "connect-src 'self'"
+	if ctl := nativeControlOrigin(r); ctl != "" {
+		connectSrc += " " + ctl
+	}
 	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'nonce-"+nonce+"'; "+
-		"style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; "+
+		"style-src 'self'; img-src 'self' data:; font-src 'self'; "+connectSrc+"; "+
 		"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
 	data := struct {
 		AssetBase string
+		// IsWindow is set when a desktop app's window shows the page
+		// (?window=1): the page then loads the Wails runtime its header
+		// drags the window by.
+		IsWindow  bool
 		CSPNonce  string
 		HTMLLang  string
 		UILocale  string
@@ -122,15 +150,36 @@ func (s *Server) handlePage(w http.ResponseWriter, _ *http.Request) {
 		Config    pageConfig
 	}{
 		AssetBase: "/v" + assetVersion,
+		IsWindow:  r.URL.Query().Has("window"),
 		CSPNonce:  nonce,
 		HTMLLang:  lang,
 		UILocale:  locale,
 		UICatalog: catalog,
-		Config:    pageConfig{Token: s.token, Version: core.Version, Host: host},
+		Config:    pageConfig{Token: s.token, Version: core.Version, Host: host, Local: s.callerKind(r) == ""},
 	}
 	if err := tmpl.Execute(w, data); err != nil {
 		jlog.Error("[machineserver] sessions page: %v", err)
 	}
+}
+
+// nativeControlOrigin is the scheme://host:port of the request's ?nativeCtl=
+// when it names a loopback http(s) endpoint, else "". A desktop app's window
+// loads the page with its own control endpoint there (web/sdk/lib/
+// window-control.js), which the page posts to, so the CSP admits that origin —
+// only on loopback, so a crafted link cannot open the page's CSP to any host.
+func nativeControlOrigin(r *http.Request) string {
+	raw := r.URL.Query().Get("nativeCtl")
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return ""
+	}
+	if ip := net.ParseIP(u.Hostname()); u.Hostname() != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 // mintNonce returns a fresh CSP nonce for one page load. Hex, so the template

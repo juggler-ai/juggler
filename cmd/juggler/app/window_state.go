@@ -20,7 +20,7 @@ import (
 //
 // loadWindowState reads the saved geometry for the currently-open project, or
 // the zero value (→ default centred window) when this project has never saved
-// one (e.g. its first launch, or an ephemeral no-project session).
+// one (e.g. its first launch).
 func loadWindowState(srv *server.Server) core.WindowState {
 	sm := srv.SessionManager()
 	if sm == nil {
@@ -30,10 +30,7 @@ func loadWindowState(srv *server.Server) core.WindowState {
 	return ws
 }
 
-// saveWindowState persists geometry to the currently-open project's session.
-// SwitchProject swaps the SessionManager, so a window that has changed project
-// naturally saves to (and on next launch restores from) the project it is now
-// showing.
+// saveWindowState persists geometry to the project's session.
 func saveWindowState(srv *server.Server, s core.WindowState) error {
 	sm := srv.SessionManager()
 	if sm == nil {

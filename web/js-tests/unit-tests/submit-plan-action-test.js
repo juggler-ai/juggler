@@ -795,7 +795,7 @@ export async function runTests(ctx) {
   //
   // The plan tool requires approval, so its submit executes after a long async
   // gap. If the context-item registry is reloaded in that window (extension
-  // hot-reload, project switch), a `createItem('plan')` lookup for the plan's
+  // hot-reload), a `createItem('plan')` lookup for the plan's
   // own type misses and throws "No context item found for type: plan" — the
   // plan tool failing on itself. Simulate the reload by removing 'plan' from the
   // registry, then create a plan item the way execution does. The pre-fix code

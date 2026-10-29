@@ -29,8 +29,9 @@ sibling lookup resolves the matching server.
 ### macOS — `.dmg`
 
 The `.dmg` contains `Juggler.app`, a normal drag-to-Applications bundle. Both
-binaries live *inside* the bundle (`Juggler.app/Contents/MacOS/`), so the app
-and its server can never be separated — moving or copying the app moves both.
+binaries live *inside* the bundle — the app in `Juggler.app/Contents/MacOS/`,
+the server in `Juggler.app/Contents/Helpers/` — so the app and its server can
+never be separated: moving or copying the app moves both.
 Launching the app spawns the bundled server automatically.
 
 > **Opening on macOS.** Downloaded builds are quarantined by Gatekeeper. The

@@ -22,6 +22,14 @@ export const TOKEN_HEADER = 'X-Juggler-Token';
  * @property {string} token - The control-API credential.
  * @property {string} version - The machine server's version.
  * @property {string} host - The machine's name.
+ * @property {boolean} local - The page was loaded on this machine, which alone
+ *   may switch LAN access and tunnels and choose what opens at start.
+ */
+
+/**
+ * @typedef {import('../js/components/connectivity/exposure-view.js').LANState} LANState
+ * @typedef {import('../js/components/connectivity/exposure-view.js').TunnelState} TunnelState
+ * @typedef {import('../js/components/connectivity/exposure-view.js').LaunchState} LaunchState
  */
 
 /**
@@ -47,7 +55,7 @@ export function readPageConfig(doc = document) {
   const el = doc.getElementById('machine-config');
   /** @type {Partial<PageConfig>} */
   const raw = el ? JSON.parse(el.textContent || '{}') : {};
-  return { token: raw.token || '', version: raw.version || '', host: raw.host || '' };
+  return { token: raw.token || '', version: raw.version || '', host: raw.host || '', local: raw.local === true };
 }
 
 /** A control-API call the server refused or could not answer. */
@@ -77,6 +85,13 @@ export class ControlApiError extends Error {
  *   openSession: (project: string) => Promise<Session>,
  *   stopSession: (id: string) => Promise<void>,
  *   recents: () => Promise<string[]>,
+ *   createFolder: (parent: string, name: string) => Promise<string>,
+ *   getLAN: () => Promise<LANState>,
+ *   setLAN: (enabled: boolean) => Promise<LANState>,
+ *   getTunnel: () => Promise<TunnelState>,
+ *   setTunnel: (mode: string) => Promise<TunnelState>,
+ *   getLaunch: () => Promise<LaunchState>,
+ *   setLaunch: (change: Partial<LaunchState>) => Promise<LaunchState>,
  * }} The calls the sessions page makes.
  */
 export function createControlApi({ token, fetchImpl = (input, init) => fetch(input, init) }) {
@@ -127,5 +142,18 @@ export function createControlApi({ token, fetchImpl = (input, init) => fetch(inp
     openSession: async (project) => /** @type {Session} */ (await request('POST', '/sessions', { project })),
     stopSession: async (id) => { await request('DELETE', `/sessions/${encodeURIComponent(id)}`); },
     recents: async () => (/** @type {{paths?: string[]}|null} */ (await request('GET', '/recents')) || {}).paths || [],
+    // Makes the folder `name` directly inside `parent` and answers its absolute
+    // path; it opens nothing.
+    createFolder: async (parent, name) => (/** @type {{path: string}} */ (await request('POST', '/folders', { parent, name }))).path,
+    // The machine's ways in. Switching one, or what opens at start, is for
+    // this machine only: the server refuses a viewer off it.
+    getLAN: async () => /** @type {LANState} */ (await request('GET', '/lan')),
+    setLAN: async (enabled) => /** @type {LANState} */ (await request('PUT', '/lan', { enabled })),
+    getTunnel: async () => /** @type {TunnelState} */ (await request('GET', '/tunnel')),
+    // Opens a tunnel in mode, or with '' closes it.
+    setTunnel: async (mode) => /** @type {TunnelState} */ (await request('PUT', '/tunnel', { mode })),
+    getLaunch: async () => /** @type {LaunchState} */ (await request('GET', '/launch')),
+    // Saves the keys it is given, and answers with both as saved.
+    setLaunch: async (change) => /** @type {LaunchState} */ (await request('PUT', '/launch', change)),
   };
 }

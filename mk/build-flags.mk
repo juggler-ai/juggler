@@ -40,7 +40,7 @@ endif
 # This matters beyond cosmetics: `go build -o path` never auto-appends .exe when
 # given an explicit filename, and a Windows binary without it can't be found or
 # launched by what looks for it — the desktop app's serverBinPath()
-# (cmd/juggler-app/server_spawn.go) looks for a sibling literally named
+# (cmd/juggler-app/server_conn.go) looks for a sibling literally named
 # juggler.exe, and Go's exec (which the browser suite spawns the test server
 # through) only accepts a PATHEXT extension. The cross-compile targets
 # (build-windows) hardcode .exe, so this only affects native builds on Windows.

@@ -134,27 +134,36 @@ func (l *MachineLock) writeInfo() error {
 	return werr
 }
 
-// held reports whether a machine server holds the lock, by trying to take it
+// lockState is what probing the machine lock found.
+type lockState int
+
+const (
+	lockFree lockState = iota
+	lockHeld
+	// lockUnknown is a lock that could not be probed.
+	lockUnknown
+)
+
+// probe reports whether a machine server holds the lock, by trying to take it
 // and, on success, letting it go at once. A server starting in that instant
 // loses the lock to the probe and exits as if another held it — which is why
-// Connect starts a server again when the one it started has gone. A lock it
-// cannot try is reported held, so nothing starts a second server over it.
-func (l *MachineLock) held() bool {
+// Connect starts a server again when the one it started has gone.
+func (l *MachineLock) probe() lockState {
 	if _, err := os.Stat(l.lockPath); err != nil {
-		return false
+		return lockFree
 	}
-	probe := flock.New(l.lockPath)
-	locked, err := probe.TryLock()
+	p := flock.New(l.lockPath)
+	locked, err := p.TryLock()
 	if err != nil {
-		return true
+		return lockUnknown
 	}
 	if locked {
-		if err := probe.Unlock(); err != nil {
+		if err := p.Unlock(); err != nil {
 			jlog.Error("[machineserver] failed to release the lock probe: %v", err)
 		}
-		return false
+		return lockFree
 	}
-	return true
+	return lockHeld
 }
 
 // readInfo returns the on-disk ServerInfo, or nil when it is missing or

@@ -16,15 +16,14 @@ import (
 
 // UserCommandsAPI serves user-defined slash commands over HTTP. The commands
 // themselves, their two scope directories and their file format are
-// core/user_commands.go's. The project path is read through a provider func so
-// a runtime project switch is reflected without reconstructing the handler
-// (mirrors ConfigAPI).
+// core/user_commands.go's. The project path is read through a provider func
+// (as ConfigAPI reads it).
 type UserCommandsAPI struct {
 	projectPathProvider func() string
 }
 
 // NewUserCommandsAPI creates a UserCommandsAPI. projectPathProvider returns the
-// current project root ("" in no-project mode).
+// project root.
 func NewUserCommandsAPI(projectPathProvider func() string) *UserCommandsAPI {
 	return &UserCommandsAPI{projectPathProvider: projectPathProvider}
 }
@@ -34,8 +33,8 @@ func (api *UserCommandsAPI) UserCommandDir() string {
 	return core.UserCommandDir()
 }
 
-// ProjectCommandDir is the current project's command directory, or "" in
-// no-project mode.
+// ProjectCommandDir is the project's command directory, or "" for an empty
+// project path.
 func (api *UserCommandsAPI) ProjectCommandDir() string {
 	return core.ProjectCommandDir(api.projectPathProvider())
 }
@@ -54,7 +53,7 @@ func (api *UserCommandsAPI) scopeDir(scope string) string {
 
 // resolveTarget extracts the {scope}/{name} route vars and resolves the scope's
 // command directory, writing a 400 (and returning ok=false) when the scope is
-// unknown or unavailable (project scope in no-project mode).
+// unknown or unavailable (project scope for an empty project path).
 func (api *UserCommandsAPI) resolveTarget(w http.ResponseWriter, r *http.Request) (scope, name, dir string, ok bool) {
 	scope = mux.Vars(r)["scope"]
 	name = mux.Vars(r)["name"]

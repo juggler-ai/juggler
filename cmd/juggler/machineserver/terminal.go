@@ -6,16 +6,14 @@ package machineserver
 
 import (
 	"bufio"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
+	"io/fs"
 	"os"
 	"strings"
 	"sync"
-	"time"
-
-	"juggler/cmd/juggler/core"
 )
 
 // Bare juggler — `cd proj && juggler` — is sugar over the machine server.
@@ -29,9 +27,16 @@ type TerminalOptions struct {
 	// Project is the folder to open a session for; "" opens none, pointing
 	// the terminal at the sessions page instead.
 	Project string
-	// Port and AllowHosts apply when this run starts the server.
-	Port       int
-	AllowHosts []string
+	// Port, AllowHosts and the developer flags (Dev, AssetsFromDisk; see
+	// ServeOptions) apply when this run starts the server. Port 0 is
+	// DefaultPort.
+	Port                int
+	AllowHosts          []string
+	Dev, AssetsFromDisk bool
+	// Assets is the web tree the sessions page is served from, and Peer what
+	// answers a tunnel's WebRTC offers, when this run serves.
+	Assets fs.FS
+	Peer   Peer
 	// Stdout is where the run says what it is doing, Stderr why it failed.
 	Stdout, Stderr io.Writer
 	// Stdin, when set, is a person at the terminal: b+Enter opens the session
@@ -63,7 +68,8 @@ func RunTerminal(opts TerminalOptions) int {
 	opts.Ready = withKeys(opts, in)
 	for attempt := 0; attempt < terminalAttempts; attempt++ {
 		err := Serve(ServeOptions{
-			Port: opts.Port, Implicit: true, AllowHosts: opts.AllowHosts, Signals: opts.Signals,
+			Port: cmp.Or(opts.Port, DefaultPort), Implicit: true, AllowHosts: opts.AllowHosts, Assets: opts.Assets, Peer: opts.Peer, Signals: opts.Signals,
+			Dev: opts.Dev, AssetsFromDisk: opts.AssetsFromDisk,
 			Foreground: &Foreground{Project: opts.Project, Out: opts.Stdout, Ready: opts.Ready},
 		})
 		var held *LockHeldError
@@ -78,7 +84,7 @@ func RunTerminal(opts TerminalOptions) int {
 			return 1
 		}
 		c, err := Connect(ConnectOptions{})
-		if errors.Is(err, errNoServer) {
+		if errors.Is(err, ErrNoServer) {
 			continue
 		}
 		if err != nil {
@@ -103,17 +109,17 @@ const restarted = -1
 
 // attachTo uses the server c reaches for opts.Project: it attaches, so the
 // server counts this run as a client, opens the session, prints its URL, and
-// waits for Ctrl-C or for the server to go. Ctrl-C stops the session only if
-// this run opened it. again reports a server that went before it could be
+// waits for Ctrl-C or for the server to go. Ctrl-C releases its session and
+// server holds. again reports a server that went before it could be
 // used — gone, shutting down, or restarted at the user's word — for which the
 // run connects again.
 func attachTo(c *Client, opts TerminalOptions, in *bufio.Reader) (code int, again bool) {
-	if c.Version != core.Version {
+	if c.Build != ownBuild() {
 		return offerRestart(c, opts, in)
 	}
 	a, err := c.Attach()
 	if err != nil {
-		if serverGoing(err) {
+		if ServerGoing(err) {
 			return 0, true
 		}
 		fmt.Fprintf(opts.Stderr, "juggler: %v\n", err)
@@ -122,19 +128,32 @@ func attachTo(c *Client, opts TerminalOptions, in *bufio.Reader) (code int, agai
 	page := "http://" + c.Addr() + "/"
 	url := page
 	var sess Session
-	var opened bool
 	if opts.Project != "" {
-		sess, opened, err = c.OpenSession(opts.Project)
+		sess, _, err = c.OpenSession(opts.Project)
 		if err != nil {
 			a.Close()
-			if serverGoing(err) {
+			if ServerGoing(err) {
 				return 0, true
 			}
 			fmt.Fprintf(opts.Stderr, "juggler: %v\n", err)
 			return 1, false
 		}
+		named, err := c.Attach(sess.ID)
+		if err != nil {
+			a.Close()
+			if ServerGoing(err) {
+				return 0, true
+			}
+			fmt.Fprintf(opts.Stderr, "juggler: %v\n", err)
+			return 1, false
+		}
+		// Acquire the named hold before letting the initial server hold go:
+		// the last local client leaving stops an implicit server immediately.
+		a.Close()
+		a = named
 		url = c.SessionURL(sess.ID)
 	}
+	defer a.Close()
 	// An attachment the server ended before the session was open is a
 	// server that began its shutdown in between, and the session goes with
 	// it.
@@ -148,16 +167,15 @@ func attachTo(c *Client, opts TerminalOptions, in *bufio.Reader) (code int, agai
 	if opts.Port != 0 || len(opts.AllowHosts) > 0 {
 		fmt.Fprintln(opts.Stderr, "juggler: --port and --allow-host apply only when juggler starts the server; it was already running.")
 	}
-	switch {
-	case opts.Project == "":
+	if opts.Project == "" {
 		fmt.Fprintln(opts.Stdout, "Open a project from its page.")
-		fmt.Fprintln(opts.Stdout, "Ctrl-C leaves the server running.")
-	case opened:
+		fmt.Fprintln(opts.Stdout, "Ctrl-C detaches from the server.")
+	} else {
 		fmt.Fprintf(opts.Stdout, "Session for %s: %s\n", opts.Project, url)
-		fmt.Fprintln(opts.Stdout, "Ctrl-C stops this session.")
-	default:
-		fmt.Fprintf(opts.Stdout, "Session for %s: %s\n", opts.Project, url)
-		fmt.Fprintln(opts.Stdout, "Ctrl-C leaves this session running, since it was already open.")
+		fmt.Fprintln(opts.Stdout, "Ctrl-C detaches from this session.")
+	}
+	if c.Implicit {
+		fmt.Fprintln(opts.Stdout, "If this is the last local client, Ctrl-C stops the server and every session on it.")
 	}
 	if opts.Ready != nil {
 		opts.Ready(url)
@@ -169,79 +187,74 @@ func attachTo(c *Client, opts TerminalOptions, in *bufio.Reader) (code int, agai
 		return 0, false
 	case <-opts.Signals:
 	}
-	if opened {
-		if err := c.StopSession(sess.ID); err != nil && !serverGoing(err) {
-			fmt.Fprintf(opts.Stderr, "juggler: stop the session for %s: %v\n", opts.Project, err)
-			a.Close()
-			return 1, false
-		}
-		fmt.Fprintf(opts.Stdout, "Stopped the session for %s.\n", opts.Project)
-	} else if opts.Project != "" {
-		fmt.Fprintf(opts.Stdout, "Left the session for %s running.\n", opts.Project)
+	if opts.Project != "" {
+		fmt.Fprintf(opts.Stdout, "Detached from the session for %s.\n", opts.Project)
 	}
 	a.Close()
+	if c.Implicit {
+		fmt.Fprintln(opts.Stdout, "Detached. If this was the last local client, the server and every session stop with it.")
+	}
 	return 0, false
 }
 
-// offerRestart answers a server running another version than this binary,
-// which a run never uses. A person at the terminal (in) is offered a restart:
-// yes stops the server, and once it has gone the run connects again — to
-// start a server of its own version. Otherwise the run is refused with the
-// way out.
+// offerRestart answers a server that is another build than this binary
+// (BuildOf) — another version, or another build of this one — which a run
+// never uses. One that is idle (Occupancy.Idle) is replaced without asking,
+// and the run connects again, on an ordinary attempt, to start a server of its
+// own build. Any other is the user's: a person at the terminal (in) is told
+// what a restart would stop and asked, and a yes stops it — unless it has come
+// to hold more meanwhile, when they are asked again — and the run connects
+// again with its attempts afresh. Otherwise the run is refused with the way
+// out.
 func offerRestart(c *Client, opts TerminalOptions, in *bufio.Reader) (code int, again bool) {
-	var st statusResponse
-	if err := c.do(http.MethodGet, "/status", nil, &st); err != nil {
-		if serverGoing(err) {
+	failed := func(err error) (int, bool) {
+		if ServerGoing(err) {
 			return 0, true
 		}
 		fmt.Fprintf(opts.Stderr, "juggler: %v\n", err)
 		return 1, false
 	}
-	sessions := fmt.Sprintf("%d sessions", st.Sessions)
-	if st.Sessions == 1 {
-		sessions = "1 session"
+	replaced, occ, err := c.ReplaceIfIdle()
+	switch {
+	case err != nil:
+		return failed(err)
+	case replaced:
+		fmt.Fprintf(opts.Stdout, "Restarted the idle Juggler server (%s) as %s.\n", c.Build, ownBuild())
+		return 0, true
 	}
-	refuse := func() (int, bool) {
-		fmt.Fprintf(opts.Stderr, "juggler: the Juggler server running here is %s; this is %s. "+
-			"Stop it with `juggler server stop` (that stops its %s), then run juggler again.\n",
-			c.Version, core.Version, sessions)
-		return 1, false
+	for in != nil {
+		fmt.Fprintf(opts.Stdout, "The Juggler server running here is %s; this is %s.\nRestarting it stops:\n%sRestart it? [y/N]: ",
+			c.Build, ownBuild(), describeStops(occ))
+		answer, _ := in.ReadString('\n')
+		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
+			break
+		}
+		var busy *OccupiedError
+		err := c.RestartAsAgreed(occ)
+		if errors.As(err, &busy) {
+			fmt.Fprintln(opts.Stdout, "It is in use beyond that now, so it was not stopped.")
+			occ = busy.Now
+			continue
+		}
+		if err != nil {
+			return failed(err)
+		}
+		return restarted, true
 	}
-	if in == nil {
-		return refuse()
-	}
-	fmt.Fprintf(opts.Stdout, "The Juggler server running here is %s; this is %s.\nRestart it? This stops its %s. [y/N]: ",
-		c.Version, core.Version, sessions)
-	answer, _ := in.ReadString('\n')
-	if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
-		return refuse()
-	}
-	if err := c.do(http.MethodPost, "/shutdown", nil, nil); err != nil && !serverGoing(err) {
-		fmt.Fprintf(opts.Stderr, "juggler: %v\n", err)
-		return 1, false
-	}
-	if err := c.awaitGone(); err != nil {
-		fmt.Fprintf(opts.Stderr, "juggler: %v\n", err)
-		return 1, false
-	}
-	return restarted, true
+	fmt.Fprintf(opts.Stderr, "juggler: the Juggler server running here is %s; this is %s. "+
+		"Stop it with `juggler server stop`, then run juggler again. That stops:\n%s",
+		c.Build, ownBuild(), describeStops(occ))
+	return 1, false
 }
 
-// awaitGone returns once the server c reaches has stopped answering, after a
-// shutdown it was asked for. It follows the server's progress: it stops
-// answering as soon as its drain begins. connectTimeout bounds only a server
-// that never does.
-func (c *Client) awaitGone() error {
-	deadline := time.Now().Add(connectTimeout)
-	for {
-		if err := c.do(http.MethodGet, "/status", nil, nil); err != nil {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("the Juggler server at %s did not stop within %s", c.addr, connectTimeout)
-		}
-		time.Sleep(connectPoll)
+// describeStops is what a restart would stop (Occupancy.Stops), in English,
+// one item a line, for a terminal.
+func describeStops(o Occupancy) string {
+	var b strings.Builder
+	for _, m := range o.Stops() {
+		fmt.Fprintf(&b, "  - %s\n", strings.ReplaceAll(m.English(), "\n", "\n      "))
 	}
+	return b.String()
 }
 
 // withKeys returns the Ready a run hands on: opts.Ready, and for a person at

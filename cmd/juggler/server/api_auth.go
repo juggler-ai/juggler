@@ -44,25 +44,26 @@ func (s *Server) isAPIToken(token string) bool {
 // token, mapped to the methods admitted on each. A nil method list admits every
 // method the route is registered for.
 //
-// These are cross-process or bootstrap endpoints a caller legitimately hits
-// before (or without ever) loading the token-bearing page:
-//   - liveness/instance discovery and cross-instance shutdown coordination,
-//     probed by *other* juggler processes that cannot know this instance's token
-//     (core/lockfile.go, cmd/juggler-app/busy_guard.go);
-//   - native desktop window geometry, read/written by cmd/juggler-app before the
-//     viewer page (and its embedded token) has loaded;
-//   - forgetting the board a window held, which cmd/juggler-app posts as that
-//     window closes. It is the other half of the geometry above — the same call
-//     drops the same window's frame — and the app has no page and so no token
-//     to quote;
-//   - the SDP exchange that bootstraps a WebRTC DataChannel, and the viewer
-//     WebSocket, whose upgrade carries the token as a query param instead
-//     (see websocket_loop.go).
+// A session child is reached by every caller its machine server admits —
+// through the /s/<id>/ proxy, which forwards any path, from this machine, the
+// LAN or a tunnel — so an entry here is open to all of them. Every other
+// process that talks to the child holds its token: the machine server that
+// spawned it (activity polls, retirement, exposure), `juggler run` (one-shot),
+// and every page it serves. The entries are the calls that cannot quote it:
+//   - native desktop window geometry, read/written by cmd/juggler-app
+//     (window_state_client.go) before the viewer page (and its embedded token)
+//     has loaded, and as it closes;
+//   - forgetting the board a window held, which cmd/juggler-app sends
+//     (window_state_client.go) as that window closes. It is the other half of
+//     the geometry above — the same call drops the same window's frame — and the
+//     app has no page and so no token to quote;
+//   - the viewer WebSocket, whose upgrade carries the token as a query param
+//     instead (see websocket_loop.go).
 //
-// None of these execute tools or expose credentials, so leaving them open does
-// not reopen the RCE vector the token closes. Those that change something are
-// still held to crossProcessRequest, so a web page cannot use one — any website
-// could otherwise stop the server mid-turn with a cross-site POST.
+// None of these execute tools, expose credentials or say what the project is,
+// so leaving them open does not reopen what the token closes. Those that
+// change something are still held to crossProcessRequest, so a web page cannot
+// use one.
 //
 // The board delete is the only one that destroys anything, so it is admitted on
 // the narrowest terms available: that path for that method, and nothing else on
@@ -76,12 +77,7 @@ func (s *Server) isAPIToken(token string) bool {
 // TestAPIAuthExemptRoutesAreRegistered pins that each one still names a route
 // the server actually serves.
 var exemptRoutes = map[string][]string{
-	apipaths.Health:                nil,
-	apipaths.HealthActive:          nil,
-	apipaths.HealthInstance:        nil,
-	apipaths.Shutdown:              nil,
 	apipaths.SessionWindowState:    nil,
-	apipaths.WebRTCSignal:          nil,
 	apipaths.WebSocket:             nil,
 	apipaths.SessionPinboardBoards: {http.MethodDelete},
 }
@@ -103,16 +99,16 @@ func apiAuthExempt(method, path string) bool {
 // /api request, a token-bearing page or the viewer WebSocket upgrade (see
 // hostGatedPaths) must name this machine (hostcheck.NamesThisMachine). A DNS name such
 // as attacker.com (which rebinding transiently points at 127.0.0.1) is
-// rejected, since the browser sends the site's hostname as Host. Remote grants
-// — an established DataChannel, a tunnel the user opened, or a caller a machine
-// server vouched for — legitimately carry arbitrary Host names, so they are
-// admitted on their remote-ingress tag and rely on the token (which their page
-// also carries) as the authenticator instead. A machine server applies the
-// same rule to everything it forwards, so its callers are held to it there.
-// The user's allowed hosts pass too: a name they list is one whose DNS they
-// control, which is what a rebinding page lacks.
+// rejected, since the browser sends the site's hostname as Host. A caller a
+// machine server vouched for — over the LAN, through the user's reverse proxy
+// or a tunnel — legitimately carries another Host, so it is admitted on its
+// remote-ingress tag and relies on the token (which its page also carries) as
+// the authenticator instead. The machine server applies the Host rule to
+// everything it forwards, so its callers are held to it there — the user's
+// allowed hosts and a tunnel's own name included, which the machine server
+// holds.
 func (s *Server) hostAllowed(r *http.Request) bool {
-	return isRemoteIngress(r) || hostcheck.NamesThisMachine(r.Host) || s.allowedHosts.Has(r.Host)
+	return isRemoteIngress(r) || hostcheck.NamesThisMachine(r.Host)
 }
 
 // isSafeMethod reports whether method only reads.
@@ -121,7 +117,7 @@ func isSafeMethod(method string) bool {
 }
 
 // crossProcessRequest admits a token-exempt request that changes something —
-// shutdown, a window's geometry, forgetting a board — only when it can be the
+// a window's geometry, forgetting a board — only when it can be the
 // other Juggler process it is exempt for. Those are Go HTTP clients: they send
 // no Origin and no fetch metadata, and they address this machine. A browser
 // cannot be made to omit either header on a cross-site request, so a request
@@ -147,10 +143,9 @@ func (s *Server) crossProcessRequest(r *http.Request) bool {
 // viewer WebSocket, whose upgrade the /api gate exempts and which admits anyone
 // holding the token. A page on attacker.com rebound to 127.0.0.1 is same-origin
 // with this server as far as the browser is concerned, so without this it could
-// read the token from index.html and open a viewer socket with it.
+// read the token from the index and open a viewer socket with it.
 var hostGatedPaths = map[string]bool{
 	"/":                true,
-	"/index.html":      true,
 	"/engine":          true,
 	"/headless-test":   true,
 	"/test-pool":       true,

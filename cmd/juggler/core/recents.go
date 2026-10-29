@@ -6,23 +6,12 @@ package core
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"juggler/internal/atomicio"
 	"juggler/internal/userpaths"
-)
-
-// Project switching sentinel errors. Handlers map these to HTTP status codes.
-var (
-	// ErrProjectNotFound means the requested path does not exist.
-	ErrProjectNotFound = errors.New("project path not found")
-	// ErrProjectNotDir means the requested path exists but is not a directory.
-	ErrProjectNotDir = errors.New("project path is not a directory")
-	// ErrProjectLocked means another juggler instance is using that project.
-	ErrProjectLocked = errors.New("this project is already open in another juggler instance")
 )
 
 // RecentsCap caps the number of remembered recent project paths.
@@ -126,21 +115,6 @@ func (s *RecentsStore) Prune() ([]string, error) {
 		}
 	}
 	return out, nil
-}
-
-// Remove drops path from the list if present.
-func (s *RecentsStore) Remove(path string) error {
-	paths, err := s.Load()
-	if err != nil {
-		return err
-	}
-	out := paths[:0]
-	for _, p := range paths {
-		if p != path {
-			out = append(out, p)
-		}
-	}
-	return s.save(out)
 }
 
 func (s *RecentsStore) save(paths []string) error {

@@ -79,32 +79,6 @@ func TestWSUpgraderWriteBufferAvoidsFragmenting(t *testing.T) {
 	}
 }
 
-// TestViewerListenerEnablesKeepAlive pins that the viewer-facing listener asks
-// the kernel to probe idle connections, so a peer whose host vanished is
-// reaped without anything at the application layer noticing. Asserts the
-// configuration rather than observing probes: the settings are not readable
-// back portably, and waiting for real probes would be a two-minute timing
-// test. Binding proves the configuration is one the platform accepts.
-func TestViewerListenerEnablesKeepAlive(t *testing.T) {
-	cfg := viewerListenConfig.KeepAliveConfig
-	if !cfg.Enable {
-		t.Error("keep-alive probes must be enabled on the viewer listener")
-	}
-	if cfg.Idle <= 0 || cfg.Interval <= 0 || cfg.Count <= 0 {
-		t.Errorf("keep-alive period must be explicit, not left to the platform default: %+v", cfg)
-	}
-	// A dead peer should be detected in minutes, not hours.
-	if worst := cfg.Idle + cfg.Interval*time.Duration(cfg.Count); worst > 10*time.Minute {
-		t.Errorf("worst-case dead-peer detection %s is too slow to be useful", worst)
-	}
-
-	ln, err := listenForViewers("127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listener rejected the keep-alive configuration: %v", err)
-	}
-	defer ln.Close()
-}
-
 // TestWSUpgraderReadBufferMatchesInboundSize guards the read buffer against
 // drifting back to gorilla's kilobyte default. Inbound yjs-sync updates run to
 // megabytes, and gorilla streams a frame's payload through this buffer one

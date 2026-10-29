@@ -49,8 +49,8 @@ func newUIPrefsTestServer(t *testing.T) (*Server, *core.SessionManager) {
 }
 
 // uiPrefRequest issues one request at addr, optionally tagged as having arrived
-// over a granted remote transport (a DataChannel dispatch or tunnel hop, both of
-// which reach the server over loopback).
+// over a granted remote transport (through the machine server's proxy, which
+// reaches the server over loopback).
 func uiPrefRequest(t *testing.T, s *Server, method, path, body, addr string, remote bool) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -103,8 +103,8 @@ func TestUIPrefsRouteRejectsLANViewer(t *testing.T) {
 	}
 }
 
-// The one the address check alone would miss: a DataChannel dispatch or tunnel
-// forwarder hop reaches the server over loopback.
+// The one the address check alone would miss: a tunnel's caller reaches the
+// server over loopback, through the machine server's proxy.
 func TestUIPrefsRouteRejectsTunnelViewer(t *testing.T) {
 	s, mgr := newUIPrefsTestServer(t)
 

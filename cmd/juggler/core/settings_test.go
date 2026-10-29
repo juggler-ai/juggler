@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"juggler/cmd/juggler/extmanifest"
@@ -91,46 +92,36 @@ func TestLoadGlobalSettingsCorruptDefaults(t *testing.T) {
 	}
 }
 
-func TestSaveLoadGlobalSettingsConnectivityRoundTrip(t *testing.T) {
-	userpathstest.Isolate(t)
-	in := &GlobalSettings{
-		Updates:      UpdateSettings{Mode: UpdateModeOff},
-		Connectivity: ConnectivitySettings{LANOnLaunch: true, WANOnLaunch: "p2p"},
-	}
-	saveSettings(t, in)
-	gs, err := LoadGlobalSettings()
-	if err != nil {
-		t.Fatalf("LoadGlobalSettings: %v", err)
-	}
-	if !gs.Connectivity.LANOnLaunch || gs.Connectivity.WANOnLaunch != "p2p" {
-		t.Fatalf("connectivity round-trip = %+v, want {LAN:true, WAN:p2p}", gs.Connectivity)
-	}
-	// Both sections survive a round trip side by side.
-	if gs.Updates.Mode != UpdateModeOff {
-		t.Fatalf("updates alongside connectivity = %q, want off", gs.Updates.Mode)
-	}
-}
-
-func TestLoadGlobalSettingsConnectivityOnlyKeepsUpdateDefault(t *testing.T) {
+// TestGlobalSettingsKeepLaunchExposure: the machine server's ways in to open
+// at its start survive a write of the document, beside everything else in it.
+func TestGlobalSettingsKeepLaunchExposure(t *testing.T) {
 	userpathstest.Isolate(t)
 	if err := os.MkdirAll(userpaths.ConfigDir(), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	// A file with only a connectivity section: the absent updates section must
-	// normalise to the automatic default, and the connectivity keys are read.
-	if err := os.WriteFile(filepath.Join(userpaths.ConfigDir(), "settings.json"),
-		[]byte(`{"connectivity":{"lanOnLaunch":true,"wanOnLaunch":"cloudflared"}}`), 0o644); err != nil {
+	file := filepath.Join(userpaths.ConfigDir(), "settings.json")
+	if err := os.WriteFile(file,
+		[]byte(`{"updates":{"mode":"off"},"connectivity":{"allowedHosts":["box.example.ts.net"],"lanOnLaunch":true,"wanOnLaunch":"p2p"}}`), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
+	}
+	if _, err := UpdateGlobalSettings(func(*GlobalSettings) bool { return true }); err != nil {
+		t.Fatalf("UpdateGlobalSettings: %v", err)
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	for _, kept := range []string{`"lanOnLaunch": true`, `"wanOnLaunch": "p2p"`} {
+		if !strings.Contains(string(raw), kept) {
+			t.Errorf("settings.json lost %s:\n%s", kept, raw)
+		}
 	}
 	gs, err := LoadGlobalSettings()
 	if err != nil {
 		t.Fatalf("LoadGlobalSettings: %v", err)
 	}
-	if !gs.Connectivity.LANOnLaunch || gs.Connectivity.WANOnLaunch != "cloudflared" {
-		t.Fatalf("connectivity not read: %+v", gs.Connectivity)
-	}
-	if gs.Updates.Mode != UpdateModeAutomatic {
-		t.Fatalf("absent updates section = %q, want automatic default", gs.Updates.Mode)
+	if len(gs.Connectivity.AllowedHosts) != 1 || gs.Connectivity.AllowedHosts[0] != "box.example.ts.net" || gs.Updates.Mode != UpdateModeOff {
+		t.Errorf("the rest of the document did not survive: %+v", gs)
 	}
 }
 
@@ -400,20 +391,20 @@ func TestUpdateGlobalSettingsMergesOntoDisk(t *testing.T) {
 	// A second process changes one field. It must not revert the rest, which is
 	// what writing back its own copy of the document would have done.
 	stored, err := UpdateGlobalSettings(func(gs *GlobalSettings) bool {
-		gs.Connectivity.LANOnLaunch = true
+		gs.Connectivity.AllowedHosts = []string{"box.example.ts.net"}
 		return true
 	})
 	if err != nil {
 		t.Fatalf("UpdateGlobalSettings: %v", err)
 	}
-	if !stored.Connectivity.LANOnLaunch {
+	if len(stored.Connectivity.AllowedHosts) != 1 {
 		t.Fatal("returned document missing the change")
 	}
 	gs, err := LoadGlobalSettings()
 	if err != nil {
 		t.Fatalf("LoadGlobalSettings: %v", err)
 	}
-	if !gs.Connectivity.LANOnLaunch {
+	if len(gs.Connectivity.AllowedHosts) != 1 {
 		t.Fatal("change not persisted")
 	}
 	if gs.Updates.Mode != UpdateModeNotify {

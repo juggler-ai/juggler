@@ -13,8 +13,7 @@ import (
 )
 
 // CompletionsAPI handles file completion requests for the "@" mention UI. Each
-// request's tree is resolved afresh, so runtime project switches transparently
-// retarget the search.
+// request's tree is resolved afresh, so it searches the tree the request names.
 type CompletionsAPI struct {
 	resolve workspace.ResolveFunc
 }

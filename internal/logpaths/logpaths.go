@@ -120,7 +120,7 @@ func AppLogPath() string {
 
 // ProjectLogDir returns the directory that holds all logs for one project
 // server: its structured log, stderr crash log, and per-conversation logs. An
-// empty project (host / no-project launch) maps to the "host" folder; otherwise
+// empty project (a host launch) maps to the "host" folder; otherwise
 // to "<slug>". Both sit directly under LogDir.
 func ProjectLogDir(project string) string {
 	name := "host"

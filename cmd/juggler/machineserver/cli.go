@@ -19,23 +19,22 @@ import (
 )
 
 // The command line's view of the machine server: `juggler server
-// status|sessions|stop` and `juggler open <project>`. Each finds the running
+// status|sessions|stop|lan|tunnel` and `juggler open <project>`. Each finds the running
 // server the way any client on this machine does (Connect) and drives the
-// control API. Only open starts a server when none is running.
+// control API. None starts a server.
 
-// CLIEnv is where a CLI command writes, how it opens a URL in a browser, and
-// how open starts a server when none is running (nil: it doesn't).
+// CLIEnv is where a CLI command writes and how it opens a URL in a browser.
 type CLIEnv struct {
 	Stdout, Stderr io.Writer
 	OpenBrowser    func(url string) error
-	Start          Starter
 }
 
-// errNoServer is every command's answer when no machine server is running.
-var errNoServer = errors.New("no Juggler server is running on this machine; start one with `juggler serve`")
+// ErrNoServer is every command's answer when no machine server is running.
+var ErrNoServer = errors.New("no Juggler server is running on this machine; start one with `juggler serve`")
 
-// cliTimeout bounds one control-API call. An open waits out a child's spawn,
-// which the server bounds itself (childStartTimeout).
+// cliTimeout bounds one control-API call other than an open: the longest
+// answers once its work is done (a stop waits out its child's exit). An open
+// has no such bound (OpenSession). A call that outlasts it is ErrServerSlow.
 const cliTimeout = childStartTimeout + 10*time.Second
 
 const serverUsage = `Usage: juggler server <command>
@@ -44,6 +43,15 @@ Commands:
   status                 Show the running server: address, version, sessions.
   sessions [--json]      List its sessions.
   stop [<id|project>]    Stop one session, or with no argument the whole server.
+  lan [on|off]           Show LAN access, or switch it. While it is on, other
+                         devices on this network can use the server, with no
+                         password. A server starts with it off, unless serve
+                         --lan or Settings → Connectivity says to start it.
+  tunnel [<mode>|off]    Show the tunnel and the modes this build has, or open
+                         one in a mode, or close it. While one is open, anyone
+                         with its link can use the server, with no password.
+                         A server starts with none open, unless serve --tunnel
+                         or Settings → Connectivity names one.
 `
 
 // RunServerCommand runs `juggler server <verb>` and returns its exit code.
@@ -73,6 +81,18 @@ func RunServerCommand(args []string, env CLIEnv) int {
 			return cliShutdown(env)
 		}
 		return cliStopSession(env, rest[0])
+	case "lan":
+		if len(rest) > 1 || (len(rest) == 1 && rest[0] != "on" && rest[0] != "off") {
+			fmt.Fprint(env.Stderr, serverUsage)
+			return 2
+		}
+		return cliLAN(env, rest)
+	case "tunnel":
+		if len(rest) > 1 {
+			fmt.Fprint(env.Stderr, serverUsage)
+			return 2
+		}
+		return cliTunnel(env, rest)
 	default:
 		fmt.Fprintf(env.Stderr, "juggler server: unknown command %q\n\n%s", verb, serverUsage)
 		return 2
@@ -81,7 +101,7 @@ func RunServerCommand(args []string, env CLIEnv) int {
 
 // RunOpenCommand runs `juggler open [--browser] <project>`: it opens (or finds)
 // the session for the folder and prints its URL once the session is running,
-// starting this machine's server first when none is running. The folder is
+// requiring a running machine server. The folder is
 // taken as typed: relative to where the command runs, or under ~.
 func RunOpenCommand(args []string, env CLIEnv) int {
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
@@ -103,12 +123,13 @@ func RunOpenCommand(args []string, env CLIEnv) int {
 		fmt.Fprintf(env.Stderr, "juggler open: %v\n", err)
 		return 1
 	}
-	c, err := Connect(ConnectOptions{Start: env.Start})
+	c, err := Connect(ConnectOptions{})
 	if err != nil {
+		if errors.Is(err, ErrNoServer) {
+			fmt.Fprintln(env.Stderr, "juggler open: no Juggler server is running; run `juggler` in the project first.")
+			return 1
+		}
 		return cliFail(env, "open", err)
-	}
-	if c.Started {
-		fmt.Fprintf(env.Stderr, "Started the Juggler server at http://%s/.\n", c.addr)
 	}
 	sess, _, err := c.OpenSession(project)
 	if err != nil {
@@ -138,8 +159,12 @@ func cliStatus(env CLIEnv) int {
 	if st.Sessions == 1 {
 		noun = "session"
 	}
-	fmt.Fprintf(env.Stdout, "Juggler server %s at http://%s/\npid %d, up %s, %d %s\n",
-		st.Version, st.Addr, st.PID, time.Since(st.StartedAt).Round(time.Second), st.Sessions, noun)
+	lan := "off"
+	if st.LAN {
+		lan = "on (juggler server lan for its addresses)"
+	}
+	fmt.Fprintf(env.Stdout, "Juggler server %s at http://%s/\npid %d, up %s, %d %s\nLAN access: %s\n",
+		st.Version, st.Addr, st.PID, time.Since(st.StartedAt).Round(time.Second), st.Sessions, noun, lan)
 	return 0
 }
 
@@ -203,6 +228,83 @@ func cliShutdown(env CLIEnv) int {
 		return cliFail(env, "server stop", err)
 	}
 	fmt.Fprintf(env.Stdout, "Stopping the Juggler server at http://%s/ and its sessions.\n", c.addr)
+	return 0
+}
+
+// cliLAN shows LAN access, or with "on" or "off" switches it first, and says
+// where other devices connect from while it is on.
+func cliLAN(env CLIEnv, args []string) int {
+	c, err := Connect(ConnectOptions{})
+	if err != nil {
+		return cliFail(env, "server lan", err)
+	}
+	var st lanResponse
+	if len(args) == 1 {
+		err = c.do(http.MethodPut, "/lan", map[string]bool{"enabled": args[0] == "on"}, &st)
+	} else {
+		err = c.do(http.MethodGet, "/lan", nil, &st)
+	}
+	if err != nil {
+		return cliFail(env, "server lan", err)
+	}
+	if !st.Enabled {
+		fmt.Fprintln(env.Stdout, "LAN access is off: the server accepts connections from this machine only.")
+		return 0
+	}
+	fmt.Fprintln(env.Stdout, "LAN access is on, with no password: anyone on this network can use the server.")
+	if len(st.URLs) == 0 {
+		fmt.Fprintln(env.Stdout, "This machine has no LAN address right now.")
+	}
+	for _, u := range st.URLs {
+		fmt.Fprintf(env.Stdout, "  %s  (%s)\n", u.URL, u.Interface)
+	}
+	return 0
+}
+
+// cliTunnel shows the tunnel and the modes there are, or with a mode opens a
+// tunnel in it, or with "off" closes it, and says where to connect from.
+func cliTunnel(env CLIEnv, args []string) int {
+	c, err := Connect(ConnectOptions{})
+	if err != nil {
+		return cliFail(env, "server tunnel", err)
+	}
+	var st tunnelResponse
+	switch {
+	case len(args) == 0:
+		err = c.do(http.MethodGet, "/tunnel", nil, &st)
+	case args[0] == "off":
+		err = c.do(http.MethodPut, "/tunnel", map[string]string{"mode": ""}, &st)
+	default:
+		err = c.do(http.MethodPut, "/tunnel", map[string]string{"mode": args[0]}, &st)
+	}
+	if err != nil {
+		return cliFail(env, "server tunnel", err)
+	}
+	if st.Running == nil {
+		fmt.Fprintln(env.Stdout, "The tunnel is off.")
+	} else {
+		fmt.Fprintln(env.Stdout, "A tunnel is open, with no password: anyone with its link can use the server.")
+		fmt.Fprintf(env.Stdout, "  %s\n", st.Running.URL)
+	}
+	if len(args) > 0 {
+		return 0
+	}
+	if len(st.Modes) == 0 {
+		fmt.Fprintln(env.Stdout, "This build has no tunnel modes.")
+		return 0
+	}
+	fmt.Fprintln(env.Stdout, "Modes (juggler server tunnel <mode>):")
+	tw := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
+	for _, m := range st.Modes {
+		line := fmt.Sprintf("  %v\t%v", m["mode"], m["title"])
+		if m["available"] != true {
+			line += fmt.Sprintf(" (not available: %v)", m["unavailableHint"])
+		}
+		fmt.Fprintln(tw, line)
+	}
+	if err := tw.Flush(); err != nil {
+		return cliFail(env, "server tunnel", err)
+	}
 	return 0
 }
 

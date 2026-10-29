@@ -7,40 +7,23 @@ package core
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
-	"juggler/internal/apipaths"
 	"juggler/internal/jlog"
 
 	"github.com/gofrs/flock"
 )
 
-const (
-	// instanceHealthTimeout caps HTTP probes against a peer's /api/health/instance
-	// endpoint. Short because a live local instance answers within a few ms.
-	instanceHealthTimeout = 2 * time.Second
-
-	// shutdownRequestTimeout caps the POST /api/shutdown call. Slightly longer
-	// than the health probe to allow the peer to start draining before responding.
-	shutdownRequestTimeout = 5 * time.Second
-
-	// shutdownPollInterval is the gap between health probes while WaitForShutdown
-	// polls a peer for liveness.
-	shutdownPollInterval = 200 * time.Millisecond
-
-	// gracefulShutdownTimeout is how long we'll wait for a peer to disappear
-	// after acknowledging a shutdown request, before falling back to SIGKILL.
-	gracefulShutdownTimeout = 5 * time.Second
-)
-
-// InstanceInfo holds metadata about a running Juggler instance
+// InstanceInfo is what a project's lock holder records about itself in
+// instance.json: its PID for the advice a refused launch prints
+// (ProjectLockedError), and the address it bound (UpdateAddr), which is how a
+// test finds the server a `juggler run` spawned for a project.
 type InstanceInfo struct {
 	PID       int       `json:"pid"`
-	Port      int       `json:"port"`
-	Host      string    `json:"host"`
+	Port      int       `json:"port,omitempty"`
+	Host      string    `json:"host,omitempty"`
 	StartedAt time.Time `json:"startedAt"`
 }
 
@@ -74,7 +57,7 @@ type AcquireResult struct {
 }
 
 // TryAcquire attempts to acquire the lock.
-func (l *InstanceLock) TryAcquire(port int, host string) (AcquireResult, error) {
+func (l *InstanceLock) TryAcquire() (AcquireResult, error) {
 	// Check if this is first-time setup (directory doesn't exist yet)
 	jugglerDir := filepath.Dir(l.lockPath)
 	isFirstRun := false
@@ -109,8 +92,6 @@ func (l *InstanceLock) TryAcquire(port int, host string) (AcquireResult, error) 
 	// Lock acquired - write our instance info
 	l.info = InstanceInfo{
 		PID:       os.Getpid(),
-		Port:      port,
-		Host:      host,
 		StartedAt: time.Now(),
 	}
 
@@ -126,13 +107,8 @@ func (l *InstanceLock) TryAcquire(port int, host string) (AcquireResult, error) 
 	return AcquireResult{Acquired: true, FirstRun: isFirstRun}, nil
 }
 
-// UpdateAddr rewrites the on-disk instance info with the address the server
-// actually bound to. TryAcquire runs before the port is bound, so it records
-// the *configured* port — which is stale whenever findAvailablePort had to
-// auto-increment past a busy port. Calling this after BindPort keeps
-// instance.json authoritative so a desktop app (or peer) discovering a running
-// server for this project connects to the real address. No-op if the lock
-// isn't held by us.
+// UpdateAddr records in instance.json the address the server bound, which
+// TryAcquire runs too early to know. No-op if the lock isn't held by us.
 func (l *InstanceLock) UpdateAddr(host string, port int) error {
 	if l == nil || l.flock == nil || !l.flock.Locked() {
 		return nil
@@ -182,14 +158,14 @@ func (l *InstanceLock) readInstanceInfo() (*InstanceInfo, error) {
 	return &info, nil
 }
 
-// ProjectLockedError reports a project whose lock is held by something that
-// can't be identified as a running Juggler — a peer still shutting down, or a
-// process that wedged mid-teardown and never let go.
+// ProjectLockedError reports a project whose lock another process holds — a
+// session still shutting down, or a process that wedged mid-teardown and never
+// let go.
 //
-// It carries its own recovery advice so that every surface reporting it says
-// the same thing: the desktop app renders Advice in a window, the terminal
-// prints it. Info is nil when the lock was held but instance.json could not be
-// read, which is itself a moment inside someone else's Release.
+// It carries its own recovery advice, which the process that failed to start
+// prints after its startup failure (reportStartupFailure). Info is nil when the
+// lock was held but instance.json could not be read, which is itself a moment
+// inside someone else's Release.
 type ProjectLockedError struct {
 	Project string
 	Info    *InstanceInfo
@@ -208,12 +184,12 @@ func (e *ProjectLockedError) LockPath() string {
 // stuck needs them: what happened, which file, what usually fixes it, and only
 // then the manual step that cannot be undone.
 func (e *ProjectLockedError) Advice() string {
-	msg := "This project is locked by another process, but Juggler could not connect to the session that holds it.\n\n" +
+	msg := "This project is locked by another Juggler process.\n\n" +
 		"The lock file is:\n" + e.LockPath() + "\n\n" +
 		"This usually clears by itself within a few seconds, while the previous session finishes shutting down — try again first. " +
 		"If it persists, and you are sure no other Juggler process is running for this project, delete that file and start again."
 	if e.Info != nil {
-		msg += fmt.Sprintf("\n\nThe lock recorded Juggler process %d at %s:%d, but it did not respond as this project.", e.Info.PID, e.Info.Host, e.Info.Port)
+		msg += fmt.Sprintf("\n\nThe lock records Juggler process %d.", e.Info.PID)
 	}
 	return msg
 }
@@ -254,175 +230,4 @@ func CheckProjectLocked(projectPath string) (bool, *InstanceInfo, error) {
 		return true, nil, nil
 	}
 	return true, &info, nil
-}
-
-// instanceHealth is the parsed /api/health/instance response used to verify and
-// classify a lock-holding server.
-type instanceHealth struct {
-	Status         string `json:"status"`
-	ProjectPath    string `json:"projectPath"`
-	PID            int    `json:"pid"`
-	ParentPID      int    `json:"parentPid"`
-	ExitWithParent bool   `json:"exitWithParent"`
-}
-
-// fetchInstanceHealth probes info's /api/health/instance endpoint. It returns
-// (nil, nil) when the instance can't be reached or answers non-OK — i.e. "not a
-// live instance" — so callers treat any failure as "not running" rather than
-// surfacing a transport error.
-func fetchInstanceHealth(info *InstanceInfo) (*instanceHealth, error) {
-	if info == nil {
-		return nil, nil
-	}
-	url := fmt.Sprintf("http://%s:%d%s", info.Host, info.Port, apipaths.HealthInstance)
-	client := &http.Client{Timeout: instanceHealthTimeout}
-	resp, err := client.Get(url)
-	if err != nil {
-		// Can't connect - instance probably not running.
-		return nil, nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, nil
-	}
-	var health instanceHealth
-	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
-		return nil, nil
-	}
-	return &health, nil
-}
-
-// instanceMatches reports whether h is precisely the process that wrote
-// instance.json for expectedProjectPath. A reused PID or another Juggler server
-// on the recorded port must never be treated as the lock holder for this project.
-func instanceMatches(h *instanceHealth, info *InstanceInfo, expectedProjectPath string) bool {
-	return h != nil && h.PID == info.PID && h.ProjectPath == expectedProjectPath
-}
-
-// VerifyInstance checks if an instance is actually running via HTTP health check
-// Returns true if the instance is verified as Juggler running on the expected project path
-func VerifyInstance(info *InstanceInfo, expectedProjectPath string) (bool, error) {
-	if info == nil {
-		return false, nil
-	}
-	h, err := fetchInstanceHealth(info)
-	if err != nil || h == nil {
-		return false, nil
-	}
-	return instanceMatches(h, info, expectedProjectPath), nil
-}
-
-// RunningInstanceStatus classifies a lock-holding server for a desktop viewer's
-// reuse decision (see ClassifyRunningInstance).
-type RunningInstanceStatus int
-
-const (
-	// InstanceUnreachable: the lock is held but no matching server answers — a
-	// stale lock, a mismatched pid/project, or a server that isn't responding.
-	// The viewer must neither attach nor blindly spawn into the collision.
-	InstanceUnreachable RunningInstanceStatus = iota
-	// InstanceReusable: a healthy matching server the viewer can attach a window
-	// to.
-	InstanceReusable
-	// InstanceExiting: a matching server started with --exit-with-parent whose
-	// parent has already died (reparented to init/launchd, ppid<=1). Its
-	// parent-watchdog is about to self-terminate it, so the viewer should wait
-	// for it to release the lock and then spawn a fresh server rather than attach
-	// a window that would be left stuck on "connecting" when it vanishes.
-	InstanceExiting
-)
-
-// ClassifyRunningInstance probes a lock-holding server and classifies it for the
-// desktop viewer's reuse decision. It is stricter than VerifyInstance: on top of
-// the identity check it distinguishes a durable server (reusable) from an orphan
-// that is about to self-terminate because the app that owned it has quit — the
-// race behind a "connecting to server" hang on a quick quit-then-relaunch.
-func ClassifyRunningInstance(info *InstanceInfo, expectedProjectPath string) RunningInstanceStatus {
-	h, err := fetchInstanceHealth(info)
-	if err != nil || h == nil {
-		return InstanceUnreachable
-	}
-	if !instanceMatches(h, info, expectedProjectPath) {
-		return InstanceUnreachable
-	}
-	if h.ExitWithParent && h.ParentPID <= 1 {
-		return InstanceExiting
-	}
-	return InstanceReusable
-}
-
-// RequestGracefulShutdown asks an existing instance to shut down gracefully
-// Returns true if the shutdown was acknowledged
-func RequestGracefulShutdown(info *InstanceInfo) (bool, error) {
-	if info == nil {
-		return false, nil
-	}
-
-	// Build URL for shutdown endpoint
-	url := fmt.Sprintf("http://%s:%d%s", info.Host, info.Port, apipaths.Shutdown)
-
-	client := &http.Client{Timeout: shutdownRequestTimeout}
-
-	resp, err := client.Post(url, "application/json", nil)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-
-	// 202 Accepted means shutdown was initiated
-	return resp.StatusCode == http.StatusAccepted, nil
-}
-
-// WaitForShutdown waits for an instance to shut down, polling the health endpoint
-// Returns true if the instance shut down within the timeout
-func WaitForShutdown(info *InstanceInfo, timeout time.Duration) bool {
-	if info == nil {
-		return true
-	}
-
-	url := fmt.Sprintf("http://%s:%d%s", info.Host, info.Port, apipaths.HealthInstance)
-	client := &http.Client{Timeout: shutdownPollInterval * 5}
-
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		resp, err := client.Get(url)
-		if err != nil {
-			// Can't connect - instance is down
-			return true
-		}
-		resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			return true
-		}
-
-		time.Sleep(shutdownPollInterval)
-	}
-
-	return false
-}
-
-// KillExistingInstance attempts to kill an existing instance
-// First tries graceful shutdown, then falls back to force kill
-func KillExistingInstance(info *InstanceInfo, projectPath string) error {
-	if info == nil {
-		return nil
-	}
-
-	// First verify it's actually running
-	running, _ := VerifyInstance(info, projectPath)
-	if !running {
-		return nil
-	}
-
-	// Try graceful shutdown first
-	acknowledged, err := RequestGracefulShutdown(info)
-	if err == nil && acknowledged {
-		if WaitForShutdown(info, gracefulShutdownTimeout) {
-			return nil
-		}
-	}
-
-	// Graceful shutdown failed - force kill
-	return forceKillProcess(info.PID)
 }

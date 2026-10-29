@@ -77,10 +77,7 @@ function installFetch(providers) {
     if (u === '/api/default-model') return ok({ provider: 'fake-cli', model: 'fake-model' });
     if (u === '/api/cheap-model') return ok({ provider: 'fake-cli', model: 'fake-model' });
     if (u === '/api/connectivity') {
-      return ok({
-        lanEnabled: false, lanURLs: [], tunnelEnabled: false,
-        tunnelURL: '', tunnelMode: '', tunnelRelay: false, wanModes: [],
-      });
+      return ok({ clientCount: 0, clients: [] });
     }
     return { ok: false, status: 404, statusText: 'Not Found', text: async () => '', json: async () => ({}) };
   });

@@ -35,8 +35,8 @@ func initAppLogging() {
 		LogFilePath:  resolveWritable(logpaths.AppLogPath()),
 	})
 	// Best-effort: age out stale logs from the shared directory so they don't
-	// accumulate forever (a spawned server does the same; this covers an app
-	// launch that never reaches one). Active logs keep a current mtime.
+	// accumulate forever (the server does the same; this covers an app launch
+	// that never reaches one). Active logs keep a current mtime.
 	if n := logpaths.SweepOldLogs(logpaths.LogDir(), logpaths.DefaultLogRetention, time.Now()); n > 0 {
 		jlog.Debug("🧹 Removed %d stale log file(s) from %s", n, logpaths.LogDir())
 	}
@@ -55,22 +55,6 @@ func resolveWritable(preferred string) string {
 		}
 	}
 	return preferred
-}
-
-// openStderrSink opens the per-project raw-stderr crash file for a spawned
-// server (logpaths.StderrLogPath). One file per project means a single writer —
-// two concurrent servers never interleave. Returns nil if it can't be opened,
-// in which case the caller falls back to its own stderr.
-func openStderrSink(project string) *os.File {
-	p := logpaths.StderrLogPath(project)
-	if os.MkdirAll(filepath.Dir(p), 0o755) != nil {
-		return nil
-	}
-	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return nil
-	}
-	return f
 }
 
 // logf writes an operational breadcrumb through the shared jlog sink: to stderr

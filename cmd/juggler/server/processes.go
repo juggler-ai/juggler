@@ -13,7 +13,7 @@ import (
 
 // processesCoalesce is how long a change to the process inventory waits before
 // it is published, so that a burst — a turn starting several commands at once,
-// a project switch stopping every task — goes out as one frame.
+// shutdown stopping every task — goes out as one frame.
 const processesCoalesce = 150 * time.Millisecond
 
 // watchProcesses publishes the current project's process inventory to its

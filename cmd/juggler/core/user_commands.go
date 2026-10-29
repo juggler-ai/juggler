@@ -88,7 +88,7 @@ func UserCommandDir() string {
 }
 
 // ProjectCommandDir is the project-scope command directory
-// (<project>/.juggler/commands), or "" in no-project mode.
+// (<project>/.juggler/commands), or "" for an empty project path.
 func ProjectCommandDir(projectPath string) string {
 	if projectPath == "" {
 		return ""

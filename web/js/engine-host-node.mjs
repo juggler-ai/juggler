@@ -42,9 +42,8 @@ globalThis.JUGGLER_ENGINE = true;
 globalThis.__assetPrefix = '';
 globalThis.__jugglerToken = apiToken;
 // Seed the live project root the query_code sandbox delegate reads per run.
-// The engine session keeps it current across a runtime project switch (see
-// session.js _applyEngineProjectRoot); this boot value covers the window before
-// the session loads.
+// The engine session sets it from the manifest once it loads; this boot value
+// covers the window before the session loads.
 globalThis.__jugglerProjectRoot = projectRoot;
 
 // The engine graph reads globalThis.location to build the WebSocket URL

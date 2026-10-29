@@ -152,8 +152,8 @@ func (m *SessionManager) GetWindowUIPrefs(role string) map[string]json.RawMessag
 }
 
 // MergeWindowUIPrefs applies a patch to one window role's preferences and writes
-// the session manifest. A no-project session (still at the picker) is a no-op —
-// there is nowhere to store it — mirroring SetWindowState.
+// the session manifest. Before the session is loaded it is a no-op — there is
+// nowhere to store it — mirroring SetWindowState.
 //
 // Only a viewer on this machine may call this: the route is wrapped in
 // localViewerOnly, so a phone or laptop browsing in remotely keeps its own
@@ -186,7 +186,7 @@ func (m *SessionManager) GetSessionUIPrefs() map[string]json.RawMessage {
 }
 
 // MergeSessionUIPrefs applies a patch to the project-wide preferences and writes
-// the session manifest. Mirrors MergeWindowUIPrefs, including its no-project
+// the session manifest. Mirrors MergeWindowUIPrefs, including its no-session
 // no-op and its local-viewer-only route guard.
 //
 // It is deliberately not Metadata, which would otherwise do: Metadata is

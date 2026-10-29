@@ -117,7 +117,12 @@ func jugglerOnDidWake() {
 // too. It is taken here rather than read at stall time: the file sink is
 // configured once at startup, and the moment the watchdog needs it is the one
 // moment the logging package may itself be stuck behind the wedge.
-func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string) {
+//
+// relaunchEnv is added to the re-exec's environment: what this launch's
+// spawner handed it and startup took out of the process environment
+// (spawnerEnv.environ), which the replacement image needs as much as this one
+// did — a session child refuses to start without its token.
+func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string, relaunchEnv []string) {
 	procStart := time.Now()
 	// Say so, once. The watchdog is silent while the main thread is healthy,
 	// which is indistinguishable from a watchdog that was never armed — and a
@@ -166,7 +171,7 @@ func startMainThreadWatchdog(addr string, allowRelaunch bool, logPath string) {
 				// Re-exec a fresh image in place; does not return on success.
 				// Falls through to os.Exit only if exec fails or the
 				// crash-loop guard refuses.
-				relaunchInPlace(addr, time.Since(procStart))
+				relaunchInPlace(addr, relaunchEnv, time.Since(procStart))
 			}
 			_, _ = os.Stderr.WriteString(stallSampleNote(s, settled) +
 				"\nFATAL: main thread wedged — force-exiting so the next launch can recover.\n")
@@ -436,6 +441,20 @@ func envWith(environ []string, key, val string) []string {
 	return append(out, prefix+val)
 }
 
+// relaunchEnviron returns the environment a re-exec runs under: environ with
+// carried's entries and the relaunch generation set in it, each replacing any
+// entry of the same name. The process's own environment is left as it is, so
+// what carried holds reaches the new image alone, never anything this process
+// spawns meanwhile.
+func relaunchEnviron(environ, carried []string, gen int) []string {
+	env := environ
+	for _, kv := range carried {
+		name, val, _ := strings.Cut(kv, "=")
+		env = envWith(env, name, val)
+	}
+	return envWith(env, relaunchGenEnv, strconv.Itoa(gen))
+}
+
 // execRetryable reports whether an exec failure is one a moment's wait can
 // clear: the image is missing, still open for writing, or not executable yet —
 // the states a rebuild of this tree passes through. Pure function — unit-tested.
@@ -476,8 +495,11 @@ func execUntilRunnable(execFn func() error, sleep func(time.Duration), deadline 
 // app-spawned server keeps its parent's *exec.Cmd handle valid (no Wait()
 // returns, --exit-with-parent PPID is unchanged). Go opens the instance-lock
 // and listener fds O_CLOEXEC, so execve frees them before the new image
-// re-acquires the lock and re-binds the same port.
-func relaunchInPlace(addr string, uptime time.Duration) {
+// re-acquires the lock and re-binds the same port. A session child spawned with
+// --port 0 is re-exec'd with the port it bound, so its machine server's proxy,
+// which learned that address from the child's JUGGLER_ADDR line, still reaches
+// it. carried is added to the new image's environment (relaunchEnviron).
+func relaunchInPlace(addr string, carried []string, uptime time.Duration) {
 	gen, _ := strconv.Atoi(os.Getenv(relaunchGenEnv))
 	nextGen, ok := relaunchDecision(gen, uptime)
 	if !ok {
@@ -492,7 +514,7 @@ func relaunchInPlace(addr string, uptime time.Duration) {
 		os.Exit(1)
 	}
 	argv := relaunchArgs(os.Args, portFromAddr(addr))
-	env := envWith(os.Environ(), relaunchGenEnv, strconv.Itoa(nextGen))
+	env := relaunchEnviron(os.Environ(), carried, nextGen)
 	_, _ = fmt.Fprintf(os.Stderr,
 		"\nFATAL: main thread wedged — re-exec'ing a fresh server (same port, gen=%d) so it recovers in place.\n", nextGen)
 	err = execUntilRunnable(

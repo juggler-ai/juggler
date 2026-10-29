@@ -11,6 +11,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
 
 	"juggler/internal/ingress"
 )
@@ -288,4 +291,70 @@ func TestOriginGuardRejectsCrossOrigin(t *testing.T) {
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("same-origin request: code=%d, want 200", resp2.StatusCode)
 	}
+}
+
+// TestProxiedWebSocketDoesNotAttachToServer: a viewer's socket to its
+// session is a session viewer, not a local client holding the server up.
+func TestProxiedWebSocketDoesNotAttachToServer(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !websocket.IsWebSocketUpgrade(r) {
+			return
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer backend.Close()
+
+	s := &Server{reg: newRegistry()}
+	sess, _ := s.reg.reserve("/p")
+	s.reg.setRunning(sess.ID, &child{addr: strings.TrimPrefix(backend.URL, "http://")}, 1)
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+
+	if code, _ := get(t, front.URL+"/s/"+sess.ID+"/api/health"); code != http.StatusOK || s.attached.Load() != 0 {
+		t.Fatalf("plain proxied request: status %d, %d attached; want 200, none", code, s.attached.Load())
+	}
+	conn, resp, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(front.URL, "http")+"/s/"+sess.ID+"/api/ws", nil)
+	if err != nil {
+		t.Fatalf("dial through the proxy: %v", err)
+	}
+	_ = resp.Body.Close()
+	defer conn.Close()
+	viewers := func() (n int) {
+		s.reg.do(func(m map[string]*sessionEntry) { n = m[sess.ID].viewers })
+		return n
+	}
+	if got := viewers(); got != 1 {
+		t.Fatalf("with a proxied socket open: %d session viewers, want 1", got)
+	}
+	if got := s.attached.Load(); got != 0 {
+		t.Fatalf("with a proxied socket open: %d attached, want none", got)
+	}
+	_ = conn.Close()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for viewers() != 0 {
+		select {
+		case <-tick.C:
+		case <-deadline.C:
+			t.Fatal("closed proxied socket still holds a session viewer")
+		}
+	}
+	s.reg.do(func(m map[string]*sessionEntry) {
+		if m[sess.ID].unviewedSince.IsZero() {
+			t.Error("last socket departure did not start viewer grace")
+		}
+	})
+	waitAttached(t, s, 0)
 }

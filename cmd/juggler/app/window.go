@@ -46,13 +46,14 @@ const (
 // quit; teardownDone is closed once the teardown stack has finished, gating the
 // native quit; requestQuit triggers the single serialized shutdown path;
 // onWindowReady hands the caller the *App (and main window, when there is one)
-// once launched.
-func runWindowApp(srv *server.Server, devMode bool, headless bool, testMode bool, testIframes int, testWindowURL string, selected selectedEngineHost, done <-chan struct{}, teardownDone <-chan struct{}, requestQuit func(), onWindowReady func(*application.App, *application.WebviewWindow)) {
+// once launched. relaunchEnv is what a production server's watchdog re-exec
+// adds to the environment (spawnerEnv.environ).
+func runWindowApp(srv *server.Server, devMode bool, headless bool, testMode bool, testIframes int, testWindowURL string, selected selectedEngineHost, relaunchEnv []string, done <-chan struct{}, teardownDone <-chan struct{}, requestQuit func(), onWindowReady func(*application.App, *application.WebviewWindow)) {
 	if testMode {
 		runTestPoolWindowApp(srv, devMode, headless, testIframes, testWindowURL, done, teardownDone, requestQuit, onWindowReady)
 		return
 	}
-	runHeadlessServerApp(srv, selected, done, teardownDone, requestQuit, onWindowReady)
+	runHeadlessServerApp(srv, selected, relaunchEnv, done, teardownDone, requestQuit, onWindowReady)
 }
 
 // awaitTeardown blocks until the teardown stack has finished, or the budget
@@ -81,8 +82,8 @@ func awaitTeardown(teardownDone <-chan struct{}, budget time.Duration) {
 //
 // requestQuit is the same shutdown trigger the signal handlers use. Engine-host
 // startup failures route through it so the server cannot linger without a
-// functioning engine.
-func runHeadlessServerApp(srv *server.Server, selected selectedEngineHost, done <-chan struct{}, teardownDone <-chan struct{}, requestQuit func(), onWindowReady func(*application.App, *application.WebviewWindow)) {
+// functioning engine. relaunchEnv is handed to the main-thread watchdog.
+func runHeadlessServerApp(srv *server.Server, selected selectedEngineHost, relaunchEnv []string, done <-chan struct{}, teardownDone <-chan struct{}, requestQuit func(), onWindowReady func(*application.App, *application.WebviewWindow)) {
 	// A Node-hosted server creates no native application, so nothing on this
 	// path ever pumps a main run loop: the engine runs in a child process and
 	// this goroutine just blocks on done. The main-thread watchdog is therefore
@@ -143,7 +144,7 @@ func runHeadlessServerApp(srv *server.Server, selected selectedEngineHost, done 
 	// transparently. Its heartbeat only means anything while the run loop
 	// app.Run() is about to enter is pumping the main queue, which is why it is
 	// armed alongside that loop rather than at startup. No-op off macOS.
-	startMainThreadWatchdog(srv.GetAddr(), true, jlog.FilePath())
+	startMainThreadWatchdog(srv.GetAddr(), true, jlog.FilePath(), relaunchEnv)
 
 	if err := app.Run(); err != nil {
 		jlog.Error("application.Run failed: %v", err)

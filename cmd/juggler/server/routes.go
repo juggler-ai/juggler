@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/ops"
 	"juggler/cmd/juggler/providers/provider"
 	"juggler/cmd/juggler/server/handlers"
@@ -70,7 +69,6 @@ func (s *Server) seedProjectState(cfg Config) {
 		projectPath:    initialProjectPath,
 		sessionManager: cfg.SessionManager,
 		lock:           cfg.BootLock,
-		teardownDone:   make(chan struct{}),
 		viewers:        newViewerGroup(),
 	})
 }
@@ -126,7 +124,7 @@ func (s *Server) wireWorkerManager() {
 	})
 
 	// Path resolution and binary persistence routed through the actor to keep
-	// rename ↔ save serialisation correct across project switches.
+	// rename ↔ save serialisation correct.
 	s.workerManager.SetPathProvider(s.convDir)
 	s.workerManager.SetNameProvider(s.convName)
 	s.workerManager.SetSaveBinary(func(convID string, data []byte) error {
@@ -134,13 +132,9 @@ func (s *Server) wireWorkerManager() {
 		if sm == nil {
 			return fmt.Errorf("no session manager available")
 		}
-		// Owned-only save: the worker manager is server-lifetime, so a worker
-		// created under a previous project can still fire a debounced save after
-		// a SwitchProject swapped in this SessionManager. Late-binding to the
-		// current project here (sm is resolved per call) means such a save would
-		// otherwise fabricate an "Untitled--<id>" ghost folder in the wrong
-		// project — the cross-project conversation leak. Refuse ids this project
-		// doesn't own; the owning project persists them when it is loaded.
+		// Owned-only save: a save for an id this project's session does not
+		// own would otherwise fabricate an "Untitled--<id>" ghost folder for
+		// it. Refuse ids this project doesn't own.
 		saved, err := sm.SaveConversationBinaryIfOwned(convID, data)
 		if err != nil {
 			return err
@@ -261,37 +255,6 @@ func (s *Server) setupSessionRoutes(sessionAPI *handlers.SessionAPI) {
 	api.HandleFunc("/session/files/bytes", filesAPI.HandlePostFileBytes).Methods("POST")
 }
 
-// setupProjectRoutes registers /api/project and /api/recents endpoints.
-// These delegate to ProjectAPI which calls back into Server.SwitchProject.
-//
-// With a fixed project (Config.FixedProject — a machine-server session child)
-// opening or creating a folder in place is refused: the supervisor keys the
-// session by its project and respawns that project after a crash, so a switch
-// would leave its sessions list wrong and be undone by the next restart.
-// Another folder is another session, opened from the sessions page.
-func (s *Server) setupProjectRoutes() {
-	api := s.router.PathPrefix("/api").Subrouter()
-	projectAPI := handlers.NewProjectAPI(s.ProjectPath, s.SwitchProject, s.recentsStore)
-	api.HandleFunc("/project", projectAPI.HandleGetProject).Methods("GET")
-	if s.fixedProject {
-		api.HandleFunc("/project", refuseFixedProject).Methods("POST")
-		api.HandleFunc("/project/new", refuseFixedProject).Methods("POST")
-	} else {
-		api.HandleFunc("/project", projectAPI.HandlePostProject).Methods("POST")
-		api.HandleFunc("/project/new", projectAPI.HandleNewProject).Methods("POST")
-	}
-	api.HandleFunc("/project/check", projectAPI.HandleCheckProject).Methods("GET")
-	api.HandleFunc("/recents", projectAPI.HandleGetRecents).Methods("GET")
-	api.HandleFunc("/recents", projectAPI.HandleDeleteRecent).Methods("DELETE")
-}
-
-// refuseFixedProject answers a request to open or create a project in place on
-// a server whose project is fixed (see setupProjectRoutes).
-func refuseFixedProject(w http.ResponseWriter, r *http.Request) {
-	handlers.WriteMessageError(w, r, http.StatusConflict,
-		msg.New("This session's project folder is fixed. Open another folder as its own session from the sessions page."))
-}
-
 // setupLogsRoutes registers the read-only /api/logs endpoints that back the
 // Logs settings page.
 func (s *Server) setupLogsRoutes() {
@@ -368,19 +331,17 @@ func apiRoute(path string) string {
 	return strings.TrimPrefix(path, apipaths.Prefix)
 }
 
-// setupBootstrapRoutes registers the endpoints a caller reaches before, or
-// without ever, holding this instance's API token: liveness and instance
-// discovery probed by another juggler process, and the two transports whose
-// handshake is what would carry a token. They are the routes apiAuthExempt lets
-// through, so they are registered from the same constants it is keyed by.
+// setupBootstrapRoutes registers the viewer WebSocket, whose upgrade carries
+// the API token in its query rather than the header apiAuthMiddleware reads
+// (see exemptRoutes), and the health routes, which take the token like any
+// other: the supervising machine server and `juggler run` both hold it.
 func (s *Server) setupBootstrapRoutes() {
 	api := s.router.PathPrefix(apipaths.Prefix).Subrouter()
 	api.HandleFunc(apiRoute(apipaths.WebSocket), s.handleWebSocket).Methods("GET")
-	api.HandleFunc(apiRoute(apipaths.WebRTCSignal), s.handleWebRTCSignal).Methods("POST")
 	api.HandleFunc(apiRoute(apipaths.Health), handlers.HandleHealth).Methods("GET")
 	api.HandleFunc(apiRoute(apipaths.HealthActive), s.handleHealthActive).Methods("GET")
+	api.HandleFunc(apiRoute(apipaths.HealthRetire), s.handleHealthRetire).Methods("POST")
 	api.HandleFunc(apiRoute(apipaths.HealthInstance), s.handleHealthInstance).Methods("GET")
-	api.HandleFunc(apiRoute(apipaths.Shutdown), s.handleShutdown).Methods("POST")
 }
 
 // setupRoutes configures all HTTP routes
@@ -390,6 +351,7 @@ func (s *Server) setupRoutes() {
 	// API routes
 	api := s.router.PathPrefix("/api").Subrouter()
 	api.HandleFunc("/ops/call", s.opsAPI.HandleOperationCall).Methods("POST")
+	api.HandleFunc(apiRoute(apipaths.OneShot), s.handleOneShot).Methods("POST")
 	api.HandleFunc("/completions/files", s.completionsAPI.HandleFileCompletions).Methods("GET")
 	api.HandleFunc("/completions/path", s.completionsAPI.HandlePathCompletions).Methods("GET")
 	api.HandleFunc("/completions/exists", s.completionsAPI.HandlePathExists).Methods("GET")
@@ -441,7 +403,7 @@ func (s *Server) setupRoutes() {
 	api.HandleFunc("/skills/{scope:project|user}/{source}/{name}", s.skillsAPI.HandleGet).Methods("GET")
 	api.HandleFunc("/skills/{scope:project|user}/{source}/{name}", s.skillsRegistryAPI.HandleUninstall).Methods("DELETE")
 
-	api.HandleFunc("/version", handlers.NewVersionAPI(RendezvousProtocolVersion).HandleVersion).Methods("GET")
+	api.HandleFunc("/version", handlers.HandleVersion).Methods("GET")
 	api.HandleFunc("/update-status", s.handleUpdateStatus).Methods("GET")
 	api.HandleFunc("/update-status/check", s.handleManualUpdateCheck).Methods("POST")
 
@@ -451,7 +413,7 @@ func (s *Server) setupRoutes() {
 	api.HandleFunc("/i18n/locales", s.handleUILocales).Methods("GET")
 
 	// Serve extension containers straight off disk. ExtensionsAPI owns these
-	// paths; a "" path (e.g. no-project mode) simply registers no route.
+	// paths; a "" path simply registers no route.
 	if userDir := s.extensionsAPI.UserExtensionDir(); userDir != "" {
 		s.router.PathPrefix(handlers.UserExtensionURLBase).Handler(
 			http.StripPrefix(handlers.UserExtensionURLBase,
@@ -521,23 +483,15 @@ func (s *Server) setupRoutes() {
 	// window into either. See handlers.HandleClientReport.
 	s.router.HandleFunc("/api/client/report", handlers.HandleClientReport).Methods("POST")
 
-	// Wails v3 runtime — served to every client (see wails_runtime.go).
-	s.router.HandleFunc("/wails/runtime.js", s.handleWailsRuntime).Methods("GET")
-
-	// Stub for the runtime's optional custom.js probe (a Wails server-mode
-	// feature we don't use). 204 makes loadOptionalScript's `e.ok` false so
-	// it skips injecting an empty <script>, and silences the console 404.
-	s.router.HandleFunc("/wails/custom.js", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}).Methods("GET", "HEAD")
+	// Wails v3 runtime — served to every client (see webui/wails_runtime.go).
+	s.router.HandleFunc("/wails/runtime.js", webui.ServeWailsRuntime).Methods("GET")
+	s.router.HandleFunc("/wails/custom.js", webui.ServeWailsCustomJS).Methods("GET", "HEAD")
 
 	// Favicon redirect to logo
 	s.router.HandleFunc("/favicon.ico", s.serveFavicon).Methods("GET")
 
-	// Serve index. /index.html serves the same templated app HTML as / so a
-	// remote bootstrap page can fetch the real index over the DataChannel.
+	// Serve index.
 	s.router.HandleFunc("/", s.serveIndex).Methods("GET")
-	s.router.HandleFunc("/index.html", s.serveIndex).Methods("GET")
 
 	// Distribution seam: let a wrapping binary register additional routes
 	// (see Config.ExtraRoutes). Runs last so built-in routes take precedence.

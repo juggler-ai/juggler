@@ -8,4 +8,4 @@ package app
 
 // startMainThreadWatchdog is a no-op off macOS. The deadlock it guards
 // against is specific to WebKit's CVDisplayLink path on macOS.
-func startMainThreadWatchdog(_ string, _ bool, _ string) {}
+func startMainThreadWatchdog(_ string, _ bool, _ string, _ []string) {}

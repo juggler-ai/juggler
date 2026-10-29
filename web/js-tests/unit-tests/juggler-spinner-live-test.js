@@ -661,5 +661,33 @@ export async function runTests() {
     passed++;
   } catch (e) { failed++; errors.push(`en-XA spinner label: ${e.message}`); }
 
+  // O — a page whose CSP forbids inline styles (the machine server's sessions
+  // page: `style-src 'self'`) still gets a laid-out cascade: each club's slot
+  // is set through the CSSOM, which CSP allows, never a parsed style attribute,
+  // which it blocks.
+  try {
+    const frame = document.createElement('iframe');
+    frame.srcdoc = '<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" '
+      + 'content="default-src \'none\'; style-src \'self\'"></head><body></body></html>';
+    const loaded = new Promise((resolve) => frame.addEventListener('load', resolve, { once: true }));
+    document.body.appendChild(frame);
+    try {
+      await loaded;
+      const doc = /** @type {Document} */ (frame.contentDocument);
+      const el = document.createElement('juggler-spinner');
+      doc.body.appendChild(el);
+      const pivots = Array.from(el.querySelectorAll('.spinner-pivot'));
+      assert(pivots.length === 3, `expected 3 clubs, got ${pivots.length}`);
+      const slots = pivots.map((p) => /** @type {HTMLElement} */ (p).style.getPropertyValue('--spinner-angle').trim());
+      const phases = pivots.map((p) => /** @type {HTMLElement} */ (p).style.getPropertyValue('--spinner-phase').trim());
+      assert(JSON.stringify(slots) === '["0.000deg","120.000deg","240.000deg"]',
+        `club slots under a strict CSP: ${JSON.stringify(slots)}`);
+      assert(JSON.stringify(phases) === '["0","1","2"]', `club phases under a strict CSP: ${JSON.stringify(phases)}`);
+    } finally {
+      frame.remove();
+    }
+    passed++;
+  } catch (e) { failed++; errors.push(`strict CSP spinner: ${e.message}`); }
+
   return { passed, failed, errors };
 }

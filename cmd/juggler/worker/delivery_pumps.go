@@ -33,6 +33,12 @@ func (d *deliveryPumps) running(entryID string) bool {
 	return ok
 }
 
+// any reports whether an internal producer can still enqueue task output.
+func (d *deliveryPumps) any() bool {
+	d.own()
+	return len(d.pumpsByEntry) != 0
+}
+
 // add records p as the pump serving its entry.
 func (d *deliveryPumps) add(p *taskDeliveryPump) { d.own(); d.pumpsByEntry[p.entryID] = p }
 

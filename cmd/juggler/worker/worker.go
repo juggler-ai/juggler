@@ -321,6 +321,7 @@ type workerMessage struct {
 	Payload      json.RawMessage
 	OriginClient string
 	Ack          chan error
+	Probe        *workerProbe
 	// EnqueuedAt is when the message entered the inbox (workerInbox.push), so
 	// the time it waited there can be told from the time it took to handle.
 	EnqueuedAt time.Time
@@ -800,8 +801,14 @@ func (r *run) run(ctx context.Context) {
 		case <-r.done:
 			return
 		case msg := <-r.inbox.messages():
-			event, started = "message "+msg.Type, time.Now()
 			r.inbox.taken(msg)
+			if msg.Probe != nil {
+				if !r.handleProbe(ctx, msg.Probe) {
+					return
+				}
+				continue
+			}
+			event, started = "message "+msg.Type, time.Now()
 			waited = started.Sub(msg.EnqueuedAt)
 			r.handleMessage(msg)
 		case <-r.doc.UpdateSignal():

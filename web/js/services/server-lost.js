@@ -3,13 +3,16 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * Giving up on a server by URL. The socket retries for ever (websocket.js),
- * which is right for a server this app runs, since the app restarts it. A desktop
- * window onto another machine's server has nobody to restart it, so after a
- * minute of trying the page asks the app to put the window's "can't reach the
- * server" stand-in in its place, with Try again and a local window on offer
- * (cmd/juggler-app/stand_in.go, controlServerLost). The app checks the server
- * itself first and leaves the window alone if it answers.
+ * Giving up on a server or a session. The socket retries for ever
+ * (websocket.js), which is right while what it reconnects to can come back —
+ * a session that restarts after a crash does. When it cannot — another
+ * machine's server is down, or this machine's session has stopped — nothing in
+ * the page can bring it back, so after a minute of trying a desktop window asks
+ * the app to put its stand-in in its place, with Try again on offer
+ * (cmd/juggler-app/stand_in.go, controlServerLost). The app checks first, and
+ * leaves the window alone if the server answers or the session still runs.
+ * The app replaces its local windows itself, at once, when this machine's
+ * server goes.
  * @module services/server-lost
  */
 
@@ -26,16 +29,14 @@ import { fetchJson } from './http.js';
 export const GIVE_UP_AFTER_MS = 60 * 1000;
 
 /**
- * Whether this page is in a window that has a stand-in to become: a desktop
- * window onto a server by URL. A stand-in's own page is on a server this app
- * runs, so it is not one.
+ * Whether this page is in a window that has a stand-in to become: any desktop
+ * app window — onto a server by URL, or a session on this machine's server,
+ * which the app reopens when it has stopped. (A stand-in's own page is a static
+ * one, with no socket to lose.)
  * @returns {boolean} True when the app can replace this window.
  */
 function hasLostServerStandIn() {
-  return !isEngine()
-    && hasNativeHost()
-    && typeof document !== 'undefined'
-    && document.documentElement.dataset.externalServer === '1';
+  return !isEngine() && hasNativeHost();
 }
 
 /**

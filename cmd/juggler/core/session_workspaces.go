@@ -40,25 +40,9 @@ type WorkspacePatch struct {
 // where it is used, not quietly run somewhere else.
 var ErrWorkspaceNotFound = fmt.Errorf("workspace not found")
 
-// ErrNoProject refuses every write to the table while no project is open.
-//
-// A workspace is a place a conversation works, and in no-project mode there are
-// no conversations and nowhere for a row to live: the session is real but sits
-// in a scratch directory this process deletes on the way out. Registering one
-// there would report success for something that vanishes with the window.
-//
-// The condition is the PROJECT PATH, not the session. There is always a session
-// — NewSessionManagerForPath("") builds one over the scratch dir precisely so
-// the rest of the server need not special-case a nil manager — so a guard on
-// `s.session == nil` names this state without ever testing it.
-var ErrNoProject = fmt.Errorf("no project is open")
-
-// projectOpen reports whether there is a project to keep a workspace table for.
-// The path is immutable for the manager's lifetime, so this is safe to ask off
-// the actor as well as on it.
-func (m *SessionManager) projectOpen() bool {
-	return m.projectPath != ""
-}
+// errNoSession refuses a write to the table before the session is loaded,
+// when there is no session.json to keep a row in.
+var errNoSession = fmt.Errorf("no session is loaded")
 
 // ListWorkspaces returns every registered workspace, in the order the table
 // holds them — which is where two boxes sharing a place get their order from
@@ -88,9 +72,6 @@ func (m *SessionManager) ListWorkspaces() []Workspace {
 // is a decision somebody made, being gone is a fact that can reverse, and this
 // is the half of it that reverses on its own when the disk comes back.
 func (m *SessionManager) RefreshWorkspaceAvailability() bool {
-	if !m.projectOpen() {
-		return false
-	}
 	changed, _ := runWrite(m, func(s *sessionState) (bool, error) {
 		if s.session == nil {
 			return false, nil
@@ -143,12 +124,9 @@ func (m *SessionManager) GetWorkspace(id string) (Workspace, bool) {
 // provision invisible: a half-made worktree on disk that nothing in the app has
 // heard of, for the user to find months later.
 func (m *SessionManager) RegisterWorkspace(ws Workspace) (Workspace, error) {
-	if !m.projectOpen() {
-		return Workspace{}, ErrNoProject
-	}
 	return runWrite(m, func(s *sessionState) (Workspace, error) {
 		if s.session == nil {
-			return Workspace{}, ErrNoProject
+			return Workspace{}, errNoSession
 		}
 		if ws.State == "" {
 			ws.State = WorkspaceStateProvisioning
@@ -210,12 +188,9 @@ func (m *SessionManager) RegisterWorkspace(ws Workspace) (Workspace, error) {
 // bound to something they were told to rebind away from. A new workspace is
 // what a second life looks like.
 func (m *SessionManager) UpdateWorkspace(id string, patch WorkspacePatch) (Workspace, error) {
-	if !m.projectOpen() {
-		return Workspace{}, ErrNoProject
-	}
 	return runWrite(m, func(s *sessionState) (Workspace, error) {
 		if s.session == nil {
-			return Workspace{}, ErrNoProject
+			return Workspace{}, errNoSession
 		}
 		idx := -1
 		for i, ws := range s.session.Workspaces {
@@ -297,12 +272,9 @@ func (m *SessionManager) UpdateWorkspace(id string, patch WorkspacePatch) (Works
 // order behind them. An id that is not on the table is ignored — the caller is
 // describing a strip that may have been drawn before a workspace was closed.
 func (m *SessionManager) ReorderWorkspaces(ids []string) ([]Workspace, error) {
-	if !m.projectOpen() {
-		return nil, ErrNoProject
-	}
 	return runWrite(m, func(s *sessionState) ([]Workspace, error) {
 		if s.session == nil {
-			return nil, ErrNoProject
+			return nil, errNoSession
 		}
 		byID := make(map[string]int, len(s.session.Workspaces))
 		for i, ws := range s.session.Workspaces {
@@ -367,12 +339,9 @@ func listWorkspaces(session *Session) []Workspace {
 // Closing one that is already closed is not an error: two windows may reach it,
 // and neither is in a position to know what the other did.
 func (m *SessionManager) CloseWorkspace(id string) (Workspace, error) {
-	if !m.projectOpen() {
-		return Workspace{}, ErrNoProject
-	}
 	return runWrite(m, func(s *sessionState) (Workspace, error) {
 		if s.session == nil {
-			return Workspace{}, ErrNoProject
+			return Workspace{}, errNoSession
 		}
 		for i, ws := range s.session.Workspaces {
 			if ws.ID != id {
@@ -460,9 +429,6 @@ func pruneClosedWorkspaces(session *Session) bool {
 // serialized and the second is told no. Deliberately not persisted: a run that
 // ends before reconciling leaves the next one to do it.
 func (m *SessionManager) ClaimWorkspaceReconcile() bool {
-	if !m.projectOpen() {
-		return false
-	}
 	claimed, _ := runWrite(m, func(s *sessionState) (bool, error) {
 		if s.session == nil || s.workspacesReconciled {
 			return false, nil
@@ -488,9 +454,6 @@ func (m *SessionManager) ClaimWorkspaceReconcile() bool {
 // offer back, it does not make it standing, and it is only ever put back at a
 // moment when nothing is provisioning.
 func (m *SessionManager) WorkspacesUnwatched() {
-	if !m.projectOpen() {
-		return
-	}
 	_, _ = runWrite(m, func(s *sessionState) (bool, error) {
 		if s.session == nil {
 			return false, nil
@@ -520,9 +483,6 @@ func (m *SessionManager) WorkspacesUnwatched() {
 // Removing one that is not there is not an error, for the same reason closing
 // twice isn't: rollback and cleanup can both arrive here.
 func (m *SessionManager) UnregisterWorkspace(id string) error {
-	if !m.projectOpen() {
-		return ErrNoProject
-	}
 	_, err := runWrite(m, func(s *sessionState) (struct{}, error) {
 		if s.session == nil {
 			return struct{}{}, nil

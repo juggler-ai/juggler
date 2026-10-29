@@ -44,6 +44,7 @@ const (
 	mgrSystemWake
 	mgrAnyActive
 	mgrActiveIDs
+	mgrTryRetire
 	mgrSetAutoNamer
 	mgrSetSpendLimit
 	mgrSetRunBudget
@@ -116,6 +117,8 @@ type managerOp struct {
 	initMessage     *InitMessage
 	backgroundTask  *BackgroundTaskSnapshot
 
+	retireResult chan retirementResult
+
 	// Response channels
 	workerResult chan *ConversationWorker
 	boolResult   chan bool
@@ -182,6 +185,8 @@ func (m *Manager) run() {
 	// removals are the stops Remove started and did not wait for: its caller is
 	// waiting to move the folder. Shutdown waits for them with the rest.
 	var removals sync.WaitGroup
+	var removing []<-chan struct{}
+	retired := false
 	var llmCallFunc LLMCallFunc
 	var windowResolver WindowResolverFunc
 	var autoCompactGate AutoCompactGateFunc
@@ -273,6 +278,14 @@ func (m *Manager) run() {
 	}
 
 	for op := range m.ops {
+		if op.kind != mgrShutdown && (retired || m.ctx.Err() != nil) {
+			if !retired && op.retireResult != nil {
+				op.retireResult <- retirementResult{err: m.ctx.Err()}
+			} else {
+				rejectRetired(op)
+			}
+			continue
+		}
 		switch op.kind {
 		case mgrSetLLMCaller:
 			llmCallFunc = op.llmCallFunc
@@ -435,7 +448,12 @@ func (m *Manager) run() {
 			if ok {
 				inflight := w.hasLLMInFlight()
 				jlog.Info("[worker.Remove] stopping worker conv=%s llmInFlight=%v", op.conversationID, inflight)
-				removals.Go(w.StopForRemoval)
+				finished := make(chan struct{})
+				removing = append(removing, finished)
+				removals.Go(func() {
+					defer close(finished)
+					w.StopForRemoval()
+				})
 			} else {
 				jlog.Info("[worker.Remove] no worker for conv=%s (already gone)", op.conversationID)
 			}
@@ -550,6 +568,25 @@ func (m *Manager) run() {
 			}
 			op.boolResult <- active
 
+		case mgrTryRetire:
+			// A removal still stopping its worker holds the session.
+			removing = slices.DeleteFunc(removing, func(done <-chan struct{}) bool {
+				select {
+				case <-done:
+					return true
+				default:
+					return false
+				}
+			})
+			held := len(removing) > 0
+			var err error
+			if !held {
+				held, err = m.probeWorkers(workers)
+			}
+			// Committed and closed in the same actor step: no op runs between.
+			retired = !held && err == nil
+			op.retireResult <- retirementResult{accepted: retired, err: err}
+
 		case mgrActiveIDs:
 			ids := make([]string, 0)
 			for convID, w := range workers {
@@ -624,14 +661,14 @@ func (m *Manager) SetCancelLLMSession(fn CancelLLMSessionFunc) {
 
 // SetPathProvider sets the per-conversation path resolver applied to every
 // existing worker and any worker created later. Called once at server
-// startup and again on project switch.
+// startup.
 func (m *Manager) SetPathProvider(fn PathProviderFunc) {
 	m.ops <- managerOp{kind: mgrSetPathProvider, pathProvider: fn}
 }
 
 // SetNameProvider sets the per-conversation name resolver applied to every
 // existing worker and any worker created later. Called alongside
-// SetPathProvider at server startup and again on project switch.
+// SetPathProvider at server startup.
 func (m *Manager) SetNameProvider(fn NameProviderFunc) {
 	m.ops <- managerOp{kind: mgrSetNameProvider, nameProvider: fn}
 }
@@ -894,6 +931,9 @@ func (m *Manager) HandleMessage(conversationID string, msgType string, payload j
 
 // Shutdown stops all workers. Blocks until all workers are stopped.
 func (m *Manager) Shutdown() {
+	// Cancellation ends a retirement decision waiting on a worker before this
+	// op reaches the actor.
+	m.cancel()
 	done := make(chan struct{}, 1)
 	m.ops <- managerOp{kind: mgrShutdown, done: done}
 	<-done

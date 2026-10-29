@@ -37,7 +37,7 @@ class NewConversationCommandType extends CommandType {
   async execute(_args) {
     const session = this.messageThread?.conversation?.session;
     if (!session) {
-      return { handled: true, message: t("Can't create a conversation: no project is open."), error: true };
+      return { handled: true, message: t("Can't create a conversation: this conversation has no session."), error: true };
     }
 
     try {

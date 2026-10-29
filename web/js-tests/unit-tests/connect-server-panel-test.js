@@ -17,12 +17,10 @@
  */
 
 import { assert } from '../utilities/test-helpers.js';
-import { assertDialogPopover } from '../utilities/menu-assertions.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { closePopupById } from '../../js/utils/popup-manager.js';
 import { canConnectToServer, openConnectServerPanel } from '../../js/components/connect-server-panel.js';
-import '../../js/components/no-project-overlay.js';
 
 /** @returns {HTMLElement|null} The panel, while it is presented. */
 const panelEl = () => /** @type {HTMLElement|null} */ (document.querySelector('.pp-panel-popup[aria-label]'));
@@ -83,9 +81,10 @@ export async function runTests() {
   const root = document.documentElement;
   const hadExternal = root.dataset.externalServer;
 
-  const chip = document.createElement('button');
+  // The header's read-only project path, which the panel is placed under: the
+  // panel is opened from a menu, so the path is where it sits, not its trigger.
+  const chip = document.createElement('span');
   chip.id = 'project-path-chip';
-  chip.setAttribute('aria-haspopup', 'dialog');
   chip.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
   document.body.appendChild(chip);
 
@@ -120,22 +119,6 @@ export async function runTests() {
       const app = stubApp();
       await openConnectServerPanel({ connect: app.connect, nativeHost: false });
       assert(!panelEl(), 'a panel was presented with no native host to connect through');
-
-      // This page has no native host, so the empty window draws without the
-      // button either.
-      // Drawing the empty window sets body.no-project, which hides the
-      // conversation bar for everything else this lane runs: put it back.
-      const hadNoProject = document.body.classList.contains('no-project');
-      const overlay = /** @type {any} */ (document.createElement('no-project-overlay'));
-      document.body.appendChild(overlay);
-      try {
-        overlay.setSession({ projectPath: '', subscribe: () => () => {} });
-        assert(!!overlay.querySelector('.np-open'), 'the empty window did not draw');
-        assert(!overlay.querySelector('.np-connect-server'), 'a browser tab was offered "Connect to a server…"');
-      } finally {
-        overlay.remove();
-        document.body.classList.toggle('no-project', hadNoProject);
-      }
     });
 
     await run('the typed address goes to the app, and the panel gets out of the way', async () => {
@@ -143,7 +126,9 @@ export async function runTests() {
       await openConnectServerPanel({ connect: app.connect, nativeHost: true });
       const panel = panelEl();
       assert(!!panel, 'the panel never presented');
-      assertDialogPopover(/** @type {HTMLElement} */ (panel), chip, 'connect panel');
+      assert(panel?.getAttribute('role') === 'dialog' && !!panel?.getAttribute('aria-label'),
+        'the panel is a named dialog');
+      assert(!chip.hasAttribute('aria-expanded'), 'the read-only path it sits under is marked as its trigger');
       assert(connectBtn().disabled, 'Connect was enabled with nothing typed');
 
       type('  devbox:8080 ');
@@ -153,12 +138,11 @@ export async function runTests() {
 
       assert(JSON.stringify(app.asked) === '["devbox:8080"]', `the app was asked for ${JSON.stringify(app.asked)}`);
       assert(!panelEl(), 'the panel stayed up after the app took the request');
-      assert(chip.getAttribute('aria-expanded') === 'false', 'the chip still says the panel is open');
     });
 
     await run('a refused address stays in the field, with the reason beside it', async () => {
       const app = stubApp(async () => {
-        throw new Error('HTTP 400: That is not a server address. Enter one like http://devbox:8080.');
+        throw new Error('HTTP 400: That is not a server address. Enter one like http://devbox:3939.');
       });
       await openConnectServerPanel({ connect: app.connect, nativeHost: true });
       type('ftp://devbox');
@@ -169,7 +153,7 @@ export async function runTests() {
       assert(!!panelEl(), 'the panel closed on a refusal, losing what was typed');
       assert(addressEl().value === 'ftp://devbox', `the field was changed to "${addressEl().value}"`);
       const status = /** @type {HTMLElement} */ (panelEl()?.querySelector('.pp-status'));
-      assert(status.textContent === 'That is not a server address. Enter one like http://devbox:8080.',
+      assert(status.textContent === 'That is not a server address. Enter one like http://devbox:3939.',
         `the reason shown was "${status.textContent}"`);
       assert(status.classList.contains('pp-status--invalid'), 'the reason is not marked as a problem');
       assert(!connectBtn().disabled, 'Connect stayed disabled, so the corrected address cannot be sent');

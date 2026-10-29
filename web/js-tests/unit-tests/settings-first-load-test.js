@@ -74,10 +74,7 @@ function installFetch(opts = {}) {
     if (u === '/api/default-model') return ok({ provider: 'fake-provider', model: 'fake-model' });
     if (u === '/api/cheap-model') return ok({ provider: 'fake-provider', model: 'fake-model' });
     if (u === '/api/connectivity') {
-      return ok({
-        lanEnabled: false, lanURLs: [], tunnelEnabled: false,
-        tunnelURL: '', tunnelMode: '', tunnelRelay: false, wanModes: [],
-      });
+      return ok({ clientCount: 1, clients: [] });
     }
     // The global settings document, with a distinguishable value in each of the
     // sections a different tab reads.
@@ -85,7 +82,6 @@ function installFetch(opts = {}) {
       return ok({
         updates: { mode: 'notify' },
         network: { proxy: { mode: 'none' } },
-        connectivity: { lanOnLaunch: true, wanOnLaunch: '' },
         models: {},
       });
     }
@@ -218,7 +214,6 @@ export async function runTests(_ctx) {
         hold.simulate('settings-changed', {
           updates: { mode: 'notify' },
           network: { proxy: { mode: 'none' } },
-          connectivity: { lanOnLaunch: true, wanOnLaunch: '' },
           models: {},
           ui: { 'a-sibling-lane-pref': 1 },
         });
@@ -245,8 +240,6 @@ export async function runTests(_ctx) {
         assert(mode && mode.value === 'notify', `Updates read its section; got ${mode && mode.value}`);
         const proxy = el.querySelector('#proxy-mode');
         assert(proxy && proxy.value === 'none', `the proxy box read its section; got ${proxy && proxy.value}`);
-        const lan = el.querySelector('.connectivity-launch-checkbox[data-launch="lan"]');
-        assert(lan && lan.checked === true, 'Connectivity read its section');
       });
     } finally {
       // After the backend stub is gone, so a real event held meanwhile talks to

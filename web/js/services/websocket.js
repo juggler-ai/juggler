@@ -4,15 +4,13 @@
 
 import { recordTape } from '../utils/event-tape.js';
 import { isEngine } from '../../sdk/lib/client-role.js';
-import { fetchJson } from './http.js';
-import { apiUrl, wsUrl } from '../utils/api-url.js';
+import { wsUrl } from '../utils/api-url.js';
 import { WSChunkReassembler, WS_CHUNK_KIND_TEXT } from '../utils/ws-chunk.js';
 import { viewerId } from '../utils/viewer-id.js';
 import { ownerViewerId } from '../utils/view-mode.js';
 import { reportFault } from '../utils/fault-report.js';
 
 const WEBRTC_CHUNK_TYPE = '__juggler_dc_chunk';
-const WEBRTC_CHUNK_SIZE = 16 * 1024;
 /** How a chunk envelope's raw text begins, as the server marshals it. */
 const STUDIO_CHUNK_PREFIX = `{"type":"${WEBRTC_CHUNK_TYPE}"`;
 
@@ -98,14 +96,14 @@ const RECONNECT_JITTER = 0.25;
 const LINK_STABLE_AFTER_MS = 10000;
 
 /**
- * @typedef {'open'|'close'|'error'|'message'|'session'|'file-change'|'project-changed'|'plugin-changed'|'providers-update'|'providers-ready'|'shell-output'|'reconnect-attempt'|'engine-bridge'|'update-status'|'clients-changed'|'pinboard-changed'|'pinboard-reveal'|'processes-changed'|'viewer-relay'|'workspaces-changed'|'settings-changed'|'server-full'} WSEventType
+ * @typedef {'open'|'close'|'error'|'message'|'session'|'file-change'|'plugin-changed'|'providers-update'|'providers-ready'|'shell-output'|'reconnect-attempt'|'engine-bridge'|'update-status'|'clients-changed'|'pinboard-changed'|'pinboard-reveal'|'processes-changed'|'viewer-relay'|'workspaces-changed'|'settings-changed'|'server-full'} WSEventType
  */
 
 /**
  * What this client has received on its link, counted since the service was
  * made. A message the server has to split arrives as many frames — binary
- * chunk frames on a WebSocket, `__juggler_dc_chunk` envelopes on a
- * DataChannel — and each frame is stamped as it lands, so a wait for something
+ * chunk frames on a WebSocket, `__juggler_dc_chunk` envelopes and binary
+ * pieces on a DataChannel — and each frame is stamped as it lands, so a wait for something
  * queued behind a large message can tell a link still delivering it from one
  * that has gone quiet. Server beats are deliberately not chunk progress: they
  * prove the link is alive, not that anything queued for this client is moving.
@@ -129,9 +127,7 @@ const LINK_STABLE_AFTER_MS = 10000;
  * from cmd/juggler/server (protocol/server-wire-types.gen.js) and held to its
  * frame structs by TestWireTypedefs, so a renamed field fails checkJs where it
  * is read.
- * @typedef {import('../protocol/server-wire-types.gen.js').DataChannelChunkFrame
- *   |import('../protocol/server-wire-types.gen.js').FileChangeFrame
- *   |import('../protocol/server-wire-types.gen.js').ProjectChangedFrame
+ * @typedef {import('../protocol/server-wire-types.gen.js').FileChangeFrame
  *   |import('../protocol/server-wire-types.gen.js').PluginChangedFrame
  *   |import('../protocol/server-wire-types.gen.js').SettingsChangedFrame
  *   |import('../protocol/server-wire-types.gen.js').PinboardChangedFrame
@@ -174,7 +170,7 @@ const LINK_STABLE_AFTER_MS = 10000;
  */
 class WebSocketService {
   constructor() {
-    /** @type {WebSocket|RTCDataChannel|null} @private */
+    /** @type {WebSocket|null} @private */
     this._transport = null;
     /** @type {boolean} */
     this.connected = false;
@@ -209,16 +205,6 @@ class WebSocketService {
     /** @type {boolean} @private */
     this._suppressNextCloseReconnect = false;
     /**
-     * Which connection attempt is the current one. Every attempt captures this
-     * as it starts, and an attempt whose captured value no longer matches has
-     * been superseded or condemned: the transport, the suppress-reconnect flag
-     * and the choice of what to fall back to all belong to the attempt that
-     * replaced it, and a handshake that only settles afterwards may not write
-     * over any of them. See {@link WebSocketService#_supersedeAttempt}.
-     * @type {number} @private
-     */
-    this._attemptGeneration = 0;
-    /**
      * Whether {@link WebSocketService#_reconnect} announces the countdown it is
      * arming. Cleared for the span of a drop whose timer is replaced by an
      * immediate attempt — see {@link WebSocketService#_retryNow}, whose own
@@ -242,11 +228,11 @@ class WebSocketService {
      * _reconnect() stays transport-agnostic: every transport drops into the
      * same detect → back off → re-establish → repeat policy, differing only in
      * this one primitive.
-     *   - WebSocket / WebRTC-LAN: reopen the socket; its own open/close events
-     *     re-drive the loop.
+     *   - WebSocket: reopen the socket; its own open/close events re-drive
+     *     the loop.
      *   - juggler.studio: reload the page (the only way to re-run the external
-     *     bootstrap's WebRTC handshake), gated on a server reachability probe
-     *     so a still-dead link can't cause a reload storm.
+     *     bootstrap's WebRTC handshake), throttled so a still-dead link can't
+     *     cause a reload storm.
      * @type {(() => void)|null} @private
      */
     this._reestablish = null;
@@ -276,16 +262,9 @@ class WebSocketService {
     this._retryTimer = null;
     /** @type {boolean} @private - Whether the visibility/online listeners are installed (once per service). */
     this._wakeListenersInstalled = false;
-    /** @type {number} @private */
-    this._dcChunkSeq = 0;
-    /** @type {Map<string, {total: number, parts: string[], received: number}>} @private */
-    this._dcIncomingChunks = new Map();
     /**
      * Reassembly for messages the server split because they were too large to
-     * send whole (utils/ws-chunk.js). Unrelated to _dcIncomingChunks above,
-     * which is the DataChannel's own 16 KiB chunker: the two never share a
-     * connection, since one is what a WebSocket needs and the other is what
-     * WebRTC needs.
+     * send whole (utils/ws-chunk.js).
      * @type {WSChunkReassembler} @private
      */
     this._wsChunks = new WSChunkReassembler();
@@ -304,7 +283,6 @@ class WebSocketService {
       message: [],
       session: [],
       'file-change': [],
-      'project-changed': [],
       'plugin-changed': [],
       'providers-update': [],
       'providers-ready': [],
@@ -323,51 +301,8 @@ class WebSocketService {
     };
   }
 
-  /**
-   * Take ownership of connection attempts away from whatever held it, and
-   * return the token the new owner carries.
-   *
-   * Called from the three places ownership changes hands, which is every place
-   * an attempt can be superseded or abandoned: connect() (a new attempt takes
-   * over from any still in flight), _dropLink() (the current attempt or link is
-   * condemned, and the death handler installs its replacement in the same turn)
-   * and disconnect() (nothing speaks for this service again).
-   *
-   * Deliberately not called from _reestablishNow, which only ever reaches a new
-   * attempt through connect() and is entered either from a death, whose attempt
-   * is already over, or from _retryNow, which condemns a live attempt through
-   * _dropLink first. Nor from _settleOpen or _onTransportClosed: a settled
-   * attempt has nothing left to reject, and an attempt whose transport died
-   * while it is still the current one is exactly the case that must go on to
-   * suppress the reconnect and fall back to the relay.
-   * @returns {number} The generation the caller's attempt carries.
-   * @private
-   */
-  _supersedeAttempt() {
-    return ++this._attemptGeneration;
-  }
-
-  /**
-   * Whether a direct WebRTC transport is worth attempting: a viewer on a secure
-   * origin — the LAN path the host serves over https — in a browser that has
-   * peer connections. One seam for the choice, so it can be answered for a
-   * service under test without a page served over https.
-   * @param {string} role - 'viewer' or 'engine'.
-   * @returns {boolean} True if the WebRTC probe should run.
-   * @private
-   */
-  _shouldTryWebRTC(role) {
-    return role === 'viewer'
-      && globalThis.location.protocol === 'https:'
-      && typeof globalThis.RTCPeerConnection !== 'undefined';
-  }
-
   connect() {
     this._intentionalDisconnect = false;
-    // Which attempt this is. An attempt condemned or replaced while its
-    // handshake is still in flight carries a stale generation, and everything it
-    // would do on the way out is then the replacement's business, not its own.
-    const generation = this._supersedeAttempt();
     this._connecting = true;
     this._connectStartedAt = Date.now();
     this._installWakeListeners();
@@ -384,31 +319,11 @@ class WebSocketService {
     // juggler.studio remote path: the bootstrap page has already established a
     // WebRTC DataChannel and published window.__jugglerStudio, then injected
     // the app into this same page without navigating. Adopt that channel as the
-    // realtime transport instead of opening our own. This MUST precede the
-    // LAN-https WebRTC/WS branch below: studio is the remote transport and has
-    // no WS-relay fallback (there is no relay reachable from a remote browser —
-    // recovery is a full page reload, which re-runs bootstrap). The LAN/local
-    // case keeps the _connectWebRTC → _connectWebSocket relay fallback intact.
+    // realtime transport instead of opening a socket: there is no other route
+    // to the server from a remote browser, and recovery is a full page reload,
+    // which re-runs bootstrap.
     if (role === 'viewer' && typeof globalThis.window !== 'undefined' && /** @type {any} */ (window).__jugglerStudio) {
       this._adoptStudioChannel();
-      return;
-    }
-
-    if (this._shouldTryWebRTC(role)) {
-      this._connectWebRTC(role, generation).catch((error) => {
-        // An attempt that was abandoned while this handshake was in flight has
-        // nothing left to fall back to: the link it would have relayed for
-        // belongs to whatever replaced it, and a second socket alongside that
-        // one is exactly what the generation exists to prevent.
-        if (generation !== this._attemptGeneration) {
-          console.info('[WebSocket] Ignoring an abandoned WebRTC attempt:', error);
-          return;
-        }
-        console.warn('[WebSocket] WebRTC direct transport failed; falling back to WebSocket relay:', error);
-        if (!this.connected && !this._intentionalDisconnect) {
-          this._connectWebSocket(role);
-        }
-      });
       return;
     }
 
@@ -416,10 +331,12 @@ class WebSocketService {
   }
 
   /**
+   * The query a viewer's or the engine's socket opens with.
    * @param {string} role
+   * @returns {string} The query, without its "?".
    * @private
    */
-  _connectWebSocket(role) {
+  _socketQuery(role) {
     // Replay the per-instance session token so the server accepts the upgrade
     // (see cmd/juggler/server/websocket_loop.go). A viewer has it from the served
     // page; the engine from its host — the webview worker's start message, or
@@ -435,73 +352,18 @@ class WebSocketService {
     // part of that window rather than as one more client sharing the session.
     const owner = role === 'viewer' ? ownerViewerId() : '';
     const ownerParam = owner ? `&owner=${encodeURIComponent(owner)}` : '';
-    // wsUrl reads globalThis.location, which works in both the window and a
-    // module worker, so the engine builds its URL off-thread the same way.
-    this._transport = new WebSocket(wsUrl(`role=${role}${tokenParam}${viewerParam}${ownerParam}`));
-    this._configureTransport(this._transport, 'WebSocket');
+    return `role=${role}${tokenParam}${viewerParam}${ownerParam}`;
   }
 
   /**
    * @param {string} role
-   * @param {number} generation - The attempt this handshake belongs to, from _supersedeAttempt().
-   * @returns {Promise<void>}
    * @private
    */
-  async _connectWebRTC(role, generation) {
-    // The server's own ICE servers, handed to the page by serveIndex
-    // (cmd/juggler/server/webrtc.go defaultICEServers), so both ends agree.
-    const pc = new window.RTCPeerConnection({
-      iceServers: /** @type {{__jugglerIceServers?: RTCIceServer[]}} */ (globalThis).__jugglerIceServers || []
-    });
-    /** @type {RTCDataChannel|null} */
-    let channel = null;
-    try {
-      const dc = pc.createDataChannel('juggler', { ordered: true });
-      channel = dc;
-      /** @type {RTCDataChannel & {__pc?: RTCPeerConnection}} */ (dc).__pc = pc;
-      this._transport = /** @type {any} */ (dc);
-      this._configureTransport(/** @type {any} */ (dc), 'WebRTC');
-
-      const opened = new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('WebRTC DataChannel open timeout')), 8000);
-        dc.addEventListener('open', () => {
-          clearTimeout(timeout);
-          resolve(undefined);
-        }, { once: true });
-        dc.addEventListener('error', () => {
-          clearTimeout(timeout);
-          reject(new Error('WebRTC DataChannel error'));
-        }, { once: true });
-      });
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await this._waitForIceGathering(pc, 5000);
-
-      const answer = await fetchJson(apiUrl('/webrtc/signal'), {
-        method: 'POST',
-        body: { role, offer: pc.localDescription },
-        errorPrefix: 'WebRTC signaling failed',
-      });
-      await pc.setRemoteDescription(answer.answer);
-      await opened;
-    } catch (error) {
-      if (generation === this._attemptGeneration) {
-        // Still the current attempt, so this is the ordinary shape of a host
-        // that cannot be reached directly: the close pc.close() is about to
-        // cause is an expected probe failure rather than a link death, and
-        // connect()'s catch relays over a WebSocket instead.
-        this._suppressNextCloseReconnect = true;
-        this._transport = null;
-      } else if (channel) {
-        // Abandoned. Whoever condemned this attempt has already handled its
-        // death and moved on, so mark the channel handled: its close must not
-        // be read as the death of the link now standing in its place.
-        /** @type {any} */ (channel).__jugglerDeathHandled = true;
-      }
-      pc.close();
-      throw error;
-    }
+  _connectWebSocket(role) {
+    // wsUrl reads globalThis.location, which works in both the window and a
+    // module worker, so the engine builds its URL off-thread the same way.
+    this._transport = new WebSocket(wsUrl(this._socketQuery(role)));
+    this._configureTransport(this._transport, 'WebSocket');
   }
 
   /**
@@ -509,37 +371,38 @@ class WebSocketService {
    * opened (published on window.__jugglerStudio), using it as the realtime
    * transport. The channel is already OPEN, so we mark connected synchronously
    * and fire the open path rather than waiting on an onopen event.
+   *
+   * The channel ends on the machine server, which serves every session there
+   * is; the first frame on it opens this session's socket — the path and query
+   * a WebSocket would have dialled — and every frame after it is a message on
+   * that socket.
    * @private
    */
   _adoptStudioChannel() {
-    /** @type {{dc: RTCDataChannel, sendFrame: (text: string) => void, setRealtimeHandler: (fn: (raw: string) => void) => void}} */
+    /** @type {{dc: RTCDataChannel, sendFrame: (frame: string|ArrayBuffer) => void, setRealtimeHandler: (fn: (raw: string|ArrayBuffer) => void) => void}} */
     const studio = /** @type {any} */ (window).__jugglerStudio;
 
-    // Use a minimal send-adapter, NOT the raw RTCDataChannel, as this._transport.
-    // studio.sendFrame already applies the __juggler_dc_chunk envelope, and
-    // _sendTransport only chunks when this._transport is `instanceof RTCDataChannel` —
-    // so routing through this plain object correctly skips our chunker and
-    // avoids double-chunking the same payload.
+    // A minimal send-adapter, not the raw RTCDataChannel: studio.sendFrame
+    // applies the channel's own chunking.
     this._transport = /** @type {any} */ ({
       send: (/** @type {string} */ payload) => studio.sendFrame(payload),
       close: () => {}
     });
+    const socket = new URL(wsUrl(this._socketQuery('viewer')));
+    studio.sendFrame(JSON.stringify({ type: '__juggler_ws_open', path: socket.pathname + socket.search }));
 
-    // Inbound frames arrive already reassembled (chunks merged) and pre-filtered
-    // (http/chunk frames removed) by bootstrap, so feed them straight in.
-    studio.setRealtimeHandler((/** @type {string} */ raw) => this._handleMessageData(raw));
+    // Inbound messages arrive already reassembled (chunks and pieces merged) and
+    // pre-filtered (http/chunk frames removed) by bootstrap, a binary one as an
+    // ArrayBuffer as a WebSocket delivers it, so feed them straight in.
+    studio.setRealtimeHandler((/** @type {string|ArrayBuffer} */ raw) => this._handleMessageData(raw));
 
     // Bootstrap swallows the chunk envelopes it reassembles, so a large message
     // would reach this service only whole — minutes after its first frame on a
     // slow link. Watching the channel itself counts each frame as it lands. The
-    // server marshals the envelope with `type` first (webRTCChunk in
-    // cmd/juggler/server/webrtc.go), so a prefix test identifies one without
+    // server marshals the envelope with `type` first (chunk in
+    // cmd/juggler/tunnel/peer/chunk.go), so a prefix test identifies one without
     // parsing it.
-    studio.dc.addEventListener('message', (/** @type {MessageEvent} */ event) => {
-      const data = event.data;
-      this._countReceived(data);
-      if (typeof data === 'string' && data.startsWith(STUDIO_CHUNK_PREFIX)) this._noteChunkFrame();
-    });
+    studio.dc.addEventListener('message', (/** @type {MessageEvent} */ event) => this._observeStudioFrame(event.data));
 
     // The channel is open at adoption time; settle it as a first connection.
     // There was no prior connection to compare servers against, so this never
@@ -549,10 +412,10 @@ class WebSocketService {
 
     // Studio's only recovery lever is a full page reload (it re-runs the
     // external bootstrap's WebRTC handshake — app-side JS can't rebuild the
-    // channel). Gate the reload on a server reachability probe so a still-dead
-    // link can't reload-storm; see _reloadWhenReachable. This plugs into the
+    // channel). The reload is throttled rather than probed for, so a still-dead
+    // link can't reload-storm; see _reloadToReconnect. This plugs into the
     // SAME backoff loop as every other transport via this._reestablish.
-    this._reestablish = () => this._reloadWhenReachable();
+    this._reestablish = () => this._reloadToReconnect();
 
     // Route channel death through the shared transport-death handler so studio
     // uses the identical reconnect policy as the socket transports. The death is
@@ -566,31 +429,7 @@ class WebSocketService {
   }
 
   /**
-   * @param {RTCPeerConnection} pc
-   * @param {number} timeoutMs
-   * @returns {Promise<void>}
-   * @private
-   */
-  _waitForIceGathering(pc, timeoutMs) {
-    if (pc.iceGatheringState === 'complete') return Promise.resolve();
-    return new Promise((resolve) => {
-      const timeout = setTimeout(done, timeoutMs);
-      /** Finish waiting for ICE gathering. */
-      function done() {
-        clearTimeout(timeout);
-        pc.removeEventListener('icegatheringstatechange', onState);
-        resolve();
-      }
-      /** Resolve once browser ICE gathering completes. */
-      function onState() {
-        if (pc.iceGatheringState === 'complete') done();
-      }
-      pc.addEventListener('icegatheringstatechange', onState);
-    });
-  }
-
-  /**
-   * @param {WebSocket|RTCDataChannel} transport
+   * @param {WebSocket} transport
    * @param {string} label
    * @private
    */
@@ -662,6 +501,20 @@ class WebSocketService {
   }
 
   /**
+   * Count one raw frame from the juggler.studio DataChannel, which the
+   * bootstrap page reassembles and delivers separately. Every binary frame on
+   * it is a piece of a binary message (cmd/juggler/tunnel/peer/chunk.go), so
+   * a chunk frame as much as a chunk envelope is.
+   * @param {unknown} data - The frame as the channel delivered it
+   * @private
+   */
+  _observeStudioFrame(data) {
+    this._countReceived(data);
+    const isChunk = typeof data === 'string' ? data.startsWith(STUDIO_CHUNK_PREFIX) : data instanceof ArrayBuffer;
+    if (isChunk) this._noteChunkFrame();
+  }
+
+  /**
    * Feed one received binary message to the chunk reassembler, and hand on
    * whatever it completes.
    *
@@ -686,13 +539,13 @@ class WebSocketService {
   }
 
   /**
-   * Single transport-death handler for EVERY transport (WebSocket, WebRTC-LAN,
+   * Single transport-death handler for EVERY transport (WebSocket,
    * juggler.studio). Marks the link down, notifies listeners, and — unless this
    * was an intentional teardown or an expected failed-probe close — enters the
    * shared backoff reconnect loop. The loop is transport-agnostic; HOW the link
    * is actually re-established is the per-transport this._reestablish thunk.
    * @param {CloseEvent|Event} event - The close/error event
-   * @param {WebSocket|RTCDataChannel|null} [transport] - The dead transport (for PC cleanup)
+   * @param {WebSocket|null} [transport] - The dead transport
    * @private
    */
   _onTransportClosed(event, transport) {
@@ -701,8 +554,8 @@ class WebSocketService {
     // verdict on the next.
     const selfInflicted = this._selfInflictedDrop;
     this._selfInflictedDrop = false;
-    // A transport can announce its death more than once: a DataChannel fires
-    // both 'error' and 'close', and a link the watchdog drops closes for real a
+    // A transport can announce its death more than once: the studio channel
+    // fires both 'error' and 'close', and a link the watchdog drops closes for real a
     // moment after we have already handled it. Handle the first announcement and
     // ignore the rest — otherwise one death arms two backoff loops, which is two
     // sockets racing to reconnect.
@@ -736,10 +589,8 @@ class WebSocketService {
     this._reconnectPending = false;
     this._heldOpenEvent = undefined;
     this._emit('close', event);
-    const pc = transport && /** @type {any} */ (transport).__pc;
-    if (pc) pc.close();
-    // Skip auto-reconnect for an intentional disconnect or an expected failed
-    // WebRTC probe that is about to fall back to the WebSocket relay.
+    // Skip auto-reconnect for a link this service closed on purpose and has
+    // already arranged to recover.
     if (this._suppressNextCloseReconnect) {
       this._suppressNextCloseReconnect = false;
       return;
@@ -762,17 +613,8 @@ class WebSocketService {
    * @type {{[K in ServerFrame['type']]?: RouteFor<K>}}
    */
   static TYPED_MESSAGE_ROUTES = {
-    [WEBRTC_CHUNK_TYPE]: (ws, data) => {
-      ws._handleTransportChunk(data);
-    },
-
     'file-change': (ws, data) => {
       ws._emit('file-change', data.changes);
-    },
-
-    // Project switch (server-side change of the loaded project)
-    'project-changed': (ws, data) => {
-      ws._emit('project-changed', { projectPath: data.projectPath || '' });
     },
 
     // Plugin file changes (hot reload)
@@ -989,9 +831,8 @@ class WebSocketService {
   }
 
   /**
-   * Send text over the selected transport. DataChannels are chunked because
-   * SCTP implementations have much lower practical message-size ceilings than
-   * WebSocket frames, and worker init can contain a large serialized document.
+   * Send text over the selected transport. (The studio channel's adapter
+   * chunks for itself.)
    * @param {string} payload
    * @private
    */
@@ -1000,24 +841,6 @@ class WebSocketService {
     // Real traffic is a beat as far as the server is concerned, so record it and
     // spare the link a beat it does not need.
     this._lastOutboundAt = Date.now();
-    // globalThis (not window): the engine runs in a Web Worker with no
-    // `window`, and this send path runs for every outbound message. WebRTC
-    // is viewer-only anyway, so RTCDataChannel is simply absent in the worker.
-    const RTCDataChannelCtor = /** @type {any} */ (globalThis).RTCDataChannel;
-    if (typeof RTCDataChannelCtor !== 'undefined' && this._transport instanceof RTCDataChannelCtor && payload.length > WEBRTC_CHUNK_SIZE) {
-      const id = `${Date.now().toString(36)}-${(++this._dcChunkSeq).toString(36)}`;
-      const total = Math.ceil(payload.length / WEBRTC_CHUNK_SIZE);
-      for (let i = 0; i < total; i++) {
-        this._transport.send(JSON.stringify({
-          type: WEBRTC_CHUNK_TYPE,
-          id,
-          index: i,
-          total,
-          data: payload.slice(i * WEBRTC_CHUNK_SIZE, (i + 1) * WEBRTC_CHUNK_SIZE)
-        }));
-      }
-      return;
-    }
     this._transport.send(payload);
   }
 
@@ -1052,39 +875,8 @@ class WebSocketService {
     }
   }
 
-  /**
-   * @param {{id?: string, index?: number, total?: number, data?: string}} chunk
-   * @private
-   */
-  _handleTransportChunk(chunk) {
-    if (typeof chunk.id !== 'string' || typeof chunk.index !== 'number' || typeof chunk.total !== 'number' || typeof chunk.data !== 'string') {
-      return;
-    }
-    if (chunk.total <= 0 || chunk.index < 0 || chunk.index >= chunk.total) return;
-    this._noteChunkFrame();
-    let entry = this._dcIncomingChunks.get(chunk.id);
-    if (!entry) {
-      entry = { total: chunk.total, parts: new Array(chunk.total), received: 0 };
-      this._dcIncomingChunks.set(chunk.id, entry);
-    }
-    if (entry.total !== chunk.total) {
-      this._dcIncomingChunks.delete(chunk.id);
-      return;
-    }
-    if (entry.parts[chunk.index] === undefined) {
-      entry.parts[chunk.index] = chunk.data;
-      entry.received++;
-    }
-    if (entry.received === entry.total) {
-      this._dcIncomingChunks.delete(chunk.id);
-      this._handleMessageData(entry.parts.join(''));
-    }
-  }
-
   disconnect() {
     this._intentionalDisconnect = true;
-    // Nothing that was still handshaking speaks for this service again.
-    this._supersedeAttempt();
     this._reconnectPending = false;
     this._heldOpenEvent = undefined;
     this._connecting = false;
@@ -1094,9 +886,7 @@ class WebSocketService {
       this._retryTimer = null;
     }
     if (this._transport) {
-      const pc = /** @type {any} */ (this._transport).__pc;
       this._transport.close();
-      if (pc) pc.close();
       this._transport = null;
     }
     this.connected = false;
@@ -1573,10 +1363,6 @@ class WebSocketService {
   _dropLink(reason) {
     const dead = this._transport;
     console.warn(`[ESSENTIAL] [WebSocket] Dropping the link: ${reason}`);
-    // Any handshake still in flight is condemned along with the link. The
-    // replacement _onTransportClosed installs below owns the transport from
-    // here, and an attempt that settles later must not write over it.
-    this._supersedeAttempt();
     // Marked before the close, so a transport that answers close() by running its
     // handler there and then still reaches the death handler carrying the mark.
     this._selfInflictedDrop = true;
@@ -1745,7 +1531,7 @@ class WebSocketService {
 
   /**
    * Reload the page. A single overridable seam so both reload-to-recover paths
-   * (the socket onopen reload-on-reconnect and the studio reachability reload)
+   * (the socket onopen reload-on-reconnect and the studio re-establish reload)
    * go through one place, and tests can spy it without touching globals.
    * @private
    */
@@ -1778,7 +1564,7 @@ class WebSocketService {
    * @returns {Promise<void>}
    * @private
    */
-  async _reloadWhenReachable() {
+  async _reloadToReconnect() {
     if (this.connected || this._intentionalDisconnect) return;
     if (this._shouldReloadOnReconnect()) {
       this._reloadPage();

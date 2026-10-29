@@ -315,11 +315,8 @@ export function getReadablePaths(mt) {
  * their PathScope rooted at wherever the request's `workspaceId` resolves to
  * server-side — the session's LIVE project path when it names none — so the
  * root is already supplied authoritatively there and re-sending a client copy is
- * redundant — and, after a runtime project switch, unsafe: the engine is
- * persistent across SwitchProject and keeps its boot-time `session.projectPath`,
- * so the implicit root here would be the PREVIOUS project and would re-authorise
- * reads/globs/greps across the old tree. Sending explicit grants only keeps the
- * server the sole authority for the project boundary.
+ * redundant. Sending explicit grants only keeps the server the sole authority
+ * for the project boundary.
  * @param {MessageThread} mt @returns {string[]}
  */
 export function getExplicitAllowedPaths(mt) {

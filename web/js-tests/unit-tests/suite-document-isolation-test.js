@@ -6,8 +6,8 @@
  * A unit suite cannot hand its `<html>`/`<body>` state to the next suite.
  *
  * A lane's page runs suite after suite, and product CSS keys whole regions off
- * the document element and body: `body.no-project` hides the conversation bar.
- * One suite leaving it set made a later, unrelated suite measure a 0px-wide
+ * the document element and body: a body class can hide the conversation bar.
+ * One suite leaving one set made a later, unrelated suite measure a 0px-wide
  * mark and find no animation running. The runner snapshots both elements
  * before a suite and, after it, restores them and fails the suite that changed
  * them. This pins that pair.

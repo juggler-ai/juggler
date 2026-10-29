@@ -337,7 +337,6 @@
 			"layer": "components",
 			"owns": [
 				"no-conversations-overlay",
-				"no-project-overlay",
 				"onboarding-wizard"
 			]
 		},
@@ -503,6 +502,25 @@
 				"update-button",
 				"update-notice",
 				"update-notice__status-text"
+			]
+		},
+		{
+			"file": "components/connectivity.css",
+			"layer": "components",
+			"owns": [
+				"connectivity-launch",
+				"connectivity-warning",
+				"connectivity-addresses",
+				"connectivity-address",
+				"connectivity-address-details",
+				"connectivity-qr",
+				"connectivity-address-label",
+				"connectivity-address-row",
+				"connectivity-address-link",
+				"connectivity-address-copy",
+				"connectivity-address-caption",
+				"connectivity-note",
+				"connectivity-error"
 			]
 		},
 		{
@@ -678,7 +696,6 @@
 		{ "pattern": "plugin-tree-toggle-*", "builtBy": "web/js/components/plugin-catalog.js" },
 		{ "pattern": "slash-command-scope-*", "builtBy": "web/js/components/slash-command-provider.js" },
 		{ "pattern": "approval-source-*", "builtBy": "web/js/services/renderers/item-renderers.js" },
-		{ "pattern": "pp-status--*", "builtBy": "web/js/components/project-picker.js" },
 		{ "pattern": "task-box--*", "builtBy": "web/sdk/lib/markdown.js" },
 		{ "pattern": "bash-command-segment-*", "builtBy": "web/sdk/lib/syntax-highlight.js" },
 		{ "pattern": "task-list-item--*", "builtBy": "web/sdk/lib/markdown.js" }

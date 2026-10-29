@@ -17,7 +17,7 @@ import { fetchJson } from '../services/http.js';
 import { uiPort } from '../services/ui-port.js';
 import { apiUrl } from '../utils/api-url.js';
 import {
-  externalServerHost, projectIsFixed, projectsOpenInNewWindow, sessionsPageUrl, SESSIONS_PAGE_TARGET,
+  externalServerHost, projectsOpenInNewWindow, sessionsPageUrl, SESSIONS_PAGE_TARGET,
 } from '../utils/project-open-mode.js';
 import { busyState } from '../model/processing-status.js';
 import { t, markForTranslation, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
@@ -34,20 +34,48 @@ import { t, markForTranslation, htmlSlots, withHtml } from '../../sdk/lib/i18n.j
  */
 
 /**
- * Let the user choose another project: the sessions page when this page's
- * project is fixed, else the project picker.
- * @param {string} currentPath - The project loaded now ('' for none).
- * @param {any} session - Passed through to the picker.
- * @param {(url: string, target: string) => void} [open] - Opens a URL in a named window.
- * @returns {Promise<void>} Resolves once the sessions page or picker is open.
+ * @typedef {object} ProjectHost
+ * @property {() => Promise<unknown>} [newWindow] - Opens a window on this
+ *   machine's server's page.
+ * @property {() => Promise<unknown>} [serverPage] - Shows the server's page in
+ *   this window.
  */
-export async function chooseProject(currentPath, session, open = (url, target) => { window.open(url, target); }) {
-  if (projectIsFixed()) {
-    open(sessionsPageUrl(), SESSIONS_PAGE_TARGET);
+
+/**
+ * The desktop app, when this page is in a window of its: on this machine's
+ * server it opens a window on the server's page, where another project is
+ * chosen; in a window on a server by URL (another computer's) it shows that
+ * server's page in this window, since a window may not be opened onto a
+ * server a page names. Null in a browser.
+ * @returns {ProjectHost|null} The host.
+ */
+function desktopHost() {
+  if (!hasNativeHost()) return null;
+  const api = async () => (await import('../services/api.js')).default;
+  if (!projectsOpenInNewWindow()) {
+    return { serverPage: async () => (await api()).showServerPage() };
+  }
+  return { newWindow: async () => (await api()).newWindow() };
+}
+
+/**
+ * Let the user choose another project (Session ▸ Open…), which is another
+ * session: the server's sessions page — from the desktop app in a window of
+ * its own, or in this window when it is on a server by URL — else in a tab.
+ * @param {(url: string, target: string) => void} [open] - Opens a URL in a named window.
+ * @param {ProjectHost|null} [host] - The desktop app, if this page is in its window.
+ * @returns {Promise<void>} Resolves once the sessions page is open.
+ */
+export async function chooseProject(open = (url, target) => { window.open(url, target); }, host = desktopHost()) {
+  if (host?.newWindow) {
+    await host.newWindow();
     return;
   }
-  const { openProjectPicker } = await import('./project-picker.js');
-  openProjectPicker(currentPath, session);
+  if (host?.serverPage) {
+    await host.serverPage();
+    return;
+  }
+  open(sessionsPageUrl(), SESSIONS_PAGE_TARGET);
 }
 
 /**
@@ -167,7 +195,6 @@ function localizeHeaderMarkup(root = document) {
   const names = [
     ['sidebar-toggle-button', t('Toggle conversations'), t('Toggle conversation sidebar')],
     ['project-path-display', t('Project directory'), null],
-    ['project-path-chip', null, t('Change project folder')],
     ['project-new-window-button', t('Open a new window'), t('Open a new window')],
     ['control-undo-button', null, t('Undo last operation')],
     ['control-redo-button', null, t('Redo last undone operation')],
@@ -195,7 +222,7 @@ export function setupHeaderControls(session) {
   const undoBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('control-undo-button'));
   const redoBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('control-redo-button'));
   const pathDisplay = /** @type {HTMLElement|null} */ (document.getElementById('project-path-display'));
-  const pathChip = /** @type {HTMLButtonElement|null} */ (document.getElementById('project-path-chip'));
+  const pathChip = /** @type {HTMLElement|null} */ (document.getElementById('project-path-chip'));
   const pathLabel = /** @type {HTMLElement|null} */ (pathDisplay?.querySelector('.ppd-path') ?? null);
   const newWindowBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('project-new-window-button'));
   localizeHeaderMarkup();
@@ -256,36 +283,12 @@ export function setupHeaderControls(session) {
     updateButtons();
   };
 
-  // Both the header path chip and the native Session ▸ Open… menu event let the
-  // user choose another project: the project picker (imported lazily, so it
-  // and its deps stay off the initial header render path), or, in a session
-  // whose project is fixed, the machine server's sessions page.
-  const openPicker = () => chooseProject(session.projectPath || '', session);
-
   const updateProjectPath = (/** @type {string} */ projectPath) => {
     if (!pathDisplay || !pathLabel) return;
-    if (!projectPath) {
-      pathLabel.textContent = t('Set project folder');
-      if (pathChip) pathChip.title = t('Click to set the project folder');
-      pathDisplay.classList.add('is-empty');
-    } else {
-      pathLabel.textContent = projectPath;
-      if (pathChip) {
-        // In a session the machine server spawned, another project is another
-        // session, opened from its sessions page. On the desktop app, opening
-        // another project spawns a new window and leaves this one untouched; in
-        // a browser/PWA, or a desktop window on a server the app did not start,
-        // it switches in place (each folder carries its own tabs).
-        let action = t('Click to switch to a different project folder');
-        if (projectIsFixed()) {
-          action = t('Click to open another project as its own session, from the sessions page');
-        } else if (projectsOpenInNewWindow()) {
-          action = t('Click to open another project in a new window — this one stays put.');
-        }
-        pathChip.title = `${t('Current project folder: {path}', { path: projectPath })}\n${action}`;
-      }
-      pathDisplay.classList.remove('is-empty');
-    }
+    pathLabel.textContent = projectPath;
+    // Read-only: a session stays on its project. The title shows a path the
+    // header has truncated.
+    if (pathChip) pathChip.title = t('Current project folder: {path}', { path: projectPath });
   };
 
   if (undoBtn) {
@@ -304,17 +307,10 @@ export function setupHeaderControls(session) {
       }
     });
   }
-  // The chip is a real button opted out of the header drag region (CSS
-  // --wails-draggable: no-drag), so a plain click reliably opens the picker —
-  // no pointer-drag disambiguation needed.
-  if (pathChip) {
-    pathChip.addEventListener('click', openPicker);
-  }
-
-  // Inline "open new window" button. Spawns a fresh juggler window in
-  // no-project mode (the user then picks a folder). Only a native desktop
-  // window has a host able to do this; in a remote browser tab apiService
-  // .newWindow() is a no-op and the button is hidden by CSS anyway.
+  // Inline "open new window" button: a window on the server's page, where the
+  // user picks a folder. Only a native desktop window has a host able to do
+  // this; in a remote browser tab apiService.newWindow() is a no-op and the
+  // button is hidden by CSS anyway.
   const openNewWindow = async () => {
     try {
       const { default: apiService } = await import('../services/api.js');
@@ -350,10 +346,9 @@ export function setupHeaderControls(session) {
   const networkButton = document.getElementById('network-button');
   if (networkButton) bindNetworkClients(networkButton);
 
-  // Native menu (Session ▸ Open…) bridges to the picker via this event, since the
-  // Go side can't import the JS module directly. Same entry point as the
-  // header path-display click above.
-  window.addEventListener('juggler:open-project', openPicker);
+  // Session ▸ Open… (native menu, ⌘O, the overflow menu) bridges to
+  // chooseProject via this event, since the Go side can't import the JS module.
+  window.addEventListener('juggler:open-project', () => { void chooseProject(); });
 
   // Session ▸ Connect to Server… arrives the same way.
   window.addEventListener('juggler:connect-server', async () => {

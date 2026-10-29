@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,15 +20,15 @@ import (
 	"juggler/internal/detach"
 	"juggler/internal/userpaths"
 	"juggler/internal/userpaths/userpathstest"
+	"juggler/web"
 )
 
 // helperServeEnv marks a run of this test binary as a stand-in for `juggler
 // serve` (see TestHelperMachineServer).
 const helperServeEnv = "JUGGLER_MACHINESERVER_HELPER_SERVE"
 
-// helperIdleEnv, set, gives the stand-in machine server an idle timeout short
-// enough for a test to see it exit idle.
-const helperIdleEnv = "JUGGLER_MACHINESERVER_HELPER_IDLE"
+// helperStarterPIDEnv passes the local starter pid into the stand-in command.
+const helperStarterPIDEnv = "JUGGLER_MACHINESERVER_HELPER_STARTER_PID"
 
 // TestHelperMachineServer is not a test: it is the machine server that
 // helperStarter starts, this test binary run again with helperServeEnv set. It
@@ -37,28 +38,12 @@ func TestHelperMachineServer(t *testing.T) {
 	if os.Getenv(helperServeEnv) != "1" {
 		t.Skip("run only as the stand-in machine server")
 	}
-	if os.Getenv(helperIdleEnv) != "" {
-		serveIdleTimeout = 50 * time.Millisecond
-		// Held up until a client first reaches it (Connect's status probe
-		// stirs it), so the idle clock cannot run out before Connect has its
-		// answer, however slowly that probe comes.
-		serveListening = func(s *Server) {
-			detach := s.attach()
-			at := s.stirred.Load()
-			go func() {
-				for s.stirred.Load() == at {
-					time.Sleep(time.Millisecond)
-				}
-				detach()
-			}()
-		}
-	}
 	newChildCommand = func(string, string, []string) *exec.Cmd {
 		cmd := exec.Command(os.Args[0], "-test.run=^TestHelperSessionChild$") //nolint:gosec // this test binary
 		cmd.Env = append(os.Environ(), helperChildEnv+"=1")
 		return cmd
 	}
-	os.Exit(RunCommand([]string{"--implicit", "--port", "0"}))
+	os.Exit(RunCommand([]string{"--implicit", "--port", "0", "--started-by", os.Getenv(helperStarterPIDEnv)}, web.Files, nil))
 }
 
 // helperStarter is a Starter that runs TestHelperMachineServer detached, as
@@ -85,7 +70,7 @@ func helperStarter(t *testing.T) (start Starter, count func() int) {
 	})
 	start = func() (int, <-chan struct{}, error) {
 		cmd := detach.Command(os.Args[0], "-test.run=^TestHelperMachineServer$")
-		cmd.Env = append(os.Environ(), helperServeEnv+"=1")
+		cmd.Env = append(os.Environ(), helperServeEnv+"=1", helperStarterPIDEnv+"="+strconv.Itoa(os.Getpid()))
 		cmd, err := detach.Start(cmd)
 		if err != nil {
 			return 0, nil, err
@@ -152,17 +137,61 @@ func TestConnectWaitsOutTheWindowBeforeTheAddressIsRecorded(t *testing.T) {
 	}
 }
 
+// deadPID returns the process ID of a process that has exited.
+func deadPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^$") //nolint:gosec // this test binary
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run a process to outlive: %v", err)
+	}
+	return cmd.Process.Pid
+}
+
+// TestConnectWaitsOnASilentHolderOnlyWhileItLives: Connect's wait on a lock
+// holder that does not answer is bounded by that holder's progress, not by a
+// clock. A held lock is a live holder — the OS lets a lock go with the process
+// that held it — whether or not it has recorded itself in server.json yet. Only
+// a lock that cannot be probed falls back on the process server.json names.
+// And the server this Connect started is waited for while it lives.
+func TestConnectWaitsOnASilentHolderOnlyWhileItLives(t *testing.T) {
+	alive, dead := os.Getpid(), deadPID(t)
+	ours := make(chan struct{})
+	gone := make(chan struct{})
+	close(gone)
+	for _, c := range []struct {
+		name string
+		info *ServerInfo
+		lock lockState
+		ours <-chan struct{}
+		want bool
+	}{
+		{"a holder that has recorded itself", &ServerInfo{PID: alive}, lockHeld, nil, true},
+		{"a holder that has not recorded itself yet", nil, lockHeld, nil, true},
+		{"a holder that has not yet replaced a dead server's record", &ServerInfo{PID: dead}, lockHeld, nil, true},
+		{"the lock is free, whatever server.json says", &ServerInfo{PID: alive}, lockFree, nil, false},
+		{"a lock that cannot be probed, recorded holder alive", &ServerInfo{PID: alive}, lockUnknown, nil, true},
+		{"a lock that cannot be probed, recorded holder dead", &ServerInfo{PID: dead}, lockUnknown, nil, false},
+		{"a lock that cannot be probed, nothing recorded", nil, lockUnknown, nil, false},
+		{"the server this call started is on its way up", nil, lockFree, ours, true},
+		{"the server this call started has exited", nil, lockFree, gone, false},
+	} {
+		if got := worthWaiting(c.info, c.lock, c.ours); got != c.want {
+			t.Errorf("%s: worthWaiting = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 // TestConnectWithoutStartReportsNoServer: with no server running, and no way
 // to start one, Connect says so — including when server.json names a server
 // that has gone without releasing it.
 func TestConnectWithoutStartReportsNoServer(t *testing.T) {
 	userpathstest.Isolate(t)
-	if _, err := Connect(ConnectOptions{}); !errors.Is(err, errNoServer) {
-		t.Fatalf("Connect with no server.json: %v, want errNoServer", err)
+	if _, err := Connect(ConnectOptions{}); !errors.Is(err, ErrNoServer) {
+		t.Fatalf("Connect with no server.json: %v, want ErrNoServer", err)
 	}
 	publishServerInfo(t, ServerInfo{PID: 1, Addr: "127.0.0.1:1", Token: testToken})
-	if _, err := Connect(ConnectOptions{}); !errors.Is(err, errNoServer) {
-		t.Fatalf("Connect with a stale server.json: %v, want errNoServer", err)
+	if _, err := Connect(ConnectOptions{}); !errors.Is(err, ErrNoServer) {
+		t.Fatalf("Connect with a stale server.json: %v, want ErrNoServer", err)
 	}
 }
 

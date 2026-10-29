@@ -227,10 +227,8 @@ export async function runTests() {
 
   // Regression: the tool-transport allowed-roots list must OMIT the implicit
   // project root. Read/search/tree backend ops are rooted at the server's LIVE
-  // project path, so re-sending a client project root is redundant — and, after
-  // a runtime project switch, unsafe: the persistent engine keeps its boot-time
-  // session.projectPath, so an implicit root here would be the PREVIOUS project
-  // and would re-authorise reads across the old tree. Explicit grants still flow.
+  // project path, so re-sending a client project root is redundant. Explicit
+  // grants still flow.
   await t('explicit allowed paths omit the implicit project root but keep grants', async () => {
     const c = await createTestConversation(session);
     const mt = c.rootMessageThread;

@@ -61,8 +61,7 @@ func runCLI(t *testing.T, run func(args []string, env CLIEnv) int, args ...strin
 }
 
 // TestCLIWithNoServerSaysHowToStartOne: with no server.json, or one naming a
-// server that no longer answers, every command fails and says to run
-// `juggler serve`.
+// server that no longer answers, commands fail with instructions to start one.
 func TestCLIWithNoServerSaysHowToStartOne(t *testing.T) {
 	userpathstest.Isolate(t)
 	for _, args := range [][]string{{"status"}, {"sessions"}, {"stop"}} {
@@ -71,7 +70,7 @@ func TestCLIWithNoServerSaysHowToStartOne(t *testing.T) {
 			t.Errorf("server %v with no server.json: exit %d, stderr %q", args, code, errOut)
 		}
 	}
-	if code, _, errOut := runCLI(t, RunOpenCommand, t.TempDir()); code != 1 || !strings.Contains(errOut, "juggler serve") {
+	if code, _, errOut := runCLI(t, RunOpenCommand, t.TempDir()); code != 1 || !strings.Contains(errOut, "run `juggler` in the project") {
 		t.Errorf("open with no server.json: exit %d, stderr %q", code, errOut)
 	}
 

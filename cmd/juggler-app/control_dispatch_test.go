@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -16,9 +17,12 @@ import (
 // window: which requests reach which handler, and the status and JSON the page
 // reads back. Each action's own behaviour is tested beside it; this is the map.
 
+// controlRequest sends target (/win/<id>/…) as the page of window <id> would:
+// under that window's secret, or one no window holds when there is none.
 func controlRequest(a *appState, method, target string) *httptest.ResponseRecorder {
+	id, _, _ := strings.Cut(strings.TrimPrefix(target, "/win/"), "/")
 	rec := httptest.NewRecorder()
-	a.handleWindowControl(rec, httptest.NewRequest(method, target, nil))
+	a.handleControl(rec, httptest.NewRequest(method, "/"+controlSecretOf(a, id)+target, nil))
 	return rec
 }
 
@@ -41,7 +45,8 @@ func TestWindowControlRouting(t *testing.T) {
 		{"save-file refuses an empty body", "/win/w1/save-file?name=a.html", http.StatusBadRequest},
 		{"connect refuses an address with no host", "/win/w1/connect?url=http%3A%2F%2F", http.StatusBadRequest},
 		{"retry-server refuses a window that is not the unreachable page", "/win/w1/retry-server", http.StatusConflict},
-		{"server-lost refuses a window that is not on a server by URL", "/win/w1/server-lost", http.StatusConflict},
+		{"server-lost refuses a window that is not a main window", "/win/w1/server-lost", http.StatusConflict},
+		{"server-page refuses a window not on a server by URL", "/win/w1/server-page", http.StatusConflict},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -52,30 +57,42 @@ func TestWindowControlRouting(t *testing.T) {
 	}
 }
 
-// The names the page posts. A name dropped from the table answers 404, and
-// these are fire-and-forget posts from the page's side, so this is where it
-// shows.
+// The names the page posts, and which of them a window on a server by URL may
+// post. A name dropped from the table answers 404, and these are
+// fire-and-forget posts from the page's side, so this is where it shows; a name
+// added to the remote set is a grant to every server ever connected to.
 func TestWindowControlActionTable(t *testing.T) {
-	want := []string{
-		"theme", "title", "locale", "folder-dropped", "control", "attention", "zoom",
-		"drafts-flushed", "pick-directory", "pick-file", "save-file", "updater",
-		"connect", "stand-in", "retry-server", "open-local", "server-lost", "quit",
+	// Whether a remote window may ask at all; "new" is granted for a board
+	// only (TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer).
+	want := map[string]bool{
+		"theme": true, "title": true, "control": true, "attention": true,
+		"drafts-flushed": true, "attach": true, "server-page": true, "server-lost": true,
+		"open": true, "new": true, "save-file": true,
+		"locale": false, "zoom": false, "folder-dropped": false, "pick-directory": false,
+		"pick-file": false, "updater": false, "connect": false,
+		"quit": false, "retry-server": false, "restart-server": false, "open-local": false,
 	}
 	if len(windowActions) != len(want) {
 		t.Fatalf("windowActions has %d entries, want %d: %v", len(windowActions), len(want), want)
 	}
-	for _, name := range want {
-		if windowActions[name] == nil {
+	for name, remote := range want {
+		act, ok := windowActions[name]
+		if !ok || act.handle == nil {
 			t.Errorf("windowActions has no %q", name)
+			continue
+		}
+		if (act.remote != nil) != remote {
+			t.Errorf("windowActions[%q] grants a remote window something: %v, want %v", name, act.remote != nil, remote)
 		}
 	}
 }
 
 func TestWindowControlPreflightAnswersBeforeRouting(t *testing.T) {
 	a := newTestAppState(t)
-	rec := controlRequest(a, http.MethodOptions, "/win/nope/frobnicate")
+	registerTestWindow(a, "w1")
+	rec := controlRequest(a, http.MethodOptions, "/win/w1/frobnicate")
 	if rec.Code != http.StatusNoContent {
-		t.Fatalf("OPTIONS = %d, want 204 whatever the path names", rec.Code)
+		t.Fatalf("OPTIONS = %d, want 204 for a window's secret, whatever the path names", rec.Code)
 	}
 	if got := rec.Header().Get("Access-Control-Allow-Methods"); got != "POST, OPTIONS" {
 		t.Fatalf("Access-Control-Allow-Methods = %q", got)
@@ -121,23 +138,33 @@ func TestWindowControlQuitStartsTheAppQuitOnce(t *testing.T) {
 	}
 }
 
+// TestWindowControlUpdaterStateIsJSON: the updater's state, with whether the
+// window views this machine's server, which the relaunched app restarts at its
+// own version. A window on a server by URL is not told it at all: the updater
+// is app-wide (windowActions), and its page shows no updater.
 func TestWindowControlUpdaterStateIsJSON(t *testing.T) {
 	a := newTestAppState(t)
-	registerTestWindow(a, "w1")
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:1/s/s1"})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{url: "http://devbox:8080", connected: true}, serverURL: "http://devbox:8080"})
 
-	rec := controlRequest(a, http.MethodPost, "/win/w1/updater?op=state")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
+	if rec := controlRequest(a, http.MethodPost, "/win/w2/updater?op=state"); rec.Code != http.StatusForbidden {
+		t.Fatalf("w2: status = %d, want 403", rec.Code)
 	}
-	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
-		t.Fatalf("Content-Type = %q, want application/json", ct)
-	}
-	var body map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("body is not JSON: %q (%v)", rec.Body.String(), err)
-	}
-	if managed, ok := body["appManagedServer"].(bool); !ok || managed {
-		t.Fatalf("appManagedServer = %v, want false for a window on no spawned server", body["appManagedServer"])
+	for id, want := range map[string]bool{"w1": true} {
+		rec := controlRequest(a, http.MethodPost, "/win/"+id+"/updater?op=state")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", id, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+			t.Fatalf("%s: Content-Type = %q, want application/json", id, ct)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("%s: body is not JSON: %q (%v)", id, rec.Body.String(), err)
+		}
+		if managed, ok := body["appManagedServer"].(bool); !ok || managed != want {
+			t.Fatalf("%s: appManagedServer = %v, want %v", id, body["appManagedServer"], want)
+		}
 	}
 }
 

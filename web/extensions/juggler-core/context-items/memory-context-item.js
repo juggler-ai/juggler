@@ -28,14 +28,11 @@ const t = translator('@juggler/core');
  * next `remember` overwrite every existing fact with a single bullet.
  *
  * Keyed by the FILE, not the path string (`lastGoodKey`). The default path is
- * relative, and the server resolves it against whichever project is open at
- * call time — while this module outlives a project switch, because the engine
- * is persistent across one and its registry reload gets back the same module
- * instance. Keyed by the bare path, the last project's facts would be the
- * "last-known-good" of the next project's file, so one transient read failure
- * after a switch would hand them to the next `remember`, which would write them
- * into the new project's memory. One entry per memory file used in this realm's
- * life.
+ * relative, and the server resolves it against the caller's root, so one path
+ * string can name different files. Keyed by the bare path, one file's facts
+ * could be the "last-known-good" of another, so one transient read failure
+ * would hand them to the next `remember`, which would write them there. One
+ * entry per memory file used in this realm's life.
  * @type {Map<string, string>}
  */
 const lastGoodMemory = new Map();

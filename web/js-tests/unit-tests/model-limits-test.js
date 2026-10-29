@@ -77,10 +77,7 @@ function installPanelFetch(providers) {
     if (u === '/api/providers') return ok({ providers, ready: true });
     if (u === '/api/default-model' || u === '/api/cheap-model') return ok({ provider: PROVIDER, model: 'plain-model' });
     if (u === '/api/connectivity') {
-      return ok({
-        lanEnabled: false, lanURLs: [], tunnelEnabled: false,
-        tunnelURL: '', tunnelMode: '', tunnelRelay: false, wanModes: [],
-      });
+      return ok({ clientCount: 0, clients: [] });
     }
     return { ok: false, status: 404, statusText: 'Not Found', text: async () => '', json: async () => ({}) };
   });

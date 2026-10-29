@@ -9,9 +9,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
+
+	"juggler/web"
 )
 
 // fetch GETs url and returns status, headers and body.
@@ -54,7 +57,7 @@ func decodePageConfig(t *testing.T, body string) map[string]any {
 // with every server process, and it runs under a CSP that admits only this
 // origin and the page's own nonce'd inline script.
 func TestSessionsPageCarriesTheControlToken(t *testing.T) {
-	s := &Server{reg: newRegistry(), token: testToken, uiLocale: func() string { return "" }}
+	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "" }}
 	front := httptest.NewServer(s.routes())
 	defer front.Close()
 
@@ -89,11 +92,110 @@ func TestSessionsPageCarriesTheControlToken(t *testing.T) {
 	}
 }
 
+// TestSessionsPageSaysWhetherItsViewerIsLocal: the page tells its script whether
+// it was loaded on this machine, which decides whether it offers the switches
+// for LAN access and tunnels, and what opens when Juggler starts (only this
+// machine may change them).
+func TestSessionsPageSaysWhetherItsViewerIsLocal(t *testing.T) {
+	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "" }}
+	s.lan.Store(true)
+	for _, c := range []struct {
+		caller string
+		want   bool
+	}{{"127.0.0.1:5000", true}, {"192.168.1.20:54321", false}} {
+		front := httptest.NewServer(asCaller(c.caller, s.routes()))
+		_, _, body := fetch(t, front.URL+"/")
+		front.Close()
+		if got := decodePageConfig(t, body)["local"]; got != c.want {
+			t.Errorf("caller %s: config local = %v, want %v", c.caller, got, c.want)
+		}
+	}
+}
+
+// TestSessionsPageAdmitsTheDesktopWindowsControlEndpoint: a desktop app's
+// window loads the page with its loopback control endpoint in ?nativeCtl=, and
+// the page posts to it, so the CSP admits exactly that origin — and nothing
+// for an endpoint off loopback, which no desktop app on this machine names.
+func TestSessionsPageAdmitsTheDesktopWindowsControlEndpoint(t *testing.T) {
+	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "" }}
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+
+	connectSrc := func(nativeCtl string) string {
+		t.Helper()
+		_, hdr, _ := fetch(t, front.URL+"/?window=1&nativeCtl="+url.QueryEscape(nativeCtl))
+		for _, d := range strings.Split(hdr.Get("Content-Security-Policy"), ";") {
+			if d = strings.TrimSpace(d); strings.HasPrefix(d, "connect-src ") {
+				return d
+			}
+		}
+		return ""
+	}
+	if got := connectSrc("http://127.0.0.1:5555/s3cret/win/w1"); got != "connect-src 'self' http://127.0.0.1:5555" {
+		t.Errorf("with a loopback control endpoint: %q, want it admitted", got)
+	}
+	if got := connectSrc("http://evil.example:5555/s3cret/win/w1"); got != "connect-src 'self'" {
+		t.Errorf("with an endpoint off loopback: %q, want only 'self'", got)
+	}
+}
+
+// TestSessionsPageWearsTheAppsWindowChrome: the page is drawn under the same
+// header bar as a session's page — the app shell's stylesheets, its
+// .app-header with the wordmark, the window-resize strip and the caption
+// controls a frameless window closes by — so a desktop window showing it can
+// be dragged by its header and clears the platform's window buttons. In a
+// window it marks itself as one before the first paint, as web/index.html
+// does, and loads the Wails runtime that turns --wails-draggable into a drag,
+// which this server serves; a browser tab gets the same header but no runtime.
+func TestSessionsPageWearsTheAppsWindowChrome(t *testing.T) {
+	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "" }}
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+
+	_, _, win := fetch(t, front.URL+"/?window=1&nativeCtl="+url.QueryEscape("http://127.0.0.1:5555/s3cret/win/w1"))
+	_, _, tab := fetch(t, front.URL+"/")
+	for name, body := range map[string]string{"window": win, "tab": tab} {
+		for _, want := range []string{
+			"/css/layout/app-shell.css", "/css/layout/window-chrome.css", "/css/layout/app-header.css",
+			`<header class="app-header">`, `<section class="logo">`, `class="window-resize-strip"`,
+			"<window-caption-controls>", "/js/components/window-caption-controls.js",
+			"/js/utils/window-fullscreen.js", "/js/utils/window-edge-resize.js",
+			"dataset.windowMode", "dataset.windowPlatform", "--logo-with-name-url",
+			// A window onto another computer's server (native-host.js).
+			"dataset.externalServer",
+			// The app's spinner, shown while the first list loads.
+			"/css/patterns/spinner.css", "/js/components/juggler-spinner.js",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s: the page has no %s", name, want)
+			}
+		}
+	}
+	if !strings.Contains(win, `src="/wails/runtime.js"`) {
+		t.Errorf("window: the page does not load the Wails runtime")
+	}
+	if strings.Contains(tab, "/wails/runtime.js") {
+		t.Errorf("tab: the page loads the Wails runtime outside a desktop window")
+	}
+
+	for _, m := range pageRefPattern.FindAllStringSubmatch(win, -1) {
+		code, hdr, _ := fetch(t, front.URL+m[1])
+		if code != http.StatusOK {
+			t.Errorf("window: GET %s: status %d", m[1], code)
+			continue
+		}
+		if ct := hdr.Get("Content-Type"); strings.HasSuffix(m[1], ".js") &&
+			!strings.HasPrefix(ct, "text/javascript") && !strings.HasPrefix(ct, "application/javascript") {
+			t.Errorf("window: GET %s: Content-Type %q, want JavaScript", m[1], ct)
+		}
+	}
+}
+
 // TestSessionsPageAssetsResolve: everything the page loads is served from this
 // server, with a JavaScript type for modules and a long-lived cache for the
 // versioned paths (the version changes with the process).
 func TestSessionsPageAssetsResolve(t *testing.T) {
-	s := &Server{reg: newRegistry(), token: testToken, uiLocale: func() string { return "" }}
+	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "" }}
 	front := httptest.NewServer(s.routes())
 	defer front.Close()
 
@@ -133,7 +235,7 @@ func TestSessionsPageAssetsResolve(t *testing.T) {
 // directories a page draws on, and nothing else of the tree — not the app's
 // own page templates — and nothing under another version.
 func TestMachineServerServesOnlyItsAssetRoots(t *testing.T) {
-	s := &Server{reg: newRegistry(), token: testToken}
+	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken}
 	front := httptest.NewServer(s.routes())
 	defer front.Close()
 	v := "/v" + assetVersion
@@ -152,7 +254,7 @@ func TestMachineServerServesOnlyItsAssetRoots(t *testing.T) {
 // TestSessionsPageSpeaksTheChosenLanguage: the page is written in the UI
 // language the user chose, with its catalogue inline, as a session's page is.
 func TestSessionsPageSpeaksTheChosenLanguage(t *testing.T) {
-	s := &Server{reg: newRegistry(), token: testToken, uiLocale: func() string { return "en-XA" }}
+	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "en-XA" }}
 	front := httptest.NewServer(s.routes())
 	defer front.Close()
 	_, _, body := fetch(t, front.URL+"/")

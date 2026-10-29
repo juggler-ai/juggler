@@ -14,8 +14,8 @@ import (
 )
 
 // foreignConvID is a conversation id that project B never created. It stands in
-// for a conversation owned by a *different* project whose worker outlived a
-// SwitchProject and then tried to persist into the now-loaded project B.
+// for a conversation owned by a *different* project whose worker tries to
+// persist into project B.
 const foreignConvID = "conv_foreign01"
 
 // hasConvFolder reports whether project B fabricated an on-disk folder for

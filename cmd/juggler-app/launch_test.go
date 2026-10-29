@@ -93,17 +93,16 @@ func TestCascadeIsBounded(t *testing.T) {
 	}
 }
 
-// A locked project is recognised however many layers of context an error picks
-// up on the way back, so it still opens its recovery page instead of being
-// logged and dropped.
-func TestALockedProjectIsRecognisedThroughWrapping(t *testing.T) {
-	locked := newLockedProjectError("/p", nil)
-	got, ok := asLockedProject(fmt.Errorf("resolve: %w", locked))
-	if !ok || got != locked {
-		t.Errorf("asLockedProject did not find the wrapped lockedProjectError (got %v, %v)", got, ok)
+// A version mismatch is recognised however many layers of context an error
+// picks up on the way back, so it still opens its page instead of a failed
+// start's.
+func TestAVersionMismatchIsRecognisedThroughWrapping(t *testing.T) {
+	mismatch := &versionMismatchError{server: "v0.0.1"}
+	if si := standInFor(fmt.Errorf("resolve: %w", mismatch)); si.kind != standInMismatch {
+		t.Errorf("a wrapped version mismatch stands in as %q", si.kind)
 	}
-	if _, ok := asLockedProject(errors.New("project is locked: /p")); ok {
-		t.Error("an unrelated error was taken for a locked project")
+	if si := standInFor(errors.New("the Juggler server did not start")); si.kind != standInFailed {
+		t.Errorf("an unrelated error stands in as %q", si.kind)
 	}
 }
 

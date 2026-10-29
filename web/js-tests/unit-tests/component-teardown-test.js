@@ -32,9 +32,7 @@
  *   is handed a different one — and keeps that thread, its strategy feed and
  *   what it had drawn across a move or a put-back.
  * - A workspace panel moved or put back follows its session exactly once.
- * - So do the no-project and no-conversations overlays; the no-project one also
- *   holds the provider feed, the folder-drop listener and the native drag hooks
- *   while it is in the document and none of them once it has left.
+ * - So does the no-conversations overlay.
  * - A conversation footer moved or put back follows its thread's session and
  *   status feeds exactly once, and keeps the status line it had drawn.
  * - A path field moved keeps what was typed in it and hears each key once.
@@ -78,7 +76,6 @@ import '../../js/components/model-selector.js';
 import '../../js/components/properties-panel.js';
 import '../../js/components/workspace-panel.js';
 import '../../js/components/no-conversations-overlay.js';
-import '../../js/components/no-project-overlay.js';
 import '../../js/components/conversation-footer.js';
 import '../../js/components/workspace-box-header.js';
 import '../../js/components/reply-suggestions-row.js';
@@ -546,15 +543,15 @@ export async function runTests() {
     }
   } catch (e) { failed++; errors.push(`workspace-panel re-parented: ${e.message}`); }
 
-  for (const tag of ['no-conversations-overlay', 'no-project-overlay']) {
-    const hadClasses = ['no-project', 'no-conversations'].filter((c) => document.body.classList.contains(c));
+  {
+    const hadClass = document.body.classList.contains('no-conversations');
     const subscribers = new Set();
     const session = {
       projectPath: '/teardown',
       conversations: new Map([['teardown-conv', {}]]),
       subscribe: (/** @type {Function} */ fn) => { subscribers.add(fn); return () => subscribers.delete(fn); },
     };
-    const overlay = /** @type {any} */ (document.createElement(tag));
+    const overlay = /** @type {any} */ (document.createElement('no-conversations-overlay'));
     const elsewhere = document.createElement('div');
     document.body.appendChild(elsewhere);
     try {
@@ -572,51 +569,11 @@ export async function runTests() {
       passed++;
     } catch (e) {
       failed++;
-      errors.push(`${tag} re-parented: ${e.message}`);
+      errors.push(`no-conversations-overlay re-parented: ${e.message}`);
     } finally {
       overlay.remove();
       elsewhere.remove();
-      document.body.classList.remove('no-project', 'no-conversations');
-      document.body.classList.add(...hadClasses);
-    }
-  }
-
-  {
-    const hadNoProject = document.body.classList.contains('no-project');
-    const baseline = socketListeners(['providers-update']);
-    const overlay = /** @type {any} */ (document.createElement('no-project-overlay'));
-    let opened = 0;
-    overlay._open = async () => { opened++; };
-    const dropped = () => {
-      const before = opened;
-      window.dispatchEvent(new CustomEvent('juggler:folder-dropped', { detail: { path: '/teardown' } }));
-      return opened - before;
-    };
-    const hooked = () => /** @type {any} */ (window)._wails?.handleDragEnter !== undefined;
-    const elsewhere = document.createElement('div');
-    document.body.appendChild(elsewhere);
-    try {
-      const held = () => `${socketDelta(['providers-update'], baseline)}, ${dropped()} drop handler(s) and drag hooks ${hooked() ? 'installed' : 'absent'}`;
-      const holdsOne = 'providers-update +1, 1 drop handler(s) and drag hooks installed';
-      column.appendChild(overlay);
-      elsewhere.appendChild(overlay);
-      let now = held();
-      if (now !== holdsOne) throw new Error(`after a move it holds ${now}, want +1, 1 and installed`);
-      overlay.remove();
-      now = held();
-      if (now !== 'providers-update +0, 0 drop handler(s) and drag hooks absent') throw new Error(`after removal it holds ${now}, want none`);
-      elsewhere.appendChild(overlay);
-      now = held();
-      if (now !== holdsOne) throw new Error(`reinserted after a removal it holds ${now}, want +1, 1 and installed`);
-      overlay.remove();
-      passed++;
-    } catch (e) {
-      failed++;
-      errors.push(`no-project-overlay window feeds re-parented: ${e.message}`);
-    } finally {
-      overlay.remove();
-      elsewhere.remove();
-      document.body.classList.toggle('no-project', hadNoProject);
+      document.body.classList.toggle('no-conversations', hadClass);
     }
   }
 

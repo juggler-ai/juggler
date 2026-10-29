@@ -270,7 +270,6 @@ type ModelConfig = core.ModelRef
 // WorkerConfig contains worker configuration
 type WorkerConfig struct {
 	ProjectPath string `json:"projectPath"`
-	APIBaseURL  string `json:"apiBaseUrl,omitempty"`
 }
 
 // SendMessageMessage contains a user message to process

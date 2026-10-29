@@ -17,9 +17,8 @@ import (
 // Going with a window is not the same as being finished with. A board taken down
 // alongside its owner keeps its tabs and its frame and comes back with it; only
 // a board closed on its own is discarded. That distinction is what these pin,
-// along with the two things a board still does differently: it stays out of the
-// workspace file (it is restored from its project's session instead), and it
-// meets the busy-work guard only when it is the last thing holding its server up.
+// along with the one thing a board still does differently: it stays out of the
+// workspace file (it is restored from its project's session instead).
 
 // registerBoard adds a detached-board entry viewing a server, with a board of its
 // own and no owner.
@@ -41,114 +40,6 @@ func registerWindowOn(a *appState, id, serverURL string) *winEntry {
 	e := &winEntry{id: id, role: roleMain, serverURL: serverURL}
 	a.reg(func(st *regState) { st.windows[id] = e })
 	return e
-}
-
-// ownServer records serverURL as one this app spawned, and so one a close or a
-// quit stops.
-func ownServer(a *appState, serverURL string) {
-	a.reg(func(st *regState) { st.servers[serverURL] = &serverProc{} })
-}
-
-// A window onto a server the app did not start — a headless instance, a terminal
-// server, a URL — stops nothing when it closes: the teardown only ever stops a
-// server it spawned. Asking would warn about a turn that carries on regardless.
-func TestAWindowOnAServerTheAppDidNotStartClosesWithoutTheBusyGuard(t *testing.T) {
-	a := newTestAppState(t)
-	window := registerWindowOn(a, "w1", "http://localhost:1234")
-
-	if !a.closeAllowed(window) {
-		t.Fatal("closing a window onto someone else's server discards nothing, so must not ask")
-	}
-}
-
-// Quitting and restarting to update stop only the servers this app spawned, so
-// those are the only ones whose work they may warn about.
-func TestOnlyTheAppsOwnServersAreTalliedAtQuit(t *testing.T) {
-	a := newTestAppState(t)
-	registerWindowOn(a, "w1", "http://localhost:1234")
-	registerWindowOn(a, "w2", "http://localhost:5678")
-	registerWindowOn(a, "w3", "http://localhost:5678")
-	ownServer(a, "http://localhost:5678")
-
-	urls := a.ownedServerURLs()
-	if len(urls) != 1 || urls[0] != "http://localhost:5678" {
-		t.Fatalf("only the spawned server, once, got %v", urls)
-	}
-}
-
-// A board views a window's server rather than one of its own, so while that
-// window is open the turn the guard would report survives this close untouched.
-// Asking about it is a warning about work the user is not losing.
-func TestABoardClosesWithoutTheBusyGuard(t *testing.T) {
-	a := newTestAppState(t)
-	registerWindowOn(a, "w1", "http://localhost:1234")
-	board := registerBoard(a, "w2", "http://localhost:1234")
-
-	if !a.closeAllowed(board) {
-		t.Fatal("a board's own close button must not ask about work another window is keeping alive")
-	}
-}
-
-// A board outlives the window it was detached from, so it can be the last window
-// viewing its server — and then closing it is what stops the turn, which is the
-// case the guard exists for.
-func TestTheLastBoardOnAServerIsGuarded(t *testing.T) {
-	a := newTestAppState(t)
-	ownServer(a, "http://localhost:1234")
-	board := registerBoard(a, "w2", "http://localhost:1234")
-
-	if a.closeAllowed(board) {
-		t.Fatal("a board holding up the last server must answer for the work it is about to stop")
-	}
-}
-
-// The other window has to be on the same server for its being open to mean
-// anything: a window onto a different project keeps a different turn alive.
-func TestABoardIsGuardedWhenTheOtherWindowIsElsewhere(t *testing.T) {
-	a := newTestAppState(t)
-	ownServer(a, "http://localhost:1234")
-	registerWindowOn(a, "w1", "http://localhost:9999")
-	board := registerBoard(a, "w2", "http://localhost:1234")
-
-	if a.closeAllowed(board) {
-		t.Fatal("a window onto another server is not a window keeping this board's turn running")
-	}
-}
-
-// Two boards on one server hold each other up, the same as a window would: the
-// second is what the first's close leaves behind.
-func TestABoardIsHeldUpByAnotherBoard(t *testing.T) {
-	a := newTestAppState(t)
-	first := registerBoard(a, "w2", "http://localhost:1234")
-	registerBoard(a, "w3", "http://localhost:1234")
-
-	if !a.closeAllowed(first) {
-		t.Fatal("a board with another board still on its server discards nothing")
-	}
-}
-
-// The exemption is the board's alone: the window that owns the server still has
-// to answer for what it is about to stop.
-func TestAWindowStillMeetsTheBusyGuard(t *testing.T) {
-	a := newTestAppState(t)
-	ownServer(a, "http://localhost:1234")
-	window := registerWindowOn(a, "w1", "http://localhost:1234")
-	registerBoard(a, "w2", "http://localhost:1234")
-
-	if a.closeAllowed(window) {
-		t.Fatal("an ordinary window is still guarded")
-	}
-}
-
-// A guard already satisfied is not asked twice.
-func TestForceCloseSkipsTheGuard(t *testing.T) {
-	a := newTestAppState(t)
-	window := registerWindowOn(a, "w1", "http://localhost:1234")
-	a.reg(func(st *regState) { st.windows["w1"].forceClose = true })
-
-	if !a.closeAllowed(window) {
-		t.Fatal("a close the user has already approved must fall straight through")
-	}
 }
 
 // The teardown claim: exactly one caller may tear a window down, however many
@@ -228,10 +119,7 @@ func TestAWindowTakesItsBoardsWithIt(t *testing.T) {
 	if !mine.retainBoard {
 		t.Error("a board going with its window keeps what it holds, so it comes back with it")
 	}
-	if !mine.forceClose {
-		t.Error("and is not asked about work its owner has just answered for")
-	}
-	if theirs.retainBoard || theirs.forceClose {
+	if theirs.retainBoard {
 		t.Error("another window's board is left alone: two main windows on one project share a server, so only the opener can say")
 	}
 }
@@ -294,7 +182,7 @@ func TestQuittingTakesNoBoardsDown(t *testing.T) {
 	if len(boards) != 0 {
 		t.Fatalf("a quit closes the windows itself, got %v", boards)
 	}
-	if board.retainBoard || board.forceClose {
+	if board.retainBoard {
 		t.Error("and marks nothing, because there is nothing to tell apart")
 	}
 }

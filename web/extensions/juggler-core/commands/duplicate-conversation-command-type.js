@@ -44,7 +44,7 @@ class DuplicateConversationCommandType extends CommandType {
     const sourceConversation = this.messageThread?.conversation;
     const session = sourceConversation?.session;
     if (!session) {
-      return { handled: true, message: t("Can't duplicate: no project is open."), error: true };
+      return { handled: true, message: t("Can't duplicate: this conversation has no session."), error: true };
     }
 
     try {

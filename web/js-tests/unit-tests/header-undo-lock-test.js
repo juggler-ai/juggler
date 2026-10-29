@@ -52,7 +52,7 @@ function buildHeaderDom() {
 		<button id="control-undo-button"></button>
 		<button id="control-redo-button"></button>
 		<div id="project-path-display"><span class="ppd-path"></span></div>
-		<button id="project-path-chip"></button>
+		<span id="project-path-chip"></span>
 		<button id="project-new-window-button"></button>
 	`;
   document.body.appendChild(root);
@@ -181,11 +181,36 @@ export async function runTests() {
     );
     passed++;
 
-    // --- en-XA: every title and label the header controls draw -------------
+    // --- The project path is read-only ------------------------------------
+    // A session stays on its project: the path names it and leads nowhere.
     assert(!!headerListener, 'precondition: the header subscribed to the session');
     const pathLabel = /** @type {HTMLElement} */ (root.querySelector('.ppd-path'));
     const pathChip = /** @type {HTMLElement} */ (root.querySelector('#project-path-chip'));
     const { default: apiService } = await import('../../js/services/api.js');
+    {
+      /** @type {unknown[]} */
+      const opened = [];
+      const realOpen = window.open;
+      const realNewWindow = apiService.newWindow;
+      window.open = /** @type {any} */ ((/** @type {unknown[]} */ ...args) => { opened.push(args); return null; });
+      apiService.newWindow = async () => { opened.push('newWindow'); };
+      try {
+        pathChip.click();
+        // chooseProject resolves its host before it opens anything.
+        await Promise.resolve();
+        assert(opened.length === 0, `clicking the project path opened ${JSON.stringify(opened)}`);
+        assert(!pathChip.title.includes('\n') && !/click/i.test(pathChip.title),
+          `the path's tooltip names the folder and offers no action, got "${pathChip.title}"`);
+        assert(!pathChip.hasAttribute('aria-label'),
+          `the path is named by its text, not an action label, got "${pathChip.getAttribute('aria-label')}"`);
+      } finally {
+        window.open = realOpen;
+        apiService.newWindow = realNewWindow;
+      }
+    }
+    passed++;
+
+    // --- en-XA: every title and label the header controls draw -------------
     /** @type {string[]} */
     const shown = [];
     const savedPath = session.projectPath;
@@ -198,9 +223,6 @@ export async function runTests() {
         conversation._doc.setMetadata('processingState', { status: 'idle', turnCounter: 4 });
         shown.push(undoBtn.title, redoBtn.title);
 
-        session.projectPath = '';
-        /** @type {any} */ (headerListener)({ type: 'session:loaded' });
-        shown.push(pathLabel.textContent || '', pathChip.title);
         // A path of digits, so the data cannot read as English.
         session.projectPath = '/1/2';
         /** @type {any} */ (headerListener)({ type: 'session:loaded' });

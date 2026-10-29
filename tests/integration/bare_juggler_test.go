@@ -128,9 +128,9 @@ func (r *bareRun) stderrText() string {
 // TestBareJugglerServesThenAttaches runs the real bare juggler twice in one
 // project. The first finds no server, so it is the server, marked implicit,
 // and prints a session URL that serves. The second finds it, attaches, and
-// prints the same URL. The second's Ctrl-C leaves that session, which it did
-// not open; the first's stops the server, which lets server.json go and takes
-// the session's child with it.
+// prints the same URL. The second's Ctrl-C releases its viewer hold, while
+// the first holds the session; the first's stops the server, which lets
+// server.json go and takes the session's child with it.
 func TestBareJugglerServesThenAttaches(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Ctrl-C is a console event on Windows, which a test cannot send to one child")
@@ -166,8 +166,9 @@ func TestBareJugglerServesThenAttaches(t *testing.T) {
 	if got := second.waitLine("Session for " + project + ": "); got != url {
 		t.Fatalf("second bare juggler printed %s, want the first's session %s", got, url)
 	}
-	if code, out := second.interrupt(); code != 0 || !strings.Contains(out, "Left the session for "+project+" running.") {
-		t.Fatalf("Ctrl-C on the second: exit %d, stdout %q; want 0, leaving the session", code, out)
+	second.waitLine("Ctrl-C detaches from this session.")
+	if code, out := second.interrupt(); code != 0 || !strings.Contains(out, "Detached from the session for "+project+".") {
+		t.Fatalf("Ctrl-C on the second: exit %d, stdout %q; want 0, detaching from the session", code, out)
 	}
 	if list := ms.mustListSessions(); len(list) != 1 || list[0].Project != project {
 		t.Fatalf("sessions after the second's Ctrl-C = %+v, want the first's still open", list)

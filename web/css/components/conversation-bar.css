@@ -58,13 +58,6 @@ conversation-bar::before {
     mask-position: left 0 top 0;
 }
 
-/* No project loaded: no conversations to list, so the sidebar goes and
-   <no-project-overlay> gets the whole main area. It toggles `no-project` on
-   <body>; the tab column answers the same state in layout/app-shell.css. */
-body.no-project conversation-bar {
-    display: none;
-}
-
 conversation-bar .conversation-bar {
     flex: 1;
     min-height: 0;

@@ -41,11 +41,7 @@ var storageDirNames = map[string]bool{".juggler": true, ".agents": true}
 
 // writeExemptions are the write sites that are not storage, keyed
 // "<file>:<func>". Each one writes the thing the request is about.
-var writeExemptions = map[string]string{
-	// The folder the user typed into the New Project dialog: their project,
-	// created because they asked for exactly that folder.
-	"project.go:HandleNewProject": "creates the user's own project folder",
-}
+var writeExemptions = map[string]string{}
 
 func TestHandlersHoldNoStorage(t *testing.T) {
 	entries, err := os.ReadDir(".")

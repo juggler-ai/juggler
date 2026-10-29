@@ -75,8 +75,8 @@ func TaskState(taskID string) TaskSnapshot {
 // Background tasks run in their own process group precisely so that a cancelled
 // turn cannot take them with it, which also means process exit does not signal
 // them: without this they are reparented to init and keep running with no handle
-// anywhere. Every task therefore has to be stopped deliberately, at the two
-// moments the handle stops being reachable — a project switch and shutdown.
+// anywhere. Every task therefore has to be stopped deliberately when the handle
+// stops being reachable: at shutdown, which stops them all.
 //
 // Blocks for at most grace between the polite signal and taking the process
 // group, so a caller on the shutdown path pays a bounded, known cost.

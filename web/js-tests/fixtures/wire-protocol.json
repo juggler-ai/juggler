@@ -142,9 +142,7 @@
 
     "$outboundComment": "handledBy: routes = WebSocketService.TYPED_MESSAGE_ROUTES; handshake = websocket.js's session branch; session-handlers = SESSION_MESSAGE_HANDLERS (js/protocol/session-message-handlers.js); engine = the engine realm.",
     "outbound": [
-      { "type": "__juggler_dc_chunk", "handledBy": "routes" },
       { "type": "file-change", "handledBy": "routes" },
-      { "type": "project-changed", "handledBy": "routes" },
       { "type": "plugin-changed", "handledBy": "routes" },
       { "type": "settings-changed", "handledBy": "routes" },
       { "type": "pinboard-changed", "handledBy": "routes" },

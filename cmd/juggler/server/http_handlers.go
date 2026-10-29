@@ -6,7 +6,6 @@ package server
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -18,16 +17,23 @@ import (
 
 // handleHealthActive returns whether any conversation is actively running a turn
 // (turns parked solely on a pending tool approval are not counted — they survive
-// a restart intact, so callers like the desktop quit guard need not warn).
+// a restart intact, so callers like the desktop quit guard need not warn). The
+// machine server polls it every couple of seconds, so it is a read: it asks no
+// conversation's actor anything. Whether anything holds the session is asked
+// only by a retirement (handleHealthRetire).
 func (s *Server) handleHealthActive(w http.ResponseWriter, r *http.Request) {
-	ids := s.ActiveConversationIDs()
+	ids := []string{}
+	if s.workerManager != nil {
+		ids = s.ActiveConversationIDs()
+	}
 	handlers.WriteJSON(w, r, 0, map[string]any{
 		"active":          len(ids) > 0,
 		"conversationIds": ids,
 	})
 }
 
-// handleHealthInstance returns detailed instance info for single-instance detection
+// handleHealthInstance returns this server's identity: its project, process
+// and start time.
 func (s *Server) handleHealthInstance(w http.ResponseWriter, r *http.Request) {
 	// relaunchGen reflects how many times the main-thread watchdog has
 	// re-exec'd this server in place (JUGGLER_RELAUNCH_GEN, set on each
@@ -38,27 +44,9 @@ func (s *Server) handleHealthInstance(w http.ResponseWriter, r *http.Request) {
 		"status":      "ok",
 		"projectPath": s.ProjectPath(),
 		"pid":         os.Getpid(),
-		// parentPid + exitWithParent let a discovering viewer detect an
-		// about-to-exit orphan: a --exit-with-parent server whose parent has died
-		// is reparented to init/launchd (ppid<=1) and self-terminates imminently,
-		// so a new viewer must spawn its own server rather than attach to this one.
-		"parentPid":      os.Getppid(),
-		"exitWithParent": s.exitWithParent,
-		"startedAt":      s.startTime.Format(time.RFC3339),
-		"relaunchGen":    relaunchGen,
+		"startedAt":   s.startTime.Format(time.RFC3339),
+		"relaunchGen": relaunchGen,
 	})
-}
-
-// handleShutdown initiates a graceful server shutdown
-func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
-	jlog.Info("Shutdown requested via API")
-	handlers.WriteJSON(w, r, http.StatusAccepted, map[string]any{
-		"status":  "shutting_down",
-		"message": "Graceful shutdown initiated",
-	})
-
-	// Trigger shutdown asynchronously
-	go s.initiateShutdown()
 }
 
 // BindPort finds and binds to an available port but doesn't start serving
@@ -73,17 +61,4 @@ func (s *Server) BindPort() error {
 	jlog.Info("🤹 Juggler server starting on http://%s\n", s.addr)
 
 	return nil
-}
-
-// getPort returns the server's bound port (extracted from s.addr)
-func (s *Server) getPort() int {
-	_, portStr, err := net.SplitHostPort(s.addr)
-	if err != nil {
-		return 0
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return 0
-	}
-	return port
 }

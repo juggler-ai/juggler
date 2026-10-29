@@ -60,7 +60,6 @@ type cacheOpKind int
 const (
 	cacheOpGetOrOpen cacheOpKind = iota
 	cacheOpCloseConversation
-	cacheOpCloseAll
 	cacheOpCancelConversation
 	cacheOpSetSinkFactory
 	cacheOpShutdown
@@ -140,24 +139,6 @@ func (cc *conversationCache) CloseConversation(convID string) {
 		doneCh: done,
 	}
 	<-done
-}
-
-// CloseAllConversations drops every cached Conversation across all convIDs and
-// providers while leaving the actor running, so the cache keeps serving after
-// the call. SwitchProject uses it to release the previous project's
-// conversations — and the live CLI subprocesses they hold: a conversation is
-// bound to its project (transcript directory, warm-resume sidecar, CLAUDE.md),
-// so it must not outlive a switch. The next GetOrOpen re-initializes the
-// provider against the new project root (see the projectPath wiring).
-// Idempotent; safe to call after Shutdown.
-func (cc *conversationCache) CloseAllConversations() {
-	done := make(chan struct{}, 1)
-	select {
-	case cc.ops <- cacheOp{kind: cacheOpCloseAll, doneCh: done}:
-		<-done
-	case <-cc.done:
-		// Already shut down — nothing cached to close.
-	}
 }
 
 // CancelConversation invokes Cancel on every cached Conversation for the given
@@ -303,15 +284,6 @@ func (cc *conversationCache) runActor() {
 					}
 					delete(entries, k)
 				}
-			}
-			op.doneCh <- struct{}{}
-
-		case cacheOpCloseAll:
-			for k, conv := range entries {
-				if err := conv.Close(); err != nil {
-					jlog.Debug("conversation cache: close-all %s (%s/%s): %v", k.convID, k.providerName, k.model, err)
-				}
-				delete(entries, k)
 			}
 			op.doneCh <- struct{}{}
 

@@ -58,7 +58,7 @@ class HandoffCommandType extends CommandType {
     const source = this.messageThread?.conversation;
     const session = source?.session;
     if (!session) {
-      return { handled: true, message: t("Can't hand off: no project is open."), error: true };
+      return { handled: true, message: t("Can't hand off: this conversation has no session."), error: true };
     }
 
     // The summary is an LLM turn, so the clone needs a model. Fail early with the

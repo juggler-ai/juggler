@@ -205,6 +205,10 @@
     --bg-dark-alt: #eaeef2;
     --border-subtle: rgb(0 0 0 / 8%);
     --error-color: var(--accent-red);
+
+    /* A QR code is dark on light in every theme: scanners read an inverted one badly. */
+    --qr-light: #fff;
+    --qr-dark: #000;
     --accent-text: var(--accent-blue);
     --accent-green-muted: #1a7f37;
     --accent-blue-light: #0969da;

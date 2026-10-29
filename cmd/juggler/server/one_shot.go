@@ -5,12 +5,18 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
+	"juggler/cmd/juggler/msg"
+	"juggler/cmd/juggler/server/handlers"
 	"juggler/internal/jlog"
 )
 
@@ -27,22 +33,30 @@ import (
 // initialised registries and the token, so the whole request is one message to a
 // realm that can carry it out.
 //
-// The reply comes back over the same socket as a `one-shot-result`, correlated
-// by request id (see oneShotRoundTrip). The wall clock belongs to the caller,
-// not to this file and not to the engine: a realm wedged badly enough to lose
-// the request is exactly the realm that cannot time itself out.
+// A run arrives as POST /api/one-shot (handleOneShot), from `juggler run`,
+// which spawned this process as a session child for that run alone. The reply
+// comes back over the engine's socket as a `one-shot-result`, correlated by
+// request id (see oneShotRoundTrip). The wall clock belongs to the caller, not
+// to this file and not to the engine: a realm wedged badly enough to lose the
+// request is exactly the realm that cannot time itself out.
 
-// Statuses a OneShotResult can report. Anything else the engine sends is
-// treated as a failure, so a status added on one side and not the other cannot
-// be mistaken for success.
+// Statuses a OneShotResult can report — what `juggler run --json` prints as
+// its status, each with its own exit code (docs/headless-linux.md). Anything
+// else the engine sends is treated as a failure, so a status added on one side
+// and not the other cannot be mistaken for success.
 const (
 	// OneShotCompleted: the turn ran to its end and nothing is waiting.
 	OneShotCompleted = "completed"
 	// OneShotParked: the turn stopped on a tool that wants a human. Unattended,
 	// that is a hang with a name on it rather than a result.
 	OneShotParked = "parked"
-	// OneShotFailed: the turn errored, or never started.
+	// OneShotFailed: the turn errored, never started, or the run was
+	// interrupted.
 	OneShotFailed = "failed"
+	// OneShotTimedOut: the run outlived its deadline and `juggler run` gave it
+	// up. Only that caller reports it, since the deadline is the caller's; from
+	// the engine it would be one more unknown status, exiting as a failure.
+	OneShotTimedOut = "timeout"
 )
 
 // OneShotRequest is what the engine is asked to run.
@@ -54,12 +68,12 @@ type OneShotRequest struct {
 	StrategyID string `json:"strategyId"`
 	// Name is the conversation's name, and therefore its directory name.
 	Name string `json:"name"`
-	// Timeout is how long the caller will wait. It is passed on so the engine
-	// can stop watching a turn the caller has stopped waiting for, and the
-	// engine deliberately allows itself longer: the caller must be the one that
-	// reports, since it is the only side that can still report at all when the
-	// engine's realm is the thing that has gone wrong.
-	Timeout time.Duration `json:"-"`
+	// TimeoutMs is how long the caller will wait, in milliseconds. It is passed
+	// on so the engine can stop watching a turn the caller has stopped waiting
+	// for, and the engine deliberately allows itself longer: the caller must be
+	// the one that reports, since it is the only side that can still report at
+	// all when the engine's realm is the thing that has gone wrong.
+	TimeoutMs int64 `json:"timeoutMs"`
 }
 
 // OneShotResult is what the engine reports back.
@@ -109,9 +123,9 @@ type oneShotRun struct {
 // on the run in flight, and whichever goroutine wins the swap is the one that
 // acts.
 //
-// One at a time is not a simplification to revisit: a run-one-shot is a whole
-// process's reason for existing, and a second concurrent one would be a second
-// answer for a caller that has already exited.
+// One at a time is not a simplification to revisit: `juggler run` spawns a
+// session child for its one run and stops it afterwards, so nothing has a
+// second run to send.
 type oneShotRoundTrip struct {
 	inFlight atomic.Pointer[oneShotRun]
 }
@@ -153,13 +167,13 @@ func (r *oneShotRoundTrip) deliver(res OneShotResult) {
 	run.ch <- res
 }
 
-// StartOneShot asks the engine to run one prompt to completion and returns the
+// startOneShot asks the engine to run one prompt to completion and returns the
 // channel its single result arrives on. The caller owns the deadline.
 //
 // It refuses unless the engine's realm has proved itself alive within the
 // liveness window: an open socket is answered by the network process and says
 // nothing about whether anything is left to receive the request.
-func (s *Server) StartOneShot(req OneShotRequest) (<-chan OneShotResult, error) {
+func (s *Server) startOneShot(req OneShotRequest) (<-chan OneShotResult, error) {
 	client := s.engineClient.Load()
 	if client == nil || !s.IsEngineConnected() {
 		return nil, fmt.Errorf("no engine is connected, so there is nothing to run the prompt")
@@ -177,7 +191,7 @@ func (s *Server) StartOneShot(req OneShotRequest) (<-chan OneShotResult, error) 
 		Prompt:     req.Prompt,
 		StrategyID: req.StrategyID,
 		Name:       req.Name,
-		TimeoutMs:  req.Timeout.Milliseconds(),
+		TimeoutMs:  req.TimeoutMs,
 	}) {
 		s.oneShot.disarm()
 		return nil, fmt.Errorf("the engine's connection closed before the run could be sent")
@@ -187,15 +201,75 @@ func (s *Server) StartOneShot(req OneShotRequest) (<-chan OneShotResult, error) 
 	return ch, nil
 }
 
-// CancelOneShot abandons the round-trip in flight, so a result arriving after
+// cancelOneShot abandons the round-trip in flight, so a result arriving after
 // the caller has given up goes nowhere.
-func (s *Server) CancelOneShot() { s.oneShot.disarm() }
+func (s *Server) cancelOneShot() { s.oneShot.disarm() }
 
-// RequestShutdown asks the server to shut down, as POST /api/shutdown does.
-// The app layer's graceful loop is already watching ShutdownChan, so this
-// unwinds through the same serialized quit as every other exit — which is what
-// reaps the provider subprocesses and flushes the conversation saves.
-func (s *Server) RequestShutdown() { s.initiateShutdown() }
+// handleOneShot is POST /api/one-shot: it runs one prompt unattended and
+// answers with its OneShotResult, holding the request until the engine
+// reports. A run that could not be carried out is still a 200, carrying a
+// failed result, so a caller reads one shape; only a request with nothing to
+// run is refused.
+//
+// The caller owns the clock. When it goes — its deadline, a Ctrl-C — the run is
+// let go at once (cancelOneShot), and the turn ends with this process, which
+// `juggler run` stops next.
+func (s *Server) handleOneShot(w http.ResponseWriter, r *http.Request) {
+	req, ok := handlers.DecodeJSON[OneShotRequest](w, r)
+	if !ok {
+		return
+	}
+	// net/http notices a caller going only once the body has been read to its
+	// end, and the decoder stops at the end of the object.
+	_, _ = io.Copy(io.Discard, r.Body)
+	if strings.TrimSpace(req.Prompt) == "" {
+		handlers.WriteMessageError(w, r, http.StatusBadRequest, msg.New("There is no prompt to run."))
+		return
+	}
+	handlers.WriteJSON(w, r, http.StatusOK, s.runOneShot(r.Context(), req))
+}
+
+// runOneShot carries out one run for a caller that waits until ctx ends.
+func (s *Server) runOneShot(ctx context.Context, req OneShotRequest) OneShotResult {
+	failed := func(why string) OneShotResult { return OneShotResult{Status: OneShotFailed, ErrorText: why} }
+	if why := s.awaitEngine(ctx); why != "" {
+		return failed(why)
+	}
+	replies, err := s.startOneShot(req)
+	if err != nil {
+		return failed(err.Error())
+	}
+	select {
+	case res := <-replies:
+		return res
+	case <-ctx.Done():
+		s.cancelOneShot()
+		return failed("the caller stopped waiting before the run finished")
+	case <-s.ShutdownChan():
+		s.cancelOneShot()
+		return failed("the server shut down before the run finished")
+	}
+}
+
+// awaitEngine waits until an engine is connected, and returns why not when the
+// wait ends without one. A freshly started process reports its address well
+// before its engine connects, so a run can arrive first. The wait has no clock
+// of its own: either the engine connects, or the process gives up on it and
+// shuts down (the engine startup watchdog), or the caller goes.
+func (s *Server) awaitEngine(ctx context.Context) string {
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for !s.IsEngineConnected() {
+		select {
+		case <-ctx.Done():
+			return "the caller stopped waiting before the engine connected"
+		case <-s.ShutdownChan():
+			return "the server shut down before the engine connected"
+		case <-tick.C:
+		}
+	}
+	return ""
+}
 
 // generateOneShotID mints the id one request and its answer are correlated by.
 func generateOneShotID() string {

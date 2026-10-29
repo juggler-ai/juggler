@@ -714,7 +714,7 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 	// minus the relaunch: a wedged main thread under test is a result to
 	// surface, not something to silently restart, so it force-exits instead.
 	// No-op off macOS.
-	startMainThreadWatchdog(srv.GetAddr(), false, jlog.FilePath())
+	startMainThreadWatchdog(srv.GetAddr(), false, jlog.FilePath(), nil)
 
 	if err := app.Run(); err != nil {
 		jlog.Error("application.Run failed: %v", err)
@@ -728,10 +728,8 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 // View menu full of zoom/actual-size commands that break our fixed layout, and
 // Reload/devtools entries that should only exist in dev mode.
 //
-//   - Session ▸ Open…      opens the project-folder picker (same as clicking
-//     the project path in the header). Driven via a CustomEvent the page
-//     listens for, mirroring the Ctrl+Tab bridge.
-//   - Session ▸ New Window spawns a fresh, independent juggler process.
+//   - Session ▸ Open…      chooses another project (chooseProject). Driven via
+//     a CustomEvent the page listens for, mirroring the Ctrl+Tab bridge.
 //   - View                 carries Zoom In/Out (font-size zoom, mirroring the
 //     header −/+ buttons — never the webview's layout-breaking page zoom) plus
 //     Reload / Force Reload / Open Developer Tools ONLY in dev mode, and Toggle
@@ -752,13 +750,6 @@ func installAppMenu(app *application.App, win *application.WebviewWindow, devMod
 		SetAccelerator("CmdOrCtrl+o").
 		OnClick(func(_ *application.Context) {
 			win.ExecJS("window.dispatchEvent(new CustomEvent('juggler:open-project'))")
-		})
-	sessionMenu.Add("New Window").
-		SetAccelerator("CmdOrCtrl+n").
-		OnClick(func(_ *application.Context) {
-			if err := spawnNewWindow(""); err != nil {
-				jlog.Error("New Window failed: %v", err)
-			}
 		})
 	sessionMenu.AddSeparator()
 	sessionMenu.AddRole(application.CloseWindow)
@@ -800,38 +791,4 @@ func installAppMenu(app *application.App, win *application.WebviewWindow, devMod
 		})
 
 	app.Menu.Set(menu)
-}
-
-// spawnNewWindow launches a brand-new, fully independent juggler process in
-// window mode. It backs the test-pool host's "New Window" menu item: each
-// window is its own process by design — the server hosts a single project at a
-// time (SwitchProject swaps global state), the hidden engine window is
-// one-per-process, and the per-project instance lock plus auto-incrementing
-// port (findAvailablePort) let N processes coexist. So "open another window" ==
-// "start another instance".
-//
-// project is the folder the new window should open. When empty the new window
-// starts in no-project mode and shows the picker overlay. The child is fully
-// detached (no Wait, stdio to the null device) so this process can quit
-// without taking the new window down with it.
-//
-// The actual launch is platform-specific (launchDetached): macOS must go
-// through `open -n` to defeat LaunchServices single-instance activation;
-// Windows and Linux exec the binary directly with detach flags.
-func spawnNewWindow(project string) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("locate executable: %w", err)
-	}
-
-	// Always pass --window explicitly. The spawning process may itself have
-	// been launched from a terminal (where window mode is opt-in), so we can't
-	// rely on the icon-launch default to put the child in window mode.
-	args := []string{"--window"}
-	if project != "" {
-		args = append(args, "--project", project)
-	}
-
-	jlog.Info("🪟 Launching new window (project=%q)", project)
-	return launchDetached(exe, args)
 }

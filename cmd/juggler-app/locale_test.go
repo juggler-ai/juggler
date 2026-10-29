@@ -10,12 +10,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
 	"juggler/cmd/juggler/core"
+	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/msg"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -120,24 +120,22 @@ func TestMenuEnglishIsUnchanged(t *testing.T) {
 }
 
 // TestDialogsSpeakTheUILanguage covers the native dialogs, the chooser's
-// default title, window titles and the locked-project page.
+// default title, window titles and the stand-in pages.
 func TestDialogsSpeakTheUILanguage(t *testing.T) {
 	a := pseudoApp(t)
 	texts := map[string]string{
 		"quit title":       a.tr(quitDialogTitle),
 		"quit confirm":     a.tr(quitDialogConfirm),
-		"close title":      a.tr(closeDialogTitle),
-		"close confirm":    a.tr(closeDialogConfirm),
 		"keep working":     a.tr(keepWorkingLabel),
 		"window title":     a.tr(appWindowTitle),
-		"locked title":     a.tr(lockedWindowTitle),
-		"locked heading":   a.tr(lockedPageTitle),
+		"mismatch title":   a.tr(mismatchWindowTitle),
+		"mismatch heading": a.tr(mismatchPageTitle),
+		"restart server":   a.tr(restartServerLabel),
+		"lost heading":     a.tr(lostPageTitle),
 		"picker title":     a.tr(defaultPickerTitle),
-		"url-only new win": a.tr(urlWindowNewWindowRefusal),
+		"remote refusal":   a.tr(remoteWindowRefusal),
 		"quitting, one":    a.tr(quitBusyMessage(1)),
 		"quitting, two":    a.tr(quitBusyMessage(2)),
-		"closing, one":     a.tr(closeBusyMessage(1)),
-		"closing, many":    a.tr(closeBusyMessage(7)),
 		"restarting, one":  a.tr(restartBusyMessage(1)),
 		"restarting, two":  a.tr(restartBusyMessage(3)),
 	}
@@ -148,10 +146,15 @@ func TestDialogsSpeakTheUILanguage(t *testing.T) {
 		}
 	}
 
-	locked := &lockedProjectError{project: "/7/8", info: &core.InstanceInfo{PID: 9, Host: "127.0.0.1", Port: 6}}
-	for i, m := range locked.adviceMessages() {
-		if text := a.tr(m); !isPseudoLocalized(text, filepath.Join("/7/8", ".juggler", "juggler.lock"), "127.0.0.1") {
-			t.Errorf("locked advice paragraph %d is %q, not translated", i, text)
+	mismatch := mismatchStandIn(&versionMismatchError{app: core.Version, server: "7.8.9", occ: machineserver.Occupancy{
+		Sessions: []machineserver.Session{{Project: "/7/8"}}, Clients: 1, LAN: true, Tunnel: "p2p", HandStarted: true,
+		// A catalogued message stands in for the mode's title, which the
+		// server sends.
+		TunnelTitle: &restartServerLabel,
+	}})
+	for i, m := range mismatch.message {
+		if text := a.tr(m); !isPseudoLocalized(text, "7.8.9", "/7/8", core.Version) {
+			t.Errorf("mismatch paragraph %d is %q, not translated", i, text)
 		}
 	}
 }
@@ -168,28 +171,11 @@ func TestBusyMessagesEnglishIsUnchanged(t *testing.T) {
 	for _, n := range []int{1, 2, 12, 999} {
 		for action, m := range map[string]msg.Message{
 			"Quitting":             quitBusyMessage(n),
-			"Closing this window":  closeBusyMessage(n),
 			"Restarting to update": restartBusyMessage(n),
 		} {
 			if got, want := m.English(), old(n, action); got != want {
 				t.Errorf("n=%d %s: got %q, want %q", n, action, got, want)
 			}
-		}
-	}
-}
-
-// TestLockedAdviceEnglishIsUnchanged: the terminal prints Advice, and the
-// window renders the same paragraphs as messages; in English they are one text.
-func TestLockedAdviceEnglishIsUnchanged(t *testing.T) {
-	for _, info := range []*core.InstanceInfo{nil, {PID: 12345, Host: "127.0.0.1", Port: 51234}} {
-		locked := &lockedProjectError{project: "/p", info: info}
-		var parts []string
-		for _, m := range locked.adviceMessages() {
-			parts = append(parts, (&appState{}).tr(m))
-		}
-		want := (&core.ProjectLockedError{Project: "/p", Info: info}).Advice()
-		if got := strings.Join(parts, "\n\n"); got != want {
-			t.Errorf("info=%v:\ngot  %q\nwant %q", info, got, want)
 		}
 	}
 }

@@ -63,7 +63,10 @@ func pageBase(t *testing.T, body string) string {
 
 // TestServedPagesCarryTheBasePath checks both served pages hand their scripts
 // the base path of the request that loaded them: empty when reached directly,
-// the proxy's prefix when reached through one.
+// the proxy's prefix when reached through one. Each is loaded both as a
+// browser tab loads it and as a desktop window does (?window=1), because the
+// window's page carries references a tab's does not — the Wails runtime, which
+// is what turns the header into the window's drag region.
 func TestServedPagesCarryTheBasePath(t *testing.T) {
 	mgr, err := core.NewSessionManagerForPath(t.TempDir())
 	if err != nil {
@@ -81,24 +84,26 @@ func TestServedPagesCarryTheBasePath(t *testing.T) {
 		"engine": s.serveEngine,
 	}
 	for name, serve := range pages {
-		for _, prefix := range []string{"", "/s/81fb48e2"} {
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			req.RemoteAddr = localViewerAddr
-			if prefix != "" {
-				req.Header.Set(forwardedPrefixHeader, prefix)
-			}
-			rec := httptest.NewRecorder()
-			serve(rec, req)
-			if rec.Code != http.StatusOK {
-				t.Fatalf("%s: status %d", name, rec.Code)
-			}
-			body := rec.Body.String()
-			if got := pageBase(t, body); got != prefix {
-				t.Errorf("%s served under %q sets base %q", name, prefix, got)
-			}
-			for _, u := range pageServerURLs(body) {
-				if !strings.HasPrefix(u, prefix+"/") {
-					t.Errorf("%s served under %q references %q outside its base", name, prefix, u)
+		for _, target := range []string{"/", "/?window=1"} {
+			for _, prefix := range []string{"", "/s/81fb48e2"} {
+				req := httptest.NewRequest(http.MethodGet, target, nil)
+				req.RemoteAddr = localViewerAddr
+				if prefix != "" {
+					req.Header.Set(forwardedPrefixHeader, prefix)
+				}
+				rec := httptest.NewRecorder()
+				serve(rec, req)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("%s %s: status %d", name, target, rec.Code)
+				}
+				body := rec.Body.String()
+				if got := pageBase(t, body); got != prefix {
+					t.Errorf("%s %s served under %q sets base %q", name, target, prefix, got)
+				}
+				for _, u := range pageServerURLs(body) {
+					if !strings.HasPrefix(u, prefix+"/") {
+						t.Errorf("%s %s served under %q references %q outside its base", name, target, prefix, u)
+					}
 				}
 			}
 		}

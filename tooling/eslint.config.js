@@ -213,7 +213,7 @@ export default [
       'web/build/**',
       'tmp/**',
       'temp/**',
-      'cmd/juggler/server/wails_runtime.js',
+      'cmd/juggler/webui/wails_runtime.js',
       'tests/benchmarks/fixtures/**',
     ],
   },

@@ -104,6 +104,19 @@ func TestGoValues(t *testing.T) {
 	}
 }
 
+// A Message given as another's parameter is translated with it: Format looks
+// both up in the catalogue, and English renders both in English.
+func TestAMessageParameterIsTranslatedWithItsMessage(t *testing.T) {
+	m := New("The {tunnel} link", "tunnel", New("Direct P2P"))
+	catalog := map[string]string{"The {tunnel} link": "Le lien {tunnel}", "Direct P2P": "P2P direct"}
+	if got, want := Format("fr", catalog, m), "Le lien P2P direct"; got != want {
+		t.Fatalf("Format = %q, want %q", got, want)
+	}
+	if got, want := m.English(), "The Direct P2P link"; got != want {
+		t.Fatalf("English() = %q, want %q", got, want)
+	}
+}
+
 type stringer struct{}
 
 func (stringer) String() string { return "str" }

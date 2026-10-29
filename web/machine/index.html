@@ -10,15 +10,32 @@
     <title>Juggler</title>
     <link rel="icon" type="image/svg+xml" href="{{.AssetBase}}/resources/juggler-logo.svg">
 
-    <!-- The theme follows the system's, set before the first paint. -->
+    <!-- Before the first paint: the theme follows the system's, and a desktop
+         window's page marks itself as one and names its platform, exactly as
+         web/index.html does, so the window chrome (layout/window-chrome.css —
+         the macOS traffic-light gutter, the Windows and Linux caption buttons)
+         applies with no flash. -->
     <script nonce="{{.CSPNonce}}">
         (function () {
+            var root = document.documentElement;
             var light = window.matchMedia('(prefers-color-scheme: light)');
             var apply = function () {
-                document.documentElement.dataset.theme = light.matches ? 'light' : 'dark';
+                root.dataset.theme = light.matches ? 'light' : 'dark';
             };
             apply();
             light.addEventListener('change', apply);
+            var query = new URLSearchParams(window.location.search);
+            if (query.has('window')) {
+                root.dataset.windowMode = '1';
+                // A window onto another computer's server (web/machine/native-host.js).
+                if (query.get('external') === '1') root.dataset.externalServer = '1';
+                var ua = navigator.userAgent;
+                root.dataset.windowPlatform =
+                    /Windows/.test(ua) ? 'windows' :
+                    /Macintosh|Mac OS X/.test(ua) ? 'mac' : 'linux';
+            }
+            root.style.setProperty('--logo-with-name-url',
+                "url('{{.AssetBase}}/resources/juggler-logo-with-name.svg')");
         })();
     </script>
 
@@ -28,6 +45,18 @@
     <link rel="stylesheet" href="{{.AssetBase}}/css/tokens/theme-light.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/base/reset.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/base/elements.css">
+    <!-- The app's shell: the header bar, its pattern and wordmark, and the
+         desktop window's chrome, shared with a session's page. -->
+    <link rel="stylesheet" href="{{.AssetBase}}/css/layout/app-shell.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/layout/window-chrome.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/layout/app-header.css">
+    <!-- The app's spinner, shown while the first list loads. -->
+    <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/spinner.css">
+    <!-- LAN access and tunnels, drawn as a session's Settings → Connectivity
+         draws them (js/components/connectivity/exposure-view.js): their cards,
+         checkboxes and the address cards' copy buttons. -->
+    <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/copy-button.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/components/connectivity.css">
     <link rel="stylesheet" href="{{.AssetBase}}/machine/sessions.css">
 
     <!-- What the page's script needs from the server (control-api.js,
@@ -36,6 +65,31 @@
     <script type="module" src="{{.AssetBase}}/machine/sessions-page.js"></script>
 </head>
 <body>
-    <main id="sessions-root" class="ms-page"></main>
+    {{if .IsWindow}}<script type="module" src="/wails/runtime.js"></script>{{end}}
+    <script nonce="{{.CSPNonce}}">
+        // The window-chrome rules are keyed on body.window-mode.
+        if (document.documentElement.dataset.windowMode === '1') {
+            document.body.classList.add('window-mode');
+        }
+    </script>
+    <!-- The no-drag strip along the window's top edge, which keeps the OS's
+         resize zone out of the header's drag region (layout/window-chrome.css). -->
+    <div class="window-resize-strip" aria-hidden="true"></div>
+
+    <app-container>
+        <!-- The header bar a desktop window is dragged by. -->
+        <header class="app-header">
+            <section class="logo"></section>
+            <window-caption-controls></window-caption-controls>
+        </header>
+        <div class="ms-scroll">
+            <main id="sessions-root" class="ms-page"></main>
+        </div>
+    </app-container>
+
+    <script type="module" src="{{.AssetBase}}/js/utils/window-fullscreen.js"></script>
+    <script type="module" src="{{.AssetBase}}/js/utils/window-edge-resize.js"></script>
+    <script type="module" src="{{.AssetBase}}/js/components/window-caption-controls.js"></script>
+    <script type="module" src="{{.AssetBase}}/js/components/juggler-spinner.js"></script>
 </body>
 </html>

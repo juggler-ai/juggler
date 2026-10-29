@@ -224,19 +224,6 @@ export default class ConversationRegistry {
   }
 
   /**
-   * Forget everything: the bar, the names, the most-recently-used list and the
-   * selection. What a project switch leaves — another project's conversations
-   * are not this one's, so nothing is selected and there is nothing to come
-   * back to.
-   */
-  reset() {
-    this.clear('reset');
-    this._names = {};
-    this._mru = [];
-    this.clearSelection();
-  }
-
-  /**
    * Swap the map's contents for `next`, keeping the Map itself, and tape what
    * joined and what left.
    * @param {Map<string, Conversation>} next - New contents, in their new order

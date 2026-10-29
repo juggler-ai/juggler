@@ -27,10 +27,10 @@
  * on is `Project`.
  *
  * **Why three of them are server-side.** localStorage is partitioned by ORIGIN,
- * and a Juggler window's origin is `http://localhost:<port>`. The port is not
- * stable per project: the default is 3939 and a spawned server increments past
- * whatever is already listening, so which project gets which port depends on the
- * order things were launched. A relaunch that lands on a different port hands
+ * and a Juggler window's origin is `http://127.0.0.1:<port>`. The port is not
+ * stable: the machine server takes 3939, or the first free port after it when
+ * something else is listening there, so it depends on what else was running at
+ * its start. A relaunch that lands on a different port hands
  * the window a different — and usually empty — localStorage, and every
  * preference kept there appears to have reverted. Namespacing the KEY cannot
  * help with that; it is the whole STORE that was swapped. Storing server-side
@@ -229,7 +229,7 @@ const announcements = new Map();
 
 /**
  * This project's storage key, as the server injected it into the page.
- * @returns {string} The key, or '' in a window with no project.
+ * @returns {string} The key, or '' on a page the server injected none into.
  * @private
  */
 function projectKey() {
@@ -240,12 +240,12 @@ function projectKey() {
  * Namespace a localStorage key by the loaded project, and by this window when it
  * is not the ordinary one.
  *
- * The page origin identifies a *port*, not a project: the next project's server
- * reuses the port, one process can switch project in place, and a viewer
- * arriving over the studio relay sees a single origin for every project on every
- * machine it connects to. Unnamespaced, this project would read whatever the
- * last one left behind. The server injects the key pre-paint; a no-project
- * window has none and falls back to the bare key, which is all it needs.
+ * The page origin identifies the machine server, not a project: every session
+ * it runs is served from that one origin under /s/<id>/, and a viewer arriving
+ * over the studio relay sees a single origin for every project on every machine
+ * it connects to. Unnamespaced, this project would read whatever another one
+ * left behind. The server injects the key pre-paint; a page with none
+ * falls back to the bare key.
  *
  * A detached board is its own window with its own appearance, but localStorage
  * is shared by every document on the origin — so a board gets its role appended

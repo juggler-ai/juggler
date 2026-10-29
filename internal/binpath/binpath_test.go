@@ -43,22 +43,40 @@ func TestSiblingNextToExe(t *testing.T) {
 	}
 }
 
+// In Juggler.app the desktop app is the bundle's executable, in
+// Contents/MacOS, and the server sits apart from it in Contents/Helpers, so
+// macOS never takes the server for the app. Each finds the other there.
+func TestSiblingAcrossTheAppBundle(t *testing.T) {
+	contents := filepath.Join(t.TempDir(), "Juggler.app", "Contents")
+	server := filepath.Join(contents, "Helpers", "juggler")
+	app := filepath.Join(contents, "MacOS", "juggler-app")
+	touch(t, server)
+	touch(t, app)
+
+	if got, ok := Sibling(app, "juggler"); !ok || got != server {
+		t.Fatalf("Sibling(app, juggler) = %q, %v; want %q", got, ok, server)
+	}
+	if got, ok := Sibling(server, "juggler-app"); !ok || got != app {
+		t.Fatalf("Sibling(server, juggler-app) = %q, %v; want %q", got, ok, app)
+	}
+}
+
 // A package manager links only juggler into a bin directory on PATH (Homebrew's
 // cask `binary` stanza). Run through that link, the executable's path is the
-// link's, and juggler-app sits beside the real binary inside the bundle.
+// link's, and juggler-app sits in the bundle the real binary is in.
 func TestSiblingThroughSymlinkedExe(t *testing.T) {
 	root := t.TempDir()
-	bundle := filepath.Join(root, "Juggler.app", "Contents", "MacOS")
-	touch(t, filepath.Join(bundle, "juggler"))
-	touch(t, filepath.Join(bundle, "juggler-app"))
+	contents := filepath.Join(root, "Juggler.app", "Contents")
+	touch(t, filepath.Join(contents, "Helpers", "juggler"))
+	touch(t, filepath.Join(contents, "MacOS", "juggler-app"))
 	link := filepath.Join(root, "bin", "juggler")
-	symlink(t, filepath.Join(bundle, "juggler"), link)
+	symlink(t, filepath.Join(contents, "Helpers", "juggler"), link)
 
 	got, ok := Sibling(link, "juggler-app")
 	if !ok {
 		t.Fatalf("Sibling(%q) found nothing; want the juggler-app in the bundle", link)
 	}
-	real, err := filepath.EvalSymlinks(filepath.Join(bundle, "juggler-app"))
+	real, err := filepath.EvalSymlinks(filepath.Join(contents, "MacOS", "juggler-app"))
 	if err != nil {
 		t.Fatal(err)
 	}

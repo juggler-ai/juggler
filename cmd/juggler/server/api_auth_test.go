@@ -23,8 +23,8 @@ import (
 const testAPIToken = "test-instance-token-abc123"
 
 // newAuthTestServer builds a minimal non-test-mode server whose router carries
-// only the api-auth middleware, plus a gated /api/ops/call, an exempt
-// /api/health, the board routes either side of the delete exemption, and a
+// only the api-auth middleware, plus a gated /api/ops/call and /api/health, the
+// exempt window state, the board routes either side of the delete exemption, and a
 // non-/api "/" — enough to exercise every branch of the token + Host allowlist
 // without standing up the full New() machinery.
 func newAuthTestServer(t *testing.T) (*Server, *bool) {
@@ -38,7 +38,6 @@ func newAuthTestServer(t *testing.T) (*Server, *bool) {
 	}
 	s.router.HandleFunc("/api/ops/call", hit).Methods("POST")
 	s.router.HandleFunc("/api/health", hit).Methods("GET")
-	s.router.HandleFunc("/api/shutdown", hit).Methods("POST")
 	s.router.HandleFunc("/api/session/window-state", hit).Methods("GET", "PUT")
 	s.router.HandleFunc("/api/session/conversations/{convId}/assets/{sha}", hit).Methods("GET")
 	s.router.HandleFunc("/api/session/files/content", hit).Methods("GET")
@@ -381,8 +380,41 @@ func TestAPIAuthExemptsNothingByPrefix(t *testing.T) {
 	}
 }
 
-// TestAPIAuthExemptEndpointsSkipToken confirms cross-process discovery endpoints
-// (probed by peers that cannot know this instance's token) stay reachable.
+// TestAPIAuthGatesHealthForRemoteCallers: a session child is reached by any
+// caller the machine server lets in — over the LAN or a tunnel — with every
+// path forwarded as asked. What the child says about itself (its project, its
+// pid, which conversations are running) is for holders of its token, so none of
+// the health routes answers a tokenless caller, local or remote.
+func TestAPIAuthGatesHealthForRemoteCallers(t *testing.T) {
+	s, reached := newAuthTestServer(t)
+	hit := func(w http.ResponseWriter, _ *http.Request) {
+		*reached = true
+		w.WriteHeader(http.StatusOK)
+	}
+	for _, p := range []string{apipaths.HealthActive, apipaths.HealthInstance} {
+		s.router.HandleFunc(p, hit).Methods("GET")
+	}
+
+	for _, path := range []string{apipaths.Health, apipaths.HealthActive, apipaths.HealthInstance} {
+		for _, remote := range []bool{false, true} {
+			*reached = false
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Host = "127.0.0.1:4000"
+			if remote {
+				req.Host = "192.168.1.5:3939"
+				req = withRemoteIngress(req)
+			}
+			rec := httptest.NewRecorder()
+			s.router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized || *reached {
+				t.Errorf("tokenless GET %s (remote=%v): got %d reached=%v, want 401 unreached", path, remote, rec.Code, *reached)
+			}
+		}
+	}
+}
+
+// TestAPIAuthExemptEndpointsSkipToken confirms the routes the desktop app calls
+// without a token (it never loads a page that carries one) stay reachable.
 func TestAPIAuthExemptEndpointsSkipToken(t *testing.T) {
 	s, reached := newAuthTestServer(t)
 
@@ -390,7 +422,6 @@ func TestAPIAuthExemptEndpointsSkipToken(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, apipaths.Health},
 		{http.MethodGet, apipaths.SessionWindowState},
 		{http.MethodPut, apipaths.SessionWindowState},
 		// The desktop app forgets a closed window's board over this, with no
@@ -409,18 +440,16 @@ func TestAPIAuthExemptEndpointsSkipToken(t *testing.T) {
 	}
 }
 
-// The token-exempt routes that change something are exempt for other Juggler
-// processes, which never send an Origin. Any web page can send a cross-site POST
-// with no preflight, and a rebinding page is same-origin to the browser so needs
-// none for a PUT or DELETE either — but a browser always says where a request
-// came from. So a request a browser marks as foreign is refused, as is one whose
-// Host a rebinding page chose. Left open, any website could stop the server
-// mid-turn.
+// The token-exempt routes that change something are exempt for the desktop app,
+// which never sends an Origin. A rebinding page is same-origin to the browser
+// so needs no preflight for a PUT or DELETE — but a browser always says where a
+// request came from. So a request a browser marks as foreign is refused, as is
+// one whose Host a rebinding page chose. Left open, any website could rewrite a
+// window's frame or forget its board.
 func TestAPIAuthMutatingExemptRoutesRefuseBrowsers(t *testing.T) {
 	s, reached := newAuthTestServer(t)
 
 	for _, route := range []struct{ method, path string }{
-		{http.MethodPost, apipaths.Shutdown},
 		{http.MethodPut, apipaths.SessionWindowState},
 		{http.MethodDelete, apipaths.SessionPinboardBoards},
 	} {
@@ -609,7 +638,7 @@ func TestHostAllowedRemoteIngressBypass(t *testing.T) {
 // too, and admits this machine's names and a remote-ingress caller. Static
 // assets carry no token and stay ungated.
 func TestPageHostMiddlewareRefusesRebindingHosts(t *testing.T) {
-	gated := []string{"/", "/index.html", "/engine", "/headless-test", "/test-pool", apipaths.WebSocket}
+	gated := []string{"/", "/engine", "/headless-test", "/test-pool", apipaths.WebSocket}
 	for _, authDisabled := range []bool{false, true} {
 		var reached bool
 		s := &Server{router: mux.NewRouter(), apiToken: testAPIToken, test: testCapabilities{authDisabled: authDisabled}}

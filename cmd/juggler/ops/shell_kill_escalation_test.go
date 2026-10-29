@@ -240,9 +240,9 @@ func TestKilledBackgroundTaskStillForceKillsSurvivors(t *testing.T) {
 	waitForEscalation(t, escalations, "a task whose child survived the polite stop was never force-killed")
 }
 
-// TestStopBackgroundTasksDoesNotForceKillReapedPids covers the project-switch
-// and shutdown stop, which signals every task and then takes the groups of any
-// that ignored it after one shared grace.
+// TestStopBackgroundTasksDoesNotForceKillReapedPids covers the shutdown stop,
+// which signals every task and then takes the groups of any that ignored it
+// after one shared grace.
 func TestStopBackgroundTasksDoesNotForceKillReapedPids(t *testing.T) {
 	requirePOSIXShell(t)
 
@@ -251,7 +251,7 @@ func TestStopBackgroundTasksDoesNotForceKillReapedPids(t *testing.T) {
 	escalations := countEscalations(t)
 	reaped := reapedChan(t, id)
 
-	if stopped := StopBackgroundTasks(root, "Stopped when the project changed", time.Second); stopped != 1 {
+	if stopped := StopBackgroundTasks(root, "Stopped when Juggler quit", time.Second); stopped != 1 {
 		t.Fatalf("expected to stop 1 task, stopped %d", stopped)
 	}
 	select {

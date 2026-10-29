@@ -51,8 +51,7 @@ type OperationResponse struct {
 }
 
 // OpsAPI handles the unified native operations API. Each request's workspace
-// is resolved afresh, so a runtime project switch retargets ops and a workspace
-// registered a moment ago is reachable.
+// is resolved afresh, so a workspace registered a moment ago is reachable.
 type OpsAPI struct {
 	resolve workspace.ResolveFunc
 	// Operation handlers are stateless and recreated per request.

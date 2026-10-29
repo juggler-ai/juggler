@@ -21,13 +21,11 @@ import (
 	"juggler/cmd/juggler/syswake"
 	"juggler/cmd/juggler/worker"
 	"juggler/cmd/juggler/workspace"
-	"juggler/internal/hostcheck"
 	"juggler/internal/jlog"
 	"juggler/internal/updatecheck"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/pion/webrtc/v4"
 )
 
 // Timeout configuration for background provider/model operations.
@@ -48,13 +46,15 @@ const (
 // Origin header on cross-origin WebSocket handshakes; a same-origin page
 // either omits it or sends one whose host matches the request's Host header.
 // Non-browser clients (CLI tools, integration tests) typically omit Origin,
-// which we allow — the LAN gate middleware already restricts who can reach
-// the listener. The check exists to stop a different web page the user is
+// which we allow — the listener is on loopback, and anything from elsewhere
+// arrives through the machine server, which decides who gets that far. The
+// check exists to stop a different web page the user is
 // browsing from opening a socket to the local agent.
 //
-// Every client — LAN browsers, the desktop app's windows, and the hidden
-// engine WebView — reaches the server over plain http://<addr>/..., so their
-// Origin matches r.Host uniformly and the check needs no special cases.
+// Every client — browsers through the machine server, the desktop app's
+// windows, and the hidden engine WebView — reaches the server over plain
+// http://<host>/..., so their Origin matches r.Host uniformly and the check
+// needs no special cases.
 func sameOriginCheck(r *http.Request) bool {
 	// Modern browsers stamp Sec-Fetch-Site on the handshake; a "cross-site" value
 	// is a definitive cross-origin signal even when Origin is absent or spoofed,
@@ -115,7 +115,6 @@ type serverStores struct {
 	defaultModelStore  *core.DefaultModelStore
 	cheapModelStore    *core.CheapModelStore
 	decisionModelStore *core.DecisionModelStore
-	recentsStore       *core.RecentsStore
 	recentModelsStore  *core.RecentModelsStore
 }
 
@@ -164,7 +163,7 @@ type providerRefresh struct {
 type wsFleet struct {
 	upgrader websocket.Upgrader
 	// hub owns the set of all connected WebSocket clients — used for full-fleet
-	// broadcasts (project-changed, providers-update, shutdown notices).
+	// broadcasts (providers-update, shutdown notices).
 	hub *clientHub
 	// engineClient is the headless engine WS connection, or nil. Set on
 	// engine-role upgrade and cleared on disconnect.
@@ -249,11 +248,8 @@ type Server struct {
 	stopWake         func()              // Drops the system-wake subscription New took for workerManager; nil before New finishes
 	stopProcessWatch func()              // Drops the process-inventory subscription New took; nil before New finishes
 	extraRoutes      func(r *mux.Router) // Optional Config.ExtraRoutes hook, invoked at the end of setupRoutes
-	exitWithParent   bool                // Config.ExitWithParent: server self-terminates when its parent (the viewer) dies; reported on /api/health/instance
-	loopbackOnly     bool                // Config.LoopbackOnly: bind 127.0.0.1 instead of every interface
 	ingressSecret    string              // Config.IngressSecret: the supervisor's proof that a caller is off loopback ("" when there is no supervisor)
-	allowedHosts     hostcheck.AllowList // Config.AllowedHosts: extra Host names a reverse proxy on this machine serves us under
-	fixedProject     bool                // Config.FixedProject: the project can't be switched or created in place (see setupProjectRoutes)
+	supervisor       Supervisor          // Config.Supervisor: the machine server this session's exposure switches go to (zero when there is none)
 
 	// conversationCache holds the per-conversation Provider.Conversation
 	// handles: one handle per (convID, providerName, model), opened lazily
@@ -273,21 +269,8 @@ type Server struct {
 	// moment to mention it again, and nothing has to be written down.
 	cheapModelNoticeOnce sync.Once
 
-	publicMode atomic.Bool                  // true = accept connections from non-localhost IPs
-	tunnel     atomic.Pointer[activeTunnel] // non-nil when a tunnel is active
-
-	// webrtcCert is this machine's persistent WebRTC identity: the DTLS
-	// certificate presented on every peer connection, loaded once at startup
-	// from the per-user config dir (see webrtc_identity.go) and reused across
-	// restarts so the peer's fingerprint — and therefore any Direct P2P link a
-	// remote client pins to it — stays stable. nil only if load/create failed,
-	// in which case pion mints an ephemeral certificate per connection (the
-	// pre-persistence behaviour).
-	webrtcCert *webrtc.Certificate
-
-	// Per-project state, swapped atomically on project change.
+	// The project's state (see projectState).
 	projectState atomic.Pointer[projectState]
-	switchToken  chan struct{} // size-1 token; serializes SwitchProject
 
 	// updateChecker polls the remote version manifest (juggler.studio) and holds
 	// the latest "new version available" decision in memory. Created in New; its
@@ -332,22 +315,10 @@ type Config struct {
 	// server's router, so a wrapping distribution can register additional
 	// HTTP routes without editing this package. Routes registered here pass
 	// through the same router-wide middleware as built-ins: CORS, cache
-	// control, the LAN gate, and — for paths under /api/ — the per-instance
+	// control, and — for paths under /api/ — the per-instance
 	// session-token auth (see apiAuthMiddleware). Must not shadow existing
 	// routes.
 	ExtraRoutes func(r *mux.Router)
-
-	// ExitWithParent mirrors the server's --exit-with-parent flag: true when a
-	// parent process (the juggler-app viewer) owns this server's lifetime and it
-	// self-terminates once that parent dies. Surfaced on /api/health/instance so
-	// a discovering viewer can tell an about-to-exit orphan from a durable server.
-	ExitWithParent bool
-
-	// LoopbackOnly binds the listener to 127.0.0.1 rather than every
-	// interface. A machine-server session child sets it: it is reached only
-	// through its supervisor's proxy, so nothing off this machine should be
-	// able to connect to it at all — not merely be refused by the LAN gate.
-	LoopbackOnly bool
 
 	// IngressSecret is the secret a machine-server session child was spawned
 	// with (internal/ingress). A request carrying it in ingress.Header is one
@@ -356,19 +327,15 @@ type Config struct {
 	// server, which then ignores the header.
 	IngressSecret string
 
-	// FixedProject refuses opening or creating another project in place
-	// (POST /api/project, /api/project/new). A machine-server session child
-	// sets it: its supervisor keys the session by the project it spawned it
-	// for, so another folder is another session (see setupProjectRoutes).
-	FixedProject bool
+	// APIToken is the API token to serve, minted by whoever spawned this
+	// session child (ingress.TokenEnv), which holds it to call the API. Empty
+	// for any other server, which mints its own.
+	APIToken string
 
-	// AllowedHosts are extra Host names this server accepts on top of
-	// hostcheck.NamesThisMachine: the names a reverse proxy on this machine
-	// (tailscale serve, caddy) publishes it under. A loopback request naming
-	// one is that proxy's, and is tagged as remote ingress (see
-	// proxyIngressMiddleware). Empty for a session child, whose supervisor
-	// holds the list.
-	AllowedHosts hostcheck.AllowList
+	// Supervisor is the machine server that spawned this session child, which
+	// owns LAN access and tunnels (see setupConnectivityRoutes). Zero for any
+	// other server, which then offers no exposure switches.
+	Supervisor Supervisor
 }
 
 // New creates a new server
@@ -376,9 +343,6 @@ func New(cfg Config) (*Server, error) {
 	if cfg.SessionManager == nil {
 		return nil, fmt.Errorf("session manager is required")
 	}
-
-	// From here the tunnel-mode registry is read without a lock.
-	sealTunnelModes()
 
 	router := mux.NewRouter()
 	upgrader := newWSUpgrader()
@@ -432,7 +396,6 @@ func New(cfg Config) (*Server, error) {
 	extensionsAPI := createExtensionsAPI(cfg.AssetsFromDisk)
 
 	staticVersion := generateStaticVersion()
-	recents, _ := core.NewRecentsStore()
 	recentModels, _ := core.NewRecentModelsStore()
 
 	// Field-by-field initialization of the up-front skeleton — NEVER replace
@@ -469,7 +432,6 @@ func New(cfg Config) (*Server, error) {
 		defaultModelStore:  defaultModelStore,
 		cheapModelStore:    cheapModelStore,
 		decisionModelStore: decisionModelStore,
-		recentsStore:       recents,
 		recentModelsStore:  recentModels,
 	}
 
@@ -480,13 +442,13 @@ func New(cfg Config) (*Server, error) {
 	s.assetsFromDisk = cfg.AssetsFromDisk
 	s.bootProjectPath = cfg.ProjectPath
 	s.extraRoutes = cfg.ExtraRoutes
-	s.exitWithParent = cfg.ExitWithParent
-	s.loopbackOnly = cfg.LoopbackOnly
 	s.ingressSecret = cfg.IngressSecret
-	s.fixedProject = cfg.FixedProject
-	s.allowedHosts = cfg.AllowedHosts
+	s.supervisor = cfg.Supervisor
 	s.staticVersion = staticVersion
-	s.apiToken = mintAPIToken()
+	s.apiToken = cfg.APIToken
+	if s.apiToken == "" {
+		s.apiToken = mintAPIToken()
+	}
 	s.bootID = generateClientID()
 	s.startTime = time.Now()
 	s.shutdownChan = make(chan struct{})
@@ -495,27 +457,8 @@ func New(cfg Config) (*Server, error) {
 	s.refreshRequests = make(chan struct{}, 1)
 	s.providersReady = make(chan struct{})
 	s.quickCompleteSem = make(chan struct{}, quickCompleteConcurrency)
-	s.switchToken = make(chan struct{}, 1)
-	s.switchToken <- struct{}{}
 
 	s.stats = newWSStats()
-
-	// Load (or mint on first run) this project's persistent WebRTC identity so
-	// peer connections present a stable DTLS fingerprint across restarts. Scoped
-	// per project (stored 0600 in <project>/.juggler, like the instance lock), so
-	// the several servers a user runs — one per project — each keep their own
-	// pinnable identity rather than colliding on a machine-wide one. Anchored to
-	// the launch project, matching how BootLock is keyed; a mid-session
-	// SwitchProject does not re-key it. Best-effort: with no project (window
-	// mode) or on any failure, webrtcCert stays nil and pion mints an ephemeral
-	// per-connection certificate, exactly as before persistence existed.
-	if cfg.ProjectPath != "" {
-		if cert, err := loadOrCreateWebRTCCertificate(webRTCIdentityPath(cfg.ProjectPath)); err != nil {
-			jlog.Info("WebRTC identity unavailable, using ephemeral certificates: %v", err)
-		} else {
-			s.webrtcCert = cert
-		}
-	}
 
 	s.seedProjectState(cfg)
 
@@ -527,12 +470,9 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to load index template: %w", err)
 	}
 
-	// First, so the LAN gate, the API auth and every handler after them see a
-	// caller the supervisor vouched for as remote ingress.
+	// First, so the API auth and every handler after it see a caller the
+	// supervisor vouched for as remote ingress.
 	s.router.Use(s.supervisorIngressMiddleware)
-	// Next, so the same holds for a caller the user's own reverse proxy forwards.
-	s.router.Use(s.proxyIngressMiddleware)
-	s.router.Use(s.lanGateMiddleware)
 	s.router.Use(s.pageHostMiddleware)
 	s.router.Use(s.apiAuthMiddleware)
 
@@ -540,7 +480,6 @@ func New(cfg Config) (*Server, error) {
 	s.setupConfigRoutes(configAPI)
 	s.setupConnectivityRoutes()
 	s.setupLogsRoutes()
-	s.setupProjectRoutes()
 	s.setupRoutes()
 
 	s.wireWorkerManager()

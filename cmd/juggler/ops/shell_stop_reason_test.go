@@ -70,14 +70,14 @@ func TestUserStopKeepsItsReasonThroughTheSpawnersUpdate(t *testing.T) {
 }
 
 // TestProjectStopKeepsItsReasonThroughTheSpawnersUpdate is the other stop path:
-// a project switch and shutdown pass their own wording, which the user reads to
+// shutdown passes its own wording, which the user reads to
 // find out why something they never touched is no longer running.
 func TestProjectStopKeepsItsReasonThroughTheSpawnersUpdate(t *testing.T) {
 	const id = "bg-project-stop-reason"
 	root := t.TempDir()
 	registerStoppableShell(t, id, root)
 
-	const reason = "Stopped when the project changed"
+	const reason = "Stopped when Juggler quit"
 	if stopped := StopBackgroundTasks(root, reason, 0); stopped != 1 {
 		t.Fatalf("expected to stop 1 task, stopped %d", stopped)
 	}
@@ -85,7 +85,7 @@ func TestProjectStopKeepsItsReasonThroughTheSpawnersUpdate(t *testing.T) {
 	updateShellStatus(id, "failed", "", -1, "command cancelled", "", 0, false)
 
 	if state := TaskState(id); state.Error != reason {
-		t.Errorf("a task stopped by the project switch ended saying %q, want %q", state.Error, reason)
+		t.Errorf("a task stopped by name ended saying %q, want %q", state.Error, reason)
 	}
 }
 

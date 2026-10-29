@@ -4,15 +4,14 @@
 
 /**
  * Reconnect-policy tests — the WebSocketService applies ONE generic reconnect
- * policy to every transport (WebSocket, WebRTC-LAN, juggler.studio): a dropped
+ * policy to every transport (WebSocket, juggler.studio): a dropped
  * link is detected, the service backs off, and it re-establishes via a single
  * transport-specific primitive (this._reestablish), looping until reconnected.
  *
  * These cases pin that uniformity directly on a throwaway WebSocketService:
  *   - any non-intentional transport death enters the shared backoff loop;
- *   - an intentional teardown or an expected failed-probe close does NOT;
- *   - an attempt abandoned mid-handshake cannot act on the link that replaced
- *     it, while one that fails as the current attempt still falls back;
+ *   - an intentional teardown or a close the service arranged does NOT;
+ *   - adopting the studio channel opens the session's socket over it first;
  *   - the backoff timer fires whatever re-establish primitive the current
  *     transport installed (not a hardcoded socket reconnect);
  *   - studio's primitive reloads directly (its only recovery), throttled by
@@ -158,71 +157,6 @@ export async function runTests(_ctx) {
   const framesOf = (transport) => transport.frames.map((/** @type {string} */ f) => JSON.parse(f));
 
   /**
-   * A DataChannel stand-in: the transport stub plus the listener surface the
-   * WebRTC handshake subscribes its open/error promise to.
-   * @returns {any} Fake data channel.
-   */
-  const makeChannel = () => Object.assign(makeTransport(), {
-    /** Ignore the open/error subscriptions — the handshake is driven directly. */
-    addEventListener() {},
-    /** Ignore removals, for the same reason. */
-    removeEventListener() {}
-  });
-
-  /**
-   * Start a real WebRTC attempt against a peer connection the test owns. The
-   * offer settles only when the case fails it, so the attempt stays in flight
-   * for exactly as long as the case needs it there — which is the window the
-   * whole generation question lives in.
-   *
-   * There is no real RTCPeerConnection in a test lane, and the page is not
-   * served over https, so both the constructor and the transport choice are
-   * stood in for. The relay is counted rather than opened.
-   * @param {WebSocketService} svc - The service to connect.
-   * @returns {{channel: any, pc: any, sockets: () => number, fail: (error: Error) => void}} Handles on the attempt.
-   */
-  const startWebRtcAttempt = (svc) => {
-    const channel = makeChannel();
-    /** @type {(error: Error) => void} */
-    let failOffer = () => {};
-    const offer = new Promise((_resolve, reject) => { failOffer = reject; });
-    const pc = {
-      iceGatheringState: 'complete',
-      closes: 0,
-      /** @returns {any} The channel this attempt hands the service. */
-      createDataChannel: () => channel,
-      /** @returns {Promise<any>} An offer that hangs until the case fails it. */
-      createOffer: () => offer,
-      /** @returns {Promise<void>} */
-      setLocalDescription: async () => {},
-      /** Count the close, so a leaked peer connection is visible. */
-      close() { this.closes++; },
-      /** Ignore ICE-gathering subscriptions; gathering is already complete. */
-      addEventListener() {},
-      /** Ignore removals, for the same reason. */
-      removeEventListener() {}
-    };
-    let sockets = 0;
-    svc._shouldTryWebRTC = () => true;
-    svc._connectWebSocket = () => { sockets++; };
-    const g = /** @type {any} */ (globalThis);
-    const had = Object.prototype.hasOwnProperty.call(g, 'RTCPeerConnection');
-    const previous = g.RTCPeerConnection;
-    Object.defineProperty(g, 'RTCPeerConnection', {
-      configurable: true, writable: true, value: function () { return pc; }
-    });
-    try {
-      // The handshake arms the channel's own open timeout synchronously.
-      // Capture it, so nothing of this attempt rejects into a later case.
-      captureScheduled(() => svc.connect());
-    } finally {
-      if (had) g.RTCPeerConnection = previous; else delete g.RTCPeerConnection;
-    }
-    svc._reestablish = () => {}; // never re-open anything from a unit test
-    return { channel, pc, sockets: () => sockets, fail: failOffer };
-  };
-
-  /**
    * Stop the timers connect() started and put the service beyond caring, so a
    * case cannot outlive itself through the wake listeners or a pending backoff.
    * @param {WebSocketService} svc - The service under test.
@@ -230,26 +164,6 @@ export async function runTests(_ctx) {
   const retire = (svc) => {
     svc._intentionalDisconnect = true;
     svc._stopLinkWatchdog();
-  };
-
-  /**
-   * A WebRTC attempt that was condemned by the connect-stall check while it was
-   * still handshaking, replaced by a live link, and only then rejected.
-   * @returns {Promise<{svc: WebSocketService, replacement: any, channel: any, pc: any, sockets: () => number}>} The service and what it holds.
-   */
-  const abandonedWebRtcAttempt = async () => {
-    const svc = new WebSocketService();
-    const { channel, pc, sockets, fail } = startWebRtcAttempt(svc);
-    // The handshake neither opens nor fails, so the watchdog condemns it and the
-    // death path installs its replacement in the same turn.
-    svc._connectStartedAt = Date.now() - 600000;
-    svc._checkLink();
-    const replacement = makeTransport();
-    svc._transport = replacement;
-    // Only now does the abandoned handshake give up.
-    fail(new Error('ICE went nowhere'));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    return { svc, replacement, channel, pc, sockets };
   };
 
   /**
@@ -345,7 +259,7 @@ export async function runTests(_ctx) {
     assert(attempts === 1, `the close after a shutdown notice must reconnect; got ${attempts} attempts`);
   });
 
-  await run('expected failed-probe close skips reconnect and clears the suppress flag', async () => {
+  await run('a close the service arranged skips reconnect and clears the suppress flag', async () => {
     const svc = new WebSocketService();
     svc.connected = true;
     svc._suppressNextCloseReconnect = true;
@@ -579,40 +493,6 @@ export async function runTests(_ctx) {
     assert(reestablished === 1, `the replacement gets the same grace; got ${reestablished}`);
   });
 
-  await run('an abandoned WebRTC attempt cannot touch the link that replaced it', async () => {
-    const { svc, replacement, pc, sockets } = await abandonedWebRtcAttempt();
-    retire(svc);
-    assert(svc._suppressNextCloseReconnect === false, 'a handshake nobody is waiting for may not suppress anything');
-    assert(svc._transport === replacement, 'nor take away the transport its replacement installed');
-    assert(sockets() === 0, `nor relay for a link that is not its own; got ${sockets()} sockets`);
-    assert(pc.closes >= 1, 'and it still closes its own peer connection, condemned or not');
-  });
-
-  await run('a genuine death after an abandoned WebRTC attempt still reconnects', async () => {
-    const { svc, replacement } = await abandonedWebRtcAttempt();
-    // The suppress flag is a one-shot: armed by an attempt that no longer speaks
-    // for anything, it would be spent on the next real death and leave the page
-    // disconnected with nothing counting down.
-    const attempts = countEvent(svc, 'reconnect-attempt', () => {
-      svc._onTransportClosed(new Event('close'), replacement);
-    });
-    retire(svc);
-    assert(attempts === 1, `the death of the replacement must arm the loop; got ${attempts} attempts`);
-  });
-
-  await run('a WebRTC probe that fails while it is still the current attempt falls back to the relay', async () => {
-    const svc = new WebSocketService();
-    const { pc, sockets, fail } = startWebRtcAttempt(svc);
-    // Nothing condemned this one: it is simply a host that cannot be reached
-    // directly, which is what the relay exists for.
-    fail(new Error('ICE went nowhere'));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert(sockets() === 1, `a failed probe must be relayed over instead; got ${sockets()} sockets`);
-    assert(svc._suppressNextCloseReconnect === true, 'and its own close is an expected one, not a link death');
-    assert(pc.closes >= 1, 'the probe closes its peer connection');
-    retire(svc);
-  });
-
   await run('waking on a link that went quiet under us drops it rather than trusting it', async () => {
     const { svc, transport, attempts } = live();
     // The page believes it is connected because nothing was running to notice
@@ -680,6 +560,33 @@ export async function runTests(_ctx) {
     assert(reestablished === 0, `going away is not waking up; got ${reestablished}`);
   });
 
+  await run('adopting the studio channel opens the session\'s socket over it before anything else', async () => {
+    const svc = new WebSocketService();
+    /** @type {string[]} */
+    const sent = [];
+    const w = /** @type {any} */ (window);
+    const had = Object.prototype.hasOwnProperty.call(w, '__jugglerStudio');
+    const previous = w.__jugglerStudio;
+    w.__jugglerStudio = {
+      dc: { addEventListener() {} },
+      sendFrame: (/** @type {string} */ f) => { sent.push(f); },
+      setRealtimeHandler() {}
+    };
+    try {
+      svc._adoptStudioChannel();
+      svc._sendJson({ type: 'hello' }, 'hello');
+    } finally {
+      if (had) w.__jugglerStudio = previous; else delete w.__jugglerStudio;
+      retire(svc);
+    }
+    const first = JSON.parse(sent[0] || '{}');
+    assert(first.type === '__juggler_ws_open', `the first frame opens the socket; got ${sent[0]}`);
+    assert(typeof first.path === 'string' && /^\/(.*\/)?api\/ws\?role=viewer(&|$)/.test(first.path),
+      `at the viewer socket's path and query; got ${first.path}`);
+    assert(first.path.includes('viewerId='), `naming the viewer, as a socket would; got ${first.path}`);
+    assert(JSON.parse(sent[1] || '{}').type === 'hello', `and the page's own traffic follows it; got ${sent[1]}`);
+  });
+
   await run('studio re-establish reloads directly to recover (no health probe over the dead tunnel)', async () => {
     const svc = new WebSocketService();
     svc._shouldReloadOnReconnect = () => true; // bypass the rate-limiter
@@ -691,7 +598,7 @@ export async function runTests(_ctx) {
     // tunneled through the dead DataChannel and 504 forever).
     globalThis.fetch = async () => { fetched++; return { ok: true }; };
     try {
-      await svc._reloadWhenReachable();
+      await svc._reloadToReconnect();
     } finally {
       globalThis.fetch = origFetch;
     }
@@ -706,7 +613,7 @@ export async function runTests(_ctx) {
     let rearmed = 0;
     svc._reloadPage = () => { reloaded++; };
     svc._reconnect = () => { rearmed++; };
-    await svc._reloadWhenReachable();
+    await svc._reloadToReconnect();
     assert(reloaded === 0, 'must NOT reload while throttled (no reload storm)');
     assert(rearmed === 1, `throttled reload re-arms the same backoff loop; got ${rearmed}`);
   });
@@ -719,7 +626,7 @@ export async function runTests(_ctx) {
     let rearmed = 0;
     svc._reloadPage = () => { reloaded++; };
     svc._reconnect = () => { rearmed++; };
-    await svc._reloadWhenReachable();
+    await svc._reloadToReconnect();
     assert(reloaded === 0, 'no reload once the link is already back');
     assert(rearmed === 0, 'no needless re-arm once connected');
   });

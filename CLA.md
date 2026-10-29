@@ -104,7 +104,7 @@ You represent that:
 3. if an employer or another party may own relevant intellectual-property
    rights, you have obtained permission or a waiver and, where requested, that
    party has executed Juggler’s CCLA; and
-4. you will promptly notify us at `julianstorer@gmail.com` if you later learn of
+4. you will promptly notify us at `info@juggler.studio` if you later learn of
    facts that make these representations materially inaccurate.
 
 You are not required to support your Contribution. Except for the
@@ -133,7 +133,7 @@ Every commit must contain a matching `Signed-off-by:` line, as described in
 
 You may stop making future Contributions at any time. You may terminate this
 Agreement for Contributions submitted after we receive written notice at
-`julianstorer@gmail.com`. Rights already granted for Contributions submitted
+`info@juggler.studio`. Rights already granted for Contributions submitted
 before termination remain effective and irrevocable.
 
 ## 9. Assignment and successors
@@ -164,7 +164,7 @@ is not a waiver. Nothing in this Agreement grants rights in either party’s
 trademarks, trade names, or personal identity except as necessary to identify
 the Project, the Contribution, or its authorship.
 
-Notices under this Agreement must be sent to `julianstorer@gmail.com`. Our
+Notices under this Agreement must be sent to `info@juggler.studio`. Our
 handling of contributor-agreement records is described in
 [`CONTRIBUTOR-AGREEMENT-PRIVACY.md`](CONTRIBUTOR-AGREEMENT-PRIVACY.md).
 
@@ -180,6 +180,6 @@ By signing, you confirm that you have read and agree to **Juggler Individual
 Contributor License Agreement version 1.0** and that the GitHub account used to
 sign is yours.
 
-A written counterpart may instead be arranged through `julianstorer@gmail.com`.
+A written counterpart may instead be arranged through `info@juggler.studio`.
 It should record your full name, GitHub username, email address, date, signature,
 and this Agreement’s version.

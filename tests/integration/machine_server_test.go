@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -103,20 +104,15 @@ func TestMachineServerProxiesHTTP(t *testing.T) {
 	project := newProjectDir(t)
 	sess := ms.openSession(project, http.StatusCreated)
 
-	resp, err := ms.do(http.MethodGet, "/s/"+sess.ID+"/api/health/instance", nil)
-	if err != nil {
-		t.Fatalf("proxied GET: %v", err)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("proxied GET /api/health/instance: status %d, body %s", resp.StatusCode, body)
+	code, body := sessionCall(t, http.MethodGet, ms.url("/s/"+sess.ID+apipaths.HealthInstance), ms.sessionPageToken("/s/"+sess.ID), nil)
+	if code != http.StatusOK {
+		t.Fatalf("proxied GET %s: status %d, body %s", apipaths.HealthInstance, code, body)
 	}
 	var inst struct {
 		ProjectPath string `json:"projectPath"`
 		PID         int    `json:"pid"`
 	}
-	if err := json.Unmarshal(body, &inst); err != nil {
+	if err := json.Unmarshal([]byte(body), &inst); err != nil {
 		t.Fatalf("decode instance health %s: %v", body, err)
 	}
 	if inst.PID != sess.PID || inst.ProjectPath != project {
@@ -126,7 +122,7 @@ func TestMachineServerProxiesHTTP(t *testing.T) {
 
 	// The page tells its scripts where it is mounted, so they address the
 	// child through the proxy rather than the machine server's own root.
-	resp, err = ms.do(http.MethodGet, "/s/"+sess.ID+"/", nil)
+	resp, err := ms.do(http.MethodGet, "/s/"+sess.ID+"/", nil)
 	if err != nil {
 		t.Fatalf("proxied GET index: %v", err)
 	}
@@ -224,6 +220,7 @@ func TestMachineServerDrivesASessionInABrowser(t *testing.T) {
 		t.Fatalf("copy fixture: %v", err)
 	}
 	sess := ms.openSession(fixture, http.StatusCreated)
+	ms.holdSession(sess.ID)
 
 	// The child's own test API, reached the way the page reaches it.
 	prefix := "/s/" + sess.ID
@@ -307,44 +304,22 @@ func TestMachineServerCLI(t *testing.T) {
 	}
 }
 
-// TestOpenStartsAnImplicitServer: `juggler open` with no server running
-// starts one — detached, marked implicit — and prints the URL of a session
-// that is already running. The command returning at all shows the server holds
-// none of its output: a server writing to an inherited pipe would keep it open,
-// and the run would wait on it.
-func TestOpenStartsAnImplicitServer(t *testing.T) {
+// TestOpenNeedsARunningServer: open never creates a server whose lifetime
+// would end as soon as the command returned.
+func TestOpenNeedsARunningServer(t *testing.T) {
 	iso := newIsolatedRun(t)
 	ms := &machineServer{t: t, Home: iso.home, ConfigDir: configDirUnder(iso.home), Logs: iso.logs, iso: iso, children: map[int]string{}}
 	project := newProjectDir(t)
-
 	code, out, errOut := ms.cli("open", project)
 	infoPath := filepath.Join(ms.ConfigDir, "server.json")
 	if _, err := os.Stat(infoPath); err == nil {
 		info := ms.readServerInfo()
 		ms.Addr, ms.Token = info.Addr, info.Token
 		t.Cleanup(func() { ms.stopDetached(infoPath, info.PID) })
-		if !info.Implicit {
-			t.Errorf("server.json %+v: want the server juggler open started marked implicit", info)
-		}
+		t.Error("juggler open started a machine server")
 	}
-	if code != 0 {
-		t.Fatalf("juggler open with no server: exit %d, stdout %q, stderr %q", code, out, errOut)
-	}
-	if !strings.Contains(errOut, "Started the Juggler server") {
-		t.Errorf("juggler open with no server: stderr %q, want it to say it started the server", errOut)
-	}
-	list := ms.mustListSessions()
-	if len(list) != 1 || list[0].Project != project || list[0].State != machineserver.SessionRunning {
-		t.Fatalf("sessions after juggler open = %+v, want one running for %s", list, project)
-	}
-	ms.noteChild(list[0])
-	if want := "http://" + ms.Addr + "/s/" + list[0].ID + "/"; strings.TrimSpace(out) != want {
-		t.Fatalf("juggler open printed %q, want %q", out, want)
-	}
-
-	// A second open finds the server rather than starting another.
-	if code, out2, errOut := ms.cli("open", project); code != 0 || strings.TrimSpace(out2) != strings.TrimSpace(out) || strings.Contains(errOut, "Started") {
-		t.Fatalf("second juggler open: exit %d, stdout %q, stderr %q; want the same session on the same server", code, out2, errOut)
+	if code != 1 || out != "" || !strings.Contains(errOut, "run "+"`juggler`"+" in the project") {
+		t.Fatalf("open without a server: exit %d, stdout %q, stderr %q; want refusal pointing at juggler in the project", code, out, errOut)
 	}
 }
 
@@ -629,12 +604,95 @@ func TestMachineServerReportsSessionActivity(t *testing.T) {
 	}
 }
 
+// TestMachineServerKeepsAnUnviewedTurnUntilItFinishes checks session lifetime
+// against real children. An idle unviewed child disappearing witnesses the
+// supervisor's grace expiring while a disconnected viewer's turn stays busy.
+func TestMachineServerKeepsAnUnviewedTurnUntilItFinishes(t *testing.T) {
+	ms, stop := startMachineServer(t)
+	defer stop()
+	ms.setDefaultModel(core.ModelRef{Provider: "test", Model: "test-model"})
+
+	deadline := time.Now().Add(90 * time.Second)
+	if end, ok := t.Deadline(); ok && end.Before(deadline) {
+		deadline = end
+	}
+	sess := ms.openSession(newProjectDir(t), http.StatusCreated)
+	release, disconnect := holdTurnWithViewer(t, ms, sess)
+	ms.waitForSession(sess.ID, "busy", time.Until(deadline), func(s machineserver.Session) bool { return s.Busy })
+	disconnect()
+	disconnectedAt := time.Now()
+	witness := ms.openSession(newProjectDir(t), http.StatusCreated)
+
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	expired := time.NewTimer(time.Until(deadline))
+	defer expired.Stop()
+	wait := func(what string, done func([]machineserver.Session) bool) {
+		t.Helper()
+		for {
+			list := ms.mustListSessions()
+			if done(list) {
+				return
+			}
+			select {
+			case <-tick.C:
+			case <-expired.C:
+				t.Fatalf("%s: test deadline expired; sessions: %+v", what, list)
+			}
+		}
+	}
+	wait("idle unviewed session should vanish while the turn holds its session", func(list []machineserver.Session) bool {
+		var held, idle *machineserver.Session
+		for i := range list {
+			switch list[i].ID {
+			case sess.ID:
+				held = &list[i]
+			case witness.ID:
+				idle = &list[i]
+			}
+		}
+		if held == nil || held.State != machineserver.SessionRunning || !held.Busy || held.PID != sess.PID {
+			t.Fatalf("disconnect cancelled or stopped the held turn: sessions %+v", list)
+		}
+		if idle != nil {
+			return false
+		}
+		if elapsed := time.Since(disconnectedAt); elapsed < 10*time.Second {
+			t.Fatalf("idle witness vanished after %s, before the 10s viewer grace expired", elapsed)
+		}
+		return true
+	})
+	t.Log("idle witness vanished after grace; disconnected session still running its held turn")
+
+	release()
+	wait("released unviewed session should vanish", func(list []machineserver.Session) bool {
+		for _, s := range list {
+			if s.ID == sess.ID {
+				return false
+			}
+		}
+		return true
+	})
+	if dialable(sess.Addr) {
+		t.Fatalf("session vanished but its child at %s still accepts connections", sess.Addr)
+	}
+}
+
 // holdTurn starts a turn in a new conversation on sess's child and holds it
 // open on a paused scripted response — the worker's test mock, which every
 // non-production build carries — talking to the child through the proxy as a
 // viewer would. It returns once the child reports the turn paused, with the
 // func that lets the turn finish.
 func holdTurn(t *testing.T, ms *machineServer, sess machineserver.Session) (release func()) {
+	t.Helper()
+	release, _ = holdTurnWithViewer(t, ms, sess)
+	return release
+}
+
+// holdTurnWithViewer also lets the caller disconnect the turn's only viewer.
+// Release after disconnect uses a direct child socket, so it does not renew the
+// supervisor's viewer grace. No control socket exists during the unviewed turn.
+func holdTurnWithViewer(t *testing.T, ms *machineServer, sess machineserver.Session) (release, disconnect func()) {
 	t.Helper()
 	prefix := "/s/" + sess.ID
 
@@ -686,10 +744,14 @@ func holdTurn(t *testing.T, ms *machineServer, sess machineserver.Session) (rele
 	// Frames come from this goroutine and, as replies, from the reader below;
 	// one writer goroutine owns the socket's write side.
 	outbox, closed := make(chan any), make(chan struct{})
-	t.Cleanup(func() {
-		close(closed)
-		_ = conn.Close()
-	})
+	var closeOnce sync.Once
+	disconnect = func() {
+		closeOnce.Do(func() {
+			close(closed)
+			_ = conn.Close()
+		})
+	}
+	t.Cleanup(disconnect)
 	go func() {
 		for {
 			select {
@@ -803,7 +865,33 @@ func holdTurn(t *testing.T, ms *machineServer, sess machineserver.Session) (rele
 	send("send-message", map[string]any{"type": "send-message", "text": "hold this turn"})
 	await(paused, "mock-paused status")
 
-	return func() { send("release-mock", map[string]any{"type": "release-mock"}) }
+	release = func() {
+		select {
+		case <-closed:
+			// This test-only control connection is made after proving the
+			// turn survives without viewers, and bypasses the proxy so it
+			// cannot restart the supervisor's grace.
+			header := http.Header{"Origin": []string{"http://" + sess.Addr}}
+			controlURL := "ws://" + sess.Addr + apipaths.WebSocket + "?role=viewer&token=" + url.QueryEscape(token)
+			control, resp, err := websocket.DefaultDialer.Dial(controlURL, header)
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			if err != nil {
+				t.Fatalf("reconnect to release held turn: %v", err)
+			}
+			t.Cleanup(func() { _ = control.Close() })
+			if err := control.WriteJSON(map[string]any{
+				"type": "worker-message", "conversationId": convID,
+				"workerMsgType": "release-mock", "payload": map[string]any{"type": "release-mock"},
+			}); err != nil {
+				t.Fatalf("release held turn after disconnect: %v", err)
+			}
+		default:
+			send("release-mock", map[string]any{"type": "release-mock"})
+		}
+	}
+	return release, disconnect
 }
 
 // TestMachineServerRestartsACrashedChild kills a real session child out from
@@ -837,16 +925,12 @@ func TestMachineServerRestartsACrashedChild(t *testing.T) {
 		t.Fatalf("restarted session = %+v, want one restart and no error", back)
 	}
 
-	resp, err := ms.do(http.MethodGet, "/s/"+sess.ID+"/api/health/instance", nil)
-	if err != nil {
-		t.Fatalf("GET through the restarted session: %v", err)
-	}
-	defer resp.Body.Close()
+	code, body := sessionCall(t, http.MethodGet, ms.url(prefix+apipaths.HealthInstance), ms.sessionPageToken(prefix), nil)
 	var inst struct {
 		PID int `json:"pid"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&inst); err != nil || resp.StatusCode != http.StatusOK {
-		t.Fatalf("instance through the restarted session: status %d, %v", resp.StatusCode, err)
+	if err := json.Unmarshal([]byte(body), &inst); err != nil || code != http.StatusOK {
+		t.Fatalf("instance through the restarted session: status %d (%s), %v", code, body, err)
 	}
 	if inst.PID != back.PID {
 		t.Fatalf("/s/%s/ reached pid %d, want the new child %d", sess.ID, inst.PID, back.PID)
@@ -864,19 +948,22 @@ func TestMachineServerRestartsACrashedChild(t *testing.T) {
 }
 
 // TestSessionChildTreatsItsSupervisorsIngressAsRemote runs a session child the
-// way the machine server spawns one, with an ingress secret the test knows,
-// and stands in for the supervisor. A request carrying that secret is a caller
-// the supervisor saw off loopback, so it may not change this machine's window
+// way the machine server spawns one, with an ingress secret and API token the
+// test knows, and stands in for the supervisor. The child serves exactly that
+// token, never one of its own. A request carrying that secret is a caller the
+// supervisor saw off loopback, so it may not change this machine's window
 // preferences or take the engine slot, though it arrives over loopback. A
 // request carrying any other value is a local caller, as one carrying none is.
 //
-// The machine server binds loopback only, so no caller can reach it from off
-// loopback yet. Its half — sending this header, with this child's secret, for
-// exactly those callers — is covered against real processes by
+// A caller off loopback reaches the child through the real machine server in
+// TestMachineServerOnTheLAN. The server's half — sending this header, with
+// this child's secret, for exactly those callers — is covered against real
+// processes by
 // TestSpawnedChildGetsItsOwnIngressSecret (machineserver/child_test.go).
 func TestSessionChildTreatsItsSupervisorsIngressAsRemote(t *testing.T) {
 	const secret = "0123456789abcdef-test-ingress-secret"
-	addr := startSessionChild(t, newProjectDir(t), secret)
+	token := ingress.NewSecret()
+	addr := startSessionChild(t, newProjectDir(t), secret, token)
 	base := "http://" + addr
 
 	resp, err := http.Get(base + "/") //nolint:gosec // the test's own loopback child
@@ -889,7 +976,9 @@ func TestSessionChildTreatsItsSupervisorsIngressAsRemote(t *testing.T) {
 	if m == nil {
 		t.Fatalf("index.html carries no API token (status %d)", resp.StatusCode)
 	}
-	token := string(m[1])
+	if served := string(m[1]); served != token {
+		t.Fatalf("the child serves API token %q, want %q, the one its spawner minted", served, token)
+	}
 
 	putUIPrefs := func(ingressHeader string) (int, string) {
 		t.Helper()

@@ -477,7 +477,6 @@
  * WorkerConfig contains worker configuration
  * @typedef {object} WorkerConfig
  * @property {string} projectPath
- * @property {string} [apiBaseUrl]
  */
 
 /**

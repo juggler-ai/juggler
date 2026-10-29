@@ -6,6 +6,8 @@ package machineserver
 
 import (
 	"bufio"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -218,9 +220,9 @@ func TestBareJugglerWithNoServerServesInItsForeground(t *testing.T) {
 		t.Errorf("stdout %q, want a plain stop with no other sessions named", out)
 	}
 	lock := NewMachineLock(userpaths.ConfigDir())
-	if lock.held() || lock.readInfo() != nil || len(s.reg.snapshot()) != 0 {
+	if (lock.probe() == lockHeld) || lock.readInfo() != nil || len(s.reg.snapshot()) != 0 {
 		t.Fatalf("after Ctrl-C: lock held %v, server.json %+v, sessions %+v; want none of them",
-			lock.held(), lock.readInfo(), s.reg.snapshot())
+			(lock.probe() == lockHeld), lock.readInfo(), s.reg.snapshot())
 	}
 }
 
@@ -254,8 +256,8 @@ func TestCtrlCOnAForegroundServerNamesTheOtherSessions(t *testing.T) {
 	}
 }
 
-// startedServer starts a stand-in machine server detached, as a desktop app
-// or `juggler open` would, and returns a client of it.
+// startedServer starts a detached stand-in machine server and holds the test
+// process attached, as a desktop app would.
 func startedServer(t *testing.T) *Client {
 	t.Helper()
 	start, _ := helperStarter(t)
@@ -263,13 +265,18 @@ func startedServer(t *testing.T) *Client {
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
+	a, err := c.Attach()
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	t.Cleanup(a.Close)
 	return c
 }
 
 // TestBareJugglerAttachesToTheRunningServer: with a server running, bare
 // juggler attaches, counted as a client for as long as it runs, and opens its
-// project's session there. Ctrl-C stops the session it opened and lets the
-// server go, which stays up for its other clients.
+// project's session there. Ctrl-C releases its hold without stopping another
+// terminal viewing the same session.
 func TestBareJugglerAttachesToTheRunningServer(t *testing.T) {
 	home := userpathstest.Isolate(t)
 	proj := projectDir(t, home, "proj")
@@ -281,34 +288,34 @@ func TestBareJugglerAttachesToTheRunningServer(t *testing.T) {
 	if len(list) != 1 || list[0].Project != proj || url != c.SessionURL(list[0].ID) {
 		t.Fatalf("sessions %+v, ready at %s; want one for %s at its URL", list, url, proj)
 	}
-	if st := statusOf(t, c); st.Attached != 1 {
-		t.Fatalf("%d clients attached, want bare juggler's 1", st.Attached)
-	}
+	waitStatusAttached(t, c, 2)
 	out := run.out.text()
 	for _, want := range []string{
 		"Using the Juggler server at http://" + c.Addr() + "/",
 		"Session for " + proj + ": " + url,
-		"Ctrl-C stops this session.",
+		"Ctrl-C detaches from this session.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stdout %q, want it to say %q", out, want)
 		}
 	}
 
+	viewer := runTerminal(t, TerminalOptions{Project: proj})
+	viewer.waitReady(t)
 	if code := run.interrupt(); code != 0 {
 		t.Fatalf("Ctrl-C: exit %d, want 0; stderr %q", code, run.errOut.text())
 	}
-	if !strings.Contains(run.out.text(), "Stopped the session for "+proj+".") {
-		t.Errorf("stdout %q, want it to say the session stopped", run.out.text())
+	if !strings.Contains(run.out.text(), "Detached from the session for "+proj+".") {
+		t.Errorf("stdout %q, want it to say the session was detached", run.out.text())
 	}
-	if list := sessionsOf(t, c); len(list) != 0 {
-		t.Fatalf("sessions after Ctrl-C = %+v, want the one it opened gone", list)
+	if left := sessionsOf(t, c); len(left) != 1 || left[0].ID != list[0].ID {
+		t.Fatalf("sessions after Ctrl-C = %+v, want the other viewer's session", left)
 	}
-	waitStatusAttached(t, c, 0)
+	waitStatusAttached(t, c, 2)
 }
 
-// TestBareJugglerLeavesASessionItDidNotOpen: a session that was already open
-// when bare juggler attached is someone else's too, so Ctrl-C leaves it.
+// TestBareJugglerLeavesASessionItDidNotOpen: an existing session's other
+// viewer keeps its hold when bare juggler detaches.
 func TestBareJugglerLeavesASessionItDidNotOpen(t *testing.T) {
 	home := userpathstest.Isolate(t)
 	proj := projectDir(t, home, "proj")
@@ -317,18 +324,23 @@ func TestBareJugglerLeavesASessionItDidNotOpen(t *testing.T) {
 	if err != nil || !opened {
 		t.Fatalf("first open: %+v, opened %v, %v; want a session this open spawned", sess, opened, err)
 	}
+	viewer, err := c.Attach(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(viewer.Close)
 
 	run := runTerminal(t, TerminalOptions{Project: proj})
 	if url := run.waitReady(t); url != c.SessionURL(sess.ID) {
 		t.Fatalf("ready at %s, want the open session's %s", url, c.SessionURL(sess.ID))
 	}
-	if !strings.Contains(run.out.text(), "Ctrl-C leaves this session running, since it was already open.") {
+	if !strings.Contains(run.out.text(), "Ctrl-C detaches from this session.") {
 		t.Errorf("stdout %q, want it to say Ctrl-C leaves the session", run.out.text())
 	}
 	if code := run.interrupt(); code != 0 {
 		t.Fatalf("Ctrl-C: exit %d, want 0", code)
 	}
-	if !strings.Contains(run.out.text(), "Left the session for "+proj+" running.") {
+	if !strings.Contains(run.out.text(), "Detached from the session for "+proj+".") {
 		t.Errorf("stdout %q, want it to say it left the session", run.out.text())
 	}
 	if list := sessionsOf(t, c); len(list) != 1 || list[0].ID != sess.ID {
@@ -366,7 +378,7 @@ func endedServer(t *testing.T) (*Server, *Client) {
 	t.Cleanup(front.Close)
 	s.addr = front.Listener.Addr().String()
 	s.endLifetime()
-	return s, &Client{addr: s.addr, token: testToken, http: &http.Client{Timeout: 5 * time.Second}, Version: core.Version}
+	return s, &Client{addr: s.addr, token: testToken, http: &http.Client{Timeout: 5 * time.Second}, Version: core.Version, Build: ownBuild()}
 }
 
 // TestBareJugglerConnectsAgainToAServerOnItsWayOut: a server found just as it
@@ -389,30 +401,60 @@ func TestBareJugglerConnectsAgainToAServerOnItsWayOut(t *testing.T) {
 }
 
 // mismatchedServer is a server, its listener, and a client that found it
-// answering at a version other than this binary's.
-func mismatchedServer(t *testing.T) (*Server, *httptest.Server, *Client) {
+// answering as a build other than this binary's: version and build as given.
+func mismatchedServer(t *testing.T, version, build string) (*Server, *httptest.Server, *Client) {
 	t.Helper()
 	s := &Server{reg: newRegistry(), token: testToken, shutdownReq: make(chan struct{}, 1)}
 	front := httptest.NewServer(s.routes())
 	t.Cleanup(front.Close)
 	s.addr = front.Listener.Addr().String()
 	t.Cleanup(s.endLifetime)
-	return s, front, &Client{addr: s.addr, token: testToken, http: &http.Client{Timeout: 5 * time.Second}, Version: "v0.0.0-other"}
+	return s, front, &Client{addr: s.addr, token: testToken, http: &http.Client{Timeout: 5 * time.Second}, Version: version, Build: build}
 }
 
-// TestBareJugglerNeverUsesAServerOfAnotherVersion: with nobody to ask, a
-// mismatched server is refused with the way out; asked, a "no" refuses the
+// answers is a person at the terminal: each read runs the next step, which may
+// change the world first, and answers with what it returns.
+type answers []func() string
+
+func (a *answers) Read(p []byte) (int, error) {
+	if len(*a) == 0 {
+		return 0, io.EOF
+	}
+	next := (*a)[0]
+	*a = (*a)[1:]
+	return copy(p, next()), nil
+}
+
+// say is a step that only answers line.
+func say(line string) func() string { return func() string { return line } }
+
+// TestBareJugglerNeverUsesAServerOfAnotherVersion: a mismatched server that a
+// client started and nothing uses is replaced without asking
+// (Occupancy.Idle). Any other is the user's: with nobody to ask it is refused
+// with the way out and what a restart would stop; asked, a "no" refuses the
 // same way, and a "yes" stops the server and connects again. Nothing is opened
-// or attached to the mismatched server either way.
+// or attached to the mismatched server either way. Another build of this
+// version — a rebuild from source — is mismatched as surely as another version.
 func TestBareJugglerNeverUsesAServerOfAnotherVersion(t *testing.T) {
 	home := userpathstest.Isolate(t)
 	proj := projectDir(t, home, "proj")
+	rebuilt := core.Version + " (built 2026-01-01 00:00:00)"
 	for _, c := range []struct {
-		name   string
-		answer string // "" is nobody at the terminal
-	}{{"nobody to ask", ""}, {"asked, no", "n\n"}} {
+		name           string
+		version, build string
+		occupy         func(*Server)
+		answer         string // "" is nobody at the terminal
+		says           string
+	}{
+		{"started by hand, nobody to ask", "v0.0.0-other", "v0.0.0-other", func(*Server) {}, "", "juggler serve"},
+		{"started by hand, asked, no", "v0.0.0-other", "v0.0.0-other", func(*Server) {}, "n\n", "juggler serve"},
+		{"another build, a client attached, nobody to ask", core.Version, rebuilt, func(s *Server) { s.implicit = true; s.attach() }, "", "1 other app or terminal"},
+		{"LAN on, nobody to ask", "v0.0.0-other", "v0.0.0-other", func(s *Server) { s.implicit = true; s.lan.Store(true) }, "", "LAN access"},
+	} {
 		t.Run(c.name, func(t *testing.T) {
-			s, _, client := mismatchedServer(t)
+			s, _, client := mismatchedServer(t, c.version, c.build)
+			c.occupy(s)
+			attached := s.attached.Load()
 			out, errOut := newOutBuf(), newOutBuf()
 			var in *bufio.Reader
 			if c.answer != "" {
@@ -423,32 +465,80 @@ func TestBareJugglerNeverUsesAServerOfAnotherVersion(t *testing.T) {
 				t.Fatalf("exit %d, again %v; want 1, not again", code, again)
 			}
 			msg := errOut.text()
-			for _, want := range []string{"v0.0.0-other", core.Version, "juggler server stop"} {
+			for _, want := range []string{c.build, ownBuild(), "juggler server stop", c.says} {
 				if !strings.Contains(msg, want) {
 					t.Errorf("stderr %q, want it to say %q", msg, want)
 				}
 			}
-			if s.attached.Load() != 0 || len(s.reg.snapshot()) != 0 || len(s.shutdownReq) != 0 {
+			if s.attached.Load() != attached || len(s.reg.snapshot()) != 0 || len(s.shutdownReq) != 0 {
 				t.Fatalf("%d attached, sessions %+v, shutdown asked %v; want nothing done to the server",
 					s.attached.Load(), s.reg.snapshot(), len(s.shutdownReq) == 1)
 			}
 		})
 	}
+	t.Run("idle and client-started, nobody to ask", func(t *testing.T) {
+		s, front, client := mismatchedServer(t, core.Version, rebuilt)
+		s.implicit = true
+		gone := closeOnShutdown(t, s, front)
+		code, again := attachTo(client, TerminalOptions{Project: proj, Stdout: newOutBuf(), Stderr: newOutBuf()}, nil)
+		if !again || code == restarted {
+			t.Fatalf("exit %d, again %v; want to connect again, on an ordinary attempt", code, again)
+		}
+		<-gone
+	})
 	t.Run("asked, yes", func(t *testing.T) {
-		s, front, client := mismatchedServer(t)
-		go func() {
-			<-s.shutdownReq
-			front.Close()
-		}()
+		s, front, client := mismatchedServer(t, "v0.0.0-other", "v0.0.0-other")
+		gone := closeOnShutdown(t, s, front)
 		out := newOutBuf()
 		code, again := attachTo(client, TerminalOptions{Project: proj, Stdout: out, Stderr: newOutBuf()}, bufio.NewReader(strings.NewReader("y\n")))
-		if !again {
-			t.Fatalf("exit %d after a yes, want to connect again", code)
+		if !again || code != restarted {
+			t.Fatalf("exit %d, again %v after a yes, want to connect again afresh", code, again)
 		}
-		if !strings.Contains(out.text(), "Restart it? This stops its 0 sessions. [y/N]") {
-			t.Errorf("stdout %q, want the restart offer", out.text())
+		<-gone
+		for _, want := range []string{"juggler serve", "Restart it? [y/N]"} {
+			if !strings.Contains(out.text(), want) {
+				t.Errorf("stdout %q, want the restart offer saying %q", out.text(), want)
+			}
 		}
 	})
+	t.Run("asked, yes, after it gained a session", func(t *testing.T) {
+		s, _, client := mismatchedServer(t, "v0.0.0-other", "v0.0.0-other")
+		s.implicit = true
+		s.reg.reserve("/work/alpha")
+		in := &answers{
+			func() string { s.reg.reserve("/work/late"); return "y\n" },
+			say("n\n"),
+		}
+		out, errOut := newOutBuf(), newOutBuf()
+		code, again := attachTo(client, TerminalOptions{Project: proj, Stdout: out, Stderr: errOut}, bufio.NewReader(in))
+		if code != 1 || again {
+			t.Fatalf("exit %d, again %v; want refused at the second no", code, again)
+		}
+		if len(s.shutdownReq) != 0 || len(s.reg.snapshot()) != 2 {
+			t.Fatalf("shutdown asked %v, sessions %+v; want both sessions running", len(s.shutdownReq) == 1, s.reg.snapshot())
+		}
+		text := out.text()
+		if strings.Count(text, "Restart it? [y/N]") != 2 || !strings.Contains(text, "/work/late") {
+			t.Errorf("stdout %q, want asked again, naming the session that opened", text)
+		}
+	})
+}
+
+// closeOnShutdown closes front, as a server that has gone, once s has been
+// asked to shut down, and returns a channel that closes after.
+func closeOnShutdown(t *testing.T, s *Server, front *httptest.Server) <-chan struct{} {
+	t.Helper()
+	gone := make(chan struct{})
+	go func() {
+		select {
+		case <-s.shutdownReq:
+		case <-t.Context().Done():
+			return
+		}
+		front.Close()
+		close(gone)
+	}()
+	return gone
 }
 
 // TestTwoBareJugglersAtOnceShareOneServer: of two bare jugglers started
@@ -472,5 +562,120 @@ func TestTwoBareJugglersAtOnceShareOneServer(t *testing.T) {
 	}
 	if code := server.interrupt(); code != 0 {
 		t.Fatalf("Ctrl-C on the one serving: exit %d", code)
+	}
+}
+
+// A terminal transfers its initial server hold to its session without a
+// last-client gap. A running turn remains when only that session hold leaves.
+func TestTerminalTransfersHoldAndDetachesWithoutStoppingBusySession(t *testing.T) {
+	home := userpathstest.Isolate(t)
+	proj := projectDir(t, home, "proj")
+	s := &Server{reg: newRegistry(), token: testToken, implicit: true, shutdownReq: make(chan struct{}, 1)}
+	sess, _ := s.reg.reserve(proj)
+	child := &child{addr: "127.0.0.1:1", exited: make(chan struct{})}
+	s.reg.setRunning(sess.ID, child, 1)
+	s.reg.setActivity(sess.ID, child, true, time.Now())
+	named := make(chan string, 1)
+	routes := s.routes()
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == `/api/server/attach` {
+			var req struct {
+				PID     int    `json:"pid"`
+				Session string `json:"session"`
+			}
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if err := json.Unmarshal(body, &req); err != nil {
+				t.Error(err)
+				return
+			}
+			r.Body = io.NopCloser(strings.NewReader(string(body)))
+			if req.Session != "" {
+				named <- req.Session
+			}
+		}
+		routes.ServeHTTP(w, r)
+	}))
+	t.Cleanup(front.Close)
+	t.Cleanup(s.endLifetime)
+	c := &Client{addr: front.Listener.Addr().String(), token: testToken, Build: ownBuild(), Implicit: true,
+		http: &http.Client{Timeout: 5 * time.Second}}
+	sig := make(chan os.Signal, 1)
+	ready := make(chan string, 1)
+	done := make(chan int, 1)
+	go func() {
+		code, _ := attachTo(c, TerminalOptions{Project: proj, Stdout: newOutBuf(), Stderr: newOutBuf(), Signals: sig, Ready: func(url string) { ready <- url }}, nil)
+		done <- code
+	}()
+	t.Cleanup(func() {
+		select {
+		case sig <- os.Interrupt:
+		default:
+		}
+		<-done
+	})
+	select {
+	case <-ready:
+	case code := <-done:
+		done <- code
+		t.Fatalf("terminal exited %d before ready", code)
+	}
+	list := s.reg.snapshot()
+	if len(list) != 1 {
+		t.Fatalf("sessions %+v, want one", list)
+	}
+	select {
+	case id := <-named:
+		if id != list[0].ID {
+			t.Fatalf("named attachment %s, want %s", id, list[0].ID)
+		}
+	default:
+		t.Error("terminal did not acquire a named session attachment")
+	}
+	waitAttached(t, s, 1)
+	if len(s.shutdownReq) != 0 {
+		t.Error("attachment transfer requested last-client shutdown")
+	}
+	detach := s.attach() // another server client, not another session viewer
+	defer detach()
+	sig <- os.Interrupt
+	code := <-done
+	done <- code
+	if code != 0 {
+		t.Fatalf("terminal exited %d", code)
+	}
+	waitAttached(t, s, 1)
+	if sess, ok := s.reg.get(list[0].ID); !ok || sess.State != SessionRunning || !sess.Busy {
+		t.Fatalf("busy session after terminal detach: %+v, present %v", sess, ok)
+	}
+	if len(s.shutdownReq) != 0 {
+		t.Fatal("terminal detach stopped server with another client")
+	}
+}
+
+// The open hands its hold to Serve instead of releasing it when Ready returns.
+func TestForegroundOpenReturnsViewerHoldToServe(t *testing.T) {
+	s := &Server{reg: newRegistry(), addr: "127.0.0.1:1"}
+	t.Cleanup(s.endLifetime)
+	sess, _ := s.reg.reserve("/project")
+	s.reg.setRunning(sess.ID, &child{addr: "127.0.0.1:2"}, 1)
+	ready := ""
+	release, err := s.openForeground(&Foreground{Project: "/project", Out: io.Discard, Ready: func(url string) { ready = url }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if release == nil {
+		t.Fatal("foreground open returned without a viewer hold for Serve")
+	}
+	defer release()
+	if want := "http://" + s.addr + "/s/" + sess.ID + "/"; ready != want {
+		t.Fatalf("ready at %q, want %q", ready, want)
+	}
+	noSession, err := s.openForeground(&Foreground{Out: io.Discard})
+	if err != nil || noSession != nil {
+		t.Fatal("project-less foreground acquired a session hold")
 	}
 }

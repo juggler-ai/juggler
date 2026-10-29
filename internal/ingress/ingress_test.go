@@ -22,6 +22,16 @@ func TestTakeSecretRemovesItFromTheEnvironment(t *testing.T) {
 	}
 }
 
+func TestTakeTokenRemovesItFromTheEnvironment(t *testing.T) {
+	t.Setenv(TokenEnv, "t0ken")
+	if got := TakeToken(); got != "t0ken" {
+		t.Fatalf("TakeToken() = %q, want %q", got, "t0ken")
+	}
+	if v, ok := os.LookupEnv(TokenEnv); ok {
+		t.Fatalf("%s still set to %q after TakeToken", TokenEnv, v)
+	}
+}
+
 func TestNewSecretIsFreshEachTime(t *testing.T) {
 	a, b := NewSecret(), NewSecret()
 	if len(a) != 64 || a == b {

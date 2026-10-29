@@ -3,8 +3,8 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 // viewerGroup is the actor that owns the set of viewer-role clients plus the
-// per-shell-cancel map. When the last viewer leaves, its in-flight shells are
-// cancelled.
+// per-shell-cancel map. Shells survive viewer departures and are cancelled on
+// explicit cancellation or group teardown.
 
 package server
 
@@ -28,7 +28,6 @@ const (
 	vgStartShell
 	vgCompleteShell
 	vgCancelShell
-	vgStop
 )
 
 type viewerOp struct {
@@ -40,7 +39,6 @@ type viewerOp struct {
 	raw        []byte
 	shellID    string
 	cancel     context.CancelFunc
-	engine     bool // a shell the engine started (see shellEntry)
 	boolResult chan bool
 	intResult  chan int
 }
@@ -90,18 +88,9 @@ func newClientMailbox(sender Sender) *mailbox.Mailbox[outboundMsg] {
 	})
 }
 
-// shellEntry is one running streaming shell. engine marks one the engine
-// started: the engine is the only client that comes back to the same realm
-// after losing its socket, still awaiting the command, so its shells are not
-// swept when the group empties — only when the group itself stops.
-type shellEntry struct {
-	cancel context.CancelFunc
-	engine bool
-}
-
 func (g *viewerGroup) run() {
 	clients := make(map[string]viewerEntry)
-	shells := make(map[string]shellEntry)
+	shells := make(map[string]context.CancelFunc)
 
 	// Fan a message out to every connection presenting the given viewer id. It is
 	// normally one, but a duplicated tab can carry a copied id, and delivering to
@@ -117,18 +106,6 @@ func (g *viewerGroup) run() {
 		}
 	}
 
-	// cancelAll cancels every shell; withEngineShells false spares the engine's
-	// (see shellEntry).
-	cancelAll := func(withEngineShells bool) {
-		for id, sh := range shells {
-			if sh.engine && !withEngineShells {
-				continue
-			}
-			sh.cancel()
-			delete(shells, id)
-		}
-	}
-
 	for op := range g.ch {
 		switch op.kind {
 		case vgJoin:
@@ -140,9 +117,6 @@ func (g *viewerGroup) run() {
 			}
 			delete(clients, op.clientID)
 			remaining := len(clients)
-			if remaining == 0 {
-				cancelAll(false)
-			}
 			if op.intResult != nil {
 				op.intResult <- remaining
 			}
@@ -164,7 +138,7 @@ func (g *viewerGroup) run() {
 			if _, exists := shells[op.shellID]; exists {
 				op.boolResult <- false
 			} else {
-				shells[op.shellID] = shellEntry{cancel: op.cancel, engine: op.engine}
+				shells[op.shellID] = op.cancel
 				op.boolResult <- true
 			}
 
@@ -174,17 +148,11 @@ func (g *viewerGroup) run() {
 		case vgCancelShell:
 			sh, exists := shells[op.shellID]
 			if exists {
-				sh.cancel()
+				sh()
 				delete(shells, op.shellID)
 			}
 			op.boolResult <- exists
 
-		case vgStop:
-			for _, e := range clients {
-				e.mb.Stop()
-			}
-			cancelAll(true)
-			return
 		}
 	}
 }
@@ -201,9 +169,9 @@ func (g *viewerGroup) sendToViewer(viewerID string, msg any) {
 }
 func (g *viewerGroup) completeShell(id string) { g.ch <- viewerOp{kind: vgCompleteShell, shellID: id} }
 
-func (g *viewerGroup) startShell(shellID string, cancel context.CancelFunc, engine bool) bool {
+func (g *viewerGroup) startShell(shellID string, cancel context.CancelFunc) bool {
 	r := make(chan bool, 1)
-	g.ch <- viewerOp{kind: vgStartShell, shellID: shellID, cancel: cancel, engine: engine, boolResult: r}
+	g.ch <- viewerOp{kind: vgStartShell, shellID: shellID, cancel: cancel, boolResult: r}
 	return <-r
 }
 
@@ -213,12 +181,6 @@ func (g *viewerGroup) cancelShell(shellID string) bool {
 	return <-r
 }
 
-// stop cancels all shells then exits the actor goroutine.
-// Used when a projectState that owns this group is being torn down.
-func (g *viewerGroup) stop() {
-	g.ch <- viewerOp{kind: vgStop}
-}
-
 // =============================================================================
 // Server-scoped wrappers around the per-project viewerGroup actor.
 //
@@ -226,8 +188,8 @@ func (g *viewerGroup) stop() {
 // Kept next to the actor so the broadcast/tracking surface lives in one file.
 // =============================================================================
 
-// viewers resolves the current project's viewer group. Always non-nil after
-// seedProjectState/SwitchProject have run.
+// viewers resolves the project's viewer group. Always non-nil after
+// seedProjectState has run.
 func (s *Server) viewers() *viewerGroup {
 	st := s.projectState.Load()
 	if st == nil {
@@ -243,8 +205,7 @@ func (s *Server) joinViewerGroup(client RealtimeClient) {
 	}
 }
 
-// leaveViewerGroup removes a viewer client and cancels in-flight work if no
-// viewers remain in the project.
+// leaveViewerGroup removes a viewer client without cancelling in-flight work.
 func (s *Server) leaveViewerGroup(clientID string) {
 	if g := s.viewers(); g != nil {
 		g.leave(clientID)
@@ -405,16 +366,15 @@ func (s *Server) viewerSendToViewer(viewerID string, msg any) {
 // Returns false if the shell ID is already active.
 func (s *Server) viewerStartShell(shellID string, cancel context.CancelFunc) bool {
 	if g := s.viewers(); g != nil {
-		return g.startShell(shellID, cancel, false)
+		return g.startShell(shellID, cancel)
 	}
 	return false
 }
 
-// viewerStartEngineShell is viewerStartShell for a shell the engine started,
-// which the group spares when it empties (see shellEntry).
+// viewerStartEngineShell registers a shell the engine started.
 func (s *Server) viewerStartEngineShell(shellID string, cancel context.CancelFunc) bool {
 	if g := s.viewers(); g != nil {
-		return g.startShell(shellID, cancel, true)
+		return g.startShell(shellID, cancel)
 	}
 	return false
 }

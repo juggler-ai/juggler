@@ -5,7 +5,6 @@
 package app
 
 import (
-	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -186,47 +185,6 @@ func TestAwaitTeardownGivesUpOnAWedgedCleanup(t *testing.T) {
 	case <-returned:
 	case <-time.After(5 * time.Second):
 		t.Fatal("a wedged cleanup blocked the native quit indefinitely")
-	}
-}
-
-// TestBeginShutdownReportsTheRunStatus is the regression test for a run that
-// reported success no matter what it did.
-//
-// `juggler run` stores the status it earned and asks the server to shut down.
-// That unwinds to the native quit, which on macOS is [NSApp terminate:] and ends
-// the process without returning — so the one statement that reads the stored
-// status never ran, and the process left with the native quit's own 0. Every
-// failed, parked and timed-out run therefore looked like a success to anything
-// reading the exit status, while the run's own JSON said otherwise. Only the
-// Node host escaped it, by returning from its wait instead, which is why the
-// end-to-end test of a run never saw this.
-func TestBeginShutdownReportsTheRunStatus(t *testing.T) {
-	var order []string
-	a := &App{flags: appFlags{oneShot: &oneShotOptions{}}}
-	a.exitProcess = func(code int) { order = append(order, fmt.Sprintf("exit(%d)", code)) }
-	a.pushCleanup(func() { order = append(order, "cleanup") })
-	a.exitCode.Store(exitRunTimeout)
-
-	a.beginShutdown(func() { order = append(order, "native-quit") })
-
-	if want := []string{"cleanup", "exit(4)"}; !slices.Equal(order, want) {
-		t.Fatalf("shutdown steps = %v, want %v — the run's status must survive the quit, and teardown still comes first", order, want)
-	}
-}
-
-// TestBeginShutdownLeavesInteractiveLaunchesOnTheNativeQuit keeps the fix above
-// scoped to a run. A desktop launch has no status of its own to report and must
-// keep going out through the native quit, which is what actually stops Wails.
-func TestBeginShutdownLeavesInteractiveLaunchesOnTheNativeQuit(t *testing.T) {
-	a := &App{}
-	exits := 0
-	quits := 0
-	a.exitProcess = func(int) { exits++ }
-
-	a.beginShutdown(func() { quits++ })
-
-	if quits != 1 || exits != 0 {
-		t.Fatalf("native quits = %d, direct exits = %d; want the native quit alone", quits, exits)
 	}
 }
 

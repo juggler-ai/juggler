@@ -28,12 +28,12 @@ const CORE_TEXT = [
   'Conversation cleared.',
   'Pick a model before compacting.', 'Compaction is already in progress.',
   "Couldn't compact: {error}", 'Nothing to compact yet.',
-  "Can't duplicate: no project is open.", "Couldn't duplicate: {error}",
-  "Can't hand off: no project is open.",
+  "Can't duplicate: this conversation has no session.", "Couldn't duplicate: {error}",
+  "Can't hand off: this conversation has no session.",
   'Pick a model before handing off.', "Couldn't hand off: {error}",
   "Couldn't hand off: the new conversation wasn't created.", 'A handoff is already in progress.',
   'Nothing to hand off — continuing in a new conversation.',
-  "Can't create a conversation: no project is open.",
+  "Can't create a conversation: this conversation has no session.",
   "Couldn't create the conversation: {error}",
 ];
 

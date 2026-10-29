@@ -25,8 +25,7 @@ type LogsAPI struct {
 	pathProvider func() string
 }
 
-// NewLogsAPI creates a LogsAPI. pathProvider returns the current project path
-// on each call, so a project switch retargets the listing.
+// NewLogsAPI creates a LogsAPI. pathProvider returns the project path.
 func NewLogsAPI(pathProvider func() string) *LogsAPI {
 	return &LogsAPI{pathProvider: pathProvider}
 }

@@ -414,8 +414,8 @@ import { validateManifest } from './lib/manifest.js';
  *   in `warnings` rather than quietly left out. Ask when a review is opened or
  *   refreshed and not on a timer — concurrent callers share one read, so a second
  *   surface costs nothing, but a loop here runs git in a loop. Rejects if the read
- *   failed, if you cancelled it, or if the project changed while it was out: an
- *   answer about a project nobody is looking at is not an answer.
+ *   failed, if you cancelled it, or if the tree changed while it was out: an
+ *   answer about a tree nobody is looking at is not an answer.
  *   `scope` is what to compare (see {@link PinGitScope}); omit it for the working
  *   tree against `HEAD`. A scope the host cannot read rejects, with the reason.
  * @property {(repo: string, path: string, options?: {signal?: AbortSignal, contextLines?: number, scope?: string}) => Promise<PinGitDiff>} diff -
@@ -748,7 +748,7 @@ import { validateManifest } from './lib/manifest.js';
  *
  * Hold no authoritative state in the DOM or on the instance: one instance serves
  * every pin of its type, mount and teardown happen for reasons you do not control
- * (a project switch, a hot reload, the user switching tabs), and the same board is
+ * (a hot reload, the user switching tabs), and the same board is
  * open in windows you cannot see.
  *
  * A type with `retain` in its manifest is spared only the last of those: switching

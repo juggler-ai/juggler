@@ -223,7 +223,8 @@ export function setDecisionModel(choice) {
 // ── Connectivity ───────────────────────────────────────────────────────────
 
 /**
- * GET /api/connectivity: LAN/WAN state and the connected clients.
+ * GET /api/connectivity: the clients connected to this session, and whether
+ * this viewer may switch LAN access and tunnels here (`exposure`).
  * @param {RequestPolicy} [policy]
  * @returns {Promise<any>} The connectivity state.
  */
@@ -232,39 +233,97 @@ export function getConnectivity(policy = {}) {
 }
 
 /**
- * POST /api/connectivity/lan: open or close LAN access.
+ * One address another device can open, with the server's QR drawing of it.
+ * @typedef {object} ExposureURL
+ * @property {string} url - The address
+ * @property {string} [interface] - The network interface it is on (LAN only)
+ * @property {string} [qr] - SVG markup drawing the address as a QR code
+ * @property {{url: string, qr?: string}} [session] - This session at the address, with its QR
+ */
+
+/**
+ * LAN access, as the machine server reports it.
+ * @typedef {object} LANState
+ * @property {boolean} enabled - Whether devices on this network may come in
+ * @property {ExposureURL[]} urls - This machine's addresses on its networks, while enabled
+ */
+
+/**
+ * One tunnel mode a build registered. Each text field is English, with its
+ * translatable message beside it as `<field>Message`.
+ * @typedef {object} TunnelMode
+ * @property {string} mode - Its id
+ * @property {boolean} available - Whether it can start on this machine
+ * @property {string} [title] - Its name
+ * @property {string} [description] - What it does, and its trade-offs
+ * @property {string} [startLabel] - Its start button's label
+ * @property {string} [relayNote] - Said of an open link whose traffic is relayed
+ * @property {string} [unavailableHint] - Why it cannot start, and what would let it
+ */
+
+/**
+ * The machine's tunnel: the modes it can open, and the open one, if any.
+ * @typedef {object} TunnelState
+ * @property {TunnelMode[]} modes - Every mode this build registered
+ * @property {{mode: string, url: string, relay: boolean, qr?: string, session?: {url: string, qr?: string}}|null} running -
+ *   The open tunnel: its mode, link, whether it is relayed, the link's QR
+ *   drawing, and this session through it
+ */
+
+/**
+ * GET /api/connectivity/lan: this machine's LAN access (the machine server's).
+ * @returns {Promise<LANState>} LAN access as it stands.
+ */
+export function getLAN() {
+  return fetchJson(apiUrl('/connectivity/lan'));
+}
+
+/**
+ * PUT /api/connectivity/lan: let devices on this network in, or not.
  * @param {boolean} enabled
- * @returns {Promise<any>} The server's answer.
+ * @returns {Promise<LANState>} LAN access as it now stands.
  */
-export function setLANEnabled(enabled) {
-  return fetchJson(apiUrl('/connectivity/lan'), { method: 'POST', body: { enabled } });
+export function setLAN(enabled) {
+  return fetchJson(apiUrl('/connectivity/lan'), { method: 'PUT', body: { enabled } });
 }
 
 /**
- * POST /api/connectivity/tunnel: start a WAN tunnel in `mode`, or stop the active one.
- * @param {{enabled: true, mode: string}|{enabled: false}} request
- * @returns {Promise<SuccessEnvelope|null>} `{success}` or `{success: false, error}`.
+ * GET /api/connectivity/tunnel: this machine's tunnel (the machine server's).
+ * @returns {Promise<TunnelState>} The tunnel as it stands.
  */
-export function setTunnel(request) {
-  return fetchJson(apiUrl('/connectivity/tunnel'), { method: 'POST', body: request });
+export function getTunnel() {
+  return fetchJson(apiUrl('/connectivity/tunnel'));
 }
 
 /**
- * GET /api/connectivity/qr: a QR code for `url`, as SVG markup. The answer is
- * markup, not JSON, so this reads the text itself; a refusal or a dead link
- * resolves to null rather than throwing, since a missing QR code is never an
- * error the user needs to hear about.
- * @param {string} url - The URL to encode.
- * @returns {Promise<string|null>} The SVG markup, or null.
+ * PUT /api/connectivity/tunnel: open the tunnel in mode, or close it with ''.
+ * @param {string} mode
+ * @returns {Promise<TunnelState>} The tunnel as it now stands.
  */
-export async function getConnectivityQRSvg(url) {
-  try {
-    const res = await fetch(apiUrl(`/connectivity/qr?url=${encodeURIComponent(url)}`));
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
-    return null;
-  }
+export function setTunnel(mode) {
+  return fetchJson(apiUrl('/connectivity/tunnel'), { method: 'PUT', body: { mode } });
+}
+
+/**
+ * What opens whenever Juggler starts: LAN access, and one tunnel mode ('' for none).
+ * @typedef {{lanOnLaunch: boolean, wanOnLaunch: string}} LaunchState
+ */
+
+/**
+ * GET /api/connectivity/launch: what the machine server opens whenever it starts.
+ * @returns {Promise<LaunchState>} The saved choices.
+ */
+export function getLaunch() {
+  return fetchJson(apiUrl('/connectivity/launch'));
+}
+
+/**
+ * PUT /api/connectivity/launch: save the keys of what opens at start that change.
+ * @param {Partial<LaunchState>} change - One key, or both.
+ * @returns {Promise<LaunchState>} Both, as now saved.
+ */
+export function setLaunch(change) {
+  return fetchJson(apiUrl('/connectivity/launch'), { method: 'PUT', body: change });
 }
 
 // ── Updates ────────────────────────────────────────────────────────────────

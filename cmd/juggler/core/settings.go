@@ -205,12 +205,9 @@ type ProxySettings struct {
 	URL string `json:"url,omitempty"`
 }
 
-// ConnectivitySettings holds launch-time connectivity preferences. The two
-// on-launch toggles are applied only on a GUI/desktop-app launch (no
-// controlling terminal); a terminal launch controls connectivity through CLI
-// flags instead, so they never interfere there. AllowedHosts is the exception,
-// applied on every launch. Additive — like GlobalSettings, unknown keys are
-// tolerated on read.
+// ConnectivitySettings holds the machine server's start-time connectivity
+// preferences, each read once when it starts. Additive — like GlobalSettings,
+// unknown keys are tolerated on read.
 type ConnectivitySettings struct {
 	// AllowedHosts are extra Host names a server accepts on top of the names
 	// that always identify this machine — the name a reverse proxy on this
@@ -219,13 +216,14 @@ type ConnectivitySettings struct {
 	// once at startup, so a change takes effect on the next start. See
 	// ResolveAllowedHosts.
 	AllowedHosts []string `json:"allowedHosts,omitempty"`
-	// LANOnLaunch starts LAN access at launch when true.
+	// LANOnLaunch turns the machine server's LAN access on at every start,
+	// beside serve --lan. Under --test it is not read.
 	LANOnLaunch bool `json:"lanOnLaunch,omitempty"`
-	// WANOnLaunch names the tunnel-mode id to start at launch, or "" for none.
-	// Only one WAN tunnel can ever be active, so this is a single selection
-	// rather than a per-mode toggle. The core does not enumerate which modes
-	// exist — the id is validated against the live TunnelModes() registry when
-	// used, and an unknown/unavailable id simply means "no WAN on launch".
+	// WANOnLaunch is the tunnel mode the machine server opens at every start,
+	// or "" for none; --tunnel names one over it. One tunnel runs at a time,
+	// so it is one choice, not a switch per mode. A mode this build lacks, or
+	// that cannot start on this machine, opens nothing and stays saved, so it
+	// comes back with the mode. Under --test it is not read.
 	WANOnLaunch string `json:"wanOnLaunch,omitempty"`
 }
 

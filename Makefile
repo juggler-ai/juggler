@@ -21,10 +21,15 @@ else
 APP_LDFLAGS :=
 endif
 MAC_APP_DIR=$(BUILD_DIR)/Juggler.app
-# The clickable bundle executable is the desktop app (juggler-app); the headless
-# server binary (juggler) sits alongside it in MacOS/ so the app's serverBinPath
-# finds it as a sibling.
-MAC_APP_BIN=$(MAC_APP_DIR)/Contents/MacOS/$(BINARY_NAME)
+# The clickable bundle executable is the desktop app (juggler-app), in MacOS/.
+# The headless server binary (juggler) sits in Helpers/, never MacOS/:
+# LaunchServices files every process run from Contents/MacOS under the bundle's
+# identity, so a server there is taken for the app, and opening Juggler.app
+# while one runs brings the server forward instead of launching the app. The
+# app's serverBinPath finds it there (internal/binpath). MAC_APP_STALE_BIN is
+# where older builds put it, removed by every build.
+MAC_APP_BIN=$(MAC_APP_DIR)/Contents/Helpers/$(BINARY_NAME)
+MAC_APP_STALE_BIN=$(MAC_APP_DIR)/Contents/MacOS/$(BINARY_NAME)
 MAC_APP_APP_BIN=$(MAC_APP_DIR)/Contents/MacOS/juggler-app
 MAC_APP_RES=$(MAC_APP_DIR)/Contents/Resources
 MAC_APP_PLIST=$(MAC_APP_DIR)/Contents/Info.plist
@@ -131,7 +136,7 @@ all: test build
 go-build: app-icon-embed wails-runtime-embed
 	@mkdir -p $(BUILD_DIR)
 ifeq ($(UNAME_S),Darwin)
-	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_RES)
+	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_DIR)/Contents/Helpers $(MAC_APP_RES)
 	@# Build into $(MAC_STAGE) and move into the bundle, rather than writing the
 	@# slot directly. A server RUNNING from this tree re-execs its own path to
 	@# recover from a main-thread wedge (relaunchInPlace), so that path must
@@ -146,10 +151,11 @@ ifeq ($(UNAME_S),Darwin)
 	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(MAC_STAGE)/$(BINARY_NAME) ./cmd/juggler
 	@$(GOBUILD) $(APP_GOFLAGS) -ldflags "$(LDFLAGS)" -o $(MAC_STAGE)/juggler-app ./cmd/juggler-app
 	@mv -f $(MAC_STAGE)/$(BINARY_NAME) $(MAC_APP_BIN)
+	@rm -f $(MAC_APP_STALE_BIN)
 	@mv -f $(MAC_STAGE)/juggler-app $(MAC_APP_APP_BIN)
 	@$(MAKE) --no-print-directory mac-app-meta
 	@$(MAKE) --no-print-directory mac-codesign
-	@ln -sfn Juggler.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
+	@ln -sfn Juggler.app/Contents/Helpers/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
 else
 	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)$(BIN_EXT) ./cmd/juggler
@@ -187,7 +193,7 @@ release-build: app-icon-embed wails-runtime-embed
 	@echo "Building $(BINARY_NAME) $(VERSION_STAMP) [release]..."
 	@mkdir -p $(BUILD_DIR)
 ifeq ($(UNAME_S),Darwin)
-	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_RES)
+	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_DIR)/Contents/Helpers $(MAC_APP_RES)
 	@# See go-build for why each binary is built into $(MAC_STAGE) and moved in.
 	@mkdir -p $(MAC_STAGE)
 	@rm -f $(MAC_STAGE)/$(BINARY_NAME) $(MAC_STAGE)/juggler-app
@@ -195,10 +201,11 @@ ifeq ($(UNAME_S),Darwin)
 	@echo "Building juggler-app $(VERSION_STAMP) [release]..."
 	$(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS)" -o $(MAC_STAGE)/juggler-app ./cmd/juggler-app
 	@mv -f $(MAC_STAGE)/$(BINARY_NAME) $(MAC_APP_BIN)
+	@rm -f $(MAC_APP_STALE_BIN)
 	@mv -f $(MAC_STAGE)/juggler-app $(MAC_APP_APP_BIN)
 	@$(MAKE) --no-print-directory mac-app-meta
 	@$(MAKE) --no-print-directory mac-codesign
-	@ln -sfn Juggler.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
+	@ln -sfn Juggler.app/Contents/Helpers/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
 else
 	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)$(BIN_EXT) ./cmd/juggler
@@ -264,7 +271,7 @@ ifneq ($(UNAME_S),Darwin)
 	@echo "release-build-mac is only supported on macOS."; exit 1
 endif
 	@echo "Building Juggler.app $(VERSION_STAMP) [release, $(GOARCH_HOST)]..."
-	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_RES)
+	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_DIR)/Contents/Helpers $(MAC_APP_RES)
 	@# See go-build for why each binary is built into $(MAC_STAGE) and moved in.
 	@mkdir -p $(MAC_STAGE)
 	@rm -f $(MAC_STAGE)/$(BINARY_NAME) $(MAC_STAGE)/juggler-app
@@ -278,10 +285,11 @@ endif
 	@echo "  → juggler-app ($(GOARCH_HOST))"
 	@CGO_ENABLED=1 GOOS=darwin GOARCH=$(GOARCH_HOST) $(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS)" -o $(MAC_STAGE)/juggler-app ./cmd/juggler-app || exit 1
 	@mv -f $(MAC_STAGE)/$(BINARY_NAME) $(MAC_APP_BIN)
+	@rm -f $(MAC_APP_STALE_BIN)
 	@mv -f $(MAC_STAGE)/juggler-app $(MAC_APP_APP_BIN)
 	@$(MAKE) --no-print-directory mac-app-meta
 	@$(MAKE) --no-print-directory mac-codesign
-	@ln -sfn Juggler.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
+	@ln -sfn Juggler.app/Contents/Helpers/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
 	@echo "→ $(MAC_APP_DIR) ($(GOARCH_HOST): $$(lipo -archs $(MAC_APP_APP_BIN)))"
 
@@ -417,9 +425,9 @@ app-icon-embed:
 		echo "Synced $(APP_ICON_EMBED) ← $(APP_ICON_PNG)"; \
 	fi
 
-## wails-runtime-embed: Sync the Wails v3 runtime.js bundle into the server
+## wails-runtime-embed: Sync the Wails v3 runtime.js bundle into the webui
 ## package so go:embed can pick it up (it can't follow symlinks or `..`).
-## Served at /wails/runtime.js for every client — see wails_runtime.go.
+## Served at /wails/runtime.js for every client — see webui/wails_runtime.go.
 ## The source is the bundle the fork commits, built from the runtime's
 ## TypeScript by `make wails-runtime-build`. It carries CRLF endings on Windows;
 ## we strip CRs so the committed LF copy is byte-identical on every OS
@@ -436,7 +444,7 @@ app-icon-embed:
 ## A missing bundle means the fork isn't checked out, and is an error too.
 WAILS_V3=3rdparty/wails/v3
 WAILS_RUNTIME_SRC=$(WAILS_V3)/internal/assetserver/bundledassets/runtime.js
-WAILS_RUNTIME_EMBED=cmd/juggler/server/wails_runtime.js
+WAILS_RUNTIME_EMBED=cmd/juggler/webui/wails_runtime.js
 WAILS_RUNTIME_INPUTS=internal/runtime/desktop/@wailsio/runtime/src internal/runtime/desktop/compiled \
 	':(exclude)*.test.*' ':(exclude)*.spec.*'
 wails-runtime-embed:
@@ -757,7 +765,7 @@ ifeq ($(UNAME_S),Darwin)
 	@rm -rf "/Applications/Juggler.app"
 	@cp -R "$(MAC_APP_DIR)" "/Applications/Juggler.app"
 	@mkdir -p /usr/local/bin
-	@ln -sfn "/Applications/Juggler.app/Contents/MacOS/$(BINARY_NAME)" "/usr/local/bin/$(BINARY_NAME)"
+	@ln -sfn "/Applications/Juggler.app/Contents/Helpers/$(BINARY_NAME)" "/usr/local/bin/$(BINARY_NAME)"
 	@echo "Installed. Run 'juggler' in a terminal or launch Juggler from Finder."
 else
 	@echo "install-mac is only supported on macOS."; exit 1
@@ -910,8 +918,8 @@ lint-go: app-icon-embed wails-runtime-embed
 ## release passes they are provably wrong, and they alone are dropped from those
 ## passes' output, by file and name. An entry the release pass no longer reports
 ## fails the target, so the list cannot outlive the code it names.
-##   - server.RegisterTunnelMode: adds a WAN tunnel mode (a build that
-##     registers none has no WAN feature).
+##   - tunnel.RegisterMode: adds a WAN tunnel mode (a build that registers
+##     none has no WAN feature).
 ##   - webui.RegisterCatalogFS: adds a UI-message catalogue for Go code outside
 ##     this module; updateCatalogSources is reached only through it.
 ##
@@ -924,7 +932,7 @@ lint-go: app-icon-embed wails-runtime-embed
 DEADCODE_VERSION=v0.51.0
 DEADCODE_RELEASE_MAINS := ./cmd/juggler ./cmd/juggler-app
 DEADCODE_SEAMS := \
-	cmd/juggler/server/tunnel_registry.go:RegisterTunnelMode \
+	cmd/juggler/tunnel/tunnel.go:RegisterMode \
 	cmd/juggler/webui/webui.go:RegisterCatalogFS \
 	cmd/juggler/webui/webui.go:updateCatalogSources
 lint-deadcode: app-icon-embed wails-runtime-embed

@@ -63,20 +63,6 @@ func TestClaimSettleAdmitsOnlyTheFirstCaller(t *testing.T) {
 	}
 }
 
-// Choosing to keep working leaves the window open, so the next close has to be
-// able to ask again.
-func TestReleaseSettleLetsALaterCloseAskAgain(t *testing.T) {
-	a := newTestAppState(t)
-	e := registerTestWindow(a, "w1")
-
-	a.claimSettle(e)
-	a.releaseSettle(e)
-
-	if !a.claimSettle(e) {
-		t.Fatal("a released claim must let the next close run the gate")
-	}
-}
-
 func TestClaimSettleAdmitsOneOfManyConcurrentClosers(t *testing.T) {
 	a := newTestAppState(t)
 	e := registerTestWindow(a, "w1")

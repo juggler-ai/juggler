@@ -32,9 +32,7 @@ const (
 // Frames the server sends. engine-bridge, viewer-relay, session-changed and
 // worker-message travel both ways and are declared above.
 const (
-	frameDataChannelChunk       frameType = "__juggler_dc_chunk"
 	frameFileChange             frameType = "file-change"
-	frameProjectChanged         frameType = "project-changed"
 	framePluginChanged          frameType = "plugin-changed"
 	frameSettingsChanged        frameType = "settings-changed"
 	framePinboardChanged        frameType = "pinboard-changed"
@@ -64,7 +62,7 @@ var allInboundFrames = []frameType{
 
 // allOutboundFrames is every frame type the server sends.
 var allOutboundFrames = []frameType{
-	frameDataChannelChunk, frameFileChange, frameProjectChanged, framePluginChanged, frameSettingsChanged,
+	frameFileChange, framePluginChanged, frameSettingsChanged,
 	framePinboardChanged, framePinboardReveal, frameWorkspacesChanged, frameProcessesChanged, frameViewerRelay,
 	frameProvidersUpdate,
 	frameUpdateStatus, frameClientsChanged, frameShellOutput, frameEngineBridge, frameHeartbeat, frameSession,

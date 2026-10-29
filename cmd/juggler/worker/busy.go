@@ -30,6 +30,8 @@ package worker
 //     or under one thread. What a pause asks before it leaves a mark.
 //   - isActivelyRunning(): any claim that is not parked solely on approvals.
 //     The safe-to-quit question.
+//   - sessionHeld(): any document claim OR live turn, including approvals,
+//     dispatch preparation and finalization. The session-lifetime question.
 //   - anyRunState(): the live turns, conversation-wide. What a request that
 //     starts a run of its own asks.
 //   - threadBusy(id): both records, for one thread. The intake gate: a send or
@@ -114,6 +116,17 @@ func (w *ConversationWorker) isActivelyRunning() bool {
 	// Conversation-wide ("" is the root, so the whole tree): the caller is asking
 	// whether it is safe to quit, which no thread can answer on its own.
 	return !w.blockedOnlyByApprovals("")
+}
+
+// sessionHeld reports whether this conversation must keep its session alive.
+// A registered turn holds it even with an idle frame: it owns the conversation
+// from dispatch preparation through retirement. The ambient state covers the
+// pickup before registration. Claims include queued dispatch and approval waits.
+// Asked at a worker actor boundary: registry ownership cannot change during
+// the vote, including the handoff from a finished turn back to reconciliation.
+// Document access uses ycrdtMu; live states are atomic.
+func (w *ConversationWorker) sessionHeld() bool {
+	return w.hasActiveRun() || w.currentRun().loadState() != StateIdle || w.sched.hasLive()
 }
 
 // anyRunState reports the state of the busiest run this worker owns: any turn on

@@ -300,7 +300,7 @@ class SettingsPanel extends JugglerElement {
 
                     <section class="settings-tab-content" id="tab-connectivity">
                         <p class="settings-description">
-                            ${escapeHtml(t('Control who can reach this Juggler instance.'))}
+                            ${escapeHtml(t('How other devices reach Juggler on this machine, who else is connected to this session, and the proxy Juggler uses to reach the internet.'))}
                         </p>
                         <div class="settings-form" id="connectivity-form">
                         </div>
@@ -489,6 +489,7 @@ class SettingsPanel extends JugglerElement {
    */
   async open(tab, options = {}) {
     const isFirstLoad = !this._hasLoadedOnce;
+    const wasOpen = this.classList.contains('show');
 
     // Show panel - only show loading state on first load
     this.classList.add('show');
@@ -504,9 +505,14 @@ class SettingsPanel extends JugglerElement {
       this._releasePopupOpen = () => { releasePopup(); releaseTrap(); };
     }
 
-    // Switch to specified tab if provided (before loading so tab is ready)
+    // Switch to specified tab if provided (before loading so tab is ready).
+    // Reopened on the tab it was left on, that tab is shown again: close()
+    // stopped its poll. Already open, it is polling, and a second show()
+    // would arm a second poll.
     if (tab) {
       this.switchTab(tab);
+    } else if (!wasOpen) {
+      this._tabs[this.currentTab]?.show?.();
     }
 
     if (options.capability) {

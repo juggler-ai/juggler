@@ -7,7 +7,7 @@
  *
  * The engine loads a conversation lazily — the first time a worker syncs one to
  * it — and used to keep it for the process lifetime: the Yjs document, its
- * observers and the worker entry, across project switches, including
+ * observers and the worker entry, including
  * conversations the user had deleted or binned long ago. That is unbounded
  * growth in the one realm that must stay responsive, and a WebView that has
  * exhausted its memory presents exactly like a wedged realm.

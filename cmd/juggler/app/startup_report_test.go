@@ -15,14 +15,14 @@ import (
 )
 
 // TestStartupFailureExplainsAHeldLock covers the terminal half of the leaked
-// lockfile. The failure used to reach a person as a banner, silence and an exit
-// code, which reads exactly like a session that ran and ended — so the one
-// failure they could have fixed themselves was the one that said least.
+// lockfile. Without the report the failure reaches a person as a banner,
+// silence and an exit code, which reads exactly like a session that ran and
+// ended — so the one failure they could fix themselves would say least.
 func TestStartupFailureExplainsAHeldLock(t *testing.T) {
 	var out bytes.Buffer
 	reportStartupFailure(&out, fmt.Errorf("instance lock: %w", &core.ProjectLockedError{
 		Project: "/tmp/project",
-		Info:    &core.InstanceInfo{PID: 42, Host: "127.0.0.1", Port: 7777},
+		Info:    &core.InstanceInfo{PID: 42},
 	}))
 
 	for _, want := range []string{

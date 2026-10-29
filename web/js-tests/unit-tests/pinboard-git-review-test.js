@@ -395,12 +395,8 @@ export async function runTests() {
       const asked = reviews.length;
       const pending = watch(service().review());
       await waitFor(() => reviews.length > asked, 'the review was never requested');
-      // Called directly rather than provoked with the `project-changed`
-      // broadcast that is one of its causes: that event is also handled by
-      // session.js, which answers it with `window.location.reload()`, and firing
-      // it here would take the lane's whole realm down with it. The other cause
-      // is the user moving to a conversation bound somewhere else, which resets
-      // this the same way and for the same reason.
+      // Called directly: its cause is the user moving to a conversation bound
+      // somewhere else, which resets this the same way.
       gitReviewService.reset();
       open.release();
       gate = null;

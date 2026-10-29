@@ -6,12 +6,17 @@ package machineserver
 
 import (
 	"bytes"
+	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,20 +35,13 @@ type ConnectOptions struct {
 	// ConfigDir holds server.lock and server.json; "" is userpaths.ConfigDir().
 	ConfigDir string
 	// Start, when set, is how Connect starts a server when none is running.
-	// Without it, no server running is errNoServer.
+	// Without it, no server running is ErrNoServer.
 	Start Starter
 }
 
 // connectWaiting is called each time Connect waits for a server that holds
 // the lock but does not answer yet. A seam for tests.
 var connectWaiting = func() {}
-
-// connectTimeout is Connect's outer guard. A wait ends as the holder makes
-// progress — it records its address and answers, or lets the lock go — so
-// this bounds only a holder that keeps the lock and never answers. It covers
-// a server's slowest legitimate silence: a shutdown draining its listener
-// (10s) and then its children (childStopGrace twice).
-const connectTimeout = childStartTimeout
 
 // connectPoll is how often Connect looks again while it waits, and
 // statusProbeTimeout how long one status probe may take.
@@ -58,12 +56,12 @@ const (
 const connectStarts = 3
 
 // DetachedStarter is the Starter for bin, this machine's juggler: it runs
-// `bin serve --implicit` detached (see the detach package), so the server
+// `bin serve --implicit --started-by <pid>` detached (see the detach package), so the server
 // outlives whoever started it, with stdio on the null device. Its address is
 // read from server.json, never from its output.
 func DetachedStarter(bin string) Starter {
 	return func() (int, <-chan struct{}, error) {
-		cmd, err := detach.Start(detach.Command(bin, "serve", "--implicit"))
+		cmd, err := detach.Start(detach.Command(bin, "serve", "--implicit", "--started-by", strconv.Itoa(os.Getpid())))
 		if err != nil {
 			return 0, nil, fmt.Errorf("start the Juggler server: %w", err)
 		}
@@ -84,21 +82,22 @@ func DetachedStarter(bin string) Starter {
 //     token: that is the server.
 //   - The lock is held but nothing answers yet — a server between taking the
 //     lock and recording its address, or shutting down: wait for it to answer
-//     or to let the lock go.
-//   - The lock is free (server.json is missing, or left by a server that
-//     died): no server. Start one, unless one this call started is still on
-//     its way up, and wait for it. Of two clients starting at once, one
-//     server wins the lock; the other exits, and its client waits for the
-//     winner like any other.
+//     or to let the lock go, which it does when it exits.
+//   - Otherwise there is no server to wait for (server.json is missing, or left
+//     by a server that died). Start one, unless one this call started is still
+//     on its way up, and wait for it while it lives. Of two clients starting at
+//     once, one server wins the lock; the other exits, and its client waits for
+//     the winner like any other.
 //
-// Without opts.Start a free lock is errNoServer.
+// No wait is bounded by a clock: each lasts while the process it waits on
+// lives (worthWaiting). Without opts.Start, no server to wait for is
+// ErrNoServer.
 func Connect(opts ConnectOptions) (*Client, error) {
 	dir := opts.ConfigDir
 	if dir == "" {
 		dir = userpaths.ConfigDir()
 	}
 	lock := NewMachineLock(dir)
-	deadline := time.Now().Add(connectTimeout)
 	// The server this call started, and its channel that closes when it exits.
 	var oursPID int
 	var ours <-chan struct{}
@@ -111,12 +110,12 @@ func Connect(opts ConnectOptions) (*Client, error) {
 				return c, nil
 			}
 		}
-		if !lock.held() && (ours == nil || closed(ours)) {
+		if !worthWaiting(info, lock.probe(), ours) {
 			if opts.Start == nil {
 				if info != nil && info.Addr != "" {
-					return nil, fmt.Errorf("%w (server.json names %s, which is not answering)", errNoServer, info.Addr)
+					return nil, fmt.Errorf("%w (server.json names %s, which is not answering)", ErrNoServer, info.Addr)
 				}
-				return nil, errNoServer
+				return nil, ErrNoServer
 			}
 			if starts == connectStarts {
 				return nil, fmt.Errorf("the Juggler server did not start (%d attempts); see %s", starts, serveLogPath())
@@ -128,11 +127,28 @@ func Connect(opts ConnectOptions) (*Client, error) {
 			}
 			oursPID, ours = pid, exited
 		}
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("the Juggler server holding %s did not answer within %s", lock.lockPath, connectTimeout)
-		}
 		connectWaiting()
 		time.Sleep(connectPoll)
+	}
+}
+
+// worthWaiting reports whether a server that does not answer yet is on its way
+// to answering, or to letting the lock go: the server this Connect started
+// (ours, nil for none) has not exited, or the lock is held. A held lock is a
+// live holder — the OS lets a lock go with the process that held it — and that
+// holder is the process server.json names once it has recorded itself, which
+// it does straight after taking the lock. A lock that cannot be probed falls
+// back on that record: waited on while the process it names lives.
+func worthWaiting(info *ServerInfo, lock lockState, ours <-chan struct{}) bool {
+	switch {
+	case ours != nil && !closed(ours):
+		return true
+	case lock == lockHeld:
+		return true
+	case lock == lockUnknown:
+		return info != nil && processAlive(info.PID)
+	default:
+		return false
 	}
 }
 
@@ -155,7 +171,9 @@ func probeStatus(info *ServerInfo) (*Client, int, bool) {
 		return nil, 0, false
 	}
 	c.http = &http.Client{Timeout: cliTimeout}
-	c.Version, c.Implicit = st.Version, st.Implicit
+	// A server from before builds were told apart reports none, and is
+	// known by its version alone.
+	c.Version, c.Build, c.Implicit, c.PID = st.Version, cmp.Or(st.Build, st.Version), st.Implicit, st.PID
 	return c, st.PID, true
 }
 
@@ -169,13 +187,22 @@ type Client struct {
 	addr  string
 	token string
 	http  *http.Client
-	// Version is the server's build version, and Implicit whether a client
-	// started it on demand (serve --implicit).
-	Version  string
+	// Version is the server's build version, Implicit whether a client
+	// started it on demand (serve --implicit), and PID its process.
+	Version string
+	// Build is which build of Version the server is (BuildOf): a client uses
+	// a server only of its own build.
+	Build    string
 	Implicit bool
+	PID      int
 	// Started is whether the Connect that returned this client started the
 	// server.
 	Started bool
+	// beatEvery is how often an attachment of this client beats; zero is
+	// attachBeatEvery.
+	beatEvery time.Duration
+	// beaten, when set, is told each beat the server answered.
+	beaten func(id string)
 }
 
 // Addr is the server's host:port.
@@ -191,8 +218,14 @@ func (c *Client) SessionURL(id string) string {
 // spawn already in flight for the project is waited for, and is another
 // caller's; a session that is not running then — its spawn failed, or it is
 // waiting to restart after a crash — is an error.
+//
+// The call has no timeout of its own: it lasts while the server works on it,
+// which bounds every wait in an open itself (a stopping child's exit, a spawn
+// within childStartTimeout). A server that dies meanwhile drops the
+// connection, which ends the call as ErrNoServer.
 func (c *Client) OpenSession(project string) (sess Session, opened bool, err error) {
-	status, err := c.send(http.MethodPost, "/sessions", map[string]any{"project": project, "wait": true}, &sess)
+	untimed := &http.Client{Transport: c.http.Transport}
+	status, err := c.sendWith(untimed, http.MethodPost, "/sessions", map[string]any{"project": project, "wait": true}, &sess)
 	if err != nil {
 		return Session{}, false, err
 	}
@@ -214,6 +247,38 @@ func (c *Client) StopSession(id string) error {
 	return c.do(http.MethodDelete, "/sessions/"+id, nil, nil)
 }
 
+// ListSessions returns the sessions the server runs.
+func (c *Client) ListSessions() ([]Session, error) {
+	var list []Session
+	if err := c.do(http.MethodGet, "/sessions", nil, &list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// Shutdown asks the server to shut down, every session with it. A server
+// already gone, or on its way, has done as asked.
+func (c *Client) Shutdown() error {
+	if err := c.do(http.MethodPost, "/shutdown", nil, nil); err != nil && !ServerGoing(err) {
+		return err
+	}
+	return nil
+}
+
+// AwaitGone returns once the server c reaches has stopped answering, after a
+// shutdown it was asked for. It follows the server's progress: a server stops
+// answering as soon as its drain begins, and Connect then waits out the rest of
+// the drain on the lock. A server too slow to answer in time is still there.
+func (c *Client) AwaitGone() {
+	for {
+		err := c.do(http.MethodGet, "/status", nil, nil)
+		if err != nil && !errors.Is(err, ErrServerSlow) {
+			return
+		}
+		time.Sleep(connectPoll)
+	}
+}
+
 // do sends one control-API request and decodes a JSON answer into out (when
 // non-nil), as send does.
 func (c *Client) do(method, path string, body, out any) error {
@@ -222,10 +287,16 @@ func (c *Client) do(method, path string, body, out any) error {
 }
 
 // send sends one control-API request, decodes a JSON answer into out (when
-// non-nil), and returns the status it was answered with. A server that does
-// not answer is reported as no server at all; one that refuses says why
+// non-nil), and returns the status it was answered with. A server that cannot
+// be reached is reported as no server at all, one that did not answer within
+// the client's timeout as slow (unanswered), and one that refuses says why
 // (*refusalError).
 func (c *Client) send(method, path string, body, out any) (int, error) {
+	return c.sendWith(c.http, method, path, body, out)
+}
+
+// sendWith is send over hc.
+func (c *Client) sendWith(hc *http.Client, method, path string, body, out any) (int, error) {
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -234,7 +305,7 @@ func (c *Client) send(method, path string, body, out any) (int, error) {
 		}
 		rd = bytes.NewReader(b)
 	}
-	req, err := http.NewRequest(method, "http://"+c.addr+"/api/server"+path, rd) //nolint:noctx // bounded by the client's timeout
+	req, err := http.NewRequest(method, "http://"+c.addr+"/api/server"+path, rd) //nolint:noctx // bounded by hc's timeout, or by the server's progress (OpenSession)
 	if err != nil {
 		return 0, err
 	}
@@ -242,9 +313,9 @@ func (c *Client) send(method, path string, body, out any) (int, error) {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("%w (server.json names %s, which is not answering)", errNoServer, c.addr)
+		return 0, unanswered(c.addr, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
@@ -257,10 +328,12 @@ func (c *Client) send(method, path string, body, out any) (int, error) {
 	return resp.StatusCode, nil
 }
 
-// refusalError is a control-API refusal: its status, and what it says.
+// refusalError is a control-API refusal: its status, and what it says. A
+// refused conditional shutdown also says what the server holds (occupancy).
 type refusalError struct {
-	status int
-	text   string
+	status    int
+	text      string
+	occupancy *Occupancy
 }
 
 func (e *refusalError) Error() string { return e.text }
@@ -269,17 +342,37 @@ func (e *refusalError) Error() string { return e.text }
 // its JSON body, or the body itself.
 func responseError(resp *http.Response) error {
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	var sess Session
-	if json.Unmarshal(data, &sess) == nil && sess.Error != "" {
-		return &refusalError{status: resp.StatusCode, text: sess.Error}
+	var body struct {
+		Error     string     `json:"error"`
+		Occupancy *Occupancy `json:"occupancy"`
+	}
+	if json.Unmarshal(data, &body) == nil && body.Error != "" {
+		return &refusalError{status: resp.StatusCode, text: body.Error, occupancy: body.Occupancy}
 	}
 	return &refusalError{status: resp.StatusCode, text: strings.TrimSpace(string(data))}
 }
 
-// serverGoing reports whether err says the server is gone or on its way out:
-// it did not answer, or refused because it is shutting down (503). Either
-// way, Connect again finds out what is there now.
-func serverGoing(err error) bool {
+// ErrServerSlow is a call the server did not answer within the client's
+// timeout. The server was reached, so it is there, only slow: it is neither
+// gone nor going (ServerGoing), and Connect again would find the same one.
+var ErrServerSlow = errors.New("the Juggler server did not answer in time")
+
+// unanswered is the error for a request to the server at addr that got no
+// answer (err): a timeout is ErrServerSlow; anything else — refused, reset,
+// closed — is a server that is not there, ErrNoServer.
+func unanswered(addr string, err error) error {
+	var ne net.Error
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
+		return fmt.Errorf("%w (the server at %s: %v)", ErrServerSlow, addr, err)
+	}
+	return fmt.Errorf("%w (server.json names %s, which is not answering)", ErrNoServer, addr)
+}
+
+// ServerGoing reports whether err says the server is gone or on its way out:
+// it could not be reached (ErrNoServer), or refused because it is shutting
+// down (503). Either way, Connect again finds out what is there now. A server
+// that was slow to answer (ErrServerSlow) is neither.
+func ServerGoing(err error) bool {
 	var r *refusalError
-	return errors.Is(err, errNoServer) || (errors.As(err, &r) && r.status == http.StatusServiceUnavailable)
+	return errors.Is(err, ErrNoServer) || (errors.As(err, &r) && r.status == http.StatusServiceUnavailable)
 }

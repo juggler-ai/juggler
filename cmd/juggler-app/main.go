@@ -3,17 +3,20 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 // Command juggler-app is the Juggler desktop window. One process owns many
-// windows, each a viewer pointed at a juggler server over HTTP/WebSocket:
+// windows, each a viewer pointed at a juggler server over HTTP/WebSocket. It is
+// a client of this machine's Juggler server, which it finds or starts at launch
+// and stays attached to (server_conn.go):
 //
-//   - with --url, the first window connects to an already-running server,
-//   - without --url, it spawns a local headless server for --project and
-//     connects to that.
+//   - with --url, the first window connects to a server by its address,
+//   - with --project, it shows that project's session on this machine's
+//     server,
+//   - with neither, it restores the windows open last time.
 //
-// "New Window" (menu or the page) opens another in-process window — reusing a
-// running per-project server when one exists, else spawning a fresh one. The
-// server does all the work and owns the hidden engine webview; this process is
-// a pure viewer plus a small loopback endpoint that lets each page drive its
-// own native window controls (theme, minimise/maximise/close, new window).
+// "New Window" (menu or the page) opens another in-process window onto this
+// machine's server's page, where a project is chosen. The server and its
+// sessions do all the work; this process is a pure viewer plus a small loopback
+// endpoint that lets each page drive its own native window controls (theme,
+// minimise/maximise/close, new window).
 package main
 
 import (
@@ -26,10 +29,10 @@ import (
 )
 
 func main() {
-	urlFlag := flag.String("url", "", "Connect the first window to a juggler server at this URL. When omitted, a local server is spawned.")
-	project := flag.String("project", "", "Project folder for the first window's spawned server (ignored when --url is given).")
+	urlFlag := flag.String("url", "", "Connect the first window to a juggler server at this URL. When omitted, the window shows this machine's server, started if none is running.")
+	project := flag.String("project", "", "Project folder whose session the first window shows (ignored when --url is given).")
 	verbose := flag.Bool("verbose", false, "Verbose logging and the dev View menu (reload, devtools).")
-	dev := flag.Bool("dev", false, "Enable dev mode: web inspector + the full right-click menu, and the dev View menu. Set by a server running in dev mode (--dev or --assets-from-disk) when it launches a window.")
+	dev := flag.Bool("dev", false, "Enable dev mode: web inspector + the full right-click menu, and the dev View menu.")
 	flag.Parse()
 
 	devMode := 0
@@ -56,10 +59,10 @@ func main() {
 	}
 
 	// Build the application — and acquire the single-instance lock — BEFORE
-	// resolving any server. If another juggler-app is already running, this call
-	// hands our argv (--url/--project) to it and os.Exit()s here, so a redundant
-	// launch never spawns a throwaway server; the running instance opens/raises
-	// the window (onSecondInstance).
+	// reaching for any server. If another juggler-app is already running, this
+	// call hands our argv (--url/--project) to it and os.Exit()s here, so a
+	// redundant launch never starts or attaches to anything; the running
+	// instance opens/raises the window (onSecondInstance).
 	app.initApplication()
 
 	// Bind the loopback control endpoint so its port can be baked into window
@@ -82,7 +85,7 @@ func main() {
 	// last open set of windows (each at its remembered geometry).
 	specs := app.startupSpecs(*urlFlag, *project)
 	runErr := app.run(specs)
-	app.stopAllServers()
+	app.detachServer()
 	if runErr != nil {
 		// A non-nil return from the event loop means the GUI itself failed (e.g.
 		// g_application_run exited non-zero). Surface it loudly and exit non-zero

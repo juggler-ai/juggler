@@ -30,14 +30,13 @@
 
 import api from './api.js';
 import { gitWorkspaceId, onGitWorkspaceChange } from './git-workspace.js';
-import wsService from './websocket.js';
 
 /** @typedef {import('./api.js').GitReview} GitReview */
 /** @typedef {import('./api.js').GitFileDiff} GitFileDiff */
 
 /**
- * Bumped whenever the tree these questions are about changes — a project switch,
- * or the user moving to a conversation that works somewhere else. An answer that
+ * Bumped whenever the tree these questions are about changes — the user moving
+ * to a conversation that works somewhere else. An answer that
  * comes back after its generation has passed describes a tree nobody is looking
  * at, so it is refused rather than handed over.
  */
@@ -133,7 +132,7 @@ const gitReviewService = {
     let pending = _inFlight.get(scope);
     if (!pending) {
       const request = api.getGitReview({ workspaceId: gitWorkspaceId(), scope }).finally(() => {
-        // Only if it is still ours: a project switch in between has already let
+        // Only if it is still ours: a change of tree in between has already let
         // go of this one, and clearing unconditionally would discard the request
         // that replaced it.
         if (_inFlight.get(scope) === request) _inFlight.delete(scope);
@@ -188,14 +187,10 @@ const gitReviewService = {
   },
 };
 
-// A project switch replaces the tree every one of these questions was about.
-wsService.on('project-changed', () => {
-  gitReviewService.reset();
-});
-
-// And so does moving to a conversation that works in a different one. The
-// manifest a board is holding, and any patch still out against it, describe a
-// tree nobody is looking at any more.
+// Moving to a conversation that works in a different tree replaces the tree
+// every one of these questions was about. The manifest a board is holding, and
+// any patch still out against it, describe a tree nobody is looking at any
+// more.
 onGitWorkspaceChange(() => {
   gitReviewService.reset();
 });

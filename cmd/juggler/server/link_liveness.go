@@ -18,8 +18,8 @@ import (
 // Nothing below the application layer answers it in useful time. A half-open TCP
 // connection — a laptop suspended mid-turn, a phone leaving wifi, a NAT
 // rebinding — stays open at both ends with no RST, and the kernel only gives up
-// after the keepalive ladder on the viewer listener (listenForViewers,
-// shutdown.go) has run, which is about two minutes. WebSocket ping/pong would be
+// after the keepalive ladder on the machine server's listener
+// (portbind.KeepAlive) has run, which is about two minutes. WebSocket ping/pong would be
 // quicker and proves the wrong thing, for the same reason it does for the
 // engine: in WebKit the socket lives in the network process, so control frames
 // are still answered by a machine whose page has stopped.

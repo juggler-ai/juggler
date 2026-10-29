@@ -201,7 +201,7 @@ class APIService {
   /**
    * Get the conversations that are actively running a turn. Turns parked solely
    * on a pending tool approval are NOT reported — they survive a restart intact,
-   * so callers warning before a destructive action (project switch, quit) must
+   * so callers warning before a destructive action (quit) must
    * not treat them as busy.
    * @returns {Promise<{active: boolean, conversationIds: string[]}>} Active flag and conversation IDs
    */
@@ -575,59 +575,30 @@ class APIService {
   }
 
   /**
-   * Check whether a path exists and is a directory without switching projects.
-   * @param {string} path - Path to check (~ is expanded server-side)
-   * @returns {Promise<{valid: boolean, path?: string, error?: string}>} Check result
-   */
-  async checkProject(path) {
-    return await this.request(`/project/check?path=${encodeURIComponent(path)}`);
-  }
-
-  /**
-   * Open or switch to a project folder.
-   * @param {string} path - Absolute or relative project path
-   * @returns {Promise<{projectPath: string}>} Resolves with the absolute path of the now-loaded project.
-   */
-  async openProject(path) {
-    return await this.request('/project', {
-      method: 'POST',
-      body: { path }
-    });
-  }
-
-  /**
-   * Create a folder and open it as the project.
-   *
-   * The folder is made directly inside `parent`, which must already exist — a
-   * mistyped parent is refused rather than built, so a typo cannot leave empty
-   * folders behind. An existing folder of that name is a conflict, never a
-   * silent switch onto someone else's work.
-   * @param {string} parent - Absolute or ~-relative folder to create it in
-   * @param {string} name - Folder name; no slashes, not "." or ".."
-   * @returns {Promise<{projectPath: string}>} Resolves with the absolute path of the now-loaded project.
-   */
-  async createProject(parent, name) {
-    return await this.request('/project/new', {
-      method: 'POST',
-      body: { parent, name }
-    });
-  }
-
-  /**
-   * Open a new desktop window onto a project. Only works in the native desktop
-   * app, which handles it via its loopback nativeCtl endpoint by opening
-   * another in-process window; a plain browser tab has no native host, so this
-   * is a no-op there.
-   * @param {string} [path] - Optional project folder for the new window. When
-   *   omitted the new window starts in no-project mode and shows the picker.
+   * Open a new desktop window on the server's page, where a project is chosen.
+   * Only works in the native desktop app, which handles it via its loopback
+   * nativeCtl endpoint by opening another in-process window; a plain browser
+   * tab has no native host, so this is a no-op there.
    * @returns {Promise<void>} Resolves once the launch was requested.
    */
-  async newWindow(path = '') {
+  async newWindow() {
     const params = newWindowParams();
-    if (path) params.set('project', path);
     const url = windowControlURL('new', `?${params.toString()}`);
     if (!url) return; // no native host (browser tab) — nothing to open
     await fetchJson(url, { method: 'POST', errorPrefix: t('Could not open a new window') });
+  }
+
+  /**
+   * Show this window's server's sessions page in it again: Session ▸ Open… in
+   * a desktop window on a server by URL. The app refuses it from a window on
+   * this machine's server, which opens a new window for that instead
+   * ({@link APIService#newWindow}).
+   * @returns {Promise<void>} Resolves once the app has taken it.
+   */
+  async showServerPage() {
+    const url = windowControlURL('server-page');
+    if (!url) return;
+    await fetchJson(url, { method: 'POST' });
   }
 
   /**
@@ -686,26 +657,6 @@ class APIService {
     const url = windowControlURL('new', `?${params.toString()}`);
     if (!url) return; // no native host (browser tab) — nothing to open
     await fetchJson(url, { method: 'POST', errorPrefix: t("Couldn't open that board") });
-  }
-
-  /**
-   * Get the user-level recent project paths.
-   * @returns {Promise<{paths: string[]}>} Resolves with the recents list, most-recent first.
-   */
-  async getRecents() {
-    return await this.request('/recents');
-  }
-
-  /**
-   * Remove one path from the recents list.
-   * @param {string} path
-   * @returns {Promise<null>} Resolves with null on success.
-   */
-  async removeRecent(path) {
-    return await this.request('/recents', {
-      method: 'DELETE',
-      body: { path }
-    });
   }
 
   /**

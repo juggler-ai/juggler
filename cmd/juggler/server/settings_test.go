@@ -124,25 +124,24 @@ func putSettings(t *testing.T, s *Server, body string, wantCode int) {
 
 func TestHandlePutSettingsMergesConnectivityAndUpdates(t *testing.T) {
 	userpathstest.Isolate(t)
-	withTestTunnelModes(t, TunnelModeSpec{Mode: "p2p", New: func(TunnelHost) TunnelProvider { return nil }})
 	s := &Server{settings: newSettingsStore()}
 
 	// A partial PUT must merge, not replace: setting one section leaves the other
 	// untouched. Set updates, then connectivity, and confirm both persist.
 	putSettings(t, s, `{"updates":{"mode":"notify"}}`, http.StatusOK)
-	putSettings(t, s, `{"connectivity":{"lanOnLaunch":true,"wanOnLaunch":"p2p"}}`, http.StatusOK)
+	putSettings(t, s, `{"connectivity":{"allowedHosts":["box.tailnet.ts.net"]}}`, http.StatusOK)
 
 	gs := s.settings.get()
 	if gs.Updates.Mode != core.UpdateModeNotify {
 		t.Fatalf("updates clobbered by connectivity PUT: mode=%q", gs.Updates.Mode)
 	}
-	if !gs.Connectivity.LANOnLaunch || gs.Connectivity.WANOnLaunch != "p2p" {
+	if len(gs.Connectivity.AllowedHosts) != 1 {
 		t.Fatalf("connectivity not saved: %+v", gs.Connectivity)
 	}
 
 	// A later updates-only PUT must not wipe the connectivity section.
 	putSettings(t, s, `{"updates":{"mode":"off"}}`, http.StatusOK)
-	if gs := s.settings.get(); !gs.Connectivity.LANOnLaunch || gs.Connectivity.WANOnLaunch != "p2p" {
+	if gs := s.settings.get(); len(gs.Connectivity.AllowedHosts) != 1 {
 		t.Fatalf("connectivity clobbered by later updates PUT: %+v", gs.Connectivity)
 	}
 }
@@ -220,34 +219,67 @@ func TestHandlePutSettingsUIPrefsOverTheBoundsRejected(t *testing.T) {
 	}
 }
 
-func TestHandlePutSettingsInvalidWANMode(t *testing.T) {
-	userpathstest.Isolate(t)
-	withTestTunnelModes(t, TunnelModeSpec{Mode: "p2p", New: func(TunnelHost) TunnelProvider { return nil }})
-	s := &Server{settings: newSettingsStore()}
-	putSettings(t, s, `{"connectivity":{"wanOnLaunch":"p2p"}}`, http.StatusOK)
-
-	// An unregistered mode is rejected with 400 and the stored value is unchanged.
-	putSettings(t, s, `{"connectivity":{"wanOnLaunch":"bogus"}}`, http.StatusBadRequest)
-	if got := s.settings.get().Connectivity.WANOnLaunch; got != "p2p" {
-		t.Fatalf("rejected PUT changed wanOnLaunch to %q, want unchanged p2p", got)
-	}
-}
-
 // TestHandlePutSettingsAllowedHosts: a valid list is stored, a patch to another
-// connectivity key leaves it alone, and a name the server would skip at
+// section leaves it alone, and a name the server would skip at
 // startup is refused here instead, leaving the stored list unchanged.
 func TestHandlePutSettingsAllowedHosts(t *testing.T) {
 	userpathstest.Isolate(t)
 	s := &Server{settings: newSettingsStore()}
 	putSettings(t, s, `{"connectivity":{"allowedHosts":["box.tailnet.ts.net"]}}`, http.StatusOK)
-	putSettings(t, s, `{"connectivity":{"lanOnLaunch":true}}`, http.StatusOK)
+	putSettings(t, s, `{"updates":{"mode":"notify"}}`, http.StatusOK)
 	if got := s.settings.get().Connectivity.AllowedHosts; len(got) != 1 || got[0] != "box.tailnet.ts.net" {
-		t.Fatalf("allowedHosts after a lanOnLaunch patch = %q, want [box.tailnet.ts.net]", got)
+		t.Fatalf("allowedHosts after an updates patch = %q, want [box.tailnet.ts.net]", got)
 	}
 
 	putSettings(t, s, `{"connectivity":{"allowedHosts":["*.ts.net"]}}`, http.StatusBadRequest)
 	if got := s.settings.get().Connectivity.AllowedHosts; len(got) != 1 || got[0] != "box.tailnet.ts.net" {
 		t.Fatalf("rejected PUT changed allowedHosts to %q, want unchanged", got)
+	}
+}
+
+// TestSettingsPutLeavesLaunchChoicesToTheMachineServer: what opens whenever
+// Juggler starts is the machine server's to save (PUT /api/server/launch, which
+// a session reaches through /api/connectivity/launch). A session's settings PUT
+// writes neither key, whoever sends it and whatever it says, and saving any
+// other part of the document — connectivity's allowed hosts included — keeps
+// what the machine server saved since this session last read the file.
+func TestSettingsPutLeavesLaunchChoicesToTheMachineServer(t *testing.T) {
+	userpathstest.Isolate(t)
+	s := &Server{settings: newSettingsStore()}
+	put := func(r *http.Request) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		s.handlePutSettings(rec, r)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("PUT %s: status = %d, want 200 (body %s)", r.URL, rec.Code, rec.Body.String())
+		}
+	}
+	onDisk := func() core.ConnectivitySettings {
+		t.Helper()
+		gs, err := core.LoadGlobalSettings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return gs.Connectivity
+	}
+
+	put(localRequest(http.MethodPut, "/api/settings", `{"connectivity":{"lanOnLaunch":true,"wanOnLaunch":"nope"}}`))
+	put(remoteRequest(http.MethodPut, "/api/settings", `{"connectivity":{"lanOnLaunch":true,"wanOnLaunch":"`+testTunnelMode+`"}}`))
+	if c := onDisk(); c.LANOnLaunch || c.WANOnLaunch != "" {
+		t.Fatalf("a settings PUT saved what opens at start: %+v", c)
+	}
+
+	// The machine server saves them behind this session's back.
+	if _, err := core.UpdateGlobalSettings(func(gs *core.GlobalSettings) bool {
+		gs.Connectivity.LANOnLaunch, gs.Connectivity.WANOnLaunch = true, testTunnelMode
+		return true
+	}); err != nil {
+		t.Fatal(err)
+	}
+	put(localRequest(http.MethodPut, "/api/settings", `{"connectivity":{"allowedHosts":["box.tailnet.ts.net"]}}`))
+	put(localRequest(http.MethodPut, "/api/settings", `{"connectivity":{"lanOnLaunch":false,"wanOnLaunch":""}}`))
+	if c := onDisk(); !c.LANOnLaunch || c.WANOnLaunch != testTunnelMode || len(c.AllowedHosts) != 1 {
+		t.Fatalf("after a session's saves: %+v, want the machine server's LAN and %s kept beside the allowed host", c, testTunnelMode)
 	}
 }
 

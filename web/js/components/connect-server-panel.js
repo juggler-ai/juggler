@@ -8,10 +8,12 @@
  * at launch exactly as it does a project window.
  *
  * Desktop only: the window is the app's to open, through its control endpoint.
- * And only from a window on this computer's own server. A window that is itself
- * on a server by URL is refused by the app (a page a server sent must not be
- * able to send the app anywhere else), so it is told where to go instead of
- * being offered a field that cannot work.
+ * And only from a window on this computer's own server. The app refuses
+ * `connect` to a window that is itself on a server by URL: a page another
+ * computer's server sent may move its window only within that server (to one
+ * of its sessions, or back to its page — juggler-app/control.go's
+ * windowActions), never point it at a different one. So such a window is told
+ * where to go instead of being offered a field that cannot work.
  * @module components/connect-server-panel
  */
 
@@ -36,8 +38,7 @@ export function canConnectToServer(nativeHost = hasNativeHost()) {
 }
 
 /**
- * Open the panel, anchored to the header project chip like the project picker
- * beside it. A second call while it is open closes it, as every button popup
+ * Open the panel, placed under the header's project path. A second call while it is open closes it, as every button popup
  * does. A browser tab has no native host and nothing happens; a window on a
  * server by URL is told to connect from a new window.
  * @param {object} [options]
@@ -78,7 +79,7 @@ export async function openConnectServerPanel({
       <span class="pp-subtitle">${escapeHtml(t('Opens a window onto Juggler running on another computer. Like a project window, it reopens when Juggler starts.'))}</span>
     </div>
     <div class="pp-body">
-      <input type="text" class="pp-address-input field-input" placeholder="${escapeHtml(t('Server address, e.g. http://devbox:8080'))}" spellcheck="false" autocomplete="off" autocapitalize="off" inputmode="url">
+      <input type="text" class="pp-address-input field-input" placeholder="${escapeHtml(t('Server address, e.g. http://devbox:3939'))}" spellcheck="false" autocomplete="off" autocapitalize="off" inputmode="url">
       <div class="pp-status" aria-live="polite"></div>
     </div>
     <div class="pp-footer">
@@ -96,7 +97,11 @@ export async function openConnectServerPanel({
    * @returns {void}
    */
   const setStatus = (state, message = '') => {
-    statusEl.className = 'pp-status pp-status--' + state;
+    // Whole literals, so the stylesheet checks can read which classes share
+    // this element.
+    statusEl.className = state === 'checking' ? 'pp-status pp-status--checking'
+      : state === 'invalid' ? 'pp-status pp-status--invalid'
+        : 'pp-status pp-status--idle';
     statusEl.textContent = message;
   };
 
@@ -115,7 +120,6 @@ export async function openConnectServerPanel({
   const close = () => {
     if (closed) return;
     closed = true;
-    anchor.setAttribute('aria-expanded', 'false');
     release?.();
   };
 
@@ -128,7 +132,6 @@ export async function openConnectServerPanel({
     insideSelectors: ['.pp-panel', '#project-path-chip'],
   });
   if (closed) release();
-  else anchor.setAttribute('aria-expanded', 'true');
 
   /** @returns {Promise<void>} */
   async function connect() {

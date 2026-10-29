@@ -110,7 +110,7 @@ func (r SkillRoot) Label() string { return r.Scope + "-" + r.Source }
 
 // SkillRoots returns the skill source roots in precedence order (first wins on
 // a name collision): project-juggler, project-agents, user-juggler, user-agents.
-// Project roots are omitted in no-project mode (projectPath ""). A root
+// Project roots are omitted for an empty projectPath. A root
 // directory that doesn't exist is harmless — discovery simply finds nothing
 // there.
 func SkillRoots(projectPath string) []SkillRoot {
@@ -150,8 +150,8 @@ func userSkillRoots() []SkillRoot {
 	return roots
 }
 
-// SkillRootDir maps a (scope, source) pair to its skills directory, honoring
-// no-project mode (project scopes are absent from SkillRoots then). Returns
+// SkillRootDir maps a (scope, source) pair to its skills directory (project
+// scopes are absent from SkillRoots for an empty projectPath). Returns
 // ok=false for an unknown or unavailable pair.
 func SkillRootDir(projectPath, scope, source string) (string, bool) {
 	for _, root := range SkillRoots(projectPath) {

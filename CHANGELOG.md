@@ -6,8 +6,11 @@ of changes; this project follows semantic versioning.
 ## [Unreleased]
 
 - One Undo after compacting a long conversation restores its full history again
+- Desktop and terminal projects share one machine server, with automatic session cleanup
+- LAN access is one switch for the whole machine, in Settings → Connectivity
+- Tunnels open machine-wide from Settings → Connectivity, reaching every session
+- Connect the desktop app to another computer's Juggler and open its sessions
 - Quick successive edits undo as one step even when the machine is busy
-- `juggler` in a folder opens it on this machine's one server, starting it if needed
 - Composer settings moved to a status line under the box; tools sit by Send
 - Long files are no longer shown cut short in a panel about 100 lines tall
 - The first column widens freely beside a properties panel, which scrolls if needed

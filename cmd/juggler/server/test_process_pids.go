@@ -2,9 +2,28 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
+//go:build !production
+
 package server
 
-import "time"
+import (
+	"sync/atomic"
+	"time"
+)
+
+// testPoolHooks is what a test pool installs on its server: the pool window
+// (the app layer's window_testpool.go) and RegisterTestRoutes are its only
+// writers and readers. A production build has no pool, and its testPoolHooks
+// is empty (test_process_pids_production.go).
+type testPoolHooks struct {
+	// processPIDs lists the processes outside this server's tree that run its
+	// pages (see SetTestProcessPIDs). Installed by the test-pool host; nil
+	// elsewhere.
+	processPIDs atomic.Pointer[ProcessPIDs]
+	// laneWait waits for a test pool's lanes to ask for work (see
+	// WaitForTestLanes). Installed by RegisterTestRoutes; nil elsewhere.
+	laneWait atomic.Pointer[LaneWait]
+}
 
 // ProcessPIDs lists processes that do this server's work without being in its
 // process tree. Installed by the app layer, which owns the web views.
@@ -21,10 +40,10 @@ type ProcessPIDs func() []int
 // the machine uses WebKit.
 func (s *Server) SetTestProcessPIDs(fn ProcessPIDs) {
 	if fn == nil {
-		s.testProcessPIDs.Store(nil)
+		s.testPool.processPIDs.Store(nil)
 		return
 	}
-	s.testProcessPIDs.Store(&fn)
+	s.testPool.processPIDs.Store(&fn)
 }
 
 // LaneWait reports whether n distinct lanes of a test pool have asked for work
@@ -36,7 +55,7 @@ type LaneWait func(n int, timeout time.Duration) bool
 // to tell a first load that hung from one that is running. A server with no
 // test routes has no lanes to wait for and reports true.
 func (s *Server) WaitForTestLanes(n int, timeout time.Duration) bool {
-	if fn := s.testLaneWait.Load(); fn != nil {
+	if fn := s.testPool.laneWait.Load(); fn != nil {
 		return (*fn)(n, timeout)
 	}
 	return true

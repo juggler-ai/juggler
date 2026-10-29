@@ -661,7 +661,7 @@ const (
 	// Comfortably above any normal scheduling jitter so live operation never trips it.
 	frozenGapThresholdMs = 4000
 	// execReportFreshMs is how recent the last accepted tool-execution-report must be
-	// for finalizeToolsAbsentFromExecReport to act on it — a few engine report
+	// for finalizeToolsAbsentFromExecReportExcept to act on it — a few engine report
 	// intervals (the engine reports every ~3s while tools run). Past this the engine
 	// has gone quiet and orphan recovery belongs to the reattach path, not this rule.
 	execReportFreshMs = 9000
@@ -1185,19 +1185,19 @@ func (r *run) updateElapsedAnchor(status string) {
 func (r *run) writeProcessingState(status, message string, text *msg.Message, code string) {
 	// Include threadItemId so frontend knows which column to target
 	stateMap := map[string]any{
-		"status":       status,
-		"message":      message,
-		"threadItemId": r.t.thread.itemID,
+		runFieldStatus:       status,
+		runFieldMessage:      message,
+		runFieldThreadItemID: r.t.thread.itemID,
 	}
 	if code != "" {
-		stateMap["code"] = code
+		stateMap[runFieldCode] = code
 	}
 	if text != nil {
-		stateMap["text"] = *text
+		stateMap[runFieldText] = *text
 	}
 	holdsClaim := statusHoldsClaim(status)
 	if holdsClaim {
-		stateMap["startedAt"] = r.t.processingStartedAt.Load()
+		stateMap[runFieldStartedAt] = r.t.processingStartedAt.Load()
 	}
 
 	// Terminal-error statuses release only this thread; live siblings retain their
@@ -1328,7 +1328,7 @@ func (r *run) sendErrorTo(dest threadContext, message string, text *msg.Message,
 		for k, v := range data {
 			withText[k] = v
 		}
-		withText["message"] = *text
+		withText[keyMessage] = *text
 		data = withText
 	}
 	if data != nil {
@@ -1359,9 +1359,9 @@ func (w *ConversationWorker) sendUndoState(canUndo, canRedo bool) {
 	// erase the sequence the tracker's emitUndoState stamped, breaking every
 	// reader that keys on seq to tell "the stack moved" from a re-emit.
 	w.doc.SetMetadata(keyUndoState, map[string]any{
-		"canUndo": canUndo,
-		"canRedo": canRedo,
-		"seq":     w.tracker.UndoSeq(),
+		keyCanUndo: canUndo,
+		keyCanRedo: canRedo,
+		keySeq:     w.tracker.UndoSeq(),
 	})
 }
 

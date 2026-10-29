@@ -1042,7 +1042,7 @@ export class SkillsTab {
  * @param {string} raw - The raw SKILL.md text.
  * @returns {{ fields: Array<{key: string, value: string}>, body: string }} Parsed fields + the body after the frontmatter.
  */
-export function splitFrontmatter(raw) {
+function splitFrontmatter(raw) {
   const text = raw || '';
   const match = /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
   if (!match) return { fields: [], body: text };
@@ -1068,7 +1068,7 @@ export function splitFrontmatter(raw) {
  * @param {string} text - Lowercased haystack.
  * @returns {number} The match score, or -1 for no match.
  */
-export function subsequenceScore(query, text) {
+function subsequenceScore(query, text) {
   if (!query) return 0;
   let score = 0;
   let ti = 0;

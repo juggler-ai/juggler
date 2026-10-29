@@ -345,9 +345,9 @@ func (w *ConversationWorker) cancelToolsInArray(arr *ycrdt.YArray, includeApprov
 		return nil
 	}
 	interruptedResult := convertToYcrdt(map[string]any{
-		"content":   "Interrupted",
-		"cancelled": true,
-		"isError":   false,
+		keyContent:   "Interrupted",
+		keyCancelled: true,
+		keyIsError:   false,
 	})
 
 	var executingIDs []toolCancelRef
@@ -410,7 +410,7 @@ func (w *ConversationWorker) cancelToolsInArray(arr *ycrdt.YArray, includeApprov
 // result=interrupted IFF it is currently RUNNING with no result — a tool the
 // engine claimed (approved→running) but left non-terminal, the
 // running-with-no-result wedge. The tool-execution-report rule
-// (finalizeToolsAbsentFromExecReport) reaches it for a running tool absent from
+// (finalizeToolsAbsentFromExecReportExcept) reaches it for a running tool absent from
 // the attached engine's executing set.
 //
 // Two guards keep it compatible with the worker-single-writer rule:
@@ -435,9 +435,9 @@ func (w *ConversationWorker) cancelToolsInArray(arr *ycrdt.YArray, includeApprov
 // can't slip between the guard read and the write.
 func (w *ConversationWorker) finalizeStuckRunningToolOnField(toolUseID, epochField string, epoch float64, reason string) bool {
 	interruptedResult := convertToYcrdt(map[string]any{
-		"content":   "Interrupted",
-		"cancelled": true,
-		"isError":   false,
+		keyContent:   "Interrupted",
+		keyCancelled: true,
+		keyIsError:   false,
 	})
 	wrote := false
 	var cancelEpoch int64

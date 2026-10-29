@@ -104,15 +104,6 @@ function warnOnEmptySuccessSummary(rawSummary, className) {
  */
 
 /**
- * @typedef {object} ActionManifest
- * @property {string} id - Action ID
- * @property {string} name - Action name
- * @property {string} version - Action version
- * @property {string} description - Action description
- * @property {boolean} requiresApproval - Whether action requires approval
- */
-
-/**
  * Running action tracking info
  * @typedef {object} RunningAction
  * @property {AbortController} controller - Abort controller for cancellation

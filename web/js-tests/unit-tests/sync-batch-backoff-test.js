@@ -38,15 +38,6 @@ import { YJS_SYNC_BATCH_MS, YJS_SYNC_BATCH_MAX_MS } from '../../js/utils/constan
  */
 
 /**
- * Burn wall-clock time synchronously, the way an expensive re-render does.
- * @param {number} ms - How long to spin for.
- */
-function burnMs(ms) {
-  const until = performance.now() + ms;
-  while (performance.now() < until) { /* spin */ }
-}
-
-/**
  * Run sync batch backoff tests.
  * @param {TestContext} _ctx - Test context (unused - this test doesn't need fixtures)
  * @returns {Promise<TestResult>} Test results
@@ -121,19 +112,18 @@ export async function runTests(_ctx) {
   // so an expensive observer must show up in the estimate.
   await run('the estimate measures the observer fan-out', async () => {
     const { doc, mgr, push } = makeManager();
-    doc.getArray('items').observeDeep(() => burnMs(20));
+    // The manager's clock moves only when the observer says it spent time, so
+    // the estimate is exactly what the fan-out cost — and the idle reset, which
+    // reads the same clock, sees no gap however late the poll below notices.
+    let clock = 1000;
+    mgr.now = () => clock;
+    doc.getArray('items').observeDeep(() => { clock += 20; });
 
     push('a');
     await waitFor(() => mgr._batchCostMs > 0, { description: 'first batch applied' });
 
-    assert(mgr._batchCostMs >= 15,
-      `a 20ms observer should be measured, got ${mgr._batchCostMs.toFixed(1)}ms`);
-    // The poll that noticed the batch can arrive more than COST_IDLE_RESET_MS
-    // after it was applied (a hidden lane's timers can run on a one-second
-    // grid), and _nextBatchDelay would then rightly read the gap as a new burst
-    // and discard the estimate. This case is about the estimate, not the reset,
-    // so it reads the window as of the moment the batch landed.
-    mgr._lastBatchAt = performance.now();
+    assert(mgr._batchCostMs === 20,
+      `a 20ms observer should be measured as 20ms, got ${mgr._batchCostMs.toFixed(1)}ms`);
     assert(mgr._nextBatchDelay() > YJS_SYNC_BATCH_MS,
       `an expensive batch should widen the window, got ${mgr._nextBatchDelay()}`);
   });

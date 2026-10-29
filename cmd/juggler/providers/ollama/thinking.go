@@ -111,10 +111,6 @@ func rememberThinkingSpec(model string, spec openaibase.ThinkingSpec) {
 	thinkingSpecs.Store(model, spec)
 }
 
-func forgetThinkingSpecs() {
-	thinkingSpecs.Clear()
-}
-
 // thinkingSpec is the descriptor's ThinkingSpecFn. A model listModels has not
 // covered (a client restored before the first list) is probed directly, so its
 // chosen level still reaches the wire; a failed probe is not remembered, and

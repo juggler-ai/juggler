@@ -29,6 +29,7 @@ import {
   createTestSession,
   createTestConversation,
   waitFor,
+  withTimeout,
   assert
 } from '../utilities/test-helpers.js';
 import ContextItem from 'juggler/context-item';
@@ -151,21 +152,6 @@ async function deleteOnServer(id) {
 }
 
 /**
- * Reject if a promise has not settled within `ms`, so a regression fails the
- * test rather than hanging the lane to its 60s budget.
- * @param {Promise<any>} p - The promise under test
- * @param {number} ms - Patience budget
- * @param {string} what - Message for the timeout
- * @returns {Promise<any>} p's settlement
- */
-function within(p, ms, what) {
-  return Promise.race([
-    p,
-    new Promise((_r, rej) => setTimeout(() => rej(new Error(what)), ms))
-  ]);
-}
-
-/**
  * @typedef {object} TestResult
  * @property {number} passed - Number of passed tests
  * @property {number} failed - Number of failed tests
@@ -201,7 +187,7 @@ export async function runTests(_ctx) {
       assert(session.conversations.has(created), 'precondition: the session holds the conversation');
       assert(workerManager.workerState(created) !== 'absent', 'precondition: the conversation has a worker entry');
 
-      const released = await within(session.releaseConversation(created), 8000, 'releaseConversation never settled');
+      const released = await withTimeout(session.releaseConversation(created), 8000, 'releaseConversation never settled');
       assert(released === true, 'releasing a held conversation must report that it did');
       assert(!session.conversations.has(created),
         'a released conversation must leave the session map — otherwise the engine keeps every conversation it was ever synced');
@@ -237,9 +223,9 @@ export async function runTests(_ctx) {
       assert(actionExecutor.executingSetFor(doomed.id).length === 1, 'precondition: the doomed conversation has work in flight');
       assert(actionExecutor.executingSetFor(survivor.id).length === 1, 'precondition: the survivor has work in flight');
 
-      await within(session.releaseConversation(doomed.id), 8000, 'releaseConversation never settled');
+      await withTimeout(session.releaseConversation(doomed.id), 8000, 'releaseConversation never settled');
 
-      const doomedResult = await within(doomedRun, 4000,
+      const doomedResult = await withTimeout(doomedRun, 4000,
         'the released conversation\'s tool never settled — it runs on into a destroyed document');
       assert(doomedResult.success === false, 'work abandoned with its conversation must settle as unsuccessful');
       assert(actionExecutor.executingSetFor(doomed.id).length === 0, 'the released conversation must have no work left in flight');
@@ -248,7 +234,7 @@ export async function runTests(_ctx) {
         'releasing one conversation must not disturb another conversation\'s in-flight tools');
 
       actionExecutor.cancelByToolUseId('rel-survivor', survivor.id);
-      await within(survivorRun, 4000, 'the survivor\'s tool never settled after its own cancel');
+      await withTimeout(survivorRun, 4000, 'the survivor\'s tool never settled after its own cancel');
 
       passed++;
     } catch (e) {

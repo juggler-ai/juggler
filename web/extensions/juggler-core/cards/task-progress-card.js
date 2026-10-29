@@ -80,7 +80,7 @@ const KINDS = [
  * @param {import('../../../js/model/session.js').default|undefined} session - The window's session.
  * @returns {ActiveList[]} One entry per active list.
  */
-export function activeLists(session) {
+function activeLists(session) {
   /** @type {ActiveList[]} */
   const lists = [];
   for (const spec of KINDS) {

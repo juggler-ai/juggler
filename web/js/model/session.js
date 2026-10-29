@@ -121,19 +121,6 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  */
 
 /**
- * @typedef {import('./conversation.js').Message} Message
- */
-
-/**
- * @typedef {import('./conversation-document.js').ContextItemJSON} ContextItemJSON
- */
-
-/**
- * @typedef {object} ContextItemUpdates
- * @property {object} [data] - Context item data updates
- */
-
-/**
  * @typedef {object} ConversationServices
  * @property {import('../services/llm-state.js').default} llmState - LLM state manager for tracking processing
  * @property {import('../services/action-executor.js').default} actionExecutor - Action executor for cancellation

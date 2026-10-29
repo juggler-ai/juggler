@@ -17,6 +17,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"juggler/cmd/juggler/gitview/gitviewtest"
+	"juggler/cmd/juggler/gitview/internal/clocks"
 )
 
 // The manifest's whole claim is that it is the complete working tree, so these
@@ -31,7 +34,7 @@ import (
 // seconds, and the test then reports a missing file, or an unreadable diff,
 // rather than a slow machine. That has happened to the card's three seconds, the
 // review's ten and the diff's ten, so all three are lent time from one place
-// (LendClocks): newGitProject calls this, which covers every real-repository test
+// (gitviewtest.LendClocks): newGitProject calls this, which covers every real-repository test
 // here and any later one.
 //
 // The shipped values keep their own tests — TestGitReviewIsNotHeldToTheStatusCardsClock
@@ -39,7 +42,7 @@ import (
 // so go on reading them.
 func unhurried(t *testing.T) {
 	t.Helper()
-	t.Cleanup(LendClocks(time.Minute, 5*time.Minute))
+	t.Cleanup(gitviewtest.LendClocks(time.Minute, 5*time.Minute))
 }
 
 // review reads the project's manifest.
@@ -157,11 +160,11 @@ func TestGitReviewListsEveryRepositoryAndItsFiles(t *testing.T) {
 // was merely busy into a project full of unreadable repositories — the review
 // reads the same repositories, so the only thing keeping the two apart is this.
 func TestGitReviewIsNotHeldToTheStatusCardsClock(t *testing.T) {
-	if gitReviewPerCmd <= gitStatusPerCmd {
-		t.Errorf("gitReviewPerCmd = %s, want longer than the card's %s", gitReviewPerCmd, gitStatusPerCmd)
+	if clocks.Review.PerCmd <= clocks.Status.PerCmd {
+		t.Errorf("clocks.Review.PerCmd = %s, want longer than the card's %s", clocks.Review.PerCmd, clocks.Status.PerCmd)
 	}
-	if gitReviewBudget < 2*gitReviewPerCmd {
-		t.Errorf("gitReviewBudget = %s, want room for more than one %s command", gitReviewBudget, gitReviewPerCmd)
+	if clocks.Review.Budget < 2*clocks.Review.PerCmd {
+		t.Errorf("clocks.Review.Budget = %s, want room for more than one %s command", clocks.Review.Budget, clocks.Review.PerCmd)
 	}
 }
 

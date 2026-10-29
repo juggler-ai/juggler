@@ -292,7 +292,7 @@ function scopeOneSelector(selector, scope) {
  * @returns {boolean} True if rule is an instance of that class.
  */
 function cssRuleIs(rule, className) {
-  const ctor = /** @type {any} */ (globalThis)[className];
+  const ctor = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (globalThis))[className];
   return typeof ctor === 'function' && rule instanceof ctor;
 }
 
@@ -306,14 +306,14 @@ function cssRuleIs(rule, className) {
  */
 function renameKeyframes(rules, suffix, renamed) {
   for (const rule of Array.from(rules)) {
-    const grouping = /** @type {any} */ (rule);
     if (cssRuleIs(rule, 'CSSKeyframesRule')) {
-      const original = grouping.name;
+      const keyframes = /** @type {CSSKeyframesRule} */ (rule);
+      const original = keyframes.name;
       if (!original) continue;
-      grouping.name = `${original}${suffix}`;
-      renamed.set(original, grouping.name);
-    } else if (grouping.cssRules) {
-      renameKeyframes(grouping.cssRules, suffix, renamed);
+      keyframes.name = `${original}${suffix}`;
+      renamed.set(original, keyframes.name);
+    } else if ('cssRules' in rule && rule.cssRules) {
+      renameKeyframes(/** @type {CSSGroupingRule} */ (rule).cssRules, suffix, renamed);
     }
   }
 }
@@ -325,8 +325,7 @@ function renameKeyframes(rules, suffix, renamed) {
  * @param {Map<string, string>} renamed - Original → new keyframes name.
  */
 function remapAnimationNames(rule, renamed) {
-  const styleRule = /** @type {any} */ (rule);
-  const declarations = styleRule.style;
+  const declarations = 'style' in rule ? /** @type {CSSStyleRule} */ (rule).style : null;
   if (declarations) {
     const names = declarations.getPropertyValue('animation-name');
     if (names) {
@@ -339,8 +338,8 @@ function remapAnimationNames(rule, renamed) {
       }
     }
   }
-  if (styleRule.cssRules) {
-    for (const child of Array.from(styleRule.cssRules)) remapAnimationNames(/** @type {CSSRule} */ (child), renamed);
+  if ('cssRules' in rule && rule.cssRules) {
+    for (const child of Array.from(/** @type {CSSGroupingRule} */ (rule).cssRules)) remapAnimationNames(child, renamed);
   }
 }
 /**
@@ -374,8 +373,7 @@ function scopeRuleList(owner, scope, renamed) {
       continue;
     }
     // @media / @supports / @layer / @container: scope what they hold.
-    const grouping = /** @type {any} */ (rule);
-    if (grouping.cssRules && typeof grouping.deleteRule === 'function') {
+    if ('cssRules' in rule && rule.cssRules && 'deleteRule' in rule && typeof rule.deleteRule === 'function') {
       scopeRuleList(/** @type {CSSGroupingRule} */ (rule), scope, renamed);
     }
   }
@@ -404,7 +402,7 @@ function scopeAuthoredCss(css, scope, suffix) {
     // Parsing in a detached stylesheet: `@import` never resolves, nothing can
     // observe the rules, and a constructable sheet can be fed straight to the
     // CSSOM and re-serialised from it.
-    const SheetCtor = /** @type {typeof CSSStyleSheet} */ (/** @type {any} */ (globalThis).CSSStyleSheet);
+    const SheetCtor = globalThis.CSSStyleSheet;
     const sheet = new SheetCtor();
     sheet.replaceSync(css);
     /** @type {Map<string, string>} */
@@ -653,6 +651,21 @@ const QUOTE_SOURCE_ATTR = 'data-markdown-source';
  */
 let quoteRender = null;
 
+/**
+ * What a marked renderer override sees as `this`: the parser it can hand child
+ * tokens back to.
+ * @typedef {object} MarkedRendererContext
+ * @property {{parse: (tokens: object[]) => string}} parser - Renders a token list
+ */
+
+/**
+ * The parts of the global `marked` (loaded by script tag) this module uses.
+ * @typedef {object} MarkedLib
+ * @property {(src: string) => string} parse - Render markdown to HTML
+ * @property {(options: {breaks?: boolean, gfm?: boolean}) => void} setOptions - Set parse options
+ * @property {(extension: {renderer: {blockquote: (this: MarkedRendererContext, token: {text: string, tokens: object[]}) => string|false}}) => void} use - Install renderer overrides
+ */
+
 /** The marked instances {@link installQuoteRenderer} has already extended. */
 const quoteRendererInstalled = new WeakSet();
 
@@ -661,7 +674,7 @@ const quoteRendererInstalled = new WeakSet();
  * is tagged with a class unique to this render rather than given the source
  * directly: the class survives the sanitiser, and a message cannot guess it, so
  * the pass after the sanitiser knows every tagged quote came from markdown.
- * @param {any} marked - The global marked instance.
+ * @param {MarkedLib} marked - The global marked instance.
  */
 function installQuoteRenderer(marked) {
   if (quoteRendererInstalled.has(marked)) return;
@@ -669,7 +682,7 @@ function installQuoteRenderer(marked) {
   marked.use({
     renderer: {
       /**
-       * @this {any}
+       * @this {MarkedRendererContext}
        * @param {{ text: string, tokens: object[] }} token - marked's blockquote token;
        *   `text` is its source with one level of `>` markers removed.
        * @returns {string|false} The quote's HTML, or false for marked's default.
@@ -727,8 +740,7 @@ function quoteRenderTag() {
 export function renderMarkdown(content, options = {}) {
   const { escapeXml = true } = options;
 
-  /** @type {any} */
-  const marked = /** @type {any} */(window).marked;
+  const marked = /** @type {{marked?: MarkedLib}} */ (/** @type {unknown} */ (window)).marked;
 
   if (!marked) {
     console.warn('[Markdown] marked.js not available, falling back to plain text');

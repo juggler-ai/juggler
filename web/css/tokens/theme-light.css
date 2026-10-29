@@ -50,6 +50,22 @@
     /* Tab "awaiting your input" pulse. */
     --tab-awaiting: #ffe16f;
 
+    /* Find-in-conversation matches (see tokens/theme-dark.css). */
+    --find-match-bg: rgb(255 213 0 / 32%);
+
+    /* The warning fill (see tokens/theme-dark.css). --accent-yellow is a dark,
+       murky mustard here, tuned to read as text on a light surface, which
+       makes a poor alert fill: this is a brighter, more saturated amber with a
+       dark glyph — black-on-yellow hazard contrast. */
+    --warning-fill: #f5c518;
+    --warning-fill-text: var(--notice-text);
+
+    /* The required marker (see tokens/theme-dark.css). */
+    --required-text: #f0883e;
+
+    /* The toggle knob (see tokens/theme-dark.css). */
+    --toggle-knob-bg: #fff;
+
     /* A workspace's box (see tokens/theme-dark.css). Light needs far less of it: a
        white tray on the grey strip already reads as a surface, so only the
        edge is firmed up, enough to tell two adjacent boxes apart. */

@@ -12,7 +12,6 @@
  */
 
 import { assert } from '../utilities/test-helpers.js';
-import { ContextBuilder } from '../../js/services/context-builder.js';
 
 /**
  * @typedef {object} TestResult
@@ -42,11 +41,6 @@ export async function runTests() {
   check('no <context-preview-modal> element is defined', () => {
     assert(customElements.get('context-preview-modal') === undefined,
       'context-preview-modal is registered, but nothing creates one');
-  });
-
-  check('the context builder renders no text-with-sections preview', () => {
-    assert(!('renderTextWithSections' in ContextBuilder.prototype),
-      'ContextBuilder still carries renderTextWithSections, which only the preview read');
   });
 
   return { passed, failed, errors };

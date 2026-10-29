@@ -67,7 +67,7 @@ func (w *ConversationWorker) handleToolExecutionReport(payload json.RawMessage, 
 	}
 }
 
-// finalizeToolsAbsentFromExecReport is the level-based liveness rule (INV-B/C),
+// finalizeToolsAbsentFromExecReportExcept is the level-based liveness rule (INV-B/C),
 // run on the liveness tick. It finalizes any tool-action stuck at
 // running-with-no-result that the currently-attached engine is provably NOT
 // executing — as witnessed by two consecutive fresh accepted reports in which the
@@ -76,10 +76,9 @@ func (w *ConversationWorker) handleToolExecutionReport(payload json.RawMessage, 
 // The sole tool-liveness backstop: it finalizes via finalizeStuckRunningToolOnField,
 // which guards on state==running + no-result, so a re-run (back at approved) or an
 // already-terminal tool is never clobbered.
-func (w *ConversationWorker) finalizeToolsAbsentFromExecReport() {
-	w.finalizeToolsAbsentFromExecReportExcept(nil)
-}
-
+//
+// Tools in a thread named in liveThreads are skipped: a live run goroutine owns
+// their tool state.
 func (w *ConversationWorker) finalizeToolsAbsentFromExecReportExcept(liveThreads map[string]bool) {
 	// Cond 1: an engine must be attached and its last accepted report fresh.
 	// Cond 5 (belt): a second, also-recent accepted report. Both report

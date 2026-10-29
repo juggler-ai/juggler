@@ -71,7 +71,7 @@ export function recordTape(kind, convId, summary) {
  * @param {string|string[]|null} [filterConvIds] - One convId, an array of them, or null for all.
  * @returns {TapeEntry[]} Entries sorted oldest-first.
  */
-export function dumpTape(filterConvIds) {
+export function __dumpTapeForTests(filterConvIds) {
   /** @type {TapeEntry[]} */
   const ordered = [];
   if (_size < TAPE_CAPACITY) {
@@ -95,12 +95,12 @@ export function dumpTape(filterConvIds) {
  * lane's broadcasts land in every iframe's ring, so an unfiltered "last entry"
  * is kept permanently fresh by the eight other lanes and would never report a
  * stall. Scans the ring in place rather than materialising it like
- * {@link dumpTape} does, because this runs on a timer for the whole of every
+ * {@link __dumpTapeForTests} does, because this runs on a timer for the whole of every
  * test instead of once while a failure is being assembled.
  * @param {string[]} convIds - The conversations this test owns.
  * @returns {number} The newest matching entry's timestamp, or 0 when there is none.
  */
-export function lastTapeTs(convIds) {
+export function __lastTapeTsForTests(convIds) {
   if (!convIds || convIds.length === 0) return 0;
   const set = new Set(convIds);
   let newest = 0;
@@ -116,7 +116,7 @@ export function lastTapeTs(convIds) {
  * Clear the tape. The test runner calls this at the start of each test so
  * one test's events don't leak into another's failure dump.
  */
-export function clearTape() {
+export function __clearTapeForTests() {
   _tape.length = 0;
   _head = 0;
   _size = 0;

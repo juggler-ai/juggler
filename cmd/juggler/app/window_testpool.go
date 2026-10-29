@@ -2,6 +2,8 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
+//go:build !production
+
 package app
 
 // This file is the server's TEST-ONLY visible-window host. Production servers
@@ -9,14 +11,15 @@ package app
 // server ever creates a visible WebviewWindow is to host the integration
 // harness — either the tiled `--test-iframes=N` test-pool page or a single
 // `--test --window` debug lane. All of it is gated on testMode and reachable
-// only via runWindowApp's dispatcher.
+// only via runWindowApp's dispatcher. A production build compiles
+// window_testpool_production.go instead, whose runTestPoolWindowApp refuses.
 //
 // It lives in one file, as a single deletable unit (per the "isolate test/
 // legacy code" convention): when the harness no longer needs the server to
-// open windows, deleting this file and the runTestPoolWindowApp call in the
-// dispatcher removes every windowing concern from the server. The window-state
-// persistence (window_state.go) and native-chrome helpers (window_chrome_*.go)
-// it leans on are then likewise unused server-side.
+// open windows, deleting this file, its production stub and the
+// runTestPoolWindowApp call in the dispatcher removes every windowing concern
+// from the server. The helpers only it uses (window_state.go,
+// window_chrome_*.go, activate_*, testpool_*) are !production too.
 
 import (
 	_ "embed"
@@ -797,4 +800,38 @@ func installAppMenu(app *application.App, win *application.WebviewWindow, devMod
 		})
 
 	app.Menu.Set(menu)
+}
+
+// spawnNewWindow launches a brand-new, fully independent juggler process in
+// window mode. It backs the test-pool host's "New Window" menu item: each
+// window is its own process by design — the server hosts a single project at a
+// time (SwitchProject swaps global state), the hidden engine window is
+// one-per-process, and the per-project instance lock plus auto-incrementing
+// port (findAvailablePort) let N processes coexist. So "open another window" ==
+// "start another instance".
+//
+// project is the folder the new window should open. When empty the new window
+// starts in no-project mode and shows the picker overlay. The child is fully
+// detached (no Wait, stdio to the null device) so this process can quit
+// without taking the new window down with it.
+//
+// The actual launch is platform-specific (launchDetached): macOS must go
+// through `open -n` to defeat LaunchServices single-instance activation;
+// Windows and Linux exec the binary directly with detach flags.
+func spawnNewWindow(project string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locate executable: %w", err)
+	}
+
+	// Always pass --window explicitly. The spawning process may itself have
+	// been launched from a terminal (where window mode is opt-in), so we can't
+	// rely on the icon-launch default to put the child in window mode.
+	args := []string{"--window"}
+	if project != "" {
+		args = append(args, "--project", project)
+	}
+
+	jlog.Info("🪟 Launching new window (project=%q)", project)
+	return launchDetached(exe, args)
 }

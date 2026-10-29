@@ -4,9 +4,6 @@
  * https://github.com/PrismJS/prism-themes
  */
 
-/* PrismJS Tomorrow Night Theme */
-/* Based on https://github.com/PrismJS/prism-themes */
-
 .token.cdata,
 .token.comment,
 .token.doctype,
@@ -121,7 +118,7 @@
 
 .bash-command-string {
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-decoration-color: color-mix(in srgb, currentcolor 35%, transparent);
   text-underline-offset: 0.14em;
 }
 

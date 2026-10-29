@@ -7,7 +7,6 @@ package helpers
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -36,31 +35,6 @@ func NewTestProject(t *testing.T) *TestProject {
 	}
 }
 
-// AddFile adds a file to the test project
-func (tp *TestProject) AddFile(path, content string) *TestProject {
-	tp.Files[path] = content
-	return tp
-}
-
-// AddPythonFile adds a Python file
-func (tp *TestProject) AddPythonFile(path, content string) *TestProject {
-	return tp.AddFile(path, content)
-}
-
-// AddJavaScriptFile adds a JavaScript file
-func (tp *TestProject) AddJavaScriptFile(path, content string) *TestProject {
-	return tp.AddFile(path, content)
-}
-
-// WithGitignore adds a .gitignore file
-func (tp *TestProject) WithGitignore(patterns []string) *TestProject {
-	var content strings.Builder
-	for _, pattern := range patterns {
-		content.WriteString(pattern + "\n")
-	}
-	return tp.AddFile(".gitignore", content.String())
-}
-
 // Build writes all files to disk
 func (tp *TestProject) Build() *TestProject {
 	for path, content := range tp.Files {
@@ -86,51 +60,6 @@ func (tp *TestProject) Cleanup() {
 	if tp.cleanup != nil {
 		tp.cleanup()
 	}
-}
-
-// SimplePythonProject creates a simple Python project for testing
-func SimplePythonProject(t *testing.T) *TestProject {
-	return NewTestProject(t).
-		AddPythonFile("main.py", `def hello():
-    print("Hello, World!")
-
-if __name__ == "__main__":
-    hello()
-`).
-		AddPythonFile("utils.py", `def add(a, b):
-    return a + b
-
-def multiply(a, b):
-    return a * b
-`).
-		AddPythonFile("models/user.py", `class User:
-    def __init__(self, name):
-        self.name = name
-
-    def greet(self):
-        return f"Hello, {self.name}"
-`).
-		WithGitignore([]string{"*.pyc", "__pycache__", ".venv"}).
-		Build()
-}
-
-// MultiLanguageProject creates a project with multiple languages
-func MultiLanguageProject(t *testing.T) *TestProject {
-	return NewTestProject(t).
-		AddPythonFile("server.py", `from flask import Flask
-app = Flask(__name__)
-
-@app.route("/")
-def index():
-    return "Hello"
-`).
-		AddJavaScriptFile("client.js", `function fetchData() {
-    return fetch("/api/data")
-        .then(r => r.json());
-}
-`).
-		AddFile("config.json", `{"port": 8080}`).
-		Build()
 }
 
 // EmptyProject creates an empty project

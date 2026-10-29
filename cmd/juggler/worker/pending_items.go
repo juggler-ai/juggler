@@ -67,22 +67,6 @@ func (cd *ConversationDocument) ensurePendingArrayLocked(threadItemID string) *y
 	return arr
 }
 
-// appendPendingItem appends one item to the end of the thread's pending queue,
-// creating the queue if the thread hasn't got one yet. Reports false (and
-// writes nothing) when the thread is gone. Untracked (txOrigin): the queue is
-// plumbing the strategy loop drains, not an undoable edit — the promotion into
-// the thread is what the user undoes.
-func (w *ConversationWorker) appendPendingItem(threadItemID string, item ConversationItem) bool {
-	ycrdtMu.Lock()
-	defer ycrdtMu.Unlock()
-	arr := w.doc.ensurePendingArrayLocked(threadItemID)
-	if arr == nil {
-		return false
-	}
-	w.appendPendingItemsLocked(arr, item)
-	return true
-}
-
 // appendPendingItemsLocked appends items, in order, to a pending queue in one
 // untracked transaction, and marks the held-send timer stale so the held-send
 // index learns the queue holds something. Caller MUST hold ycrdtMu.
@@ -126,22 +110,6 @@ func (w *ConversationWorker) queueIfBusy(threadItemID string, build func() []Con
 	return true, true
 }
 
-// enqueuePendingMessage appends a user message (text + attachments, as one
-// inseparable unit) to the thread's pending queue. The strategy loop drains the
-// queue at its next boundary, promoting the item verbatim — attachments
-// included. Intake asks queueIfBusy instead, which decides and appends in one
-// hold.
-func (w *ConversationWorker) enqueuePendingMessage(threadItemID string, input UserMessageInput) {
-	if input.isEmpty() {
-		return
-	}
-	item := newUserItem(input)
-	if !w.appendPendingItem(threadItemID, item) {
-		return
-	}
-	w.recordPendingEnqueue(threadItemID, item.ItemID)
-}
-
 // recordPendingEnqueue tapes a queued user message and flushes, so the queued
 // bubble surfaces in the UI immediately.
 func (w *ConversationWorker) recordPendingEnqueue(threadItemID, itemID string) {
@@ -174,15 +142,6 @@ func (r *run) requestLLMIfQueued(threadItemID string, pc promoteCtx) bool {
 		entryNotCallingLLM,
 		func(entry runEntry, _ map[string]any) { entry.setActivity(ActivityAwaitingLLM) },
 	)
-}
-
-// hasPendingItems reports whether the thread has any queued entries at all,
-// held or not. A decision about driving the thread asks hasPromotablePending.
-func (w *ConversationWorker) hasPendingItems(threadItemID string) bool {
-	ycrdtMu.Lock()
-	defer ycrdtMu.Unlock()
-	arr := w.doc.getPendingArrayLocked(threadItemID)
-	return arr != nil && arr.GetLength() > 0
 }
 
 // hasPromotablePending reports whether a drain under pc would promote

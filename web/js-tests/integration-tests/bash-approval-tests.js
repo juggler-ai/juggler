@@ -62,28 +62,28 @@ function autoApproveTest(name, command, pattern, expectedStdout) {
   };
 }
 
-export const echoAutoApprovesTest = autoApproveTest(
+const echoAutoApprovesTest = autoApproveTest(
   'cmd-approval-echo-auto',
   'echo hello world',
   undefined,
   'hello world'
 );
 
-export const echoPipeTailAutoApprovesTest = autoApproveTest(
+const echoPipeTailAutoApprovesTest = autoApproveTest(
   'cmd-approval-echo-pipe-tail',
   'echo line | tail -n 1',
   undefined,
   'line'
 );
 
-export const echoStderrMergeAutoApprovesTest = autoApproveTest(
+const echoStderrMergeAutoApprovesTest = autoApproveTest(
   'cmd-approval-echo-stderr-merge',
   'echo hello 2>&1',
   undefined,
   'hello'
 );
 
-export const patternedCommandAutoApprovesTest = autoApproveTest(
+const patternedCommandAutoApprovesTest = autoApproveTest(
   'cmd-approval-pattern-match',
   'echo patterned',
   'echo *',
@@ -93,7 +93,7 @@ export const patternedCommandAutoApprovesTest = autoApproveTest(
 // Leading whitespace in command output is real output, not noise — only the
 // trailing newline is stripped. printf emits no trailing newline, so the
 // result must preserve the leading spaces verbatim.
-export const leadingWhitespacePreservedTest = autoApproveTest(
+const leadingWhitespacePreservedTest = autoApproveTest(
   'cmd-approval-leading-whitespace',
   "printf '   indented'",
   undefined,
@@ -106,7 +106,7 @@ export const leadingWhitespacePreservedTest = autoApproveTest(
 // than at `.`: the fixture root is shared with every other lane's test
 // directory, and a `find .` that lists one a sibling is deleting reports
 // "No such file or directory" and exits 1.
-export const findNewermtAutoApprovesTest = autoApproveTest(
+const findNewermtAutoApprovesTest = autoApproveTest(
   'cmd-approval-find-newermt',
   'find README.md ! -newermt "2038-01-01"',
   undefined,
@@ -121,7 +121,7 @@ export const findNewermtAutoApprovesTest = autoApproveTest(
  * surfaces).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const unsafeCommandPromptsTest = {
+const unsafeCommandPromptsTest = {
   name: 'cmd-approval-unsafe-prompts',
   description: 'Command not in the safe set requires approval',
   fixture: 'unit-test-fixture',

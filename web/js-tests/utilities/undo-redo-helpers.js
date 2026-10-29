@@ -27,7 +27,8 @@ import { snapshotOwnConversationIds } from './conversation-claims.js';
 import workerManager from '../../js/services/worker-manager.js';
 import { pingWorker as pingWorkerRaw } from './worker-test-hooks.js';
 import logger from './test-logger.js';
-import { budgetFor } from './test-deadline.js';
+import { budgetFor, noteCaseFinished } from './test-deadline.js';
+import { racePatiently } from './test-patience.js';
 
 // =============================================================================
 // Where a case's time goes
@@ -53,7 +54,7 @@ const SLOW_PING_MS = 100;
  * @param {string} conversationId - Conversation ID
  * @returns {Promise<void>}
  */
-export async function pingWorker(conversationId) {
+async function pingWorker(conversationId) {
   const startedAt = performance.now();
   try {
     await pingWorkerRaw(conversationId);
@@ -67,8 +68,8 @@ export async function pingWorker(conversationId) {
 
 /**
  * createTestConversation, timed into {@link spent}.
- * @param {import('../../model/session.js').default} session - Session instance
- * @returns {Promise<import('../../model/conversation.js').default>} The new conversation
+ * @param {import('../../js/model/session.js').default} session - Session instance
+ * @returns {Promise<import('../../js/model/conversation.js').default>} The new conversation
  */
 export async function createTestConversation(session) {
   const startedAt = performance.now();
@@ -113,7 +114,7 @@ let sessionMapPeak = 0;
 
 /**
  * Record what this suite is holding, at a case boundary.
- * @param {import('../../model/session.js').default} session - Session under test
+ * @param {import('../../js/model/session.js').default} session - Session under test
  * @param {Set<string>} claimsAtSuiteStart - Claims this lane held before the suite began
  * @returns {void}
  */
@@ -127,7 +128,7 @@ function noteConversationPeak(session, claimsAtSuiteStart) {
  * Delete the conversations one case created, and release this lane's claims on
  * them. Best-effort: cleanup after a failing case must never replace the error
  * that case is reporting.
- * @param {import('../../model/session.js').default} session - Session under test
+ * @param {import('../../js/model/session.js').default} session - Session under test
  * @param {Set<string>} claimsBeforeCase - Claims this lane held before the case ran
  * @param {string} reason - Attribution for the server's delete log
  * @returns {Promise<void>}
@@ -173,7 +174,7 @@ async function testSuiteHoldsOneConversationAtATime() {
 /**
  * @typedef {object} UndoRedoCase
  * @property {string} name - Case name, as reported
- * @property {(session: import('../../model/session.js').default) => Promise<{passed: number, failed: number, errors: string[]}>} fn - The case
+ * @property {(session: import('../../js/model/session.js').default) => Promise<{passed: number, failed: number, errors: string[]}>} fn - The case
  */
 
 /**
@@ -233,9 +234,9 @@ export async function runUndoRedoSuite(suiteName, cases) {
     const caseStartedAt = performance.now();
     try {
       logger.info(`[${suiteName}] Running: ${test.name}`);
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`Timeout after ${caseBudgetMs}ms`)), caseBudgetMs));
-      const result = await Promise.race([test.fn(session), timeoutPromise]);
+      const settled = await racePatiently(test.fn(session), caseBudgetMs, { what: `undo/redo case "${test.name}"` });
+      if (!settled) throw new Error(`Timeout after ${caseBudgetMs}ms, with the suite no longer moving its deadline`);
+      const result = settled.value;
       passed += result.passed;
       failed += result.failed;
       errors.push(...result.errors);
@@ -254,6 +255,7 @@ export async function runUndoRedoSuite(suiteName, cases) {
       await releaseCaseConversations(session, claimsBeforeCase, `${suiteName}:${test.name}`);
       spent.releaseMs += performance.now() - releaseStartedAt;
       caseTimes.push([test.name, Math.round(performance.now() - caseStartedAt), spent]);
+      noteCaseFinished();
     }
   }
 
@@ -288,7 +290,7 @@ export async function runUndoRedoSuite(suiteName, cases) {
  * canUndo()/canRedo() read current state on the next line. This replaces a
  * load-bearing 100ms sleep that merely gambled the batch had flushed — too
  * short on slow/contended CI runners.
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @returns {Promise<void>}
  */
 export async function waitForUndoStateSync(conversation) {
@@ -309,7 +311,7 @@ export async function waitForUndoStateSync(conversation) {
  * sync is already in place. Every round trip is worth saving: this suite is
  * hundreds of them, and in a full pool any one can wait 100–300ms on the lane's
  * socket, so its run time is their count times that.
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @returns {Promise<void>}
  */
 export async function waitForCaptureBoundary(conversation) {
@@ -318,7 +320,7 @@ export async function waitForCaptureBoundary(conversation) {
 
 /**
  * Assert undo/redo button states match expectations.
- * @param {import('../../model/conversation.js').default} conversation - Conversation instance
+ * @param {import('../../js/model/conversation.js').default} conversation - Conversation instance
  * @param {boolean} canUndo - Expected undo availability
  * @param {boolean} canRedo - Expected redo availability
  * @param {string} context - Test context for error message
@@ -339,8 +341,8 @@ export function assertUndoRedoState(conversation, canUndo, canRedo, context) {
 /**
  * Create a test context item for undo/redo testing.
  * @param {string} id - Context item ID
- * @param {import('../../model/session.js').default} session - Session instance
- * @param {import('../../model/conversation.js').default} conversation - Conversation instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
+ * @param {import('../../js/model/conversation.js').default} conversation - Conversation instance
  * @returns {Promise<import('juggler/context-item').default>} Context item instance
  */
 export async function createTestContextItem(id, session, conversation) {
@@ -357,7 +359,7 @@ export async function createTestContextItem(id, session, conversation) {
 
 /**
  * Verify Yjs document state matches expected context item IDs.
- * @param {import('../../model/conversation.js').default} conversation - Conversation instance
+ * @param {import('../../js/model/conversation.js').default} conversation - Conversation instance
  * @param {string[]} expectedIds - Expected context item IDs
  * @param {string} context - Test context
  */
@@ -382,7 +384,7 @@ export function assertContextItemIdsMatch(conversation, expectedIds, context) {
 
 /**
  * Count context items in the Yjs document.
- * @param {import('../../model/conversation.js').default} conversation - Conversation instance
+ * @param {import('../../js/model/conversation.js').default} conversation - Conversation instance
  * @returns {number} Number of context items
  */
 export function getContextItemCount(conversation) {
@@ -394,7 +396,7 @@ export function getContextItemCount(conversation) {
 /**
  * Clean up auto-added context items (AI assistant files) from a fresh conversation.
  * Also clears undo history so tests start with a clean slate.
- * @param {import('../../model/conversation.js').default} conversation - Conversation instance
+ * @param {import('../../js/model/conversation.js').default} conversation - Conversation instance
  */
 export async function cleanupAutoAddedContextItems(conversation) {
   // Remove all context items (AI assistant files added by addAIAssistantFiles in conversation-seeder.js)
@@ -417,7 +419,7 @@ export async function cleanupAutoAddedContextItems(conversation) {
 
 /**
  * Verify document has no duplicate itemIds
- * @param {import('../../model/conversation.js').default} conversation - Conversation instance
+ * @param {import('../../js/model/conversation.js').default} conversation - Conversation instance
  * @param {string} context - Test context for error message
  */
 export function assertNoDuplicateMessageIds(conversation, context) {
@@ -437,7 +439,7 @@ export function assertNoDuplicateMessageIds(conversation, context) {
 
 /**
  * Assert items array length matches expected
- * @param {import('../../model/conversation.js').default} conversation - Conversation instance
+ * @param {import('../../js/model/conversation.js').default} conversation - Conversation instance
  * @param {number} expected - Expected item count
  * @param {string} context - Test context
  */
@@ -451,7 +453,7 @@ export function assertItemCount(conversation, expected, context) {
 
 /**
  * Insert test user messages with auto-generated itemIds
- * @param {import('../../model/conversation.js').default} conversation - Conversation instance
+ * @param {import('../../js/model/conversation.js').default} conversation - Conversation instance
  * @param {number} count - Number of messages to insert
  * @returns {Promise<void>}
  */
@@ -469,7 +471,7 @@ export async function insertTestUserMessages(conversation, count) {
  * Assert the FULL document order — both count AND every item's content in sequence.
  * Never use assertItemCount alone; this function must be used instead whenever
  * we care about what is in the document, not just how many items.
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @param {string[]} expectedContents - Expected content values in document order
  * @param {string} context - Test context for error messages
  */

@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/worker"
-	"juggler/internal/machineload"
+	"juggler/internal/machineload/machineloadtest"
 
 	"github.com/gorilla/websocket"
 )
@@ -171,7 +171,7 @@ func (b *engineBeater) blameTheDrop(t *testing.T, verdict string) {
 	// failed is this process losing its own grip on the beat.
 	select {
 	case err := <-b.writeErr:
-		machineload.Skip(t, "this engine's own beats stopped reaching the socket, so the drop "+
+		machineloadtest.Skip(t, "this engine's own beats stopped reaching the socket, so the drop "+
 			"says nothing about liveness: %v", err)
 	default:
 	}
@@ -182,7 +182,7 @@ func (b *engineBeater) blameTheDrop(t *testing.T, verdict string) {
 		gap = open
 	}
 	if gap > livenessWindowUnderBeats {
-		machineload.Skip(t, "this process went %v without getting a beat out — longer than the %v "+
+		machineloadtest.Skip(t, "this process went %v without getting a beat out — longer than the %v "+
 			"window it is asking the server to honour — so the drop is unattributable",
 			gap.Round(time.Millisecond), livenessWindowUnderBeats)
 	}
@@ -505,4 +505,10 @@ func TestTheLoopReportRearmsOnceItSettles(t *testing.T) {
 	if !trip(settled.Add(time.Second)) {
 		t.Fatal("a second loop later in the session went unreported; the latch never re-armed")
 	}
+}
+
+// setEngineLivenessWindow shortens the staleness window so tests need not wait
+// out the production one. Test-only seam.
+func (s *Server) setEngineLivenessWindow(d time.Duration) {
+	s.engineLivenessWindowNs.Store(int64(d))
 }

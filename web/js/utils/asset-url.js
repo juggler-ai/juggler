@@ -21,7 +21,7 @@ const DISK_SERVED_PREFIXES = ['/user-extensions/'];
  * @param {string} url - Server-relative URL
  * @returns {boolean} True if the URL is served from disk
  */
-export function isDiskServedPath(url) {
+function isDiskServedPath(url) {
   return DISK_SERVED_PREFIXES.some(prefix => url.startsWith(prefix));
 }
 

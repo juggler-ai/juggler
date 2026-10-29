@@ -524,5 +524,3 @@ class ModelChip extends JugglerElement {
 }
 
 customElements.define('model-chip', ModelChip);
-
-export default ModelChip;

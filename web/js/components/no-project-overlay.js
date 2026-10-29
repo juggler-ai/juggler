@@ -604,4 +604,3 @@ class NoProjectOverlay extends JugglerElement {
 }
 
 customElements.define('no-project-overlay', NoProjectOverlay);
-export default NoProjectOverlay;

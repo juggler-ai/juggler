@@ -12,83 +12,23 @@ import (
 	"time"
 )
 
-// upstreamFixture is a cut-down models.dev api.json with one provider of each
-// kind Trim must tell apart.
-const upstreamFixture = `{
-  "hosted": {
-    "id": "hosted", "name": "Hosted", "npm": "@ai-sdk/openai-compatible",
-    "api": "https://api.hosted.example/v1", "doc": "https://docs.hosted.example",
-    "env": ["HOSTED_API_KEY"],
-    "models": {
-      "org/Big-Model": {"id": "org/Big-Model", "limit": {"context": 262144, "output": 65536},
-        "modalities": {"input": ["text", "image", "text"], "output": ["text"]}, "cost": {"input": 1}},
-      "small": {"id": "small", "limit": {"context": 32768, "output": 0},
-        "modalities": {"input": ["text"], "output": ["text"]}},
-      "embedder": {"id": "embedder", "limit": {"context": 0, "output": 0},
-        "modalities": {"input": ["text"], "output": ["text"]}}
-    }
-  },
-  "dedicated-sdk": {
-    "id": "dedicated-sdk", "name": "Dedicated", "npm": "@ai-sdk/google",
-    "models": {"g": {"id": "g", "limit": {"context": 1000000, "output": 65536}}}
-  },
-  "templated": {
-    "id": "templated", "name": "Templated", "npm": "@ai-sdk/openai-compatible",
-    "api": "https://api.example/accounts/${ACCOUNT_ID}/v1",
-    "models": {"t": {"id": "t", "limit": {"context": 128000, "output": 8192}}}
-  },
-  "local": {
-    "id": "local", "name": "Local", "npm": "@ai-sdk/openai-compatible",
-    "api": "http://127.0.0.1:1234/v1",
-    "models": {"l": {"id": "l", "limit": {"context": 128000, "output": 8192}}}
-  },
-  "only-unsized": {
-    "id": "only-unsized", "name": "Unsized", "npm": "@ai-sdk/openai-compatible",
-    "api": "https://unsized.example/v1",
-    "models": {"u": {"id": "u", "limit": {"context": 0, "output": 0}}}
-  }
-}`
-
-func TestTrimKeepsOnlyMatchableOpenAICompatibleProviders(t *testing.T) {
-	snap, err := Trim([]byte(upstreamFixture), "https://models.dev/api.json", "2026-10-26")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := Snapshot{
-		Source:  "https://models.dev/api.json",
+// TestEncodeRoundTripsOneLinePerModel pins the file format: it must decode to
+// what was encoded, and each model must sit on a line of its own so a refresh
+// diffs model by model.
+func TestEncodeRoundTripsOneLinePerModel(t *testing.T) {
+	snap := Snapshot{
+		Source:  "src",
 		Fetched: "2026-10-26",
 		Providers: map[string]Provider{
 			"hosted": {
 				Name: "Hosted", API: "https://api.hosted.example/v1", Doc: "https://docs.hosted.example",
 				Models: map[string]Model{
-					// Modalities sorted and de-duplicated; text-only omitted.
 					"org/Big-Model": {Context: 262144, Output: 65536, Input: []string{"image", "text"}},
 					"small":         {Context: 32768},
 				},
 			},
+			"bare": {Name: "Bare", API: "https://bare.example/v1", Models: map[string]Model{"b": {Context: 8192}}},
 		},
-	}
-	if !reflect.DeepEqual(snap, want) {
-		t.Errorf("Trim:\n got %+v\nwant %+v", snap, want)
-	}
-}
-
-func TestTrimRefusesAnEmptySnapshot(t *testing.T) {
-	if _, err := Trim([]byte(`{"x": {"npm": "@ai-sdk/google"}}`), "s", "2026-10-26"); err == nil {
-		t.Error("Trim of a catalogue with no usable provider returned no error")
-	}
-	if _, err := Trim([]byte(`<html>`), "s", "2026-10-26"); err == nil {
-		t.Error("Trim of a non-JSON body returned no error")
-	}
-}
-
-// TestEncodeRoundTripsOneLinePerModel pins the file format: it must decode to
-// what was encoded, and each model must sit on a line of its own so a refresh
-// diffs model by model.
-func TestEncodeRoundTripsOneLinePerModel(t *testing.T) {
-	snap, err := Trim([]byte(upstreamFixture), "src", "2026-10-26")
-	if err != nil {
-		t.Fatal(err)
 	}
 	encoded, err := snap.Encode()
 	if err != nil {
@@ -175,7 +115,8 @@ func TestProvidersAreOrderedByName(t *testing.T) {
 // refresh put in it: it decodes, it is dated, it is in the canonical encoding
 // (so it was written by the generator, not edited by hand), and every model in
 // it can be found again through its provider's base URL — which is the only
-// way the app ever asks.
+// way the app ever asks. That every base URL is one the generator keeps is
+// checked beside the generator (gen's TestEmbeddedSnapshotBaseURLsAreMatchable).
 func TestEmbeddedSnapshot(t *testing.T) {
 	snap, err := decodeSnapshot(snapshotJSON)
 	if err != nil {
@@ -203,9 +144,6 @@ func TestEmbeddedSnapshot(t *testing.T) {
 	sort.Strings(ids)
 	for _, id := range ids {
 		p := snap.Providers[id]
-		if !matchableBaseURL(p.API) {
-			t.Errorf("provider %s has an unmatchable base URL %q", id, p.API)
-		}
 		for mid, m := range p.Models {
 			if m.Context <= 0 {
 				t.Errorf("%s/%s has no context window", id, mid)

@@ -75,7 +75,7 @@ function assertThreadOpenAndEmpty(thread, testName) {
  *   3. Releasing the mock lets the original turn complete normally.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadMidTurnCancelsAndNotifiesTest = {
+const threadMidTurnCancelsAndNotifiesTest = {
   name: 'thread-mid-turn-cancels-and-notifies',
   description: '/thread mid-turn is rejected without cancelling the active turn',
   fixture: 'unit-test-fixture',
@@ -126,7 +126,7 @@ export const threadMidTurnCancelsAndNotifiesTest = {
  * parent history to (wrongly) run on if the bug fires.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const newThreadWithDraftDoesNotRunTest = {
+const newThreadWithDraftDoesNotRunTest = {
   name: 'new-thread-with-draft-does-not-run',
   description: 'New-thread button with draft text creates an open empty thread without starting a turn',
   fixture: 'unit-test-fixture',
@@ -171,7 +171,7 @@ export const newThreadWithDraftDoesNotRunTest = {
  * still active, even though the worker is parked at the approval boundary.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const newThreadWhileToolPendingDoesNotRunTest = {
+const newThreadWhileToolPendingDoesNotRunTest = {
   name: 'new-thread-while-tool-pending-does-not-run',
   description: 'New Thread is rejected while a tool awaits approval',
   fixture: 'unit-test-fixture',

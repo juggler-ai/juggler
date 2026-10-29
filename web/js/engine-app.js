@@ -104,7 +104,8 @@ class EngineApp {
 
     this._connectionManager = new ConnectionManager({
       llmState: this._llmState,
-      onServerMessage: (data) => this._handleServerMessage(data),
+      // The socket's `message` event carries the frames no route claimed.
+      onServerMessage: (data) => this._handleServerMessage(/** @type {import('./services/websocket.js').ServerFrame} */ (data)),
       services: {
         llmState: this._llmState,
         actionExecutor,
@@ -120,12 +121,12 @@ class EngineApp {
 
     console.info('[Engine] Engine initialized and connected');
     if (typeof window !== 'undefined') {
-      /** @type {any} */ (window).__engineReady = true;
+      /** @type {{__engineReady?: boolean}} */ (window).__engineReady = true;
     }
     // Optional ready hook. The engine-worker host installs this on globalThis
     // to relay readiness to the main thread; unset in the WebView, where the
     // window flag above is the signal.
-    const onReady = /** @type {any} */ (globalThis).__onEngineReady;
+    const onReady = /** @type {{__onEngineReady?: unknown}} */ (globalThis).__onEngineReady;
     if (typeof onReady === 'function') onReady();
   }
 
@@ -198,7 +199,7 @@ class EngineApp {
 
   /**
    * Handle server messages - route worker messages
-   * @param {any} data
+   * @param {import('./services/websocket.js').ServerFrame} data - A frame no socket route claimed
    * @private
    */
   _handleServerMessage(data) {
@@ -254,6 +255,7 @@ class EngineApp {
 // handles, are the only ways in.
 const engine = new EngineApp();
 if (typeof window !== 'undefined') {
-  /** @type {any} */ (window).__jugglerEngine = engine;
-  /** @type {any} */ (window).engineApp = engine;
+  const debugGlobals = /** @type {{__jugglerEngine?: EngineApp, engineApp?: EngineApp}} */ (window);
+  debugGlobals.__jugglerEngine = engine;
+  debugGlobals.engineApp = engine;
 }

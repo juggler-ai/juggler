@@ -111,7 +111,7 @@ export const MAX_EXEC_TIMEOUT_MS = 1200000;
  * break a large grep on a big repo and a slow MCP server, which is a worse
  * failure than the one being fixed.
  */
-export const OP_CALL_TIMEOUT_MS = MAX_EXEC_TIMEOUT_MS;
+const OP_CALL_TIMEOUT_MS = MAX_EXEC_TIMEOUT_MS;
 
 /**
  * Headroom added to an op's OWN server-side budget when deriving its request

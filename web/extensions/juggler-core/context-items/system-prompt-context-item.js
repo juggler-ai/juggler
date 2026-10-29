@@ -315,8 +315,8 @@ const SYSTEM_PROMPT_STYLES = `
   border-color: transparent;
 }
 .sp-preset-delete-btn:hover {
-  color: var(--danger-color, #ef4444);
-  border-color: var(--danger-color, #ef4444);
+  color: var(--error-color);
+  border-color: var(--error-color);
 }
 .sp-preset-separator {
   height: 0.0625rem;
@@ -440,7 +440,8 @@ class SystemPromptContextItem extends ContextItem {
    * @returns {string} Prompt body text
    */
   _getEffectiveText() {
-    if (this.data.text) return this.data.text;
+    const text = this.data.text;
+    if (typeof text === 'string' && text) return text;
     return getDefaultIdentityText();
   }
 
@@ -474,8 +475,9 @@ class SystemPromptContextItem extends ContextItem {
    * @returns {string} Item title
    */
   getTitle() {
-    if (this.data.selectedPresetId && !this.data.isModified) {
-      const preset = systemPromptRegistry.getPreset(this.data.selectedPresetId);
+    const presetId = this.data.selectedPresetId;
+    if (typeof presetId === 'string' && presetId && !this.data.isModified) {
+      const preset = systemPromptRegistry.getPreset(presetId);
       if (preset && preset.id !== 'default') {
         // A preset's name is data, shown as it is stored.
         return t('System Prompt ({name})', { name: preset.name });

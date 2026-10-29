@@ -147,17 +147,17 @@ func TestViewerGroup_BlockingSenderDoesNotStallActor(t *testing.T) {
 	go func() {
 		_, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ok := g.startRequest("conv-1", cancel)
+		ok := g.startShell("shell-1", cancel, false)
 		done <- ok
 	}()
 
 	select {
 	case ok := <-done:
 		if !ok {
-			t.Fatal("startRequest returned false unexpectedly")
+			t.Fatal("startShell returned false unexpectedly")
 		}
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("viewerGroup actor blocked on slow sender — startRequest never returned")
+		t.Fatal("viewerGroup actor blocked on slow sender — startShell never returned")
 	}
 
 	close(slow.released) // let the blocked send unwind

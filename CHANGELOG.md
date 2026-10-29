@@ -8,6 +8,7 @@ of changes; this project follows semantic versioning.
 - Quick successive edits undo as one step even when the machine is busy
 - `juggler` in a folder opens it on this machine's one server, starting it if needed
 - Composer settings moved to a status line under the box; tools sit by Send
+- Long files are no longer shown cut short in a panel about 100 lines tall
 
 ## [0.7.9] - 2026-10-28
 

@@ -56,7 +56,7 @@ import { fetchJson } from '../services/http.js';
  * @param {EdgeResizeState} state - The window's state.
  * @returns {boolean} True when an edge drag should resize the window.
  */
-export function edgesResizable(state) {
+function edgesResizable(state) {
   return state.host && !state.maximised && !state.fullscreen;
 }
 

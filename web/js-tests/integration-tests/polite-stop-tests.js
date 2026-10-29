@@ -28,7 +28,7 @@ import { textResponse, toolUseResponse } from '../utilities/integration-test-run
  * response must NOT be consumed.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const pauseRestsBeforeNextTurnTest = {
+const pauseRestsBeforeNextTurnTest = {
   name: 'polite-stop-rests-before-next-turn',
   description: 'Pause lets the in-flight tool finish, then rests at idle before the next LLM turn',
   fixture: 'unit-test-fixture',
@@ -96,7 +96,7 @@ export const pauseRestsBeforeNextTurnTest = {
  * the hard cancel supersedes the pending latch.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const pauseThenHardCancelEscalatesTest = {
+const pauseThenHardCancelEscalatesTest = {
   name: 'polite-stop-then-hard-cancel-escalates',
   description: 'A plain Stop while a Pause is pending escalates to a full hard cancel (D7)',
   fixture: 'unit-test-fixture',
@@ -153,7 +153,7 @@ export const pauseThenHardCancelEscalatesTest = {
  * Exercises cancelPoliteStop → the worker's `unpause` message end to end.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const unpauseResumesNextTurnTest = {
+const unpauseResumesNextTurnTest = {
   name: 'polite-stop-unpause-resumes-next-turn',
   description: 'Un-pausing a pending Pause lets the tool finish and the next LLM turn run',
   fixture: 'unit-test-fixture',
@@ -223,7 +223,7 @@ export const unpauseResumesNextTurnTest = {
  * mark's `landed`: the conversation is Paused, and says so after a reload too.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const pausePendingSurvivesReloadTest = {
+const pausePendingSurvivesReloadTest = {
   name: 'polite-stop-pending-survives-reload',
   description: 'A pending Pause is published to the synced processingState so it survives a page reload',
   fixture: 'unit-test-fixture',
@@ -300,7 +300,7 @@ export const pausePendingSurvivesReloadTest = {
  * the summary lands.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactUnderPauseSummarisesTest = {
+const compactUnderPauseSummarisesTest = {
   name: 'polite-stop-compact-under-pause-summarises',
   description: '/compact under a landed Pause lifts it and writes the summary it owes',
   fixture: 'unit-test-fixture',

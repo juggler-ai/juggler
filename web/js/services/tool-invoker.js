@@ -113,7 +113,7 @@ function keepNamedGrants(options) {
  * memory while it waits on the user; past it, the output ends with the usual
  * "(Output truncated …)" note, so a program can tell.
  */
-export const PROGRAM_RESULT_BUDGET = 2_000_000;
+const PROGRAM_RESULT_BUDGET = 2_000_000;
 
 /** Calls running at once, by default. */
 const DEFAULT_LIMIT = 4;

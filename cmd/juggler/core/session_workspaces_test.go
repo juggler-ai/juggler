@@ -260,11 +260,7 @@ func TestReorderConversations_ReanchorsBoxOffTheDraggedConversation(t *testing.T
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			projectDir := t.TempDir()
-			store, err := NewFileSessionStore(projectDir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			mgr, err := NewSessionManager(SessionManagerConfig{Store: store, ProjectPath: projectDir})
+			mgr, err := NewSessionManagerForPath(projectDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -329,11 +325,7 @@ func TestReorderConversations_ReanchorsBoxOffTheDraggedConversation(t *testing.T
 // of one.
 func TestReorderConversations_ReanchorsToTheHeadWhenNothingIsAhead(t *testing.T) {
 	projectDir := t.TempDir()
-	store, err := NewFileSessionStore(projectDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mgr, err := NewSessionManager(SessionManagerConfig{Store: store, ProjectPath: projectDir})
+	mgr, err := NewSessionManagerForPath(projectDir)
 	if err != nil {
 		t.Fatal(err)
 	}

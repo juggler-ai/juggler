@@ -55,7 +55,7 @@ function pushVisionAndTextProviders(wsService) {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionAttachmentStandinTest = {
+const compactionAttachmentStandinTest = {
   name: 'compaction-attachment-standin',
   description: 'getContentMessages() appends a "[image: <filename>]" stand-in for a user item\'s attachments without mutating the doc item.',
   fixture: 'unit-test-fixture',
@@ -104,7 +104,7 @@ export const compactionAttachmentStandinTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const rewindRestoresAttachmentsTest = {
+const rewindRestoresAttachmentsTest = {
   name: 'rewind-restores-attachments',
   description: 'Rewinding to a user message that carried an image attachment restores the attachment into the composer (pending + chip) and re-sending carries it through, regardless of the current model (capability is never gated client-side).',
   fixture: 'unit-test-fixture',
@@ -221,7 +221,7 @@ export const rewindRestoresAttachmentsTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const propertiesPanelShowsAttachmentsTest = {
+const propertiesPanelShowsAttachmentsTest = {
   name: 'properties-panel-shows-attachments',
   description: 'Selecting a user message that carries an image attachment renders an Attachments section in the properties panel with the filename, type/size metadata, and a thumbnail pointing at the asset URL.',
   fixture: 'unit-test-fixture',
@@ -303,7 +303,7 @@ export const propertiesPanelShowsAttachmentsTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const imageOnlySendTest = {
+const imageOnlySendTest = {
   name: 'image-only-send',
   description: 'Staging an image with no caption text enables the send button and sends: the committed user item carries the attachment with empty content, and no blank entry is pushed into input history.',
   fixture: 'unit-test-fixture',
@@ -379,7 +379,7 @@ export const imageOnlySendTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const pasteAsyncClipboardFallbackTest = {
+const pasteAsyncClipboardFallbackTest = {
   name: 'paste-async-clipboard-fallback',
   description: 'The async Clipboard fallback (_pasteImagesFromAsyncClipboard) — the WebKit desktop-app paste path — reads a stubbed clipboard image and routes it through _handleFiles (read → getType → File).',
   fixture: 'unit-test-fixture',

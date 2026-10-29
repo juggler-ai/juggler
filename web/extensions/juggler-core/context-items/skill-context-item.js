@@ -8,6 +8,7 @@ import { formatFileSize, formatFileSizeForDisplay } from 'juggler/item-utils';
 import { smartTruncate, createElement, renderMarkdown, decorateCodeBlocks } from 'juggler/ui';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { getAvailableSkills, fetchSkillBody } from '../../../js/services/skills.js';
+import { toolActionResult, toolActionResultValue } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -655,12 +656,12 @@ class SkillContextItem extends ContextItem {
     // surface it, and skip the (absent) body in that case. A stored result
     // without one falls back to recognising the model's one-line English notice.
     // `content` is the model's tool result, shown below only as a fallback.
-    const raw = ctx && ctx.toolAction && ctx.toolAction.get ? ctx.toolAction.get('result') : null;
-    const result = raw && raw.toJSON ? raw.toJSON() : (raw || {});
-    const content = (result && (result.content || result.output)) || '';
-    const data = result && result.fullResult && result.fullResult.result;
+    const result = toolActionResult(ctx?.toolAction);
+    const output = toolActionResultValue(ctx?.toolAction, 'output');
+    const content = result.content || (typeof output === 'string' ? output : '');
+    const data = result.fullResult?.result;
     const alreadyLoaded = data && typeof data === 'object'
-      ? data.alreadyLoaded === true
+      ? 'alreadyLoaded' in data && data.alreadyLoaded === true
       : typeof content === 'string' && /already loaded/i.test(content) && content.indexOf('\n') === -1;
     if (alreadyLoaded) {
       host.appendChild(

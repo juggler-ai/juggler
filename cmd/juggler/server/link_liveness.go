@@ -60,23 +60,12 @@ func (s *Server) beatInterval() time.Duration {
 	return serverBeatInterval
 }
 
-// setServerBeatInterval shortens the beat so tests need not wait out the
-// production one. Test-only seam.
-func (s *Server) setServerBeatInterval(d time.Duration) {
-	s.serverBeatIntervalNs.Store(int64(d))
-}
-
 // viewerSilenceLimit is viewerSilenceWindow unless a test has shortened it.
 func (s *Server) viewerSilenceLimit() time.Duration {
 	if override := s.viewerSilenceWindowNs.Load(); override > 0 {
 		return time.Duration(override)
 	}
 	return viewerSilenceWindow
-}
-
-// setViewerSilenceWindow shortens the eviction window. Test-only seam.
-func (s *Server) setViewerSilenceWindow(d time.Duration) {
-	s.viewerSilenceWindowNs.Store(int64(d))
 }
 
 // linkCheckInterval is how often each client's link is examined. A third of the

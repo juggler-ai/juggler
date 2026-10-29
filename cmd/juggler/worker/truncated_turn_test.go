@@ -433,3 +433,11 @@ func TestBarrenTurnWithoutTruncationStillRetries(t *testing.T) {
 		t.Errorf("barren stall placeholder missing; assistant items = %+v", items[ItemTypeAssistant])
 	}
 }
+
+// sentRequests returns the requests the script has answered so far.
+func (m *mockLLMCaller) sentRequests() []json.RawMessage {
+	if requests := m.requests.Load(); requests != nil {
+		return *requests
+	}
+	return nil
+}

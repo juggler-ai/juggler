@@ -128,7 +128,7 @@ func (a *appState) standInOf(e *winEntry) (windowSpec, *standIn) {
 // pageSpecOf reports what the page in window id actually shows, which for a
 // stand-in is an empty window on a server this app spawned — not the server by
 // URL or the locked project it is filed under. What the page may ask for is
-// decided by this, not by windowSpecOf.
+// decided by this, not by the registry entry's spec.
 func (a *appState) pageSpecOf(id string) (windowSpec, bool) {
 	var spec windowSpec
 	var ok bool

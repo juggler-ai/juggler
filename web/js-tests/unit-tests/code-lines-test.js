@@ -13,7 +13,7 @@
 
 import { createFileContentBlock } from '../../sdk/lib/context-item-utils.js';
 import { EAGER_LINE_LIMIT } from '../../sdk/lib/code-lines.js';
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 
 /**
  * @typedef {object} TestResult
@@ -21,11 +21,6 @@ import { assert } from '../utilities/test-helpers.js';
  * @property {number} failed Number of failing assertions.
  * @property {string[]} errors Collected error messages.
  */
-
-/** @returns {Promise<void>} Resolves after layout, scroll and observer callbacks have run. */
-function settle() {
-  return new Promise((resolve) => { setTimeout(resolve, 50); });
-}
 
 /**
  * A line that names its own number, except every seventh, which is blank: an
@@ -95,11 +90,12 @@ export async function runTests(_ctx) {
    * owes is fired in the rendering update step, which a hidden page defers for
    * as long as it likes — so the event is announced here rather than waited
    * for. It is the listener's response that is under test, not the browser's
-   * bookkeeping about when to run it.
+   * bookkeeping about when to run it. The block listens for it on the window,
+   * in the capture phase, and redraws inside the dispatch, so it has redrawn by
+   * the time this returns.
    * @param {number} top - Offset to scroll to
-   * @returns {Promise<void>} Resolves once the block has redrawn
    */
-  const scrollTo = async (top) => {
+  const scrollTo = (top) => {
     scroller.scrollTop = top;
     // Named separately from what the block did with it, so a fixture that
     // cannot scroll never reads as a window that failed to move.
@@ -107,7 +103,6 @@ export async function runTests(_ctx) {
     assert(Math.abs(scroller.scrollTop - want) < 2,
       `the scroller would not move: asked for ${top}, sits at ${scroller.scrollTop}, want ${want}`);
     scroller.dispatchEvent(new Event('scroll'));
-    await settle();
   };
 
   /** @type {Array<() => void>} */
@@ -125,9 +120,17 @@ export async function runTests(_ctx) {
     });
     scroller.replaceChildren(block);
     scroller.scrollTop = 0;
-    await settle();
     const destroy = /** @type {any} */ (block).destroy;
-    if (typeof destroy === 'function') cleanups.push(destroy);
+    if (typeof destroy === 'function') {
+      cleanups.push(destroy);
+      // A windowed block draws a provisional window, then measures a row once it
+      // has landed and redraws to fit the scroller, setting the spacer below the
+      // window to stand in for the rest of the file. That spacer taking a height
+      // is the measurement having happened.
+      await waitFor(() => [...block.querySelectorAll('.ci-line-spacer')]
+        .some((spacer) => parseFloat(/** @type {HTMLElement} */ (spacer).style.height) > 0),
+      'the windowed block to measure a row and size its spacers');
+    }
     return block;
   };
 
@@ -174,10 +177,41 @@ export async function runTests(_ctx) {
         `scrollHeight ${scroller.scrollHeight} vs ${want} for ${lines} rows — drift ${drift.toFixed(1)}px`);
     });
 
+    await test('a scroller the provisional window exactly fills still sizes the spacers', async () => {
+      const lines = 10000;
+      // Measure the fixture: a row, how far the code sits below the scroller's
+      // top, how many rows a block draws beyond the visible ones, and how many it
+      // draws before it has measured anything.
+      const probe = await mount(lines);
+      const rowHeight = probe.querySelector('.ci-line')?.getBoundingClientRect().height ?? 0;
+      assert(rowHeight > 0, 'could not measure a row');
+      const codeTop = /** @type {HTMLElement} */ (probe.querySelector('.ci-code-lines')).getBoundingClientRect().top
+        - scroller.getBoundingClientRect().top;
+      const overscan = renderedNumbers(probe).length - Math.ceil((scroller.clientHeight - codeTop) / rowHeight);
+      const detached = createFileContentBlock({ content: makeSource(lines), language: 'javascript', lineNumberStart: 1 });
+      const provisional = renderedNumbers(detached).length;
+      /** @type {any} */ (detached).destroy?.();
+
+      // A scroller whose measured window is exactly the provisional one.
+      const height = scroller.style.height;
+      scroller.style.height = `${(provisional - overscan - 0.5) * rowHeight + codeTop}px`;
+      try {
+        const block = await mount(lines);
+        const numbers = renderedNumbers(block);
+        assert(numbers.length === provisional,
+          `test setup: the measured window should be the provisional ${provisional} rows, got ${numbers.length}`);
+        const drift = Math.abs(scroller.scrollHeight - lines * rowHeight);
+        assert(drift < rowHeight * 2,
+          `scrollHeight ${scroller.scrollHeight} vs ${lines * rowHeight} for ${lines} rows — drift ${drift.toFixed(1)}px`);
+      } finally {
+        scroller.style.height = height;
+      }
+    });
+
     await test('scrolling to the end shows the last line', async () => {
       const lines = 10000;
       const block = await mount(lines);
-      await scrollTo(scroller.scrollHeight);
+      scrollTo(scroller.scrollHeight);
       const numbers = renderedNumbers(block);
       assert(numbers[numbers.length - 1] === lines,
         `last rendered line is ${numbers[numbers.length - 1]}, want ${lines}`);
@@ -191,7 +225,7 @@ export async function runTests(_ctx) {
     await test('scrolling to the middle shows the middle', async () => {
       const lines = 10000;
       const block = await mount(lines);
-      await scrollTo(Math.floor(scroller.scrollHeight / 2));
+      scrollTo(Math.floor(scroller.scrollHeight / 2));
       const numbers = renderedNumbers(block);
       const middle = lines / 2;
       assert(numbers[0] !== undefined && Math.abs(numbers[0] - middle) < lines / 20,
@@ -204,7 +238,7 @@ export async function runTests(_ctx) {
     await test('a rendered line sits exactly where its number says', async () => {
       const lines = 10000;
       const block = await mount(lines);
-      await scrollTo(Math.floor(scroller.scrollHeight / 2));
+      scrollTo(Math.floor(scroller.scrollHeight / 2));
 
       const code = /** @type {HTMLElement} */ (block.querySelector('.ci-code-lines'));
       const rowHeight = block.querySelector('.ci-line')?.getBoundingClientRect().height ?? 0;
@@ -229,7 +263,7 @@ export async function runTests(_ctx) {
       destroy();
       assert(block.querySelectorAll('.ci-line').length === 0,
         'teardown left lines behind');
-      await scrollTo(scroller.scrollHeight);
+      scrollTo(scroller.scrollHeight);
       assert(block.querySelectorAll('.ci-line').length === 0,
         'a torn-down block redrew itself on scroll');
     });

@@ -418,5 +418,3 @@ class InfoRail extends JugglerElement {
 }
 
 customElements.define('info-rail', InfoRail);
-
-export default InfoRail;

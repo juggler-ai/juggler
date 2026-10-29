@@ -51,7 +51,7 @@ const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
  * is told nothing it can act on, having had nothing run. Waiting closes the gap,
  * and a realm that never becomes ready arrives here as a rejection carrying the
  * reason, which is a better answer than the one the spawn would have given.
- * @param {any} session - The engine's live Session
+ * @param {import('./model/session.js').default|null} session - The engine's live Session
  * @param {{requestId?: string, prompt?: string, strategyId?: string, name?: string, timeoutMs?: number}} request - The server's run-one-shot message
  * @param {Promise<void>} [ready] - Settles when the realm can spawn workers
  * @returns {Promise<void>} Resolves once the single result has been sent
@@ -144,7 +144,7 @@ export async function runOneShot(session, request, ready) {
  * conversation-scoped rather than session-scoped — a blanket session grant
  * outlives this conversation, and file edits only accept conversation scope
  * anyway.
- * @param {any} conversation - The conversation to configure
+ * @param {import('./model/conversation.js').default} conversation - The conversation to configure
  * @param {string} strategyId - Strategy to run under
  */
 function configureForUnattendedUse(conversation, strategyId) {
@@ -161,7 +161,7 @@ function configureForUnattendedUse(conversation, strategyId) {
 
 /**
  * The last thing the assistant said, which is the run's answer.
- * @param {any} conversation - The conversation to read
+ * @param {import('./model/conversation.js').default} conversation - The conversation to read
  * @returns {string} The final assistant message, or '' if it never spoke
  */
 function lastAssistantText(conversation) {
@@ -176,7 +176,7 @@ function lastAssistantText(conversation) {
  * The last error the turn recorded. The worker writes error items into the
  * document, so this is the account of the failure rather than a guess from the
  * absence of an answer.
- * @param {any} conversation - The conversation to read
+ * @param {import('./model/conversation.js').default} conversation - The conversation to read
  * @returns {string} The error text, or '' when the turn recorded none
  */
 function lastErrorText(conversation) {

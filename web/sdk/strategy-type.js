@@ -16,7 +16,7 @@
  * @typedef {object} DefaultRule
  * @property {string} itemType - Owning context-item id (e.g. 'execute', 'write-file')
  * @property {string} kind - Plugin-defined rule kind (e.g. 'glob', 'boolean')
- * @property {any} value - Plugin-defined rule value
+ * @property {unknown} value - Plugin-defined rule value
  * @property {boolean} [enabled] - Whether the rule starts enabled (default true)
  */
 

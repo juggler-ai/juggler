@@ -24,7 +24,7 @@
  * @param {string} path - A path.
  * @returns {string[]} Its non-empty segments.
  */
-export function segments(path) {
+function segments(path) {
   return path.split(/[/\\]+/).filter(Boolean);
 }
 
@@ -39,7 +39,7 @@ export function segments(path) {
  * @param {boolean} windows - Whether these came from a Windows path.
  * @returns {boolean} Whether they match.
  */
-export function sameSegment(a, b, windows) {
+function sameSegment(a, b, windows) {
   return windows ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
@@ -48,7 +48,7 @@ export function sameSegment(a, b, windows) {
  * @param {string} path - A path.
  * @returns {boolean} Whether to treat it as Windows'.
  */
-export function isWindowsPath(path) {
+function isWindowsPath(path) {
   return /^[A-Za-z]:/.test(path) || path.includes('\\');
 }
 
@@ -57,7 +57,7 @@ export function isWindowsPath(path) {
  * @param {string} path - A path.
  * @returns {string} '\\' or '/'.
  */
-export function separatorOf(path) {
+function separatorOf(path) {
   return isWindowsPath(path) && !path.includes('/') ? '\\' : '/';
 }
 

@@ -15,7 +15,7 @@
  */
 
 import BaseRegistry from '../../js/registries/base-registry.js';
-import { assert } from '../utilities/test-helpers.js';
+import { assert, nextTask } from '../utilities/test-helpers.js';
 
 /**
  * @typedef {object} TestResult
@@ -91,17 +91,11 @@ export async function runTests(_ctx) {
     }
   }
 
-  /**
-   * Yield long enough for a pending init to reach its first await.
-   * @returns {Promise<void>} Resolves on a later microtask turn
-   */
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-
   await test('four concurrent callers share one load pass', async () => {
     const registry = new CountingRegistry();
     const callers = [registry.init(), registry.init(), registry.init(), registry.init()];
     try {
-      await settle();
+      await nextTask();
       assert(registry.passes === 1, `four concurrent init() calls must run one load pass, ran ${registry.passes}`);
     } finally {
       registry.releaseAll();
@@ -113,7 +107,7 @@ export async function runTests(_ctx) {
   await test('a caller arriving after init finished does not reload', async () => {
     const registry = new CountingRegistry();
     const first = registry.init();
-    await settle();
+    await nextTask();
     registry.releaseAll();
     await first;
 
@@ -128,10 +122,10 @@ export async function runTests(_ctx) {
     const registry = new CountingRegistry();
     const first = registry.init();
     try {
-      await settle();
+      await nextTask();
       registry.reset();
       const second = registry.init();
-      await settle();
+      await nextTask();
       assert(registry.passes === 2, `a reset must force a fresh pass, ran ${registry.passes}`);
       registry.releaseAll();
       await Promise.all([first, second]);

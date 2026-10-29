@@ -21,10 +21,10 @@ const t = translator('@juggler/core');
 export const DEFAULT_SCOPE = '@uncommitted';
 
 /** How long a scope may be, matching the server's own ceiling. */
-export const SCOPE_MAX_LENGTH = 256;
+const SCOPE_MAX_LENGTH = 256;
 
 /** How many custom expressions a pin offers again. */
-export const RECENT_SCOPES = 8;
+const RECENT_SCOPES = 8;
 
 /**
  * The comparisons offered by name, in the order the control lists them. Labels
@@ -114,8 +114,8 @@ export function normalizeRecent(raw) {
 /**
  * A Git pin's parameters as they are stored: the scope, omitted when it is the
  * default so a pin that never chose one keeps the config it always had.
- * @param {Record<string, any>} parameters - What the agent or the user gave.
- * @returns {Record<string, any>} The normalized parameters.
+ * @param {Record<string, unknown>} parameters - What the agent or the user gave.
+ * @returns {Record<string, unknown>} The normalized parameters.
  */
 export function normalizeGitPinParameters(parameters) {
   const scope = normalizeScope(parameters?.scope);

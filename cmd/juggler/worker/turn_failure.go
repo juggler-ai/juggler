@@ -141,7 +141,7 @@ func (r *run) handleTurnFailure(st *strategyRunState, err error, llmRequest json
 	// text, so a provider failure carries the kind it was classified as.
 	var llmErr *LLMError
 	if errors.As(err, &llmErr) && llmErr.Failure.Kind != provider.FailureNone {
-		errorData["errorKind"] = llmErr.Failure.Kind.String()
+		errorData[keyErrorKind] = llmErr.Failure.Kind.String()
 	}
 
 	var rateLimit *RateLimitError
@@ -157,10 +157,10 @@ func (r *run) handleTurnFailure(st *strategyRunState, err error, llmRequest json
 // turnErrorData is the accounting every terminal-error item carries: how long
 // the failed call took, and which model it was made against.
 func (r *run) turnErrorData(duration time.Duration) map[string]any {
-	errorData := map[string]any{"duration": duration.Milliseconds()}
+	errorData := map[string]any{keyDuration: duration.Milliseconds()}
 	if mc := r.resolveModelConfig(); mc != nil {
-		errorData["provider"] = mc.Provider
-		errorData["model"] = mc.Model
+		errorData[keyProvider] = mc.Provider
+		errorData[keyModel] = mc.Model
 	}
 	return errorData
 }
@@ -228,11 +228,11 @@ func (r *run) reportUserFixableFailure(f userFixableFailure, err error, duration
 	}
 	errorData := r.turnErrorData(duration)
 	if f.provider != "" {
-		errorData["provider"] = f.provider
+		errorData[keyProvider] = f.provider
 	}
 	// errorKind lets the transcript row offer the remediation action
 	// without re-deriving the classification by matching on the text.
-	errorData["errorKind"] = f.kind
+	errorData[keyErrorKind] = f.kind
 	r.log.Error("❌ LLM error (%s): %s", f.logLabel, err.Error())
 	// Durable item first, for the same reason as Guard B: the status is
 	// a transient client-side notice and would leave nothing behind for
@@ -307,7 +307,7 @@ func (r *run) restOnRateLimit(rateLimit *RateLimitError, err error, errorData ma
 		report := rateLimitReport(providerName, rateLimit.ResetAt, time.Now(), err.Error())
 		// The instant itself, epoch ms, for the row's offer to continue when the
 		// cap lifts: the sentence's clock is rounded and written for a reader.
-		errorData["resetAt"] = rateLimit.ResetAt.UnixMilli()
+		errorData[keyResetAt] = rateLimit.ResetAt.UnixMilli()
 		r.sendErrorWithData(report.English(), &report, "", errorData)
 	}
 	r.promotePendingItems(r.t.thread.itemID, restDrain(r.clock.Now()))

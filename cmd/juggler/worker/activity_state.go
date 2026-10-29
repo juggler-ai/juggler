@@ -50,7 +50,7 @@ func runKey(threadItemID string) string {
 // The entries are the frame's own maps, so the result is for reading; copyRuns
 // is the registry to write into.
 func runsView(state map[string]any) runRegistry {
-	if raw, ok := state["runs"].(map[string]any); ok {
+	if raw, ok := state[keyRuns].(map[string]any); ok {
 		runs := make(runRegistry, len(raw))
 		for key, v := range raw {
 			if entry, ok := v.(map[string]any); ok {
@@ -90,10 +90,10 @@ func copyRuns(state map[string]any) runRegistry {
 // when no thread holds a claim.
 func storeRuns(state map[string]any, runs runRegistry) {
 	if len(runs) == 0 {
-		delete(state, "runs")
+		delete(state, keyRuns)
 		return
 	}
-	state["runs"] = runs.toDoc()
+	state[keyRuns] = runs.toDoc()
 }
 
 // pickLiveRun chooses which run the top-level projection describes: the thread
@@ -267,15 +267,15 @@ func (w *ConversationWorker) releaseLLM(threadItemID string) {
 func (w *ConversationWorker) releaseAllLLM() {
 	w.patchProcessingStateIf(
 		func(existing map[string]any) bool {
-			_, hasRuns := existing["runs"]
-			_, hasActivity := existing["activity"]
-			_, hasClaimedAt := existing["claimedAt"]
+			_, hasRuns := existing[keyRuns]
+			_, hasActivity := existing[runFieldActivity]
+			_, hasClaimedAt := existing[runFieldClaimedAt]
 			return hasRuns || hasActivity || hasClaimedAt
 		},
 		func(updated map[string]any) {
-			delete(updated, "runs")
-			delete(updated, "activity")
-			delete(updated, "claimedAt")
+			delete(updated, keyRuns)
+			delete(updated, runFieldActivity)
+			delete(updated, runFieldClaimedAt)
 		},
 	)
 }
@@ -602,7 +602,7 @@ func (w *ConversationWorker) getProcessingThreadItemID() string {
 // processingThreadItemIDLocked is getProcessingThreadItemID without the lock;
 // callers MUST already hold ycrdtMu.
 func (w *ConversationWorker) processingThreadItemIDLocked() string {
-	threadItemID, _ := w.readProcessingStateLocked()["threadItemId"].(string)
+	threadItemID, _ := w.readProcessingStateLocked()[runFieldThreadItemID].(string)
 	return threadItemID
 }
 

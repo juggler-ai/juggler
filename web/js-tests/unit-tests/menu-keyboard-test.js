@@ -21,7 +21,7 @@
  * @module unit-tests/menu-keyboard-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, nextTask } from '../utilities/test-helpers.js';
 import { presentPopup } from '../../js/utils/popup-surface.js';
 import { __resetPopupManagerForTests } from '../../js/utils/popup-manager.js';
 import { applyMenuRoles, attachMenuKeyboard } from '../../js/utils/menu-roles.js';
@@ -31,12 +31,6 @@ import pinboardItemRegistry from '../../js/registries/pinboard-item-registry.js'
 import infoCardRegistry from '../../js/registries/info-card-registry.js';
 import { openMenuAt } from '../../js/services/context-menu-service.js';
 import '../../js/components/info-cards-button.js';
-
-/**
- * Let one shimmed animation frame run.
- * @returns {Promise<void>} Resolves after the next macrotask.
- */
-const tick = () => new Promise((r) => setTimeout(r, 0));
 
 /**
  * Send one key to an element, the way a user's keypress arrives.
@@ -136,7 +130,7 @@ export async function runTests() {
         press(trigger, 'Enter');
         const state = open(parts);
         assert(document.activeElement === trigger, 'focus moved before the surface was revealed');
-        await tick();
+        await nextTask();
         assert(document.activeElement === rows[0], `focus did not land on the first item (on ${document.activeElement?.textContent})`);
         assert(rows.filter((r) => r.tabIndex === 0).length === 1 && rows[0].tabIndex === 0,
           'exactly the focused item should be in the tab order');
@@ -175,7 +169,7 @@ export async function runTests() {
         parts.trigger.focus();
         parts.trigger.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
         open(parts);
-        await tick();
+        await nextTask();
         assert(document.activeElement === parts.trigger,
           `a pointer open moved focus to ${document.activeElement?.textContent}`);
         assert(parts.rows[0].tabIndex === 0, 'the first item should still be the tab stop');
@@ -196,7 +190,7 @@ export async function runTests() {
         host._button.focus();
         press(host._button, 'Enter');
         host._openMenu();
-        await tick();
+        await nextTask();
         const menu = assertMenuShape(document.querySelector('.info-cards-menu'), 'info-cards menu');
         const items = () => /** @type {HTMLElement[]} */ (Array.from(menu.isConnected
           ? menu.querySelectorAll('[role^="menuitem"]')
@@ -238,7 +232,7 @@ export async function runTests() {
         anchor.focus();
         press(anchor, 'Enter');
         close = openAddPicker({ anchor, active: /** @type {any} */ ({}), onPick: () => {} });
-        await tick();
+        await nextTask();
         const picker = document.querySelector('.pinboard-add-picker');
         const menu = assertMenuShape(picker, 'add picker');
         const filter = /** @type {HTMLInputElement|null} */ (picker?.querySelector('.pinboard-add-picker__filter') ?? null);

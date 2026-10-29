@@ -20,14 +20,26 @@
  *   7. The off switch silences tips and teaching, and leaves situational hints
  *      as their bare actions.
  *   8. The off state migrates from the legacy tips preference.
- *   9. The real catalogue is well-formed: unique ids, known surfaces and kinds,
- *      usage events the record accepts, commands that exist.
+ *   9. The real catalogue is well-formed: unique ids, usage events the record
+ *      accepts, commands that exist. (Its kinds and surfaces are `NudgeEntry`'s
+ *      types, so the type checker holds those.)
  * @module unit-tests/nudge-engine-test
  */
 
 import { createNudgeEngine, migrateLegacyGuidance, TEACH_GAP_MS, TEACH_LIFETIME_MS } from '../../js/services/guidance/nudge-engine.js';
-import { NUDGES, SURFACES, KINDS } from '../../js/services/guidance/nudge-catalogue.js';
-import { isUsagePattern } from '../../js/services/guidance/usage-signals.js';
+import { NUDGES } from '../../js/services/guidance/nudge-catalogue.js';
+import { isUsageEvent } from '../../js/services/guidance/usage-signals.js';
+
+/**
+ * What a nudge's `retireOn` may name: an event the usage record keeps, or
+ * `prefix:*` for any event under a prefix it keeps — the form the engine
+ * reads as "any of them".
+ * @param {string} pattern - One `retireOn` entry
+ * @returns {boolean} Whether the record could ever retire it
+ */
+function isUsagePattern(pattern) {
+  return pattern.endsWith(':*') ? isUsageEvent(`${pattern.slice(0, -1)}any`) : isUsageEvent(pattern);
+}
 
 /**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
@@ -276,8 +288,6 @@ export async function runTests() {
     for (const entry of NUDGES) {
       if (ids.has(entry.id)) throw new Error(`duplicate id ${entry.id}`);
       ids.add(entry.id);
-      if (!KINDS.includes(entry.kind)) throw new Error(`${entry.id}: unknown kind ${entry.kind}`);
-      if (!SURFACES.includes(entry.surface)) throw new Error(`${entry.id}: unknown surface ${entry.surface}`);
       for (const ev of entry.retireOn ?? []) {
         if (!isUsagePattern(ev)) throw new Error(`${entry.id}: retireOn ${ev} is not a usage event`);
       }

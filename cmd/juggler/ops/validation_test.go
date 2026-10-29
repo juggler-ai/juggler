@@ -12,14 +12,14 @@ import (
 	"testing"
 )
 
-// TestValidateFilePath_SymlinkedWorkingDir_NotYetExistingFile guards a
+// TestValidateFilePathWithRoots_SymlinkedWorkingDir_NotYetExistingFile guards a
 // symlink-prefix regression: on macOS, t.TempDir() returns a path under
 // /var/folders/... which is a symlink to /private/var/folders/..., so
 // EvalSymlinks(workingDir) resolves to the /private form. When the caller asks
 // to validate an absolute path to a not-yet-existing file inside that dir, the
 // raw absPath stays in the /var form. Without resolveExistingPrefix the prefix
 // check spuriously fires "outside working directory".
-func TestValidateFilePath_SymlinkedWorkingDir_NotYetExistingFile(t *testing.T) {
+func TestValidateFilePathWithRoots_SymlinkedWorkingDir_NotYetExistingFile(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		// /var → /private/var is a macOS convention. On Linux /tmp is not
 		// symlinked the same way; the explicit-symlink subtest below covers
@@ -36,20 +36,20 @@ func TestValidateFilePath_SymlinkedWorkingDir_NotYetExistingFile(t *testing.T) {
 	// File does not exist yet — write tools pre-validate before creation.
 	notYetExisting := filepath.Join(tmpDir, "subdir", "newfile.txt")
 
-	result, err := ValidateFilePath(tmpDir, notYetExisting)
+	result, err := ValidateFilePathWithRoots(tmpDir, nil, notYetExisting)
 	if err != nil {
-		t.Fatalf("ValidateFilePath returned error for symlinked workingDir + new file: %v", err)
+		t.Fatalf("ValidateFilePathWithRoots returned error for symlinked workingDir + new file: %v", err)
 	}
 	if !result.IsValid {
 		t.Fatalf("expected IsValid=true, got error %q (AbsPath=%q)", result.ErrorMsg, result.AbsPath)
 	}
 }
 
-// TestValidateFilePath_ExplicitSymlinkedWorkingDir is the cross-platform analogue:
+// TestValidateFilePathWithRoots_ExplicitSymlinkedWorkingDir is the cross-platform analogue:
 // build a symlink that points at the real working dir, then call validate with
 // the symlink-side path. Without prefix canonicalisation, the unresolved input
 // path doesn't match the EvalSymlinks-resolved workingDir and validation fails.
-func TestValidateFilePath_ExplicitSymlinkedWorkingDir(t *testing.T) {
+func TestValidateFilePathWithRoots_ExplicitSymlinkedWorkingDir(t *testing.T) {
 	realDir := t.TempDir()
 	linkParent := t.TempDir()
 	linkDir := filepath.Join(linkParent, "link-to-real")
@@ -59,9 +59,9 @@ func TestValidateFilePath_ExplicitSymlinkedWorkingDir(t *testing.T) {
 
 	notYetExisting := filepath.Join(linkDir, "subdir", "newfile.txt")
 
-	result, err := ValidateFilePath(linkDir, notYetExisting)
+	result, err := ValidateFilePathWithRoots(linkDir, nil, notYetExisting)
 	if err != nil {
-		t.Fatalf("ValidateFilePath returned error for symlinked workingDir + new file: %v", err)
+		t.Fatalf("ValidateFilePathWithRoots returned error for symlinked workingDir + new file: %v", err)
 	}
 	if !result.IsValid {
 		t.Fatalf("expected IsValid=true, got error %q (AbsPath=%q)", result.ErrorMsg, result.AbsPath)
@@ -74,23 +74,6 @@ func TestValidateFilePath_ExplicitSymlinkedWorkingDir(t *testing.T) {
 	}
 	if !strings.HasPrefix(result.AbsPath, realResolved) {
 		t.Errorf("AbsPath=%q does not start with resolved realDir=%q", result.AbsPath, realResolved)
-	}
-}
-
-// TestValidateFilePath_RejectsTraversal guards the security property: a path
-// that resolves outside the working dir must be rejected even when the dir
-// itself is symlinked.
-func TestValidateFilePath_RejectsTraversal(t *testing.T) {
-	workingDir := t.TempDir()
-	outside := t.TempDir()
-	outsideFile := filepath.Join(outside, "secret.txt")
-
-	result, err := ValidateFilePath(workingDir, outsideFile)
-	if err == nil {
-		t.Fatalf("expected error for outside-workingDir path, got AbsPath=%q IsValid=%v", result.AbsPath, result.IsValid)
-	}
-	if result.IsValid {
-		t.Fatalf("expected IsValid=false for outside-workingDir path")
 	}
 }
 
@@ -153,9 +136,9 @@ func TestValidateFilePathWithRoots_RejectsOutsideAllRoots(t *testing.T) {
 	}
 }
 
-// TestValidateFilePathWithRoots_EmptyRootsMatchesWorkingDirOnly confirms the
-// new validator with no extra roots behaves exactly like ValidateFilePath:
-// inside the working dir validates, outside is rejected.
+// TestValidateFilePathWithRoots_EmptyRootsMatchesWorkingDirOnly confirms that
+// with no extra roots the validator contains to the working directory: inside
+// it validates, outside is rejected.
 func TestValidateFilePathWithRoots_EmptyRootsMatchesWorkingDirOnly(t *testing.T) {
 	workingDir := t.TempDir()
 	outside := t.TempDir()

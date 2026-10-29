@@ -67,19 +67,12 @@ func resolveVersion(stamped, embedded string) string {
 	}
 }
 
-// IsDevVersion reports whether v names a build from source rather than a
-// published one. A prerelease is not a dev build: it is published, and it is
-// offered upgrades like any other release.
-func IsDevVersion(v string) bool {
-	v = strings.TrimSpace(v)
-	return v == bareDevVersion || strings.HasSuffix(v, devSuffix)
-}
-
 // IsTestVersion reports whether v names a server built to be driven by the test
 // suites rather than run by anybody.
 //
 // This is the question the install figures ask, and it is deliberately narrower
-// than IsDevVersion: a build somebody made from source is a real install and is
+// than "unpublished" (updatecheck.IsUnpublishedBuild): a build somebody made
+// from source is a real install and is
 // counted on purpose, because how many people build Juggler and run it is worth
 // knowing. What must never be counted is a suite spawning servers, and since
 // such a server behaves like an install in every other respect — it checks for

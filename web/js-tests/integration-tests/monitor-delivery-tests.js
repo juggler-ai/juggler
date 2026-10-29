@@ -44,7 +44,7 @@ function injectedOutputIndex(conversation) {
  * injected message and the idle conversation must auto-wake to react to it.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const monitorOutputDeliveredAndAutoWakesTest = {
+const monitorOutputDeliveredAndAutoWakesTest = {
   name: 'monitor-output-delivered-and-auto-wakes',
   description: 'Monitor output surfaces as a turn-boundary message that auto-wakes the conversation',
   fixture: 'unit-test-fixture',

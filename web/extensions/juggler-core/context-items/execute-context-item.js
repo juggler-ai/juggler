@@ -12,6 +12,7 @@ import { isCommandAutoApproved, suggestApprovalPatterns, MAX_SUGGESTED_PATTERN_L
 import { isShellCommandPermitted, isShellCommandCatastrophic, shellApprovalContext, workingRootOf } from './execute/command-permission.js';
 import { renderExecutePermissionSection } from './execute/permission-section.js';
 import { homeBase, tildeify, untildeify } from './path-approval.js';
+import { inputText, toolActionDisplayData } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -1167,11 +1168,11 @@ class ExecuteContextItem extends ContextItem {
    */
   renderToolActionDetails(wrapper, ctx) {
     const { input, helpers, toolAction } = ctx;
-    helpers.addSubsection(wrapper, t('Command'), formatCommandForDisplay(input.command || ''), 'properties-panel-code', { language: 'bash' });
+    helpers.addSubsection(wrapper, t('Command'), formatCommandForDisplay(inputText(input, 'command')), 'properties-panel-code', { language: 'bash' });
     if (input.description) {
       helpers.addLlmDescription(wrapper, t('Description'), String(input.description));
     }
-    const ms = input.timeout ?? DEFAULT_EXEC_TIMEOUT_MS;
+    const ms = typeof input.timeout === 'number' ? input.timeout : DEFAULT_EXEC_TIMEOUT_MS;
     helpers.addSubsection(wrapper, t('Timeout'), prettyTimeout(ms), 'properties-panel-code');
 
     if (!input.run_in_background) return;
@@ -1190,8 +1191,10 @@ class ExecuteContextItem extends ContextItem {
     // registry state overlays the durable snapshot while the process is reachable.
     const resultText = ExecuteContextItem._resultText(toolAction);
     if (resultText) helpers.addSubsection(wrapper, t('Result'), resultText, 'properties-panel-result');
-    const displayData = toolAction?.get?.('displayData');
-    const persistedTask = (displayData?.toJSON ? displayData.toJSON() : displayData)?.backgroundTask;
+    // The worker records the task's latest snapshot under displayData.backgroundTask.
+    const persistedTask = /** @type {import('../../../sdk/lib/live-task-output.js').TaskOutputState|undefined} */ (
+      toolActionDisplayData(toolAction).backgroundTask
+    );
     // A background run has no delivery binding to cancel (the way Monitor does),
     // so the panel is the only place a user can reach the process: kill it
     // directly through the same op TaskStop calls.

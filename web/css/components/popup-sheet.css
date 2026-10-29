@@ -43,7 +43,7 @@
         margin: 0;
         border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
         border-bottom: none;
-        box-shadow: 0 -0.5rem 1.5rem rgb(0 0 0 / 45%);
+        box-shadow: 0 -0.5rem 1.5rem color-mix(in srgb, var(--shadow-color) 45%, transparent);
         overflow-y: auto;
         z-index: calc(var(--z-modal) + 1);
         animation: popup-sheet-up 200ms ease;

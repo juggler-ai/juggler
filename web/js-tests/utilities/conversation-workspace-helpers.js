@@ -535,7 +535,7 @@ export class FixtureProvider extends WorkspaceProvider {
  * @param {object} [options] - Anything else `provisionWorkspace` takes.
  * @returns {Promise<any>} The provision outcome: the row, and its undo.
  */
-export async function buildWorkspace(session, providerId, values, options = {}) {
+async function buildWorkspace(session, providerId, values, options = {}) {
   const outcome = await provisionWorkspace({ session, providerId, values, ...options });
   if (session && !session.workspaces?.some?.((/** @type {any} */ row) => row.id === outcome.workspace.id)) {
     session.workspaces = [...(session.workspaces ?? []), outcome.workspace];

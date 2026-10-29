@@ -12,9 +12,9 @@
  */
 
 import GitPin from '../pins/git-pin.js';
-import { assert } from '../../../js-tests/utilities/test-helpers.js';
+import { assert, nextTask } from '../../../js-tests/utilities/test-helpers.js';
 import { isolateFocus } from '../../../js-tests/utilities/isolate-focus.js';
-import { settle, repo, manifestOf, patchOf, mountPin, mountedPin } from './git-pin-helpers.js';
+import { repo, manifestOf, patchOf, mountPin, mountedPin } from './git-pin-helpers.js';
 
 /**
  * @typedef {object} TestResult
@@ -185,7 +185,7 @@ export async function runTests(_ctx) {
       ]),
     });
     m.rows()[1].click();
-    await settle();
+    await nextTask();
     assert(m.diffs().length === 2, `expected a second request, got ${JSON.stringify(m.diffs())}`);
     assert(m.diffs()[1].path === 'b.js', `expected b.js, got ${m.diffs()[1].path}`);
     assert(m.active()?.textContent?.includes('b.js'), 'the clicked row should become current');
@@ -210,7 +210,7 @@ export async function runTests(_ctx) {
 
     for (const at of [7, 19, 39]) {
       m.rows()[at].click();
-      await settle();
+      await nextTask();
     }
     assert(m.viewers().length === 1,
       `walking the rail must reuse the one viewer, got ${m.viewers().length}`);
@@ -240,7 +240,7 @@ export async function runTests(_ctx) {
     });
     assert(m.rows().length === 2, `both files should be listed, got ${m.rows().length}`);
     m.rows()[1].click();
-    await settle();
+    await nextTask();
     assert(m.diffs().length === 2, `expected the second repo's file to be asked for: ${JSON.stringify(m.diffs())}`);
     assert(m.diffs()[1].repo === 'vendor/lib' && m.diffs()[1].path === 'src/main.go',
       `two src/main.go are two files, not one: ${JSON.stringify(m.diffs()[1])}`);
@@ -259,16 +259,16 @@ export async function runTests(_ctx) {
       ]),
     });
     m.holdDiffs(true);
-    await settle();
+    await nextTask();
     m.rows()[1].click();
-    await settle();
+    await nextTask();
     assert(m.pending().length === 2, `expected both reads out, got ${m.pending().length}`);
     // The first file's patch lands last. It is an answer to a question nobody is
     // asking any more, and drawing it would show b.js's row over a.js's diff.
     m.pending()[1].resolve(patchOf('b.js'));
-    await settle();
+    await nextTask();
     m.pending()[0].resolve(patchOf('a.js'));
-    await settle();
+    await nextTask();
     assert(m.viewer()?.textContent?.includes('b.js'),
       `the selected file's diff should stand:\n${m.viewer()?.textContent}`);
     assert(!m.viewer()?.textContent?.includes('a.js'),
@@ -298,12 +298,12 @@ export async function runTests(_ctx) {
       ]),
     });
     m.rows()[1].click();
-    await settle();
+    await nextTask();
     const actions = m.controller.getActions();
     assert(actions.some((/** @type {any} */ a) => a.id === 'refresh'),
       `Refresh is how the user asks again, got ${actions.map((/** @type {any} */ a) => a.id).join(', ')}`);
     await actions.find((/** @type {any} */ a) => a.id === 'refresh').run();
-    await settle();
+    await nextTask();
     assert(m.reviews() === 2, `expected a second review, got ${m.reviews()}`);
     assert(m.active()?.textContent?.includes('b.js'),
       'a refresh that moved the selection would lose the reader\'s place');
@@ -320,10 +320,10 @@ export async function runTests(_ctx) {
       ]),
     });
     m.rows()[1].click();
-    await settle();
+    await nextTask();
     m.setManifest(manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]));
     await m.controller.getActions().find((/** @type {any} */ a) => a.id === 'refresh').run();
-    await settle();
+    await nextTask();
     assert(m.rows().length === 1, `expected the one remaining file, got ${m.rows().length}`);
     assert(m.active()?.textContent?.includes('a.js'),
       'with the read file gone, the first one is the only honest selection');
@@ -336,7 +336,7 @@ export async function runTests(_ctx) {
     });
     m.failReview(new Error('network error'));
     await m.controller.getActions().find((/** @type {any} */ a) => a.id === 'refresh').run();
-    await settle();
+    await nextTask();
     const text = m.text();
     assert(text.includes('a.js'), `blanking the panel loses more than staleness costs:\n${text}`);
     assert(text.includes("Couldn't refresh.") && text.includes('network error'),
@@ -415,7 +415,7 @@ export async function runTests(_ctx) {
      */
     const press = async (row, key) => {
       row.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
-      await settle();
+      await nextTask();
     };
 
     try {
@@ -459,7 +459,7 @@ export async function runTests(_ctx) {
     const anchor = m.viewer().querySelector('.diff-comment-btn[data-line="85"]');
     assert(anchor, `an annotatable diff offers an anchor per line:\n${m.viewer().innerHTML}`);
     anchor.click();
-    await settle();
+    await nextTask();
     const editor = m.editor();
     assert(editor, `clicking an anchor should open an editor:\n${m.body.innerHTML}`);
     const textarea = editor.querySelector('textarea');
@@ -469,7 +469,7 @@ export async function runTests(_ctx) {
 
     textarea.value = 'Split this into two methods.';
     editor.querySelector('.review-panel__save').click();
-    await settle();
+    await nextTask();
 
     const saved = m.saves();
     assert(saved.length === 1, `expected one save, got ${saved.length}`);
@@ -492,11 +492,11 @@ export async function runTests(_ctx) {
     });
     m.failSave(new Error('A comment holds at most 8000 characters; this one has 9001.'));
     m.viewer().querySelector('.diff-comment-btn[data-line="85"]').click();
-    await settle();
+    await nextTask();
     const textarea = m.editor().querySelector('textarea');
     textarea.value = 'Too long, apparently.';
     m.editor().querySelector('.review-panel__save').click();
-    await settle();
+    await nextTask();
 
     assert(m.editor(), 'the editor stays open — the text has nowhere else to be');
     assert(m.editor().querySelector('textarea').value === 'Too long, apparently.',
@@ -512,7 +512,7 @@ export async function runTests(_ctx) {
     });
     const anchor = m.viewer().querySelector('.diff-comment-btn[data-line="85"]');
     anchor.click();
-    await settle();
+    await nextTask();
     // Observed, not read back from the window: see the rail's own keyboard case
     // for why that is a measure of the other lanes.
     const focus = isolateFocus();
@@ -521,7 +521,7 @@ export async function runTests(_ctx) {
       textarea.value = 'Never mind.';
       textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       focus.steal();
-      await settle();
+      await nextTask();
       assert(!m.editor(), 'Escape should close the editor');
       assert(m.saves().length === 0, 'and write nothing');
       assert(focus.asked(anchor), 'and focus belongs back on the anchor it came from');
@@ -629,7 +629,7 @@ export async function runTests(_ctx) {
       },
     });
     m.viewer().querySelector('.diff-comment[data-id="c_1"] .diff-comment-delete').click();
-    await settle();
+    await nextTask();
     const saved = m.saves();
     assert(saved.length === 1, `expected the remainder written back, got ${saved.length}`);
     assert(saved[0].comments.length === 1 && saved[0].comments[0].id === 'c_2',
@@ -659,13 +659,13 @@ export async function runTests(_ctx) {
       },
     });
     m.viewer().querySelector('.diff-comment[data-id="c_1"] .diff-comment-edit').click();
-    await settle();
+    await nextTask();
     const textarea = m.editor()?.querySelector('textarea');
     assert(textarea?.value === 'First thought.',
       `an edit starts from what is there, got ${JSON.stringify(textarea?.value)}`);
     textarea.value = 'Second thought.';
     m.editor().querySelector('.review-panel__save').click();
-    await settle();
+    await nextTask();
     const comments = m.saves()[0].comments;
     assert(comments.length === 1 && comments[0].id === 'c_1',
       `an edit replaces the comment rather than adding one: ${JSON.stringify(comments)}`);
@@ -684,10 +684,10 @@ export async function runTests(_ctx) {
     const whole = m.body.querySelector('.review-panel__file-comment');
     assert(whole, `a file with no line to hang a comment on still needs one:\n${m.body.innerHTML}`);
     whole.click();
-    await settle();
+    await nextTask();
     m.editor().querySelector('textarea').value = 'Is this meant to be here?';
     m.editor().querySelector('.review-panel__save').click();
-    await settle();
+    await nextTask();
     const comment = m.saves()[0].comments[0];
     assert(comment.side === 'file' && comment.startLine === undefined,
       `a whole-file comment names no line: ${JSON.stringify(comment)}`);

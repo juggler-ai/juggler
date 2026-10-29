@@ -71,29 +71,6 @@ func WindowRolePinboardFor(boardID string) string {
 	return WindowRolePinboard + ":" + boardID
 }
 
-// WindowViewPinboard is the "view" a detached board's page URL carries. The
-// desktop app puts it there when it opens the window, and it comes back on every
-// request for that page — which is what lets the server tell one window's role
-// from another's without the page having to say so.
-const WindowViewPinboard = "pinboard"
-
-// WindowRoleForView names the window role a page URL describes, from the view
-// and board parameters the desktop app baked into it.
-//
-// Anything that is not a board is the main window, and a board whose id did not
-// survive the round trip falls back to the shared "pinboard" slot rather than
-// inventing a role named after a malformed id. This mirrors the desktop app's
-// own role(), so the app and the server always name the same window the same way.
-func WindowRoleForView(view, boardID string) string {
-	if view != WindowViewPinboard {
-		return WindowRoleMain
-	}
-	if !ValidBoardID(boardID) {
-		return WindowRolePinboard
-	}
-	return WindowRolePinboardFor(boardID)
-}
-
 // WindowState is one of this project's windows: its native geometry and the
 // viewer preferences it was left with. The type lives in internal/windowstate, below both
 // this package and internal/windowgeom, which reads and writes the same frames;

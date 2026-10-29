@@ -136,11 +136,6 @@ func nonEmpty(s, fallback string) string {
 	return s
 }
 
-// SetLevel changes the console log level at runtime.
-func SetLevel(level Level) {
-	consoleLevel = level
-}
-
 // Close flushes and closes the log file (if any).
 func Close() {
 	if fileSink != nil {

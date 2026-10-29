@@ -334,6 +334,9 @@ export async function runTests() {
   tab.className = 'active';
   const composerStub = document.createElement('div');
   composerStub.appendChild(document.createElement('textarea'));
+  /** @type {any[]} */
+  const quoted = [];
+  /** @type {any} */ (composerStub).insertCodeReference = (/** @type {any} */ reference) => { quoted.push(reference); return true; };
   /** @type {any} */ (tab).getComposer = () => composerStub;
   document.body.appendChild(tab);
 
@@ -360,9 +363,15 @@ export async function runTests() {
     selection?.addRange(range);
 
     // The block's own provider answers, and offers the paste row itself.
-    const selected = labelsOf(resolveMenu(block)?.items || []);
+    const selectedItems = resolveMenu(block)?.items || [];
+    const selected = labelsOf(selectedItems);
     tally(check(selected.includes(PASTE_REFERENCE_LABEL),
       `code-block: a selection offers the paste row (got ${JSON.stringify(selected)})`, errors));
+
+    // The row hands the reference to the composer, which writes it.
+    selectedItems.find((i) => i.label === PASTE_REFERENCE_LABEL)?.onClick?.();
+    tally(check(quoted.length === 1 && String(quoted[0]?.path).endsWith('web/js/app.js'),
+      `code-block: the paste row hands the composer its reference (got ${JSON.stringify(quoted)})`, errors));
 
     // A selection somewhere else entirely is not this block's content.
     const elsewhere = document.createElement('p');

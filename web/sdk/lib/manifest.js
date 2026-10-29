@@ -37,7 +37,7 @@ export const REQUIRED_MANIFEST_FIELDS = ['id', 'name', 'version', 'description']
  * A field that is present but empty counts as missing: a capability with
  * `id: ''` cannot be addressed, enabled or collided with, so accepting it only
  * defers the failure to somewhere less obvious.
- * @param {any} ctor - The capability class (not an instance).
+ * @param {{name?: string, MANIFEST?: object}|null|undefined} ctor - The capability class (not an instance).
  * @param {string[]} [requiredFields] - Fields to require, defaulting to {@link REQUIRED_MANIFEST_FIELDS}.
  * @throws {Error} If the manifest is absent or any required field is missing or empty.
  */
@@ -49,7 +49,8 @@ export function validateManifest(ctor, requiredFields = REQUIRED_MANIFEST_FIELDS
     throw new Error(`${className} must define a static MANIFEST`);
   }
 
-  const missingFields = requiredFields.filter(field => !manifest[field]);
+  const fields = /** @type {Record<string, unknown>} */ (manifest);
+  const missingFields = requiredFields.filter(field => !fields[field]);
 
   if (missingFields.length > 0) {
     throw new Error(

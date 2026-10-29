@@ -55,7 +55,15 @@ function reachesApi(url) {
   return path === '/api' || path.startsWith('/api/');
 }
 
-export async function resolve(specifier, context, nextResolve) {
+/**
+ * Resolve an import to a same-origin module URL, or refuse it: nothing else
+ * reaches Node's own resolver.
+ * @param {string} specifier
+ * @param {{ parentURL?: string }} context
+ * @param {Function} _nextResolve - Node's resolver, never consulted
+ * @returns {Promise<{url: string, shortCircuit: boolean}>} The module URL
+ */
+export async function resolve(specifier, context, _nextResolve) {
   let url = specifier;
   if (context.parentURL && context.parentURL.startsWith(origin + '/')) {
     try { url = new URL(specifier, context.parentURL).href; } catch { /* reject below */ }
@@ -69,11 +77,11 @@ export async function resolve(specifier, context, nextResolve) {
 /**
  * Fetch a same-origin HTTP module URL over HTTP and return its source.
  * @param {string} url
- * @param {object} context
- * @param {Function} nextLoad
- * @returns {Promise<{format: string, source: string, shortCircuit?: boolean}>}
+ * @param {object} _context
+ * @param {Function} _nextLoad - Node's loader, never consulted
+ * @returns {Promise<{format: string, source: string, shortCircuit?: boolean}>} The module's source and format
  */
-export async function load(url, context, nextLoad) {
+export async function load(url, _context, _nextLoad) {
   if (origin && url.startsWith(origin + '/') && !reachesApi(url)) {
     const res = await fetch(url);
     if (!res.ok) {

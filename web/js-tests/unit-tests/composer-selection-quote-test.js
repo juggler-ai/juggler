@@ -21,7 +21,7 @@
 import { formatCodeReference } from '../../sdk/lib/context-item-utils.js';
 import { formatCodeReference as workerFormatCodeReference } from '../../sdk/item-utils-worker.js';
 import { resolveCodeSelection } from '../../js/utils/code-selection.js';
-import { insertCodeReference } from '../../js/services/context-menu-service.js';
+import { insertCodeReference } from '../../js/components/composer-paste-tokens.js';
 
 /**
  * @param {boolean} cond - The condition under test.

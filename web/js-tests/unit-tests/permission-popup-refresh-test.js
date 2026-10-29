@@ -24,7 +24,8 @@ import {
   initializeRegistries,
   createTestSession,
   createTestConversation,
-  assert
+  assert,
+  nextTask
 } from '../utilities/test-helpers.js';
 import { assertDialogPopover } from '../utilities/menu-assertions.js';
 import { underPseudoLocale, assertPseudoLocalized } from '../utilities/pseudo-locale.js';
@@ -134,14 +135,13 @@ export async function runTests(_ctx) {
     window.requestAnimationFrame = (/** @type {FrameRequestCallback} */ cb) =>
       /** @type {any} */ (setTimeout(() => cb(performance.now()), 0));
     window.cancelAnimationFrame = (/** @type {number} */ id) => clearTimeout(id);
-    const frame = () => new Promise((r) => setTimeout(r, 0));
     try {
       el.setMessageThread(conversation.rootMessageThread);
       const button = () => el.querySelector('.permission-btn');
       assert(button()?.getAttribute('aria-expanded') === 'false', 'the permissions button does not start collapsed');
       el.openPopup();
-      await frame();
-      await frame();
+      await nextTask();
+      await nextTask();
       assertDialogPopover(el._menu?.surface ?? null, button(), 'permissions popup');
       el.closePopup();
       assert(button()?.getAttribute('aria-expanded') === 'false', 'the permissions button still says open after closing');

@@ -29,7 +29,8 @@ import {
   initializeRegistries,
   createTestSession,
   createApprovalTestConversation,
-  assert
+  assert,
+  waitFor
 } from '../utilities/test-helpers.js';
 import {
   createUserMessage,
@@ -45,22 +46,58 @@ import {
 import '../../js/components/conversation-tab.js';
 
 /**
- * Let the column rebuild and the panel render land.
- * @returns {Promise<void>} Resolves once queued callbacks have run.
+ * Wait for the tab's properties panel to show `itemId`. Its content render is
+ * debounced (`ColumnBuilder.propertiesColumn`) so that walking items with the
+ * arrow keys doesn't re-parse markdown per keypress, and the panel takes its
+ * selection — and the Delete button bound to it — only when that render runs.
+ * @param {any} tab - The conversation-tab under test.
+ * @param {string} itemId - The item the panel should show.
+ * @returns {Promise<any>} The panel, once it shows the item with its buttons.
  */
-function settle() {
-  return new Promise((resolve) => { setTimeout(resolve, 20); });
+function panelShowing(tab, itemId) {
+  return waitFor(() => {
+    const panel = /** @type {any} */ (tab.querySelector('column-container > properties-panel'));
+    return panel?.getSelectedItemId() === itemId && panel.querySelector('.properties-panel-btn.danger')
+      ? panel
+      : null;
+  }, () => `the properties panel to show ${itemId}`);
 }
 
 /**
- * Let the properties panel paint. Its content render is debounced by 150ms so
- * that walking items with the arrow keys doesn't re-parse markdown per keypress
- * (`ColumnBuilder.propertiesColumn`), and the Delete button arrives
- * with that content.
- * @returns {Promise<void>} Resolves once the panel has rendered.
+ * Wait for a column to paint the row of `itemId`.
+ * @param {any} col - The conversation-area.
+ * @param {string} itemId - The row's item id.
+ * @returns {Promise<Element>} The row.
  */
-function settlePanel() {
-  return new Promise((resolve) => { setTimeout(resolve, 300); });
+function rowPainted(col, itemId) {
+  return waitFor(() => col.querySelector(`[message-id="${itemId}"]`), `the row for ${itemId} to paint`);
+}
+
+/**
+ * Whether a column paints no row for an item its thread no longer holds: the
+ * rebuild that follows a delete has run, and with it whatever it does to the
+ * selection. A folded group stands for rows by an id of its own.
+ * @param {any} col - The conversation-area.
+ * @returns {boolean} True once every painted row is a live item or a group.
+ */
+function columnCaughtUp(col) {
+  const live = new Set(col.getMessageThread().items.map((/** @type {any} */ i) => i.get('itemId')));
+  return Array.from(col.querySelectorAll('[message-id]')).every((row) => {
+    const id = row.getAttribute('message-id') || '';
+    return id.startsWith('group:') || live.has(id);
+  });
+}
+
+/**
+ * Wait for a delete to land: the thread has shrunk below `countBefore` and the
+ * column has rebuilt from it.
+ * @param {any} col - The conversation-area the delete happened in.
+ * @param {number} countBefore - The thread's item count before the delete.
+ * @returns {Promise<void>} Resolves once both have happened.
+ */
+async function deleteLanded(col, countBefore) {
+  await waitFor(() => col.getMessageThread().items.length < countBefore && columnCaughtUp(col),
+    () => `the delete to land (items ${col.getMessageThread().items.length}, before ${countBefore})`);
 }
 
 /**
@@ -104,9 +141,11 @@ function fixtureItems() {
  * Click the Delete button in the open properties panel — the real gesture,
  * including the pre-delete neighbour hand-off it performs.
  * @param {any} tab - The conversation-tab under test.
- * @returns {Promise<void>} Resolves once the rebuild has settled.
+ * @param {any} col - The column the deleted row is in.
+ * @returns {Promise<void>} Resolves once the delete has landed and the column rebuilt.
  */
-async function clickDelete(tab) {
+async function clickDelete(tab, col) {
+  const countBefore = col.getMessageThread().items.length;
   const panel = tab.querySelector('column-container > properties-panel');
   assert(!!panel, 'selecting an item should have opened a properties panel');
   const deleteBtn = /** @type {HTMLElement|null} */ (
@@ -116,7 +155,7 @@ async function clickDelete(tab) {
   assert(/^\s*Delete\s*$/.test(deleteBtn.textContent || ''),
     `the first danger button must be plain Delete, got "${deleteBtn.textContent?.trim()}"`);
   deleteBtn.click();
-  await settle();
+  await deleteLanded(col, countBefore);
 }
 
 /**
@@ -192,7 +231,6 @@ export async function runTests() {
         root.addEvent(createUserMessage('Do several things'));
         for (const item of fixtureItems()) root.addEvent(item);
       }, conversation._doc.authorId);
-      await settle();
 
       const col = /** @type {any} */ (tab.querySelector('conversation-area'));
       assert(!!col, 'root conversation column should exist');
@@ -201,15 +239,16 @@ export async function runTests() {
       const deleted = ids[ids.length - 3];
       const phantom = ids[ids.length - 2];
       const expected = ids[ids.length - 1];
+      await rowPainted(col, expected);
 
       assert(!col.querySelector(`[message-id="${phantom}"]`),
         'the whitespace-only assistant must paint no row, or this proves nothing');
 
       col.selectItem(deleted);
-      await settlePanel();
+      await panelShowing(tab, deleted);
       assert(col.getSelectedItemId() === deleted, 'failed to select the row to delete');
 
-      await clickDelete(tab);
+      await clickDelete(tab, col);
 
       const after = col.getSelectedItemId();
       assert(after === expected,
@@ -232,14 +271,14 @@ export async function runTests() {
           extra: { result: 'Done.' }
         }).threadId;
       }, conversation._doc.authorId);
-      await settle();
 
       const rootCol = /** @type {any} */ (tab.querySelector('conversation-area'));
+      await rowPainted(rootCol, threadId);
       rootCol.selectItem(threadId);
-      await settle();
 
-      const threadCol = /** @type {any} */ (tab.querySelector('conversation-area.thread-column'));
-      assert(!!threadCol, 'selecting the tile should have opened the thread column');
+      const threadCol = /** @type {any} */ (await waitFor(
+        () => tab.querySelector('conversation-area.thread-column'),
+        'selecting the tile to open the thread column'));
 
       const items = threadCol.getMessageThread().items;
       const ids = items.map((/** @type {any} */ i) => i.get('itemId'));
@@ -247,15 +286,16 @@ export async function runTests() {
       const deleted = ids[3];
       const phantom = ids[4];
       const expected = ids[5];
+      await rowPainted(threadCol, expected);
 
       assert(!threadCol.querySelector(`[message-id="${phantom}"]`),
         'the whitespace-only assistant must paint no row, or this proves nothing');
 
       threadCol.selectItem(deleted);
-      await settlePanel();
+      await panelShowing(tab, deleted);
       assert(threadCol.getSelectedItemId() === deleted, 'failed to select the row to delete');
 
-      await clickDelete(tab);
+      await clickDelete(tab, threadCol);
 
       const after = threadCol.getSelectedItemId();
       assert(after !== first,
@@ -275,14 +315,14 @@ export async function runTests() {
         root.addEvent(createUserMessage('Do several things'));
         for (const item of fixtureItems()) root.addEvent(item);
       }, conversation._doc.authorId);
-      await settle();
 
       const col = /** @type {any} */ (tab.querySelector('conversation-area'));
       const ids = root.items.map((/** @type {any} */ i) => i.get('itemId'));
       const anchor = ids[ids.length - 3];
+      await rowPainted(col, anchor);
 
       col.selectItem(anchor);
-      await settlePanel();
+      await panelShowing(tab, anchor);
 
       // Both span deletes are exclusive of the row they are invoked from —
       // `deleteUpTo` stops before it, `deleteAfter` starts past it — so the
@@ -292,8 +332,9 @@ export async function runTests() {
       const upTo = Array.from(panel.querySelectorAll('.properties-panel-btn.danger'))
         .find((/** @type {any} */ b) => /Delete up to here/.test(b.textContent || ''));
       assert(!!upTo, 'the panel should offer "Delete up to here" for a mid-list item');
+      const countBefore = root.items.length;
       /** @type {HTMLElement} */ (upTo).click();
-      await settle();
+      await deleteLanded(col, countBefore);
 
       assert(col.getSelectedItemId() === anchor,
         `a span delete must leave its own row selected, got ${col.getSelectedItemId()}`);
@@ -309,14 +350,14 @@ export async function runTests() {
         root.addEvent(createUserMessage('Do several things'));
         for (const item of fixtureItems()) root.addEvent(item);
       }, conversation._doc.authorId);
-      await settle();
 
       const col = /** @type {any} */ (tab.querySelector('conversation-area'));
       const ids = root.items.map((/** @type {any} */ i) => i.get('itemId'));
       const anchor = ids[ids.length - 4];
+      await rowPainted(col, anchor);
 
       col.selectItem(anchor);
-      await settlePanel();
+      await panelShowing(tab, anchor);
       assert(col.getSelectedItemId() === anchor, 'failed to select the anchor row');
 
       // The properties panel's content render is debounced by 150ms
@@ -331,8 +372,9 @@ export async function runTests() {
       assert(moved && moved !== anchor,
         'ArrowDown should have moved the selection off the anchor');
 
+      const countBefore = root.items.length;
       pressDelete();
-      await settle();
+      await deleteLanded(col, countBefore);
 
       const remaining = root.items.map((/** @type {any} */ i) => i.get('itemId'));
       assert(!remaining.includes(moved),
@@ -351,15 +393,15 @@ export async function runTests() {
         root.addEvent(createUserMessage('Do several things'));
         for (const item of fixtureItems()) root.addEvent(item);
       }, conversation._doc.authorId);
-      await settle();
 
       const col = /** @type {any} */ (tab.querySelector('conversation-area'));
       const ids = root.items.map((/** @type {any} */ i) => i.get('itemId'));
       const selected = ids[ids.length - 3];
       const shiftedAway = ids[1];
+      await rowPainted(col, selected);
 
       col.selectItem(selected);
-      await settlePanel();
+      await panelShowing(tab, selected);
       assert(col.getSelectedItemId() === selected, 'failed to select the row to delete');
 
       // Remove an item ABOVE the selection. The panel does not re-render for
@@ -368,12 +410,13 @@ export async function runTests() {
       // index below the removal is now off by one. The worker does exactly this
       // shift on its own initiative, moving a tool action to the end of the
       // list when its context item changes, so the window is not hypothetical.
+      const countBefore = root.items.length;
       root.deleteItemById(shiftedAway);
-      await settle();
+      await deleteLanded(col, countBefore);
       assert(col.getSelectedItemId() === selected,
         'removing an unrelated row must not move the selection');
 
-      await clickDelete(tab);
+      await clickDelete(tab, col);
 
       const remaining = root.items.map((/** @type {any} */ i) => i.get('itemId'));
       assert(!remaining.includes(selected),
@@ -400,11 +443,11 @@ export async function runTests() {
           root.addEvent(createAssistantMessage('Halfway there.'));
           root.addEvent(writeRow('q'));
         }, conversation._doc.authorId);
-        await settle();
 
         const col = /** @type {any} */ (tab.querySelector('conversation-area'));
         const ids = root.items.map((/** @type {any} */ i) => i.get('itemId'));
         const deleted = ids[ids.length - 2];
+        await rowPainted(col, ids[ids.length - 1]);
 
         const before = col.getSelectableItemIds();
         assert(!before.some((/** @type {string} */ id) => id.startsWith('group:')),
@@ -412,9 +455,9 @@ export async function runTests() {
           `a row of its own: ${before.join(', ')}`);
 
         col.selectItem(deleted);
-        await settlePanel();
+        await panelShowing(tab, deleted);
         assert(col.getSelectedItemId() === deleted, 'failed to select the row to delete');
-        await clickDelete(tab);
+        await clickDelete(tab, col);
 
         const listed = col.getSelectableItemIds();
         const selected = col.getSelectedItemId();
@@ -426,8 +469,8 @@ export async function runTests() {
           `(${listed.join(', ')}) — an id absent from that list has no current ` +
           'index, so the next arrow key starts again from the top');
 
+        // Moving the selection is synchronous: the column reads it back at once.
         col.selectNextItem();
-        await settle();
         assert(col.getSelectedItemId() !== listed[0],
           'ArrowDown after the delete jumped to the first row');
       } finally {

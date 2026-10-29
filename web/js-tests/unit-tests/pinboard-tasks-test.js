@@ -151,6 +151,16 @@ export async function runTests() {
     return originalFetch(input, init);
   };
 
+  // The real server publishes its own inventory to every viewer whenever a
+  // process starts or exits anywhere on it, and every lane on a pool server
+  // shares it — so another suite's command lands here mid-case as a frame
+  // listing none of this fixture's tasks. The fake inventory is the server for
+  // the length of the suite, so the socket's route is held shut and this
+  // suite's frames go through the route it held.
+  const routes = /** @type {any} */ (WebSocketService.TYPED_MESSAGE_ROUTES);
+  const serverRoute = routes['processes-changed'];
+  routes['processes-changed'] = () => {};
+
   /**
    * Deliver a `processes-changed` frame through the socket's own route, as the
    * server's would arrive.
@@ -158,8 +168,7 @@ export async function runTests() {
    */
   const pushFrame = (processes) => {
     inventory = processes;
-    const route = /** @type {any} */ (WebSocketService.TYPED_MESSAGE_ROUTES)['processes-changed'];
-    route(wsService, { type: 'processes-changed', processes: processes.map((p) => ({ ...p })) });
+    serverRoute(wsService, { type: 'processes-changed', processes: processes.map((p) => ({ ...p })) });
   };
 
   /** @type {any} */
@@ -400,6 +409,15 @@ export async function runTests() {
       content.setActiveContext(activeContext(conversation));
     });
 
+    await run("the real server's own broadcast does not reach the fake inventory", () => {
+      // What this lane's socket receives whenever a process starts or exits
+      // anywhere on the shared test server: that server's real inventory, which
+      // knows nothing of this suite's tasks.
+      wsService._handleMessageData(JSON.stringify({ type: 'processes-changed', processes: [] }));
+      assert(!!find(service().list(), 'bg-monitor'),
+        `a foreign frame replaced the fixture's inventory: ${JSON.stringify(service().list())}`);
+    });
+
     // --- stopping -------------------------------------------------------------
 
     await run('stopping a plain task asks the server to stop it by id', async () => {
@@ -506,6 +524,7 @@ export async function runTests() {
     try {
       watching?.();
     } finally {
+      routes['processes-changed'] = serverRoute;
       window.fetch = originalFetch;
       content?.remove();
       container.remove();

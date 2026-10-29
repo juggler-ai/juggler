@@ -9,6 +9,7 @@ import { translator, markUntranslated } from 'juggler/i18n';
 import { toolInputPath, isPathAllowed, folderGrantSuggestions, stripInjectedApprovalFlags, gitignoreDisabled } from './path-approval.js';
 import { buildGitignoreSection } from './search-scope-section.js';
 import { formatGrepResults } from './search/grep-format.js';
+import { inputText } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -384,7 +385,7 @@ class SearchContextItem extends ContextItem {
    */
   renderToolActionDetails(wrapper, ctx) {
     const { input, helpers } = ctx;
-    helpers.addSubsection(wrapper, t('Pattern'), input.pattern || '', 'properties-panel-code');
+    helpers.addSubsection(wrapper, t('Pattern'), inputText(input, 'pattern'), 'properties-panel-code');
 
     // Show which paths the grep was looking in. An explicit `path` narrows the
     // search; otherwise the search spans the conversation's allowed roots.

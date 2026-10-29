@@ -10,6 +10,7 @@ import { fileSourceFromText } from 'juggler/file-source';
 import { recordWrittenHash, restageBaseline, acquirePathLock } from './read-history.js';
 import { absolutePathKey } from './path-approval.js';
 import { translator, markUntranslated } from 'juggler/i18n';
+import { inputText, toolActionResult } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -32,19 +33,6 @@ const LANG_MAP = {
  * @property {string} path - File path that was written
  * @property {boolean} created - True if file was created, false if updated
  * @property {number} size - File size in bytes
- */
-
-/**
- * @typedef {object} ContentData
- * @property {string} content - File content to write
- * @property {string} path - File path
- * @property {string} language - Language for syntax highlighting
- * @property {boolean} fileExists - Whether file already exists
- */
-
-/**
- * @typedef {object} BackendResult
- * @property {boolean} exists - Whether file exists
  */
 
 /**
@@ -430,11 +418,10 @@ class WriteFileContextItem extends EditBase {
    */
   renderToolActionDetails(wrapper, ctx) {
     const { toolAction, input, helpers } = ctx;
-    const filePath = input.file_path || input.path || '';
+    const filePath = inputText(input, 'file_path') || inputText(input, 'path');
 
-    const rawResult = toolAction.get('result');
-    const result = rawResult?.toJSON ? rawResult.toJSON() : rawResult;
-    const wrote = !result?.isError && !result?.cancelled;
+    const result = toolActionResult(toolAction);
+    const wrote = !result.isError && !result.cancelled;
 
     // Only a write that happened offers to pin what it wrote — and it pins the
     // path, canonicalised, not the content below, which is what the model
@@ -448,7 +435,8 @@ class WriteFileContextItem extends EditBase {
       this._appendOutcomeBanner(wrapper, result);
     }
 
-    if (!helpers.addDiffViewer(wrapper, toolAction, filePath) && input.content) {
+    const content = inputText(input, 'content');
+    if (!helpers.addDiffViewer(wrapper, toolAction, filePath) && content) {
       // The content the model intended to write, not a file on disk — so the
       // source carries the text directly and resolves to the text viewer. The
       // path is already at the top of the wrapper, so the view omits its own.
@@ -456,7 +444,7 @@ class WriteFileContextItem extends EditBase {
       section.className = 'context-item-expanded-content';
       const view = /** @type {any} */ (document.createElement('file-view'));
       view.showPath = false;
-      view.setSource(fileSourceFromText({ path: filePath, text: input.content }));
+      view.setSource(fileSourceFromText({ path: filePath, text: content }));
       section.appendChild(view);
       wrapper.appendChild(section);
     }

@@ -173,14 +173,93 @@ export const ACTION_STATES = Object.freeze({
 });
 
 /**
+ * The fields a conversation item's Y.Map carries, by key, with the type each
+ * holds. The worker's ConversationItem (cmd/juggler/worker/messages.go) and the
+ * item keys of doc_keys.go are the other half of this list.
+ *
+ * A structured field holds a Y type when it arrived through the document and a
+ * plain object when it was set locally before conversion, so those fields are
+ * `unknown` and each reader narrows (lib/tool-action-result.js in juggler-core
+ * reads a tool action's result and display data).
+ * @typedef {object} ItemFields
+ * @property {string} type - The item's MessageType, or a context item's type
+ * @property {string} itemId - Unique id of the item
+ * @property {string} content - Content text
+ * @property {string} source - Origin tag (the injecting strategy, or a notice's reporter)
+ * @property {string} summary - Short user-facing summary
+ * @property {string} message - An error item's message
+ * @property {string} timestamp - Creation time, ISO-8601
+ * @property {string} transactionId - The send that produced the item
+ * @property {string} toolUseId - Tool use id
+ * @property {string} toolName - Tool name
+ * @property {unknown} toolInput - Tool input as the model wrote it
+ * @property {string} state - Tool lifecycle state (a ToolState, or '' before evaluation)
+ * @property {string} category - The tool's declared category
+ * @property {string} executor - 'worker' on a tool action the worker runs itself
+ * @property {unknown} approvalOptions - Approval form options
+ * @property {string} approvalResponse - The answer written to the approval form
+ * @property {string} approvalSource - What approved the call
+ * @property {unknown} displayData - Display data for the UI
+ * @property {unknown} result - A tool action's ToolActionResult, or a thread's result text
+ * @property {boolean} isError - Whether the item is an error result
+ * @property {boolean} cancelled - Whether the tool was cancelled
+ * @property {unknown} data - A context or error item's additional data
+ * @property {unknown} hooks - The call's tool-hook records
+ * @property {unknown} attachments - Image/binary asset refs
+ * @property {unknown} heldAssets - Assets held for the item
+ * @property {unknown} heldCall - A program's call held for approval
+ * @property {unknown} reviewStatus - An auto-approve review's `{busy, label}`
+ * @property {unknown} providerData - Provider-opaque continuation data
+ * @property {boolean} preventUserDeletion - Whether the user may not delete the item
+ * @property {boolean} isNew - Whether a context item is newly created
+ * @property {string} error - A context item's error message
+ * @property {string} goal - A thread's goal
+ * @property {import('yjs').Array<import('yjs').Map<unknown>>} items - A thread's nested items
+ * @property {import('yjs').Map<unknown>} draft - A thread's unsent composer state
+ * @property {string} sessionName - A tool-spawned thread's handle
+ * @property {string} aliasOf - The thread item an alias is a view of
+ * @property {string} resultSpec - A thread caller's return contract
+ * @property {boolean} boundedCompaction - Enables bounded fallback after context rejection
+ * @property {string} compactionPromptItemId - Orchestration prompt excluded from source history
+ * @property {boolean} contextSeeded - Whether a thread's starting context is cloned
+ * @property {boolean} needsStrategyRun - A fold awaiting its summarizer run
+ * @property {boolean} noAutoSelect - Keeps a fold off the active tab
+ * @property {boolean} noContextSeed - Stops starting-context re-injection
+ * @property {string} forceTool - A tool the model must call on every turn
+ * @property {boolean} handoffPromote - Tags a /handoff fold
+ * @property {unknown} foldedRuns - Run records a bounded-compaction fold swallowed
+ * @property {boolean} llmCreated - A model's create_thread call made the thread
+ * @property {boolean} strategyCreated - A dispatched thread or /thread made it
+ * @property {boolean} canSpawnThreads - The thread's model may call create_thread
+ * @property {boolean} delegated - A delegating tool's child
+ * @property {boolean} readOnly - The child changes nothing outside its transcript
+ * @property {string} taskSource - What queued the item
+ * @property {string} runToolUseId - Run record: the parent's tool use id
+ * @property {string} runToolName - Run record: the parent's tool name
+ * @property {unknown} runToolInput - Run record: the parent's tool input
+ * @property {string} runGoal - Run record: the run's goal
+ * @property {string} runStatus - Run record: the run's status
+ * @property {string} runResult - Run record: the run's result
+ * @property {boolean} continuation - Run record: the run continues a session
+ * @property {string} runItemId - Run record: the thread item the run belongs to
+ * @property {boolean} recoversError - Run record: the run recovers a failed one
+ * @property {boolean} runResultFed - Run record: the result was fed back
+ * @property {number} runningEpoch - Epoch of the current running claim
+ * @property {number} runningStartedAt - When the running claim began, ms since epoch
+ * @property {number} notBefore - A pending entry's hold time, ms since epoch
+ * @property {string} hold - A pending entry's hold
+ * @property {string} sendId - A pending entry's send
+ */
+
+/**
  * Base Y.Map accessor interface for all message items stored in Yjs.
  * Items in conversation.items are Y.Maps; use .get()/.set() to access fields.
  * The literal properties in each message typedef (e.g. `type: 'user'`) document
  * the Y.Map schema — they are NOT accessed via dot notation. Always use:
  *   item.get('type'), item.get('content'), item.set('state', value)
  * @typedef {object} YMapItem
- * @property {function(string): any} get - Y.Map get method
- * @property {function(string, any): void} set - Y.Map set method
+ * @property {<K extends keyof ItemFields>(key: K) => ItemFields[K] | undefined} get - Y.Map get method
+ * @property {<K extends keyof ItemFields>(key: K, value: ItemFields[K]) => void} set - Y.Map set method
  * @property {function(): object} toJSON - Convert to plain object
  */
 
@@ -308,22 +387,24 @@ export const ACTION_STATES = Object.freeze({
  * action's input and result can hold whole files, so `toJSON()` on the way to a
  * single field would copy them. Nested values come back as stored (a Y type
  * stays one), and anything that is not an object yields undefined.
- * @param {any} item - A Y.Map, a plain object, or nothing.
+ * @param {unknown} item - A Y.Map, a plain object, or nothing.
  * @param {string} key - The field to read.
- * @returns {any} The field's value, or undefined.
+ * @returns {unknown} The field's value, or undefined.
  */
 export function itemField(item, key) {
   if (!item || typeof item !== 'object') return undefined;
-  return typeof item.get === 'function' ? item.get(key) : item[key];
+  if ('get' in item && typeof item.get === 'function') return item.get(key);
+  return /** @type {Record<string, unknown>} */ (item)[key];
 }
 
 /**
  * Read the 'type' field from a Y.Map or plain object.
- * @param {any} msg - Y.Map or plain object
+ * @param {unknown} msg - Y.Map or plain object
  * @returns {string|undefined} The type value
  */
 function _getType(msg) {
-  return itemField(msg, 'type');
+  const type = itemField(msg, 'type');
+  return typeof type === 'string' ? type : undefined;
 }
 
 /**
@@ -440,7 +521,7 @@ export function isThreadMessage(msg) {
  * @returns {UserMessage} The created user message
  */
 export function createUserMessage(content) {
-  return /** @type {any} */ ({
+  return /** @type {UserMessage} */ ({
     type: MESSAGE_TYPES.USER,
     content
   });
@@ -452,7 +533,7 @@ export function createUserMessage(content) {
  * @returns {AssistantMessage} The created assistant message
  */
 export function createAssistantMessage(content) {
-  return /** @type {any} */ ({
+  return /** @type {AssistantMessage} */ ({
     type: MESSAGE_TYPES.ASSISTANT,
     content
   });
@@ -472,7 +553,7 @@ export function createAssistantMessage(content) {
  * @returns {ToolActionMessage} The created tool-action message
  */
 export function createToolActionMessage({ toolUseId, toolName, toolInput, state, approvalOptions, displayData, result }) {
-  /** @type {any} */
+  /** @type {Omit<ToolActionMessage, keyof YMapItem>} */
   const msg = {
     type: MESSAGE_TYPES.TOOL_ACTION,
     toolUseId,
@@ -483,7 +564,8 @@ export function createToolActionMessage({ toolUseId, toolName, toolInput, state,
   if (state) msg.state = state;
   if (approvalOptions) msg.approvalOptions = approvalOptions;
   if (displayData) msg.displayData = displayData;
-  return msg;
+  // A plain object stands in for the Y.Map until it is inserted (see the guards above).
+  return /** @type {ToolActionMessage} */ (msg);
 }
 
 /**
@@ -500,7 +582,7 @@ export function createToolActionMessage({ toolUseId, toolName, toolInput, state,
  * @returns {ContextItemMessage} The created context item message
  */
 export function createContextItemMessage({ itemId, isNew, itemType, error, data, preventUserDeletion }) {
-  /** @type {any} */
+  /** @type {Omit<ContextItemMessage, keyof YMapItem>} */
   const msg = {
     type: itemType,
     itemId
@@ -510,7 +592,7 @@ export function createContextItemMessage({ itemId, isNew, itemType, error, data,
   if (error !== undefined) msg.error = error;
   if (data !== undefined) msg.data = data;
   if (preventUserDeletion) msg.preventUserDeletion = true;
-  return msg;
+  return /** @type {ContextItemMessage} */ (msg);
 }
 
 /**
@@ -523,7 +605,7 @@ export function createContextItemMessage({ itemId, isNew, itemType, error, data,
  * @returns {ErrorMessage} The created error message
  */
 export function createErrorMessage({ message, stack }) {
-  return /** @type {any} */ ({
+  return /** @type {ErrorMessage} */ ({
     type: MESSAGE_TYPES.ERROR,
     message,
     stack
@@ -540,7 +622,7 @@ export function createErrorMessage({ message, stack }) {
  * @returns {NoticeMessage} The created notice message
  */
 export function createNoticeMessage({ summary, detail, source }) {
-  return /** @type {any} */ ({
+  return /** @type {NoticeMessage} */ ({
     type: MESSAGE_TYPES.NOTICE,
     summary,
     content: detail,
@@ -556,7 +638,7 @@ export function createNoticeMessage({ summary, detail, source }) {
  * @returns {GuidanceMessage} The created guidance message
  */
 export function createGuidanceMessage({ content, source }) {
-  return /** @type {any} */ ({
+  return /** @type {GuidanceMessage} */ ({
     type: MESSAGE_TYPES.GUIDANCE,
     content,
     source
@@ -571,7 +653,7 @@ export function createGuidanceMessage({ content, source }) {
  * @returns {SystemReminderMessage} The created system reminder message
  */
 export function createSystemReminderMessage({ content, source }) {
-  return /** @type {any} */ ({
+  return /** @type {SystemReminderMessage} */ ({
     type: MESSAGE_TYPES.SYSTEM_REMINDER,
     content,
     source
@@ -587,7 +669,7 @@ export function createSystemReminderMessage({ content, source }) {
  * @returns {ThreadMessage} The created thread message
  */
 export function createThreadMessage({ goal, result }) {
-  return /** @type {any} */ ({
+  return /** @type {ThreadMessage} */ ({
     type: MESSAGE_TYPES.THREAD,
     itemId: `thread_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     goal,

@@ -275,7 +275,7 @@ function fedResultUnanswered(arr, trailingIndex) {
  * @param {string} result - The text that run returns to its caller.
  * @returns {void}
  */
-export function reportRunToParent(threadYMap, starterItemId, starterCall, mintItemId, status, result) {
+function reportRunToParent(threadYMap, starterItemId, starterCall, mintItemId, status, result) {
   const siblings = threadYMap?.parent;
   const canonicalId = threadYMap?.get?.('itemId');
   if (!starterItemId || !canonicalId || typeof siblings?.insert !== 'function') return;

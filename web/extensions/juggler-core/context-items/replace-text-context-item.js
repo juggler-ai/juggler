@@ -8,6 +8,7 @@ import { normalizeFilePath, basename } from 'juggler/item-utils';
 import { checkFileFreshness, awaitsReadInTurn, recordWrittenHash, restageBaseline, acquirePathLock } from './read-history.js';
 import { absolutePathKey } from './path-approval.js';
 import { translator, markUntranslated } from 'juggler/i18n';
+import { inputText, toolActionResultField } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -507,15 +508,10 @@ class ReplaceTextContextItem extends EditBase {
    */
   renderToolActionDetails(wrapper, ctx) {
     const { toolAction, input, helpers } = ctx;
-    const filePath = input.file_path || input.path || '';
+    const filePath = inputText(input, 'file_path') || inputText(input, 'path');
 
-    const result = toolAction.get('result');
-    const isError = result
-      ? (result.get ? result.get('isError') : result?.isError)
-      : false;
-    const cancelled = result
-      ? (result.get ? result.get('cancelled') : result?.cancelled)
-      : false;
+    const isError = toolActionResultField(toolAction, 'isError') || false;
+    const cancelled = toolActionResultField(toolAction, 'cancelled') || false;
 
     // An edit that happened offers to pin the file it changed, at its
     // canonical path. A failed or cancelled one changed nothing to look at.
@@ -524,13 +520,12 @@ class ReplaceTextContextItem extends EditBase {
 
     if (isError) {
       if (input.old_string !== undefined) {
-        helpers.addSubsection(wrapper, t('Search'), input.old_string, 'properties-panel-code');
+        helpers.addSubsection(wrapper, t('Search'), String(input.old_string), 'properties-panel-code');
       }
       if (input.new_string !== undefined) {
-        helpers.addSubsection(wrapper, t('Replace', undefined, { context: 'replacement text label' }), input.new_string, 'properties-panel-code');
+        helpers.addSubsection(wrapper, t('Replace', undefined, { context: 'replacement text label' }), String(input.new_string), 'properties-panel-code');
       }
-      const fullResult = result.get ? result.get('fullResult') : result?.fullResult;
-      const fullObj = fullResult?.toJSON ? fullResult.toJSON() : fullResult;
+      const fullObj = toolActionResultField(toolAction, 'fullResult');
       const errorText = fullObj?.llmFeedback || fullObj?.error || t('Edit failed');
       const errorDiv = document.createElement('div');
       errorDiv.className = 'properties-panel-result error';
@@ -538,10 +533,10 @@ class ReplaceTextContextItem extends EditBase {
       wrapper.appendChild(errorDiv);
     } else if (!helpers.addDiffViewer(wrapper, toolAction, filePath)) {
       if (input.old_string !== undefined) {
-        helpers.addSubsection(wrapper, t('Search'), input.old_string, 'properties-panel-code');
+        helpers.addSubsection(wrapper, t('Search'), String(input.old_string), 'properties-panel-code');
       }
       if (input.new_string !== undefined) {
-        helpers.addSubsection(wrapper, t('Replace', undefined, { context: 'replacement text label' }), input.new_string, 'properties-panel-code');
+        helpers.addSubsection(wrapper, t('Replace', undefined, { context: 'replacement text label' }), String(input.new_string), 'properties-panel-code');
       }
     }
     return { skipResultSection: true };

@@ -56,8 +56,18 @@ var modelsDevDisagreements = map[string]string{
 // resolver on their ProviderInfo, so the audit asks the rule rather than
 // reporting every model it covers as missing.
 var offlineKnows = map[string]func(model string) bool{
-	"anthropic": anthropic.CatalogKnows,
-	"gemini":    gemini.CatalogKnows,
+	// By exact id, or by the generation rules the output ladder applies.
+	"anthropic": func(model string) bool {
+		if _, ok := anthropic.ModelContextWindows[model]; ok {
+			return true
+		}
+		_, ok := anthropic.CatalogMaxOutputTokens(model)
+		return ok
+	},
+	"gemini": func(model string) bool {
+		_, ok := gemini.CatalogContextWindow(model)
+		return ok
+	},
 }
 
 // modelsDevNotCatalogued records chat models models.dev lists that a built-in

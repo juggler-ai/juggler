@@ -23,6 +23,7 @@ export default {
     required: ['path'],
   },
   normalize: normalizeFilePinParameters,
-  identity: (parameters) => parameters.path,
+  // Runs on what `normalize` returned, whose path is always a string.
+  identity: (parameters) => (typeof parameters.path === 'string' ? parameters.path : ''),
   fallback: true,
 };

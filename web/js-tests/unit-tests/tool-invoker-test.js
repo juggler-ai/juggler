@@ -36,7 +36,7 @@
  * @module unit-tests/tool-invoker-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, nextTask } from '../utilities/test-helpers.js';
 import { createToolInvoker, ToolError, ToolRefused } from '../../js/services/tool-invoker.js';
 
 /**
@@ -55,12 +55,6 @@ const OFFERED = [
   { name: 'keep_notes', category: 'meta', composable: false },
   { name: 'other_program', category: 'write', programSdk: true },
 ];
-
-/**
- * Let queued microtasks and promise chains settle.
- * @returns {Promise<void>} Resolves on the next macrotask
- */
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /**
  * An invoker whose executions are held open until the test releases them.
@@ -215,7 +209,7 @@ export async function runTests(_ctx) {
   await test('a tool named as a provider lists it is the tool itself', async () => {
     const h = harness();
     const call = h.invoker.invoke('mcp__juggler__read', { file_path: 'a' });
-    await tick();
+    await nextTask();
     assert(h.startedNames().join(',') === 'read', `the prefixed name runs read: ${h.startedNames()}`);
     h.finish('read');
     assert(await call === 'read done', 'and answers as read');
@@ -251,7 +245,7 @@ export async function runTests(_ctx) {
     const denied = h.invoker.invoke('bash', { command: 'x' });
     const behind = h.invoker.invoke('edit', { file_path: 'a' });
     const errs = await Promise.all([rejection(denied), rejection(behind)]);
-    await tick();
+    await nextTask();
     assert(errs.every((e) => e instanceof ToolRefused), `both refused: ${errs.map((e) => e?.name)}`);
     assert(h.decided.length === 1 && h.decided[0].toolName === 'bash',
       `the call behind a denial is never put to the decision (its hooks would run): ${h.decided.map((/** @type {any} */ c) => c.toolName)}`);
@@ -264,7 +258,7 @@ export async function runTests(_ctx) {
     let release = () => {};
     const h = harness({ decide: () => new Promise((resolve) => { release = resolve; }) });
     const p = h.invoker.invoke('bash', { command: 'rm x' });
-    await tick();
+    await nextTask();
     h.controller.abort();
     release({ verdict: 'approve', reason: '' });
     const err = await rejection(p);
@@ -277,7 +271,7 @@ export async function runTests(_ctx) {
   await test('a call made with the user\'s answer runs on it, undecided', async () => {
     const h = harness({ decide: () => ({ verdict: 'park', reason: 'it needs your approval' }) });
     const p = h.invoker.invoke('bash', { command: 'rm a' }, { answer: 'yes' });
-    await tick();
+    await nextTask();
     assert(h.decided.length === 0, `it is not put to the decision: ${h.decided.length}`);
     h.finish('bash');
     assert(await p === 'bash done', 'and runs');
@@ -286,7 +280,7 @@ export async function runTests(_ctx) {
 
     const q = harness({ decide: () => ({ verdict: 'park', reason: 'it needs your answer' }) });
     const asked = q.invoker.invoke('ask', { question: 'which?' }, { answer: 'B' });
-    await tick();
+    await nextTask();
     assert(q.started[0]?.input?.answer === 'B', `an elicitation's answer is folded in: ${JSON.stringify(q.started[0]?.input)}`);
     q.finish('ask');
     await asked;
@@ -304,7 +298,7 @@ export async function runTests(_ctx) {
   await test('a parked call waits for the user, and runs once they answer', async () => {
     const h = harness({ waitForUser: true, decide: parks(['bash']) });
     const p = h.invoker.invoke('bash', { command: 'rm x' }, { tag: 7 });
-    await tick();
+    await nextTask();
     assert(h.holds.length === 1 && h.holds[0].request.name === 'bash', `held: ${h.holds.length}`);
     assert(h.started.length === 0, 'it does not run while held');
     assert(h.refusals.length === 0, 'and the program is not ended');
@@ -313,7 +307,7 @@ export async function runTests(_ctx) {
       `recorded as waiting, with no effect until it runs: ${JSON.stringify(rec)}`);
     assert(h.events.join(',') === 'before:bash:7,hold:bash', `beforeHold first, with the call's tag: ${h.events}`);
     h.holds[0].answer({ response: 'yes' });
-    await tick();
+    await nextTask();
     assert(h.startedNames().join(',') === 'bash', `it runs once answered: ${h.startedNames()}`);
     assert(h.events.at(-1) === 'after', `afterHold once answered: ${h.events}`);
     h.finish('bash');
@@ -327,12 +321,12 @@ export async function runTests(_ctx) {
     const w = harness({ waitForUser: true, decide: parks(['edit']) });
     const edit = w.invoker.invoke('edit', { file_path: 'a' });
     const read = w.invoker.invoke('read', { file_path: 'b' });
-    await tick();
+    await nextTask();
     assert(w.startedNames().length === 0, `nothing starts past a held write: ${w.startedNames()}`);
     w.holds[0].answer({ response: 'yes' });
-    await tick();
+    await nextTask();
     w.finish('edit');
-    await tick();
+    await nextTask();
     assert(w.startedNames().join(',') === 'edit,read', `the read follows it: ${w.startedNames()}`);
     w.finish('read');
     await Promise.all([edit, read]);
@@ -341,15 +335,15 @@ export async function runTests(_ctx) {
     const ask = r.invoker.invoke('ask', {});
     const next = r.invoker.invoke('read', { file_path: 'b' });
     const write = r.invoker.invoke('edit', { file_path: 'c' });
-    await tick();
+    await nextTask();
     assert(r.startedNames().join(',') === 'read', `a read passes a held question, a write does not: ${r.startedNames()}`);
     r.finish('read');
     assert(await next === 'read done', 'the read answers while the question waits');
     r.holds[0].answer({ response: 'B' });
-    await tick();
+    await nextTask();
     assert(r.started.find((c) => c.toolName === 'ask')?.input?.answer === 'B', 'the answer is folded into the question');
     r.finish('ask');
-    await tick();
+    await nextTask();
     r.finish('edit');
     await Promise.all([ask, write]);
   });
@@ -359,10 +353,10 @@ export async function runTests(_ctx) {
     const h = harness({ waitForUser: true, decide: (/** @type {any} */ call) => (parked && call.toolName === 'bash'
       ? { verdict: 'park', reason: 'it needs your approval' } : { verdict: 'approve', reason: '' }) });
     const p = h.invoker.invoke('bash', { command: 'x' });
-    await tick();
+    await nextTask();
     parked = false;
     h.holds[0].answer({ redecide: true });
-    await tick();
+    await nextTask();
     assert(h.decided.length === 2, `decided again: ${h.decided.length}`);
     assert(h.startedNames().join(',') === 'bash', 'and run on the new verdict');
     h.finish('bash');
@@ -370,12 +364,12 @@ export async function runTests(_ctx) {
 
     const again = harness({ waitForUser: true, decide: parks(['bash']) });
     const q = again.invoker.invoke('bash', { command: 'x' });
-    await tick();
+    await nextTask();
     again.holds[0].answer({ redecide: true });
-    await tick();
+    await nextTask();
     assert(again.holds.length === 2 && again.started.length === 0, 'a call that parks again is held again, unrun');
     again.holds[1].answer({ response: 'yes' });
-    await tick();
+    await nextTask();
     again.finish('bash');
     await q;
   });
@@ -384,7 +378,7 @@ export async function runTests(_ctx) {
     const h = harness({ waitForUser: true, decide: parks(['bash']) });
     const p = h.invoker.invoke('bash', { command: 'x' });
     const behind = h.invoker.invoke('edit', { file_path: 'a' });
-    await tick();
+    await nextTask();
     h.holds[0].refuse(new ToolRefused('Couldn\'t run bash: you declined it.'));
     const errs = await Promise.all([rejection(p), rejection(behind)]);
     assert(errs.every((e) => e instanceof ToolRefused), `both refused: ${errs.map((e) => e?.name)}`);
@@ -398,14 +392,14 @@ export async function runTests(_ctx) {
     const h = harness({ waitForUser: true, decide: parks(['read']) });
     const a = h.invoker.invoke('read', { file_path: 'a' });
     const b = h.invoker.invoke('read', { file_path: 'b' });
-    await tick();
+    await nextTask();
     assert(h.holds.length === 1, `one card at a time: ${h.holds.length}`);
     h.holds[0].answer({ response: 'yes' });
-    await tick();
+    await nextTask();
     assert(h.holds.length === 2 && h.holds[1].request.input.file_path !== h.holds[0].request.input.file_path,
       'the other is held once the first is answered');
     h.holds[1].answer({ response: 'yes' });
-    await tick();
+    await nextTask();
     h.finish('read');
     h.finish('read');
     await Promise.all([a, b]);
@@ -415,7 +409,7 @@ export async function runTests(_ctx) {
   await test('end() releases every hold and the item', async () => {
     const h = harness({ waitForUser: true, decide: parks(['bash']) });
     const p = h.invoker.invoke('bash', { command: 'x' });
-    await tick();
+    await nextTask();
     h.invoker.end();
     const err = await rejection(p);
     assert(err instanceof ToolRefused, `the held call is refused: ${err?.name}`);
@@ -440,11 +434,11 @@ export async function runTests(_ctx) {
     const h = harness({ waitForUser: true, decide: parks(['read']) });
     const a = h.invoker.invoke('read', { file_path: 'a' });
     const b = h.invoker.invoke('read', { file_path: 'b' });
-    await tick();
+    await nextTask();
     assert(h.holds.length === 1, `one shown: ${h.holds.length}`);
     h.controller.abort();
     const errs = await Promise.all([rejection(a), rejection(b)]);
-    await tick();
+    await nextTask();
     assert(errs.every((e) => e instanceof ToolRefused), `both refused: ${errs.map((e) => e?.name)}`);
     assert(h.holds.length === 1 && h.started.length === 0, `the waiting one never shown, neither run: ${h.holds.length}`);
   });
@@ -452,7 +446,7 @@ export async function runTests(_ctx) {
   await test('end() with nothing ever held releases nothing', async () => {
     const h = harness({ waitForUser: true });
     const p = h.invoker.invoke('read', { file_path: 'a' });
-    await tick();
+    await nextTask();
     h.finish('read');
     await p;
     h.invoker.end();
@@ -462,7 +456,7 @@ export async function runTests(_ctx) {
   await test('an abort refuses a held call', async () => {
     const h = harness({ waitForUser: true, decide: parks(['bash']) });
     const p = h.invoker.invoke('bash', { command: 'x' });
-    await tick();
+    await nextTask();
     h.controller.abort();
     const err = await rejection(p);
     assert(err instanceof ToolRefused && h.started.length === 0, `refused unrun: ${err?.name}`);
@@ -479,7 +473,7 @@ export async function runTests(_ctx) {
   await test('a failed call is a catchable ToolError with the tool text', async () => {
     const h = harness();
     const p = h.invoker.invoke('bash', { command: 'false' });
-    await tick();
+    await nextTask();
     h.finish('bash', { success: false, content: 'exit 1' });
     const err = await rejection(p);
     assert(err instanceof ToolError && err.message === 'exit 1', `got ${err?.name} ${err?.message}`);
@@ -489,7 +483,7 @@ export async function runTests(_ctx) {
   await test('a successful call resolves to its content', async () => {
     const h = harness();
     const p = h.invoker.invoke('read', { file_path: 'a.js' });
-    await tick();
+    await nextTask();
     h.finish('read', { success: true, content: 'file text' });
     assert(await p === 'file text', 'resolves to the content');
     const rec = h.invoker.record.calls[0];
@@ -503,7 +497,7 @@ export async function runTests(_ctx) {
     const plain = h.invoker.invoke('read', { file_path: 'a.png' });
     const detailed = h.invoker.invoke('read', { file_path: 'a.png' }, { withAttachments: true });
     const none = h.invoker.invoke('read', { file_path: 'b.txt' }, { withAttachments: true });
-    await tick();
+    await nextTask();
     h.finish('read', { success: true, content: 'Read image a.png', attachments: [ref] });
     h.finish('read', { success: true, content: 'Read image a.png', attachments: [ref] });
     h.finish('read', { success: true, content: 'text' });
@@ -520,10 +514,10 @@ export async function runTests(_ctx) {
   await test('at most `limit` calls run at once', async () => {
     const h = harness({ limit: 4 });
     const ps = [1, 2, 3, 4, 5].map((n) => h.invoker.invoke('read', { file_path: `f${n}` }));
-    await tick();
+    await nextTask();
     assert(h.started.length === 4, `4 should start, got ${h.started.length}`);
     h.finish('read');
-    await tick();
+    await nextTask();
     assert(h.started.length === 5, 'the fifth starts when one finishes');
     for (let i = 0; i < 4; i++) h.finish('read');
     await Promise.all(ps);
@@ -535,16 +529,16 @@ export async function runTests(_ctx) {
     const r2 = h.invoker.invoke('grep', { pattern: 'x' });
     const w = h.invoker.invoke('edit', { file_path: 'a' });
     const r3 = h.invoker.invoke('read', { file_path: 'a' });
-    await tick();
+    await nextTask();
     assert(h.startedNames().join() === 'read,grep', `wave 1: ${h.startedNames()}`);
     h.finish('read');
-    await tick();
+    await nextTask();
     assert(h.startedNames().join() === 'read,grep', 'the write waits for every earlier call');
     h.finish('grep');
-    await tick();
+    await nextTask();
     assert(h.startedNames().join() === 'read,grep,edit', `wave 2: ${h.startedNames()}`);
     h.finish('edit');
-    await tick();
+    await nextTask();
     assert(h.startedNames().join() === 'read,grep,edit,read', `wave 3: ${h.startedNames()}`);
     h.finish('read');
     await Promise.all([r1, r2, w, r3]);
@@ -553,7 +547,7 @@ export async function runTests(_ctx) {
   await test('abort cancels running calls and refuses queued ones', async () => {
     const h = harness({ limit: 2 });
     const ps = [1, 2, 3].map((n) => h.invoker.invoke('read', { file_path: `f${n}` }));
-    await tick();
+    await nextTask();
     assert(h.started.length === 2, 'two running');
     h.controller.abort();
     const errs = await Promise.all(ps.map(rejection));
@@ -566,11 +560,11 @@ export async function runTests(_ctx) {
   await test('args are clipped and effects named', async () => {
     const h = harness();
     const p1 = h.invoker.invoke('bash', { command: 'npm test', note: 'x'.repeat(1000) });
-    await tick();
+    await nextTask();
     h.finish('bash');
     await p1;
     const p2 = h.invoker.invoke('read', { file_path: 'src/a.js' });
-    await tick();
+    await nextTask();
     h.finish('read');
     await p2;
     const [bash, read] = h.invoker.record.calls;
@@ -586,7 +580,7 @@ export async function runTests(_ctx) {
       ['edit', { file_path: 'a' }], ['edit', { file_path: 'b' }], ['edit', { file_path: 'c' }],
     ])) {
       const p = h.invoker.invoke(name, args);
-      await tick();
+      await nextTask();
       h.finish(name);
       await p;
     }

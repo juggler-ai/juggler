@@ -38,20 +38,6 @@ const (
 	ActionGoIdle
 )
 
-// String returns a human-readable action name for logging.
-func (a ThreadAction) String() string {
-	switch a {
-	case ActionNone:
-		return "None"
-	case ActionCallLLM:
-		return "CallLLM"
-	case ActionGoIdle:
-		return "GoIdle"
-	default:
-		return "Unknown"
-	}
-}
-
 // decideNextAction is the reducer: a pure function over a thread's items,
 // the current activity state from processingState, and whether this is
 // the root thread. Returns the single next action the worker should take.
@@ -247,7 +233,7 @@ func effectiveItems(items []ConversationItem) []ConversationItem {
 // that turn's work sits directly after the previous turn's — and a member left
 // cancelled by an earlier Stop would otherwise be judged with every batch after
 // it, resting the loop each time. Members carry the TransactionID of the
-// round-trip that produced them (the same key buildMessagesFromItems groups
+// round-trip that produced them (the same key buildMessagesFromItemsWithContexts groups
 // tool_use blocks by), so the walk stops at a member stamped by a different
 // one. A member with no TransactionID bounds nothing, and neither does a
 // receipt: it is appended after the batch by a run nobody here asked for.

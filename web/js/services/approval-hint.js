@@ -24,7 +24,7 @@ export const HINT_AFTER_APPROVALS = 2;
  * only when it is registered and visible, and only when it would ask less than
  * the current strategy.
  */
-export const HINT_STRATEGY_IDS = ['auto-approve', 'yolo'];
+const HINT_STRATEGY_IDS = ['auto-approve', 'yolo'];
 
 /**
  * Reads a field from a Y.Map item or from a plain object.

@@ -9,8 +9,8 @@
  * @module unit-tests/project-picker-recents-test
  */
 
-import { assert, waitFor } from '../utilities/test-helpers.js';
-import { budgetFor } from '../utilities/test-deadline.js';
+import { assert, settledByNextTask, waitFor } from '../utilities/test-helpers.js';
+import { racePatiently } from '../utilities/test-patience.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 import { t, isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import apiService from '../../js/services/api.js';
@@ -19,31 +19,28 @@ import { endProjectOpen, openProjectInWindow } from '../../js/components/project
 import { buildPickerPanel, openProjectPicker, openNewProjectPanel } from '../../js/components/project-picker.js';
 
 /**
- * Wait for a promise to settle, riding the test's deadline (`ms` is the
- * nominal), or report that it never did.
- * @template T
- * @param {Promise<T>} promise
+ * Wait for the picker's promise to settle, riding the test's deadline (`ms`
+ * is the nominal), or report that it never did.
+ * @param {Promise<string|null>} promise
  * @param {number} ms
- * @returns {Promise<T|'pending'>} The settled value, or 'pending'
+ * @returns {Promise<string|null|'pending'>} The settled value, or 'pending'
  */
-function settleWithin(promise, ms) {
-  return Promise.race([promise, new Promise((r) => setTimeout(() => r('pending'), budgetFor(ms)))]);
+async function settleWithin(promise, ms) {
+  const settled = await racePatiently(promise, ms, { what: 'the picker to settle' });
+  return settled ? settled.value : 'pending';
 }
 
 /**
- * Report whether a promise is still pending after a fixed `ms`.
- *
- * The one wait here that deliberately does not ride the deadline: it proves
- * something does NOT happen, so patience buys nothing — load can only make a
- * pending promise look more pending, never fail the check — and a budgeted
- * wait would spend up to six times its nominal on every passing run.
- * @template T
- * @param {Promise<T>} promise
- * @param {number} ms
- * @returns {Promise<T|'pending'>} The settled value, or 'pending'
+ * Whether the picker's promise is still pending a task from now. The picker
+ * resolves synchronously inside the handler that confirms, so a confirm the
+ * case just provoked — or a verdict it has just seen land — would have settled
+ * it by then, however slow the core.
+ * @param {Promise<string|null>} promise
+ * @returns {Promise<string|null|'pending'>} The settled value, or 'pending'
  */
-function pendingAfter(promise, ms) {
-  return Promise.race([promise, new Promise((r) => setTimeout(() => r('pending'), ms))]);
+async function pendingNow(promise) {
+  const settled = await settledByNextTask(promise);
+  return settled ? settled.value : 'pending';
 }
 
 /**
@@ -111,7 +108,9 @@ export async function runTests() {
       field._highlight(0);
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
       assert(field.value === '/work/a.txt', `the Enter must take the completion, got ${JSON.stringify(field.value)}`);
-      const got = await pendingAfter(promise, 200);
+      // The keydown handler confirms inline, so a confirm this Enter caused
+      // has already settled the promise.
+      const got = await pendingNow(promise);
       assert(got === 'pending', `the same Enter also opened ${JSON.stringify(got)}`);
 
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
@@ -132,7 +131,9 @@ export async function runTests() {
     document.body.appendChild(element);
     try {
       clickRecent(element, '/work/gone');
-      const got = await pendingAfter(promise, 300);
+      // The verdict lands with the status; a confirm would follow it inline.
+      await waitFor(() => element.querySelector('.pp-status--invalid'), 'the invalid verdict to land', 3000);
+      const got = await pendingNow(promise);
       assert(got === 'pending', `picker resolved ${JSON.stringify(got)} for an invalid path`);
       // The panel's delayed focus makes the field re-announce the value it
       // already holds. Delivered here every run, not left to when that timer

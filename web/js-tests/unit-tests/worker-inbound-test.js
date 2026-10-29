@@ -22,7 +22,7 @@
  * @module unit-tests/worker-inbound-test
  */
 
-import { assert, waitFor } from '../utilities/test-helpers.js';
+import { assert, waitFor, withTimeout } from '../utilities/test-helpers.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { WorkerManager } from '../../js/services/worker-manager.js';
@@ -84,20 +84,16 @@ function managerWithEntry(conversationId, { loadFromDisk = false } = {}) {
 }
 
 /**
- * Settle-or-timeout for a promise that must already be settled or settle
- * within a few ticks.
+ * Settle-or-timeout for a promise that must already be settled, or settle
+ * within a few ticks or on a short timer of the manager's own. Rides the
+ * test's deadline, so a slow core is waited out and a wedge still fails.
  * @template T
  * @param {Promise<T>} promise - The promise
  * @param {string} what - What is being waited for
  * @returns {Promise<T>} Its value
  */
 function soon(promise, what) {
-  return Promise.race([
-    promise,
-    new Promise((_resolve, reject) => {
-      setTimeout(() => reject(new Error(`${what} did not settle`)), 1000);
-    })
-  ]);
+  return withTimeout(promise, 1000, `${what} to settle`);
 }
 
 /**

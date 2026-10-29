@@ -20,7 +20,7 @@ diff-viewer {
     font-family: var(--font-mono);
     font-size: var(--font-size-base);
     line-height: 1.5;
-    box-shadow: 0 0.125rem 0.5rem rgb(0 0 0 / 20%);
+    box-shadow: var(--shadow-md);
 }
 
 diff-viewer diff-content {

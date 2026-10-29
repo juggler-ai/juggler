@@ -47,7 +47,7 @@ import { generateText } from './ops-api.js';
  * its way into the off switch.
  * @type {string}
  */
-export const SUGGESTIONS_SYSTEM_PROMPT = `You write the user's next message, never the assistant's.
+const SUGGESTIONS_SYSTEM_PROMPT = `You write the user's next message, never the assistant's.
 
 You are given the tail of a conversation between a user and a coding agent working in the user's codebase. Write only messages this particular user would genuinely be likely to send next, as they would type them. Output nothing unless the conversation itself makes the next message obvious — that is the common case, and an empty answer is the right one.
 

@@ -297,5 +297,3 @@ class EmptyHintTips extends JugglerElement {
 }
 
 customElements.define('empty-hint-tips', EmptyHintTips);
-
-export default EmptyHintTips;

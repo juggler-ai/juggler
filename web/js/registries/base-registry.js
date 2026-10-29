@@ -18,9 +18,15 @@ function descriptorPath(descriptor) {
 }
 
 /**
+ * What every class a registry holds has: a static MANIFEST naming its id.
+ * @typedef {{MANIFEST?: {id: string}}} RegistrableClass
+ */
+
+/**
+ * @template {RegistrableClass} T
  * @typedef {object} LoadedEntry
  * @property {string} id - Capability id from the class MANIFEST
- * @property {*} ItemClass - The loaded class
+ * @property {T} ItemClass - The loaded class
  * @property {string} modulePath - Served URL the class was loaded from
  * @property {string|null} extensionId - id of the owning extension
  * @property {number} index - Position in the precedence-ordered descriptor list
@@ -32,7 +38,7 @@ function descriptorPath(descriptor) {
  * Provides common functionality for loading, validating, and managing
  * classes that use the manifest pattern (context items, actions, tools, etc.)
  * @abstract
- * @template T
+ * @template {RegistrableClass} T
  */
 class BaseRegistry {
   /**
@@ -148,7 +154,7 @@ class BaseRegistry {
    * itself is checked by the shared SDK validator, so a class rejected here and
    * a class rejected by its own constructor fail for the same reasons and say
    * so in the same words.
-   * @param {T} ItemClass - Class to validate
+   * @param {unknown} ItemClass - Class to validate
    * @throws {Error} If class is invalid
    * @protected
    */
@@ -200,7 +206,7 @@ class BaseRegistry {
     );
 
     this._failedModules.clear();
-    /** @type {LoadedEntry[]} */
+    /** @type {LoadedEntry<T>[]} */
     const loaded = [];
     settled.forEach((result, index) => {
       if (result.status === 'fulfilled') {
@@ -235,11 +241,11 @@ class BaseRegistry {
    * by precedence (descriptor order). The lowest-precedence entry holds the id;
    * any other entry claiming the same id is a surfaced load error and is
    * ignored — never a silent last-write-wins.
-   * @param {LoadedEntry[]} loaded - Successfully imported entries
+   * @param {LoadedEntry<T>[]} loaded - Successfully imported entries
    * @private
    */
   _resolveLoaded(loaded) {
-    /** @type {Map<string, LoadedEntry[]>} */
+    /** @type {Map<string, LoadedEntry<T>[]>} */
     const groups = new Map();
     for (const entry of loaded) {
       const group = groups.get(entry.id);
@@ -249,9 +255,9 @@ class BaseRegistry {
 
     for (const [id, group] of groups) {
       group.sort((a, b) => a.index - b.index);
-      const winner = /** @type {LoadedEntry} */ (group[0]); // lowest-precedence holder wins
+      const winner = /** @type {LoadedEntry<T>} */ (group[0]); // lowest-precedence holder wins
       for (let i = 1; i < group.length; i++) {
-        const candidate = /** @type {LoadedEntry} */ (group[i]); // bounded by i < group.length
+        const candidate = /** @type {LoadedEntry<T>} */ (group[i]); // bounded by i < group.length
         this._failedModules.set(candidate.modulePath,
           `duplicate capability id "${id}" already provided by "${winner.extensionId}"`);
         console.error(
@@ -333,7 +339,7 @@ class BaseRegistry {
    * NOT register it (collision resolution happens later in _resolveLoaded).
    * @async
    * @param {import('../services/extensions.js').CapabilityRef|string} descriptor - Capability descriptor (or bare path)
-   * @returns {Promise<{id: string, ItemClass: *, modulePath: string, extensionId: string|null}>} Loaded entry
+   * @returns {Promise<{id: string, ItemClass: T, modulePath: string, extensionId: string|null}>} Loaded entry
    * @throws {Error} If module cannot be loaded or is invalid
    * @private
    */
@@ -346,20 +352,18 @@ class BaseRegistry {
     // Prefix embedded builtin paths with the versioned asset prefix for cache
     // busting; disk-served plugin/extension paths are left untouched.
     const resolvedPath = resolveAssetUrl(modulePath);
-    const module = await importModuleUrl(resolvedPath);
+    const module = /** @type {{default?: unknown}} */ (await importModuleUrl(resolvedPath));
 
     if (!module.default) {
       throw new Error(`${this.name} module ${modulePath} does not have a default export`);
     }
 
-    const ItemClass = module.default;
-
     // Validate class (this also ensures MANIFEST exists)
-    this.validateClass(ItemClass);
+    this.validateClass(module.default);
 
-    // Get ID from class's MANIFEST
-    const ItemClassWithManifest = /** @type {any} */ (ItemClass);
-    const id = ItemClassWithManifest.MANIFEST.id;
+    // A class that has passed this registry's validation is one it holds.
+    const ItemClass = /** @type {T} */ (module.default);
+    const id = ItemClass.MANIFEST?.id;
 
     if (!id) {
       throw new Error(`${this.name} class in ${modulePath} has no MANIFEST.id`);
@@ -399,7 +403,8 @@ class BaseRegistry {
       this._failedModules.set(modulePath || '(registerClass)', msg);
       return { registered: false, reason: msg };
     }
-    const id = /** @type {any} */ (ItemClass).MANIFEST.id;
+    // validateClass has established that MANIFEST is there.
+    const id = /** @type {{id: string}} */ (ItemClass.MANIFEST).id;
     if (this.items.has(id) || this._disabledItems.has(id)) {
       const reason = this.collisionMessage(id);
       this._failedModules.set(modulePath || id, reason);
@@ -501,14 +506,14 @@ class BaseRegistry {
 
   /**
    * Get all manifests
-   * @returns {Array<{id: string, manifest: object, modulePath: string, extensionId: string|null}>} Array of manifests
+   * @returns {Array<{id: string, manifest: NonNullable<T['MANIFEST']>, modulePath: string, extensionId: string|null}>} Array of manifests
    */
   getManifests() {
     return this.getAll().map(({ id, class: ItemClass }) => {
-      const ItemClassWithManifest = /** @type {any} */ (ItemClass);
       return {
         id,
-        manifest: ItemClassWithManifest.MANIFEST,
+        // Every registered class passed validateClass, which requires a MANIFEST.
+        manifest: /** @type {NonNullable<T['MANIFEST']>} */ (ItemClass.MANIFEST),
         modulePath: this.modulePaths.get(id) || '',
         extensionId: this.itemExtensions.get(id) ?? null
       };
@@ -578,13 +583,13 @@ class BaseRegistry {
    * extension id. This is the single source the extensions catalog uses to show
    * a complete, attributed inventory (a disabled capability is still loaded and
    * has a manifest; it is merely filtered out of `this.items`).
-   * @returns {Array<{id: string, manifest: object, modulePath: string, extensionId: string|null, disabled: boolean}>} Enabled and disabled capability entries
+   * @returns {Array<{id: string, manifest: NonNullable<T['MANIFEST']>, modulePath: string, extensionId: string|null, disabled: boolean}>} Enabled and disabled capability entries
    */
   getCatalogManifests() {
     const enabled = this.getManifests().map(m => ({ ...m, disabled: false }));
     const disabled = Array.from(this._disabledItems.entries()).map(([id, ItemClass]) => ({
       id,
-      manifest: /** @type {any} */ (ItemClass).MANIFEST,
+      manifest: /** @type {NonNullable<T['MANIFEST']>} */ (ItemClass.MANIFEST),
       modulePath: this.modulePaths.get(id) || '',
       extensionId: this.itemExtensions.get(id) ?? null,
       disabled: true

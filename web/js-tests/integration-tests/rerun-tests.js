@@ -55,7 +55,7 @@ function slowFirstRunCommand(testName) {
  *   2. text "Done." — loop ends after tool completes
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const rerunCompletedToolTest = {
+const rerunCompletedToolTest = {
   name: 'rerun-completed-tool',
   description: 'Re-running a completed tool-action executes it again',
   fixture: 'unit-test-fixture',
@@ -101,7 +101,7 @@ export const rerunCompletedToolTest = {
  * The observer must trigger _handleNewToolAction from the result change alone.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const rerunInterruptedToolTest = {
+const rerunInterruptedToolTest = {
   name: 'rerun-interrupted-tool',
   description: 'Re-running an interrupted tool (CancelStaleToolActions path) works',
   fixture: 'unit-test-fixture',
@@ -148,7 +148,7 @@ export const rerunInterruptedToolTest = {
  * user approves → edit executes via ops API → tool completes.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editToolCompletesTest = {
+const editToolCompletesTest = {
   name: 'edit-tool-completes',
   description: 'Edit tool completes execution (does not hang in Running state)',
   fixture: 'unit-test-fixture',
@@ -190,7 +190,7 @@ export const editToolCompletesTest = {
  * The edit action should return an error when the search text isn't found.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editToolFailsGracefullyTest = {
+const editToolFailsGracefullyTest = {
   name: 'edit-tool-fails-gracefully',
   description: 'Edit tool with non-matching old_string fails with error (does not hang)',
   fixture: 'unit-test-fixture',
@@ -238,7 +238,7 @@ export const editToolFailsGracefullyTest = {
  * strategy loop that creates extra items.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const rerunCancelledToolNoDuplicateTest = {
+const rerunCancelledToolNoDuplicateTest = {
   name: 'rerun-cancelled-tool-no-duplicate',
   description: 'Re-running a cancelled tool: strategy loop waits for tool, then LLM continues (no duplicates)',
   fixture: 'unit-test-fixture',
@@ -315,7 +315,7 @@ export const rerunCancelledToolNoDuplicateTest = {
  * CancelStaleToolActions only runs in the defer after the wait).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const cancelledToolReachesTerminalStateTest = {
+const cancelledToolReachesTerminalStateTest = {
   name: 'cancelled-tool-reaches-terminal-state',
   description: 'Cancelled running tool reaches terminal state (not stuck in running)',
   fixture: 'unit-test-fixture',
@@ -377,7 +377,7 @@ export const cancelledToolReachesTerminalStateTest = {
  * exists and the conversation stabilises with a finite number of items.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const rerunCompletesExactlyOnceTest = {
+const rerunCompletesExactlyOnceTest = {
   name: 'rerun-completes-exactly-once',
   description: 'Rerun executes tool once then stops (no infinite re-execution loop)',
   fixture: 'unit-test-fixture',
@@ -450,7 +450,7 @@ export const rerunCompletesExactlyOnceTest = {
  *   - Stale auto-continue starting an unwanted LLM call after cancel
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const cancelRerunCycleTest = {
+const cancelRerunCycleTest = {
   name: 'cancel-rerun-cycle',
   description: 'Cancel-then-rerun cycle works (strategy loop starts immediately)',
   fixture: 'unit-test-fixture',
@@ -530,7 +530,7 @@ export const cancelRerunCycleTest = {
  * With the fix the count must be exactly 1.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const rerunStreamingExecutesOnceTest = {
+const rerunStreamingExecutesOnceTest = {
   name: 'rerun-streaming-executes-once',
   description: 'Rerunning a streaming bash command executes exactly once (no observer cascade)',
   fixture: 'unit-test-fixture',
@@ -594,7 +594,7 @@ export const rerunStreamingExecutesOnceTest = {
  * This covers browser-executed (no-approval) tools that complete near-instantly.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const rerunGrepToolTest = {
+const rerunGrepToolTest = {
   name: 'rerun-grep-tool',
   description: 'Re-running a completed grep tool-action executes it again',
   fixture: 'unit-test-fixture',
@@ -646,7 +646,7 @@ export const rerunGrepToolTest = {
  * Same as rerunGrepToolTest but for the batch variant.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const rerunBatchGrepToolTest = {
+const rerunBatchGrepToolTest = {
   name: 'rerun-batch-grep-tool',
   description: 'Re-running a completed batch_grep tool-action executes it again',
   fixture: 'unit-test-fixture',
@@ -700,7 +700,7 @@ export const rerunBatchGrepToolTest = {
  * replays the original cached result instead of executing fresh.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const rerunBashDifferentOutputTest = {
+const rerunBashDifferentOutputTest = {
   name: 'rerun-bash-different-output',
   description: 'Re-running a bash command produces different output each time',
   fixture: 'unit-test-fixture',
@@ -769,7 +769,7 @@ export const rerunBashDifferentOutputTest = {
  * message; the wait for processingState='idle' times out.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const cancelDuringRerunTest = {
+const cancelDuringRerunTest = {
   name: 'cancel-during-rerun',
   description: 'Cancelling a stuck rerun (outside LLM turn) clears worker activity and marks tool cancelled',
   fixture: 'unit-test-fixture',
@@ -847,7 +847,7 @@ export const cancelDuringRerunTest = {
  * times out (the tool auto-completes with 'Option A' instead of re-asking).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const rerunQuestionReasksTest = {
+const rerunQuestionReasksTest = {
   name: 'rerun-question-reasks',
   description: 'Re-running an answered AskUserQuestion re-asks it instead of reusing the prior answer',
   fixture: 'unit-test-fixture',
@@ -935,7 +935,7 @@ export const rerunQuestionReasksTest = {
  * times out with the mock still parked.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const rerunDuringLiveTurnTest = {
+const rerunDuringLiveTurnTest = {
   name: 'rerun-during-live-turn',
   description: 'Re-running a tool while the LLM is mid-reply stops the turn, re-runs, and continues',
   fixture: 'unit-test-fixture',

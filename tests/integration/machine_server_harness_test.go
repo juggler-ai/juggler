@@ -543,13 +543,6 @@ func (ms *machineServer) mustListSessions() []machineserver.Session {
 	return out
 }
 
-// waitForSessionState polls the sessions list until id reaches state.
-func (ms *machineServer) waitForSessionState(id string, state machineserver.SessionState, timeout time.Duration) machineserver.Session {
-	ms.t.Helper()
-	return ms.waitForSession(id, fmt.Sprintf("state %q", state), timeout,
-		func(s machineserver.Session) bool { return s.State == state })
-}
-
 // waitForSession polls the sessions list until id's record satisfies ok;
 // what names the condition in the failure.
 func (ms *machineServer) waitForSession(id, what string, timeout time.Duration, ok func(machineserver.Session) bool) machineserver.Session {

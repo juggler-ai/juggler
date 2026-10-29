@@ -286,18 +286,6 @@ const (
 	StopReasonError     StopReason = "error"     // Ended by a failure; the error text carries the detail
 )
 
-// StructuredResponse represents a response with structured content blocks.
-// Token-field semantics match StreamResult — see that type for the contract.
-type StructuredResponse struct {
-	Blocks                 []ContentBlock `json:"blocks"`
-	StopReason             StopReason     `json:"stopReason,omitempty"`
-	InputTokens            int            `json:"inputTokens,omitempty"`
-	InputTokensApproximate bool           `json:"inputTokensApproximate,omitempty"`
-	OutputTokens           int            `json:"outputTokens,omitempty"`
-	CachedTokens           *int           `json:"cachedTokens,omitempty"`
-	CacheWriteTokens       *int           `json:"cacheWriteTokens,omitempty"`
-}
-
 // StreamResult contains metadata about a completed stream.
 //
 // Token-field semantics — providers MUST normalise to these meanings at

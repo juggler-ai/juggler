@@ -143,25 +143,12 @@ export async function reorderWorkspaces(ids) {
 }
 
 /**
- * Tombstone a workspace: the row stays and the id keeps resolving, so a
- * conversation still bound to it is told it was closed rather than told it is
- * unknown. That second message belongs to a binding that is genuinely stale.
- * @param {string} id - The workspace to close.
- * @returns {Promise<import('../model/session.js').Workspace>} The closed row.
- */
-export async function closeWorkspace(id) {
-  const answer = await fetchJson(apiUrl(`/session/workspaces/${encodeURIComponent(id)}/close`), {
-    method: 'POST'
-  });
-  return answer.workspace;
-}
-
-/**
  * Remove a row outright.
  *
  * What rolling back a provision does, and the only case where forgetting is the
  * right answer: the workspace was never finished, so nothing can have been bound
- * to it. Anything a user has worked in is {@link closeWorkspace}'s to deal with.
+ * to it. Anything a user has worked in is closed instead: tombstoned, so the id
+ * keeps resolving for a conversation still bound to it.
  * @param {string} id - The workspace to forget.
  * @returns {Promise<void>} When it is gone.
  */

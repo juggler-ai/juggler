@@ -33,7 +33,6 @@ import { gitWorkspaceId, onGitWorkspaceChange } from './git-workspace.js';
 import wsService from './websocket.js';
 
 /** @typedef {import('./api.js').GitReview} GitReview */
-/** @typedef {import('./api.js').GitReviewRepo} GitReviewRepo */
 /** @typedef {import('./api.js').GitFileDiff} GitFileDiff */
 
 /**

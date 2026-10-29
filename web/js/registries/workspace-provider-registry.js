@@ -47,7 +47,7 @@ class WorkspaceProviderRegistry extends BaseRegistry {
    * disabled after making a workspace with it, and that must cost them the
    * provider's features rather than the workspace.
    * @param {string} id - The provider's MANIFEST id
-   * @param {any} [session] - The session, for what little a provider knows before a hook runs
+   * @param {import('../model/session.js').default} [session] - The session, for what little a provider knows before a hook runs
    * @returns {import('juggler/workspace-provider').default|undefined} An instance, or nothing
    */
   createProvider(id, session) {

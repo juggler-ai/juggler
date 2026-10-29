@@ -149,7 +149,7 @@ func (s PathScope) ResolveUserInitiated(requestedPath string, userInitiated bool
 //
 // With neither flag the path is contained to the working directory or an allowed
 // root and an out-of-scope request is rejected with the actionable
-// ValidateFilePath message. This lets the read tool offer the same "approve /
+// ValidateFilePathWithRoots message. This lets the read tool offer the same "approve /
 // grant this folder" flow the write tool has, instead of hard-failing the model.
 func (s PathScope) ResolveRead(requestedPath string, userInitiated, approved bool) (string, error) {
 	if userInitiated {
@@ -173,7 +173,7 @@ func (s PathScope) ResolveRead(requestedPath string, userInitiated, approved boo
 
 // resolveExistingPrefix returns absPath with as much symlink resolution as
 // possible: walks up until it finds an existing component, EvalSymlinks that
-// prefix, and re-attaches the missing tail. Used by ValidateFilePath so that
+// prefix, and re-attaches the missing tail. Used by ValidateFilePathWithRoots so that
 // callers passing an absolute path to a not-yet-existing file get the same
 // canonical form (/private/var/...) as the already-resolved workingDirAbs.
 func resolveExistingPrefix(absPath string) string {
@@ -207,8 +207,8 @@ func resolveExistingPrefix(absPath string) string {
 // user has approved (explicitly via the modal, or implicitly via a standing
 // permission). The backend's job is to execute faithfully, not to second-guess
 // the gate with a sandbox that would also reject the legitimate /tmp write the
-// user just OK'd. Reads/search/tree are not approval-gated and continue to use
-// ValidateFilePath.
+// user just OK'd. Reads/search/tree are not approval-gated and use
+// ValidateFilePathWithRoots.
 func SanitizeAbsolutePath(workingDir, requestedPath string) (string, error) {
 	if requestedPath == "" {
 		return "", fmt.Errorf("path cannot be empty")
@@ -238,25 +238,22 @@ func SanitizeAbsolutePath(workingDir, requestedPath string) (string, error) {
 	return abs, nil
 }
 
-// ValidateFilePath validates a file path is within working directory
-// Returns the absolute path if valid, or an error if invalid
+// ValidateFilePathWithRoots validates that a file path is within the working
+// directory or one of a set of additional allowed roots, returning the absolute
+// path if valid, or an error if invalid.
 //
 // Security checks:
 // - Prevents directory traversal attacks
-// - Ensures path is within working directory
+// - Ensures path is within working directory (or an extra root)
 // - Resolves symlinks to prevent symlink attacks
 // - Handles edge cases like ".." sequences, etc.
 //
 // Used by read/search/tree ops, which are NOT approval-gated and so must
 // enforce containment here. File-modifying ops use SanitizeAbsolutePath
 // instead — see the doc comment there.
-func ValidateFilePath(workingDir, requestedPath string) (*PathValidationResult, error) {
-	return ValidateFilePathWithRoots(workingDir, nil, requestedPath)
-}
-
-// ValidateFilePathWithRoots is ValidateFilePath widened by a set of additional
-// allowed roots. The path validates when it resolves inside the working
-// directory OR inside any extraRoot. extraRoots carries the user's standing
+//
+// The path validates when it resolves inside the working directory OR inside
+// any extraRoot. extraRoots carries the user's standing
 // allowed-paths grant (see message-thread-permissions.js getAllowedPaths) so
 // the same explicit grant that auto-approves shell commands also lets the
 // non-approval-gated read/search/tree ops reach those locations. Blank entries

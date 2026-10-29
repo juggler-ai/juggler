@@ -19,6 +19,7 @@ import (
 // so a release binary carries neither them nor the branches that consult them.
 var testOnlyNames = map[string]bool{
 	"HasPendingItems":      true, // a test's wait for a busy-time send to queue
+	"hasPendingItems":      true,
 	"mockLLMCaller":        true, // the scripted provider
 	"callLLMMockWithSink":  true,
 	"popMockResponse":      true,

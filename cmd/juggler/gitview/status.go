@@ -25,6 +25,8 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/msg"
+
+	"juggler/cmd/juggler/gitview/internal/clocks"
 )
 
 // The card's bounds. Its walk is deliberately shallow — a git repo lives at the
@@ -36,16 +38,6 @@ const (
 	gitScanMaxDepth  = 4   // directory levels below the project root to descend
 	gitScanMaxRepos  = 32  // stop discovering after this many repos
 	gitStatusMaxFile = 200 // per repo, the most files listed individually
-)
-
-// The card's clocks are the shortest of the three surfaces, which is right for a
-// number in the corner of a window and is why they are the first to run out
-// anywhere else. Var rather than const for the same reason the diff's and the
-// review's are: a test asking what the card counted is not asking how quickly
-// this machine's git could count it.
-var (
-	gitStatusPerCmd = 3 * time.Second
-	gitStatusBudget = 6 * time.Second
 )
 
 // gitFileStatus is one file in a repository's working tree. Index and Worktree
@@ -99,18 +91,18 @@ type RepoStatus struct {
 // (git missing, bare repo) is simply omitted rather than failing the whole
 // answer, which is why it has no error to return.
 func Status(ctx context.Context, root string) []RepoStatus {
-	ctx, cancel := context.WithTimeout(ctx, gitStatusBudget)
+	ctx, cancel := context.WithTimeout(ctx, clocks.Status.Budget)
 	defer cancel()
 
 	repos := []RepoStatus{}
 	for _, dir := range discoverRepos(ctx, root) {
-		status, err := repoStatus(ctx, dir, repoStatusOptions{maxFiles: gitStatusMaxFile, perCmd: gitStatusPerCmd})
+		status, err := repoStatus(ctx, dir, repoStatusOptions{maxFiles: gitStatusMaxFile, perCmd: clocks.Status.PerCmd})
 		if err != nil {
 			continue // best-effort: a repo git cannot report is left off the card
 		}
 		// Line counts are a nicety on a card and the whole point of a review, so
 		// this is the one caller that can shrug at losing them.
-		_ = repoDiffstats(ctx, dir, gitStatusPerCmd, &status)
+		_ = repoDiffstats(ctx, dir, clocks.Status.PerCmd, &status)
 		status.Path = repoRelativePath(root, dir)
 		repos = append(repos, status)
 	}
@@ -121,26 +113,6 @@ func Status(ctx context.Context, root string) []RepoStatus {
 		return repos[i].Path < repos[j].Path
 	})
 	return repos
-}
-
-// LendClocks replaces every git clock — the card's, the review's and the
-// diff's — with perCmd for one command and budget for a whole request, and
-// returns the func that puts the shipped values back. It is for tests: one
-// asking what git reports over a fixture of a handful of files is not asking how
-// fast a loaded machine runs git, and the shipped seconds would make it measure
-// the second. Not safe to call while a read is in flight.
-func LendClocks(perCmd, budget time.Duration) (restore func()) {
-	statusPerCmd, statusBudget := gitStatusPerCmd, gitStatusBudget
-	reviewPerCmd, reviewBudget := gitReviewPerCmd, gitReviewBudget
-	diffPerCmd, diffBudget := gitDiffPerCmd, gitDiffBudget
-	gitStatusPerCmd, gitStatusBudget = perCmd, budget
-	gitReviewPerCmd, gitReviewBudget = perCmd, budget
-	gitDiffPerCmd, gitDiffBudget = perCmd, budget
-	return func() {
-		gitStatusPerCmd, gitStatusBudget = statusPerCmd, statusBudget
-		gitReviewPerCmd, gitReviewBudget = reviewPerCmd, reviewBudget
-		gitDiffPerCmd, gitDiffBudget = diffPerCmd, diffBudget
-	}
 }
 
 // repoScanLimits bounds a search for repositories. The status card runs one on

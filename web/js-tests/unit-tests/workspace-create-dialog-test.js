@@ -111,13 +111,6 @@ class SecondKindProvider extends WorkspaceProvider {
 }
 
 /**
- * It builds directories in the shared fixture root, which a sibling lane
- * walking the project reads as they come and go.
- * @type {boolean}
- */
-export const needsExclusiveRun = true;
-
-/**
  * The dialog's rows, as the DOM holds them.
  * @returns {HTMLElement[]} Every place row on screen.
  */

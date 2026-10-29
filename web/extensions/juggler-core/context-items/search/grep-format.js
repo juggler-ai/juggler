@@ -129,7 +129,7 @@ export function formatGrepResults(result, params) {
  * @param {SearchMatch[]} matches - Array of match objects
  * @returns {Record<string, SearchMatch[]>} Matches grouped by file
  */
-export function groupMatchesByFile(matches) {
+function groupMatchesByFile(matches) {
   /** @type {Record<string, SearchMatch[]>} */
   const groups = {};
 

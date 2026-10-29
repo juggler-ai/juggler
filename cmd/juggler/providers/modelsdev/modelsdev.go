@@ -97,7 +97,7 @@ type providerIndex struct {
 }
 
 // New indexes a snapshot. It applies no filtering of its own — what a
-// snapshot holds is decided when it is made (Trim) — so a test can catalogue a
+// snapshot holds is decided when it is made (gen/trim.go) — so a test can catalogue a
 // local server.
 func New(s Snapshot) *Catalog {
 	c := &Catalog{snap: s, byURL: make(map[string][]providerIndex)}

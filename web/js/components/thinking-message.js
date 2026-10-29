@@ -132,5 +132,3 @@ class ThinkingMessage extends BaseMessage {
 }
 
 customElements.define('thinking-message', ThinkingMessage);
-
-export default ThinkingMessage;

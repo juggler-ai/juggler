@@ -268,7 +268,7 @@ export function setupYjsObservers(c) {
  * @param {any} event - Yjs array observe event (may be undefined)
  * @returns {boolean} True if context items were inserted or deleted
  */
-export function checkForContextItemChanges(event) {
+function checkForContextItemChanges(event) {
   if (!event?.changes?.delta) return false;
 
   for (const change of event.changes.delta) {

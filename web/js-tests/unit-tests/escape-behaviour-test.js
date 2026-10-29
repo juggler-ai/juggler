@@ -32,8 +32,8 @@ import {
   setEscapePreset,
   describeEscapePreset,
   handleEscapeKey,
-  isDoublePressArmed,
-  resetEscapeGesture,
+  __isDoublePressArmedForTests,
+  __resetEscapeGestureForTests,
   buildEscapeBehaviourRow,
   watchTurnsForEscape,
   ESCAPE_QUIET_MS,
@@ -161,7 +161,7 @@ export async function runTests(_ctx) {
     provideEscapeApp(app);
     host = stubHost();
     __setEscapeHostForTests(host);
-    resetEscapeGesture();
+    __resetEscapeGestureForTests();
     try {
       await fn();
       passed++;
@@ -169,7 +169,7 @@ export async function runTests(_ctx) {
       failed++;
       errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      resetEscapeGesture();
+      __resetEscapeGestureForTests();
     }
   };
 
@@ -273,7 +273,7 @@ export async function runTests(_ctx) {
       // The ambiguity this preset has to answer: a lone press does NOT fall
       // through to the idle behaviour, so a draft typed mid-run survives it.
       assert(app.calls.cleared === 0, 'the first press must not clear the prompt');
-      assert(isDoublePressArmed(), 'the first press should arm the gesture');
+      assert(__isDoublePressArmedForTests(), 'the first press should arm the gesture');
       assert(cue(), 'an armed gesture should show its "press again" cue');
     });
 
@@ -284,7 +284,7 @@ export async function runTests(_ctx) {
       press(app, { threadId: 'thr_2' });
       assert(app.calls.stop.length === 1 && app.calls.stop[0] === 'thr_2',
         'the second press should hard-cancel from its own vantage');
-      assert(!isDoublePressArmed(), 'stopping should disarm the gesture');
+      assert(!__isDoublePressArmedForTests(), 'stopping should disarm the gesture');
       assert(!cue(), 'the cue should go with the gesture');
       assert(app.calls.cleared === 0, 'stopping must not touch the prompt');
     });
@@ -294,20 +294,20 @@ export async function runTests(_ctx) {
       app.running = true;
       press(app);
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
-      assert(!isDoublePressArmed(), 'typing should disarm the gesture');
+      assert(!__isDoublePressArmedForTests(), 'typing should disarm the gesture');
       assert(!cue(), 'the cue should be removed on disarm');
       press(app);
       assert(app.calls.stop.length === 0, 'a re-armed first press must not stop');
-      assert(isDoublePressArmed(), 'the press after a disarm re-arms');
+      assert(__isDoublePressArmedForTests(), 'the press after a disarm re-arms');
       document.dispatchEvent(new Event('pointerdown'));
-      assert(!isDoublePressArmed(), 'a pointer press should disarm the gesture');
+      assert(!__isDoublePressArmedForTests(), 'a pointer press should disarm the gesture');
     });
 
     await run('double-press: a press racing the turn\u2019s end is swallowed, not a clear', () => {
       setEscapePreset('double-press');
       app.running = true;
       press(app);
-      assert(isDoublePressArmed(), 'armed against the running turn');
+      assert(__isDoublePressArmedForTests(), 'armed against the running turn');
       // The turn ends between the two presses: the second must NOT fall through
       // to the idle rung and wipe the draft — the very failure the preset exists
       // to prevent, arriving by the back door.
@@ -315,16 +315,16 @@ export async function runTests(_ctx) {
       const acted = press(app);
       assert(acted, 'the stale second press should be swallowed as handled');
       assert(app.calls.cleared === 0, 'a swallowed press must not clear the prompt');
-      assert(!isDoublePressArmed(), 'the stale gesture should be dropped');
+      assert(!__isDoublePressArmedForTests(), 'the stale gesture should be dropped');
     });
 
     await run('switching preset mid-gesture drops the armed state', () => {
       setEscapePreset('double-press');
       app.running = true;
       press(app);
-      assert(isDoublePressArmed(), 'armed before the switch');
+      assert(__isDoublePressArmedForTests(), 'armed before the switch');
       setEscapePreset('stop');
-      assert(!isDoublePressArmed(), 'a preset switch must not strand an armed gesture');
+      assert(!__isDoublePressArmedForTests(), 'a preset switch must not strand an armed gesture');
       assert(!cue(), 'the cue should go with it');
     });
 
@@ -371,7 +371,7 @@ export async function runTests(_ctx) {
         press(app, { repeat: true });
         assert(app.calls.stop.length === 0 && app.calls.pause.length === 0,
           `${id}: a held Escape must not stop the turn`);
-        assert(!isDoublePressArmed(), `${id}: a held Escape must not arm anything`);
+        assert(!__isDoublePressArmedForTests(), `${id}: a held Escape must not arm anything`);
       }
     });
 
@@ -584,7 +584,7 @@ export async function runTests(_ctx) {
         const armed = cue();
         assert(armed, 'the double-press preset should show its cue');
         shown.push(armed?.textContent || '');
-        resetEscapeGesture();
+        __resetEscapeGestureForTests();
 
         assert(shown.length >= ESCAPE_PRESETS.length * 2 + 3, `expected the whole row, found ${shown.length}`);
         const raw = shown.map(uncapped).filter((s) => !isPseudoLocalized(s));
@@ -592,7 +592,7 @@ export async function runTests(_ctx) {
       });
     });
   } finally {
-    resetEscapeGesture();
+    __resetEscapeGestureForTests();
     __setEscapeHostForTests(null);
     void setMachinePref(PREF_KEY, priorPref);
     restoreApp();

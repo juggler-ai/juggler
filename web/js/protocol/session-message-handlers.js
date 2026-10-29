@@ -15,7 +15,7 @@
  */
 
 import workerManager from '../services/worker-manager.js';
-import { showNotice } from '../components/modal-dialog.js';
+import { uiPort } from '../services/ui-port.js';
 import { noticeText } from '../services/app-notices.js';
 
 /**
@@ -48,10 +48,10 @@ export const SESSION_MESSAGE_HANDLERS = {
 
   // A server-side background task reporting something the user would
   // otherwise never see (an auto-name that gave up). Purely informational —
-  // show it and move on.
+  // show it and move on. A page with no dialogs mounted has nowhere to show it.
   'notice': (_session, data) => {
     const text = noticeText(data);
-    if (text) showNotice(text);
+    if (text) uiPort()?.notice(text);
   },
 
   // Targeted session metadata patch. Apply locally without a full

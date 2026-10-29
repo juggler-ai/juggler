@@ -11,11 +11,11 @@ import (
 )
 
 func priorityTierSpec() ServiceTierSpec {
-	return TierSpec("", provider.ServiceTier{
+	return ServiceTierSpec{Tiers: []provider.ServiceTier{{
 		ID:          "priority",
 		Name:        "Fast",
 		Description: "1.5x speed, increased usage",
-	})
+	}}}
 }
 
 // TestTierForGatesOnAdvertisedList pins the wire gate: the advertised list is
@@ -70,7 +70,10 @@ func TestZeroSpecSendsNothing(t *testing.T) {
 // rates, so it rides only on an explicit human choice. A default that leaked
 // into tierFor would silently spend on every turn.
 func TestDefaultTierIsNeverAppliedForTheCaller(t *testing.T) {
-	spec := TierSpec("priority", provider.ServiceTier{ID: "priority", Name: "Fast"})
+	spec := ServiceTierSpec{
+		Tiers:   []provider.ServiceTier{{ID: "priority", Name: "Fast"}},
+		Default: "priority",
+	}
 
 	if spec.Default != "priority" {
 		t.Fatalf("Default = %q, want the catalog value preserved for display", spec.Default)
@@ -83,10 +86,10 @@ func TestDefaultTierIsNeverAppliedForTheCaller(t *testing.T) {
 // TestOptionsPreserveCatalogOrder keeps display order the provider's decision —
 // the UI renders Options() verbatim and must not have to sort or relabel.
 func TestOptionsPreserveCatalogOrder(t *testing.T) {
-	spec := TierSpec("",
-		provider.ServiceTier{ID: "flex", Name: "Flex"},
-		provider.ServiceTier{ID: "priority", Name: "Fast", Description: "1.5x speed, increased usage"},
-	)
+	spec := ServiceTierSpec{Tiers: []provider.ServiceTier{
+		{ID: "flex", Name: "Flex"},
+		{ID: "priority", Name: "Fast", Description: "1.5x speed, increased usage"},
+	}}
 
 	opts := spec.Options()
 	if len(opts) != 2 || opts[0].ID != "flex" || opts[1].ID != "priority" {

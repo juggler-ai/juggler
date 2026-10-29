@@ -50,7 +50,7 @@ export const COMPOSER_LONG_THREAD_ITEMS = 250;
  * message rather than a prompt.
  * @type {Readonly<Record<string, readonly string[]>>}
  */
-export const COMPOSER_PLACEHOLDERS = Object.freeze({
+const COMPOSER_PLACEHOLDERS = Object.freeze({
   /** A conversation with no history yet — seeded context items don't count. */
   fresh: Object.freeze([
     markForTranslation('Type your message…'),

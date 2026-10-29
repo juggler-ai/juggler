@@ -15,11 +15,15 @@
 # Or directly:
 #   scripts/lint-files cmd/juggler/worker/foo.go web/js/bar.js web/css/baz.css
 #
-# Routing is by extension:
-#   *.go         → gofmt check + go vet + golangci-lint (on each file's package)
-#   *.js         → eslint
-#   *.css        → stylelint
+# Routing is by extension, and each linter sees only the files inside the scope
+# the Makefile gives the whole-tree target that runs it:
+#   *.go         → gofmt check (outside GO_FOREIGN) + go vet + golangci-lint
+#                  (on each file's package, if it is one of GO_PACKAGES)
+#   *.js, *.mjs, *.cjs, extensionless
+#                → eslint (its config decides which of them it lints)
+#   *.css        → stylelint (under CSS_DIRS)
 #   *.md         → lint-docs-code (imports in the docs' JavaScript examples)
+# A file outside a linter's scope is reported, by name, as skipped by it.
 # Other extensions are reported and skipped. Whole-program checks that have no
 # meaningful per-file form (deadcode) are intentionally NOT run here — use
 # `make lint` for those.
@@ -38,8 +42,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
-# Keep in sync with the Makefile.
-GOLANGCI_LINT_VERSION="${GOLANGCI_LINT_VERSION:-v2.14.0}"
+# The pinned linter version and the lint scopes are the Makefile's, which
+# exports them to this script. Run directly, it asks make for them.
+for var in GOLANGCI_LINT_VERSION GO_PACKAGES GO_FOREIGN CSS_DIRS; do
+	if [ -z "${!var:-}" ]; then
+		value="$(make -s --no-print-directory "print-$var")" || {
+			echo "lint-files: $var is not set and 'make print-$var' failed — run this through 'make lint-files'." >&2
+			exit 2
+		}
+		if [ -z "$value" ]; then
+			echo "lint-files: the Makefile defines no $var." >&2
+			exit 2
+		fi
+		printf -v "$var" '%s' "$value"
+	fi
+done
 NPM_BIN="tooling/node_modules/.bin"
 GOPATH_BIN="$(go env GOPATH)/bin"
 
@@ -57,7 +74,7 @@ if [ ${#files[@]} -eq 0 ]; then
 	exit 2
 fi
 
-# Bucket the files by language, and collect unique package dirs for Go.
+# Bucket the files by language and scope, and collect unique package dirs for Go.
 go_files=()
 js_files=()
 css_files=()
@@ -65,6 +82,7 @@ md_files=()
 go_dirs=()
 unknown=()
 missing=()
+skipped=()  # "<linter>: <path>" for each in-language file outside that linter's scope
 
 add_go_dir() {
 	local d="$1"
@@ -75,20 +93,56 @@ add_go_dir() {
 	go_dirs+=("$d")
 }
 
+# under <path> <dir>... — whether path lies inside one of the dirs.
+under() {
+	local p="$1" d
+	shift
+	for d in "$@"; do
+		case "$p" in "$d"/*) return 0 ;; esac
+	done
+	return 1
+}
+
+# shellcheck disable=SC2206
+foreign_dirs=(${GO_FOREIGN})
+# shellcheck disable=SC2206
+css_dirs=(${CSS_DIRS})
+
 for f in "${files[@]}"; do
 	if [ ! -e "$f" ]; then
 		missing+=("$f")
 		continue
 	fi
+	f="${f#./}"
 	case "$f" in
 		*.go)
+			if under "$f" "${foreign_dirs[@]}"; then
+				skipped+=("gofmt, go vet, golangci-lint: $f")
+				continue
+			fi
 			go_files+=("$f")
-			add_go_dir "./$(dirname "$f")"
+			d="$(dirname "$f")"
+			[ "$d" = . ] || d="./$d"
+			add_go_dir "$d"
 			;;
-		*.js)  js_files+=("$f") ;;
-		*.css) css_files+=("$f") ;;
+		*.js|*.mjs|*.cjs) js_files+=("$f") ;;
+		*.css)
+			if under "$f" "${css_dirs[@]}"; then
+				css_files+=("$f")
+			else
+				skipped+=("stylelint: $f")
+			fi
+			;;
 		*.md)  md_files+=("$f") ;;
-		*)     unknown+=("$f") ;;
+		*)
+			# An extensionless file may be a Node program (scripts/ holds
+			# several): eslint lints it if its config names it, and passes over
+			# it otherwise, exactly as `make lint-js` does.
+			case "$(basename "$f")" in
+				*.*) unknown+=("$f") ;;
+				*)   js_files+=("$f") ;;
+			esac
+			;;
 	esac
 done
 
@@ -96,6 +150,24 @@ if [ ${#missing[@]} -gt 0 ]; then
 	echo "lint-files: these paths do not exist:" >&2
 	printf '  %s\n' "${missing[@]}" >&2
 	exit 2
+fi
+
+# go vet and golangci-lint see a package only if `go list $GO_PACKAGES` names
+# it — the list lint-go hands them. That leaves out testdata dirs and the
+# packages of other modules nested in the tree, as the whole-tree run does.
+vet_dirs=()
+if [ ${#go_dirs[@]} -gt 0 ]; then
+	module="$(go list -m)"
+	# shellcheck disable=SC2086
+	linted="$(go list -e $GO_PACKAGES)"
+	for d in "${go_dirs[@]}"; do
+		if [ "$d" = . ]; then pkg="$module"; else pkg="$module/${d#./}"; fi
+		if grep -qxF "$pkg" <<<"$linted"; then
+			vet_dirs+=("$d")
+		else
+			skipped+=("go vet, golangci-lint: $d (not one of GO_PACKAGES)")
+		fi
+	done
 fi
 
 status=0
@@ -135,25 +207,29 @@ if [ ${#go_files[@]} -gt 0 ]; then
 		echo "==> gofmt -w (${#go_files[@]} file(s))"
 		gofmt -w "${go_files[@]}"
 
-		ensure_golangci
-		echo "==> golangci-lint --fix (${#go_dirs[@]} package(s))"
-		"$GOPATH_BIN/golangci-lint" run --fix --timeout=5m "${go_dirs[@]}" || status=1
+		if [ ${#vet_dirs[@]} -gt 0 ]; then
+			ensure_golangci
+			echo "==> golangci-lint --fix (${#vet_dirs[@]} package(s))"
+			"$GOPATH_BIN/golangci-lint" run --fix --timeout=5m "${vet_dirs[@]}" || status=1
+		fi
 	else
 		echo "==> gofmt (${#go_files[@]} file(s))"
 		unformatted="$(gofmt -l "${go_files[@]}")"
 		if [ -n "$unformatted" ]; then
 			echo "gofmt: the following files are not formatted:"
 			echo "$unformatted"
-			echo "fix with: gofmt -w <file>   (or 'make fmt' for the whole tree)"
+			echo "fix with: make fix-files FILES=<file>   (or 'make fix-fmt' for the whole tree)"
 			status=1
 		fi
 
-		echo "==> go vet (${#go_dirs[@]} package(s))"
-		go vet "${go_dirs[@]}" || status=1
+		if [ ${#vet_dirs[@]} -gt 0 ]; then
+			echo "==> go vet (${#vet_dirs[@]} package(s))"
+			go vet "${vet_dirs[@]}" || status=1
 
-		ensure_golangci
-		echo "==> golangci-lint (${#go_dirs[@]} package(s))"
-		"$GOPATH_BIN/golangci-lint" run --timeout=5m "${go_dirs[@]}" || status=1
+			ensure_golangci
+			echo "==> golangci-lint (${#vet_dirs[@]} package(s))"
+			"$GOPATH_BIN/golangci-lint" run --timeout=5m "${vet_dirs[@]}" || status=1
+		fi
 	fi
 fi
 
@@ -163,14 +239,15 @@ if [ ${#js_files[@]} -gt 0 ]; then
 	if [ -n "${FIX:-}" ]; then
 		echo "==> eslint --fix (${#js_files[@]} file(s))"
 		NODE_NO_WARNINGS=1 "$NPM_BIN/eslint" --config tooling/eslint.config.js \
-			--fix --ignore-pattern 'web/js/vendor/**' --no-warn-ignored "${js_files[@]}" || status=1
+			--fix --no-warn-ignored "${js_files[@]}" || status=1
 	else
 		echo "==> eslint (${#js_files[@]} file(s))"
-		# --no-warn-ignored: naming an ignored file on the command line is a
-		# warning, and --max-warnings 0 turns that into a failure — so without it
-		# any change that touches web/js/vendor fails the lint it is exempt from.
+		# --no-warn-ignored: naming a file the config ignores or does not name
+		# is a warning, and --max-warnings 0 turns that into a failure — so
+		# without it any change that touches web/js/vendor, or an extensionless
+		# file that is not JS, fails the lint it is exempt from.
 		NODE_NO_WARNINGS=1 "$NPM_BIN/eslint" --config tooling/eslint.config.js \
-			--max-warnings 0 --ignore-pattern 'web/js/vendor/**' --no-warn-ignored "${js_files[@]}" || status=1
+			--max-warnings 0 --no-warn-ignored "${js_files[@]}" || status=1
 		# The message catalogue is extracted from every t() in the tree, so it
 		# is checked in full whenever any JavaScript changed.
 		echo "==> i18n check"
@@ -210,6 +287,10 @@ fi
 if [ ${#unknown[@]} -gt 0 ]; then
 	echo "lint-files: no linter for these (skipped):" >&2
 	printf '  %s\n' "${unknown[@]}" >&2
+fi
+if [ ${#skipped[@]} -gt 0 ]; then
+	echo "lint-files: outside these linters' scope in the Makefile, as in 'make lint' (skipped):" >&2
+	printf '  %s\n' "${skipped[@]}" >&2
 fi
 
 if [ "$status" -eq 0 ]; then

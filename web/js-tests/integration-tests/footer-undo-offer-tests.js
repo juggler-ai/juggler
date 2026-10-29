@@ -25,7 +25,7 @@ import { waitFor } from '../utilities/test-helpers.js';
  * mounted tab with no footer is a broken run, not a headless one — treating it
  * as headless would let every assertion below be skipped in silence, which is
  * precisely how a footer bug survives a green suite.
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @returns {HTMLElement|null} The footer element, or null in headless mode.
  */
 function findFooter(conversation) {
@@ -43,7 +43,7 @@ function findFooter(conversation) {
  * undoState frame. Waiting on this (rather than on `canUndo`, which is already
  * true whenever any earlier turn is undoable) is the only way to wait for the
  * frame belonging to a specific operation.
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @returns {number|null} The current seq, or null before the first frame.
  */
 function undoSeq(conversation) {
@@ -66,7 +66,7 @@ function offerVisible(footer) {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerOffersUndoAfterSpanDeleteTest = {
+const footerOffersUndoAfterSpanDeleteTest = {
   name: 'footer-offers-undo-after-span-delete',
   description: 'Deleting a span of items offers an Undo in that column\'s footer; the offer survives its own undoState frame, and clicking it restores every deleted item.',
   fixture: 'unit-test-fixture',
@@ -156,7 +156,7 @@ export const footerOffersUndoAfterSpanDeleteTest = {
  * did something it can't take back.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerUndoOfferForSingleItemTest = {
+const footerUndoOfferForSingleItemTest = {
   name: 'footer-undo-offer-for-single-item',
   description: 'Removing one item raises the footer Undo offer, worded in the singular.',
   fixture: 'unit-test-fixture',
@@ -204,7 +204,7 @@ export const footerUndoOfferForSingleItemTest = {
  * moving on, so it must not take the offer with it.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerUndoOfferSurvivesRewindOverRunningTurnTest = {
+const footerUndoOfferSurvivesRewindOverRunningTurnTest = {
   name: 'footer-undo-offer-survives-rewind-over-running-turn',
   description: 'Rewinding while a turn is running stops it and still leaves the Undo offer on screen once the turn has settled.',
   fixture: 'unit-test-fixture',

@@ -29,7 +29,8 @@ import {
   initializeRegistries,
   createTestSession,
   createApprovalTestConversation,
-  assert
+  assert,
+  waitFor
 } from '../utilities/test-helpers.js';
 import {
   createUserMessage,
@@ -39,14 +40,6 @@ import {
 } from '../../sdk/lib/message.js';
 import '../../js/components/conversation-tab.js';
 
-/** _reassertInputFocus retries 5 times at 30ms; clear the window with room. */
-const FOCUS_REASSERT_WINDOW_MS = 300;
-
-/**
- * @param {number} ms
- * @returns {Promise<void>} Resolves after `ms`.
- */
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
@@ -132,9 +125,10 @@ export async function runTests() {
     );
     const childThread = threadCol.getMessageThread();
 
-    // The reveal's own focus move lands a few frames later. Nothing the app
-    // does for itself may retire a pin the reader set.
-    await sleep(FOCUS_REASSERT_WINDOW_MS);
+    // The reveal's own focus move is re-asserted on a timer across a short
+    // window. Nothing the app does for itself may retire a pin the reader set,
+    // so wait for that window to close and then look.
+    await waitFor(() => tab.pendingFocusReasserts === 0, 'the reveal\'s focus re-assert window to close');
     assert(rootCol.selectionOrigin === 'user',
       'the pin must survive the focus move that opening the sub-thread makes: ' +
       'the keyboard belongs to the new column\'s box, and the parent\'s box ' +

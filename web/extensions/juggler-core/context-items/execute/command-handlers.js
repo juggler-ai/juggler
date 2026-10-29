@@ -210,7 +210,7 @@ function parseFlags(args, grammar) {
  * tiny: a class per command, registered in {@link COMMAND_HANDLERS}, is the
  * extension point — not a switch statement.
  */
-export class CommandHandler {
+class CommandHandler {
   /** @type {string} command name */
   static commandName = '';
 

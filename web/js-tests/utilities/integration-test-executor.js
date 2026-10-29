@@ -12,7 +12,7 @@
 
 import { runIntegrationTests } from './integration-test-runner.js';
 import { destroyTrackedTestSessions, neutralizeStrayOverlays, waitFor } from './test-helpers.js';
-import { whenRegistriesSettled } from '../../js/registries/reload-registries.js';
+import { __whenRegistriesSettledForTests } from '../../js/registries/reload-registries.js';
 import { tests as readFileTests } from '../integration-tests/read-file-tests.js';
 import { tests as writeFileTests } from '../integration-tests/write-file-tests.js';
 import { tests as approvalFlowTests } from '../integration-tests/approval-flow-tests.js';
@@ -478,10 +478,10 @@ import {
   deleteOwnConversationsCreatedSince,
   setCurrentTestName
 } from './conversation-claims.js';
-import { setTestDeadline, clearTestDeadline, moveTestDeadline, progressMark } from './test-deadline.js';
+import { setTestDeadline, clearTestDeadline, moveTestDeadline, progressMark, caseMark } from './test-deadline.js';
 import { waitsInFlightReport } from './test-patience.js';
 import { watchForStall, watchWorkerProgress, awaitingServer, installFetchTracking } from './stall-watch.js';
-import { lastTapeTs } from '../../js/utils/event-tape.js';
+import { __lastTapeTsForTests } from '../../js/utils/event-tape.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
 import { machineLoadReport } from './machine-load.js';
 import { setReportedTest, reportTestProgress } from './progress-report.js';
@@ -1270,15 +1270,26 @@ export async function runTests(ctx) {
 const UNIT_SUITE_STALL_WINDOW_MS = 45000;
 
 /**
- * The absolute ceiling on a unit suite, however much progress it reports.
+ * The longest a unit suite may go without finishing a case, however much
+ * progress it reports.
  *
  * The stall window catches a wedge; this catches the one shape it cannot — a
- * suite that keeps making progress and never finishes, a loop re-running a
- * case. Generous enough that no correct suite on any core reaches it, and
- * under the Go harness's twelve-minute ceiling so the failure is still
- * reported here.
+ * case that keeps making progress and never finishes, a loop re-running its
+ * own steps. Finishing a case is what such a loop cannot fake
+ * (`noteCaseFinished`, test-deadline.js), so the bound re-arms every time a
+ * case finishes: it bounds the gap between two finished cases, never the
+ * suite, and a suite that is merely slow keeps finishing cases and is never
+ * cut off by it. A suite that does not report its cases is one case from
+ * start to end.
+ *
+ * The span is wall time by necessity — it is what "runaway" means — and is
+ * not scaled for a slow core, because the page cannot see the slow-core
+ * factor (it duty-cycles processes from the Go side) and because the Go
+ * harness's own backstop for one browser subtest, `resultCeiling` (twelve
+ * minutes, browser_suite_test.go), is not scaled either. Eight minutes leaves
+ * four for this report to reach the Go side first.
  */
-const UNIT_SUITE_CEILING_MS = 8 * 60_000;
+const UNIT_CASE_GAP_MS = 8 * 60_000;
 
 /**
  * The document-wide state a suite can change for every suite after it: the
@@ -1390,30 +1401,47 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
       subject: `${suite.name}: unit suite`,
       windowMs: UNIT_SUITE_STALL_WINDOW_MS,
       unobservable: () => workers.unanswered() || awaitingServer(),
-      stamp: () => `${progressMark()}|${lastTapeTs(Array.from(snapshotOwnConversationIds()))}|${workers.mark()}`,
+      stamp: () => `${progressMark()}|${__lastTapeTsForTests(Array.from(snapshotOwnConversationIds()))}|${workers.mark()}`,
       onExtend: (deadlineMs) => {
         moveTestDeadline(deadlineMs, { shared: true });
         reportTestProgress();
       }
     });
     /** @type {ReturnType<typeof setTimeout>|undefined} */
-    let ceilingTimer;
+    let gapTimer;
+    let casesAtArm = caseMark();
+    /** @type {Promise<{stopped: string}>} */
+    const runaway = new Promise((resolve) => {
+      // Re-armed for a whole gap whenever a case finished during the last one.
+      const check = () => {
+        if (caseMark() !== casesAtArm) {
+          casesAtArm = caseMark();
+          arm();
+          return;
+        }
+        resolve({
+          stopped: `${suite.name}: unit suite finished no case for ${UNIT_CASE_GAP_MS / 60_000} minutes, though it kept reporting progress — a case is looping`
+        });
+      };
+      const arm = () => {
+        // A wall-clock span on purpose: a case still unfinished after this
+        // long is what "runaway" means (UNIT_CASE_GAP_MS).
+        gapTimer = setTimeout(check, UNIT_CASE_GAP_MS);
+      };
+      arm();
+    });
     /** @type {{value: {passed: number, failed: number, errors: string[], budgetWarning?: string}} | {stopped: string}} */
     let settled;
     try {
       settled = await Promise.race([
         suite.run(ctx).then((value) => ({ value })),
         watchdog.stalled.catch((/** @type {unknown} */ e) => ({ stopped: e instanceof Error ? e.message : String(e) })),
-        new Promise((resolve) => {
-          ceilingTimer = setTimeout(() => resolve({
-            stopped: `${suite.name}: unit suite still running after its ${UNIT_SUITE_CEILING_MS / 60_000}-minute ceiling, though it kept reporting progress — a case is looping`
-          }), UNIT_SUITE_CEILING_MS);
-        })
+        runaway
       ]);
     } finally {
       watchdog.stop();
       workers.stop();
-      clearTimeout(ceilingTimer);
+      clearTimeout(gapTimer);
     }
     if ('stopped' in settled) {
       // Taken before anything else is awaited, so the waits it describes are
@@ -1466,13 +1494,13 @@ async function runUnitSuiteWithConvCleanup(suite, ctx) {
     restoreDocumentState(documentBefore);
     // A suite that saved a command, a skill or a plugin toggle left a registry
     // rebuild running behind it — those call sites deliberately don't await one
-    // (see whenRegistriesSettled). The suites of a lane share one realm and
+    // (see __whenRegistriesSettledForTests). The suites of a lane share one realm and
     // therefore one set of registries, so an outstanding rebuild is the next
     // suite's problem: it would find the registries reset and read an empty
     // one. Wait it out here, where the ownership boundary is. Best-effort — a
     // rebuild that rejects (a plugin whose init throws) must not mask the
     // suite's own result.
-    await whenRegistriesSettled().catch(() => {});
+    await __whenRegistriesSettledForTests().catch(() => {});
     await deleteOwnConversationsCreatedSince(before, `unit-cleanup:${suite.name}`);
     // Client-side counterpart of the delete above: that frees the server's
     // copy, this frees ours. A Session the suite left alive holds a Yjs doc

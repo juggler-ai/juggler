@@ -25,7 +25,7 @@ import {
 import { pingWorker } from '../utilities/worker-test-hooks.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
-import { setupHeaderControls } from '../../js/utils/header-controls.js';
+import { setupHeaderControls } from '../../js/components/header-controls.js';
 
 /**
  * Deterministic barrier — no sleep. One ping makes the worker force-close the
@@ -34,7 +34,7 @@ import { setupHeaderControls } from '../../js/utils/header-controls.js';
  * synchronously, so canUndo() reads current state next line. Replaces a
  * load-bearing 100ms sleep that was too short on slow CI runners. See the
  * fuller explanation on undo-redo-test.js's waitForUndoStateSync.
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @returns {Promise<void>}
  */
 async function syncUndoState(conversation) {

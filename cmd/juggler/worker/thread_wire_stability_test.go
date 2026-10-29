@@ -644,3 +644,9 @@ func TestAppendThreadMessages_StableWireShapeAcrossCompletion(t *testing.T) {
 		t.Fatalf("tool_use block must be stable across completion")
 	}
 }
+
+// buildMessagesFromItems is buildMessagesFromItemsWithContexts with no context
+// render: history alone.
+func (w *ConversationWorker) buildMessagesFromItems(items []ConversationItem, stampPending bool) []map[string]any {
+	return w.buildMessagesFromItemsWithContexts(items, stampPending, nil)
+}

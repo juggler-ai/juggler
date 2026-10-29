@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"juggler/internal/machineload"
+	"juggler/internal/machineload/machineloadtest"
 )
 
 // --- main-thread silence accounting (pure) ---
@@ -686,7 +686,7 @@ func TestRelaunchExecRoundTrip(t *testing.T) {
 	// the machine's doing and not a fault. Skipping says so; failing would put a
 	// name in the flaky queue that belongs to whatever else was opening sockets.
 	if strings.Contains(data, "SKIP phase1 rebind:") {
-		machineload.Skip(t, "the handoff held, but the port could not be taken back:\n%s", data)
+		machineloadtest.Skip(t, "the handoff held, but the port could not be taken back:\n%s", data)
 	}
 	if !strings.Contains(data, "rebound=ok") {
 		t.Fatalf("port was not re-bound after exec (CLOEXEC handoff failed):\n%s", data)

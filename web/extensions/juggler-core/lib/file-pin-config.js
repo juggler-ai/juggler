@@ -47,7 +47,7 @@ function normalizePathText(path) {
  * Validate and normalize the parameters that identify a File pin. This module is
  * DOM-free because both the viewer-side pin type and the engine-side pin tool use
  * the same spelling before config is persisted.
- * @param {Record<string, any>} parameters - The parameters to check.
+ * @param {Record<string, unknown>} parameters - The parameters to check.
  * @returns {{path: string, isDirectory?: boolean, agentRequested?: boolean}|null} Normalized config, or null.
  */
 export function normalizeFilePinParameters(parameters) {
@@ -64,13 +64,24 @@ export function normalizeFilePinParameters(parameters) {
 }
 
 /**
+ * A File pin's path as stored. Config is persisted state, so a path that is not
+ * a string reads as no path at all.
+ * @param {Record<string, unknown>|null|undefined} config - The pin's config.
+ * @returns {string} The path, or '' when there is none.
+ */
+export function filePinPath(config) {
+  const path = config?.path;
+  return typeof path === 'string' ? path : '';
+}
+
+/**
  * Resolve a File pin's path against the open project when it is relative.
- * @param {Record<string, any>} config - The pin's config.
+ * @param {Record<string, unknown>} config - The pin's config.
  * @param {import('juggler/pinboard-item-type').PinActiveContext} active - Active context.
  * @returns {string} An absolute path, or the config path without a project.
  */
 export function absoluteFilePinPath(config, active) {
-  const path = config?.path || '';
+  const path = filePinPath(config);
   if (!path || isAbsolutePath(path)) return path;
   const root = (active?.project?.path || '').replace(/\/+$/, '');
   return root ? `${root}/${path}` : path;

@@ -40,7 +40,7 @@ import { t } from './lib/i18n.js';
  * @typedef {object} WorkspaceDescriptor
  * @property {string} root - Where it is: an absolute path to the tree
  * @property {string} [label] - What to call it
- * @property {Record<string, any>} [meta] - The provider's own record of what it built
+ * @property {Record<string, unknown>} [meta] - The provider's own record of what it built
  */
 
 /**
@@ -226,8 +226,8 @@ import { t } from './lib/i18n.js';
  * need no ssh-awareness in a worktree provider — the transport is the facade's
  * business, not the provider's.
  * @typedef {object} ProviderContext
- * @property {any} session - The session, for reading the project path and the table
- * @property {any} [conversation] - The conversation this is being done for, where there is one
+ * @property {import('../js/model/session.js').default} session - The session, for reading the project path and the table
+ * @property {import('../js/model/conversation.js').default} [conversation] - The conversation this is being done for, where there is one
  * @property {import('./ops.js').BoundOps} ops - Operations, already rooted (see above)
  * @property {import('./ops.js').BoundOps} [baseOps] - Operations pinned to the
  *   workspace this one was made from, where the host knows which that is. `ops`
@@ -249,7 +249,7 @@ import { t } from './lib/i18n.js';
  *   unwinding it is a fresh one, so a compensation written the obvious way is
  *   not refused by the very abort that called for it.
  * @property {RollbackStack} rollback - Push an inverse after each irreversible step
- * @property {(metaPatch: Record<string, any>) => Promise<void>} checkpoint - Persist what has been built so far
+ * @property {(metaPatch: Record<string, unknown>) => Promise<void>} checkpoint - Persist what has been built so far
  * @property {(step: string, detail?: string) => void} progress - One line per step, emitted BEFORE the slow part
  */
 
@@ -355,14 +355,14 @@ class WorkspaceProvider {
    * is filling in, or a single provision. The things a hook needs arrive in that
    * hook's `ctx` rather than being captured here, because a provider outlives
    * neither a rebind nor a project switch.
-   * @param {{session?: any}} [context] - What little is known before any hook runs
+   * @param {{session?: import('../js/model/session.js').default}} [context] - What little is known before any hook runs
    */
   constructor(context = {}) {
     if (new.target === WorkspaceProvider) {
       throw new Error('WorkspaceProvider is an abstract class and cannot be instantiated directly');
     }
 
-    /** @type {any} */
+    /** @type {import('../js/model/session.js').default|undefined} */
     this.session = context.session;
 
     validateManifest(this.constructor);
@@ -424,7 +424,8 @@ class WorkspaceProvider {
    * @returns {string} The intended root, or '' when it is not yet known
    */
   plannedRoot(values) {
-    return /** @type {any} */ (values)?.root ?? '';
+    const root = values && 'root' in values ? values.root : undefined;
+    return typeof root === 'string' ? root : '';
   }
 
   // ==========================================================================

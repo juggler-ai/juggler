@@ -10,7 +10,7 @@ import { buildPickerPanel, createElement, injectStylesOnce } from 'juggler/ui';
 import { stat } from 'juggler/ops';
 import { debounce } from 'juggler/utils/debounce';
 import { fetchLiveFile, renderLiveFileBody } from '../lib/live-file.js';
-import { absoluteFilePinPath, normalizeFilePinParameters } from '../lib/file-pin-config.js';
+import { absoluteFilePinPath, filePinPath, normalizeFilePinParameters } from '../lib/file-pin-config.js';
 import { pathPinController } from '../lib/path-pin.js';
 
 const t = translator('@juggler/core');
@@ -102,8 +102,8 @@ class FilePin extends PinboardItemType {
   /**
    * Ask which file. The same picker the file-content item uses, so "add a file"
    * means one thing wherever it is asked.
-   * @param {{active: import('juggler/pinboard-item-type').PinActiveContext, initialConfig?: Record<string, any>, signal: AbortSignal}} options - The request.
-   * @returns {Promise<Record<string, any>|null>} The config, or null if cancelled.
+   * @param {{active: import('juggler/pinboard-item-type').PinActiveContext, initialConfig?: Record<string, unknown>, signal: AbortSignal}} options - The request.
+   * @returns {Promise<Record<string, unknown>|null>} The config, or null if cancelled.
    */
   async configure(options) {
     const overlay = document.createElement('div');
@@ -145,8 +145,8 @@ class FilePin extends PinboardItemType {
   }
 
   /**
-   * @param {Record<string, any>} config - The stored or supplied config.
-   * @returns {Record<string, any>|null} The normalized config, or null to reject it.
+   * @param {Record<string, unknown>} config - The stored or supplied config.
+   * @returns {Record<string, unknown>|null} The normalized config, or null to reject it.
    */
   normalizeConfig(config) {
     return normalizeFilePinParameters(config);
@@ -160,8 +160,8 @@ class FilePin extends PinboardItemType {
    * relative is kept that way and resolved at read time, so the same file pinned
    * from a relative link and from an absolute path is two pins — two spellings
    * are told apart, never the wrong file shown.
-   * @param {Record<string, any>} a - One config.
-   * @param {Record<string, any>} b - The other.
+   * @param {Record<string, unknown>} a - One config.
+   * @param {Record<string, unknown>} b - The other.
    * @returns {boolean} True when they name the same path.
    */
   isSameConfig(a, b) {
@@ -172,12 +172,12 @@ class FilePin extends PinboardItemType {
    * The tab is named for the file; the toolbar is the path itself, which the
    * host draws along with the controls that act on it. The name above the path
    * said the same thing twice, and the tab was already saying the short half.
-   * @param {Record<string, any>} config - The pin's config.
+   * @param {Record<string, unknown>} config - The pin's config.
    * @param {import('juggler/pinboard-item-type').PinActiveContext} active - The active context.
    * @returns {import('juggler/pinboard-item-type').PinDescription} The tab's word and the file.
    */
   describe(config, active) {
-    const path = config?.path || '';
+    const path = filePinPath(config);
     if (!path) return { title: t(this.name) };
     const name = basename(path) || path;
     return {
@@ -200,10 +200,10 @@ class FilePin extends PinboardItemType {
 
   /**
    * @param {import('juggler/pinboard-item-type').PinSource} source - The source to pin.
-   * @returns {Record<string, any>|null} The config, or null if the path was unusable.
+   * @returns {Record<string, unknown>|null} The config, or null if the path was unusable.
    */
   static configFromSource(source) {
-    return normalizeFilePinParameters(/** @type {Record<string, any>} */ (source));
+    return normalizeFilePinParameters(/** @type {Record<string, unknown>} */ (source));
   }
 
   /**
@@ -402,7 +402,7 @@ function projectRelative(path, project) {
 
 /**
  * Whether a pin's reads are the user's own: true unless the agent made it.
- * @param {Record<string, any>} config - The pin's config.
+ * @param {Record<string, unknown>} config - The pin's config.
  * @returns {boolean} True when the user made the pin.
  */
 function userMade(config) {

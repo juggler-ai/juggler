@@ -69,5 +69,3 @@ export function emptyHintStackMarkup() {
     </div>
   `;
 }
-
-export default emptyHintStackMarkup;

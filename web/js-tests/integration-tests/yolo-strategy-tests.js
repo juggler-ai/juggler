@@ -30,7 +30,7 @@ import { textResponse, toolUseResponse } from '../utilities/integration-test-run
  * command and continues without any user interaction.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const yoloAutoApprovesBashTest = {
+const yoloAutoApprovesBashTest = {
   name: 'yolo-auto-approves-bash',
   description: 'YOLO auto-approves a normally-gated bash command — no approval modal',
   fixture: 'unit-test-fixture',
@@ -81,7 +81,7 @@ export const yoloAutoApprovesBashTest = {
  * re-evaluated under YOLO's APPROVE policy.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const yoloReevaluatesPendingOnSwitchTest = {
+const yoloReevaluatesPendingOnSwitchTest = {
   name: 'yolo-reevaluates-pending-on-switch',
   description: 'Switching to YOLO while a tool is parked pending auto-approves it retroactively',
   fixture: 'unit-test-fixture',
@@ -158,7 +158,7 @@ export const yoloReevaluatesPendingOnSwitchTest = {
  *   4. Root (auto-resumed): text "All done."
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const yoloInheritedBySubThreadTest = {
+const yoloInheritedBySubThreadTest = {
   name: 'yolo-inherited-by-sub-thread',
   description: 'A sub-thread inherits root YOLO — a normally-gated bash in the thread auto-approves',
   fixture: 'unit-test-fixture',

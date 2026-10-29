@@ -67,7 +67,7 @@ export function skillPreviewShell(title, bodyHtml, footerHtml = '') {
  * DOM after innerHTML is set.
  * @param {HTMLElement|null} container - The subtree to hydrate.
  */
-export function hydrateSkillFilePaths(container) {
+function hydrateSkillFilePaths(container) {
   if (!container) return;
   container.querySelectorAll('.skills-filepath-mount').forEach((el) => {
     const path = /** @type {HTMLElement} */ (el).dataset.path || '';

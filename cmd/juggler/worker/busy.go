@@ -64,7 +64,7 @@ func (w *ConversationWorker) getActivity() string {
 	if existing == nil {
 		return ActivityNone
 	}
-	activity, _ := existing["activity"].(string)
+	activity, _ := existing[runFieldActivity].(string)
 	return activity
 }
 

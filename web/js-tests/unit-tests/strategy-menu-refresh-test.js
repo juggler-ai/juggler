@@ -17,7 +17,7 @@
  * @module unit-tests/strategy-menu-refresh-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, nextTask } from '../utilities/test-helpers.js';
 import { isolateFocus } from '../utilities/isolate-focus.js';
 import { assertMenuShape } from '../utilities/menu-assertions.js';
 import strategyRegistry from '../../js/registries/strategy-registry.js';
@@ -185,7 +185,6 @@ export async function runTests(_ctx) {
     window.requestAnimationFrame = (/** @type {FrameRequestCallback} */ cb) =>
       /** @type {any} */ (setTimeout(() => cb(performance.now()), 0));
     window.cancelAnimationFrame = (/** @type {number} */ id) => clearTimeout(id);
-    const frame = () => new Promise((r) => setTimeout(r, 0));
 
     const selector = /** @type {any} */ (document.createElement('strategy-selector'));
     document.body.appendChild(selector);
@@ -196,8 +195,8 @@ export async function runTests(_ctx) {
       assert(button().getAttribute('aria-expanded') === 'false', 'the strategy button does not start collapsed');
 
       selector.toggleDropdown();
-      await frame();
-      await frame();
+      await nextTask();
+      await nextTask();
       const surface = selector._menu?.surface;
       const menu = assertMenuShape(surface, 'strategy menu');
       assert(button().getAttribute('aria-expanded') === 'true', 'the strategy button does not say its menu is open');
@@ -241,7 +240,6 @@ export async function runTests(_ctx) {
     window.requestAnimationFrame = (/** @type {FrameRequestCallback} */ cb) =>
       /** @type {any} */ (setTimeout(() => cb(performance.now()), 0));
     window.cancelAnimationFrame = (/** @type {number} */ id) => clearTimeout(id);
-    const frame = () => new Promise((r) => setTimeout(r, 0));
 
     const textarea = document.createElement('textarea');
     const selector = /** @type {any} */ (document.createElement('strategy-selector'));
@@ -280,8 +278,8 @@ export async function runTests(_ctx) {
       // included — taken on every run so the case is proven not to depend on
       // the window's real focus.
       focus.steal({ blurring: true });
-      await frame();
-      await frame();
+      await nextTask();
+      await nextTask();
       assert(!!selector._menu?.surface, 'the gesture did not open the strategy HUD');
       assert(strayFocus() === '', `the HUD took focus from the composer (focus() on ${strayFocus()})`);
 

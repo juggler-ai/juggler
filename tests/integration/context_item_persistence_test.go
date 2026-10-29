@@ -18,12 +18,7 @@ func TestContextItemPersistence_SaveAndLoad(t *testing.T) {
 	defer os.RemoveAll(projectDir)
 
 	// Create session manager
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	manager, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	manager, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer manager.Shutdown()
 
@@ -75,12 +70,7 @@ func TestContextItemPersistence_EmptyContextItems(t *testing.T) {
 	projectDir := helpers.CreateTempDir(t)
 	defer os.RemoveAll(projectDir)
 
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	manager, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	manager, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer manager.Shutdown()
 
@@ -107,12 +97,7 @@ func TestContextItemPersistence_MultipleContextItemTypes(t *testing.T) {
 	projectDir := helpers.CreateTempDir(t)
 	defer os.RemoveAll(projectDir)
 
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	manager, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	manager, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer manager.Shutdown()
 

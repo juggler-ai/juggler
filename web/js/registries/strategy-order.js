@@ -36,8 +36,9 @@
  * themselves. The input array's order is the registry's load order; this sort
  * is stable by construction (it never reorders two equal-priority entries),
  * so engines without a stable `Array#sort` still behave correctly.
- * @param {readonly StrategyOrderEntry[]} manifests - Manifest entries in load order
- * @returns {StrategyOrderEntry[]} A new array, ordered for display
+ * @template {StrategyOrderEntry} E
+ * @param {readonly E[]} manifests - Manifest entries in load order
+ * @returns {E[]} A new array, ordered for display
  */
 export function orderStrategies(manifests) {
   return [...manifests].sort((a, b) => {

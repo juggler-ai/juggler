@@ -18,12 +18,7 @@ func TestConversationBinary_SaveAndLoad(t *testing.T) {
 	defer os.RemoveAll(projectDir)
 
 	// Create session manager
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	manager, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	manager, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer manager.Shutdown()
 
@@ -67,12 +62,7 @@ func TestConversationBinary_LoadNonexistent(t *testing.T) {
 	projectDir := helpers.CreateTempDir(t)
 	defer os.RemoveAll(projectDir)
 
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	manager, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	manager, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer manager.Shutdown()
 
@@ -87,12 +77,7 @@ func TestConversationBinary_SaveEmpty(t *testing.T) {
 	projectDir := helpers.CreateTempDir(t)
 	defer os.RemoveAll(projectDir)
 
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	manager, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	manager, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer manager.Shutdown()
 
@@ -114,12 +99,7 @@ func TestConversationBinary_Overwrite(t *testing.T) {
 	projectDir := helpers.CreateTempDir(t)
 	defer os.RemoveAll(projectDir)
 
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	manager, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	manager, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer manager.Shutdown()
 
@@ -152,12 +132,7 @@ func TestConversationBinary_MultipleConversations(t *testing.T) {
 	projectDir := helpers.CreateTempDir(t)
 	defer os.RemoveAll(projectDir)
 
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	manager, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	manager, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer manager.Shutdown()
 
@@ -193,12 +168,7 @@ func TestConversationBinary_LargeData(t *testing.T) {
 	projectDir := helpers.CreateTempDir(t)
 	defer os.RemoveAll(projectDir)
 
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	manager, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	manager, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer manager.Shutdown()
 
@@ -234,12 +204,7 @@ func TestConversationBinary_ConcurrentSaves(t *testing.T) {
 	projectDir := helpers.CreateTempDir(t)
 	defer os.RemoveAll(projectDir)
 
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	manager, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	manager, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer manager.Shutdown()
 

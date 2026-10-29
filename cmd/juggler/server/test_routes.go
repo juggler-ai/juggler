@@ -111,7 +111,7 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 	// the pool gives up (laneTrace).
 	lanes := newLaneTrace()
 	wait := LaneWait(lanes.waitPolling)
-	s.testLaneWait.Store(&wait)
+	s.testPool.laneWait.Store(&wait)
 	api.HandleFunc("/lanes", lanes.handleReport).Methods("GET")
 	api.HandleFunc("/run", rapi.HandleRun).Methods("POST")
 	api.HandleFunc("/pending", lanes.wrap(lanes.polled, rapi.HandlePending)).Methods("GET")
@@ -145,7 +145,7 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 	// are none to report or no lister is installed.
 	api.HandleFunc("/process-pids", func(w http.ResponseWriter, r *http.Request) {
 		pids := []int{}
-		if fn := s.testProcessPIDs.Load(); fn != nil {
+		if fn := s.testPool.processPIDs.Load(); fn != nil {
 			pids = append(pids, (*fn)()...)
 		}
 		handlers.WriteJSON(w, r, 0, map[string]any{"pids": pids})
@@ -184,6 +184,22 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 // the replacement engine to connect. A page reload boots the engine in a few
 // seconds; this leaves room for a loaded machine.
 const testEngineRestartTimeout = 60 * time.Second
+
+// handleEngineStatus reports whether the engine is usable, and separately
+// whether its socket is merely open. The two differ exactly when the engine has
+// wedged — the case worth diagnosing — so both are published rather than folded
+// into one flag.
+func (s *Server) handleEngineStatus(w http.ResponseWriter, r *http.Request) {
+	body := map[string]any{
+		"connected": s.IsEngineConnected(),
+		"socket":    s.engineClient.Load() != nil,
+	}
+	if c := s.engineClient.Load(); c != nil {
+		body["silentFor"] = s.engineSilence().Round(time.Second).String()
+		body["queuedWrites"] = c.QueuedWrites()
+	}
+	handlers.WriteJSON(w, r, 0, body)
+}
 
 // handleTestRestartEngine replaces the engine's realm the way a crash and the
 // server's own recovery would: the recovery hook reloads the engine host, which

@@ -16,22 +16,6 @@ import (
 	"juggler/internal/jlog"
 )
 
-// handleEngineStatus reports whether the engine is usable, and separately
-// whether its socket is merely open. The two differ exactly when the engine has
-// wedged — the case worth diagnosing — so both are published rather than folded
-// into one flag.
-func (s *Server) handleEngineStatus(w http.ResponseWriter, r *http.Request) {
-	body := map[string]any{
-		"connected": s.IsEngineConnected(),
-		"socket":    s.engineClient.Load() != nil,
-	}
-	if c := s.engineClient.Load(); c != nil {
-		body["silentFor"] = s.engineSilence().Round(time.Second).String()
-		body["queuedWrites"] = c.QueuedWrites()
-	}
-	handlers.WriteJSON(w, r, 0, body)
-}
-
 // handleHealthActive returns whether any conversation is actively running a turn
 // (turns parked solely on a pending tool approval are not counted — they survive
 // a restart intact, so callers like the desktop quit guard need not warn).

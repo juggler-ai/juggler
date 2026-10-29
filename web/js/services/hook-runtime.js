@@ -110,7 +110,7 @@ function instanceOf(HookClass) {
  * @param {{toolName: string, toolInput: unknown, result?: {content: string, isError: boolean}}} call - The call
  * @returns {boolean} True when the hook should be offered the call
  */
-export function matchesCall(match, call) {
+function matchesCall(match, call) {
   if (!match) return true;
   if (Array.isArray(match.tools) && match.tools.length) {
     const names = new Set([call.toolName, resolveToolName(call.toolName)]);

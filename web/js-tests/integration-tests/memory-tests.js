@@ -39,7 +39,7 @@ function countOccurrences(haystack, needle) {
  * Compact dump of every memory-relevant root item — used in the failure
  * message so a double-render is diagnosable from one scrollback (which item
  * carries a standing `itemId`, the result's `resultType`).
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @returns {string} A newline-joined dump of memory-relevant items, or a fallback message.
  */
 function dumpMemoryItems(conversation) {
@@ -62,7 +62,7 @@ function dumpMemoryItems(conversation) {
  * via needsExclusiveRun, exactly like the CLAUDE.md auto-detection test.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const memorySeededWhenFileExistsTest = {
+const memorySeededWhenFileExistsTest = {
   name: 'memory-seeded-when-file-exists',
   description: 'A new conversation auto-instantiates the memory item when .juggler/MEMORY.md exists',
   fixture: 'unit-test-fixture',
@@ -108,7 +108,7 @@ export const memorySeededWhenFileExistsTest = {
  * scheduled alone via needsExclusiveRun.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const memorySystemPromptStableAcrossRememberTest = {
+const memorySystemPromptStableAcrossRememberTest = {
   name: 'memory-system-prompt-stable-across-remember',
   description: 'A first memory remember leaves the running conversation\'s system prompt without a memory block',
   fixture: 'unit-test-fixture',

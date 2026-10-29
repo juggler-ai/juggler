@@ -53,7 +53,7 @@ class UnitTestExecutor {
     /** @type {TaskDefinition} @private */
     this.task = taskDef;
 
-    /** @type {import('../../model/session.js').default|null} @private */
+    /** @type {import('../../js/model/session.js').default|null} @private */
     this.session = null;
 
     /** @type {string|null} @private */
@@ -190,7 +190,7 @@ class UnitTestExecutor {
 
   /**
    * Create mock services for test session.
-   * @returns {Promise<import('../../model/session.js').ConversationServices>} Mock services object
+   * @returns {Promise<import('../../js/model/session.js').ConversationServices>} Mock services object
    * @private
    */
   async _createMockServices() {

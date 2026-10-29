@@ -78,7 +78,7 @@ const FOCUSABLE = [
  * @param {Element} root - The dialog root.
  * @returns {HTMLElement[]} The tab stops.
  */
-export function tabStops(root) {
+function tabStops(root) {
   return /** @type {HTMLElement[]} */ (Array.from(root.querySelectorAll(FOCUSABLE))).filter((el) =>
     el.tabIndex >= 0
     && el.getClientRects().length > 0

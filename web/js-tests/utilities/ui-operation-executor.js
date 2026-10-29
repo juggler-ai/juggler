@@ -25,7 +25,7 @@ import { apiUrl } from '../../js/utils/api-url.js';
 import { pingWorker } from './worker-test-hooks.js';
 import workerManager from '../../js/services/worker-manager.js';
 import { setPluginEnabled } from './plugin-config.js';
-import { waitFor } from './test-helpers.js';
+import { nextTask, waitFor } from './test-helpers.js';
 import { assertMenuShape } from './menu-assertions.js';
 
 /**
@@ -195,22 +195,26 @@ function waitForElementGone(selector, timeoutMs = 3000) {
 }
 
 /**
- * The positive fence before asserting something is ABSENT from the page.
+ * The fence after an operation: everything it set going has been applied and
+ * rendered.
  *
- * "It did not appear" is only evidence once whatever would have carried it has
- * been and gone. A DOM-quiet window alone is not that: on a slow core the page
- * is quiet for a long time before the worker's next update arrives, so an
- * absence asserted then passes whether or not the effect is coming. The worker
- * ping returns only once the worker has drained every message before it and
- * flushed its document updates, and those updates' renders are what the DOM
- * then settles on — so after this, an effect that was coming has arrived.
+ * The worker ping returns only once the worker has drained every message
+ * before it and flushed its document updates; the main-thread document
+ * observers render those updates as they are applied, and the task hop lets a
+ * render they deferred to the task queue run. Both are ordered by events, not
+ * by a quiet period: on a slow core the page is quiet for a long time before
+ * the worker's next update arrives, so "no mutation for a while" says nothing
+ * about whether one is coming. This is also the positive fence before
+ * asserting something is ABSENT — "it did not appear" is only evidence once
+ * whatever would have carried it has been and gone. A presence check still
+ * waits for what it needs ({@link waitFor}), since a render can land later than
+ * the update that caused it.
  * @param {UITestHarness} harness - The test's harness.
- * @param {any} driver - Its UIDriver.
  * @returns {Promise<void>}
  */
-async function fenceBeforeAbsence(harness, driver) {
+async function renderFence(harness) {
   if (harness.conversation?.id) await pingWorker(harness.conversation.id);
-  await driver.waitForDOMStable();
+  await nextTask();
 }
 
 /**
@@ -299,7 +303,7 @@ export async function executeUIOperation(harness, op) {
       await harness.awaitPendingSend();
 
       await harness.waitForTurnComplete(undefined, fenceBaseline(harness));
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -340,7 +344,7 @@ export async function executeUIOperation(harness, op) {
       }
 
       await harness.waitForTurnComplete(undefined, fenceBaseline(harness));
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -373,7 +377,7 @@ export async function executeUIOperation(harness, op) {
       }
 
       await harness.waitForTurnComplete(undefined, fenceBaseline(harness));
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -490,7 +494,6 @@ export async function executeUIOperation(harness, op) {
     case 'assert-input-warning': {
       // Assert a visible centered warning notice. Searched document-wide so it
       // is robust to which column owns the active composer.
-      await driver.waitForDOMStable();
       const needle = op.textContains || '';
       /** @returns {{ warnings: Element[], match: Element | undefined }} All visible notices, and the first whose text contains the needle (if any). */
       const findMatch = () => {
@@ -499,7 +502,7 @@ export async function executeUIOperation(harness, op) {
       };
 
       if (op.absent) {
-        await fenceBeforeAbsence(harness, driver);
+        await renderFence(harness);
         const { match } = findMatch();
         if (match) {
           throw new Error(`assert-input-warning: expected no visible warning containing "${needle}", but found "${match.textContent}"`);
@@ -950,7 +953,7 @@ export async function executeUIOperation(harness, op) {
       const el = container.querySelector(`tool-action-message[data-tool-use-id="${op.toolUseId}"]`);
       if (!el) throw new Error(`click-item: no tool-action-message for toolUseId=${op.toolUseId}`);
       /** @type {HTMLElement} */ (el).click();
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -981,7 +984,7 @@ export async function executeUIOperation(harness, op) {
       shiftButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       // ...but the box shifted, so the click (mouseup) resolves onto the item above.
       shiftAbove.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -993,24 +996,23 @@ export async function executeUIOperation(harness, op) {
       if (!op.selector) {
         throw new Error('click-dom operation requires selector');
       }
-      await driver.waitForDOMStable();
       // op.global searches the whole tab (all columns) rather than just the root
       // conversation-area — needed to reach an open thread column's elements.
-      const clickContainer = op.global
-        ? driver.getContainer()
-        : (driver.getConversationArea() || driver.getContainer());
-      const candidates = Array.from(clickContainer.querySelectorAll(op.selector));
-      let clickEl;
-      if (op.text !== undefined) {
-        clickEl = candidates.find(c => (c.textContent || '').includes(op.text));
-      } else {
-        clickEl = candidates[op.index || 0];
-      }
-      if (!clickEl) {
-        throw new Error(`click-dom: no element matching "${op.selector}"${op.text !== undefined ? ` with text "${op.text}"` : ''}`);
-      }
+      const findClickTarget = () => {
+        const clickContainer = op.global
+          ? driver.getContainer()
+          : (driver.getConversationArea() || driver.getContainer());
+        const candidates = Array.from(clickContainer.querySelectorAll(op.selector));
+        return op.text !== undefined
+          ? candidates.find(c => (c.textContent || '').includes(op.text))
+          : candidates[op.index || 0];
+      };
+      const clickEl = await waitFor(findClickTarget, {
+        timeoutMs: budgetFor(3000),
+        description: `click-dom: an element matching "${op.selector}"${op.text !== undefined ? ` with text "${op.text}"` : ''}`
+      });
       /** @type {HTMLElement} */ (clickEl).click();
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -1128,7 +1130,7 @@ export async function executeUIOperation(harness, op) {
         inner._conversationOrder.push(newId);
         if (op.activate !== false) inner.switchConversation(newId);
       }
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -1150,7 +1152,7 @@ export async function executeUIOperation(harness, op) {
         if (op.activate !== false) inner.switchConversation(newId);
       }
       inner._lastPromotedConversationId = newId;
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -1164,7 +1166,7 @@ export async function executeUIOperation(harness, op) {
         throw new Error(`expand-thread: threadIndex ${idx} out of range (${threadItems.length})`);
       }
       conversation.expandThread(threadItems[idx].get('itemId'));
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -1194,7 +1196,7 @@ export async function executeUIOperation(harness, op) {
       } else {
         conversation.copyItems(source, op.indices, dest, op.position);
       }
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -1204,18 +1206,15 @@ export async function executeUIOperation(harness, op) {
       if (!op.selector) {
         throw new Error('set-dom-value operation requires selector');
       }
-      await driver.waitForDOMStable();
-      const valueContainer = op.global
-        ? driver.getContainer()
-        : (driver.getConversationArea() || driver.getContainer());
-      const field = /** @type {HTMLInputElement|HTMLTextAreaElement|null} */ (
-        valueContainer.querySelector(op.selector));
-      if (!field) {
-        throw new Error(`set-dom-value: no element matching "${op.selector}"`);
-      }
+      const field = /** @type {HTMLInputElement|HTMLTextAreaElement} */ (await waitFor(() => {
+        const valueContainer = op.global
+          ? driver.getContainer()
+          : (driver.getConversationArea() || driver.getContainer());
+        return valueContainer.querySelector(op.selector);
+      }, { timeoutMs: budgetFor(3000), description: `set-dom-value: an element matching "${op.selector}"` }));
       field.value = op.value ?? '';
       field.dispatchEvent(new Event('input', { bubbles: true }));
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -1365,7 +1364,7 @@ export async function executeUIOperation(harness, op) {
       /** @type {HTMLElement} */ (continueBtn).click();
       harness.consumeResponse();
       await harness.waitForTurnComplete(undefined, fenceBaseline(harness));
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -1384,7 +1383,7 @@ export async function executeUIOperation(harness, op) {
       const threadItemId = threadItems[idx].get('itemId');
       const messageThread = conversation.resolveMessageThread(threadItemId);
       await messageThread.continue();
-      await driver.waitForDOMStable(100, 3000);
+      await renderFence(harness);
       break;
     }
 
@@ -1408,7 +1407,7 @@ export async function executeUIOperation(harness, op) {
       // incremented turnCounter. Do NOT call waitForTurnComplete after —
       // it would wait forever for a next idle transition that never comes.
       await messageThread.continueInNewThread();
-      await driver.waitForDOMStable(100, 3000);
+      await renderFence(harness);
       break;
     }
 
@@ -1416,11 +1415,20 @@ export async function executeUIOperation(harness, op) {
       if (!op.selector) {
         throw new Error('assert-dom operation requires selector');
       }
-      await driver.waitForDOMStable();
-      if (op.absent) await fenceBeforeAbsence(harness, driver);
-      const container = op.global
+      const domContainer = () => (op.global
         ? driver.getContainer()
-        : (driver.getConversationArea() || driver.getContainer());
+        : (driver.getConversationArea() || driver.getContainer()));
+      if (op.absent) {
+        await renderFence(harness);
+      } else {
+        // Presence is waited for: a render can land after the update that
+        // caused it. The checks below then say what was missing.
+        await waitFor(() => {
+          const all = domContainer().querySelectorAll(op.selector);
+          return all.length > 0 && (op.minCount === undefined || all.length >= op.minCount);
+        }, { timeoutMs: budgetFor(3000), description: `assert-dom: "${op.selector}" to render` }).catch(() => {});
+      }
+      const container = domContainer();
       const el = container.querySelector(op.selector);
       if (op.absent) {
         if (el) {
@@ -1509,7 +1517,7 @@ export async function executeUIOperation(harness, op) {
         throw new Error('add-context-item-to-sub-thread: could not resolve sub-thread');
       }
       await subThread.executeContextItem('file-content', { path: 'README.md' });
-      await driver.waitForDOMStable(0, 3000);
+      await renderFence(harness);
       break;
     }
 
@@ -1522,7 +1530,7 @@ export async function executeUIOperation(harness, op) {
       // Inserts at the end of root's items (after the existing conversation),
       // so the leading-context run has already ended by construction.
       await harness.rootThread.executeContextItem('file-content', { path: 'README.md' });
-      await driver.waitForDOMStable(0, 3000);
+      await renderFence(harness);
       break;
     }
 
@@ -1579,7 +1587,7 @@ export async function executeUIOperation(harness, op) {
           throw new Error(`add-ai-files-to-sub-thread: expected an "Added 1 assistant file" notice, got: ${JSON.stringify((noticeAI.textContent || '').trim())}`);
         }
         noticeAI.close?.(null);
-        await driver.waitForDOMStable(0, 3000);
+        await renderFence(harness);
       } finally {
         fakeBtnAI.remove();
         uiemAI.destroy();
@@ -1626,7 +1634,7 @@ export async function executeUIOperation(harness, op) {
           bubbles: true,
           detail: { action: 'remove', itemId: contextItemId, threadItemId: removeThreadItemId }
         }));
-        await driver.waitForDOMStable(100, 3000);
+        await renderFence(harness);
       } finally {
         uiemRM.destroy();
       }
@@ -1674,7 +1682,7 @@ export async function executeUIOperation(harness, op) {
       atIb._completions.accept();
       if (atIb._lastMentionPromise) await atIb._lastMentionPromise;
 
-      await driver.waitForDOMStable();
+      await renderFence(harness);
       break;
     }
 
@@ -1729,7 +1737,7 @@ export async function executeUIOperation(harness, op) {
  * @param {number} [timeoutMs=10000] - Nominal timeout, stretched to the deadline
  * @returns {Promise<void>}
  */
-export async function waitForHeldCall(harness, toolUseId, callName, timeoutMs = 10000) {
+async function waitForHeldCall(harness, toolUseId, callName, timeoutMs = 10000) {
   const held = () => {
     const action = harness?.rootThread?.getToolAction?.(toolUseId);
     if (action?.get('state') !== 'pending') return null;

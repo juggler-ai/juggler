@@ -23,7 +23,7 @@
  * ## Adding guidance
  *
  * Add an entry here, and nothing anywhere else:
- * 1. Pick a `surface` (see {@link SURFACES}): where the user is when the hint
+ * 1. Pick a `surface` (see `NudgeEntry`): where the user is when the hint
  *    is true, and where its action belongs.
  * 2. Write `when(ctx, usage, facts)` over what that surface passes in `ctx`
  *    (see {@link NudgeContext}), the read-only usage record and the page's
@@ -47,24 +47,15 @@
 
 import { markForTranslation } from '../../../sdk/lib/i18n.js';
 
-/** Where guidance can be shown. Each is one `<juggler-nudge>` mount. */
-export const SURFACES = Object.freeze([
-  'empty-hint', // the starting hint of a conversation with no history yet
-  'footer',     // the footer of a conversation's thread, beside the context meter
-]);
-
 /**
  * A conversation counts as long at this fraction of its context window, or at
  * {@link LONG_CONVERSATION_TOKENS}, whichever comes first: on a million-token
  * window 70% is 700k, far past where every turn has become slow and costly.
  */
-export const LONG_CONVERSATION_FRACTION = 0.7;
+const LONG_CONVERSATION_FRACTION = 0.7;
 
 /** A conversation this size counts as long whatever its window. */
-export const LONG_CONVERSATION_TOKENS = 400_000;
-
-/** The kinds of guidance; see the module header. */
-export const KINDS = Object.freeze(['tip', 'teach', 'situational', 'offer']);
+const LONG_CONVERSATION_TOKENS = 400_000;
 
 /**
  * What a surface tells the rules about where it is.
@@ -89,7 +80,9 @@ export const KINDS = Object.freeze(['tip', 'teach', 'situational', 'offer']);
  * @typedef {object} NudgeEntry
  * @property {string} id - Stable; the key its dismissal is stored under.
  * @property {'tip'|'teach'|'situational'|'offer'} kind - Which rules apply (see the module header).
- * @property {string} surface - One of {@link SURFACES}.
+ * @property {'empty-hint'|'footer'} surface - Where it is shown, each one `<juggler-nudge>` mount:
+ *   the starting hint of a conversation with no history yet, or the footer of a
+ *   conversation's thread, beside the context meter.
  * @property {string} [title] - English headline. A shortcut tip reads its title from the shortcut table.
  * @property {string} body - English, one or two sentences.
  * @property {string} [shortcutId] - For a tip teaching a key: the KeyShortcutManager id.

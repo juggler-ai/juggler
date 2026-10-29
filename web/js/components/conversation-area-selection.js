@@ -262,8 +262,9 @@ export class ColumnSelection {
       if (isErrorMessage(item)) return item;
 
       if (isToolActionMessage(item)) {
-        const ActionClass = item.get('toolName')
-          ? contextItemRegistry.getByToolName(item.get('toolName'))
+        const toolName = item.get('toolName');
+        const ActionClass = toolName
+          ? contextItemRegistry.getByToolName(toolName)
           : null;
         const isPending = item.get('state') === TOOL_STATES.PENDING;
         if (ActionClass?.shouldAutoSelect?.() || isPending) {

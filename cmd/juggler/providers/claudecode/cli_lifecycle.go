@@ -39,26 +39,6 @@ var testExtraSpawnEnv []string
 // claudecode_binary_path on the developer's machine. Production leaves it "".
 var pinnedBinaryPath string
 
-// SetBinaryPathForTesting pins the claude CLI path and the env vars added to
-// spawned children. Returns a restore function. Test helpers call this to
-// redirect spawnCLIPipes to a fake binary (typically the test binary itself,
-// re-exec'd via the helper-process pattern).
-//
-// This export is test-only — production code never calls it. Wiring it
-// through a build tag would be cleaner but would also require a parallel
-// test-only file just to host the call site, so we instead trust the
-// "ForTesting" suffix and the comment.
-func SetBinaryPathForTesting(path string, extraEnv ...string) (restore func()) {
-	oldPath := pinnedBinaryPath
-	oldEnv := testExtraSpawnEnv
-	pinnedBinaryPath = path
-	testExtraSpawnEnv = append([]string(nil), extraEnv...)
-	return func() {
-		pinnedBinaryPath = oldPath
-		testExtraSpawnEnv = oldEnv
-	}
-}
-
 // claudePathEnvVar lets a user pin the claude CLI's absolute path when it lives
 // somewhere auto-detection can't reach, via the environment.
 const claudePathEnvVar = "JUGGLER_CLAUDE_PATH"

@@ -45,7 +45,7 @@
  * for this long before `onRelease` re-syncs.
  * @type {number}
  */
-export const PIN_BACKSTOP_MS = 2000;
+const PIN_BACKSTOP_MS = 2000;
 
 /**
  * @template T

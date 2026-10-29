@@ -136,7 +136,7 @@ func ComputeStatus(m *Manifest, currentVersion string) Status {
 	// what it runs is the tree it was built from, and a download cannot be an
 	// upgrade of that. A prerelease is not an unpublished build — it is
 	// published, and it is offered upgrades like any other release.
-	if isUnpublishedBuild(currentVersion) {
+	if IsUnpublishedBuild(currentVersion) {
 		st.Unpublished = true
 		return st
 	}
@@ -147,12 +147,11 @@ func ComputeStatus(m *Manifest, currentVersion string) Status {
 	return st
 }
 
-// isUnpublishedBuild reports whether v names a build nobody could have
+// IsUnpublishedBuild reports whether v names a build nobody could have
 // downloaded: the bare word older builds report, the "-dev" suffix every build
 // outside release CI carries, or the "-test" suffix on a server built to be
-// driven by the suites. The same set core.IsPublishedVersion answers for, kept
-// separate because this package sits below core rather than importing it.
-func isUnpublishedBuild(v string) bool {
+// driven by the suites. Such a build is never offered an update.
+func IsUnpublishedBuild(v string) bool {
 	v = strings.TrimSpace(v)
 	return v == "dev" || strings.HasSuffix(v, "-dev") || strings.HasSuffix(v, "-test")
 }

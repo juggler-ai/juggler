@@ -513,4 +513,3 @@ function selectionFollowUps({ origin, itemId, revealable, enteredAnotherColumn, 
 }
 
 export { ColumnSelectionState, selectionFollowUps };
-export { AUTO_SELECT_COOLDOWN_MS };

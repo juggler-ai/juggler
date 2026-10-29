@@ -22,7 +22,7 @@ import { tabFor } from '../utilities/conversation-tab-lookup.js';
  * should get the .selected class in the DOM so the properties panel shows the diff.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionAutoSelectToolAction = {
+const selectionAutoSelectToolAction = {
   name: 'selection-auto-select-tool-action',
   description: 'Tool-action gets .selected when inserted by LLM',
   fixture: 'unit-test-fixture',
@@ -100,7 +100,7 @@ export const selectionAutoSelectToolAction = {
  * onItemsInserted fires once per insertion with only the new IDs.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionToolActionOverridesManual = {
+const selectionToolActionOverridesManual = {
   name: 'selection-tool-action-overrides-manual',
   description: 'Tool-action auto-selects even after user manually selected another item',
   fixture: 'unit-test-fixture',
@@ -189,7 +189,7 @@ export const selectionToolActionOverridesManual = {
  * next LLM tool-action gets auto-selected.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionUserMessageResets = {
+const selectionUserMessageResets = {
   name: 'selection-user-message-resets',
   description: 'User message resets auto-follow so next tool-action is selected',
   fixture: 'unit-test-fixture',
@@ -257,7 +257,7 @@ export const selectionUserMessageResets = {
  * should automatically open in the UI.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionNewThreadAutoOpens = {
+const selectionNewThreadAutoOpens = {
   name: 'selection-new-thread-auto-opens',
   description: 'LLM-created thread auto-opens as a column',
   fixture: 'unit-test-fixture',
@@ -310,7 +310,7 @@ export const selectionNewThreadAutoOpens = {
  * Thread B's column should open in the DOM.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionContinueInNewThread = {
+const selectionContinueInNewThread = {
   name: 'selection-continue-in-new-thread',
   description: 'Continue in new thread auto-opens the new thread column',
   fixture: 'unit-test-fixture',
@@ -370,7 +370,7 @@ export const selectionContinueInNewThread = {
  * should get the .selected class in the thread column — not just the root.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionAutoSelectInSubThread = {
+const selectionAutoSelectInSubThread = {
   name: 'selection-auto-select-in-sub-thread',
   description: 'Tool-action in sub-thread gets .selected in the thread column',
   fixture: 'unit-test-fixture',
@@ -442,7 +442,7 @@ export const selectionAutoSelectInSubThread = {
  * (Sanity check that the fix doesn't break root behaviour.)
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionAutoSelectInRootAfterThread = {
+const selectionAutoSelectInRootAfterThread = {
   name: 'selection-auto-select-in-root-after-thread',
   description: 'Root tool-action is auto-selected after sub-thread completes',
   fixture: 'unit-test-fixture',
@@ -513,7 +513,7 @@ export const selectionAutoSelectInRootAfterThread = {
  * stayed hidden.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionContinueBtnVisibleAfterToolUse = {
+const selectionContinueBtnVisibleAfterToolUse = {
   name: 'selection-continue-btn-visible-after-tool-use',
   description: 'Continue button is visible after tool-action completes',
   fixture: 'unit-test-fixture',
@@ -579,7 +579,7 @@ export const selectionContinueBtnVisibleAfterToolUse = {
  * auto-select the item when it reaches PENDING.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionPendingApprovalAutoSelect = {
+const selectionPendingApprovalAutoSelect = {
   name: 'selection-pending-approval-auto-select',
   description: 'Pending-approval tool-action gets .selected while waiting for user to approve',
   fixture: 'unit-test-fixture',
@@ -635,7 +635,7 @@ export const selectionPendingApprovalAutoSelect = {
  * selection to call_2 without any user click.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionAutoSelectsNextPendingAfterApprove = {
+const selectionAutoSelectsNextPendingAfterApprove = {
   name: 'selection-auto-selects-next-pending-after-approve',
   description: 'Approving one pending tool-action auto-selects the next pending one',
   fixture: 'unit-test-fixture',
@@ -709,7 +709,7 @@ export const selectionAutoSelectsNextPendingAfterApprove = {
  * "I had 3 waiting approvals, did the first one… no selection change").
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionAutoSelectsNextPendingAfterUserClickAndApprove = {
+const selectionAutoSelectsNextPendingAfterUserClickAndApprove = {
   name: 'selection-auto-selects-next-pending-after-user-click-and-approve',
   description: 'Approving after a manual click still hands selection to the next pending',
   fixture: 'unit-test-fixture',
@@ -775,7 +775,7 @@ export const selectionAutoSelectsNextPendingAfterUserClickAndApprove = {
  * shifted release target, decides intent.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionApprovalClickShiftKeepsSelection = {
+const selectionApprovalClickShiftKeepsSelection = {
   name: 'selection-approval-click-shift-keeps-selection',
   description: 'A click whose press began on an approval button does not select the item above when layout shifts before release',
   fixture: 'unit-test-fixture',
@@ -845,7 +845,7 @@ export const selectionApprovalClickShiftKeepsSelection = {
  * logical order.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionResizeHandleTracksLogicalOrder = {
+const selectionResizeHandleTracksLogicalOrder = {
   name: 'selection-resize-handle-tracks-logical-order',
   description: 'Resize-handle visibility follows the logical rightmost column, not DOM :last-child',
   fixture: 'unit-test-fixture',
@@ -923,7 +923,7 @@ export const selectionResizeHandleTracksLogicalOrder = {
  * and asserts it keeps its handle.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const selectionRightmostConversationKeepsResizeHandle = {
+const selectionRightmostConversationKeepsResizeHandle = {
   name: 'selection-rightmost-conversation-keeps-resize-handle',
   description: 'A rightmost conversation-area column stays resizable when its selection is cleared',
   fixture: 'unit-test-fixture',

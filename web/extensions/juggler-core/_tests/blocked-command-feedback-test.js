@@ -20,7 +20,7 @@
  * @module _tests/blocked-command-feedback-test
  */
 
-import { assert } from '../../../js-tests/utilities/test-helpers.js';
+import { assert, withTimeout } from '../../../js-tests/utilities/test-helpers.js';
 import ExecuteContextItem from '../context-items/execute-context-item.js';
 
 /** The exact string the server's foot-gun filter produces. */
@@ -87,10 +87,7 @@ export async function runTests(_ctx) {
       messageThread: {}
     });
 
-    const result = /** @type {Record<string, unknown>} */ (await Promise.race([
-      item.execute({ command }),
-      new Promise((_r, rej) => setTimeout(() => rej(new Error('blocked command never settled')), 4000))
-    ]));
+    const result = /** @type {Record<string, unknown>} */ (await withTimeout(item.execute({ command }), 4000, 'the blocked command to settle'));
 
     // The shape action-executor.js builds for an action that resolved: the
     // action itself did not throw, so `success` is true and the command's own
@@ -156,10 +153,7 @@ export async function runTests(_ctx) {
         messageThread: {}
       });
 
-      const result = /** @type {Record<string, unknown>} */ (await Promise.race([
-        item.execute({ command: 'sleep 999' }),
-        new Promise((_r, rej) => setTimeout(() => rej(new Error('timed-out command never settled')), 4000))
-      ]));
+      const result = /** @type {Record<string, unknown>} */ (await withTimeout(item.execute({ command: 'sleep 999' }), 4000, 'the timed-out command to settle'));
 
       const summary = item.getSummary({ success: true, result, prepared: { params: { command: 'sleep 999' } } });
       const text = typeof summary.summary === 'string' ? summary.summary : '';
@@ -190,10 +184,7 @@ export async function runTests(_ctx) {
         messageThread: {}
       });
 
-      const result = /** @type {Record<string, unknown>} */ (await Promise.race([
-        item.execute({ command: 'false' }),
-        new Promise((_r, rej) => setTimeout(() => rej(new Error('failing command never settled')), 4000))
-      ]));
+      const result = /** @type {Record<string, unknown>} */ (await withTimeout(item.execute({ command: 'false' }), 4000, 'the failing command to settle'));
 
       const summary = item.getSummary({ success: true, result, prepared: { params: { command: 'false' } } });
       const text = typeof summary.summary === 'string' ? summary.summary : '';

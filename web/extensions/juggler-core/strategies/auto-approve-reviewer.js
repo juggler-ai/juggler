@@ -115,13 +115,6 @@ ${BOUNDARY_RULES}`
 };
 
 /**
- * The review levels the `reviewLevel` setting offers, in display order. Must
- * match the setting's `options` in `juggler-core/juggler.extension.json`.
- * @type {readonly ['balanced', 'relaxed', 'custom']}
- */
-export const REVIEW_LEVELS = /** @type {const} */ (['balanced', 'relaxed', 'custom']);
-
-/**
  * The level used when none is configured, or the configured one is unusable.
  * @type {'balanced'}
  */
@@ -255,16 +248,6 @@ export function parseDecision(result) {
   if (probability >= DECISION_ALLOW_THRESHOLD) return { verdict: 'allow', reason: '' };
   return { verdict: 'deny', reason: `only ${Math.round(probability * 100)}% sure it is safe` };
 }
-
-/**
- * System prompt for the safety classifier at the default level. It gates a
- * single parked tool call, answering `allow` only when confident the action is
- * safe AND authorized by the user's own words; otherwise `deny`. In allow-only
- * mode `deny` simply means "leave the tool parked for the human", so the bias is
- * conservative by design.
- * @type {string}
- */
-export const POLICY_PROMPT = buildPolicyPrompt(resolvePolicy(null));
 
 /**
  * Default caps for {@link buildReviewerPrompt}.
@@ -498,16 +481,6 @@ export function parseReview(text) {
       ? `${reason.slice(0, MAX_REASON_CHARS - 1).trimEnd()}…`
       : reason
   };
-}
-
-/**
- * The verdict alone, for callers that don't care why. Thin wrapper over
- * {@link parseReview} so there is a single parsing rule.
- * @param {string} text - The model's raw completion text
- * @returns {'allow'|'deny'} The verdict
- */
-export function parseVerdict(text) {
-  return parseReview(text).verdict;
 }
 
 /**

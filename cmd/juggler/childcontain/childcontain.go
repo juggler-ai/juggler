@@ -10,23 +10,15 @@
 //   - process-tree termination, so explicit shutdown/cancel kills the whole
 //     child subtree rather than only the direct child process.
 //
-// Preferred usage:
-//
-//	cmd := exec.Command(...)
-//	child, err := childcontain.Start(cmd)
-//	if err != nil { ... }
-//	defer child.Cleanup() // after Wait/child exit, releases OS resources
-//	...
-//	_ = child.Terminate() // on cancellation/escalation, kills contained tree
-//
-// Lower-level usage is available for call sites that need custom Start wiring:
+// Usage:
 //
 //	childcontain.Prepare(cmd)          // before cmd.Start()
 //	if err := cmd.Start(); err != nil { ... }
 //	child, err := childcontain.Adopt(cmd) // after cmd.Start()
-//	defer child.Cleanup()
+//	if err != nil { ... }
+//	defer child.Cleanup() // after Wait/child exit, releases OS resources
 //	...
-//	_ = child.Terminate()
+//	_ = child.Terminate() // on cancellation/escalation, kills contained tree
 //
 // Platform behaviour:
 //
@@ -59,15 +51,6 @@ type Child struct {
 	cmd      *exec.Cmd
 	released sync.Once
 	cleanup  func()
-}
-
-// Start prepares, starts, and adopts cmd into child containment.
-func Start(cmd *exec.Cmd) (*Child, error) {
-	Prepare(cmd)
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	return Adopt(cmd)
 }
 
 // Prepare sets pre-fork OS-level attributes on cmd to enable containment where

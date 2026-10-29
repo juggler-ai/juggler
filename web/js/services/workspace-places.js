@@ -8,10 +8,8 @@
  * Three views ask this question and none of them is a conversation being set
  * up: the dialog that makes a workspace, the dialog that moves a conversation
  * into one, and the dialog that puts a lost one back. So this holds no state
- * about any conversation. It holds the list itself, the speculative statuses
- * that make choosing from it an informed act rather than a guess, and the
- * register of things a provider has found on disk that the table does not know
- * about.
+ * about any conversation. It holds the list itself and the register of things
+ * a provider has found on disk that the table does not know about.
  *
  * It is deliberately view-free: everything below can be driven, and is tested,
  * without a single click. Nothing here announces anything either — a view calls
@@ -21,7 +19,6 @@
  */
 
 import workspaceProviderRegistry from '../registries/workspace-provider-registry.js';
-import { workspaceStatus } from './workspace-provisioning.js';
 import { registerWorkspace, isWorkspaceUsable } from './workspaces.js';
 import { createBoundOps } from '../../sdk/ops.js';
 import { t } from '../../sdk/lib/i18n.js';
@@ -34,7 +31,7 @@ export const PROJECT_ROW_ID = '';
 export const NEW_ROW_PREFIX = 'new:';
 
 /** What a row offering something that already exists starts with. */
-export const ADOPT_ROW_PREFIX = 'adopt:';
+const ADOPT_ROW_PREFIX = 'adopt:';
 
 /**
  * The kind that leads the list of ways to make one, whatever order the
@@ -45,7 +42,7 @@ export const ADOPT_ROW_PREFIX = 'adopt:';
  * what makes it findable at all behind a button called "New workspace or
  * group". Every other kind keeps the order it was loaded in.
  */
-export const LEADING_PROVIDER_ID = 'group';
+const LEADING_PROVIDER_ID = 'group';
 
 /**
  * One row of the list of places.
@@ -54,12 +51,9 @@ export const LEADING_PROVIDER_ID = 'group';
  * @property {string} id - What the view selects by
  * @property {string} label - What the row says
  * @property {string} [meaning] - What choosing it does, in plain words
- * @property {string} [detail] - Where it is: a path, or what a probe last said
+ * @property {string} [detail] - Where it is: a path, or what its provider says of it
  * @property {string} [providerId] - For a `new` row, whose form it expands into
  */
-
-/** @type {Map<string, any>} Workspace id → its last speculative status. */
-const statusCache = new Map();
 
 /** @type {Map<string, {providerId: string, artifact: any}>} Row id → something that exists and has no workspace. */
 const adoptable = new Map();
@@ -164,29 +158,6 @@ export function setupRows(session) {
 }
 
 /**
- * Ask every listed workspace how it is doing, at once.
- *
- * Speculative by design: a view shows a branch and a dirty flag for rows the
- * user has not selected, which is what makes picking one an informed choice
- * rather than a guess — and why `status()` is documented as having to be cheap.
- * The answers are cached, and the whole sweep rides one signal so that closing
- * the view stops all of it.
- * @param {any} session - The session the workspaces belong to.
- * @param {AbortSignal} [signal] - Abort when the view closes.
- * @returns {Promise<void>} When every row has answered or been abandoned.
- */
-export async function probeSetupStatuses(session, signal) {
-  const rows = setupRows(session).filter(row => row.kind === 'workspace');
-  await Promise.all(rows.map(async (row) => {
-    const workspace = session.getWorkspace(row.id);
-    if (!workspace) return;
-    const status = await workspaceStatus(session, workspace, signal);
-    if (signal?.aborted) return;
-    statusCache.set(row.id, status);
-  }));
-}
-
-/**
  * Ask every provider what exists that the table does not know about.
  *
  * This is `reconcile()` used for the half of its job that is an offer rather
@@ -283,15 +254,6 @@ export async function adoptSetupRow(session, rowId, options = {}) {
     session.workspaces = [...(session.workspaces ?? []), registered];
   }
   return registered;
-}
-
-/**
- * The last thing a workspace said about itself, if it has been asked.
- * @param {string} workspaceId - The workspace in question.
- * @returns {any} Its status, or undefined while the answer is still coming.
- */
-export function cachedSetupStatus(workspaceId) {
-  return statusCache.get(workspaceId);
 }
 
 /**

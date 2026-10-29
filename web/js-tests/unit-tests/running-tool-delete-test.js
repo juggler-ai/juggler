@@ -25,7 +25,9 @@ import {
   initializeRegistries,
   createTestSession,
   createApprovalTestConversation,
-  assert
+  assert,
+  waitFor,
+  nextTask
 } from '../utilities/test-helpers.js';
 import {
   createUserMessage,
@@ -36,12 +38,20 @@ import { registerUiPort, uiPort } from '../../js/services/ui-port.js';
 import '../../js/components/conversation-tab.js';
 
 /**
- * Let the properties panel paint. Its content render is debounced by 150ms
- * (`ColumnBuilder.propertiesColumn`), and the Delete button arrives with it.
- * @returns {Promise<void>} Resolves once the panel has rendered.
+ * Wait for the tab's properties panel to show `itemId`. Its content render is
+ * debounced (`ColumnBuilder.propertiesColumn`), and the panel takes its
+ * selection — and the delete buttons bound to it — only when that render runs.
+ * @param {any} tab - The conversation-tab under test.
+ * @param {string} itemId - The item the panel should show.
+ * @returns {Promise<any>} The panel, once it shows the item with its buttons.
  */
-function settlePanel() {
-  return new Promise((resolve) => { setTimeout(resolve, 300); });
+function panelShowing(tab, itemId) {
+  return waitFor(() => {
+    const panel = /** @type {any} */ (tab.querySelector('column-container > properties-panel'));
+    return panel?.getSelectedItemId() === itemId && panel.querySelector('.properties-panel-btn.danger')
+      ? panel
+      : null;
+  }, () => `the properties panel to show ${itemId}`);
 }
 
 /**
@@ -132,11 +142,11 @@ export async function runTests() {
         state: TOOL_STATES.RUNNING
       }));
     }, conversation._doc.authorId);
-    await settlePanel();
 
     const itemId = root.getToolAction(toolUseId).get('itemId');
     const userId = root.items.find((/** @type {any} */ i) => i.get('type') === 'user').get('itemId');
     const col = /** @type {any} */ (tab.querySelector('conversation-area'));
+    await waitFor(() => col.querySelector(`[message-id="${itemId}"]`), 'the running tool\'s row to paint');
 
     // Record each stop, and whether the tool's row was still there when it
     // came: the work has to stop BEFORE its item goes.
@@ -148,9 +158,31 @@ export async function runTests() {
       realStop(reason);
     };
 
+    // The warning a delete raises when the turn it cancelled would not settle:
+    // the last thing that path does, after deciding to delete nothing.
+    /** @type {string[]} */
+    const warnings = [];
+    const realWarning = conversation.showWarning.bind(conversation);
+    conversation.showWarning = (/** @type {string} */ message, /** @type {number} */ ms) => {
+      warnings.push(message);
+      realWarning(message, ms);
+    };
+
+    /**
+     * Wait out a declined delete. The click asks before its first await, and a
+     * declined answer only returns through the click handler's own awaits —
+     * microtasks, all of them run before the next macrotask.
+     * @param {number} times - How many confirmations the delete should have raised.
+     * @returns {Promise<void>} Resolves once the declined click has finished.
+     */
+    const declined = async (times) => {
+      await waitFor(() => asked.length >= times, 'the delete to ask');
+      await nextTask();
+    };
+
     await run('a running tool keeps every delete button enabled', async () => {
       col.selectItem(itemId);
-      await settlePanel();
+      await panelShowing(tab, itemId);
       for (const label of [/^\s*Delete\s*$/, /Delete up to here/, /Delete from here/]) {
         assert(!dangerButton(tab, label).disabled, `${label} must stay enabled while the tool runs`);
       }
@@ -162,7 +194,7 @@ export async function runTests() {
       document.dispatchEvent(new KeyboardEvent('keydown', {
         key: 'Delete', bubbles: true, cancelable: true
       }));
-      await settlePanel();
+      await declined(1);
       assert(asked.length === 1, `the Delete key should ask once, asked ${asked.length} times`);
       assert(asked[0].title === 'Stop the current turn?',
         `the shared stop-the-turn confirmation should be raised, got "${asked[0].title}"`);
@@ -172,11 +204,11 @@ export async function runTests() {
 
     await run('declining a span delete removes nothing', async () => {
       col.selectItem(userId);
-      await settlePanel();
+      await panelShowing(tab, userId);
       asked.length = 0;
       answer = false;
       dangerButton(tab, /Delete from here/).click();
-      await settlePanel();
+      await declined(1);
       assert(asked.length === 1, `"Delete from here" should ask once, asked ${asked.length} times`);
       assert(root.findIndexByItemId(itemId) >= 0, 'a declined span delete must keep the tool');
       assert(stops.length === 0, 'a declined span delete must not stop anything');
@@ -184,11 +216,11 @@ export async function runTests() {
 
     await run('accepting stops the work, then deletes the tool', async () => {
       col.selectItem(itemId);
-      await settlePanel();
+      await panelShowing(tab, itemId);
       asked.length = 0;
       answer = true;
       dangerButton(tab, /^\s*Delete\s*$/).click();
-      await settlePanel();
+      await waitFor(() => root.findIndexByItemId(itemId) < 0, 'the accepted delete to remove the tool');
       assert(asked.length === 1, `Delete should ask once, asked ${asked.length} times`);
       assert(stops.length >= 1, 'an accepted delete must stop the running work');
       assert(stops[0].toolPresent, 'the work must be stopped before its item is deleted');
@@ -204,14 +236,14 @@ export async function runTests() {
         state: TOOL_STATES.COMPLETED,
         result: { state: 'completed', content: 'ok' }
       }));
-      await settlePanel();
       const idleId = root.getToolAction(idleUseId).get('itemId');
+      await waitFor(() => col.querySelector(`[message-id="${idleId}"]`), 'the idle row to paint');
       col.selectItem(idleId);
-      await settlePanel();
+      await panelShowing(tab, idleId);
       asked.length = 0;
       stops.length = 0;
       dangerButton(tab, /^\s*Delete\s*$/).click();
-      await settlePanel();
+      await waitFor(() => root.findIndexByItemId(idleId) < 0, 'the idle delete to remove the item');
       assert(asked.length === 0, 'an idle delete must not ask');
       assert(stops.length === 0, 'an idle delete must not stop anything');
       assert(root.findIndexByItemId(idleId) < 0, 'an idle delete must remove the item');
@@ -246,10 +278,11 @@ export async function runTests() {
         state: TOOL_STATES.COMPLETED,
         result: { state: 'completed', content: 'ok' }
       }));
-      await settlePanel();
+      const rowId = root.getToolAction(useId).get('itemId');
+      await waitFor(() => col.querySelector(`[message-id="${rowId}"]`), `the row for ${useId} to paint`);
       col.selectItem(userId);
-      await settlePanel();
-      return root.getToolAction(useId).get('itemId');
+      await panelShowing(tab, userId);
+      return rowId;
     };
 
     await run('a held turn is settled before a span delete', async () => {
@@ -260,7 +293,7 @@ export async function runTests() {
       answer = true;
       const before = root.items.length;
       dangerButton(tab, /Delete from here/).click();
-      await settlePanel();
+      await waitFor(() => root.findIndexByItemId(rowId) < 0, '"Delete from here" to remove the row');
       assert(asked.length === 1, `a held turn should ask once, asked ${asked.length} times`);
       assert(settles.length === 1, 'the turn must be cancelled and settled');
       assert(settles[0] === before, 'the turn must settle before anything is deleted');
@@ -272,8 +305,9 @@ export async function runTests() {
       turnHeld = true;
       settleFails = true;
       answer = true;
+      warnings.length = 0;
       dangerButton(tab, /Delete from here/).click();
-      await settlePanel();
+      await waitFor(() => warnings.length > 0, 'the delete to report the turn did not stop');
       assert(root.findIndexByItemId(rowId) >= 0,
         'a delete must not go ahead while the turn may still be live');
     });

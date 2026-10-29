@@ -128,11 +128,6 @@ func sameMarks(a, b map[string]bool) bool {
 	return true
 }
 
-// markPoliteStop puts a pause over threadItemID and everything below it.
-func (w *ConversationWorker) markPoliteStop(threadItemID string) {
-	w.mutatePoliteStops(func(next map[string]bool) { next[threadItemID] = true })
-}
-
 // dropPoliteStopsCovering lifts every mark standing over threadItemID — the
 // "resume this column" edit. It reaches upward rather than only at the named
 // thread because a covered thread cannot be resumed while an ancestor's pause
@@ -336,8 +331,8 @@ func (w *ConversationWorker) publishPoliteStopsLocked() {
 func (w *ConversationWorker) refreshPoliteStopsLocked(state map[string]any, runs runRegistry) {
 	marks := w.politeStopMarks()
 	if len(marks) == 0 {
-		delete(state, "politeStops")
-		delete(state, "politePending")
+		delete(state, keyPoliteStops)
+		delete(state, runFieldPolitePending)
 		for _, entry := range runs {
 			entry.setPolitePending(false)
 		}
@@ -370,14 +365,14 @@ func (w *ConversationWorker) refreshPoliteStopsLocked(state map[string]any, runs
 
 	published := make(map[string]any, len(marks))
 	for id := range marks {
-		published[runKey(id)] = map[string]any{"landed": landed[id]}
+		published[runKey(id)] = map[string]any{keyLanded: landed[id]}
 	}
-	state["politeStops"] = published
+	state[keyPoliteStops] = published
 	// The conversation-wide alias: a pause is still winding something down. Read
 	// by everything that only wants to know whether one is in progress at all.
 	if pending {
-		state["politePending"] = true
+		state[runFieldPolitePending] = true
 	} else {
-		delete(state, "politePending")
+		delete(state, runFieldPolitePending)
 	}
 }

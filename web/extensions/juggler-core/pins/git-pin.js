@@ -318,7 +318,7 @@ class GitPin extends PinboardItemType {
    * in the body, which has the service. A scoped pin says its scope, which is
    * what tells two Git tabs apart. The title is the manifest name, which the
    * host translates in this extension's catalogue.
-   * @param {Record<string, any>} [config] - The pin's config.
+   * @param {Record<string, unknown>} [config] - The pin's config.
    * @returns {import('juggler/pinboard-item-type').PinDescription} The tab's words.
    */
   describe(config) {
@@ -329,8 +329,8 @@ class GitPin extends PinboardItemType {
   /**
    * The scope, folded, and the expressions this pin remembers. Anything else a
    * config carries — `agentRequested`, say — is kept as it was.
-   * @param {Record<string, any>} config - The stored or supplied config.
-   * @returns {Record<string, any>} The normalized config.
+   * @param {Record<string, unknown>} config - The stored or supplied config.
+   * @returns {Record<string, unknown>} The normalized config.
    */
   normalizeConfig(config) {
     const { scope: _scope, recent: _recent, ...rest } = config && typeof config === 'object' ? config : {};
@@ -342,8 +342,8 @@ class GitPin extends PinboardItemType {
 
   /**
    * Two Git pins are the same pin when they compare the same thing.
-   * @param {Record<string, any>} a - One config.
-   * @param {Record<string, any>} b - The other.
+   * @param {Record<string, unknown>} a - One config.
+   * @param {Record<string, unknown>} b - The other.
    * @returns {boolean} True for the same scope.
    */
   isSameConfig(a, b) {
@@ -362,7 +362,7 @@ class GitPin extends PinboardItemType {
 
   /**
    * @param {import('juggler/pinboard-item-type').PinSource} source - What the user asked to pin.
-   * @returns {Record<string, any>|null} The config: the source's scope, if it named one.
+   * @returns {Record<string, unknown>|null} The config: the source's scope, if it named one.
    */
   static configFromSource(source) {
     if (!GitPin.canPinSource(source)) return null;
@@ -389,7 +389,7 @@ class GitPin extends PinboardItemType {
     let error = '';
     let live = true;
     let generation = 0;
-    /** @type {Record<string, any>} The config as this pin last knew it. */
+    /** @type {Record<string, unknown>} The config as this pin last knew it. */
     let config = context.pin?.config || {};
     let scope = normalizeScope(config.scope);
     /**

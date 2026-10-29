@@ -4,7 +4,6 @@
 
 /**
  * @typedef {import('../model/conversation.js').default} Conversation
- * @typedef {import('../utils/column-selection.js').ColumnChainEntry} ColumnChainEntry
  * @typedef {import('./conversation-area.js').default} ConversationArea
  * @typedef {import('./action-confirmation.js').default} ActionConfirmation
  */
@@ -176,6 +175,14 @@ class ConversationTab extends JugglerElement {
 
     /** @type {boolean} @private - Suppresses Rule 15 autofocus during keyboard navigation */
     this._isKeyboardNavigating = false;
+
+    /**
+     * Rule 15 re-assert ticks still queued ({@link _reassertInputFocus}). Zero
+     * once every window a rebuild opened has closed — which is how a test knows
+     * the focus moves a rebuild makes are over, rather than guessing their span.
+     * @type {number}
+     */
+    this.pendingFocusReasserts = 0;
 
     /** @type {ColumnBuilder} @private - Builds the columns, and remembers what it last rendered into each */
     this._builder = new ColumnBuilder();
@@ -772,7 +779,11 @@ class ConversationTab extends JugglerElement {
     }
     // Keep watching even when focus currently looks right: a subsequent
     // re-render can still bounce it to <body> within this window.
-    setTimeout(() => this._reassertInputFocus(target, staleCol, attempts - 1), 30);
+    this.pendingFocusReasserts++;
+    setTimeout(() => {
+      this.pendingFocusReasserts--;
+      this._reassertInputFocus(target, staleCol, attempts - 1);
+    }, 30);
   }
 
   /**
@@ -1833,8 +1844,9 @@ class ConversationTab extends JugglerElement {
     // Scoped to this run — approvals elsewhere in the thread are untouched.
     const memberIds = new Set(indices.map((i) => items[i]?.get?.('itemId')));
     for (const pending of messageThread.getPendingApprovalMessages()) {
-      if (memberIds.has(pending.get('itemId'))) {
-        messageThread.resolveApproval(pending.get('toolUseId'), 'cancel');
+      const toolUseId = pending.get('toolUseId');
+      if (toolUseId && memberIds.has(pending.get('itemId'))) {
+        messageThread.resolveApproval(toolUseId, 'cancel');
       }
     }
 

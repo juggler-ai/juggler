@@ -446,7 +446,7 @@ reveal-button {
 
 .properties-panel-result.error {
     color: var(--accent-red);
-    background: rgb(130 40 37 / 15%);
+    background: color-mix(in srgb, var(--accent-red) 8%, transparent);
     white-space: pre-wrap;
     overflow: visible;
 }

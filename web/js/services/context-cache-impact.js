@@ -86,7 +86,7 @@ export const CONTEXT_CACHE_IMPACT_CHANGED = 'context-cache-impact-changed';
  * approximate), only whether the loss is large enough to mention.
  * @type {number}
  */
-export const CONTEXT_CACHE_WARNING_TOKENS = 25000;
+const CONTEXT_CACHE_WARNING_TOKENS = 25000;
 
 /**
  * Item types the worker's `itemWireMessages` emits nothing for, so they never

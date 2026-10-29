@@ -69,10 +69,8 @@ import { COMMAND_HANDLERS, pathAllowed } from './command-handlers.js';
 
 /**
  * @typedef {import('./approval-types.js').WordToken} WordToken
- * @typedef {import('./approval-types.js').OpToken} OpToken
  * @typedef {import('./approval-types.js').ShellToken} ShellToken
  * @typedef {import('./approval-types.js').ApprovalCtx} ApprovalCtx
- * @typedef {import('./approval-types.js').VarProvenance} VarProvenance
  * @typedef {import('./approval-types.js').RedirectCfg} RedirectCfg
  */
 

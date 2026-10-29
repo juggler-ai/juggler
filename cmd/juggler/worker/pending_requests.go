@@ -176,24 +176,6 @@ func (w *ConversationWorker) pendingRequestsArrayLocked(threadItemID string) *yc
 	return arr
 }
 
-// ensurePendingRequestsArrayLocked get-or-creates the pendingRequests array on
-// the thread's own parent map. MUST be called with ycrdtMu held. Returns nil if
-// the thread is gone.
-func (w *ConversationWorker) ensurePendingRequestsArrayLocked(threadItemID string) *ycrdt.YArray {
-	parent := w.doc.pendingParentMapLocked(threadItemID)
-	if parent == nil {
-		return nil
-	}
-	if arr, ok := yMapArray(parent, keyPendingRequests); ok {
-		return arr
-	}
-	arr := ycrdt.NewYArray()
-	w.doc.doc.Transact(func(_ *ycrdt.Transaction) {
-		parent.Set(keyPendingRequests, arr)
-	}, w.doc.txOrigin())
-	return arr
-}
-
 // pendingEntryByIDLocked finds an entry by its stable id field within the owner
 // thread's array, returning (index, ymap, true) or (0, nil, false). MUST be
 // called with ycrdtMu held. Used to re-resolve entries from the snapshot since

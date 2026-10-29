@@ -72,7 +72,7 @@ function assertRunCancelled(conversation, label) {
  *   4. Root: should NOT be consumed
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const cancelDuringThreadTest = {
+const cancelDuringThreadTest = {
   name: 'interrupt-during-thread-keeps-open',
   description: 'Escape inside a sub-thread interrupts it but leaves it open (no result)',
   fixture: 'unit-test-fixture',
@@ -176,7 +176,7 @@ export const cancelDuringThreadTest = {
  *   3. Root: should NOT be consumed (denial stops everything)
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const denyToolInThreadTest = {
+const denyToolInThreadTest = {
   name: 'deny-tool-in-thread-stops-all',
   description: 'Deny tool in thread stops thread AND parent (no auto-resume)',
   fixture: 'unit-test-fixture',
@@ -224,7 +224,7 @@ export const denyToolInThreadTest = {
  *   4. Root: should NOT be consumed
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const cancelDuringThreadApprovalTest = {
+const cancelDuringThreadApprovalTest = {
   name: 'interrupt-during-thread-approval-keeps-open',
   description: 'Escape while a sub-thread awaits approval interrupts it but leaves it open',
   fixture: 'unit-test-fixture',
@@ -288,7 +288,7 @@ export const cancelDuringThreadApprovalTest = {
  *   4. Root (auto-resumed): text "All finished."
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadAutoResumeParentTest = {
+const threadAutoResumeParentTest = {
   name: 'thread-auto-resume-parent',
   description: 'Continuing an interrupted (still-open) thread completes it and auto-resumes parent',
   fixture: 'unit-test-fixture',
@@ -347,7 +347,7 @@ export const threadAutoResumeParentTest = {
  *   4. Root: should NOT be consumed
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const cancelFromRootSettlesThreadTest = {
+const cancelFromRootSettlesThreadTest = {
   name: 'root-vantage-stop-settles-subthread',
   description: 'Stopping from the root vantage settles the running sub-thread\'s run as cancelled',
   fixture: 'unit-test-fixture',
@@ -412,7 +412,7 @@ export const cancelFromRootSettlesThreadTest = {
  *   4. Root: should NOT be consumed
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const denyInThreadNoAutoResumeTest = {
+const denyInThreadNoAutoResumeTest = {
   name: 'deny-in-thread-no-auto-resume',
   description: 'Tool denial in thread does not auto-resume parent with fabricated result',
   fixture: 'unit-test-fixture',
@@ -463,7 +463,7 @@ export const denyInThreadNoAutoResumeTest = {
  * reached 'idle' within the test window.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const cancelThreadSettlesRunTest = {
+const cancelThreadSettlesRunTest = {
   name: 'cancel-thread-settles-run',
   description: 'Explicit cancelThread stops the worker and settles the thread\'s run as cancelled',
   fixture: 'unit-test-fixture',
@@ -533,7 +533,7 @@ export const cancelThreadSettlesRunTest = {
  * RED before the fix: no `.thread-stop-btn` is rendered on the tile.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadTileStopButtonTest = {
+const threadTileStopButtonTest = {
   name: 'thread-tile-stop-button',
   description: 'The parent thread tile exposes a stop button that settles the running thread',
   fixture: 'unit-test-fixture',
@@ -602,7 +602,7 @@ export const threadTileStopButtonTest = {
  *   4. Root (auto-resumed): text "All finished."
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const resumeAfterCancelReportsToCallerTest = {
+const resumeAfterCancelReportsToCallerTest = {
   name: 'thread-resume-after-cancel-parent',
   description: 'Resuming a thread whose run settled as cancelled reports the new answer to the call that made it',
   fixture: 'unit-test-fixture',
@@ -679,7 +679,7 @@ export const resumeAfterCancelReportsToCallerTest = {
  *   4. Root (auto-resumed): text "All finished."
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const continueAfterCancelReportsToCallerTest = {
+const continueAfterCancelReportsToCallerTest = {
   name: 'thread-continue-after-cancel-parent',
   description: 'Continue on a thread whose run settled as cancelled reports the new answer to the call that made it',
   fixture: 'unit-test-fixture',
@@ -758,7 +758,7 @@ export const continueAfterCancelReportsToCallerTest = {
  *   4. Root: should NOT be consumed
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const unfinishedTileStopSettlesRunTest = {
+const unfinishedTileStopSettlesRunTest = {
   name: 'unfinished-tile-stop-settles-run',
   description: 'A thread stopped mid-run keeps a Stop on its tile, and it settles the run',
   fixture: 'unit-test-fixture',
@@ -840,7 +840,7 @@ export const unfinishedTileStopSettlesRunTest = {
  *   5. Root: text "Understood."     ← the turn that finally reads the receipt
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const resumeAfterAnswerAppendsReceiptTest = {
+const resumeAfterAnswerAppendsReceiptTest = {
   name: 'thread-resume-after-answer-appends',
   description: 'Resuming a thread whose answer the parent already read appends a receipt instead of rewriting it',
   fixture: 'unit-test-fixture',

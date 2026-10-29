@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/msg"
+
+	"juggler/cmd/juggler/gitview/internal/clocks"
 )
 
 // Diff bounds. A diff is read to be looked at, so the ceilings are the size of a
@@ -56,23 +58,6 @@ const gitDiffMaxContext = 1 << 20
 // The code either side of the ceiling does not know what the ceiling is, so a
 // small one exercises it exactly.
 var gitDiffMaxBytes = 8 << 20
-
-// The diff's clocks, which are not the status card's. A card is polled in the
-// background and settles for the cheap answer, so it gives up quickly; a diff is
-// asked for once, by somebody waiting to look at it, and the patch it is allowed
-// to return runs to eight megabytes. Git reads the file for the metadata pass,
-// again for the patch and again for the tally behind a truncated one, and on a
-// loaded machine those reads take seconds rather than milliseconds. Refusing a
-// diff that another few seconds would have produced is the worse answer.
-//
-// Var rather than const so a test can lend itself more of them, as the review's
-// clocks are. A test that means to check what a diff says is not asking how fast
-// this machine's git is, and on a loaded runner those are different questions
-// with the same answer: a 502 naming the clock.
-var (
-	gitDiffPerCmd = 10 * time.Second // one git command's clock
-	gitDiffBudget = 30 * time.Second // the whole request's, across all of them
-)
 
 // gitAbsentMode is the mode git writes for the side of a change a file does not
 // exist on, and gitSymlinkMode the mode it writes for a symbolic link.
@@ -210,7 +195,7 @@ func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
 		return FileDiff{}, err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, gitDiffBudget)
+	ctx, cancel := context.WithTimeout(ctx, clocks.Diff.Budget)
 	defer cancel()
 
 	dir, ok := resolveRepoDir(ctx, root, repoRel)
@@ -234,7 +219,7 @@ func Diff(ctx context.Context, root string, req DiffRequest) (FileDiff, error) {
 		Context: unified, Hunks: []gitDiffHunk{},
 	}
 
-	scope, err := resolveScope(ctx, dir, asked, gitDiffPerCmd)
+	scope, err := resolveScope(ctx, dir, asked, clocks.Diff.PerCmd)
 	if err != nil {
 		return FileDiff{}, err
 	}
@@ -638,7 +623,7 @@ func gitDiffBase(ctx context.Context, dir string, budget time.Duration) (string,
 // cut; their patches still carry their own headers, which is less than this
 // knows but more than nothing.
 func gitDiffMetadata(ctx context.Context, dir string, scope resolvedScope) (map[string]gitFileMeta, error) {
-	out, err := gitRead(ctx, dir, gitDiffPerCmd, gitDiffMaxMeta, scope.diffArgs(
+	out, err := gitRead(ctx, dir, clocks.Diff.PerCmd, gitDiffMaxMeta, scope.diffArgs(
 		"--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", "--raw", "--abbrev", "-z")...)
 	if err != nil {
 		return nil, err
@@ -716,7 +701,7 @@ func gitRawStatus(letter string) string {
 // which is where a conflict lives: the diff of a conflicted file against HEAD is
 // an ordinary-looking patch whose added lines include the markers.
 func gitFileConflicted(ctx context.Context, dir, fileRel string) bool {
-	out, err := gitRead(ctx, dir, gitDiffPerCmd, 64*1024, "ls-files", "-u", "-z", "--", fileRel)
+	out, err := gitRead(ctx, dir, clocks.Diff.PerCmd, 64*1024, "ls-files", "-u", "-z", "--", fileRel)
 	return err == nil && len(out.Kept) > 0
 }
 
@@ -726,7 +711,7 @@ func gitNumstatCounts(ctx context.Context, dir string, scope resolvedScope, path
 	args := append(scope.diffArgs(
 		"--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", "--numstat", "-z",
 	), paths...)
-	out, err := gitRead(ctx, dir, gitDiffPerCmd, gitDiffMaxMeta, args...)
+	out, err := gitRead(ctx, dir, clocks.Diff.PerCmd, gitDiffMaxMeta, args...)
 	if err != nil {
 		return gitDiffstat{}, false
 	}
@@ -767,7 +752,7 @@ func gitFilePatch(ctx context.Context, dir string, scope resolvedScope, paths []
 		"--no-color", "--no-ext-diff", "--no-textconv", "--find-renames",
 		"--patch", "--unified="+strconv.Itoa(unified),
 	), paths...)
-	return gitRead(ctx, dir, gitDiffPerCmd, gitDiffMaxBytes, args...)
+	return gitRead(ctx, dir, clocks.Diff.PerCmd, gitDiffMaxBytes, args...)
 }
 
 // gitIsUntracked reports whether git has never been told about this path. A

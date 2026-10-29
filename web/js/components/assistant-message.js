@@ -100,5 +100,3 @@ class AssistantMessage extends BaseMessage {
 }
 
 customElements.define('assistant-message', AssistantMessage);
-
-export default AssistantMessage;

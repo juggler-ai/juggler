@@ -185,15 +185,6 @@ func holdYcrdtWatchdog() (release func()) {
 	}
 }
 
-// ycrdtWatchdogState reports how many holders the watchdog has and whether it
-// is running.
-func ycrdtWatchdogState() (holders int, running bool) {
-	g := &ycrdtWatchdog
-	g.lock <- struct{}{}
-	defer func() { <-g.lock }()
-	return g.holders, g.stop != nil
-}
-
 // runYcrdtWatchdog samples the real lock on the real clock until stop closes,
 // then stops its ticker and waits for the sampler to return.
 func runYcrdtWatchdog(stop <-chan struct{}) {

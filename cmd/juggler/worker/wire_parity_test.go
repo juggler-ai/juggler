@@ -59,10 +59,15 @@ type wireManifest struct {
 			ItemUntyped struct {
 				Keys []string `json:"keys"`
 			} `json:"itemUntyped"`
-			ModelConfig     []string `json:"modelConfig"`
-			Metadata        []string `json:"metadata"`
-			PendingItem     []string `json:"pendingItem"`
-			ProcessingState []string `json:"processingState"`
+			ModelConfig          []string `json:"modelConfig"`
+			Metadata             []string `json:"metadata"`
+			PendingItem          []string `json:"pendingItem"`
+			ProcessingState      []string `json:"processingState"`
+			ToolResult           []string `json:"toolResult"`
+			ErrorData            []string `json:"errorData"`
+			CompactionAccounting []string `json:"compactionAccounting"`
+			UndoState            []string `json:"undoState"`
+			DisplayData          []string `json:"displayData"`
 		} `json:"docKeys"`
 	} `json:"worker"`
 }
@@ -98,13 +103,20 @@ type workerSource struct {
 const docKeysFile = "doc_keys.go"
 
 // isDocKeyConst reports whether a package-level constant is a key constant:
-// one declared in doc_keys.go, or a metadata key named meta* and declared
-// beside the feature that owns it, where its documentation belongs.
+// one declared in doc_keys.go, a processingState key named runField* (declared
+// in run_entry.go with the accessors that read it), or a metadata key named
+// meta* and declared beside the feature that owns it, where its documentation
+// belongs.
 func isDocKeyConst(file, name string) bool {
 	if file == docKeysFile {
 		return true
 	}
-	return len(name) > 4 && strings.HasPrefix(name, "meta") && name[4] >= 'A' && name[4] <= 'Z'
+	for _, prefix := range []string{"meta", "runField"} {
+		if len(name) > len(prefix) && strings.HasPrefix(name, prefix) && name[len(prefix)] >= 'A' && name[len(prefix)] <= 'Z' {
+			return true
+		}
+	}
+	return false
 }
 
 func parseWorkerSource(t *testing.T) workerSource {
@@ -150,68 +162,13 @@ func parseWorkerSource(t *testing.T) workerSource {
 	return src
 }
 
-// keyForwarders are the functions that take a Y.Map key as a parameter and
-// pass it on to Get/Set/Delete, keyed by name to the index of that parameter.
-// A key reaches the doc through them as surely as through Get, so their key
-// arguments are held to the same rules. TestWireParityDocKeysAreConstants
-// checks each entry still names a string parameter of a function that exists.
-// Deliberately absent: UpdateToolActionDisplayDataRecursive, whose key is one
-// inside displayData — extension payload, not a doc key.
-var keyForwarders = map[string]int{
-	"threadFlag": 1, "threadString": 1, "setThreadFlag": 1, "SetThreadField": 1,
-	"setFlagOnUnfinishedFold": 1, "updateRunItem": 1, "updateTargetItemByID": 1,
-	"updateMessage": 1, "UpdateMessage": 1, "UpdateItemByID": 1, "UpdateItemByToolUseID": 1,
-	"UpdateItemByIDInArray": 2, "updateItemByIDInArray": 2,
-	"UpdateItemByToolUseIDInArray": 2, "updateItemByToolUseIDInArray": 2,
-	"UpdateItemByIDInThread": 2, "finalizeStuckRunningToolOnField": 1, "insertThread": 3,
-}
-
 var (
-	yMapMethods     = setOf("Get", "Set", "Delete", "Has")
-	metadataMethods = setOf("GetMetadata", "SetMetadata", "DeleteMetadata", "setMetadata", "getMetadataValue")
+	// yMapMethods are the Y.Map methods whose first argument is a key.
+	yMapMethods = setOf("Get", "Set", "Delete", "Has")
+	// metadataMethods are the document's metadata-map accessors: a key handed
+	// to one of them is a metadata key (docKeys.metadata).
+	metadataMethods = setOf("GetMetadata", "SetMetadata", "setMetadata", "getMetadataValue")
 )
-
-// keySite is one argument through which a Y.Map key reaches the doc.
-type keySite struct {
-	file     string
-	arg      ast.Expr
-	metadata bool // a key of the document's metadata map
-}
-
-// keySites calls fn for every key-bearing argument in the worker source: the
-// key of a Y.Map Get/Set/Delete/Has, of a metadata accessor, of a yMap* reader,
-// and of a keyForwarders call.
-func (s workerSource) keySites(fn func(keySite)) {
-	s.inspect(func(file string, n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok || len(call.Args) == 0 {
-			return true
-		}
-		name := ""
-		switch f := call.Fun.(type) {
-		case *ast.SelectorExpr:
-			name = f.Sel.Name
-			if yMapMethods[name] {
-				fn(keySite{file: file, arg: call.Args[0]})
-				return true
-			}
-			if metadataMethods[name] {
-				fn(keySite{file: file, arg: call.Args[0], metadata: true})
-				return true
-			}
-		case *ast.Ident:
-			name = f.Name
-			if strings.HasPrefix(name, "yMap") && len(call.Args) >= 2 {
-				fn(keySite{file: file, arg: call.Args[1]})
-				return true
-			}
-		}
-		if i, ok := keyForwarders[name]; ok && i < len(call.Args) {
-			fn(keySite{file: file, arg: call.Args[i]})
-		}
-		return true
-	})
-}
 
 // keyArg is the Y.Map key a call argument names: a string literal's value, a
 // doc_keys.go constant's value, or "" for anything else.
@@ -624,11 +581,11 @@ func TestWireParityPendingRequests(t *testing.T) {
 	requireAtLeast(t, "pending status/kind constants in use", constants, 8)
 }
 
-// TestWireParityDocKeys pins the Y.Map keys the worker reads and writes.
+// TestWireParityDocKeys pins the keys the worker reads and writes in the doc.
 // `item` is ConversationItem's json tags; every other group is what the source
-// uses through Get/Set/Delete/Has, the yMap* readers and the metadata
-// accessors. A key used without being declared fails, and so does a declared
-// key nothing uses any more.
+// uses at a key position (docFlow): a Y.Map key, a key of a Go map holding doc
+// state at any depth, or one handed on through a forwarder. A key used without
+// being declared fails, and so does a declared key nothing uses any more.
 func TestWireParityDocKeys(t *testing.T) {
 	m := loadWireManifest(t)
 	src := parseWorkerSource(t)
@@ -645,43 +602,43 @@ func TestWireParityDocKeys(t *testing.T) {
 	requireSameSet(t, "ConversationItem json tags (docKeys.item)", tags, setOf(keys.Item...))
 
 	used, meta := stringSet{}, stringSet{}
-	src.keySites(func(site keySite) {
-		v := src.keyArg(site.arg)
+	newDocFlow(src).keyPositions(func(_ string, e ast.Expr, via string) {
+		v := src.keyArg(e)
 		switch {
 		case v == "":
-		case site.metadata:
+		case metadataMethods[via]:
 			meta[v] = true
 		default:
 			used[v] = true
 		}
 	})
-	requireAtLeast(t, "Y.Map keys", used, 50)
+	requireAtLeast(t, "doc keys", used, 100)
 	requireAtLeast(t, "metadata keys", meta, 5)
 
-	declared := stringSet{}
-	for _, group := range [][]string{keys.Item, keys.ItemUntyped.Keys, keys.ModelConfig, keys.Metadata, keys.PendingItem} {
-		for _, k := range group {
-			declared[k] = true
-		}
+	groups := map[string][]string{
+		"itemUntyped":          keys.ItemUntyped.Keys,
+		"modelConfig":          keys.ModelConfig,
+		"pendingItem":          keys.PendingItem,
+		"processingState":      keys.ProcessingState,
+		"toolResult":           keys.ToolResult,
+		"errorData":            keys.ErrorData,
+		"compactionAccounting": keys.CompactionAccounting,
+		"undoState":            keys.UndoState,
+		"displayData":          keys.DisplayData,
 	}
-	if undeclared := used.missingFrom(declared); len(undeclared) > 0 {
-		t.Errorf("the worker uses Y.Map keys %v, which %s does not declare under worker.docKeys", undeclared, wireFixture)
-	}
-	for name, group := range map[string][]string{
-		"itemUntyped": keys.ItemUntyped.Keys,
-		"modelConfig": keys.ModelConfig,
-		"pendingItem": keys.PendingItem,
-	} {
-		if stale := setOf(group...).missingFrom(used); len(stale) > 0 {
+	usedOrMeta := stringSet{}
+	maps.Copy(usedOrMeta, used)
+	maps.Copy(usedOrMeta, meta)
+	declared := setOf(keys.Item...)
+	maps.Copy(declared, setOf(keys.Metadata...))
+	for name, group := range groups {
+		maps.Copy(declared, setOf(group...))
+		if stale := setOf(group...).missingFrom(usedOrMeta); len(stale) > 0 {
 			t.Errorf("docKeys.%s declares %v, which the worker no longer uses", name, stale)
 		}
 	}
-	usedOrMeta := stringSet{}
-	for k := range used {
-		usedOrMeta[k] = true
-	}
-	for k := range meta {
-		usedOrMeta[k] = true
+	if undeclared := used.missingFrom(declared); len(undeclared) > 0 {
+		t.Errorf("the worker uses doc keys %v, which %s does not declare under worker.docKeys", undeclared, wireFixture)
 	}
 	if extra := meta.missingFrom(setOf(keys.Metadata...)); len(extra) > 0 {
 		t.Errorf("the worker uses metadata keys %v, which docKeys.metadata does not declare", extra)
@@ -697,37 +654,38 @@ func TestWireParityDocKeys(t *testing.T) {
 	}
 }
 
-// TestWireParityDocKeysAreConstants requires every key that reaches the doc to
-// be named by a key constant (isDocKeyConst), so the constants are the whole
-// of the worker's key vocabulary and TestWireParityDocKeys compares that
-// vocabulary, not a scan for spellings. A string literal fails, and so does any
-// other package constant; a local variable or parameter passes, since it is how
-// a forwarder hands on the key its caller named. Out of scope: map literals
-// written into the doc whole (yNode copies, provider bodies), whose keys are
-// data rather than call arguments.
+// TestWireParityDocKeysAreConstants requires every key position in the worker
+// (docFlow: the keys of Y.Maps and of every Go map that is or becomes doc state,
+// and the arguments of the forwarders it derives) to be named by a key constant
+// (isDocKeyConst), so the constants are the whole of the worker's key
+// vocabulary and TestWireParityDocKeys compares that vocabulary, not a scan for
+// spellings. A string literal fails, including one reaching the position
+// through a local variable, and so does any other package constant.
 func TestWireParityDocKeysAreConstants(t *testing.T) {
 	src := parseWorkerSource(t)
 
-	for name, i := range keyForwarders {
-		if !src.funcHasStringParam(name, i) {
-			t.Errorf("keyForwarders[%q] = %d, but no function %s has a string parameter there", name, i, name)
+	for name := range metadataMethods {
+		if !src.funcHasStringParam(name, 0) {
+			t.Errorf("metadataMethods has %q, but no function %s takes a string key first", name, name)
 		}
 	}
 
 	var bad []string
-	src.keySites(func(site keySite) {
-		if site.file == docKeysFile {
+	seen := map[ast.Expr]bool{}
+	newDocFlow(src).keyPositions(func(file string, e ast.Expr, _ string) {
+		if seen[e] {
 			return
 		}
-		pos := src.fset.Position(site.arg.Pos())
-		switch a := site.arg.(type) {
+		seen[e] = true
+		pos := src.fset.Position(e.Pos())
+		switch a := e.(type) {
 		case *ast.BasicLit:
 			if a.Kind == token.STRING {
-				bad = append(bad, fmt.Sprintf("%s:%d: key %s is a literal", site.file, pos.Line, a.Value))
+				bad = append(bad, fmt.Sprintf("%s:%d: key %s is a literal", file, pos.Line, a.Value))
 			}
 		case *ast.Ident:
 			if src.otherConsts[a.Name] {
-				bad = append(bad, fmt.Sprintf("%s:%d: key %s is a constant that is not a key constant", site.file, pos.Line, a.Name))
+				bad = append(bad, fmt.Sprintf("%s:%d: key %s is a constant that is not a key constant", file, pos.Line, a.Name))
 			}
 		}
 	})

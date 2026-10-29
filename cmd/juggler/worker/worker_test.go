@@ -1121,3 +1121,9 @@ func TestBuildLLMRequest_ForcedToolChoice(t *testing.T) {
 	})
 
 }
+
+// buildLLMRequest is buildLLMRequestWithIntent for a request that is not an
+// explicit continuation.
+func (r *run) buildLLMRequest(ctxResult *ContextResult, tools []ToolDefinition, txnID string, bypassContextGuard bool) json.RawMessage {
+	return r.buildLLMRequestWithIntent(ctxResult, tools, txnID, bypassContextGuard, false)
+}

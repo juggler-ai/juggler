@@ -4,15 +4,12 @@
 
 import { escapeHtml } from '../../sdk/lib/html.js';
 
-/** Usage snapshots older than this are stale. */
-export const USAGE_STALE_MS = 5 * 60 * 1000;
-
 /**
  * Human-friendly "resets in …" string from an ISO reset timestamp.
  * @param {string|undefined} resetsAt
  * @returns {string} e.g. "Resets in 3h 12m", or '' when unknown.
  */
-export function formatResetIn(resetsAt) {
+function formatResetIn(resetsAt) {
   if (!resetsAt) return '';
   const ms = new Date(resetsAt).getTime() - Date.now();
   if (!Number.isFinite(ms)) return '';
@@ -36,23 +33,11 @@ export function formatPlan(plan) {
 }
 
 /**
- * Whether a usage snapshot is older than {@link USAGE_STALE_MS}.
- * A missing or invalid timestamp is treated as fresh.
- * @param {import('../services/usage-stats-cache.js').UsageStats} usage
- * @returns {boolean} True when the snapshot is older than the stale window.
- */
-export function isUsageStale(usage) {
-  if (!usage || !usage.updatedAt) return false;
-  const age = Date.now() - new Date(usage.updatedAt).getTime();
-  return age >= USAGE_STALE_MS;
-}
-
-/**
  * Whether a stat's window has passed its reset time.
  * @param {import('../services/usage-stats-cache.js').UsageStat} stat
  * @returns {boolean} True once `resetsAt` is in the past.
  */
-export function hasWindowRolledOver(stat) {
+function hasWindowRolledOver(stat) {
   if (!stat?.resetsAt) return false;
   const at = new Date(stat.resetsAt).getTime();
   return Number.isFinite(at) && at < Date.now();

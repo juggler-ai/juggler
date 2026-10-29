@@ -40,8 +40,11 @@ const { origin, importBase, projectRoot, code: rawCode, timeoutMs, descriptors }
 // sandboxImport's origin URLs resolve. Runs on a dedicated loader thread.
 register('./engine-sandbox-loader-hooks.mjs', import.meta.url, { data: { origin } });
 
-/** post one message to the main thread. @param {any} msg */
-const post = (msg) => parentPort.postMessage(msg);
+/**
+ * Post one message to the main thread.
+ * @param {{ kind: string } & Record<string, unknown>} msg
+ */
+const post = (msg) => { parentPort.postMessage(msg); };
 
 // ── POSIX path (pure; mirrors web/js/services/path.js and sandbox.html) ──────
 const path = buildPosixPath();
@@ -79,7 +82,7 @@ function rpc(name, method, args) {
  * or reject specifiers that would reach a Node built-in or another origin. This
  * is the sole import path for sandboxed code (see the file header).
  * @param {string} spec - The import specifier from user code
- * @returns {Promise<any>} The imported module namespace
+ * @returns {Promise<Record<string, unknown>>} The imported module namespace
  */
 function sandboxImport(spec) {
   if (typeof spec !== 'string') return Promise.reject(new Error('import specifier must be a string'));
@@ -104,7 +107,10 @@ function sandboxImport(spec) {
   return import(url);
 }
 
-/** @param {string} spec @returns {boolean} True for a bare Node built-in name. */
+/**
+ * @param {string} spec
+ * @returns {boolean} True for a bare Node built-in name.
+ */
 function isBuiltinName(spec) {
   return /^(assert|buffer|child_process|cluster|console|constants|crypto|dgram|diagnostics_channel|dns|domain|events|fs|http|http2|https|inspector|module|net|os|path|perf_hooks|process|punycode|querystring|readline|repl|stream|string_decoder|sys|timers|tls|trace_events|tty|url|util|v8|vm|wasi|worker_threads|zlib)(\/|$)/.test(spec);
 }
@@ -112,7 +118,8 @@ function isBuiltinName(spec) {
 /**
  * `require` in user code. There is none in a module worker; the binding exists
  * so the error says what to use instead of "require is not defined".
- * @param {unknown} spec @returns {never}
+ * @param {unknown} spec
+ * @returns {never} Nothing: it always throws
  */
 function sandboxRequire(spec) {
   throw new Error(notNodeMsg('require', String(spec)));
@@ -121,7 +128,8 @@ function sandboxRequire(spec) {
 /**
  * Whether a binding is one a script is told about. The import and require
  * shims are plumbing, not things to use.
- * @param {string} name @returns {boolean}
+ * @param {string} name
+ * @returns {boolean} True when errors list it
  */
 function isOfferedBinding(name) {
   return name !== 'sandboxImport' && name !== 'require';
@@ -137,14 +145,14 @@ function inScopeList() {
  * wording matches sandbox.html's.
  * @param {string} verb - 'import' or 'require'
  * @param {string} spec - What the script asked for
- * @returns {string}
+ * @returns {string} The message
  */
 function notNodeMsg(verb, spec) {
   return `Couldn't ${verb} "${spec}": this sandbox is not Node. Use what is already in scope instead: ${inScopeList()}.`;
 }
 
 // ── Bindings injected into user code ─────────────────────────────────────────
-/** @type {Record<string, any>} */
+/** @type {Record<string, unknown>} */
 const bindings = { path, projectRoot, sandboxImport, require: sandboxRequire };
 for (const d of descriptors || []) {
   bindings[d.name] = d.callable
@@ -185,7 +193,10 @@ function captureConsole() {
   let lines = 0;
   let chars = 0;
   let cut = false;
-  /** @param {unknown} a @returns {string} */
+  /**
+   * @param {unknown} a
+   * @returns {string} One console argument as text
+   */
   const fmt = (a) => {
     if (typeof a === 'string') return a;
     if (a instanceof Error) return `${a.name}: ${a.message}`;
@@ -196,7 +207,10 @@ function captureConsole() {
       return String(a);
     }
   };
-  /** @param {string} prefix @returns {(...args: unknown[]) => void} */
+  /**
+   * @param {string} prefix
+   * @returns {(...args: unknown[]) => void} A console method writing lines with that prefix
+   */
   const writer = (prefix) => (...args) => {
     if (cut) return;
     let text = prefix + args.map(fmt).join(' ');
@@ -210,7 +224,7 @@ function captureConsole() {
     chars += text.length;
     post({ kind: 'console', text });
   };
-  const c = /** @type {any} */ (globalThis.console);
+  const c = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (globalThis.console));
   for (const m of ['log', 'info', 'debug', 'trace', 'dir', 'table']) c[m] = writer('');
   c.warn = writer('[warn] ');
   c.error = writer('[error] ');
@@ -253,10 +267,10 @@ function runUserCode() {
 /**
  * Remove Node's built-in-module escape hatches from the global scope. Returns
  * true only when the `process` global is gone afterward.
- * @returns {boolean}
+ * @returns {boolean} Whether `process` is gone
  */
 function neuterEscapeHatches() {
-  const gt = /** @type {any} */ (globalThis);
+  const gt = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (globalThis));
   for (const name of [
     'process', 'fetch', 'WebSocket', 'EventSource', 'XMLHttpRequest',
     'navigator', 'Worker', 'SharedWorker',
@@ -276,7 +290,7 @@ function neuterEscapeHatches() {
  * in AsyncFunction source, so an identifier followed by a parenthesis is the
  * only form that needs rewriting.
  * @param {string} source
- * @returns {string}
+ * @returns {string} The source with each dynamic import calling sandboxImport
  */
 function rewriteDynamicImports(source) {
   let out = '';
@@ -317,10 +331,18 @@ function rewriteDynamicImports(source) {
   return out;
 }
 
-/** @param {string | undefined} c */
+/**
+ * @param {string | undefined} c
+ * @returns {boolean} True when `c` can continue an identifier
+ */
 function isIdentifierPart(c) { return !!c && /[A-Za-z0-9_$]/.test(c); }
 
-/** Skip whitespace and line/block comments. @param {string} s @param {number} i */
+/**
+ * Skip whitespace and line/block comments.
+ * @param {string} s
+ * @param {number} i
+ * @returns {number} The index of the first character past them
+ */
 function skipTrivia(s, i) {
   while (i < s.length) {
     if (/\s/.test(s[i])) { i++; continue; }
@@ -339,7 +361,13 @@ function skipTrivia(s, i) {
   return i;
 }
 
-/** Skip a quoted string or template literal, honouring escapes. @param {string} s @param {number} i @param {string} quote */
+/**
+ * Skip a quoted string or template literal, honouring escapes.
+ * @param {string} s
+ * @param {number} i - The index of its opening quote
+ * @param {string} quote
+ * @returns {number} The index just past its closing quote
+ */
 function skipString(s, i, quote) {
   i++;
   while (i < s.length) {
@@ -352,7 +380,10 @@ function skipString(s, i, quote) {
 
 // ── Error helpers (ported from sandbox.html) ─────────────────────────────────
 
-/** @param {unknown} e @returns {string} */
+/**
+ * @param {unknown} e
+ * @returns {string} The error's message
+ */
 function errMsg(e) {
   if (e instanceof Error) return e.message;
   if (typeof e === 'string') return e;
@@ -366,7 +397,8 @@ function errMsg(e) {
  * declare a const variable twice: 'x'" (or "let"). When the name is one the
  * sandbox injected, the script almost always meant to import or require it:
  * say that it is already there.
- * @param {unknown} e @returns {string}
+ * @param {unknown} e
+ * @returns {string} The message
  */
 function compileErrMsg(e) {
   const m = errMsg(e);
@@ -381,7 +413,8 @@ function compileErrMsg(e) {
 /**
  * Walk a value for the first thenable and describe where it sits (e.g. .hits.foo
  * or [0]). Bounded and cycle-safe.
- * @param {unknown} root @returns {string}
+ * @param {unknown} root
+ * @returns {string} The thenable's path, or '' when there is none
  */
 function findThenablePath(root) {
   const seen = new Set();
@@ -390,13 +423,13 @@ function findThenablePath(root) {
   while (stack.length && budget-- > 0) {
     const { v, p } = stack.pop();
     if (v === null || (typeof v !== 'object' && typeof v !== 'function')) continue;
-    if (typeof (/** @type {any} */ (v)).then === 'function') return p || '(the returned value)';
+    if (typeof (/** @type {{ then?: unknown }} */ (v)).then === 'function') return p || '(the returned value)';
     if (typeof v === 'function' || seen.has(v)) continue;
     seen.add(v);
     if (Array.isArray(v)) {
       for (let i = 0; i < v.length; i++) stack.push({ v: v[i], p: `${p}[${i}]` });
     } else {
-      for (const k of Object.keys(v)) stack.push({ v: /** @type {any} */ (v)[k], p: `${p}.${k}` });
+      for (const k of Object.keys(v)) stack.push({ v: /** @type {Record<string, unknown>} */ (v)[k], p: `${p}.${k}` });
     }
   }
   return '';
@@ -404,7 +437,9 @@ function findThenablePath(root) {
 
 /**
  * Explain a non-cloneable return value — almost always an un-awaited Promise.
- * @param {unknown} e @param {unknown} value @returns {string}
+ * @param {unknown} e
+ * @param {unknown} value
+ * @returns {string} The message
  */
 function returnValueErrMsg(e, value) {
   const at = findThenablePath(value);
@@ -418,12 +453,15 @@ function returnValueErrMsg(e, value) {
 
 /**
  * Build the pure POSIX path helper exposed to sandboxed code.
- * @returns {Record<string, any>}
+ * @returns {Record<string, string | Function>} The helper, shaped like Node's path.posix
  */
 function buildPosixPath() {
   const sep = '/';
   const delimiter = ':';
-  /** @param {string} p */
+  /**
+   * @param {string} p
+   * @returns {string} The path normalised
+   */
   function normalise(p) {
     if (!p) return '.';
     const isAbs = p.startsWith(sep);
@@ -439,9 +477,15 @@ function buildPosixPath() {
     if (isAbs) result = sep + result;
     return result || (isAbs ? sep : '.');
   }
-  /** @param {...string} segments */
+  /**
+   * @param {...string} segments
+   * @returns {string} The segments joined
+   */
   function join(...segments) { return normalise(segments.filter(Boolean).join(sep)); }
-  /** @param {...string} segments */
+  /**
+   * @param {...string} segments
+   * @returns {string} The absolute path they resolve to
+   */
   function resolvePath(...segments) {
     let r = '';
     for (let i = segments.length - 1; i >= 0; i--) {
@@ -453,7 +497,10 @@ function buildPosixPath() {
     if (!r.startsWith(sep)) r = sep + r;
     return normalise(r);
   }
-  /** @param {string} p */
+  /**
+   * @param {string} p
+   * @returns {string} The directory part
+   */
   function dirname(p) {
     if (!p) return '.';
     const idx = p.lastIndexOf(sep);
@@ -461,7 +508,11 @@ function buildPosixPath() {
     if (idx === 0) return sep;
     return p.slice(0, idx);
   }
-  /** @param {string} p @param {string} [ext] */
+  /**
+   * @param {string} p
+   * @param {string} [ext]
+   * @returns {string} The last segment, less `ext`
+   */
   function basename(p, ext) {
     if (!p) return '';
     let base = p;
@@ -471,14 +522,21 @@ function buildPosixPath() {
     if (ext && base.endsWith(ext)) base = base.slice(0, -ext.length);
     return base;
   }
-  /** @param {string} p */
+  /**
+   * @param {string} p
+   * @returns {string} The extension, with its dot
+   */
   function extname(p) {
     const base = basename(p);
     const dotIdx = base.lastIndexOf('.');
     if (dotIdx <= 0) return '';
     return base.slice(dotIdx);
   }
-  /** @param {string} from @param {string} to */
+  /**
+   * @param {string} from
+   * @param {string} to
+   * @returns {string} The path from `from` to `to`
+   */
   function relative(from, to) {
     const fromParts = normalise(from).split(sep).filter(Boolean);
     const toParts = normalise(to).split(sep).filter(Boolean);
@@ -489,7 +547,10 @@ function buildPosixPath() {
     parts.push(...toParts.slice(common));
     return parts.join(sep) || '.';
   }
-  /** @param {string} p */
+  /**
+   * @param {string} p
+   * @returns {boolean} True for a path from the root
+   */
   function isAbsolute(p) { return typeof p === 'string' && p.startsWith(sep); }
   return { sep, delimiter, join, resolve: resolvePath, dirname, basename, extname, relative, isAbsolute, normalise, normalize: normalise };
 }

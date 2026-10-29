@@ -48,7 +48,7 @@ export const TYPE_COLORS = {
  * @param {IconBoxOptions} options - Icon box configuration
  * @returns {HTMLDivElement} The icon box element
  */
-export function createIconBox(options) {
+function createIconBox(options) {
   const iconBox = document.createElement('div');
   iconBox.className = `message-icon-box color-${options.color}`;
 

@@ -215,6 +215,28 @@ export function createFileSource(fields) {
 }
 
 /**
+ * The fields of a `read` result that {@link fileSourceFromReadResult} reads,
+ * covering both shapes it accepts. Every one is optional: a result persisted
+ * before the read op reported `mime` and `isBinary` lacks them, and may carry
+ * `isImage`, `attachment` and a baked-in `warning` instead.
+ * @typedef {object} ReadResultFields
+ * @property {string} [path] - Path as the read op reported it
+ * @property {string} [content] - Body, when the result carried one
+ * @property {string} [language] - Server-detected language
+ * @property {string} [mime] - Server-reported mime ('' when unknown)
+ * @property {number} [size] - Bytes on disk
+ * @property {boolean} [isBinary] - Server's byte-sniff result
+ * @property {boolean} [isImage] - Legacy flag: the result is an inline image
+ * @property {boolean} [exists] - False when the path did not resolve to a file
+ * @property {number} [lineOffset] - 1-indexed first line of `content`
+ * @property {number} [lineCount] - Lines present in `content`
+ * @property {number} [totalLines] - Total lines in the whole file
+ * @property {string|null} [warning] - Explanation baked into a persisted result
+ * @property {string} [imageBase64] - An approved image's bytes, inline
+ * @property {{id: string, mime?: string, bytes?: number}} [attachment] - Stored asset ref for an image result
+ */
+
+/**
  * Build a FileSource from a `read` tool result.
  *
  * **This function reads persisted documents.** `createPropertiesPanelElement`
@@ -223,12 +245,13 @@ export function createFileSource(fields) {
  * baked-in `warning` string, an `isImage` flag with an `attachment` AssetRef,
  * and no `mime`. Normalising both shapes here is the single compatibility shim
  * for that history — every viewer downstream sees one shape.
- * @param {Record<string, any>} result - A ReadFileResult (current or legacy shape)
+ * @param {ReadResultFields|null|undefined} result - A ReadFileResult (current or legacy shape)
  * @param {string} absPath - Absolute path resolved by the caller
  * @param {{assetURL?: (id: string) => string, conversationId?: string, access?: FileAccess}} [opts] - Asset URL builder (or the conversation whose assets to build against), plus why an out-of-project path is readable
  * @returns {FileSource} Normalised file source
  */
 export function fileSourceFromReadResult(result, absPath, opts = {}) {
+  /** @type {ReadResultFields} */
   const data = result || {};
   const path = data.path || '';
 

@@ -52,7 +52,6 @@ export async function runTests(_ctx) {
   const prefs = await import('../../js/services/prefs.js');
   const {
     scopedKey, resolvePref,
-    getTabPref, setTabPref,
     getDevicePref, setDevicePref,
     getWindowPref, setWindowPref, cachedWindowPref,
     getUserPref, setUserPref, cachedUserPref,
@@ -179,14 +178,6 @@ export async function runTests(_ctx) {
     window.__projectKey = 'testproject';
 
     // --- the synchronous realms -------------------------------------------
-
-    await run('a tab preference round-trips', () => {
-      reset();
-      const name = uniqueName();
-      eq(getTabPref(name, 'default'), 'default', 'unset');
-      setTabPref(name, { a: 1 });
-      eq(getTabPref(name, null), { a: 1 }, 'stored');
-    });
 
     await run('a device preference round-trips and is scoped', () => {
       reset();
@@ -350,7 +341,7 @@ export async function runTests(_ctx) {
       reset();
       const name = uniqueName();
       respond = () => ({ status: 200, body: { ui: { [name]: 'set before the realm existed' } } });
-      eq(await prefs.getMachinePref(name, null), 'set before the realm existed', 'the stored value');
+      eq(await prefs.reconcilePref('machine', name, 'juggler-test-pref-changed'), 'set before the realm existed', 'the stored value');
     });
 
     await run('a remote viewer\u2019s machine preference never reaches the server', async () => {
@@ -369,12 +360,12 @@ export async function runTests(_ctx) {
       // arrives with its own value — which must not overwrite this device's.
       __resetPrefsForTests();
       respond = () => ({ status: 200, body: { ui: { [name]: 'the desktop\u2019s' } } });
-      eq(await prefs.getMachinePref(name, null), 'mine', 'after the reload');
+      eq(await prefs.reconcilePref('machine', name, 'juggler-test-pref-changed'), 'mine', 'after the reload');
       eq(prefs.cachedMachinePref(name, null), 'mine', 'and synchronously');
       adoptGlobalSettings({ ui: { [name]: 'the desktop\u2019s, changed again' } });
       eq(prefs.cachedMachinePref(name, null), 'mine', 'after the desktop changed it');
       __resetPrefsForTests();
-      eq(await prefs.getMachinePref(name, null), 'mine', 'and after another reload');
+      eq(await prefs.reconcilePref('machine', name, 'juggler-test-pref-changed'), 'mine', 'and after another reload');
     });
 
     // The desktop app's Connect to Server window is a native window, but its
@@ -391,7 +382,7 @@ export async function runTests(_ctx) {
       eq(localStorage.getItem(`${name}@viewer`), '"mine"', 'stored as this device\u2019s own copy');
       __resetPrefsForTests();
       respond = () => ({ status: 200, body: { ui: { [name]: 'the host\u2019s' } } });
-      eq(await prefs.getMachinePref(name, null), 'mine', 'after a relaunch');
+      eq(await prefs.reconcilePref('machine', name, 'juggler-test-pref-changed'), 'mine', 'after a relaunch');
     });
 
     await run('a desktop window on another machine ranks its own window preference first', async () => {
@@ -409,7 +400,7 @@ export async function runTests(_ctx) {
       reset(false);
       const name = uniqueName();
       respond = () => ({ status: 200, body: { ui: { [name]: 'the desktop\u2019s' } } });
-      eq(await prefs.getMachinePref(name, null), 'the desktop\u2019s', 'the starting value');
+      eq(await prefs.reconcilePref('machine', name, 'juggler-test-pref-changed'), 'the desktop\u2019s', 'the starting value');
     });
 
     // --- a document written in another window ------------------------------

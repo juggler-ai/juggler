@@ -21,7 +21,7 @@ import (
 // the first-init path so the two call sites stay in sync.
 func (w *ConversationWorker) sendReadyWithDocMetadata() {
 	metadata := make(map[string]any)
-	for _, key := range []string{"created", "defaultModelConfig", "currentStrategyId"} {
+	for _, key := range []string{keyCreated, keyDefaultModelConfig, keyCurrentStrategyID} {
 		if v := w.doc.GetMetadata(key); v != nil {
 			metadata[key] = v
 		}
@@ -171,17 +171,17 @@ func (r *run) handleInit(payload json.RawMessage) {
 		r.doc.GetMetadata(keyDefaultModelConfig) == nil &&
 		r.doc.GetMetadata(keyModelConfig) == nil {
 		seed := map[string]any{
-			"provider": msg.Conversation.ModelConfig.Provider,
-			"model":    msg.Conversation.ModelConfig.Model,
+			keyProvider: msg.Conversation.ModelConfig.Provider,
+			keyModel:    msg.Conversation.ModelConfig.Model,
 		}
 		// Thinking and ServiceTier ride with the pair only when explicit —
 		// absent means the model's default level / standard serving, matching
 		// the live modelConfig shape.
 		if msg.Conversation.ModelConfig.Thinking != "" {
-			seed["thinking"] = msg.Conversation.ModelConfig.Thinking
+			seed[keyThinking] = msg.Conversation.ModelConfig.Thinking
 		}
 		if msg.Conversation.ModelConfig.ServiceTier != "" {
-			seed["serviceTier"] = msg.Conversation.ModelConfig.ServiceTier
+			seed[keyServiceTier] = msg.Conversation.ModelConfig.ServiceTier
 		}
 		r.doc.SetMetadata(keyDefaultModelConfig, seed)
 	}
@@ -1047,8 +1047,8 @@ func (w *ConversationWorker) resetRunningToolsForReattach() {
 		}
 		return true
 	}, map[string]any{
-		"state":            StateApproved,
-		"runningStartedAt": nil,
+		keyState:            StateApproved,
+		keyRunningStartedAt: nil,
 	})
 
 	for _, id := range reset {
@@ -1458,21 +1458,12 @@ func (w *ConversationWorker) handleRetryToolApproval(payload json.RawMessage) {
 		return
 	}
 
-	// Empty state = "not yet evaluated". The frontend reducer's empty-state
-	// branch re-runs handleNewToolAction, which rebuilds approvalOptions +
-	// displayData and writes 'pending'. Clearing the derived fields (result,
-	// approvalResponse, approvalOptions, displayData) makes the re-ask look
-	// brand-new so a fresh approval form is derived from the immutable toolInput.
-	// The hook record goes too: re-evaluation runs the beforeTool hooks again and
-	// writes its own.
-	w.resetToolActionAndRedrive(msg.ToolUseID, map[string]any{
-		"state":            StateUnevaluated,
-		"result":           nil,
-		"approvalResponse": nil,
-		"approvalOptions":  nil,
-		"displayData":      nil,
-		"hooks":            nil,
-	})
+	// The re-ask every pending tool gets on a strategy change (reaskFields),
+	// plus the result: this action already completed, and its answer must not
+	// be reused.
+	fields := reaskFields()
+	fields[keyResult] = nil
+	w.resetToolActionAndRedrive(msg.ToolUseID, fields)
 }
 
 // handleRetryToolAction resets a tool action for re-run. It writes the
@@ -1502,9 +1493,9 @@ func (w *ConversationWorker) handleRetryToolAction(payload json.RawMessage) {
 	// carrying on from the prior run — and if the engine is slow to re-claim,
 	// the viewer shows a plain "Running…" instead of a stale climbing number.
 	w.resetToolActionAndRedrive(msg.ToolUseID, map[string]any{
-		"state":            StateApproved,
-		"result":           nil,
-		"runningStartedAt": nil,
+		keyState:            StateApproved,
+		keyResult:           nil,
+		keyRunningStartedAt: nil,
 	})
 }
 
@@ -1570,10 +1561,10 @@ func (w *ConversationWorker) handleUpdateToolActionForRetry(payload json.RawMess
 
 	fields := map[string]any{}
 	if msg.ApprovalOptions != nil {
-		fields["approvalOptions"] = msg.ApprovalOptions
+		fields[keyApprovalOptions] = msg.ApprovalOptions
 	}
 	if msg.DisplayData != nil {
-		fields["displayData"] = msg.DisplayData
+		fields[keyDisplayData] = msg.DisplayData
 	}
 	if len(fields) > 0 {
 		w.doc.UpdateToolActionFieldsRecursive(msg.ToolUseID, fields)
@@ -1595,5 +1586,5 @@ func (w *ConversationWorker) handleBackgroundTaskSnapshot(payload json.RawMessag
 	if snapshot.Status != "running" && snapshot.Status != "completed" && snapshot.Status != "failed" {
 		return
 	}
-	w.doc.UpdateToolActionDisplayDataRecursive(snapshot.ToolUseID, "backgroundTask", displayData)
+	w.doc.UpdateToolActionDisplayDataRecursive(snapshot.ToolUseID, keyBackgroundTask, displayData)
 }

@@ -22,7 +22,7 @@ import { textResponse } from '../utilities/integration-test-runner.js';
  * message in between.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const continueBtnTriggersLLM = {
+const continueBtnTriggersLLM = {
   name: 'continue-btn-triggers-llm',
   description: 'Continue button sends isContinuation=true and produces a second assistant message',
   fixture: 'unit-test-fixture',

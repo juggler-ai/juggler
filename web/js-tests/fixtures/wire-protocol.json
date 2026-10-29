@@ -82,7 +82,7 @@
     },
 
     "docKeys": {
-      "$comment": "Y.Map keys the worker reads or writes, each named in Go by a key constant (doc_keys.go, or a meta* one beside its feature). `item` must equal ConversationItem's json tags exactly; every other group must equal what the worker source actually uses.",
+      "$comment": "Keys the worker reads or writes in the doc — of Y.Maps and of the values stored under them, at any depth — each named in Go by a key constant (doc_keys.go, a runField* one in run_entry.go, or a meta* one beside its feature). `item` must equal ConversationItem's json tags exactly; every other group must equal what the worker source actually uses.",
       "item": [
         "type", "itemId", "content", "source", "summary", "timestamp", "toolUseId", "toolName", "toolInput",
         "state", "category", "approvalOptions", "displayData", "isError", "data", "cancelled", "result", "hooks",
@@ -97,7 +97,7 @@
         "$comment": "Keys the worker reads or writes on item maps that ConversationItem does not declare.",
         "keys": [
           "compactionAccounting", "compactionUnsummarized", "contextTokens", "resultFedTurn", "resultTokens",
-          "runningEpoch", "runningStartedAt", "notBefore", "hold", "sendId"
+          "runningEpoch", "runningStartedAt", "notBefore", "hold", "sendId", "approvalResponse"
         ]
       },
       "modelConfig": ["model", "provider", "serviceTier", "thinking"],
@@ -114,8 +114,19 @@
       "processingState": [
         "status", "message", "code", "text", "startedAt", "threadItemId", "activity", "claimedAt", "runs",
         "politeStops", "politePending", "explicitContinuation", "description", "phase", "inputTokens",
-        "outputTokens", "cachedTokens", "raiseMaxOutputTokens"
-      ]
+        "outputTokens", "cachedTokens", "raiseMaxOutputTokens", "landed"
+      ],
+      "toolResult": ["content", "isError", "cancelled", "fullResult", "state"],
+      "errorData": [
+        "duration", "provider", "model", "errorKind", "resetAt", "message", "compactionReason", "compactionCalls",
+        "compactionSpend", "compactionUsage"
+      ],
+      "compactionAccounting": [
+        "passes", "calls", "estimatedSpend", "durationMs", "usage", "sourceFingerprint", "inputTokens", "outputTokens",
+        "cachedTokens", "cacheWriteTokens"
+      ],
+      "undoState": ["canUndo", "canRedo", "seq"],
+      "displayData": ["backgroundTask"]
     }
   },
 

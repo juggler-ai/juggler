@@ -25,11 +25,7 @@ import (
 func TestReorderConversations_DoesNotResurrectBinnedConv(t *testing.T) {
 	projectDir := t.TempDir()
 
-	store, err := NewFileSessionStore(projectDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mgr, err := NewSessionManager(SessionManagerConfig{Store: store, ProjectPath: projectDir})
+	mgr, err := NewSessionManagerForPath(projectDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,11 +66,7 @@ func TestReorderConversations_DoesNotResurrectBinnedConv(t *testing.T) {
 func TestReorderConversations_StillReordersLiveConvs(t *testing.T) {
 	projectDir := t.TempDir()
 
-	store, err := NewFileSessionStore(projectDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mgr, err := NewSessionManager(SessionManagerConfig{Store: store, ProjectPath: projectDir})
+	mgr, err := NewSessionManagerForPath(projectDir)
 	if err != nil {
 		t.Fatal(err)
 	}

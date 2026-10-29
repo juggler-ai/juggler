@@ -17,7 +17,7 @@
  * @module unit-tests/reply-suggestions-test
  */
 
-import { assert, waitFor } from '../utilities/test-helpers.js';
+import { assert, waitFor, nextTask } from '../utilities/test-helpers.js';
 import {
   buildSuggestionsPrompt,
   parseSuggestions,
@@ -160,6 +160,17 @@ function makeController({
     },
   });
 
+  // Count the stillness poll's ticks. A tick is the latest thing that could
+  // still start a call: the dwell is zero and the generator answers in
+  // microtasks, so a call armed before one tick has asked, and its answer has
+  // been fenced and shown, by the end of the next.
+  let ticks = 0;
+  const realTick = /** @type {any} */ (controller)._tick.bind(controller);
+  /** @type {any} */ (controller)._tick = () => {
+    ticks++;
+    realTick();
+  };
+
   return {
     controller,
     conv,
@@ -168,17 +179,26 @@ function makeController({
     seenSignals,
     get calls() { return calls; },
     last: () => emitted[emitted.length - 1],
+    /**
+     * Wait for two more poll ticks: past every call already armed and past the
+     * first chance the poll has to start one of its own. A case asserting that
+     * nothing was asked, shown or cleared waits here, for the event that would
+     * have carried it.
+     * @returns {Promise<void>} Resolves after the second tick from now.
+     */
+    async quiet() {
+      const from = ticks;
+      await waitFor(() => ticks >= from + 2, () => `two stillness-poll ticks (saw ${ticks - from})`);
+    },
+    /**
+     * Wait for the controller to show something.
+     * @param {string} what - What is expected to arrive.
+     * @returns {Promise<void>} Resolves once the row has been handed a non-empty answer.
+     */
+    async shown(what) {
+      await waitFor(() => (emitted[emitted.length - 1] || []).length > 0, what);
+    },
   };
-}
-
-/**
- * Let the dwell timer and the generator's promise settle.
- * @param {number} [ms] - How long to wait; the default covers a zero dwell, and
- *   a poll-driven test needs a few of the harness's 5ms ticks instead.
- * @returns {Promise<void>} Resolves after the microtask and timer queues drain.
- */
-function settle(ms = 5) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
@@ -388,7 +408,7 @@ export async function runTests(_ctx) {
     const h = makeController();
     h.controller.attach(h.conv);
     h.conv.fire();
-    await settle();
+    await h.shown('the finished turn\'s suggestions to reach the row');
     assert(h.calls === 1, `one turn, one call, got ${h.calls}`);
     assert(JSON.stringify(h.last()) === JSON.stringify(['add a test']),
       `the suggestions reach the row, got ${JSON.stringify(h.last())}`);
@@ -400,7 +420,7 @@ export async function runTests(_ctx) {
     h.controller.attach(h.conv);
     h.conv.processingState = { status: 'running' };
     h.conv.fire();
-    await settle();
+    await h.quiet();
     assert(h.calls === 0, 'mid-turn is not a moment to suggest a reply');
     h.controller.detach();
   });
@@ -409,10 +429,10 @@ export async function runTests(_ctx) {
     const h = makeController();
     h.controller.attach(h.conv);
     h.conv.fire();
-    await settle();
+    await h.shown('the first observation\'s answer to reach the row');
     h.conv.fire();
     h.conv.fire();
-    await settle();
+    await h.quiet();
     // A streaming conversation emits several metadata changes a second; without
     // the per-turn latch each one would be another billed call.
     assert(h.calls === 1, `repeated observations of one turn must not re-ask, got ${h.calls}`);
@@ -426,7 +446,7 @@ export async function runTests(_ctx) {
     const h = makeController({ conversation: conv });
     h.controller.attach(conv);
     conv.fire();
-    await settle();
+    await h.quiet();
     // The user has a real question in front of them. This also covers
     // AskUserQuestion, which parks on its own approval and draws its own buttons.
     assert(h.calls === 0, 'a parked tool is a question to answer, not a conversation to continue');
@@ -437,7 +457,7 @@ export async function runTests(_ctx) {
     const h = makeController({ draft: 'no, actually ' });
     h.controller.attach(h.conv);
     h.conv.fire();
-    await settle();
+    await h.quiet();
     assert(h.calls === 0, 'someone already typing has their own answer');
     h.controller.detach();
   });
@@ -446,7 +466,7 @@ export async function runTests(_ctx) {
     const h = makeController({ live: false });
     h.controller.attach(h.conv);
     h.conv.fire();
-    await settle();
+    await h.quiet();
     // Eight tabs ending turns at once would saturate the four-slot pool the
     // auto-approve reviewer needs mid-turn.
     assert(h.calls === 0, 'a column nobody is looking at must not spend anything');
@@ -457,7 +477,7 @@ export async function runTests(_ctx) {
     const h = makeController({ enabled: false });
     h.controller.attach(h.conv);
     h.conv.fire();
-    await settle();
+    await h.quiet();
     assert(h.calls === 0, 'off means off, including before the first call');
     h.controller.detach();
   });
@@ -468,7 +488,8 @@ export async function runTests(_ctx) {
     h.conv.fire();
     // The turn advances while the request is in flight.
     h.conv.completedTurns = 99;
-    await settle();
+    await waitFor(() => h.calls > 0, 'the request to go out');
+    await h.quiet();
     assert(h.calls === 1, 'the request did go out');
     const shown = h.last() || [];
     assert(shown.length === 0,
@@ -480,8 +501,7 @@ export async function runTests(_ctx) {
     const h = makeController({ stillnessMs: 0 });
     h.controller.attach(h.conv);
     h.conv.fire();
-    await settle();
-    assert((h.last() || []).length === 1, 'shown first');
+    await h.shown('the suggestions to be shown first');
 
     h.state.draft = 'n';
     h.controller.notifyTyping();
@@ -516,11 +536,12 @@ export async function runTests(_ctx) {
   await run('a column flicked past is never asked about', async () => {
     // Stillness this test cannot reach: the column is live throughout, so the
     // only thing keeping it from spending is not having been sat in front of.
-    // A fixed sleep is right for the three tests below that prove an ABSENCE —
-    // a starved lane gets fewer poll ticks, which can only make them safer.
+    // This and the cases below that prove an ABSENCE wait for the poll's ticks —
+    // each one a chance to spend that has to be passed up — not for a span of
+    // time a starved lane would fill with fewer of them.
     const h = makeController({ stillnessMs: 60000 });
     h.controller.attach(h.conv);
-    await settle(40);
+    await h.quiet();
     assert(h.calls === 0, `a glance is not a dwell, got ${h.calls} calls`);
     h.controller.detach();
   });
@@ -529,7 +550,7 @@ export async function runTests(_ctx) {
     const h = makeController({ live: false, stillnessMs: 0 });
     h.controller.attach(h.conv);
     h.conv.fire();
-    await settle(40);
+    await h.quiet();
     assert(h.calls === 0, 'nothing spent while nobody was looking');
 
     // Coming back is the only event there is — the turn ended in another window
@@ -548,7 +569,7 @@ export async function runTests(_ctx) {
     const h = makeController({ offered: false, stillnessMs: 0 });
     h.controller.attach(h.conv);
     h.conv.fire();
-    await settle(40);
+    await h.quiet();
     assert(h.calls === 0, `a row that will never be drawn must not be paid for, got ${h.calls} calls`);
     h.controller.detach();
   });
@@ -557,13 +578,12 @@ export async function runTests(_ctx) {
     const h = makeController({ stillnessMs: 0 });
     h.controller.attach(h.conv);
     h.conv.fire();
-    await settle();
-    assert((h.last() || []).length === 1, 'shown first');
+    await h.shown('the suggestions to be shown first');
 
     // Focus leaves the window. A poll that could clear would blink the row away
     // here and put it back on return, on every alt-tab.
     h.state.live = false;
-    await settle(40);
+    await h.quiet();
     assert(JSON.stringify(h.last()) === JSON.stringify(['add a test']),
       `what is on screen stays on screen, got ${JSON.stringify(h.last())}`);
     h.controller.detach();
@@ -573,8 +593,7 @@ export async function runTests(_ctx) {
     const h = makeController();
     h.controller.attach(h.conv);
     h.conv.fire();
-    await settle();
-    assert((h.last() || []).length === 1, 'shown first');
+    await h.shown('the suggestions to be shown first');
 
     h.conv.processingState = { status: 'running' };
     h.conv.fire();
@@ -586,7 +605,7 @@ export async function runTests(_ctx) {
     const h = makeController();
     h.controller.attach(h.conv);
     h.conv.fire();
-    await settle();
+    await h.shown('the first answer to reach the row');
     assert(h.calls === 1, 'asked once');
 
     // Leaving and returning: the turn has not moved, so neither should the bill.
@@ -594,7 +613,7 @@ export async function runTests(_ctx) {
     h.conv.fire();
     h.state.live = true;
     h.conv.fire();
-    await settle();
+    await h.quiet();
     assert(h.calls === 1, `the same turn must not be paid for twice, got ${h.calls}`);
     assert(JSON.stringify(h.last()) === JSON.stringify(['add a test']), 'and the answer comes back');
     h.controller.detach();
@@ -604,7 +623,8 @@ export async function runTests(_ctx) {
     const h = makeController({ reply: [] });
     h.controller.attach(h.conv);
     h.conv.fire();
-    await settle();
+    await waitFor(() => h.calls > 0, 'the request to go out');
+    await h.quiet();
     assert((h.last() || []).length === 0, 'the model is allowed to have nothing to say');
     h.controller.detach();
   });
@@ -614,7 +634,10 @@ export async function runTests(_ctx) {
     h.controller.attach(h.conv);
     h.conv.fire();
     h.controller.detach();
-    await settle();
+    // Detaching stops the poll, so there is no tick to wait for. The dwell is a
+    // zero-delay timer armed before this yield's own, so it would have fired
+    // first, and the answer it asked for — microtasks — would have landed with it.
+    await nextTask();
     assert((h.last() || []).length === 0,
       `a column being torn down must not paint into itself afterwards, got ${JSON.stringify(h.last())}`);
   });

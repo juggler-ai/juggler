@@ -375,7 +375,7 @@ func cloneContextItemYMap(src *ycrdt.YMap, newID string) *ycrdt.YMap {
 	if !ok {
 		return ycrdt.NewYMap(nil)
 	}
-	raw["itemId"] = newID
+	raw[keyItemID] = newID
 	entries := make(map[string]any)
 	for k, v := range raw {
 		if v == nil {

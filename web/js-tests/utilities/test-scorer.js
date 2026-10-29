@@ -22,7 +22,7 @@ import { apiUrl } from '../../js/utils/api-url.js';
  * @property {string} [test_command] - Command for test_pass or compilation_success
  * @property {number} [timeout] - Timeout in seconds
  * @property {Array<{path: string, contains_strings?: string[], not_contains?: string[]}>} [files] - Files for multi_file_consistency
- * @property {string} [test_module] - Path to test module for unit_test scoring (relative to /js-tests/unit-tests/)
+ * @property {string} [test_module] - Test module for unit_test scoring (relative to /js-tests/unit-tests/) or integration_test scoring (relative to /js-tests/utilities/)
  */
 
 /**
@@ -93,65 +93,7 @@ class TestScorer {
    * @private
    */
   async scoreUnitTest() {
-    const testModule = this.task.scoring.test_module;
-
-    if (!testModule) {
-      return {
-        score: 0,
-        details: 'No test_module specified in scoring configuration'
-      };
-    }
-
-    logger.info(`[TestScorer] Running unit test: ${testModule}`);
-
-    try {
-      // Import the test module dynamically (with versioned prefix for cache busting)
-      const prefix = /** @type {any} */ (window).__assetPrefix || '';
-      const modulePath = `${prefix}/js-tests/unit-tests/${testModule}`;
-      const testMod = await import(modulePath);
-
-      if (typeof testMod.runTests !== 'function') {
-        return {
-          score: 0,
-          details: `Test module ${testModule} does not export runTests function`
-        };
-      }
-
-      // Create test context with session, fixture, and utilities
-      const testContext = {
-        fixtureDir: this.fixtureDir,
-        readFile: (/** @type {string} */ path) => this.readFile(path),
-        executeCommand: (/** @type {string} */ cmd, /** @type {number} */ timeout) => this.executeCommand(cmd, timeout || 30)
-      };
-
-      // Run the tests
-      const result = await testMod.runTests(testContext);
-
-      // Result should be { passed: number, failed: number, errors: string[] }
-      const total = result.passed + result.failed;
-      const score = total > 0 ? result.passed / total : 0;
-
-      let details;
-      if (result.failed === 0) {
-        details = `All ${result.passed} tests passed`;
-      } else {
-        details = `${result.passed}/${total} tests passed. Failures: ${result.errors.join('; ')}`;
-        // Log failures for debugging - each error on its own line
-        for (const err of result.errors) {
-          logger.essential(`FAILURE: ${err}`);
-        }
-      }
-
-      return { score, details, testsPassed: result.passed, testsTotal: total };
-
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      logger.error(`[TestScorer] Unit test error: ${errorMsg}`);
-      return {
-        score: 0,
-        details: `Unit test error: ${errorMsg}`
-      };
-    }
+    return this.scoreTestModule('unit-tests', 'unit test', 'tests');
   }
 
   /**
@@ -161,6 +103,19 @@ class TestScorer {
    * @private
    */
   async scoreIntegrationTest() {
+    return this.scoreTestModule('utilities', 'integration test', 'integration tests');
+  }
+
+  /**
+   * Imports the task's `scoring.test_module` from `/js-tests/<dir>/` and
+   * scores the share of its `runTests` that pass.
+   * @param {string} dir - Directory under /js-tests/ the module is named relative to
+   * @param {string} label - What the module is, for the log and error details
+   * @param {string} unit - What it counts, for the details
+   * @returns {Promise<ScoreResult>} The scoring result
+   * @private
+   */
+  async scoreTestModule(dir, label, unit) {
     const testModule = this.task.scoring.test_module;
 
     if (!testModule) {
@@ -170,12 +125,12 @@ class TestScorer {
       };
     }
 
-    logger.info(`[TestScorer] Running integration test: ${testModule}`);
+    logger.info(`[TestScorer] Running ${label}: ${testModule}`);
 
     try {
-      // Import the test module dynamically from utilities directory (with versioned prefix)
+      // Import the test module dynamically (with versioned prefix for cache busting)
       const prefix = /** @type {any} */ (window).__assetPrefix || '';
-      const modulePath = `${prefix}/js-tests/utilities/${testModule}`;
+      const modulePath = `${prefix}/js-tests/${dir}/${testModule}`;
       const testMod = await import(modulePath);
 
       if (typeof testMod.runTests !== 'function') {
@@ -201,9 +156,9 @@ class TestScorer {
 
       let details;
       if (result.failed === 0) {
-        details = `All ${result.passed} integration tests passed`;
+        details = `All ${result.passed} ${unit} passed`;
       } else {
-        details = `${result.passed}/${total} integration tests passed. Failures: ${result.errors.join('; ')}`;
+        details = `${result.passed}/${total} ${unit} passed. Failures: ${result.errors.join('; ')}`;
         // Log failures for debugging - each error on its own line
         for (const err of result.errors) {
           logger.essential(`FAILURE: ${err}`);
@@ -214,10 +169,11 @@ class TestScorer {
 
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      logger.error(`[TestScorer] Integration test error: ${errorMsg}`);
+      const what = label.charAt(0).toUpperCase() + label.slice(1);
+      logger.error(`[TestScorer] ${what} error: ${errorMsg}`);
       return {
         score: 0,
-        details: `Integration test error: ${errorMsg}`
+        details: `${what} error: ${errorMsg}`
       };
     }
   }

@@ -53,7 +53,7 @@ const DEFAULT_POLL_MS = 1000;
  * @param {HTMLElement} wrapper - Section container to append into.
  * @param {object} opts
  * @param {string} opts.taskId - Background task id to read.
- * @param {any} opts.helpers - The panel helpers passed to `renderToolActionDetails`.
+ * @param {import('../context-item-types.js').ToolActionRenderHelpers} opts.helpers - The panel helpers passed to `renderToolActionDetails`.
  * @param {string} [opts.label] - Section heading (default "Output").
  * @param {number} [opts.pollMs] - Gap between polls while running.
  * @param {(state: TaskOutputState) => boolean} [opts.isRunning] - Whether to keep
@@ -61,7 +61,7 @@ const DEFAULT_POLL_MS = 1000;
  *   follow its delivery binding instead.
  * @param {(state: TaskOutputState) => string} [opts.describeStatus] - When given,
  *   a status line above the output, repainted from each poll.
- * @param {() => Promise<any>|any} [opts.onStop] - When given, a Stop button shown
+ * @param {() => unknown} [opts.onStop] - When given, a Stop button shown
  *   only while the task is running. Callers that already offer a kill elsewhere
  *   (Monitor's delivery control) leave this unset.
  * @param {string} [opts.stopLabel] - Stop button text (default "Stop").

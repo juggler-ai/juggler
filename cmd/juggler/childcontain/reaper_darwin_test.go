@@ -15,8 +15,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"juggler/cmd/juggler/childcontain"
 )
 
 // helperModeEnv selects the behaviour of the helper process the reaper tests
@@ -36,9 +34,9 @@ func TestHelperProcess(t *testing.T) {
 	}
 
 	cmd := exec.Command("sleep", "600")
-	child, err := childcontain.Start(cmd)
+	child, err := start(cmd)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "helper: childcontain.Start: %v\n", err)
+		fmt.Fprintf(os.Stderr, "helper: start: %v\n", err)
 		os.Exit(2)
 	}
 	if mode == "release" {

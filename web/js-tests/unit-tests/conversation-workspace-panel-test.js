@@ -29,8 +29,6 @@ import {
 import { rebindConversation } from '../../js/services/workspace-rebinding.js';
 import {
   setupRows,
-  probeSetupStatuses,
-  cachedSetupStatus,
   probeSetupAdoptions,
   adoptSetupRow
 } from '../../js/services/workspace-places.js';
@@ -49,14 +47,6 @@ import {
   readIn,
   workspaceRow
 } from '../utilities/conversation-workspace-helpers.js';
-
-/**
- * This suite makes and removes directories directly in the shared fixture root,
- * which a sibling lane walking the project reads as they come and go, so no
- * other lane may be in flight while it runs.
- * @type {boolean}
- */
-export const needsExclusiveRun = true;
 
 /**
  * Run the conversation-workspace-panel tests.
@@ -178,38 +168,6 @@ export async function runTests() {
           'and everything reached over the network is untouched, which is what makes that mean anything');
       } finally {
         session.workspaces = saved;
-      }
-    });
-
-    await run('every listed workspace is asked how it is doing before it is picked', async () => {
-      // Speculative, for rows nobody has selected: a branch and a dirty flag are
-      // what make picking one an informed choice rather than a guess.
-      const made = await registerWorkspace({
-        root: `${projectPath}/src`,
-        label: 'src, reporting for duty',
-        state: 'ready',
-        providerId: FixtureProvider.MANIFEST.id
-      });
-      const saved = session.workspaces;
-      session.workspaces = [...saved, made];
-      try {
-        assert(cachedSetupStatus(made.id) === undefined,
-          'precondition: nothing has been asked about this workspace yet');
-        await probeSetupStatuses(session);
-        const status = cachedSetupStatus(made.id);
-        assert(status !== undefined && status.available === true,
-          `each listed workspace is asked about before it is picked, got ${JSON.stringify(status)}`);
-
-        // And the sweep is abandonable, so dismissing the view that asked stops
-        // a probe that would otherwise still be running against a host that is
-        // down.
-        const controller = new AbortController();
-        controller.abort();
-        await probeSetupStatuses(session, controller.signal);
-        assert(true, 'an aborted sweep settles rather than hanging or throwing');
-      } finally {
-        session.workspaces = saved;
-        await unregisterWorkspace(made.id).catch(() => {});
       }
     });
 

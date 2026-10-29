@@ -54,7 +54,7 @@ export function createCopyButton(text, className = 'properties-panel-inline-copy
       btn.classList.add('copied');
       setTimeout(() => btn.classList.remove('copied'), 2000);
     } catch (err) {
-      /** @type {any} */ (window).showAlert?.(/** @type {Error} */ (err).message, t('Copy Failed'));
+      /** @type {{showAlert?: (message: string, title: string) => void}} */ (/** @type {unknown} */ (window)).showAlert?.(/** @type {Error} */ (err).message, t('Copy Failed'));
     }
   });
   return btn;

@@ -100,7 +100,7 @@ const INNO_UNSAFE = /[%{}\r\n]/;
 /**
  * The real catalogues in a directory, by locale id, sorted.
  * @param {string} dir
- * @returns {Array<{locale: string, messages: Record<string, string>}>}
+ * @returns {Array<{locale: string, messages: Record<string, string>}>} The catalogues.
  */
 function translations(dir) {
   if (!fs.existsSync(path.join(dir, `${SOURCE_LOCALE}.json`))) {
@@ -120,7 +120,7 @@ function translations(dir) {
  * A catalogue's translation of an English message, or null when it has none.
  * @param {Record<string, string>} messages
  * @param {string} english
- * @returns {string|null}
+ * @returns {string|null} The translation.
  */
 function translate(messages, english) {
   const s = messages[english];
@@ -132,12 +132,18 @@ function readSources() {
   return JSON.parse(fs.readFileSync(MESSAGES_FILE, 'utf8'));
 }
 
-/** @param {string} s @returns {string} s as XML character data. */
+/**
+ * @param {string} s
+ * @returns {string} s as XML character data.
+ */
 function xmlEscape(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** @param {string} s @returns {string} s as a quoted .strings literal. */
+/**
+ * @param {string} s
+ * @returns {string} s as a quoted .strings literal.
+ */
 function stringsLiteral(s) {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`;
 }

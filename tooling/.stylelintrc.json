@@ -1,7 +1,6 @@
 {
   "extends": "stylelint-config-standard",
-  "plugins": ["stylelint-rem-over-px"],
-  "ignoreFiles": ["../**/vendor/**/*.css", "../**/*prism*.css"],
+  "plugins": ["stylelint-rem-over-px", "./stylelint-rules/no-literal-colour-function.js"],
   "rules": {
     "rem-over-px/rem-over-px": [
       true,
@@ -21,10 +20,23 @@
         }
       }
     ],
+    "color-no-hex": [true, { "reportDisables": true }],
+    "color-named": ["never", { "reportDisables": true }],
+    "juggler/no-literal-colour-function": [true, { "reportDisables": true }],
     "selector-class-pattern": null,
     "custom-property-pattern": null,
     "keyframes-name-pattern": null,
     "no-descending-specificity": null,
     "property-no-vendor-prefix": [true, { "ignoreProperties": ["-webkit-user-select"] }]
-  }
+  },
+  "overrides": [
+    {
+      "files": ["../web/css/tokens/*.css"],
+      "rules": {
+        "color-no-hex": null,
+        "color-named": null,
+        "juggler/no-literal-colour-function": null
+      }
+    }
+  ]
 }

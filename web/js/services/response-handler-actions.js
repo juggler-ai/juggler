@@ -22,7 +22,7 @@ import contextItemRegistry from '../registries/context-item-registry.js';
 import { extractErrorInfo } from '../../sdk/lib/error-utils.js';
 import { buildApprovalButtons } from './approval-options.js';
 import { t } from '../../sdk/lib/i18n.js';
-import { RESULT_TYPES, ACTION_STATES, TOOL_STATES } from '../../sdk/lib/message.js';
+import { RESULT_TYPES, ACTION_STATES, TOOL_STATES, itemField } from '../../sdk/lib/message.js';
 import { INTERACTION_KIND } from '../../sdk/context-item.js';
 import { plain } from '../model/item-accessor.js';
 import workerManager from './worker-manager.js';
@@ -191,7 +191,7 @@ async function executeActionCore(rh, toolCall, toolInput, messageThread, options
  * @param {MessageThread} messageThread - Message thread
  * @returns {Promise<{resolvedName: string, ActionClass: any, actionId?: string, action?: any, prepared?: any, blockedReason: string|null}>} Resolved action context (ActionClass null when unknown/blocked)
  */
-export async function resolveAndPrepare(rh, toolCall, toolInput, messageThread) {
+async function resolveAndPrepare(rh, toolCall, toolInput, messageThread) {
   // Resolve aliases (e.g., 'Bash' -> 'bash') for registry lookup
   const resolvedName = resolveToolName(toolCall.name);
   const ActionClass = /** @type {any} */ (contextItemRegistry.getByToolName(resolvedName));
@@ -377,8 +377,8 @@ async function handleApprovalFlow(rh, toolCall, action, prepared, messageThread,
     const existingResult = existingToolAction.get('result');
     const hasRealResult = existingResult !== null &&
                 existingResult !== undefined &&
-                (existingResult.get?.('content') !== undefined ||
-                 existingResult.get?.('cancelled') === true);
+                (itemField(existingResult, 'content') !== undefined ||
+                 itemField(existingResult, 'cancelled') === true);
     if (hasRealResult) {
       // Already executed by resolveApproval - return result
       const result = plain(existingResult);

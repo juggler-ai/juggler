@@ -80,6 +80,28 @@ func RobustRemoveAll(path string) error {
 	}
 }
 
+// remove is the removal RobustRemove retries; a test substitutes it to act
+// between attempts.
+var remove = os.Remove
+
+// RobustRemove removes one file, retrying for the rename's window on the same
+// transient errors, which Windows raises while another handle has the file
+// open — an HTTP handler serving the very blob a sweep is dropping, since Go
+// opens files without delete sharing. A file that is not there is returned at
+// once, as os.Remove returns it. POSIX unlinks an open file, so its build
+// removes directly.
+func RobustRemove(path string) error {
+	const maxWait = time.Second
+	start := time.Now()
+	for {
+		err := remove(path)
+		if err == nil || !isTransient(err) || time.Since(start) >= maxWait {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func isTransient(err error) bool {
 	return errors.Is(err, errAccessDenied) || errors.Is(err, errSharingViolation)
 }

@@ -119,4 +119,3 @@ class NoConversationsOverlay extends JugglerElement {
 }
 
 customElements.define('no-conversations-overlay', NoConversationsOverlay);
-export default NoConversationsOverlay;

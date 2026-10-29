@@ -65,7 +65,7 @@ class InfoCardRegistry extends BaseRegistry {
   /**
    * Get (or lazily create) the singleton instance for a card id.
    * @param {string} id - Card id.
-   * @param {any} CardClass - The card class registered under that id.
+   * @param {typeof import('juggler/info-card-type').default} CardClass - The card class registered under that id.
    * @returns {InstanceType<typeof import('juggler/info-card-type').default>} The card instance.
    * @private
    */

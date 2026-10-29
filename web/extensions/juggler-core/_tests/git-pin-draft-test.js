@@ -14,11 +14,11 @@
 
 import GitPin from '../pins/git-pin.js';
 import gitReviewService from '../../../js/services/git-review-service.js';
-import { assert } from '../../../js-tests/utilities/test-helpers.js';
+import { assert, nextTask } from '../../../js-tests/utilities/test-helpers.js';
 import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 import { DEFAULT_SCOPE, SCOPE_PRESETS, SCOPE_SYNTAX } from '../lib/git-scope.js';
-import { settle, repo, manifestOf, mountedPin } from './git-pin-helpers.js';
+import { repo, manifestOf, mountedPin } from './git-pin-helpers.js';
 
 /** `lib/git-status.js`'s English, for the en-XA case's stand-in catalogue. */
 const GIT_STATUS_TEXT = [
@@ -97,7 +97,7 @@ export async function runTests(_ctx) {
       `both buttons act on the draft, so they live with it:\n${footer.innerHTML}`);
 
     footer.querySelector('.review-panel__compose').click();
-    await settle();
+    await nextTask();
     assert(m.composes() === 1, `expected one hand-over, got ${m.composes()}`);
     // Handing the feedback over is not spending it: it is text in a box, which
     // the reader can still cut down or delete, so the batch is theirs until they
@@ -113,7 +113,7 @@ export async function runTests(_ctx) {
       manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]),
     });
     m.viewer().querySelectorAll('.diff-comment-btn')[0].click();
-    await settle();
+    await nextTask();
 
     // "Save" says where the words go, which is the one thing a reader cannot
     // guess: a comment is kept on a batch and nothing is said to anyone yet.
@@ -132,12 +132,12 @@ export async function runTests(_ctx) {
 
     m.editor().querySelector('textarea').value = 'A first thought.';
     m.editor().querySelector('.review-panel__save').click();
-    await settle();
+    await nextTask();
 
     // Editing one is not adding one — the comment is replaced in place — so the
     // button may not claim a second comment is about to appear.
     m.viewer().querySelector('.diff-comment-edit')?.click();
-    await settle();
+    await nextTask();
     const editing = m.editor()?.querySelector('.review-panel__save');
     assert(editing?.textContent === 'Save changes',
       `an edit replaces what is there: ${JSON.stringify(editing?.textContent)}`);
@@ -195,7 +195,7 @@ export async function runTests(_ctx) {
     });
     m.failCompose(new Error('worker rejected the message'));
     m.body.querySelector('.review-panel__compose').click();
-    await settle();
+    await nextTask();
     const text = m.text();
     assert(text.includes("Couldn't put the feedback in the prompt.") && text.includes('worker rejected the message'),
       `expected the lead and the underlying error:\n${text}`);
@@ -217,7 +217,7 @@ export async function runTests(_ctx) {
       },
     });
     m.body.querySelector('.review-panel__discard').click();
-    await settle();
+    await nextTask();
     assert(m.clears() === 1, `expected one clear, got ${m.clears()}`);
     assert(!m.body.querySelector('.review-panel__footer'), 'and nothing left to act on');
     m.teardown();
@@ -236,7 +236,7 @@ export async function runTests(_ctx) {
         lineText: [], body: 'Written in the other window.', revision: 'rev1', createdAt: 1, updatedAt: 1,
       }],
     });
-    await settle();
+    await nextTask();
     assert(m.text().includes('Written in the other window.'),
       `a draft is one record, wherever it was written:\n${m.text()}`);
     m.teardown();
@@ -290,7 +290,7 @@ export async function runTests(_ctx) {
       signal: new AbortController().signal,
       updateConfig: async () => {},
     });
-    await settle();
+    await nextTask();
     assert(m.rows().length === 1, `the review should survive a context update:\n${m.body.innerHTML}`);
     assert(m.reviews() === 1, `and not re-read the whole tree for it, got ${m.reviews()}`);
     m.teardown();
@@ -309,7 +309,7 @@ export async function runTests(_ctx) {
         lineText: [], body: 'After the end.', revision: 'rev1', createdAt: 1, updatedAt: 1,
       }],
     });
-    await settle();
+    await nextTask();
     assert(!m.text().includes('After the end.'),
       `a torn-down pin should not still be drawing:\n${m.text()}`);
     m.teardown();
@@ -423,8 +423,8 @@ export async function runTests(_ctx) {
     const select = /** @type {HTMLSelectElement} */ (m.body.querySelector('.git-pin__scope-select'));
     select.value = '@staged';
     select.dispatchEvent(new Event('change'));
-    await settle();
-    await settle();
+    await nextTask();
+    await nextTask();
     assert(m.configs().at(-1)?.scope === '@staged', `config saved: ${JSON.stringify(m.configs())}`);
     assert(m.reviewOptions().at(-1)?.scope === '@staged', `review asked ${JSON.stringify(m.reviewOptions())}`);
     assert(m.diffs().at(-1)?.options?.scope === '@staged', `diff asked ${JSON.stringify(m.diffs())}`);
@@ -436,14 +436,14 @@ export async function runTests(_ctx) {
     const select = /** @type {HTMLSelectElement} */ (m.body.querySelector('.git-pin__scope-select'));
     select.value = 'custom';
     select.dispatchEvent(new Event('change'));
-    await settle();
+    await nextTask();
     assert(m.reviews() === 1, 'choosing Custom… asks for nothing until there is something to ask');
     const input = /** @type {HTMLInputElement} */ (m.body.querySelector('.git-pin__scope-input'));
     assert(!input.hidden, 'Custom… shows the field');
     input.value = '  HEAD~3  ';
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    await settle();
-    await settle();
+    await nextTask();
+    await nextTask();
     const saved = m.configs().at(-1);
     assert(saved?.scope === 'HEAD~3', `config saved: ${JSON.stringify(saved)}`);
     assert(Array.isArray(saved?.recent) && saved.recent[0] === 'HEAD~3', `remembered: ${JSON.stringify(saved)}`);
@@ -517,7 +517,7 @@ export async function runTests(_ctx) {
     assert(editor, 'the button should open the editor');
     /** @type {HTMLTextAreaElement} */ (editor.querySelector('textarea')).value = 'A new one';
     /** @type {HTMLElement} */ (editor.querySelector('.review-panel__save')).click();
-    await settle();
+    await nextTask();
     const saved = m.saves().at(-1)?.comments?.find((/** @type {any} */ c) => c.body === 'A new one');
     assert(saved?.scope === '@staged' && typeof saved?.scopeLabel === 'string' && saved.scopeLabel.includes('Staged'),
       `a new comment carries the scope it was written in: ${JSON.stringify(saved)}`);
@@ -809,7 +809,7 @@ export async function runTests(_ctx) {
       const editor = scoped.editor();
       /** @type {HTMLTextAreaElement} */ (editor.querySelector('textarea')).value = 'A new one';
       /** @type {HTMLElement} */ (editor.querySelector('.review-panel__save')).click();
-      await settle();
+      await nextTask();
       commentLabel = scoped.saves().at(-1)?.comments?.find((/** @type {any} */ c) => c.body === 'A new one')?.scopeLabel || '';
       scoped.teardown();
     }, { '@juggler/core': [

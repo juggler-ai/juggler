@@ -17,17 +17,6 @@
  * @property {number} [duration] - For 'notice': auto-dismiss after this many ms (0 = manual). Default 5000.
  */
 
-// Extend Window interface for modal helper functions
-/**
- * @typedef {object} WindowWithModals
- * @property {function(ModalOptions): Promise<any>} showModal - Show a modal dialog
- * @property {function(string, string=): Promise<void>} showAlert - Show an alert dialog
- * @property {function(string, string=, ConfirmOptions=): Promise<boolean>} showConfirm - Show a confirmation dialog
- * @property {function(string, string=, string=): Promise<string|null>} showPrompt - Show a prompt dialog
- * @property {function(string, string[], string=, boolean=, {noneText?: string}=): Promise<string|null>} showChoice - Show a choice dialog
- * @property {function(string, {duration?: number}=): void} showNotice - Show a transient, auto-dismissing notice
- */
-
 /**
  * ModalDialog - Reusable modal dialog component
  *

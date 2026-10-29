@@ -31,12 +31,7 @@ import {
   isAnyPopupOpen,
   __resetPopupManagerForTests,
 } from '../../js/utils/popup-manager.js';
-
-/**
- * Yield to the macrotask queue, letting one shimmed animation frame run.
- * @returns {Promise<void>} Resolves after the next macrotask.
- */
-const tick = () => new Promise((r) => setTimeout(r, 0));
+import { nextTask } from '../utilities/test-helpers.js';
 
 /**
  * Mount a host carrying the menu and trigger `presentInlineMenu` expects.
@@ -172,8 +167,8 @@ export async function runTests() {
           },
         });
 
-        await tick(); // the deferred presentation runs, and is cancelled within itself
-        await tick(); // any placement frame that survived would fire here
+        await nextTask(); // the deferred presentation runs, and is cancelled within itself
+        await nextTask(); // any placement frame that survived would fire here
 
         assert(closedDuringPresentation, 'the rival popup must have closed ours during presentation');
         assert(!document.querySelector('.menu[data-section="true"]'),
@@ -204,7 +199,7 @@ export async function runTests() {
           surface, anchor, id: 'sheet', onClose: () => { closes++; },
         });
         try {
-          await tick();
+          await nextTask();
           const grabber = /** @type {HTMLElement} */ (surface.querySelector('.popup-sheet-grabber'));
           assert(!!grabber, 'a modal sheet must offer the drag handle');
 
@@ -288,7 +283,7 @@ export async function runTests() {
           id: 'focus-return',
           onClose: () => {},
         });
-        await tick();
+        await nextTask();
         item.focus();
         assert(document.activeElement === item, 'the popup item must hold focus before closing');
 
@@ -341,7 +336,7 @@ export async function runTests() {
           anchorSelector: '.trigger',
           onClose: () => {},
         });
-        await tick();
+        await nextTask();
 
         assert(!!handle.surface, 'the menu is presented');
         assert(handle.surface?.parentElement === document.body, 'the menu is hosted on <body>');

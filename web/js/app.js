@@ -5,6 +5,39 @@
 /**
  * @typedef {import('./services/api.js').Message} Message
  * @typedef {import('./services/response-handler.js').default} ResponseHandler
+ * @typedef {import('./model/session.js').default} Session
+ * @typedef {import('./model/message-thread.js').MessageThread} MessageThread
+ * @typedef {import('./services/websocket.js').ServerFrame} ServerFrame
+ */
+
+/**
+ * The `<conversation-bar>` as this file uses it.
+ * @typedef {HTMLElement & {getTabElement?: (conversationId: string) => import('./components/conversation-tab.js').default|null}} ConversationBarElement
+ */
+
+/**
+ * A page-level element the session is handed to once it exists.
+ * @typedef {Element & {setSession?: (session: Session) => void}} SessionAwareElement
+ */
+
+/**
+ * A conversation-scoped reply from the server: no `type` of its own, recognised
+ * by its shape — an `error`, or the `blocks`/token counts of a final response.
+ * @typedef {object} ConversationReplyFrame
+ * @property {string} [type] - Absent, or a type no handler claims
+ * @property {string} [conversationId] - Conversation it is for
+ * @property {string|null} [threadItemId] - Thread column it is for; absent for the root
+ * @property {string|boolean} [error] - The error text, or true with the text in `message`
+ * @property {string} [message] - Error text when `error` is true
+ * @property {unknown} [blocks] - Structured response blocks
+ * @property {number} [inputTokens] - Input token count
+ * @property {number} [outputTokens] - Output token count
+ * @property {number} [cachedTokens] - Cached token count
+ */
+
+/**
+ * The `context-item-action` event's detail (properties-panel.js).
+ * @typedef {{action: string, itemId: string, threadItemId?: string|null}} ContextItemActionDetail
  */
 
 import LLMState from './services/llm-state.js';
@@ -32,8 +65,8 @@ import actionExecutor from './services/action-executor.js';
 import workerManager from './services/worker-manager.js';
 import { CLOSE_FLUSH_ACK_TIMEOUT_MS } from './utils/constants.js';
 import providersCache from './services/providers-cache.js';
-import { setupHeaderControls } from './utils/header-controls.js';
-import { registerConversationShortcuts } from './services/shortcut-bindings.js';
+import { setupHeaderControls } from './components/header-controls.js';
+import { registerConversationShortcuts } from './components/shortcut-bindings.js';
 import { recordUsage } from './services/guidance/usage-signals.js';
 import { updateWindowTitle } from './utils/window-title.js';
 import { initAttention } from './utils/attention-manager.js';
@@ -72,12 +105,12 @@ import { startWordOfMouth } from './components/word-of-mouth.js';
  * server that behaved perfectly.
  */
 setFaultSink(({ source, message, stack, detail }) => {
-  const info = /** @type {any} */ (detail);
+  const convId = detail && 'convId' in detail ? detail.convId : undefined;
   wsService.sendViewerFault({
     source,
     message,
     stack,
-    convId: typeof info?.convId === 'string' ? info.convId : undefined,
+    convId: typeof convId === 'string' ? convId : undefined,
     detail: detail ? JSON.stringify(detail) : undefined
   });
 });
@@ -86,7 +119,7 @@ window.addEventListener('error', (event) => {
   reportFault('window-error', event.error ?? event.message);
 });
 window.addEventListener('unhandledrejection', (event) => {
-  reportFault('unhandledrejection', /** @type {any} */ (event).reason);
+  reportFault('unhandledrejection', event.reason);
 });
 
 
@@ -126,7 +159,7 @@ function reportNewlyFailedModules() {
  */
 class JugglerApp {
   constructor() {
-    /** @type {HTMLElement|null} @private */
+    /** @type {ConversationBarElement|null} @private */
     this.conversationBar = null;
 
     // Services
@@ -169,8 +202,8 @@ class JugglerApp {
     /** @type {Set<string>} */
     const rescued = new Set();
     document.querySelectorAll('composer-box').forEach((box) => {
-      if (typeof (/** @type {any} */ (box).flushDraft) === 'function') {
-        const convId = /** @type {any} */ (box).flushDraft();
+      if (typeof box.flushDraft === 'function') {
+        const convId = box.flushDraft();
         if (convId) rescued.add(convId);
       }
     });
@@ -322,9 +355,10 @@ class JugglerApp {
     // test server honours — serveIndex) keeps that language whatever the
     // setting says; the server marks such a page data-ui-locale-pinned.
     const localePinned = document.documentElement.hasAttribute('data-ui-locale-pinned');
-    wsService.on('settings-changed', (/** @type {any} */ settings) => {
+    wsService.on('settings-changed', (settings) => {
       if (localePinned) return;
-      localeReloader.update(typeof settings?.uiLocale === 'string' ? settings.uiLocale : '');
+      const uiLocale = settings && typeof settings === 'object' && 'uiLocale' in settings ? settings.uiLocale : undefined;
+      localeReloader.update(typeof uiLocale === 'string' ? uiLocale : '');
     });
 
     // Initialize services
@@ -466,7 +500,7 @@ class JugglerApp {
     // UIEventManager listens at document level.
     this._uiEventManager = new UIEventManager({
       onSendMessage: (message, threadItemId, messageThread, attachments, skills, schedule) => this._sendMessage(message, threadItemId, messageThread, attachments, skills, schedule),
-      onContextItemAction: (detail) => this._handleContextItemAction(detail)
+      onContextItemAction: (detail) => this._handleContextItemAction(/** @type {ContextItemActionDetail} */ (detail))
     });
   }
 
@@ -574,26 +608,26 @@ class JugglerApp {
 
     // Wire the no-project overlay to the session so it can show/hide
     // based on whether a project is loaded.
-    const overlay = /** @type {any} */ (document.querySelector('no-project-overlay'));
+    const overlay = /** @type {SessionAwareElement|null} */ (document.querySelector('no-project-overlay'));
     if (overlay && typeof overlay.setSession === 'function') {
       overlay.setSession(session);
     }
 
     // Its counterpart for a loaded project whose last conversation was binned.
-    const noConversations = /** @type {any} */ (document.querySelector('no-conversations-overlay'));
+    const noConversations = /** @type {SessionAwareElement|null} */ (document.querySelector('no-conversations-overlay'));
     if (noConversations && typeof noConversations.setSession === 'function') {
       noConversations.setSession(session);
     }
 
     // The panel a selected workspace box shows in place of a conversation.
-    const workspacePanel = /** @type {any} */ (document.querySelector('workspace-panel'));
+    const workspacePanel = /** @type {SessionAwareElement|null} */ (document.querySelector('workspace-panel'));
     if (workspacePanel && typeof workspacePanel.setSession === 'function') {
       workspacePanel.setSession(session);
     }
 
     // Wire the pinboard shell to the session: it resolves the active context its
     // pins render against, and fetches the project's board once there is one.
-    const pinboard = /** @type {any} */ (document.querySelector('pinboard-shell'));
+    const pinboard = /** @type {SessionAwareElement|null} */ (document.querySelector('pinboard-shell'));
     if (pinboard && typeof pinboard.setSession === 'function') {
       pinboard.setSession(session);
     }
@@ -641,7 +675,7 @@ class JugglerApp {
    * Send a message to the LLM
    * @param {string} message - User message
    * @param {string|null} [threadItemId] - Thread item ID if sending from a thread column
-   * @param {*} [messageThread] - Column-scoped message thread
+   * @param {MessageThread|null} [messageThread] - Column-scoped message thread
    * @param {Array<{id:string,mime:string,filename:string,bytes:number,width:number,height:number}>} [attachments] - Staged image attachments
    * @param {string[]} [skills] - Agent Skill names the user explicitly chose to load before this turn
    * @param {import('./model/conversation.js').SendSchedule|null} [schedule] - Holds the send for later ("Send later")
@@ -665,21 +699,24 @@ class JugglerApp {
 
   /**
    * Handle server message
-   * @param {any} data - Server message data
+   * @param {ServerFrame|ConversationReplyFrame} frame - Server message data
    * @private
    */
-  async _handleServerMessage(data) {
+  async _handleServerMessage(frame) {
     const session = this._requireSession('handle message');
     if (!session) return;
 
     // Session-scoped frames carry no conversationId; they are handled before
-    // the lookup below. The table is typed per key; the frame is not yet.
-    const sessionHandlers = /** @type {Record<string, ((session: import('./model/session.js').default, data: any) => void)|undefined>} */ (SESSION_MESSAGE_HANDLERS);
-    const sessionHandler = sessionHandlers[data.type];
+    // the lookup below. The table is typed per key, so it is looked up as the
+    // row for whichever frame type this one names: a handler found under a
+    // type is the handler for the frame of that type.
+    const sessionHandlers = /** @type {Record<string, ((session: Session, data: ServerFrame) => void)|undefined>} */ (SESSION_MESSAGE_HANDLERS);
+    const sessionHandler = frame.type === undefined ? undefined : sessionHandlers[frame.type];
     if (sessionHandler) {
-      sessionHandler(session, data);
+      sessionHandler(session, /** @type {ServerFrame} */ (frame));
       return;
     }
+    const data = /** @type {ConversationReplyFrame} */ (frame);
 
     // All messages should include conversationId for routing
     const conversationId = data.conversationId;
@@ -738,14 +775,12 @@ class JugglerApp {
 
   /**
    * Handle context item action
-   * @param {object} detail - Action detail
+   * @param {ContextItemActionDetail} detail - Action detail
    * @returns {Promise<void>}
    * @private
    */
   async _handleContextItemAction(detail) {
-    /** @type {any} */
-    const actionDetail = detail;
-    const { action, itemId, threadItemId } = actionDetail;
+    const { action, itemId, threadItemId } = detail;
 
     const session = this._requireSession('handle context item action');
     if (!session) return;
@@ -775,7 +810,7 @@ class JugglerApp {
    * @private
    */
   _tabFor(conversation) {
-    return /** @type {any} */ (this.conversationBar)?.getTabElement?.(conversation.id) ?? null;
+    return this.conversationBar?.getTabElement?.(conversation.id) ?? null;
   }
 
   /**
@@ -784,11 +819,11 @@ class JugglerApp {
    * vantage every item-level command (rollback, branch) acts from.
    * @param {import('./model/conversation.js').default} conversation - Conversation owning the item
    * @param {string} itemId - Item ID to locate
-   * @returns {{messageThread: any, itemIndex: number, item: import('../sdk/lib/message.js').Message}|null} Location, or null when the item is not in the active column
+   * @returns {{messageThread: MessageThread, itemIndex: number, item: import('../sdk/lib/message.js').Message}|null} Location, or null when the item is not in the active column
    * @private
    */
   _resolveActiveThreadItem(conversation, itemId) {
-    const tab = /** @type {any} */ (this._tabFor(conversation));
+    const tab = this._tabFor(conversation);
     const messageThread = tab?.getActiveMessageThread?.() || conversation.rootMessageThread;
     const itemIndex = messageThread.findIndexByItemId(itemId);
     const item = /** @type {import('../sdk/lib/message.js').Message|undefined} */ (messageThread.items[itemIndex]);
@@ -931,7 +966,7 @@ class JugglerApp {
    * the caret, the token mirror, the Send button, persistence — belongs to the
    * composer, so this only reads the message and hands it over.
    * @param {import('./model/conversation.js').default} conversation - The conversation
-   * @param {{get?: (k:string)=>any, content?: string, attachments?: any}} message - The user message item (Y.Map) or a plain record
+   * @param {import('../sdk/lib/message.js').Message|{content?: string, attachments?: import('./utils/attachments.js').AssetRef[]}} message - The user message item (Y.Map) or a plain record
    * @private
    */
   _loadMessageIntoInput(conversation, message) {
@@ -940,8 +975,10 @@ class JugglerApp {
     const composer = tabElement.getComposer();
     if (!composer) return;
 
-    /** @type {any} */ (composer).restoreMessage({
-      content: itemField(message, 'content') || '',
+    // The tab's composer is its `<composer-box>`.
+    const content = itemField(message, 'content');
+    /** @type {import('./components/composer.js').default} */ (composer).restoreMessage({
+      content: typeof content === 'string' ? content : '',
       attachments: normalizeAttachments(itemField(message, 'attachments'))
     });
   }

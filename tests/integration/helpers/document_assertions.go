@@ -178,18 +178,6 @@ func assertItem(t *testing.T, item worker.ConversationItem, assertion ItemAssert
 	}
 }
 
-// FindItemByToolUseID searches for an item with the given ToolUseID in the document.
-// Returns the item and its index, or nil and -1 if not found.
-func FindItemByToolUseID(doc *worker.ConversationDocument, toolUseID string) (*worker.ConversationItem, int) {
-	items := doc.GetItems()
-	for i, item := range items {
-		if item.ToolUseID == toolUseID {
-			return &items[i], i
-		}
-	}
-	return nil, -1
-}
-
 // DumpDocument prints the document state for debugging.
 // Use this when a test fails to see the actual state.
 func DumpDocument(t *testing.T, doc *worker.ConversationDocument) {

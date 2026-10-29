@@ -29,7 +29,7 @@
  * @module unit-tests/mobile-composer-test
  */
 
-import { initializeRegistries, assert } from '../utilities/test-helpers.js';
+import { initializeRegistries, assert, nextTask } from '../utilities/test-helpers.js';
 import { closeAllPopups, isAnyPopupOpen, __resetPopupManagerForTests } from '../../js/utils/popup-manager.js';
 import { COL_MIN_WIDTH_REM } from '../../js/utils/column-resize.js';
 import '../../js/components/composer.js';
@@ -67,14 +67,6 @@ function mountTouchComposer() {
   container.addEventListener('send-message', (e) => sent.push(/** @type {CustomEvent} */ (e).detail));
 
   return { box, textarea, container, sent };
-}
-
-/**
- * Yield to the macrotask queue, so one shimmed animation frame can run.
- * @returns {Promise<void>} Resolves after the next macrotask.
- */
-function tick() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /**
@@ -249,8 +241,8 @@ export async function runTests() {
         selector.querySelector('.strategy-selector-button'));
       assert(!!strategyBtn, 'the re-homed selector must render its button');
       /** @type {HTMLElement} */ (strategyBtn).click();
-      await tick(); // presentInlineMenu's frame: relocate + present
-      await tick(); // presentPopup's own frame: place it
+      await nextTask(); // presentInlineMenu's frame: relocate + present
+      await nextTask(); // presentPopup's own frame: place it
 
       const menu = document.querySelector('.strategy-dropdown[data-strategy-selector="true"]');
       assert(!!menu, 'the strategy menu must be presented on <body>, not torn down by the re-parent');

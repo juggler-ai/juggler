@@ -49,7 +49,7 @@ import { validateManifest } from './lib/manifest.js';
  * Commands never perform these operations directly — they declare intent and the host dispatches.
  * @typedef {object} CommandSideEffect
  * @property {'openThread'|'setDraft'|'openCommandManager'|'openExportDialog'} type - Side effect type
- * @property {Record<string, any>} [data] - Side effect payload
+ * @property {Record<string, unknown>} [data] - Side effect payload
  */
 
 /**
@@ -158,7 +158,7 @@ class CommandType {
    *
    * The raw Y.Map shape is **outside the engineApi compat promise** — a narrow
    * read view is a candidate for a future SDK revision (§10.1).
-   * @returns {any[]} Read-only Y.Map items (empty when no thread)
+   * @returns {Array<import('yjs').Map<unknown>>} Read-only Y.Map items (empty when no thread)
    */
   get items() {
     return this.messageThread?.items ?? [];

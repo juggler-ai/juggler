@@ -8,7 +8,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -112,33 +111,4 @@ func PluralCategories(locale string) []string {
 	}
 	lang, _, _ := strings.Cut(locale, "-")
 	return pluralTable()[strings.ToLower(lang)]
-}
-
-// inPluralOrder is a sorted copy of categories, in pluralOrder.
-func inPluralOrder(categories []string) []string {
-	return slices.SortedFunc(slices.Values(categories), func(x, y string) int {
-		return slices.Index(pluralOrder, x) - slices.Index(pluralOrder, y)
-	})
-}
-
-// serializePluralTable is the text of pluralCategoriesFile for table: one
-// language a line, sorted, each language's categories in pluralOrder.
-func serializePluralTable(table map[string][]string) []byte {
-	langs := make([]string, 0, len(table))
-	for lang := range table {
-		langs = append(langs, lang)
-	}
-	sort.Strings(langs)
-	var b strings.Builder
-	b.WriteString("{\n")
-	for i, lang := range langs {
-		cats, _ := json.Marshal(inPluralOrder(table[lang]))
-		fmt.Fprintf(&b, "  %q: %s", lang, cats)
-		if i < len(langs)-1 {
-			b.WriteString(",")
-		}
-		b.WriteString("\n")
-	}
-	b.WriteString("}\n")
-	return []byte(b.String())
 }

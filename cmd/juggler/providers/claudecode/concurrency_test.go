@@ -228,3 +228,7 @@ func TestQueuedTurnNeitherHoldsASlotNorDeafensCancel(t *testing.T) {
 		}
 	}
 }
+
+// inFlight reports how many slots are currently held. Used by tests to assert
+// that a paused/parked turn holds none.
+func (s *turnSemaphore) inFlight() int { return len(s.slots) }

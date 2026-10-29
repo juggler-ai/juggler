@@ -1,4 +1,4 @@
-.PHONY: build test test-build test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-types lint-css lint-i18n fix fix-files fix-fmt fix-go fix-js fix-css node-deps help models-sync mac-app install-mac app-icon-embed wails-runtime-embed wails-runtime-build test-wails-patches win-icon release-build-mac mac-dmg mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack mac-codesign linux-compat-server
+.PHONY: build test test-build test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-js-deadcode lint-types lint-css lint-i18n fix fix-files fix-fmt fix-go fix-js fix-css node-deps help models-sync mac-app install-mac app-icon-embed wails-runtime-embed wails-runtime-build test-wails-patches win-icon release-build-mac mac-dmg mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack mac-codesign linux-compat-server
 
 # Binary name
 BINARY_NAME=juggler
@@ -630,9 +630,8 @@ build: lint go-build
 ## needed). Skips lint for a fast inner loop. Use `make build` (or
 ## `make test-full`) before opening a PR to run lint + tests.
 ##
-## Runs the Go package unit tests (`./cmd/...`, `./internal/...`, `./web/...`,
-## incl. the claudecode provider
-## and worker) first, then the integration/browser suite — as distinct lines so
+## Runs the Go package unit tests (GO_TEST_PACKAGES, incl. the claudecode
+## provider and worker) first, then the integration/browser suite — as distinct lines so
 ## a failure names which layer broke.
 ##
 ## Runs without `-v`, so the terminal stays quiet: a single `ok ... <time>`
@@ -664,15 +663,15 @@ test: test-go test-wails-patches
 		echo "✓ all tests passed"'
 
 ## test-go: Run Go package unit tests (claudecode provider, worker, etc.).
-## Scope is every first-party tree — `./cmd/...`, `./internal/...`, `./web/...`
-## (~75s under -race; claudecode ~55s) — and
-## includes the tool-delivery permutation harness, which `make test` otherwise
-## only compiled (via lint) and never executed.
+## Scope is GO_TEST_PACKAGES: every package of the module (GO_PACKAGES) except
+## the integration and browser suites under ./tests/..., which `test` runs as
+## its own layer (~75s under -race; claudecode ~55s). That includes the
+## tool-delivery permutation harness.
 test-go: go-build test-build
 	@mkdir -p $(BUILD_DIR)
 	@echo "── Go package tests ──"
 	@bash -c 'set -o pipefail; \
-		$(GOTEST) -count=1 $(RACE) -timeout 5m $(GOTEST_RUN) ./cmd/... ./internal/... ./web/... 2>&1 $(QUIET_UNMATCHED) | tee $(BUILD_DIR)/test-go.log; \
+		$(GOTEST) -count=1 $(RACE) -timeout 5m $(GOTEST_RUN) $(GO_TEST_PACKAGES) 2>&1 $(QUIET_UNMATCHED) | tee $(BUILD_DIR)/test-go.log; \
 		rc=$${PIPESTATUS[0]}; \
 		if [ $$rc -ne 0 ]; then echo "✗ the Go package tests failed — their output is above"; exit $$rc; fi; \
 		$(if $(and $(RUN),$(filter test-go,$(MAKECMDGOALS))),scripts/run-matched "$(RUN)" $(BUILD_DIR)/test-go.log || exit 1;) \
@@ -773,12 +772,48 @@ fmt:
 # and CI runs see the same rule set and the same false-positive surface.
 GOLANGCI_LINT_VERSION=v2.14.0
 
+# What each linter covers, said once. The whole-tree targets below build their
+# arguments from these, and scripts/lint-files reads the same values from the
+# environment (exported here) to decide which of the files it is handed each
+# linter sees, so a per-file run and `make lint` agree on every path.
+#   GO_PACKAGES  go vet / golangci-lint: every package of this module. ./...
+#                would also sweep in the Go an npm package ships under
+#                tooling/node_modules/ (e.g. flatted/), so the module's own
+#                package dirs are named instead, and lint-go fails if `go list
+#                ./...` finds a package outside them that is not under
+#                GO_FOREIGN. 3rdparty/wails and tests/benchmarks/fixtures are
+#                modules of their own, so no pattern here reaches them.
+#   GO_TEST_PACKAGES  the Go package unit tests (test-go, and every CI step
+#                that runs them, which read it with `make -s
+#                print-GO_TEST_PACKAGES`): GO_PACKAGES without ./tests/...,
+#                whose integration and browser suites need a built test server
+#                and run as their own layer (`test`, ./tests/integration/...).
+#                tests/helpers holds no tests of its own.
+#   GO_FOREIGN   top-level dirs whose Go is not this project's: neither vetted
+#                nor gofmt-checked.
+#   CSS_DIRS     stylelint.
+# gofmt checks every .go file outside GO_FOREIGN, testdata and fixtures
+# included: formatting needs no package to compile, so there is nothing to
+# exempt them from.
+GO_PACKAGES := . ./cmd/... ./internal/... ./jlog/... ./tests/... ./web/...
+GO_TEST_PACKAGES := $(filter-out ./tests/...,$(GO_PACKAGES))
+GO_FOREIGN := 3rdparty tooling
+CSS_DIRS := web/css web/machine web/extensions web/sdk
+export GOLANGCI_LINT_VERSION GO_PACKAGES GO_FOREIGN CSS_DIRS
+GOFMT_FIND = find . -name '*.go' $(foreach d,$(GO_FOREIGN),-not -path './$(d)/*') -print0
+CSS_GLOBS = $(foreach d,$(CSS_DIRS),'$(d)/**/*.css')
+
+## print-VAR: Print a variable's value. scripts/lint-files uses it to read the
+## lint scopes above when it is run directly rather than through make.
+print-%:
+	@: $(info $($*))
+
 ## lint: Run all linters (Go + JavaScript type checking + JavaScript linting + CSS)
 ## This and `lint-files` are the ONLY sanctioned ways to lint. Never invoke
 ## golangci-lint / go vet / gofmt / eslint / stylelint by hand — the configs,
 ## flags, ignore patterns and pinned tool versions live here, and a hand-rolled
 ## invocation silently diverges from what CI enforces.
-lint: lint-fmt lint-go lint-deadcode lint-types lint-js lint-css lint-docs lint-i18n
+lint: lint-fmt lint-go lint-deadcode lint-types lint-js lint-js-deadcode lint-css lint-docs lint-i18n
 	@echo "✓ lint passed"
 
 ## lint-files: Lint ONLY the named files, using the same linters/configs as
@@ -787,67 +822,155 @@ lint: lint-fmt lint-go lint-deadcode lint-types lint-js lint-css lint-docs lint-
 ##   make lint-files FILES="cmd/juggler/worker/foo.go web/js/bar.js"
 ## Go files pull in the embed prerequisites so package typechecks don't fail on
 ## a stale generated embed (same reason lint-go depends on them).
+## FILES reaches the script through the environment (make exports a variable
+## set on its command line), never as arguments: a long list would overflow
+## Windows' command-line limit and arrive cut off mid-path. The lint scopes
+## (GO_PACKAGES, GO_FOREIGN, CSS_DIRS) and GOLANGCI_LINT_VERSION travel the same
+## way, exported above.
 lint-files: app-icon-embed wails-runtime-embed
-	@GOLANGCI_LINT_VERSION="$(GOLANGCI_LINT_VERSION)" scripts/lint-files $(FILES)
+	@scripts/lint-files
 
-## lint-fmt: Enforce gofmt across the tree.
-## Excludes vendored submodules under 3rdparty/ and any Go files that an npm
-## package vendored into tooling/node_modules/ ships (e.g. flatted/).
+## lint-fmt: Enforce gofmt on every .go file outside GO_FOREIGN.
 ## The paths reach gofmt through xargs because the whole tree's worth of them
 ## exceeds the command-line limit under Git-for-Windows bash: expanded inline
 ## they fail with "Argument list too long", which leaves the output empty and
 ## passes the check without having formatted-checked anything.
 lint-fmt:
-	@out=$$(find . -name '*.go' -not -path './3rdparty/*' -not -path './tooling/*' -print0 | xargs -0 gofmt -l); \
+	@out=$$($(GOFMT_FIND) | xargs -0 gofmt -l); \
 	if [ -n "$$out" ]; then \
 		echo "gofmt: the following files are not formatted:"; \
 		echo "$$out"; \
 		exit 1; \
 	fi
 
-## lint-go: Run Go linter (installs pinned golangci-lint if needed).
-## Package patterns are scoped explicitly so neither go vet nor golangci-lint
-## descends into tooling/node_modules/ on a fresh `npm install`.
+## lint-go: Run go vet and golangci-lint (installed at the pinned version if
+## needed) over GO_PACKAGES, after checking that GO_PACKAGES still names every
+## package of the module: a package dir added beside the listed ones fails here
+## rather than going unlinted.
 # app-icon-embed/wails-runtime-embed regenerate the go:embed source files from
 # their assets/ sources. They must run before any Go compilation — including
 # lint — or a deleted/stale embed file fails the typecheck (the generated copies
 # are therefore disposable, not hand-maintained).
 lint-go: app-icon-embed wails-runtime-embed
-	@$(GOVET) ./cmd/... ./internal/... ./tests/... ./web/...
-	@GOLANGCI_LINT_VERSION="$(GOLANGCI_LINT_VERSION)" scripts/ensure-golangci-lint
-	@$(subst \,/,$(shell go env GOPATH))/bin/golangci-lint run --timeout=5m ./cmd/... ./internal/... ./tests/... ./web/...
+	@mod=$$($(GOCMD) list -m) && listed=$$($(GOCMD) list -e $(GO_PACKAGES) | tr '\n' ' ') \
+		&& all=$$($(GOCMD) list -e ./...) || exit 1; \
+	stray=$$(printf '%s\n' "$$all" | awk -v mod="$$mod" -v listed="$$listed" -v foreign="$(GO_FOREIGN)" ' \
+		BEGIN { n = split(listed, l, " "); for (i = 1; i <= n; i++) ok[l[i]] = 1; m = split(foreign, f, " ") } \
+		$$0 in ok { next } \
+		{ for (i = 1; i <= m; i++) if (index($$0, mod "/" f[i] "/") == 1) next; print }'); \
+	if [ -n "$$stray" ]; then \
+		echo "lint-go: GO_PACKAGES in the Makefile does not cover these packages — add their dir:"; \
+		printf '  %s\n' $$stray; \
+		exit 1; \
+	fi
+	@$(GOVET) $(GO_PACKAGES)
+	@scripts/ensure-golangci-lint
+	@$(subst \,/,$(shell go env GOPATH))/bin/golangci-lint run --timeout=5m $(GO_PACKAGES)
 
-## lint-deadcode: Find unreachable Go functions in first-party code.
-## Test helpers and benchmark fixtures are excluded; mock methods in _test.go
-## are filtered because they satisfy interfaces via dynamic dispatch that
-## deadcode's conservative analysis cannot prove reachable.
+## lint-deadcode: Find Go functions that no program reaches. Three passes of
+## deadcode run concurrently, each answering a different question, and any
+## function any of them reports fails the target. Nothing is filtered out of
+## their output except DEADCODE_SEAMS below.
 ##
-## -test makes every test function a root, so a function reached only from a
-## _test.go file counts as reachable. What this reports is code nothing at all
-## calls, not code only the tests call.
+##   test     deadcode -test over GO_PACKAGES, tests included: code nothing
+##            at all calls, not even a test — in test helpers and _test.go
+##            files as much as anywhere. Remedy: delete it.
+##   mains    every main package in GO_PACKAGES as a root, no
+##            tests: code in a package some program links that only tests
+##            reach. Remedy: delete it, or move it into a _test.go file (or a
+##            *test helper package, as internal/userpaths/userpathstest is)
+##            beside the tests that use it.
+##   release  -tags production, rooted at DEADCODE_RELEASE_MAINS, the mains
+##            release-build ships: code compiled into a release binary that
+##            only a test-capable build (juggler-test, the //go:build
+##            !production test handlers) reaches. Remedy: put it behind
+##            //go:build !production, with a production stub if a call site
+##            needs one. Lines the mains pass already reported are not
+##            repeated here.
 ##
-## Package patterns are scoped explicitly to our own dirs — using ./... would
+## tests/ is analysed by the test pass alone: it holds no program, only test
+## helpers and the integration suites, so without -test everything in it is
+## unreachable by definition. Its benchmark fixtures are data, not code; their
+## go.mod keeps them out of this module.
+##
+## The analysis is valid for one GOOS, the host's. It cannot be run for the
+## others from here: the server and the desktop app both link the Wails fork,
+## which needs cgo and the target's C toolchain on darwin and linux. CI runs
+## `make lint` natively on linux, windows and macos, so every platform's files
+## are analysed there.
+##
+## DEADCODE_SEAMS: exported registration seams of the server whose only callers
+## are mains in another module, which embeds this one and registers into them
+## before app.Run. deadcode sees only this module's mains, so in the mains and
+## release passes they are provably wrong, and they alone are dropped from those
+## passes' output, by file and name. An entry the release pass no longer reports
+## fails the target, so the list cannot outlive the code it names.
+##   - server.RegisterTunnelMode: adds a WAN tunnel mode (a build that
+##     registers none has no WAN feature).
+##   - webui.RegisterCatalogFS: adds a UI-message catalogue for Go code outside
+##     this module; updateCatalogSources is reached only through it.
+##
+## The package patterns are GO_PACKAGES, scoped to our own dirs — ./... would
 ## sweep into tooling/node_modules/, which on a fresh `npm install` ships Go
 ## files (e.g. flatted/golang/pkg/flatted/) that are unrelated to this
 ## module and tank the analysis with bogus "unreachable" hits. It would also
 ## pull in 3rdparty/, the vendored wails fork, whose own suite is not ours to
 ## run: hundreds of platform-specific and live-network tests.
+DEADCODE_VERSION=v0.51.0
+DEADCODE_RELEASE_MAINS := ./cmd/juggler ./cmd/juggler-app
+DEADCODE_SEAMS := \
+	cmd/juggler/server/tunnel_registry.go:RegisterTunnelMode \
+	cmd/juggler/webui/webui.go:RegisterCatalogFS \
+	cmd/juggler/webui/webui.go:updateCatalogSources
 lint-deadcode: app-icon-embed wails-runtime-embed
-	@if [ ! -x "$(subst \,/,$(shell go env GOPATH))/bin/deadcode" ]; then \
-		echo "Installing deadcode..."; \
-		go install golang.org/x/tools/cmd/deadcode@latest; \
+	@dc="$(subst \,/,$(shell go env GOPATH))/bin/deadcode$(BIN_EXT)"; \
+	if ! $(GOCMD) version -m "$$dc" 2>/dev/null | grep -q "golang.org/x/tools[[:space:]]*$(DEADCODE_VERSION)[[:space:]]"; then \
+		echo "Installing deadcode $(DEADCODE_VERSION)..."; \
+		$(GOCMD) install golang.org/x/tools/cmd/deadcode@$(DEADCODE_VERSION) || exit 1; \
 	fi
-	@out=$$($(subst \,/,$(shell go env GOPATH))/bin/deadcode -test ./cmd/... ./internal/... ./tests/... ./web/... \
-		| tr '\134' '/' \
-		| grep -v '_test\.go:' \
-		| grep -v '^tests/helpers/' \
-		| grep -v '^tests/integration/helpers/' \
-		| grep -v '^tests/benchmarks/fixtures/'); \
-	if [ -n "$$out" ]; then \
-		echo "$$out"; \
-		echo "deadcode: unreachable functions found"; \
-		exit 1; \
-	fi
+	@dc="$(subst \,/,$(shell go env GOPATH))/bin/deadcode$(BIN_EXT)"; \
+	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	mains=$$($(GOCMD) list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' $(GO_PACKAGES)) || exit 1; \
+	"$$dc" -test $(GO_PACKAGES) >"$$tmp/test" 2>"$$tmp/test.err" & test_pid=$$!; \
+	"$$dc" $$mains >"$$tmp/mains" 2>"$$tmp/mains.err" & mains_pid=$$!; \
+	"$$dc" -tags production $(DEADCODE_RELEASE_MAINS) >"$$tmp/release" 2>"$$tmp/release.err" & release_pid=$$!; \
+	fail=0; \
+	for pass in test:$$test_pid mains:$$mains_pid release:$$release_pid; do \
+		if ! wait "$${pass#*:}"; then \
+			echo "deadcode: the $${pass%%:*} pass could not analyse the program:"; \
+			tr '\134' '/' <"$$tmp/$${pass%%:*}.err"; \
+			fail=1; \
+		fi; \
+	done; \
+	[ $$fail -eq 0 ] || exit 1; \
+	for pass in test mains release; do \
+		tr '\134' '/' <"$$tmp/$$pass" | awk -v seams="$(DEADCODE_SEAMS)" -v pass=$$pass ' \
+			BEGIN { n = split(seams, s, " "); for (i = 1; i <= n; i++) seam[s[i]] = 1 } \
+			{ key = $$0; sub(/:[0-9]+:[0-9]+: unreachable func: /, ":", key) } \
+			pass != "test" && (key in seam) { print key >"/dev/stderr"; next } \
+			{ print }' 2>"$$tmp/$$pass.seams" | sort >"$$tmp/$$pass.out"; \
+	done; \
+	for seam in $(DEADCODE_SEAMS); do \
+		if ! grep -qxF "$$seam" "$$tmp/release.seams"; then \
+			echo "deadcode: DEADCODE_SEAMS names $$seam, which the release pass does not report — remove the entry"; \
+			fail=1; \
+		fi; \
+	done; \
+	comm -23 "$$tmp/mains.out" "$$tmp/test.out" >"$$tmp/mains.new"; \
+	sort -u "$$tmp/test.out" "$$tmp/mains.out" | comm -13 - "$$tmp/release.out" >"$$tmp/release.new"; \
+	if [ -s "$$tmp/test.out" ]; then \
+		echo "deadcode (test pass): nothing calls these, not even a test — delete them:"; \
+		sed 's/^/  /' "$$tmp/test.out"; fail=1; \
+	fi; \
+	if [ -s "$$tmp/mains.new" ]; then \
+		echo "deadcode (mains pass): only tests reach these — delete them, or move them beside the tests that use them:"; \
+		sed 's/^/  /' "$$tmp/mains.new"; fail=1; \
+	fi; \
+	if [ -s "$$tmp/release.new" ]; then \
+		echo "deadcode (release pass): only test-capable builds reach these, yet release builds compile them — put them behind //go:build !production:"; \
+		sed 's/^/  /' "$$tmp/release.new"; fail=1; \
+	fi; \
+	exit $$fail
 
 ## JS/CSS tooling (configs + node_modules) lives under tooling/. Binaries are
 ## resolved directly from tooling/node_modules/.bin so the linters run from the
@@ -883,22 +1006,49 @@ lint-types: node-deps
 
 ## lint-js: Run JavaScript linter (all warnings are errors), after the cases
 ## for the repo's own ESLint rules — a rule that misfires would make the lint
-## that follows it meaningless.
+## that follows it meaningless. ESLint is handed the whole tree, so which files
+## are linted, and under which rules, is said once, by tooling/eslint.config.js
+## (its `files` and global `ignores`); lint-files hands it the same config and
+## so reaches the same verdict for any file.
 lint-js: node-deps
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/no-raw-ui-string.test.js
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/test-hooks-in-tests-only.test.js
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/sdk-boundary.test.js
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/escape-html-interpolation.test.js
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/no-private-test-wait.test.js
-	@NODE_NO_WARNINGS=1 $(NPM_BIN)/eslint --config tooling/eslint.config.js --max-warnings 0 --ignore-pattern 'web/js/vendor/**' 'web/js/**/*.js' 'web/sdk/**/*.js' 'web/extensions/**/*.js' 'web/machine/**/*.js' 'web/js-tests/**/*.js'
+	@NODE_NO_WARNINGS=1 $(NPM_BIN)/eslint --config tooling/eslint.config.js --max-warnings 0 .
 
-## lint-css: Run the CSS linters — stylelint (rem units, no px), then
-## lint-css-arch, which checks the architecture contract in web/css/README.md:
-## sheet ownership, dead selectors, token parity, and that both HTML documents
-## link the same sheets. The second is whole-tree by nature, so it always runs
-## in full rather than over a file list.
+## lint-js-deadcode: lint-deadcode for the JavaScript (tooling/js-deadcode.js),
+## after its fixture cases (tooling/js-deadcode.test.js). Roots: the HTML
+## documents (module scripts, inline modules, import maps), the extension
+## manifests' `provides` globs, Go string literals naming a file of the tree,
+## and the .d.ts files, one declaration at a time. Liveness follows top-level
+## bindings, as deadcode follows functions. Two passes: production roots and
+## modules only, then with the tests' (web/js-tests/**, any _tests/) added. It
+## reports dead files, exports and bindings (nothing reaches them, not even a
+## test) and test-only ones (only tests do), except `__name` test hooks, which
+## the test-hooks-in-tests-only rule keeps for tests alone. The one carve-out:
+## everything under web/sdk/** is public API, live by path. A specifier that is
+## not a literal and cannot be evaluated must be listed, with what it loads, in
+## the script's DYNAMIC_IMPORTS; an unlisted site or a stale entry fails. Over
+## every module — production, tests, and the Node code under tooling/ and
+## tests/ — it also checks that each imported name (static, `export … from`,
+## destructured `import()`, JSDoc `import('…').Name` and `@import`) is exported
+## by its target, through re-exports and `export *`. There is no allowlist: a finding is fixed where it is. `node tooling/js-deadcode.js
+## --summary` prints each kind's count and first findings.
+lint-js-deadcode: node-deps
+	@NODE_NO_WARNINGS=1 node tooling/js-deadcode.test.js
+	@NODE_NO_WARNINGS=1 node tooling/js-deadcode.js
+
+## lint-css: Run the CSS linters — stylelint (rem units, no px, no literal
+## colour outside web/css/tokens/), after the cases for the repo's own
+## stylelint rule, then lint-css-arch, which checks the architecture contract in
+## web/css/README.md: sheet ownership, dead selectors, token parity, and that
+## both HTML documents link the same sheets. The last is whole-tree by nature,
+## so it always runs in full rather than over a file list.
 lint-css: node-deps
-	@NODE_NO_WARNINGS=1 $(NPM_BIN)/stylelint --config tooling/.stylelintrc.json 'web/css/**/*.css' 'web/machine/**/*.css'
+	@NODE_NO_WARNINGS=1 node tooling/stylelint-rules/no-literal-colour-function.test.js
+	@NODE_NO_WARNINGS=1 $(NPM_BIN)/stylelint --config tooling/.stylelintrc.json $(CSS_GLOBS)
 	@node scripts/lint-css-arch
 
 ## lint-i18n: Check that web/i18n/en.json and the en-XA pseudo-locale match the
@@ -927,29 +1077,29 @@ fix: fix-fmt fix-go fix-js fix-css
 ## fix-fmt: gofmt -w across the tree (same file set lint-fmt checks, reaching
 ## gofmt through xargs for the same reason).
 fix-fmt:
-	@find . -name '*.go' -not -path './3rdparty/*' -not -path './tooling/*' -print0 | xargs -0 gofmt -w
+	@$(GOFMT_FIND) | xargs -0 gofmt -w
 
 ## fix-go: Apply golangci-lint's auto-fixes (only the linters that support --fix;
 ## many findings have none and still need a hand edit). Same package scope as
 ## lint-go; embeds regenerated first so the fixers typecheck against the real build.
 fix-go: app-icon-embed wails-runtime-embed
-	@GOLANGCI_LINT_VERSION="$(GOLANGCI_LINT_VERSION)" scripts/ensure-golangci-lint
-	@$(subst \,/,$(shell go env GOPATH))/bin/golangci-lint run --fix --timeout=5m ./cmd/... ./internal/... ./tests/... ./web/...
+	@scripts/ensure-golangci-lint
+	@$(subst \,/,$(shell go env GOPATH))/bin/golangci-lint run --fix --timeout=5m $(GO_PACKAGES)
 
-## fix-js: eslint --fix (same globs, config, and ignore patterns as lint-js).
+## fix-js: eslint --fix over the same tree and config as lint-js.
 fix-js: node-deps
-	@NODE_NO_WARNINGS=1 $(NPM_BIN)/eslint --config tooling/eslint.config.js --fix --ignore-pattern 'web/js/vendor/**' 'web/js/**/*.js' 'web/sdk/**/*.js' 'web/extensions/**/*.js' 'web/machine/**/*.js' 'web/js-tests/**/*.js'
+	@NODE_NO_WARNINGS=1 $(NPM_BIN)/eslint --config tooling/eslint.config.js --fix .
 
 ## fix-css: stylelint --fix (same globs and config as lint-css).
 fix-css: node-deps
-	@NODE_NO_WARNINGS=1 $(NPM_BIN)/stylelint --config tooling/.stylelintrc.json --fix 'web/css/**/*.css' 'web/machine/**/*.css'
+	@NODE_NO_WARNINGS=1 $(NPM_BIN)/stylelint --config tooling/.stylelintrc.json --fix $(CSS_GLOBS)
 
 ## fix-files: Auto-fix ONLY the named files, routed by extension to the same
 ## fixers as `make fix` (the write-mode counterpart to lint-files). Whole-program
 ## checks with no per-file fix (deadcode, type errors) are not run here.
 ##   make fix-files FILES="cmd/juggler/worker/foo.go web/css/bar.css"
 fix-files: app-icon-embed wails-runtime-embed
-	@GOLANGCI_LINT_VERSION="$(GOLANGCI_LINT_VERSION)" FIX=1 scripts/lint-files $(FILES)
+	@FIX=1 scripts/lint-files
 
 ## install: Install binary globally
 install: build

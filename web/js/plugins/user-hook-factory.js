@@ -58,14 +58,14 @@ export function makeUserHookClass(def) {
   }
 
   if (event === 'beforeTool') {
-    /** @type {any} */ (UserHook.prototype).beforeTool = function () {
+    UserHook.prototype.beforeTool = function () {
       if (fm.verdict === 'deny' || fm.verdict === 'ask') {
         return { verdict: fm.verdict, reason: text || undefined };
       }
       return { note: text };
     };
   } else {
-    /** @type {any} */ (UserHook.prototype).afterTool = function () {
+    UserHook.prototype.afterTool = function () {
       return { note: text };
     };
   }

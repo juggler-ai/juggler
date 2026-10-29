@@ -5,18 +5,11 @@
 package helpers
 
 import (
-	"fmt"
 	"io"
-	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
-	"time"
-
-	"juggler/internal/apipaths"
 )
 
 // ServerBinary is the server binary every spawn site in the integration suites
@@ -91,42 +84,4 @@ func copyFile(src, dst string, mode os.FileMode) error {
 
 	_, err = io.Copy(out, in)
 	return err
-}
-
-// StopSubprocess sends SIGTERM and waits up to 5s before killing. Safe to call
-// with a nil command or a command whose process has already exited.
-func StopSubprocess(cmd *exec.Cmd) {
-	if cmd == nil || cmd.Process == nil {
-		return
-	}
-	_ = cmd.Process.Signal(syscall.SIGTERM)
-	done := make(chan struct{})
-	go func() { _ = cmd.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		_ = cmd.Process.Kill()
-	}
-}
-
-// WaitForServer polls url+apipaths.Health every 100ms until the server returns 200
-// or the timeout elapses. Each request is bounded by the readiness budget: the
-// default http client never times out, so a server that accepts the connection
-// but stalls before replying (a wedged engine main thread) would block this
-// poll past `timeout` forever instead of failing at the deadline.
-func WaitForServer(url string, timeout time.Duration) error {
-	client := &http.Client{Timeout: timeout}
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		resp, err := client.Get(url + apipaths.Health)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			resp.Body.Close()
-			return nil
-		}
-		if resp != nil {
-			resp.Body.Close()
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for server at %s", url)
 }

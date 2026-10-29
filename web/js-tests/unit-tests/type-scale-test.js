@@ -46,7 +46,7 @@ const ALLOWED = [
 const FONT_SIZE_OK = /^(var\(--font-size-[\w-]+\)|[\d.]+em|inherit|unset)(\s*!important)?$/;
 
 /** One component of a border-radius value that is not a scale literal. */
-const RADIUS_PART_OK = /^(0|0px|50%|inherit|unset|var\(--[\w-]*radius[\w-]*(,.*)?\)|var\(--toggle-height\))$/;
+const RADIUS_PART_OK = /^(0|0px|50%|inherit|unset|var\(--[\w-]*radius[\w-]*(,.*)?\))$/;
 
 /**
  * Split a value on top-level whitespace, keeping a var() and its fallback whole.

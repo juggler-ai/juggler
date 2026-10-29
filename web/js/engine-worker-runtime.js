@@ -28,10 +28,35 @@ import { apiUrl, isApiUrl } from './utils/api-url.js';
 globalThis.JUGGLER_ENGINE = true;
 
 /**
+ * The globals this realm publishes for the engine graph and sandbox-runner.js.
+ * @typedef {object} EngineWorkerGlobals
+ * @property {string} [__assetPrefix] - Version-prefixed asset base (utils/asset-url.js)
+ * @property {string} [__jugglerBase] - Base path the page was served under (utils/api-url.js)
+ * @property {string} [__jugglerToken] - Per-instance API token
+ * @property {import('./engine-worker-sandbox.js').SandboxDelegate} [__hostSandboxDelegate] - query_code's host delegate
+ * @property {() => void} [__onEngineReady] - Fired by engine-app.js once it has booted
+ */
+
+/**
+ * The `start` message engine-worker-main.js posts once.
+ * @typedef {{type: 'start', assetPrefix?: string, apiBase?: string, apiToken?: string}} EngineWorkerStartMessage
+ */
+
+/**
+ * Everything the host posts to this worker.
+ * @typedef {EngineWorkerStartMessage
+ *   | ({type: 'sandbox-cap'} & import('./engine-worker-sandbox.js').SandboxCapMessage)
+ *   | ({type: 'sandbox-result'} & import('./engine-worker-sandbox.js').SandboxResultMessage)
+ *   | ({type: 'sandbox-console'} & import('./engine-worker-sandbox.js').SandboxConsoleMessage)} EngineWorkerInbound
+ */
+
+const engineGlobals = /** @type {EngineWorkerGlobals} */ (globalThis);
+
+/**
  * Post server-visible startup telemetry. The engine runs in a worker inside the
  * hidden WebView, so its console is otherwise the only sink.
  * @param {string} event - 'ready' | 'error'
- * @param {Record<string, any>} [payload]
+ * @param {Record<string, unknown>} [payload]
  */
 function report(event, payload) {
   fetch(apiUrl('/client/report'), {
@@ -70,10 +95,10 @@ function reportFault(kind, reason) {
 }
 
 self.addEventListener('unhandledrejection', (event) => {
-  reportFault('unhandledrejection', /** @type {any} */ (event).reason);
+  reportFault('unhandledrejection', event.reason);
 });
 self.addEventListener('error', (event) => {
-  reportFault('error', /** @type {any} */ (event).error ?? /** @type {any} */ (event).message);
+  reportFault('error', event.error ?? event.message);
 });
 
 /**
@@ -89,13 +114,13 @@ function installAPITokenFetchShim(token) {
   const origFetch = globalThis.fetch.bind(globalThis);
   globalThis.fetch = (input, init) => {
     try {
-      const inputAny = /** @type {any} */ (input);
-      const url = typeof input === 'string' ? input : (inputAny && inputAny.url) || '';
+      const request = typeof input !== 'string' && 'url' in input ? input : null;
+      const url = typeof input === 'string' ? input : (request && request.url) || '';
       if (typeof url === 'string' && isApiUrl(url)) {
         init = { ...(init || {}) };
         const headers = new globalThis.Headers(
           init.headers ||
-          (typeof input !== 'string' && inputAny && inputAny.headers) ||
+          (request && request.headers) ||
           undefined
         );
         headers.set('X-Juggler-Token', token);
@@ -112,10 +137,10 @@ function installAPITokenFetchShim(token) {
 // so it is shared regardless of how many sandbox-runner instances the
 // worker-module loader materialises.
 const sandbox = createSandboxBridge({ post: (message) => self.postMessage(message) });
-/** @type {any} */ (globalThis).__hostSandboxDelegate = sandbox.delegate;
+engineGlobals.__hostSandboxDelegate = sandbox.delegate;
 
 self.onmessage = (event) => {
-  const data = event.data || {};
+  const data = /** @type {EngineWorkerInbound} */ (event.data || {});
 
   if (data.type === 'sandbox-cap') {
     sandbox.handleCap(data);
@@ -131,15 +156,15 @@ self.onmessage = (event) => {
   }
 
   if (data.type !== 'start') return;
-  /** @type {any} */ (globalThis).__assetPrefix = data.assetPrefix || '';
-  /** @type {any} */ (globalThis).__jugglerBase = data.apiBase || '';
-  /** @type {any} */ (globalThis).__jugglerToken = data.apiToken || '';
-  installAPITokenFetchShim(/** @type {any} */ (globalThis).__jugglerToken);
+  engineGlobals.__assetPrefix = data.assetPrefix || '';
+  engineGlobals.__jugglerBase = data.apiBase || '';
+  engineGlobals.__jugglerToken = data.apiToken || '';
+  installAPITokenFetchShim(engineGlobals.__jugglerToken);
 
   // The engine fires this optional hook once it has booted and begun
   // connecting (see engine-app.js setup()). Relay it to the host (for the
   // window.__engineReady mirror + logging) and the server (for observability).
-  /** @type {any} */ (globalThis).__onEngineReady = () => {
+  engineGlobals.__onEngineReady = () => {
     report('ready', {});
     self.postMessage({ type: 'ready' });
   };

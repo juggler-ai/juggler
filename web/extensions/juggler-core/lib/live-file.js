@@ -252,7 +252,7 @@ export function renderLiveFileBody(container, result, options = {}) {
  * @param {string} path - File path.
  * @returns {string} Language identifier, or the bare extension when unmapped.
  */
-export function languageFromPath(path) {
+function languageFromPath(path) {
   const ext = path.split('.').pop()?.toLowerCase() || '';
   /** @type {Record<string, string>} */
   const langMap = {

@@ -48,7 +48,8 @@ import {
   __setBackIntegrationForTests,
 } from '../../js/utils/popup-manager.js';
 import { modelGestureShouldHandle } from '../../js/services/model-cycler.js';
-import { waitFor } from '../utilities/test-helpers.js';
+import { waitFor, nextTask } from '../utilities/test-helpers.js';
+import { racePatiently } from '../utilities/test-patience.js';
 
 const OVERLAY_MARKER = 'jugglerOverlay';
 
@@ -65,28 +66,24 @@ function check(cond, msg, errors) {
 }
 
 /**
- * Let queued microtasks (deferred sentinel removal) and tasks settle.
- * @returns {Promise<void>} Resolves after a zero-delay timeout.
- */
-const tick = () => new Promise((r) => setTimeout(r, 0));
-
-/**
  * Wait for the next `popstate` — the browser's answer to a history.back(), which
- * arrives in its own task some time after the call.
- * @param {number} [timeoutMs] - How long to wait before giving up.
- * @returns {Promise<boolean>} True if a popstate arrived within the budget.
+ * arrives in its own task some time after the call. The listener goes on before
+ * this returns, so a caller takes it before doing what should cause the pop.
+ * @returns {Promise<boolean>} True if a popstate arrived before the test's
+ *   patience ran out.
  */
-function nextPopstate(timeoutMs = 2000) {
-  return new Promise((resolve) => {
-    /** @type {any} */
-    let timer = null;
-    const onPop = () => { clearTimeout(timer); resolve(true); };
+async function nextPopstate() {
+  /** @type {() => void} */
+  let onPop = () => {};
+  const popped = new Promise((resolve) => {
+    onPop = () => resolve(true);
     window.addEventListener('popstate', onPop, { once: true });
-    timer = setTimeout(() => {
-      window.removeEventListener('popstate', onPop);
-      resolve(false);
-    }, timeoutMs);
   });
+  try {
+    return (await racePatiently(popped, 2000, { what: 'the next popstate' })) !== null;
+  } finally {
+    window.removeEventListener('popstate', onPop);
+  }
 }
 
 /**
@@ -142,7 +139,7 @@ export async function runTests() {
       `embedded: a popstate this context did not cause leaves the overlay alone (closed ${embClosed}×)`, errors));
     tally(check(isAnyPopupOpen(), 'embedded: and it is still registered open', errors));
     relEmb();
-    await tick();
+    await nextTask();
     tally(check(embBack === 0,
       `embedded: closing retracts nothing, having pushed nothing (got ${embBack})`, errors));
   } finally {
@@ -218,7 +215,7 @@ export async function runTests() {
     __resetPopupManagerForTests();
     const relClosingDeferred = markPopupOpen(() => {});
     relClosingDeferred();   // last overlay closes → retraction queued
-    await tick();           // the retraction runs: back() called, answer pending
+    await nextTask();           // the retraction runs: back() called, answer pending
     const popLanded = nextPopstate();
     let strayClosed = 0;
     /** @type {() => void} */
@@ -240,7 +237,7 @@ export async function runTests() {
     // cases below.
     const drainPop = nextPopstate();
     relAfterPop();
-    await tick();
+    await nextTask();
     tally(check(await drainPop, 'stray-pop: the closing overlay drops its sentinel', errors));
 
     // === settling a debt waits for the pop rather than writing it off ===
@@ -257,7 +254,7 @@ export async function runTests() {
     window.addEventListener('popstate', countPop);
     const relSettling = markPopupOpen(() => {});
     relSettling();
-    await tick(); // the retraction runs: back() called, its answer 100ms out
+    await nextTask(); // the retraction runs: back() called, its answer 100ms out
     tally(check(popsWhileSettling === 0,
       'settle: precondition — the pop is still in flight when the settle starts', errors));
     await __settlePopupHistoryForTests(3000);
@@ -272,12 +269,12 @@ export async function runTests() {
     // A late pop is one of the stub's queued answers: once every one has been
     // delivered and handled, there is none left to spend on this overlay.
     await waitFor(() => backAnswersOwed === 0, 'every queued back() answer to be delivered');
-    await tick();
+    await nextTask();
     tally(check(dismissedAfterSettle === 0,
       `settle: the pop it waited for is not spent on the next overlay (closed ${dismissedAfterSettle}×)`, errors));
     const drainSettled = nextPopstate();
     relAfterSettle();
-    await tick();
+    await nextTask();
     tally(check(await drainSettled, 'settle: and that overlay drops its own sentinel', errors));
 
     // Every case below asserts its bookkeeping the moment it acts, so from here
@@ -312,12 +309,12 @@ export async function runTests() {
     // === programmatic close: history.back() only when the LAST overlay closes ===
     const bBeforeClose = backCount;
     relB();
-    await tick();
+    await nextTask();
     tally(check(isAnyPopupOpen(), 'close-one: still open after closing one of two', errors));
     tally(check(backCount === bBeforeClose,
       'close-one: no history.back() while an overlay remains', errors));
     relA();
-    await tick();
+    await nextTask();
     tally(check(!isAnyPopupOpen(), 'close-last: nothing open after closing both', errors));
     tally(check(backCount === bBeforeClose + 1,
       `close-last: one history.back() drops the sentinel (got ${backCount - bBeforeClose})`, errors));
@@ -335,13 +332,13 @@ export async function runTests() {
     try {
       const relPoison = markPopupOpen(() => {});
       relPoison();
-      await tick(); // the retraction runs; the stub's back() answers with state null
+      await nextTask(); // the retraction runs; the stub's back() answers with state null
       const pBeforeLanded = pushCount;
       const relAfterLanded = markPopupOpen(() => {});
       tally(check(pushCount === pBeforeLanded + 1,
         `landed-state: the next overlay still gets its sentinel (got ${pushCount - pBeforeLanded})`, errors));
       relAfterLanded();
-      await tick();
+      await nextTask();
     } finally {
       window.history.replaceState(null, '');
     }
@@ -363,14 +360,14 @@ export async function runTests() {
     /** @type {() => void} */
     let relReopened = () => {};
     relReopened = markPopupOpen(() => { relReopened(); }); // Settings opens
-    await tick(); // let any (wrongly) scheduled retraction run
+    await nextTask(); // let any (wrongly) scheduled retraction run
     tally(check(isAnyPopupOpen(), 'async-swap: overlay still open after deferred reopen', errors));
     tally(check(backCount === bBeforeAsyncSwap,
       `async-swap: no history.back() — single sentinel inherited (got ${backCount - bBeforeAsyncSwap})`, errors));
     tally(check(pushCount === pBeforeAsyncSwap + 1,
       `async-swap: only the first overlay pushed a sentinel (got ${pushCount - pBeforeAsyncSwap})`, errors));
     relReopened();
-    await tick();
+    await nextTask();
 
     // === Back button (popstate) dismisses the open overlay ===
     let closedByPop = 0;
@@ -381,7 +378,7 @@ export async function runTests() {
     window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
     tally(check(closedByPop === 1, 'popstate: registered close handler invoked', errors));
     tally(check(!isAnyPopupOpen(), 'popstate: overlay closed after Back press', errors));
-    await tick();
+    await nextTask();
     tally(check(backCount === bBeforePop,
       'popstate: no extra history.back() — the entry was already popped', errors));
 
@@ -398,7 +395,7 @@ export async function runTests() {
     let relOwed = () => {};
     relOwed = markPopupOpen(() => { relOwed(); });
     relOwed();
-    await tick(); // the retraction runs: back() called, nothing answers
+    await nextTask(); // the retraction runs: back() called, nothing answers
     backAnswer = 'sync';
     await __settlePopupHistoryForTests(50);
     let closedAfterDebt = 0;
@@ -408,7 +405,7 @@ export async function runTests() {
     window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
     tally(check(closedAfterDebt === 1,
       'owed-pop: a Back press after an unanswerable retraction still dismisses', errors));
-    await tick();
+    await nextTask();
 
     // === Escape routes through the same registered-handler dismissal ===
     let closedByEsc = 0;
@@ -418,7 +415,7 @@ export async function runTests() {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     tally(check(closedByEsc === 1, 'escape: registered close handler invoked', errors));
     tally(check(!isAnyPopupOpen(), 'escape: overlay closed on Escape', errors));
-    await tick();
+    await nextTask();
 
     // === closeAllPopups closes most-recently-opened first (LIFO) ===
     /** @type {number[]} */
@@ -433,7 +430,7 @@ export async function runTests() {
     tally(check(JSON.stringify(order) === JSON.stringify([2, 1]),
       `closeAll: LIFO dismissal order (got ${JSON.stringify(order)})`, errors));
     tally(check(!isAnyPopupOpen(), 'closeAll: nothing open afterwards', errors));
-    await tick();
+    await nextTask();
 
     // === dropdowns (POPUP_CLOSE_ALL event path) also dismiss via closeAllPopups ===
     let dropdownClosed = 0;
@@ -447,7 +444,7 @@ export async function runTests() {
     closeAllPopups();
     tally(check(dropdownClosed === 1, 'dropdown: closed via POPUP_CLOSE_ALL event', errors));
     tally(check(!isAnyPopupOpen(), 'dropdown: nothing open afterwards', errors));
-    await tick();
+    await nextTask();
 
     // === isForeignPopupOpen: the window-wide cycler gate ===
     // Clean baseline, then exercise each foreign/own combination. `dummyEvt`
@@ -490,10 +487,10 @@ export async function runTests() {
     relBareModal();
     tally(check(!isForeignPopupOpen(['model-selector']),
       'cleanup: nothing foreign after releasing everything', errors));
-    await tick();
+    await nextTask();
   } finally {
     // Drain any deferred sentinel removal before restoring the real API.
-    await tick();
+    await nextTask();
     window.history.pushState = realPush;
     window.history.back = realBack;
     __setBackIntegrationForTests(backIntegrationWas);

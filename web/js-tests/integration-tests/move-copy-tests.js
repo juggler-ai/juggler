@@ -19,7 +19,7 @@ import { textResponse } from '../utilities/integration-test-runner.js';
  * leaves root and appears in the thread's items.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const moveItemsRootToThreadTest = {
+const moveItemsRootToThreadTest = {
   name: 'move-items-root-to-thread',
   description: 'moveItems relocates a root item into a sub-thread atomically',
   fixture: 'unit-test-fixture',
@@ -53,7 +53,7 @@ export const moveItemsRootToThreadTest = {
  * copy (new itemId) appears in the thread.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const copyItemsRootToThreadTest = {
+const copyItemsRootToThreadTest = {
   name: 'copy-items-root-to-thread',
   description: 'copyItems duplicates a root item into a sub-thread with a fresh itemId',
   fixture: 'unit-test-fixture',
@@ -101,7 +101,7 @@ export const copyItemsRootToThreadTest = {
  * document exactly.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const moveItemsUndoTest = {
+const moveItemsUndoTest = {
   name: 'move-items-undo',
   description: 'Undo reverses a same-doc move in one step',
   fixture: 'unit-test-fixture',
@@ -151,7 +151,7 @@ export const moveItemsUndoTest = {
  * in the parent at the thread's index, tile gone).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const moveThenExpandRoundTripTest = {
+const moveThenExpandRoundTripTest = {
   name: 'move-then-expand-round-trip',
   description: 'Expanding a thread reverses a move-into-thread, restoring the parent shape',
   fixture: 'unit-test-fixture',
@@ -192,7 +192,7 @@ export const moveThenExpandRoundTripTest = {
  * Expand is one undoable transaction: undo restores the thread with its items.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const expandThreadUndoTest = {
+const expandThreadUndoTest = {
   name: 'expand-thread-undo',
   description: 'Undo reverses an expand in one step (thread + items restored)',
   fixture: 'unit-test-fixture',
@@ -231,7 +231,7 @@ export const expandThreadUndoTest = {
  * conversation-scoped permission metadata).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const promoteThreadToNewTabTest = {
+const promoteThreadToNewTabTest = {
   name: 'promote-thread-to-new-tab',
   description: 'Promoting a thread creates a new tab with copied items and defined state carry-over',
   fixture: 'unit-test-fixture',
@@ -273,7 +273,7 @@ export const promoteThreadToNewTabTest = {
  * leaving the source untouched.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const copyItemsToNewTabTest = {
+const copyItemsToNewTabTest = {
   name: 'copy-items-to-new-tab',
   description: 'Copy selection to a new conversation using the cross-doc copy primitive',
   fixture: 'unit-test-fixture',
@@ -299,7 +299,7 @@ export const copyItemsToNewTabTest = {
  * transaction.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const moveItemsToNewTabTest = {
+const moveItemsToNewTabTest = {
   name: 'move-items-to-new-tab',
   description: 'Move selection to a new conversation using the cross-doc move primitive',
   fixture: 'unit-test-fixture',

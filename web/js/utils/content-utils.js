@@ -8,10 +8,6 @@
  */
 
 /**
- * @typedef {import('../services/websocket.js').ContentBlock} ContentBlock
- */
-
-/**
  * @typedef {object} Span A `[start, end)` slice of a string.
  * @property {number} start - First offset in the slice.
  * @property {number} end - First offset past the slice.

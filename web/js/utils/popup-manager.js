@@ -36,13 +36,13 @@
  * Event name for popup opened notifications
  * @type {string}
  */
-export const POPUP_OPENED_EVENT = 'popup-opened';
+const POPUP_OPENED_EVENT = 'popup-opened';
 
 /**
  * Event name for close-all-popups notifications
  * @type {string}
  */
-export const POPUP_CLOSE_ALL_EVENT = 'popup-close-all';
+const POPUP_CLOSE_ALL_EVENT = 'popup-close-all';
 
 /**
  * The currently-open popups/modals, each token → its optional close handler. A
@@ -220,7 +220,7 @@ export function closePopupById(id) {
  * Notify that a popup has opened, causing other popups to close
  * @param {string} popupId - Unique identifier for the popup that opened
  */
-export function notifyPopupOpen(popupId) {
+function notifyPopupOpen(popupId) {
   document.dispatchEvent(new CustomEvent(POPUP_OPENED_EVENT, {
     detail: { popupId }
   }));
@@ -232,7 +232,7 @@ export function notifyPopupOpen(popupId) {
  * @param {() => void} closeHandler - Callback to close this popup
  * @returns {() => void} Cleanup function to remove the listeners
  */
-export function onOtherPopupOpened(ownPopupId, closeHandler) {
+function onOtherPopupOpened(ownPopupId, closeHandler) {
   // The subscription is registered on open and cleaned up on close, so its
   // lifetime IS the popup's open duration — making this the single place that
   // marks dropdowns/menus open for isAnyPopupOpen(). (Callers MUST register on

@@ -13,9 +13,11 @@
  * - The API service is read at call time, so a session whose service is
  *   swapped after construction talks to the new one.
  *
- * Every check that something did NOT happen waits one debounce window of real
- * time first. Under load that window can close before a stray timer fires, so
- * such a check can only pass vacuously on a busy machine, never fail falsely.
+ * Every check that something did NOT happen waits for a marker save, made by
+ * another session after the case's last call, to reach the server. A browser
+ * runs timers of equal delay in the order they were set, so any debounced save
+ * the case left armed has fired — and made its PUT — before the marker's does,
+ * however slow the core.
  *
  * Runs against a bare Session with a stub API service — no server, no workers.
  * @module unit-tests/session-persistence-test
@@ -23,7 +25,6 @@
 
 import { assert, trackTestSession, waitFor } from '../utilities/test-helpers.js';
 import Session from '../../js/model/session.js';
-import { SAVE_DEBOUNCE_MS } from '../../js/utils/constants.js';
 import { isEngine } from '../../sdk/lib/client-role.js';
 
 /**
@@ -59,11 +60,18 @@ function bareSession(api) {
 }
 
 /**
- * One debounce window of real time, plus slack, for a stray timer to fire in.
+ * Wait until every debounced save armed before this call has had its turn.
+ *
+ * A second session's debounced save is armed now, with the same delay as any
+ * the case left behind; timers of equal delay fire in the order they were set,
+ * and a debounced save makes its PUT inside its timer's task. So once the
+ * marker's PUT has landed, every earlier one that was going to fire has.
  * @returns {Promise<void>}
  */
-function pastTheDebounce() {
-  return new Promise((resolve) => { setTimeout(resolve, SAVE_DEBOUNCE_MS * 2); });
+async function pastEveryPendingSave() {
+  const marker = recordingApi();
+  bareSession(marker.api).save();
+  await waitFor(() => marker.puts.length >= 1, { description: 'the marker session\'s debounced save to reach the server' });
 }
 
 /**
@@ -107,8 +115,7 @@ export async function runTests(_ctx) {
     session.save();
     session.save();
     session.save();
-    await waitFor(() => puts.length >= 1, { description: 'the debounced save to reach the server' });
-    await pastTheDebounce();
+    await pastEveryPendingSave();
     assert(puts.length === 1, `three saves inside one debounce window made ${puts.length} PUTs`);
     const [activeId, history, metadata] = puts[0];
     assert(activeId === null, `a session with nothing loaded saves a null active id, got ${JSON.stringify(activeId)}`);
@@ -122,7 +129,7 @@ export async function runTests(_ctx) {
     session.save();
     await session.persistence.saveImmediately();
     assert(puts.length === 1, `saveImmediately made ${puts.length} PUTs, expected 1`);
-    await pastTheDebounce();
+    await pastEveryPendingSave();
     assert(puts.length === 1, `the debounced save fired as well, behind the immediate one: ${puts.length} PUTs`);
   });
 
@@ -131,7 +138,7 @@ export async function runTests(_ctx) {
     const session = bareSession(api);
     session.save();
     session.destroy();
-    await pastTheDebounce();
+    await pastEveryPendingSave();
     assert(puts.length === 0, `a destroyed session still saved: ${puts.length} PUTs`);
   });
 

@@ -92,7 +92,7 @@ function pendingItemsOf(conversation) {
  * the earliest opportunity, not deferred to end-of-run. One turn answers both.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const queueDrainsAtTurnBoundaryTest = {
+const queueDrainsAtTurnBoundaryTest = {
   name: 'queue-drains-at-turn-boundary',
   description: 'A message sent mid-turn is queued and injected at the next turn boundary',
   fixture: 'unit-test-fixture',
@@ -151,7 +151,7 @@ export const queueDrainsAtTurnBoundaryTest = {
  * spliced in after the completed tool action and ride the same continuation turn.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const twoQueuedMessagesAdjacentTest = {
+const twoQueuedMessagesAdjacentTest = {
   name: 'two-queued-messages-adjacent',
   description: 'Two messages queued mid-turn promote as adjacent user items',
   fixture: 'unit-test-fixture',
@@ -203,7 +203,7 @@ export const twoQueuedMessagesAdjacentTest = {
  * Nothing is dropped; the user can edit/continue from there.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const stopPromotesQueuedIdleTest = {
+const stopPromotesQueuedIdleTest = {
   name: 'stop-promotes-queued-idle',
   description: 'Stop with a queued message promotes it into the thread and stays idle',
   fixture: 'unit-test-fixture',
@@ -262,7 +262,7 @@ export const stopPromotesQueuedIdleTest = {
  * sequencing.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const queuedDuringApprovalDrainsOnApproveTest = {
+const queuedDuringApprovalDrainsOnApproveTest = {
   name: 'queued-during-approval-drains-on-approve',
   description: 'A message queued while waiting for approval drains after the tool is approved',
   fixture: 'unit-test-fixture',
@@ -315,7 +315,7 @@ export const queuedDuringApprovalDrainsOnApproveTest = {
  * stops at idle — see approval-flow-tests.js `approval-deny-stops-loop`.)
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const queuedDuringApprovalContinuesOnDenyTest = {
+const queuedDuringApprovalContinuesOnDenyTest = {
   name: 'queued-during-approval-continues-on-deny',
   description: 'Denying a tool with a queued message drops the approval and continues the turn',
   fixture: 'unit-test-fixture',
@@ -380,7 +380,7 @@ export const queuedDuringApprovalContinuesOnDenyTest = {
  * cancelled tool carries the worker's interrupted result.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const escapeOnApprovalContinuesWithQueuedTest = {
+const escapeOnApprovalContinuesWithQueuedTest = {
   name: 'escape-on-approval-continues-with-queued',
   description: 'Escape while parked purely on approval, with a queued message, cancels the tool and continues',
   fixture: 'unit-test-fixture',
@@ -438,7 +438,7 @@ export const escapeOnApprovalContinuesWithQueuedTest = {
  * message mid-turn, then clear the thread; the pending queue must be empty.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const clearWipesPendingTest = {
+const clearWipesPendingTest = {
   name: 'clear-wipes-pending',
   description: 'Clearing the thread also empties the pending queue',
   fixture: 'unit-test-fixture',
@@ -478,7 +478,7 @@ export const clearWipesPendingTest = {
  * DOM selectability plus the inline trashcan's container-aware delete path.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const queuedItemSelectableAndDeletableTest = {
+const queuedItemSelectableAndDeletableTest = {
   name: 'queued-item-selectable-and-inline-deletable',
   description: 'A queued item renders selectably and can be removed via its inline trashcan',
   fixture: 'unit-test-fixture',
@@ -547,7 +547,7 @@ export const queuedItemSelectableAndDeletableTest = {
  * off the thread's own Y.Map. The thread then returns its result and closes.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const queueDrainsIntoSubThreadTest = {
+const queueDrainsIntoSubThreadTest = {
   name: 'queue-drains-into-sub-thread',
   description: 'A message queued during a sub-thread turn drains into that sub-thread, not the root',
   fixture: 'unit-test-fixture',
@@ -613,7 +613,7 @@ export const queueDrainsIntoSubThreadTest = {
  * exposes a delete button, click it, and assert the message left the queue.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const queuedItemPropertiesPanelTest = {
+const queuedItemPropertiesPanelTest = {
   name: 'queued-item-properties-panel',
   description: 'Selecting a queued message shows its properties panel with a working remove-from-queue delete',
   fixture: 'unit-test-fixture',

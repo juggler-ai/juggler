@@ -40,7 +40,6 @@ import './model-picker/model-picker.js';
 
 /**
  * @typedef {import('./model-picker/model-picker.js').PickerProvider} Provider
- * @typedef {import('./model-picker/model-picker.js').PickerModel} ModelInfo
  */
 
 /**

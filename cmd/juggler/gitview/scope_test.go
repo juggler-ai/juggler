@@ -7,6 +7,8 @@ package gitview
 import (
 	"strings"
 	"testing"
+
+	"juggler/cmd/juggler/gitview/internal/clocks"
 )
 
 // What can be typed is a small subset of git diff's own grammar, and every
@@ -152,7 +154,7 @@ func TestResolveScopeFindsTheCommitsEitherSide(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			r, err := resolveScope(t.Context(), p.dir, s, gitDiffPerCmd)
+			r, err := resolveScope(t.Context(), p.dir, s, clocks.Diff.PerCmd)
 			if err != nil {
 				t.Fatalf("resolveScope(%q): %v", tc.input, err)
 			}
@@ -173,7 +175,7 @@ func TestResolveScopeNamesARevisionItCannotFind(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = resolveScope(t.Context(), p.dir, s, gitDiffPerCmd)
+		_, err = resolveScope(t.Context(), p.dir, s, clocks.Diff.PerCmd)
 		if !refused(err) || !strings.Contains(err.Error(), "nosuch") {
 			t.Errorf("resolveScope(%q) = %v, want a refusal naming nosuch", input, err)
 		}
@@ -188,7 +190,7 @@ func TestResolveScopeBranchNeedsADefaultBranch(t *testing.T) {
 	p.commit("init")
 	p.git("branch", "-M", "trunk")
 	s, _ := ParseScope("@branch")
-	if _, err := resolveScope(t.Context(), p.dir, s, gitDiffPerCmd); !refused(err) {
+	if _, err := resolveScope(t.Context(), p.dir, s, clocks.Diff.PerCmd); !refused(err) {
 		t.Errorf("resolveScope(@branch) = %v, want a refusal", err)
 	}
 }
@@ -199,7 +201,7 @@ func TestResolveScopeLastCommitOfARootCommitIsAgainstTheEmptyTree(t *testing.T) 
 	p.write("a.txt", "a\n")
 	p.commit("init")
 	s, _ := ParseScope("@last")
-	r, err := resolveScope(t.Context(), p.dir, s, gitDiffPerCmd)
+	r, err := resolveScope(t.Context(), p.dir, s, clocks.Diff.PerCmd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +218,7 @@ func TestResolveScopeUnbornRepositoryStillHasADefault(t *testing.T) {
 	p.write("a.txt", "a\n")
 	for _, input := range []string{"", "@staged"} {
 		s, _ := ParseScope(input)
-		r, err := resolveScope(t.Context(), p.dir, s, gitDiffPerCmd)
+		r, err := resolveScope(t.Context(), p.dir, s, clocks.Diff.PerCmd)
 		if err != nil {
 			t.Fatalf("resolveScope(%q): %v", input, err)
 		}
@@ -225,7 +227,7 @@ func TestResolveScopeUnbornRepositoryStillHasADefault(t *testing.T) {
 		}
 	}
 	s, _ := ParseScope("@last")
-	if _, err := resolveScope(t.Context(), p.dir, s, gitDiffPerCmd); !refused(err) {
+	if _, err := resolveScope(t.Context(), p.dir, s, clocks.Diff.PerCmd); !refused(err) {
 		t.Errorf("resolveScope(@last) on an unborn repository = %v, want a refusal", err)
 	}
 }

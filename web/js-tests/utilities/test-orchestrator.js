@@ -106,7 +106,7 @@ class TestOrchestrator {
           error: verdict.errors.length > 0 ? verdict.errors[0] : undefined
         };
         this.results.push(testResult);
-        return; // finally block sets window.testComplete
+        return;
       }
 
       // Full suite mode (used by non-integration test tasks)
@@ -197,9 +197,6 @@ class TestOrchestrator {
     } finally {
       this.running = false;
       this.shouldStop = false;
-      // Signal completion for headless test runner
-      // @ts-ignore - testComplete is set dynamically for headless runner
-      window.testComplete = true;
     }
   }
 

@@ -13,16 +13,37 @@
 
 import { runInSandbox } from '../sdk/lib/sandbox-runner.js';
 
+/**
+ * The globals engine.html templates onto this window, and the two this host
+ * publishes back onto it.
+ * @typedef {object} EngineHostGlobals
+ * @property {string} [__assetPrefix] - Version-prefixed asset base
+ * @property {string} [__jugglerBase] - Base path the page was served under
+ * @property {string} [__jugglerToken] - Per-instance API token
+ * @property {boolean} [__engineReady] - Set once the worker reports ready
+ * @property {Worker} [__jugglerEngineWorker] - The engine worker
+ */
+
+/**
+ * Everything the engine worker posts to this host.
+ * @typedef {{type: 'ready'}
+ *   | import('./engine-worker-sandbox.js').SandboxHostMessage
+ *   | {type: 'log', level?: 'debug'|'info'|'log'|'warn'|'error', args: unknown[]}
+ *   | {type: 'error', message: string, stack?: string}} EngineWorkerOutbound
+ */
+
+const hostGlobals = /** @type {EngineHostGlobals} */ (/** @type {unknown} */ (window));
+
 console.info('[EngineWorkerHost] Starting worker-backed engine');
 
-const worker = new Worker(`${/** @type {any} */ (window).__assetPrefix || ''}/js/engine-worker-runtime.js`, { type: 'module' });
+const worker = new Worker(`${hostGlobals.__assetPrefix || ''}/js/engine-worker-runtime.js`, { type: 'module' });
 
 // ── Sandbox bridge ─────────────────────────────────────────────────────────
 // The worker can't create the query_code isolation iframe (no document), so
 // it asks us to run it here. We run the real iframe sandbox and forward each of
 // the script's capability calls back to the worker (where fs/grep/glob live).
 let capCallSeq = 0;
-/** @type {Map<string, {runId: string, resolve: Function, reject: Function}>} */
+/** @type {Map<string, {runId: string, resolve: (value: unknown) => void, reject: (reason: unknown) => void}>} */
 const pendingCapCalls = new Map();
 /**
  * One controller per run in flight, so the worker's `sandbox-abort` can reach
@@ -69,7 +90,7 @@ function abandonCapCalls(runId) {
  * @param {{id: string, code: string, timeoutMs: number, descriptors: Array<{name: string, callable: boolean}>, projectRoot?: string}} data - Request
  */
 function runSandboxForWorker(data) {
-  /** @type {Record<string, any>} */
+  /** @type {import('./engine-worker-sandbox.js').SandboxCapabilities} */
   const capabilities = {};
   for (const { name, callable } of data.descriptors) {
     capabilities[name] = callable
@@ -103,9 +124,9 @@ function runSandboxForWorker(data) {
 }
 
 worker.onmessage = (/** @type {MessageEvent} */ event) => {
-  const data = event.data || {};
+  const data = /** @type {EngineWorkerOutbound} */ (event.data || {});
   if (data.type === 'ready') {
-    /** @type {any} */ (window).__engineReady = true;
+    hostGlobals.__engineReady = true;
     console.info('[EngineWorkerHost] Engine worker ready');
     return;
   }
@@ -128,7 +149,7 @@ worker.onmessage = (/** @type {MessageEvent} */ event) => {
   }
   if (data.type === 'log') {
     const level = data.level || 'info';
-    /** @type {any} */ (console)[level]?.('[EngineWorker]', ...data.args);
+    console[level]?.('[EngineWorker]', ...data.args);
     return;
   }
   if (data.type === 'error') {
@@ -147,11 +168,11 @@ worker.onerror = (/** @type {ErrorEvent} */ event) => {
 // shim, but workers do not inherit that shim).
 worker.postMessage({
   type: 'start',
-  assetPrefix: /** @type {any} */ (window).__assetPrefix || '',
-  apiBase: /** @type {any} */ (window).__jugglerBase || '',
-  apiToken: /** @type {any} */ (window).__jugglerToken || ''
+  assetPrefix: hostGlobals.__assetPrefix || '',
+  apiBase: hostGlobals.__jugglerBase || '',
+  apiToken: hostGlobals.__jugglerToken || ''
 });
 
-/** @type {any} */ (window).__jugglerEngineWorker = worker;
+hostGlobals.__jugglerEngineWorker = worker;
 
 export {};

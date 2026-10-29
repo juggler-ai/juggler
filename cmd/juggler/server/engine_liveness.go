@@ -86,12 +86,6 @@ func (s *Server) livenessWindow() time.Duration {
 	return engineLivenessWindow
 }
 
-// setEngineLivenessWindow shortens the staleness window so tests need not wait
-// out the production one. Test-only seam.
-func (s *Server) setEngineLivenessWindow(d time.Duration) {
-	s.engineLivenessWindowNs.Store(int64(d))
-}
-
 // engineSilence reports how long the engine has been silent. Zero when no engine
 // is registered (the caller checks registration first).
 func (s *Server) engineSilence() time.Duration {

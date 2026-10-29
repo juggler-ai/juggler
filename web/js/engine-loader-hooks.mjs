@@ -80,7 +80,7 @@ function snapshotFileFor(specifier) {
  * @param {string} specifier
  * @param {object} context
  * @param {Function} nextResolve
- * @returns {Promise<{url: string, shortCircuit?: boolean}>}
+ * @returns {Promise<{url: string, shortCircuit?: boolean}>} Where the module loads from
  */
 export async function resolve(specifier, context, nextResolve) {
   if (origin && specifier.startsWith('/worker-module')) {
@@ -97,7 +97,7 @@ export async function resolve(specifier, context, nextResolve) {
  * @param {string} url
  * @param {object} context
  * @param {Function} nextLoad
- * @returns {Promise<{format: string, source: string, shortCircuit?: boolean}>}
+ * @returns {Promise<{format: string, source: string, shortCircuit?: boolean}>} The module's source and format
  */
 export async function load(url, context, nextLoad) {
   if (origin && url.startsWith(origin + '/worker-module')) {

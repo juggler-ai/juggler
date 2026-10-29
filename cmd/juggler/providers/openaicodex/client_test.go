@@ -74,10 +74,10 @@ func TestReplaceReasoningSpecsDropsStaleModels(t *testing.T) {
 // request the backend now declines.
 func TestServiceTierSpecsAreReplacedWholesale(t *testing.T) {
 	replaceServiceTierSpecs(map[string]openaibase.ServiceTierSpec{
-		"retired-model": openaibase.TierSpec("", provider.ServiceTier{ID: "priority", Name: "Fast"}),
+		"retired-model": {Tiers: []provider.ServiceTier{{ID: "priority", Name: "Fast"}}},
 	})
 	replaceServiceTierSpecs(map[string]openaibase.ServiceTierSpec{
-		"current-model": openaibase.TierSpec("", provider.ServiceTier{ID: "priority", Name: "Fast"}),
+		"current-model": {Tiers: []provider.ServiceTier{{ID: "priority", Name: "Fast"}}},
 	})
 	t.Cleanup(func() { replaceServiceTierSpecs(map[string]openaibase.ServiceTierSpec{}) })
 

@@ -24,7 +24,7 @@ const TD_editBasic = testDirFor('edit-basic');
  * Basic edit: create a file then edit it with search/replace.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editBasicTest = {
+const editBasicTest = {
   name: 'edit-basic',
   description: 'Create a file then edit with search/replace',
   fixture: 'unit-test-fixture',
@@ -94,7 +94,7 @@ const TD_editMultiline = testDirFor('edit-multiline');
  * Multi-line edit on existing fixture file.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editMultilineTest = {
+const editMultilineTest = {
   name: 'edit-multiline',
   description: 'Multi-line search/replace across newlines',
   fixture: 'unit-test-fixture',
@@ -175,7 +175,7 @@ const TD_editNotFound = testDirFor('edit-not-found');
  * Edit not found: search string doesn't exist in file.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editNotFoundTest = {
+const editNotFoundTest = {
   name: 'edit-not-found',
   description: 'Edit with non-existent search string returns structured error',
   fixture: 'unit-test-fixture',
@@ -249,7 +249,7 @@ const TD_editAmbiguous = testDirFor('edit-ambiguous');
  * Ambiguous edit: search string matches multiple locations.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editAmbiguousTest = {
+const editAmbiguousTest = {
   name: 'edit-ambiguous',
   description: 'Edit with ambiguous search string (multiple matches) returns validation error',
   fixture: 'unit-test-fixture',
@@ -319,7 +319,7 @@ const TD_editSpecialChars = testDirFor('edit-special-chars');
  * Special characters: regex metacharacters treated as literal.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editSpecialCharsTest = {
+const editSpecialCharsTest = {
   name: 'edit-special-chars',
   description: 'Edit with regex metacharacters treated as literal text',
   fixture: 'unit-test-fixture',
@@ -387,7 +387,7 @@ const TD_editUnicode = testDirFor('edit-unicode');
  * Unicode content handling.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editUnicodeTest = {
+const editUnicodeTest = {
   name: 'edit-unicode',
   description: 'Edit unicode content',
   fixture: 'unit-test-fixture',
@@ -455,7 +455,7 @@ const TD_editEmptyReplacement = testDirFor('edit-empty-replacement');
  * Empty replacement (deletion).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editEmptyReplacementTest = {
+const editEmptyReplacementTest = {
   name: 'edit-empty-replacement',
   description: 'Delete text by replacing with empty string',
   fixture: 'unit-test-fixture',
@@ -523,7 +523,7 @@ const TD_editSequential = testDirFor('edit-sequential');
  * Sequential edits: multiple edits on the same file across LLM turns.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editSequentialTest = {
+const editSequentialTest = {
   name: 'edit-sequential',
   description: 'Multiple sequential edits on the same file',
   fixture: 'unit-test-fixture',
@@ -610,7 +610,7 @@ const TD_editWhitespace = testDirFor('edit-whitespace');
  * Edit whitespace-sensitive content.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editWhitespaceTest = {
+const editWhitespaceTest = {
   name: 'edit-whitespace',
   description: 'Edit with whitespace-sensitive search/replace',
   fixture: 'unit-test-fixture',
@@ -679,7 +679,7 @@ const TD_editDisplayData = testDirFor('edit-display-data');
  * Without this, the properties panel can't render a diff for pre-approved edits.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editDisplayDataTest = {
+const editDisplayDataTest = {
   name: 'edit-display-data',
   description: 'Auto-approved edit stores diffData on tool-action YMap for properties panel',
   fixture: 'unit-test-fixture',
@@ -784,7 +784,7 @@ const TD_editNoDouble = testDirFor('edit-no-double-execution');
  * doubling the content.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const editNoDoubleExecutionTest = {
+const editNoDoubleExecutionTest = {
   name: 'edit-no-double-execution',
   description: 'Insert-before edit executes exactly once (no observer race condition)',
   fixture: 'unit-test-fixture',

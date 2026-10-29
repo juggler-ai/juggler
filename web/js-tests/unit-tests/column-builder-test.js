@@ -22,27 +22,12 @@ import {
   initializeRegistries,
   createTestSession,
   createApprovalTestConversation,
-  assert
+  assert,
+  waitFor
 } from '../utilities/test-helpers.js';
 import { createUserMessage, createAssistantMessage } from '../../sdk/lib/message.js';
 import { TOOL_GROUPING_EVENT } from '../../js/utils/tool-grouping-pref.js';
 import '../../js/components/conversation-tab.js';
-
-/**
- * Let the column rebuild land.
- * @returns {Promise<void>} Resolves once queued callbacks have run.
- */
-function settle() {
-  return new Promise((resolve) => { setTimeout(resolve, 20); });
-}
-
-/**
- * Let a debounced properties render fire (150ms) with room to spare.
- * @returns {Promise<void>} Resolves once the panel has rendered.
- */
-function settlePanel() {
-  return new Promise((resolve) => { setTimeout(resolve, 300); });
-}
 
 /**
  * Own properties on a column that only the tab or its builder could have put
@@ -107,10 +92,11 @@ export async function runTests() {
       root.addEvent(createAssistantMessage('Looking.'));
       root.addEvent(createAssistantMessage('Found it.'));
     });
-    await settle();
 
     const col = /** @type {any} */ (tab.querySelector('conversation-area'));
     assert(!!col, 'test setup: the root conversation column should exist');
+    const lastId = root.items[root.items.length - 1].get('itemId');
+    await waitFor(() => col.querySelector(`[message-id="${lastId}"]`), 'the last fixture row to paint');
 
     // Count every render handed to the root column from here on.
     let renders = 0;
@@ -127,8 +113,7 @@ export async function runTests() {
       assert(renders === 0, `two no-op rebuilds handed the column its items ${renders} time(s)`);
 
       transact(() => { root.addEvent(createAssistantMessage('One more thing.')); });
-      await settle();
-      assert(renders >= 1, 'a new item must reach the column, but nothing was rendered');
+      await waitFor(() => renders >= 1, 'a new item to reach the column');
     });
 
     await run('a tool-grouping change repaints a column whose items did not change', async () => {
@@ -146,9 +131,12 @@ export async function runTests() {
 
     await run('the tab parks no state of its own on its columns', async () => {
       col.selectItem(first);
-      await settlePanel();
-      const panel = /** @type {any} */ (tab.querySelector('column-container > properties-panel'));
-      assert(!!panel, 'selecting an item should have opened a properties panel');
+      // The panel's content render is debounced; it takes the selection when
+      // that render runs.
+      const panel = /** @type {any} */ (await waitFor(() => {
+        const p = /** @type {any} */ (tab.querySelector('column-container > properties-panel'));
+        return p?.getSelectedItemId() === first ? p : null;
+      }, 'selecting an item to open a properties panel showing it'));
       const parked = [...parkedState(col), ...parkedState(panel)];
       assert(parked.length === 0,
         `the tab left its own bookkeeping on the column elements: ${parked.join(', ')}`);
@@ -172,11 +160,29 @@ export async function runTests() {
       assert(panel.getSelectedItemId() === second,
         `the flush must render the pending selection now, got ${panel.getSelectedItemId()}`);
 
-      // The flushed render owns its timer: nothing is left to fire later.
+      // The flushed render owns its timer: nothing is left to fire later. A
+      // deferred render armed after the flush has the same delay, so it fires
+      // after any timer the flush left behind — once it has painted, a leftover
+      // would have painted too, and shows up as a second paint.
       tab._builder.flushPropertiesRender(panel);
-      await settlePanel();
       assert(panel.getSelectedItemId() === second,
         `the panel must stay on the flushed selection, got ${panel.getSelectedItemId()}`);
+      /** @type {(string|null)[]} */
+      const painted = [];
+      const realSelect = panel.selectItem;
+      panel.selectItem = (/** @type {string|null} */ id) => {
+        painted.push(id);
+        realSelect.call(panel, id);
+      };
+      try {
+        tab._builder._propsLastChangeTime = Date.now();
+        col.selectItem(first);
+        await waitFor(() => panel.getSelectedItemId() === first, 'a deferred render armed after the flush to paint');
+      } finally {
+        delete panel.selectItem;
+      }
+      assert(JSON.stringify(painted) === JSON.stringify([first]),
+        `the flushed render left its timer to fire again: painted ${JSON.stringify(painted)}`);
     });
   } catch (e) {
     failed++;

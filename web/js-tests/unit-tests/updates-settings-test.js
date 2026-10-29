@@ -19,7 +19,7 @@
  * @module unit-tests/updates-settings-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 import wsService from '../../js/services/websocket.js';
 import { __resetPrefsForTests } from '../../js/services/prefs.js';
 import { fetchJson } from '../../js/services/http.js';
@@ -70,10 +70,35 @@ function installFetch(opts = {}) {
   return { restore: () => { window.fetch = orig; }, calls, state };
 }
 
-/** Let non-awaitable async chains (fetch → json) settle. */
-const settle = async () => {
-  for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
-};
+/**
+ * Wait for the tab's first load: the version line drawn from /api/update-status
+ * (every status here is version 1.0.0, digits that survive the pseudo-locale)
+ * and the radios showing the mode.
+ * @param {any} el - The settings panel.
+ * @param {string} [mode] - The radio that should be checked.
+ * @returns {Promise<unknown>} Resolves once both are showing.
+ */
+const loaded = (el, mode = 'automatic') => waitFor(() => {
+  const info = el.querySelector('#updates-version-info')?.textContent || '';
+  const checked = [...el.querySelectorAll('.updates-mode-radio')].find((r) => r.checked);
+  return info.includes('1.0.0') && checked?.value === mode;
+}, () => `the Updates tab to load (version line ${JSON.stringify(el.querySelector('#updates-version-info')?.textContent)}, want mode ${mode})`);
+
+/**
+ * Wait for the PUT /api/settings a radio click issues.
+ * @param {ReturnType<typeof installFetch>} backend - The fake backend.
+ * @returns {Promise<unknown>} Resolves once it was made.
+ */
+const putMade = (backend) => waitFor(() => backend.calls.some((c) => c.url === '/api/settings' && c.method === 'PUT'),
+  'the radio click to PUT /api/settings');
+
+/**
+ * Wait for a manual check to finish: the button is disabled for its length.
+ * @param {any} el - The settings panel.
+ * @returns {Promise<unknown>} Resolves once it re-enables.
+ */
+const checkDone = (el) => waitFor(() => !el.querySelector('#updates-check-btn').disabled
+  && (el.querySelector('#updates-check-status').textContent || '') !== '', 'the manual check to finish');
 
 /**
  * @param {object} _ctx - Test context (unused).
@@ -143,7 +168,7 @@ export async function runTests(_ctx) {
   await run('radio reflects the loaded mode from /api/settings', async () => {
     await withPanel({ mode: 'off' }, async (el) => {
       el._tabs.updates.show();
-      await settle();
+      await loaded(el, 'off');
       // Delivered every run rather than left to a sibling lane's timing.
       foreignBroadcast();
       const radios = [...el.querySelectorAll('.updates-mode-radio')];
@@ -156,11 +181,11 @@ export async function runTests(_ctx) {
   await run('changing the radio PUTs the new mode', async () => {
     await withPanel({ mode: 'automatic' }, async (el, backend) => {
       el._tabs.updates.show();
-      await settle();
+      await loaded(el);
       const notify = [...el.querySelectorAll('.updates-mode-radio')].find((r) => r.value === 'notify');
       assert(notify, 'notify radio present');
       notify.click();
-      await settle();
+      await putMade(backend);
       const put = backend.calls.find((c) => c.url === '/api/settings' && c.method === 'PUT');
       assert(put, 'a PUT /api/settings was issued');
       assert(put.body.updates.mode === 'notify', `PUT body mode = ${put.body.updates.mode}`);
@@ -171,11 +196,11 @@ export async function runTests(_ctx) {
   await run('manual check hits the check endpoint and surfaces the result', async () => {
     await withPanel({ status: { currentVersion: 'v1.0.0', latestVersion: 'v1.2.0', updateAvailable: true } }, async (el, backend) => {
       el._tabs.updates.show();
-      await settle();
+      await loaded(el);
       const btn = el.querySelector('#updates-check-btn');
       assert(btn, 'check button present');
       btn.click();
-      await settle();
+      await checkDone(el);
       const check = backend.calls.find((c) => c.url === '/api/update-status/check' && c.method === 'POST');
       assert(check, 'a POST /api/update-status/check was issued');
       const statusText = el.querySelector('#updates-check-status').textContent || '';
@@ -192,14 +217,14 @@ export async function runTests(_ctx) {
     };
     await withPanel({ status }, async (el) => {
       el._tabs.updates.show();
-      await settle();
+      await loaded(el);
       const info = el.querySelector('#updates-version-info').textContent || '';
       assert(info.includes('v1.0.0-dev'), `version line names this build; got ${JSON.stringify(info)}`);
       assert(info.includes('v1.2.0'), `version line names the latest release; got ${JSON.stringify(info)}`);
       assert(!/latest version/i.test(info), `no "latest version" claim; got ${JSON.stringify(info)}`);
 
       el.querySelector('#updates-check-btn').click();
-      await settle();
+      await checkDone(el);
       const checked = el.querySelector('#updates-check-status').textContent || '';
       assert(checked.includes('v1.2.0'), `manual check names the latest release; got ${JSON.stringify(checked)}`);
       assert(!/latest version/i.test(checked), `manual check makes no "latest version" claim; got ${JSON.stringify(checked)}`);
@@ -214,7 +239,7 @@ export async function runTests(_ctx) {
     };
     await withPanel({ mode: 'automatic', status }, async (el, backend) => {
       el._tabs.updates.show();
-      await settle();
+      await loaded(el, 'notify');
       foreignBroadcast();
       const visible = [...el.querySelectorAll('.updates-mode-radio')]
         .filter((r) => !r.closest('.updates-mode-row').hidden);
@@ -232,12 +257,12 @@ export async function runTests(_ctx) {
         `version line; got ${JSON.stringify(info)}`);
 
       visible[1].click();
-      await settle();
+      await putMade(backend);
       const put = backend.calls.find((c) => c.url === '/api/settings' && c.method === 'PUT');
       assert(put && put.body.updates.mode === 'off', `off is saved; got ${JSON.stringify(put && put.body)}`);
 
       el.querySelector('#updates-check-btn').click();
-      await settle();
+      await checkDone(el);
       const checked = el.querySelector('#updates-check-status').textContent || '';
       assert(checked === 'Version v1.2.0 is available — update it through Nix.',
         `manual check result; got ${JSON.stringify(checked)}`);
@@ -256,7 +281,7 @@ export async function runTests(_ctx) {
   await run('a mode set in another window reaches the radios', async () => {
     await withPanel({ mode: 'automatic' }, async (el, backend) => {
       el.switchTab('updates');
-      await settle();
+      await loaded(el);
       const before = backend.calls.filter((c) => c.url === '/api/settings' && c.method === 'GET').length;
 
       broadcastMode('off');
@@ -277,7 +302,7 @@ export async function runTests(_ctx) {
       // fake backend does not serve, and a failed load raises a modal.
       el.classList.add('show', 'loaded');
       el.switchTab('updates');
-      await settle();
+      await loaded(el);
       const radios = [...el.querySelectorAll('.updates-mode-radio')];
       const notify = radios.find((r) => r.value === 'notify');
       assert(notify, 'notify radio present');
@@ -308,9 +333,10 @@ export async function runTests(_ctx) {
         { currentVersion: '1.0.0', latestVersion: '1.2.0', updateAvailable: true, managedBy: '42' },
       ]) await withPanel({ status }, async (el) => {
         el._tabs.updates.show();
-        await settle();
+        // A managed install shows the saved "automatic" as notify.
+        await loaded(el, status.managedBy ? 'notify' : 'automatic');
         el.querySelector('#updates-check-btn').click();
-        await settle();
+        await checkDone(el);
         const form = el.querySelector('#updates-form');
         /** @type {string[]} */
         const shown = [];

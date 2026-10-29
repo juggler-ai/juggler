@@ -68,7 +68,7 @@ export async function runTests() {
 
   check('no rule reads the undefined --warning token', () => {
     const readers = styleRules()
-      .filter(rule => /var\(\s*--warning\b/.test(rule.style.cssText))
+      .filter(rule => /var\(\s*--warning(?![\w-])/.test(rule.style.cssText))
       .map(rule => rule.selectorText);
     assert(readers.length === 0, `these read --warning: ${readers.join(' | ')}`);
   });

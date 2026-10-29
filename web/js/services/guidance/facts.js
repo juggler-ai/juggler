@@ -20,7 +20,7 @@
  * Every fact, by name, and what its key and value are.
  * @type {Readonly<Record<string, string>>}
  */
-export const FACTS = Object.freeze({
+const FACTS = Object.freeze({
   // Key: conversation id. Value: how many agent instruction files
   // (AGENTS.md, CLAUDE.md, …) the conversation seeder found for it.
   'instruction-files': 'conversation id → instruction files found',
@@ -53,7 +53,7 @@ export function reportFact(name, key, value) {
  * @param {string|undefined} key
  * @returns {any} The fact, or undefined while nothing has been reported.
  */
-export function factFor(name, key) {
+function factFor(name, key) {
   return key === undefined ? undefined : known.get(name)?.get(key);
 }
 

@@ -17,7 +17,6 @@
 
 /**
  * @typedef {import('./approval-types.js').WordToken} WordToken
- * @typedef {import('./approval-types.js').OpToken} OpToken
  * @typedef {import('./approval-types.js').ShellToken} ShellToken
  */
 

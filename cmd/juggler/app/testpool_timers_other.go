@@ -2,7 +2,7 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-//go:build production || (!darwin && !linux) || (linux && gtk3)
+//go:build !production && ((!darwin && !linux) || (linux && gtk3))
 
 package app
 

@@ -41,7 +41,6 @@ import (
 	"juggler/cmd/juggler/providers/zai"
 	jugglertest "juggler/cmd/juggler/testing"
 	"juggler/internal/jlog"
-	"juggler/tests/helpers"
 )
 
 // registerProviders registers every built-in provider. Mirrors the juggler
@@ -331,9 +330,9 @@ func runTaskViaJuggler(ctx context.Context, jugglerBinary string, task *TaskDefi
 	if err != nil {
 		return TestResult{}, fmt.Errorf("start juggler: %w", err)
 	}
-	defer helpers.StopSubprocess(cmd)
+	defer stopSubprocess(cmd)
 
-	if err := helpers.WaitForServer(serverURL, 10*time.Second); err != nil {
+	if err := waitForServer(serverURL, 10*time.Second); err != nil {
 		return TestResult{}, fmt.Errorf("server readiness: %w", err)
 	}
 

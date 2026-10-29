@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"time"
 
-	"juggler/cmd/juggler/providers/provider"
 	"juggler/cmd/juggler/worker"
 )
 
@@ -109,34 +108,6 @@ func MidStreamError(err error, preludeChunks ...worker.StreamChunk) MockResponse
 	return MockResponse{Err: err, StreamScript: events}
 }
 
-// WithUsage stamps token counts onto a response's LLMResponse so cost-tracking
-// tests can assert against the mock without depending on a real provider.
-func WithUsage(m MockResponse, inputTokens, outputTokens, cachedTokens int) MockResponse {
-	if m.Response == nil {
-		return m
-	}
-	m.Response.InputTokens = inputTokens
-	m.Response.OutputTokens = outputTokens
-	m.Response.CachedTokens = provider.Reported(cachedTokens)
-	return m
-}
-
-// WithProgressTokens prepends progress chunks carrying running output-token
-// estimates to the response's stream script — matches the real anthropic
-// progress emitter.
-func WithProgressTokens(m MockResponse, samples ...int) MockResponse {
-	progress := make([]StreamEvent, 0, len(samples))
-	for _, n := range samples {
-		progress = append(progress, StreamEvent{Chunk: worker.StreamChunk{Type: "progress", OutputTokens: n}})
-	}
-	if m.StreamScript == nil {
-		m.StreamScript = progress
-	} else {
-		m.StreamScript = append(progress, m.StreamScript...)
-	}
-	return m
-}
-
 // runMockStream emits the stream chunks for a single call. If script is non-nil
 // it is played verbatim; otherwise the LLMResponse's blocks are streamed using
 // the original block-by-block default. Returns a non-nil error if the script
@@ -179,7 +150,6 @@ func runMockStream(streamCB func(worker.StreamChunk), response *worker.LLMRespon
 type LLMSequence struct {
 	callOp  chan llmCallOp
 	countOp chan llmCountOp
-	resetOp chan llmResetOp
 	reqsOp  chan llmReqsOp
 }
 
@@ -202,10 +172,6 @@ type llmCountOp struct {
 	resp chan int
 }
 
-type llmResetOp struct {
-	done chan struct{}
-}
-
 // NewLLMSequence creates a new sequence of LLM responses.
 func NewLLMSequence(responses ...*worker.LLMResponse) *LLMSequence {
 	mocks := make([]MockResponse, len(responses))
@@ -223,7 +189,6 @@ func NewMockSequence(responses ...MockResponse) *LLMSequence {
 	seq := &LLMSequence{
 		callOp:  make(chan llmCallOp),
 		countOp: make(chan llmCountOp),
-		resetOp: make(chan llmResetOp),
 		reqsOp:  make(chan llmReqsOp),
 	}
 
@@ -256,10 +221,6 @@ func NewMockSequence(responses ...MockResponse) *LLMSequence {
 				out := make([]json.RawMessage, len(requests))
 				copy(out, requests)
 				op.resp <- out
-			case op := <-seq.resetOp:
-				callCount = 0
-				requests = nil
-				op.done <- struct{}{}
 			}
 		}
 	}()
@@ -354,13 +315,6 @@ func ImagePartsInRequest(req json.RawMessage) []map[string]any {
 	return out
 }
 
-// Reset resets the call count to zero, allowing the sequence to be reused.
-func (seq *LLMSequence) Reset() {
-	op := llmResetOp{done: make(chan struct{}, 1)}
-	seq.resetOp <- op
-	<-op.done
-}
-
 // TextResponse creates an LLM response with only text content.
 func TextResponse(text string) *worker.LLMResponse {
 	return &worker.LLMResponse{
@@ -397,25 +351,6 @@ type ToolUse struct {
 	Input any
 }
 
-// MultiToolResponse creates an LLM response with multiple tool uses.
-func MultiToolResponse(tools ...ToolUse) *worker.LLMResponse {
-	blocks := make([]worker.LLMResponseBlock, len(tools))
-	for i, tool := range tools {
-		inputJSON, _ := json.Marshal(tool.Input)
-		blocks[i] = worker.LLMResponseBlock{
-			Type:  "tool_use",
-			ID:    tool.ID,
-			Name:  tool.Name,
-			Input: json.RawMessage(inputJSON),
-		}
-	}
-
-	return &worker.LLMResponse{
-		Blocks:     blocks,
-		StopReason: "tool_use",
-	}
-}
-
 // TextAndToolResponse creates an LLM response with both text and tool uses.
 // This is common when the LLM explains what it's about to do before calling tools.
 func TextAndToolResponse(text string, tools ...ToolUse) *worker.LLMResponse {
@@ -438,158 +373,5 @@ func TextAndToolResponse(text string, tools ...ToolUse) *worker.LLMResponse {
 	return &worker.LLMResponse{
 		Blocks:     blocks,
 		StopReason: "tool_use",
-	}
-}
-
-// ThinkingResponse creates an LLM response with thinking content.
-func ThinkingResponse(thinking string) *worker.LLMResponse {
-	return &worker.LLMResponse{
-		Blocks: []worker.LLMResponseBlock{
-			{
-				Type:     "thinking",
-				Thinking: thinking,
-			},
-		},
-		StopReason: "end_turn",
-	}
-}
-
-// ErrorResponse creates an LLM response that simulates an API error.
-// Note: This returns an error, not a *worker.LLMResponse.
-func ErrorResponse(message string) error {
-	return fmt.Errorf("mock LLM error: %s", message)
-}
-
-// ConditionalSequence allows different responses based on the request content.
-// This is useful for tests that need to handle different user inputs.
-// State is owned by an internal goroutine and accessed via channels.
-type ConditionalSequence struct {
-	conditions []conditionHandler
-	callOp     chan condCallOp
-}
-
-type conditionHandler struct {
-	matcher func(json.RawMessage) bool
-	mock    MockResponse
-}
-
-type condCallOp struct {
-	req  json.RawMessage
-	resp chan condCallResult
-}
-
-type condCallResult struct {
-	mock MockResponse
-	err  error
-}
-
-// NewConditionalSequence creates a new conditional response handler.
-func NewConditionalSequence() *ConditionalSequence {
-	cs := &ConditionalSequence{
-		conditions: make([]conditionHandler, 0),
-		callOp:     make(chan condCallOp),
-	}
-
-	go func() {
-		for op := range cs.callOp {
-			var result condCallResult
-			matched := false
-			for _, handler := range cs.conditions {
-				if handler.matcher(op.req) {
-					result = condCallResult{mock: handler.mock}
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				result = condCallResult{err: fmt.Errorf("no matching condition in ConditionalSequence")}
-			}
-			op.resp <- result
-		}
-	}()
-
-	return cs
-}
-
-// When adds a conditional response. The matcher function receives the request
-// and returns true if this response should be used.
-func (cs *ConditionalSequence) When(matcher func(json.RawMessage) bool, response *worker.LLMResponse) *ConditionalSequence {
-	return cs.WhenMock(matcher, PlainResponse(response))
-}
-
-// WhenMock is the MockResponse-typed variant of When, for rate-limit
-// injection, mid-stream errors, or scripted streaming.
-func (cs *ConditionalSequence) WhenMock(matcher func(json.RawMessage) bool, m MockResponse) *ConditionalSequence {
-	cs.conditions = append(cs.conditions, conditionHandler{matcher: matcher, mock: m})
-	return cs
-}
-
-// AsCallFunc converts the conditional sequence to a function compatible with worker.SetLLMCaller.
-func (cs *ConditionalSequence) AsCallFunc() func(context.Context, json.RawMessage, func(worker.StreamChunk)) (*worker.LLMResponse, error) {
-	return func(ctx context.Context, req json.RawMessage, streamCB func(worker.StreamChunk)) (*worker.LLMResponse, error) {
-		op := condCallOp{
-			req:  req,
-			resp: make(chan condCallResult, 1),
-		}
-		cs.callOp <- op
-		result := <-op.resp
-
-		if result.err != nil {
-			return nil, result.err
-		}
-		if result.mock.RateLimit != nil {
-			return nil, result.mock.RateLimit
-		}
-		if result.mock.Err != nil {
-			_ = runMockStream(streamCB, result.mock.Response, result.mock.StreamScript)
-			return nil, result.mock.Err
-		}
-		if err := runMockStream(streamCB, result.mock.Response, result.mock.StreamScript); err != nil {
-			return nil, err
-		}
-		return result.mock.Response, nil
-	}
-}
-
-// Helper functions for common request matchers
-
-// ContainsText returns a matcher that checks if the request contains specific text.
-func ContainsText(text string) func(json.RawMessage) bool {
-	return func(req json.RawMessage) bool {
-		var parsed map[string]any
-		if err := json.Unmarshal(req, &parsed); err != nil {
-			return false
-		}
-		// Check if any message in the request contains the text
-		if messages, ok := parsed["messages"].([]any); ok {
-			for _, msg := range messages {
-				if msgMap, ok := msg.(map[string]any); ok {
-					if content, ok := msgMap["content"].(string); ok {
-						return contains(content, text)
-					}
-				}
-			}
-		}
-		return false
-	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || anySubstring(s, substr))
-}
-
-func anySubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
-// AlwaysMatch returns a matcher that always returns true (fallback case).
-func AlwaysMatch() func(json.RawMessage) bool {
-	return func(req json.RawMessage) bool {
-		return true
 	}
 }

@@ -827,14 +827,6 @@ type StatusMessage struct {
 	Text         *msg.Message `json:"text,omitempty"`
 }
 
-// mockPausedStatus is the status the mock LLM sends when a scripted test holds
-// the turn; unlike StatusMessage it names no thread.
-type mockPausedStatus struct {
-	Type    wireMsgType `json:"type"` // "status"
-	Status  string      `json:"status"`
-	Message string      `json:"message"`
-}
-
 // ReadyMessage answers an init once the state asked for has been sent.
 // Metadata is an any so an empty map is still sent — omitempty drops only a
 // nil interface, and a reconnect's metadata is sent even when it has no keys.
@@ -888,14 +880,8 @@ type CreateThreadResponse struct {
 }
 
 // =============================================================================
-// Test Harness Messages
+// Undo, Transaction, Compaction and Naming Messages
 // =============================================================================
-
-// GetYjsStateMessage requests Yjs state for testing
-type GetYjsStateMessage struct {
-	Type  string `json:"type"` // "get-yjs-state"
-	AckID string `json:"ackId"`
-}
 
 // ClearUndoStacksMessage wipes undo/redo history after a conversation's
 // non-user seeding (handleClearUndoStacks reads its ack id through ackIDOf).
@@ -933,43 +919,6 @@ type CompactMessage struct {
 type RequestAutoNameMessage struct {
 	Type  wireMsgType `json:"type"` // "request-auto-name"
 	Force bool        `json:"force,omitempty"`
-}
-
-// SetMockResponsesMessage injects mock LLM responses for testing.
-// When mock responses are set, callLLM() pops and returns them instead of calling real LLM.
-type SetMockResponsesMessage struct {
-	Type      string         `json:"type"` // "set-mock-responses"
-	Responses []MockResponse `json:"responses"`
-}
-
-// MockResponse represents a scripted LLM response for testing.
-type MockResponse struct {
-	Blocks                 []LLMResponseBlock  `json:"blocks"`
-	StopReason             provider.StopReason `json:"stopReason"`
-	InputTokens            int                 `json:"inputTokens,omitempty"`
-	InputTokensApproximate bool                `json:"inputTokensApproximate,omitempty"`
-	OutputTokens           int                 `json:"outputTokens,omitempty"`
-	CachedTokens           int                 `json:"cachedTokens,omitempty"`
-	// PauseBeforeReturn, when true, causes popMockResponse to deliver the
-	// response (streaming chunks) and then block on the worker's mockReleaseChan
-	// until the test sends a "release-mock" message. Tests use this to inject
-	// actions (e.g. cancel) at a precisely-known point in the response lifecycle
-	// without racing against tool execution timing.
-	PauseBeforeReturn bool `json:"pauseBeforeReturn,omitempty"`
-	// Error, when non-empty, makes this scripted turn fail as if the provider
-	// returned an error (e.g. a transient network failure). callLLM surfaces it
-	// through the same path as a real provider error, so tests can exercise the
-	// strategy loop's error handling deterministically.
-	Error string `json:"error,omitempty"`
-	// Panic, when non-empty, makes this scripted turn panic with that value on
-	// the turn's own goroutine, at the point the provider would be called. Tests
-	// use it to exercise turn panic recovery (turn_panic.go).
-	Panic string `json:"panic,omitempty"`
-}
-
-// ReleaseMockMessage releases a paused mock response. See MockResponse.PauseBeforeReturn.
-type ReleaseMockMessage struct {
-	Type string `json:"type"` // "release-mock"
 }
 
 // =============================================================================
@@ -1213,7 +1162,7 @@ type ConversationItem struct {
 	RecoversError bool `json:"recoversError,omitempty"`
 
 	// RunResultFed marks a thread item whose REAL result — not the pending
-	// placeholder — has been emitted to the provider (buildMessagesFromItems
+	// placeholder — has been emitted to the provider (buildMessagesFromItemsWithContexts
 	// stamps it, under the same stampPending gate as a tool-action's
 	// resultFedTurn, so snapshot consumers never write).
 	//

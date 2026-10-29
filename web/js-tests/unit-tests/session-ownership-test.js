@@ -19,7 +19,7 @@
  * @module unit-tests/session-ownership
  */
 
-import { assert, createTestSession, createTestConversation } from '../utilities/test-helpers.js';
+import { assert, createTestSession, createTestConversation, nextTask } from '../utilities/test-helpers.js';
 import Conversation from '../../js/model/conversation.js';
 import SessionPersistence from '../../js/model/session-persistence.js';
 import workerManager from '../../js/services/worker-manager.js';
@@ -55,9 +55,6 @@ function pin(obj, key, value) {
   Object.defineProperty(obj, key, { value, writable: true, configurable: true });
   return () => { delete obj[key]; };
 }
-
-/** @returns {Promise<void>} After the microtasks and one macrotask have run. */
-const settle = () => new Promise((resolve) => { setTimeout(resolve, 0); });
 
 /**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
@@ -107,7 +104,7 @@ export async function runTests() {
           : Tracked.reject(new Error('providers unavailable')));
         session.switchConversation(b.id);
         session.switchConversation(a.id);
-        await settle();
+        await nextTask();
         assert(handled(), `a background fetch that ${outcome} has no rejection handler`);
       }
       assert(announced === 0, `the session announced a context window the conversation never resolved (${announced}×)`);

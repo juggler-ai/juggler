@@ -32,7 +32,7 @@ export const BUILTIN_DEFAULT_STRATEGY_ID = 'default';
  * map), so it persists with the session and is shared across windows on the
  * same project. Absent unless the operator picks a non-default strategy.
  */
-export const DEFAULT_STRATEGY_META_KEY = 'defaultStrategyId';
+const DEFAULT_STRATEGY_META_KEY = 'defaultStrategyId';
 
 /**
  * The operator's configured default-strategy id for new tasks, or null when

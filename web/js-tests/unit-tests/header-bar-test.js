@@ -32,7 +32,7 @@
 
 import { assert, styledProbeFrame } from '../utilities/test-helpers.js';
 import { serverPath } from '../../js/utils/api-url.js';
-import { bindNetworkClients } from '../../js/utils/header-controls.js';
+import { bindNetworkClients } from '../../js/components/header-controls.js';
 import { externalServerHost } from '../../js/utils/project-open-mode.js';
 import { setupHeaderOverflowMenu } from '../../js/utils/header-overflow-menu.js';
 import { headerOverflowItems } from '../../js/utils/header-overflow-items.js';

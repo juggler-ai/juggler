@@ -194,7 +194,7 @@
 // is still parked AND nothing was delivered for it, the CLI emitted a tool turn
 // while blocked on a parked call — impossible today, hence unrecoverable, so it
 // is logged loudly
-// and counted (outOfBandRoundCount) rather than stranding a call silently. Kept
+// and counted (outOfBandRounds) rather than stranding a call silently. Kept
 // deliberately: deliveredSinceGenAdvance is also what gives the detector its
 // specificity (a normal round that leaves a lingering orphan does NOT trip it),
 // and an assertable counter is worth more than a bare log given how long silent

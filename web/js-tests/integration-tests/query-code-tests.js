@@ -132,7 +132,7 @@ export const tests = [
   queryTest(
     'query-absolute-path-import',
     'query_code: can import() absolute project paths',
-    'const m = await import(`${projectRoot}/web/js/model/model-config.js`);\nreturn typeof m.resolveConfig === "function" ? "ok" : "missing-export";',
+    'const m = await import(`${projectRoot}/web/js/model/model-config.js`);\nreturn m.buildModelConfig("p", "m").provider === "p" ? "ok" : "wrong-module";',
     'ok'
   ),
 

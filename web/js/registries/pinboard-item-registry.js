@@ -85,19 +85,18 @@ class PinboardItemRegistry extends BaseRegistry {
    * before extensions, the File pin (which accepts any live file) would take every
    * path an extension had a purpose-built type for.
    * @param {import('juggler/pinboard-item-type').PinSource} source - The source to pin.
-   * @returns {{typeId: string, config: Record<string, any>}|null} The type and config, or null if nothing can pin it.
+   * @returns {{typeId: string, config: NonNullable<ReturnType<typeof import('juggler/pinboard-item-type').default.configFromSource>>}|null} The type and config, or null if nothing can pin it.
    */
   resolveSource(source) {
     const all = this.getAll();
     /**
-     * @param {{id: string, class: any}} entry - A registered item type.
+     * @param {{id: string, class: typeof import('juggler/pinboard-item-type').default}} entry - A registered item type.
      * @returns {boolean} True when the type claims a whole kind of source.
      */
     const isFallback = (entry) => entry.class?.MANIFEST?.sourceFallback === true;
     const ordered = [...all.filter((entry) => !isFallback(entry)), ...all.filter(isFallback)];
 
-    for (const { id, class: TypeClass } of ordered) {
-      const Type = /** @type {any} */ (TypeClass);
+    for (const { id, class: Type } of ordered) {
       let config = null;
       try {
         if (!Type.canPinSource?.(source)) continue;
@@ -114,7 +113,7 @@ class PinboardItemRegistry extends BaseRegistry {
   /**
    * Get (or lazily create) the singleton instance for a type id.
    * @param {string} id - Item-type id.
-   * @param {any} TypeClass - The item-type class registered under that id.
+   * @param {typeof import('juggler/pinboard-item-type').default} TypeClass - The item-type class registered under that id.
    * @returns {InstanceType<typeof import('juggler/pinboard-item-type').default>} The instance.
    * @private
    */

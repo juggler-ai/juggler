@@ -653,7 +653,7 @@ update-button .update-btn--progress {
         ) left / var(--update-pct, 0%) 100% no-repeat,
         var(--bg-tertiary);
     color: var(--text-primary);
-    text-shadow: 0 0.05rem 0.05rem rgb(0 0 0 / 28%);
+    text-shadow: 0 0.05rem 0.05rem color-mix(in srgb, var(--shadow-color) 28%, transparent);
 }
 
 /* Light mode: keep both the fill and the track light so the dark label reads
@@ -661,11 +661,11 @@ update-button .update-btn--progress {
 :root[data-theme="light"] update-button .update-btn--progress {
     background:
         linear-gradient(
-            rgb(9 105 218 / 30%),
-            rgb(9 105 218 / 30%)
+            color-mix(in srgb, var(--accent-blue) 30%, transparent),
+            color-mix(in srgb, var(--accent-blue) 30%, transparent)
         ) left / var(--update-pct, 0%) 100% no-repeat,
         var(--bg-tertiary);
-    text-shadow: 0 0.05rem 0.05rem rgb(255 255 255 / 65%);
+    text-shadow: 0 0.05rem 0.05rem color-mix(in srgb, var(--bg-secondary) 65%, transparent);
 }
 
 /* Download percentage: its own box reserving room for the widest value ("100%")

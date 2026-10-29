@@ -18,6 +18,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/gitview"
+	"juggler/cmd/juggler/gitview/gitviewtest"
 	"juggler/cmd/juggler/ops"
 )
 
@@ -303,7 +304,7 @@ func TestLocalWorkspaceGitAnswersAboutItsOwnTree(t *testing.T) {
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Cleanup(gitview.LendClocks(time.Minute, 5*time.Minute))
+	t.Cleanup(gitviewtest.LendClocks(time.Minute, 5*time.Minute))
 
 	tr := newTrees(t)
 	cmd := exec.Command("git", "init", "-q")

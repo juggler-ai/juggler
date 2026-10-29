@@ -27,7 +27,7 @@
  * @module unit-tests/unbounded-await
  */
 
-import { assert, waitFor } from '../utilities/test-helpers.js';
+import { assert, waitFor, withTimeout } from '../utilities/test-helpers.js';
 import { __setOpCallTimeoutForTest } from '../../js/services/ops-api.js';
 import { readFile } from '../../js/services/ops-api.js';
 import { runInSandbox } from '../../sdk/lib/sandbox-runner.js';
@@ -60,21 +60,6 @@ function stubDeadOpFetch() {
 }
 
 /**
- * Reject if a promise has not settled within `ms`, so a regression fails the
- * test rather than hanging the lane to its 60s budget.
- * @param {Promise<any>} p - The promise under test
- * @param {number} ms - Patience budget
- * @param {string} what - Message for the timeout
- * @returns {Promise<any>} p's settlement
- */
-function within(p, ms, what) {
-  return Promise.race([
-    p,
-    new Promise((_r, rej) => setTimeout(() => rej(new Error(what)), ms))
-  ]);
-}
-
-/**
  * @typedef {object} TestResult
  * @property {number} passed - Number of passed tests
  * @property {number} failed - Number of failed tests
@@ -103,7 +88,7 @@ export async function runTests(_ctx) {
 
       let threw = null;
       try {
-        await within(
+        await withTimeout(
           readFile({ path: '/anything' }),
           4000,
           'a dead /api/ops/call never settled — the request has no deadline, so the tool sits at running forever'
@@ -142,7 +127,7 @@ export async function runTests(_ctx) {
 
       let threw = null;
       try {
-        await within(call, 4000, 'an aborted op call never settled');
+        await withTimeout(call, 4000, 'an aborted op call never settled');
       } catch (e) {
         threw = e;
       }
@@ -180,7 +165,7 @@ export async function runTests(_ctx) {
 
       let threw = null;
       try {
-        await within(run, 4000, 'the sandbox delegate never settled — a host that never answers hangs query_code forever');
+        await withTimeout(run, 4000, 'the sandbox delegate never settled — a host that never answers hangs query_code forever');
       } catch (e) {
         threw = e;
       }
@@ -207,7 +192,7 @@ export async function runTests(_ctx) {
       const run = bridge.delegate('return 42', {}, 1000);
       bridge.handleResult({ id: posted[0].id, ok: true, result: 42 });
 
-      const value = await within(run, 4000, 'an answered sandbox run never settled');
+      const value = await withTimeout(run, 4000, 'an answered sandbox run never settled');
       assert(value === 42, `the host's result must reach the caller, got ${value}`);
       assert(bridge.pendingCount() === 0, 'a settled run must leave no bookkeeping behind');
 
@@ -241,7 +226,7 @@ export async function runTests(_ctx) {
 
       let threw = null;
       try {
-        await within(run, 4000, 'an aborted runInSandbox never settled — the signal reaches nothing');
+        await withTimeout(run, 4000, 'an aborted runInSandbox never settled — the signal reaches nothing');
       } catch (e) {
         threw = e;
       }
@@ -297,7 +282,7 @@ export async function runTests(_ctx) {
 
       let threw = null;
       try {
-        await within(run, 4000, 'an aborted delegate run never settled');
+        await withTimeout(run, 4000, 'an aborted delegate run never settled');
       } catch (e) {
         threw = e;
       }
@@ -313,7 +298,7 @@ export async function runTests(_ctx) {
       dead.abort();
       let threwEarly = null;
       try {
-        await within(bridge.delegate('return 1', {}, 1000, undefined, { signal: dead.signal }), 4000, 'a pre-aborted run never settled');
+        await withTimeout(bridge.delegate('return 1', {}, 1000, undefined, { signal: dead.signal }), 4000, 'a pre-aborted run never settled');
       } catch (e) {
         threwEarly = e;
       }
@@ -349,7 +334,7 @@ export async function runTests(_ctx) {
         window.addEventListener('message', onReady);
       });
       document.body.appendChild(frame);
-      await within(ready, 15000, 'the sandbox frame never signalled ready');
+      await withTimeout(ready, 15000, 'the sandbox frame never signalled ready');
 
       /**
        * Start a script that reports in once, then says on the console that it is
@@ -388,17 +373,17 @@ export async function runTests(_ctx) {
       };
 
       const escape = startSpinner(60000);
-      await within(escape.started, 15000, 'the spinning script never got going');
-      await within(escape.spinning, 15000, 'the script never reached its loop');
+      await withTimeout(escape.started, 15000, 'the spinning script never got going');
+      await withTimeout(escape.spinning, 15000, 'the script never reached its loop');
       escape.port.postMessage({ kind: 'abort' });
-      const cancelled = await within(escape.result, 4000,
+      const cancelled = await withTimeout(escape.result, 4000,
         'the frame never ended a spinning script on abort — it would run to its timeout');
       assert(cancelled.ok === false && cancelled.error === 'Script was cancelled',
         `an abort must end the spinning script, got ${JSON.stringify(cancelled)}`);
 
       const timeout = startSpinner(1000);
-      await within(timeout.started, 15000, 'the spinning script never got going');
-      const timedOut = await within(timeout.result, 6000,
+      await withTimeout(timeout.started, 15000, 'the spinning script never got going');
+      const timedOut = await withTimeout(timeout.result, 6000,
         'the frame never ended a spinning script at its timeout');
       assert(timedOut.ok === false && /timed out after 1000ms/.test(timedOut.error),
         `a spinning script must end at its timeout, got ${JSON.stringify(timedOut)}`);
@@ -421,7 +406,7 @@ export async function runTests(_ctx) {
   {
     try {
       const controller = new AbortController();
-      const value = await within(
+      const value = await withTimeout(
         runInSandbox('await new Promise((r) => setTimeout(r, 600)); return "finished";',
           { timeoutMs: 0, signal: controller.signal }),
         8000, 'a run with no deadline never settled');
@@ -454,7 +439,7 @@ export async function runTests(_ctx) {
       assert(armed.length === 1 && armed[0] === 1050,
         `a run with a deadline must arm the bridge's backstop at timeoutMs + grace, armed: ${JSON.stringify(armed)}`);
       bridge.handleResult({ id: posted[0].id, ok: true, result: 1 });
-      await within(bounded, 4000, 'an answered bounded run never settled');
+      await withTimeout(bounded, 4000, 'an answered bounded run never settled');
       posted.length = 0;
       armed.length = 0;
 
@@ -468,7 +453,7 @@ export async function runTests(_ctx) {
       const runId = posted[0].id;
 
       controller.abort();
-      const settled = await within(outcome, 4000, 'an aborted run with no deadline never settled');
+      const settled = await withTimeout(outcome, 4000, 'an aborted run with no deadline never settled');
       assert(settled === 'AbortError', `the abort must surface as an AbortError, got ${settled}`);
       assert(posted.some((m) => m.type === 'sandbox-abort' && m.id === runId),
         `the bridge must ask the host to stop the run, posted: ${JSON.stringify(posted.map((m) => m.type))}`);
@@ -492,7 +477,7 @@ export async function runTests(_ctx) {
        * @param {AbortSignal} [sig] - Signal to pass
        * @returns {Promise<string>} The rejection's name and message, or 'accepted'
        */
-      const refusal = (timeoutMs, sig) => within(
+      const refusal = (timeoutMs, sig) => withTimeout(
         runInSandbox('return 1', { timeoutMs, signal: sig }).then(() => 'accepted', (e) => `${e.name}: ${e.message}`),
         8000, `runInSandbox(timeoutMs: ${String(timeoutMs)}) never settled`);
       for (const bad of [NaN, -1, null, Infinity, '1000']) {

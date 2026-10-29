@@ -7,7 +7,7 @@
  * `juggler/context-item` type vocabulary — the JSDoc typedefs shared by the
  * ContextItem base class and every plugin/consumer. Split out of context-item.js
  * so the class file stays focused on behaviour; context-item.js re-exports these
- * names so `import('juggler/context-item').TypeName` keeps resolving. Imported
+ * names so `import('juggler/context-item').ItemSummary` keeps resolving. Imported
  * for typedefs only — no runtime exports.
  */
 
@@ -45,7 +45,7 @@
  * `itemType`.
  * @typedef {object} ApprovalSuggestion
  * @property {string} [itemType] - Permission itemType the rules belong to (owning plugin id). Omitted for a pure `allowedPaths` grant, which has no owning plugin rule.
- * @property {Array<{kind: string, value: any, scope?: 'session'|'conversation'}>} [rules] - Rules to add when this suggestion is chosen
+ * @property {Array<{kind: string, value: unknown, scope?: 'session'|'conversation'}>} [rules] - Rules to add when this suggestion is chosen
  * @property {string[]} [allowedPaths] - Framework-generic FS roots to add to the conversation's allowed-paths list when this suggestion is chosen. An alternative to `rules` for a command that is rejected only because it reads outside the allowed roots; granting the folders makes `isPermitted` true without wildcarding the command. A suggestion carries `rules` OR `allowedPaths`, never both.
  * @property {string} [label] - Display string summarising what gets approved (e.g. "git push *"); shown on the button when `patterns` is absent
  * @property {string[]} [patterns] - The individual pattern/path strings this suggestion covers. The framework renders each as its own `<code>` span joined by a plain-font "or", so a suggestion spanning several segments reads as distinct alternatives. Preferred over `label` whenever there is more than one.
@@ -63,7 +63,7 @@
  * returned `rules`/`allowedPaths` verbatim. The framework holds no glob or path
  * semantics; every match/broadness judgment lives in the plugin.
  * @typedef {object} RevisedApprovalSuggestion
- * @property {Array<{kind: string, value: any, scope?: 'session'|'conversation'}>} [rules] - Grant derived from the edited text (command-glob edits). Persisted verbatim on approval; same shape as the original suggestion's `rules`.
+ * @property {Array<{kind: string, value: unknown, scope?: 'session'|'conversation'}>} [rules] - Grant derived from the edited text (command-glob edits). Persisted verbatim on approval; same shape as the original suggestion's `rules`.
  * @property {string[]} [allowedPaths] - Grant derived from the edited text (folder-grant edits). Mutually exclusive with `rules`.
  * @property {string[]} patterns - Normalized display string(s) rendered back into the input (one element; the plugin may trim/canonicalize).
  * @property {boolean} valid - When false the framework disables the button and blocks Return. Set false when the edit is syntactically invalid or wouldn't approve the current command.
@@ -163,7 +163,7 @@
  * @property {boolean} [includeInConversation] - Whether to include result in LLM conversation
  * @property {string} [message] - Message shown to LLM in tool_result (success case)
  * @property {string} [error] - Error message shown to LLM (failure case)
- * @property {Record<string, any>} [result] - Result details for UI/debugging
+ * @property {Record<string, unknown>} [result] - Result details for UI/debugging
  * @property {string} [itemId] - Context item ID (added by response-handler for context item tools)
  */
 
@@ -195,7 +195,7 @@
  * @typedef {object} MergeOrReplaceResult
  * @property {'reuse'|'merge'} action - 'reuse': use existing as-is, 'merge': update existing
  * @property {import('./context-item.js').default} item - The existing item to reuse or merge into
- * @property {Record<string, any>} [mergedParams] - Combined params (only for 'merge' action)
+ * @property {Record<string, unknown>} [mergedParams] - Combined params (only for 'merge' action)
  */
 
 /**
@@ -210,7 +210,7 @@
  * @property {string} [toolUseId] - Tool use ID (for filtering self from items during validation)
  * @property {string} [toolName] - The (resolved) name of the tool being invoked. Set by the framework at every tool-execution construction site so a single class that exposes many tools (e.g. the MCP bridge, whose per-tool args are server-defined and indistinguishable by shape) can route validate/execute/approval to the right tool. Undefined for non-tool instantiations.
  * @property {AbortSignal} [signal] - Abort signal for cooperative cancellation of execute()
- * @property {(event: any) => void} [onProgress] - Progress callback for streaming output
+ * @property {(event: import('../js/services/action-executor.js').ActionProgressEvent) => void} [onProgress] - Progress callback for streaming output
  * @property {number} [truncationBudget] - The character budget for this instance's output, in place of the conversation's. Set by the framework when the output goes to a program rather than the model.
  */
 
@@ -226,7 +226,7 @@
  * @typedef {object} ItemJSON
  * @property {string} id - Unique item identifier (e.g., 'ITEM_1')
  * @property {string} type - Item type identifier (e.g., 'read-file')
- * @property {Record<string, any>} data - Item-specific data
+ * @property {Record<string, unknown>} data - Item-specific data
  */
 
 /**
@@ -238,9 +238,9 @@
 /**
  * Context object passed to renderToolActionDetails.
  * @typedef {object} ToolActionRenderContext
- * @property {any} toolAction - The Y.Map representing the tool action (has .get())
+ * @property {import('yjs').Map<unknown>} toolAction - The Y.Map representing the tool action (has .get())
  * @property {string} toolName - Lowercased tool name
- * @property {Record<string, any>} input - Plain-object snapshot of toolInput
+ * @property {Record<string, unknown>} input - Plain-object snapshot of toolInput
  * @property {ToolActionRenderHelpers} helpers - DOM helpers (addSubsection, addFilePath, addDiffViewer, createCopyableText)
  * @property {import('../js/model/conversation.js').default | null} conversation - Active conversation
  * @property {import('../js/model/message-thread.js').default | null} messageThread - Message thread containing the action
@@ -331,7 +331,7 @@
  *   Use this for items that require server-side orchestration (e.g., thread
  *   creation, external API coordination). Default: `false`
  * @property {string[]} [permissions] - Required permissions (e.g., ['filesystem.read'])
- * @property {Record<string, any>} [exampleData] - Example data object for documentation
+ * @property {Record<string, unknown>} [exampleData] - Example data object for documentation
  * @property {boolean} [preventUserDeletion] - **@internal** (outside the engineApi compat promise). If true, item cannot be deleted by user
  * @property {boolean} [userAddable] - If true, users can create items of this type via UI
  * @property {string} [syntheticToolName] - **@internal** (outside the engineApi compat promise). Tool name to use in synthetic tool-use/tool-result pairs
@@ -375,8 +375,8 @@
  * Context passed to `buildSubthreadSpec`. Runs in the browser (engine), after
  * `validate()`.
  * @typedef {object} SubthreadBuildContext
- * @property {any} conversation - The conversation the tool was called in.
- * @property {any} session - The owning session.
+ * @property {import('../js/model/conversation.js').default} conversation - The conversation the tool was called in.
+ * @property {import('../js/model/session.js').default} session - The owning session.
  * @property {AbortSignal} [signal] - Abort signal for any local pre-work.
  */
 
@@ -384,11 +384,11 @@
  * Context passed to the static `onTurnEnd(ctx)` hook. Runs in the engine (no
  * DOM), once per completed turn when the root conversation goes idle.
  * @typedef {object} TurnEndContext
- * @property {any} conversation - The conversation that just went idle. Use
+ * @property {import('../js/model/conversation.js').default} conversation - The conversation that just went idle. Use
  *   `conversation.id` as the stable anchor for external per-conversation state.
- * @property {any} messageThread - The root message thread — the transcript to
+ * @property {import('../js/model/message-thread.js').MessageThread} messageThread - The root message thread — the transcript to
  *   read/distil (the same object a strategy hook sees as `this.messageThread`).
- * @property {any} session - The owning session, for durable `getMetadata` /
+ * @property {import('../js/model/session.js').default} session - The owning session, for durable `getMetadata` /
  *   `patchMetadata` state.
  * @property {number} turnIndex - The completed-turn counter for this idle
  *   transition, so a hook can process only what is new since its last run.

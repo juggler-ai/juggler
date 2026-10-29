@@ -25,7 +25,7 @@
  * @module unit-tests/defaults-model-host-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, nextTask } from '../utilities/test-helpers.js';
 import { assertDialogPopover } from '../utilities/menu-assertions.js';
 import { DefaultsTab } from '../../js/components/settings/defaults-tab.js';
 import { MODEL_PICKER_OFF } from '../../js/components/model-picker/model-picker.js';
@@ -652,7 +652,6 @@ export async function runTests(_ctx) {
       { name: 'o', displayName: '3', available: false, authType: 'oauth_bearer' },
       { name: 'j', displayName: '8', available: true, decisions: true, decisionOnly: true, modelsWithContext: [{ id: 'd', displayName: '9', contextWindow: 64000 }] },
     ];
-    const tick = () => new Promise(resolve => setTimeout(resolve, 0));
     const registry = /** @type {any} */ (strategyRegistry);
     const originalManifests = registry.getAllManifests;
     registry.getAllManifests = () => [
@@ -737,7 +736,7 @@ export async function runTests(_ctx) {
           const input = /** @type {HTMLInputElement} */ (host.querySelector(id));
           input.value = value;
           input.dispatchEvent(new Event('blur'));
-          await tick();
+          await nextTask();
           return input.closest('.provider-control')?.querySelector('.key-source-hint')?.textContent || '';
         };
         /** @type {string[]} */
@@ -765,7 +764,7 @@ export async function runTests(_ctx) {
           fail = failing;
           textarea.value = value;
           textarea.dispatchEvent(new Event('blur'));
-          await tick();
+          await nextTask();
           lines.push(instructionStatus());
         }
         fail = false;

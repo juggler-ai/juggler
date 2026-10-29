@@ -27,7 +27,7 @@ import { textResponse } from '../utilities/integration-test-runner.js';
  * each step. Exercises real per-worker fan-out to multiple viewer clients.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const multiViewerConvergeTest = {
+const multiViewerConvergeTest = {
   name: 'multi-viewer-converge',
   description: 'A second viewer client on the same conversation converges via yjs-sync after a turn and an undo',
   fixture: 'unit-test-fixture',

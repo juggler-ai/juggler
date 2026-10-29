@@ -30,14 +30,14 @@ import { createHmac } from 'node:crypto';
 export function installNodeSandboxDelegate({ origin, projectRoot }) {
   /**
    * @param {string} code - Untrusted JavaScript to run
-   * @param {Record<string, any>} capabilities - Named fs/grep/glob closures
+   * @param {Capabilities} capabilities - Named fs/grep/glob closures
    * @param {number} timeoutMs - Wall-clock budget, or 0 for none (the run then
    *   ends only through `hooks.signal`)
    * @param {string} [callerRoot] - The root the caller works in, POSIX-form
    * @param {RunHooks} [hooks] - The caller's abort signal and console sink
    * @returns {Promise<unknown>} The script's return value
    */
-  /** @type {any} */ (globalThis).__hostSandboxDelegate = (code, capabilities, timeoutMs, callerRoot, hooks) =>
+  globalThis.__hostSandboxDelegate = (code, capabilities, timeoutMs, callerRoot, hooks) =>
     runInWorkerSandbox(code, capabilities, timeoutMs, { origin, projectRoot }, callerRoot, hooks);
 }
 
@@ -55,6 +55,11 @@ function sandboxImportCapability(apiToken) {
 }
 
 /**
+ * What a script may call: a function, or an object whose methods it calls.
+ * @typedef {Record<string, Function | Record<string, Function>>} Capabilities
+ */
+
+/**
  * @typedef {object} RunHooks
  * @property {AbortSignal} [signal] - Aborting terminates the run's Worker
  * @property {(line: string) => void} [onConsole] - Receives each console line
@@ -64,12 +69,12 @@ function sandboxImportCapability(apiToken) {
 /**
  * Run one query_code script in an isolated worker_threads Worker.
  * @param {string} code
- * @param {Record<string, any>} capabilities
+ * @param {Capabilities} capabilities
  * @param {number} timeoutMs - Wall-clock budget, or 0 for none
  * @param {{ origin: string, projectRoot: string }} env
  * @param {string} [callerRoot]
  * @param {RunHooks} [hooks]
- * @returns {Promise<unknown>}
+ * @returns {Promise<unknown>} The script's return value
  */
 async function runInWorkerSandbox(code, capabilities, timeoutMs, env, callerRoot, { signal, onConsole } = {}) {
   const abortError = () => new DOMException('The operation was aborted.', 'AbortError');
@@ -88,10 +93,10 @@ async function runInWorkerSandbox(code, capabilities, timeoutMs, env, callerRoot
   // closure. The Node engine runs on this same thread, so the global is in step
   // with the loaded project.
   const liveProjectRoot =
-    callerRoot || (/** @type {any} */ (globalThis).__jugglerProjectRoot ?? env.projectRoot);
+    callerRoot || (globalThis.__jugglerProjectRoot ?? env.projectRoot);
 
   const importBase = `${env.origin}/sandbox-import/${
-    sandboxImportCapability(/** @type {any} */ (globalThis).__jugglerToken || '') || '-'}`;
+    sandboxImportCapability(globalThis.__jugglerToken || '') || '-'}`;
   const worker = new Worker(new URL('./engine-sandbox-worker.mjs', import.meta.url), {
     workerData: {
       origin: env.origin,
@@ -115,7 +120,8 @@ async function runInWorkerSandbox(code, capabilities, timeoutMs, env, callerRoot
 
     /**
      * Settle once, tearing the worker down.
-     * @param {Function} done @param {unknown} value
+     * @param {Function} done
+     * @param {unknown} value
      */
     function finish(done, value) {
       if (settled) return;
@@ -126,9 +132,11 @@ async function runInWorkerSandbox(code, capabilities, timeoutMs, env, callerRoot
       done(value);
     }
 
-    // Escape: kill the script, not just the wait for it. A run left alive
-    // would go on servicing capability calls until its own timeout — and a run
-    // with no deadline, for good.
+    /**
+     * Escape: kill the script, not just the wait for it. A run left alive
+     * would go on servicing capability calls until its own timeout — and a run
+     * with no deadline, for good.
+     */
     function onAbort() {
       finish(reject, abortError());
     }

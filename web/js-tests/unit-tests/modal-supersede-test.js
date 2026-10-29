@@ -28,41 +28,41 @@
  * @module unit-tests/modal-supersede
  */
 
-import { assert, waitFor } from '../utilities/test-helpers.js';
+import { assert, settledByNextTask, waitFor } from '../utilities/test-helpers.js';
+import { racePatiently } from '../utilities/test-patience.js';
 import { showConfirm, showNotice } from '../../js/components/modal-dialog.js';
 
-/** How long a promise that should already have settled is given to do so. */
+/** The nominal patience for a promise that should already have settled. */
 const SETTLE_MS = 5000;
 
-/** How long a promise that must NOT settle is watched. Proving nothing happens stays cheap. */
-const STAY_PENDING_MS = 100;
-
-/** Marker for "this promise did not settle in time". */
-const PENDING = Symbol('pending');
-
 /**
+ * Whether a dialog promise is still unanswered a task from now.
+ *
+ * Everything that could answer a dialog behind its caller's back runs
+ * synchronously or in the microtasks after it: `show()` answers the call it
+ * displaces as it starts, and a dismissed notice's `.finally()` removes its
+ * element — answering whatever is presented in it — a microtask after the
+ * close. A promise still pending a task later was answered by none of them,
+ * however slow the core.
  * @param {Promise<any>} promise - The dialog promise
- * @param {number} ms - How long to watch it
- * @returns {Promise<any>} Its value, or PENDING
+ * @returns {Promise<boolean>} True if it has not settled by the next task
  */
-function raceSettle(promise, ms) {
-  return Promise.race([
-    promise,
-    new Promise((resolve) => setTimeout(() => resolve(PENDING), ms))
-  ]);
+async function stillPending(promise) {
+  return await settledByNextTask(promise) === null;
 }
 
 /**
- * Race a promise against a deadline so a regression reports itself instead of
- * hanging the lane: an unsettled dialog promise is exactly the fault under test.
+ * Wait for a promise riding the test's deadline, so a regression reports
+ * itself instead of hanging the lane: an unsettled dialog promise is exactly
+ * the fault under test.
  * @param {Promise<any>} promise - The dialog promise
  * @param {string} what - What the failure should say went unanswered
  * @returns {Promise<any>} The promise's value
  */
 async function settles(promise, what) {
-  const result = await raceSettle(promise, SETTLE_MS);
-  assert(result !== PENDING, `${what} (still unsettled after ${SETTLE_MS}ms)`);
-  return result;
+  const settled = await racePatiently(promise, SETTLE_MS, { what });
+  assert(settled !== null, `${what} (still unsettled past its ${SETTLE_MS}ms nominal, with the test making no progress)`);
+  return settled?.value;
 }
 
 /** @returns {HTMLElement|null} The dialog currently on screen, notices excluded */
@@ -122,9 +122,9 @@ export async function runTests() {
     const noticeEl = openNotices()[0];
 
     const question = showConfirm('Answer me', 'Question');
-    // The watch doubles as the settling time: an element taken over from the
+    // The check doubles as the settling time: an element taken over from the
     // notice is torn down by that notice's own dismissal a microtask later.
-    assert(await raceSettle(question, STAY_PENDING_MS) === PENDING,
+    assert(await stillPending(question),
       'the confirm answered itself the moment it opened, with nobody having clicked anything');
     assert(!!openDialog(), 'the confirm never made it onto the screen');
     assert(openDialog() !== noticeEl, 'the confirm took over the notice element instead of using its own');
@@ -138,7 +138,7 @@ export async function runTests() {
     await waitFor(() => openNotices().length === 1 && openNotices()[0] !== noticeEl,
       { description: 'the second notice to replace the first' });
     assert(!!openDialog(), 'a passing notice closed the open confirm');
-    assert(await raceSettle(question, STAY_PENDING_MS) === PENDING,
+    assert(await stillPending(question),
       'a passing notice answered the open confirm for the user');
 
     clickDialogButton(openDialog(), 'secondary');

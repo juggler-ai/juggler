@@ -6,6 +6,7 @@ package worker
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"juggler/cmd/juggler/msg"
@@ -82,9 +83,21 @@ func wireTypes(types ...wireMsgType) []string {
 }
 
 // TestWireTypedefs holds web/js/protocol/worker-wire-types.gen.js to the
-// structs the worker sends and decodes. UPDATE=1 rewrites the file.
+// structs the worker sends and decodes. An outbound message gets a typedef
+// only if the wire fixture says JS handles it (jsHandler): one nothing in JS
+// reads (pong, which only Go tests wait for) would be a type nothing uses.
+// UPDATE=1 rewrites the file.
 func TestWireTypedefs(t *testing.T) {
-	entries := append([]wireschema.Entry{}, workerOutboundTypedefs...)
+	jsHandles := map[string]bool{}
+	for _, o := range loadWireManifest(t).Worker.Outbound {
+		jsHandles[o.Type] = o.JSHandler
+	}
+	var entries []wireschema.Entry
+	for _, e := range workerOutboundTypedefs {
+		if slices.ContainsFunc(e.Types, func(typ string) bool { return jsHandles[typ] }) {
+			entries = append(entries, e)
+		}
+	}
 	seen := map[reflect.Type]bool{}
 	for _, e := range entries {
 		seen[reflect.TypeOf(e.Value)] = true

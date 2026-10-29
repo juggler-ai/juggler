@@ -12,17 +12,6 @@ import * as actions from './response-handler-actions.js';
 
 /**
  * @typedef {import('../../sdk/lib/message.js').Message} Message
- * @typedef {import('./action-executor.js').ActionStatus} ActionStatus
- */
-
-/**
- * @typedef {object} ContextItemResult
- * @property {string} itemId - Context item ID that was used
- * @property {string} [toolUseId] - Tool use ID from LLM
- * @property {boolean} success - Whether context item execution succeeded
- * @property {object} [result] - Context item result details
- * @property {string} [summary] - Context item summary
- * @property {string} [error] - Error message if failed
  */
 
 /**

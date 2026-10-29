@@ -106,11 +106,11 @@ import { validateManifest } from './lib/manifest.js';
  * @property {object} parameters - JSON schema for the `parameters` the tool takes
  *   for this type. A type that needs none still declares an empty object schema,
  *   so the model can see there is nothing to supply.
- * @property {(parameters: Record<string, any>) => Record<string, any>|null} [normalize] -
+ * @property {(parameters: Record<string, unknown>) => Record<string, unknown>|null} [normalize] -
  *   Collapse the model's parameters to one spelling, or return null to reject
  *   them. Runs before the pin is written, so the type owns what a valid request
  *   is rather than discovering it at mount. Defaults to accepting any plain object.
- * @property {(parameters: Record<string, any>) => string} [identity] - What makes
+ * @property {(parameters: Record<string, unknown>) => string} [identity] - What makes
  *   two requests the same pin. The tool hashes it into a stable id, so a repeated
  *   request reveals the existing pin instead of stacking a copy. Defaults to the
  *   whole parameter object.
@@ -181,7 +181,7 @@ import { validateManifest } from './lib/manifest.js';
  * @typedef {object} PinContextItemSnapshot
  * @property {string} id - The context item's id
  * @property {string} type - Its item-type id, e.g. 'plan'
- * @property {Record<string, any>} data - A deep copy of its stored data
+ * @property {Record<string, unknown>} data - A deep copy of its stored data
  * @property {PinContextItemSource} source - The thread it came from
  */
 
@@ -611,11 +611,11 @@ import { validateManifest } from './lib/manifest.js';
 /**
  * Everything `mount()` and `update()` receive.
  * @typedef {object} PinContext
- * @property {{id: string, type: string, config: Record<string, any>}} pin - This pin instance
+ * @property {{id: string, type: string, config: Record<string, unknown>}} pin - This pin instance
  * @property {PinActiveContext} active - Immutable active-context snapshot
  * @property {PinServices} services - Read-only host services
  * @property {AbortSignal} signal - Aborted when the pin is torn down; every fetch must honour it
- * @property {(nextConfig: Record<string, any>) => Promise<void>} updateConfig - Persist new config for this pin
+ * @property {(nextConfig: Record<string, unknown>) => Promise<void>} updateConfig - Persist new config for this pin
  */
 
 /**
@@ -819,8 +819,8 @@ class PinboardItemType {
    * Collect the config for a new pin. Override for a type that needs to ask the
    * user something first (File asks which file). Return null to abandon the add —
    * a cancelled picker is not an error. Defaults to an empty config.
-   * @param {{active: PinActiveContext, initialConfig?: Record<string, any>, signal: AbortSignal}} options - Configuration request.
-   * @returns {Promise<Record<string, any>|null>} The new config, or null if cancelled.
+   * @param {{active: PinActiveContext, initialConfig?: Record<string, unknown>, signal: AbortSignal}} options - Configuration request.
+   * @returns {Promise<Record<string, unknown>|null>} The new config, or null if cancelled.
    */
   async configure(options) {
     return options.initialConfig ?? {};
@@ -852,7 +852,7 @@ class PinboardItemType {
    * thing behind the pin is released, `teardown()` where one view of it is. Be
    * ready to be called about something already gone, since the window doing the
    * removing need not be the window that started it.
-   * @param {Record<string, any>} config - The pin's normalized config.
+   * @param {Record<string, unknown>} config - The pin's normalized config.
    * @param {{active: PinActiveContext|null}} options - The active context, where the host had one.
    * @returns {Promise<void>} Resolves when the release is done.
    */
@@ -867,8 +867,8 @@ class PinboardItemType {
    * extension, so treat every field as untrusted and migrate rather than throw.
    * Return null to reject the config outright — the host keeps the pin but shows it
    * as unusable rather than mounting against nonsense.
-   * @param {Record<string, any>} config - The stored or supplied config.
-   * @returns {Record<string, any>|null} The normalized config, or null to reject it.
+   * @param {Record<string, unknown>} config - The stored or supplied config.
+   * @returns {Record<string, unknown>|null} The normalized config, or null to reject it.
    */
   normalizeConfig(config) {
     return config;
@@ -878,8 +878,8 @@ class PinboardItemType {
    * Whether two configs name the same thing, so the host can reveal the existing
    * pin instead of adding a duplicate. Both configs are already normalized.
    * Defaults to a shallow JSON comparison.
-   * @param {Record<string, any>} a - One config.
-   * @param {Record<string, any>} b - The other config.
+   * @param {Record<string, unknown>} a - One config.
+   * @param {Record<string, unknown>} b - The other config.
    * @returns {boolean} True when the two configs describe the same pin.
    */
   isSameConfig(a, b) {
@@ -890,7 +890,7 @@ class PinboardItemType {
    * Cheap title/subtitle/badge for the tab and item toolbar. Called often, including
    * while the board is being laid out, so it must not do work — read the config, not
    * the filesystem. Defaults to the manifest name.
-   * @param {Record<string, any>} config - The pin's normalized config.
+   * @param {Record<string, unknown>} config - The pin's normalized config.
    * @param {PinActiveContext} active - The current active-context snapshot.
    * @returns {PinDescription} What the host chrome should say.
    */
@@ -921,7 +921,7 @@ class PinboardItemType {
    * Turn a source descriptor into a config for a new pin. Only called when
    * `canPinSource` accepted it.
    * @param {PinSource} source - The source the user asked to pin.
-   * @returns {Record<string, any>|null} The config, or null if it cannot be pinned after all.
+   * @returns {Record<string, unknown>|null} The config, or null if it cannot be pinned after all.
    */
   static configFromSource(source) {
     void source;

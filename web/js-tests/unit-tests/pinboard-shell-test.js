@@ -18,7 +18,7 @@
  * @module unit-tests/pinboard-shell-test
  */
 
-import { assert, waitFor, styledProbeFrame } from '../utilities/test-helpers.js';
+import { assert, waitFor, styledProbeFrame, nextTask } from '../utilities/test-helpers.js';
 import { assertMenuShape } from '../utilities/menu-assertions.js';
 import pinboardStore from '../../js/services/pinboard-store.js';
 import pinboardView from '../../js/services/pinboard-view.js';
@@ -488,7 +488,7 @@ async function mountShell(pins) {
   const shell = /** @type {any} */ (document.createElement('pinboard-shell'));
   document.body.appendChild(shell);
   shell.setSession(fakeSession);
-  await settle();
+  await nextTask();
   return {
     shell,
     toggle,
@@ -501,15 +501,6 @@ async function mountShell(pins) {
       pinboardView.reset();
     },
   };
-}
-
-/**
- * Let pending promises resolve. The board round-trips every edit, so a click's
- * consequences arrive a microtask or two later.
- * @returns {Promise<void>}
- */
-function settle() {
-  return new Promise((resolve) => { setTimeout(resolve, 0); });
 }
 
 /**
@@ -1177,7 +1168,7 @@ export async function runTests(_ctx) {
         pinboardView.open();
         const first = shell.querySelector('.pinboard-tab__button');
         first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true, bubbles: true }));
-        await settle();
+        await nextTask();
         assert(server.board.map((p) => p.id).join(',') === 'pin_b,pin_a',
           `the move must reach the shared board, got ${server.board.map((p) => p.id).join(',')}`);
         assert(tabLabels(shell).join(',') === 'beta,alpha', 'the strip must follow the board');
@@ -1195,7 +1186,7 @@ export async function runTests(_ctx) {
       try {
         pinboardView.open();
         shell.querySelector('.pinboard-tab__remove').click();
-        await settle();
+        await nextTask();
         assert(server.board.length === 1 && server.board[0].id === 'pin_b',
           'a tab close removes the pin from the shared board, not just this viewer');
         assert(pinboardView.getActivePinId() === 'pin_b',
@@ -1277,7 +1268,7 @@ export async function runTests(_ctx) {
         assert(tabLabels(shell).join(',') === 'nobody/owns-this',
           'the tab stays, labelled with the type nothing provides');
         shell.querySelector('.pinboard-tab__remove').click();
-        await settle();
+        await nextTask();
         assert(server.board.length === 0, 'the placeholder tab is closable');
       } finally {
         teardown();
@@ -1309,7 +1300,7 @@ export async function runTests(_ctx) {
         assert(rows.some((r) => r.dataset.typeId === 'probe'),
           `the picker must offer the enabled types, got ${rows.map((r) => r.dataset.typeId).join(',')}`);
         /** @type {any} */ (rows.find((r) => r.dataset.typeId === 'probe')).click();
-        await settle();
+        await nextTask();
         assert(server.board.length === 1 && server.board[0].type === 'probe',
           'picking a type adds a pin of it');
         assert(pinboardView.getActivePinId() === server.board[0].id,
@@ -1377,7 +1368,7 @@ export async function runTests(_ctx) {
           'with nothing written beside it — being dead already says it is on the board');
 
         row.click();
-        await settle();
+        await nextTask();
         assert(server.board.length === 1, 'and clicking it adds nothing');
       } finally {
         document.querySelector('.pinboard-add-picker')?.remove();
@@ -1512,7 +1503,7 @@ export async function runTests(_ctx) {
         // The probe offers no actions at all: the region must not merely be empty,
         // it must not be there — an empty control strip reads as a broken one.
         pinboardView.setActivePin('pin_p');
-        await settle();
+        await nextTask();
         assert(buttons().length === 0 && !shell.querySelector('.pinboard-item-toolbar__more'),
           'a type with no actions gets no controls');
         assert(shell.querySelector('.pinboard-item-toolbar__actions').hidden,
@@ -1659,7 +1650,7 @@ export async function runTests(_ctx) {
           `the toolbar should start out naming the pin, got "${title.textContent}"`);
 
         await pinboardView.remove('pin_only');
-        await settle();
+        await nextTask();
 
         assert(shell.querySelector('.pinboard-empty__line').textContent === 'Nothing pinned.',
           'an empty board shows the empty state');
@@ -1706,7 +1697,7 @@ export async function runTests(_ctx) {
           'a second press while it is still working is ignored rather than queued');
 
         pathCalls.finish();
-        await settle();
+        await nextTask();
         assert(!button.classList.contains('is-spinning'), 'and it stops when the work does');
 
         // A picture in a menu of words says nothing, so an icon action is never
@@ -1736,7 +1727,7 @@ export async function runTests(_ctx) {
         actionsBehaviour = 'rubbish';
         pinboardView.setActivePin(null);
         pinboardView.setActivePin('pin_act');
-        await settle();
+        await nextTask();
         const drawn = shell.querySelectorAll('.pinboard-item-toolbar__action').length;
         assert(drawn === 0 && !shell.querySelector('.pinboard-item-toolbar__more'),
           'an action missing a label or a run is not drawn');
@@ -1772,7 +1763,7 @@ export async function runTests(_ctx) {
         // A pin that goes away stops hearing about files, whether or not it
         // remembered to unsubscribe.
         pinboardView.setActivePin(null);
-        await settle();
+        await nextTask();
         watcherCalls.changes.length = 0;
         wsService._emit('file-change', [{ path: 'src/main.go', event: 'write' }]);
         assert(watcherCalls.changes.length === 0,
@@ -1884,7 +1875,7 @@ export async function runTests(_ctx) {
         ]);
         try {
           pinboardView.open();
-          await settle();
+          await nextTask();
           // Tab labels: the default describe() is the manifest name in English.
           const labels = tabLabels(shell);
           check('tab labels', labels, 2);
@@ -1939,7 +1930,7 @@ export async function runTests(_ctx) {
         ]);
         try {
           pinboardView.open();
-          await settle();
+          await nextTask();
           const attr = (/** @type {Element|null} */ el, /** @type {string} */ name) => el?.getAttribute(name) || '';
           check('panel name', [attr(shell.querySelector('#pinboard-panel'), 'aria-label')]);
           check('tab list name', [attr(shell.querySelector('.pinboard-tabbar__list'), 'aria-label')]);
@@ -1963,7 +1954,7 @@ export async function runTests(_ctx) {
         const failed = await mountShell([]);
         try {
           pinboardView.open();
-          await settle();
+          await nextTask();
           const status = failed.shell.querySelector('.pinboard-panel__status')?.textContent
             || pinboardView.getStatus();
           if (!status.includes(' 42')) raw.push(`load failure keeps the error: ${status}`);
@@ -2006,7 +1997,7 @@ export async function runTests(_ctx) {
         const empty = await mountShell([]);
         try {
           pinboardView.open();
-          await settle();
+          await nextTask();
           const line = empty.shell.querySelector('.pinboard-empty');
           assert(!!line, 'an empty board draws its placeholder');
           check('empty board', shownStrings(/** @type {Element} */ (line)), 2);
@@ -2020,7 +2011,7 @@ export async function runTests(_ctx) {
         const missing = await mountShell([{ id: 'pin_missing', type: '9', config: {} }]);
         try {
           pinboardView.open();
-          await settle();
+          await nextTask();
           const box = missing.shell.querySelector('.pinboard-placeholder');
           assert(!!box, 'a missing type draws its placeholder');
           const lines = shownStrings(/** @type {Element} */ (box));
@@ -2034,7 +2025,7 @@ export async function runTests(_ctx) {
         const broken = await mountShell([{ id: 'pin_failing', type: 'i18n-failing', config: {} }]);
         try {
           pinboardView.open();
-          await settle();
+          await nextTask();
           const box = broken.shell.querySelector('.pinboard-placeholder');
           assert(!!box, 'a failed mount draws the error state');
           assert(box?.querySelector('.pinboard-placeholder__error')?.textContent === '42',
@@ -2049,7 +2040,7 @@ export async function runTests(_ctx) {
         const acting = await mountShell([{ id: 'pin_acting', type: 'i18n-acting', config: {} }]);
         try {
           pinboardView.open();
-          await settle();
+          await nextTask();
           const toolbar = acting.shell.querySelector('.pinboard-item-toolbar');
           assert(!!toolbar, 'the acting pin has a toolbar');
           check('toolbar', shownStrings(/** @type {Element} */ (toolbar), '.pinboard-item-toolbar__more'), 3);

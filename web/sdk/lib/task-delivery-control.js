@@ -36,7 +36,7 @@ const STATUS_LABELS = {
  * No-op when `taskId` or `messageThread` is missing.
  * @param {HTMLElement} wrapper - Section container to append into.
  * @param {object} opts
- * @param {any} opts.messageThread - MessageThread exposing the task-delivery API
+ * @param {import('../../js/model/message-thread.js').MessageThread|null|undefined} opts.messageThread - MessageThread exposing the task-delivery API
  *   (`getTaskDeliveryStatus` / `cancelTaskOutputDelivery` / `observePendingRequests`).
  * @param {string} opts.taskId - Background task id to bind to.
  * @param {string} [opts.label] - Optional display label (e.g. "monitor: build");

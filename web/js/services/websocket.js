@@ -149,26 +149,6 @@ const LINK_STABLE_AFTER_MS = 10000;
  */
 
 /**
- * @typedef {'text'|'thinking'|'redacted_thinking'|'tool_use'|'tool_result'|'citation'|'image'|'code'|'code_result'} ContentBlockType
- */
-
-/**
- * @typedef {object} ContentBlock
- * @property {ContentBlockType} type - The type of content block
- * @property {string} [content] - The content of the block
- * @property {string} [text] - Text content (for text blocks from API)
- * @property {string} [thinking] - Thinking content (for thinking blocks from API)
- * @property {string} [signature] - Thinking signature (for thinking blocks from Anthropic)
- * @property {string} [id] - Tool use ID (API format)
- * @property {string} [name] - Tool name (API format)
- * @property {{[key: string]: unknown}} [input] - Tool input (API format)
- * @property {string} [toolUseId] - Tool use ID (internal format)
- * @property {string} [toolName] - Tool name (internal format)
- * @property {{[key: string]: unknown}} [toolInput] - Tool input parameters (internal format)
- * @property {{[key: string]: unknown}} [metadata] - Provider-specific metadata (citations, signatures, etc.)
- */
-
-/**
  * @typedef {function(unknown): void} WSEventCallback
  */
 
@@ -1068,7 +1048,8 @@ class WebSocketService {
    * @returns {boolean} True if sent successfully
    */
   sendShellStart(shellId, convId, command, cwd, timeout, workspaceId, owner = {}) {
-    return this._sendJson({
+    /** @type {import('../protocol/server-wire-types.gen.js').ShellStartFrame} */
+    const frame = {
       type: 'shell-start',
       shellId,
       convId,
@@ -1078,7 +1059,8 @@ class WebSocketService {
       cwd,
       timeout,
       workspaceId: workspaceId || ''
-    }, 'shell-start');
+    };
+    return this._sendJson(frame, 'shell-start');
   }
 
   /**
@@ -1087,7 +1069,9 @@ class WebSocketService {
    * @returns {boolean} True if sent successfully
    */
   sendShellCancel(shellId) {
-    return this._sendJson({ type: 'shell-cancel', shellId }, 'shell-cancel');
+    /** @type {import('../protocol/server-wire-types.gen.js').ShellCancelFrame} */
+    const frame = { type: 'shell-cancel', shellId };
+    return this._sendJson(frame, 'shell-cancel');
   }
 
   /**
@@ -1153,7 +1137,9 @@ class WebSocketService {
    * @returns {boolean} True if sent
    */
   sendEngineHeartbeat() {
-    return this._sendJson({ type: 'engine-heartbeat' }, 'engine-heartbeat', { silent: true });
+    /** @type {import('../protocol/server-wire-types.gen.js').EngineHeartbeatFrame} */
+    const frame = { type: 'engine-heartbeat' };
+    return this._sendJson(frame, 'engine-heartbeat', { silent: true });
   }
 
   /**
@@ -1170,7 +1156,9 @@ class WebSocketService {
    * @returns {boolean} True if sent
    */
   sendViewerHeartbeat() {
-    return this._sendJson({ type: 'viewer-heartbeat' }, 'viewer-heartbeat', { silent: true });
+    /** @type {import('../protocol/server-wire-types.gen.js').ViewerHeartbeatFrame} */
+    const frame = { type: 'viewer-heartbeat' };
+    return this._sendJson(frame, 'viewer-heartbeat', { silent: true });
   }
 
   /**
@@ -1188,7 +1176,9 @@ class WebSocketService {
    * @returns {boolean} True if sent
    */
   sendViewerFault(fault) {
-    return this._sendJson({ type: 'viewer-fault', ...fault }, 'viewer-fault', { silent: true });
+    /** @type {import('../protocol/server-wire-types.gen.js').ViewerFaultFrame} */
+    const frame = { type: 'viewer-fault', ...fault };
+    return this._sendJson(frame, 'viewer-fault', { silent: true });
   }
 
   /**
@@ -1230,7 +1220,9 @@ class WebSocketService {
    */
   relayTo(to, payload) {
     if (!to) return false;
-    return this._sendJson({ type: 'viewer-relay', to, payload }, 'viewer-relay', { silent: true });
+    /** @type {import('../protocol/server-wire-types.gen.js').ViewerRelayRequestFrame} */
+    const frame = { type: 'viewer-relay', to, payload };
+    return this._sendJson(frame, 'viewer-relay', { silent: true });
   }
 
   /**

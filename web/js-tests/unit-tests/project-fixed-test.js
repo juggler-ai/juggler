@@ -16,7 +16,8 @@
 import { assert } from '../utilities/test-helpers.js';
 import { closePopupById } from '../../js/utils/popup-manager.js';
 import apiService from '../../js/services/api.js';
-import { chooseProject, projectIsFixed, sessionsPageUrl, SESSIONS_PAGE_TARGET } from '../../js/utils/project-open-mode.js';
+import { projectIsFixed, sessionsPageUrl, SESSIONS_PAGE_TARGET } from '../../js/utils/project-open-mode.js';
+import { chooseProject } from '../../js/components/header-controls.js';
 
 /**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.

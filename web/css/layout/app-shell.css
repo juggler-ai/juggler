@@ -417,10 +417,10 @@ column-viewport.overflow-end {
     mask-image: linear-gradient(
         to right,
         transparent 0,
-        #000 var(--column-fade-start, 0),
+        var(--mask-opaque) var(--column-fade-start, 0),
         /* A length, not a bare 0: calc() cannot subtract a unitless number
            from a percentage, and the invalid result drops the whole mask. */
-        #000 calc(100% - var(--column-fade-end, 0rem)),
+        var(--mask-opaque) calc(100% - var(--column-fade-end, 0rem)),
         transparent 100%
     );
 }

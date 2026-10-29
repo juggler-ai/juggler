@@ -348,8 +348,8 @@ class ProjectFilesPin extends PinboardItemType {
    * look at another tab. Everything here has been sitting in session state since
    * some earlier version of this pin, so it is treated as a stranger's input:
    * anything unusable is dropped and the rest is kept, never thrown for.
-   * @param {Record<string, any>} config - The stored or supplied config.
-   * @returns {Record<string, any>} The normalized config.
+   * @param {Record<string, unknown>} config - The stored or supplied config.
+   * @returns {Record<string, unknown>} The normalized config.
    */
   normalizeConfig(config) {
     const stored = Array.isArray(config?.expanded) ? config.expanded : [];
@@ -374,7 +374,7 @@ class ProjectFilesPin extends PinboardItemType {
    * same project — but the toolbar showing the root path is worth having, and
    * with it the host draws the controls that act on that folder, so the pin
    * offers none of its own.
-   * @param {Record<string, any>} config - The pin's config, which is empty.
+   * @param {Record<string, unknown>} config - The pin's config, which is empty.
    * @param {import('juggler/pinboard-item-type').PinActiveContext} active - The active context.
    * @returns {import('juggler/pinboard-item-type').PinDescription} The tab's words and the root.
    */
@@ -802,7 +802,9 @@ class ProjectFilesPin extends PinboardItemType {
      * @returns {void}
      */
     const restore = () => {
-      for (const relative of context.pin.config?.expanded || []) {
+      const saved = context.pin.config?.expanded;
+      for (const relative of Array.isArray(saved) ? saved : []) {
+        if (typeof relative !== 'string') continue;
         const absolute = toAbsolute(cleanRelative(relative));
         if (!absolute || absolute === root) continue;
         expanded.add(absolute);

@@ -315,6 +315,19 @@ func TestAProjectOpenedInAStandInEndsIt(t *testing.T) {
 	a.workspace.flush(nil) // barrier: lets the save finish before the directory goes
 }
 
+// windowSpecOf reports the registry entry's spec for window id, read on the
+// registry goroutine because the page's project reports write it.
+func (a *appState) windowSpecOf(id string) (windowSpec, bool) {
+	var spec windowSpec
+	var ok bool
+	a.reg(func(st *regState) {
+		if e := st.windows[id]; e != nil {
+			spec, ok = e.spec, true
+		}
+	})
+	return spec, ok
+}
+
 // What a stand-in's page may ask for is decided by what it is — an empty
 // window on a server this app spawned — not by the server by URL it is filed
 // under, whose refusals exist because that server's pages are not ours.

@@ -192,8 +192,9 @@ func (s *TransactionStore) List(convID string) ([]string, error) {
 }
 
 // Delete removes a single transaction blob. Missing files are not an error.
+// It outlasts a read of the blob under way.
 func (s *TransactionStore) Delete(convID, txnID string) error {
-	if err := os.Remove(s.path(convID, txnID)); err != nil && !os.IsNotExist(err) {
+	if err := atomicio.RobustRemove(s.path(convID, txnID)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete txn: %w", err)
 	}
 	return nil

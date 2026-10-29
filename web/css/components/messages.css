@@ -601,7 +601,7 @@ user-message .user-message-text.plain {
 .collapsible.is-collapsed {
     max-height: 15rem;
     overflow: hidden;
-    mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent);
+    mask-image: linear-gradient(to bottom, var(--mask-opaque) calc(100% - 2.5rem), transparent);
 }
 
 .collapsible-toggle {
@@ -756,18 +756,6 @@ thinking-message article.thinking-inline .markdown :is(strong, b) {
     font-weight: var(--font-weight-medium);
 }
 
-/* Unified icon-based message components */
-context-item-message article.ci,
-error-message article.error {
-    background: transparent;
-    font-size: var(--font-size-base);
-    overflow-wrap: break-word;
-
-    /* Defensive: prevent custom content from overflowing conversation panel */
-    max-width: 100%;
-    overflow: hidden;
-}
-
 /* Error items get a card treatment — an out-of-tokens or network error is
    usually something the user wants to act on, so it reads as a distinct block
    rather than one more dim log line, and carries its own Retry action. */
@@ -777,6 +765,11 @@ error-message article.error {
     border-radius: var(--radius-xl);
     padding: 0.85rem 0.95rem;
     font-size: var(--font-size-md);
+    overflow-wrap: break-word;
+
+    /* Defensive: prevent custom content from overflowing conversation panel */
+    max-width: 100%;
+    overflow: hidden;
 }
 
 /* Plain-English lead above the provider's own error text, which keeps its own

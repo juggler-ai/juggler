@@ -106,6 +106,32 @@ export function progressMark() {
 }
 
 /**
+ * How many cases of the running suite have finished, pass or fail.
+ *
+ * Progress ({@link noteProgress}) is something a case that loops forever
+ * keeps making: it evaluates the same assertions and satisfies the same waits
+ * every time round. Finishing is the one thing it cannot do, so the runner's
+ * runaway guard is re-armed by this count rather than by progress.
+ * @type {number}
+ */
+let casesFinished = 0;
+
+/**
+ * Record that a case of the running suite has finished, pass or fail. A
+ * suite's own case loop calls it once per case; a suite that never does is
+ * one case to the runner from start to end.
+ */
+export function noteCaseFinished() {
+  casesFinished++;
+  noteProgress();
+}
+
+/** @returns {number} A mark that changes whenever {@link noteCaseFinished} is called. */
+export function caseMark() {
+  return casesFinished;
+}
+
+/**
  * Arm the deadline for the test now starting.
  *
  * `shared` says the deadline covers a whole suite of cases rather than one

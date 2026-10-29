@@ -446,5 +446,3 @@ class BinModal extends JugglerElement {
 }
 
 customElements.define('bin-modal', BinModal);
-
-export default BinModal;

@@ -28,7 +28,7 @@ const origin = `http://${serverAddr}`;
 /**
  * Parse the `--server host:port` argument.
  * @param {string[]} argv
- * @returns {string}
+ * @returns {string} The server's host:port
  */
 function readServerAddr(argv) {
   const i = argv.indexOf('--server');
@@ -54,14 +54,14 @@ globalThis.__jugglerProjectRoot = projectRoot;
 // location.reload() (a hard engine reset in the browser) exits the process —
 // the Go host treats engine death as "tear the server down", the correct
 // headless analogue of reloading the page.
-globalThis.location = /** @type {any} */ ({
+globalThis.location = /** @type {Location} */ (/** @type {unknown} */ ({
   protocol: 'http:',
   host: serverAddr,
   hostname: serverAddr.split(':')[0],
   origin,
   href: `${origin}/`,
   reload() { process.exit(0); },
-});
+}));
 
 installAPITokenFetchShim(apiToken);
 
@@ -93,7 +93,7 @@ async function installEngineLoaderHooks(serverOrigin, token) {
  * Post server-visible startup telemetry (readiness parity with the worker
  * runtime's report()). The engine's console is otherwise the only sink.
  * @param {string} event - 'ready' | 'error'
- * @param {Record<string, any>} [payload]
+ * @param {Record<string, unknown>} [payload]
  */
 function report(event, payload) {
   fetch('/api/client/report', {
@@ -122,8 +122,8 @@ function installAPITokenFetchShim(token) {
     (u.startsWith('/api/') || u.startsWith(origin + '/api/'));
   globalThis.fetch = (input, init) => {
     try {
-      const inputAny = /** @type {any} */ (input);
-      let url = typeof input === 'string' ? input : (inputAny && inputAny.url) || '';
+      const request = /** @type {{ url?: string, headers?: HeadersInit } | null | undefined} */ (/** @type {unknown} */ (input));
+      const url = typeof input === 'string' ? input : (request && request.url) || '';
       const wantsToken = token && isApi(url);
       if (typeof input === 'string' && url.startsWith('/')) {
         input = origin + url; // absolutise for undici
@@ -132,7 +132,7 @@ function installAPITokenFetchShim(token) {
         init = { ...(init || {}) };
         const headers = new globalThis.Headers(
           init.headers ||
-          (typeof input !== 'string' && inputAny && inputAny.headers) ||
+          (typeof input !== 'string' && request && request.headers) ||
           undefined
         );
         headers.set('X-Juggler-Token', token);
@@ -165,7 +165,7 @@ async function installSandboxDelegate(serverOrigin, root) {
 // The engine fires this optional hook once it has booted and begun connecting
 // (engine-app.js setup()). Relay it to the server for observability, matching
 // the worker runtime.
-/** @type {any} */ (globalThis).__onEngineReady = () => {
+globalThis.__onEngineReady = () => {
   report('ready', {});
 };
 

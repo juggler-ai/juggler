@@ -40,8 +40,8 @@ The plan is to wrap each sheet in its layer, with the order declared once:
 
 That wrap waits on the [inversion check](#the-inversion-check): every rule
 that wins today by out-ranking a rule in a higher layer is a rule the wrap would
-switch off, and `.lint-css-allowlist` counts them per file pair. When its
-`layer-inversion` block is empty, the wrap changes nothing anyone can see.
+switch off, and `.layer-inversion-ratchet` counts them per file pair. When it
+is empty, the wrap changes nothing anyone can see.
 
 | Layer | Holds |
 |---|---|
@@ -103,17 +103,19 @@ Three corollaries, and they are the whole discipline:
   unrelated component needs it, and say so in a comment. "Shared" should be a
   choice someone made, not the residue of a rule that was never re-filed.
 
-`lint-css-arch` enforces ownership against `manifest.json`. A violation it
-cannot yet fix sits in `.lint-css-allowlist` — that file is the outstanding
-debt, and it only ever shrinks.
+`lint-css-arch` enforces ownership against `manifest.json`, with no
+exceptions: a misfiled rule is moved, not excused. A sheet may also claim a
+document mode as a scope — `"[data-view=\"pinboard\"]"` in its `owns` — and then
+owns every rule scoped by it.
 
 ## Tokens
 
 Split by what they are, not by which theme was written first:
 
 - **`tokens/scale.css`** — everything theme-independent: spacing, radii, font
-  sizes, z-index, shadows, transitions, scrollbar metrics. One definition,
-  applying to both themes.
+  sizes, z-index, shadows, transitions, scrollbar metrics, and the colours that
+  are the same in both themes (black overlays, the modal scrim, the shadow and
+  mask colours). One definition, applying to both themes.
 - **`tokens/theme-dark.css`, `tokens/theme-light.css`** — colour, and nothing
   else. **Every colour token must be defined in both.** The linter checks it.
 
@@ -129,7 +131,17 @@ Write it that way and the check will accept it.
 
 Rules for using them:
 
-- **Never hardcode a colour.** Use a token; add one if none fits.
+- **Never hardcode a colour.** A literal colour is written in `tokens/scale.css`,
+  `tokens/theme-dark.css` or `tokens/theme-light.css` and nowhere else; every
+  other sheet — extensions' and `web/machine/`'s included — says a colour as a
+  `var()`, a `color-mix()` of tokens, a relative colour from one
+  (`rgb(from var(--accent-red) r g b / 15%)`), `transparent` or `currentcolor`.
+  stylelint enforces it: `color-no-hex`, `color-named`, and the repo's own
+  `juggler/no-literal-colour-function` (`rgb()`, `hsl()`, `oklch()`, `color()`
+  and the rest, in `tooling/stylelint-rules/`), switched off for `tokens/` by
+  path and for nothing else. A `stylelint-disable` naming any of them is itself
+  an error. If no token fits, add one with a name for what it is for, not for
+  its value, and define it in both themes (or once in `scale.css`).
 - **`rem`, not `px`**, except borders, outlines and shadows. stylelint enforces
   this; a genuine exception (geometry that must not scale with the user's zoom)
   takes a `stylelint-disable` with a comment saying why, and a matching
@@ -160,8 +172,10 @@ Rules for using them:
   matters more than consistency across all of them.
 - Utilities are `u-` prefixed, and only utilities are.
 - **A class name assembled in JS must still be findable.** `color-${name}` is
-  fine, but list the pattern in `manifest.json` under `dynamicClasses`, or the
-  dead-selector check will offer to delete the CSS that serves it.
+  fine, but list it in `manifest.json` under `dynamicClasses` as
+  `{ "pattern": "color-*", "builtBy": "<file>" }`, or the dead-selector check
+  will offer to delete the CSS that serves it. The check re-proves each entry:
+  `builtBy` must be production code that composes that prefix.
 
 ## Extensions
 
@@ -196,12 +210,14 @@ it comes back with a use.
 
 ## What the linter checks
 
-`make lint` runs stylelint and then `scripts/lint-css-arch`, which checks:
+`make lint` runs stylelint over every sheet — `rem` not `px`, and no literal
+colour outside `tokens/` (see [Tokens](#tokens)) — and then
+`scripts/lint-css-arch`, which checks:
 
 | Check | What fails it |
 |---|---|
 | ownership | A selector in a file that owns neither its root nor its subject. |
-| dead selectors | A class in the CSS that appears in no JS, HTML or extension, and matches no `dynamicClasses` pattern. |
+| dead selectors | A class or id no production string puts on an element (tests, comments, `t()` text and extension CSS are not evidence), matching no `dynamicClasses` pattern. |
 | token parity | A colour token defined for one theme only without the fallback idiom; a `var()` that resolves to nothing; a fallback on a token that is always defined; a fallback on a property nothing defines and JS does not set. |
 | link parity | `index.html` and `headless-test.html` disagreeing on the sheet list. |
 | layer order | A sheet whose layer in `manifest.json` is not its directory, or one listed out of layer order. |
@@ -226,7 +242,7 @@ which tag each class lands on, which classes share an element, which elements
 cannot nest. It is deliberately generous: where it cannot see, the pair is
 reported rather than assumed away.
 
-The counts are allowlisted per file pair and only ever go down. To see what is
+The counts are held per file pair in `.layer-inversion-ratchet` and only ever go down. To see what is
 behind one:
 
 ```

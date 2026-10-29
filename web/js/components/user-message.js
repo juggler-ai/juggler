@@ -133,5 +133,3 @@ class UserMessage extends BaseMessage {
 }
 
 customElements.define('user-message', UserMessage);
-
-export default UserMessage;

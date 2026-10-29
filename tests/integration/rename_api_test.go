@@ -28,12 +28,7 @@ func renameTestRig(t *testing.T) (*core.SessionManager, func(method, path string
 	projectDir := helpers.CreateTempDir(t)
 	t.Cleanup(func() { os.RemoveAll(projectDir) })
 
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	manager, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	manager, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	t.Cleanup(func() { manager.Shutdown() })
 

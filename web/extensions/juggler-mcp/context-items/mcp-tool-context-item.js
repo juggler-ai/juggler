@@ -223,6 +223,12 @@ const ATTACHABLE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 
 const MAX_ATTACHED_IMAGE_BYTES = 5 << 20;
 
 /**
+ * A tool's content block as an item keeps it: its base64 `data` dropped, and
+ * an image marked with the asset it was stored as or why it was not.
+ * @typedef {Omit<import('../../../js/services/ops-api.js').McpContentBlock, 'data'> & {attached?: string, note?: string}} StoredMcpBlock
+ */
+
+/**
  * Store the images a tool returned in the conversation's assets, so the model
  * is sent them as image parts beside the tool's result, as it is a read image.
  * No block keeps its base64 bytes: they would sit in the document for the life
@@ -233,10 +239,10 @@ const MAX_ATTACHED_IMAGE_BYTES = 5 << 20;
  * @param {(convId: string, base64: string, mime: string, signal?: AbortSignal) => Promise<import('../../../js/services/ops-api.js').AssetRef>} deps.upload - The asset upload
  * @param {string|undefined} deps.conversationId - Whose assets
  * @param {AbortSignal} [deps.signal] - The call's signal
- * @returns {Promise<{blocks: Array<Record<string, any>>, images: import('../../../js/services/ops-api.js').AssetRef[]}>} The blocks without bytes, and the images stored
+ * @returns {Promise<{blocks: StoredMcpBlock[], images: import('../../../js/services/ops-api.js').AssetRef[]}>} The blocks without bytes, and the images stored
  */
 export async function storeMcpImages(blocks, { upload, conversationId, signal }) {
-  /** @type {Array<Record<string, any>>} */
+  /** @type {StoredMcpBlock[]} */
   const out = [];
   /** @type {import('../../../js/services/ops-api.js').AssetRef[]} */
   const images = [];
@@ -245,7 +251,7 @@ export async function storeMcpImages(blocks, { upload, conversationId, signal })
       out.push(block);
       continue;
     }
-    const { data, ...rest } = /** @type {Record<string, any>} */ (block);
+    const { data, ...rest } = block;
     if (block.type === 'audio') {
       out.push(rest);
       continue;
@@ -443,7 +449,7 @@ class McpToolContextItem extends ContextItem {
   /**
    * Invoke the tool via the Go manager, honoring cancellation.
    * @param {Record<string, unknown>} params - Prepared arguments
-   * @returns {Promise<{server: string, tool: string, content: Array<Record<string, any>>, isError: boolean, text: string, images: import('../../../js/services/ops-api.js').AssetRef[]}>} The tool call result
+   * @returns {Promise<{server: string, tool: string, content: StoredMcpBlock[], isError: boolean, text: string, images: import('../../../js/services/ops-api.js').AssetRef[]}>} The tool call result
    */
   async execute(params) {
     const { server, tool, info, llm } = this._target();
@@ -474,7 +480,7 @@ class McpToolContextItem extends ContextItem {
 
   /**
    * Summarize a non-text block for the LLM when there is no text content.
-   * @param {Record<string, any>} b
+   * @param {StoredMcpBlock} b
    * @param {import('../../../js/services/ops-api.js').AssetRef} [ref] - The asset an image was stored as
    * @returns {string} Result value
    * @private
@@ -503,10 +509,11 @@ class McpToolContextItem extends ContextItem {
     if (!outcome.success) {
       return this.failureSummary(outcome.error || markUntranslated('MCP tool call failed'));
     }
-    const result = /** @type {{content: any[], isError: boolean, text: string, images?: any[]}} */ (outcome.result || {});
+    // A successful outcome's result is what execute() returned.
+    const result = /** @type {{content?: StoredMcpBlock[], isError?: boolean, text?: string, images?: import('../../../js/services/ops-api.js').AssetRef[]}} */ (outcome.result || {});
     const blocks = Array.isArray(result.content) ? result.content : [];
     const images = Array.isArray(result.images) ? result.images : [];
-    const refOf = (/** @type {any} */ b) => images.find((r) => r.id === b?.attached);
+    const refOf = (/** @type {StoredMcpBlock} */ b) => images.find((r) => r.id === b?.attached);
     let text = result.text || '';
     if (!text) {
       text = blocks.map((b) => McpToolContextItem._describeBlock(b, refOf(b))).join('\n') || markUntranslated('(no content)');

@@ -392,7 +392,7 @@ func (c *Client) buildMessageParams(req provider.MessageRequest) anthropicsdk.Be
 	if req.RaiseMaxOutputTokens > maxTokens {
 		maxTokens = req.RaiseMaxOutputTokens
 	}
-	if catalogMax, known := catalogMaxOutputTokens(c.model); known {
+	if catalogMax, known := CatalogMaxOutputTokens(c.model); known {
 		if maxTokens <= 0 || int64(catalogMax) < maxTokens {
 			maxTokens = int64(catalogMax)
 		}
@@ -692,9 +692,10 @@ func setRollingCacheBreakpoint(messages []anthropicsdk.BetaMessageParam) {
 }
 
 // sendMessageStreaming sends a message request using the streaming API to preserve block generation order.
-// Emits chunks to callback in real-time as content is generated.
-// Returns the accumulated blocks and metadata for the tool execution loop.
-func (c *Client) sendMessageStreaming(ctx context.Context, req provider.MessageRequest, callback provider.StructuredStreamCallback) (*provider.StructuredResponse, error) {
+// Emits chunks to callback in real-time as content is generated; the callback
+// is the only consumer of the content, so the result carries just the stop
+// reason and token counts.
+func (c *Client) sendMessageStreaming(ctx context.Context, req provider.MessageRequest, callback provider.StructuredStreamCallback) (*provider.StreamResult, error) {
 	// Check context before making API call
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -721,10 +722,6 @@ func (c *Client) sendMessageStreaming(ctx context.Context, req provider.MessageR
 	// (see buildMessageParams), and the response carries the matching extras.
 	stream := c.client.Beta.Messages.NewStreaming(streamCtx, params)
 	defer func() { _ = stream.Close() }() // release the underlying TLS conn on every return path
-
-	// Track accumulated blocks in generation order
-	var blocks []provider.ContentBlock
-	// The frontend handles tool execution, so no tool results are returned here.
 
 	// Track current block being assembled
 	var currentTextBuilder strings.Builder
@@ -784,7 +781,7 @@ func (c *Client) sendMessageStreaming(ctx context.Context, req provider.MessageR
 
 		case "content_block_start":
 			// Finalize any previous block before starting new one
-			c.finalizeCurrentBlock(&blocks, &currentTextBuilder, &currentToolUse, &currentThinking, currentBlockType)
+			c.finalizeCurrentBlock(&currentTextBuilder, &currentToolUse, &currentThinking, currentBlockType)
 
 			// Initialize accumulator based on block type
 			currentBlockType = event.ContentBlock.Type
@@ -861,8 +858,8 @@ func (c *Client) sendMessageStreaming(ctx context.Context, req provider.MessageR
 			}
 
 		case "content_block_stop":
-			// Finalize the current block and add to blocks array
-			block := c.finalizeCurrentBlock(&blocks, &currentTextBuilder, &currentToolUse, &currentThinking, currentBlockType)
+			// Finalize the current block
+			block := c.finalizeCurrentBlock(&currentTextBuilder, &currentToolUse, &currentThinking, currentBlockType)
 			currentBlockType = ""
 
 			// For tool_use blocks, stream to frontend (no execution - frontend handles that)
@@ -922,7 +919,7 @@ func (c *Client) sendMessageStreaming(ctx context.Context, req provider.MessageR
 			cacheWrite := int(event.Usage.CacheCreationInputTokens)
 			if total := fresh + cacheRead + cacheWrite; total > 0 {
 				// Promote per-call authoritative usage so the final
-				// StructuredResponse reflects the boundary contract
+				// StreamResult reflects the boundary contract
 				// (InputTokens = total prompt; CachedTokens / CacheWriteTokens
 				// reported separately as subsets).
 				inputTokens = total
@@ -959,14 +956,7 @@ func (c *Client) sendMessageStreaming(ctx context.Context, req provider.MessageR
 		return nil, provider.NewFailureError(provider.FailureTruncated, sess.Annotate(errNoMessageStop).Error(), nil)
 	}
 
-	// Finalize any remaining block
-	c.finalizeCurrentBlock(&blocks, &currentTextBuilder, &currentToolUse, &currentThinking, currentBlockType)
-
-	// Parse XML tool calls in text blocks and convert to ToolUse blocks
-	blocks = utils.ParseXMLToolCalls(blocks, req.Tools)
-
-	return &provider.StructuredResponse{
-		Blocks:           blocks,
+	return &provider.StreamResult{
 		StopReason:       stopReason,
 		InputTokens:      inputTokens,
 		OutputTokens:     outputTokens,
@@ -975,10 +965,9 @@ func (c *Client) sendMessageStreaming(ctx context.Context, req provider.MessageR
 	}, nil
 }
 
-// finalizeCurrentBlock finalizes the current block being accumulated and adds it to blocks.
+// finalizeCurrentBlock finalizes the current block being accumulated.
 // Returns the finalized block if one was created, nil otherwise.
 func (c *Client) finalizeCurrentBlock(
-	blocks *[]provider.ContentBlock,
 	textBuilder *strings.Builder,
 	toolUse **toolUseAccumulator,
 	thinking **thinkingAccumulator,
@@ -993,7 +982,6 @@ func (c *Client) finalizeCurrentBlock(
 				Type:    provider.ContentBlockTypeText,
 				Content: textBuilder.String(),
 			}
-			*blocks = append(*blocks, b)
 			block = &b
 			textBuilder.Reset()
 		}
@@ -1010,7 +998,6 @@ func (c *Client) finalizeCurrentBlock(
 			if (*thinking).signature != "" {
 				b.Metadata = map[string]any{"signature": (*thinking).signature}
 			}
-			*blocks = append(*blocks, b)
 			block = &b
 			*thinking = nil
 		}
@@ -1035,7 +1022,6 @@ func (c *Client) finalizeCurrentBlock(
 				ToolName:  (*toolUse).name,
 				ToolInput: input,
 			}
-			*blocks = append(*blocks, b)
 			block = &b
 			*toolUse = nil
 		}
@@ -1067,18 +1053,7 @@ func (c *Client) streamMessage(ctx context.Context, req provider.MessageRequest,
 
 	// Stream response from API - this preserves block generation order
 	// and emits chunks to callback in real-time
-	resp, err := c.sendMessageStreaming(ctx, req, callback)
-	if err != nil {
-		return nil, err
-	}
-
-	return &provider.StreamResult{
-		StopReason:       resp.StopReason,
-		InputTokens:      resp.InputTokens,
-		OutputTokens:     resp.OutputTokens,
-		CachedTokens:     resp.CachedTokens,
-		CacheWriteTokens: resp.CacheWriteTokens,
-	}, nil
+	return c.sendMessageStreaming(ctx, req, callback)
 }
 
 // ListModelsWithInfo returns detailed information about available models from

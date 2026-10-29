@@ -173,10 +173,10 @@ export function renderError(host, container, message) {
 
   const data = readItemData(message);
   if (data) {
-    if (data.provider) panelHelpers.addSubsection(wrapper, t('Provider'), data.provider, 'properties-panel-code');
-    if (data.model) panelHelpers.addSubsection(wrapper, t('Model'), data.model, 'properties-panel-code');
+    if (data.provider) panelHelpers.addSubsection(wrapper, t('Provider'), String(data.provider), 'properties-panel-code');
+    if (data.model) panelHelpers.addSubsection(wrapper, t('Model'), String(data.model), 'properties-panel-code');
     if (data.duration !== undefined && data.duration !== null) {
-      const sec = (data.duration / 1000).toFixed(1);
+      const sec = (Number(data.duration) / 1000).toFixed(1);
       panelHelpers.addSubsection(wrapper, t('Duration'), t('{sec}s', { sec }), 'properties-panel-code');
     }
   }
@@ -697,7 +697,7 @@ export function describeHookRecords(records) {
 }
 
 /** @type {ItemRenderer} */
-export function renderThread(host, container, message) {
+function renderThread(host, container, message) {
   const badge = badgeForItem(message, badgeCtx(host));
   const goal = itemGoal(message);
   const wrapper = host._createSectionWithControls(
@@ -753,7 +753,7 @@ export function renderThread(host, container, message) {
  * separately because they have a different shape.
  * @type {Record<string, ItemRenderer>}
  */
-export const itemRendererRegistry = {
+const itemRendererRegistry = {
   'error': renderError,
   'user': renderMessage,
   'assistant': renderMessage,

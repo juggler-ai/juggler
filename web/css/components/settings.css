@@ -549,10 +549,10 @@ settings-panel .settings-tabs-scroll {
     mask-image: linear-gradient(
         to right,
         transparent 0,
-        #000 var(--tab-fade-start, 0),
+        var(--mask-opaque) var(--tab-fade-start, 0),
         /* A length, not a bare 0: calc() cannot subtract a unitless number
            from a percentage, and the invalid result drops the whole mask. */
-        #000 calc(100% - var(--tab-fade-end, 0rem)),
+        var(--mask-opaque) calc(100% - var(--tab-fade-end, 0rem)),
         transparent 100%
     );
 }
@@ -1106,7 +1106,7 @@ settings-panel .toggle-switch {
     width: var(--toggle-width);
     height: var(--toggle-height);
     background: var(--border-subtle);
-    border-radius: var(--toggle-height);
+    border-radius: var(--radius-pill);
     cursor: pointer;
     padding-right: 2rem;
     transition: background-color var(--transition-base);
@@ -1120,7 +1120,7 @@ settings-panel .toggle-switch::after {
     left: var(--toggle-padding);
     width: var(--toggle-knob);
     height: var(--toggle-knob);
-    background: white;
+    background: var(--toggle-knob-bg);
     border-radius: 50%;
     transition: transform var(--transition-base);
 }
@@ -1559,7 +1559,7 @@ settings-panel .chime-rotary-outer {
     /* Feather the inner edge across ~1px so the mask boundary gets antialiased.
        Coincident stops (a hard cliff) rasterise without supersampling in Blink —
        most visibly in the Windows WebView — leaving the inner circle jagged. */
-    mask: radial-gradient(farthest-side, transparent calc(100% - var(--chime-rotary-ring-thickness)), #000 calc(100% - var(--chime-rotary-ring-thickness) + 0.0625rem));
+    mask: radial-gradient(farthest-side, transparent calc(100% - var(--chime-rotary-ring-thickness)), var(--mask-opaque) calc(100% - var(--chime-rotary-ring-thickness) + 0.0625rem));
 }
 
 settings-panel .chime-rotary-inner {

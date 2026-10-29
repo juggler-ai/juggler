@@ -77,13 +77,13 @@ export function buildPropertyTypeMap(schemas) {
   const merged = new Map();
 
   for (const schema of schemas) {
-    const properties = /** @type {Record<string, any>|undefined} */ (
-      schema && /** @type {any} */ (schema).properties
-    );
+    const properties = schema && 'properties' in schema ? schema.properties : undefined;
     if (!properties || typeof properties !== 'object') continue;
 
-    for (const [name, def] of Object.entries(properties)) {
-      const type = def && typeof def === 'object' ? /** @type {any} */ (def).type : undefined;
+    /** @type {Array<[string, unknown]>} */
+    const entries = Object.entries(properties);
+    for (const [name, def] of entries) {
+      const type = def && typeof def === 'object' && 'type' in def ? def.type : undefined;
       const coercible = type === 'integer' || type === 'number' || type === 'boolean' ? type : null;
 
       if (!merged.has(name)) {

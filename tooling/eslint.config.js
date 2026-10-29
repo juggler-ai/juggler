@@ -1,6 +1,6 @@
-  //     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
-  //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
-  //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
+//     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+//     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+//   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 import js from '@eslint/js';
 import jsdoc from 'eslint-plugin-jsdoc';
@@ -11,7 +11,7 @@ import testHooksInTestsOnly from './eslint-rules/test-hooks-in-tests-only.js';
 import sdkBoundary from './eslint-rules/sdk-boundary.js';
 import escapeHtmlInterpolation from './eslint-rules/escape-html-interpolation.js';
 import noPrivateTestWait from './eslint-rules/no-private-test-wait.js';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { URL } from 'node:url';
 
 // Juggler's own rules, as one plugin object: flat config refuses a second,
@@ -35,12 +35,6 @@ const SDK_BOUNDARY = JSON.parse(readFileSync(new URL('./sdk-boundary.json', impo
  * @returns {Record<string, string[]>} Each file's declared imports
  */
 const boundaryImports = (entries) => Object.fromEntries(Object.entries(entries).map(([file, e]) => [file, e.imports]));
-// The declared crossings of the model/view boundary, in the same shape, beside
-// the file's own `_comment`.
-const LAYER_BOUNDARY = Object.fromEntries(
-  Object.entries(JSON.parse(readFileSync(new URL('./layer-boundary.json', import.meta.url), 'utf8')))
-    .filter(([file]) => !file.startsWith('_'))
-);
 
 // UI source: every file a user can see text from. Tests and vendored code are not.
 const UI_FILES = ['web/js/**/*.js', 'web/sdk/**/*.js', 'web/extensions/**/*.js', 'web/machine/**/*.js'];
@@ -73,11 +67,153 @@ const TEST_LOCAL_WAITFOR_SELECTORS = [
   { selector: "VariableDeclarator[id.name='waitFor']", message: LOCAL_WAITFOR_MESSAGE },
 ];
 
+// The rules every first-party file is held to, browser and Node alike.
+const SHARED_RULES = {
+  // Indentation - enforce 2-space indent (auto-fixable). Catches the
+  // broken-indent edits that ESLint's recommended preset lets through.
+  '@stylistic/indent': ['error', 2, { SwitchCase: 1 }],
+
+  // Code quality - ALL ERRORS (no warnings)
+  'no-unused-vars': ['error', {
+    argsIgnorePattern: '^_',
+    varsIgnorePattern: '^_',
+    caughtErrors: 'none', // Allow unused catch parameters
+  }],
+  'no-console': 'off', // We use console for logging (but see test-specific rules below)
+  'no-debugger': 'error',
+  // Off: a variable is given its fallback where it is declared, and a
+  // `catch` restates it — `let ok = false; try { ok = f(); } catch { ok = false; }`.
+  // The rule calls the first assignment useless; it is what tells the
+  // reader (and tsc) the variable's type and its value when nothing else ran.
+  'no-useless-assignment': 'off',
+
+  // Best practices
+  'eqeqeq': ['error', 'always'],
+  'no-eval': 'error',
+  'no-implied-eval': 'error',
+  'no-with': 'error',
+  'prefer-const': 'error',
+  'no-var': 'error',
+
+  // Async/Promise
+  'no-async-promise-executor': 'error',
+  'require-await': 'off', // Allow async without await (useful for interface consistency)
+
+  // Potential errors
+  'no-case-declarations': 'error',
+  'no-unreachable': 'error',
+  'no-constant-condition': 'error',
+  'no-dupe-keys': 'error',
+  'no-duplicate-case': 'error',
+  'no-empty': 'error',
+  'no-ex-assign': 'error',
+  'no-extra-boolean-cast': 'error',
+  'no-func-assign': 'error',
+  'no-invalid-regexp': 'error',
+  'no-irregular-whitespace': 'error',
+  'no-obj-calls': 'error',
+  'no-sparse-arrays': 'error',
+  'no-unexpected-multiline': 'error',
+  'use-isnan': 'error',
+  'valid-typeof': 'error',
+
+  // JSDoc validation - enforce strong typing
+  // A @param list that disagrees with the signature is an error, so a
+  // caller typed against a stale signature is caught at lint time.
+  'jsdoc/check-param-names': ['error', {
+    checkDestructured: false,  // Don't enforce destructured params
+  }],
+  'jsdoc/require-param': ['error', {
+    checkDestructured: false,  // Don't require docs for destructured params
+    exemptedBy: ['inheritdoc', 'override'],  // Skip if inheriting docs
+  }],
+  'jsdoc/require-param-type': 'error',      // Requires types for params
+  'jsdoc/require-returns': ['error', {
+    checkGetters: false,       // Don't require returns for getters
+    exemptedBy: ['inheritdoc', 'override'],
+  }],
+  'jsdoc/require-returns-type': 'error',    // Requires return types
+
+  // Type checking (strict)
+  'jsdoc/check-types': 'error',             // Enforce lowercase 'object' not 'Object'
+  'jsdoc/check-tag-names': ['error', { definedTags: ['plugin-api'] }], // Enforce @augments over @extends; allow @plugin-api
+  'jsdoc/valid-types': 'off',               // Allow function|null syntax
+  'jsdoc/check-alignment': 'error',         // Enforce aligned JSDoc blocks
+  'jsdoc/reject-any-type': 'error',         // `unknown` narrows by typeof/instanceof; a cast names the type
+
+  // Style (strict)
+  'jsdoc/tag-lines': ['error', 'never'],    // No blank lines after block description
+  'jsdoc/require-param-description': 'off', // Descriptions optional for now
+  'jsdoc/require-returns-description': 'error', // Require returns description
+  'jsdoc/no-defaults': 'off',               // Allow default values in docs
+  'jsdoc/no-undefined-types': 'off',        // Allow browser/custom types
+  'jsdoc/reject-function-type': 'off',      // Allow Function type
+  'jsdoc/no-multi-asterisks': 'off',        // Allow decorative comment formatting
+
+  // Property validation (off for now)
+  'jsdoc/check-property-names': 'off',
+  'jsdoc/require-property': 'off',
+  'jsdoc/require-property-name': 'off',
+  'jsdoc/require-property-type': 'off',
+  'jsdoc/require-param-name': 'off',        // Already checked by check-param-names
+};
+
+// Node's own globals, for the code that runs under Node rather than in a page.
+const NODE_GLOBALS = {
+  process: 'readonly',
+  Buffer: 'readonly',
+  console: 'readonly',
+  URL: 'readonly',
+  URLSearchParams: 'readonly',
+  TextEncoder: 'readonly',
+  TextDecoder: 'readonly',
+  AbortController: 'readonly',
+  AbortSignal: 'readonly',
+  DOMException: 'readonly',
+  structuredClone: 'readonly',
+  queueMicrotask: 'readonly',
+  performance: 'readonly',
+  fetch: 'readonly',
+  setTimeout: 'readonly',
+  clearTimeout: 'readonly',
+  setInterval: 'readonly',
+  clearInterval: 'readonly',
+  setImmediate: 'readonly',
+  clearImmediate: 'readonly',
+};
+
+// scripts/ holds extensionless programs in two languages: the shell ones say
+// so in their shebang, and the rest are CommonJS run by Node. ESLint matches an
+// extensionless file only by its name (a `scripts/*` pattern selects nothing),
+// so the names are read here, and a new Node script is linted as it lands.
+const SCRIPTS_DIR = new URL('../scripts/', import.meta.url);
+const NODE_SCRIPTS = readdirSync(SCRIPTS_DIR, { withFileTypes: true })
+  .filter((entry) => entry.isFile() && !entry.name.includes('.'))
+  .filter((entry) => !/^#!.*\b(?:ba|z)?sh\b/.test(readFileSync(new URL(entry.name, SCRIPTS_DIR), 'utf8').split('\n', 1)[0]))
+  .map((entry) => `scripts/${entry.name}`);
+
 export default [
   js.configs.recommended,
   jsdoc.configs['flat/recommended'],
+  // Not first-party source, so not linted: vendored libraries, the Wails fork,
+  // build output, the generated Wails runtime bundle, and the benchmark
+  // fixtures — sample projects the agent is set to work on, whose code is the
+  // task's data. `make lint-js` lints the whole tree, so this list and the
+  // `files` of the blocks below are the one statement of what is linted, and
+  // `make lint-files` reaches the same verdict for any file it is handed.
   {
-    ignores: ['web/js/vendor/**'],
+    ignores: [
+      'web/js/vendor/**',
+      '3rdparty/**',
+      'bin/**',
+      'dist/**',
+      'web/dist/**',
+      'web/build/**',
+      'tmp/**',
+      'temp/**',
+      'cmd/juggler/server/wails_runtime.js',
+      'tests/benchmarks/fixtures/**',
+    ],
   },
   {
     files: ['web/js/**/*.js', 'web/sdk/**/*.js', 'web/extensions/**/*.js', 'web/machine/**/*.js', 'web/js-tests/**/*.js', 'examples/**/*.js'],
@@ -152,93 +288,7 @@ export default [
       },
     },
     rules: {
-      // Indentation - enforce 2-space indent (auto-fixable). Catches the
-      // broken-indent edits that ESLint's recommended preset lets through.
-      '@stylistic/indent': ['error', 2, { SwitchCase: 1 }],
-
-      // Code quality - ALL ERRORS (no warnings)
-      'no-unused-vars': ['error', {
-        argsIgnorePattern: '^_',
-        varsIgnorePattern: '^_',
-        caughtErrors: 'none', // Allow unused catch parameters
-      }],
-      'no-console': 'off', // We use console for logging (but see test-specific rules below)
-      'no-debugger': 'error',
-      // Off: a variable is given its fallback where it is declared, and a
-      // `catch` restates it — `let ok = false; try { ok = f(); } catch { ok = false; }`.
-      // The rule calls the first assignment useless; it is what tells the
-      // reader (and tsc) the variable's type and its value when nothing else ran.
-      'no-useless-assignment': 'off',
-
-      // Best practices
-      'eqeqeq': ['error', 'always'],
-      'no-eval': 'error',
-      'no-implied-eval': 'error',
-      'no-with': 'error',
-      'prefer-const': 'error',
-      'no-var': 'error',
-
-      // Async/Promise
-      'no-async-promise-executor': 'error',
-      'require-await': 'off', // Allow async without await (useful for interface consistency)
-
-      // Potential errors
-      'no-case-declarations': 'error',
-      'no-unreachable': 'error',
-      'no-constant-condition': 'error',
-      'no-dupe-keys': 'error',
-      'no-duplicate-case': 'error',
-      'no-empty': 'error',
-      'no-ex-assign': 'error',
-      'no-extra-boolean-cast': 'error',
-      'no-func-assign': 'error',
-      'no-invalid-regexp': 'error',
-      'no-irregular-whitespace': 'error',
-      'no-obj-calls': 'error',
-      'no-sparse-arrays': 'error',
-      'no-unexpected-multiline': 'error',
-      'use-isnan': 'error',
-      'valid-typeof': 'error',
-
-      // JSDoc validation - enforce strong typing
-      // A @param list that disagrees with the signature is an error, so a
-      // caller typed against a stale signature is caught at lint time.
-      'jsdoc/check-param-names': ['error', {
-        checkDestructured: false,  // Don't enforce destructured params
-      }],
-      'jsdoc/require-param': ['error', {
-        checkDestructured: false,  // Don't require docs for destructured params
-        exemptedBy: ['inheritdoc', 'override'],  // Skip if inheriting docs
-      }],
-      'jsdoc/require-param-type': 'error',      // Requires types for params
-      'jsdoc/require-returns': ['error', {
-        checkGetters: false,       // Don't require returns for getters
-        exemptedBy: ['inheritdoc', 'override'],
-      }],
-      'jsdoc/require-returns-type': 'error',    // Requires return types
-
-      // Type checking (strict)
-      'jsdoc/check-types': 'error',             // Enforce lowercase 'object' not 'Object'
-      'jsdoc/check-tag-names': ['error', { definedTags: ['plugin-api'] }], // Enforce @augments over @extends; allow @plugin-api
-      'jsdoc/valid-types': 'off',               // Allow function|null syntax
-      'jsdoc/check-alignment': 'error',         // Enforce aligned JSDoc blocks
-      'jsdoc/reject-any-type': 'off',           // Allow 'any' type - JS doesn't have proper unknown narrowing
-
-      // Style (strict)
-      'jsdoc/tag-lines': ['error', 'never'],    // No blank lines after block description
-      'jsdoc/require-param-description': 'off', // Descriptions optional for now
-      'jsdoc/require-returns-description': 'error', // Require returns description
-      'jsdoc/no-defaults': 'off',               // Allow default values in docs
-      'jsdoc/no-undefined-types': 'off',        // Allow browser/custom types
-      'jsdoc/reject-function-type': 'off',      // Allow Function type
-      'jsdoc/no-multi-asterisks': 'off',        // Allow decorative comment formatting
-
-      // Property validation (off for now)
-      'jsdoc/check-property-names': 'off',
-      'jsdoc/require-property': 'off',
-      'jsdoc/require-property-name': 'off',
-      'jsdoc/require-property-type': 'off',
-      'jsdoc/require-param-name': 'off',        // Already checked by check-param-names
+      ...SHARED_RULES,
 
       // ===================================================================
       // Enforce ES6 imports - prevent window global pollution
@@ -285,13 +335,14 @@ export default [
           message: 'FORBIDDEN: Direct fetch() to /api/ops/call detected. Use typed functions from ops-api.js instead. Example: import { readFile } from \'./services/ops-api.js\' and call readFile(params)'
         },
         // ===================================================================
-        // Enforce ContextBuilder - prevent manual context string concatenation
+        // Prevent manual context string concatenation
         // ===================================================================
-        // All LLM context MUST be built using ContextBuilder semantic API.
+        // LLM context is built from context items and messages: the worker
+        // assembles it, and the system prompt comes from system-prompt-builder.js.
         // This prevents hardcoded formatting and ensures provider flexibility.
         {
           selector: "AssignmentExpression[operator='+='][left.name=/^(context|llmContext|llmMessage|currentMessage)$/]",
-          message: 'FORBIDDEN: Manual LLM context string concatenation detected. Use ContextBuilder semantic API instead. Import { ContextBuilder } from \'./services/context-builder.js\' and use the builder API.'
+          message: 'FORBIDDEN: Manual LLM context string concatenation detected. Contribute through a context item, or for the system prompt through system-prompt-builder.js (assembleSystemPrompt).'
         },
         // ===================================================================
         // Prevent dangerous String() coercion on error objects
@@ -353,6 +404,33 @@ export default [
     },
   },
   // ===================================================================
+  // Node-side code, held to the same rules
+  // ===================================================================
+  // ES modules run by Node: the lint and dead-code tooling with its tests, and
+  // the engine's Node host (web/js/*.mjs — engine-host-node.mjs, the sandbox
+  // it spawns, and their loader hooks).
+  {
+    files: ['tooling/**/*.js', 'web/js/**/*.mjs'],
+    plugins: { '@stylistic': stylistic },
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: NODE_GLOBALS,
+    },
+    rules: SHARED_RULES,
+  },
+  // scripts/: the extensionless CommonJS programs run by Node (NODE_SCRIPTS).
+  {
+    files: NODE_SCRIPTS,
+    plugins: { '@stylistic': stylistic },
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'commonjs',
+      globals: { ...NODE_GLOBALS, __dirname: 'readonly', __filename: 'readonly' },
+    },
+    rules: SHARED_RULES,
+  },
+  // ===================================================================
   // Every /api URL is built by web/js/utils/api-url.js
   // ===================================================================
   // A server may be mounted under a path prefix (the machine server's
@@ -404,21 +482,40 @@ export default [
     },
   },
   // ===================================================================
-  // The model/view boundary (juggler/sdk-boundary, tooling/layer-boundary.json)
+  // The model/view boundary (juggler/sdk-boundary)
   // ===================================================================
-  // The model and the services announce what happened and ask for UI through
-  // ports; the components decide what to show. A model or service module that
-  // imports a component makes the layer below depend on the view — and on
-  // whatever that component's module does as it loads.
+  // The view is web/js/components/ and the page that assembles it, web/js/app.js.
+  // Everything else in web/js/ — model, services, registries, protocol, plugins,
+  // utils, lib, workers and the engine's entry points, and any directory added
+  // later — is below it: it announces what happened and asks for UI through a
+  // port or a host interface, and the components decide what to show. A module
+  // below that imports a component depends on the view, and on whatever that
+  // component's module does as it loads. There are no declared crossings.
   {
-    files: ['web/js/model/**/*.js', 'web/js/services/**/*.js', 'web/js/registries/**/*.js'],
+    files: ['web/js/**/*.js'],
+    ignores: ['web/js/components/**', 'web/js/app.js', 'web/js/vendor/**'],
     plugins: { juggler: jugglerPlugin },
     rules: {
       'juggler/sdk-boundary': ['error', {
         forbidden: ['web/js/components/'],
-        allowed: boundaryImports(LAYER_BOUNDARY),
-        declaredIn: 'tooling/layer-boundary.json',
-        hint: 'Ask for the UI through a port the component registers into (services/ui-port.js for dialogs, services/settings-launcher.js for settings), or move the logic out of components/. A crossing that cannot move yet is declared, with its reason, in tooling/layer-boundary.json.',
+        hint: 'Ask for the UI through a port the component registers into (services/ui-port.js for dialogs, services/settings-launcher.js for settings) or a method of the element you were handed, or move the module into components/ if it is view code.',
+      }],
+    },
+  },
+  // ===================================================================
+  // web/js/lib/ is a leaf (juggler/sdk-boundary)
+  // ===================================================================
+  // Pure code that runs on the page and in the diff worker alike: it reaches
+  // nothing in web/js/ outside itself. This block replaces the one above for
+  // these files, and forbids everything that one does.
+  {
+    files: ['web/js/lib/**/*.js'],
+    plugins: { juggler: jugglerPlugin },
+    rules: {
+      'juggler/sdk-boundary': ['error', {
+        forbidden: ['web/js/'],
+        within: 'web/js/lib/',
+        hint: 'web/js/lib/ is pure and shared with the diff worker: take what it needs as a parameter.',
       }],
     },
   },
@@ -700,6 +797,25 @@ export default [
     files: ['web/js-tests/utilities/test-helpers.js'],
     rules: {
       'no-restricted-syntax': ['error', ...TEST_CONSOLE_SELECTORS],
+    },
+  },
+  // `any` is refused everywhere else in the browser tree; these are the
+  // directories not yet converted (JSDoc `any` count, 2026-10-28). The list
+  // only shrinks: a directory leaves it once it has none, and a new one is
+  // covered from its first file. Convert with real types or `unknown`
+  // narrowed by typeof/instanceof, never a disable.
+  {
+    files: [
+      'web/js/components/**/*.js',            // 593
+      'web/js/services/**/*.js',              // 558
+      'web/extensions/juggler-core/**/*.js',  // 460 (+ its _tests)
+      'web/js/model/**/*.js',                 // 356
+      'web/js/utils/**/*.js',                 // 168
+      'web/js-tests/**/*.js',                 // 4455 with every _tests dir; tsc does not check tests
+      'web/extensions/**/_tests/**/*.js',
+    ],
+    rules: {
+      'jsdoc/reject-any-type': 'off',
     },
   },
 ];

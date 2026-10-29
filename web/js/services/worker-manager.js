@@ -54,14 +54,6 @@ import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
  * @property {string} [apiBaseUrl] - API base URL for backend calls
  */
 
-/**
- * @typedef {object} ToolExecutionResult
- * @property {boolean} success - Whether tool execution succeeded
- * @property {*} [content] - Tool result content
- * @property {boolean} [isError] - Whether result is an error
- * @property {string} [error] - Error message if failed
- */
-
 // ============================================================================
 // Worker Manager
 // ============================================================================

@@ -37,10 +37,10 @@ import {
   anyLocalConversationBusy,
   QUIESCENCE_TIMEOUT_MS,
   reloadRegistries,
-  whenRegistriesSettled,
+  __whenRegistriesSettledForTests,
 } from '../../js/registries/reload-registries.js';
-import { budgetFor } from '../utilities/test-deadline.js';
 import { assert, waitFor } from '../utilities/test-helpers.js';
+import { racePatiently } from '../utilities/test-patience.js';
 
 /**
  * @typedef {object} TestResult
@@ -208,7 +208,7 @@ export async function runTests(_ctx) {
    * @returns {Promise<void>} Resolves once the rebuild has finished
    */
   async function insideRegistryRebuild(during) {
-    await whenRegistriesSettled();
+    await __whenRegistriesSettledForTests();
     /** @type {() => void} */
     let release = () => {};
     __holdNextRegistryRebuildForTests(new Promise((resolve) => { release = () => resolve(undefined); }));
@@ -261,7 +261,7 @@ export async function runTests(_ctx) {
 
 
   await test('a tool list requested mid-rebuild is built from the rebuilt registries', async () => {
-    await whenRegistriesSettled();
+    await __whenRegistriesSettledForTests();
     const names = (/** @type {Array<Record<string, any>>} */ tools) => tools.map((t) => t.name).sort().join(',');
     const expected = names((await buildToolInventory(null)).offered);
     const wm = fakeWorkerManager();
@@ -286,7 +286,7 @@ export async function runTests(_ctx) {
         await handled;
       });
     });
-    await Promise.race([reply, new Promise((resolve) => setTimeout(resolve, budgetFor(5000)))]);
+    await racePatiently(reply, 5000, { what: 'the tool list requested mid-rebuild to be sent' });
     assert(built.length === 1, `expected one tool list, got ${built.length}`);
     assert(built[0].populated, 'the tool list was built from registries the rebuild had reset');
     assert(built[0].tools === expected, `expected the full tool list\n  ${expected}\ngot\n  ${built[0].tools}`);
@@ -317,7 +317,7 @@ export async function runTests(_ctx) {
   // The requesting turn is itself what a reload waits on before it resets
   // anything, so a request that waited for the whole reload would wait on itself.
   await test('a tool list is served at once while a reload waits for the running turn', async () => {
-    await whenRegistriesSettled();
+    await __whenRegistriesSettledForTests();
     /** @type {Promise<void>} */
     let reloading = Promise.resolve();
     await withEngineTurn(async () => {
@@ -325,7 +325,7 @@ export async function runTests(_ctx) {
       const wm = fakeWorkerManager();
       await asRealm(true, async () => {
         const handled = handleRequestTools(wm, 'conv-1', { requestId: 'req-10', sentAt: Date.now() });
-        await Promise.race([handled, new Promise((resolve) => setTimeout(resolve, budgetFor(2000)))]);
+        await racePatiently(handled, 2000, { what: 'the tool list to be served while the reload waits' });
       });
       assert(
         wm.sent.length === 1 && wm.sent[0].requestId === 'req-10',
@@ -345,7 +345,7 @@ export async function runTests(_ctx) {
   // timers as it starts, synchronously inside `reloadRegistries()`, where no
   // sibling lane can run and arm one of its own.
   await test('a reload waiting for a turn goes ahead when the document says it ended', async () => {
-    await whenRegistriesSettled();
+    await __whenRegistriesSettledForTests();
     await withEngineTurn(async (turn) => {
       assert(registriesPopulated() && anyLocalConversationBusy(),
         `precondition: strategies=${strategyRegistry.isInitialized()} items=${contextItemRegistry.isInitialized()} busy=${anyLocalConversationBusy()}`);

@@ -78,5 +78,3 @@ class ContextItemMessage extends BaseMessage {
 }
 
 customElements.define('context-item-message', ContextItemMessage);
-
-export default ContextItemMessage;

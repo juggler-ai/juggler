@@ -91,7 +91,7 @@
 }
 
 :where(.markdown) pre {
-    background: rgb(0 0 0 / 3%);
+    background: color-mix(in srgb, var(--overlay-dark-10) 30%, transparent);
     padding: 0.875rem;
     border-radius: var(--radius-md);
     overflow-x: auto;
@@ -330,7 +330,7 @@
     border-left: 0.1875rem solid var(--accent-blue);
     margin: 0.75rem 0;
     padding: 0.5rem 1rem;
-    background: rgb(0 0 0 / 15%);
+    background: var(--overlay-dark-15);
     color: var(--text-secondary);
 }
 
@@ -376,7 +376,7 @@
 }
 
 :where(.markdown) table th {
-    background: rgb(0 0 0 / 15%);
+    background: var(--overlay-dark-15);
     font-weight: 600;
 }
 

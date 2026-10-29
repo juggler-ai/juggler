@@ -27,7 +27,7 @@
  * @module unit-tests/composer-send-latch-test
  */
 
-import { initializeRegistries, assert } from '../utilities/test-helpers.js';
+import { initializeRegistries, assert, nextTask } from '../utilities/test-helpers.js';
 import '../../js/components/composer.js';
 import MessageThread from '../../js/model/message-thread.js';
 
@@ -103,14 +103,6 @@ function mountGatedComposer() {
 }
 
 /**
- * Yield long enough for a settled promise chain to drain.
- * @returns {Promise<void>} Resolves after the next macrotask.
- */
-function tick() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-/**
  * Run the composer send-latch test suite.
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Counts of passed/failed checks and any error messages.
  */
@@ -149,7 +141,7 @@ export async function runTests() {
 
       openGate();
       assert(await first === null, 'the first send must report success');
-      await tick();
+      await nextTask();
 
       assert(sent.length === 1,
         `three presses during one lookup must dispatch exactly one send-message, got ${sent.length}`);
@@ -171,7 +163,7 @@ export async function runTests() {
       textarea.value = 'first';
       openGate(); // no window this time — the snapshot is already settled
       await /** @type {any} */ (box).sendMessage();
-      await tick();
+      await nextTask();
 
       // Nothing clears the box here (that is Conversation.sendMessage's job,
       // and no conversation is wired up), so the text is still present and a
@@ -180,7 +172,7 @@ export async function runTests() {
         'the latch must be clear once the send has dispatched');
       textarea.value = 'second';
       const result = await /** @type {any} */ (box).sendMessage();
-      await tick();
+      await nextTask();
 
       assert(result === null, `the follow-up send must succeed, got ${JSON.stringify(result)}`);
       assert(sent.length === 2,
@@ -218,7 +210,7 @@ export async function runTests() {
       const settled = first.then(() => 'resolved', () => 'rejected');
 
       assert(await settled === 'rejected', 'a failing mention read must propagate out of sendMessage');
-      await tick();
+      await nextTask();
 
       assert(/** @type {any} */ (box)._sending === false,
         'a mention read that throws must still release the latch, or the box is bricked');

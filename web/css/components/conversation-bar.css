@@ -101,7 +101,7 @@ conversation-bar .conversation-tabs-viewport {
 conversation-bar .conversation-tabs-viewport.overflow-end {
     mask-image: linear-gradient(
         to bottom,
-        #000 calc(100% - var(--tab-list-fade)),
+        var(--mask-opaque) calc(100% - var(--tab-list-fade)),
         transparent 100%
     );
 }
@@ -740,7 +740,7 @@ conversation-bar .drag-ghost {
     position: fixed;
     margin: 0;
     z-index: var(--z-dropdown);
-    box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 30%);
+    box-shadow: var(--shadow-lg);
     cursor: grabbing;
     pointer-events: none;
 }
@@ -755,7 +755,7 @@ conversation-bar .drag-source {
    glide runs. */
 conversation-bar .conversation-tab.keyboard-moving {
     z-index: 1;
-    box-shadow: 0 0.125rem 0.5rem rgb(0 0 0 / 25%);
+    box-shadow: 0 0.125rem 0.5rem var(--overlay-dark-25);
 }
 
 /* Everything a drag can shove aside travels to its new slot rather than
@@ -950,7 +950,7 @@ conversation-bar .conversation-tab-bin svg {
 
 conversation-bar .conversation-tab-bin:hover {
     opacity: 1;
-    background: rgb(0 0 0 / 15%);
+    background: var(--overlay-dark-15);
 }
 
 /* "Auto-name", in the actions row of a tab's rename editor: a quiet outlined
@@ -1124,7 +1124,7 @@ conversation-bar .conversation-bin-undo svg {
 
     50% {
         background: color-mix(in srgb, var(--accent-blue) 45%, transparent);
-        border-color: rgb(139 195 255);
+        border-color: var(--accent-blue-light);
         box-shadow: 0 0 0.5rem 0.0625rem color-mix(in srgb, var(--accent-blue) 40%, transparent);
     }
 }
@@ -1267,7 +1267,7 @@ conversation-bar info-rail:has(info-cards-button[hidden]) {
    — a card carrying on out of view, rather than one that failed to draw. Applied
    only when something is actually cut, so a card that fits keeps its full contrast. */
 conversation-bar info-rail[data-clipped] {
-    mask-image: linear-gradient(to bottom, transparent 0, #000 var(--info-card-fade));
+    mask-image: linear-gradient(to bottom, transparent 0, var(--mask-opaque) var(--info-card-fade));
 }
 
 conversation-bar .info-card {
@@ -1729,7 +1729,7 @@ conversation-bar .conversation-bar-empty {
        keeps the closed drawer fully off-canvas. */
     body.sidebar-open conversation-bar {
         transform: translateX(0);
-        box-shadow: 0 0 1.5rem rgb(0 0 0 / 35%);
+        box-shadow: 0 0 1.5rem color-mix(in srgb, var(--shadow-color) 35%, transparent);
     }
 
     /* The resize grip stays active in drawer mode: it sits on the drawer's

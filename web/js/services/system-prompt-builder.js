@@ -8,8 +8,9 @@
  * plus the active strategy's guidance.
  *
  * Both the production path (the worker context-request callback in
- * session-worker-callbacks.js) and the main-thread fallback path
- * (context-builder.js `prepare()`) call this, so the two can't drift.
+ * session-worker-callbacks.js) and the tests' context builder
+ * (js-tests/utilities/context-builder.js `prepare()`) call this, so the two
+ * can't drift.
  * @module services/system-prompt-builder
  */
 

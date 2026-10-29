@@ -64,7 +64,7 @@ export function isAlias(itemYMap) {
  * @param {any} [siblingArray] - The array the item stands in (Y.Array or array).
  * @returns {any|null} The canonical thread Y.Map, or null when it is gone.
  */
-export function resolveAliasTarget(itemYMap, siblingArray) {
+function resolveAliasTarget(itemYMap, siblingArray) {
   const targetId = itemYMap?.get?.('aliasOf');
   if (!targetId) return null;
   for (const item of asArray(siblingArray || itemYMap?.parent)) {

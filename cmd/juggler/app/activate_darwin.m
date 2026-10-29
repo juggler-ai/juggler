@@ -1,3 +1,5 @@
+//go:build !production
+
 #import <AppKit/AppKit.h>
 
 void juggler_set_dock_icon_visible(int visible) {

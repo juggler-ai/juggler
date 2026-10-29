@@ -107,10 +107,10 @@ func (r *run) recordCompactionOutcome(kind, outcome string, result CompactionRes
 // from this.
 func usageMap(u CompactionUsage) map[string]any {
 	return map[string]any{
-		"inputTokens":      u.InputTokens,
-		"outputTokens":     u.OutputTokens,
-		"cachedTokens":     u.CachedTokens,
-		"cacheWriteTokens": u.CacheWriteTokens,
+		keyInputTokens:      u.InputTokens,
+		keyOutputTokens:     u.OutputTokens,
+		keyCachedTokens:     u.CachedTokens,
+		keyCacheWriteTokens: u.CacheWriteTokens,
 	}
 }
 
@@ -118,14 +118,14 @@ func usageMap(u CompactionUsage) map[string]any {
 // durable storage (item Data, thread YMap, error-item data).
 func compactionAccountingMap(result CompactionResult) map[string]any {
 	m := map[string]any{
-		"passes":         result.Passes,
-		"calls":          result.Calls,
-		"estimatedSpend": result.EstimatedSpend,
-		"durationMs":     result.DurationMs,
-		"usage":          usageMap(result.Usage),
+		keyPasses:         result.Passes,
+		keyCalls:          result.Calls,
+		keyEstimatedSpend: result.EstimatedSpend,
+		keyDurationMs:     result.DurationMs,
+		keyUsage:          usageMap(result.Usage),
 	}
 	if result.SourceFingerprint != "" {
-		m["sourceFingerprint"] = result.SourceFingerprint
+		m[keySourceFingerprint] = result.SourceFingerprint
 	}
 	return m
 }
@@ -138,16 +138,16 @@ func compactionErrorData(err error) map[string]any {
 	var bounded *BoundedCompactionError
 	if errors.As(err, &bounded) {
 		return map[string]any{
-			"compactionReason": string(bounded.Reason),
-			"compactionCalls":  bounded.Calls,
-			"compactionSpend":  bounded.Spend,
-			"compactionUsage":  usageMap(bounded.Usage),
+			keyCompactionReason: string(bounded.Reason),
+			keyCompactionCalls:  bounded.Calls,
+			keyCompactionSpend:  bounded.Spend,
+			keyCompactionUsage:  usageMap(bounded.Usage),
 		}
 	}
 	var cancelled *BoundedCompactionCancelledError
 	if errors.As(err, &cancelled) {
 		m := compactionAccountingMap(cancelled.Result)
-		m["compactionReason"] = "cancelled"
+		m[keyCompactionReason] = "cancelled"
 		return m
 	}
 	return nil

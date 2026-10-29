@@ -21,7 +21,7 @@ import { resolveMenu } from '../../js/services/context-menu-service.js';
 import pinboardItemRegistry from '../../js/registries/pinboard-item-registry.js';
 import { clipboardUnavailableMessage } from '../../sdk/lib/clipboard.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 
 /**
@@ -53,12 +53,6 @@ class TakesFiles {
   }
 }
 
-/**
- * Let a click's async handler and the notice it raises settle.
- * @returns {Promise<void>}
- */
-const settle = () => new Promise((resolve) => { setTimeout(resolve, 30); });
-
 /** Close and remove every `<modal-dialog>`, so the next notice is the only one. */
 function clearDialogs() {
   document.querySelectorAll('modal-dialog').forEach((el) => {
@@ -68,13 +62,13 @@ function clearDialogs() {
 }
 
 /**
- * The text of the notice on screen, or a marker saying there was none.
- * @param {string} what - The action that should have raised it.
- * @returns {string[]} What the notice shows.
+ * Wait for the notice an action raises, then read and dismiss it. The notice
+ * fills its title and message in the same call that marks it a notice.
+ * @param {string} what - The action that should have raised.
+ * @returns {Promise<string[]>} What the notice shows.
  */
-function noticeStrings(what) {
-  const notice = document.querySelector('modal-dialog.is-notice');
-  if (!notice) return [`<no notice after ${what}>`];
+async function noticeStrings(what) {
+  const notice = await waitFor(() => document.querySelector('modal-dialog.is-notice'), `a notice after ${what}`);
   const shown = shownStrings(notice);
   clearDialogs();
   return shown;
@@ -173,30 +167,25 @@ export async function runTests() {
         const open = /** @type {HTMLButtonElement|null} */ (row.querySelector('.properties-panel-filepath-btn'));
         assert(!!open, 'no Open button');
         open?.click();
-        await settle();
-        collect('open button notice', noticeStrings('Open'));
+        collect('open button notice', await noticeStrings('Open'));
 
         const reveal = /** @type {HTMLButtonElement|null} */ (row.querySelector('reveal-button button'));
         assert(!!reveal, 'no reveal button');
         reveal?.click();
-        await settle();
-        collect('reveal button notice', noticeStrings('Reveal'));
+        collect('reveal button notice', await noticeStrings('Reveal'));
 
         rows[0].onClick?.();
-        await settle();
-        collect('menu open notice', noticeStrings('menu Open'));
+        collect('menu open notice', await noticeStrings('menu Open'));
         rows[1].onClick?.();
-        await settle();
-        collect('menu reveal notice', noticeStrings('menu Reveal'));
+        collect('menu reveal notice', await noticeStrings('menu Reveal'));
 
         // The clipboard refuses by both routes; its own explanation is not this
         // file's text, so it is replaced by a digit before the check.
         if (clip) clip.writeText = async () => { throw new Error('refused'); };
         document.execCommand = () => false;
         rows[2].onClick?.();
-        await settle();
         const reason = clipboardUnavailableMessage();
-        collect('menu copy notice', noticeStrings('menu Copy path').map((s) => s.replace(reason, '9')));
+        collect('menu copy notice', (await noticeStrings('menu Copy path')).map((s) => s.replace(reason, '9')));
 
         const raw = shown.filter((s) => !isPseudoLocalized(s.text));
         assert(shown.length >= 15, `expected at least 15 strings, found ${shown.length}`);

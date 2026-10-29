@@ -7,15 +7,15 @@
 ::highlight(find-match) {
     /* Subtle translucent yellow — reads as a muted tint over both the dark and
        light message surfaces while leaving the underlying text colour intact. */
-    background-color: rgb(255 213 0 / 32%);
+    background-color: var(--find-match-bg);
 }
 
 ::highlight(find-match-current) {
-    /* The active match: a stronger, opaque warm-yellow fill with near-black
-       text. --notice-bg is a light yellow in both themes, so dark text stays
-       readable on it either way. */
+    /* The active match: a stronger, opaque warm-yellow fill with the notice
+       toast's dark text. --notice-bg is a light yellow in both themes, so
+       --notice-text stays readable on it either way. */
     background-color: var(--notice-bg);
-    color: #1a1a1a;
+    color: var(--notice-text);
 }
 
 /* ── Find (⌘F) bar ─────────────────────────────────────────────────────────

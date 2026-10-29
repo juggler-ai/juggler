@@ -44,10 +44,8 @@ import { createScopedStore, SCOPE_SESSION, SCOPE_CONVERSATION } from './scoped-p
  * @property {boolean} [implicit] Derived project-root entry: always present, session-wide, not editable or removable.
  */
 
-export { SCOPE_SESSION, SCOPE_CONVERSATION };
-
-export const SESSION_RULES_KEY = 'sessionPermissionRules';
-export const SESSION_PATHS_KEY = 'sessionAllowedPaths';
+const SESSION_RULES_KEY = 'sessionPermissionRules';
+const SESSION_PATHS_KEY = 'sessionAllowedPaths';
 export const CONVERSATION_RULES_KEY = 'conversationPermissionRules';
 export const CONVERSATION_PATHS_KEY = 'conversationAllowedPaths';
 
@@ -344,7 +342,7 @@ export function setAllowedPathScope(mt, idOrPath, targetScope) {
 // ============================================================================
 
 /** @param {any} mt @returns {PermissionRule[]} */
-export function getDefaultRules(mt) {
+function getDefaultRules(mt) {
   const manifest = mt.strategy?.getManifest?.();
   const defaults = Array.isArray(manifest?.defaultRules) ? manifest.defaultRules : [];
   return defaults.map((/** @type {any} */ r) => ({
@@ -368,7 +366,7 @@ function syntheticRuleId(r) {
  * `getWorkspaceRootEntry`.
  * @param {any} mt @returns {string[]}
  */
-export function getDefaultAllowedPaths(mt) {
+function getDefaultAllowedPaths(mt) {
   const manifest = mt.strategy?.getManifest?.();
   return Array.isArray(manifest?.defaultAllowedPaths) ? [...manifest.defaultAllowedPaths] : [];
 }

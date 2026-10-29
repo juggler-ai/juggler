@@ -229,7 +229,7 @@ pinboardStore.subscribe((pins) => {
  * duplicate, if any. A singleton type collides with itself whatever its config;
  * a multiple-instance type collides only with a pin describing the same thing.
  * @param {string} typeId - Item-type id.
- * @param {Record<string, any>} config - Normalized config for the new pin.
+ * @param {Record<string, unknown>} config - Normalized config for the new pin.
  * @returns {Pin|null} The existing pin to reveal instead, or null.
  */
 function findDuplicate(typeId, config) {
@@ -472,7 +472,7 @@ const pinboardView = {
    * in which case that one is revealed instead.
    * @param {string} pinId - The pin's id.
    * @param {string} typeId - Its item-type id, for putting it back.
-   * @param {Record<string, any>} config - Its config, for putting it back.
+   * @param {Record<string, unknown>} config - Its config, for putting it back.
    * @returns {Promise<boolean>} True when the board is now showing it.
    */
   async show(pinId, typeId, config) {
@@ -517,7 +517,7 @@ const pinboardView = {
    * Add a pin of a type, revealing the pin that already says the same thing
    * rather than adding a second one.
    * @param {string} typeId - Item-type id.
-   * @param {Record<string, any>} [config] - Provider config.
+   * @param {Record<string, unknown>} [config] - Provider config.
    * @returns {Promise<Pin|null>} The pin now showing, or null if the add failed.
    */
   async add(typeId, config = {}) {

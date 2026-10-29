@@ -124,7 +124,7 @@ async function runAwaitingTurn(conversation, { harness }, looking) {
  * conversation's id.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const attentionFiresWhenNotLookingTest = {
+const attentionFiresWhenNotLookingTest = {
   name: 'attention-fires-when-not-looking',
   description: 'Awaiting-approval while unfocused fires exactly one alert for that conversation',
   fixture: 'unit-test-fixture',
@@ -167,7 +167,7 @@ export const attentionFiresWhenNotLookingTest = {
  * visible conversation) never alerts, even when it reaches awaiting-approval.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const attentionSuppressedWhenLookingTest = {
+const attentionSuppressedWhenLookingTest = {
   name: 'attention-suppressed-when-looking',
   description: 'Awaiting-approval on the watched conversation fires no alert',
   fixture: 'unit-test-fixture',
@@ -218,7 +218,7 @@ export const attentionSuppressedWhenLookingTest = {
  * that conversation on screen) is what clears it.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const attentionFiresOnTurnEndTest = {
+const attentionFiresOnTurnEndTest = {
   name: 'attention-fires-on-turn-end',
   description: 'A turn completing unwatched alerts once and stays flagged until viewed',
   fixture: 'unit-test-fixture',
@@ -284,7 +284,7 @@ export const attentionFiresOnTurnEndTest = {
  * while the user is still elsewhere is ordinary news and alerts as usual.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const attentionExcusesTurnEndAfterFollowTest = {
+const attentionExcusesTurnEndAfterFollowTest = {
   name: 'attention-excuses-turn-end-after-follow',
   description: 'A turn that ends just after a followed focus request does not alert; the next one does',
   fixture: 'unit-test-fixture',

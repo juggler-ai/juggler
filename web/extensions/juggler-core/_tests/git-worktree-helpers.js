@@ -91,7 +91,7 @@ export function uniqueTag() {
  * @param {string} path - An absolute path.
  * @returns {{parent: string, separator: string}} Its parent, and the separator in use.
  */
-export function parentOf(path) {
+function parentOf(path) {
   const separator = path.includes('\\') && !path.includes('/') ? '\\' : '/';
   return { parent: path.replace(/[/\\][^/\\]*$/, ''), separator };
 }

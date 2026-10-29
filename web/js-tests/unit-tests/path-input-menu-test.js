@@ -14,7 +14,7 @@
  * @module unit-tests/path-input-menu-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, nextTask } from '../utilities/test-helpers.js';
 import {
   registerOpenPopup,
   isAnyPopupOpen,
@@ -22,12 +22,6 @@ import {
   __resetPopupManagerForTests,
 } from '../../js/utils/popup-manager.js';
 import '../../js/components/path-input.js';
-
-/**
- * Yield to the macrotask queue, letting one shimmed animation frame run.
- * @returns {Promise<void>} Resolves after the next macrotask.
- */
-const tick = () => new Promise((r) => setTimeout(r, 0));
 
 /**
  * Mount a <path-input> inside a scrolling box, the shape the permissions popup
@@ -133,7 +127,7 @@ export async function runTests() {
       const { scroller, host, input, teardown } = mount();
       try {
         host._openMenu(['/one/', '/two']);
-        await tick();
+        await nextTask();
         const menu = /** @type {HTMLElement} */ (document.querySelector('.path-input-menu'));
         assert(!!menu, 'the menu must be on the page');
         assert(menu.style.visibility !== 'hidden', 'placed, it must be revealed');
@@ -179,7 +173,7 @@ export async function runTests() {
       try {
         input.focus();
         host._openMenu(['/one/', '/two']);
-        await tick();
+        await nextTask();
         input.blur();
         assert(document.activeElement !== input, 'precondition: the field has let go of focus');
         host._closeMenu();

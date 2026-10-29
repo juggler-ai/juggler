@@ -25,14 +25,19 @@
  */
 
 import { assert } from '../../../js-tests/utilities/test-helpers.js';
+import { racePatiently } from '../../../js-tests/utilities/test-patience.js';
 import AutoApproveStrategyType from '../strategies/auto-approve-strategy-type.js';
 import {
   REVIEW_TIMEOUT_MS,
-  POLICY_PROMPT,
   POLICY_BODIES,
   DECISION_QUESTION_ID,
-  DECISION_ALLOW_THRESHOLD
+  DECISION_ALLOW_THRESHOLD,
+  resolvePolicy,
+  buildPolicyPrompt
 } from '../strategies/auto-approve-reviewer.js';
+
+/** The reviewer's system prompt at the default level. */
+const POLICY_PROMPT = buildPolicyPrompt(resolvePolicy(null));
 
 /**
  * @typedef {object} TestResult
@@ -365,13 +370,13 @@ export async function runTests(_ctx) {
       })
     );
     strategy._parkedPollMs = 5;
-    const outcome = await Promise.race([
-      strategy.onToolPending({ ...PENDING }).then((r) => ({ settled: true, r })),
-      new Promise((resolve) => setTimeout(() => resolve({ settled: false }), 2000))
-    ]);
-    assert(/** @type {any} */ (outcome).settled,
+    // The stubbed review settles only through its abort signal, so a review
+    // that is never cancelled never settles, and this race gives up.
+    const outcome = await racePatiently(strategy.onToolPending({ ...PENDING }), 2000,
+      { what: 'the overtaken review to be cancelled' });
+    assert(outcome !== null,
       'the review must be cancelled when the call stops being parked, not left to run out its bound');
-    assert(/** @type {any} */ (outcome).r === undefined, 'a review the human overtook leaves no note');
+    assert(outcome?.value === undefined, 'a review the human overtook leaves no note');
     assert(completeCalls.length === 1 && resolveCalls.length === 0, 'nothing is re-attempted or resolved');
   });
 

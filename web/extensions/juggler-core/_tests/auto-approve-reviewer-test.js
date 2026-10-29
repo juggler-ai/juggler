@@ -10,23 +10,20 @@
  *
  * The security-relevant assertions are: `buildReviewerPrompt` includes user
  * messages and agent tool calls but STRIPS assistant prose and tool results,
- * and `parseVerdict` is default-deny for anything that doesn't cleanly start
- * with `allow`.
+ * and `parseReview`'s verdict is default-deny for anything that doesn't cleanly
+ * start with `allow`.
  * @module unit-tests/auto-approve-reviewer-test
  */
 
 import { assert } from '../../../js-tests/utilities/test-helpers.js';
 import {
-  POLICY_PROMPT,
   POLICY_BODIES,
-  REVIEW_LEVELS,
   DEFAULT_REVIEW_LEVEL,
   MAX_CUSTOM_POLICY_CHARS,
   resolvePolicy,
   buildPolicyPrompt,
   buildReviewerPrompt,
   parseReview,
-  parseVerdict,
   describeReviewFailure,
   reviewFailureNote,
   isBusyRejection,
@@ -63,6 +60,16 @@ const userItem = (content) => item({ type: 'user', content });
 const toolItem = (toolName, toolInput) => item({ type: 'tool-action', toolName, toolInput });
 const assistantItem = (content) => item({ type: 'assistant', content });
 const toolResultItem = (content) => item({ type: 'tool-result', content });
+
+/** The reviewer's system prompt at the default level. */
+const POLICY_PROMPT = buildPolicyPrompt(resolvePolicy(null));
+
+/**
+ * The verdict alone, as {@link parseReview} reads it.
+ * @param {string} text - The model's raw completion text
+ * @returns {'allow'|'deny'} The verdict
+ */
+const parseVerdict = (text) => parseReview(text).verdict;
 
 /**
  * Run all auto-approve reviewer tests.
@@ -118,8 +125,21 @@ export async function runTests(_ctx) {
   // =========================================================================
   // review levels — resolvePolicy / buildPolicyPrompt
   // =========================================================================
+  await run('every level the reviewLevel setting offers resolves to itself, and its default is ours', async () => {
+    const res = await fetch(new URL('../juggler.extension.json', import.meta.url));
+    assert(res.ok, `manifest fetch failed: ${res.status}`);
+    const manifest = await res.json();
+    const setting = manifest.settings.find((/** @type {any} */ s) => s.key === 'reviewLevel');
+    assert(setting, 'the manifest should declare the reviewLevel setting');
+    assert(setting.default === DEFAULT_REVIEW_LEVEL,
+      `the setting's default ${setting.default} should be ${DEFAULT_REVIEW_LEVEL}`);
+    for (const level of setting.options) {
+      const policy = resolvePolicy({ reviewLevel: level, customPolicy: 'be careful' });
+      assert(policy.level === level, `offered level ${level} resolved to ${policy.level}`);
+    }
+  });
+
   await run('resolvePolicy picks the configured level and defaults on any doubt', () => {
-    assert(REVIEW_LEVELS.includes(DEFAULT_REVIEW_LEVEL), 'the default must be an offered level');
     assert(resolvePolicy({ reviewLevel: 'relaxed' }).body === POLICY_BODIES.relaxed, 'relaxed not selected');
     assert(resolvePolicy({ reviewLevel: 'balanced' }).body === POLICY_BODIES.balanced, 'balanced not selected');
     for (const config of [null, undefined, {}, { reviewLevel: 'yolo' }, { reviewLevel: 7 },

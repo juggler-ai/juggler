@@ -6,7 +6,7 @@
  * FileSystem API Test Suite
  *
  * Comprehensive tests for the FileSystem class (web/js/services/fs.js)
- * and path module (web/js/services/path.js) against the real Go backend.
+ * against the real Go backend.
  *
  * Write operations use a `_fs_test/` subdirectory to avoid polluting the fixture.
  * @module unit-tests/filesystem-api-test
@@ -14,7 +14,6 @@
 
 import { assert } from '../utilities/test-helpers.js';
 import { FileSystem, ReadOnlyFileSystem, Dirent, Stats, FileSystemError } from '../../js/services/fs.js';
-import path from '../../js/services/path.js';
 
 /**
  * @typedef {object} TestContext
@@ -458,97 +457,6 @@ export async function runTests(_ctx) {
   await test('integration: access succeeds after mkdir', async () => {
     await fs.mkdir('_fs_test/access-after-mkdir', { recursive: true });
     await fs.access('_fs_test/access-after-mkdir');
-  });
-
-  // ========================================================================
-  // path module
-  // ========================================================================
-
-  await test('path.join: concatenates segments', async () => {
-    assert(path.join('a', 'b', 'c') === 'a/b/c', 'basic join');
-    assert(path.join('/a', 'b', 'c') === '/a/b/c', 'absolute join');
-  });
-
-  await test('path.join: resolves . and ..', async () => {
-    assert(path.join('a', '..', 'b') === 'b', '.. goes up');
-    assert(path.join('a', '.', 'b') === 'a/b', '. is no-op');
-    assert(path.join('/a', 'b', '..', 'c') === '/a/c', '.. in middle');
-  });
-
-  await test('path.join: handles empty segments', async () => {
-    assert(path.join('a', '', 'b') === 'a/b', 'empty segment skipped');
-    assert(path.join('', 'a') === 'a', 'leading empty');
-  });
-
-  await test('path.join: multiple .. at start', async () => {
-    assert(path.join('..', '..', 'a') === '../../a', 'relative multiple ..');
-  });
-
-  await test('path.dirname: extracts directory', async () => {
-    assert(path.dirname('/a/b/c') === '/a/b', 'absolute path');
-    assert(path.dirname('/a') === '/', 'root child');
-    assert(path.dirname('a') === '.', 'relative no dir');
-    assert(path.dirname('') === '.', 'empty string');
-    assert(path.dirname('a/b') === 'a', 'relative path');
-  });
-
-  await test('path.basename: extracts filename', async () => {
-    assert(path.basename('/a/b/file.js') === 'file.js', 'absolute');
-    assert(path.basename('file.js') === 'file.js', 'just filename');
-    assert(path.basename('/a/b/file.js', '.js') === 'file', 'strip ext');
-    assert(path.basename('/a/b/file.tar.gz', '.gz') === 'file.tar', 'strip last ext');
-    assert(path.basename('/a/b/') === 'b', 'trailing slash');
-  });
-
-  await test('path.extname: extracts extension', async () => {
-    assert(path.extname('file.js') === '.js', 'simple ext');
-    assert(path.extname('file.tar.gz') === '.gz', 'double ext');
-    assert(path.extname('file') === '', 'no ext');
-    assert(path.extname('.hidden') === '', 'dotfile');
-    assert(path.extname('.hidden.txt') === '.txt', 'dotfile with ext');
-    assert(path.extname('/a/b/file.css') === '.css', 'with path');
-  });
-
-  await test('path.resolve: builds absolute paths', async () => {
-    assert(path.resolve('/a', 'b') === '/a/b', 'abs + rel');
-    assert(path.resolve('/a', '/b') === '/b', 'later abs wins');
-    assert(path.resolve('a', 'b') === '/a/b', 'all relative gets / prefix');
-    assert(path.resolve('/a', 'b', '..', 'c') === '/a/c', 'resolve with ..');
-  });
-
-  await test('path.relative: computes relative path', async () => {
-    assert(path.relative('/a/b', '/a/b/c/d') === 'c/d', 'descend');
-    assert(path.relative('/a/b/c', '/a/b') === '..', 'ascend one');
-    assert(path.relative('/a/b', '/a/c') === '../c', 'sibling');
-    assert(path.relative('/a/b/c', '/a/b/c') === '.', 'same path');
-    assert(path.relative('/a/b/c', '/x/y') === '../../../x/y', 'unrelated');
-  });
-
-  await test('path.isAbsolute: detects absolute paths', async () => {
-    assert(path.isAbsolute('/foo') === true, 'absolute');
-    assert(path.isAbsolute('/') === true, 'root');
-    assert(path.isAbsolute('foo') === false, 'relative');
-    assert(path.isAbsolute('./foo') === false, 'dot relative');
-    assert(path.isAbsolute('../foo') === false, 'dotdot relative');
-    assert(path.isAbsolute('') === false, 'empty');
-  });
-
-  await test('path.normalise: cleans up paths', async () => {
-    assert(path.normalise('/a//b/../c') === '/a/c', 'double slash and ..');
-    assert(path.normalise('./a/./b') === 'a/b', 'dot segments');
-    assert(path.normalise('/a/b/c/../../d') === '/a/d', 'multiple ..');
-    assert(path.normalise('///') === '/', 'multiple slashes to root');
-    assert(path.normalise('.') === '.', 'dot stays dot');
-    assert(path.normalise('') === '.', 'empty becomes dot');
-  });
-
-  await test('path.normalize: is alias for normalise', async () => {
-    assert(path.normalize === path.normalise, 'normalize should be alias');
-  });
-
-  await test('path.sep and path.delimiter', async () => {
-    assert(path.sep === '/', 'sep is /');
-    assert(path.delimiter === ':', 'delimiter is :');
   });
 
   // ========================================================================

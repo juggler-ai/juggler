@@ -212,8 +212,7 @@ class CommandRegistry extends BaseRegistry {
   _buildAliasMap() {
     this._aliasMap.clear();
     for (const { class: CommandClass } of this.getAll()) {
-      const CommandClassTyped = /** @type {any} */ (CommandClass);
-      const manifest = CommandClassTyped.MANIFEST;
+      const manifest = CommandClass.MANIFEST;
       if (manifest.alias) {
         this._aliasMap.set(manifest.alias.toLowerCase(), manifest.id);
       }

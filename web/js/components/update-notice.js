@@ -665,5 +665,3 @@ class UpdateNotice extends JugglerElement {
 }
 
 customElements.define('update-notice', UpdateNotice);
-
-export default UpdateNotice;

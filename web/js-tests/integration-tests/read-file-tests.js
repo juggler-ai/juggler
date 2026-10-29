@@ -54,7 +54,7 @@ const CONFIG_JSON = '<file path="config.json">\n' +
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const readFileSingleTest = {
+const readFileSingleTest = {
   name: 'read-file-single',
   description: 'Read a single file - content returned in tool-result',
   fixture: 'unit-test-fixture',
@@ -97,7 +97,7 @@ export const readFileSingleTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const readFileNonExistentTest = {
+const readFileNonExistentTest = {
   name: 'read-file-non-existent',
   description: 'Read non-existent file - returns helpful error',
   fixture: 'unit-test-fixture',
@@ -140,7 +140,7 @@ export const readFileNonExistentTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const readFileParallelTest = {
+const readFileParallelTest = {
   name: 'read-file-parallel',
   description: 'Read multiple files in parallel',
   fixture: 'unit-test-fixture',
@@ -197,7 +197,7 @@ export const readFileParallelTest = {
  * values the model emitted are preserved verbatim in the stored toolInput.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const readFileStringOffsetTest = {
+const readFileStringOffsetTest = {
   name: 'read-file-string-offset',
   description: 'Numeric offset/limit sent as strings are coerced via schema',
   fixture: 'unit-test-fixture',
@@ -248,7 +248,7 @@ export const readFileStringOffsetTest = {
  * Coercion must not mask genuinely malformed values.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const readFileNonNumericOffsetTest = {
+const readFileNonNumericOffsetTest = {
   name: 'read-file-non-numeric-offset',
   description: 'Non-numeric offset string is not coerced and still errors',
   fixture: 'unit-test-fixture',
@@ -297,7 +297,7 @@ export const readFileNonNumericOffsetTest = {
  * the asset store keeps an undecodable image without dimensions.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const readFileImageAttachesTest = {
+const readFileImageAttachesTest = {
   name: 'read-file-image-attaches',
   description: 'Read a PNG - bytes are uploaded and the tool-action carries the asset',
   fixture: 'unit-test-fixture',

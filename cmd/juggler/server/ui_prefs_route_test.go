@@ -278,20 +278,26 @@ func TestIndexInjectsTheMachinesAppearance(t *testing.T) {
 		t.Fatalf("a machine with nothing stored: got %q, want %q", got, want)
 	}
 
-	if err := core.SaveGlobalSettings(&core.GlobalSettings{UI: map[string]json.RawMessage{
-		machineThemePref: json.RawMessage(`"dark"`),
-		machineZoomPref:  json.RawMessage(`130`),
-	}}); err != nil {
+	if _, err := core.UpdateGlobalSettings(func(gs *core.GlobalSettings) bool {
+		gs.UI = map[string]json.RawMessage{
+			machineThemePref: json.RawMessage(`"dark"`),
+			machineZoomPref:  json.RawMessage(`130`),
+		}
+		return true
+	}); err != nil {
 		t.Fatalf("save settings: %v", err)
 	}
 	if got, want := serve(), "machine=dark/130 project=/0"; got != want {
 		t.Fatalf("a machine with its own: got %q, want %q", got, want)
 	}
 
-	if err := core.SaveGlobalSettings(&core.GlobalSettings{UI: map[string]json.RawMessage{
-		machineThemePref: json.RawMessage(`"mauve"`),
-		machineZoomPref:  json.RawMessage(`"big"`),
-	}}); err != nil {
+	if _, err := core.UpdateGlobalSettings(func(gs *core.GlobalSettings) bool {
+		gs.UI = map[string]json.RawMessage{
+			machineThemePref: json.RawMessage(`"mauve"`),
+			machineZoomPref:  json.RawMessage(`"big"`),
+		}
+		return true
+	}); err != nil {
 		t.Fatalf("save settings: %v", err)
 	}
 	if got, want := serve(), "machine=/0 project=light/90"; got != want {

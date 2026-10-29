@@ -25,11 +25,7 @@ func TestCreateConversationFilledOrdersOnlyOnceFilled(t *testing.T) {
 	newManager := func(t *testing.T) *SessionManager {
 		t.Helper()
 		projectDir := t.TempDir()
-		store, err := NewFileSessionStore(projectDir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		mgr, err := NewSessionManager(SessionManagerConfig{Store: store, ProjectPath: projectDir})
+		mgr, err := NewSessionManagerForPath(projectDir)
 		if err != nil {
 			t.Fatal(err)
 		}

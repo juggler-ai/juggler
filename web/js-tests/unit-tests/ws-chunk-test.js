@@ -16,9 +16,11 @@ import {
   WSChunkReassembler,
   parseWSChunkFrame,
   WS_CHUNK_HEADER_SIZE,
-  WS_CHUNK_KIND_TEXT,
-  WS_CHUNK_KIND_BINARY
+  WS_CHUNK_KIND_TEXT
 } from '../../js/utils/ws-chunk.js';
+
+/** wsChunkKindBinary (cmd/juggler/server/ws_chunk.go): a kind this client never reads. */
+const WS_CHUNK_KIND_BINARY = 1;
 
 /**
  * Build one chunk frame exactly as cmd/juggler/server/ws_chunk.go writes it.

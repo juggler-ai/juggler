@@ -22,7 +22,7 @@ import { setGitWorkspace } from '../../../js/services/git-workspace.js';
 import pinboardItemRegistry from '../../../js/registries/pinboard-item-registry.js';
 import pinboardStore from '../../../js/services/pinboard-store.js';
 import pinboardView from '../../../js/services/pinboard-view.js';
-import { assert } from '../../../js-tests/utilities/test-helpers.js';
+import { assert, nextTask } from '../../../js-tests/utilities/test-helpers.js';
 import { underPseudoLocale, shownStrings } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 
@@ -177,12 +177,6 @@ export async function runTests(_ctx) {
     };
   }
 
-  /**
-   * Let the board's round trip finish: every edit goes to the server and back.
-   * @returns {Promise<void>} Resolves after pending work.
-   */
-  const settle = () => new Promise((resolve) => { setTimeout(resolve, 0); });
-
   /** Put the Git pin in the registry, as an enabled extension would. */
   function enableGitPin() {
     pinboardItemRegistry.reset();
@@ -281,13 +275,13 @@ export async function runTests(_ctx) {
     observer.observe(m.contentEl, { childList: true, subtree: true, characterData: true });
     try {
       setGitWorkspace('ws_other');
-      await settle();
+      await nextTask();
       assert(!m.text().includes('Checking…'),
         `the last answer stays up while the new one is read, got ${JSON.stringify(m.text())}`);
       assert(m.text().includes('2 changed'), `got ${JSON.stringify(m.text())}`);
       held.release();
       await gitStatusCache.refresh();
-      await settle();
+      await nextTask();
       assert(mutations === 0, `an identical answer repaints nothing, saw ${mutations} mutations`);
     } finally {
       observer.disconnect();
@@ -305,7 +299,7 @@ export async function runTests(_ctx) {
     setGitWorkspace('ws_gone');
     held.release();
     await gitStatusCache.refresh();
-    await settle();
+    await nextTask();
     assert(m.text().includes('was closed'), `expected the refusal, got ${JSON.stringify(m.text())}`);
     assert(!m.text().includes('2 changed'), `and not the old tree's counts, got ${JSON.stringify(m.text())}`);
     held.restore();
@@ -430,7 +424,7 @@ export async function runTests(_ctx) {
     enableGitPin();
     const m = await mount({ root: '/tmp/proj', repos: [repo({ changed: 1, total: 1 })] });
     /** @type {any} */ (m.launcher()).click();
-    await settle();
+    await nextTask();
 
     assert(m.server.board.length === 1, `expected one pin, got ${JSON.stringify(m.server.board)}`);
     assert(m.server.board[0].type === 'git',
@@ -445,13 +439,13 @@ export async function runTests(_ctx) {
     enableGitPin();
     const m = await mount({ root: '/tmp/proj', repos: [repo({ changed: 1, total: 1 })] });
     /** @type {any} */ (m.launcher()).click();
-    await settle();
+    await nextTask();
     const first = m.server.board[0]?.id;
 
     pinboardView.close();
     pinboardView.setActivePin(null);
     /** @type {any} */ (m.launcher()).click();
-    await settle();
+    await nextTask();
 
     // Git is a singleton, so the host reveals rather than duplicating. A card
     // that could add a second copy of a singleton would be a bug the user has
@@ -485,7 +479,7 @@ export async function runTests(_ctx) {
     const second = document.createElement('div');
     document.body.appendChild(second);
     const stopSecond = card.mount(second);
-    await settle();
+    await nextTask();
 
     // Both surfaces share one in-flight fetch and one snapshot, which is the
     // whole reason the cache is in the host rather than in each surface.

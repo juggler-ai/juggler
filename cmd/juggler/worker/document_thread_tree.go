@@ -476,10 +476,10 @@ func (cd *ConversationDocument) extractModelConfigFromMap(raw any) *ModelConfig 
 			return &ModelConfig{Provider: provider, Model: model, Thinking: thinking, ServiceTier: serviceTier}
 		}
 	case map[string]any:
-		provider, _ := v["provider"].(string)
-		model, _ := v["model"].(string)
-		thinking, _ := v["thinking"].(string)
-		serviceTier, _ := v["serviceTier"].(string)
+		provider, _ := v[keyProvider].(string)
+		model, _ := v[keyModel].(string)
+		thinking, _ := v[keyThinking].(string)
+		serviceTier, _ := v[keyServiceTier].(string)
 		if provider != "" && model != "" {
 			return &ModelConfig{Provider: provider, Model: model, Thinking: thinking, ServiceTier: serviceTier}
 		}
@@ -589,10 +589,10 @@ func (cd *ConversationDocument) resolveEffectiveModelConfig(threadItemID string)
 	}
 	converted := fromYcrdt(raw)
 	if mc, ok := converted.(map[string]any); ok {
-		provider, _ := mc["provider"].(string)
-		model, _ := mc["model"].(string)
-		thinking, _ := mc["thinking"].(string)
-		serviceTier, _ := mc["serviceTier"].(string)
+		provider, _ := mc[keyProvider].(string)
+		model, _ := mc[keyModel].(string)
+		thinking, _ := mc[keyThinking].(string)
+		serviceTier, _ := mc[keyServiceTier].(string)
 		if provider != "" && model != "" {
 			return &ModelConfig{Provider: provider, Model: model, Thinking: thinking, ServiceTier: serviceTier}
 		}

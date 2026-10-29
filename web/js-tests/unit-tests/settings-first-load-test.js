@@ -18,7 +18,7 @@
  * @module unit-tests/settings-first-load-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, nextTask } from '../utilities/test-helpers.js';
 import wsService from '../../js/services/websocket.js';
 import { __resetPrefsForTests, getGlobalSettings } from '../../js/services/prefs.js';
 import providersCache from '../../js/services/providers-cache.js';
@@ -93,11 +93,6 @@ function installFetch(opts = {}) {
   });
   return { restore: () => { window.fetch = orig; }, calls, state };
 }
-
-/** Let non-awaitable async chains (fetch → json) settle. */
-const settle = async () => {
-  for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0));
-};
 
 /**
  * @param {object} _ctx - Test context (unused).
@@ -232,7 +227,9 @@ export async function runTests(_ctx) {
         // and was handed the document already.
         el.switchTab('updates');
         el.switchTab('connectivity');
-        await settle();
+        // A re-fetch is what must NOT happen, so there is no event to wait for:
+        // four task hops carry a tab's fetch → json chain, had either visit started one.
+        for (let i = 0; i < 4; i++) await nextTask();
 
         const gets = backend.calls.filter((u) => u === '/api/settings');
         assert(gets.length === 1, `exactly one GET /api/settings; got ${gets.length} (${hold.describe()})`);

@@ -179,11 +179,13 @@ class DocumentSyncManager {
     this._lastLocalEditAt = null;
 
     /**
-     * The clock local edits are timed by, in milliseconds. Per document, so a
-     * test can hold one conversation's clock still across edits it means as
-     * made together without touching any other: on a slow enough core the
-     * synchronous work one edit sets off spaces the next further apart than
-     * any undo window, however quickly they were issued.
+     * The clock local edits are timed by, and batch costs and idle gaps read
+     * from, in milliseconds. Per document, so a test can hold one
+     * conversation's clock still across edits it means as made together
+     * without touching any other — on a slow enough core the synchronous work
+     * one edit sets off spaces the next further apart than any undo window,
+     * however quickly they were issued — and can say what a batch cost
+     * without burning that much of a real core.
      * @type {() => number}
      */
     this.now = () => performance.now();
@@ -325,7 +327,7 @@ class DocumentSyncManager {
     // An update arriving after a quiet spell starts a new burst rather than
     // continuing the last one, so it gets the floor regardless of how expensive
     // the previous burst's batches were.
-    if (this._lastBatchAt && performance.now() - this._lastBatchAt > COST_IDLE_RESET_MS) {
+    if (this._lastBatchAt && this.now() - this._lastBatchAt > COST_IDLE_RESET_MS) {
       this._batchCostMs = 0;
     }
     const target = this._batchCostMs * COST_BUDGET_DIVISOR;
@@ -405,7 +407,7 @@ class DocumentSyncManager {
     // what makes timing it a measurement of the whole UI tick and not just of
     // Yjs. Layout and paint land after it, so this reads slightly low — it
     // tracks the term that actually grows with message length.
-    const startedAt = performance.now();
+    const startedAt = this.now();
     try {
       Y.applyUpdate(this.doc, merged, this);
       this._consecutiveFailures = 0;
@@ -415,11 +417,11 @@ class DocumentSyncManager {
       // Timed in a finally because a fan-out that threw part way through still
       // spent the time, and sizing the next window off a stale estimate would
       // describe a batch this document no longer resembles.
-      const cost = performance.now() - startedAt;
+      const cost = this.now() - startedAt;
       this._batchCostMs = this._batchCostMs
         ? this._batchCostMs * (1 - COST_SMOOTHING) + cost * COST_SMOOTHING
         : cost;
-      this._lastBatchAt = performance.now();
+      this._lastBatchAt = this.now();
     }
   }
 

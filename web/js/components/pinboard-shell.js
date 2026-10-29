@@ -482,5 +482,3 @@ function saveWidth(rem) {
 }
 
 customElements.define('pinboard-shell', PinboardShell);
-
-export default PinboardShell;

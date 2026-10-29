@@ -14,7 +14,7 @@
  */
 
 import { renderLiveTaskOutput } from '../../sdk/lib/live-task-output.js';
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 import { underPseudoLocale, assertPseudoLocalized } from '../utilities/pseudo-locale.js';
 
 /** Panel helpers narrowed to what the section uses; the heading is drawn so it is checked. */
@@ -27,12 +27,6 @@ const helpers = {
     return section;
   },
 };
-
-/**
- * Let the deferred first read and a click's async handler settle.
- * @returns {Promise<void>}
- */
-const settle = () => new Promise((resolve) => { setTimeout(resolve, 20); });
 
 /**
  * Run the live-task-output test suite.
@@ -69,25 +63,30 @@ export async function runTests() {
         onStop: async () => { throw new Error('2'); },
         readOutput: async () => ({ status: 'running', output: '' }),
       });
-      await settle();
       const stop = /** @type {HTMLButtonElement|null} */ (running.querySelector('.live-task-output-stop'));
       assert(!!stop, 'no Stop button was drawn');
+      // Shown once the first read reports the task running.
+      await waitFor(() => stop?.style.display === '', 'the first read to show the Stop button');
       stop?.click();
-      await settle();
-      const note = /** @type {HTMLElement|null} */ (running.querySelector('.live-task-output-note:not([hidden])'));
+      const note = await waitFor(() => running.querySelector('.live-task-output-note:not([hidden])'),
+        'the failed stop to show its note');
       assert(!!note, 'a failed stop showed no note');
       assertPseudoLocalized(running, { atLeast: 4, where: 'running, stop failed' });
 
       // A task whose process is gone, that had dropped the middle of its output.
       const gone = document.createElement('div');
+      let reads = 0;
       renderLiveTaskOutput(gone, {
         taskId: '3',
         helpers,
         pollMs: 10,
         initialState: { status: 'not_found', truncated: true, outputFile: '/4/5' },
-        readOutput: async () => ({ status: 'not_found' }),
+        readOutput: async () => { reads++; return { status: 'not_found' }; },
       });
-      await settle();
+      // Painted from initialState at once; checked after the first read has
+      // repainted it from the registry's answer too. The repaint follows the
+      // read in the same task, so a later poll that sees the read sees it.
+      await waitFor(() => reads > 0, 'the first read of the gone task');
       assertPseudoLocalized(gone, { atLeast: 3, where: 'not found, spilled' });
     });
   });

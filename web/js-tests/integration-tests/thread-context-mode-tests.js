@@ -31,7 +31,7 @@ import { textResponse, toolUseResponse } from '../utilities/integration-test-run
  *   - Thread context snapshot does NOT contain parent content ("Start work")
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadIsolatedContextTest = {
+const threadIsolatedContextTest = {
   name: 'thread-isolated-context',
   description: 'Isolated context: thread sees only its own prompt',
   fixture: 'unit-test-fixture',
@@ -75,7 +75,7 @@ export const threadIsolatedContextTest = {
  * and a client that actually holds the sub-thread must answer the render request.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadLocalContextItemRenderedTest = {
+const threadLocalContextItemRenderedTest = {
   name: 'thread-local-context-item-rendered',
   description: 'A sub-thread-only context item is rendered into that sub-thread turn context',
   fixture: 'unit-test-fixture',
@@ -133,7 +133,7 @@ export const threadLocalContextItemRenderedTest = {
  * item for a sub-thread turn, so the README leaked into the child's prompt.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadDoesNotInheritRootContextTest = {
+const threadDoesNotInheritRootContextTest = {
   name: 'thread-does-not-inherit-root-context',
   description: 'A non-foundational root context item does NOT leak into a sub-thread turn',
   fixture: 'unit-test-fixture',
@@ -193,7 +193,7 @@ export const threadDoesNotInheritRootContextTest = {
  * contain all three foundational markers.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadInheritsFoundationalContextTest = {
+const threadInheritsFoundationalContextTest = {
   name: 'thread-inherits-foundational-context',
   description: 'An LLM-created sub-thread turn sees the system prompt, agents file, and project memory',
   fixture: 'unit-test-fixture',
@@ -257,7 +257,7 @@ export const threadInheritsFoundationalContextTest = {
  * restores it.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadInheritsStandingContextAfterMemoryTest = {
+const threadInheritsStandingContextAfterMemoryTest = {
   name: 'thread-inherits-standing-context-after-memory',
   description: 'A leading-run standing context item positioned after memory is still inherited by a sub-thread',
   fixture: 'unit-test-fixture',

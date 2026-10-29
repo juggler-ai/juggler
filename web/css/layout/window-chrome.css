@@ -181,10 +181,10 @@ window-caption-controls {
 }
 
 .window-caption-btn--close:hover {
-    background: #e81123; /* close-button red */
-    color: #fff;
+    background: var(--window-close-hover-bg);
+    color: var(--text-on-accent);
 }
 
 .window-caption-btn--close:active {
-    background: #f1707a;
+    background: var(--window-close-active-bg);
 }

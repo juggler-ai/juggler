@@ -19,7 +19,7 @@ import { textResponse } from '../utilities/integration-test-runner.js';
  * system-prompt placeholder survives untouched.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const clearPreservesSystemPromptTest = {
+const clearPreservesSystemPromptTest = {
   name: 'clear-preserves-system-prompt',
   description: '/clear wipes messages but keeps the system-prompt context item',
   fixture: 'unit-test-fixture',
@@ -54,7 +54,7 @@ export const clearPreservesSystemPromptTest = {
  * is scheduled alone via needsExclusiveRun.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const clearReseedsAutoItemsTest = {
+const clearReseedsAutoItemsTest = {
   name: 'clear-reseeds-auto-items',
   description: '/clear re-seeds always-present auto items (project memory), matching a fresh conversation',
   fixture: 'unit-test-fixture',
@@ -95,7 +95,7 @@ export const clearReseedsAutoItemsTest = {
  * needsExclusiveRun.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const clearUndoesAsSingleGroupTest = {
+const clearUndoesAsSingleGroupTest = {
   name: 'clear-undoes-as-single-group',
   description: '/clear (wipe + re-seed) reverts in one undo to the exact pre-clear document',
   fixture: 'unit-test-fixture',

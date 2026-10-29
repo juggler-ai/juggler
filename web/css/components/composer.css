@@ -309,7 +309,7 @@ composer-box .input-ctrl-btn:disabled {
 }
 
 :root[data-theme="light"] composer-box .input-ctrl-btn:hover:not(:disabled) {
-    background: rgb(255 255 255 / 95%);
+    background: color-mix(in srgb, var(--bg-secondary) 95%, transparent);
     border-color: var(--text-tertiary);
 }
 
@@ -971,8 +971,8 @@ composer-box .context-cache-warning-btn {
     padding: 0;
     border: none;
     border-radius: 50%;
-    background: var(--accent-yellow);
-    color: var(--text-on-accent);
+    background: var(--warning-fill);
+    color: var(--warning-fill-text);
     cursor: pointer;
     flex-shrink: 0;
 }
@@ -980,15 +980,6 @@ composer-box .context-cache-warning-btn {
 composer-box .context-cache-warning-btn .icon-warning {
     width: 1rem;
     height: 1rem;
-}
-
-/* Light theme: --accent-yellow is a dark, murky mustard (tuned to read as text
-   on a light surface), which makes a poor alert fill. Swap in a brighter, more
-   saturated amber with a dark glyph — bright enough to catch the eye, with the
-   symbol still legible (black-on-yellow hazard contrast). */
-:root[data-theme="light"] composer-box .context-cache-warning-btn {
-    background: #f5c518;
-    color: #3d2c00;
 }
 
 /* "⋮" actions sheet: a simple vertical list (commands, send after a delay, new
@@ -1244,7 +1235,7 @@ composer-box .permission-btn.open {
 }
 
 :root[data-theme="light"] composer-box .permission-btn.open {
-    background: rgb(255 255 255 / 95%);
+    background: color-mix(in srgb, var(--bg-secondary) 95%, transparent);
     border-color: var(--text-tertiary);
 }
 

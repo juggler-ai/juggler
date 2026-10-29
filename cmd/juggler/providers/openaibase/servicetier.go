@@ -55,13 +55,6 @@ func (s ServiceTierSpec) Options() []provider.ServiceTier {
 	return s.Tiers
 }
 
-// TierSpec builds a ServiceTierSpec from an ordered list of tiers, with
-// defaultTier labelling the provider's declared default. It exists only to keep
-// call sites terse — Tiers is the given slice verbatim.
-func TierSpec(defaultTier string, tiers ...provider.ServiceTier) ServiceTierSpec {
-	return ServiceTierSpec{Tiers: tiers, Default: defaultTier}
-}
-
 // label returns the provider's own name for a tier id, falling back to the id
 // itself so an unlabelled tier still reads as something rather than nothing.
 func (s ServiceTierSpec) label(id string) string {

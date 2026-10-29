@@ -236,7 +236,7 @@
    off-screen, leaving the sheet with nothing to lift it off the page behind it.
    The sheet rules cast their own upward shadow — this would out-specify it. */
 :root[data-theme="light"] .permissions-popup:not(.popup-sheet) {
-    box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 15%);
+    box-shadow: 0 0.25rem 1rem var(--overlay-dark-15);
 }
 
 /* Edit-family toggle. It shares the .gitignore search-scope toggle's visual
@@ -779,7 +779,7 @@ action-confirmation:focus {
    stays legible against the green in both themes. */
 .question-option-btn.selected .option-btn-desc,
 .question-option-btn.primary .option-btn-desc {
-    color: rgb(255 255 255 / 80%);
+    color: color-mix(in srgb, var(--text-on-accent) 80%, transparent);
 }
 
 /* Custom free-text answer rendered as one more option row: matches the option
@@ -824,7 +824,7 @@ action-confirmation:focus {
 }
 
 .question-custom-option.selected .option-btn-label {
-    color: rgb(255 255 255 / 80%);
+    color: color-mix(in srgb, var(--text-on-accent) 80%, transparent);
 }
 
 .question-custom-field {
@@ -854,7 +854,7 @@ action-confirmation:focus {
 }
 
 .question-custom-option.selected .question-custom-field::placeholder {
-    color: rgb(255 255 255 / 60%);
+    color: color-mix(in srgb, var(--text-on-accent) 60%, transparent);
 }
 
 .multi-question-actions {

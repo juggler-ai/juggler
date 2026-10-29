@@ -58,7 +58,7 @@ const THINKING_LEVEL_LABELS = {
  * @param {string} level - The native level string.
  * @returns {string} The label to show.
  */
-export function thinkingLabel(level) {
+function thinkingLabel(level) {
   const label = Object.hasOwn(THINKING_LEVEL_LABELS, level) ? THINKING_LEVEL_LABELS[level] : '';
   if (label) return t(label);
   return level ? level.charAt(0).toUpperCase() + level.slice(1) : level;
@@ -281,5 +281,3 @@ class ModelTuning extends JugglerElement {
 }
 
 customElements.define('model-tuning', ModelTuning);
-
-export default ModelTuning;

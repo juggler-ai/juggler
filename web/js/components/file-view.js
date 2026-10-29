@@ -213,5 +213,3 @@ class FileView extends JugglerElement {
 }
 
 customElements.define('file-view', FileView);
-
-export default FileView;

@@ -109,8 +109,8 @@ function getSandboxFrame() {
     iframe.src = serverPath('/sandbox');
 
     let settled = false;
-    /** @type {any} */
-    let readyTimer = null;
+    /** @type {ReturnType<typeof setTimeout>|undefined} */
+    let readyTimer = undefined;
     /** @param {Error} [err] - Rejection cause; resolves with the frame when absent */
     const settle = (err) => {
       if (settled) return;
@@ -209,6 +209,7 @@ export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000,
   const root = projectRoot === undefined ? undefined : toSandboxRoot(projectRoot);
   // Every exit below races against this, so an abort settles the caller even
   // when the run it is waiting on cannot be reached to be stopped.
+  /** @type {Promise<never>|null} */
   const cancelled = signal
     ? new Promise((_r, reject) => {
       if (signal.aborted) { reject(new DOMException('The operation was aborted.', 'AbortError')); return; }
@@ -220,8 +221,9 @@ export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000,
     })
     : null;
   /**
-   * @param {Promise<any>} p - The promise to bound by the caller's cancellation
-   * @returns {Promise<any>} p, or a rejection the moment the signal aborts
+   * @template T
+   * @param {Promise<T>} p - The promise to bound by the caller's cancellation
+   * @returns {Promise<T>} p, or a rejection the moment the signal aborts
    */
   const withCancel = (p) => (cancelled ? Promise.race([p, cancelled]) : p);
 
@@ -233,7 +235,9 @@ export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000,
   // export) so it is shared regardless of how many sandbox-runner instances the
   // worker-module loader materialises.
   if (typeof document === 'undefined') {
-    const delegate = /** @type {any} */ (globalThis).__hostSandboxDelegate;
+    const delegate = /** @type {{__hostSandboxDelegate?: (code: string, capabilities: Record<string, object|Function>, timeoutMs: number, root: string|undefined, opts: {signal?: AbortSignal, onConsole?: (line: string) => void}) => Promise<unknown>}} */ (
+      globalThis
+    ).__hostSandboxDelegate;
     if (typeof delegate !== 'function') {
       throw new Error('runInSandbox: no host sandbox delegate registered (engine worker)');
     }
@@ -241,7 +245,7 @@ export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000,
   }
 
   const iframe = await withCancel(getSandboxFrame());
-  const importCapability = await sandboxImportCapability(/** @type {any} */ (globalThis).__jugglerToken || '');
+  const importCapability = await sandboxImportCapability(/** @type {{__jugglerToken?: string}} */ (globalThis).__jugglerToken || '');
   const channel = new MessageChannel();
   const port = channel.port1;
 
@@ -265,14 +269,15 @@ export async function runInSandbox(code, { capabilities = {}, timeoutMs = 30000,
       // string ops handled inside the iframe and never reach here.
       const { kind, method, args, id } = msg;
       try {
-        const cap = /** @type {any} */ (capabilities)[kind];
+        const cap = capabilities[kind];
         if (cap === undefined) throw new Error(`unknown capability: ${kind}`);
         let value;
         if (typeof cap === 'function') {
           value = await cap(...(args || []));
         } else {
-          if (typeof cap[method] !== 'function') throw new Error(`${kind}.${method} is not a function`);
-          value = await cap[method](...(args || []));
+          const fn = /** @type {Record<string, unknown>} */ (cap)[method];
+          if (typeof fn !== 'function') throw new Error(`${kind}.${method} is not a function`);
+          value = await fn.apply(cap, args || []);
         }
         port.postMessage({ kind: 'reply', id, ok: true, value });
       } catch (err) {

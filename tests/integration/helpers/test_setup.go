@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"juggler/cmd/juggler/worker"
 )
@@ -158,46 +157,9 @@ func (ts *TestSession) SetMockSequence(responses ...MockResponse) *LLMSequence {
 	return seq
 }
 
-// SetLLMConditional sets up a conditional mock LLM.
-// Returns the conditional sequence for further configuration.
-func (ts *TestSession) SetLLMConditional() *ConditionalSequence {
-	ts.t.Helper()
-
-	cond := NewConditionalSequence()
-	ts.Manager.SetLLMCaller(cond.AsCallFunc())
-	return cond
-}
-
 // GetDocument returns the worker's document.
 func (ts *TestSession) GetDocument() *worker.ConversationDocument {
 	return ts.Worker.Document()
-}
-
-// AssertState is a convenience wrapper around AssertDocumentState.
-func (ts *TestSession) AssertState(expected DocumentState) {
-	ts.t.Helper()
-	AssertDocumentState(ts.t, ts.Worker, expected)
-}
-
-// WaitForItemCount is a convenience wrapper around the sync helper.
-func (ts *TestSession) WaitForItemCount(count int, timeout ...time.Duration) error {
-	ts.t.Helper()
-	timeoutDuration := defaultTimeout(timeout)
-	return WaitForItemCount(ts.t, ts.Worker, count, timeoutDuration)
-}
-
-// WaitForApprovalState is a convenience wrapper around the sync helper.
-func (ts *TestSession) WaitForApprovalState(toolUseID, state string, timeout ...time.Duration) error {
-	ts.t.Helper()
-	timeoutDuration := defaultTimeout(timeout)
-	return WaitForApprovalState(ts.t, ts.Worker, toolUseID, state, timeoutDuration)
-}
-
-// WaitForContextItemExists is a convenience wrapper around the sync helper.
-func (ts *TestSession) WaitForContextItemExists(itemID string, timeout ...time.Duration) error {
-	ts.t.Helper()
-	timeoutDuration := defaultTimeout(timeout)
-	return WaitForContextItemExists(ts.t, ts.Worker, itemID, timeoutDuration)
 }
 
 // DumpDocument dumps the document state for debugging.
@@ -207,43 +169,6 @@ func (ts *TestSession) DumpDocument() {
 	if doc != nil {
 		DumpDocument(ts.t, doc)
 	}
-}
-
-// CreateFile creates a file in the test's temp directory.
-// This is useful for tests that need to interact with the filesystem.
-func (ts *TestSession) CreateFile(relativePath, content string) error {
-	ts.t.Helper()
-
-	fullPath := filepath.Join(ts.TmpDir, relativePath)
-	dir := filepath.Dir(fullPath)
-
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	return os.WriteFile(fullPath, []byte(content), 0644)
-}
-
-// ReadFile reads a file from the test's temp directory.
-func (ts *TestSession) ReadFile(relativePath string) (string, error) {
-	ts.t.Helper()
-
-	fullPath := filepath.Join(ts.TmpDir, relativePath)
-	content, err := os.ReadFile(fullPath)
-	if err != nil {
-		return "", err
-	}
-
-	return string(content), nil
-}
-
-// FileExists checks if a file exists in the test's temp directory.
-func (ts *TestSession) FileExists(relativePath string) bool {
-	ts.t.Helper()
-
-	fullPath := filepath.Join(ts.TmpDir, relativePath)
-	_, err := os.Stat(fullPath)
-	return err == nil
 }
 
 // SetupMockEngine registers a mock engine client on the worker that auto-responds
@@ -283,12 +208,4 @@ func (ts *TestSession) SetupMockEngine(tools ...worker.ToolDefinition) {
 			w.Send("render-context-items-response", resp)
 		}
 	})
-}
-
-// Helper function to extract timeout from variadic args
-func defaultTimeout(timeout []time.Duration) time.Duration {
-	if len(timeout) > 0 {
-		return timeout[0]
-	}
-	return 2 * time.Second // Default timeout
 }

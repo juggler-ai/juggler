@@ -63,7 +63,7 @@ import { budgetFor, deadlineFor, deadlineTimer } from './test-deadline.js';
 
 /**
  * Raw item from conversation (Y.Map)
- * @typedef {import('../../model/message.js').YMapItem & {type: string, toolUseId?: string, state?: string, result?: object}} RawItem
+ * @typedef {import('../../sdk/lib/message.js').YMapItem & {type: string, toolUseId?: string, state?: string, result?: object}} RawItem
  */
 
 /**
@@ -147,10 +147,10 @@ export class IntegrationTestHarness {
      */
     this._abortSignal = null;
 
-    /** @type {import('../../model/session.js').default|null} @private */
+    /** @type {import('../../js/model/session.js').default|null} @private */
     this._session = null;
 
-    /** @type {import('../../model/conversation.js').default|null} @private */
+    /** @type {import('../../js/model/conversation.js').default|null} @private */
     this._conversation = null;
 
     /** @type {string} @private */
@@ -158,7 +158,7 @@ export class IntegrationTestHarness {
 
     /**
      * Map of all conversations (id -> conversation) for multi-conversation tests
-     * @type {Map<string, import('../../model/conversation.js').default>}
+     * @type {Map<string, import('../../js/model/conversation.js').default>}
      * @private
      */
     this._conversations = new Map();
@@ -223,7 +223,7 @@ export class IntegrationTestHarness {
 
   /**
    * Get the root MessageThread for the current conversation.
-   * @returns {import('../../model/message-thread.js').default} The root message thread
+   * @returns {import('../../js/model/message-thread.js').default} The root message thread
    */
   get rootThread() {
     if (!this._conversation) throw new Error('Conversation not initialized');
@@ -781,7 +781,7 @@ export class IntegrationTestHarness {
 
   /**
    * Get the conversation instance.
-   * @returns {import('../../model/conversation.js').default} The conversation instance
+   * @returns {import('../../js/model/conversation.js').default} The conversation instance
    */
   get conversation() {
     if (!this._conversation) {
@@ -802,7 +802,7 @@ export class IntegrationTestHarness {
 
   /**
    * Get the session instance.
-   * @returns {import('../../model/session.js').default} The session instance
+   * @returns {import('../../js/model/session.js').default} The session instance
    */
   get session() {
     if (!this._session) {

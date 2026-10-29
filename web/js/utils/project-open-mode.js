@@ -52,20 +52,3 @@ export function sessionsPageUrl() {
 
 /** Window name the sessions page opens in, so repeated opens reuse one tab. */
 export const SESSIONS_PAGE_TARGET = 'juggler-sessions';
-
-/**
- * Let the user choose another project: the sessions page when this page's
- * project is fixed, else the project picker.
- * @param {string} currentPath - The project loaded now ('' for none).
- * @param {any} session - Passed through to the picker.
- * @param {(url: string, target: string) => void} [open] - Opens a URL in a named window.
- * @returns {Promise<void>} Resolves once the sessions page or picker is open.
- */
-export async function chooseProject(currentPath, session, open = (url, target) => { window.open(url, target); }) {
-  if (projectIsFixed()) {
-    open(sessionsPageUrl(), SESSIONS_PAGE_TARGET);
-    return;
-  }
-  const { openProjectPicker } = await import('../components/project-picker.js');
-  openProjectPicker(currentPath, session);
-}

@@ -455,19 +455,6 @@ func writeSettings(gs *GlobalSettings) error {
 	return nil
 }
 
-// SaveGlobalSettings writes gs as indented JSON (0644), creating the config
-// directory if needed. The mode is normalised before writing so the file always
-// holds a canonical value.
-//
-// It replaces the whole document, so it is only safe when the caller owns every
-// field. To change part of one, use UpdateGlobalSettings.
-func SaveGlobalSettings(gs *GlobalSettings) error {
-	if gs == nil {
-		gs = defaultGlobalSettings()
-	}
-	return withSettingsLock(func() error { return writeSettings(gs) })
-}
-
 // UpdateGlobalSettings applies mutate to the settings document and saves the
 // result, all under the settings lock. mutate is handed the document as it is
 // on disk right now — never a copy the caller has been holding — and reports

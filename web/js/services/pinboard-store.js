@@ -45,7 +45,7 @@ import { apiUrl } from '../utils/api-url.js';
  * @typedef {object} Pin
  * @property {string} id - Stable client-generated id
  * @property {string} type - Item-type id, e.g. 'file'
- * @property {Record<string, any>} config - Provider-owned configuration
+ * @property {Record<string, unknown>} config - Provider-owned configuration
  * @property {string} [addedAt] - RFC3339 timestamp the server stamped on the pin
  */
 
@@ -56,7 +56,7 @@ import { apiUrl } from '../utils/api-url.js';
  * @property {'add'|'remove'|'move'|'update'} op - What to do
  * @property {string} id - The pin to act on
  * @property {string} [type] - add: the item-type id
- * @property {Record<string, any>} [config] - add, update: provider config
+ * @property {Record<string, unknown>} [config] - add, update: provider config
  * @property {number} [index] - add, move: target position (add appends when absent)
  */
 
@@ -225,7 +225,7 @@ const pinboardStore = {
   /**
    * Add a pin.
    * @param {string} type - Item-type id.
-   * @param {Record<string, any>} [config] - Provider config.
+   * @param {Record<string, unknown>} [config] - Provider config.
    * @param {{index?: number}} [options] - Where to put it; appends by default.
    * @returns {Promise<Pin|null>} The new pin, or null if the server dropped it.
    */
@@ -242,7 +242,7 @@ const pinboardStore = {
    * Add several pins as one batch, in the order given. One request and one
    * broadcast, so a board being furnished appears as a board rather than as six
    * tabs arriving one at a time.
-   * @param {Array<{type: string, config?: Record<string, any>}>} entries - What to add.
+   * @param {Array<{type: string, config?: Record<string, unknown>}>} entries - What to add.
    * @returns {Promise<Pin[]>} The resulting board.
    */
   async addAll(entries) {
@@ -306,7 +306,7 @@ const pinboardStore = {
   /**
    * Replace a pin's config wholesale.
    * @param {string} pinId - The pin to reconfigure.
-   * @param {Record<string, any>} config - The new config.
+   * @param {Record<string, unknown>} config - The new config.
    * @returns {Promise<Pin[]>} The resulting board.
    */
   async updateConfig(pinId, config) {

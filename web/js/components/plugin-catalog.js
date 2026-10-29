@@ -1764,5 +1764,3 @@ class PluginCatalog extends JugglerElement {
 }
 
 customElements.define('plugin-catalog', PluginCatalog);
-
-export default PluginCatalog;

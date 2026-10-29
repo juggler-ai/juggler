@@ -752,5 +752,3 @@ class WorkspacePanel extends JugglerElement {
 }
 
 customElements.define('workspace-panel', WorkspacePanel);
-
-export default WorkspacePanel;

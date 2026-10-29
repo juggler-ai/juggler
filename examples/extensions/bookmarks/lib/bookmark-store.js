@@ -10,7 +10,7 @@
 import { readFile, writeFile, extensionConfigResolve } from 'juggler/ops';
 
 /** The extension id. Must match `id` in juggler.extension.json exactly. */
-export const EXTENSION_ID = '@example/bookmarks';
+const EXTENSION_ID = '@example/bookmarks';
 
 /** Project-relative store. Ops resolve relative paths against the project root. */
 const STORE_PATH = '.juggler/bookmarks.json';

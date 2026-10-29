@@ -15,8 +15,8 @@
  * @module unit-tests/tab-cycle-settle-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
-import { CYCLE_SETTLE_MS } from '../../js/components/conversation-bar.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
+import '../../js/components/conversation-bar.js';
 
 /**
  * The session surface render() and a switch touch, over conversations a–d with
@@ -44,10 +44,12 @@ function stubSession() {
 }
 
 /**
- * @param {number} ms
- * @returns {Promise<void>} Resolves after `ms`.
+ * Wait for the bar's settle timer to have fired (or been cancelled): after
+ * that nothing a burst of presses started can show a conversation any more.
+ * @param {any} bar
+ * @returns {Promise<unknown>} Resolves once no cycle is pending.
  */
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const cycleSettled = (bar) => waitFor(() => bar._cycleTimer === null, 'the keyboard cycle to settle');
 
 /**
  * @param {any} bar
@@ -110,7 +112,7 @@ export async function runTests() {
       assert(highlighted(bar) === 'd',
         `the strip must follow every press at once, landing on d — got ${highlighted(bar)}`);
 
-      await sleep(CYCLE_SETTLE_MS + 150);
+      await cycleSettled(bar);
       assert(session.switches.join() === 'd',
         `once settled, exactly the landing tab is shown — got [${session.switches.join()}]`);
       assert(highlighted(bar) === 'd', `and the strip stays on it — got ${highlighted(bar)}`);
@@ -120,7 +122,7 @@ export async function runTests() {
       press('next');
       press('next');
       press('prev');
-      await sleep(CYCLE_SETTLE_MS + 150);
+      await cycleSettled(bar);
       assert(session.switches.join() === 'b', `a → c → b must show b — got [${session.switches.join()}]`);
     });
 
@@ -155,7 +157,7 @@ export async function runTests() {
     await run('a click mid-burst wins, and the burst does not land afterwards', async (session) => {
       press('next');
       bar._switchConversation('d');
-      await sleep(CYCLE_SETTLE_MS + 150);
+      await cycleSettled(bar);
       assert(session.switches.join() === 'd',
         `the click is shown and the abandoned cycle target is not — got [${session.switches.join()}]`);
       bar.render();

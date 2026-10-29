@@ -18,7 +18,7 @@ import { assert } from '../utilities/test-helpers.js';
 import { assertDialogPopover } from '../utilities/menu-assertions.js';
 import recentModels from '../../js/services/recent-models.js';
 import keyShortcutManager from '../../js/services/key-shortcut-manager.js';
-import { registerConversationShortcuts } from '../../js/services/shortcut-bindings.js';
+import { registerConversationShortcuts } from '../../js/components/shortcut-bindings.js';
 import { ModelCycler } from '../../js/services/model-cycler.js';
 import providersCache from '../../js/services/providers-cache.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';

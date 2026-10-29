@@ -36,12 +36,13 @@ class HookRegistry extends BaseRegistry {
 
   /**
    * @override
-   * @param {any} HookClass - Class to validate
+   * @param {unknown} HookClass - Class to validate
    * @protected
    */
   validateClass(HookClass) {
     super.validateClass(HookClass);
-    validateHookManifest(HookClass);
+    // The base check has established a class with a valid MANIFEST.
+    validateHookManifest(/** @type {typeof import('juggler/hook-type').default} */ (HookClass));
   }
 
   /**

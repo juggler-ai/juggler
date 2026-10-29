@@ -20,7 +20,7 @@
  * @module unit-tests/pinboard-git-review-test
  */
 
-import { initializeRegistries, assert, waitFor } from '../utilities/test-helpers.js';
+import { initializeRegistries, assert, waitFor, nextTask } from '../utilities/test-helpers.js';
 import { isolateFocus } from '../utilities/isolate-focus.js';
 import pinboardItemRegistry from '../../js/registries/pinboard-item-registry.js';
 import PinboardItemType from 'juggler/pinboard-item-type';
@@ -130,15 +130,6 @@ function watch(promise) {
     (error) => { state.error = error; state.done = true; }
   );
   return state;
-}
-
-/**
- * Let every pending microtask and abort listener run. Two turns, because an
- * abort delivered in one is answered in the next.
- * @returns {Promise<void>} Resolves once things have settled.
- */
-async function settle() {
-  for (let i = 0; i < 3; i++) await new Promise((resolve) => { setTimeout(resolve, 0); });
 }
 
 /**
@@ -345,7 +336,9 @@ export async function runTests() {
       const first = service().review();
       const second = service().review();
       await waitFor(() => reviews.length > before, 'the review was never requested');
-      await settle();
+      // The second caller has no event of its own to wait for. Three task hops
+      // let it reach the service, so a second request would be counted.
+      for (let i = 0; i < 3; i++) await nextTask();
       open.release();
       gate = null;
       const [a, b] = await Promise.all([first, second]);
@@ -366,7 +359,7 @@ export async function runTests() {
       // wait that cancels the request before it was ever made.
       await waitFor(() => reviews.length > asked, 'the review was never requested');
       abort.abort();
-      await settle();
+      await waitFor(() => cancelledCall.done, 'the cancelled caller never settled');
       assert(cancelledCall.done && cancelledCall.error?.name === 'AbortError',
         `the caller that cancelled gets its cancellation, got ${JSON.stringify(cancelledCall.error?.name)}`);
       assert(!kept.done, 'the other caller is still waiting for the answer it asked for');
@@ -388,12 +381,13 @@ export async function runTests() {
       // forgot to pass one of its own relies on.
       content.setPin({ id: 'pin_second', type: 'git-review-probe', config: {} }, activeContext());
       await waitFor(() => probe.context.pin.id === 'pin_second', 'the second pin never mounted');
-      await settle();
+      await waitFor(() => pending.done, 'the abandoned review never settled');
       assert(pending.done && pending.error?.name === 'AbortError',
         `a review nobody is left to read is cancelled, got ${JSON.stringify(pending.error?.name)}`);
       open.release();
       gate = null;
-      await settle();
+      // Let the released request and its abort listeners drain before the next case.
+      for (let i = 0; i < 3; i++) await nextTask();
     });
 
     await run('a review that outlived the tree it was about is refused rather than shown', async () => {
@@ -473,7 +467,8 @@ export async function runTests() {
         'a patch is one surface\'s request, so cancelling it must reach the server');
       open.release();
       gate = null;
-      await settle();
+      // Let the released request and its abort listeners drain before the next case.
+      for (let i = 0; i < 3; i++) await nextTask();
     });
 
     await run('a diff left running by a pin that has gone is cancelled with it', async () => {
@@ -490,7 +485,8 @@ export async function runTests() {
       assert(cancelled.length === before + 1, 'and the request goes with the pin');
       open.release();
       gate = null;
-      await settle();
+      // Let the released request and its abort listeners drain before the next case.
+      for (let i = 0; i < 3; i++) await nextTask();
     });
 
     await run('a patch that outlived the tree it was about is refused rather than shown', async () => {

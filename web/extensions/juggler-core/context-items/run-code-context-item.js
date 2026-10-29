@@ -13,6 +13,7 @@ import { journalCapabilities } from './code/program-journal.js';
 import { pointImageReadsAtImage } from './code/program-images.js';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { extractErrorMessage } from 'juggler/ui';
+import { toolActionDisplayData } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -72,7 +73,7 @@ function canonical(value) {
  * @param {HeldCall} held - The call its item holds
  * @returns {Promise<SavedProgram|undefined>} The snapshot, if one is kept for that call
  */
-export async function loadSnapshot(item, held) {
+async function loadSnapshot(item, held) {
   const at = keptAt(item);
   if (!at) return undefined;
   const kept = /** @type {any} */ (await loadProgramSnapshot(at.convId, at.toolUseId).catch(() => null));
@@ -716,9 +717,8 @@ class RunCodeContextItem extends QueryCodeContextItem {
    */
   _renderProgram(wrapper, ctx) {
     super.renderToolActionDetails(wrapper, ctx);
-    const display = ctx.toolAction?.get?.('displayData');
-    const data = display?.toJSON ? display.toJSON() : display;
-    const calls = Array.isArray(data?.nestedCalls) ? data.nestedCalls : [];
+    const data = toolActionDisplayData(ctx.toolAction);
+    const calls = Array.isArray(data.nestedCalls) ? data.nestedCalls : [];
     if (calls.length === 0) return;
     const lines = calls.map(callRow);
     if (data.omitted) lines.push(t('…{count} more not shown', { count: data.omitted }));

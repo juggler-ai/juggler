@@ -19,7 +19,7 @@ import { formatTokens, formatBytes } from '../../js/utils/format.js';
 import { formatFileSize, formatFileSizeForDisplay } from '../../sdk/lib/context-item-utils.js';
 import {
   setLocale, registerCatalog, unregisterCatalog, messageKey, pseudoLocalize, isPseudoLocalized,
-  formatList, PSEUDO_LOCALE,
+  formatList, formatDate, formatRelativeTime, PSEUDO_LOCALE,
 } from '../../sdk/lib/i18n.js';
 
 /**
@@ -124,6 +124,17 @@ export async function runTests() {
         assert(/^1\D+2\D+3$/.test(got) && !/[A-Za-z]/.test(got), `a ${type} under en-XA: ${JSON.stringify(got)}`);
       }
       same(formatList(['ab', 'cd']), 'ab, cd', 'the items themselves are left as given');
+      // A date's and a relative time's words come from Intl too: a month name,
+      // a day period, "in … hours". Accented, they read as translated inside a
+      // translated message, whatever day the date falls on.
+      const at = new Date(2026, 9, 29, 0, 16).getTime();
+      for (const [what, got] of [
+        ['a date with its month', formatDate(at, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })],
+        ['a 12-hour time', formatDate(at, { hour: 'numeric', minute: '2-digit', hour12: true })],
+        ['a relative time', formatRelativeTime(2, 'hour')],
+      ]) {
+        assert(/\d/.test(got) && !/[A-Za-z]/.test(got), `${what} under en-XA: ${JSON.stringify(got)}`);
+      }
     } finally {
       setLocale(previous);
       unregisterCatalog(NS);

@@ -170,5 +170,3 @@ class WorkspaceBoxHeader extends JugglerElement {
 }
 
 customElements.define('workspace-box-header', WorkspaceBoxHeader);
-
-export default WorkspaceBoxHeader;

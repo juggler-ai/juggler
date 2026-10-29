@@ -858,3 +858,17 @@ func TestSelectThreadFallbackResult(t *testing.T) {
 		})
 	}
 }
+
+// String names the action, so a failing assertion's %s/%v reads as a name.
+func (a ThreadAction) String() string {
+	switch a {
+	case ActionNone:
+		return "None"
+	case ActionCallLLM:
+		return "CallLLM"
+	case ActionGoIdle:
+		return "GoIdle"
+	default:
+		return "Unknown"
+	}
+}

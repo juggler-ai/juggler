@@ -47,11 +47,7 @@ func TestHandleUpdateConversation_DoesNotResurrectBinnedConv(t *testing.T) {
 	projectDir := t.TempDir()
 
 	// Lifetime 1: create a conversation, give it real content, then bin it.
-	store1, err := core.NewFileSessionStore(projectDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mgr1, err := core.NewSessionManager(core.SessionManagerConfig{Store: store1, ProjectPath: projectDir})
+	mgr1, err := core.NewSessionManagerForPath(projectDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,11 +67,7 @@ func TestHandleUpdateConversation_DoesNotResurrectBinnedConv(t *testing.T) {
 	// switch / server restart / reload. deletedIDs starts empty here, so the
 	// guard that protected lifetime 1 is gone; the binned folder still sits in
 	// .juggler/trash/, so the id is simply "not owned".
-	store2, err := core.NewFileSessionStore(projectDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mgr2, err := core.NewSessionManager(core.SessionManagerConfig{Store: store2, ProjectPath: projectDir})
+	mgr2, err := core.NewSessionManagerForPath(projectDir)
 	if err != nil {
 		t.Fatal(err)
 	}

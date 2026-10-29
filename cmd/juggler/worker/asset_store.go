@@ -202,13 +202,14 @@ func (s *AssetStore) List(convID string) ([]string, error) {
 	return shas, nil
 }
 
-// Delete removes a single asset. Missing files are not an error.
+// Delete removes a single asset. Missing files are not an error. It outlasts
+// a read of the asset under way, such as the HTTP handler serving it.
 func (s *AssetStore) Delete(convID, sha string) error {
 	p, _, ok := s.find(convID, sha)
 	if !ok {
 		return nil
 	}
-	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+	if err := atomicio.RobustRemove(p); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete asset: %w", err)
 	}
 	return nil

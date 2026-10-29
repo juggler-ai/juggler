@@ -97,7 +97,3 @@ func (s *turnSemaphore) acquire(ctx context.Context) (release func(), err error)
 		return nil, ctx.Err()
 	}
 }
-
-// inFlight reports how many slots are currently held. Used by tests to assert
-// that a paused/parked turn holds none.
-func (s *turnSemaphore) inFlight() int { return len(s.slots) }

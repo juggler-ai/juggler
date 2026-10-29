@@ -15,6 +15,18 @@ import (
 	"juggler/internal/userpaths/userpathstest"
 )
 
+// saveSettings makes gs the whole settings document, through the same locked
+// write every setting change takes.
+func saveSettings(t *testing.T, gs *GlobalSettings) {
+	t.Helper()
+	if _, err := UpdateGlobalSettings(func(stored *GlobalSettings) bool {
+		*stored = *gs
+		return true
+	}); err != nil {
+		t.Fatalf("UpdateGlobalSettings: %v", err)
+	}
+}
+
 func TestLoadGlobalSettingsMissingFileDefaults(t *testing.T) {
 	userpathstest.Isolate(t)
 	gs, err := LoadGlobalSettings()
@@ -28,9 +40,7 @@ func TestLoadGlobalSettingsMissingFileDefaults(t *testing.T) {
 
 func TestSaveLoadGlobalSettingsRoundTrip(t *testing.T) {
 	userpathstest.Isolate(t)
-	if err := SaveGlobalSettings(&GlobalSettings{Updates: UpdateSettings{Mode: UpdateModeNotify}}); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
-	}
+	saveSettings(t, &GlobalSettings{Updates: UpdateSettings{Mode: UpdateModeNotify}})
 	gs, err := LoadGlobalSettings()
 	if err != nil {
 		t.Fatalf("LoadGlobalSettings: %v", err)
@@ -87,9 +97,7 @@ func TestSaveLoadGlobalSettingsConnectivityRoundTrip(t *testing.T) {
 		Updates:      UpdateSettings{Mode: UpdateModeOff},
 		Connectivity: ConnectivitySettings{LANOnLaunch: true, WANOnLaunch: "p2p"},
 	}
-	if err := SaveGlobalSettings(in); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
-	}
+	saveSettings(t, in)
 	gs, err := LoadGlobalSettings()
 	if err != nil {
 		t.Fatalf("LoadGlobalSettings: %v", err)
@@ -132,9 +140,7 @@ func TestSaveLoadGlobalSettingsNetworkRoundTrip(t *testing.T) {
 		Updates: UpdateSettings{Mode: UpdateModeOff},
 		Network: NetworkSettings{Proxy: ProxySettings{Mode: ProxyModeManual, URL: "http://127.0.0.1:7890"}},
 	}
-	if err := SaveGlobalSettings(in); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
-	}
+	saveSettings(t, in)
 	gs, err := LoadGlobalSettings()
 	if err != nil {
 		t.Fatalf("LoadGlobalSettings: %v", err)
@@ -190,9 +196,7 @@ func TestSaveLoadGlobalSettingsHiddenModelsRoundTrip(t *testing.T) {
 			"openrouter": {"z-ai/glm-4.6"},
 		}},
 	}
-	if err := SaveGlobalSettings(in); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
-	}
+	saveSettings(t, in)
 	gs, err := LoadGlobalSettings()
 	if err != nil {
 		t.Fatalf("LoadGlobalSettings: %v", err)
@@ -229,9 +233,7 @@ func TestNormalizeModelSettingsCleansLists(t *testing.T) {
 		"openai":  {},        // no ids left ⇒ the provider key goes entirely
 		"gemini":  {"", " "}, // only blanks ⇒ same
 	}}}
-	if err := SaveGlobalSettings(in); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
-	}
+	saveSettings(t, in)
 	gs, err := LoadGlobalSettings()
 	if err != nil {
 		t.Fatalf("LoadGlobalSettings: %v", err)
@@ -293,9 +295,7 @@ func TestSaveLoadGlobalSettingsModelLimitsRoundTrip(t *testing.T) {
 			},
 		},
 	}
-	if err := SaveGlobalSettings(in); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
-	}
+	saveSettings(t, in)
 	gs, err := LoadGlobalSettings()
 	if err != nil {
 		t.Fatalf("LoadGlobalSettings: %v", err)
@@ -335,9 +335,7 @@ func TestNormalizeModelSettingsCleansLimits(t *testing.T) {
 		"deepseek": deepseek,
 		"gemini":   {"gemini-3-pro": {ContextWindow: -1}}, // nothing usable ⇒ provider goes
 	}}}
-	if err := SaveGlobalSettings(in); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
-	}
+	saveSettings(t, in)
 	gs, err := LoadGlobalSettings()
 	if err != nil {
 		t.Fatalf("LoadGlobalSettings: %v", err)
@@ -395,12 +393,10 @@ func TestLoadGlobalSettingsMissingFileNoModelLimits(t *testing.T) {
 
 func TestUpdateGlobalSettingsMergesOntoDisk(t *testing.T) {
 	userpathstest.Isolate(t)
-	if err := SaveGlobalSettings(&GlobalSettings{
+	saveSettings(t, &GlobalSettings{
 		Updates: UpdateSettings{Mode: UpdateModeNotify},
 		Network: NetworkSettings{Proxy: ProxySettings{Mode: ProxyModeManual, URL: "http://127.0.0.1:7890"}},
-	}); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
-	}
+	})
 	// A second process changes one field. It must not revert the rest, which is
 	// what writing back its own copy of the document would have done.
 	stored, err := UpdateGlobalSettings(func(gs *GlobalSettings) bool {
@@ -430,9 +426,7 @@ func TestUpdateGlobalSettingsMergesOntoDisk(t *testing.T) {
 
 func TestUpdateGlobalSettingsSkipsWriteWhenUnchanged(t *testing.T) {
 	userpathstest.Isolate(t)
-	if err := SaveGlobalSettings(&GlobalSettings{Updates: UpdateSettings{Mode: UpdateModeNotify}}); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
-	}
+	saveSettings(t, &GlobalSettings{Updates: UpdateSettings{Mode: UpdateModeNotify}})
 	path := filepath.Join(userpaths.ConfigDir(), "settings.json")
 	before, err := os.Stat(path)
 	if err != nil {
@@ -552,9 +546,7 @@ func TestIsKnownUpdateMode(t *testing.T) {
 // translation, not the page.
 func TestGlobalSettingsUILocale(t *testing.T) {
 	userpathstest.Isolate(t)
-	if err := SaveGlobalSettings(&GlobalSettings{UILocale: "en-XA"}); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
-	}
+	saveSettings(t, &GlobalSettings{UILocale: "en-XA"})
 	gs, err := LoadGlobalSettings()
 	if err != nil {
 		t.Fatalf("LoadGlobalSettings: %v", err)

@@ -8,19 +8,19 @@
  * conversation-level commands, which need the live session. Other commands
  * (undo/redo, zoom, strategy-switch) register themselves from the components
  * that own them.
- * @module services/shortcut-bindings
+ * @module components/shortcut-bindings
  */
 
-import keyShortcutManager from './key-shortcut-manager.js';
+import keyShortcutManager from '../services/key-shortcut-manager.js';
 import {
   createNewConversation,
   binActiveConversation,
   renameActiveConversation,
   jumpToAttentionConversation,
   toggleActiveFileEditing,
-} from './conversation-commands.js';
-import { getModelSelector } from './model-cycler.js';
-import findBar, { findPanelFor } from '../components/find-bar.js';
+} from '../services/conversation-commands.js';
+import { getModelSelector } from '../services/model-cycler.js';
+import findBar, { findPanelFor } from './find-bar.js';
 
 /**
  * Step the visible tab's item selection one item up or down.

@@ -44,10 +44,10 @@ const LEGACY_WORD_OF_MOUTH_PREF = 'juggler-word-of-mouth-usage';
 export const USAGE_CHANGED_EVENT = 'juggler:usage-changed';
 
 /** The largest count kept for one event. */
-export const COUNT_CAP = 50;
+const COUNT_CAP = 50;
 
 /** The most distinct local days counted for one event. */
-export const DAY_CAP = 14;
+const DAY_CAP = 14;
 
 /**
  * Events with no id part. `shortcut:<id>` (a key shortcut that acted) and
@@ -67,15 +67,6 @@ export function isUsageEvent(name) {
   if (typeof name !== 'string') return false;
   if (FIXED_EVENTS.has(name)) return true;
   return ID_PREFIXES.some((p) => name.startsWith(p) && /^[a-z0-9][a-z0-9-]*$/i.test(name.slice(p.length)));
-}
-
-/**
- * @param {string} pattern
- * @returns {boolean} Whether `pattern` is an event, or `shortcut:*` / `slash:*`
- *   (any event under that prefix) — what a nudge's `retireOn` may name.
- */
-export function isUsagePattern(pattern) {
-  return isUsageEvent(pattern) || ID_PREFIXES.some((p) => pattern === `${p}*`);
 }
 
 /**
@@ -317,10 +308,10 @@ export function usageDays(event) { return appStore.days(event); }
  * @param {string} prefix
  * @returns {boolean} Whether any event under `prefix` has happened.
  */
-export function anyUsage(prefix) { return appStore.any(prefix); }
+function anyUsage(prefix) { return appStore.any(prefix); }
 
 /** @returns {boolean} Whether this person used the app before usage was recorded. */
-export function isVeteranUser() { return appStore.isVeteran(); }
+function isVeteranUser() { return appStore.isVeteran(); }
 
 /** The read-only view of the app's record that guidance rules are given. */
 export const usage = Object.freeze({

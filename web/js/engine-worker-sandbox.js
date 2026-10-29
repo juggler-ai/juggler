@@ -40,7 +40,7 @@ import { extractErrorMessage } from '../sdk/lib/error-utils.js';
  * timer at all; its caller's signal is the backstop instead, and settles the run
  * here without waiting for the host.
  */
-export const SANDBOX_DELEGATE_GRACE_MS = 30000;
+const SANDBOX_DELEGATE_GRACE_MS = 30000;
 
 /**
  * @typedef {object} RunHooks
@@ -51,20 +51,58 @@ export const SANDBOX_DELEGATE_GRACE_MS = 30000;
  */
 
 /**
+ * The bindings a query_code script is given, by name: each a function it calls
+ * directly, or an object whose methods it calls by name.
+ * @typedef {NonNullable<import('../sdk/lib/sandbox-runner.js').RunInSandboxOptions['capabilities']>} SandboxCapabilities
+ */
+
+/**
+ * What the bridge posts to the main-thread host.
+ * @typedef {{type: 'sandbox-run', id: string, code: string, timeoutMs: number,
+ *   descriptors: Array<{name: string, callable: boolean}>, projectRoot: string|undefined}
+ *   | {type: 'sandbox-abort', id: string}
+ *   | {type: 'sandbox-cap-reply', id: string, callId: string, ok: true, value: unknown}
+ *   | {type: 'sandbox-cap-reply', id: string, callId: string, ok: false, error: string}} SandboxHostMessage
+ */
+
+/**
+ * A `sandbox-console` line from the host.
+ * @typedef {{id: string, text: unknown}} SandboxConsoleMessage
+ */
+
+/**
+ * A `sandbox-result` from the host.
+ * @typedef {{id: string, ok: boolean, result?: unknown, error?: string}} SandboxResultMessage
+ */
+
+/**
+ * A `sandbox-cap` call from the host's iframe: `method` is null for a callable
+ * capability.
+ * @typedef {{id: string, callId: string, name: string, method: string|null, args?: unknown[]}} SandboxCapMessage
+ */
+
+/**
+ * The delegate sandbox-runner.js calls through `globalThis.__hostSandboxDelegate`.
+ * @typedef {(code: string, capabilities: SandboxCapabilities, timeoutMs: number,
+ *   callerRoot?: string, hooks?: RunHooks) => Promise<unknown>} SandboxDelegate
+ */
+
+/**
  * Build the worker-side sandbox bridge.
  * @param {object} opts - Bridge options
- * @param {(message: any) => void} opts.post - Post a message to the main-thread host
+ * @param {(message: SandboxHostMessage) => void} opts.post - Post a message to the main-thread host
  * @param {number} [opts.graceMs] - Override for {@link SANDBOX_DELEGATE_GRACE_MS} (tests)
- * @param {(fn: () => void, ms: number) => any} [opts.setTimer] - Arms the
+ * @param {(fn: () => void, ms: number) => ReturnType<typeof setTimeout>} [opts.setTimer] - Arms the
  *   backstop timer; `setTimeout` unless a test needs to see what is armed
- * @returns {{delegate: (code: string, capabilities: Record<string, any>, timeoutMs: number, callerRoot?: string, hooks?: RunHooks) => Promise<unknown>,
- *   handleResult: (data: any) => void, handleCap: (data: any) => Promise<void>, handleConsole: (data: any) => void,
+ * @returns {{delegate: SandboxDelegate,
+ *   handleResult: (data: SandboxResultMessage) => void, handleCap: (data: SandboxCapMessage) => Promise<void>,
+ *   handleConsole: (data: SandboxConsoleMessage) => void,
  *   pendingCount: () => number}}
  *   The delegate to install on globalThis, and the inbound message handlers.
  */
 export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS, setTimer = (fn, ms) => setTimeout(fn, ms) }) {
   let sandboxSeq = 0;
-  /** @type {Map<string, {resolve: Function, reject: Function, capabilities: Record<string, any>, timer: any, detach: () => void, onConsole?: (line: string) => void}>} */
+  /** @type {Map<string, {resolve: (value: unknown) => void, reject: (reason: unknown) => void, capabilities: SandboxCapabilities, timer: ReturnType<typeof setTimeout>|undefined, detach: () => void, onConsole?: (line: string) => void}>} */
   const pending = new Map();
 
   /**
@@ -73,7 +111,7 @@ export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS,
    * the ReadOnlyFileSystem and its read history for the whole call.
    * @param {string} id - Sandbox run id
    * @param {boolean} ok - Whether the run produced a result
-   * @param {any} value - The result, or the Error to reject with
+   * @param {unknown} value - The result, or the Error to reject with
    */
   function settle(id, ok, value) {
     const entry = pending.get(id);
@@ -89,7 +127,7 @@ export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS,
     /**
      * Run one query_code script on the host's iframe sandbox.
      * @param {string} code - Untrusted JavaScript
-     * @param {Record<string, any>} capabilities - Named fs/grep/glob closures
+     * @param {SandboxCapabilities} capabilities - Named fs/grep/glob closures
      * @param {number} timeoutMs - The script's own wall-clock budget, or 0 for
      *   none (the run then ends only through `hooks.signal`)
      * @param {string} [callerRoot] - The root the caller works in, POSIX-form
@@ -111,7 +149,7 @@ export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS,
       // ProjectSwitchController.apply), NOT the frozen sandbox.html template. This realm
       // (the engine worker) is where the session runs and keeps it current; the
       // main-thread iframe host can't read this worker's global, so pass it across.
-      const projectRoot = callerRoot || /** @type {any} */ (globalThis).__jugglerProjectRoot;
+      const projectRoot = callerRoot || /** @type {{__jugglerProjectRoot?: string}} */ (globalThis).__jugglerProjectRoot;
       return new Promise((resolve, reject) => {
         // A run with no deadline (timeoutMs 0) has no answer to give up on: its
         // caller ends it through the signal.
@@ -137,7 +175,7 @@ export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS,
     /**
      * Apply a `sandbox-console` line from the host to its run's console sink.
      * A line for a run that has already settled is dropped.
-     * @param {any} data - { id, text }
+     * @param {SandboxConsoleMessage} data - The line and its run
      */
     handleConsole(data) {
       pending.get(data.id)?.onConsole?.(String(data.text));
@@ -145,7 +183,7 @@ export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS,
 
     /**
      * Apply a `sandbox-result` from the host.
-     * @param {any} data - { id, ok, result, error }
+     * @param {SandboxResultMessage} data - The run's outcome
      */
     handleResult(data) {
       if (data.ok) settle(data.id, true, data.result);
@@ -154,7 +192,7 @@ export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS,
 
     /**
      * Service one capability call requested by the host's sandbox iframe.
-     * @param {any} data - { id, callId, name, method, args }
+     * @param {SandboxCapMessage} data - The call
      * @returns {Promise<void>} Resolves once the reply has been posted
      */
     async handleCap(data) {
@@ -163,9 +201,15 @@ export function createSandboxBridge({ post, graceMs = SANDBOX_DELEGATE_GRACE_MS,
         if (!entry) throw new Error(`no pending sandbox ${data.id}`);
         const cap = entry.capabilities[data.name];
         if (cap === undefined) throw new Error(`unknown capability: ${data.name}`);
-        const value = typeof cap === 'function'
-          ? await cap(...(data.args || []))
-          : await cap[data.method](...(data.args || []));
+        const args = data.args || [];
+        let value;
+        if (typeof cap === 'function') {
+          value = await cap(...args);
+        } else {
+          const method = data.method === null ? undefined : /** @type {Record<string, unknown>} */ (cap)[data.method];
+          if (typeof method !== 'function') throw new TypeError(`capability ${data.name} has no method ${data.method}`);
+          value = await method.apply(cap, args);
+        }
         post({ type: 'sandbox-cap-reply', id: data.id, callId: data.callId, ok: true, value });
       } catch (err) {
         post({

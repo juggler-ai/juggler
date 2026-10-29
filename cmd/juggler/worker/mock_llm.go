@@ -77,14 +77,6 @@ func (m *mockLLMCaller) recordRequest(request json.RawMessage) {
 	}
 }
 
-// sentRequests returns the requests the script has answered so far.
-func (m *mockLLMCaller) sentRequests() []json.RawMessage {
-	if requests := m.requests.Load(); requests != nil {
-		return *requests
-	}
-	return nil
-}
-
 // announceGate stops the delivery goroutine immediately before it announces a
 // pause, so a test can place that announcement genuinely beside something it
 // does to the turn. The goroutine reports that it has arrived and then waits;
@@ -279,4 +271,12 @@ func (r *run) callLLMMockWithSink(turnID string, sink func(StreamChunk)) (*LLMRe
 	}
 	jlog.Error("[callLLM] conv=%s thread=%q EXHAUSTED", r.conversationID, r.t.thread.itemID)
 	return nil, fmt.Errorf("mock responses exhausted - test may have more LLM calls than expected")
+}
+
+// mockPausedStatus is the status the mock LLM sends when a scripted test holds
+// the turn; unlike StatusMessage it names no thread.
+type mockPausedStatus struct {
+	Type    wireMsgType `json:"type"` // "status"
+	Status  string      `json:"status"`
+	Message string      `json:"message"`
 }

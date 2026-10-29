@@ -12,14 +12,6 @@ import { uiPort } from './ui-port.js';
 import { capabilityLabel } from '../utils/capability-label.js';
 import { t, markForTranslation } from '../../sdk/lib/i18n.js';
 
-/**
- * @typedef {object} EventListener
- * @property {HTMLElement|Document|Window} element - Element with listener
- * @property {string} event - Event type
- * @property {function} handler - Event handler function
- * @property {object} [options] - Event listener options
- */
-
 import { toggleTheme, getPaintedTheme, THEME_MODE_EVENT } from '../utils/theme-manager.js';
 
 /**

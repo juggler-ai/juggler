@@ -128,7 +128,7 @@ export const MAX_AFTER_TOOL_TIMEOUT_MS = 30000;
 /**
  * Check the hook-specific parts of a manifest, beyond the fields every
  * capability carries. Throws with a message naming the class.
- * @param {any} ctor - The hook class
+ * @param {typeof HookType} ctor - The hook class
  * @throws {Error} When the manifest cannot be acted on as written
  */
 export function validateHookManifest(ctor) {
@@ -236,7 +236,7 @@ class HookType {
     if (new.target === HookType) {
       throw new Error('HookType is an abstract class and cannot be instantiated directly');
     }
-    validateHookManifest(this.constructor);
+    validateHookManifest(/** @type {typeof HookType} */ (this.constructor));
   }
 
   /**

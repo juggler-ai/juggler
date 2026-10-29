@@ -57,7 +57,7 @@ class McpCommandType extends CommandType {
         case 'stop':
         case 'restart':
           if (!name) return { handled: true, message: t('Usage: /mcp {subcommand} <server>', { subcommand: sub }) };
-          await mcpServerControl({ server: name, action: /** @type {any} */ (sub) });
+          await mcpServerControl({ server: name, action: /** @type {'start'|'stop'|'restart'} */ (sub) });
           return { handled: true, message: await McpCommandType._list() };
         case 'reload': {
           // Any server works as the reconcile target; the manager reloads all.

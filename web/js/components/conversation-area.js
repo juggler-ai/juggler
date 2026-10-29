@@ -107,10 +107,6 @@ function emptyHintMarkup() {
 }
 
 /**
- * @typedef {import('../../sdk/lib/message.js').Message} Message
- */
-
-/**
  * The item ids whose own Y.Map fields changed in one observeDeep batch, or
  * null when the batch can't be attributed to specific rows.
  *

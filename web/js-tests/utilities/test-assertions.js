@@ -144,7 +144,7 @@ async function loadBlob(conversationId, transactionId) {
 /**
  * Validate that a conversation has at least the expected number of LLM
  * round-trips, by counting distinct transactionIds stamped on root items.
- * @param {import('../../model/message-thread.js').default} rootThread - Root message thread
+ * @param {import('../../js/model/message-thread.js').default} rootThread - Root message thread
  * @param {TestOperation} op - Operation with `count` field
  */
 export function assertTransactionMarkers(rootThread, op) {
@@ -162,7 +162,7 @@ export function assertTransactionMarkers(rootThread, op) {
  * Validate the LLM-input context blob from the most recent root-level
  * round-trip. Walks back from the end of root items to find one with a
  * transactionId, fetches the blob from disk, and asserts on input.messages.
- * @param {import('../../model/message-thread.js').default} rootThread - Root message thread
+ * @param {import('../../js/model/message-thread.js').default} rootThread - Root message thread
  * @param {string} conversationId - Conversation id (needed to fetch blob)
  * @param {TestOperation} op - Operation with assertion fields
  * @returns {Promise<void>} Resolves when assertion passes
@@ -192,7 +192,7 @@ export async function assertContextSnapshot(rootThread, conversationId, op) {
  * Validate the LLM-input context blob from a thread's first round-trip.
  * Walks the thread items, finds one with a transactionId, fetches the blob,
  * and asserts on input.messages.
- * @param {import('../../model/message-thread.js').default} rootThread - Root message thread
+ * @param {import('../../js/model/message-thread.js').default} rootThread - Root message thread
  * @param {string} conversationId - Conversation id (needed to fetch blob)
  * @param {TestOperation} op - Operation with assertion fields
  * @returns {Promise<void>} Resolves when assertion passes

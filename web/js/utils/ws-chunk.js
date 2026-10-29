@@ -30,9 +30,6 @@ export const WS_CHUNK_HEADER_SIZE = 21;
 /** Reassembled bytes are a UTF-8 text message. */
 export const WS_CHUNK_KIND_TEXT = 0;
 
-/** Reassembled bytes are themselves a binary message. */
-export const WS_CHUNK_KIND_BINARY = 1;
-
 const MAGIC = [0x4a, 0x47, 0x43, 0x31]; // "JGC1"
 
 /**

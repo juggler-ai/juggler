@@ -115,22 +115,11 @@ export function getMode() {
 }
 
 /**
- * Resolve the current mode to the concrete theme to paint. In 'system' mode
- * this tracks the OS; otherwise it's the pinned theme. Consumers that need a
- * definite 'dark'/'light' (e.g. the iframe ?theme= handoff) use this.
- * @returns {string} 'dark' or 'light'
- */
-export function getTheme() {
-  const mode = getMode();
-  return mode === MODES.SYSTEM ? systemTheme() : mode;
-}
-
-/**
  * The concrete theme currently painted on the document ('dark' or 'light'),
- * read straight from the data-theme attribute. Unlike getTheme(), which
- * re-resolves 'system' via matchMedia — unreliable in a native macOS window
- * whose prefers-color-scheme is pinned by the window's forced appearance, so it
- * can report the opposite of what's on screen — this returns what is actually
+ * read straight from the data-theme attribute. Unlike re-resolving 'system' via
+ * matchMedia — unreliable in a native macOS window whose prefers-color-scheme is
+ * pinned by the window's forced appearance, so it can report the opposite of
+ * what's on screen — this returns what is actually
  * displayed, already reconciled with the native host (see applyTheme). Use it
  * when handing a resolved theme to a child window so the child inherits exactly
  * what the source shows rather than a stale matchMedia guess.

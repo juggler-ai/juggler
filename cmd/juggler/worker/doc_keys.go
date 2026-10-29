@@ -8,13 +8,16 @@ package worker
 // (web/js-tests/fixtures/wire-protocol.json, worker.docKeys) groups them. A key
 // that several groups share is declared once, in the first group that has it.
 //
-// Every key a Get/Set/Delete/Has, metadata accessor, yMap* reader or key
-// forwarder is handed must be one of these constants
-// (TestWireParityDocKeysAreConstants), and TestWireParityDocKeys holds them to
-// the manifest. Two kinds live elsewhere: a processing-state key is a runField
-// constant (run_entry.go), and a metadata key owned by one feature is a meta*
-// constant declared beside that feature (spend.go, fork.go, auto_name_flag.go,
-// workspace_binding.go), where its meaning is documented.
+// Every key that names something in the doc must be one of these constants
+// (TestWireParityDocKeysAreConstants): a Y.Map key, the key of any Go map that
+// is a copy of doc state or will be written into it — a value stored under a
+// key included, at any depth — and a key handed on through a function that
+// forwards it to one of those. Which maps and functions those are is computed
+// from the source (doc_key_flow_test.go), not listed. TestWireParityDocKeys
+// holds the constants to the manifest. Two kinds live elsewhere: a run entry's
+// key is a runField constant (run_entry.go), and a metadata key owned by one
+// feature is a meta* constant declared beside that feature (spend.go, fork.go,
+// auto_name_flag.go, workspace_binding.go), where its meaning is documented.
 
 // Keys ConversationItem declares (docKeys.item).
 const (
@@ -93,6 +96,66 @@ const (
 	keyNotBefore = "notBefore"
 	keyHold      = "hold"
 	keySendID    = "sendId"
+	// The answer the browser writes to a tool action's approval form; cleared
+	// with the form when the action is asked again (reaskFields).
+	keyApprovalResponse = "approvalResponse"
+)
+
+// Keys of the processingState frame that are not a run entry's own fields
+// (docKeys.processingState; a run's fields are runField constants,
+// run_entry.go), and of one polite-stop mark under politeStops.
+const (
+	keyRuns        = "runs"
+	keyPoliteStops = "politeStops"
+	keyLanded      = "landed"
+)
+
+// Keys of a tool action's result value (docKeys.toolResult): content, isError
+// and cancelled are the item keys of the same name, and fullResult carries the
+// renderer's own completed state under keyState.
+const (
+	keyFullResult = "fullResult"
+)
+
+// Keys of a terminal-error item's data (docKeys.errorData). The model it ran
+// against is keyProvider/keyModel; a failed compaction adds its accounting
+// (docKeys.compactionAccounting).
+const (
+	keyDuration         = "duration"
+	keyErrorKind        = "errorKind"
+	keyResetAt          = "resetAt"
+	keyMessage          = "message"
+	keyCompactionReason = "compactionReason"
+	keyCompactionCalls  = "compactionCalls"
+	keyCompactionSpend  = "compactionSpend"
+	keyCompactionUsage  = "compactionUsage"
+)
+
+// Keys of a compaction's durable accounting and of its usage map
+// (docKeys.compactionAccounting).
+const (
+	keyPasses            = "passes"
+	keyCalls             = "calls"
+	keyEstimatedSpend    = "estimatedSpend"
+	keyDurationMs        = "durationMs"
+	keyUsage             = "usage"
+	keySourceFingerprint = "sourceFingerprint"
+	keyInputTokens       = "inputTokens"
+	keyOutputTokens      = "outputTokens"
+	keyCachedTokens      = "cachedTokens"
+	keyCacheWriteTokens  = "cacheWriteTokens"
+)
+
+// Keys of the undoState metadata value (docKeys.undoState).
+const (
+	keyCanUndo = "canUndo"
+	keyCanRedo = "canRedo"
+	keySeq     = "seq"
+)
+
+// Keys the worker writes into a tool action's displayData (docKeys.displayData).
+const (
+	keyBackgroundTask = "backgroundTask"
 )
 
 // Keys of a model configuration map (docKeys.modelConfig).

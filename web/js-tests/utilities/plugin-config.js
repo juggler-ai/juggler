@@ -21,6 +21,7 @@
 import wsService from '../../js/services/websocket.js';
 import { apiUrl } from '../../js/utils/api-url.js';
 import { budgetFor } from './test-deadline.js';
+import { racePatiently } from './test-patience.js';
 
 /** The engine-bridge channel the engine acknowledges a registry reload on. */
 export const REGISTRIES_CHANNEL = 'juggler-registries';
@@ -56,19 +57,15 @@ export async function afterEngineReload(trigger, what) {
     };
     wsService.on('engine-bridge', handler);
   });
-  /** @type {ReturnType<typeof setTimeout>|undefined} */
-  let timer;
   const budget = budgetFor(RELOAD_NOMINAL_MS);
-  const expired = new Promise((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(
-      `the engine did not report its registries reloaded within ${budget}ms of ${what}; `
-      + `nothing arrived on the '${REGISTRIES_CHANNEL}' engine-bridge channel`)), budget);
-  });
   try {
     await trigger();
-    await Promise.race([acknowledged, expired]);
+    const settled = await racePatiently(acknowledged, budget, { what: `the engine to reload its registries after ${what}` });
+    if (!settled) {
+      throw new Error(`the engine did not report its registries reloaded within ${budget}ms of ${what} (nor while the test was still progressing); `
+        + `nothing arrived on the '${REGISTRIES_CHANNEL}' engine-bridge channel`);
+    }
   } finally {
-    clearTimeout(timer);
     wsService.off('engine-bridge', handler);
   }
 }

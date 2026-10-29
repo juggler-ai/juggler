@@ -28,7 +28,8 @@ import {
   initializeRegistries,
   createTestSession,
   createApprovalTestConversation,
-  assert
+  assert,
+  waitFor
 } from '../utilities/test-helpers.js';
 import {
   createUserMessage,
@@ -38,18 +39,8 @@ import {
 } from '../../sdk/lib/message.js';
 import { ColumnSelectionState } from '../../js/utils/column-selection.js';
 import { SHEET_QUERY } from '../../js/utils/popup-surface.js';
-import { registerConversationShortcuts } from '../../js/services/shortcut-bindings.js';
+import { registerConversationShortcuts } from '../../js/components/shortcut-bindings.js';
 import '../../js/components/conversation-tab.js';
-
-/**
- * Let deferred work land. The column scroll is scheduled on
- * requestAnimationFrame, shimmed to a macrotask below, so a couple of
- * macrotask hops is enough.
- * @returns {Promise<void>} Resolves once queued callbacks have run.
- */
-function settle() {
-  return new Promise((resolve) => { setTimeout(resolve, 20); });
-}
 
 /**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
@@ -123,6 +114,15 @@ export async function runTests() {
     const t = pendingFrames.get(id);
     if (t) { clearTimeout(t); pendingFrames.delete(id); }
   };
+  /**
+   * Wait for every frame the tab has asked for to run — the column scroll is
+   * scheduled on one, so a scroll a keypress would cause has been asked for by
+   * then. A frame that schedules another runs in the same task as the request,
+   * so the count never reads empty between the two.
+   * @returns {Promise<boolean>} Resolves once no frame is pending.
+   */
+  const framesRun = () => waitFor(() => pendingFrames.size === 0,
+    () => `the ${pendingFrames.size} scheduled frame(s) to run`);
 
   const host = document.createElement('div');
   host.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1200px;height:800px;';
@@ -189,7 +189,7 @@ export async function runTests() {
     const ids = rootCol.getSelectableItemIds();
     assert(ids.length >= 3, `expected at least 3 selectable items, got ${ids.length}`);
     rootCol.selectItem(ids[1]);
-    await settle();
+    await framesRun();
 
     // ⌥↑/↓ walk the same selection from inside the message box, and leave the
     // keyboard there: the key is consumed (no caret move) and focus stays put.
@@ -203,7 +203,8 @@ export async function runTests() {
     const tookFocus = document.activeElement === textarea;
     const altUp = new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true, cancelable: true });
     textarea.dispatchEvent(altUp);
-    await settle();
+    await waitFor(() => selectedNow() !== ids[1], '⌥↑ in the composer to move the selection');
+    await framesRun();
     assert(selectedNow() === ids[0],
       `⌥↑ in the composer moved the selection to ${selectedNow()}, not the item above (${ids[0]})`);
     assert(altUp.defaultPrevented, '⌥↑ in the composer was left to move the caret as well');
@@ -217,7 +218,8 @@ export async function runTests() {
     rootCol.querySelector('#message-list')?.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true })
     );
-    await settle();
+    await waitFor(() => selectedNow() !== ids[0], '⌥↓ outside a field to move the selection');
+    await framesRun();
     assert(selectedNow() === ids[1],
       `⌥↓ outside a field landed on ${selectedNow()}, not one step down (${ids[1]})`);
 
@@ -294,13 +296,15 @@ export async function runTests() {
       };
 
       press('ArrowUp');
-      await settle();
+      await waitFor(() => selectedId() !== before, 'ArrowUp to move the selection');
+      await framesRun();
       const afterUp = selectedId();
       assert(afterUp && afterUp !== before,
         'ArrowUp did not move the selection, so this proves nothing about scrolling');
 
       press('ArrowDown');
-      await settle();
+      await waitFor(() => selectedId() !== afterUp, 'ArrowDown to move the selection');
+      await framesRun();
       assert(selectedId() === before, 'ArrowDown did not come back to where ArrowUp started');
 
       assert(scrolls.length === 0,
@@ -312,7 +316,8 @@ export async function runTests() {
       const propsCol = /** @type {HTMLElement} */ (container.querySelector('properties-panel'));
       assert(!!propsCol, 'selecting an item did not open a properties column');
       propsCol.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      await settle();
+      await waitFor(() => scrolls.length > 0, 'clicking into the off-screen column to scroll the row');
+      await framesRun();
       assert(scrolls.length === 1,
         'clicking into an off-screen column must still bring it into view');
     } finally {

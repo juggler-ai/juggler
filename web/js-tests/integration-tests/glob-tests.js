@@ -34,7 +34,7 @@ const GLOB_MD_SINGLE = 'README.md';
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const globGoFilesTest = {
+const globGoFilesTest = {
   name: 'glob-go-files',
   description: 'Find .go files with glob pattern',
   fixture: 'unit-test-fixture',
@@ -77,7 +77,7 @@ export const globGoFilesTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const globNoMatchesTest = {
+const globNoMatchesTest = {
   name: 'glob-no-matches',
   description: 'No files match pattern',
   fixture: 'unit-test-fixture',
@@ -120,7 +120,7 @@ export const globNoMatchesTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const globJsonFilesTest = {
+const globJsonFilesTest = {
   name: 'glob-json-files',
   description: 'Find JSON files',
   fixture: 'unit-test-fixture',
@@ -163,7 +163,7 @@ export const globJsonFilesTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const globWithPathTest = {
+const globWithPathTest = {
   name: 'glob-with-path',
   description: 'Glob with path parameter (subdirectory)',
   fixture: 'unit-test-fixture',
@@ -206,7 +206,7 @@ export const globWithPathTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const globMissingPatternTest = {
+const globMissingPatternTest = {
   name: 'glob-missing-pattern',
   description: 'Glob without pattern returns error',
   fixture: 'unit-test-fixture',
@@ -251,7 +251,7 @@ export const globMissingPatternTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const globParallelTest = {
+const globParallelTest = {
   name: 'glob-parallel',
   description: 'Multiple parallel glob calls',
   fixture: 'unit-test-fixture',

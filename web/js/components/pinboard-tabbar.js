@@ -359,5 +359,3 @@ class PinboardTabbar extends JugglerElement {
 }
 
 customElements.define('pinboard-tabbar', PinboardTabbar);
-
-export default PinboardTabbar;

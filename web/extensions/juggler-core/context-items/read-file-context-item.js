@@ -11,6 +11,7 @@ import { extractFileSource } from 'juggler/registry';
 import { toolInputPath, dirname, isPathAllowed, folderGrantSuggestions, stripInjectedApprovalFlags, absolutePathKey } from './path-approval.js';
 import { creditProgramRead } from './read-history.js';
 import { translator, markUntranslated } from 'juggler/i18n';
+import { inputText, toolActionResultField, toolActionResultValue } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -467,12 +468,10 @@ class ReadFileContextItem extends ContextItem {
   renderToolActionDetails(wrapper, ctx) {
     const { toolAction, input, helpers } = ctx;
     // If we have a successful read with full action data, use the rich panel
-    const result = toolAction.get('result');
-    const fullResult = result?.get ? result.get('fullResult') : result?.fullResult;
-    const fullResultObj = fullResult?.toJSON ? fullResult.toJSON() : fullResult;
-    const actionData = fullResultObj?.success ? fullResultObj.result : null;
-    const error = result?.get ? result.get('error') : result?.error;
-    const cancelled = result?.get ? result.get('cancelled') : result?.cancelled;
+    const fullResult = toolActionResultField(toolAction, 'fullResult');
+    const actionData = fullResult?.success ? fullResult.result : null;
+    const error = toolActionResultValue(toolAction, 'error');
+    const cancelled = toolActionResultField(toolAction, 'cancelled');
 
     if (actionData && !error && !cancelled) {
       const instance = new (/** @type {any} */ (this.constructor))({
@@ -490,7 +489,7 @@ class ReadFileContextItem extends ContextItem {
       return { skipResultSection: true };
     }
 
-    helpers.addFilePath(wrapper, input.file_path || input.path || '');
+    helpers.addFilePath(wrapper, inputText(input, 'file_path') || inputText(input, 'path'));
   }
 }
 

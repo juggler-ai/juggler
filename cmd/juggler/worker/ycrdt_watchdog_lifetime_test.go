@@ -50,3 +50,12 @@ func TestYcrdtWatchdogRunsWhileAWorkerDoes(t *testing.T) {
 		t.Fatalf("after Stop: holders=%d running=%v, want %d and running=%v", holders, running, before, before > 0)
 	}
 }
+
+// ycrdtWatchdogState reports how many holders the watchdog has and whether it
+// is running.
+func ycrdtWatchdogState() (holders int, running bool) {
+	g := &ycrdtWatchdog
+	g.lock <- struct{}{}
+	defer func() { <-g.lock }()
+	return g.holders, g.stop != nil
+}

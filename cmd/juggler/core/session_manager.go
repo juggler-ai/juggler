@@ -78,23 +78,6 @@ type sessionState struct {
 // sessionTask is the unit of work the actor goroutine runs.
 type sessionTask func(*sessionState)
 
-// SessionManagerConfig configures the session manager.
-type SessionManagerConfig struct {
-	Store       *FileSessionStore
-	ProjectPath string
-}
-
-// NewSessionManager creates a new session manager.
-func NewSessionManager(cfg SessionManagerConfig) (*SessionManager, error) {
-	if cfg.Store == nil {
-		return nil, fmt.Errorf("store is required")
-	}
-	if cfg.ProjectPath == "" {
-		return nil, fmt.Errorf("project path is required")
-	}
-	return startManager(cfg.Store, cfg.ProjectPath, ""), nil
-}
-
 // NewSessionManagerForPath constructs a SessionManager for the given project
 // path, or an ephemeral one (backed by a temp directory) if the path is empty.
 // The ephemeral mode supports "no project loaded" startup without forcing the

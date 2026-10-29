@@ -26,7 +26,8 @@ import {
   createTestSession,
   createTestConversation,
   assert,
-  waitFor
+  waitFor,
+  withTimeout
 } from '../utilities/test-helpers.js';
 import actionExecutor from '../../js/services/action-executor.js';
 import { claimRunning } from '../../js/model/conversation-tool-actions.js';
@@ -101,10 +102,7 @@ function opRequestToolId(opts) {
  * @returns {Promise<void>} Resolves once the op is in flight.
  */
 function awaitOpStarted(started, what = 'op fetch never started') {
-  return Promise.race([
-    started,
-    new Promise((_r, rej) => setTimeout(() => rej(new Error(what)), 4000))
-  ]).then(() => undefined);
+  return withTimeout(started, 4000, what);
 }
 
 /**
@@ -280,10 +278,8 @@ export async function runTests(_ctx) {
       const found = actionExecutor.cancelByToolUseId(toolUseId, conversation.id);
       assert(found === 'hit', 'cancelByToolUseId should find and abort the running batch action');
 
-      const result = await Promise.race([
-        execPromise,
-        new Promise((_r, rej) => setTimeout(() => rej(new Error('cancelled batch never settled — abort did not unwind the inner ops')), 4000))
-      ]);
+      const result = await withTimeout(execPromise, 4000,
+        'cancelled batch never settled — abort did not unwind the inner ops');
       assert(result.cancelled === true, `expected cancelled batch result, got ${JSON.stringify({ cancelled: result.cancelled, success: result.success, error: result.error })}`);
       assert(result.success === false, 'cancelled batch must report success:false');
       assert(!actionExecutor.hasRunningActions(), 'running actions should be cleared after batch cancellation');
@@ -330,10 +326,8 @@ export async function runTests(_ctx) {
       const found = actionExecutor.cancelByToolUseId(toolUseId, conversation.id);
       assert(found === 'hit', 'cancelByToolUseId should find and abort the running action');
 
-      const result = await Promise.race([
-        execPromise,
-        new Promise((_r, rej) => setTimeout(() => rej(new Error('executor did not settle a non-cooperative tool on abort — wedge persists')), 4000))
-      ]);
+      const result = await withTimeout(execPromise, 4000,
+        'executor did not settle a non-cooperative tool on abort — wedge persists');
       assert(result.cancelled === true, `expected cancelled result from backstop, got ${JSON.stringify({ cancelled: result.cancelled, success: result.success, error: result.error })}`);
       assert(result.success === false, 'cancelled action must report success:false');
       assert(!actionExecutor.hasRunningActions(), 'running actions should be cleared even when the op ignores the signal');
@@ -391,10 +385,7 @@ export async function runTests(_ctx) {
 
       controller.abort();
 
-      const result = await Promise.race([
-        resultPromise,
-        new Promise((_r, rej) => setTimeout(() => rej(new Error('aborted shell stream never settled')), 4000))
-      ]);
+      const result = await withTimeout(resultPromise, 4000, 'aborted shell stream never settled');
       assert(result.cancelled === true, `expected cancelled shell result, got ${JSON.stringify({ cancelled: result.cancelled, success: result.success, error: result.error })}`);
       assert(cancelledShellId !== null, 'abort must send shell-cancel to the server — a local-only cancel orphans the server-side process');
       assert(cancelledShellId === startedShellId, `shell-cancel must target the started shell (started ${startedShellId}, cancelled ${cancelledShellId})`);

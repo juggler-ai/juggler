@@ -146,14 +146,15 @@ func TestResolveModelCapabilitiesHonoursUserLimitOverrides(t *testing.T) {
 		ModelContextWindows: map[string]int{"catalogued": 128000},
 	}, func(provider.Config) (provider.Provider, error) { return nil, nil })
 
-	if err := core.SaveGlobalSettings(&core.GlobalSettings{Models: core.ModelSettings{
-		Limits: map[string]map[string]core.ModelLimits{providerName: {
+	if _, err := core.UpdateGlobalSettings(func(gs *core.GlobalSettings) bool {
+		gs.Models.Limits = map[string]map[string]core.ModelLimits{providerName: {
 			"catalogued":   {ContextWindow: 1000000, MaxOutputTokens: 64000},
 			"listed":       {ContextWindow: 200000},
 			"never-listed": {ContextWindow: 512000},
-		}},
-	}}); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
+		}}
+		return true
+	}); err != nil {
+		t.Fatalf("UpdateGlobalSettings: %v", err)
 	}
 
 	s := &Server{settings: newSettingsStore()}
@@ -213,12 +214,13 @@ func TestWindowResolverReportsAssumedWindow(t *testing.T) {
 	provider.RegisterProvider(provider.ProviderInfo{Name: providerName},
 		func(provider.Config) (provider.Provider, error) { return nil, nil })
 
-	if err := core.SaveGlobalSettings(&core.GlobalSettings{Models: core.ModelSettings{
-		Limits: map[string]map[string]core.ModelLimits{providerName: {
+	if _, err := core.UpdateGlobalSettings(func(gs *core.GlobalSettings) bool {
+		gs.Models.Limits = map[string]map[string]core.ModelLimits{providerName: {
 			"corrected": {ContextWindow: 256000},
-		}},
-	}}); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
+		}}
+		return true
+	}); err != nil {
+		t.Fatalf("UpdateGlobalSettings: %v", err)
 	}
 	s := &Server{settings: newSettingsStore()}
 	providers := []ProviderStatus{{
@@ -254,12 +256,13 @@ func TestWindowResolverReportsDerivedReserve(t *testing.T) {
 	provider.RegisterProvider(provider.ProviderInfo{Name: providerName},
 		func(provider.Config) (provider.Provider, error) { return nil, nil })
 
-	if err := core.SaveGlobalSettings(&core.GlobalSettings{Models: core.ModelSettings{
-		Limits: map[string]map[string]core.ModelLimits{providerName: {
+	if _, err := core.UpdateGlobalSettings(func(gs *core.GlobalSettings) bool {
+		gs.Models.Limits = map[string]map[string]core.ModelLimits{providerName: {
 			"user-set": {MaxOutputTokens: 50000},
-		}},
-	}}); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
+		}}
+		return true
+	}); err != nil {
+		t.Fatalf("UpdateGlobalSettings: %v", err)
 	}
 	s := &Server{settings: newSettingsStore()}
 	published := []ModelWithContext{
@@ -310,12 +313,13 @@ func TestWindowResolverReportsHowFarMaxOutputCanRise(t *testing.T) {
 	provider.RegisterProvider(provider.ProviderInfo{Name: fixed, FixedOutputCap: true},
 		func(provider.Config) (provider.Provider, error) { return nil, nil })
 
-	if err := core.SaveGlobalSettings(&core.GlobalSettings{Models: core.ModelSettings{
-		Limits: map[string]map[string]core.ModelLimits{raisable: {
+	if _, err := core.UpdateGlobalSettings(func(gs *core.GlobalSettings) bool {
+		gs.Models.Limits = map[string]map[string]core.ModelLimits{raisable: {
 			"lowered": {MaxOutputTokens: 8000},
-		}},
-	}}); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
+		}}
+		return true
+	}); err != nil {
+		t.Fatalf("UpdateGlobalSettings: %v", err)
 	}
 	s := &Server{settings: newSettingsStore()}
 	settings := s.settings.get()

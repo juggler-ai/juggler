@@ -53,6 +53,21 @@
     /* Tab "awaiting your input" pulse. */
     --tab-awaiting: #705c1c;
 
+    /* Find-in-conversation: every match, as a translucent tint over the
+       message surface (the current match wears --notice-bg/--notice-text). */
+    --find-match-bg: rgb(255 213 0 / 32%);
+
+    /* A small control that raises an alarm on a solid fill — the composer's
+       context-cache warning — and the glyph on it. */
+    --warning-fill: var(--accent-yellow);
+    --warning-fill-text: var(--text-on-accent);
+
+    /* What marks a field or parameter as required. */
+    --required-text: #f0883e;
+
+    /* The knob of a toggle switch, on either state of its track. */
+    --toggle-knob-bg: #fff;
+
     /* A workspace's box in the tab strip — a tray with tabs lying in it.
        Its own pair rather than a borrowed rung of the background ramp, because
        the ramp cannot do what this needs in dark mode: --bg-secondary sits five

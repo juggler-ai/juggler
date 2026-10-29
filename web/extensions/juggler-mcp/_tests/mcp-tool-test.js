@@ -78,7 +78,7 @@ export async function runTests(_ctx) {
 
   /**
    * @param {boolean} ro - Read-only flag
-   * @returns {import('../../extensions/juggler-mcp/context-items/mcp-tool-context-item.js').McpToolInfo} A discovered-tool fixture
+   * @returns {import('../context-items/mcp-tool-context-item.js').McpToolInfo} A discovered-tool fixture
    */
   const tool = (ro) => ({
     server: 'github', name: 'create_issue', title: 'Create Issue',

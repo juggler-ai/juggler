@@ -201,6 +201,11 @@ Key invariants:
 - **CSS has a contract: `web/css/README.md`.** Layers, which file owns a rule,
   token rules, and what an extension may style. Read it before adding CSS —
   `make lint` enforces most of it.
+- **The view is `web/js/components/`, plus `web/js/app.js`, which assembles
+  it. Nothing else in `web/js/` imports a component** (lint enforces it). Code
+  below the view asks for UI through a port (`services/ui-port.js`,
+  `services/settings-launcher.js`) or a method on the element it was handed.
+  `web/js/lib/` is a pure leaf, shared with the diff worker.
 - **Every UI preference goes through `web/js/services/prefs.js`** — never
   localStorage directly (lint enforces it). A setting the server itself reads
   (proxy, update mode) is a `settings.json` field instead. Pick the realm by who
@@ -208,7 +213,6 @@ Key invariants:
   wrong choice means one client changes it for others:
   | Realm | Shared by | For |
   |---|---|---|
-  | `Tab` | one browser tab | transient per-tab state |
   | `Device` | one origin (one port) | per-device view state (scroll positions) |
   | `Window` | one desktop window of a project | geometry: column widths, panels |
   | `Project` | every window of a project | what a project's windows agree on |

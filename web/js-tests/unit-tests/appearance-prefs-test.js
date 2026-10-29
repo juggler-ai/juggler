@@ -17,7 +17,7 @@
  * @module unit-tests/appearance-prefs-test
  */
 
-import { waitFor } from '../utilities/test-helpers.js';
+import { waitFor, nextTask } from '../utilities/test-helpers.js';
 import { budgetFor } from '../utilities/test-deadline.js';
 
 /**
@@ -129,12 +129,6 @@ export async function runTests(_ctx) {
     description,
   });
 
-  /**
-   * Give anything a call started synchronously the chance to reach fetch.
-   * @returns {Promise<void>}
-   */
-  const settle = () => new Promise((resolve) => { setTimeout(resolve, 0); });
-
   try {
     window.fetch = stubFetch;
 
@@ -151,7 +145,7 @@ export async function runTests(_ctx) {
     await run('a window on another machine keeps its theme to itself', async () => {
       as('remote-window');
       setMode(MODES.LIGHT);
-      await settle();
+      await nextTask();
       eq(puts().length, 0, 'writes sent to the host');
       eq(localStorage.getItem(`${THEME}@viewer`), '"light"', 'this device\u2019s own copy');
       eq(getMode(), MODES.LIGHT, 'the mode in use');
@@ -169,7 +163,7 @@ export async function runTests(_ctx) {
       as('remote-window');
       const before = getCurrentZoom();
       zoomIn();
-      await settle();
+      await nextTask();
       eq(puts().length, 0, 'writes sent to the host');
       eq(localStorage.getItem(`${ZOOM}@viewer`), String(before + 10), 'this device\u2019s own copy');
     });

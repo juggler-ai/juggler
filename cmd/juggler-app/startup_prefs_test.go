@@ -45,24 +45,26 @@ func TestStartupPrefsSayNothingWhenNothingIsKnown(t *testing.T) {
 }
 
 // The app names a window's role from the options it opened it with; the server
-// names the same window from the URL it is serving (core.WindowRoleForView).
-// Disagree and a board writes its geometry and preferences into one slot and
-// reads them back from another.
+// keeps that window's geometry and preferences in the slot core names for it
+// (core.WindowRoleMain, core.WindowRolePinboard, core.WindowRolePinboardFor),
+// and prunes a binned board's slot by that name. Disagree and a board writes into
+// one slot and reads back from another.
 func TestRolesAgreeWithTheServers(t *testing.T) {
-	cases := []windowOpts{
-		{},
-		{view: viewPinboard, board: "board_one"},
-		{view: viewPinboard, board: core.MainBoardID},
-		{view: viewPinboard},
-		{view: "something-else", board: "board_one"},
+	cases := []struct {
+		opts windowOpts
+		want string
+	}{
+		{windowOpts{}, core.WindowRoleMain},
+		{windowOpts{view: viewPinboard, board: "board_one"}, core.WindowRolePinboardFor("board_one")},
+		{windowOpts{view: viewPinboard, board: core.MainBoardID}, core.WindowRolePinboardFor(core.MainBoardID)},
+		{windowOpts{view: viewPinboard}, core.WindowRolePinboard},
+		{windowOpts{view: "something-else", board: "board_one"}, core.WindowRoleMain},
 	}
-	for _, opts := range cases {
+	for _, c := range cases {
 		// windowOptsFromQuery is what a real window's options come through, so the
 		// board id is already normalised by the time role() sees it.
-		got := opts.role()
-		want := core.WindowRoleForView(opts.view, opts.board)
-		if got != want {
-			t.Errorf("view=%q board=%q: app says %q, server says %q", opts.view, opts.board, got, want)
+		if got := c.opts.role(); got != c.want {
+			t.Errorf("view=%q board=%q: app says %q, server says %q", c.opts.view, c.opts.board, got, c.want)
 		}
 	}
 }

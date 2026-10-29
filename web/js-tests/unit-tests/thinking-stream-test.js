@@ -23,9 +23,10 @@
  *     verbatim instead, and the choice is re-made as the block grows.
  *
  * The viewer schedules the re-render on requestAnimationFrame; the test-pool
- * window is hidden, where rAF is throttled and never fires. We shim it to a
- * macrotask for the duration of the test so the coalesced flush runs
- * deterministically (production keeps the real rAF).
+ * window is hidden, where rAF is throttled and never fires. We shim it for the
+ * duration of the test with a frame the test runs itself, so the coalesced
+ * flush happens exactly where the test says the frame is (production keeps the
+ * real rAF).
  * @module unit-tests/thinking-stream-test
  */
 
@@ -63,24 +64,37 @@ export async function runTests(_ctx) {
     }
   };
 
-  // Shim requestAnimationFrame → macrotask so the renderer's coalesced flush
-  // fires in the hidden test window. The renderer reads the bare global, so
-  // reassigning the window property redirects it.
+  // Shim requestAnimationFrame so the renderer's coalesced flush runs in the
+  // hidden test window. The renderer reads the bare global, so reassigning the
+  // window property redirects it. A requested frame runs when the test calls
+  // flushFrame(), as a paint would; anything else on the page that asks for one
+  // in the meantime still gets it, on the next macrotask.
   const realRaf = window.requestAnimationFrame;
   const realCaf = window.cancelAnimationFrame;
-  /** @type {Map<number, ReturnType<typeof setTimeout>>} */
+  /** @type {Map<number, {cb: FrameRequestCallback, timer: ReturnType<typeof setTimeout>}>} */
   const pendingFrames = new Map();
   let nextFrameId = 1;
+  /** @param {number} id */
+  const runFrame = (id) => {
+    const frame = pendingFrames.get(id);
+    if (!frame) return;
+    clearTimeout(frame.timer);
+    pendingFrames.delete(id);
+    frame.cb(performance.now());
+  };
   window.requestAnimationFrame = (/** @type {FrameRequestCallback} */ cb) => {
     const id = nextFrameId++;
-    pendingFrames.set(id, setTimeout(() => { pendingFrames.delete(id); cb(Date.now()); }, 0));
+    pendingFrames.set(id, { cb, timer: setTimeout(() => runFrame(id), 0) });
     return id;
   };
   window.cancelAnimationFrame = (/** @type {number} */ id) => {
-    const t = pendingFrames.get(id);
-    if (t) { clearTimeout(t); pendingFrames.delete(id); }
+    const frame = pendingFrames.get(id);
+    if (frame) { clearTimeout(frame.timer); pendingFrames.delete(id); }
   };
-  const flushFrame = () => new Promise((resolve) => setTimeout(resolve, 10));
+  /** Run the frame: every callback requested before it, in order. */
+  const flushFrame = () => {
+    for (const id of [...pendingFrames.keys()]) runFrame(id);
+  };
 
   // Minimal PanelHost: a thinking render only needs a scrollable section
   // wrapper, a controls element, and a slot to receive the live-updater.
@@ -149,7 +163,7 @@ export async function runTests(_ctx) {
         assert(!md.textContent.includes('OMEGA'), 'updates are deferred, not rendered per-call');
         assert(md.textContent.includes('ALPHA'), 'old content still shown before the frame');
 
-        await flushFrame();
+        flushFrame();
         assert(md.textContent.includes('OMEGA-FINAL'), 'after the frame, the latest content is rendered');
         assert(!md.textContent.includes('ALPHA'), 'old content was replaced');
       } finally { container.remove(); }
@@ -167,7 +181,7 @@ export async function runTests(_ctx) {
 
         msg.setContent(longText('THINK', 80));
         /** @type {any} */ (host._liveUpdater)();
-        await flushFrame();
+        flushFrame();
 
         assert(section.scrollHeight > section.clientHeight, 'content overflows the section');
         const dist = section.scrollHeight - section.clientHeight - section.scrollTop;
@@ -187,7 +201,7 @@ export async function runTests(_ctx) {
 
         msg.setContent(longText('A', 80));
         /** @type {any} */ (host._liveUpdater)();
-        await flushFrame();
+        flushFrame();
 
         // User scrolls up to read back → following disengages.
         section.scrollTop = 0;
@@ -195,7 +209,7 @@ export async function runTests(_ctx) {
 
         msg.setContent(longText('B', 160));
         /** @type {any} */ (host._liveUpdater)();
-        await flushFrame();
+        flushFrame();
         assert(section.scrollTop <= 4, `must not yank the user back to the bottom (scrollTop=${section.scrollTop})`);
 
         // User returns to the bottom → following resumes.
@@ -204,7 +218,7 @@ export async function runTests(_ctx) {
 
         msg.setContent(longText('C', 240));
         /** @type {any} */ (host._liveUpdater)();
-        await flushFrame();
+        flushFrame();
         const dist = section.scrollHeight - section.clientHeight - section.scrollTop;
         assert(dist <= 2, `expected re-pinned to bottom, was ${dist}px from bottom`);
       } finally { container.remove(); }
@@ -240,7 +254,7 @@ export async function runTests(_ctx) {
         // The reasoning summary's first bold title arrives.
         msg.setContent('Considering the two options.\n\n**Checking the flag**\n\nIt is set.');
         /** @type {any} */ (host._liveUpdater)();
-        await flushFrame();
+        flushFrame();
 
         const body = bodyOf(container);
         assert(body.className === 'markdown', `expected a switch to Markdown, was "${body.className}"`);

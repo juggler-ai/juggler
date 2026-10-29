@@ -32,7 +32,6 @@
 'use strict';
 
 const { execFileSync } = require('child_process');
-const fs = require('fs');
 const path = require('path');
 
 const repoRoot = path.resolve(__dirname, '..');
@@ -43,101 +42,127 @@ const PRE_SPLIT_REF = 'fbf9b9b';
 /** The split itself: "Split the CSS into per-layer directories". */
 const SPLIT_REF = '62ac0ac';
 
+/**
+ * A file's contents at a revision, read out of git.
+ * @param {string} ref - The revision to read at.
+ * @param {string} rel - The file's repo-relative path.
+ * @returns {string} The file's text at that revision.
+ */
 function gitShow(ref, rel) {
-	return execFileSync('git', ['show', `${ref}:${rel}`], { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return execFileSync('git', ['show', `${ref}:${rel}`], { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
-/** The css/ sheets an index.html links, in order. */
+/**
+ * The css/ sheets an index.html links, in order.
+ * @param {string} html - The text of an index.html.
+ * @returns {string[]} Each linked sheet's path under css/, in <link> order.
+ */
 function linkedSheets(html) {
-	return [...html.matchAll(/<link[^>]*rel=["']stylesheet["'][^>]*href=["'][^"']*\/css\/([^"']+)["']/g)].map((m) => m[1]);
+  return [...html.matchAll(/<link[^>]*rel=["']stylesheet["'][^>]*href=["'][^"']*\/css\/([^"']+)["']/g)].map((m) => m[1]);
 }
 
 /**
  * A file's text with its banner removed: the leading comment block, and the
  * blank line separating it from the first rule. Files without one are returned
  * unchanged.
+ * @param {string} text - A sheet's text.
+ * @returns {string} The text after the banner and the blank line that follows it.
  */
 function stripBanner(text) {
-	if (!text.startsWith('/*')) return text;
-	const end = text.indexOf('*/');
-	if (end < 0) return text;
-	let i = end + 2;
-	if (text[i] === '\n') i++;
-	if (text[i] === '\n') i++;
-	return text.slice(i);
+  if (!text.startsWith('/*')) return text;
+  const end = text.indexOf('*/');
+  if (end < 0) return text;
+  let i = end + 2;
+  if (text[i] === '\n') i++;
+  if (text[i] === '\n') i++;
+  return text.slice(i);
 }
 
-/** Where two strings first differ, as a line number and the two lines. */
+/**
+ * Where two strings first differ, as a line number and the two lines.
+ * @param {string} a - The text before the split.
+ * @param {string} b - The text after it.
+ * @returns {{line: number, old: string, now: string}|null} The 1-based line of the first difference with each side's line there, or null when the two are equal.
+ */
 function firstDifference(a, b) {
-	const as = a.split('\n');
-	const bs = b.split('\n');
-	for (let i = 0; i < Math.max(as.length, bs.length); i++) {
-		if (as[i] !== bs[i]) {
-			return {
-				line: i + 1,
-				old: as[i] === undefined ? '(end of file)' : as[i],
-				now: bs[i] === undefined ? '(end of file)' : bs[i],
-			};
-		}
-	}
-	return null;
+  const as = a.split('\n');
+  const bs = b.split('\n');
+  for (let i = 0; i < Math.max(as.length, bs.length); i++) {
+    if (as[i] !== bs[i]) {
+      return {
+        line: i + 1,
+        old: as[i] === undefined ? '(end of file)' : as[i],
+        now: bs[i] === undefined ? '(end of file)' : bs[i],
+      };
+    }
+  }
+  return null;
 }
 
-/** Which new sheet a line of the concatenation came from. */
+/**
+ * Which new sheet a line of the concatenation came from.
+ * @param {{file: string, text: string}[]} sheets - The new sheets, banners stripped, in the order they were concatenated.
+ * @param {number} line - A 1-based line of the concatenation.
+ * @returns {string} `<sheet>:<line>` in that sheet, or "(past the end)".
+ */
 function locate(sheets, line) {
-	let at = 1;
-	for (const sheet of sheets) {
-		const length = sheet.text.split('\n').length - 1;
-		if (line < at + length) return `${sheet.file}:${line - at + 1}`;
-		at += length;
-	}
-	return '(past the end)';
+  let at = 1;
+  for (const sheet of sheets) {
+    const length = sheet.text.split('\n').length - 1;
+    if (line < at + length) return `${sheet.file}:${line - at + 1}`;
+    at += length;
+  }
+  return '(past the end)';
 }
 
+/**
+ * Compare the two revisions' concatenated sheets and exit non-zero, naming the
+ * first differing line, when they differ.
+ */
 function main() {
-	const beforeRef = process.argv[2] || PRE_SPLIT_REF;
-	const afterRef = process.argv[3] || SPLIT_REF;
+  const beforeRef = process.argv[2] || PRE_SPLIT_REF;
+  const afterRef = process.argv[3] || SPLIT_REF;
 
-	let oldFiles;
-	try {
-		oldFiles = linkedSheets(gitShow(beforeRef, 'web/index.html'));
-	} catch (err) {
-		console.error(`✗ cannot read web/index.html at ${beforeRef} — ${err.message.trim()}`);
-		process.exit(1);
-	}
-	if (!oldFiles.length) {
-		console.error(`✗ web/index.html at ${beforeRef} links no stylesheets`);
-		process.exit(1);
-	}
+  let oldFiles;
+  try {
+    oldFiles = linkedSheets(gitShow(beforeRef, 'web/index.html'));
+  } catch (err) {
+    console.error(`✗ cannot read web/index.html at ${beforeRef} — ${err.message.trim()}`);
+    process.exit(1);
+  }
+  if (!oldFiles.length) {
+    console.error(`✗ web/index.html at ${beforeRef} links no stylesheets`);
+    process.exit(1);
+  }
 
-	let newSheets;
-	try {
-		const manifest = JSON.parse(gitShow(afterRef, 'web/css/manifest.json'));
-		newSheets = manifest.sheets.map((s) => ({
-			file: s.file,
-			text: stripBanner(gitShow(afterRef, `web/css/${s.file}`)),
-		}));
-	} catch (err) {
-		console.error(`✗ cannot read the sheets at ${afterRef} — ${err.message.trim()}`);
-		process.exit(1);
-	}
+  let newSheets;
+  try {
+    const manifest = JSON.parse(gitShow(afterRef, 'web/css/manifest.json'));
+    newSheets = manifest.sheets.map((s) => ({
+      file: s.file,
+      text: stripBanner(gitShow(afterRef, `web/css/${s.file}`)),
+    }));
+  } catch (err) {
+    console.error(`✗ cannot read the sheets at ${afterRef} — ${err.message.trim()}`);
+    process.exit(1);
+  }
 
-	const before = oldFiles.map((f) => stripBanner(gitShow(beforeRef, `web/css/${f}`))).join('');
-	const after = newSheets.map((s) => s.text).join('');
+  const before = oldFiles.map((f) => stripBanner(gitShow(beforeRef, `web/css/${f}`))).join('');
+  const after = newSheets.map((s) => s.text).join('');
 
-	if (before === after) {
-		console.log(`✓ css split is a no-op (${newSheets.length} sheets at ${afterRef} reproduce ${oldFiles.length} from ${beforeRef}, ${before.length} bytes)`);
-		return;
-	}
+  if (before === after) {
+    console.log(`✓ css split is a no-op (${newSheets.length} sheets at ${afterRef} reproduce ${oldFiles.length} from ${beforeRef}, ${before.length} bytes)`);
+    return;
+  }
 
-	const diff = firstDifference(before, after);
-	console.error(`✗ the css split changed the stylesheet: ${before.length} bytes at ${beforeRef}, ${after.length} at ${afterRef}`);
-	if (diff) {
-		console.error(`\n  first difference at concatenated line ${diff.line} — ${locate(newSheets, diff.line)}`);
-		console.error(`    ${beforeRef}: ${diff.old}`);
-		console.error(`    ${afterRef}: ${diff.now}`);
-	}
-	process.exit(1);
+  const diff = firstDifference(before, after);
+  console.error(`✗ the css split changed the stylesheet: ${before.length} bytes at ${beforeRef}, ${after.length} at ${afterRef}`);
+  if (diff) {
+    console.error(`\n  first difference at concatenated line ${diff.line} — ${locate(newSheets, diff.line)}`);
+    console.error(`    ${beforeRef}: ${diff.old}`);
+    console.error(`    ${afterRef}: ${diff.now}`);
+  }
+  process.exit(1);
 }
 
 main();

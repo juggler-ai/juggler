@@ -49,7 +49,7 @@ const NEEDS_A_PERSON = new Set(['plan', 'define_command', 'new_conversation', 'p
  * @param {Record<string, any>} def - A tool definition
  * @returns {boolean} True for a tool an unattended conversation is not offered
  */
-export function needsAPerson(def) {
+function needsAPerson(def) {
   const name = String(def?.name || '');
   if (NEEDS_A_PERSON.has(name)) return true;
   const ItemClass = /** @type {any} */ (contextItemRegistry.getByToolName(name));

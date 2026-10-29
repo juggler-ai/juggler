@@ -23,29 +23,14 @@ import { revealPath } from '../services/ops-api.js';
 import { showNotice } from './modal-dialog.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { t } from '../../sdk/lib/i18n.js';
+import { revealLabel } from '../utils/reveal-label.js';
 
 const REVEAL_ICON_HTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true">
     <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H600v-80h160v-480H200v480h160v80H200Zm240 0v-246l-64 64-56-58 160-160 160 160-56 58-64-64v246h-80Z"/>
 </svg>`;
 
-/**
- * Platform-appropriate label for the "reveal in file manager" action. Prefers
- * the window's declared platform (set by the desktop app) and falls back to UA
- * sniffing for plain browser tabs.
- * @returns {string} e.g. "Reveal in Finder" / "Reveal in Explorer".
- */
-export function revealLabel() {
-  const platform = document.documentElement.dataset.windowPlatform;
-  if (platform === 'windows') return t('Reveal in Explorer');
-  if (platform === 'mac') return t('Reveal in Finder');
-  const ua = navigator.userAgent || '';
-  if (/Windows/.test(ua)) return t('Reveal in Explorer');
-  if (/Macintosh|Mac OS X/.test(ua)) return t('Reveal in Finder');
-  // Finder and Explorer are named because the platform names them. Everywhere
-  // else there is no one answer — the file manager is whichever one the desktop
-  // registered — so the label says the job rather than inventing a name.
-  return t('Show in file manager');
-}
+// The SDK's `juggler/ui` serves the label from here, beside the button.
+export { revealLabel };
 
 class RevealButton extends JugglerElement {
   constructor() {
@@ -117,5 +102,3 @@ class RevealButton extends JugglerElement {
 }
 
 customElements.define('reveal-button', RevealButton);
-
-export default RevealButton;

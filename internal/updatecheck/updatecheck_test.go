@@ -36,6 +36,23 @@ func TestCompareSemver(t *testing.T) {
 	}
 }
 
+func TestIsUnpublishedBuild(t *testing.T) {
+	unpublished := []string{"dev", "v0.6.1-dev", "0.6.1-dev", "v1.0.0-dev", "v0.6.1-test", " dev "}
+	// A prerelease is a real release: it is published, and it is offered an
+	// upgrade like any other.
+	published := []string{"v0.6.1", "0.6.1", "v0.7.0-beta.1", "v0.7.0-rc.1", "development"}
+	for _, v := range unpublished {
+		if !IsUnpublishedBuild(v) {
+			t.Errorf("IsUnpublishedBuild(%q) = false, want true", v)
+		}
+	}
+	for _, v := range published {
+		if IsUnpublishedBuild(v) {
+			t.Errorf("IsUnpublishedBuild(%q) = true, want false", v)
+		}
+	}
+}
+
 func TestComputeStatus(t *testing.T) {
 	notice := &Notice{ID: "upgrade-0.1.0", Severity: "recommended", Title: "Update"}
 	m := &Manifest{Schema: Schema, SchemaVersion: 1, Latest: "v0.1.0", Notice: notice}

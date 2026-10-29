@@ -311,5 +311,3 @@ class UpdateButton extends JugglerElement {
 }
 
 customElements.define('update-button', UpdateButton);
-
-export default UpdateButton;

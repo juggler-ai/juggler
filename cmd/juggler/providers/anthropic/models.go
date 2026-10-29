@@ -62,7 +62,7 @@ func GetContextWindow(model string) int {
 // without being added to a list.
 //
 // The lineup starts at 4.6, which is where the 1M window arrived: 4.5 and below
-// are 200k, and the family ladder in catalogMaxOutputTokens still answers for
+// are 200k, and the family ladder in CatalogMaxOutputTokens still answers for
 // them. Matching on the generation rather than on exact ids covers both the
 // dateless pinned ids used from 4.6 on and any dated variant.
 //
@@ -86,18 +86,6 @@ func currentLineupLimits(m string) (contextWindow, maxOutput int, ok bool) {
 	return 0, 0, false
 }
 
-// CatalogKnows reports whether the offline catalogue recognises model — by
-// exact id, or by the generation rules catalogMaxOutputTokens applies — rather
-// than answering it with defaults. The models.dev drift audit asks it to tell
-// a model the rules already cover from one they have never heard of.
-func CatalogKnows(model string) bool {
-	if _, ok := ModelContextWindows[model]; ok {
-		return true
-	}
-	_, ok := catalogMaxOutputTokens(model)
-	return ok
-}
-
 // GetMaxOutputTokens returns the maximum number of output tokens a model can
 // emit in a single response — the value to send as the request's max_tokens.
 // Anthropic rejects max_tokens above a model's ceiling (a hard 400) and silently
@@ -119,20 +107,22 @@ func CatalogKnows(model string) bool {
 // the Models API returns, so this ladder is consulted for a failed model fetch,
 // a lapsed key, or an id typed by hand.
 func GetMaxOutputTokens(model string) int {
-	if value, known := catalogMaxOutputTokens(model); known {
+	if value, known := CatalogMaxOutputTokens(model); known {
 		return value
 	}
 	return defaultMaxOutputTokens
 }
 
-// catalogMaxOutputTokens returns the per-model output ceiling and true when the
+// CatalogMaxOutputTokens returns the per-model output ceiling and true when the
 // static catalog recognises the model's generation, or (0, false) for ids it
 // does not know (live-list-only or future models). It exists so callers can
 // distinguish a genuinely-known 8192 ceiling (Claude 3.5) from an unknown id
 // that merely defaults to 8192 — GetMaxOutputTokens collapses both, but the
 // wire clamp in buildMessageParams must only override the capability snapshot
-// when the catalog actually knows the model.
-func catalogMaxOutputTokens(model string) (int, bool) {
+// when the catalog actually knows the model, and the models.dev drift audit
+// asks it to tell a model the generation rules cover from one they have never
+// heard of.
+func CatalogMaxOutputTokens(model string) (int, bool) {
 	m := strings.ToLower(model)
 
 	// Generation 5 shares one ceiling across every family, so it is checked

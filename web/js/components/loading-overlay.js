@@ -47,7 +47,7 @@ const MAX_TICK_MS = 2000;
  * side to be wrong on.
  * @returns {boolean} True when nothing on this page is being read.
  */
-export function pageHidden() {
+function pageHidden() {
   return document.documentElement.hasAttribute('data-doc-hidden') || document.hidden;
 }
 

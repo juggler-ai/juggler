@@ -21,7 +21,7 @@ import pinboardItemRegistry from '../../../js/registries/pinboard-item-registry.
 import pinboardStore from '../../../js/services/pinboard-store.js';
 import pinboardView from '../../../js/services/pinboard-view.js';
 import { findNearestContextItem } from '../../../js/services/nearest-context-item.js';
-import { assert, waitFor } from '../../../js-tests/utilities/test-helpers.js';
+import { assert, waitFor, nextTask } from '../../../js-tests/utilities/test-helpers.js';
 import { underPseudoLocale, shownStrings } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 
@@ -192,8 +192,6 @@ export async function runTests(_ctx) {
     owed.push(() => pinboardItemRegistry.reset());
   }
 
-  const settle = () => new Promise((resolve) => { setTimeout(resolve, 0); });
-
   // --- when it is there -----------------------------------------------------
 
   await test('with no conversation, or one with no lists, the card has nothing to show', () => {
@@ -290,18 +288,39 @@ export async function runTests(_ctx) {
     const stop = card.watchContent(session, () => { told++; });
     owed.push(stop);
 
-    const outlast = () => new Promise((resolve) => { setTimeout(resolve, FOLLOW_MS * 3); });
+    /**
+     * Wait past every gathered re-read already armed. A change is re-read on a
+     * FOLLOW_MS timer, and timers of equal delay fire in the order they were
+     * armed, so a second watch whose own gathered re-read is armed now — and
+     * reported, by flipping its card's presence — lands after any re-read the
+     * watch under test has pending. That is the later event that would have
+     * carried a re-read this case says must tell the rail nothing.
+     * @returns {Promise<void>} Resolves once the second watch has been told.
+     */
+    const pastGatheredRereads = async () => {
+      const later = fakeSession([{ type: 'todo', data: todos(['pending']) }]);
+      let laterTold = 0;
+      const stopLater = card.watchContent(later, () => { laterTold++; });
+      try {
+        later.items[0].data = todos(['completed']);
+        later.emit('conversation:changed', { conversationId: 'c1' });
+        await waitFor(() => laterTold === 1,
+          { timeoutMs: FOLLOW_MS * 20, description: 'a watch armed afterwards to re-read its change' });
+      } finally {
+        stopLater();
+      }
+    };
 
     // Progress, not presence: the rail is not bothered.
     session.items[0].data = todos(['completed', 'pending']);
     session.emit('conversation:changed', { conversationId: 'c1' });
-    await outlast();
+    await pastGatheredRereads();
     assert(told === 0, `progress alone is not news to the rail, told ${told} times`);
 
     // Another conversation's change is not this one's.
     session.items[0].data = todos(['completed', 'completed']);
     session.emit('conversation:changed', { conversationId: 'c2' });
-    await outlast();
+    await pastGatheredRereads();
     assert(told === 0, `another conversation's change was taken for this one's, told ${told} times`);
 
     // A switch is answered at once, and the list is now finished.
@@ -331,12 +350,12 @@ export async function runTests(_ctx) {
     assert(planRow?.tagName === 'BUTTON' && todoRow?.tagName === 'BUTTON', 'with the pins enabled, each row is a button');
 
     /** @type {any} */ (todoRow).click();
-    await settle();
+    await nextTask();
     assert(board.length === 1 && board[0].type === 'todo', `the todo row opens the Todo pin, got ${JSON.stringify(board)}`);
     assert(pinboardView.isOpen() && pinboardView.getActivePinId() === board[0].id, 'and shows it');
 
     /** @type {any} */ (planRow).click();
-    await settle();
+    await nextTask();
     assert(board.length === 2 && board[1].type === 'plan', `the plan row opens the Plan pin, got ${JSON.stringify(board)}`);
     assert(pinboardView.getActivePinId() === board[1].id, 'and shows it');
   });

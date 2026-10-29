@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/gitview"
+	"juggler/cmd/juggler/gitview/gitviewtest"
 	"juggler/cmd/juggler/workspace"
 )
 
@@ -32,7 +33,7 @@ type gitProject struct {
 
 // newGitProject creates a project whose root is itself a repository, with git
 // reading no configuration but its own and every git clock lent enough time
-// that none of them is what a test measures (see gitview.LendClocks).
+// that none of them is what a test measures (see gitviewtest.LendClocks).
 func newGitProject(t *testing.T) *gitProject {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -41,7 +42,7 @@ func newGitProject(t *testing.T) *gitProject {
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Cleanup(gitview.LendClocks(time.Minute, 5*time.Minute))
+	t.Cleanup(gitviewtest.LendClocks(time.Minute, 5*time.Minute))
 
 	p := &gitProject{t: t, root: t.TempDir()}
 	p.git("init", "-q")

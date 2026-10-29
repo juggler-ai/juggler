@@ -3,22 +3,21 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * Context Builder - Renders context items and prepares messages for LLM
+ * Context Builder - the tests' rendering of the context a turn sends: what
+ * the worker assembles (cmd/juggler/worker/llm_request.go), built on the main
+ * thread so a test can read the messages the next turn would carry.
  *
- * Simplified architecture:
  * - Takes Message[] from messageThread.getMessages()
  * - Renders context items (looks up instance, populates content)
  * - Filters UI-only messages (error, unknown types)
- * - Returns { systemPrompt, messages } for Go providers
- *
- * Go providers handle all API-specific transformation (message merging, SDK conversion).
+ * - Returns { systemPrompt, messages }
  */
 
 import { FormattingHelpers } from '../../sdk/lib/formatting-helpers.js';
-import { assembleSystemPrompt } from './system-prompt-builder.js';
-import { buildExtensionSystemPromptContributions } from './extensions.js';
-import { yGet } from '../model/item-accessor.js';
-import { canonicalThread, itemGoal, itemRunRecord, threadRunRecords } from '../model/thread-alias.js';
+import { assembleSystemPrompt } from '../../js/services/system-prompt-builder.js';
+import { buildExtensionSystemPromptContributions } from '../../js/services/extensions.js';
+import { yGet } from '../../js/model/item-accessor.js';
+import { canonicalThread, itemGoal, itemRunRecord, threadRunRecords } from '../../js/model/thread-alias.js';
 import {
   createSystemReminderMessage,
   MESSAGE_TYPES,
@@ -117,14 +116,14 @@ function threadContextEntries(msg) {
 export class ContextBuilder {
   /**
    * @param {object} options - Configuration options
-   * @param {import('../model/message-thread.js').default} options.messageThread - Message thread for message access
-   * @param {import('../model/session.js').default} options.session - Session instance
+   * @param {import('../../js/model/message-thread.js').default} options.messageThread - Message thread for message access
+   * @param {import('../../js/model/session.js').default} options.session - Session instance
    * @param {number} [options.contextWindow] - Context window size for usage calculation
    */
   constructor({ messageThread, session, contextWindow = 0 }) {
-    /** @type {import('../model/message-thread.js').default} */
+    /** @type {import('../../js/model/message-thread.js').default} */
     this.messageThread = messageThread;
-    /** @type {import('../model/conversation.js').default} */
+    /** @type {import('../../js/model/conversation.js').default} */
     this.conversation = messageThread.conversation;
     this.session = session;
     this.contextWindow = contextWindow;

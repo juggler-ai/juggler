@@ -267,17 +267,17 @@ plugin-catalog {
 }
 
 .plugin-tree-toggle-on {
-  background: rgb(63 185 80 / 15%);
+  background: color-mix(in srgb, var(--accent-green) 15%, transparent);
   color: var(--accent-green);
-  border-color: rgb(63 185 80 / 35%);
+  border-color: color-mix(in srgb, var(--accent-green) 35%, transparent);
 }
 
 .plugin-tree-toggle-on:hover:not(:disabled) {
-  background: rgb(63 185 80 / 25%);
+  background: color-mix(in srgb, var(--accent-green) 25%, transparent);
 }
 
 .plugin-tree-toggle-off {
-  background: rgb(136 136 136 / 18%);
+  background: var(--overlay-light-10);
   color: var(--text-tertiary);
   border-color: var(--border-color);
 }
@@ -288,14 +288,14 @@ plugin-catalog {
 }
 
 .plugin-tree-toggle-failed {
-  background: rgb(248 81 73 / 15%);
+  background: color-mix(in srgb, var(--accent-red) 15%, transparent);
   color: var(--accent-red);
   cursor: default;
 }
 
 /* A row whose id could not be read: neither on nor off is known to be true. */
 .plugin-tree-toggle-unknown {
-  background: rgb(136 136 136 / 12%);
+  background: var(--overlay-light-8);
   color: var(--text-tertiary);
   border-color: var(--border-color);
   font-style: italic;
@@ -535,8 +535,8 @@ plugin-catalog {
   font-weight: 600;
   padding: 0.125rem 0.5rem;
   border-radius: var(--radius-md);
-  background: rgb(240 136 62 / 15%);
-  color: #f0883e;
+  background: color-mix(in srgb, var(--required-text) 15%, transparent);
+  color: var(--required-text);
 }
 
 .tool-param-optional {
@@ -551,20 +551,6 @@ plugin-catalog {
   line-height: 1.6;
   color: var(--text-secondary);
   white-space: pre-line;
-}
-
-.tool-schema {
-  margin: 0;
-  padding: 0.75rem;
-  background: var(--bg-primary);
-  border: 0.0625rem solid var(--border-color);
-  border-radius: var(--radius-lg);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
-  color: var(--text-primary);
-  overflow-x: auto;
-  white-space: pre;
 }
 
 /* ==========================================================================
@@ -649,15 +635,15 @@ plugin-catalog {
 .catalog-failed-banner {
   margin: 0.75rem 1rem;
   padding: 0.75rem 1rem;
-  background: rgb(255 80 80 / 10%);
-  border: 1px solid rgb(255 80 80 / 30%);
+  background: color-mix(in srgb, var(--error-color) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error-color) 30%, transparent);
   border-radius: var(--radius-lg);
   font-size: var(--font-size-base);
 }
 
 .catalog-failed-title {
   font-weight: 600;
-  color: #ff5050;
+  color: var(--error-color);
   margin-bottom: 0.375rem;
 }
 
@@ -667,7 +653,7 @@ plugin-catalog {
   gap: 0.125rem;
   margin-top: 0.375rem;
   padding-top: 0.375rem;
-  border-top: 1px solid rgb(255 80 80 / 15%);
+  border-top: 1px solid color-mix(in srgb, var(--error-color) 15%, transparent);
 }
 
 .catalog-failed-path {
@@ -677,7 +663,7 @@ plugin-catalog {
 
 .catalog-failed-error {
   font-size: var(--font-size-sm);
-  color: #ff5050;
+  color: var(--error-color);
 }
 
 /* Plugin directory paths */
@@ -792,8 +778,8 @@ plugin-catalog {
 .extension-setting-required {
   padding: 0.0625rem 0.375rem;
   border-radius: var(--radius-md);
-  background: rgb(240 136 62 / 15%);
-  color: #f0883e;
+  background: color-mix(in srgb, var(--required-text) 15%, transparent);
+  color: var(--required-text);
   font-size: var(--font-size-2xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -903,7 +889,7 @@ plugin-catalog {
 
 .ext-card-error-msg {
   padding: 0.5rem 0.75rem;
-  background: rgb(248 81 73 / 12%);
+  background: color-mix(in srgb, var(--accent-red) 12%, transparent);
   border-radius: var(--radius-lg);
   font-size: var(--font-size-base);
   color: var(--accent-red);

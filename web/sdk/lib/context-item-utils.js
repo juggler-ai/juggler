@@ -518,7 +518,7 @@ export function createCodeBlock(options) {
     // rendered a window at a time; `destroy` unsubscribes it, for callers that
     // have a teardown seam to hang it on.
     const destroy = renderLineNumberedCode(code, lines, language, lineNumberStart);
-    if (destroy) /** @type {any} */ (codeBlock).destroy = destroy;
+    if (destroy) /** @type {HTMLElement & {destroy?: () => void}} */ (codeBlock).destroy = destroy;
   }
 
   codeBlock.appendChild(codeContent);
@@ -548,12 +548,13 @@ export function createFileContentBlock({ content = '', language = 'text', lineNu
 /**
  * Normalize the file_path → path alias that LLMs sometimes emit.
  * Mutates params in place and returns it for convenience.
- * @param {Record<string, any>} params
- * @returns {Record<string, any>} The same params object with path normalised
+ * @template {Record<string, unknown>} P
+ * @param {P} params
+ * @returns {P} The same params object with path normalised
  */
 export function normalizeFilePath(params) {
   if (params.file_path && !params.path) {
-    params.path = params.file_path;
+    /** @type {Record<string, unknown>} */ (params).path = params.file_path;
   }
   return params;
 }

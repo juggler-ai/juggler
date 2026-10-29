@@ -256,6 +256,22 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 	}
 }
 
+// reaskFields are the fields that make a tool action ask again: back to the
+// unevaluated state, with the approval form (approvalOptions, displayData), the
+// answer given to it and the beforeTool hook record cleared. The engine's
+// empty-state branch then re-runs handleNewToolAction, which derives a fresh
+// form from the immutable toolInput and runs the hooks again. A new map on every
+// call, since the write that receives it owns it.
+func reaskFields() map[string]any {
+	return map[string]any{
+		keyState:            StateUnevaluated,
+		keyApprovalResponse: nil,
+		keyApprovalOptions:  nil,
+		keyDisplayData:      nil,
+		keyHooks:            nil,
+	}
+}
+
 // reevaluatePendingToolsOnStrategyChange resets a thread's tool-actions parked
 // in StatePending (awaiting user approval) back to StateUnevaluated when that
 // thread's effective strategy has changed since the last reconcile tick, so
@@ -321,13 +337,7 @@ func (w *ConversationWorker) reevaluatePendingToolsOnStrategyChangeExcept(liveTh
 		}
 		state := yMapString(m, keyState)
 		return state == StatePending
-	}, map[string]any{
-		"state":            StateUnevaluated,
-		"approvalResponse": nil,
-		"approvalOptions":  nil,
-		"displayData":      nil,
-		"hooks":            nil, // re-evaluation re-runs the beforeTool hooks
-	})
+	}, reaskFields())
 
 	for _, id := range ids {
 		w.tools.clear(id)
@@ -425,10 +435,10 @@ func (w *ConversationWorker) cascadeBatchDenialsExcept(liveThreads map[string]bo
 	// Written with the same content the browser's resolveApproval writes, so a
 	// cascade reads identically whichever half got there first.
 	cancelledResult := convertToYcrdt(map[string]any{
-		"content":    "Action was cancelled.",
-		"isError":    false,
-		"cancelled":  true,
-		"fullResult": map[string]any{"state": StateCancelled},
+		keyContent:    "Action was cancelled.",
+		keyIsError:    false,
+		keyCancelled:  true,
+		keyFullResult: map[string]any{keyState: StateCancelled},
 	})
 	for _, ta := range cascades {
 		_, refusable := scanTrailingBatch(ta.arr, commanded)
@@ -728,12 +738,12 @@ func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
 		state := yMapString(m, keyState)
 		return state == expectState && m.Get(keyResult) == nil
 	}, map[string]any{
-		"state": StateCompleted,
-		"result": map[string]any{
-			"content": content,
-			"isError": true,
+		keyState: StateCompleted,
+		keyResult: map[string]any{
+			keyContent: content,
+			keyIsError: true,
 		},
-		"runningStartedAt": nil,
+		keyRunningStartedAt: nil,
 	})
 	w.clearToolCommandBookkeeping(id)
 	if len(failed) == 0 {

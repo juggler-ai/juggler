@@ -350,21 +350,6 @@ func (a *appState) openerFrame(id string) core.WindowState {
 	return core.WindowState{X: x, Y: y, Width: w, Height: h, HasPos: true}
 }
 
-// windowSpecOf reports what a window views, read on the registry goroutine
-// because the spec is mutable — the page reports its project as it switches, so
-// reading the field off the entry afterwards would race that write. Used to open
-// a detached board onto exactly the project the window asking for it has open.
-func (a *appState) windowSpecOf(id string) (windowSpec, bool) {
-	var spec windowSpec
-	var ok bool
-	a.reg(func(st *regState) {
-		if e := st.windows[id]; e != nil {
-			spec, ok = e.spec, true
-		}
-	})
-	return spec, ok
-}
-
 // singleInstanceID is the unique key for the single-instance lock. A second
 // `juggler-app` launch fails to acquire it, hands its argv to the first
 // instance (onSecondInstance), and exits — so one process owns all windows.

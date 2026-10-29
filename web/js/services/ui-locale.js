@@ -59,7 +59,7 @@ const PSEUDO_CHOICE = Object.freeze({ value: PSEUDO_LOCALE, label: markForTransl
  * @param {string} tag - A BCP 47 tag.
  * @returns {string} The name.
  */
-export function localeEndonym(tag) {
+function localeEndonym(tag) {
   try {
     const name = new Intl.DisplayNames([tag], { type: 'language', fallback: 'code' }).of(tag);
     if (!name || name.toLowerCase() === tag.toLowerCase()) return tag;

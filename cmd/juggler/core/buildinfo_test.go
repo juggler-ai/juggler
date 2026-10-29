@@ -62,27 +62,6 @@ func TestVersionOfAnUnstampedTestBinaryIsMarked(t *testing.T) {
 	if !strings.HasSuffix(Version, devSuffix) {
 		t.Errorf("Version = %q, want a %q suffix", Version, devSuffix)
 	}
-	if !IsDevVersion(Version) {
-		t.Errorf("IsDevVersion(%q) = false, want true", Version)
-	}
-}
-
-func TestIsDevVersion(t *testing.T) {
-	dev := []string{"dev", "v0.6.1-dev", "0.6.1-dev", "v1.0.0-dev"}
-	release := []string{"v0.6.1", "0.6.1", "v0.7.0-beta.1", "v0.7.0-rc.1", "", "development"}
-
-	for _, v := range dev {
-		if !IsDevVersion(v) {
-			t.Errorf("IsDevVersion(%q) = false, want true", v)
-		}
-	}
-	// A prerelease is a real release: it is published, and it is offered an
-	// upgrade like any other.
-	for _, v := range release {
-		if IsDevVersion(v) {
-			t.Errorf("IsDevVersion(%q) = true, want false", v)
-		}
-	}
 }
 
 // TestIsTestVersion pins what the install figures leave out, and — just as

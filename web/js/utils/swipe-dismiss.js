@@ -269,5 +269,3 @@ export function attachSwipeDismiss(element, options) {
     document.removeEventListener('click', onClickCapture, true);
   };
 }
-
-export default attachSwipeDismiss;

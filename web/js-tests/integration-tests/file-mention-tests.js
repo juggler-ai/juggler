@@ -21,7 +21,7 @@ import { textResponse, toolUseResponse, testDirFor } from '../utilities/integrat
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const atMentionAddsFileContentItem = {
+const atMentionAddsFileContentItem = {
   name: 'at-mention-adds-file-content-item',
   description: 'Selecting a file via @ completion adds a file-content context item and strips @path from message',
   fixture: 'unit-test-fixture',
@@ -62,7 +62,7 @@ export const atMentionAddsFileContentItem = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const atMentionDeduplicates = {
+const atMentionDeduplicates = {
   name: 'at-mention-deduplicates',
   description: 'Selecting the same file twice via @ results in only one file-content context item',
   fixture: 'unit-test-fixture',
@@ -100,7 +100,7 @@ export const atMentionDeduplicates = {
 // unchanged since — must not add a second identical item: the model already has
 // exactly those bytes.
 /** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
-export const atMentionOfFileAlreadyInContextReusesIt = {
+const atMentionOfFileAlreadyInContextReusesIt = {
   name: 'at-mention-of-file-already-in-context-reuses-it',
   description: 'Re-mentioning an unchanged file in a later message reuses the item already holding it',
   fixture: 'unit-test-fixture',
@@ -129,7 +129,7 @@ export const atMentionOfFileAlreadyInContextReusesIt = {
 // the pending queue rather than landing in the items directly, and must still
 // reuse the item the conversation already holds.
 /** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
-export const queuedAtMentionOfFileAlreadyInContextReusesIt = {
+const queuedAtMentionOfFileAlreadyInContextReusesIt = {
   name: 'queued-at-mention-of-file-already-in-context-reuses-it',
   description: 'Re-mentioning an unchanged file in a message queued while busy reuses the item already holding it',
   fixture: 'unit-test-fixture',
@@ -164,7 +164,7 @@ export const queuedAtMentionOfFileAlreadyInContextReusesIt = {
 // containing spaces, a backslash-escaped space, and trailing punctuation
 // that should be stripped from the path.
 /** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
-export const sendMessageCreatesFileItemsForAllMentions = {
+const sendMessageCreatesFileItemsForAllMentions = {
   name: 'send-message-creates-file-items-for-all-mentions',
   description: 'Sending a message containing multiple @-mentions (quoted, escaped, and plain) creates a file-content item for each path',
   fixture: 'unit-test-fixture',
@@ -212,7 +212,7 @@ export const sendMessageCreatesFileItemsForAllMentions = {
 // history, in the write that produced them.
 const TD_frozen = testDirFor('at-mention-is-frozen-at-send');
 /** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
-export const atMentionIsFrozenAtSend = {
+const atMentionIsFrozenAtSend = {
   name: 'at-mention-is-frozen-at-send',
   description: 'A file the agent rewrites after it was @-mentioned still reaches the model as it was when mentioned',
   fixture: 'unit-test-fixture',
@@ -247,7 +247,7 @@ export const atMentionIsFrozenAtSend = {
 // item beside it would carry the stale copy on every turn from then on.
 const TD_remention = testDirFor('at-mention-of-changed-file-replaces-snapshot');
 /** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
-export const atMentionOfChangedFileReplacesSnapshot = {
+const atMentionOfChangedFileReplacesSnapshot = {
   name: 'at-mention-of-changed-file-replaces-snapshot',
   description: 'Re-mentioning a file that changed since its snapshot retakes that snapshot instead of adding a second',
   fixture: 'unit-test-fixture',
@@ -290,7 +290,7 @@ export const atMentionOfChangedFileReplacesSnapshot = {
 // the path resolves correctly. A bare "@" with no path after it should be
 // ignored entirely (no spurious empty-path file-content item).
 /** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
-export const sendMessageHandlesPunctuationAndBareAt = {
+const sendMessageHandlesPunctuationAndBareAt = {
   name: 'send-message-handles-punctuation-and-bare-at',
   description: 'Trailing punctuation after @path is stripped; a bare @ with no following path is ignored',
   fixture: 'unit-test-fixture',
@@ -322,7 +322,7 @@ export const sendMessageHandlesPunctuationAndBareAt = {
 // must not become a mention. Frozen at send, its item could only ever say "File
 // does not exist", and the model spends its reasoning on that phantom file.
 /** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
-export const sendMessageDropsMentionOfMissingPath = {
+const sendMessageDropsMentionOfMissingPath = {
   name: 'send-message-drops-mention-of-missing-path',
   description: 'An @-token containing a slash that names no existing path makes no file-content item',
   fixture: 'unit-test-fixture',
@@ -352,7 +352,7 @@ export const sendMessageDropsMentionOfMissingPath = {
 // Code is quoted text, not a request: an `@` inside a code span or a fenced
 // block is never a mention, even when it names a file that exists.
 /** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
-export const sendMessageSkipsMentionsInCode = {
+const sendMessageSkipsMentionsInCode = {
   name: 'send-message-skips-mentions-in-code',
   description: '@-tokens inside inline code spans and fenced code blocks make no file-content item',
   fixture: 'unit-test-fixture',
@@ -389,7 +389,7 @@ export const sendMessageSkipsMentionsInCode = {
 // cached leading prefix, an unchanged file caches (byte-identical render) while a
 // real change busts it — exactly the pin contract. No bytes are ever persisted.
 /** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
-export const pinResolvesLiveAndPersistsNoBytes = {
+const pinResolvesLiveAndPersistsNoBytes = {
   name: 'pin-resolves-live-and-persists-no-bytes',
   description: 'A pinned file is resolved live at send time; only `path` (+isDirectory) is persisted in Yjs',
   fixture: 'unit-test-fixture',
@@ -433,7 +433,7 @@ export const pinResolvesLiveAndPersistsNoBytes = {
 // be fetched as a tree. The completion UI supplies a slash, but raw text (and
 // absolute Finder paths) does not.
 /** @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition} */
-export const sendMessageTreatsDirectoryMentionWithoutTrailingSlashAsFolder = {
+const sendMessageTreatsDirectoryMentionWithoutTrailingSlashAsFolder = {
   name: 'send-message-treats-directory-mention-without-trailing-slash-as-folder',
   description: 'A directory @-mention without trailing slash reaches the LLM as a directory listing',
   fixture: 'unit-test-fixture',

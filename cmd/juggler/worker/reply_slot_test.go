@@ -129,3 +129,8 @@ func requestIDFromReply(t *testing.T, payload json.RawMessage) string {
 	}
 	return head.RequestID
 }
+
+// replySlots returns every reply slot, in construction order.
+func (e *engineSession) replySlots() []*replySlot {
+	return e.slots
+}

@@ -29,7 +29,7 @@ let _loaded = false;
  * leaves the registry's built-ins in place and returns the current state.
  * @returns {Promise<{presets: import('../../sdk/lib/system-prompt-registry.js').SystemPromptPreset[], defaultId: string}>} The merged preset list and the resolved default id
  */
-export async function refreshUserPresets() {
+async function refreshUserPresets() {
   try {
     const { presets, defaultId } = await apiService.getSystemPromptPresets();
     systemPromptRegistry.setUserPresets(Array.isArray(presets) ? presets : []);

@@ -304,5 +304,3 @@ class ThreadMessage extends JugglerElement {
 }
 
 customElements.define('thread-message', ThreadMessage);
-
-export default ThreadMessage;

@@ -57,31 +57,3 @@ func TestAPrefsOnlySlotIsNotGeometry(t *testing.T) {
 		t.Fatalf("a preferences-only slot must carry no frame: got %+v", got)
 	}
 }
-
-// The desktop app names a window's role from the options it opened it with, and
-// the server names the same window from the URL it is serving. They have to
-// agree, or a board would write its geometry and preferences into one slot and
-// read them from another. cmd/juggler-app's TestWindowOptsRole pins the other
-// side of this.
-func TestWindowRoleForView(t *testing.T) {
-	cases := []struct {
-		name  string
-		view  string
-		board string
-		want  string
-	}{
-		{"an ordinary window", "", "", WindowRoleMain},
-		{"an unknown view is still the app", "something", "board_a", WindowRoleMain},
-		{"a detached board", WindowViewPinboard, "board_a", WindowRolePinboardFor("board_a")},
-		{"the docked board detached", WindowViewPinboard, MainBoardID, WindowRolePinboardFor(MainBoardID)},
-		{"a board with no id", WindowViewPinboard, "", WindowRolePinboard},
-		{"a board with an unusable id", WindowViewPinboard, "../etc", WindowRolePinboard},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := WindowRoleForView(c.view, c.board); got != c.want {
-				t.Fatalf("WindowRoleForView(%q, %q) = %q, want %q", c.view, c.board, got, c.want)
-			}
-		})
-	}
-}

@@ -24,16 +24,11 @@
 const GRIP_GLYPH = '⠿';
 
 /**
- * A grip's markup, for a row assembled as a template string.
+ * A grip, as a node, for a row assembled from elements.
  *
  * Decorative, so `aria-hidden`: it names no action a screen reader can take, and
  * reordering without a pointer is offered as a keyboard shortcut on the row
  * itself rather than as a control here.
- */
-export const DRAG_GRIP_HTML = `<span class="drag-grip" aria-hidden="true">${GRIP_GLYPH}</span>`;
-
-/**
- * A grip, as a node, for a row assembled from elements.
  * @returns {HTMLElement} The grip. Put it at the leading edge of the row.
  */
 export function createDragGrip() {

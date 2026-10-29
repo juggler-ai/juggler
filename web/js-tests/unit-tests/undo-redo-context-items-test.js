@@ -30,7 +30,7 @@ import {
  *
  * Bug: Context item addition creates two operations (context item + placeholder).
  * User has to undo twice - first placeholder goes, then context item.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testContextItemAdditionSingleUndo(session) {
@@ -78,7 +78,7 @@ async function testContextItemAdditionSingleUndo(session) {
  *
  * Bug: Context item deletion creates two operations (two items:delete).
  * User has to undo twice - first placeholder comes back, then context item.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testContextItemDeletionSingleUndo(session) {
@@ -154,7 +154,7 @@ async function testContextItemDeletionSingleUndo(session) {
  * 3. Delete the context item using removeContextItem() (what UI does)
  * 4. Single undo should restore both context item AND placeholder
  * This tests the REAL flow - after auto-add, undo is cleared, then user deletes.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testAutoAddedContextItemDeletionSingleUndo(session) {
@@ -250,7 +250,7 @@ async function testAutoAddedContextItemDeletionSingleUndo(session) {
  * This test uses file-content context items (like assistant files) instead of rule context items.
  * The real scenario is: user creates conversation, assistant files are auto-added,
  * user deletes one of those file context items.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testFileContentContextItemDeletionSingleUndo(session) {
@@ -333,7 +333,7 @@ async function testFileContentContextItemDeletionSingleUndo(session) {
  * THIS TEST USES THE EXACT PRODUCTION PATH:
  * 1. UI button click triggers app.js _handleContextItemAction()
  * 2. Which calls conversation.rootMessageThread.removeContextItem(itemId) directly
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testProductionPathContextItemDeletion(session) {
@@ -423,7 +423,7 @@ async function testProductionPathContextItemDeletion(session) {
  * 6. Assert canUndo() === false (only ONE undo operation existed)
  *
  * If user has to undo TWICE, canUndo() will still be true after first undo.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testDeleteAssistantFileSingleUndo(session) {
@@ -507,7 +507,7 @@ async function testDeleteAssistantFileSingleUndo(session) {
  * 4. ASSERT: canUndo() should be FALSE
  * If canUndo() is still true after first undo, the bug exists
  * (two operations were created for a single context item deletion).
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testProductionBugTwoUndos(session) {

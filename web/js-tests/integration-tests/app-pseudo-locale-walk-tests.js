@@ -145,9 +145,6 @@ function shownText(root, skip) {
   return shown;
 }
 
-/** What the walk is waiting for, for a failure that has to say where it stopped. */
-let stage = 'loading the shell';
-
 /**
  * What the shell is showing, for a failure that has to say why it stopped.
  * @returns {string} A line to append, or '' before the shell has a session.
@@ -155,7 +152,18 @@ let stage = 'loading the shell';
 let describeShell = () => '';
 
 /**
+ * Where the walk has got to — the conversation's name and the findings so
+ * far — for a failure that has to say where it stopped.
+ * @returns {string} Lines to append, or '' outside a walk.
+ */
+let describeWalk = () => '';
+
+/**
  * Wait for `probe` to be truthy within the test's deadline, or throw.
+ *
+ * The wait's description is read when a report asks for it, so a walk the
+ * runner fails for making no progress is reported at the wait it stopped in,
+ * with the shell's state and the findings as they stand then.
  * @template T
  * @param {() => T} probe
  * @param {string} what - What is awaited, for the failure.
@@ -163,10 +171,9 @@ let describeShell = () => '';
  * @returns {Promise<T>} The probe's truthy value.
  */
 async function until(probe, what, nominalMs = 10000) {
-  stage = what;
   const got = await pollPatiently(() => {
     try { return probe(); } catch { return null; }
-  }, { nominalMs: budgetFor(nominalMs), intervalMs: 50, what });
+  }, { nominalMs: budgetFor(nominalMs), intervalMs: 50, what: () => `${what}${describeShell()}${describeWalk()}` });
   if (!got) throw new Error(`timed out waiting for ${what} — ${await whyGivingUp()}${describeShell()}`);
   return /** @type {T} */ (got);
 }
@@ -174,7 +181,7 @@ async function until(probe, what, nominalMs = 10000) {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const appPseudoLocaleWalkTest = {
+const appPseudoLocaleWalkTest = {
   name: 'app-pseudo-locale-walk',
   description: 'The full app shell served under en-XA shows no plain English on its main surfaces',
   fixture: 'unit-test-fixture',
@@ -244,24 +251,15 @@ export const appPseudoLocaleWalkTest = {
       if (raw.length) findings.push(`plain English under en-XA (${where}): ${JSON.stringify(raw)}`);
     };
 
-    // Bounded as a whole as well as wait by wait: the shell runs on this lane's
-    // thread, so a walk that stops moving says where rather than outliving the
-    // runner's report. Under an armed deadline budgetFor() runs to a second past
-    // it, which is after the runner's no-progress report fires, so the cap stops
-    // CAP_MARGIN_MS short of that.
-    const CAP_MARGIN_MS = 6000;
-    /** @type {any} */
-    let capTimer = null;
-    const cap = new Promise((_, reject) => {
-      capTimer = setTimeout(() => reject(new Error(
-        `the walk stopped at: ${stage} (conversation named ${JSON.stringify(nameAfterTurn)})${describeShell()}\n  findings so far:\n  ${findings.join('\n  ')}`)),
-      Math.max(1000, budgetFor(60000) - CAP_MARGIN_MS));
-    });
+    // A walk that stops moving is failed by the runner's stall watchdog, whose
+    // report lists the waits in flight: `until` describes each with where the
+    // walk has got to, so the report says where it stopped.
+    describeWalk = () => `\n  conversation named ${JSON.stringify(nameAfterTurn)}\n  findings so far:\n  ${findings.join('\n  ')}`;
     try {
-      await Promise.race([cap, walkShell()]);
+      await walkShell();
     } finally {
-      clearTimeout(capTimer);
       describeShell = () => '';
+      describeWalk = () => '';
       frame.remove();
       const after = await fetchJson(apiUrl(`/session/pinboard?board=${encodeURIComponent(board)}`)).catch(() => null);
       const added = (after?.pins || []).filter((/** @type {any} */ p) => !pinsBefore.has(p.id));

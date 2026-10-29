@@ -3,7 +3,7 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 // Command gen refreshes the models.dev snapshot compiled into Juggler: it
-// fetches the catalogue, trims it (modelsdev.Trim) and writes snapshot.json,
+// fetches the catalogue, trims it (trim) and writes snapshot.json,
 // then prints what changed so the refresh can be reviewed before it is
 // committed. Run it through `make models-sync`, or `go generate` in the
 // package directory.
@@ -60,7 +60,7 @@ func run(out, source, from, keepRaw string) error {
 			return err
 		}
 	}
-	next, err := modelsdev.Trim(raw, source, time.Now().UTC().Format(time.DateOnly))
+	next, err := trim(raw, source, time.Now().UTC().Format(time.DateOnly))
 	if err != nil {
 		return err
 	}

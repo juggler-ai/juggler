@@ -92,8 +92,8 @@ class StrategyRegistry extends BaseRegistry {
     // Same shape the base builds (id/manifest/modulePath/extensionId) — every
     // registered strategy is guaranteed a MANIFEST by validateClass at load —
     // minus the hidden ones, then reordered for display.
-    const visible = this.getManifests().filter(({ manifest }) => /** @type {any} */ (manifest).hidden !== true);
-    return /** @type {any} */ (orderStrategies(visible));
+    const visible = this.getManifests().filter(({ manifest }) => manifest.hidden !== true);
+    return orderStrategies(visible);
   }
 
   /**

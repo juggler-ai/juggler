@@ -837,5 +837,3 @@ class PinboardPanel extends JugglerElement {
 }
 
 customElements.define('pinboard-panel', PinboardPanel);
-
-export default PinboardPanel;

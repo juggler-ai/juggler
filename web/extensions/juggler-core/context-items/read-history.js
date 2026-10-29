@@ -215,24 +215,6 @@ function collectProgramReads(state, conversation, session, target, toolUseId) {
 }
 
 /**
- * The newest content hash this process recorded for `path`, or undefined if it
- * has written none. The written-hash Set preserves insertion order, so the last
- * entry is the most recent write.
- * @param {object|undefined} conversation - Conversation whose writes to inspect
- * @param {object|undefined} session - Session (for path resolution)
- * @param {string|undefined} path - File path to look up
- * @returns {string|undefined} The most recently recorded hash, or undefined
- */
-export function latestWrittenHash(conversation, session, path) {
-  const target = pathMatchKey(session, path);
-  const set = conversation && target ? writtenHashes.get(conversation)?.get(target) : undefined;
-  if (!set || set.size === 0) return undefined;
-  let last;
-  for (const h of set) last = h;
-  return last;
-}
-
-/**
  * Choose the staleness baseline (expectedHash) for a mutation that was queued
  * behind a sibling mutation to the same path this turn. `frozenHash` is the
  * baseline captured when this mutation was validated; `currentHash` is the

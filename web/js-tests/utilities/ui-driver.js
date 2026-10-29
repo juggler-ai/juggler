@@ -231,58 +231,6 @@ class UIDriver {
     );
   }
 
-  /**
-   * Wait for the DOM subtree to stabilize (no mutations for stabilityMs).
-   *
-   * "The DOM is still moving" is never a fault on its own — a lane whose renders
-   * are being interleaved with eight siblings' simply takes longer to go quiet —
-   * so the overall bound is the per-test deadline rather than `timeoutMs`, which
-   * stands in only when no deadline is set.
-   * @param {number} [stabilityMs=50] - Required quiet period
-   * @param {number} [timeoutMs=3000] - Overall timeout when no deadline is set
-   * @returns {Promise<void>}
-   */
-  async waitForDOMStable(stabilityMs = 50, timeoutMs = 3000) {
-    const budgetMs = this._budget(timeoutMs);
-    const conversationArea = this.getConversationArea();
-    const target = conversationArea || this._container;
-
-    return new Promise((resolve, reject) => {
-      let stableTimer = /** @type {ReturnType<typeof setTimeout>|null} */ (null);
-      /** @type {() => void} */
-      let cancelOverall = () => {};
-
-      const observer = new MutationObserver(() => {
-        if (stableTimer) clearTimeout(stableTimer);
-        stableTimer = setTimeout(() => {
-          observer.disconnect();
-          cancelOverall();
-          resolve();
-        }, stabilityMs);
-      });
-
-      observer.observe(target, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        characterData: true
-      });
-
-      stableTimer = setTimeout(() => {
-        observer.disconnect();
-        cancelOverall();
-        resolve();
-      }, stabilityMs);
-
-      // Follows the test's deadline as the runner moves it (deadlineTimer).
-      cancelOverall = deadlineTimer(() => {
-        observer.disconnect();
-        if (stableTimer) clearTimeout(stableTimer);
-        reject(new Error(`waitForDOMStable: DOM did not stabilize within ${budgetMs}ms`));
-      }, budgetMs);
-    });
-  }
-
   // =========================================================================
   // Query
   // =========================================================================

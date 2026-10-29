@@ -31,11 +31,15 @@ import {
   createTestConversation,
   assert
 } from '../utilities/test-helpers.js';
+import { racePatiently } from '../utilities/test-patience.js';
 import workerManager from '../../js/services/worker-manager.js';
 import apiService from '../../js/services/api.js';
 
 /**
- * How long a declined load may take to fail.
+ * How long a declined load may take to fail: the nominal of a wait that rides
+ * the test's deadline, so a slow core that is still getting through the round
+ * trip is waited out, and a load wedged while the test goes nowhere fails on
+ * the nominal.
  *
  * The refusal is already on its way back when the clock starts, so this is
  * patience for one round trip and nothing else — roughly a hundred times what
@@ -58,20 +62,12 @@ async function loadOutcome(session, id) {
   /** @type {Promise<'loaded'|Error>} */
   const attempt = workerManager.loader.loadExisting(id, session)
     .then(() => /** @type {'loaded'} */ ('loaded'), (err) => (err instanceof Error ? err : new Error(String(err))));
-  /** @type {ReturnType<typeof setTimeout>|undefined} */
-  let timer;
-  /** @type {Promise<never>} */
-  const stalled = new Promise((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(
-      `the load neither loaded nor failed within ${DECLINE_BUDGET_MS}ms — the client is sitting out its own `
-      + 'ready timeout over a refusal the server already sent, which is a spinner for a minute in the app '
-      + 'and a suite killed at its budget here')), DECLINE_BUDGET_MS);
-  });
-  try {
-    return await Promise.race([attempt, stalled]);
-  } finally {
-    clearTimeout(timer);
-  }
+  const settled = await racePatiently(attempt, DECLINE_BUDGET_MS, { what: 'the declined load to fail' });
+  if (settled) return settled.value;
+  throw new Error(
+    `the load neither loaded nor failed within its ${DECLINE_BUDGET_MS}ms nominal — the client is sitting out its own `
+    + 'ready timeout over a refusal the server already sent, which is a spinner for a minute in the app '
+    + 'and a suite killed at its budget here');
 }
 
 /**

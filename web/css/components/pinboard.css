@@ -381,7 +381,7 @@ pinboard-tabbar {
 }
 
 .pinboard-tab.active .pinboard-tab__remove:hover {
-    background: rgb(255 255 255 / 15%);
+    background: color-mix(in srgb, var(--text-on-accent) 15%, transparent);
 }
 
 @media (hover: none) {

@@ -8,9 +8,9 @@
 // across platforms. RobustRename publishes a temp file (or directory) over its
 // final name; on POSIX that is a single atomic syscall with no failure window,
 // so this build is a direct os.Rename. RobustReadFile reads a file that a
-// concurrent RobustRename may be replacing, and RobustRemoveAll removes a tree
-// another handle may hold part of; POSIX has no sharing-violation window, so
-// they too are direct calls.
+// concurrent RobustRename may be replacing, and RobustRemove/RobustRemoveAll
+// remove a file or tree another handle may hold; POSIX has no
+// sharing-violation window, so they too are direct calls.
 package atomicio
 
 import "os"
@@ -25,6 +25,12 @@ func RobustRename(oldpath, newpath string) error {
 // makes the open fail, so this is a direct os.ReadFile.
 func RobustReadFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
+}
+
+// RobustRemove removes one file. POSIX unlinks a file another process holds
+// open, so there is nothing to retry.
+func RobustRemove(path string) error {
+	return os.Remove(path)
 }
 
 // RobustRemoveAll removes path and everything under it. POSIX unlinks a file

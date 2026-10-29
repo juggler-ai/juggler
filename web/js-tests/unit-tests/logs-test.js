@@ -15,7 +15,7 @@
  * @module unit-tests/logs-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor, nextTask } from '../utilities/test-helpers.js';
 import { fetchJson } from '../../js/services/http.js';
 import { apiUrl } from '../../js/utils/api-url.js';
 import {
@@ -79,9 +79,6 @@ function installFetch(backend) {
   });
   return () => { window.fetch = orig; };
 }
-
-/** Let a non-awaitable async handler (fetch → json) settle. */
-const settle = async () => { await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0)); };
 
 /**
  * @param {object} _ctx - Test context (unused)
@@ -177,7 +174,7 @@ export async function runTests(_ctx) {
       assert(el.querySelector('#logs-viewer').textContent === 'srv\n', 'starts on server.log');
 
       el._tabs.logs._selectLog('/logs/app.log');
-      await settle();
+      await waitFor(() => el.querySelector('#logs-viewer').textContent === 'app-content\n', 'the selected log to load');
 
       const viewer = el.querySelector('#logs-viewer');
       assert(viewer.textContent === 'app-content\n', `loaded the new file; got ${JSON.stringify(viewer.textContent)}`);
@@ -199,7 +196,7 @@ export async function runTests(_ctx) {
       // Exactly the ordering the deep link hits: show() is not awaited.
       el._tabs.logs.show();
       const ok = await el._tabs.logs.revealEntry('conv_bbb');
-      await settle();
+      await waitFor(() => el.querySelector('#logs-viewer').textContent === 'bbb-log\n', 'the deep-linked log to load');
       el._tabs.logs.hide();
 
       assert(ok === true, 'reports success for a conversation that has a log');
@@ -219,7 +216,10 @@ export async function runTests(_ctx) {
     await withPanel(backend, async (el) => {
       el._tabs.logs.show();
       const ok = await el._tabs.logs.revealEntry('conv_missing');
-      await settle();
+      // Nothing is meant to change, so there is no event to wait for: the two
+      // hops are the fetch and its json() that a wrong selection would ride.
+      await nextTask();
+      await nextTask();
       el._tabs.logs.hide();
 
       assert(ok === false, 'reports failure for a conversation with no log');

@@ -21,7 +21,8 @@ import {
   TOOL_STATES,
   ACTION_STATES,
   isToolActionMessage,
-  isThreadMessage
+  isThreadMessage,
+  itemField
 } from '../../sdk/lib/message.js';
 import strategyRegistry from '../registries/strategy-registry.js';
 import contextItemRegistry from '../registries/context-item-registry.js';
@@ -479,8 +480,8 @@ export default class MessageThread {
     if (!toolAction) return false;
     const result = toolAction.get('result');
     if (result === null || result === undefined) return false;
-    const content = result.get ? result.get('content') : result.content;
-    const cancelled = result.get ? result.get('cancelled') : result.cancelled;
+    const content = itemField(result, 'content');
+    const cancelled = itemField(result, 'cancelled');
     return content !== undefined || cancelled === true;
   }
 
@@ -1109,7 +1110,8 @@ export default class MessageThread {
    */
   cancelPendingApprovals() {
     for (const toolUse of this.getRefusableApprovalMessages()) {
-      this.resolveApproval(toolUse.get('toolUseId'), 'cancel');
+      const toolUseId = toolUse.get('toolUseId');
+      if (toolUseId) this.resolveApproval(toolUseId, 'cancel');
     }
   }
 

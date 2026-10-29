@@ -37,7 +37,7 @@ export const DIFF_VIEW_PREFS_EVENT = 'juggler:diff-view-changed';
 export const WHOLE_FILE = -1;
 
 /** How many unchanged lines a diff shows around a change until told otherwise. */
-export const DEFAULT_CONTEXT_LINES = 3;
+const DEFAULT_CONTEXT_LINES = 3;
 
 /**
  * The context widths offered, in the order they are offered. One list, read by

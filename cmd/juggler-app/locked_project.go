@@ -84,9 +84,3 @@ func (e *lockedProjectError) adviceMessages() []msg.Message {
 	}
 	return out
 }
-
-// lockedMessage is the text shown in the locked-project window, in the shell's
-// UI language.
-func (a *appState) lockedMessage(e *lockedProjectError) string {
-	return a.trParagraphs(e.adviceMessages())
-}

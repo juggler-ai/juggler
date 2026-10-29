@@ -229,6 +229,7 @@
 
     <!-- Load components (all needed for real UI rendering) -->
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/modal-dialog.js"></script>
+    <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/reveal-button.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/settings-panel.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/diff-viewer.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/file-view.js"></script>
@@ -454,7 +455,6 @@
                     });
                     window.location.href = serverPath('/');
                 } else {
-                    window.testComplete = true;
                     window.testError = err.message;
                 }
             }

@@ -41,7 +41,7 @@
         // contained (no imports) so the blob worker has no cross-origin imports
         // of its own — WebKit blocks those from a worker even with CORS.
         const SANDBOX_WORKER_SRC = `
-// POSIX path module (mirrors web/js/services/path.js).
+// Node.js-compatible POSIX path module.
 const sep = '/';
 const delimiter = ':';
 function normalise(p) {

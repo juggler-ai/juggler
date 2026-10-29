@@ -2,13 +2,18 @@
 //     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
-package machineload
+// Package machineloadtest provides the single test helper for skipping a test
+// the machine starved. It lives apart from machineload, which programs link, so
+// that only tests carry it.
+package machineloadtest
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"juggler/internal/machineload"
 )
 
 // SkipPrefix opens the message of every test skipped by Skip, so a load skip is
@@ -22,8 +27,8 @@ const SkipPrefix = "LOAD-SKIP: "
 // reports what was written.
 const SkipLogEnv = "JUGGLER_LOAD_SKIP_LOG"
 
-// Skipper is the part of *testing.T that Skip needs, so this package does not
-// import testing.
+// Skipper is the part of *testing.T that Skip needs, so Skip's own test can
+// hand it a fake that records the skip instead of ending a test.
 type Skipper interface {
 	Helper()
 	Name() string
@@ -39,7 +44,7 @@ type Skipper interface {
 // that is not installed) is t.Skip as usual.
 func Skip(t Skipper, format string, args ...any) {
 	t.Helper()
-	line := Line()
+	line := machineload.Line()
 	if path := os.Getenv(SkipLogEnv); path != "" {
 		// O_APPEND: the packages of one run are separate processes writing the
 		// same file, and an appended line this short is written whole. The test

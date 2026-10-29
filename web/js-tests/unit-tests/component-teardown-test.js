@@ -64,6 +64,7 @@
  * @module unit-tests/component-teardown
  */
 
+import { settledByNextTask } from '../utilities/test-helpers.js';
 import wsService from '../../js/services/websocket.js';
 import connectionStatus from '../../js/services/connection-status.js';
 import { REGISTRIES_RELOADED } from '../../js/registries/reload-registries.js';
@@ -213,16 +214,6 @@ function countEvents(target, type, act) {
     target.removeEventListener(type, count);
   }
   return n;
-}
-
-/**
- * What `promise` has settled to by the next task, or `'pending'` — so a promise
- * nothing will ever settle fails the case instead of hanging the suite.
- * @param {Promise<any>} promise
- * @returns {Promise<any>} Its value, or 'pending'.
- */
-function settledBy(promise) {
-  return Promise.race([promise, new Promise((r) => setTimeout(() => r('pending'), 0))]);
 }
 
 /**
@@ -874,8 +865,8 @@ export async function runTests() {
       column.appendChild(dialog);
       const asked = dialog.show({ type: 'confirm', title: 'Teardown', message: 'teardown?' });
       elsewhere.appendChild(dialog);
-      const answer = await settledBy(asked);
-      if (answer !== null) throw new Error(`a move left its question ${answer === 'pending' ? 'unanswered' : `answered ${answer}`}, want null`);
+      const answer = await settledByNextTask(asked);
+      if (!answer || answer.value !== null) throw new Error(`a move left its question ${answer ? `answered ${answer.value}` : 'unanswered'}, want null`);
       // The connect rebuilds the panel empty, so a dialog still marked shown
       // would be a blank modal over the app that nothing is waiting on.
       if (dialog.classList.contains('show')) throw new Error('after a move it still shows a dialog nothing is asking');
@@ -884,8 +875,8 @@ export async function runTests() {
       const next = dialog.show({ type: 'alert', message: 'teardown again' });
       if (!dialog.classList.contains('show')) throw new Error('reinserted after a removal it shows nothing when asked');
       dialog.querySelector('.modal-backdrop-el').click();
-      const dismissed = await settledBy(next);
-      if (dismissed !== null) throw new Error(`reinserted, a backdrop click answered ${dismissed}, want null`);
+      const dismissed = await settledByNextTask(next);
+      if (!dismissed || dismissed.value !== null) throw new Error(`reinserted, a backdrop click ${dismissed ? `answered ${dismissed.value}` : 'left it unanswered'}, want null`);
       passed++;
     } finally {
       dialog.remove();

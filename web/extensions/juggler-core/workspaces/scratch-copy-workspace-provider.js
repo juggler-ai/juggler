@@ -42,7 +42,7 @@ const IGNORE_MARKER = '*\n';
  * Where sandboxes go, relative to the workspace they are copies of.
  * @type {string}
  */
-export const SANDBOXES_REL = '.juggler/sandboxes';
+const SANDBOXES_REL = '.juggler/sandboxes';
 
 /**
  * A name as a single path segment: what the user typed, in any script, minus

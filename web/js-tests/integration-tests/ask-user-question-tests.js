@@ -20,7 +20,7 @@ import { textResponse, toolUseResponse } from '../utilities/integration-test-run
  * Verifies the approval flow works correctly with deny action.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const askUserQuestionWaitsForApprovalTest = {
+const askUserQuestionWaitsForApprovalTest = {
   name: 'ask-user-question-waits',
   description: 'AskUserQuestion should wait for user approval (not execute immediately)',
   fixture: 'unit-test-fixture',
@@ -87,7 +87,7 @@ export const askUserQuestionWaitsForApprovalTest = {
  * Verifies the answer flows through to the result.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const askUserQuestionAnswerFlowTest = {
+const askUserQuestionAnswerFlowTest = {
   name: 'ask-user-question-answer-flow',
   description: 'AskUserQuestion should collect answer when user clicks option button',
   fixture: 'unit-test-fixture',
@@ -155,7 +155,7 @@ export const askUserQuestionAnswerFlowTest = {
  * Verifies the multi-question flow works correctly with JSON-encoded answers.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const askUserQuestionMultipleQuestionsTest = {
+const askUserQuestionMultipleQuestionsTest = {
   name: 'ask-user-question-multiple-questions',
   description: 'AskUserQuestion should collect answers for multiple questions',
   fixture: 'unit-test-fixture',
@@ -263,7 +263,7 @@ export const askUserQuestionMultipleQuestionsTest = {
  * when the tool is in pending approval state.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const askUserQuestionFormRendersTest = {
+const askUserQuestionFormRendersTest = {
   name: 'ask-user-question-form-renders',
   description: 'AskUserQuestion should render custom form with option buttons in the DOM',
   fixture: 'unit-test-fixture',
@@ -337,7 +337,7 @@ export const askUserQuestionFormRendersTest = {
  * earlier choice after answering the last one.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const askUserQuestionNoAutoSubmitTest = {
+const askUserQuestionNoAutoSubmitTest = {
   name: 'ask-user-question-no-auto-submit',
   description: 'AskUserQuestion should not auto-submit; waits for explicit Submit click',
   fixture: 'unit-test-fixture',
@@ -434,7 +434,7 @@ export const askUserQuestionNoAutoSubmitTest = {
  * and the submitted answer carries every chosen label.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const askUserQuestionMultiSelectTest = {
+const askUserQuestionMultiSelectTest = {
   name: 'ask-user-question-multi-select',
   description: 'AskUserQuestion multiSelect:true should allow choosing multiple options',
   fixture: 'unit-test-fixture',
@@ -515,7 +515,7 @@ export const askUserQuestionMultiSelectTest = {
  * result carries the user's own answer under the question header.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const askUserQuestionCustomAnswerTest = {
+const askUserQuestionCustomAnswerTest = {
   name: 'ask-user-question-custom-answer',
   description: 'AskUserQuestion should let the user type their own answer instead of picking an option',
   fixture: 'unit-test-fixture',

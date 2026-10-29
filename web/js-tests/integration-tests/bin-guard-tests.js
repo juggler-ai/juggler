@@ -37,7 +37,7 @@ import { textResponse, toolUseResponse } from '../utilities/integration-test-run
  * the guard does NOT treat awaiting-approval as busy.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const binAwaitingApprovalIsAllowedTest = {
+const binAwaitingApprovalIsAllowedTest = {
   name: 'bin-awaiting-approval-is-allowed',
   description: 'A conversation parked on a tool approval can be moved to the bin',
   fixture: 'unit-test-fixture',
@@ -101,7 +101,7 @@ export const binAwaitingApprovalIsAllowedTest = {
  * the turn allowed to settle.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const binRunningTurnIsRefusedTest = {
+const binRunningTurnIsRefusedTest = {
   name: 'bin-running-turn-is-refused',
   description: 'A conversation with a turn in flight cannot be moved to the bin',
   fixture: 'unit-test-fixture',

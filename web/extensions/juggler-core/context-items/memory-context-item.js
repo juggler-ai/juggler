@@ -16,6 +16,7 @@ import { readFile, writeFile, stat } from 'juggler/ops';
 import { createElement, injectStylesOnce } from 'juggler/ui';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { parseMemory, appendEntry, removeEntry, removeMatching } from '../lib/memory-format.js';
+import { toolActionResult } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -200,7 +201,8 @@ class MemoryContextItem extends ContextItem {
    * @private
    */
   _memoryPath() {
-    return (this.data && this.data.path) || MemoryContextItem.DEFAULT_PATH;
+    const path = this.data?.path;
+    return (typeof path === 'string' && path) || MemoryContextItem.DEFAULT_PATH;
   }
 
   /** @returns {string} Today's date as `YYYY-MM-DD` */
@@ -506,10 +508,11 @@ class MemoryContextItem extends ContextItem {
    */
   renderToolActionDetails(wrapper, ctx) {
     const { toolAction, input } = ctx;
-    const raw = toolAction.get('result');
-    const result = raw?.toJSON ? raw.toJSON() : (raw || {});
-    const fullResult = result.fullResult || {};
-    const data = fullResult.result || {};
+    const result = toolActionResult(toolAction);
+    const fullResult = result.fullResult;
+    const resultData = fullResult?.result;
+    /** @type {Record<string, unknown>} */
+    const data = resultData && typeof resultData === 'object' ? /** @type {Record<string, unknown>} */ (resultData) : {};
     const action = input.action || data.action;
 
     const panel = createElement('div', 'memory-action');
@@ -533,7 +536,7 @@ class MemoryContextItem extends ContextItem {
         'div',
         `memory-action-banner ${result.cancelled ? 'cancelled' : 'error'}`,
         // An error is the model's English, shown as it was.
-        result.cancelled ? t('Cancelled') : (fullResult.error || result.content || t('Memory update failed'))
+        result.cancelled ? t('Cancelled') : (fullResult?.error || result.content || t('Memory update failed'))
       );
       panel.appendChild(banner);
       wrapper.appendChild(panel);
@@ -563,7 +566,7 @@ class MemoryContextItem extends ContextItem {
     } else {
       // remember (default)
       panel.appendChild(verbChip(t('Remembered'), 'add'));
-      panel.appendChild(factBlock(input.fact ?? data.fact ?? ''));
+      panel.appendChild(factBlock(String(input.fact ?? data.fact ?? '')));
     }
 
     const entryCount = typeof data.entryCount === 'number' ? data.entryCount : null;

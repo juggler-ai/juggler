@@ -151,12 +151,12 @@
 }
 
 :root[data-theme="light"] .btn-circular-control {
-    background: rgb(255 255 255 / 80%);
+    background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
     border-color: var(--border-color);
 }
 
 :root[data-theme="light"] .btn-circular-control:hover:not(:disabled) {
-    background: rgb(255 255 255 / 95%);
+    background: color-mix(in srgb, var(--bg-secondary) 95%, transparent);
     border-color: var(--text-tertiary);
 }
 
@@ -221,7 +221,7 @@
 :root[data-theme="light"] .btn-ghost:hover:not(:disabled),
 :root[data-theme="light"] .btn-ghost:active:not(:disabled),
 :root[data-theme="light"] .close-button:hover:not(:disabled) {
-    background: rgb(255 255 255 / 95%);
+    background: color-mix(in srgb, var(--bg-secondary) 95%, transparent);
     border-color: var(--text-tertiary);
 }
 

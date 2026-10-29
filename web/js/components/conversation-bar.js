@@ -3,13 +3,6 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * @typedef {object} ModalOptions
- * @property {string} [confirmText] - Text for confirm button
- * @property {string} [cancelText] - Text for cancel button
- * @property {boolean} [danger] - Show danger styling for destructive actions
- */
-
-/**
  * @typedef {object} WindowWithConversationBar
  * @property {typeof ConversationBar} ConversationBar - ConversationBar class
  */
@@ -75,7 +68,7 @@ const NEW_CONVERSATION_DEBOUNCE_MS = 500;
 // only the transcript, the expensive half, waits. Longer than key auto-repeat
 // and a quick tap-tap-tap, short enough that a single press still feels
 // immediate.
-export const CYCLE_SETTLE_MS = 150;
+const CYCLE_SETTLE_MS = 150;
 
 // How long a keyboard-moved tab takes to slide into its new place. A touch
 // longer than a drag's 150ms shove: there the pointer already says where the
@@ -3029,5 +3022,3 @@ registerContextMenuProvider({
     return items;
   },
 });
-
-export default ConversationBar;

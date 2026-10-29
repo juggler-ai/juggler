@@ -30,7 +30,7 @@ import {
 
 /**
  * Test 1: Basic add/undo/redo cycle
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testBasicAddUndoRedo(session) {
@@ -74,7 +74,7 @@ async function testBasicAddUndoRedo(session) {
 
 /**
  * Test 2: Delete context item undo/redo cycle
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testDeleteContextItemUndoRedo(session) {
@@ -127,7 +127,7 @@ async function testDeleteContextItemUndoRedo(session) {
 
 /**
  * Test 3: Multiple sequential operations
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testMultipleOperations(session) {
@@ -186,7 +186,7 @@ async function testMultipleOperations(session) {
 
 /**
  * Test 4: Redo stack clearing after new operation
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testRedoStackClearing(session) {
@@ -241,7 +241,7 @@ async function testRedoStackClearing(session) {
 
 /**
  * Test 5: Undo history persists across session reload
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testUndoHistoryPersistence(session) {
@@ -291,7 +291,7 @@ async function testUndoHistoryPersistence(session) {
 
 /**
  * Test 6: Clear all can be undone to restore context items
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testClearAllUndo(session) {
@@ -339,7 +339,7 @@ async function testClearAllUndo(session) {
 
 /**
  * Test 7: Single context item operation should require exactly one undo
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testSingleContextItemSingleUndo(session) {
@@ -386,7 +386,7 @@ async function testSingleContextItemSingleUndo(session) {
  *
  * Bug reproduction: In a new conversation, delete a context item.
  * Undo does not restore it but creates new operations with incrementing groupIds.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testDeleteContextItemUndoNoInfiniteLoop(session) {

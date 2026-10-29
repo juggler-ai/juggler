@@ -26,7 +26,7 @@ import workerManager from '../../js/services/worker-manager.js';
  * This test verifies that each conversation has its own undo/redo stack.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const multiConvUndoIsolationTest = {
+const multiConvUndoIsolationTest = {
   name: 'multi-conv-undo-isolation',
   description: 'Undo in one conversation does not affect others',
   fixture: 'unit-test-fixture',
@@ -60,7 +60,7 @@ export const multiConvUndoIsolationTest = {
  * Context item isolation test - context items are scoped to their conversation.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const multiConvContextItemIsolationTest = {
+const multiConvContextItemIsolationTest = {
   name: 'multi-conv-context-item-isolation',
   description: 'Context items are scoped to their conversation',
   fixture: 'unit-test-fixture',
@@ -98,7 +98,7 @@ export const multiConvContextItemIsolationTest = {
  * doesn't corrupt undo in conversation A.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const deleteConversationUndoSafeTest = {
+const deleteConversationUndoSafeTest = {
   name: 'multi-conv-delete-undo-safe',
   description: 'Deleting a conversation does not corrupt undo in other conversations',
   fixture: 'unit-test-fixture',
@@ -131,7 +131,7 @@ export const deleteConversationUndoSafeTest = {
  * Worker cleanup test - verify workers are terminated when conversation is deleted.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const multiConvWorkerCleanupTest = {
+const multiConvWorkerCleanupTest = {
   name: 'multi-conv-worker-cleanup',
   description: 'Workers are cleaned up when conversation is destroyed',
   fixture: 'unit-test-fixture',
@@ -167,7 +167,7 @@ export const multiConvWorkerCleanupTest = {
  * Basic multi-conversation switching test.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const multiConvSwitchTest = {
+const multiConvSwitchTest = {
   name: 'multi-conv-switch-basic',
   description: 'Switching between conversations preserves state',
   fixture: 'unit-test-fixture',
@@ -202,7 +202,7 @@ export const multiConvSwitchTest = {
  * with empty undo/redo stacks (nothing to undo).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const duplicateConversationTest = {
+const duplicateConversationTest = {
   name: 'duplicate-conversation-basic',
   description: 'Duplicating a conversation copies all messages, modelConfig, but starts with empty undo stack',
   fixture: 'unit-test-fixture',
@@ -276,7 +276,7 @@ export const duplicateConversationTest = {
  * This test only uses a single conversation and validates undo/redo flow.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const multiConvRedoTest = {
+const multiConvRedoTest = {
   name: 'multi-conv-redo',
   description: 'Redo works correctly after undo in multi-conversation scenario',
   fixture: 'unit-test-fixture',
@@ -307,7 +307,7 @@ export const multiConvRedoTest = {
  * Duplicated conversation should inherit the source name with " (copy)" suffix.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const duplicateConversationNameTest = {
+const duplicateConversationNameTest = {
   name: 'duplicate-conversation-name',
   description: 'Duplicated conversation tab should be named "<source> (copy)", not "Unknown"',
   fixture: 'unit-test-fixture',
@@ -358,7 +358,7 @@ export const duplicateConversationNameTest = {
  *   Expected: B selected, not A (first in creation order) or A (tail of MRU).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const deleteActiveTabMruTest = {
+const deleteActiveTabMruTest = {
   name: 'multi-conv-delete-active-tab-mru',
   description: 'Deleting the active tab returns to most-recently-used tab, not tab 0',
   fixture: 'unit-test-fixture',
@@ -404,7 +404,7 @@ export const deleteActiveTabMruTest = {
  * not fail server-side with a 409 and land as a tab named "Unknown".
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const duplicateConversationTwiceNameTest = {
+const duplicateConversationTwiceNameTest = {
   name: 'duplicate-conversation-twice-name',
   description: 'Duplicating the same conversation twice produces unique names, not a collision/"Unknown"',
   fixture: 'unit-test-fixture',
@@ -463,7 +463,7 @@ function rootShape(conversation) {
  * message carries on from it in the copy; the source is untouched.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const forkFromAssistantMessageTest = {
+const forkFromAssistantMessageTest = {
   name: 'fork-from-assistant-message',
   description: 'Forking at an assistant reply keeps the reply, drops what follows, and the next message continues from it',
   fixture: 'unit-test-fixture',
@@ -509,7 +509,7 @@ export const forkFromAssistantMessageTest = {
  * no tool call, answered or not.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const forkFromAssistantBeforeToolCallTest = {
+const forkFromAssistantBeforeToolCallTest = {
   name: 'fork-from-assistant-before-tool-call',
   description: 'Forking at a reply that went on to call a tool keeps the reply and drops the call',
   fixture: 'unit-test-fixture',
@@ -555,7 +555,7 @@ export const forkFromAssistantBeforeToolCallTest = {
  * engine's cancel observer). A's tool must still run to completion.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const multiConvCancelIsolationTest = {
+const multiConvCancelIsolationTest = {
   name: 'multi-conv-cancel-isolation',
   description: 'Cancelling call_1 in conversation B must not abort the running call_1 in conversation A',
   fixture: 'unit-test-fixture',
@@ -645,7 +645,7 @@ export const multiConvCancelIsolationTest = {
  * rather than reaching across realms.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const newConversationToolTest = {
+const newConversationToolTest = {
   name: 'new-conversation-tool-seeds-message',
   description: 'new_conversation tool executes in the engine and creates + seeds a new conversation',
   fixture: 'unit-test-fixture',

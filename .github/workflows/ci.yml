@@ -197,9 +197,10 @@ jobs:
       # -race. Kept a separate step from the browser suite so the CI log names
       # which layer broke. Use -count=1 (not -short): -short makes these suites'
       # TestMain/guards self-skip, which silently turned this gate into a no-op.
-      # Every package and every test runs on every platform, so this matches
-      # `make test-go` in scope and can't drift weaker than local; -p on Windows
-      # is a load knob, not a scope one.
+      # Every package and every test runs on every platform, and the packages
+      # are the Makefile's GO_TEST_PACKAGES, read from it rather than restated,
+      # so this matches `make test-go` in scope and can't drift weaker than
+      # local; -p on Windows is a load knob, not a scope one.
       #
       # `go test` defaults -p to GOMAXPROCS, so a 4-vCPU hosted runner starts
       # four race-instrumented test binaries at once — and `server/handlers` is a
@@ -217,10 +218,16 @@ jobs:
       - name: Run Go package tests
         shell: bash
         run: |
+          pkgs="$(make -s print-GO_TEST_PACKAGES)"
+          if [ -z "${pkgs}" ]; then
+            echo "could not read GO_TEST_PACKAGES from the Makefile" >&2
+            exit 1
+          fi
+          # shellcheck disable=SC2086 # $pkgs is a list of package patterns
           if [ "${RUNNER_OS}" = "Windows" ]; then
-            go test -count=1 -race -timeout 5m -p 2 ./cmd/... ./internal/... ./web/...
+            go test -count=1 -race -timeout 5m -p 2 ${pkgs}
           else
-            go test -count=1 -race -timeout 5m ./cmd/... ./internal/... ./web/...
+            go test -count=1 -race -timeout 5m ${pkgs}
           fi
 
       # The vendored Wails fork's own tests, for the packages its local patches

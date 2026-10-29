@@ -81,9 +81,8 @@ class ContextItemRegistry extends BaseRegistry {
     if (!this._toolNameCache) {
       this._toolNameCache = new Map();
       for (const { class: ItemClass } of this.getAll()) {
-        const ItemClassTyped = /** @type {any} */ (ItemClass);
-        if (ItemClassTyped.getToolDefinitions) {
-          const tools = ItemClassTyped.getToolDefinitions();
+        if (ItemClass.getToolDefinitions) {
+          const tools = ItemClass.getToolDefinitions();
           for (const tool of tools) {
             this._toolNameCache.set(tool.name, ItemClass);
           }
@@ -129,8 +128,8 @@ class ContextItemRegistry extends BaseRegistry {
   getItemsThatRequireApproval() {
     return this.getAll()
       .filter(({ class: ItemClass }) => {
-        const manifest = /** @type {any} */ (ItemClass).MANIFEST;
-        return manifest.requiresApproval === true;
+        const manifest = ItemClass.MANIFEST;
+        return manifest?.requiresApproval === true;
       })
       .map(({ id }) => id);
   }

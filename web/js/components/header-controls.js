@@ -7,7 +7,7 @@
  * button's connected-clients count.
  * The buttons live once in .app-header and operate on the currently visible
  * conversation.
- * @module utils/header-controls
+ * @module components/header-controls
  */
 
 import keyShortcutManager from '../services/key-shortcut-manager.js';
@@ -15,8 +15,10 @@ import wsService from '../services/websocket.js';
 import { hasNativeHost } from '../../sdk/lib/window-control.js';
 import { fetchJson } from '../services/http.js';
 import { uiPort } from '../services/ui-port.js';
-import { apiUrl } from './api-url.js';
-import { chooseProject, externalServerHost, projectIsFixed, projectsOpenInNewWindow } from './project-open-mode.js';
+import { apiUrl } from '../utils/api-url.js';
+import {
+  externalServerHost, projectIsFixed, projectsOpenInNewWindow, sessionsPageUrl, SESSIONS_PAGE_TARGET,
+} from '../utils/project-open-mode.js';
 import { busyState } from '../model/processing-status.js';
 import { t, markForTranslation, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
 
@@ -30,6 +32,23 @@ import { t, markForTranslation, htmlSlots, withHtml } from '../../sdk/lib/i18n.j
  * @property {(type: 'clients-changed', fn: (data: any) => void) => void} on - Start hearing joins and leaves.
  * @property {(type: 'clients-changed', fn: (data: any) => void) => void} off - Stop hearing them.
  */
+
+/**
+ * Let the user choose another project: the sessions page when this page's
+ * project is fixed, else the project picker.
+ * @param {string} currentPath - The project loaded now ('' for none).
+ * @param {any} session - Passed through to the picker.
+ * @param {(url: string, target: string) => void} [open] - Opens a URL in a named window.
+ * @returns {Promise<void>} Resolves once the sessions page or picker is open.
+ */
+export async function chooseProject(currentPath, session, open = (url, target) => { window.open(url, target); }) {
+  if (projectIsFixed()) {
+    open(sessionsPageUrl(), SESSIONS_PAGE_TARGET);
+    return;
+  }
+  const { openProjectPicker } = await import('./project-picker.js');
+  openProjectPicker(currentPath, session);
+}
 
 /**
  * How many of the connected viewers are windows of their own. A detached
@@ -338,7 +357,7 @@ export function setupHeaderControls(session) {
 
   // Session ▸ Connect to Server… arrives the same way.
   window.addEventListener('juggler:connect-server', async () => {
-    const { openConnectServerPanel } = await import('../components/connect-server-panel.js');
+    const { openConnectServerPanel } = await import('./connect-server-panel.js');
     await openConnectServerPanel();
   });
 

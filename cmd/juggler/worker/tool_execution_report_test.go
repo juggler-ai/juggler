@@ -281,3 +281,9 @@ func TestExecReport_ApprovedToolUntouched(t *testing.T) {
 		t.Fatalf("an approved (unclaimed) tool must be left untouched, got %q", got)
 	}
 }
+
+// finalizeToolsAbsentFromExecReport is finalizeToolsAbsentFromExecReportExcept
+// with no live thread spared.
+func (w *ConversationWorker) finalizeToolsAbsentFromExecReport() {
+	w.finalizeToolsAbsentFromExecReportExcept(nil)
+}

@@ -59,8 +59,9 @@ export function highlightCode(code, language) {
     return highlightBashCommand(text);
   }
 
-  /** @type {any} */
-  const Prism = (/** @type {any} */ (globalThis)).Prism;
+  /** @type {{Prism?: {languages?: Record<string, object>, highlight: (text: string, grammar: object, language: string) => string}}} */
+  const host = /** @type {object} */ (globalThis);
+  const Prism = host.Prism;
   const grammar = Prism?.languages?.[id];
   if (Prism && grammar) {
     try {

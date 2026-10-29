@@ -32,19 +32,19 @@ const EFFORT = Object.freeze({
  * Allowed values, in ascending effort. Also the tool schema's enum.
  * @type {readonly Thoroughness[]}
  */
-export const THOROUGHNESS_LEVELS = Object.freeze(
+const THOROUGHNESS_LEVELS = Object.freeze(
   /** @type {Thoroughness[]} */ (Object.keys(EFFORT))
 );
 
 /** @type {Thoroughness} */
-export const DEFAULT_THOROUGHNESS = 'medium';
+const DEFAULT_THOROUGHNESS = 'medium';
 
 /**
  * Normalize a caller-supplied thoroughness to a known level.
  * @param {unknown} value - Raw value from the tool input
  * @returns {Thoroughness} One of {@link THOROUGHNESS_LEVELS}
  */
-export function normalizeThoroughness(value) {
+function normalizeThoroughness(value) {
   const level = /** @type {Thoroughness} */ (typeof value === 'string' ? value.toLowerCase() : '');
   return THOROUGHNESS_LEVELS.includes(level) ? level : DEFAULT_THOROUGHNESS;
 }

@@ -48,7 +48,7 @@ func newTierCapturingClient(t *testing.T, body *[]byte, tiers ...provider.Servic
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	c.serviceTierSpec = TierSpec("", tiers...)
+	c.serviceTierSpec = ServiceTierSpec{Tiers: tiers}
 	return c
 }
 
@@ -87,7 +87,7 @@ func newTierReplayClient(t *testing.T, servedTier string, tiers ...provider.Serv
 		t.Fatalf("NewClient: %v", err)
 	}
 	c.providerName = "openaicodex"
-	c.serviceTierSpec = TierSpec("", tiers...)
+	c.serviceTierSpec = ServiceTierSpec{Tiers: tiers}
 	return c
 }
 

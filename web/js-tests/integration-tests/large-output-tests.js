@@ -33,7 +33,7 @@ import { textResponse, toolUseResponse } from '../utilities/integration-test-run
  * there is no prompt to wait for.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const largeOutputBoundedTest = {
+const largeOutputBoundedTest = {
   name: 'large-output-bounded',
   description: 'A large-output bash command is bounded and a subsequent command still runs',
   fixture: 'unit-test-fixture',

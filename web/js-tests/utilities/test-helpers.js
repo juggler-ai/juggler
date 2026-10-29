@@ -18,11 +18,10 @@ import strategyRegistry from '../../js/registries/strategy-registry.js';
 import hookRegistry from '../../js/registries/hook-registry.js';
 import { markRegistriesReady } from '../../js/registries/registry-ready.js';
 import { registerItemOwnedStrategies } from '../../js/registries/reload-registries.js';
-import { ContextBuilder } from '../../js/services/context-builder.js';
+import { ContextBuilder } from './context-builder.js';
 import {
   createToolActionMessage,
   createUserMessage,
-  isToolResultMessage,
   isToolUseMessage,
   isToolActionMessage,
   TOOL_STATES
@@ -38,19 +37,10 @@ import { noteProgress } from './test-deadline.js';
 
 
 /**
- * @typedef {import('../../model/session.js').default} Session
- * @typedef {import('../../model/conversation.js').default} Conversation
- * @typedef {import('../../services/response-handler.js').default} ResponseHandler
- * @typedef {import('../../model/message.js').Message} Message
- */
-
-/**
- * @typedef {object} FrameworkTestContext
- * @property {Session} session - Session instance
- * @property {Conversation} conversation - Conversation instance
- * @property {ResponseHandler} responseHandler - Response handler for tool execution
- * @property {string} fixtureDir - Path to fixture directory
- * @property {function(string): Promise<string>} readFile - Read file helper
+ * @typedef {import('../../js/model/session.js').default} Session
+ * @typedef {import('../../js/model/conversation.js').default} Conversation
+ * @typedef {import('../../js/services/response-handler.js').default} ResponseHandler
+ * @typedef {import('../../sdk/lib/message.js').Message} Message
  */
 
 /**
@@ -86,7 +76,7 @@ export async function initializeRegistries() {
 
 /**
  * Create mock services for headless testing (no UI needed)
- * @returns {Promise<import('../../model/session.js').ConversationServices>} Mock services object
+ * @returns {Promise<import('../../js/model/session.js').ConversationServices>} Mock services object
  */
 async function createMockServices() {
   const { default: LLMState } = await import('../../js/services/llm-state.js');
@@ -393,7 +383,7 @@ export async function waitForWorkerReady(conversationId, timeout = 10000) {
  * @param {Conversation} conversation - Conversation instance
  * @returns {ResponseHandler} Response handler
  */
-export function getResponseHandler(conversation) {
+function getResponseHandler(conversation) {
   // @ts-ignore - Access private member for testing
   return conversation._responseHandler;
 }
@@ -402,7 +392,7 @@ export function getResponseHandler(conversation) {
  * Build LLM context from an message thread
  * Returns the messages that would be sent to the LLM on the next turn.
  * Uses production ContextBuilder - context item content syncing is handled by worker's syncContextItemContent().
- * @param {import('../../model/message-thread.js').default} messageThread - Message thread
+ * @param {import('../../js/model/message-thread.js').default} messageThread - Message thread
  * @param {Session} session - Session instance
  * @returns {Promise<{systemPrompt: string|null, messages: Message[]}>} Prepared context
  */
@@ -410,42 +400,6 @@ export async function buildContext(messageThread, session) {
   const contextWindow = messageThread.conversation.contextWindow || 200000;
   const builder = new ContextBuilder({ messageThread, session, contextWindow });
   return await builder.prepare();
-}
-
-/**
- * Find a tool-result message in context by tool use ID
- * @param {Message[]} messages - Context messages
- * @param {string} toolUseId - Tool use ID to find
- * @returns {import('../../model/message.js').ToolResultMessage|undefined} The tool-result message or undefined
- */
-export function findToolResult(messages, toolUseId) {
-  return /** @type {import('../../model/message.js').ToolResultMessage|undefined} */ (
-    messages.find(m => isToolResultMessage(m) && m.toolUseId === toolUseId)
-  );
-}
-
-/**
- * Find a tool-use message in context by tool use ID
- * @param {Message[]} messages - Context messages
- * @param {string} toolUseId - Tool use ID to find
- * @returns {import('../../model/message.js').ToolUseMessage|undefined} The tool-use message or undefined
- */
-export function findToolUse(messages, toolUseId) {
-  return /** @type {import('../../model/message.js').ToolUseMessage|undefined} */ (
-    messages.find(m => isToolUseMessage(m) && m.toolUseId === toolUseId)
-  );
-}
-
-/**
- * Find a context item message by item ID (UI marker only - no content)
- * @param {Message[]} messages - Context messages
- * @param {string} itemId - Context item ID to find
- * @returns {import('../../model/message.js').ContextItemMessage|undefined} The context item message or undefined
- */
-export function findContextItemMessage(messages, itemId) {
-  return /** @type {import('../../model/message.js').ContextItemMessage|undefined} */ (
-    messages.find(m => /** @type {any} */ (m).itemId === itemId)
-  );
 }
 
 /**
@@ -521,15 +475,6 @@ export async function executeToolsAndGetContext(conversation, session, toolCalls
 // buildContextFromProxy() removed - use buildContext() directly
 
 /**
- * @typedef {object} ToolResultItem
- * @property {string} type - Item type
- * @property {string} toolUseId - Tool use ID
- * @property {string} content - Result content
- * @property {boolean} [isError] - Whether result is an error
- * @property {boolean} [cancelled] - Whether tool was cancelled
- */
-
-/**
  * Extract tool outcomes from items.
  * Items contain tool-action messages (internal format), not tool-result messages (LLM context format).
  * @param {Array<object>} items - Proxy items
@@ -589,7 +534,7 @@ export function assert(condition, message) {
  * @param {Array<{id: string, name: string, input: Record<string, unknown>}>} toolCalls - Tool calls for ID mapping
  * @returns {Array<Record<string, unknown>>} Normalized messages for comparison
  */
-export function extractGoldenMessages(messages, toolCalls) {
+function extractGoldenMessages(messages, toolCalls) {
   // Build ID map: original ID → $1, $2, etc. based on order in toolCalls
   /** @type {Map<string, string>} */
   const idMap = new Map();
@@ -663,7 +608,7 @@ export function extractGoldenMessages(messages, toolCalls) {
   return messages.map(msg => {
     switch (msg.type) {
       case 'tool-use': {
-        const m = /** @type {import('../../model/message.js').ToolUseMessage} */ (msg);
+        const m = /** @type {import('../../sdk/lib/message.js').ToolUseMessage} */ (msg);
         // Handle synthetic UI-added context item IDs (format: "ui-ci-{contextItemId}")
         let normalizedToolUseId = idMap.get(m.toolUseId) || m.toolUseId;
         if (m.toolUseId.startsWith('ui-ci-')) {
@@ -678,7 +623,7 @@ export function extractGoldenMessages(messages, toolCalls) {
         };
       }
       case 'tool-result': {
-        const m = /** @type {import('../../model/message.js').ToolResultMessage} */ (msg);
+        const m = /** @type {import('../../sdk/lib/message.js').ToolResultMessage} */ (msg);
         return {
           type: 'tool-result',
           toolUseId: getNormalizedToolUseId(m.toolUseId),
@@ -872,9 +817,9 @@ export async function executeToolUntilApproval(conversation, _session, toolCall,
  * @param {Conversation} conversation - Conversation instance
  * @param {string} toolUseId - Tool use ID to wait for
  * @param {number} [timeoutMs=2000] - Timeout in milliseconds
- * @returns {Promise<import('../../model/message.js').ToolActionMessage>} The pending message
+ * @returns {Promise<import('../../sdk/lib/message.js').ToolActionMessage>} The pending message
  */
-export async function waitForPendingApproval(conversation, toolUseId, timeoutMs = 2000) {
+async function waitForPendingApproval(conversation, toolUseId, timeoutMs = 2000) {
   const pending = await pollPatiently(() => {
     // Iterate items to find matching tool-action
     for (const item of conversation.rootItems) {
@@ -953,6 +898,49 @@ export async function waitFor(predicate, optsOrWhat = {}, timeoutMs = undefined)
 /** @typedef {{timeoutMs?: number, intervalMs?: number, description?: WaitForDescription}} WaitForOptions */
 
 /**
+ * Yield one macrotask: resolves from a zero-delay timer, so pending microtasks
+ * and the tasks already queued ahead of it run first.
+ *
+ * The one shared yield for tests — a suite does not keep its own `tick` or
+ * `settle` (lint forbids a local timer helper in the test trees). It is a hop
+ * through the task queue, not a duration: a slow core runs the same hops more
+ * slowly, never fewer of them. It is not a barrier for work that takes more
+ * hops than it gives, or that waits on the server, a worker or a frame — wait
+ * for that with {@link waitFor}.
+ * @returns {Promise<void>} Settles on the next macrotask.
+ */
+export function nextTask() {
+  return new Promise((resolve) => { setTimeout(resolve, 0); });
+}
+
+/**
+ * What `promise` has settled to by the next task: `{value}` once it has
+ * resolved, `null` while it is still pending. A rejection by then is rethrown.
+ *
+ * The honest form of "it did not settle" for a promise whose settling, if it
+ * came at all, would come synchronously or in the microtasks after what the
+ * case just did — a handler that resolves inline, an `await` on a stub that
+ * answers at once. A slow core runs those hops more slowly, never past the
+ * next task, so a promise still pending then was not settled by them; giving
+ * it a window of wall time instead would pass a slow core vacuously. Settling
+ * that waits on a timer, the server, a worker or a frame is not covered: wait
+ * for the later event that would have carried it, then ask this.
+ * @template T
+ * @param {Promise<T>} promise - The promise to look at.
+ * @returns {Promise<{value: T}|null>} Its value, or null if it has not settled.
+ */
+export async function settledByNextTask(promise) {
+  /** @type {{value: T}|null} */
+  let settled = null;
+  /** @type {{error: unknown}|null} */
+  let rejected = null;
+  promise.then((value) => { settled = { value }; }, (error) => { rejected = { error }; });
+  await nextTask();
+  if (rejected) throw /** @type {{error: unknown}} */ (rejected).error;
+  return settled;
+}
+
+/**
  * Create an orphaned approval message for testing.
  * This simulates what happens after a page reload: a tool-use message with
  * state: 'pending' but no entry in _pendingApprovals Map.
@@ -960,8 +948,8 @@ export async function waitFor(predicate, optsOrWhat = {}, timeoutMs = undefined)
  * @param {string} toolUseId - Tool use ID
  * @param {string} toolName - Tool name (e.g., 'execute')
  * @param {Record<string, unknown>} toolInput - Tool input parameters
- * @param {import('../../components/action-confirmation.js').ActionConfirmationOptions} approvalOptions - Approval options for UI
- * @returns {import('../../model/message.js').ToolActionMessage} The created orphaned message
+ * @param {import('../../js/components/action-confirmation.js').ActionConfirmationOptions} approvalOptions - Approval options for UI
+ * @returns {import('../../sdk/lib/message.js').ToolActionMessage} The created orphaned message
  */
 export function createOrphanedApproval(conversation, toolUseId, toolName, toolInput, approvalOptions) {
   const orphanedMsg = createToolActionMessage({
@@ -998,5 +986,4 @@ export async function withTimeout(promise, timeoutMs, description) {
 }
 
 // Re-export message factories for convenience in tests
-export { createToolActionMessage };
 

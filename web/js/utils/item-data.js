@@ -11,13 +11,13 @@
  * Every consumer would otherwise repeat the same three-way decode, and any one
  * of them getting it wrong shows up as a silently absent field rather than an
  * error.
- * @param {{ get: (key: string) => any }} message - The conversation item
- * @returns {Record<string, any>|null} The decoded data, or null if absent or unreadable.
+ * @param {{ get: (key: 'data') => unknown }} message - The conversation item
+ * @returns {Record<string, unknown>|null} The decoded data, or null if absent or unreadable.
  */
 export function readItemData(message) {
   const raw = message?.get?.('data');
   if (!raw) return null;
-  if (typeof raw.toJSON === 'function') return raw.toJSON();
+  if (typeof raw === 'object' && 'toJSON' in raw && typeof raw.toJSON === 'function') return raw.toJSON();
   if (typeof raw === 'string') {
     try {
       return JSON.parse(raw);
@@ -25,5 +25,5 @@ export function readItemData(message) {
       return null;
     }
   }
-  return typeof raw === 'object' ? raw : null;
+  return typeof raw === 'object' ? /** @type {Record<string, unknown>} */ (raw) : null;
 }

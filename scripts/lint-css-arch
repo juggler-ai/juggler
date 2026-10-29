@@ -15,16 +15,16 @@
  *   scale-literal   CSS injected from JS writes a font-size or radius out
  *                   instead of using a scale token
  *
- * Known violations live in web/css/.lint-css-allowlist, one per line, as
- * `<check> <item>` with an optional `# note`. The allowlist is the outstanding
- * debt: entries may be removed, never added, and an entry that no longer
- * matches anything is itself an error so the file cannot rot.
+ * There is no allowlist. Every finding of the first seven checks fails the
+ * run, and nothing can excuse one: a violation is fixed where it is.
  *
- * layer-inversion allowlists a count per file pair rather than one entry per
- * finding — `<lower> > <higher> <n>` — because the findings run to thousands
- * and are fixed a file at a time. The count is a ratchet: exceeding it fails,
- * and so does beating it, which is how the number comes down as the work lands.
- * `--inversions <lower> <higher>` prints the findings behind one number.
+ * layer-inversion is the one check whose findings are counted rather than
+ * failed outright, because they run to thousands and come down a file pair at
+ * a time. web/css/.layer-inversion-ratchet holds the count per file pair —
+ * `<lower> > <higher> <n>` — and the count is a ratchet: exceeding it fails, a
+ * pair it does not list fails, and so does beating it, which is how the number
+ * comes down as the work lands. `--inversions <lower> <higher>` prints the
+ * findings behind one number.
  *
  * Run via `make lint` / `make lint-files`; never invoke it by hand.
  */
@@ -37,92 +37,208 @@ const path = require('path');
 const repoRoot = path.resolve(__dirname, '..');
 const cssDir = path.join(repoRoot, 'web', 'css');
 
+/**
+ * One style rule as parseRules finds it.
+ * @typedef {object} ParsedRule
+ * @property {string} selector - The selector list, as written.
+ * @property {number} line - The 1-based line its selector starts on.
+ * @property {string[]} at - The at-rule preludes it sits inside, outermost first.
+ * @property {string} body - The text between its braces.
+ */
+
+/**
+ * One compound selector: everything that must be true of a single element.
+ * @typedef {object} Compound
+ * @property {string|null} tag - The type selector, lower-cased, or null for none (or `*`).
+ * @property {string|null} id - The id, without its `#`.
+ * @property {string[]} classes - The classes, without their dots.
+ * @property {string[]} attrs - The attribute selectors, brackets included.
+ * @property {string[]} pseudoClasses - Plain pseudo-classes, a functional one written `name(arg)`.
+ * @property {string[]} pseudoElements - Pseudo-elements, by name.
+ * @property {string[]} nots - The argument of each `:not()`.
+ * @property {{name: string, arg: string}[]} functional - Each `:not/:is/:where/:has/:matches/:-webkit-any` and its argument.
+ */
+
+/**
+ * A compound in a complex selector, with the combinator that joins it to the one before.
+ * @typedef {Compound & {combinator: string|null, text: string}} PlacedCompound
+ */
+
+/**
+ * A rule body's declarations, as property → whether it is !important.
+ * @typedef {Map<string, boolean>} Declarations
+ */
+
+/**
+ * The width band and the discrete media features a set of conditions demands.
+ * @typedef {object} MediaTerms
+ * @property {number} min - The narrowest width in px it allows.
+ * @property {number} max - The widest width in px it allows.
+ * @property {Map<string, string>} discrete - Single-valued features (hover, pointer, …) and the value demanded.
+ */
+
+/**
+ * A sheet as web/css/manifest.json lists it.
+ * @typedef {object} ManifestSheet
+ * @property {string} file - Its path under web/css/.
+ * @property {string} layer - The layer it declares.
+ * @property {string[]} [owns] - Root-name globs and `[attr]` scope claims it owns.
+ * @property {boolean} [enumerates] - It may file rules under any root, and owns none.
+ */
+
+/**
+ * A manifest sheet with its absolute path.
+ * @typedef {ManifestSheet & {abs: string}} Sheet
+ */
+
+/**
+ * web/css/manifest.json.
+ * @typedef {object} Manifest
+ * @property {string[]} layers - The layers, lowest first.
+ * @property {ManifestSheet[]} sheets - The sheets, in <link> order.
+ * @property {{pattern?: unknown, builtBy?: unknown}[]} [dynamicClasses] - Class families JS composes at runtime.
+ * @property {string[]} [jsSetProperties] - Custom properties JS sets.
+ */
+
+/**
+ * One problem a check found. `item` identifies it, so a repeat is reported once.
+ * @typedef {{item: string, message: string}} Failure
+ */
+
+/**
+ * What the production sources can put on an element.
+ * @typedef {object} Corpus
+ * @property {Set<string>} tokens - Every word-like token of their strings and attribute values.
+ * @property {Map<string, string>} files - Each read source's text, by repo-relative path.
+ */
+
+/**
+ * What the markup model answers, as the cascade checks ask it (scripts/css-markup-model).
+ * @typedef {object} MarkupFacts
+ * @property {(cls: string) => (Set<string>|null)} tagsOf - The tags a class is seen on, or null when unknown.
+ * @property {(classes: string[]) => boolean} canCoexist - Whether one element can carry all of the classes.
+ */
+
+/**
+ * The parts of a rule `canMeet` reads: its subject compound, the compound
+ * before it, and the class and tag names of every compound above the subject.
+ * @typedef {object} Reachable
+ * @property {PlacedCompound} subject - The last compound, the element the rule styles.
+ * @property {PlacedCompound|null} parent - The compound before the subject, or null.
+ * @property {string[]} ancestorTokens - Classes and tags of every compound above the subject.
+ */
+
+/**
+ * One selector of a rule, flattened for the layer-inversion check.
+ * @typedef {Reachable & {
+ *   file: string, layer: string, rank: number, line: number, selector: string,
+ *   declarations: Declarations, media: string[], score: number,
+ *   ancestors: PlacedCompound[], pseudoElement: string,
+ * }} CascadeRule
+ */
+
+/**
+ * A rule beating a higher-layer rule by specificity.
+ * @typedef {{lower: CascadeRule, higher: CascadeRule}} Inversion
+ */
+
 // ---------------------------------------------------------------------------
 // CSS parsing. The tree has no preprocessor, so a careful character walk is
 // enough and costs nothing to maintain.
 // ---------------------------------------------------------------------------
 
-/** Strip comments, keeping newlines so line numbers survive. */
+/**
+ * Strip comments, keeping newlines so line numbers survive.
+ * @param {string} src - A stylesheet's text.
+ * @returns {string} The text with every comment's characters blanked to spaces, its newlines kept.
+ */
 function stripComments(src) {
-	let out = '';
-	let quote = null;
-	for (let i = 0; i < src.length; i++) {
-		const c = src[i];
-		if (quote) {
-			out += c;
-			if (c === '\\') { out += src[++i] ?? ''; continue; }
-			if (c === quote) quote = null;
-			continue;
-		}
-		if (c === '"' || c === "'") { quote = c; out += c; continue; }
-		if (c === '/' && src[i + 1] === '*') {
-			const end = src.indexOf('*/', i + 2);
-			const chunk = src.slice(i, end < 0 ? src.length : end + 2);
-			out += chunk.replace(/[^\n]/g, ' ');
-			i += chunk.length - 1;
-			continue;
-		}
-		out += c;
-	}
-	return out;
+  let out = '';
+  let quote = null;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (quote) {
+      out += c;
+      if (c === '\\') { out += src[++i] ?? ''; continue; }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; out += c; continue; }
+    if (c === '/' && src[i + 1] === '*') {
+      const end = src.indexOf('*/', i + 2);
+      const chunk = src.slice(i, end < 0 ? src.length : end + 2);
+      out += chunk.replace(/[^\n]/g, ' ');
+      i += chunk.length - 1;
+      continue;
+    }
+    out += c;
+  }
+  return out;
 }
 
-/** The text between the brace at `open` and the one that closes it. */
+/**
+ * The text between the brace at `open` and the one that closes it.
+ * @param {string} clean - Comment-free stylesheet text.
+ * @param {number} open - The index of an opening brace.
+ * @returns {string} The block's inside, or everything after `open` when it never closes.
+ */
 function blockAt(clean, open) {
-	let depth = 0;
-	for (let i = open; i < clean.length; i++) {
-		if (clean[i] === '{') depth++;
-		else if (clean[i] === '}') { depth--; if (depth === 0) return clean.slice(open + 1, i); }
-	}
-	return clean.slice(open + 1);
+  let depth = 0;
+  for (let i = open; i < clean.length; i++) {
+    if (clean[i] === '{') depth++;
+    else if (clean[i] === '}') { depth--; if (depth === 0) return clean.slice(open + 1, i); }
+  }
+  return clean.slice(open + 1);
 }
 
 /**
  * Walk a stylesheet and yield every rule with its selector, line, body and the
  * at-rule stack it sits inside.
+ * @param {string} src - A stylesheet's text.
+ * @returns {ParsedRule[]} Every style rule in source order; keyframe selectors are not rules.
  */
 function parseRules(src) {
-	const clean = stripComments(src);
-	const rules = [];
-	const stack = [];
-	let prelude = '';
-	let preludeLine = 1;
-	let line = 1;
-	let quote = null;
+  const clean = stripComments(src);
+  const rules = [];
+  const stack = [];
+  let prelude = '';
+  let preludeLine = 1;
+  let line = 1;
+  let quote = null;
 
-	for (let i = 0; i < clean.length; i++) {
-		const c = clean[i];
-		if (c === '\n') line++;
-		if (quote) {
-			prelude += c;
-			if (c === '\\') { prelude += clean[++i] ?? ''; continue; }
-			if (c === quote) quote = null;
-			continue;
-		}
-		if (c === '"' || c === "'") { quote = c; prelude += c; continue; }
+  for (let i = 0; i < clean.length; i++) {
+    const c = clean[i];
+    if (c === '\n') line++;
+    if (quote) {
+      prelude += c;
+      if (c === '\\') { prelude += clean[++i] ?? ''; continue; }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; prelude += c; continue; }
 
-		if (c === '{') {
-			const text = prelude.trim();
-			if (!prelude.trim()) preludeLine = line;
-			const inKeyframes = stack.some((s) => /^@(-\w+-)?keyframes/i.test(s));
-			if (text.startsWith('@')) {
-				stack.push(text);
-			} else {
-				stack.push(text);
-				if (text && !inKeyframes) {
-					rules.push({ selector: text, line: preludeLine, at: stack.slice(0, -1), body: blockAt(clean, i) });
-				}
-			}
-			prelude = '';
-			preludeLine = line;
-			continue;
-		}
-		if (c === '}') { stack.pop(); prelude = ''; preludeLine = line; continue; }
-		if (c === ';' && stack.length === 0) { prelude = ''; preludeLine = line; continue; }
-		if (!prelude.trim() && /\s/.test(c)) { preludeLine = line; continue; }
-		prelude += c;
-	}
-	return rules;
+    if (c === '{') {
+      const text = prelude.trim();
+      if (!prelude.trim()) preludeLine = line;
+      const inKeyframes = stack.some((s) => /^@(-\w+-)?keyframes/i.test(s));
+      if (text.startsWith('@')) {
+        stack.push(text);
+      } else {
+        stack.push(text);
+        if (text && !inKeyframes) {
+          rules.push({ selector: text, line: preludeLine, at: stack.slice(0, -1), body: blockAt(clean, i) });
+        }
+      }
+      prelude = '';
+      preludeLine = line;
+      continue;
+    }
+    if (c === '}') { stack.pop(); prelude = ''; preludeLine = line; continue; }
+    if (c === ';' && stack.length === 0) { prelude = ''; preludeLine = line; continue; }
+    if (!prelude.trim() && /\s/.test(c)) { preludeLine = line; continue; }
+    prelude += c;
+  }
+  return rules;
 }
 
 /**
@@ -133,24 +249,26 @@ function parseRules(src) {
  *
  * A comma inside the wrapper means several selectors standing in one place,
  * which has no single shape, so those are left as they are.
+ * @param {string} selector - One selector.
+ * @returns {string} The selector with every single-argument `:where()`/`:is()` replaced by its argument.
  */
 function unwrapGrouping(selector) {
-	let out = '';
-	for (let i = 0; i < selector.length; i++) {
-		const m = /^:(where|is)\(/.exec(selector.slice(i));
-		if (!m) { out += selector[i]; continue; }
-		let depth = 0;
-		let j = i + m[0].length - 1;
-		for (; j < selector.length; j++) {
-			if (selector[j] === '(') depth++;
-			else if (selector[j] === ')') { depth--; if (!depth) break; }
-		}
-		const inner = selector.slice(i + m[0].length, j);
-		if (selectorParts(inner).length > 1) { out += selector.slice(i, j + 1); i = j; continue; }
-		out += unwrapGrouping(inner);
-		i = j;
-	}
-	return out;
+  let out = '';
+  for (let i = 0; i < selector.length; i++) {
+    const m = /^:(where|is)\(/.exec(selector.slice(i));
+    if (!m) { out += selector[i]; continue; }
+    let depth = 0;
+    let j = i + m[0].length - 1;
+    for (; j < selector.length; j++) {
+      if (selector[j] === '(') depth++;
+      else if (selector[j] === ')') { depth--; if (!depth) break; }
+    }
+    const inner = selector.slice(i + m[0].length, j);
+    if (selectorParts(inner).length > 1) { out += selector.slice(i, j + 1); i = j; continue; }
+    out += unwrapGrouping(inner);
+    i = j;
+  }
+  return out;
 }
 
 /**
@@ -158,39 +276,46 @@ function unwrapGrouping(selector) {
  * are containers rather than subjects, so a rule that starts with one is about
  * whatever it descends to — `:root[data-theme="light"] .badge` is about
  * `.badge`.
+ * @param {string} selectorPart - One selector of a selector list.
+ * @returns {string|null} The root's name without its `.`/`#`, or null when no compound starts with a name.
  */
 function rootOf(selectorPart) {
-	// parseComplex splits at top-level combinators only, so a functional
-	// pseudo-class keeps its whole argument list inside one compound. A
-	// multi-argument `:is(.markdown, pre, code)` names no single root, and a
-	// plain whitespace split would read `pre` out of the middle of the list and
-	// file the rule under whichever alternative happened to come second.
-	const compounds = parseComplex(unwrapGrouping(selectorPart)).map((c) => c.text);
-	for (const compound of compounds) {
-		const m = compound.match(/^([.#]?[a-zA-Z][\w-]*)/);
-		if (!m) continue;
-		const token = m[1];
-		if (/^(:root|html|body)$/i.test(token) && compounds.length > 1) continue;
-		return token.replace(/^[.#]/, '');
-	}
-	return null;
+  // parseComplex splits at top-level combinators only, so a functional
+  // pseudo-class keeps its whole argument list inside one compound. A
+  // multi-argument `:is(.markdown, pre, code)` names no single root, and a
+  // plain whitespace split would read `pre` out of the middle of the list and
+  // file the rule under whichever alternative happened to come second.
+  const compounds = parseComplex(unwrapGrouping(selectorPart)).map((c) => c.text);
+  for (const compound of compounds) {
+    const m = compound.match(/^([.#]?[a-zA-Z][\w-]*)/);
+    if (!m) continue;
+    const token = m[1];
+    if (/^(:root|html|body)$/i.test(token) && compounds.length > 1) continue;
+    return token.replace(/^[.#]/, '');
+  }
+  return null;
 }
 
+/**
+ * Split a selector list at its top-level commas.
+ * @param {string} selector - A selector list.
+ * @returns {string[]} Its selectors, untrimmed; a trailing blank one is dropped.
+ */
 function selectorParts(selector) {
-	const parts = [];
-	let depth = 0;
-	let current = '';
-	let quote = null;
-	for (const c of selector) {
-		if (quote) { current += c; if (c === quote) quote = null; continue; }
-		if (c === '"' || c === "'") { quote = c; current += c; continue; }
-		if (c === '(' || c === '[') depth++;
-		if (c === ')' || c === ']') depth--;
-		if (c === ',' && depth === 0) { parts.push(current); current = ''; continue; }
-		current += c;
-	}
-	if (current.trim()) parts.push(current);
-	return parts;
+  const parts = [];
+  let depth = 0;
+  let current = '';
+  let quote = null;
+  for (const c of selector) {
+    if (quote) { current += c; if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'") { quote = c; current += c; continue; }
+    if (c === '(' || c === '[') depth++;
+    if (c === ')' || c === ']') depth--;
+    if (c === ',' && depth === 0) { parts.push(current); current = ''; continue; }
+    current += c;
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,130 +326,144 @@ function selectorParts(selector) {
 /**
  * One compound of a complex selector: everything that must be true of a single
  * element. `nots` holds what `:not()` says must NOT be true of it.
+ * @param {string} text - The compound's text, with no combinator in it.
+ * @returns {Compound} What the compound demands of its element.
  */
 function parseCompound(text) {
-	const compound = { tag: null, id: null, classes: [], attrs: [], pseudoClasses: [], pseudoElements: [], nots: [], functional: [] };
-	let i = 0;
-	const ident = () => {
-		const m = /^-?[\w-]+/.exec(text.slice(i));
-		if (!m) return '';
-		i += m[0].length;
-		return m[0];
-	};
-	const balanced = () => {
-		let depth = 0;
-		const start = i;
-		for (; i < text.length; i++) {
-			if (text[i] === '(') depth++;
-			else if (text[i] === ')') { depth--; if (!depth) { i++; return text.slice(start + 1, i - 1); } }
-		}
-		return text.slice(start + 1);
-	};
-	while (i < text.length) {
-		const c = text[i];
-		if (c === '.') { i++; compound.classes.push(ident()); continue; }
-		if (c === '#') { i++; compound.id = ident(); continue; }
-		if (c === '[') {
-			const end = text.indexOf(']', i);
-			compound.attrs.push(text.slice(i, end < 0 ? text.length : end + 1));
-			i = end < 0 ? text.length : end + 1;
-			continue;
-		}
-		if (c === ':') {
-			const isElement = text[i + 1] === ':';
-			i += isElement ? 2 : 1;
-			const name = ident();
-			let arg = null;
-			if (text[i] === '(') arg = balanced();
-			if (isElement || ['before', 'after', 'first-line', 'first-letter', 'selection', 'placeholder', 'backdrop', 'marker'].includes(name)) {
-				compound.pseudoElements.push(name);
-			} else if (arg !== null && ['not', 'is', 'where', 'has', 'matches', '-webkit-any'].includes(name)) {
-				compound.functional.push({ name, arg });
-				if (name === 'not') compound.nots.push(arg);
-			} else {
-				compound.pseudoClasses.push(arg === null ? name : `${name}(${arg})`);
-			}
-			continue;
-		}
-		if (c === '*') { i++; continue; }
-		if (/[\w-]/.test(c)) { compound.tag = ident().toLowerCase(); continue; }
-		i++;
-	}
-	return compound;
+  const compound = { tag: null, id: null, classes: [], attrs: [], pseudoClasses: [], pseudoElements: [], nots: [], functional: [] };
+  let i = 0;
+  const ident = () => {
+    const m = /^-?[\w-]+/.exec(text.slice(i));
+    if (!m) return '';
+    i += m[0].length;
+    return m[0];
+  };
+  const balanced = () => {
+    let depth = 0;
+    const start = i;
+    for (; i < text.length; i++) {
+      if (text[i] === '(') depth++;
+      else if (text[i] === ')') { depth--; if (!depth) { i++; return text.slice(start + 1, i - 1); } }
+    }
+    return text.slice(start + 1);
+  };
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '.') { i++; compound.classes.push(ident()); continue; }
+    if (c === '#') { i++; compound.id = ident(); continue; }
+    if (c === '[') {
+      const end = text.indexOf(']', i);
+      compound.attrs.push(text.slice(i, end < 0 ? text.length : end + 1));
+      i = end < 0 ? text.length : end + 1;
+      continue;
+    }
+    if (c === ':') {
+      const isElement = text[i + 1] === ':';
+      i += isElement ? 2 : 1;
+      const name = ident();
+      let arg = null;
+      if (text[i] === '(') arg = balanced();
+      if (isElement || ['before', 'after', 'first-line', 'first-letter', 'selection', 'placeholder', 'backdrop', 'marker'].includes(name)) {
+        compound.pseudoElements.push(name);
+      } else if (arg !== null && ['not', 'is', 'where', 'has', 'matches', '-webkit-any'].includes(name)) {
+        compound.functional.push({ name, arg });
+        if (name === 'not') compound.nots.push(arg);
+      } else {
+        compound.pseudoClasses.push(arg === null ? name : `${name}(${arg})`);
+      }
+      continue;
+    }
+    if (c === '*') { i++; continue; }
+    if (/[\w-]/.test(c)) { compound.tag = ident().toLowerCase(); continue; }
+    i++;
+  }
+  return compound;
 }
 
-/** Split a complex selector into compounds, keeping the combinator before each. */
+/**
+ * Split a complex selector into compounds, keeping the combinator before each.
+ * @param {string} selector - One complex selector.
+ * @returns {PlacedCompound[]} Its compounds left to right, each with the combinator before it (null when nothing precedes it).
+ */
 function parseComplex(selector) {
-	const compounds = [];
-	let depth = 0;
-	let current = '';
-	let combinator = null;
-	let quote = null;
-	const flush = () => {
-		if (current.trim()) compounds.push({ combinator, ...parseCompound(current.trim()), text: current.trim() });
-		current = '';
-	};
-	for (let i = 0; i < selector.length; i++) {
-		const c = selector[i];
-		if (quote) { current += c; if (c === quote) quote = null; continue; }
-		if (c === '"' || c === "'") { quote = c; current += c; continue; }
-		if (c === '(' || c === '[') depth++;
-		if (c === ')' || c === ']') depth--;
-		if (!depth && /[\s>+~]/.test(c)) {
-			const next = /^[\s]*([>+~])?/.exec(selector.slice(i))[1] ?? null;
-			if (current.trim()) { flush(); combinator = next ?? ' '; } else if (next) { combinator = next; }
-			continue;
-		}
-		current += c;
-	}
-	flush();
-	return compounds;
+  const compounds = [];
+  let depth = 0;
+  let current = '';
+  let combinator = null;
+  let quote = null;
+  const flush = () => {
+    if (current.trim()) compounds.push({ combinator, ...parseCompound(current.trim()), text: current.trim() });
+    current = '';
+  };
+  for (let i = 0; i < selector.length; i++) {
+    const c = selector[i];
+    if (quote) { current += c; if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'") { quote = c; current += c; continue; }
+    if (c === '(' || c === '[') depth++;
+    if (c === ')' || c === ']') depth--;
+    if (!depth && /[\s>+~]/.test(c)) {
+      const next = /^[\s]*([>+~])?/.exec(selector.slice(i))[1] ?? null;
+      if (current.trim()) { flush(); combinator = next ?? ' '; } else if (next) { combinator = next; }
+      continue;
+    }
+    current += c;
+  }
+  flush();
+  return compounds;
 }
 
 const SPEC_SCORE = (s) => s[0] * 10000 + s[1] * 100 + s[2];
 
-/** [ids, classes, elements] for a complex selector. */
+/**
+ * [ids, classes, elements] for a complex selector.
+ * @param {string} selector - One complex selector.
+ * @returns {number[]} Its specificity as [ids, classes, elements]; `:where()` adds nothing, `:is/:not/:has` their most specific argument.
+ */
 function specificity(selector) {
-	const total = [0, 0, 0];
-	for (const compound of parseComplex(selector)) {
-		if (compound.id) total[0]++;
-		total[1] += compound.classes.length + compound.attrs.length + compound.pseudoClasses.length;
-		if (compound.tag) total[2]++;
-		total[2] += compound.pseudoElements.length;
-		for (const fn of compound.functional) {
-			if (fn.name === 'where') continue;
-			// :is/:not/:has count as their most specific argument.
-			let best = [0, 0, 0];
-			for (const part of selectorParts(fn.arg)) {
-				const s = specificity(part.trim());
-				if (SPEC_SCORE(s) > SPEC_SCORE(best)) best = s;
-			}
-			total[0] += best[0]; total[1] += best[1]; total[2] += best[2];
-		}
-	}
-	return total;
+  const total = [0, 0, 0];
+  for (const compound of parseComplex(selector)) {
+    if (compound.id) total[0]++;
+    total[1] += compound.classes.length + compound.attrs.length + compound.pseudoClasses.length;
+    if (compound.tag) total[2]++;
+    total[2] += compound.pseudoElements.length;
+    for (const fn of compound.functional) {
+      if (fn.name === 'where') continue;
+      // :is/:not/:has count as their most specific argument.
+      let best = [0, 0, 0];
+      for (const part of selectorParts(fn.arg)) {
+        const s = specificity(part.trim());
+        if (SPEC_SCORE(s) > SPEC_SCORE(best)) best = s;
+      }
+      total[0] += best[0]; total[1] += best[1]; total[2] += best[2];
+    }
+  }
+  return total;
 }
 
-/** Declarations in a rule body, as property → whether it is !important. */
+/**
+ * Declarations in a rule body, as property → whether it is !important.
+ * @param {string} body - The text between a rule's braces.
+ * @returns {Declarations} Its declarations by lower-cased property; custom properties are left out.
+ */
 function declarationsIn(body) {
-	const out = new Map();
-	let depth = 0;
-	let current = '';
-	const take = (text) => {
-		const colon = text.indexOf(':');
-		if (colon < 0) return;
-		const property = text.slice(0, colon).trim().toLowerCase();
-		if (!property || property.startsWith('--') || /[{}@]/.test(property) || /\s/.test(property)) return;
-		out.set(property, /!\s*important/i.test(text.slice(colon)));
-	};
-	for (const c of body) {
-		if (c === '(' || c === '{') depth++;
-		if (c === ')' || c === '}') depth--;
-		if (c === ';' && depth <= 0) { take(current); current = ''; continue; }
-		current += c;
-	}
-	take(current);
-	return out;
+  const out = new Map();
+  let depth = 0;
+  let current = '';
+  const take = (text) => {
+    const colon = text.indexOf(':');
+    if (colon < 0) return;
+    const property = text.slice(0, colon).trim().toLowerCase();
+    if (!property || property.startsWith('--') || /[{}@]/.test(property) || /\s/.test(property)) return;
+    out.set(property, /!\s*important/i.test(text.slice(colon)));
+  };
+  for (const c of body) {
+    if (c === '(' || c === '{') depth++;
+    if (c === ')' || c === '}') depth--;
+    if (c === ';' && depth <= 0) { take(current); current = ''; continue; }
+    current += c;
+  }
+  take(current);
+  return out;
 }
 
 /**
@@ -333,41 +472,41 @@ function declarationsIn(body) {
  * reimplement the property database.
  */
 const SHORTHANDS = {
-	margin: ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'],
-	padding: ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'],
-	inset: ['top', 'right', 'bottom', 'left'],
-	border: ['border-width', 'border-style', 'border-color', 'border-top', 'border-right', 'border-bottom', 'border-left'],
-	'border-width': ['border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width'],
-	'border-color': ['border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color'],
-	'border-radius': ['border-top-left-radius', 'border-top-right-radius', 'border-bottom-left-radius', 'border-bottom-right-radius'],
-	flex: ['flex-grow', 'flex-shrink', 'flex-basis'],
-	'flex-flow': ['flex-direction', 'flex-wrap'],
-	font: ['font-size', 'font-family', 'font-weight', 'line-height', 'font-style', 'font-variant'],
-	background: ['background-color', 'background-image', 'background-position', 'background-size', 'background-repeat', 'background-clip', 'background-origin', 'background-attachment'],
-	transition: ['transition-property', 'transition-duration', 'transition-timing-function', 'transition-delay'],
-	animation: ['animation-name', 'animation-duration', 'animation-timing-function', 'animation-delay', 'animation-iteration-count', 'animation-direction', 'animation-fill-mode', 'animation-play-state'],
-	grid: ['grid-template-columns', 'grid-template-rows', 'grid-template-areas', 'grid-auto-columns', 'grid-auto-rows', 'grid-auto-flow'],
-	'grid-template': ['grid-template-columns', 'grid-template-rows', 'grid-template-areas'],
-	'grid-area': ['grid-row-start', 'grid-row-end', 'grid-column-start', 'grid-column-end'],
-	'place-items': ['align-items', 'justify-items'],
-	'place-content': ['align-content', 'justify-content'],
-	'place-self': ['align-self', 'justify-self'],
-	gap: ['row-gap', 'column-gap'],
-	overflow: ['overflow-x', 'overflow-y'],
-	'list-style': ['list-style-type', 'list-style-position', 'list-style-image'],
-	outline: ['outline-width', 'outline-style', 'outline-color'],
-	mask: ['mask-image', 'mask-position', 'mask-size', 'mask-repeat'],
-	'text-decoration': ['text-decoration-line', 'text-decoration-color', 'text-decoration-style', 'text-decoration-thickness'],
-	'scroll-margin': ['scroll-margin-top', 'scroll-margin-right', 'scroll-margin-bottom', 'scroll-margin-left'],
-	'scroll-padding': ['scroll-padding-top', 'scroll-padding-right', 'scroll-padding-bottom', 'scroll-padding-left'],
+  margin: ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'],
+  padding: ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'],
+  inset: ['top', 'right', 'bottom', 'left'],
+  border: ['border-width', 'border-style', 'border-color', 'border-top', 'border-right', 'border-bottom', 'border-left'],
+  'border-width': ['border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width'],
+  'border-color': ['border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color'],
+  'border-radius': ['border-top-left-radius', 'border-top-right-radius', 'border-bottom-left-radius', 'border-bottom-right-radius'],
+  flex: ['flex-grow', 'flex-shrink', 'flex-basis'],
+  'flex-flow': ['flex-direction', 'flex-wrap'],
+  font: ['font-size', 'font-family', 'font-weight', 'line-height', 'font-style', 'font-variant'],
+  background: ['background-color', 'background-image', 'background-position', 'background-size', 'background-repeat', 'background-clip', 'background-origin', 'background-attachment'],
+  transition: ['transition-property', 'transition-duration', 'transition-timing-function', 'transition-delay'],
+  animation: ['animation-name', 'animation-duration', 'animation-timing-function', 'animation-delay', 'animation-iteration-count', 'animation-direction', 'animation-fill-mode', 'animation-play-state'],
+  grid: ['grid-template-columns', 'grid-template-rows', 'grid-template-areas', 'grid-auto-columns', 'grid-auto-rows', 'grid-auto-flow'],
+  'grid-template': ['grid-template-columns', 'grid-template-rows', 'grid-template-areas'],
+  'grid-area': ['grid-row-start', 'grid-row-end', 'grid-column-start', 'grid-column-end'],
+  'place-items': ['align-items', 'justify-items'],
+  'place-content': ['align-content', 'justify-content'],
+  'place-self': ['align-self', 'justify-self'],
+  gap: ['row-gap', 'column-gap'],
+  overflow: ['overflow-x', 'overflow-y'],
+  'list-style': ['list-style-type', 'list-style-position', 'list-style-image'],
+  outline: ['outline-width', 'outline-style', 'outline-color'],
+  mask: ['mask-image', 'mask-position', 'mask-size', 'mask-repeat'],
+  'text-decoration': ['text-decoration-line', 'text-decoration-color', 'text-decoration-style', 'text-decoration-thickness'],
+  'scroll-margin': ['scroll-margin-top', 'scroll-margin-right', 'scroll-margin-bottom', 'scroll-margin-left'],
+  'scroll-padding': ['scroll-padding-top', 'scroll-padding-right', 'scroll-padding-bottom', 'scroll-padding-left'],
 };
 
 const PROPERTY_ALIASES = new Map();
 for (const [shorthand, longhands] of Object.entries(SHORTHANDS)) {
-	for (const longhand of longhands) {
-		if (!PROPERTY_ALIASES.has(longhand)) PROPERTY_ALIASES.set(longhand, new Set());
-		PROPERTY_ALIASES.get(longhand).add(shorthand);
-	}
+  for (const longhand of longhands) {
+    if (!PROPERTY_ALIASES.has(longhand)) PROPERTY_ALIASES.set(longhand, new Set());
+    PROPERTY_ALIASES.get(longhand).add(shorthand);
+  }
 }
 
 /**
@@ -375,153 +514,358 @@ for (const [shorthand, longhands] of Object.entries(SHORTHANDS)) {
  * expands to, and the shorthands that set it. NOT its siblings — `font-size`
  * and `font-family` are both part of `font` and have nothing to say to each
  * other.
+ * @param {string} property - A lower-cased property name.
+ * @returns {Set<string>|null} The property's family, or null for `all`, which contests everything.
  */
 function propertyFamily(property) {
-	if (property === 'all') return null; // fights with everything
-	const family = new Set([property]);
-	for (const longhand of SHORTHANDS[property] || []) family.add(longhand);
-	for (const shorthand of PROPERTY_ALIASES.get(property) || []) family.add(shorthand);
-	return family;
+  if (property === 'all') return null; // fights with everything
+  const family = new Set([property]);
+  for (const longhand of SHORTHANDS[property] || []) family.add(longhand);
+  for (const shorthand of PROPERTY_ALIASES.get(property) || []) family.add(shorthand);
+  return family;
 }
 
-/** The @media/@container conditions a rule sits under, lowest first. */
+/**
+ * The `@media`/`@container` conditions a rule sits under, outermost first.
+ * @param {string[]} at - The rule's at-rule stack (ParsedRule.at).
+ * @returns {string[]} Those preludes that are media or container queries, whitespace collapsed.
+ */
 function mediaContext(at) {
-	return at.filter((a) => /^@(media|container)\b/i.test(a)).map((a) => a.replace(/\s+/g, ' ').trim());
+  return at.filter((a) => /^@(media|container)\b/i.test(a)).map((a) => a.replace(/\s+/g, ' ').trim());
 }
 
 const LENGTH_RE = /([\d.]+)(px|rem|em)?/;
+/**
+ * A length in px, counting rem and em as 16px.
+ * @param {string} value - Text starting with, or containing, a number and an optional unit.
+ * @returns {number|null} The first length in it in px, or null when it holds no number.
+ */
 function toPx(value) {
-	const m = LENGTH_RE.exec(value);
-	if (!m) return null;
-	return m[2] === 'rem' || m[2] === 'em' ? parseFloat(m[1]) * 16 : parseFloat(m[1]);
+  const m = LENGTH_RE.exec(value);
+  if (!m) return null;
+  return m[2] === 'rem' || m[2] === 'em' ? parseFloat(m[1]) * 16 : parseFloat(m[1]);
 }
 
-/** The width band and the discrete features a condition demands. */
+/**
+ * The width band and the discrete features a condition demands.
+ * @param {string[]} conditions - Media/container preludes that all hold at once.
+ * @returns {MediaTerms} The width band they leave open and the single-valued features they fix.
+ */
 function mediaTerms(conditions) {
-	const terms = { min: -Infinity, max: Infinity, discrete: new Map() };
-	for (const condition of conditions) {
-		for (const m of condition.matchAll(/\(\s*(?:(min|max)-width\s*:\s*([^)]+)|width\s*(<=|>=|<|>)\s*([^)]+))\)/g)) {
-			if (m[1]) {
-				const px = toPx(m[2]);
-				if (px === null) continue;
-				if (m[1] === 'min') terms.min = Math.max(terms.min, px);
-				else terms.max = Math.min(terms.max, px);
-			} else {
-				const px = toPx(m[4]);
-				if (px === null) continue;
-				if (m[3] === '<=') terms.max = Math.min(terms.max, px);
-				else if (m[3] === '<') terms.max = Math.min(terms.max, px - 0.02);
-				else if (m[3] === '>=') terms.min = Math.max(terms.min, px);
-				else terms.min = Math.max(terms.min, px + 0.02);
-			}
-		}
-		for (const m of condition.matchAll(/\(\s*(hover|pointer|orientation|prefers-color-scheme|prefers-reduced-motion|display-mode|forced-colors)\s*:\s*([^)]+)\)/g)) {
-			terms.discrete.set(m[1], m[2].trim());
-		}
-	}
-	return terms;
+  const terms = { min: -Infinity, max: Infinity, discrete: new Map() };
+  for (const condition of conditions) {
+    for (const m of condition.matchAll(/\(\s*(?:(min|max)-width\s*:\s*([^)]+)|width\s*(<=|>=|<|>)\s*([^)]+))\)/g)) {
+      if (m[1]) {
+        const px = toPx(m[2]);
+        if (px === null) continue;
+        if (m[1] === 'min') terms.min = Math.max(terms.min, px);
+        else terms.max = Math.min(terms.max, px);
+      } else {
+        const px = toPx(m[4]);
+        if (px === null) continue;
+        if (m[3] === '<=') terms.max = Math.min(terms.max, px);
+        else if (m[3] === '<') terms.max = Math.min(terms.max, px - 0.02);
+        else if (m[3] === '>=') terms.min = Math.max(terms.min, px);
+        else terms.min = Math.max(terms.min, px + 0.02);
+      }
+    }
+    for (const m of condition.matchAll(/\(\s*(hover|pointer|orientation|prefers-color-scheme|prefers-reduced-motion|display-mode|forced-colors)\s*:\s*([^)]+)\)/g)) {
+      terms.discrete.set(m[1], m[2].trim());
+    }
+  }
+  return terms;
 }
 
 /**
  * Can both rules apply at once? An unconditioned rule always can; two
  * conditioned ones can unless their widths do not overlap or they disagree
  * about a feature that only has one value at a time.
+ * @param {string[]} a - One rule's media context (mediaContext).
+ * @param {string[]} b - The other's.
+ * @returns {boolean} True when some viewport satisfies both.
  */
 function mediaCompatible(a, b) {
-	if (!a.length || !b.length) return true;
-	if (a.join(' && ') === b.join(' && ')) return true;
-	const left = mediaTerms(a);
-	const right = mediaTerms(b);
-	if (left.max < right.min || right.max < left.min) return false;
-	for (const [feature, value] of left.discrete) {
-		if (right.discrete.has(feature) && right.discrete.get(feature) !== value) return false;
-	}
-	return true;
+  if (!a.length || !b.length) return true;
+  if (a.join(' && ') === b.join(' && ')) return true;
+  const left = mediaTerms(a);
+  const right = mediaTerms(b);
+  if (left.max < right.min || right.max < left.min) return false;
+  for (const [feature, value] of left.discrete) {
+    if (right.discrete.has(feature) && right.discrete.get(feature) !== value) return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
 // Inputs
 // ---------------------------------------------------------------------------
 
+/**
+ * Read web/css/manifest.json, exiting 2 when it is missing or not JSON.
+ * @returns {Manifest} The parsed manifest.
+ */
 function readManifest() {
-	const file = path.join(cssDir, 'manifest.json');
-	try {
-		return JSON.parse(fs.readFileSync(file, 'utf8'));
-	} catch (err) {
-		console.error(`lint-css-arch: cannot read web/css/manifest.json — ${err.message}`);
-		process.exit(2);
-	}
+  const file = path.join(cssDir, 'manifest.json');
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    console.error(`lint-css-arch: cannot read web/css/manifest.json — ${err.message}`);
+    process.exit(2);
+  }
+  return manifest;
 }
 
-function readAllowlist() {
-	const file = path.join(cssDir, '.lint-css-allowlist');
-	const entries = new Map();
-	if (!fs.existsSync(file)) return entries;
-	for (const raw of fs.readFileSync(file, 'utf8').split('\n')) {
-		const line = raw.replace(/#.*$/, '').trim();
-		if (!line) continue;
-		const [check, ...rest] = line.split(/\s+/);
-		const item = rest.join(' ');
-		if (!entries.has(check)) entries.set(check, new Set());
-		entries.get(check).add(item);
-	}
-	return entries;
+/**
+ * The layer-inversion ratchet: `<lower> > <higher> <count>` per line, `#`
+ * starting a comment. A missing file is a failure, not an empty ratchet — an
+ * absent file would otherwise read as "no inversions allowed" only until
+ * someone noticed the check had gone quiet.
+ * @returns {string[]} Its non-empty lines with comments removed, unparsed.
+ */
+function readInversionRatchet() {
+  const file = path.join(cssDir, '.layer-inversion-ratchet');
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    console.error(`lint-css-arch: cannot read web/css/.layer-inversion-ratchet — ${err.message}`);
+    process.exit(2);
+  }
+  const entries = [];
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/#.*$/, '').trim();
+    if (line) entries.push(line);
+  }
+  return entries;
 }
 
+/**
+ * Every file under `dir` that passes `test`. The directory must exist: a
+ * renamed source root would otherwise drop out of a check without a word.
+ * @param {string} dir - The directory to walk; node_modules directories are skipped.
+ * @param {(name: string) => boolean} test - Whether to keep a file, given its base name.
+ * @param {string[]} [out] - The list to append to.
+ * @returns {string[]} `out`, with the absolute path of every file kept.
+ */
 function walk(dir, test, out = []) {
-	let entries;
-	try {
-		entries = fs.readdirSync(dir, { withFileTypes: true });
-	} catch {
-		return out;
-	}
-	for (const entry of entries) {
-		const full = path.join(dir, entry.name);
-		if (entry.isDirectory()) {
-			// vendor/ is included deliberately: PrismJS names its own token
-			// classes at runtime (.attr-name, .block-comment), and skipping it
-			// would report every rule in the syntax theme as dead.
-			if (entry.name === 'node_modules') continue;
-			walk(full, test, out);
-		} else if (test(entry.name)) {
-			out.push(full);
-		}
-	}
-	return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules') continue;
+      walk(full, test, out);
+    } else if (test(entry.name)) {
+      out.push(full);
+    }
+  }
+  return out;
 }
 
-/** Every identifier-ish token in the JS/HTML that could name a class. */
-function referencedTokens() {
-	const files = [
-		...walk(path.join(repoRoot, 'web', 'js'), (n) => n.endsWith('.js')),
-		...walk(path.join(repoRoot, 'web', 'sdk'), (n) => n.endsWith('.js')),
-		...walk(path.join(repoRoot, 'web', 'extensions'), (n) => n.endsWith('.js') || n.endsWith('.css')),
-		...walk(path.join(repoRoot, 'web', 'js-tests'), (n) => n.endsWith('.js') || n.endsWith('.html')),
-		path.join(repoRoot, 'web', 'index.html'),
-		path.join(repoRoot, 'web', 'engine.html'),
-		path.join(repoRoot, 'web', 'sandbox.html'),
-	];
-	const tokens = new Set();
-	for (const file of files) {
-		let text;
-		try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
-		for (const token of text.split(/[^\w-]+/)) {
-			if (token) tokens.add(token);
-		}
-	}
-	return tokens;
+/**
+ * Repo-relative, forward-slashed.
+ * @param {string} root - The directory to be relative to.
+ * @param {string} file - An absolute path.
+ * @returns {string} `file` relative to `root`, with forward slashes.
+ */
+function relPath(root, file) {
+  return path.relative(root, file).split(path.sep).join('/');
 }
 
+/**
+ * A test, wherever it lives: the browser suite, an extension's `_tests/`, or a `*-test.js`.
+ * @param {string} rel - A forward-slashed path.
+ * @returns {boolean} True when the path is a test source.
+ */
+function isTestSource(rel) {
+  return /(^|\/)(js-tests|_tests)\//.test(rel) || /-test\.m?js$/.test(rel);
+}
+
+/**
+ * The production sources the dead-selector check reads, and how to read each.
+ *
+ * - `js`: the app, the SDK, the extensions and the machine page, minus every
+ *   test. Their own vendor directory is read separately.
+ * - `prism`: PrismJS. It is the one vendored library whose output the sheets
+ *   style — `vendor/prism-theme.css` — and it builds those classes from its
+ *   grammar keys (`token keyword`, `token attr-name`), which are identifiers in
+ *   its source, not strings. The other vendored bundles (marked, pdf.js, Yjs)
+ *   are minified code whose identifiers are noise, and no sheet styles a class
+ *   they emit.
+ * - `html`: the documents the server renders. web/js-tests/headless-test.html
+ *   is a test page and is not read.
+ * @param {string} root - The repository root.
+ * @returns {{js: string[], prism: string[], html: string[]}} Absolute paths of each kind of source.
+ */
+function productionSources(root) {
+  const js = (n) => n.endsWith('.js') || n.endsWith('.mjs');
+  const vendor = path.join(root, 'web', 'js', 'vendor');
+  const sources = { js: [], prism: [], html: [] };
+  for (const dir of ['js', 'sdk', 'extensions', 'machine']) {
+    for (const file of walk(path.join(root, 'web', dir), js)) {
+      if (file.startsWith(vendor + path.sep)) continue;
+      if (isTestSource(relPath(root, file))) continue;
+      sources.js.push(file);
+    }
+  }
+  sources.prism = walk(vendor, (n) => /^prism-[\w-]+\.js$/.test(n));
+  for (const rel of ['web/index.html', 'web/engine.html', 'web/sandbox.html', 'web/machine/index.html']) {
+    sources.html.push(path.join(root, rel));
+  }
+  return sources;
+}
+
+/**
+ * Calls whose string arguments are text for a person or a log, never a class
+ * name: the translation markers and the console. A string that only appears
+ * in a message cannot be what puts a class on an element.
+ */
+const TEXT_CALLS = new Set(['t', 'markForTranslation', 'markUntranslated']);
+
+/**
+ * Is this call one whose string arguments are messages: a translation marker,
+ * a `console` method, or `new …Error()`?
+ * @param {import('estree').CallExpression|import('estree').NewExpression} node - The call.
+ * @returns {boolean} True when its arguments are text for a person or a log.
+ */
+function isTextCall(node) {
+  const callee = node.callee;
+  if (node.type === 'NewExpression') return callee.type === 'Identifier' && /Error$/.test(callee.name);
+  if (callee.type === 'Identifier') return TEXT_CALLS.has(callee.name);
+  return callee.type === 'MemberExpression' && callee.object.type === 'Identifier' && callee.object.name === 'console';
+}
+
+/** The nodes whose `source` is a module path. */
+const MODULE_PATH_NODES = new Set(['ImportDeclaration', 'ExportNamedDeclaration', 'ExportAllDeclaration', 'ImportExpression']);
+
+/**
+ * The string contents of one JS source: its string literals and template
+ * text. Not its comments, not its identifiers (a variable called `ci` names no
+ * class), not a module path (`import … from './tool-schema.js'`), and not the
+ * argument of a text call. What is left is everything a class attribute can be
+ * built from.
+ * @param {string} text - The source's text.
+ * @param {string} file - Its name, for the parse error.
+ * @param {typeof import('espree')} espree - The parser.
+ * @param {string[]} out - Where each string is appended.
+ */
+function jsStrings(text, file, espree, out) {
+  let ast = null;
+  let error = null;
+  for (const sourceType of ['module', 'script']) {
+    try {
+      ast = espree.parse(text, { ecmaVersion: 'latest', sourceType });
+      break;
+    } catch (err) {
+      error = err;
+    }
+  }
+  if (!ast) throw new Error(`lint-css-arch: cannot parse ${file} — ${error.message}`);
+  const visit = (node, muted) => {
+    if (!node || typeof node.type !== 'string') return;
+    if ((node.type === 'CallExpression' || node.type === 'NewExpression') && isTextCall(node)) muted = true;
+    if (node.type === 'Literal' && typeof node.value === 'string' && !muted) out.push(node.value);
+    if (node.type === 'TemplateElement' && !muted) out.push(node.value.cooked ?? node.value.raw);
+    for (const [key, value] of Object.entries(node)) {
+      if (key === 'source' && MODULE_PATH_NODES.has(node.type)) continue;
+      if (Array.isArray(value)) value.forEach((child) => visit(child, muted));
+      else if (value && typeof value === 'object' && key !== 'loc' && key !== 'range') visit(value, muted);
+    }
+  };
+  visit(ast, false);
+}
+
+/** `{{.CSPNonce}}` and its kin: Go template actions, which no JS parser will take. */
+const TEMPLATE_ACTION = /\{\{[^}]*\}\}/g;
+
+/** One open tag, attributes and all, with `>` allowed inside a quoted value. */
+const OPEN_TAG = /<[a-zA-Z][\w-]*(?:\s+[^\s=>/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*\s*\/?>/g;
+const ATTRIBUTE_VALUE = /=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
+
+/**
+ * The parts of an HTML document that can name a class or an id: attribute
+ * values, and the strings of its inline scripts (JSON ones included, read by
+ * the tokenizer). Not its comments and not its text.
+ * @param {string} text - The document's text.
+ * @param {string} file - Its name, for a script's parse error.
+ * @param {typeof import('espree')} espree - The parser.
+ * @param {string[]} out - Where each string is appended.
+ */
+function htmlStrings(text, file, espree, out) {
+  let html = text.replace(/<!--[\s\S]*?-->/g, '');
+  html = html.replace(/(<script\b([^>]*)>)([\s\S]*?)(<\/script>)/gi, (whole, open, attrs, body, close) => {
+    const code = body.replace(TEMPLATE_ACTION, '_');
+    if (code.trim()) {
+      if (/type\s*=\s*["']?(importmap|application\/(ld\+)?json)/i.test(attrs)) {
+        for (const token of espree.tokenize(code, { ecmaVersion: 'latest' })) {
+          if (token.type === 'String') out.push(token.value);
+        }
+      } else {
+        jsStrings(code, `${file} <script>`, espree, out);
+      }
+    }
+    return open + close;
+  });
+  for (const [tag] of html.matchAll(OPEN_TAG)) {
+    for (const m of tag.matchAll(ATTRIBUTE_VALUE)) out.push(m[1] ?? m[2] ?? m[3]);
+  }
+}
+
+/**
+ * Every token the production sources could put on an element as a class or
+ * id, and the source text of each file by repo-relative path (the
+ * dynamicClasses entries are checked against it). Tests, comments, extension
+ * stylesheets and prose are not evidence that an element carries a class, so
+ * they are not read.
+ * @param {string} root - The repository root.
+ * @param {typeof import('espree')} espree - The parser.
+ * @returns {Corpus} The tokens, and each read file's text.
+ */
+function productionCorpus(root, espree) {
+  const sources = productionSources(root);
+  const strings = [];
+  const files = new Map();
+  for (const file of sources.js) {
+    const text = fs.readFileSync(file, 'utf8');
+    files.set(relPath(root, file), text);
+    jsStrings(text, relPath(root, file), espree, strings);
+  }
+  for (const file of sources.prism) {
+    for (const token of espree.tokenize(fs.readFileSync(file, 'utf8'), { ecmaVersion: 'latest' })) {
+      if (token.type === 'String' || token.type === 'Template' || token.type === 'Identifier') strings.push(token.value);
+    }
+  }
+  for (const file of sources.html) {
+    const text = fs.readFileSync(file, 'utf8');
+    files.set(relPath(root, file), text);
+    htmlStrings(text, relPath(root, file), espree, strings);
+  }
+  const tokens = new Set();
+  for (const text of strings) {
+    for (const token of text.split(/[^\w-]+/)) if (token) tokens.add(token);
+  }
+  return { tokens, files };
+}
+
+/**
+ * A whole-string matcher for a glob whose only wildcard is `*`.
+ * @param {string} pattern - The glob.
+ * @returns {RegExp} A pattern matching exactly the names the glob does.
+ */
 function globToRegExp(pattern) {
-	return new RegExp(`^${pattern.split('*').map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+  return new RegExp(`^${pattern.split('*').map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
 }
 
 // ---------------------------------------------------------------------------
 // Checks
 // ---------------------------------------------------------------------------
 
+/**
+ * The manifest's sheets, each with its absolute path.
+ * @param {Manifest} manifest - The parsed manifest.
+ * @returns {Sheet[]} The sheets in manifest order.
+ */
 function sheetFiles(manifest) {
-	return manifest.sheets.map((s) => ({ ...s, abs: path.join(cssDir, s.file) }));
+  return manifest.sheets.map((s) => ({ ...s, abs: path.join(cssDir, s.file) }));
 }
 
 /**
@@ -529,15 +873,52 @@ function sheetFiles(manifest) {
  * compound? Any name on that compound counts: a tag, an id, or any of its
  * classes, because `.dropdown-menu.permissions-popup` is a permissions popup
  * that happens to be built out of a dropdown menu.
+ * @param {ManifestSheet} sheet - The sheet holding the rule.
+ * @param {string} selectorPart - One selector of the rule.
+ * @returns {boolean} True when one of the sheet's name globs matches a name on the subject.
  */
 function ownsSubject(sheet, selectorPart) {
-	const compounds = parseComplex(unwrapGrouping(selectorPart));
-	const subject = compounds[compounds.length - 1];
-	if (!subject) return false;
-	const names = [subject.tag, subject.id, ...subject.classes].filter(Boolean);
-	// `*` would own every name there is, so it says nothing about the subject.
-	const patterns = (sheet.owns || []).filter((p) => p !== '*');
-	return names.some((name) => patterns.some((pattern) => globToRegExp(pattern).test(name)));
+  const compounds = parseComplex(unwrapGrouping(selectorPart));
+  const subject = compounds[compounds.length - 1];
+  if (!subject) return false;
+  const names = [subject.tag, subject.id, ...subject.classes].filter(Boolean);
+  // `*` would own every name there is, so it says nothing about the subject.
+  const patterns = (sheet.owns || []).filter((p) => p !== '*' && !isScopeClaim(p));
+  return names.some((name) => patterns.some((pattern) => globToRegExp(pattern).test(name)));
+}
+
+/**
+ * An `owns` entry written as an attribute selector — `[data-view="pinboard"]`
+ * — claims a mode of the document rather than a name: the sheet of the feature
+ * that sets that attribute. A selector scoped by it is a decision about that
+ * mode, whichever group's element it then reaches.
+ * @param {string} pattern - An `owns` entry.
+ * @returns {boolean} True when the entry is an attribute selector.
+ */
+function isScopeClaim(pattern) {
+  return pattern.startsWith('[');
+}
+
+/**
+ * `[data-view = 'pinboard']` and `[data-view="pinboard"]` are one attribute.
+ * @param {string} attr - An attribute selector.
+ * @returns {string} The selector without whitespace or quotes.
+ */
+function normaliseAttribute(attr) {
+  return attr.replace(/\s+/g, '').replace(/["']/g, '');
+}
+
+/**
+ * Does this sheet claim an attribute that scopes the selector — one on any compound above the subject?
+ * @param {ManifestSheet} sheet - The sheet holding the rule.
+ * @param {string} selectorPart - One selector of the rule.
+ * @returns {boolean} True when a compound above the subject carries an attribute the sheet claims.
+ */
+function ownsScope(sheet, selectorPart) {
+  const claims = new Set((sheet.owns || []).filter(isScopeClaim).map(normaliseAttribute));
+  if (!claims.size) return false;
+  const compounds = parseComplex(unwrapGrouping(selectorPart));
+  return compounds.slice(0, -1).some((compound) => compound.attrs.some((attr) => claims.has(normaliseAttribute(attr))));
 }
 
 /**
@@ -562,45 +943,141 @@ function ownsSubject(sheet, selectorPart) {
  * it: every root is meant to have exactly one owner, and an unclaimed root is a
  * gap wherever its rule happens to sit.
  *
- * A sheet marked `enumerates` in the manifest is exempt, because naming other
- * groups' roots is its whole job: one policy stated once across every surface
- * it applies to, rather than the same declaration copied into a dozen files
- * where nobody can see it is one decision.
+ * A third home is a scope the sheet claims (see isScopeClaim):
+ * `[data-view="pinboard"] conversation-bar` names conversation-bar as root and
+ * subject, and is still the board's decision, because the board owns the mode.
+ * A scope claim belongs to exactly one sheet.
+ *
+ * A sheet marked `enumerates` in the manifest may file a rule under any root,
+ * because naming other groups' roots is its whole job: one policy stated once
+ * across every surface it applies to, rather than the same declaration copied
+ * into a dozen files where nobody can see it is one decision. It owns no root
+ * of its own, so every root it names must still be owned by some sheet.
+ * @param {Manifest} manifest - The parsed manifest.
+ * @param {Sheet[]} sheets - The sheets to check.
+ * @param {Map<string, string>} sources - Each sheet's text, by manifest path.
+ * @returns {Failure[]} Misfiled and unowned roots, and bad `owns` entries, one per item.
  */
 function checkOwnership(manifest, sheets, sources) {
-	const failures = [];
-	const owners = [];
-	for (const sheet of sheets) {
-		if (sheet.enumerates) continue;
-		for (const pattern of sheet.owns || []) {
-			if (pattern !== '*') owners.push({ pattern, re: globToRegExp(pattern), file: sheet.file });
-		}
-	}
-	for (const sheet of sheets) {
-		if (sheet.enumerates) continue;
-		const wildcard = (sheet.owns || []).includes('*');
-		for (const rule of parseRules(sources.get(sheet.file) || '')) {
-			for (const part of selectorParts(rule.selector)) {
-				const root = rootOf(part);
-				if (!root) continue;
-				const owner = owners.find((o) => o.re.test(root));
-				if (owner) {
-					if (owner.file !== sheet.file && !ownsSubject(sheet, part)) {
-						failures.push({
-							item: `${sheet.file}:${root}`,
-							message: `${sheet.file}:${rule.line} — "${root}" is owned by ${owner.file}`,
-						});
-					}
-				} else if (!wildcard) {
-					failures.push({
-						item: `${sheet.file}:${root}`,
-						message: `${sheet.file}:${rule.line} — no sheet owns "${root}"`,
-					});
-				}
-			}
-		}
-	}
-	return dedupe(failures);
+  const failures = [];
+  const owners = [];
+  const scopes = new Map();
+  for (const sheet of sheets) {
+    for (const pattern of sheet.owns || []) {
+      if (pattern === '*') {
+        failures.push({ item: `${sheet.file}:*`, message: `${sheet.file} owns "*" — a sheet owns named roots, and one that owns everything can misfile nothing` });
+      } else if (isScopeClaim(pattern)) {
+        const attr = normaliseAttribute(pattern);
+        if (scopes.has(attr)) failures.push({ item: `${sheet.file}:${attr}`, message: `${sheet.file} and ${scopes.get(attr)} both claim the scope ${pattern}` });
+        else scopes.set(attr, sheet.file);
+      } else if (sheet.enumerates) {
+        failures.push({ item: `${sheet.file}:${pattern}`, message: `${sheet.file} is marked enumerates, so it owns no root — "${pattern}" belongs to the sheet of its group` });
+      } else {
+        owners.push({ pattern, re: globToRegExp(pattern), file: sheet.file });
+      }
+    }
+  }
+  for (const sheet of sheets) {
+    for (const rule of parseRules(sources.get(sheet.file) || '')) {
+      for (const part of selectorParts(rule.selector)) {
+        const root = rootOf(part);
+        if (!root) continue;
+        const owner = owners.find((o) => o.re.test(root));
+        if (owner) {
+          if (!sheet.enumerates && owner.file !== sheet.file && !ownsSubject(sheet, part) && !ownsScope(sheet, part)) {
+            failures.push({
+              item: `${sheet.file}:${root}`,
+              message: `${sheet.file}:${rule.line} — "${root}" is owned by ${owner.file}`,
+            });
+          }
+        } else {
+          failures.push({
+            item: `${sheet.file}:${root}`,
+            message: `${sheet.file}:${rule.line} — no sheet owns "${root}"`,
+          });
+        }
+      }
+    }
+  }
+  return dedupe(failures);
+}
+
+/**
+ * Every `.class` and `#id` a sheet's selectors name, with their punctuation.
+ * @param {string} src - A stylesheet's text.
+ * @returns {Set<string>} The names, each with its leading `.` or `#`.
+ */
+function selectorNames(src) {
+  const names = new Set();
+  for (const rule of parseRules(src)) {
+    const selector = rule.selector.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '""');
+    for (const m of selector.matchAll(/([.#])(-?[a-zA-Z_][\w-]*)/g)) names.add(m[1] + m[2]);
+  }
+  return names;
+}
+
+/**
+ * dynamicClasses: the class families JS assembles at runtime (`color-${name}`),
+ * which no literal can witness. Each entry is `{ "pattern": "<prefix>*",
+ * "builtBy": "<file>" }`, and the entry has to prove itself every run, so the
+ * list can only describe code that exists:
+ *
+ * - the pattern is a literal prefix and one trailing `*` — no family broader
+ *   than one composing expression;
+ * - `builtBy` is a production source (not a test), and its text contains that
+ *   prefix immediately composed with something — `prefix${` or `'prefix' +`;
+ * - some class in the sheets matches it, or it is covering for nothing.
+ *
+ * Returns the patterns as regular expressions, for the dead-selector check.
+ * @param {Manifest} manifest - The parsed manifest.
+ * @param {Sheet[]} sheets - The sheets whose classes an entry must match.
+ * @param {Map<string, string>} sources - Each sheet's text, by manifest path.
+ * @param {Corpus} corpus - The production sources, for `builtBy`.
+ * @param {Failure[]} failures - Where each bad entry is reported.
+ * @returns {RegExp[]} The patterns of the entries that prove themselves.
+ */
+function checkDynamicClasses(manifest, sheets, sources, corpus, failures) {
+  const styled = new Set();
+  for (const sheet of sheets) {
+    for (const name of selectorNames(sources.get(sheet.file) || '')) if (name.startsWith('.')) styled.add(name.slice(1));
+  }
+  const patterns = [];
+  const seen = new Set();
+  for (const entry of manifest.dynamicClasses || []) {
+    const pattern = entry && typeof entry.pattern === 'string' ? entry.pattern : null;
+    const builtBy = entry && typeof entry.builtBy === 'string' ? entry.builtBy : null;
+    if (!pattern || !builtBy) {
+      failures.push({ item: JSON.stringify(entry), message: `manifest.json dynamicClasses: ${JSON.stringify(entry)} is not { "pattern": "<prefix>*", "builtBy": "<file>" }` });
+      continue;
+    }
+    if (!/^-?[a-zA-Z][\w-]*\*$/.test(pattern)) {
+      failures.push({ item: pattern, message: `manifest.json dynamicClasses: "${pattern}" must be a literal class prefix and one trailing *` });
+      continue;
+    }
+    if (seen.has(pattern)) {
+      failures.push({ item: pattern, message: `manifest.json dynamicClasses: "${pattern}" is listed twice` });
+      continue;
+    }
+    seen.add(pattern);
+    const prefix = pattern.slice(0, -1);
+    const source = corpus.files.get(builtBy);
+    if (source === undefined) {
+      failures.push({ item: pattern, message: `manifest.json dynamicClasses: "${pattern}" names ${builtBy}, which is not a production source` });
+      continue;
+    }
+    const composed = new RegExp(`${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\$\\{|['"\`]\\s*\\+)`);
+    if (!composed.test(source)) {
+      failures.push({ item: pattern, message: `manifest.json dynamicClasses: ${builtBy} does not compose "${prefix}" with anything (\`${prefix}\${…}\` or '${prefix}' + …)` });
+      continue;
+    }
+    const re = globToRegExp(pattern);
+    if (![...styled].some((cls) => re.test(cls))) {
+      failures.push({ item: pattern, message: `manifest.json dynamicClasses: no sheet styles a class matching "${pattern}" — delete the entry` });
+      continue;
+    }
+    patterns.push(re);
+  }
+  return patterns;
 }
 
 /**
@@ -611,156 +1088,209 @@ function checkOwnership(manifest, sheets, sources) {
  * `slideIn` animation nothing referenced. An id is the same kind of claim as a
  * class — "some element out there is called this" — and a keyframes nothing
  * animates with is a definition nobody reads.
+ *
+ * The evidence is productionCorpus: the strings of the code that ships. A test
+ * that names a class is not evidence an element carries it — that is how
+ * `.tool-schema` outlived its last element, because a test file shared its
+ * name.
+ *
+ * Names are read from selectors only, with their quoted strings blanked, so a
+ * `url(x.woff2)` or an `[href$=".pdf"]` is not a class.
+ * @param {Manifest} manifest - The parsed manifest.
+ * @param {Sheet[]} sheets - The sheets to check.
+ * @param {Map<string, string>} sources - Each sheet's text, by manifest path.
+ * @param {Corpus} corpus - The production sources' tokens.
+ * @returns {Failure[]} Unused classes, ids and keyframes, and bad dynamicClasses entries.
  */
-function checkDeadSelectors(manifest, sheets, sources) {
-	const tokens = referencedTokens();
-	const dynamic = (manifest.dynamicClasses || []).map(globToRegExp);
-	const seen = new Map();
-	const ids = new Map();
-	const keyframes = new Map();
-	const animated = new Set();
+function checkDeadSelectors(manifest, sheets, sources, corpus) {
+  const { tokens } = corpus;
+  const failures = [];
+  const dynamic = checkDynamicClasses(manifest, sheets, sources, corpus, failures);
+  const seen = new Map();
+  const ids = new Map();
+  const keyframes = new Map();
+  const animated = new Set();
+  const animations = [];
+  const properties = new Map();
 
-	for (const sheet of sheets) {
-		const clean = stripComments(sources.get(sheet.file) || '');
-		for (const m of clean.matchAll(/\.(-?[a-zA-Z][\w-]*)/g)) {
-			if (!seen.has(m[1])) seen.set(m[1], sheet.file);
-		}
-		// `#id` in a selector, not a colour or a url() fragment.
-		for (const m of clean.matchAll(/#(-?[a-zA-Z][\w-]*)/g)) {
-			if (/^[\da-f]{3,8}$/i.test(m[1])) continue;
-			if (!ids.has(m[1])) ids.set(m[1], sheet.file);
-		}
-		for (const m of clean.matchAll(/@(?:-\w+-)?keyframes\s+([\w-]+)/g)) {
-			if (!keyframes.has(m[1])) keyframes.set(m[1], sheet.file);
-		}
-		for (const m of clean.matchAll(/animation(?:-name)?\s*:([^;}]*)/g)) {
-			for (const word of m[1].split(/[\s,]+/)) if (word) animated.add(word);
-		}
-	}
+  for (const sheet of sheets) {
+    for (const name of selectorNames(sources.get(sheet.file) || '')) {
+      const into = name.startsWith('#') ? ids : seen;
+      const bare = name.slice(1);
+      if (!into.has(bare)) into.set(bare, sheet.file);
+    }
+    const clean = stripComments(sources.get(sheet.file) || '');
+    for (const m of clean.matchAll(/@(?:-\w+-)?keyframes\s+([\w-]+)/g)) {
+      if (!keyframes.has(m[1])) keyframes.set(m[1], sheet.file);
+    }
+    for (const m of clean.matchAll(/animation(?:-name)?\s*:([^;}]*)/g)) animations.push(m[1]);
+    for (const m of clean.matchAll(/(--[\w-]+)\s*:([^;}]*)/g)) properties.set(m[1], [...(properties.get(m[1]) || []), m[2]]);
+  }
+  // An animation can name its keyframes through a custom property
+  // (`animation: var(--item-badge-pulse)`), so var() is followed to its values.
+  const expand = (value, depth = 0) => {
+    for (const word of value.split(/[\s,()]+/)) {
+      if (!word || word === 'var') continue;
+      if (word.startsWith('--') && depth < 8) for (const inner of properties.get(word) || []) expand(inner, depth + 1);
+      else animated.add(word);
+    }
+  };
+  for (const value of animations) expand(value);
 
-	const failures = [];
-	for (const [cls, file] of seen) {
-		if (tokens.has(cls)) continue;
-		if (dynamic.some((re) => re.test(cls))) continue;
-		failures.push({ item: cls, message: `${file} — .${cls} is referenced by no JS, HTML or extension` });
-	}
-	for (const [id, file] of ids) {
-		if (tokens.has(id)) continue;
-		failures.push({ item: `#${id}`, message: `${file} — #${id} is referenced by no JS, HTML or extension` });
-	}
-	for (const [name, file] of keyframes) {
-		if (animated.has(name)) continue;
-		if (tokens.has(name)) continue;
-		failures.push({ item: `@${name}`, message: `${file} — @keyframes ${name} is used by no animation` });
-	}
-	return failures;
+  for (const [cls, file] of seen) {
+    if (tokens.has(cls)) continue;
+    if (dynamic.some((re) => re.test(cls))) continue;
+    failures.push({ item: cls, message: `${file} — .${cls} is put on an element by no production JS or HTML` });
+  }
+  for (const [id, file] of ids) {
+    if (tokens.has(id)) continue;
+    failures.push({ item: `#${id}`, message: `${file} — #${id} is given to an element by no production JS or HTML` });
+  }
+  for (const [name, file] of keyframes) {
+    if (animated.has(name)) continue;
+    if (tokens.has(name)) continue;
+    failures.push({ item: `@${name}`, message: `${file} — @keyframes ${name} is used by no animation` });
+  }
+  return failures;
 }
 
-/** token-parity: every var() resolves, theme colours exist in both themes, and a fallback is written only where the token can be absent. */
-function checkTokenParity(manifest, sheets, sources) {
-	const jsSet = new Set(manifest.jsSetProperties || []);
-	const defined = new Set(jsSet);
-	const themes = { dark: new Set(), light: new Set() };
-	const rootScale = new Set();
-	const usedWithFallback = new Map();
-	const usedBare = new Map();
+/**
+ * token-parity: every var() resolves, theme colours exist in both themes, and a fallback is written only where the token can be absent.
+ * @param {Manifest} manifest - The parsed manifest, for jsSetProperties.
+ * @param {Sheet[]} sheets - The sheets to check.
+ * @param {Map<string, string>} sources - Each sheet's text, by manifest path.
+ * @param {Corpus} corpus - The production sources' tokens, which must name each jsSetProperties entry.
+ * @returns {Failure[]} The token problems, one per item.
+ */
+function checkTokenParity(manifest, sheets, sources, corpus) {
+  const jsSet = new Set(manifest.jsSetProperties || []);
+  const defined = new Set(jsSet);
+  const themes = { dark: new Set(), light: new Set() };
+  const rootScale = new Set();
+  const usedWithFallback = new Map();
+  const usedBare = new Map();
 
-	for (const sheet of sheets) {
-		const clean = stripComments(sources.get(sheet.file) || '');
-		for (const m of clean.matchAll(/(--[\w-]+)\s*:/g)) defined.add(m[1]);
-		// var(--x) vs var(--x, fallback)
-		for (const m of clean.matchAll(/var\(\s*(--[\w-]+)\s*([,)])/g)) {
-			const uses = m[2] === ',' ? usedWithFallback : usedBare;
-			if (!uses.has(m[1])) uses.set(m[1], sheet.file);
-		}
-	}
+  for (const sheet of sheets) {
+    const clean = stripComments(sources.get(sheet.file) || '');
+    for (const m of clean.matchAll(/(--[\w-]+)\s*:/g)) defined.add(m[1]);
+    // var(--x) vs var(--x, fallback)
+    for (const m of clean.matchAll(/var\(\s*(--[\w-]+)\s*([,)])/g)) {
+      const uses = m[2] === ',' ? usedWithFallback : usedBare;
+      if (!uses.has(m[1])) uses.set(m[1], sheet.file);
+    }
+  }
 
-	// Theme membership, from the blocks that carry a data-theme. A plain `:root`
-	// block belongs to neither: a token declared there has one value for both
-	// themes, which is what tokens/scale.css is, and parity is not a question
-	// you can ask of it. Those bare `:root` declarations are collected
-	// separately, because a token declared there is defined everywhere.
-	for (const sheet of sheets) {
-		const clean = stripComments(sources.get(sheet.file) || '');
-		for (const rule of parseRules(clean)) {
-			const isLight = /data-theme\s*=\s*["']?light/.test(rule.selector);
-			const isDark = /data-theme\s*=\s*["']?dark/.test(rule.selector);
-			const isRoot = /^\s*:root\s*$/.test(rule.selector);
-			if (!isLight && !isDark && !isRoot) continue;
-			const body = blockBodyAt(clean, rule.line);
-			const into = isRoot ? rootScale : themes[isLight ? 'light' : 'dark'];
-			for (const m of body.matchAll(/(--[\w-]+)\s*:/g)) into.add(m[1]);
-		}
-	}
+  // Theme membership, from the blocks that carry a data-theme. A plain `:root`
+  // block belongs to neither: a token declared there has one value for both
+  // themes, which is what tokens/scale.css is, and parity is not a question
+  // you can ask of it. Those bare `:root` declarations are collected
+  // separately, because a token declared there is defined everywhere.
+  for (const sheet of sheets) {
+    const clean = stripComments(sources.get(sheet.file) || '');
+    for (const rule of parseRules(clean)) {
+      const isLight = /data-theme\s*=\s*["']?light/.test(rule.selector);
+      const isDark = /data-theme\s*=\s*["']?dark/.test(rule.selector);
+      const isRoot = /^\s*:root\s*$/.test(rule.selector);
+      if (!isLight && !isDark && !isRoot) continue;
+      const body = blockBodyAt(clean, rule.line);
+      const into = isRoot ? rootScale : themes[isLight ? 'light' : 'dark'];
+      for (const m of body.matchAll(/(--[\w-]+)\s*:/g)) into.add(m[1]);
+    }
+  }
 
-	const failures = [];
-	for (const [name, file] of usedBare) {
-		if (!defined.has(name)) {
-			failures.push({ item: name, message: `${file} — var(${name}) has no definition and no fallback` });
-		}
-	}
-	// A fallback is only honest where the token can be absent: a one-theme
-	// token, a property a component sets on some elements, or one JS sets.
-	// Anywhere else it is either dead (the token is defined in both themes or
-	// on :root, and the app sets data-theme before first paint) or the only
-	// value the property will ever take (the token is defined nowhere).
-	for (const [name, file] of usedWithFallback) {
-		if (rootScale.has(name) || (themes.dark.has(name) && themes.light.has(name))) {
-			failures.push({ item: name, message: `${file} — var(${name}, …) has a fallback that can never apply: ${name} is always defined` });
-		} else if (!defined.has(name)) {
-			failures.push({ item: name, message: `${file} — var(${name}, …) names a property nothing defines, so the fallback is its only value (list it in jsSetProperties if JS sets it)` });
-		}
-	}
-	for (const name of themes.dark) {
-		if (!themes.light.has(name) && !usedWithFallback.has(name)) {
-			failures.push({ item: name, message: `${name} is defined for the dark theme only` });
-		}
-	}
-	for (const name of themes.light) {
-		if (!themes.dark.has(name) && !usedWithFallback.has(name)) {
-			failures.push({ item: name, message: `${name} is defined for the light theme only` });
-		}
-	}
-	return dedupe(failures);
+  const failures = [];
+  // A jsSetProperties entry is a claim about the code, so the code has to
+  // back it: some production source names the property, and some sheet reads
+  // it. Otherwise the entry is only excusing a var() nothing defines.
+  for (const name of jsSet) {
+    if (!corpus.tokens.has(name)) {
+      failures.push({ item: name, message: `manifest.json jsSetProperties: no production JS sets ${name}` });
+    } else if (!usedBare.has(name) && !usedWithFallback.has(name)) {
+      failures.push({ item: name, message: `manifest.json jsSetProperties: no sheet reads ${name} — delete the entry` });
+    }
+  }
+  for (const [name, file] of usedBare) {
+    if (!defined.has(name)) {
+      failures.push({ item: name, message: `${file} — var(${name}) has no definition and no fallback` });
+    }
+  }
+  // A fallback is only honest where the token can be absent: a one-theme
+  // token, a property a component sets on some elements, or one JS sets.
+  // Anywhere else it is either dead (the token is defined in both themes or
+  // on :root, and the app sets data-theme before first paint) or the only
+  // value the property will ever take (the token is defined nowhere).
+  for (const [name, file] of usedWithFallback) {
+    if (rootScale.has(name) || (themes.dark.has(name) && themes.light.has(name))) {
+      failures.push({ item: name, message: `${file} — var(${name}, …) has a fallback that can never apply: ${name} is always defined` });
+    } else if (!defined.has(name)) {
+      failures.push({ item: name, message: `${file} — var(${name}, …) names a property nothing defines, so the fallback is its only value (list it in jsSetProperties if JS sets it)` });
+    }
+  }
+  for (const name of themes.dark) {
+    if (!themes.light.has(name) && !usedWithFallback.has(name)) {
+      failures.push({ item: name, message: `${name} is defined for the dark theme only` });
+    }
+  }
+  for (const name of themes.light) {
+    if (!themes.dark.has(name) && !usedWithFallback.has(name)) {
+      failures.push({ item: name, message: `${name} is defined for the light theme only` });
+    }
+  }
+  return dedupe(failures);
 }
 
+/**
+ * The body of the first block that opens on or after a line.
+ * @param {string} clean - Comment-free stylesheet text.
+ * @param {number} line - A 1-based line, a rule's selector line.
+ * @returns {string} The text inside that block's braces; '' when no brace follows, and the whole text when it never closes.
+ */
 function blockBodyAt(clean, line) {
-	const lines = clean.split('\n');
-	const start = clean.split('\n').slice(0, line - 1).join('\n').length;
-	const open = clean.indexOf('{', start);
-	if (open < 0) return '';
-	let depth = 0;
-	for (let i = open; i < clean.length; i++) {
-		if (clean[i] === '{') depth++;
-		else if (clean[i] === '}') { depth--; if (depth === 0) return clean.slice(open + 1, i); }
-	}
-	return lines.join('\n');
+  const lines = clean.split('\n');
+  const start = clean.split('\n').slice(0, line - 1).join('\n').length;
+  const open = clean.indexOf('{', start);
+  if (open < 0) return '';
+  let depth = 0;
+  for (let i = open; i < clean.length; i++) {
+    if (clean[i] === '{') depth++;
+    else if (clean[i] === '}') { depth--; if (depth === 0) return clean.slice(open + 1, i); }
+  }
+  return lines.join('\n');
 }
 
-/** link-parity: both HTML documents link the manifest's sheets, in order. */
+/**
+ * link-parity: both HTML documents link the manifest's sheets, in order.
+ * @param {Manifest} manifest - The parsed manifest.
+ * @returns {Failure[]} Missing, extra and out-of-order links, and a missing document.
+ */
 function checkLinkParity(manifest) {
-	const wanted = manifest.sheets.map((s) => s.file);
-	const failures = [];
-	for (const rel of ['web/index.html', 'web/js-tests/headless-test.html']) {
-		const file = path.join(repoRoot, rel);
-		let html;
-		try { html = fs.readFileSync(file, 'utf8'); } catch { continue; }
-		const linked = [...html.matchAll(/<link[^>]*rel=["']stylesheet["'][^>]*href=["'][^"']*\/css\/([^"']+)["']/g)]
-			.map((m) => m[1]);
-		const name = path.basename(rel);
-		for (const sheet of wanted) {
-			if (!linked.includes(sheet)) failures.push({ item: `${name}:${sheet}`, message: `${rel} does not link ${sheet}` });
-		}
-		for (const sheet of linked) {
-			if (!wanted.includes(sheet)) failures.push({ item: `${name}:${sheet}`, message: `${rel} links ${sheet}, which the manifest does not list` });
-		}
-		const order = linked.filter((s) => wanted.includes(s));
-		const expected = wanted.filter((s) => linked.includes(s));
-		if (order.join() !== expected.join()) {
-			failures.push({ item: `${name}:order`, message: `${rel} links the sheets in a different order from the manifest` });
-		}
-	}
-	return failures;
+  const wanted = manifest.sheets.map((s) => s.file);
+  const failures = [];
+  for (const rel of ['web/index.html', 'web/js-tests/headless-test.html']) {
+    const file = path.join(repoRoot, rel);
+    let html;
+    try {
+      html = fs.readFileSync(file, 'utf8');
+    } catch {
+      failures.push({ item: `${rel}:missing`, message: `${rel} does not exist, so its sheet list cannot be checked` });
+      continue;
+    }
+    const linked = [...html.matchAll(/<link[^>]*rel=["']stylesheet["'][^>]*href=["'][^"']*\/css\/([^"']+)["']/g)]
+      .map((m) => m[1]);
+    const name = path.basename(rel);
+    for (const sheet of wanted) {
+      if (!linked.includes(sheet)) failures.push({ item: `${name}:${sheet}`, message: `${rel} does not link ${sheet}` });
+    }
+    for (const sheet of linked) {
+      if (!wanted.includes(sheet)) failures.push({ item: `${name}:${sheet}`, message: `${rel} links ${sheet}, which the manifest does not list` });
+    }
+    const order = linked.filter((s) => wanted.includes(s));
+    const expected = wanted.filter((s) => linked.includes(s));
+    if (order.join() !== expected.join()) {
+      failures.push({ item: `${name}:order`, message: `${rel} links the sheets in a different order from the manifest` });
+    }
+  }
+  return failures;
 }
 
 /**
@@ -774,45 +1304,49 @@ function checkLinkParity(manifest) {
  * layers keep working, but they no longer agree with the file everyone reads.
  *
  * A sheet with no style rules is exempt, because the cascade never arbitrates
- * it: base/fonts.css is linked ahead of everything, holding only @font-face,
+ * it: base/fonts.css is linked ahead of everything, holding only `@font-face`,
  * so the fonts start fetching before the render-blocking theme paint.
+ * @param {Manifest} manifest - The parsed manifest, for its layer list.
+ * @param {Sheet[]} sheets - The sheets, in manifest order.
+ * @param {Map<string, string>} sources - Each sheet's text, by manifest path.
+ * @returns {Failure[]} Sheets outside their layer's directory, in an unlisted layer, or out of layer order.
  */
 function checkLayerOrder(manifest, sheets, sources) {
-	const failures = [];
-	const rank = new Map(manifest.layers.map((l, i) => [l, i]));
-	let highest = -1;
-	let highestFile = null;
+  const failures = [];
+  const rank = new Map(manifest.layers.map((l, i) => [l, i]));
+  let highest = -1;
+  let highestFile = null;
 
-	for (const sheet of sheets) {
-		const dir = sheet.file.split('/')[0];
-		if (sheet.layer !== dir) {
-			failures.push({
-				item: `${sheet.file}:layer`,
-				message: `${sheet.file} declares the ${sheet.layer} layer but sits in ${dir}/ — a sheet's directory is its layer`,
-			});
-			continue;
-		}
-		if (!rank.has(sheet.layer)) {
-			failures.push({
-				item: `${sheet.file}:layer`,
-				message: `${sheet.file} declares the ${sheet.layer} layer, which manifest.json does not list`,
-			});
-			continue;
-		}
-		if (!parseRules(sources.get(sheet.file) || '').length) continue;
+  for (const sheet of sheets) {
+    const dir = sheet.file.split('/')[0];
+    if (sheet.layer !== dir) {
+      failures.push({
+        item: `${sheet.file}:layer`,
+        message: `${sheet.file} declares the ${sheet.layer} layer but sits in ${dir}/ — a sheet's directory is its layer`,
+      });
+      continue;
+    }
+    if (!rank.has(sheet.layer)) {
+      failures.push({
+        item: `${sheet.file}:layer`,
+        message: `${sheet.file} declares the ${sheet.layer} layer, which manifest.json does not list`,
+      });
+      continue;
+    }
+    if (!parseRules(sources.get(sheet.file) || '').length) continue;
 
-		const at = rank.get(sheet.layer);
-		if (at < highest) {
-			failures.push({
-				item: `${sheet.file}:order`,
-				message: `${sheet.file} is in the ${sheet.layer} layer but is listed after ${highestFile} in ${manifest.layers[highest]} — sheets go in layer order`,
-			});
-			continue;
-		}
-		highest = at;
-		highestFile = sheet.file;
-	}
-	return failures;
+    const at = rank.get(sheet.layer);
+    if (at < highest) {
+      failures.push({
+        item: `${sheet.file}:order`,
+        message: `${sheet.file} is in the ${sheet.layer} layer but is listed after ${highestFile} in ${manifest.layers[highest]} — sheets go in layer order`,
+      });
+      continue;
+    }
+    highest = at;
+    highestFile = sheet.file;
+  }
+  return failures;
 }
 
 /**
@@ -821,49 +1355,67 @@ function checkLayerOrder(manifest, sheets, sources) {
  * A browser resolves a url() against the stylesheet's own URL, not the
  * document's, so a sheet that moves between directories takes its asset
  * references with it and every relative one silently 404s.
+ *
+ * A root-relative url() fails outright: the sheets are served under a base
+ * path and a per-process version prefix (`/v<id>/css/…`), so `/fonts/x.woff2`
+ * names a path the server does not serve.
+ * @param {Sheet[]} sheets - The sheets to check.
+ * @param {Map<string, string>} sources - Each sheet's text, by manifest path.
+ * @returns {Failure[]} Root-relative and unresolvable url() references.
  */
 function checkAssetUrls(sheets, sources) {
-	const failures = [];
-	for (const sheet of sheets) {
-		const clean = stripComments(sources.get(sheet.file));
-		for (const match of clean.matchAll(/url\(\s*(["']?)([^"')]+)\1\s*\)/g)) {
-			const ref = match[2].trim();
-			if (/^(data:|https?:|\/|#)/.test(ref)) continue;
-			const target = path.resolve(path.dirname(sheet.abs), ref.split(/[?#]/)[0]);
-			if (fs.existsSync(target)) continue;
-			const resolved = path.relative(repoRoot, target).split(path.sep).join('/');
-			failures.push({
-				item: `${sheet.file}:${ref}`,
-				message: `${sheet.file} references ${ref}, which resolves to ${resolved} and does not exist`,
-			});
-		}
-	}
-	return dedupe(failures);
+  const failures = [];
+  for (const sheet of sheets) {
+    const clean = stripComments(sources.get(sheet.file));
+    for (const match of clean.matchAll(/url\(\s*(["']?)([^"')]+)\1\s*\)/g)) {
+      const ref = match[2].trim();
+      if (/^(data:|https?:|#)/.test(ref)) continue;
+      if (ref.startsWith('/')) {
+        failures.push({
+          item: `${sheet.file}:${ref}`,
+          message: `${sheet.file} references ${ref}, a root-relative path, which skips the base path and version prefix the sheets are served under — make it relative to the sheet`,
+        });
+        continue;
+      }
+      const target = path.resolve(path.dirname(sheet.abs), ref.split(/[?#]/)[0]);
+      if (fs.existsSync(target)) continue;
+      const resolved = path.relative(repoRoot, target).split(path.sep).join('/');
+      failures.push({
+        item: `${sheet.file}:${ref}`,
+        message: `${sheet.file} references ${ref}, which resolves to ${resolved} and does not exist`,
+      });
+    }
+  }
+  return dedupe(failures);
 }
 
 /** A font-size that is not a scale literal. Kept in step with unit:type-scale. */
 const FONT_SIZE_OK = /^(var\(--font-size-[\w-]+\)|[\d.]+em|inherit|unset)$/;
 
 /** One component of a radius that is not a scale literal. Kept in step with unit:type-scale. */
-const RADIUS_PART_OK = /^(0|0px|50%|inherit|unset|var\(--[\w-]*radius[\w-]*(,.*)?\)|var\(--toggle-height\))$/;
+const RADIUS_PART_OK = /^(0|0px|50%|inherit|unset|var\(--[\w-]*radius[\w-]*(,.*)?\))$/;
 
-/** Split a value on top-level whitespace, keeping a var() and its fallback whole. */
+/**
+ * Split a value on top-level whitespace, keeping a var() and its fallback whole.
+ * @param {string} value - A declaration's value.
+ * @returns {string[]} Its whitespace-separated components.
+ */
 function valueComponents(value) {
-	const parts = [];
-	let depth = 0;
-	let current = '';
-	for (const c of value) {
-		if (c === '(') depth++;
-		if (c === ')') depth--;
-		if (/\s/.test(c) && depth === 0) {
-			if (current) parts.push(current);
-			current = '';
-		} else {
-			current += c;
-		}
-	}
-	if (current) parts.push(current);
-	return parts;
+  const parts = [];
+  let depth = 0;
+  let current = '';
+  for (const c of value) {
+    if (c === '(') depth++;
+    if (c === ')') depth--;
+    if (/\s/.test(c) && depth === 0) {
+      if (current) parts.push(current);
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  if (current) parts.push(current);
+  return parts;
 }
 
 /**
@@ -874,35 +1426,37 @@ function valueComponents(value) {
  * unit:type-scale, which reads them as the page parsed them. Injected styles
  * are only in a page once something has used them, so they are read from
  * source here.
+ * @returns {Failure[]} Each line of a production JS or extension CSS file that writes a literal font-size or radius.
  */
 function checkScaleLiterals() {
-	const skipped = (file) => file.split(path.sep).some((part) => part === '_tests' || part === 'vendor');
-	const files = [
-		...walk(path.join(repoRoot, 'web', 'js'), (n) => n.endsWith('.js')),
-		...walk(path.join(repoRoot, 'web', 'sdk'), (n) => n.endsWith('.js')),
-		...walk(path.join(repoRoot, 'web', 'extensions'), (n) => n.endsWith('.js') || n.endsWith('.css')),
-	].filter((file) => !skipped(file));
-	const failures = [];
-	for (const file of files) {
-		const rel = path.relative(repoRoot, file).split(path.sep).join('/');
-		const lines = fs.readFileSync(file, 'utf8').split('\n');
-		lines.forEach((text, index) => {
-			for (const match of text.matchAll(/(?:^|[\s;{"'`])(font-size|border(?:-[a-z]+)*-radius)\s*:\s*([^;}\n"'`]+)/g)) {
-				const [, property, raw] = match;
-				const value = raw.trim().replace(/\s*!important$/, '');
-				if (value.includes('${')) continue;
-				const ok = property === 'font-size'
-					? FONT_SIZE_OK.test(value)
-					: valueComponents(value).every((part) => RADIUS_PART_OK.test(part));
-				if (ok) continue;
-				failures.push({
-					item: `${rel}:${index + 1}`,
-					message: `${rel}:${index + 1} writes ${property}: ${value} — use a --font-size-* / --radius-* token from tokens/scale.css`,
-				});
-			}
-		});
-	}
-	return failures;
+  // Tests and third-party code are not the app's styling; everything else is.
+  const vendor = path.join(repoRoot, 'web', 'js', 'vendor') + path.sep;
+  const files = [
+    ...walk(path.join(repoRoot, 'web', 'js'), (n) => n.endsWith('.js')),
+    ...walk(path.join(repoRoot, 'web', 'sdk'), (n) => n.endsWith('.js')),
+    ...walk(path.join(repoRoot, 'web', 'extensions'), (n) => n.endsWith('.js') || n.endsWith('.css')),
+  ].filter((file) => !file.startsWith(vendor) && !isTestSource(relPath(repoRoot, file)));
+  const failures = [];
+  for (const file of files) {
+    const rel = path.relative(repoRoot, file).split(path.sep).join('/');
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    lines.forEach((text, index) => {
+      for (const match of text.matchAll(/(?:^|[\s;{"'`])(font-size|border(?:-[a-z]+)*-radius)\s*:\s*([^;}\n"'`]+)/g)) {
+        const [, property, raw] = match;
+        const value = raw.trim().replace(/\s*!important$/, '');
+        if (value.includes('${')) continue;
+        const ok = property === 'font-size'
+          ? FONT_SIZE_OK.test(value)
+          : valueComponents(value).every((part) => RADIUS_PART_OK.test(part));
+        if (ok) continue;
+        failures.push({
+          item: `${rel}:${index + 1}`,
+          message: `${rel}:${index + 1} writes ${property}: ${value} — use a --font-size-* / --radius-* token from tokens/scale.css`,
+        });
+      }
+    });
+  }
+  return failures;
 }
 
 /**
@@ -926,187 +1480,220 @@ function checkScaleLiterals() {
  * that needs the markup, not the stylesheets. scripts/css-markup-model
  * harvests what tag a class lands on, what shares an element with what, and
  * what nests inside what, from the code that builds the DOM.
+ * @param {Manifest} manifest - The parsed manifest, for its layer order.
+ * @param {Sheet[]} sheets - The sheets to compare.
+ * @param {Map<string, string>} sources - Each sheet's text, by manifest path.
+ * @param {MarkupFacts} model - The markup model.
+ * @returns {Map<string, Inversion[]>} The inversions, keyed `<lower file> > <higher file>`.
  */
 function checkLayerInversion(manifest, sheets, sources, model) {
-	const rank = new Map(manifest.layers.map((l, i) => [l, i]));
-	const rules = [];
+  const rank = new Map(manifest.layers.map((l, i) => [l, i]));
+  const rules = [];
 
-	for (const sheet of sheets) {
-		const layerRank = rank.get(sheet.layer);
-		if (layerRank === undefined) continue;
-		for (const rule of parseRules(sources.get(sheet.file) || '')) {
-			const declarations = declarationsIn(rule.body || '');
-			if (!declarations.size) continue;
-			const media = mediaContext(rule.at);
-			for (const part of selectorParts(rule.selector)) {
-				const selector = part.trim();
-				if (!selector) continue;
-				const compounds = parseComplex(selector);
-				if (!compounds.length) continue;
-				const subject = compounds[compounds.length - 1];
-				rules.push({
-					file: sheet.file,
-					layer: sheet.layer,
-					rank: layerRank,
-					line: rule.line,
-					selector,
-					declarations,
-					media,
-					score: SPEC_SCORE(specificity(selector)),
-					subject,
-					parent: compounds.length > 1 ? compounds[compounds.length - 2] : null,
-					ancestors: compounds.slice(0, -1),
-					ancestorTokens: compounds.slice(0, -1).flatMap((c) => [...c.classes, ...(c.tag ? [c.tag] : [])]),
-					pseudoElement: subject.pseudoElements.join(','),
-				});
-			}
-		}
-	}
+  for (const sheet of sheets) {
+    const layerRank = rank.get(sheet.layer);
+    if (layerRank === undefined) continue;
+    for (const rule of parseRules(sources.get(sheet.file) || '')) {
+      const declarations = declarationsIn(rule.body || '');
+      if (!declarations.size) continue;
+      const media = mediaContext(rule.at);
+      for (const part of selectorParts(rule.selector)) {
+        const selector = part.trim();
+        if (!selector) continue;
+        const compounds = parseComplex(selector);
+        if (!compounds.length) continue;
+        const subject = compounds[compounds.length - 1];
+        rules.push({
+          file: sheet.file,
+          layer: sheet.layer,
+          rank: layerRank,
+          line: rule.line,
+          selector,
+          declarations,
+          media,
+          score: SPEC_SCORE(specificity(selector)),
+          subject,
+          parent: compounds.length > 1 ? compounds[compounds.length - 2] : null,
+          ancestors: compounds.slice(0, -1),
+          ancestorTokens: compounds.slice(0, -1).flatMap((c) => [...c.classes, ...(c.tag ? [c.tag] : [])]),
+          pseudoElement: subject.pseudoElements.join(','),
+        });
+      }
+    }
+  }
 
-	// Every rule against every other, cheapest test first: layer, then
-	// specificity, then the two that need the selector taken apart.
-	const findings = new Map();
-	for (const lower of rules) {
-		for (const higher of rules) {
-			if (lower.rank >= higher.rank) continue;
-			if (lower.score <= higher.score) continue;
-			if (lower.pseudoElement !== higher.pseudoElement) continue;
-			if (!overlappingProperty(lower.declarations, higher.declarations)) continue;
-			if (!mediaCompatible(lower.media, higher.media)) continue;
-			if (!canMeet(lower, higher, model)) continue;
+  // Every rule against every other, cheapest test first: layer, then
+  // specificity, then the two that need the selector taken apart.
+  const findings = new Map();
+  for (const lower of rules) {
+    for (const higher of rules) {
+      if (lower.rank >= higher.rank) continue;
+      if (lower.score <= higher.score) continue;
+      if (lower.pseudoElement !== higher.pseudoElement) continue;
+      if (!overlappingProperty(lower.declarations, higher.declarations)) continue;
+      if (!mediaCompatible(lower.media, higher.media)) continue;
+      if (!canMeet(lower, higher, model)) continue;
 
-			const item = `${lower.file} > ${higher.file}`;
-			if (!findings.has(item)) findings.set(item, []);
-			findings.get(item).push({ lower, higher });
-		}
-	}
-	return findings;
+      const item = `${lower.file} > ${higher.file}`;
+      if (!findings.has(item)) findings.set(item, []);
+      findings.get(item).push({ lower, higher });
+    }
+  }
+  return findings;
 }
 
-/** The properties the two rules are actually fighting over, for the report. */
+/**
+ * The properties the two rules are actually fighting over, for the report.
+ * @param {Declarations} a - The lower rule's declarations.
+ * @param {Declarations} b - The higher rule's declarations.
+ * @returns {string[]} Each non-important property of `a` that `b` sets without !important, written `a/b` when the names differ.
+ */
 function contestedProperties(a, b) {
-	const contested = new Set();
-	for (const [property, important] of a) {
-		if (important) continue;
-		const family = propertyFamily(property);
-		for (const candidate of family === null ? b.keys() : family) {
-			if (b.has(candidate) && !b.get(candidate)) contested.add(property === candidate ? property : `${property}/${candidate}`);
-		}
-	}
-	return [...contested];
+  const contested = new Set();
+  for (const [property, important] of a) {
+    if (important) continue;
+    const family = propertyFamily(property);
+    for (const candidate of family === null ? b.keys() : family) {
+      if (b.has(candidate) && !b.get(candidate)) contested.add(property === candidate ? property : `${property}/${candidate}`);
+    }
+  }
+  return [...contested];
 }
 
-/** A property both rules set, with neither of them shouting. */
+/**
+ * A property both rules set, with neither of them shouting.
+ * @param {Declarations} a - One rule's declarations.
+ * @param {Declarations} b - The other's.
+ * @returns {boolean} True when some non-important property of `a` is in the family of one `b` sets without !important.
+ */
 function overlappingProperty(a, b) {
-	for (const [property, important] of a) {
-		if (important) continue;
-		const family = propertyFamily(property);
-		const partners = family === null ? b.keys() : family;
-		for (const candidate of partners) {
-			if (b.has(candidate) && !b.get(candidate)) return true;
-		}
-	}
-	return false;
+  for (const [property, important] of a) {
+    if (important) continue;
+    const family = propertyFamily(property);
+    const partners = family === null ? b.keys() : family;
+    for (const candidate of partners) {
+      if (b.has(candidate) && !b.get(candidate)) return true;
+    }
+  }
+  return false;
 }
 
 /** Pseudo-classes that cannot both be true of one element. */
 const EXCLUSIVE_PSEUDO_CLASSES = [
-	['disabled', 'enabled'],
-	['read-only', 'read-write'],
-	['checked', 'indeterminate'],
-	['valid', 'invalid'],
-	['empty', 'has'],
+  ['disabled', 'enabled'],
+  ['read-only', 'read-write'],
+  ['checked', 'indeterminate'],
+  ['valid', 'invalid'],
+  ['empty', 'has'],
 ];
 
 /**
  * `:is(strong, b)` says the element is one of those tags, as surely as writing
  * the tag would. Returns the tags it may be, or null when the list is not all
  * tags — `:is(a, button, [role="button"])` leaves a div in play.
+ * @param {Compound} compound - The compound whose match lists are read.
+ * @returns {Set<string>|null} The tags its `:is/:where` lists allow, or null.
  */
 function tagsFromMatchList(compound) {
-	const tags = new Set();
-	for (const fn of compound.functional) {
-		if (!['is', 'where', 'matches', '-webkit-any'].includes(fn.name)) continue;
-		const alternatives = selectorParts(fn.arg).map((part) => parseCompound(part.trim()));
-		if (!alternatives.length) continue;
-		if (!alternatives.every((alt) => alt.tag && !alt.classes.length && !alt.id)) return null;
-		for (const alt of alternatives) tags.add(alt.tag);
-	}
-	return tags.size ? tags : null;
+  const tags = new Set();
+  for (const fn of compound.functional) {
+    if (!['is', 'where', 'matches', '-webkit-any'].includes(fn.name)) continue;
+    const alternatives = selectorParts(fn.arg).map((part) => parseCompound(part.trim()));
+    if (!alternatives.length) continue;
+    if (!alternatives.every((alt) => alt.tag && !alt.classes.length && !alt.id)) return null;
+    for (const alt of alternatives) tags.add(alt.tag);
+  }
+  return tags.size ? tags : null;
 }
 
-/** Can one element satisfy both compounds? */
+/**
+ * Can one element satisfy both compounds?
+ * @param {Compound} a - One compound.
+ * @param {Compound} b - The other.
+ * @param {MarkupFacts} model - The markup model, for each class's tags and which classes share an element.
+ * @returns {boolean} False when their ids, tags, classes, negations, attributes or pseudo-classes rule it out.
+ */
 function compoundsCompatible(a, b, model) {
-	if (a.id && b.id && a.id !== b.id) return false;
+  if (a.id && b.id && a.id !== b.id) return false;
 
-	// Everything that constrains the element's tag: the tags written down, and
-	// the tags each class has ever been seen on. No overlap, no element.
-	const constraints = [];
-	if (a.tag) constraints.push(new Set([a.tag]));
-	if (b.tag) constraints.push(new Set([b.tag]));
-	for (const compound of [a, b]) {
-		const tags = tagsFromMatchList(compound);
-		if (tags) constraints.push(tags);
-	}
-	const classes = [...new Set([...a.classes, ...b.classes])];
-	for (const cls of classes) {
-		const tags = model.tagsOf(cls);
-		if (tags) constraints.push(tags);
-	}
-	if (constraints.length > 1) {
-		let intersection = null;
-		for (const set of constraints) {
-			intersection = intersection === null ? new Set(set) : new Set([...intersection].filter((t) => set.has(t)));
-		}
-		if (!intersection.size) return false;
-	}
-	if (!model.canCoexist(classes)) return false;
-	if (contradictsNegation(a, b) || contradictsNegation(b, a)) return false;
-	if (attributesContradict(a, b)) return false;
+  // Everything that constrains the element's tag: the tags written down, and
+  // the tags each class has ever been seen on. No overlap, no element.
+  const constraints = [];
+  if (a.tag) constraints.push(new Set([a.tag]));
+  if (b.tag) constraints.push(new Set([b.tag]));
+  for (const compound of [a, b]) {
+    const tags = tagsFromMatchList(compound);
+    if (tags) constraints.push(tags);
+  }
+  const classes = [...new Set([...a.classes, ...b.classes])];
+  for (const cls of classes) {
+    const tags = model.tagsOf(cls);
+    if (tags) constraints.push(tags);
+  }
+  if (constraints.length > 1) {
+    let intersection = null;
+    for (const set of constraints) {
+      intersection = intersection === null ? new Set(set) : new Set([...intersection].filter((t) => set.has(t)));
+    }
+    if (!intersection.size) return false;
+  }
+  if (!model.canCoexist(classes)) return false;
+  if (contradictsNegation(a, b) || contradictsNegation(b, a)) return false;
+  if (attributesContradict(a, b)) return false;
 
-	for (const [one, other] of EXCLUSIVE_PSEUDO_CLASSES) {
-		const has = (compound, name) => compound.pseudoClasses.some((p) => p === name || p.startsWith(`${name}(`))
+  for (const [one, other] of EXCLUSIVE_PSEUDO_CLASSES) {
+    const has = (compound, name) => compound.pseudoClasses.some((p) => p === name || p.startsWith(`${name}(`))
 			|| compound.functional.some((f) => f.name === name);
-		if ((has(a, one) && has(b, other)) || (has(a, other) && has(b, one))) return false;
-	}
-	return true;
+    if ((has(a, one) && has(b, other)) || (has(a, other) && has(b, one))) return false;
+  }
+  return true;
 }
 
-/** Does anything `a` excludes with :not() appear in `b` (or in `a` itself)? */
+/**
+ * Does anything `a` excludes with :not() appear in `b` (or in `a` itself)?
+ * @param {Compound} a - The compound whose `:not()`s are read.
+ * @param {Compound} b - The other compound.
+ * @returns {boolean} True when a simple compound `a` negates shares a tag, class, attribute or pseudo-class with either.
+ */
 function contradictsNegation(a, b) {
-	for (const negated of a.nots) {
-		for (const part of selectorParts(negated)) {
-			const forbidden = parseCompound(part.trim());
-			// Only a simple compound is safe to reason about: `:not(.x .y)`
-			// forbids a descendant relationship, not this element.
-			if (/[\s>+~]/.test(part.trim())) continue;
-			for (const side of [a, b]) {
-				if (forbidden.tag && side.tag === forbidden.tag) return true;
-				if (forbidden.classes.some((c) => side.classes.includes(c))) return true;
-				if (forbidden.attrs.some((at) => side.attrs.includes(at))) return true;
-				if (forbidden.pseudoClasses.some((p) => side.pseudoClasses.includes(p))) return true;
-			}
-		}
-	}
-	return false;
+  for (const negated of a.nots) {
+    for (const part of selectorParts(negated)) {
+      const forbidden = parseCompound(part.trim());
+      // Only a simple compound is safe to reason about: `:not(.x .y)`
+      // forbids a descendant relationship, not this element.
+      if (/[\s>+~]/.test(part.trim())) continue;
+      for (const side of [a, b]) {
+        if (forbidden.tag && side.tag === forbidden.tag) return true;
+        if (forbidden.classes.some((c) => side.classes.includes(c))) return true;
+        if (forbidden.attrs.some((at) => side.attrs.includes(at))) return true;
+        if (forbidden.pseudoClasses.some((p) => side.pseudoClasses.includes(p))) return true;
+      }
+    }
+  }
+  return false;
 }
 
-/** `[data-x="a"]` and `[data-x="b"]` on one element: no. */
+/**
+ * `[data-x="a"]` and `[data-x="b"]` on one element: no.
+ * @param {Compound} a - One compound.
+ * @param {Compound} b - The other.
+ * @returns {boolean} True when both demand one attribute equal different values.
+ */
 function attributesContradict(a, b) {
-	const exact = (attrs) => {
-		const map = new Map();
-		for (const attr of attrs) {
-			const m = /^\[\s*([\w-]+)\s*=\s*["']?([^"'\]]*)["']?\s*\]$/.exec(attr);
-			if (m) map.set(m[1], m[2]);
-		}
-		return map;
-	};
-	const left = exact(a.attrs);
-	const right = exact(b.attrs);
-	for (const [name, value] of left) {
-		if (right.has(name) && right.get(name) !== value) return true;
-	}
-	return false;
+  const exact = (attrs) => {
+    const map = new Map();
+    for (const attr of attrs) {
+      const m = /^\[\s*([\w-]+)\s*=\s*["']?([^"'\]]*)["']?\s*\]$/.exec(attr);
+      if (m) map.set(m[1], m[2]);
+    }
+    return map;
+  };
+  const left = exact(a.attrs);
+  const right = exact(b.attrs);
+  for (const [name, value] of left) {
+    if (right.has(name) && right.get(name) !== value) return true;
+  }
+  return false;
 }
 
 /**
@@ -1122,45 +1709,57 @@ const NEVER_NESTED_IN_ITSELF = new Set(['button', 'a', 'form', 'p', 'label', 'te
  * Both selectors demand their element sit under every ancestor they name, so
  * all those ancestors share one chain. Two different classes that are only
  * ever the same non-nesting tag cannot both be on it.
+ * @param {string[]} tokens - The ancestor classes and tags both rules name, deduplicated.
+ * @param {MarkupFacts} model - The markup model, for each class's tags.
+ * @returns {boolean} True when two different tokens are both only ever one never-nested tag.
  */
 function chainImpossible(tokens, model) {
-	const tags = [];
-	for (const token of tokens) {
-		const known = model.tagsOf(token);
-		if (known && known.size === 1) {
-			const [tag] = known;
-			if (NEVER_NESTED_IN_ITSELF.has(tag)) tags.push([token, tag]);
-		} else if (NEVER_NESTED_IN_ITSELF.has(token)) {
-			tags.push([token, token]);
-		}
-	}
-	for (let i = 0; i < tags.length; i++) {
-		for (let j = i + 1; j < tags.length; j++) {
-			if (tags[i][0] !== tags[j][0] && tags[i][1] === tags[j][1]) return true;
-		}
-	}
-	return false;
+  const tags = [];
+  for (const token of tokens) {
+    const known = model.tagsOf(token);
+    if (known && known.size === 1) {
+      const [tag] = known;
+      if (NEVER_NESTED_IN_ITSELF.has(tag)) tags.push([token, tag]);
+    } else if (NEVER_NESTED_IN_ITSELF.has(token)) {
+      tags.push([token, token]);
+    }
+  }
+  for (let i = 0; i < tags.length; i++) {
+    for (let j = i + 1; j < tags.length; j++) {
+      if (tags[i][0] !== tags[j][0] && tags[i][1] === tags[j][1]) return true;
+    }
+  }
+  return false;
 }
 
 /**
  * Can one element match both rules? The subject compounds have to describe one
  * element, a `>` or `+` on both sides puts the same requirement on the element
  * next door, and the ancestors both sides name have to fit on one chain.
+ * @param {Reachable} lower - One rule.
+ * @param {Reachable} higher - The other.
+ * @param {MarkupFacts} model - The markup model.
+ * @returns {boolean} False only when the markup or the selectors rule the pairing out.
  */
 function canMeet(lower, higher, model) {
-	if (!compoundsCompatible(lower.subject, higher.subject, model)) return false;
+  if (!compoundsCompatible(lower.subject, higher.subject, model)) return false;
 
-	if (lower.parent && higher.parent && ['>', '+'].includes(lower.subject.combinator)
+  if (lower.parent && higher.parent && ['>', '+'].includes(lower.subject.combinator)
 		&& lower.subject.combinator === higher.subject.combinator) {
-		if (!compoundsCompatible(lower.parent, higher.parent, model)) return false;
-	}
+    if (!compoundsCompatible(lower.parent, higher.parent, model)) return false;
+  }
 
-	return !chainImpossible([...new Set([...lower.ancestorTokens, ...higher.ancestorTokens])], model);
+  return !chainImpossible([...new Set([...lower.ancestorTokens, ...higher.ancestorTokens])], model);
 }
 
+/**
+ * The failures, each item reported once.
+ * @param {Failure[]} failures - Failures, possibly repeating an item.
+ * @returns {Failure[]} The first failure for each item, in order.
+ */
 function dedupe(failures) {
-	const seen = new Set();
-	return failures.filter((f) => (seen.has(f.item) ? false : seen.add(f.item)));
+  const seen = new Set();
+  return failures.filter((f) => (seen.has(f.item) ? false : seen.add(f.item)));
 }
 
 // ---------------------------------------------------------------------------
@@ -1172,184 +1771,181 @@ function dedupe(failures) {
  * dependency is real but cheap (about a second), and there is no honest way to
  * answer "can one element match both of these?" without reading the code that
  * builds the elements.
+ * @returns {{espree: typeof import('espree'), eslintScope: typeof import('eslint-scope')}} The two modules from tooling/node_modules; exits 2 when they are missing.
  */
-function loadMarkupModel() {
-	const toolingModules = path.join(repoRoot, 'tooling', 'node_modules');
-	let espree;
-	let eslintScope;
-	try {
-		espree = require(path.join(toolingModules, 'espree'));
-		eslintScope = require(path.join(toolingModules, 'eslint-scope'));
-	} catch {
-		console.error('lint-css-arch: tooling/node_modules is missing espree/eslint-scope.');
-		console.error("Run 'cd tooling && npm ci' (or just 'make lint', which installs it).");
-		process.exit(2);
-	}
-	const { buildMarkupModel } = require(path.join(__dirname, 'css-markup-model'));
-	return buildMarkupModel({ repoRoot, espree, eslintScope });
-}
-
-function sortedInversions(findings) {
-	return [...findings].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
-}
-
-/** The findings behind one count, for whoever is fixing that file pair. */
-function reportInversions(findings, lower, higher) {
-	if (!lower) {
-		console.log('layer-inversion counts, worst first:\n');
-		for (const [item, found] of sortedInversions(findings)) console.log(`  ${String(found.length).padStart(5)}  ${item}`);
-		console.log('\nFor one pair:  node scripts/lint-css-arch --inversions <lower> <higher>');
-		return;
-	}
-	const item = higher ? `${lower} > ${higher}` : [...findings.keys()].find((k) => k.startsWith(`${lower} >`));
-	const found = findings.get(item);
-	if (!found) {
-		console.log(`No inversions between ${lower} and ${higher ?? '(any)'}.`);
-		return;
-	}
-	console.log(`${item} — ${found.length} inversion${found.length === 1 ? '' : 's'}\n`);
-	for (const { lower: a, higher: b } of found) {
-		console.log(`  ${a.file}:${a.line}  ${a.selector}`);
-		console.log(`  ${b.file}:${b.line}  ${b.selector}`);
-		console.log(`      over: ${contestedProperties(a.declarations, b.declarations).join(', ')}\n`);
-	}
+function loadParser() {
+  const toolingModules = path.join(repoRoot, 'tooling', 'node_modules');
+  let modules;
+  try {
+    modules = {
+      espree: require(path.join(toolingModules, 'espree')),
+      eslintScope: require(path.join(toolingModules, 'eslint-scope')),
+    };
+  } catch {
+    console.error('lint-css-arch: tooling/node_modules is missing espree/eslint-scope.');
+    console.error("Run 'cd tooling && npm ci' (or just 'make lint', which installs it).");
+    process.exit(2);
+  }
+  return modules;
 }
 
 /**
- * Compare the counts against the allowlist. The number may only go down, and
- * going down is a failure too — one that says "write the smaller number" —
- * because an allowlist nobody updates is an allowlist nobody reads.
+ * Build the markup model for this checkout (scripts/css-markup-model).
+ * @returns {MarkupFacts} The finished model.
+ */
+function loadMarkupModel() {
+  const { espree, eslintScope } = loadParser();
+  const { buildMarkupModel } = require(path.join(__dirname, 'css-markup-model'));
+  return buildMarkupModel({ repoRoot, espree, eslintScope });
+}
+
+/**
+ * The inversion findings, most numerous file pair first.
+ * @param {Map<string, Inversion[]>} findings - The inversions by file pair.
+ * @returns {[string, Inversion[]][]} The entries by descending count, then by pair name.
+ */
+function sortedInversions(findings) {
+  return [...findings].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+}
+
+/**
+ * The findings behind one count, for whoever is fixing that file pair.
+ * With no pair named, prints every pair's count instead.
+ * @param {Map<string, Inversion[]>} findings - The inversions by file pair.
+ * @param {string} [lower] - The lower sheet of the pair.
+ * @param {string} [higher] - The higher sheet; without it, the first pair `lower` is the lower sheet of.
+ */
+function reportInversions(findings, lower, higher) {
+  if (!lower) {
+    console.log('layer-inversion counts, worst first:\n');
+    for (const [item, found] of sortedInversions(findings)) console.log(`  ${String(found.length).padStart(5)}  ${item}`);
+    console.log('\nFor one pair:  node scripts/lint-css-arch --inversions <lower> <higher>');
+    return;
+  }
+  const item = higher ? `${lower} > ${higher}` : [...findings.keys()].find((k) => k.startsWith(`${lower} >`));
+  const found = findings.get(item);
+  if (!found) {
+    console.log(`No inversions between ${lower} and ${higher ?? '(any)'}.`);
+    return;
+  }
+  console.log(`${item} — ${found.length} inversion${found.length === 1 ? '' : 's'}\n`);
+  for (const { lower: a, higher: b } of found) {
+    console.log(`  ${a.file}:${a.line}  ${a.selector}`);
+    console.log(`  ${b.file}:${b.line}  ${b.selector}`);
+    console.log(`      over: ${contestedProperties(a.declarations, b.declarations).join(', ')}\n`);
+  }
+}
+
+/**
+ * Compare the counts against the ratchet. A count may only go down, and going
+ * down is a failure too — one that says "write the smaller number" — because
+ * a ratchet nobody updates stops being one.
+ * @param {Map<string, Inversion[]>} findings - The inversions by file pair.
+ * @param {string[]} permitted - The ratchet's entries (readInversionRatchet).
+ * @returns {number} The number of problems printed; 0 when every count matches.
  */
 function reportInversionRatchet(findings, permitted) {
-	const bounds = new Map();
-	const problems = [];
-	for (const entry of permitted) {
-		const m = /^(\S+)\s*>\s*(\S+)\s+(\d+)$/.exec(entry);
-		if (!m) {
-			problems.push(`    .lint-css-allowlist: "layer-inversion ${entry}" is not "<lower> > <higher> <count>"`);
-			continue;
-		}
-		bounds.set(`${m[1]} > ${m[2]}`, Number(m[3]));
-	}
+  const bounds = new Map();
+  const problems = [];
+  for (const entry of permitted) {
+    const m = /^(\S+)\s*>\s*(\S+)\s+(\d+)$/.exec(entry);
+    if (!m) {
+      problems.push(`    .layer-inversion-ratchet: "${entry}" is not "<lower> > <higher> <count>"`);
+      continue;
+    }
+    bounds.set(`${m[1]} > ${m[2]}`, Number(m[3]));
+  }
 
-	for (const [item, found] of sortedInversions(findings)) {
-		const bound = bounds.get(item);
-		if (bound === undefined) {
-			problems.push(`    ${item} — ${found.length} rule${found.length === 1 ? '' : 's'} filed below what they override`);
-			for (const { lower, higher } of found.slice(0, 3)) {
-				problems.push(`        ${lower.file}:${lower.line} ${lower.selector}  beats  ${higher.file}:${higher.line} ${higher.selector}`);
-			}
-			if (found.length > 3) problems.push(`        (node scripts/lint-css-arch --inversions ${item.replace(' > ', ' ')})`);
-		} else if (found.length > bound) {
-			// Which of them are the new ones is not knowable from a count, so
-			// point at the list rather than print three that may be innocent.
-			problems.push(`    ${item} — ${found.length} inversions, ${bound} allowed: ${found.length - bound} new`);
-			problems.push(`        node scripts/lint-css-arch --inversions ${item.replace(' > ', ' ')}`);
-		} else if (found.length < bound) {
-			problems.push(`    ${item} — down to ${found.length} from ${bound}: set the allowlist to "layer-inversion ${item} ${found.length}"`);
-		}
-	}
-	for (const [item, bound] of bounds) {
-		if (!findings.has(item)) problems.push(`    ${item} — none left of ${bound}: delete its allowlist entry`);
-	}
+  for (const [item, found] of sortedInversions(findings)) {
+    const bound = bounds.get(item);
+    if (bound === undefined) {
+      problems.push(`    ${item} — ${found.length} rule${found.length === 1 ? '' : 's'} filed below what they override`);
+      for (const { lower, higher } of found.slice(0, 3)) {
+        problems.push(`        ${lower.file}:${lower.line} ${lower.selector}  beats  ${higher.file}:${higher.line} ${higher.selector}`);
+      }
+      if (found.length > 3) problems.push(`        (node scripts/lint-css-arch --inversions ${item.replace(' > ', ' ')})`);
+    } else if (found.length > bound) {
+      // Which of them are the new ones is not knowable from a count, so
+      // point at the list rather than print three that may be innocent.
+      problems.push(`    ${item} — ${found.length} inversions, ${bound} allowed: ${found.length - bound} new`);
+      problems.push(`        node scripts/lint-css-arch --inversions ${item.replace(' > ', ' ')}`);
+    } else if (found.length < bound) {
+      problems.push(`    ${item} — down to ${found.length} from ${bound}: set .layer-inversion-ratchet to "${item} ${found.length}"`);
+    }
+  }
+  for (const [item, bound] of bounds) {
+    if (!findings.has(item)) problems.push(`    ${item} — none left of ${bound}: delete its .layer-inversion-ratchet line`);
+  }
 
-	if (!problems.length) return 0;
-	console.error(`\n✗ layer-inversion (${problems.length})`);
-	for (const problem of problems.slice(0, 60)) console.error(problem);
-	if (problems.length > 60) console.error(`    … and ${problems.length - 60} more`);
-	return problems.length;
+  if (!problems.length) return 0;
+  console.error(`\n✗ layer-inversion (${problems.length})`);
+  for (const problem of problems.slice(0, 60)) console.error(problem);
+  if (problems.length > 60) console.error(`    … and ${problems.length - 60} more`);
+  return problems.length;
 }
 
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
+/**
+ * Run every check, print the failures, and exit 1 if there are any; with
+ * `--inversions`, print the layer-inversion findings instead.
+ */
 function main() {
-	const manifest = readManifest();
-	const allowlist = readAllowlist();
-	const sheets = sheetFiles(manifest);
-	const sources = new Map();
-	for (const sheet of sheets) {
-		try {
-			sources.set(sheet.file, fs.readFileSync(sheet.abs, 'utf8'));
-		} catch {
-			console.error(`lint-css-arch: manifest lists ${sheet.file}, which does not exist`);
-			process.exit(2);
-		}
-	}
+  const manifest = readManifest();
+  const ratchet = readInversionRatchet();
+  const sheets = sheetFiles(manifest);
+  const sources = new Map();
+  for (const sheet of sheets) {
+    try {
+      sources.set(sheet.file, fs.readFileSync(sheet.abs, 'utf8'));
+    } catch {
+      console.error(`lint-css-arch: manifest lists ${sheet.file}, which does not exist`);
+      process.exit(2);
+    }
+  }
 
-	const inversions = checkLayerInversion(manifest, sheets, sources, loadMarkupModel());
+  const inversions = checkLayerInversion(manifest, sheets, sources, loadMarkupModel());
 
-	// `--inversions <lower> <higher>` shows the findings behind one count,
-	// which is what you read while fixing a file pair.
-	const asked = process.argv.indexOf('--inversions');
-	if (asked >= 0) {
-		reportInversions(inversions, process.argv[asked + 1], process.argv[asked + 2]);
-		return;
-	}
+  // `--inversions <lower> <higher>` shows the findings behind one count,
+  // which is what you read while fixing a file pair.
+  const asked = process.argv.indexOf('--inversions');
+  if (asked >= 0) {
+    reportInversions(inversions, process.argv[asked + 1], process.argv[asked + 2]);
+    return;
+  }
 
-	const results = {
-		'ownership': checkOwnership(manifest, sheets, sources),
-		'dead-selector': checkDeadSelectors(manifest, sheets, sources),
-		'token-parity': checkTokenParity(manifest, sheets, sources),
-		'link-parity': checkLinkParity(manifest),
-		'layer-order': checkLayerOrder(manifest, sheets, sources),
-		'asset-url': checkAssetUrls(sheets, sources),
-		'scale-literal': checkScaleLiterals(),
-	};
+  const corpus = productionCorpus(repoRoot, loadParser().espree);
+  const results = {
+    'ownership': checkOwnership(manifest, sheets, sources),
+    'dead-selector': checkDeadSelectors(manifest, sheets, sources, corpus),
+    'token-parity': checkTokenParity(manifest, sheets, sources, corpus),
+    'link-parity': checkLinkParity(manifest),
+    'layer-order': checkLayerOrder(manifest, sheets, sources),
+    'asset-url': checkAssetUrls(sheets, sources),
+    'scale-literal': checkScaleLiterals(),
+  };
 
-	// `--emit-allowlist` prints every current failure in allowlist format,
-	// ignoring the existing allowlist. Use it to audit what is still owed, or
-	// to re-seed the file after a large restructuring step — then annotate.
-	if (process.argv.includes('--emit-allowlist')) {
-		for (const [check, failures] of Object.entries(results)) {
-			for (const failure of failures) console.log(`${check} ${failure.item}`);
-		}
-		for (const [item, found] of sortedInversions(inversions)) console.log(`layer-inversion ${item} ${found.length}`);
-		return;
-	}
+  let failed = 0;
+  for (const [check, failures] of Object.entries(results)) {
+    if (!failures.length) continue;
+    failed += failures.length;
+    console.error(`\n✗ ${check} (${failures.length})`);
+    for (const failure of failures.slice(0, 40)) console.error(`    ${failure.message}`);
+    if (failures.length > 40) console.error(`    … and ${failures.length - 40} more`);
+  }
 
-	let failed = 0;
-	let allowed = 0;
-	const stale = [];
+  failed += reportInversionRatchet(inversions, ratchet);
 
-	for (const [check, failures] of Object.entries(results)) {
-		const permitted = allowlist.get(check) || new Set();
-		const used = new Set();
-		const real = [];
-		for (const failure of failures) {
-			if (permitted.has(failure.item)) { used.add(failure.item); allowed++; continue; }
-			real.push(failure);
-		}
-		for (const item of permitted) {
-			if (!used.has(item)) stale.push(`${check} ${item}`);
-		}
-		if (real.length) {
-			failed += real.length;
-			console.error(`\n✗ ${check} (${real.length})`);
-			for (const failure of real.slice(0, 40)) console.error(`    ${failure.message}`);
-			if (real.length > 40) console.error(`    … and ${real.length - 40} more`);
-		}
-	}
-
-	failed += reportInversionRatchet(inversions, allowlist.get('layer-inversion') || new Set());
-
-	if (stale.length) {
-		failed += stale.length;
-		console.error(stale.length === 1
-			? `\n✗ .lint-css-allowlist has an entry that no longer matches anything — delete it:`
-			: `\n✗ .lint-css-allowlist has ${stale.length} entries that no longer match anything — delete them:`);
-		for (const entry of stale.slice(0, 40)) console.error(`    ${entry}`);
-	}
-
-	if (failed) {
-		console.error(`\nlint-css-arch: ${failed} problem${failed === 1 ? '' : 's'}. The contract is web/css/README.md.`);
-		process.exit(1);
-	}
-	let inverted = 0;
-	for (const [, found] of inversions) inverted += found.length;
-	const debt = inverted ? `, ${inverted} rules still filed below what they override` : '';
-	console.log(`✓ css architecture (${sheets.length} sheets, ${allowed} known violation${allowed === 1 ? '' : 's'} still allowlisted${debt})`);
+  if (failed) {
+    console.error(`\nlint-css-arch: ${failed} problem${failed === 1 ? '' : 's'}. The contract is web/css/README.md.`);
+    process.exit(1);
+  }
+  let inverted = 0;
+  for (const [, found] of inversions) inverted += found.length;
+  const debt = inverted ? `, ${inverted} rules still filed below what they override (ratchet)` : '';
+  console.log(`✓ css architecture (${sheets.length} sheets, no exceptions${debt})`);
 }
 
 if (require.main === module) main();
@@ -1358,18 +1954,20 @@ if (require.main === module) main();
 // reachability filter — is also what `scripts/css-cascade-diff` needs to answer
 // "did this refactor change who wins today?". Exporting it keeps one copy.
 module.exports = {
-	canMeet,
-	cssDir,
-	declarationsIn,
-	loadMarkupModel,
-	mediaCompatible,
-	mediaContext,
-	overlappingProperty,
-	parseComplex,
-	parseRules,
-	readManifest,
-	selectorParts,
-	specificity,
-	SPEC_SCORE,
-	unwrapGrouping,
+  canMeet,
+  checkDeadSelectors,
+  productionCorpus,
+  cssDir,
+  declarationsIn,
+  loadMarkupModel,
+  mediaCompatible,
+  mediaContext,
+  overlappingProperty,
+  parseComplex,
+  parseRules,
+  readManifest,
+  selectorParts,
+  specificity,
+  SPEC_SCORE,
+  unwrapGrouping,
 };

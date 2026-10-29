@@ -397,7 +397,7 @@ let idleParkTimer = null;
  * @param {string} [ua] - navigator.userAgent equivalent.
  * @returns {boolean} True to keep the context warm (never idle-suspend).
  */
-export function keepAudioContextWarm(
+function keepAudioContextWarm(
   platform = typeof navigator !== 'undefined' ? navigator.platform || '' : '',
   ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '',
 ) {

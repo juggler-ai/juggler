@@ -39,7 +39,7 @@ const TOKEN_SOURCE = '\\u2062\\[Pasted #(\\d+) · [^\\u2062\\u2063\\]]*\\]\\u206
  * other's `lastIndex`.
  * @returns {RegExp} A new global-flag token regex.
  */
-export function pasteTokenRegex() {
+function pasteTokenRegex() {
   return new RegExp(TOKEN_SOURCE, 'g');
 }
 

@@ -28,7 +28,7 @@ import {
 /**
  * Test 31: Delete first item (index 0) - boundary condition
  * Ensures deletion at index 0 is properly recorded and restored.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testDeleteFirstItemUndo(session) {
@@ -92,7 +92,7 @@ async function testDeleteFirstItemUndo(session) {
 /**
  * Test 32: Invalid index deletion - graceful handling of out-of-bounds
  * Ensures out-of-bounds deletions don't corrupt state or crash.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testInvalidIndexDeletion(session) {
@@ -170,7 +170,7 @@ async function testInvalidIndexDeletion(session) {
  * `{path, isDirectory}` — the same minimal shape it had on creation. A pin
  * never persists file bytes (those are resolved live at send time), so "data
  * integrity" here means structural integrity, not byte preservation.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testFileContentDataIntegrityAfterUndo(session) {
@@ -255,7 +255,7 @@ async function testFileContentDataIntegrityAfterUndo(session) {
  *
  * This is the exact bug the user reported: "delete 3 last items in reverse order,
  * press undo 3×, they are restored in the WRONG ORDER."
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testReverseOrderDeletionOrdering(session) {
@@ -339,7 +339,7 @@ async function testReverseOrderDeletionOrdering(session) {
  *
  * Scenario: [A, B, C, D, E] — delete C, D, E one at a time (forward from the triplet).
  * Undo 3× must restore them in reverse deletion order: E first, D, C last.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testForwardOrderDeletionOrdering(session) {

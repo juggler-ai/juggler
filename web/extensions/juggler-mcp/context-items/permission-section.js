@@ -27,7 +27,7 @@ const ITEM_TYPE = 'mcp-tool';
  * @param {string} value - A glob rule value: `server/tool`, `server/#readonly` or `server/*`
  * @returns {string} The row label
  */
-export function mcpGrantLabel(value) {
+function mcpGrantLabel(value) {
   const slash = value.indexOf('/');
   if (slash < 0) return value;
   const server = value.slice(0, slash);
@@ -105,12 +105,12 @@ export function renderMcpPermissionSection(messageThread) {
     }
   });
 
-  /** @param {any} event */
+  /** @param {{keysChanged: Set<string>}} event - The metadata map's change event */
   const observer = (event) => {
     if (event.keysChanged.has('permissionRules') || event.keysChanged.has('conversationPermissionRules')) render();
   };
   messageThread.conversation.observeMetadata(observer);
-  const sessionUnsubscribe = messageThread.conversation.session?.subscribe?.((/** @type {any} */ evt) => {
+  const sessionUnsubscribe = messageThread.conversation.session?.subscribe?.((evt) => {
     if (evt.type === 'session:metadata-changed' && (evt.data?.keys || []).includes('sessionPermissionRules')) render();
   }) || null;
 

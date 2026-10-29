@@ -83,7 +83,7 @@ function assertEqual(label, actual, expected) {
  * Active → Stopped and the worker must stamp the entry `cancelled`.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const monitorStoppedFromPanelTest = {
+const monitorStoppedFromPanelTest = {
   name: 'monitor-stopped-from-panel',
   description: 'Stopping a live monitor flips its binding to cancelled and ends the pump',
   fixture: 'unit-test-fixture',
@@ -206,7 +206,7 @@ function taskSourceOf(message) {
  * binding goes Active → Stopped, exactly as the message's Stop button would.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const monitorStoppedFromOutputChunkTest = {
+const monitorStoppedFromOutputChunkTest = {
   name: 'monitor-stopped-from-output-chunk',
   description: 'A monitor can be stopped from one of its injected output messages via its taskSource',
   fixture: 'unit-test-fixture',

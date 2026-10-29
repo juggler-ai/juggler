@@ -920,9 +920,9 @@ func (t *OperationTracker) emitUndoState() {
 	}
 	t.undoSeq++
 	t.doc.setMetadata(keyUndoState, map[string]any{
-		"canUndo": canUndo,
-		"canRedo": canRedo,
-		"seq":     t.undoSeq,
+		keyCanUndo: canUndo,
+		keyCanRedo: canRedo,
+		keySeq:     t.undoSeq,
 	})
 }
 
@@ -966,7 +966,7 @@ func (t *OperationTracker) undoableTransactionIDs() []string {
 				}
 				// Read the map entry directly: ymap.Get() returns nil for deleted fields,
 				// but GetMap() exposes the raw item so we can read its content.
-				mapItem, ok := ymap.GetMap()["transactionId"]
+				mapItem, ok := ymap.GetMap()[keyTransactionID]
 				if !ok {
 					return
 				}
@@ -1021,7 +1021,7 @@ func (t *OperationTracker) undoableAssetIDs() []string {
 				if !ok {
 					return
 				}
-				mapItem, ok := ymap.GetMap()["attachments"]
+				mapItem, ok := ymap.GetMap()[keyAttachments]
 				if !ok {
 					return
 				}

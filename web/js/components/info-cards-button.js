@@ -227,5 +227,3 @@ class InfoCardsButton extends JugglerElement {
 }
 
 customElements.define('info-cards-button', InfoCardsButton);
-
-export default InfoCardsButton;

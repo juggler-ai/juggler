@@ -208,7 +208,7 @@ function assertBoxConsumed(conversation, composer) {
  * The release lets turn 1 finish without the held send being promoted.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const scheduledSendQueuedMidTurnTest = {
+const scheduledSendQueuedMidTurnTest = {
   name: 'scheduled-send-queued-mid-turn',
   description: 'A delay send armed mid-turn is queued with its time, its reads just ahead of it',
   fixture: 'unit-test-fixture',
@@ -267,7 +267,7 @@ export const scheduledSendQueuedMidTurnTest = {
  * empties, the queue holds it, and no turn starts.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const scheduledSendQueuedWhenIdleTest = {
+const scheduledSendQueuedWhenIdleTest = {
   name: 'scheduled-send-queued-when-idle',
   description: 'A delay send armed on an idle conversation is queued, not sent',
   fixture: 'unit-test-fixture',
@@ -309,7 +309,7 @@ export const scheduledSendQueuedWhenIdleTest = {
  * Released, turn 1 finishes without it, and a fresh turn answers it.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const scheduledSendRunEndTest = {
+const scheduledSendRunEndTest = {
   name: 'scheduled-send-run-end',
   description: '"Run at end of turn" holds the message until the run ends, then gives it a turn',
   fixture: 'unit-test-fixture',
@@ -368,7 +368,7 @@ export const scheduledSendRunEndTest = {
  * which a late lane only makes truer.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const scheduledSendFiredByWorkerTest = {
+const scheduledSendFiredByWorkerTest = {
   name: 'scheduled-send-fired-by-worker',
   description: 'A due scheduled send is fired by the worker, with no client poller running',
   fixture: 'unit-test-fixture',
@@ -415,7 +415,7 @@ export const scheduledSendFiredByWorkerTest = {
  * the worker gives the message its turn straight away.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const scheduledSendReleasedFromQueueTest = {
+const scheduledSendReleasedFromQueueTest = {
   name: 'scheduled-send-released-from-queue',
   description: 'Send now on a held message in the queued zone sends it at once',
   fixture: 'unit-test-fixture',
@@ -479,7 +479,7 @@ export const scheduledSendReleasedFromQueueTest = {
  * (not the command), and no turn starts.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const scheduledSendUserCommandTest = {
+const scheduledSendUserCommandTest = {
   name: 'scheduled-send-user-command',
   description: 'A scheduled send-mode user command is queued as its expanded prompt',
   fixture: 'unit-test-fixture',

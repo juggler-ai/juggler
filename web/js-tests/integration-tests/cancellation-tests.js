@@ -24,7 +24,7 @@ import { textResponse, toolUseResponse } from '../utilities/integration-test-run
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const cancelDuringExecutionTest = {
+const cancelDuringExecutionTest = {
   name: 'cancel-during-execution',
   description: 'Cancel a long-running command mid-execution',
   fixture: 'unit-test-fixture',
@@ -69,7 +69,7 @@ export const cancelDuringExecutionTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const cancelPreservesPartialOutputTest = {
+const cancelPreservesPartialOutputTest = {
   name: 'cancel-preserves-partial-output',
   description: 'Cancel a command that has already produced output',
   fixture: 'unit-test-fixture',
@@ -147,7 +147,7 @@ function cancelledPartialOutput(conversation) {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const cancelStopsLlmLoopTest = {
+const cancelStopsLlmLoopTest = {
   name: 'cancel-stops-llm-loop',
   description: 'Verify the LLM does not continue after cancellation',
   fixture: 'unit-test-fixture',
@@ -209,7 +209,7 @@ export const cancelStopsLlmLoopTest = {
  * until the 2-minute timeout.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const deleteRunningToolTest = {
+const deleteRunningToolTest = {
   name: 'delete-running-tool-no-hang',
   description: 'Deleting a running tool-action does not hang the strategy loop',
   fixture: 'unit-test-fixture',
@@ -256,7 +256,7 @@ export const deleteRunningToolTest = {
  * so the LLM will not try to "continue" it on the next turn.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const cancelMidStreamPreservesTextTest = {
+const cancelMidStreamPreservesTextTest = {
   name: 'cancel-mid-stream-preserves-text',
   description: 'Cancelling while LLM streams text keeps the partial item visible; next message gets a fresh response',
   fixture: 'unit-test-fixture',

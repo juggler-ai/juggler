@@ -46,10 +46,10 @@ import { anyThreadLive } from './thread-display.js';
 import { t, formatList } from '../../sdk/lib/i18n.js';
 
 /** Display `type` reported by a group entry (never a document item type). */
-export const GROUP_TYPE = 'tool-group';
+const GROUP_TYPE = 'tool-group';
 
 /** Prefix marking a display id as a group rather than a document itemId. */
-export const GROUP_ID_PREFIX = 'group:';
+const GROUP_ID_PREFIX = 'group:';
 
 /** Minimum number of visible tool rows before a run is worth folding. */
 const MIN_RUN = 2;

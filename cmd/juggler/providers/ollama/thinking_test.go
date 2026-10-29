@@ -159,3 +159,7 @@ func modelByID(models []provider.ModelInfo, id string) provider.ModelInfo {
 	}
 	return provider.ModelInfo{}
 }
+
+func forgetThinkingSpecs() {
+	thinkingSpecs.Clear()
+}

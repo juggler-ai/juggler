@@ -237,7 +237,7 @@ export async function refreshContextItem(mt, itemId) {
  * source of truth for its shape, shared by every thread-initialization path.
  * @returns {object} Plain context-item message for SYSTEM_1
  */
-export function createSystemPromptPlaceholder() {
+function createSystemPromptPlaceholder() {
   return createContextItemMessage({
     itemId: 'SYSTEM_1',
     isNew: false,

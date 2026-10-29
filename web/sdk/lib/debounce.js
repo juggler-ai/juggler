@@ -26,8 +26,9 @@
 
 /**
  * @typedef {object} DebounceTimers
- * @property {(fn: () => void, ms: number) => any} setTimeout - Schedules a call.
- * @property {(id: any) => void} clearTimeout - Cancels one.
+ * @property {(fn: () => void, ms: number) => unknown} setTimeout - Schedules a call,
+ *   returning an id only its own `clearTimeout` need understand.
+ * @property {(id: unknown) => void} clearTimeout - Cancels one, by the id `setTimeout` returned.
  */
 
 /**
@@ -40,7 +41,7 @@
  */
 
 /**
- * @template {any[]} A
+ * @template {unknown[]} A
  * @typedef {((...args: A) => void) & {
  *   cancel: () => void,
  *   flush: () => void,
@@ -51,7 +52,7 @@
 /** @type {DebounceTimers} */
 const GLOBAL_TIMERS = {
   setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
-  clearTimeout: (id) => globalThis.clearTimeout(id),
+  clearTimeout: (id) => globalThis.clearTimeout(/** @type {ReturnType<typeof globalThis.setTimeout>} */ (id)),
 };
 
 /**
@@ -61,7 +62,7 @@ const GLOBAL_TIMERS = {
  *
  * The returned function also has `cancel()` (drop a waiting run), `flush()`
  * (run a waiting one now) and `pending()` (whether one is waiting).
- * @template {any[]} A
+ * @template {unknown[]} A
  * @param {(...args: A) => void} fn - The work.
  * @param {number} wait - Quiet, in ms, that ends a burst.
  * @param {DebounceOptions} [options] - Ceiling and scheduler.
@@ -69,9 +70,9 @@ const GLOBAL_TIMERS = {
  */
 export function debounce(fn, wait, options = {}) {
   const { maxWait, timers = GLOBAL_TIMERS } = options;
-  /** @type {any} */
+  /** @type {unknown} */
   let trailing = null;
-  /** @type {any} */
+  /** @type {unknown} */
   let ceiling = null;
   /** @type {A|null} */
   let lastArgs = null;

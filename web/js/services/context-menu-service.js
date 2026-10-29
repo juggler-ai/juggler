@@ -62,11 +62,9 @@
  */
 
 import { copyToClipboard, readFromClipboard } from '../../sdk/lib/clipboard.js';
-import { formatCodeReference } from '../../sdk/lib/context-item-utils.js';
 import { markPopupOpen } from '../utils/popup-manager.js';
 import { attachMenuKeyboard } from '../utils/menu-roles.js';
 import { resolveCodeSelection, proseReference } from '../utils/code-selection.js';
-import { insertAtCaret } from '../components/composer-paste-tokens.js';
 import { t, markForTranslation } from '../../sdk/lib/i18n.js';
 
 /**
@@ -298,37 +296,15 @@ function activeComposer() {
 }
 
 /**
- * Write a code reference into a composer at its caret, on its own line.
- *
- * Insertion, never replacement: the draft the user was part-way through is the
- * thing this must not cost them, and one undo takes the quote back out. Nothing
- * is sent — the block ends on an empty line, which is where they say what they
- * wanted to ask.
- * @param {any} composer - The composer element.
- * @param {import('../utils/code-selection.js').CodeSelection|object} reference - What to quote.
- * @returns {boolean} True when the text landed.
- */
-export function insertCodeReference(composer, reference) {
-  const textarea = /** @type {HTMLTextAreaElement|null} */ (composer?.querySelector?.('textarea'));
-  if (!textarea) return false;
-  const caret = textarea.selectionStart ?? textarea.value.length;
-  const before = textarea.value.slice(0, caret);
-  // The header must start a line to be read as one, so a caret left mid-sentence
-  // gets a break first rather than the reference spliced into the sentence.
-  const lead = before !== '' && !before.endsWith('\n') ? '\n' : '';
-  insertAtCaret(composer, textarea, lead + formatCodeReference(reference));
-  return true;
-}
-
-/**
- * Quote the current selection into the composer and put the cursor there.
+ * Quote the current selection into the composer and put the cursor there. The
+ * composer writes it (`insertCodeReference`), so the draft around it survives.
  * @param {import('../utils/code-selection.js').CodeSelection} reference - What to quote.
  * @private
  */
 function askAboutSelection(reference) {
   const composer = activeComposer();
   if (!composer) return;
-  if (insertCodeReference(composer, reference)) {
+  if (composer.insertCodeReference(reference)) {
     composer.querySelector('textarea')?.focus();
   }
 }

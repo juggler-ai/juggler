@@ -31,6 +31,16 @@ function fields(item) {
 }
 
 /**
+ * A message the worker stored in an item's `data`, for `serverText`, which
+ * falls back to the stored English for anything that is not one.
+ * @param {unknown} value - The stored message
+ * @returns {{key?: unknown, params?: unknown, context?: unknown}|undefined} The message, or undefined when it is not an object
+ */
+function wireMessage(value) {
+  return value && typeof value === 'object' ? value : undefined;
+}
+
+/**
  * The item's one-line text, translated where the worker sent a message for it.
  * @param {TextItem} item - An error or notice item
  * @returns {string} The summary, or '' when the item has none.
@@ -40,8 +50,8 @@ export function itemSummaryText(item) {
   const summary = String(item.get('summary') || '');
   const content = String(item.get('content') || '');
   const data = readItemData(item);
-  if (data?.summaryMessage) return serverText(data.summaryMessage, summary);
-  if (!summary || summary === content) return serverText(data?.message, summary || content);
+  if (data?.summaryMessage) return serverText(wireMessage(data.summaryMessage), summary);
+  if (!summary || summary === content) return serverText(wireMessage(data?.message), summary || content);
   return summary;
 }
 
@@ -52,5 +62,5 @@ export function itemSummaryText(item) {
  */
 export function itemContentText(item) {
   item = fields(item);
-  return serverText(readItemData(item)?.message, String(item.get('content') || ''));
+  return serverText(wireMessage(readItemData(item)?.message), String(item.get('content') || ''));
 }

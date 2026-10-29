@@ -128,6 +128,19 @@
     --overlay-dark-15: rgb(0 0 0 / 15%);
     --overlay-dark-10: rgb(0 0 0 / 10%);
 
+    /* The colour a shadow is cast in, for a strength the ramp above has no
+       rung for: `color-mix(in srgb, var(--shadow-color) 35%, transparent)`. */
+    --shadow-color: #000;
+
+    /* The opaque stop of a mask gradient (`mask-image: linear-gradient(…)`).
+       A mask reads only alpha, so this is "show", as `transparent` is "hide". */
+    --mask-opaque: #000;
+
+    /* The Windows caption close button, which wears the platform's own red in
+       either theme. */
+    --window-close-hover-bg: #e81123;
+    --window-close-active-bg: #f1707a;
+
     /* Spacing scale */
     --spacing-xs: 0.375rem;   /* 6px */
     --spacing-sm: 0.5rem;     /* 8px */

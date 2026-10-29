@@ -115,7 +115,7 @@ function nextConversationMatching(session, predicate) {
  * @param {import('../model/session.js').default} session
  * @returns {string|null} A conversation id, or null.
  */
-export function nextAttentionConversationId(session) {
+function nextAttentionConversationId(session) {
   return nextConversationMatching(session, (id) => conversationNeedsAttention(session, id));
 }
 

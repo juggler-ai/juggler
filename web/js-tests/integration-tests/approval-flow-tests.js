@@ -38,7 +38,7 @@ const README_MD = '<file path="README.md">\n' +
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalApproveTest = {
+const approvalApproveTest = {
   name: 'approval-approve',
   description: 'Approve bash command - executes and returns output',
   fixture: 'unit-test-fixture',
@@ -83,7 +83,7 @@ export const approvalApproveTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalDenyTest = {
+const approvalDenyTest = {
   name: 'approval-deny',
   description: 'Deny bash command - not executed, result shows cancellation',
   fixture: 'unit-test-fixture',
@@ -126,7 +126,7 @@ export const approvalDenyTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalMultiToolTest = {
+const approvalMultiToolTest = {
   name: 'approval-multi-tool',
   description: 'Multiple tools with mixed approval — any deny stops the loop',
   fixture: 'unit-test-fixture',
@@ -185,7 +185,7 @@ export const approvalMultiToolTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalAutoApproveReadTest = {
+const approvalAutoApproveReadTest = {
   name: 'approval-auto-approve-read',
   description: 'Read operations auto-approve without user interaction',
   fixture: 'unit-test-fixture',
@@ -229,7 +229,7 @@ export const approvalAutoApproveReadTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalMixedAutoAndManualTest = {
+const approvalMixedAutoAndManualTest = {
   name: 'approval-mixed-auto-manual',
   description: 'Mix of auto-approved and manual approval tools',
   fixture: 'unit-test-fixture',
@@ -295,7 +295,7 @@ export const approvalMixedAutoAndManualTest = {
  * Tests the approval queue handling with multiple pending tools.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalParallel3ToolsTest = {
+const approvalParallel3ToolsTest = {
   name: 'approval-parallel-3-tools',
   description: 'Three parallel tools all requiring approval',
   fixture: 'unit-test-fixture',
@@ -372,7 +372,7 @@ export const approvalParallel3ToolsTest = {
  * More comprehensive test of the approval queue.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalParallel5ToolsTest = {
+const approvalParallel5ToolsTest = {
   name: 'approval-parallel-5-tools',
   description: 'Denying any tool in a 5-tool batch cascades to cancel all pending',
   fixture: 'unit-test-fixture',
@@ -454,7 +454,7 @@ export const approvalParallel5ToolsTest = {
  * Tests that approval order doesn't matter.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalOutOfOrderTest = {
+const approvalOutOfOrderTest = {
   name: 'approval-out-of-order',
   description: 'Approvals can be given in any order',
   fixture: 'unit-test-fixture',
@@ -516,7 +516,7 @@ const AO_WRITE = `env sh -c 'sleep 0.5; mkdir -p ${TD_ao} && echo made > ${TD_ao
  * worker orders them by is stamped on each call when it is evaluated.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalOrderedDependentPairTest = {
+const approvalOrderedDependentPairTest = {
   name: 'approval-ordered-dependent-pair',
   description: 'A second command approved during the first waits for it to finish',
   fixture: 'unit-test-fixture',
@@ -575,7 +575,7 @@ export const approvalOrderedDependentPairTest = {
  * The 2nd LLM response is provided but should never be consumed.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalDenyStopsLoopTest = {
+const approvalDenyStopsLoopTest = {
   name: 'approval-deny-stops-loop',
   description: 'Denying a tool stops the LLM loop - no further turn',
   fixture: 'unit-test-fixture',
@@ -622,7 +622,7 @@ export const approvalDenyStopsLoopTest = {
  * Two tools both denied - loop should stop when ALL tools in a batch are cancelled.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalDenyAllMultiToolTest = {
+const approvalDenyAllMultiToolTest = {
   name: 'approval-deny-all-multi-tool',
   description: 'Denying any tool in a batch cancels all pending tools (cascade policy)',
   fixture: 'unit-test-fixture',
@@ -684,7 +684,7 @@ export const approvalDenyAllMultiToolTest = {
  * read produced a useful result for the LLM to act on.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalMixedAutoDenyTest = {
+const approvalMixedAutoDenyTest = {
   name: 'approval-mixed-auto-deny',
   description: 'Auto-approved read + denied bash stops the loop',
   fixture: 'unit-test-fixture',
@@ -743,7 +743,7 @@ export const approvalMixedAutoDenyTest = {
  * Three tools all denied — loop must stop.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalDenyAll3ToolsTest = {
+const approvalDenyAll3ToolsTest = {
   name: 'approval-deny-all-3-tools',
   description: 'Denying any tool in a 3-tool batch cascades to cancel all',
   fixture: 'unit-test-fixture',

@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/worker"
-	"juggler/internal/machineload"
+	"juggler/internal/machineload/machineloadtest"
 
 	"github.com/gorilla/websocket"
 )
@@ -341,7 +341,7 @@ func TestViewerSocket_BeatingViewerKeepsItsSocket(t *testing.T) {
 			}
 			select {
 			case werr := <-writeErr:
-				machineload.Skip(t, "this viewer's own beats stopped reaching the socket, so the close "+
+				machineloadtest.Skip(t, "this viewer's own beats stopped reaching the socket, so the close "+
 					"says nothing about liveness: %v (socket: %v)", werr, err)
 			default:
 			}
@@ -352,7 +352,7 @@ func TestViewerSocket_BeatingViewerKeepsItsSocket(t *testing.T) {
 				gap = open
 			}
 			if gap > silenceWindow {
-				machineload.Skip(t, "this process went %v without getting a beat out — longer than the %v "+
+				machineloadtest.Skip(t, "this process went %v without getting a beat out — longer than the %v "+
 					"window it is asking the server to honour — so the close is unattributable: %v",
 					gap.Round(time.Millisecond), silenceWindow, err)
 			}
@@ -363,4 +363,15 @@ func TestViewerSocket_BeatingViewerKeepsItsSocket(t *testing.T) {
 			return
 		}
 	}
+}
+
+// setServerBeatInterval shortens the beat so tests need not wait out the
+// production one. Test-only seam.
+func (s *Server) setServerBeatInterval(d time.Duration) {
+	s.serverBeatIntervalNs.Store(int64(d))
+}
+
+// setViewerSilenceWindow shortens the eviction window. Test-only seam.
+func (s *Server) setViewerSilenceWindow(d time.Duration) {
+	s.viewerSilenceWindowNs.Store(int64(d))
 }

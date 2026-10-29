@@ -28,7 +28,7 @@ import { textResponse } from '../utilities/integration-test-runner.js';
  * user's message is preserved (sendMessage returns the refusal sentinel).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const sendRefusedWhenProviderDisabledTest = {
+const sendRefusedWhenProviderDisabledTest = {
   name: 'send-refused-when-provider-disabled',
   description: 'Sending with a disabled-provider model is refused with the actionable dialog; no turn runs',
   fixture: 'unit-test-fixture',
@@ -119,7 +119,7 @@ export const sendRefusedWhenProviderDisabledTest = {
  * available in the cache sends normally and the turn completes.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const sendAllowedWhenProviderAvailableTest = {
+const sendAllowedWhenProviderAvailableTest = {
   name: 'send-allowed-when-provider-available',
   description: 'A model on an available provider is not false-refused; the turn completes',
   fixture: 'unit-test-fixture',

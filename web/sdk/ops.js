@@ -134,23 +134,23 @@ export { FileSystem, ReadOnlyFileSystem } from '../js/services/fs.js';
  * the identically-named export above with `allowedPaths` and `workspaceId`
  * already in it.
  * @typedef {object} BoundOps
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof readFile>} readFile - Read a file.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof writeFile>} writeFile - Create or overwrite a file.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof editFile>} editFile - Search-and-replace within a file.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof editFileLines>} editFileLines - Replace a line range.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof fileHash>} fileHash - Hash a file, for staleness checks.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof stat>} stat - File/directory metadata.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof mkdir>} mkdir - Create a directory.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof getTree>} getTree - Directory tree.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof expandDirectory>} expandDirectory - One directory's entries.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof glob>} glob - Files matching a pattern.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof copyTree>} copyTree - Copy a tree, respecting the ignore rules.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof compareTrees>} compareTrees - Say how two trees differ.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof grep>} grep - Search file contents.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof findSymbol>} findSymbol - Find a symbol's definition.
- * @property {(params: any, signal?: AbortSignal) => ReturnType<typeof shell>} shell - Run a command and wait for it; aborting the signal kills it.
- * @property {(params: any) => ReturnType<typeof shellBackground>} shellBackground - Start a command in the background (stopped by id, not by signal).
- * @property {(params: any, onOutput: (chunk: any) => void, signal?: AbortSignal) => ReturnType<typeof shellStreaming>} shellStreaming - Run a command, streaming its output.
+ * @property {(params: Parameters<typeof readFile>[0], signal?: AbortSignal) => ReturnType<typeof readFile>} readFile - Read a file.
+ * @property {(params: Parameters<typeof writeFile>[0], signal?: AbortSignal) => ReturnType<typeof writeFile>} writeFile - Create or overwrite a file.
+ * @property {(params: Parameters<typeof editFile>[0], signal?: AbortSignal) => ReturnType<typeof editFile>} editFile - Search-and-replace within a file.
+ * @property {(params: Parameters<typeof editFileLines>[0], signal?: AbortSignal) => ReturnType<typeof editFileLines>} editFileLines - Replace a line range.
+ * @property {(params: Parameters<typeof fileHash>[0], signal?: AbortSignal) => ReturnType<typeof fileHash>} fileHash - Hash a file, for staleness checks.
+ * @property {(params: Parameters<typeof stat>[0], signal?: AbortSignal) => ReturnType<typeof stat>} stat - File/directory metadata.
+ * @property {(params: Parameters<typeof mkdir>[0], signal?: AbortSignal) => ReturnType<typeof mkdir>} mkdir - Create a directory.
+ * @property {(params: Parameters<typeof getTree>[0], signal?: AbortSignal) => ReturnType<typeof getTree>} getTree - Directory tree.
+ * @property {(params: Parameters<typeof expandDirectory>[0], signal?: AbortSignal) => ReturnType<typeof expandDirectory>} expandDirectory - One directory's entries.
+ * @property {(params: Parameters<typeof glob>[0], signal?: AbortSignal) => ReturnType<typeof glob>} glob - Files matching a pattern.
+ * @property {(params: Parameters<typeof copyTree>[0], signal?: AbortSignal) => ReturnType<typeof copyTree>} copyTree - Copy a tree, respecting the ignore rules.
+ * @property {(params: Parameters<typeof compareTrees>[0], signal?: AbortSignal) => ReturnType<typeof compareTrees>} compareTrees - Say how two trees differ.
+ * @property {(params: Parameters<typeof grep>[0], signal?: AbortSignal) => ReturnType<typeof grep>} grep - Search file contents.
+ * @property {(params: Parameters<typeof findSymbol>[0], signal?: AbortSignal) => ReturnType<typeof findSymbol>} findSymbol - Find a symbol's definition.
+ * @property {(params: Parameters<typeof shell>[0], signal?: AbortSignal) => ReturnType<typeof shell>} shell - Run a command and wait for it; aborting the signal kills it.
+ * @property {(params: Parameters<typeof shellBackground>[0]) => ReturnType<typeof shellBackground>} shellBackground - Start a command in the background (stopped by id, not by signal).
+ * @property {(params: Parameters<typeof shellStreaming>[0], onOutput: Parameters<typeof shellStreaming>[1], signal?: AbortSignal) => ReturnType<typeof shellStreaming>} shellStreaming - Run a command, streaming its output.
  * @property {() => FileSystem} fileSystem - An fs.promises-alike rooted here.
  * @property {() => ReadOnlyFileSystem} readOnlyFileSystem - The same, refusing writes.
  */

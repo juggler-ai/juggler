@@ -26,8 +26,6 @@ import { deadlineTimer } from './test-deadline.js';
  */
 const NO_TIMEOUT_MS = 2 ** 31 - 1;
 
-export { scanToolStates };
-
 /**
  * Recursively walk items (including thread nested arrays) looking for a match.
  * @param {any[]} items - Items to search
@@ -47,16 +45,6 @@ export function findItemRecursive(items, predicate) {
     }
   }
   return false;
-}
-
-/**
- * True if any tool-action is blocked on user approval (recursively). Thin view
- * over scanToolStates, the single source of the tool-state predicates.
- * @param {any[]} items - Items to search
- * @returns {boolean} True if any tool-action is awaiting user approval
- */
-export function hasPendingApproval(items) {
-  return scanToolStates(items).hasPending;
 }
 
 /**
@@ -84,7 +72,7 @@ export function hasIncompleteApprovedTools(items) {
  * @param {any} conversation - Conversation instance.
  * @returns {string} One line.
  */
-export function describeTurnState(conversation) {
+function describeTurnState(conversation) {
   const ps = conversation.processingState;
   const frame = ps
     ? `status=${ps.status ?? '(none)'}${ps.threadId ? ` thread=${ps.threadId}` : ''}${ps.activity ? ` activity=${ps.activity}` : ''}`

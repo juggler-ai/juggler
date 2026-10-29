@@ -52,7 +52,7 @@ export function __holdNextRegistryRebuildForTests(hold) {
 function getLiveSessions() {
   const sessions = [];
   const appSession = getAppSession();
-  const engineSession = /** @type {any} */ (globalThis).engineApp?.getSession?.();
+  const engineSession = /** @type {{engineApp?: {getSession?: () => import('../model/session.js').default|null}}} */ (globalThis).engineApp?.getSession?.();
   if (appSession) sessions.push(appSession);
   if (engineSession && engineSession !== appSession) sessions.push(engineSession);
   return sessions;
@@ -127,7 +127,7 @@ async function waitForLocalQuiescence() {
       resolve(answer);
     };
     const check = () => { if (!anyLocalConversationBusy()) finish(true); };
-    const watch = (/** @type {any} */ conv) => {
+    const watch = (/** @type {import('../model/conversation.js').default|undefined} */ conv) => {
       const off = conv?.onDocumentChange?.(check);
       if (off) offs.push(off);
     };
@@ -219,13 +219,13 @@ export function registerItemOwnedStrategies() {
   for (const { id, class: ItemClass } of contextItemRegistry.getAll()) {
     let classes;
     try {
-      classes = /** @type {any} */ (ItemClass).getStrategies?.() || [];
+      classes = ItemClass.getStrategies?.() || [];
     } catch (err) {
       console.error(`[registries] Context item "${id}" failed to provide strategies:`, err);
       continue;
     }
     for (const StrategyClass of classes) {
-      const manifest = /** @type {any} */ (StrategyClass)?.MANIFEST;
+      const manifest = StrategyClass?.MANIFEST;
       if (!manifest) {
         console.error(`[registries] Context item "${id}" returned a strategy with no MANIFEST`);
         continue;
@@ -257,7 +257,7 @@ export function registerItemOwnedStrategies() {
  * simply absent.
  * @returns {Promise<void>} Resolves once no rebuild is outstanding.
  */
-export function whenRegistriesSettled() {
+export function __whenRegistriesSettledForTests() {
   return reloadInFlight || Promise.resolve();
 }
 

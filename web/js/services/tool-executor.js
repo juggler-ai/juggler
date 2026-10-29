@@ -220,5 +220,5 @@ class ToolExecutor {
 }
 
 /** Singleton instance */
-export const toolExecutor = new ToolExecutor();
+const toolExecutor = new ToolExecutor();
 export default toolExecutor;

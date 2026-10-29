@@ -15,10 +15,11 @@ import (
 func saveAllowedHostsSetting(t *testing.T, names ...string) {
 	t.Helper()
 	userpathstest.Isolate(t)
-	if err := core.SaveGlobalSettings(&core.GlobalSettings{
-		Connectivity: core.ConnectivitySettings{AllowedHosts: names},
+	if _, err := core.UpdateGlobalSettings(func(gs *core.GlobalSettings) bool {
+		gs.Connectivity.AllowedHosts = names
+		return true
 	}); err != nil {
-		t.Fatalf("SaveGlobalSettings: %v", err)
+		t.Fatalf("UpdateGlobalSettings: %v", err)
 	}
 }
 

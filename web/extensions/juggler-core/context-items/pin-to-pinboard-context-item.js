@@ -7,6 +7,7 @@ import ContextItem from 'juggler/context-item';
 import { pinToPinboard, loadPinAgentDescriptors } from 'juggler/pinboard';
 import { createShowPinControl, injectStylesOnce, showPin } from 'juggler/ui';
 import { translator, markUntranslated } from 'juggler/i18n';
+import { toolActionResultData } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -37,7 +38,7 @@ let catalog = new Map();
 /**
  * Stable JSON for a parameter object: same keys in the same order whatever order
  * the model wrote them in, so a repeat of the same request hashes to the same pin.
- * @param {Record<string, any>} parameters - The parameters to spell.
+ * @param {Record<string, unknown>} parameters - The parameters to spell.
  * @returns {string} A stable spelling.
  */
 function stableStringify(parameters) {
@@ -51,18 +52,20 @@ function stableStringify(parameters) {
  * object there at all — and is judged properly by its `normalizeConfig` when the
  * pin mounts.
  * @param {import('juggler/pinboard-item-type').PinAgentDescriptor|null} descriptor - The type's descriptor, if it has one.
- * @param {any} parameters - Raw parameters from the model.
- * @returns {Record<string, any>|null} Normalized parameters, or null.
+ * @param {unknown} parameters - Raw parameters from the model.
+ * @returns {Record<string, unknown>|null} Normalized parameters, or null.
  */
 function normalizeParameters(descriptor, parameters) {
   if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) return null;
-  return descriptor?.normalize ? descriptor.normalize(parameters) : parameters;
+  // JSON from the model: a non-array object is a record of named values.
+  const record = /** @type {Record<string, unknown>} */ (parameters);
+  return descriptor?.normalize ? descriptor.normalize(record) : record;
 }
 
 /**
  * What makes two requests the same pin.
  * @param {import('juggler/pinboard-item-type').PinAgentDescriptor|null} descriptor - The type's descriptor, if it has one.
- * @param {Record<string, any>} parameters - Normalized parameters.
+ * @param {Record<string, unknown>} parameters - Normalized parameters.
  * @returns {string} The type-owned identity.
  */
 function identityOf(descriptor, parameters) {
@@ -73,7 +76,7 @@ function identityOf(descriptor, parameters) {
  * What to call this pin in the UI and in the summary the model reads back. A type
  * that knows what identifies one of its pins says so; the rest are known by type.
  * @param {string} type - The pin type.
- * @param {Record<string, any>} [parameters] - Normalized parameters.
+ * @param {Record<string, unknown>} [parameters] - Normalized parameters.
  * @returns {string} A short label.
  */
 function pinLabel(type, parameters) {
@@ -103,8 +106,8 @@ function describeParameters(schema) {
 /**
  * The config a pin is stored with: the type's own parameters, marked as having
  * come from the agent rather than from a user gesture.
- * @param {Record<string, any>} parameters - Normalized parameters.
- * @returns {Record<string, any>} The pin's config.
+ * @param {Record<string, unknown>} parameters - Normalized parameters.
+ * @returns {Record<string, unknown>} The pin's config.
  */
 function pinConfig(parameters) {
   return { ...parameters, agentRequested: true };
@@ -113,13 +116,15 @@ function pinConfig(parameters) {
 /**
  * The pin a completed call made, from its recorded result, or null when the
  * result does not name one.
- * @param {any} result - The call's result (`{pin, type, parameters}`).
+ * @param {unknown} result - The call's result (`{pin, type, parameters}`).
  * @returns {import('../../../js/utils/properties-panel-helpers.js').PinRef|null} The pin, or null.
  */
 function pinRefOf(result) {
-  if (!result || typeof result.pin !== 'string' || typeof result.type !== 'string') return null;
-  const parameters = result.parameters && typeof result.parameters === 'object' ? result.parameters : {};
-  return { pin: result.pin, type: result.type, config: pinConfig(parameters) };
+  if (!result || typeof result !== 'object') return null;
+  const { pin, type, parameters } = /** @type {{pin?: unknown, type?: unknown, parameters?: unknown}} */ (result);
+  if (typeof pin !== 'string' || typeof type !== 'string') return null;
+  const config = parameters && typeof parameters === 'object' ? /** @type {Record<string, unknown>} */ (parameters) : {};
+  return { pin, type, config: pinConfig(config) };
 }
 
 /**
@@ -240,7 +245,7 @@ class PinToPinboardContextItem extends ContextItem {
 
   /**
    * Add the pin to the shared main board and ask eligible viewers to reveal it.
-   * @param {{type: string, parameters: Record<string, any>}} params - Validated request.
+   * @param {{type: string, parameters: Record<string, unknown>}} params - Validated request.
    * @returns {Promise<Record<string, unknown>>} Added pin descriptor.
    */
   async execute(params) {
@@ -276,7 +281,7 @@ class PinToPinboardContextItem extends ContextItem {
     if (!outcome.success) {
       return this.failureSummary(outcome.error || markUntranslated('Could not pin that'));
     }
-    const result = /** @type {{type?: string, parameters?: Record<string, any>}} */ (outcome.result) || {};
+    const result = /** @type {{type?: string, parameters?: Record<string, unknown>}} */ (outcome.result) || {};
     const label = result.type ? pinLabel(result.type, result.parameters) : '';
     return this.successSummary(markUntranslated(`Pinned ${label || 'the item'} and asked the user’s Pinboard to show it.`));
   }
@@ -291,7 +296,7 @@ class PinToPinboardContextItem extends ContextItem {
       return { typeName, summary: actionStatus ? t('Pinning…') : t('Pin to Pinboard'), status: actionStatus ? 'running' : undefined };
     }
     if (actionStatus.success) {
-      const result = /** @type {{type?: string, parameters?: Record<string, any>}} */ (actionStatus.result || {});
+      const result = /** @type {{type?: string, parameters?: Record<string, unknown>}} */ (actionStatus.result || {});
       const label = (result.type ? pinLabel(result.type, result.parameters) : '') || t('item');
       const ref = pinRefOf(result);
       if (!ref) return { typeName, summary: label, status: 'success' };
@@ -334,9 +339,7 @@ class PinToPinboardContextItem extends ContextItem {
    */
   renderToolActionDetails(wrapper, ctx) {
     const { input, helpers, toolAction } = ctx;
-    const raw = toolAction && toolAction.get ? toolAction.get('result') : null;
-    const result = raw && raw.toJSON ? raw.toJSON() : (raw || {});
-    const data = (result.fullResult && result.fullResult.result) || {};
+    const data = toolActionResultData(toolAction);
 
     const type = String(data.type || input.type || '').trim();
     helpers.addSubsection(wrapper, t('Type'), type || t('unknown'), 'properties-panel-code');
@@ -379,7 +382,7 @@ let cardCatalogRead = null;
  * so it is corrected in place rather than waiting for a redraw nothing asks for.
  * @param {HTMLElement} link - The card's label.
  * @param {string} type - The pin type.
- * @param {Record<string, any>} [parameters] - Normalized parameters.
+ * @param {Record<string, unknown>} [parameters] - Normalized parameters.
  * @returns {void}
  */
 function relabelOnceCatalogIsRead(link, type, parameters) {

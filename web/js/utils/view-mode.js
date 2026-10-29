@@ -27,7 +27,7 @@
  */
 
 /** The ordinary Juggler shell. */
-export const VIEW_MAIN = 'main';
+const VIEW_MAIN = 'main';
 
 /** A board detached into its own window or tab. */
 export const VIEW_PINBOARD = 'pinboard';
@@ -37,7 +37,7 @@ export const VIEW_PINBOARD = 'pinboard';
  * the one every viewer of the project shares. Mirrors MainBoardID in
  * cmd/juggler/core/pinboard.go.
  */
-export const MAIN_BOARD_ID = 'main';
+const MAIN_BOARD_ID = 'main';
 
 /**
  * The window role of the Juggler shell. Mirrors WindowRoleMain in
@@ -49,7 +49,7 @@ export const WINDOW_ROLE_MAIN = 'main';
  * The window role of a detached board, before its board id is appended. Mirrors
  * WindowRolePinboard in cmd/juggler/core/session.go.
  */
-export const WINDOW_ROLE_PINBOARD = 'pinboard';
+const WINDOW_ROLE_PINBOARD = 'pinboard';
 
 /**
  * The alphabet the server accepts for a viewer id (see sanitiseViewerID in
@@ -88,14 +88,6 @@ function readFrom(search) {
 }
 
 readFrom(globalThis.location?.search || '');
-
-/**
- * Which shell this document is.
- * @returns {string} `VIEW_MAIN` or `VIEW_PINBOARD`.
- */
-export function viewMode() {
-  return mode;
-}
 
 /**
  * Whether this document is a detached board rather than the Juggler shell.
@@ -154,8 +146,8 @@ export function boardId() {
  * The Juggler shell is 'main'; a detached board is 'pinboard:<board>', or plain
  * 'pinboard' when the URL named no usable board. This is the name a window's own
  * geometry and UI preferences are kept under, so it has to be the same string
- * the two Go sides compute: WindowRoleForView in cmd/juggler/core/session.go,
- * which names the window a page URL describes, and role() in
+ * the two Go sides use: WindowRolePinboardFor in cmd/juggler/core/session.go,
+ * which names the slot the server keeps (and prunes) for a board, and role() in
  * cmd/juggler-app/window_opts.go, which the desktop app opens the window with.
  *
  * Note this reads the board straight out of the URL rather than through

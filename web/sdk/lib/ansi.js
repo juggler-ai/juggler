@@ -69,7 +69,9 @@ function color256(n) {
   return { kind: 'rgb', value: `rgb(${gray} ${gray} ${gray})` };
 }
 
-/** @returns {{fg: any, bg: any, bold: boolean, dim: boolean, italic: boolean, underline: boolean, inverse: boolean, strike: boolean}} Fresh default style state */
+/** @typedef {null | {kind: 'named', index: number, bright: boolean} | {kind: 'rgb', value: string}} AnsiColor */
+
+/** @returns {{fg: AnsiColor, bg: AnsiColor, bold: boolean, dim: boolean, italic: boolean, underline: boolean, inverse: boolean, strike: boolean}} Fresh default style state */
 function freshState() {
   return { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false, inverse: false, strike: false };
 }

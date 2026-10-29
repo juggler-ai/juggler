@@ -19,21 +19,6 @@ import DocumentSyncManager from '../utils/document-sync-manager.js';
 import { reportFault } from '../utils/fault-report.js';
 
 /**
- * @typedef {import('../../sdk/lib/message.js').Message} Message
- */
-
-/**
- * @typedef {import('../../sdk/lib/message.js').ToolActionMessage} ToolActionMessage
- */
-
-/**
- * @typedef {object} ContextItemJSON
- * @property {string} id - Context item ID (REQUIRED)
- * @property {string} type - Context item type (REQUIRED - e.g., 'tree', 'read-file', 'rule')
- * @property {Record<string, any>} data - Context item-specific data
- */
-
-/**
  * ConversationDocument - CRDT-based conversation state
  *
  * Uses Yjs for conflict-free collaborative editing. Contains:

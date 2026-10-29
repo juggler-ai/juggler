@@ -195,6 +195,9 @@ function mountWindowed(code, lines, language, lineNumberStart) {
       // Laid out to nothing so far — the retry below, or a later scroll or
       // resize, will measure.
       if (!rowHeight) return;
+      // The provisional window's spacers were sized with no row height, so it
+      // must be redrawn even when the measured window covers the same rows.
+      firstDrawn = -1;
     }
     // Keep looking until one is found: on the first pass nothing may have
     // enough height to overflow yet. Once found it is kept, so the search does

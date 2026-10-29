@@ -297,3 +297,8 @@ func publishedPoliteStopLanded(state map[string]any, threadItemID string) any {
 	}
 	return entry["landed"]
 }
+
+// markPoliteStop puts a pause over threadItemID and everything below it.
+func (w *ConversationWorker) markPoliteStop(threadItemID string) {
+	w.mutatePoliteStops(func(next map[string]bool) { next[threadItemID] = true })
+}

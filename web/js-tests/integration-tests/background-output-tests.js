@@ -56,7 +56,7 @@ function visibleStopButton() {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const backgroundOutputInPanelTest = {
+const backgroundOutputInPanelTest = {
   name: 'background-output-in-panel',
   description: 'The properties panel shows a background bash task\'s live output and exit status alongside the result the model was handed',
   fixture: 'unit-test-fixture',
@@ -138,7 +138,7 @@ export const backgroundOutputInPanelTest = {
  * reports the kill and the button takes itself away.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const backgroundStopFromPanelTest = {
+const backgroundStopFromPanelTest = {
   name: 'background-stop-from-panel',
   description: 'The properties panel can kill a running background bash task',
   fixture: 'unit-test-fixture',

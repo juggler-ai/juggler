@@ -131,7 +131,7 @@ export async function executeToolAction(messageThread, toolUseId, conversation) 
     return;
   }
 
-  const toolName = toolAction.get('toolName');
+  const toolName = toolAction.get('toolName') ?? '';
 
   // Worker-managed tools: execution handled by Go worker, skip browser-side execution
   const ActionClass = contextItemRegistry.getByToolName(toolName);

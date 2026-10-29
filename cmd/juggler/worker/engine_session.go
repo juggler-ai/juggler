@@ -90,11 +90,6 @@ func newEngineSession(done <-chan struct{}) engineSession {
 	return e
 }
 
-// replySlots returns every reply slot, in construction order.
-func (e *engineSession) replySlots() []*replySlot {
-	return e.slots
-}
-
 // admitReport applies the accept-gate to a report from originClient while
 // engineID is the attached engine, and stores it if it passes. A report is
 // evidence only if it came from the attached engine (a viewer or a superseded

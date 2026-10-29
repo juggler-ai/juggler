@@ -84,6 +84,25 @@ export const INTERACTION_KIND = {
 // ============================================================================
 
 /**
+ * Call one tool from a program. With `withAttachments` it resolves to the
+ * content and the asset refs of any images the call produced; without, to the
+ * content alone.
+ * @typedef {{
+ *   (name: string, args: Record<string, unknown>, how: {withAttachments: true, tag?: unknown, answer?: string}): Promise<{content: string, attachments: import('../js/services/ops-api.js').AssetRef[]}>,
+ *   (name: string, args: Record<string, unknown>, how?: {withAttachments?: false, tag?: unknown, answer?: string}): Promise<string>
+ * }} ToolInvoke
+ */
+
+/**
+ * What {@link ContextItem#createToolInvoker} returns.
+ * @typedef {object} ToolInvoker
+ * @property {ToolInvoke} invoke - Call one offered tool
+ * @property {{calls: Array<Record<string, unknown>>, omitted: number, omittedEffects: number}} record - Every call made, for display
+ * @property {() => Promise<Map<string, Record<string, unknown>>>} offered - The tools a call is admitted to, by name, with their definitions
+ * @property {() => void} end - Refuse whatever is still waiting on the user
+ */
+
+/**
  * ContextItem — base class for all conversation items.
  *
  * Provides universal capabilities: identity, token counting, timestamps,
@@ -285,7 +304,7 @@ class ContextItem {
     this.messageThread = context.messageThread;
 
     /** @type {string} */
-    this.type = context.type || /** @type {any} */ (this.constructor).MANIFEST?.id || 'unknown';
+    this.type = context.type || /** @type {typeof ContextItem} */ (this.constructor).MANIFEST?.id || 'unknown';
 
     /**
      * Tool use ID for filtering self from items during validation
@@ -323,7 +342,7 @@ class ContextItem {
 
     /**
      * Progress callback for streaming output, set by the ActionExecutor.
-     * @type {((event: any) => void)|undefined}
+     * @type {((event: import('../js/services/action-executor.js').ActionProgressEvent) => void)|undefined}
      */
     this.onProgress = context.onProgress;
 
@@ -335,7 +354,7 @@ class ContextItem {
 
     /**
      * Item result data
-     * @type {Record<string, any>}
+     * @type {Record<string, unknown>}
      */
     this.data = {};
 
@@ -348,15 +367,17 @@ class ContextItem {
     // Validate the manifest only when the subclass defines one: the abstract
     // bases other items extend (edit-base.js, subagent-item.js) declare none of
     // their own, and it is their concrete subclasses the registry checks.
-    if (/** @type {any} */ (this.constructor).MANIFEST) {
+    if (/** @type {typeof ContextItem} */ (this.constructor).MANIFEST) {
       validateManifest(this.constructor);
     }
 
     // Dev-mode: wrap context-exclusive methods with guards that throw
     // a clear error when called in the wrong browser instance.
-    if (typeof window !== 'undefined' && /** @type {any} */ (window).__jugglerDevMode) {
-      const contexts = /** @type {any} */ (this.constructor).METHOD_CONTEXT || {};
-      /** @type {any} */ const self = this;
+    if (typeof window !== 'undefined' && /** @type {{__jugglerDevMode?: boolean}} */ (/** @type {unknown} */ (window)).__jugglerDevMode) {
+      /** @type {Record<string, string>} */
+      const contexts = /** @type {typeof ContextItem} */ (this.constructor).METHOD_CONTEXT || {};
+      // Indexed by method name, so read as a plain record of members.
+      const self = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (this));
       for (const [method, ctx] of Object.entries(contexts)) {
         if (typeof self[method] !== 'function') continue;
         const name = method;
@@ -490,14 +511,16 @@ class ContextItem {
    * @param {boolean} [opts.waitForUser] - Hold a call that waits on the user, rather than refuse it
    * @param {(request: Record<string, unknown>, tag: unknown) => Promise<void>|void} [opts.beforeHold] - Awaited before each hold is put to the user
    * @param {() => void} [opts.afterHold] - Told when each hold has ended
-   * @returns {{invoke: (name: string, args: Record<string, unknown>, how?: {withAttachments?: boolean, tag?: unknown, answer?: string}) => Promise<any>, record: {calls: Array<Record<string, unknown>>, omitted: number, omittedEffects: number}, offered: () => Promise<Map<string, Record<string, any>>>, end: () => void}} The invoker
+   * @returns {ToolInvoker} The invoker
    */
   createToolInvoker(opts = {}) {
-    const host = /** @type {any} */ (globalThis).__hostToolInvoker;
+    const host = /** @type {{__hostToolInvoker?: unknown}} */ (globalThis).__hostToolInvoker;
     if (typeof host !== 'function') {
       throw new Error('This host cannot run tools from a program.');
     }
-    return host({
+    // tool-invoker.js installs the binding, with exactly this signature.
+    const createInvoker = /** @type {(options: Record<string, unknown>) => ToolInvoker} */ (host);
+    return createInvoker({
       parentToolUseId: this.toolUseId || this.id,
       signal: opts.signal ?? this.signal,
       onRefused: opts.onRefused,
@@ -533,7 +556,7 @@ class ContextItem {
    * @returns {string} Display title
    */
   getTitle() {
-    return /** @type {any} */ (this.constructor).MANIFEST?.name || this.type;
+    return /** @type {typeof ContextItem} */ (this.constructor).MANIFEST?.name || this.type;
   }
 
   /**
@@ -583,7 +606,7 @@ class ContextItem {
     // error. See sdk/coerce-schema-types.js.
     const coerced = coerceToolInputToSchema(
       toolInput,
-      /** @type {any} */ (this.constructor).getToolDefinitions().map((/** @type {{input_schema?: object}} */ d) => d.input_schema)
+      /** @type {typeof ContextItem} */ (this.constructor).getToolDefinitions().map((/** @type {{input_schema?: object}} */ d) => d.input_schema)
     );
 
     const validation = await this.validate(coerced);
@@ -720,7 +743,7 @@ class ContextItem {
   truncationBudget() {
     const own = Number(this._truncationBudget);
     if (Number.isFinite(own) && own > 0) return own;
-    const budget = Number(/** @type {any} */ (this.conversation)?.truncationBudget);
+    const budget = Number(this.conversation?.truncationBudget);
     return Number.isFinite(budget) && budget > 0 ? budget : DEFAULT_TRUNCATION_BUDGET;
   }
 
@@ -745,7 +768,7 @@ class ContextItem {
 
   /**
    * Get result details for successful tool call
-   * @returns {Record<string, any>} Tool result details
+   * @returns {Record<string, unknown>} Tool result details
    */
   getToolResult() {
     return { id: this.id };
@@ -760,7 +783,7 @@ class ContextItem {
    * @returns {boolean} True if approval is required
    */
   requiresApproval() {
-    return /** @type {any} */ (this.constructor).MANIFEST?.requiresApproval ?? false;
+    return /** @type {typeof ContextItem} */ (this.constructor).MANIFEST?.requiresApproval ?? false;
   }
 
   /**
@@ -770,7 +793,7 @@ class ContextItem {
    * @returns {string} One of {@link INTERACTION_KIND}
    */
   interactionKind() {
-    return /** @type {any} */ (this.constructor).interactionKind();
+    return /** @type {typeof ContextItem} */ (this.constructor).interactionKind();
   }
 
   /**
@@ -778,7 +801,7 @@ class ContextItem {
    * @returns {boolean} True if user deletion is prevented
    */
   preventUserDeletion() {
-    return /** @type {any} */ (this.constructor).MANIFEST?.preventUserDeletion ?? false;
+    return /** @type {typeof ContextItem} */ (this.constructor).MANIFEST?.preventUserDeletion ?? false;
   }
 
   /**
@@ -787,7 +810,7 @@ class ContextItem {
    * @returns {string} Permission key
    */
   getPermissionKey(_toolInput) {
-    return /** @type {any} */ (this.constructor).MANIFEST?.id || this.type;
+    return /** @type {typeof ContextItem} */ (this.constructor).MANIFEST?.id || this.type;
   }
 
   /**
@@ -879,7 +902,7 @@ class ContextItem {
    * @returns {string} Short type label
    */
   static getTypeName() {
-    return /** @type {any} */ (this).MANIFEST?.name || markForTranslation('Item');
+    return this.MANIFEST?.name || markForTranslation('Item');
   }
 
   /**
@@ -907,7 +930,7 @@ class ContextItem {
    * @returns {string} One of {@link INTERACTION_KIND}
    */
   static interactionKind() {
-    return /** @type {any} */ (this).MANIFEST?.interaction ?? INTERACTION_KIND.GATE;
+    return this.MANIFEST?.interaction ?? INTERACTION_KIND.GATE;
   }
 
   /**
@@ -1327,7 +1350,7 @@ class ContextItem {
    * May be async, for a decision that depends on more than the items' data.
    * [Context: shared]
    * @static
-   * @param {Record<string, any>} newParams - Parameters for the new request
+   * @param {Record<string, unknown>} newParams - Parameters for the new request
    * @param {ContextItem[]} existingItems - All existing items of this type
    * @param {{projectPath?: string}} [context] - Optional context with project info
    * @returns {MergeOrReplaceResult|null|Promise<MergeOrReplaceResult|null>} Merge result or null if no merge possible
@@ -1441,7 +1464,7 @@ class ContextItem {
    * `execute()` nor its own `onToolCall()` is genuinely incomplete, so it still
    * throws.
    * @param {string} _toolName - Name of the tool being called
-   * @param {Record<string, any>} _params - Tool parameters from LLM
+   * @param {Record<string, unknown>} _params - Tool parameters from LLM
    * @returns {Promise<void>}
    */
   async onToolCall(_toolName, _params) {
@@ -1454,7 +1477,7 @@ class ContextItem {
   /**
    * Handle a tool call for this plugin (framework entry point for refreshable items)
    * @param {string} toolName - Name of the tool being called
-   * @param {Record<string, any>} params - Tool parameters from LLM
+   * @param {Record<string, unknown>} params - Tool parameters from LLM
    * @param {ToolCallContext} context - Execution context
    * @returns {Promise<ToolCallResult>} The result of executing the tool call
    */

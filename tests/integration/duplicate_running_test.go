@@ -35,9 +35,7 @@ func TestDuplicateWhileRunning_ClonePersistsParkedMarker(t *testing.T) {
 	projectDir := helpers.CreateTempDir(t)
 	defer os.RemoveAll(projectDir)
 
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	sm, err := core.NewSessionManager(core.SessionManagerConfig{Store: store, ProjectPath: projectDir})
+	sm, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer sm.Shutdown()
 

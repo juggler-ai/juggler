@@ -25,7 +25,7 @@ import { fetchUserCommands, resetUserCommandsCache } from '../../js/services/use
 import slashCommandHandler from '../../js/services/slash-command-handler.js';
 import strategyRegistry from '../../js/registries/strategy-registry.js';
 import commandRegistry from '../../js/registries/command-registry.js';
-import { reloadRegistries, whenRegistriesSettled, anyLocalConversationBusy } from '../../js/registries/reload-registries.js';
+import { reloadRegistries, __whenRegistriesSettledForTests, anyLocalConversationBusy } from '../../js/registries/reload-registries.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 
 /**
@@ -84,7 +84,7 @@ const DEF = {
  * response instead, it caches an EMPTY catalog, and every registry in the lane's
  * shared realm is left empty and marked initialized for the suites that follow.
  * (The rebuild also outlives the save that started it — the suite runner waits
- * it out; see `whenRegistriesSettled`.)
+ * it out; see `__whenRegistriesSettledForTests`.)
  * @returns {{calls: Call[], restore: () => void}} The harness.
  */
 function stubEnvironment() {
@@ -534,7 +534,7 @@ export async function runTests(_ctx) {
    */
   const runLive = async (label, fn) => {
     try {
-      await whenRegistriesSettled();
+      await __whenRegistriesSettledForTests();
       await slashCommandHandler.init();
       await fn();
       passed++;
@@ -543,7 +543,7 @@ export async function runTests(_ctx) {
       errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       neutralizeStrayOverlays();
-      await whenRegistriesSettled();
+      await __whenRegistriesSettledForTests();
       resetUserCommandsCache();
       await reloadRegistries();
     }
@@ -570,7 +570,7 @@ export async function runTests(_ctx) {
       });
     } finally {
       // A rebuild the turn's end released reads the stub too.
-      await whenRegistriesSettled();
+      await __whenRegistriesSettledForTests();
       restore();
     }
   });

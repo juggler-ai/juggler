@@ -37,14 +37,6 @@ import {
 } from '../utilities/conversation-workspace-helpers.js';
 
 /**
- * This suite makes and removes directories directly in the shared fixture root,
- * which a sibling lane walking the project reads as they come and go, so no
- * other lane may be in flight while it runs.
- * @type {boolean}
- */
-export const needsExclusiveRun = true;
-
-/**
  * Run the conversation-workspace-provision tests.
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
  */

@@ -342,27 +342,3 @@ func (c *Config) SetResolvedDisabledPlugins(disabled []string) {
 		}
 	}
 }
-
-// CalculateTokenBudget calculates the token budget based on a provider's context window
-// Returns the explicit TokenBudget if set (user override)
-// Otherwise, calculates as 60% of the provider's context window
-// The 60% allocation accounts for:
-// - System prompts (~5-10%)
-// - Tool definitions (~5-10%)
-// - Output tokens (~20-25%)
-// - Safety margin (~5-10%)
-// Returns 0 if no valid context window is available (caller should handle this)
-func CalculateTokenBudget(explicitBudget int, contextWindow int) int {
-	// If user set an explicit budget, use it
-	if explicitBudget > 0 {
-		return explicitBudget
-	}
-
-	// Calculate as 60% of context window
-	if contextWindow > 0 {
-		return int(float64(contextWindow) * 0.6)
-	}
-
-	// No valid context window - return 0 (caller should handle)
-	return 0
-}

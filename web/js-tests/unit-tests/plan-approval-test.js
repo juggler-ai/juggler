@@ -25,11 +25,11 @@ import { budgetFor } from '../utilities/test-deadline.js';
 import { TOOL_STATES } from '../../sdk/lib/message.js';
 
 /**
- * @typedef {import('../../model/message.js').Message} Message
- * @typedef {import('../../model/message.js').ToolActionMessage} ToolActionMessage
- * @typedef {import('../../model/message.js').ToolUseMessage} ToolUseMessage
- * @typedef {import('../../model/message.js').ToolResultMessage} ToolResultMessage
- * @typedef {import('../../model/conversation.js').default} Conversation
+ * @typedef {import('../../sdk/lib/message.js').Message} Message
+ * @typedef {import('../../sdk/lib/message.js').ToolActionMessage} ToolActionMessage
+ * @typedef {import('../../sdk/lib/message.js').ToolUseMessage} ToolUseMessage
+ * @typedef {import('../../sdk/lib/message.js').ToolResultMessage} ToolResultMessage
+ * @typedef {import('../../js/model/conversation.js').default} Conversation
  */
 
 /**

@@ -29,9 +29,9 @@ func longRunningCmd(ctx context.Context) *exec.Cmd {
 
 func TestStartTerminate_KillsProcess(t *testing.T) {
 	cmd := longRunningCmd(context.Background())
-	child, err := childcontain.Start(cmd)
+	child, err := start(cmd)
 	if err != nil {
-		t.Fatalf("childcontain.Start: %v", err)
+		t.Fatalf("start: %v", err)
 	}
 	if cmd.Process == nil {
 		t.Fatal("cmd.Process is nil after Start")

@@ -260,7 +260,7 @@ func (r *run) handleContextOverflow(o contextOverflow, recovery *compactionAttem
 	// rewrites history. The manual-fold summarizer above stays enabled (a
 	// manually folded thread must still summarize).
 	//
-	// The request already asked admission for the hard window (buildLLMRequest
+	// The request already asked admission for the hard window (buildLLMRequestWithIntent
 	// sets contextCeilingFraction=1 under this same gate), so any advisory
 	// reaching here is at the real window rather than the soft ceiling. It is
 	// still only an estimate, and an estimate must never be terminal: dispatch
@@ -861,7 +861,7 @@ func (r *run) shrinkOversizedTrailingToolResults(limitErr *provider.ContextLimit
 		if err := json.Unmarshal(item.Result, &resultBlob); err != nil {
 			continue
 		}
-		resultContent, _ := resultBlob["content"].(string)
+		resultContent, _ := resultBlob[keyContent].(string)
 		if resultContent == "" {
 			continue
 		}
@@ -902,7 +902,7 @@ func (r *run) shrinkOversizedTrailingToolResults(limitErr *provider.ContextLimit
 		// through untouched: the transcript row reads its completed state off
 		// result.fullResult, so replacing the field wholesale would leave a
 		// finished tool call rendering as though it were still running.
-		resultBlob["content"] = recoveryShrunkResultMarker + shrunk.Summary
+		resultBlob[keyContent] = recoveryShrunkResultMarker + shrunk.Summary
 		if err := r.updateTargetItemByID(item.ItemID, keyResult, resultBlob); err != nil {
 			return &BoundedCompactionError{
 				Reason: BoundedCompactionSourceChanged, Message: "tool result disappeared during context recovery: " + err.Error(),

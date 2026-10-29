@@ -49,7 +49,7 @@ export function noteProjectSize(n) {
  * is what separates "the project was always small" from "it grew under us".
  * @returns {string} A one-line summary, or a note that no load has happened.
  */
-export function projectSizeSeries() {
+function projectSizeSeries() {
   if (observations.length === 0) return 'no session load recorded in this lane';
   const min = Math.min(...observations);
   const max = Math.max(...observations);

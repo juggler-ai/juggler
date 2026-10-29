@@ -10,6 +10,7 @@ import {
 } from 'juggler/item-utils';
 import { translator, markUntranslated, markForTranslation } from 'juggler/i18n';
 import { createPlanBlock, renderPlanMarkdown } from '../lib/task-lists.js';
+import { toolActionResultData } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -43,11 +44,11 @@ function statusLabel(status) {
  */
 
 /**
- * Plan data structure
+ * What a plan item stores as its `data`.
  * @typedef {object} PlanData
  * @property {string} title - Plan title
- * @property {'planning'|'approved'|'executing'|'completed'} status - Plan-level status
- * @property {PlanStep[]} steps - List of plan steps with status
+ * @property {string} status - 'planning' | 'approved' | 'executing' | 'completed' | …
+ * @property {PlanStep[]} steps - The steps, in order
  */
 
 /**
@@ -303,11 +304,23 @@ class PlanContextItem extends ContextItem {
   }
 
   /**
+   * A plan item's stored data. Only this class writes a plan's `data`, always
+   * as a PlanData; `steps` defaults to empty for an item not yet submitted.
+   * @param {import('juggler/context-item').default} item - A plan item
+   * @returns {PlanData} Its plan
+   * @private
+   */
+  static _planOf(item) {
+    const plan = /** @type {Partial<PlanData>} */ (item.data);
+    return { title: plan.title ?? '', status: plan.status ?? '', steps: Array.isArray(plan.steps) ? plan.steps : [] };
+  }
+
+  /**
    * Get brief summary string for item display
    * @returns {string} Brief summary
    */
   getBriefSummary() {
-    const steps = this.data.steps || [];
+    const steps = PlanContextItem._planOf(this).steps;
     const total = steps.length;
     const completed = this._countByStatus('completed');
 
@@ -325,7 +338,7 @@ class PlanContextItem extends ContextItem {
   createPropertiesPanelElement() {
     const container = createElement('div', 'ci-expanded');
 
-    const steps = this.data.steps || [];
+    const steps = PlanContextItem._planOf(this).steps;
     if (steps.length === 0) {
       const empty = createEmptyState(t('No plan steps yet'), '');
       container.appendChild(empty);
@@ -778,7 +791,7 @@ class PlanContextItem extends ContextItem {
   /**
    * Common step status update logic
    * @param {Record<string, unknown>} params - Validated params with index and optional result/threadItemId
-   * @param {string} newStatus - New status to set
+   * @param {PlanStep['status']} newStatus - New status to set
    * @returns {Promise<StepActionResult>} Step action result
    * @private
    */
@@ -794,7 +807,7 @@ class PlanContextItem extends ContextItem {
       throw new Error(markUntranslated('No plan exists. Submit a plan first using action: "submit".'));
     }
 
-    const steps = planContextItem.data.steps || [];
+    const steps = PlanContextItem._planOf(planContextItem).steps;
     if (oneBasedIndex > steps.length) {
       throw new Error(markUntranslated(`Invalid index: ${oneBasedIndex}. Plan has ${steps.length} steps (1-${steps.length}).`));
     }
@@ -802,6 +815,9 @@ class PlanContextItem extends ContextItem {
 
     // Update step
     const step = steps[index];
+    if (!step) {
+      throw new Error(markUntranslated(`Invalid index: ${oneBasedIndex}. Plan has ${steps.length} steps (1-${steps.length}).`));
+    }
     const oldStatus = step.status;
     step.status = newStatus;
 
@@ -848,8 +864,8 @@ class PlanContextItem extends ContextItem {
       completed,
       total,
       planSnapshot: {
-        title: planContextItem.data.title,
-        status: planContextItem.data.status,
+        title: PlanContextItem._planOf(planContextItem).title,
+        status: PlanContextItem._planOf(planContextItem).status,
         steps: steps.map((/** @type {PlanStep} */ s) => ({ content: s.content, status: s.status, result: s.result || null }))
       }
     };
@@ -987,7 +1003,7 @@ class PlanContextItem extends ContextItem {
     if (!actionStatus) {
       return {
         typeName: t('Plan'),
-        summary: this.data.title || t('Implementation Plan')
+        summary: PlanContextItem._planOf(this).title || t('Implementation Plan')
       };
     }
 
@@ -1099,7 +1115,7 @@ class PlanContextItem extends ContextItem {
    * @returns {number} Count of steps with given status
    */
   _countByStatus(status) {
-    const steps = this.data.steps || [];
+    const steps = PlanContextItem._planOf(this).steps;
     return steps.filter((/** @type {PlanStep} */ step) => step.status === status).length;
   }
 
@@ -1150,10 +1166,7 @@ class PlanContextItem extends ContextItem {
       // (each completed step shows its own result), so no separate trailing
       // "Result" section is needed — it would just duplicate it.
 
-      const taResult = toolAction.get('result');
-      const taFullResult = taResult?.get ? taResult.get('fullResult') : taResult?.fullResult;
-      const fullResultObj = taFullResult?.toJSON ? taFullResult.toJSON() : taFullResult;
-      const snapshot = fullResultObj?.result?.planSnapshot;
+      const snapshot = toolActionResultData(toolAction).planSnapshot;
       if (snapshot) {
         planData = snapshot;
       } else {

@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"sync"
 
+	"juggler/cmd/juggler/providers/provider"
 	"juggler/internal/jlog"
 )
 
@@ -136,6 +137,15 @@ func (w *ConversationWorker) HasPendingItems(threadItemID string) bool {
 	return w.hasPendingItems(threadItemID)
 }
 
+// hasPendingItems reports whether the thread has any queued entries at all,
+// held or not. A decision about driving the thread asks hasPromotablePending.
+func (w *ConversationWorker) hasPendingItems(threadItemID string) bool {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	arr := w.doc.getPendingArrayLocked(threadItemID)
+	return arr != nil && arr.GetLength() > 0
+}
+
 // adoptPendingMocks installs the responses queued under this conversation's
 // name, if any, and spends the queue. Called at init on the run goroutine. A
 // script installed directly is never replaced.
@@ -154,4 +164,51 @@ func (w *ConversationWorker) adoptPendingMocks() {
 	responses, _ := queued.([]MockResponse)
 	w.setMockResponses(responses)
 	jlog.Info("[adopt-mocks] conv=%s name=%q count=%d", w.conversationID, name, len(responses))
+}
+
+// =============================================================================
+// Test Harness Messages
+// =============================================================================
+
+// GetYjsStateMessage requests Yjs state for testing
+type GetYjsStateMessage struct {
+	Type  string `json:"type"` // "get-yjs-state"
+	AckID string `json:"ackId"`
+}
+
+// SetMockResponsesMessage injects mock LLM responses for testing.
+// When mock responses are set, callLLM() pops and returns them instead of calling real LLM.
+type SetMockResponsesMessage struct {
+	Type      string         `json:"type"` // "set-mock-responses"
+	Responses []MockResponse `json:"responses"`
+}
+
+// MockResponse represents a scripted LLM response for testing.
+type MockResponse struct {
+	Blocks                 []LLMResponseBlock  `json:"blocks"`
+	StopReason             provider.StopReason `json:"stopReason"`
+	InputTokens            int                 `json:"inputTokens,omitempty"`
+	InputTokensApproximate bool                `json:"inputTokensApproximate,omitempty"`
+	OutputTokens           int                 `json:"outputTokens,omitempty"`
+	CachedTokens           int                 `json:"cachedTokens,omitempty"`
+	// PauseBeforeReturn, when true, causes popMockResponse to deliver the
+	// response (streaming chunks) and then block on the worker's mockReleaseChan
+	// until the test sends a "release-mock" message. Tests use this to inject
+	// actions (e.g. cancel) at a precisely-known point in the response lifecycle
+	// without racing against tool execution timing.
+	PauseBeforeReturn bool `json:"pauseBeforeReturn,omitempty"`
+	// Error, when non-empty, makes this scripted turn fail as if the provider
+	// returned an error (e.g. a transient network failure). callLLM surfaces it
+	// through the same path as a real provider error, so tests can exercise the
+	// strategy loop's error handling deterministically.
+	Error string `json:"error,omitempty"`
+	// Panic, when non-empty, makes this scripted turn panic with that value on
+	// the turn's own goroutine, at the point the provider would be called. Tests
+	// use it to exercise turn panic recovery (turn_panic.go).
+	Panic string `json:"panic,omitempty"`
+}
+
+// ReleaseMockMessage releases a paused mock response. See MockResponse.PauseBeforeReturn.
+type ReleaseMockMessage struct {
+	Type string `json:"type"` // "release-mock"
 }

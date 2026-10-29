@@ -32,7 +32,7 @@
  * @module unit-tests/model-picker-test
  */
 
-import { assert, styledProbeFrame } from '../utilities/test-helpers.js';
+import { assert, styledProbeFrame, nextTask } from '../utilities/test-helpers.js';
 import recentModels from '../../js/services/recent-models.js';
 import { cachedMachinePref, setMachinePref } from '../../js/services/prefs.js';
 import usageStatsCache from '../../js/services/usage-stats-cache.js';
@@ -100,14 +100,6 @@ function crowdedProvider(name) {
 }
 
 /**
- * Let queued work land: the microtask that corrects the scroll, and the frame
- * `presentPopup` places in (shimmed onto a macrotask, since the test window is
- * hidden and may never paint).
- * @returns {Promise<void>} Resolves once both have run.
- */
-const settle = () => new Promise(resolve => setTimeout(resolve, 0));
-
-/**
  * Present a picker the way a host does — anchored to a button at the foot of the
  * window, so it opens upward and is re-placed as its content grows and shrinks.
  * @param {any[]} providerList - The providers to offer.
@@ -143,11 +135,11 @@ async function presentAnchoredPicker(providerList) {
     id: 'model-picker-test',
     onClose: () => {},
   });
-  await settle(); // the placement frame
+  await nextTask(); // the placement frame
   // Web fonts land asynchronously and shift every row by a fraction of a line;
   // measurements taken across that are measuring the font, not the list.
   await document.fonts?.ready;
-  await settle();
+  await nextTask();
 
   return {
     picker,
@@ -656,7 +648,7 @@ export async function runTests(_ctx) {
         for (const step of ['all → none', 'none → top', 'top → all']) {
           const before = toggleOf('d').getBoundingClientRect().top;
           toggleOf('d').click();
-          await settle();
+          await nextTask();
           const after = toggleOf('d').getBoundingClientRect().top;
           assert(Math.abs(after - before) <= 4,
             `${step}: the toggle must stay under the pointer — moved ${Math.round(after - before)}px`);

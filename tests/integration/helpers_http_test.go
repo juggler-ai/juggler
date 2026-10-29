@@ -60,22 +60,3 @@ func TestPollJSONFailsFastOnWedgedServer(t *testing.T) {
 			"regression is back; a wedged server will hang the whole suite", elapsed)
 	}
 }
-
-// TestWaitForServerFailsFastOnWedgedServer guards the same regression in the
-// cold-start readiness poll.
-func TestWaitForServerFailsFastOnWedgedServer(t *testing.T) {
-	t.Parallel()
-	addr := acceptButNeverReply(t)
-
-	start := time.Now()
-	err := helpers.WaitForServer("http://"+addr, 2*time.Second)
-	elapsed := time.Since(start)
-
-	if err == nil {
-		t.Fatal("WaitForServer returned nil against a wedged server; expected a timeout error")
-	}
-	if elapsed > 6*time.Second {
-		t.Fatalf("WaitForServer blocked %s past its 2s deadline — the no-timeout client "+
-			"regression is back", elapsed)
-	}
-}

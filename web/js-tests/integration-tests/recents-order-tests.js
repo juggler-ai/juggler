@@ -54,7 +54,7 @@ function assertSeq(a, b, msg) {
  * activity order. No tab is ever busy here, so there is no barrier in play.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const recentsBumpMostRecentOnTopTest = {
+const recentsBumpMostRecentOnTopTest = {
   name: 'recents-bump-most-recent-on-top',
   description: 'Sending in a conversation bumps it to the top; activity order wins',
   fixture: 'unit-test-fixture',
@@ -97,7 +97,7 @@ export const recentsBumpMostRecentOnTopTest = {
  * so the busy band at the top stays put for non-user changes.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const recentsUserSendBeatsBusyBarrierTest = {
+const recentsUserSendBeatsBusyBarrierTest = {
   name: 'recents-user-send-beats-busy-barrier',
   description: 'A user-entered message jumps to the top even past busy tabs',
   fixture: 'unit-test-fixture',
@@ -149,7 +149,7 @@ export const recentsUserSendBeatsBusyBarrierTest = {
   }
 };
 
-export const llmRecentsBusyBarrierTest = {
+const llmRecentsBusyBarrierTest = {
   name: 'recents-llm-busy-barrier',
   description: 'An LLM-driven recency bump still tucks beneath leading busy tabs',
   fixture: 'unit-test-fixture',
@@ -195,7 +195,7 @@ export const llmRecentsBusyBarrierTest = {
   }
 };
 
-export const turnEndBumpsWithBusyBarrierTest = {
+const turnEndBumpsWithBusyBarrierTest = {
   name: 'recents-turn-end-bumps-with-busy-barrier',
   description: 'A turn coming to rest bumps the tab, but not above busy tabs',
   fixture: 'unit-test-fixture',
@@ -269,7 +269,7 @@ const STREAM_TOOL_ID = 'call_recents_stream_1';
  * landed. Only when the conversation comes to rest may the tab float.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const streamingLeavesDraggedOrderTest = {
+const streamingLeavesDraggedOrderTest = {
   name: 'recents-streaming-leaves-dragged-order',
   description: 'Mid-turn output leaves a dragged tab put; only coming to rest floats it',
   fixture: 'unit-test-fixture',

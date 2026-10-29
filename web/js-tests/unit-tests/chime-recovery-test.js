@@ -22,7 +22,7 @@
  * @module unit-tests/chime-recovery-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, nextTask } from '../utilities/test-helpers.js';
 import { wakeContext, isContextWedged, rearmAudio, recoverThenSchedule, shouldAutoResume, audioSink } from '../../js/utils/chime-synth.js';
 
 /**
@@ -148,9 +148,8 @@ export async function runTests() {
   // ── recoverThenSchedule: the play-time "recover, then schedule" driver ──────
   // Injected deps make the control flow testable without a real AudioContext:
   // `immediateDefer` runs each retry synchronously (so a bounded retry chain
-  // drains within one macrotask), and `settle` awaits that chain's completion.
+  // drains within one macrotask), and one `nextTask()` awaits that chain's completion.
   const immediateDefer = (/** @type {() => void} */ fn) => fn();
-  const settle = () => new Promise((r) => setTimeout(r, 0));
 
   await run('recoverThenSchedule schedules at once on a running context (no resume, no rebuild)', () => {
     const ac = fakeDriveContext('running');
@@ -167,7 +166,7 @@ export async function runTests() {
     /** @type {string[]} */ const scheduled = [];
     let rebuilds = 0;
     recoverThenSchedule(/** @type {any} */ (ac), (c) => scheduled.push(c.state), () => { rebuilds++; return null; }, { defer: immediateDefer });
-    await settle();
+    await nextTask();
     assert(ac.resumeCalls === 1, `expected exactly 1 resume, got ${ac.resumeCalls}`);
     assert(rebuilds === 0, 'suspended is not wedged — must not rebuild');
     assert(scheduled.length === 1 && scheduled[0] === 'running', 'must schedule only after the state is running');
@@ -179,7 +178,7 @@ export async function runTests() {
     /** @type {any[]} */ const scheduled = [];
     let rebuilds = 0;
     recoverThenSchedule(/** @type {any} */ (ac), (c) => scheduled.push(c), () => { rebuilds++; return /** @type {any} */ (fresh); }, { defer: immediateDefer });
-    await settle();
+    await nextTask();
     assert(rebuilds === 1, `expected exactly one rebuild, got ${rebuilds}`);
     assert(ac.resumeCalls === 0, 'a wedged context must be rebuilt, not resumed');
     assert(fresh.resumeCalls === 1, `expected the fresh context resumed once, got ${fresh.resumeCalls}`);
@@ -190,7 +189,7 @@ export async function runTests() {
     const ac = fakeDriveContext('suspended'); // resume() resolves but leaves it suspended
     /** @type {any[]} */ const scheduled = [];
     recoverThenSchedule(/** @type {any} */ (ac), (c) => scheduled.push(c), () => null, { retries: 3, defer: immediateDefer });
-    await settle();
+    await nextTask();
     assert(scheduled.length === 0, 'must never schedule against a context that never runs');
     assert(ac.resumeCalls === 4, `expected 1 initial + 3 retries = 4 resume calls, got ${ac.resumeCalls}`);
   });
@@ -199,7 +198,7 @@ export async function runTests() {
     const ac = fakeDriveContext('suspended', { reject: true });
     /** @type {any[]} */ const scheduled = [];
     recoverThenSchedule(/** @type {any} */ (ac), (c) => scheduled.push(c), () => null, { retries: 3, defer: immediateDefer });
-    await settle();
+    await nextTask();
     assert(scheduled.length === 0, 'a context whose resume() always rejects must never schedule');
     assert(ac.resumeCalls === 4, `expected 4 resume attempts before giving up, got ${ac.resumeCalls}`);
   });
@@ -208,7 +207,7 @@ export async function runTests() {
     const ac = fakeDriveContext('closed');
     /** @type {any[]} */ const scheduled = [];
     recoverThenSchedule(/** @type {any} */ (ac), (c) => scheduled.push(c), () => null, { defer: immediateDefer });
-    await settle();
+    await nextTask();
     assert(scheduled.length === 0, 'no rebuild available → nothing to schedule on');
     assert(ac.resumeCalls === 0, 'a closed context is wedged — rebuilt (and failed), never resumed');
   });

@@ -33,7 +33,7 @@
 import { cachedWindowPref, getWindowPref, setWindowPref } from '../services/prefs.js';
 
 export const COL_MIN_WIDTH_REM = 12.5;
-export const COL_MAX_WIDTH_REM = 100;
+const COL_MAX_WIDTH_REM = 100;
 
 /**
  * Widest a conversation column starts at. Past this it stops being a column of

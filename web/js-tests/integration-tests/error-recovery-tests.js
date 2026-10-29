@@ -26,7 +26,7 @@ import { textResponse, toolUseResponse } from '../utilities/integration-test-run
  * - Allow LLM to retry with correct parameters
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const errorInvalidToolParamsTest = {
+const errorInvalidToolParamsTest = {
   name: 'error-invalid-tool-params',
   description: 'Invalid tool parameters are handled gracefully',
   fixture: 'unit-test-fixture',
@@ -72,7 +72,7 @@ export const errorInvalidToolParamsTest = {
  * - LLM can decide how to proceed
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const errorToolExecutionFailureTest = {
+const errorToolExecutionFailureTest = {
   name: 'error-tool-execution-failure',
   description: 'Tool execution errors are reported correctly',
   fixture: 'unit-test-fixture',
@@ -115,7 +115,7 @@ export const errorToolExecutionFailureTest = {
  * should be on the tool-action item. No 'system' type items should appear.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const errorItemTypeTest = {
+const errorItemTypeTest = {
   name: 'error-item-type',
   description: 'Error items appear as type error, not system',
   fixture: 'unit-test-fixture',

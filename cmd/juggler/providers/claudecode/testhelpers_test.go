@@ -93,3 +93,18 @@ func assertNotDeliveredLive(t *testing.T, tapePath string, ids ...string) {
 		}
 	}
 }
+
+// SetBinaryPathForTesting pins the claude CLI path and the env vars added to
+// spawned children. Returns a restore function. Test helpers call this to
+// redirect spawnCLIPipes to a fake binary (typically the test binary itself,
+// re-exec'd via the helper-process pattern).
+func SetBinaryPathForTesting(path string, extraEnv ...string) (restore func()) {
+	oldPath := pinnedBinaryPath
+	oldEnv := testExtraSpawnEnv
+	pinnedBinaryPath = path
+	testExtraSpawnEnv = append([]string(nil), extraEnv...)
+	return func() {
+		pinnedBinaryPath = oldPath
+		testExtraSpawnEnv = oldEnv
+	}
+}

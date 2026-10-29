@@ -21,10 +21,11 @@ import {
 } from './golden-comparator.js';
 import { ITEM_TYPE_TO_TAG } from './test-assertions.js';
 import logger from './test-logger.js';
-import { dumpTape, clearTape, lastTapeTs } from '../../js/utils/event-tape.js';
+import { __dumpTapeForTests, __clearTapeForTests, __lastTapeTsForTests } from '../../js/utils/event-tape.js';
 import { snapshotOwnConversationIds, deleteOwnConversationsCreatedSince, setCurrentTestName } from './conversation-claims.js';
 import { setTestDeadline, clearTestDeadline, moveTestDeadline, progressMark } from './test-deadline.js';
-import { waitsInFlightReport } from './test-patience.js';
+import { racePatiently, waitsInFlightReport } from './test-patience.js';
+import { waitFor } from './test-helpers.js';
 import { watchForStall, watchWorkerProgress, awaitingServer } from './stall-watch.js';
 import { fetchProjectSize, projectSizeLines } from './project-size.js';
 import { fetchMachineLoad, measureTimerGrid, machineLoadLines } from './machine-load.js';
@@ -35,9 +36,11 @@ import { apiUrl } from '../../js/utils/api-url.js';
 import { restorePluginConfig } from './plugin-config.js';
 
 /**
- * Race a promise against a timeout so a wedged/slow server can never hang the
- * test lane. Resolves to the promise's value if it settles in time, otherwise
- * to `fallback` — and NEVER rejects (a rejection also yields `fallback`).
+ * Race a promise against a bound so a wedged server can never hang the test
+ * lane. Resolves to the promise's value if it settles in time, otherwise to
+ * `fallback` — and NEVER rejects (a rejection also yields `fallback`). The
+ * bound is a nominal that follows the test's deadline while the runner is
+ * still moving it ({@link racePatiently}).
  *
  * This is the backstop that keeps a single unresponsive worker from turning
  * one test failure into a lane-wide 60s black hole. Two invariants depend on
@@ -56,26 +59,17 @@ import { restorePluginConfig } from './plugin-config.js';
  * @param {string} [label] - Optional label logged when the fallback is used.
  * @returns {Promise<T>} The promise's value, or `fallback` on timeout/rejection.
  */
-function _withDeadline(promise, ms, fallback, label) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      if (label) logger.error(`[runner] ${label} exceeded ${ms}ms — using fallback so the lane can't stall`);
-      resolve(fallback);
-    }, ms);
-    Promise.resolve(promise).then(
-      (v) => { if (!settled) { settled = true; clearTimeout(timer); resolve(v); } },
-      (e) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if (label) logger.error(`[runner] ${label} errored: ${e}`);
-        resolve(fallback);
-      }
-    );
-  });
+async function _withDeadline(promise, ms, fallback, label) {
+  try {
+    // The runner's own bound, not a wait a test is parked in: left unlisted.
+    const settled = await racePatiently(Promise.resolve(promise), ms, { track: false });
+    if (settled) return settled.value;
+    if (label) logger.error(`[runner] ${label} exceeded ${ms}ms — using fallback so the lane can't stall`);
+    return fallback;
+  } catch (e) {
+    if (label) logger.error(`[runner] ${label} errored: ${e}`);
+    return fallback;
+  }
 }
 
 // Set the per-iframe trace flag so event-tape.js starts recording. The flag
@@ -93,7 +87,7 @@ const __tapeChan = new BroadcastChannel('juggler-tape-dump');
 __tapeChan.onmessage = (/** @type {MessageEvent} */ ev) => {
   const m = ev.data;
   if (!m || m.kind !== 'dump-request') return;
-  const entries = dumpTape(m.convIds || null);
+  const entries = __dumpTapeForTests(m.convIds || null);
   const lane = (() => {
     try { return new URLSearchParams(location.search).get('lane'); }
     catch { return null; }
@@ -201,8 +195,8 @@ __tapeChan.onmessage = (/** @type {MessageEvent} */ ev) => {
  * @property {FileAssertion[]} [fileAssertions] - File content assertions
  * @property {UndoStateAssertion} [expectedUndoState] - Expected undo/redo state
  * @property {Record<string, any>} [expectedMetadata] - Expected metadata (partial match)
- * @property {(conversation: import('../../model/conversation.js').default, ctx?: {harness: any}) => void|Promise<void>} [customAssertions] - Custom assertions run after standard checks (throw to fail). The second argument exposes the harness so assertions can scope to this test's own conversations (avoids cross-iframe session sharing under JUGGLER_TEST_IFRAMES > 1)
- * @property {(conversation: import('../../model/conversation.js').default, ctx: {harness: any}) => boolean} [settleUntil] - Side-effect-free predicate fenced on BEFORE the assertions run (alongside expectedItems/expectedDocument). Use it when `customAssertions` inspects state that can still be syncing into this viewer after the operations resolve — e.g. a freshly cloned/peer conversation whose Yjs doc lands a beat late, so a one-shot check would race an empty/partial doc. Re-evaluated on each doc change up to the per-test deadline; MUST NOT mutate (it is polled), and must not throw (return false instead).
+ * @property {(conversation: import('../../js/model/conversation.js').default, ctx?: {harness: any}) => void|Promise<void>} [customAssertions] - Custom assertions run after standard checks (throw to fail). The second argument exposes the harness so assertions can scope to this test's own conversations (avoids cross-iframe session sharing under JUGGLER_TEST_IFRAMES > 1)
+ * @property {(conversation: import('../../js/model/conversation.js').default, ctx: {harness: any}) => boolean} [settleUntil] - Side-effect-free predicate fenced on BEFORE the assertions run (alongside expectedItems/expectedDocument). Use it when `customAssertions` inspects state that can still be syncing into this viewer after the operations resolve — e.g. a freshly cloned/peer conversation whose Yjs doc lands a beat late, so a one-shot check would race an empty/partial doc. Re-evaluated on each doc change up to the per-test deadline; MUST NOT mutate (it is polled), and must not throw (return false instead).
  * @property {Record<string, string>} [setupFiles] - Files to write into the fixture before the test runs (e.g. { 'CLAUDE.md': '# AI instructions\n' }). The runner adds files but never wipes — safe in iframe-pool mode where sibling tests share the fixture dir. Use this in place of a custom `fixture:` declaration when only a few extra seed files are needed.
  * @property {boolean} [needsExclusiveRun] - Set true when the test cannot tolerate a sibling lane in flight — for an integration test, typically because it writes a fixed-name file to the shared fixture root that production auto-detection scans (e.g. CLAUDE.md, which addAIAssistantFiles picks up on every createConversation). Such a file cannot be namespaced behind a per-test prefix, so while it exists any sibling lane's createConversation injects a phantom context item. The Go runner runs each such test in a server of its own (a solo window), with a fixture reset around it, so no sibling test is ever in flight on its fixture. The same flag on a unit or extension suite means the same thing; listExclusiveTests() in integration-test-executor.js lists every reason that qualifies.
  * @property {number} [timeoutMs] - Per-test timeout in ms (default 30000)
@@ -220,7 +214,7 @@ __tapeChan.onmessage = (/** @type {MessageEvent} */ ev) => {
  * Assert that no two items within the same thread array share an itemId.
  * Duplicate itemIds cause silent selection/routing bugs that are hard to diagnose.
  * Called after every operation so violations are caught immediately.
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @param {string} opLabel - Operation label for error messages
  */
 function assertNoItemIdDuplicates(conversation, opLabel) {
@@ -479,7 +473,7 @@ async function _buildFailureMessage({ testName, rawMsg, durationMs, perTestTimeo
 
   // This iframe's tape, filtered to the affected convs (oldest first).
   try {
-    const own = dumpTape(convIds.length > 0 ? convIds : null);
+    const own = __dumpTapeForTests(convIds.length > 0 ? convIds : null);
     if (own.length > 0) {
       tapeLines.push('  === EVENT TAPE (this iframe) ===');
       for (const e of own) tapeLines.push(_renderTapeEntry(ident.iframe, e));
@@ -697,8 +691,19 @@ async function _runTestBody(harness, testDef, trace) {
   }
 
   if (testDef.expectedDocument?.items?.length) {
-    await harness.driver.waitForDOMStable();
-    assertDOMMatchesExpected(harness.driver, testDef.expectedDocument.items, testDef.name);
+    // The document is final; its renders may land a beat later, so wait for
+    // the DOM to agree, then let the check say what differs if it never does.
+    const items = testDef.expectedDocument.items;
+    const agrees = () => {
+      try {
+        assertDOMMatchesExpected(harness.driver, items, testDef.name);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    await waitFor(agrees, { timeoutMs: 3000, description: 'the DOM to render the expected items' }).catch(() => {});
+    assertDOMMatchesExpected(harness.driver, items, testDef.name);
   }
 }
 
@@ -709,7 +714,7 @@ async function _runTestBody(harness, testDef, trace) {
  * @param {TestContext} ctx - Test context with fixtureDir
  * @returns {Promise<TestResult>} The test result with pass/fail status and duration
  */
-export async function runIntegrationTest(testDef, ctx) {
+async function runIntegrationTest(testDef, ctx) {
   const startTime = Date.now();
 
   // Per-test sandbox: every test gets its own subfolder under the shared
@@ -723,7 +728,7 @@ export async function runIntegrationTest(testDef, ctx) {
   // Reset the per-iframe event tape so failures show only events from
   // THIS test. Without this, a long-running suite's tape would be
   // dominated by prior tests' noise by the time any one of them failed.
-  clearTape();
+  __clearTapeForTests();
 
   // Same for uncaught-JS-error attribution: errors surfaced in this test's
   // failure block must be THIS test's. (Page-LOAD errors were snapshotted
@@ -823,7 +828,7 @@ export async function runIntegrationTest(testDef, ctx) {
   const watchdog = watchForStall({
     windowMs: perTestTimeoutMs,
     unobservable: () => workers.unanswered() || awaitingServer(),
-    stamp: () => `${trace.stage}|${trace.opIndex}|${trace.opsCompleted.length}|${trace.currentOpType || ''}|${progressMark()}|${lastTapeTs(Array.from(snapshotOwnConversationIds()))}|${workers.mark()}`,
+    stamp: () => `${trace.stage}|${trace.opIndex}|${trace.opsCompleted.length}|${trace.currentOpType || ''}|${progressMark()}|${__lastTapeTsForTests(Array.from(snapshotOwnConversationIds()))}|${workers.mark()}`,
     onExtend: (deadlineMs) => {
       harness._perTestDeadlineMs = deadlineMs;
       // The same test moving its own deadline, so its waits keep their generation

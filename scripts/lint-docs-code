@@ -41,15 +41,33 @@ const toolingModules = path.join(repoRoot, 'tooling', 'node_modules');
 let espree;
 let eslintScope;
 try {
-	espree = require(path.join(toolingModules, 'espree'));
-	eslintScope = require(path.join(toolingModules, 'eslint-scope'));
+  espree = require(path.join(toolingModules, 'espree'));
+  eslintScope = require(path.join(toolingModules, 'eslint-scope'));
 } catch {
-	console.error('lint-docs-code: tooling/node_modules is missing espree/eslint-scope.');
-	console.error("Run 'cd tooling && npm ci' (or just 'make lint', which installs it).");
-	process.exit(2);
+  console.error('lint-docs-code: tooling/node_modules is missing espree/eslint-scope.');
+  console.error("Run 'cd tooling && npm ci' (or just 'make lint', which installs it).");
+  process.exit(2);
 }
 
 const PARSE_OPTIONS = { ecmaVersion: 'latest', sourceType: 'module', loc: true, range: true };
+
+/**
+ * A fenced JavaScript block of a document.
+ * @typedef {object} CodeBlock
+ * @property {number} start - The 1-based line of the opening fence.
+ * @property {string} info - What follows the language on the fence (`fragment`, or nothing).
+ * @property {string[]} body - The block's lines.
+ * @property {string} code - The block's lines joined, as one program.
+ */
+
+/**
+ * Where a document says a name comes from: one of its blocks exports it, or
+ * one of its blocks imports it from `source`.
+ * @typedef {object} NameOrigin
+ * @property {'export'|'default'|'named'} kind - Exported by a block, or imported as a default or named binding.
+ * @property {string} [source] - The specifier it is imported from; absent for an export.
+ * @property {CodeBlock} [block] - The block that says so.
+ */
 
 // ---------------------------------------------------------------------------
 // Markdown
@@ -60,28 +78,30 @@ const PARSE_OPTIONS = { ecmaVersion: 'latest', sourceType: 'module', loc: true, 
  *
  * `start` is the 1-based line of the opening fence, so a node's own line number
  * plus `start` lands on the right line of the .md file.
+ * @param {string} source - The Markdown document's text.
+ * @returns {CodeBlock[]} Every ```javascript / ```js block, in document order.
  */
 function extractBlocks(source) {
-	const lines = source.split('\n');
-	const blocks = [];
-	let open = null;
+  const lines = source.split('\n');
+  const blocks = [];
+  let open = null;
 
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
-		if (open === null) {
-			const fence = /^\s*```(javascript|js)\b([^`]*)$/.exec(line);
-			if (fence) open = { start: i + 1, info: fence[2].trim(), body: [] };
-			continue;
-		}
-		if (/^\s*```\s*$/.test(line)) {
-			open.code = open.body.join('\n');
-			blocks.push(open);
-			open = null;
-			continue;
-		}
-		open.body.push(line);
-	}
-	return blocks;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (open === null) {
+      const fence = /^\s*```(javascript|js)\b([^`]*)$/.exec(line);
+      if (fence) open = { start: i + 1, info: fence[2].trim(), body: [] };
+      continue;
+    }
+    if (/^\s*```\s*$/.test(line)) {
+      open.code = open.body.join('\n');
+      blocks.push(open);
+      open = null;
+      continue;
+    }
+    open.body.push(line);
+  }
+  return blocks;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,48 +111,60 @@ function extractBlocks(source) {
 // import wins: a name the doc is seen importing is one a reader must import.
 // ---------------------------------------------------------------------------
 
-/** Every name a module-level `export` introduces, with its declaration node. */
+/**
+ * Every name a module-level `export` introduces.
+ * @param {import('estree').Program} ast - A parsed block.
+ * @returns {string[]} The exported names: declared functions, classes and variables, and the names of export specifiers.
+ */
 function exportedNames(ast) {
-	const names = [];
-	for (const node of ast.body) {
-		if (node.type !== 'ExportNamedDeclaration') continue;
-		if (node.declaration) {
-			const decl = node.declaration;
-			if (decl.type === 'FunctionDeclaration' || decl.type === 'ClassDeclaration') {
-				if (decl.id) names.push(decl.id.name);
-			} else if (decl.type === 'VariableDeclaration') {
-				for (const d of decl.declarations) {
-					if (d.id.type === 'Identifier') names.push(d.id.name);
-				}
-			}
-		}
-		for (const spec of node.specifiers || []) {
-			if (spec.exported && spec.exported.type === 'Identifier') names.push(spec.exported.name);
-		}
-	}
-	return names;
+  const names = [];
+  for (const node of ast.body) {
+    if (node.type !== 'ExportNamedDeclaration') continue;
+    if (node.declaration) {
+      const decl = node.declaration;
+      if (decl.type === 'FunctionDeclaration' || decl.type === 'ClassDeclaration') {
+        if (decl.id) names.push(decl.id.name);
+      } else if (decl.type === 'VariableDeclaration') {
+        for (const d of decl.declarations) {
+          if (d.id.type === 'Identifier') names.push(d.id.name);
+        }
+      }
+    }
+    for (const spec of node.specifiers || []) {
+      if (spec.exported && spec.exported.type === 'Identifier') names.push(spec.exported.name);
+    }
+  }
+  return names;
 }
 
-/** Every local name an `import` binds, with the specifier it came from. */
+/**
+ * Every local name an `import` binds, with the specifier it came from.
+ * @param {import('estree').Program} ast - A parsed block.
+ * @returns {{name: string, source: string, kind: 'default'|'named'}[]} One entry per import specifier.
+ */
 function importedNames(ast) {
-	const bindings = [];
-	for (const node of ast.body) {
-		if (node.type !== 'ImportDeclaration') continue;
-		const source = node.source.value;
-		for (const spec of node.specifiers) {
-			bindings.push({
-				name: spec.local.name,
-				source,
-				kind: spec.type === 'ImportDefaultSpecifier' ? 'default' : 'named',
-			});
-		}
-	}
-	return bindings;
+  const bindings = [];
+  for (const node of ast.body) {
+    if (node.type !== 'ImportDeclaration') continue;
+    const source = node.source.value;
+    for (const spec of node.specifiers) {
+      bindings.push({
+        name: spec.local.name,
+        source,
+        kind: spec.type === 'ImportDefaultSpecifier' ? 'default' : 'named',
+      });
+    }
+  }
+  return bindings;
 }
 
-/** The import sources a block already names, so we can tell it apart from a sketch. */
+/**
+ * The import sources a block already names, so we can tell it apart from a sketch.
+ * @param {import('estree').Program} ast - A parsed block.
+ * @returns {string[]} The specifier of each import declaration, in order.
+ */
 function importSources(ast) {
-	return ast.body.filter((n) => n.type === 'ImportDeclaration').map((n) => n.source.value);
+  return ast.body.filter((n) => n.type === 'ImportDeclaration').map((n) => n.source.value);
 }
 
 /**
@@ -143,9 +175,11 @@ function importSources(ast) {
  * `textResponse` is an illustration of a call, and the reader is not expected to
  * paste it anywhere and run it; a checker that demands an import there is one
  * nobody keeps.
+ * @param {import('estree').Program} ast - A parsed block.
+ * @returns {boolean} True when the block imports, exports, or declares a class or function at top level.
  */
 function looksLikeModule(ast) {
-	return ast.body.some((n) => n.type === 'ImportDeclaration'
+  return ast.body.some((n) => n.type === 'ImportDeclaration'
 		|| n.type === 'ExportNamedDeclaration'
 		|| n.type === 'ExportDefaultDeclaration'
 		|| n.type === 'ClassDeclaration'
@@ -156,119 +190,141 @@ function looksLikeModule(ast) {
 // Analysis
 // ---------------------------------------------------------------------------
 
-/** Names referenced at module scope that nothing in the block declares. */
+/**
+ * Names referenced at module scope that nothing in the block declares.
+ * @param {import('estree').Program} ast - A parsed block, with locations.
+ * @returns {Map<string, number>} Each unresolved name and the block-relative line of its first use.
+ */
 function unresolvedNames(ast) {
-	const scopeManager = eslintScope.analyze(ast, { ecmaVersion: 2022, sourceType: 'module' });
-	const found = new Map();
-	for (const ref of scopeManager.globalScope.through) {
-		const { name, loc } = ref.identifier;
-		if (!found.has(name)) found.set(name, loc.start.line);
-	}
-	return found;
+  const scopeManager = eslintScope.analyze(ast, { ecmaVersion: 2022, sourceType: 'module' });
+  const found = new Map();
+  for (const ref of scopeManager.globalScope.through) {
+    const { name, loc } = ref.identifier;
+    if (!found.has(name)) found.set(name, loc.start.line);
+  }
+  return found;
 }
 
-/** The import line a reader would have to add for `name`. */
+/**
+ * The import line a reader would have to add for `name`.
+ * @param {string} name - The name used without an import.
+ * @param {NameOrigin} origin - Where the document says it comes from, resolved to a default or named import of `source`.
+ * @returns {string} The import statement to add.
+ */
 function suggestion(name, origin) {
-	return origin.kind === 'default'
-		? `import ${name} from '${origin.source}';`
-		: `import { ${name} } from '${origin.source}';`;
+  return origin.kind === 'default'
+    ? `import ${name} from '${origin.source}';`
+    : `import { ${name} } from '${origin.source}';`;
 }
 
+/**
+ * Check one document: every block that is a whole module must import each name
+ * that another block of the same document shows the origin of.
+ * @param {string} file - The document's repo-relative path.
+ * @returns {{failures: {item: string, message: string}[], blocks: number, checked: number}} The missing imports found, the number of JavaScript blocks, and how many of them parsed and were checked.
+ */
 function checkDocument(file) {
-	const abs = path.join(repoRoot, file);
-	const blocks = extractBlocks(fs.readFileSync(abs, 'utf8'));
-	const parsed = [];
+  const abs = path.join(repoRoot, file);
+  const blocks = extractBlocks(fs.readFileSync(abs, 'utf8'));
+  const parsed = [];
 
-	for (const block of blocks) {
-		if (/\bfragment\b/.test(block.info)) continue;
-		try {
-			parsed.push({ ...block, ast: espree.parse(block.code, PARSE_OPTIONS) });
-		} catch {
-			// Not a program. Prose tagged as javascript — not ours to police.
-		}
-	}
+  for (const block of blocks) {
+    if (/\bfragment\b/.test(block.info)) continue;
+    try {
+      parsed.push({ ...block, ast: espree.parse(block.code, PARSE_OPTIONS) });
+    } catch {
+      // Not a program. Prose tagged as javascript — not ours to police.
+    }
+  }
 
-	// Pass one: what this document says about where names come from.
-	const origins = new Map();
-	for (const block of parsed) {
-		for (const name of exportedNames(block.ast)) {
-			if (!origins.has(name)) origins.set(name, { kind: 'export', block });
-		}
-	}
-	for (const block of parsed) {
-		for (const binding of importedNames(block.ast)) {
-			origins.set(binding.name, { kind: binding.kind, source: binding.source, block });
-		}
-	}
+  // Pass one: what this document says about where names come from.
+  const origins = new Map();
+  for (const block of parsed) {
+    for (const name of exportedNames(block.ast)) {
+      if (!origins.has(name)) origins.set(name, { kind: 'export', block });
+    }
+  }
+  for (const block of parsed) {
+    for (const binding of importedNames(block.ast)) {
+      origins.set(binding.name, { kind: binding.kind, source: binding.source, block });
+    }
+  }
 
-	// The document's own helper modules, for naming a path in the suggestion.
-	const isRelative = (s) => s.startsWith('./') || s.startsWith('../');
-	const docRelativeSources = [...new Set(parsed.flatMap((b) => importSources(b.ast).filter(isRelative)))];
+  // The document's own helper modules, for naming a path in the suggestion.
+  const isRelative = (s) => s.startsWith('./') || s.startsWith('../');
+  const docRelativeSources = [...new Set(parsed.flatMap((b) => importSources(b.ast).filter(isRelative)))];
 
-	// Pass two: names used without the import this document has already shown.
-	const failures = [];
-	for (const block of parsed) {
-		if (!looksLikeModule(block.ast)) continue;
-		const sources = importSources(block.ast);
-		for (const [name, line] of unresolvedNames(block.ast)) {
-			const origin = origins.get(name);
-			if (!origin || origin.block === block) continue;
+  // Pass two: names used without the import this document has already shown.
+  const failures = [];
+  for (const block of parsed) {
+    if (!looksLikeModule(block.ast)) continue;
+    const sources = importSources(block.ast);
+    for (const [name, line] of unresolvedNames(block.ast)) {
+      const origin = origins.get(name);
+      if (!origin || origin.block === block) continue;
 
-			// An `export`ed name needs a path to import it from: the relative import
-			// this block already has, or the document's sole helper module.
-			let resolved = origin;
-			if (origin.kind === 'export') {
-				const relative = sources.find(isRelative)
+      // An `export`ed name needs a path to import it from: the relative import
+      // this block already has, or the document's sole helper module.
+      let resolved = origin;
+      if (origin.kind === 'export') {
+        const relative = sources.find(isRelative)
 					?? (docRelativeSources.length === 1 ? docRelativeSources[0] : null);
-				if (!relative) continue;
-				resolved = { kind: 'named', source: relative };
-			}
+        if (!relative) continue;
+        resolved = { kind: 'named', source: relative };
+      }
 
-			failures.push({
-				item: `${file}:${block.start + line}:${name}`,
-				message: `${file}:${block.start + line} — block at line ${block.start} uses `
+      failures.push({
+        item: `${file}:${block.start + line}:${name}`,
+        message: `${file}:${block.start + line} — block at line ${block.start} uses `
 					+ `\`${name}\` without importing it. Add: ${suggestion(name, resolved)}`,
-			});
-		}
-	}
-	return { failures, blocks: blocks.length, checked: parsed.length };
+      });
+    }
+  }
+  return { failures, blocks: blocks.length, checked: parsed.length };
 }
 
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
+/**
+ * The tracked Markdown documents, minus the Wails fork and the benchmark fixtures.
+ * @returns {string[]} Repo-relative paths, as `git ls-files` lists them.
+ */
 function markdownFiles() {
-	const out = execFileSync('git', ['ls-files', '*.md'], { cwd: repoRoot, encoding: 'utf8' });
-	return out
-		.split('\n')
-		.filter(Boolean)
-		.filter((f) => !f.startsWith('3rdparty/') && !f.startsWith('tests/benchmarks/fixtures/'));
+  const out = execFileSync('git', ['ls-files', '*.md'], { cwd: repoRoot, encoding: 'utf8' });
+  return out
+    .split('\n')
+    .filter(Boolean)
+    .filter((f) => !f.startsWith('3rdparty/') && !f.startsWith('tests/benchmarks/fixtures/'));
 }
 
+/**
+ * Check every document, report the missing imports and exit 1 if there are any.
+ */
 function main() {
-	const files = markdownFiles();
-	const failures = [];
-	let blocks = 0;
-	let checked = 0;
+  const files = markdownFiles();
+  const failures = [];
+  let blocks = 0;
+  let checked = 0;
 
-	for (const file of files) {
-		const result = checkDocument(file);
-		failures.push(...result.failures);
-		blocks += result.blocks;
-		checked += result.checked;
-	}
+  for (const file of files) {
+    const result = checkDocument(file);
+    failures.push(...result.failures);
+    blocks += result.blocks;
+    checked += result.checked;
+  }
 
-	if (failures.length) {
-		console.error(`\n✗ missing-import (${failures.length})`);
-		for (const failure of failures.slice(0, 40)) console.error(`    ${failure.message}`);
-		if (failures.length > 40) console.error(`    … and ${failures.length - 40} more`);
-		console.error(`\nlint-docs-code: ${failures.length} problem${failures.length === 1 ? '' : 's'}. `
+  if (failures.length) {
+    console.error(`\n✗ missing-import (${failures.length})`);
+    for (const failure of failures.slice(0, 40)) console.error(`    ${failure.message}`);
+    if (failures.length > 40) console.error(`    … and ${failures.length - 40} more`);
+    console.error(`\nlint-docs-code: ${failures.length} problem${failures.length === 1 ? '' : 's'}. `
 			+ 'A reader copy/pasting these blocks hits a ReferenceError before anything runs.');
-		process.exit(1);
-	}
+    process.exit(1);
+  }
 
-	console.log(`✓ docs code blocks (${checked} of ${blocks} checked across ${files.length} documents)`);
+  console.log(`✓ docs code blocks (${checked} of ${blocks} checked across ${files.length} documents)`);
 }
 
 main();

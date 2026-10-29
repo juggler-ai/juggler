@@ -154,7 +154,7 @@ let _execReportPrevConvs = new Set();
  * throughout the execution. The timer self-disarms once the executor drains.
  * @param {any} wm - WorkerManager instance
  */
-export function noteToolExecutionActivity(wm) {
+function noteToolExecutionActivity(wm) {
   if (!isEngine()) return;
   if (_execReportTimer) return;
   _execReportTimer = setInterval(() => sendToolExecutionReports(wm), EXEC_REPORT_INTERVAL_MS);
@@ -945,7 +945,7 @@ export async function handleExecuteTool(wm, conversationId, toolUseId) {
  * @param {string} event - short event name (e.g. 'execute-start', 'cancel')
  * @param {Record<string, any>} [fields] - extra correlation fields (toolUseId, etc.)
  */
-export function sendEngineTrace(wm, conversationId, event, fields = {}) {
+function sendEngineTrace(wm, conversationId, event, fields = {}) {
   try {
     wsService.sendWorkerMessage(conversationId, { type: 'engine-trace', event, ...fields });
   } catch {
@@ -989,7 +989,7 @@ export async function handleCancelTool(wm, conversationId, toolUseId, runningEpo
  * @param {string} requestId
  * @param {Array<{content: string, source?: string}>} guidance
  */
-export function sendStrategyHookResponse(wm, conversationId, requestId, guidance) {
+function sendStrategyHookResponse(wm, conversationId, requestId, guidance) {
   wm.sendToWorker(conversationId, {
     type: 'strategy-hook-response',
     requestId,

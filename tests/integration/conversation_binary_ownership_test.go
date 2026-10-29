@@ -41,12 +41,7 @@ func TestSaveConversationBinary_RefusesUnownedConv(t *testing.T) {
 	projectDir := helpers.CreateTempDir(t)
 	defer os.RemoveAll(projectDir)
 
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	mgr, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	mgr, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer mgr.Shutdown()
 
@@ -70,12 +65,7 @@ func TestSaveConversationBinary_PersistsOwnedConv(t *testing.T) {
 	projectDir := helpers.CreateTempDir(t)
 	defer os.RemoveAll(projectDir)
 
-	store, err := core.NewFileSessionStore(projectDir)
-	helpers.AssertNoError(t, err)
-	mgr, err := core.NewSessionManager(core.SessionManagerConfig{
-		Store:       store,
-		ProjectPath: projectDir,
-	})
+	mgr, err := core.NewSessionManagerForPath(projectDir)
 	helpers.AssertNoError(t, err)
 	defer mgr.Shutdown()
 

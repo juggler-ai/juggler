@@ -8,6 +8,7 @@ import { formatPathForStatus } from 'juggler/item-utils';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { toolInputPath, isPathAllowed, folderGrantSuggestions, stripInjectedApprovalFlags, gitignoreDisabled } from './path-approval.js';
 import { buildGitignoreSection } from './search-scope-section.js';
+import { inputText } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -265,9 +266,9 @@ class GlobContextItem extends ContextItem {
    */
   renderToolActionDetails(wrapper, ctx) {
     const { input, helpers } = ctx;
-    helpers.addSubsection(wrapper, t('Pattern'), input.pattern || '', 'properties-panel-code');
+    helpers.addSubsection(wrapper, t('Pattern'), inputText(input, 'pattern'), 'properties-panel-code');
     if (input.path) {
-      helpers.addSubsection(wrapper, t('Path'), input.path, 'properties-panel-code');
+      helpers.addSubsection(wrapper, t('Path'), inputText(input, 'path'), 'properties-panel-code');
     }
   }
 }

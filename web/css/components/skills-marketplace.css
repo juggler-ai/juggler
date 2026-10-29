@@ -83,7 +83,7 @@
 .skills-mode.active {
   background: var(--bg-primary);
   color: var(--text-primary);
-  box-shadow: 0 0.0625rem 0.125rem rgb(0 0 0 / 12%);
+  box-shadow: 0 0.0625rem 0.125rem color-mix(in srgb, var(--shadow-color) 12%, transparent);
 }
 
 /* Toolbar: search + refresh + add */
@@ -143,10 +143,6 @@
   width: 0.95em;
   height: 0.95em;
   flex-shrink: 0;
-}
-
-.skills-btn.ghost {
-  background: transparent;
 }
 
 .skills-btn.install:not(.btn-primary) {

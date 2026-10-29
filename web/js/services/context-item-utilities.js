@@ -24,7 +24,6 @@ import { animateContextItemRefresh } from './animation-service.js';
 /**
  * @typedef {import('../model/message-thread.js').default} MessageThread
  * @typedef {import('../model/conversation.js').default} Conversation
- * @typedef {import('../model/session.js').default} Session
  */
 
 // Per-thread batching state for context item yjs updates.
@@ -262,23 +261,6 @@ export async function refreshContextItem(mt, conv, itemId) {
     }
     conv.session.save();
   }
-}
-
-/**
- * Refresh all refreshable context items in a thread.
- * @param {MessageThread} mt
- * @param {Conversation} conv
- * @returns {Promise<void>}
- */
-export async function refreshAllContextItems(mt, conv) {
-  const refreshableItems = mt.contextItems.filter(item => {
-    const ItemClass = contextItemRegistry.get(item.type);
-    const manifest = ItemClass && /** @type {any} */ (ItemClass).MANIFEST;
-    return manifest && manifest.refreshable === true;
-  });
-  await Promise.all(
-    refreshableItems.map(item => refreshContextItem(mt, conv, item.id))
-  );
 }
 
 /**

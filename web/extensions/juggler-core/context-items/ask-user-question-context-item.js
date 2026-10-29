@@ -6,6 +6,7 @@
 import ContextItem from 'juggler/context-item';
 import { translator, markUntranslated, markForTranslation } from 'juggler/i18n';
 import { buildMultiQuestionForm } from './ask-user-question/question-form.js';
+import { toolActionResultField } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -455,16 +456,16 @@ class AskUserQuestionContextItem extends ContextItem {
    */
   renderToolActionDetails(wrapper, ctx) {
     const { toolAction, input } = ctx;
-    const questions = input.questions || [];
+    /** @type {Question[]} */
+    const questions = Array.isArray(input.questions) ? input.questions : [];
     if (questions.length === 0) return { skipResultSection: true };
 
     // The answers come from the structured record execute() returned
     // (`fullResult.result.answers`), never from the model's "Header: a, b"
     // text, which a header or answer holding ": " or ", " makes ambiguous.
-    const raw = toolAction.get('result');
-    const result = raw?.toJSON ? raw.toJSON() : (raw || {});
+    const fullResult = toolActionResultField(toolAction, 'fullResult');
     /** @type {Record<string, string|string[]>} */
-    const answers = result.fullResult?.result?.answers || {};
+    const answers = /** @type {AskUserQuestionResult|undefined} */ (fullResult?.result)?.answers || {};
     const section = ctx.helpers.labeledSubsection(t('Questions'));
     section.appendChild(this._buildDetailsElement(questions, answers));
     wrapper.appendChild(section);

@@ -66,18 +66,20 @@ const DefaultMaxOutputTokens = 65536
 // GetContextWindow returns the context window for a given model.
 // Returns DefaultContextWindow if the model is not found.
 func GetContextWindow(model string) int {
-	if window, ok := ModelContextWindows[baseModelID(model)]; ok {
+	if window, ok := CatalogContextWindow(model); ok {
 		return window
 	}
 	return DefaultContextWindow
 }
 
-// CatalogKnows reports whether the offline catalogue has an entry for model,
-// after the same normalisation GetContextWindow applies, rather than answering
-// it with DefaultContextWindow. The models.dev drift audit asks it.
-func CatalogKnows(model string) bool {
-	_, ok := ModelContextWindows[baseModelID(model)]
-	return ok
+// CatalogContextWindow returns the offline catalogue's context window for model
+// and true, or (0, false) when the catalogue has no entry for it — the
+// distinction GetContextWindow collapses into DefaultContextWindow, and the one
+// the models.dev drift audit asks about. Ids are normalised as the API returns
+// them, collection prefix and all.
+func CatalogContextWindow(model string) (int, bool) {
+	window, ok := ModelContextWindows[baseModelID(model)]
+	return window, ok
 }
 
 // GetMaxOutputTokens returns the documented output ceiling for a model, or

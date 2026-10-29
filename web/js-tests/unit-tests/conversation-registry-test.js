@@ -16,7 +16,7 @@
  */
 
 import { trackTestSession, assert } from '../utilities/test-helpers.js';
-import { dumpTape } from '../../js/utils/event-tape.js';
+import { __dumpTapeForTests } from '../../js/utils/event-tape.js';
 import Session from '../../js/model/session.js';
 
 /**
@@ -221,7 +221,7 @@ export async function runTests() {
       registry.replace(new Map([[came, stub(came)], [kept, stub(kept)]]), 'test-replace');
       assert(registry.ids().join() === `${came},${kept}`, `the map is exactly what it was given — got ${registry.ids().join()}`);
 
-      const ops = (/** @type {string} */ id) => dumpTape(id)
+      const ops = (/** @type {string} */ id) => __dumpTapeForTests(id)
         .filter((e) => e.kind === 'session-mut' && /** @type {any} */ (e.summary).from === 'test-replace')
         .map((e) => /** @type {any} */ (e.summary).op);
       assert(ops(came).join() === 'set', `the arrival is taped once as a set — got [${ops(came).join()}]`);
@@ -242,7 +242,7 @@ export async function runTests() {
 
       assert([...session.conversations.keys()].join() === kept,
         `the refresh drops what the server no longer lists — got ${[...session.conversations.keys()].join()}`);
-      const departures = dumpTape(dropped)
+      const departures = __dumpTapeForTests(dropped)
         .filter((e) => e.kind === 'session-mut' && /** @type {any} */ (e.summary).op === 'delete');
       assert(departures.length === 1,
         `a conversation another view deleted must leave a delete on the tape, as every other removal does — found ${departures.length}`);

@@ -143,10 +143,10 @@ class TestExecutor {
     /** @type {string|null} @private */
     this.model = model;
 
-    /** @type {import('../../model/session.js').default|null} @private */
+    /** @type {import('../../js/model/session.js').default|null} @private */
     this.session = null;
 
-    /** @type {import('../../model/conversation.js').default|null} @private */
+    /** @type {import('../../js/model/conversation.js').default|null} @private */
     this.conversation = null;
 
     /** @type {string|null} @private */
@@ -251,7 +251,7 @@ class TestExecutor {
 
   /**
    * Create mock services for test session
-   * @returns {Promise<import('../../model/session.js').ConversationServices>} Mock services object
+   * @returns {Promise<import('../../js/model/session.js').ConversationServices>} Mock services object
    * @private
    */
   async _createMockServices() {
@@ -494,6 +494,16 @@ class TestExecutor {
     /** @type {any} */
     const wsService = wsServiceModule.default;
 
+    if (!wsService) throw new Error('WebSocket service not available');
+    if (!this.session) throw new Error('Session not initialized');
+
+    // Ensure WebSocket is connected to this session
+    if (!wsService.isConnected()) {
+      logger.debug('Connecting WebSocket to test session');
+      await connectTestWebSocket(wsService);
+      logger.debug('WebSocket connected successfully');
+    }
+
     return new Promise((resolve, reject) => {
       /** @type {StateObject} */
       const state = {
@@ -504,67 +514,7 @@ class TestExecutor {
 
       // No overall timeout - let the agent run to natural completion
       // The agent has a max iteration limit (15) as a safety valve
-
-      if (!wsService) {
-        reject(new Error('WebSocket service not available'));
-        return;
-      }
-
-      if (!this.session) {
-        reject(new Error('Session not initialized'));
-        return;
-      }
-
-      // Ensure WebSocket is connected to this session
-      if (!wsService.isConnected()) {
-        logger.debug('Connecting WebSocket to test session');
-
-        // Disconnect existing connection if any
-        if (wsService.isConnected()) {
-          wsService.disconnect();
-        }
-
-        // Set up connection listener BEFORE connecting
-        /** @type {ReturnType<typeof setTimeout>|null} */
-        let connectionTimeout = null;
-
-        const onOpen = () => {
-          wsService.off('open', onOpen);
-          wsService.off('error', onError);
-          if (connectionTimeout) {
-            clearTimeout(connectionTimeout);
-          }
-          logger.debug('WebSocket connected successfully');
-          this.sendMessageToLLM(wsService, state, resolve, reject);
-        };
-
-        const onError = () => {
-          wsService.off('open', onOpen);
-          wsService.off('error', onError);
-          if (connectionTimeout) {
-            clearTimeout(connectionTimeout);
-          }
-          reject(new Error('WebSocket connection error'));
-        };
-
-        wsService.on('open', onOpen);
-        wsService.on('error', onError);
-
-        // Start connection
-        wsService.connect();
-
-        // Timeout after 5 seconds
-        connectionTimeout = setTimeout(() => {
-          wsService.off('open', onOpen);
-          wsService.off('error', onError);
-          if (!wsService.isConnected()) {
-            reject(new Error('Failed to connect WebSocket (timeout)'));
-          }
-        }, 5000);
-      } else {
-        // Already connected to correct session
-        this.sendMessageToLLM(wsService, state, resolve, reject);
-      }
+      this.sendMessageToLLM(wsService, state, resolve, reject);
     });
   }
 

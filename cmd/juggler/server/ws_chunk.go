@@ -83,28 +83,6 @@ func encodeWSChunkHeader(dst []byte, h wsChunkHeader) {
 	binary.BigEndian.PutUint32(dst[17:21], h.total)
 }
 
-// parseWSChunkHeader splits a frame into its header and data. Reports false for
-// anything that is not a well-formed chunk frame, so an ordinary binary message
-// is never mistaken for one.
-func parseWSChunkHeader(frame []byte) (wsChunkHeader, []byte, bool) {
-	if len(frame) < wsChunkHeaderSize {
-		return wsChunkHeader{}, nil, false
-	}
-	if string(frame[0:4]) != string(wsChunkMagic[:]) {
-		return wsChunkHeader{}, nil, false
-	}
-	h := wsChunkHeader{
-		kind:  frame[4],
-		id:    binary.BigEndian.Uint64(frame[5:13]),
-		index: binary.BigEndian.Uint32(frame[13:17]),
-		total: binary.BigEndian.Uint32(frame[17:21]),
-	}
-	if h.total == 0 || h.index >= h.total {
-		return wsChunkHeader{}, nil, false
-	}
-	return h, frame[wsChunkHeaderSize:], true
-}
-
 // wsChunkCount is how many frames a payload of this size splits into.
 func wsChunkCount(payloadLen int) int {
 	if payloadLen <= 0 {

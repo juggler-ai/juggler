@@ -31,7 +31,7 @@ import {
  * Test 21: Delete old item, add new items, then undo - should restore in correct order
  * THIS IS THE CORE BUG: Deleting an early message, then adding new messages,
  * then undoing tries to restore from wrong operation.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testDeleteOldItemAddNewUndo(session) {
@@ -81,7 +81,7 @@ async function testDeleteOldItemAddNewUndo(session) {
 
 /**
  * Test 23: Delete multiple indices in single call, then undo
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testDeleteMultipleIndicesUndo(session) {
@@ -114,7 +114,7 @@ async function testDeleteMultipleIndicesUndo(session) {
 
 /**
  * Test 24: Complex delete-undo-redo-delete-undo sequence
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testDeleteUndoRedoDeleteUndo(session) {
@@ -163,7 +163,7 @@ async function testDeleteUndoRedoDeleteUndo(session) {
 
 /**
  * Test 25: Interleaved delete and add with undo
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testInterleavedDeleteAddUndo(session) {
@@ -223,7 +223,7 @@ async function testInterleavedDeleteAddUndo(session) {
 
 /**
  * Test 26: Mixed context item and message deletion undo ordering
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testMixedContextItemAndMessageDeletionUndo(session) {
@@ -290,7 +290,7 @@ async function testMixedContextItemAndMessageDeletionUndo(session) {
 
 /**
  * Test 27: removeItemsFrom undo
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testRemoveItemsFromUndo(session) {
@@ -334,7 +334,7 @@ async function testRemoveItemsFromUndo(session) {
 
 /**
  * Test 28: Delete early item in long conversation, add many items, then undo all
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testDeleteEarlyItemLongConversationUndo(session) {
@@ -394,7 +394,7 @@ async function testDeleteEarlyItemLongConversationUndo(session) {
 
 /**
  * Test 29: Rapid delete-add cycle without capture boundary
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testRapidDeleteAddCycleUndo(session) {
@@ -452,7 +452,7 @@ async function testRapidDeleteAddCycleUndo(session) {
 
 /**
  * Test 30: Delete all except first item, then undo
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testDeleteAllExceptFirstUndo(session) {

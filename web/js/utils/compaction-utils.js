@@ -83,7 +83,7 @@ function withAttachmentStandin(item) {
   return /** @type {Message} */ (new Proxy(item, {
     get(target, prop, receiver) {
       if (prop === 'get') {
-        return (/** @type {string} */ key) => {
+        return (/** @type {keyof import('../../sdk/lib/message.js').ItemFields} */ key) => {
           const v = target.get(key);
           if (key === 'content') return (typeof v === 'string' ? v : '') + standin;
           return v;
@@ -110,7 +110,7 @@ export function getContentMessages(messageThread) {
   if (!messageThread) return [];
   return messageThread.getMessages()
     .filter(m =>
-      ['user', 'assistant', 'tool-action', 'thread'].includes(m.get('type'))
+      ['user', 'assistant', 'tool-action', 'thread'].includes(m.get('type') ?? '')
     )
     .map(withAttachmentStandin);
 }

@@ -1211,3 +1211,13 @@ func TestControlProtocol_OrphanResultDoesNotStrandNextRound(t *testing.T) {
 		t.Fatalf("round B's bash was stranded behind a generation the orphan opened: req-bash got %q, want BASH-OUT", got["req-bash"])
 	}
 }
+
+// outOfBandRoundCount returns how many out-of-band tool rounds openNewGenerationLocked
+// has detected this session (always 0 unless the CLI violated the
+// blocked-while-parked invariant). Actor-read so it is race-free against the
+// reader goroutine that mutates the counter.
+func (cp *controlProtocol) outOfBandRoundCount() int {
+	var n int
+	cp.runOnActor(func() { n = cp.outOfBandRounds })
+	return n
+}

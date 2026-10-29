@@ -61,9 +61,9 @@ function isExecutePermitted(conversation, command) {
 const CANCELLED_RESULT = 'Action was cancelled.';
 
 /**
- * @typedef {import('../../model/message.js').Message} Message
- * @typedef {import('../../model/message.js').ToolActionMessage} ToolActionMessage
- * @typedef {import('../../model/conversation.js').default} Conversation
+ * @typedef {import('../../../sdk/lib/message.js').Message} Message
+ * @typedef {import('../../../sdk/lib/message.js').ToolActionMessage} ToolActionMessage
+ * @typedef {import('../../../js/model/conversation.js').default} Conversation
  */
 
 /**

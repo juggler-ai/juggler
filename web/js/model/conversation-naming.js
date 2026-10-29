@@ -53,17 +53,6 @@ export function displayConversationName(name) {
 }
 
 /**
- * Whether name is a bare numbered placeholder ("Untitled 7") — a conversation
- * still carrying its auto-assigned default name, and thus a candidate for
- * auto-naming. Mirrors Go core.IsUntitledName.
- * @param {string} name
- * @returns {boolean} True when name is a bare numbered placeholder.
- */
-export function isUntitledName(name) {
-  return UNTITLED_NAME_RE.test(name || '');
-}
-
-/**
  * Build the name for a conversation derived from another one — a /duplicate
  * clone ("<source> (copy)"), a /handoff continuation ("<source> (continued)"),
  * … — that is both unique and short enough to survive intact.
@@ -123,8 +112,8 @@ export function uniqueSuffixedName(sourceName, word, isTaken, maxLength = MAX_CO
  * the name is provisional — machine-derived and free to be replaced — false once
  * a human has typed one and the name is theirs. "Untitled 3", "Foo (continued)",
  * and a title the auto-namer wrote are all provisional; only a hand-typed name is
- * committed. (Distinct from {@link isUntitledName}, which tests one specific
- * provisional shape: the bare numbered placeholder.)
+ * committed. (The bare numbered placeholder, which Go's core.IsUntitledName
+ * tests for, is only one provisional shape.)
  *
  * The name itself is not in the doc — it is the on-disk folder name — so this is
  * the only record of where it came from, and it is what the server's auto-namer

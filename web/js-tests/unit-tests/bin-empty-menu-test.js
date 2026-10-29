@@ -23,7 +23,7 @@
  * @module unit-tests/bin-empty-menu-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, nextTask } from '../utilities/test-helpers.js';
 import { assertMenuShape } from '../utilities/menu-assertions.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
@@ -191,7 +191,6 @@ export async function runTests() {
       const size = formatBytes(BIN_LARGE_BYTES);
       // Names are digits (data); the dates are Intl output, so never checked.
       const skip = '.bin-close, .bin-row-name, .bin-row-date';
-      const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
       const panel = () => /** @type {HTMLElement} */ (xaModal.querySelector('.bin-panel'));
 
       /** @type {any} */ (window).showModal = async (/** @type {any} */ options) => {
@@ -242,11 +241,11 @@ export async function runTests() {
       shown.push(three);
 
       /** @type {HTMLElement} */ (xaModal.querySelector('.bin-row[data-conversation-id="conv_a"] .bin-restore')).click();
-      await settle();
+      await nextTask();
       /** @type {HTMLElement} */ (xaModal.querySelector('.bin-row[data-conversation-id="conv_b"] .bin-delete')).click();
-      await settle();
+      await nextTask();
       /** @type {HTMLElement} */ (xaModal.querySelector('.bin-row[data-conversation-id="conv_c"] .bin-delete')).click();
-      await settle();
+      await nextTask();
 
       const button = /** @type {HTMLButtonElement} */ (xaModal.querySelector('.bin-empty-now'));
       button.click();
@@ -254,12 +253,12 @@ export async function runTests() {
       assert(!!menu, 'en-XA: the Empty Bin menu did not open');
       shown.push(...shownStrings(menu));
       /** @type {HTMLElement} */ ([...menu.querySelectorAll('.menu-item')][1]).click();
-      await settle();
+      await nextTask();
 
       button.click();
       menu = /** @type {HTMLElement} */ (document.querySelector('.bin-empty-menu'));
       /** @type {HTMLElement} */ ([...menu.querySelectorAll('.menu-item')].pop()).click();
-      await settle();
+      await nextTask();
 
       // Sizes are formatBytes output (data); map them to a digit.
       const strings = shown.map((s) => s.split(size).join('1'));

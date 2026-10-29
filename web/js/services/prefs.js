@@ -5,11 +5,10 @@
 /**
  * prefs — where a UI preference is kept, and who it belongs to.
  *
- * Six realms, one function family apiece:
+ * Five realms, one function family apiece:
  *
  * | Realm     | Store                                   | Belongs to                     |
  * |-----------|-----------------------------------------|--------------------------------|
- * | `Tab`     | sessionStorage                          | one tab                        |
  * | `Device`  | localStorage, key scoped by project     | one origin — so one port       |
  * | `Window`  | the session, under this window's role   | one window of one project      |
  * | `Project` | the session, at the top level           | every window of one project    |
@@ -73,7 +72,7 @@
  * applied before the page paints (index.html, with the machine's values
  * injected by serveIndex), because a late correction to a root font size
  * reflows everything visibly. So they start from {@link startingMachinePref}
- * rather than waiting for {@link getMachinePref}, and reconcile afterwards.
+ * rather than waiting for the realm, and reconcile afterwards ({@link reconcilePref}).
  * @module services/prefs
  */
 
@@ -293,7 +292,7 @@ export function resolvePref({ desktop, session, device, windowScoped = [], fallb
  *
  * The theme and the zoom resolve synchronously from what the page was handed —
  * the server-injected machine value, the hints the native host baked into the
- * URL, this device's cache — so they cannot wait for {@link getMachinePref}.
+ * URL, this device's cache — so they cannot wait for the machine realm.
  * This is the rule they share, and index.html's pre-paint block mirrors it:
  *
  *   - A value of the client's own wins: the machine's, in the server's own
@@ -375,26 +374,6 @@ function writeStore(store, key, value) {
   } catch {
     /* best-effort */
   }
-}
-
-/**
- * This tab's value for a preference.
- * @param {string} name - The preference name.
- * @param {any} [fallback] - Returned when nothing is stored.
- * @returns {any} The stored value, or `fallback`.
- */
-export function getTabPref(name, fallback = null) {
-  return readStore(typeof sessionStorage === 'undefined' ? null : sessionStorage, scopedKey(name), fallback);
-}
-
-/**
- * Store a preference for this tab alone. It is gone when the tab is.
- * @param {string} name - The preference name.
- * @param {any} value - Any JSON-serialisable value.
- * @returns {void}
- */
-export function setTabPref(name, value) {
-  writeStore(typeof sessionStorage === 'undefined' ? null : sessionStorage, scopedKey(name), value);
 }
 
 /**
@@ -680,16 +659,6 @@ export function cachedWindowPref(name, fallback = null) {
 }
 
 /**
- * This project's value for a preference, shared by all its windows.
- * @param {string} name - The preference name.
- * @param {any} [fallback] - Returned when nothing is stored anywhere.
- * @returns {Promise<any>} The value this project should use.
- */
-export function getProjectPref(name, fallback = null) {
-  return getRealmPref('project', name, fallback);
-}
-
-/**
  * Store a preference for every window of this project. A null forgets it.
  * @param {string} name - The preference name.
  * @param {any} value - Any JSON-serialisable value, or null to forget it.
@@ -737,17 +706,6 @@ export function setUserPref(name, value) {
  */
 export function cachedUserPref(name, fallback = null) {
   return cachedRealmPref('user', name, fallback);
-}
-
-/**
- * This machine's value for a preference: the desktop's, shared by every window
- * on this computer, or a remote viewer's own.
- * @param {string} name - The preference name.
- * @param {any} [fallback] - Returned when nothing is stored anywhere.
- * @returns {Promise<any>} The value this client should use.
- */
-export function getMachinePref(name, fallback = null) {
-  return getRealmPref('machine', name, fallback);
 }
 
 /**

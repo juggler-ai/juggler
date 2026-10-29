@@ -63,7 +63,7 @@ const REFRESH_MAX_WAIT_MS = 1000;
  * mirroring the memory context item's `data.path` and existing for the same
  * reason: a second pin over a different memory file — a global one, say — is
  * then a registration rather than a rewrite.
- * @param {Record<string, any>} config - The pin's config.
+ * @param {Record<string, unknown>} config - The pin's config.
  * @returns {string} The path to read.
  */
 function memoryPath(config) {
@@ -122,7 +122,7 @@ class MemoryPin extends PinboardItemType {
    * The toolbar is the memory file's path, which the host draws along with the
    * controls that act on it; the tab stays the one word, because a tab strip is
    * no place for a path.
-   * @param {Record<string, any>} config - The pin's config.
+   * @param {Record<string, unknown>} config - The pin's config.
    * @param {import('juggler/pinboard-item-type').PinActiveContext} active - The active context.
    * @returns {import('juggler/pinboard-item-type').PinDescription} The tab's word and the file.
    */
@@ -292,7 +292,7 @@ class MemoryPin extends PinboardItemType {
 /**
  * The memory file's absolute path, for showing and for handing to something
  * outside the app.
- * @param {Record<string, any>} config - The pin's config.
+ * @param {Record<string, unknown>} config - The pin's config.
  * @param {import('juggler/pinboard-item-type').PinActiveContext} active - The active context.
  * @returns {string} An absolute path, or the relative one when no project is open.
  */

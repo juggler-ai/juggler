@@ -7,6 +7,7 @@ import ContextItem from 'juggler/context-item';
 import { translator, markUntranslated } from 'juggler/i18n';
 import { createUserMessage } from 'juggler/model';
 import { decodeHtmlEntities } from 'juggler/utils/html';
+import { toolActionResultData } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -249,9 +250,7 @@ class NewConversationContextItem extends ContextItem {
    */
   renderToolActionDetails(wrapper, ctx) {
     const { input, helpers, toolAction } = ctx;
-    const raw = toolAction && toolAction.get ? toolAction.get('result') : null;
-    const result = raw && raw.toJSON ? raw.toJSON() : (raw || {});
-    const data = (result.fullResult && result.fullResult.result) || {};
+    const data = toolActionResultData(toolAction);
 
     // Prefer the server-resolved name; fall back to the requested one.
     const resolvedName = typeof data.name === 'string' ? data.name.trim() : '';

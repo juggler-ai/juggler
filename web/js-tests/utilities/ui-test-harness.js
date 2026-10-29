@@ -72,7 +72,7 @@ export class UITestHarness {
 
   /**
    * Proxy to inner harness conversation.
-   * @returns {import('../../model/conversation.js').default} The conversation
+   * @returns {import('../../js/model/conversation.js').default} The conversation
    */
   get conversation() {
     return this.innerHarness.conversation;
@@ -80,7 +80,7 @@ export class UITestHarness {
 
   /**
    * Proxy to inner harness root thread.
-   * @returns {import('../../model/message-thread.js').default} The root message thread
+   * @returns {import('../../js/model/message-thread.js').default} The root message thread
    */
   get rootThread() {
     return this.innerHarness.rootThread;
@@ -632,5 +632,3 @@ export class UITestHarness {
     this.innerHarness.resolveApprovalNoWait(toolUseId, response);
   }
 }
-
-export default UITestHarness;

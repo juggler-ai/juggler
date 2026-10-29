@@ -26,7 +26,7 @@ import {
  *
  * When a tool is approved and executed, the result becomes part of conversation history.
  * Undo should remove the tool-action from the conversation (state undo, not file revert).
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testUndoAfterToolApproval(session) {
@@ -102,7 +102,7 @@ async function testUndoAfterToolApproval(session) {
  * When write_file tool executes, it creates a tool-action in conversation history.
  * Undo removes the tool-action from history (state only).
  * File system changes are NOT reverted by undo (intentional design).
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testUndoAfterWriteFile(session) {
@@ -155,7 +155,7 @@ async function testUndoAfterWriteFile(session) {
  * Test 19: Approval state is part of undo - cancelled tool can be undone.
  *
  * When a tool is denied (cancelled), the cancelled state should undo correctly.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testUndoApprovalState(session) {
@@ -224,7 +224,7 @@ async function testUndoApprovalState(session) {
  *
  * Simulates: User sees tool result, doesn't like it, undoes, then retries.
  * After undo, the tool-action is gone. User can trigger a new execution.
- * @param {import('../../model/session.js').default} session - Session instance
+ * @param {import('../../js/model/session.js').default} session - Session instance
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Test result
  */
 async function testUndoRetryFlow(session) {

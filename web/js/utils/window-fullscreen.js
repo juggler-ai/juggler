@@ -32,7 +32,7 @@ import { fetchJson } from '../services/http.js';
  * @param {boolean} fullscreen - True while the native window is fullscreen.
  * @returns {void}
  */
-export function setFullscreenFlag(fullscreen) {
+function setFullscreenFlag(fullscreen) {
   const root = document.documentElement;
   if (fullscreen) root.dataset.windowFullscreen = '1';
   else delete root.dataset.windowFullscreen;

@@ -43,7 +43,7 @@ export function focusedThreadItemId() {
  * @param {string|null} threadItemId - The focused thread, null for the root.
  * @returns {(string|null)[]} Thread ids nearest-first, always ending with null.
  */
-export function threadAncestry(conversation, threadItemId) {
+function threadAncestry(conversation, threadItemId) {
   /** @type {(string|null)[]} */
   const chain = [];
   const seen = new Set();

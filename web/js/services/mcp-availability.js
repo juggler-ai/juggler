@@ -22,10 +22,10 @@ import { parseMcpToolName } from './thread-tool-inventory.js';
 import { markForTranslation } from '../../sdk/lib/i18n.js';
 
 /** Extension that publishes every MCP tool to the model. */
-export const MCP_EXTENSION_ID = '@juggler/mcp';
+const MCP_EXTENSION_ID = '@juggler/mcp';
 
 /** Capability id of the MCP bridge context item, disableable on its own. */
-export const MCP_ITEM_TYPE = 'mcp-tool';
+const MCP_ITEM_TYPE = 'mcp-tool';
 
 /**
  * The one-line statement every MCP surface makes when the extension is off.
@@ -109,7 +109,7 @@ export async function withMcpToolMissReason(message, toolName) {
  * @param {string} toolName - The LLM-facing tool name that missed
  * @returns {Promise<string>} The reason, or ''
  */
-export async function describeMcpToolMiss(toolName) {
+async function describeMcpToolMiss(toolName) {
   const parts = parseMcpToolName(String(toolName || ''));
   if (!parts) return '';
   try {

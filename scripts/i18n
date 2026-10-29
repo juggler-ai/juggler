@@ -107,14 +107,14 @@ let targetOverride = null;
  * The SDK i18n module. Loaded from a data: URL because nothing above web/ gives
  * Node a "type": "module" for it, and a data: URL is always an ES module — on
  * every Node version CI runs. The module imports nothing, so this is exact.
- * @returns {Promise<any>} The module namespace.
+ * @returns {Promise<typeof import('../web/sdk/lib/i18n.js')>} The module namespace.
  */
 async function loadSdk() {
   const src = fs.readFileSync(sdkLibPath, 'utf8');
   return import('data:text/javascript;base64,' + Buffer.from(src).toString('base64'));
 }
 
-/** @returns {any} espree, from the tooling install. */
+/** @returns {typeof import('espree')} espree, from the tooling install. */
 function espree() {
   return require(path.join(repoRoot, 'tooling', 'node_modules', 'espree'));
 }
@@ -122,7 +122,7 @@ function espree() {
 /**
  * Every source file under the given roots, repo-relative, sorted.
  * @param {string[]} roots - Repo-relative directories.
- * @returns {string[]}
+ * @returns {string[]} The files.
  */
 function jsFiles(roots) {
   const out = [];
@@ -140,7 +140,7 @@ function jsFiles(roots) {
 
 /**
  * Every UI source file, repo-relative, sorted.
- * @returns {string[]}
+ * @returns {string[]} The files.
  */
 function uiFiles() {
   return jsFiles(UI_ROOTS);
@@ -156,14 +156,14 @@ function uiFiles() {
  * @property {string[]} files - Repo-relative source files whose messages it holds.
  * @property {string[]} [goFiles] - Absolute Go source files whose messages it holds.
  * @property {string} [packagingFile] - Absolute path of the installers' English source, for the core one.
- * @property {any} [manifest] - The extension manifest, for an extension's.
+ * @property {import('../web/js/services/extensions.js').ExtensionManifest} [manifest] - The extension manifest, for an extension's.
  */
 
 /**
  * Every shipped Go file under the given roots, absolute, sorted: no test
  * files, and nothing under testdata, vendored or hidden directories.
  * @param {string[]} roots - Absolute directories.
- * @returns {string[]}
+ * @returns {string[]} The files.
  */
 function goFiles(roots) {
   const out = [];
@@ -184,7 +184,7 @@ function goFiles(roots) {
 
 /**
  * The extensions that ship their own catalogues.
- * @returns {Array<{root: string, manifest: any, i18nDir: string}>} Repo-relative root, manifest, and catalogue dir.
+ * @returns {Array<{root: string, manifest: import('../web/js/services/extensions.js').ExtensionManifest, i18nDir: string}>} Repo-relative root, manifest, and catalogue dir.
  */
 function catalogueExtensions() {
   const out = [];
@@ -209,7 +209,7 @@ function catalogueExtensions() {
  * Every catalogue: core first, then each extension that has its own. A file
  * belongs to exactly one — the extension it sits in, if that extension has
  * catalogues, else core.
- * @returns {Target[]}
+ * @returns {Target[]} The catalogues.
  */
 function targets() {
   if (targetOverride) return [targetOverride];
@@ -261,8 +261,8 @@ function readCatalog(file) {
 
 /**
  * Walk an AST, calling visit on every node.
- * @param {any} node
- * @param {(n: any) => void} visit
+ * @param {import('estree').Node} node
+ * @param {(n: import('estree').Node) => void} visit
  */
 function walkAst(node, visit) {
   if (!node || typeof node.type !== 'string') return;
@@ -278,8 +278,8 @@ function walkAst(node, visit) {
 /**
  * The string value of a literal, an expression-free template, or a `+` of
  * those (a long message split across lines), else null.
- * @param {any} node
- * @returns {string|null}
+ * @param {import('estree').Node | null | undefined} node
+ * @returns {string|null} The string.
  */
 function staticString(node) {
   if (!node) return null;
@@ -298,8 +298,8 @@ function staticString(node) {
  * any t() message but sits in JSON where no t() can mark it: the extension's
  * name, and each setting's label, help and options. The UI translates them
  * where it draws them, with t(name) and the like.
- * @param {any} manifest
- * @returns {string[]}
+ * @param {import('../web/js/services/extensions.js').ExtensionManifest} manifest
+ * @returns {string[]} The messages.
  */
 function manifestMessages(manifest) {
   const out = [];
@@ -323,8 +323,8 @@ function manifestMessages(manifest) {
  * `avoidFor` and each of its `notes`. A strategy's `recommendations` use other
  * keys and are the model's, so they are not collected.
  * They sit in a class field, where no t() can mark them.
- * @param {any} ast - A parsed module.
- * @returns {string[]}
+ * @param {import('estree').Program} ast - A parsed module.
+ * @returns {string[]} The messages.
  */
 function capabilityMessages(ast) {
   const out = [];
@@ -366,7 +366,7 @@ const GO_ESCAPES = { a: '\x07', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t', v: 
  * The value of an interpreted Go string literal's body, as the compiler reads
  * it: \x and octal escapes are bytes, so the whole is assembled as UTF-8.
  * @param {string} body - The text between the quotes.
- * @returns {string}
+ * @returns {string} The string's value.
  */
 function decodeGoString(body) {
   const bytes = [];
@@ -403,7 +403,7 @@ function decodeGoString(body) {
  * Go source as tokens: identifiers, string literals (decoded) and single
  * punctuation characters, with comments, whitespace and rune literals gone.
  * @param {string} text
- * @returns {Array<{type: 'ident'|'string'|'punct', value: string, line: number}>}
+ * @returns {Array<{type: 'ident'|'string'|'punct', value: string, line: number}>} The tokens.
  */
 function goTokens(text) {
   const out = [];
@@ -457,7 +457,7 @@ function goTokens(text) {
  * msg.NewError call, with NewCtx's context.
  * @param {string} text
  * @param {string} where - The file, as problems name it.
- * @returns {{found: Array<{source: string, context?: string}>, problems: string[]}}
+ * @returns {{found: Array<{source: string, context?: string}>, problems: string[]}} The messages, and what could not be read.
  */
 function goMessages(text, where) {
   const found = [];
@@ -511,9 +511,9 @@ function goMessages(text, where) {
  * Collect a catalogue's messages: every t()/markForTranslation() literal in its
  * files, every capability's `MANIFEST` name and description, and, for an
  * extension's, the text in its manifest.
- * @param {any} sdk - The SDK module (for messageKey).
+ * @param {typeof import('../web/sdk/lib/i18n.js')} sdk - The SDK module (for messageKey).
  * @param {Target} target
- * @returns {{messages: Record<string, string>, problems: string[]}}
+ * @returns {{messages: Record<string, string>, problems: string[]}} The catalogue, and what could not be read.
  */
 function extract(sdk, target) {
   /** @type {Record<string, string>} */
@@ -543,7 +543,7 @@ function extract(sdk, target) {
     if (!hasI18n && !/\bMANIFEST\b/.test(text)) continue;
     let ast;
     try {
-      ast = /** @type {any} */ (parse)(text, { ecmaVersion: 'latest', sourceType: 'module', loc: true });
+      ast = /** @type {NonNullable<typeof parse>} */ (parse)(text, { ecmaVersion: 'latest', sourceType: 'module', loc: true });
     } catch (err) {
       problems.push(`${rel}: does not parse: ${err.message}`);
       continue;
@@ -609,9 +609,9 @@ function extract(sdk, target) {
 
 /**
  * The pseudo-locale catalogue for a source catalogue.
- * @param {any} sdk
+ * @param {typeof import('../web/sdk/lib/i18n.js')} sdk
  * @param {Record<string, string>} source
- * @returns {Record<string, string>}
+ * @returns {Record<string, string>} The pseudo-locale catalogue.
  */
 function pseudoCatalog(sdk, source) {
   /** @type {Record<string, string>} */
@@ -623,7 +623,7 @@ function pseudoCatalog(sdk, source) {
 /**
  * The real-language catalogue files in a catalogue directory (not en, not en-XA).
  * @param {string} dir - Absolute catalogue directory.
- * @returns {string[]}
+ * @returns {string[]} The files.
  */
 function translationFiles(dir) {
   if (!fs.existsSync(dir)) return [];
@@ -660,7 +660,7 @@ const TAG_PATTERN = /<\/?([A-Za-z][A-Za-z0-9]*)(?:[ \t\n\r\f/][^<>]*)?>/g;
 /**
  * The first HTML tag in text, or ''.
  * @param {string} text
- * @returns {string}
+ * @returns {string} The tag.
  */
 function firstHtmlTag(text) {
   for (const m of text.matchAll(TAG_PATTERN)) {
@@ -677,7 +677,7 @@ const PLURAL_ORDER = ['zero', 'one', 'two', 'few', 'many', 'other'];
  * PLURAL_ORDER (the order resolvedOptions() gives differs between Node
  * releases), or null for a tag it rejects or has no rules for.
  * @param {string} locale
- * @returns {string[]|null}
+ * @returns {string[]|null} The categories.
  */
 function pluralCategories(locale) {
   try {
@@ -695,9 +695,9 @@ const SELECT = 4;
 
 /**
  * How a message uses each argument name: a mask of ARG, PLURAL and SELECT.
- * @param {any[]} nodes
+ * @param {import('../web/sdk/lib/i18n.js').MessageNode[]} nodes
  * @param {Map<string, number>} [uses]
- * @returns {Map<string, number>}
+ * @returns {Map<string, number>} Argument name → mask.
  */
 function argumentUses(nodes, uses = new Map()) {
   for (const node of nodes) {
@@ -723,7 +723,7 @@ function describeUse(mask) {
 /**
  * The plural branches of nodes whose keyword is neither one of the locale's
  * categories nor `=N`, in document order, each node's keys sorted.
- * @param {any[]} nodes
+ * @param {import('../web/sdk/lib/i18n.js').MessageNode[]} nodes
  * @param {string} locale
  * @param {string[]} categories
  * @param {Array<{kind: string, message: string}>} out
@@ -748,12 +748,12 @@ function pluralCategoryProblems(nodes, locale, categories, out) {
 
 /**
  * What is wrong with one translation of one message.
- * @param {any} sdk
+ * @param {typeof import('../web/sdk/lib/i18n.js')} sdk
  * @param {string} source - The English.
  * @param {string} translation
  * @param {string} locale
  * @param {string[]|null} categories - The locale's plural categories; null skips that check.
- * @returns {Array<{kind: string, message: string}>}
+ * @returns {Array<{kind: string, message: string}>} The problems.
  */
 function messageProblems(sdk, source, translation, locale, categories) {
   let nodes;
@@ -811,11 +811,11 @@ function messageProblems(sdk, source, translation, locale, categories) {
  * What is wrong with a translation file: problems with the file as a whole
  * (key null), then each entry's, in key order. An empty value is untranslated
  * and passes.
- * @param {any} sdk
+ * @param {typeof import('../web/sdk/lib/i18n.js')} sdk
  * @param {Record<string, string>} source - Catalogue key → English.
  * @param {string} text - The file's content.
  * @param {string} locale - Its locale (the file name).
- * @returns {Array<{key: string|null, kind: string, message: string}>}
+ * @returns {Array<{key: string|null, kind: string, message: string}>} The problems.
  */
 function translationProblems(sdk, source, text, locale) {
   let catalog;
@@ -856,7 +856,7 @@ function translationProblems(sdk, source, text, locale) {
 
 /**
  * Write a target's source list and pseudo-locale.
- * @param {any} sdk
+ * @param {typeof import('../web/sdk/lib/i18n.js')} sdk
  * @param {Target} target
  * @param {Record<string, string>} messages
  */
@@ -870,7 +870,10 @@ function writeTarget(sdk, target, messages) {
 // Commands
 // ---------------------------------------------------------------------------
 
-/** @param {any} sdk */
+/**
+ * @param {typeof import('../web/sdk/lib/i18n.js')} sdk
+ * @returns {number} The exit status.
+ */
 function cmdExtract(sdk) {
   let status = 0;
   for (const target of targets()) {
@@ -892,7 +895,10 @@ function cmdExtract(sdk) {
   return status;
 }
 
-/** @param {any} sdk */
+/**
+ * @param {typeof import('../web/sdk/lib/i18n.js')} sdk
+ * @returns {number} The exit status.
+ */
 function cmdPseudo(sdk) {
   for (const target of targets()) {
     writeTarget(sdk, target, readCatalog(path.join(target.dir, 'en.json')));
@@ -901,7 +907,10 @@ function cmdPseudo(sdk) {
   return 0;
 }
 
-/** @param {any} sdk */
+/**
+ * @param {typeof import('../web/sdk/lib/i18n.js')} sdk
+ * @returns {number} The exit status.
+ */
 function cmdCheck(sdk) {
   let status = 0;
   // A Windows checkout has CRLF line endings (`* text=auto`); a catalogue is
@@ -932,7 +941,10 @@ function cmdCheck(sdk) {
   return status;
 }
 
-/** @param {any} _sdk */
+/**
+ * @param {typeof import('../web/sdk/lib/i18n.js')} _sdk
+ * @returns {number} The exit status.
+ */
 function cmdStatus(_sdk) {
   for (const target of targets()) {
     const source = readCatalog(path.join(target.dir, 'en.json'));

@@ -759,5 +759,3 @@ class PermissionControls extends JugglerElement {
 }
 
 customElements.define('permission-controls', PermissionControls);
-
-export { PermissionControls };

@@ -9,7 +9,8 @@ import { userApprovalsThisTurn, hintStrategyIds, HINT_AFTER_APPROVALS } from '..
 import { renderResultStatusMessage, escapeHtml } from '../../sdk/lib/html.js';
 import {
   TOOL_STATES,
-  ACTION_STATES
+  ACTION_STATES,
+  itemField
 } from '../../sdk/lib/message.js';
 import { wrapWithIcon, createErrorArticle } from '../utils/icon-message-renderer.js';
 import { iconOptionsForItem } from '../utils/item-badge.js';
@@ -27,6 +28,29 @@ import { t, htmlSlots, withHtml, formatList } from '../../sdk/lib/i18n.js';
  * Tool action item from Yjs - using import type for proper resolution
  * @typedef {import('../../sdk/lib/message.js').ToolActionMessage} ToolActionItem
  */
+
+/**
+ * A tool action's review indicator, read from its `reviewStatus` (a Y.Map, or
+ * a plain object set before conversion).
+ * @param {ToolActionItem} item - The tool action
+ * @returns {{busy: boolean, label: string|undefined}} Whether a review is in flight, and its label or closing note
+ */
+function reviewStatusOf(item) {
+  const reviewStatus = item.get('reviewStatus');
+  const label = itemField(reviewStatus, 'label');
+  return { busy: !!itemField(reviewStatus, 'busy'), label: typeof label === 'string' ? label : undefined };
+}
+
+/**
+ * The content text of a tool action's result (a Y.Map, a plain object, or
+ * nothing yet).
+ * @param {unknown} result - The tool action's `result` field
+ * @returns {string} The content, or '' when there is none
+ */
+function resultContentText(result) {
+  const content = itemField(result, 'content');
+  return typeof content === 'string' ? content : '';
+}
 
 /**
  * ActionType class constructor type (from registry lookup).
@@ -149,7 +173,7 @@ class ToolActionMessage extends JugglerElement {
     if (!item) return null;
     const displayData = item.get('displayData');
     const resultMap = item.get('result');
-    const isError = resultMap?.get ? resultMap.get('isError') : resultMap?.isError;
+    const isError = itemField(resultMap, 'isError');
     const reviewStatus = item.get('reviewStatus');
     return {
       state: item.get('state'),
@@ -238,9 +262,7 @@ class ToolActionMessage extends JugglerElement {
   _applyReviewStatus(item) {
     const container = /** @type {HTMLElement|null} */ (this.querySelector('.action-approval-container'));
     if (!item || !container) return;
-    const reviewStatus = item.get('reviewStatus');
-    const busy = reviewStatus?.get ? reviewStatus.get('busy') : reviewStatus?.busy;
-    const label = reviewStatus?.get ? reviewStatus.get('label') : reviewStatus?.label;
+    const { busy, label } = reviewStatusOf(item);
     const row = /** @type {HTMLElement|null} */ (container.querySelector('.approval-review-status'));
     if (!busy && !label) {
       row?.remove();
@@ -249,7 +271,7 @@ class ToolActionMessage extends JugglerElement {
     // Rebuild rather than patch: busy→settled swaps the spinner and the styling,
     // not just the text. The row carries no interactive controls, so replacing it
     // can't move anything under the user's cursor — the buttons are untouched.
-    const next = this._buildReviewStatusRow(label, !!busy);
+    const next = this._buildReviewStatusRow(label, busy);
     if (row) row.replaceWith(next);
     else container.insertBefore(next, container.querySelector('action-confirmation'));
   }
@@ -409,7 +431,7 @@ class ToolActionMessage extends JugglerElement {
     } else if (result !== null && result !== undefined && (state === TOOL_STATES.RUNNING || state === TOOL_STATES.APPROVED || state === undefined)) {
       // Same race as getBusyState: a running/approved item that already carries a
       // settled result is terminal. Result wins — cancelled result → cancelled row.
-      (result.get ? result.get('cancelled') : result.cancelled)
+      itemField(result, 'cancelled')
         ? this._renderCancelled(item)
         : this._renderResult(item);
     } else if (state === TOOL_STATES.RUNNING || state === TOOL_STATES.APPROVED || state === undefined) {
@@ -425,7 +447,7 @@ class ToolActionMessage extends JugglerElement {
    * @private
    */
   _renderPendingApproval(item) {
-    const actionId = item.get('toolName');
+    const actionId = item.get('toolName') ?? '';
     /** @type {ActionTypeClass|undefined} */
     const ActionClass = contextItemRegistry.getByToolName(actionId);
     const conversation = this._getConversation();
@@ -485,7 +507,7 @@ class ToolActionMessage extends JugglerElement {
    * @private
    */
   _renderRunning(item) {
-    const actionId = item.get('toolName');
+    const actionId = item.get('toolName') ?? '';
     /** @type {ActionTypeClass|undefined} */
     const ActionClass = contextItemRegistry.getByToolName(actionId);
     const conversation = this._getConversation();
@@ -606,7 +628,7 @@ class ToolActionMessage extends JugglerElement {
    */
   _renderResult(item) {
     const resultMap = item.get('result');
-    const fullResultMap = resultMap?.get ? resultMap.get('fullResult') : resultMap?.fullResult;
+    const fullResultMap = itemField(resultMap, 'fullResult');
     const result = /** @type {ActionResult|undefined} */ (plain(fullResultMap));
     const conversation = this._getConversation();
     const itemToolName = item.get('toolName');
@@ -642,7 +664,7 @@ class ToolActionMessage extends JugglerElement {
     }
 
     if (!actionId) {
-      const resultContent = resultMap?.get ? resultMap.get('content') : resultMap?.content;
+      const resultContent = resultContentText(resultMap);
       // The model's own text (content, error) is shown as it was; the fallback is ours.
       const errorMessage = resultContent || result?.error || (itemToolName ? t('Unknown tool: {name}', { name: String(itemToolName) }) : t('Unknown tool'));
       this.appendChild(createErrorArticle(errorMessage));
@@ -670,8 +692,7 @@ class ToolActionMessage extends JugglerElement {
     if (ActionClass && typeof ActionClass.prototype.getStatusUI === 'function') {
       try {
         // Build actionResult based on state
-        const resultContent = resultMap?.get ? resultMap.get('content') : resultMap?.content;
-        const content = resultContent || '';
+        const content = resultContentText(resultMap);
         let actionResult;
         if (isApproval) {
           actionResult = {
@@ -848,7 +869,7 @@ class ToolActionMessage extends JugglerElement {
         messageThread.cancelPendingApprovals();
         return;
       }
-      const toolUseId = item.get('toolUseId');
+      const toolUseId = item.get('toolUseId') ?? '';
       let resolved;
       if (chosen && (chosen.rules || chosen.allowedPaths)) {
         resolved = messageThread.resolveApproval(toolUseId, 'yes-always', {
@@ -885,11 +906,9 @@ class ToolActionMessage extends JugglerElement {
     // may already be in flight (e.g. a reload mid-review) or may have left a
     // closing note on a call still parked. Either way the row belongs directly
     // above the buttons, so paint it here rather than waiting for a change.
-    const reviewStatus = item.get('reviewStatus');
-    const reviewBusy = reviewStatus?.get ? reviewStatus.get('busy') : reviewStatus?.busy;
-    const reviewLabel = reviewStatus?.get ? reviewStatus.get('label') : reviewStatus?.label;
+    const { busy: reviewBusy, label: reviewLabel } = reviewStatusOf(item);
     if (reviewBusy || reviewLabel) {
-      container.appendChild(this._buildReviewStatusRow(reviewLabel, !!reviewBusy));
+      container.appendChild(this._buildReviewStatusRow(reviewLabel, reviewBusy));
     }
 
     container.appendChild(buttonsEl);
@@ -920,7 +939,7 @@ class ToolActionMessage extends JugglerElement {
    */
   _buildStrategyHint(item, messageThread) {
     if (!messageThread?.items || typeof messageThread.setStrategy !== 'function') return null;
-    if (userApprovalsThisTurn(messageThread.items, item.get('itemId')) < HINT_AFTER_APPROVALS) return null;
+    if (userApprovalsThisTurn(messageThread.items, item.get('itemId') ?? '') < HINT_AFTER_APPROVALS) return null;
     const available = this._hintStrategies();
     const ids = hintStrategyIds(messageThread.getEffectiveStrategyId?.() || 'default', available);
     if (ids.length === 0) return null;
@@ -1033,5 +1052,3 @@ class ToolActionMessage extends JugglerElement {
 }
 
 customElements.define('tool-action-message', ToolActionMessage);
-
-export default ToolActionMessage;

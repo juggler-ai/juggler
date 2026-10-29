@@ -68,7 +68,7 @@ func decodeDataURL(page string) (string, error) {
 func TestLockedProjectErrorExplainsSafeRecovery(t *testing.T) {
 	project := t.TempDir()
 	err := newLockedProjectError(project, &core.InstanceInfo{PID: 123, Host: "127.0.0.1", Port: 7777})
-	message := (&appState{}).lockedMessage(err)
+	message := (&appState{}).trParagraphs(err.adviceMessages())
 	for _, want := range []string{
 		"could not connect",
 		filepath.Join(project, ".juggler", "juggler.lock"),

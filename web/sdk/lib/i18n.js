@@ -83,7 +83,7 @@ const catalogs = new Map();
 const parsedCache = /** @type {Map<string, MessageNode[]|null>} */ (new Map());
 
 /** Intl formatter instances, by kind + locale + options. */
-const formatterCache = /** @type {Map<string, any>} */ (new Map());
+const formatterCache = /** @type {Map<string, unknown>} */ (new Map());
 
 /**
  * @typedef {string
@@ -748,7 +748,8 @@ function serialize(nodes, inPlural, accent) {
  */
 function cachedFormatter(kind, locale, options, make) {
   const key = `${kind}|${locale ?? ''}|${options ? JSON.stringify(options) : ''}`;
-  let f = formatterCache.get(key);
+  // Every entry under a key was made by the `make` of that same kind, locale and options.
+  let f = /** @type {T|undefined} */ (formatterCache.get(key));
   if (!f) {
     f = make();
     formatterCache.set(key, f);
@@ -778,7 +779,19 @@ export function formatNumber(value, options) {
 export function formatDate(value, options) {
   if (value !== undefined && !Number.isFinite(Number(value))) return '';
   const locale = formattingLocale();
-  return cachedFormatter('date', locale, options, () => new Intl.DateTimeFormat(locale, options)).format(value);
+  return pseudoAccented(cachedFormatter('date', locale, options, () => new Intl.DateTimeFormat(locale, options)).format(value));
+}
+
+/**
+ * Words `Intl` supplied — a month name, a day period, "in 2 hours", a list's
+ * "or" — accented under the pseudo-locale like a translated message's, so a
+ * screen of translated text has no English left in it; as they are otherwise.
+ * @param {string} text - Formatter output
+ * @returns {string} The text, accented under the pseudo-locale
+ */
+function pseudoAccented(text) {
+  if (uiLocale !== PSEUDO_LOCALE) return text;
+  return [...text].map((c) => PSEUDO_LETTERS[c] || c).join('');
 }
 
 /**
@@ -791,7 +804,7 @@ export function formatDate(value, options) {
  */
 export function formatRelativeTime(value, unit, options) {
   const locale = formattingLocale();
-  return cachedFormatter('relative', locale, options, () => new Intl.RelativeTimeFormat(locale, options)).format(value, unit);
+  return pseudoAccented(cachedFormatter('relative', locale, options, () => new Intl.RelativeTimeFormat(locale, options)).format(value, unit));
 }
 
 /**
@@ -809,7 +822,9 @@ export function formatRelativeTime(value, unit, options) {
 export function formatList(items, options = {}) {
   const list = [...items].map(String);
   const type = options.type || 'unit';
-  const ListFormat = /** @type {any} */ (Intl).ListFormat;
+  /** @type {{ListFormat?: new (locale: string|undefined, options: object) => {format: (list: string[]) => string, formatToParts: (list: string[]) => Array<{type: string, value: string}>}}} */
+  const intl = Intl;
+  const ListFormat = intl.ListFormat;
   if (typeof ListFormat !== 'function') return list.join(', ');
   const locale = formattingLocale();
   const opts = { type, style: type === 'unit' ? 'short' : 'long' };
@@ -817,7 +832,7 @@ export function formatList(items, options = {}) {
   if (uiLocale !== PSEUDO_LOCALE) return formatter.format(list);
   return formatter.formatToParts(list)
     .map((/** @type {{type: string, value: string}} */ part) => (part.type === 'literal'
-      ? [...part.value].map((c) => PSEUDO_LETTERS[c] || c).join('')
+      ? pseudoAccented(part.value)
       : part.value))
     .join('');
 }

@@ -68,4 +68,4 @@
  */
 
 // no runtime exports; file is imported for typedefs only
-export default {};
+export {};

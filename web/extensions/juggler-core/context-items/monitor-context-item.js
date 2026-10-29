@@ -8,6 +8,7 @@ import { MAX_EXEC_TIMEOUT_MS } from 'juggler/ops';
 import { createSummaryWithSubtitle, renderLiveTaskOutput, renderTaskDeliveryControl } from 'juggler/ui';
 import { isShellCommandPermitted, isShellCommandCatastrophic } from './execute/command-permission.js';
 import { translator, markUntranslated } from 'juggler/i18n';
+import { inputText } from '../lib/tool-action-result.js';
 
 const t = translator('@juggler/core');
 
@@ -302,7 +303,7 @@ class MonitorContextItem extends ContextItem {
    */
   renderToolActionDetails(wrapper, ctx) {
     const { input, helpers, toolAction, messageThread } = ctx;
-    helpers.addSubsection(wrapper, t('Command'), input.command || '', 'properties-panel-code');
+    helpers.addSubsection(wrapper, t('Command'), inputText(input, 'command'), 'properties-panel-code');
     if (input.description) {
       helpers.addLlmDescription(wrapper, t('Description'), String(input.description));
     }

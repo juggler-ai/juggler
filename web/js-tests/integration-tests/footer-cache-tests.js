@@ -31,7 +31,7 @@ import { waitFor } from '../utilities/test-helpers.js';
 /**
  * Locate the `<token-display>` element rendered for this conversation.
  * Returns null in headless mode (no tab element) so tests can early-out.
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @returns {HTMLElement|null} The token-display element, or null in headless mode.
  */
 function findTokenDisplay(conversation) {
@@ -43,7 +43,7 @@ function findTokenDisplay(conversation) {
 /**
  * Locate the `<conversation-footer>` element rendered for this conversation.
  * Returns null in headless mode (no tab element) so tests can early-out.
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @returns {HTMLElement|null} The conversation-footer element, or null in headless mode.
  */
 function findFooter(conversation) {
@@ -72,7 +72,7 @@ function findFooter(conversation) {
  * event path is part of what these tests cover; the direct call is what removes
  * two seconds of dead time from every wait below, and it fetches through the
  * same `_updateTokenDisplay` the timer would have called.
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @param {number} budget
  */
 function forceContextWindow(conversation, budget) {
@@ -89,7 +89,7 @@ function forceContextWindow(conversation, budget) {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerShowsBlobTokensTest = {
+const footerShowsBlobTokensTest = {
   name: 'footer-shows-blob-tokens',
   description: 'After a successful turn, the footer fetches the assistant item\'s transaction blob and renders inputTokens.',
   fixture: 'unit-test-fixture',
@@ -139,7 +139,7 @@ export const footerShowsBlobTokensTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerHidesAfterRewindTest = {
+const footerHidesAfterRewindTest = {
   name: 'footer-hides-after-rewind',
   description: 'Rewinding past every LLM-produced item leaves no transactionId in the thread, so the footer hides entirely.',
   fixture: 'unit-test-fixture',
@@ -189,7 +189,7 @@ export const footerHidesAfterRewindTest = {
  * the footer uses — so the test is fast and deterministic.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerCacheWarnTest = {
+const footerCacheWarnTest = {
   name: 'footer-cache-warn',
   description: 'token-display gains the cache-warn class when the uncached delta exceeds the warn threshold.',
   fixture: 'unit-test-fixture',
@@ -252,7 +252,7 @@ export const footerCacheWarnTest = {
  * portion to avoid implying a hit we don't know we'll get.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerCacheHiddenWhileProcessingTest = {
+const footerCacheHiddenWhileProcessingTest = {
   name: 'footer-cache-hidden-while-processing',
   description: 'token-display suppresses the "cached" portion while the conversation is processing.',
   fixture: 'unit-test-fixture',
@@ -332,7 +332,7 @@ export const footerCacheHiddenWhileProcessingTest = {
  * reported 0 is a measured miss and keeps warning.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerCacheUnknownTest = {
+const footerCacheUnknownTest = {
   name: 'footer-cache-unknown',
   description: 'token-display treats a null cached count as unknown — no cache-warn, no "+Nk new", no cached bar segment — while a reported 0 still warns.',
   fixture: 'unit-test-fixture',
@@ -435,7 +435,7 @@ export const footerCacheUnknownTest = {
  * for.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerFallsBackPastUnmeasuredTurnTest = {
+const footerFallsBackPastUnmeasuredTurnTest = {
   name: 'footer-falls-back-past-unmeasured-turn',
   description: 'When the newest transaction blob reports no input tokens, the footer falls back to the most recent round-trip that did, instead of showing nothing.',
   fixture: 'unit-test-fixture',
@@ -480,7 +480,7 @@ export const footerFallsBackPastUnmeasuredTurnTest = {
  * round-trip — while its newest measured one was 224k, and kept reading it.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerAnchorsOnToolOnlyRoundTripTest = {
+const footerAnchorsOnToolOnlyRoundTripTest = {
   name: 'footer-anchors-on-tool-only-round-trip',
   description: 'A round-trip that wrote only tool calls is still the newest measurement; the footer must not skip back past it to an older round-trip that happened to write text.',
   fixture: 'unit-test-fixture',
@@ -534,7 +534,7 @@ export const footerAnchorsOnToolOnlyRoundTripTest = {
  * were repeatedly emptying and refilling.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerHoldsLiveCountThroughGapTest = {
+const footerHoldsLiveCountThroughGapTest = {
   name: 'footer-holds-live-count-through-gap',
   description: 'While a turn runs, a live usage reading that lapses between usage chunks must leave the meter where it was, not flip it back to the previous turn\'s blob.',
   fixture: 'unit-test-fixture',
@@ -605,7 +605,7 @@ export const footerHoldsLiveCountThroughGapTest = {
  * the Undo offer — the token state is the same problem.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerHoldsLiveCountAcrossRebindTest = {
+const footerHoldsLiveCountAcrossRebindTest = {
   name: 'footer-holds-live-count-across-rebind',
   description: 'Re-handing a footer the same thread in a fresh wrapper (a column rebuild) must not discard the live reading it is holding.',
   fixture: 'unit-test-fixture',
@@ -687,7 +687,7 @@ export const footerHoldsLiveCountAcrossRebindTest = {
  * moment the difference is the whole story.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerStatesOverrunTest = {
+const footerStatesOverrunTest = {
   name: 'footer-states-overrun',
   description: 'A total above the budget states how far over it is, instead of reporting itself as exactly full.',
   fixture: 'unit-test-fixture',
@@ -766,7 +766,7 @@ export const footerStatesOverrunTest = {
  * for the whole turn because the root's model does not stream usage.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const footerMetersThreadOwnModelTest = {
+const footerMetersThreadOwnModelTest = {
   name: 'footer-meters-thread-own-model',
   description: 'The meter takes its window and its live-usage capability from the model the column\'s own thread will run, not the root thread\'s.',
   fixture: 'unit-test-fixture',

@@ -28,7 +28,7 @@
  */
 
 /** Most images one program may attach to its result. */
-export const MAX_PROGRAM_IMAGES = 8;
+const MAX_PROGRAM_IMAGES = 8;
 
 /**
  * @typedef {object} AssetRef

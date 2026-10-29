@@ -17,8 +17,18 @@
  * Messages out: `{id, result}` or `{id, error}`.
  */
 
-/** @type {any} */
-const scope = self;
+/**
+ * The worker global as this file uses it: Prism's opt-out flag is a property
+ * Prism reads off the global before it loads.
+ * @typedef {object} DiffWorkerScope
+ * @property {{ disableWorkerMessageHandler: boolean }} Prism - Prism's global, pre-seeded
+ * @property {((event: MessageEvent) => void)|null} onmessage - Message handler
+ * @property {(...urls: string[]) => void} importScripts - Classic-worker script loader
+ * @property {(message: unknown) => void} postMessage - Reply to the page
+ * @property {{href: string}} location - The worker script's location
+ */
+
+const scope = /** @type {DiffWorkerScope} */ (/** @type {unknown} */ (self));
 
 // Prism, loaded into a worker, installs a message handler of its own that
 // answers highlight requests; this worker's messages are not those.

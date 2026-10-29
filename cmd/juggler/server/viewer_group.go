@@ -3,8 +3,8 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 // viewerGroup is the actor that owns the set of viewer-role clients plus the
-// per-conversation request-cancel and per-shell-cancel maps. When the last
-// viewer leaves, all in-flight requests and shells are cancelled.
+// per-shell-cancel map. When the last viewer leaves, its in-flight shells are
+// cancelled.
 
 package server
 
@@ -25,9 +25,6 @@ const (
 	vgSendToAll
 	vgSendRawToAll
 	vgSendToViewer
-	vgStartRequest
-	vgCompleteRequest
-	vgCancelRequest
 	vgStartShell
 	vgCompleteShell
 	vgCancelShell
@@ -41,7 +38,6 @@ type viewerOp struct {
 	viewerID   string
 	msg        any
 	raw        []byte
-	convID     string
 	shellID    string
 	cancel     context.CancelFunc
 	engine     bool // a shell the engine started (see shellEntry)
@@ -105,7 +101,6 @@ type shellEntry struct {
 
 func (g *viewerGroup) run() {
 	clients := make(map[string]viewerEntry)
-	requests := make(map[string]context.CancelFunc)
 	shells := make(map[string]shellEntry)
 
 	// Fan a message out to every connection presenting the given viewer id. It is
@@ -122,13 +117,9 @@ func (g *viewerGroup) run() {
 		}
 	}
 
-	// cancelAll cancels every request and shell; withEngineShells false spares
-	// the engine's (see shellEntry).
+	// cancelAll cancels every shell; withEngineShells false spares the engine's
+	// (see shellEntry).
 	cancelAll := func(withEngineShells bool) {
-		for id, cancel := range requests {
-			cancel()
-			delete(requests, id)
-		}
 		for id, sh := range shells {
 			if sh.engine && !withEngineShells {
 				continue
@@ -169,25 +160,6 @@ func (g *viewerGroup) run() {
 		case vgSendToViewer:
 			sendToViewer(op.viewerID, op.msg)
 
-		case vgStartRequest:
-			if _, exists := requests[op.convID]; exists {
-				op.boolResult <- false
-			} else {
-				requests[op.convID] = op.cancel
-				op.boolResult <- true
-			}
-
-		case vgCompleteRequest:
-			delete(requests, op.convID)
-
-		case vgCancelRequest:
-			cancel, exists := requests[op.convID]
-			if exists {
-				cancel()
-				delete(requests, op.convID)
-			}
-			op.boolResult <- exists
-
 		case vgStartShell:
 			if _, exists := shells[op.shellID]; exists {
 				op.boolResult <- false
@@ -227,22 +199,7 @@ func (g *viewerGroup) sendRawToAll(raw []byte) { g.ch <- viewerOp{kind: vgSendRa
 func (g *viewerGroup) sendToViewer(viewerID string, msg any) {
 	g.ch <- viewerOp{kind: vgSendToViewer, viewerID: viewerID, msg: msg}
 }
-func (g *viewerGroup) completeRequest(id string) {
-	g.ch <- viewerOp{kind: vgCompleteRequest, convID: id}
-}
 func (g *viewerGroup) completeShell(id string) { g.ch <- viewerOp{kind: vgCompleteShell, shellID: id} }
-
-func (g *viewerGroup) startRequest(convID string, cancel context.CancelFunc) bool {
-	r := make(chan bool, 1)
-	g.ch <- viewerOp{kind: vgStartRequest, convID: convID, cancel: cancel, boolResult: r}
-	return <-r
-}
-
-func (g *viewerGroup) cancelRequest(convID string) bool {
-	r := make(chan bool, 1)
-	g.ch <- viewerOp{kind: vgCancelRequest, convID: convID, boolResult: r}
-	return <-r
-}
 
 func (g *viewerGroup) startShell(shellID string, cancel context.CancelFunc, engine bool) bool {
 	r := make(chan bool, 1)
@@ -256,7 +213,7 @@ func (g *viewerGroup) cancelShell(shellID string) bool {
 	return <-r
 }
 
-// stop cancels all pending requests and shells then exits the actor goroutine.
+// stop cancels all shells then exits the actor goroutine.
 // Used when a projectState that owns this group is being torn down.
 func (g *viewerGroup) stop() {
 	g.ch <- viewerOp{kind: vgStop}
@@ -442,31 +399,6 @@ func (s *Server) viewerSendToViewer(viewerID string, msg any) {
 	if g := s.viewers(); g != nil {
 		g.sendToViewer(viewerID, msg)
 	}
-}
-
-// viewerStartRequest registers an active LLM request for a conversation.
-// Returns false if the conversation already has an active request.
-func (s *Server) viewerStartRequest(convID string, cancel context.CancelFunc) bool {
-	if g := s.viewers(); g != nil {
-		return g.startRequest(convID, cancel)
-	}
-	return false
-}
-
-// viewerCompleteRequest removes tracking for a completed request.
-func (s *Server) viewerCompleteRequest(convID string) {
-	if g := s.viewers(); g != nil {
-		g.completeRequest(convID)
-	}
-}
-
-// viewerCancelRequest cancels an active request and removes tracking.
-// Returns true if the request existed.
-func (s *Server) viewerCancelRequest(convID string) bool {
-	if g := s.viewers(); g != nil {
-		return g.cancelRequest(convID)
-	}
-	return false
 }
 
 // viewerStartShell registers an active shell execution.

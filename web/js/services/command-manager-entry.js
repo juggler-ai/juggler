@@ -25,10 +25,10 @@ import { markForTranslation, t } from '../../sdk/lib/i18n.js';
 export const MANAGER_COMMAND_ID = 'commands';
 
 /** Label of the button opening the custom-command manager. */
-export const MANAGE_COMMANDS_LABEL = markForTranslation('Edit custom slash commands…');
+const MANAGE_COMMANDS_LABEL = markForTranslation('Edit custom slash commands…');
 
 /** Label of the button opening the built-ins in the Extensions settings. */
-export const BROWSE_COMMANDS_LABEL = markForTranslation('Browse built-in commands…');
+const BROWSE_COMMANDS_LABEL = markForTranslation('Browse built-in commands…');
 
 /**
  * A command's own text (its label or description) in the user's language. A

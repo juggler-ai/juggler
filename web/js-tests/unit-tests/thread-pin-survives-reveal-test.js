@@ -33,7 +33,8 @@ import {
   initializeRegistries,
   createTestSession,
   createApprovalTestConversation,
-  assert
+  assert,
+  waitFor
 } from '../utilities/test-helpers.js';
 import {
   createUserMessage,
@@ -43,20 +44,11 @@ import {
 } from '../../sdk/lib/message.js';
 import '../../js/components/conversation-tab.js';
 
-/** Rule C's OFFSCREEN_RESUME_MS is 3000; clear it with room to spare. */
-const DEMOTION_WINDOW_MS = 3600;
-
 /**
  * @param {number} n - Sentences to emit.
  * @returns {string} Text tall enough to overflow the column.
  */
 const longText = (n) => 'the quick brown fox jumps over the lazy dog. '.repeat(n);
-
-/**
- * @param {number} ms
- * @returns {Promise<void>} Resolves after `ms`.
- */
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * @param {string} id - Distinguishes the row from its siblings.
@@ -179,20 +171,41 @@ export async function runTests() {
       `items arriving in the parent must not displace the sub-thread the ` +
       `reader selected (selection moved to ${rootCol.getSelectedItemId()})`);
 
-    // The symptom. Rule C's demotion window is the delay the reader sees before
-    // the stealing starts, so wait it out and then deliver another item.
-    await sleep(DEMOTION_WINDOW_MS);
+    // The symptom. Rule C demotes the pin on a timer it arms only when its
+    // IntersectionObserver reports the tile offscreen, and that report comes in
+    // the rendering update after the inserts. An observer made now on the same
+    // tile and root is notified in that same update, after rule C's (observers
+    // are notified in creation order) — so once it has reported, rule C has
+    // heard where the tile is, and any demotion it is going to make is armed.
+    const watcher = rootCol._selection;
+    assert(watcher._visibilityObserver !== null,
+      'test setup: rule C must be watching the pinned tile, or there is no demotion to wait for');
+    /** @type {IntersectionObserverEntry|null} */
+    let seen = null;
+    const probe = new IntersectionObserver((entries) => { seen = entries[entries.length - 1] ?? seen; },
+      { root: list, threshold: 0 });
+    probe.observe(/** @type {HTMLElement} */ (tileEl));
+    try {
+      await waitFor(() => seen !== null, 'an intersection report for the pinned tile');
+    } finally {
+      probe.disconnect();
+    }
+    assert(/** @type {IntersectionObserverEntry} */ (/** @type {unknown} */ (seen)).isIntersecting,
+      'the pinned tile must still intersect the list after the parent turn carried on');
+    assert(watcher._offscreenTimer === null,
+      'rule C must not have armed a demotion: nothing but the reader may retire the pin, ' +
+      'and the reader has not touched anything');
 
     assert(rootCol.selectionOrigin === 'user',
-      'the pin must still be held after rule C\'s offscreen window: nothing ' +
-      'but the reader may retire it, and the reader has not touched anything');
+      'the pin must still be held once rule C has heard where the tile is: ' +
+      'nothing but the reader may retire it, and the reader has not touched anything');
 
     doc.transact(() => {
       root.addEvent(completedToolAction('call_after_wait'));
     }, author);
 
     assert(rootCol.getSelectedItemId() === threadA,
-      `an item arriving after rule C's window must still not steal the ` +
+      `an item arriving after rule C's report must still not steal the ` +
       `selection (selection moved to ${rootCol.getSelectedItemId()})`);
 
     // The control: a reader who has NOT pinned anything still gets auto-follow.

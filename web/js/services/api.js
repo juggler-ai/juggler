@@ -30,27 +30,12 @@ import { t } from '../../sdk/lib/i18n.js';
  */
 
 /**
- * @typedef {object} ContextItemData
- * @property {string} id - Context item ID (e.g., "CI_1", "META_1")
- * @property {string} type - Context item type (e.g., "code", "tree", "git")
- * @property {object} data - Context item-specific data (structure varies by type)
- */
-
-/**
  * @typedef {object} Message
  * @property {'user'|'assistant'|'error'|'action-result'} role - Message role
  * @property {string} content - Message text content
  * @property {string} timestamp - ISO 8601 timestamp
  * @property {string} [actionId] - Action ID (for action-result messages)
  * @property {string} [details] - Additional details (for action-result messages)
- */
-
-/**
- * @typedef {object} SessionMetadata
- * @property {string} id - Session UUID
- * @property {string} projectPath - Project directory path
- * @property {string} createdAt - ISO 8601 timestamp
- * @property {string} updatedAt - ISO 8601 timestamp
  */
 
 /**

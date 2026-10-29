@@ -1046,5 +1046,3 @@ class ReviewPanel {
 export function createReviewPanel(options) {
   return new ReviewPanel(options);
 }
-
-export default ReviewPanel;

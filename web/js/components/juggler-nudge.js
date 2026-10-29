@@ -208,5 +208,3 @@ class JugglerNudge extends JugglerElement {
 }
 
 customElements.define('juggler-nudge', JugglerNudge);
-
-export default JugglerNudge;

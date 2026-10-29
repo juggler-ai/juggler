@@ -302,18 +302,20 @@ function hideCue() {
   cueEl = null;
 }
 
-/** @returns {boolean} True while a first press is waiting for its second (tests). */
-export function isDoublePressArmed() {
+/**
+ * Test hook: whether a first press is waiting for its second.
+ * @returns {boolean} True while it is.
+ */
+export function __isDoublePressArmedForTests() {
   return armed;
 }
 
 /**
- * Drop any armed gesture and every timing the quiet periods read. Exported for
- * tests and for teardown paths that want a clean slate; ordinary use disarms
- * itself.
+ * Test hook: drop any armed gesture and every timing the quiet periods read,
+ * so each case starts from a clean slate. Ordinary use disarms itself.
  * @returns {void}
  */
-export function resetEscapeGesture() {
+export function __resetEscapeGestureForTests() {
   disarm();
   lastPress = null;
   lastPressAt = -Infinity;

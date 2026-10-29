@@ -33,15 +33,7 @@
 
 /**
  * Raw item from conversation (Y.Map)
- * @typedef {import('../../model/message.js').YMapItem & {type: string, content?: string, toolUseId?: string, toolName?: string, toolInput?: object|string, state?: string, result?: object|string|null, itemId?: string, data?: object, message?: string}} RawItem
- */
-
-/**
- * Raw context item data from Yjs
- * @typedef {object} RawContextItemData
- * @property {string} id - Context item ID
- * @property {string} type - Context item type
- * @property {object} data - Context item data
+ * @typedef {import('../../sdk/lib/message.js').YMapItem & {type: string, content?: string, toolUseId?: string, toolName?: string, toolInput?: object|string, state?: string, result?: object|string|null, itemId?: string, data?: object, message?: string}} RawItem
  */
 
 /**
@@ -174,7 +166,7 @@ class IdNormalizer {
 /**
  * Normalize a conversation document for golden comparison.
  * Replaces non-deterministic fields with placeholders.
- * @param {import('../../model/conversation.js').default} conversation - Conversation to snapshot
+ * @param {import('../../js/model/conversation.js').default} conversation - Conversation to snapshot
  * @returns {DocumentSnapshot} Normalized document snapshot
  */
 export function normalizeDocumentSnapshot(conversation) {
@@ -500,10 +492,10 @@ function _summarizeItems(items) {
  * Capture document snapshot for generating golden data.
  * Use this during test development to capture the actual state
  * and paste it into your test as expectedDocument.
- * @param {import('../../model/conversation.js').default} conversation - Conversation to snapshot
+ * @param {import('../../js/model/conversation.js').default} conversation - Conversation to snapshot
  * @returns {string} JSON string formatted for pasting into test file
  */
-export function captureGoldenData(conversation) {
+function captureGoldenData(conversation) {
   const snapshot = normalizeDocumentSnapshot(conversation);
   return JSON.stringify(snapshot, null, '\t');
 }
@@ -511,10 +503,10 @@ export function captureGoldenData(conversation) {
 /**
  * Log document snapshot to console for debugging.
  * Call this in a test to see what the actual document state is.
- * @param {import('../../model/conversation.js').default} conversation - Conversation to snapshot
+ * @param {import('../../js/model/conversation.js').default} conversation - Conversation to snapshot
  * @param {string} [label] - Optional label for the log
  */
-export function logDocumentSnapshot(conversation, label = 'Document Snapshot') {
+function logDocumentSnapshot(conversation, label = 'Document Snapshot') {
   console.warn(`\n=== ${label} ===\n${captureGoldenData(conversation)}\n=== END ===\n`);
 }
 

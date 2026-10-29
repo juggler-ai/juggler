@@ -84,7 +84,7 @@ export function createControlApi({ token, fetchImpl = (input, init) => fetch(inp
    * @param {string} method
    * @param {string} path - Under /api/server.
    * @param {unknown} [body]
-   * @returns {Promise<any>} The decoded JSON body, or null when there is none.
+   * @returns {Promise<unknown>} The decoded JSON body, or null when there is none.
    */
   async function request(method, path, body) {
     /** @type {Record<string, string>} */
@@ -123,9 +123,9 @@ export function createControlApi({ token, fetchImpl = (input, init) => fetch(inp
   }
 
   return {
-    listSessions: () => request('GET', '/sessions'),
-    openSession: (project) => request('POST', '/sessions', { project }),
+    listSessions: async () => /** @type {Session[]} */ (await request('GET', '/sessions')),
+    openSession: async (project) => /** @type {Session} */ (await request('POST', '/sessions', { project })),
     stopSession: async (id) => { await request('DELETE', `/sessions/${encodeURIComponent(id)}`); },
-    recents: async () => ((await request('GET', '/recents')) || {}).paths || [],
+    recents: async () => (/** @type {{paths?: string[]}|null} */ (await request('GET', '/recents')) || {}).paths || [],
   };
 }

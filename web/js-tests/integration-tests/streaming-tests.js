@@ -21,7 +21,7 @@ import { textResponse, toolUseResponse } from '../utilities/integration-test-run
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const streamingLlmWaitsTest = {
+const streamingLlmWaitsTest = {
   name: 'streaming-llm-waits',
   description: 'LLM receives complete streaming output before continuing',
   fixture: 'unit-test-fixture',
@@ -77,7 +77,7 @@ export const streamingLlmWaitsTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const streamingMultipleChunksTest = {
+const streamingMultipleChunksTest = {
   name: 'streaming-multiple-chunks',
   description: 'Verify output streams in multiple chunks, not buffered',
   fixture: 'unit-test-fixture',
@@ -129,7 +129,7 @@ export const streamingMultipleChunksTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const streamingApprovalBlocksTest = {
+const streamingApprovalBlocksTest = {
   name: 'streaming-approval-blocks',
   description: 'Streaming does not start until approved',
   fixture: 'unit-test-fixture',
@@ -191,7 +191,7 @@ export const streamingApprovalBlocksTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const streamingErrorExitTest = {
+const streamingErrorExitTest = {
   name: 'streaming-error-exit',
   description: 'Streaming captures output even with non-zero exit',
   fixture: 'unit-test-fixture',
@@ -234,7 +234,7 @@ export const streamingErrorExitTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const mainThreadSpinnerTest = {
+const mainThreadSpinnerTest = {
   name: 'main-thread-spinner-appears',
   description: 'DOM spinner appears when processingState becomes non-idle (llmState → updateAllFooters path)',
   fixture: 'unit-test-fixture',

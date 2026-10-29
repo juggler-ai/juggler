@@ -9,32 +9,16 @@ import (
 	"errors"
 	"sort"
 	"strings"
-	"time"
 
 	"juggler/cmd/juggler/msg"
+
+	"juggler/cmd/juggler/gitview/internal/clocks"
 )
 
 // Review bounds. A review is asked for rather than polled, so it can afford a
 // search the card cannot: nothing is skipped for being expensive, and whatever
-// it still fails to reach is reported instead of dropped.
-// The two clocks are var rather than const so a test can lend itself more of
-// them. A test that means to check what the review reports is not asking how
-// fast this machine's git is, and on a loaded CI runner those are different
-// questions with the same answer.
-var (
-	// gitReviewBudget is the whole request's clock. Longer than the card's,
-	// because the card can shrug at a repository it did not reach in time and
-	// this cannot.
-	gitReviewBudget = 30 * time.Second
-
-	// gitReviewPerCmd is one git command's clock. The card reads the same
-	// repositories on a far shorter one, which is right for a number in the
-	// corner of a window and wrong here: a read cut off early is a repository
-	// reported as unreadable, and a review that calls a slow machine a broken one
-	// has failed at the only thing it claims to do.
-	gitReviewPerCmd = 10 * time.Second
-)
-
+// it still fails to reach is reported instead of dropped. Its clocks are
+// clocks.Review.
 const (
 	// gitReviewMaxRepos and gitReviewMaxDirs stop an unbounded walk of a tree
 	// nobody meant to hand over — a home directory opened as a project. The
@@ -126,7 +110,7 @@ func reviewScanLimits() repoScanLimits {
 // The scope is resolved in each repository separately. The zero Scope is the
 // working tree against HEAD.
 func Review(ctx context.Context, root string, scope Scope) Manifest {
-	ctx, cancel := context.WithTimeout(ctx, gitReviewBudget)
+	ctx, cancel := context.WithTimeout(ctx, clocks.Review.Budget)
 	defer cancel()
 
 	resp := Manifest{Complete: true, Warnings: []string{}, Scope: scope.Info(), Repos: []gitReviewRepo{}}
@@ -168,7 +152,7 @@ func reviewRepo(ctx context.Context, root, dir string, scope Scope, budget int, 
 	if !scope.IsDefault() {
 		listed = gitReviewMaxFiles
 	}
-	status, err := repoStatus(ctx, dir, repoStatusOptions{maxFiles: listed, allUntracked: true, perCmd: gitReviewPerCmd})
+	status, err := repoStatus(ctx, dir, repoStatusOptions{maxFiles: listed, allUntracked: true, perCmd: clocks.Review.PerCmd})
 	if err != nil {
 		repo.Complete = false
 		repo.Error = gitReviewFailure(err)
@@ -198,7 +182,7 @@ func reviewRepo(ctx context.Context, root, dir string, scope Scope, budget int, 
 	// A repository whose lines could not be counted is not a repository that did
 	// not change, and zero is what both look like. Only the warning separates
 	// them, so the count failing has to produce one.
-	if err := repoDiffstats(ctx, dir, gitReviewPerCmd, &repo.RepoStatus); err != nil {
+	if err := repoDiffstats(ctx, dir, clocks.Review.PerCmd, &repo.RepoStatus); err != nil {
 		repo.Complete = false
 		resp.warn(countFailedWarning(rel, err))
 	}
@@ -221,7 +205,7 @@ func reviewScopedRepo(ctx context.Context, dir string, scope Scope, budget int, 
 	repo.Files, repo.Total, repo.Changed, repo.Staged, repo.Conflicted = []gitFileStatus{}, 0, 0, 0, 0
 	repo.Truncated = false
 
-	resolved, err := resolveScope(ctx, dir, scope, gitReviewPerCmd)
+	resolved, err := resolveScope(ctx, dir, scope, clocks.Review.PerCmd)
 	if err != nil {
 		repo.Complete = false
 		repo.Error = gitReviewFailure(err)
@@ -262,7 +246,7 @@ func reviewScopedRepo(ctx context.Context, dir string, scope Scope, budget int, 
 		resp.warn(filesListedWarning(rel, len(repo.Files), repo.Total))
 	}
 
-	out, err := gitRead(ctx, dir, gitReviewPerCmd, gitDiffMaxMeta,
+	out, err := gitRead(ctx, dir, clocks.Review.PerCmd, gitDiffMaxMeta,
 		resolved.diffArgs("--no-ext-diff", "--no-textconv", "--find-renames", "--numstat", "-z")...)
 	if err != nil {
 		repo.Complete = false
@@ -295,7 +279,7 @@ func scopedFiles(ctx context.Context, dir string, scope resolvedScope, status Re
 		return files, nil
 	}
 
-	out, err := gitRead(ctx, dir, gitReviewPerCmd, gitDiffMaxMeta, scope.diffArgs(
+	out, err := gitRead(ctx, dir, clocks.Review.PerCmd, gitDiffMaxMeta, scope.diffArgs(
 		"--no-ext-diff", "--no-textconv", "--find-renames", "--raw", "--abbrev", "-z")...)
 	if err != nil {
 		return nil, err
@@ -317,13 +301,13 @@ func scopedFiles(ctx context.Context, dir string, scope resolvedScope, status Re
 				continue
 			}
 			if committed == nil {
-				head, ok, err := revParse(ctx, dir, "HEAD", gitReviewPerCmd)
+				head, ok, err := revParse(ctx, dir, "HEAD", clocks.Review.PerCmd)
 				if err != nil {
 					return nil, err
 				}
 				committed = map[string]gitFileMeta{}
 				if ok {
-					between, err := gitRead(ctx, dir, gitReviewPerCmd, gitDiffMaxMeta,
+					between, err := gitRead(ctx, dir, clocks.Review.PerCmd, gitDiffMaxMeta,
 						"diff-tree", "-r", "--no-ext-diff", "--no-textconv", "--find-renames", "--raw", "-z", scope.base, head, "--")
 					if err != nil {
 						return nil, err

@@ -51,11 +51,6 @@ interface Window {
 	openSettings?(tab?: string, options?: { capability?: { itemType: string; id: string } }): void;
 
 	/**
-	 * Test completion flag (for headless testing)
-	 */
-	testComplete?: boolean;
-
-	/**
 	 * The machine's UI zoom (root font-size %) from settings.json, injected
 	 * pre-paint by the server. 0/absent when it has none (see zoom-manager.js).
 	 */

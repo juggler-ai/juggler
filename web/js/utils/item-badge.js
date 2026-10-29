@@ -306,7 +306,7 @@ export function typeNameForItem(item, ctx = {}) {
  * @param {BadgeContext} [ctx] - Resolution context
  * @returns {string|null} The capability id, or null when no plugin owns the item
  */
-export function pluginIdForItem(item, ctx = {}) {
+function pluginIdForItem(item, ctx = {}) {
   if (isContextItemInstance(item)) return instancePluginId(item);
 
   const type = item?.get?.('type') ?? ctx.fallbackType;

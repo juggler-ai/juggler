@@ -13,7 +13,7 @@
  * @module unit-tests/machine-sessions-page-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, nextTask } from '../utilities/test-helpers.js';
 import { mountSessionsPage, sessionWindowName } from '../../machine/sessions-view.js';
 import { createControlApi, readPageConfig, ControlApiError, TOKEN_HEADER } from '../../machine/control-api.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
@@ -110,12 +110,6 @@ function row(root, id) {
 }
 
 /**
- * Let queued promise work run.
- * @returns {Promise<void>} Resolves after a macrotask.
- */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-/**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
  */
 export async function runTests() {
@@ -189,18 +183,18 @@ export async function runTests() {
     const m = await mount(api, { confirm: (/** @type {string} */ msg) => { asked.push(msg); return answer; } });
     try {
       /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('button.ms-session-stop')).click();
-      await settle();
+      await nextTask();
       assert(asked.length === 1 && asked[0].includes('beta'), `asked ${JSON.stringify(asked)}`);
       assert(!api.calls.some((c) => c[0] === 'stop'), 'stopped a busy session the user said no to');
 
       answer = true;
       /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('button.ms-session-stop')).click();
-      await settle();
+      await nextTask();
       assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'bbb'), 'did not stop after a yes');
 
       asked.length = 0;
       /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('button.ms-session-stop')).click();
-      await settle();
+      await nextTask();
       assert(asked.length === 0, 'asked before stopping an idle session');
       assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'aaa'), 'did not stop an idle session');
     } finally {
@@ -215,10 +209,10 @@ export async function runTests() {
     try {
       const delta = row(m.root, 'ddd');
       /** @type {HTMLButtonElement} */ (delta.querySelector('button.ms-session-retry')).click();
-      await settle();
+      await nextTask();
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/delta'), 'Retry did not reopen the project');
       /** @type {HTMLButtonElement} */ (row(m.root, 'ddd').querySelector('button.ms-session-dismiss')).click();
-      await settle();
+      await nextTask();
       assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'ddd'), 'Dismiss did not drop the session');
     } finally {
       m.dispose();
@@ -234,8 +228,8 @@ export async function runTests() {
       const input = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-launch-input'));
       input.value = '  ~/code/new-thing  ';
       /** @type {HTMLFormElement} */ (m.root.querySelector('form.ms-launch')).requestSubmit();
-      await settle();
-      await settle();
+      await nextTask();
+      await nextTask();
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '~/code/new-thing'), `opened ${JSON.stringify(api.calls)}`);
       // The tab is opened inside the click, before the server answers, so no
       // popup blocker stands in the way; then it is sent to the session.
@@ -258,8 +252,8 @@ export async function runTests() {
       const input = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-launch-input'));
       input.value = 'some/rel';
       /** @type {HTMLFormElement} */ (m.root.querySelector('form.ms-launch')).requestSubmit();
-      await settle();
-      await settle();
+      await nextTask();
+      await nextTask();
       const err = m.root.querySelector('.ms-launch-error');
       assert(!!err && (err.textContent || '').includes('absolute path'), `error shown: ${err?.textContent}`);
       assert(windows.opened.length === 1 && windows.opened[0].win.closed, 'the placeholder tab was left open');
@@ -308,8 +302,8 @@ export async function runTests() {
         const input = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-launch-input'));
         input.value = '1/2';
         /** @type {HTMLFormElement} */ (m.root.querySelector('form.ms-launch')).requestSubmit();
-        await settle();
-        await settle();
+        await nextTask();
+        await nextTask();
         const shown = m.root.querySelector('.ms-launch-error')?.textContent || '';
         assert(isPseudoLocalized(shown), `the refusal was not translated: ${JSON.stringify(shown)}`);
         assert(shown.includes('1/2'), `the refusal lost its path: ${JSON.stringify(shown)}`);
@@ -333,8 +327,8 @@ export async function runTests() {
       const start = /** @type {HTMLButtonElement|null} */ (zeta ? zeta.querySelector('button.ms-recent-open') : null);
       assert(!!start, 'a recent project with no session offers no Open');
       start?.click();
-      await settle();
-      await settle();
+      await nextTask();
+      await nextTask();
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/zeta'), 'a recent project did not open');
     } finally {
       m.dispose();

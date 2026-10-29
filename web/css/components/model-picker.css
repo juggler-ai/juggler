@@ -601,11 +601,11 @@ model-tuning:empty {
    elsewhere are unreadable against the accent. */
 .model-picker .menu-item.active .menu-item-note,
 .model-picker .menu-item.active .recent-model-provider {
-    color: rgb(255 255 255 / 75%);
+    color: color-mix(in srgb, var(--text-on-accent) 75%, transparent);
 }
 
 .model-picker .menu-item.active .recent-model-chip {
-    background: rgb(255 255 255 / 22%);
+    background: color-mix(in srgb, var(--text-on-accent) 22%, transparent);
     color: var(--text-on-accent);
 }
 
@@ -613,7 +613,7 @@ model-tuning:empty {
    becomes an inset ring — both states stay legible on the same item. */
 .model-picker-rows .menu-item.active.nav-active,
 .recent-model.active.nav-active {
-    box-shadow: inset 0 0 0 0.125rem rgb(255 255 255 / 65%);
+    box-shadow: inset 0 0 0 0.125rem color-mix(in srgb, var(--text-on-accent) 65%, transparent);
 }
 
 /* Recently-used models, pinned in the left column between the dials and the

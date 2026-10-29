@@ -28,7 +28,7 @@ import logger from '../utilities/test-logger.js';
  * state='pending' back into the doc and the modal reappears.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const undoPendingApprovalStaysUndoneTest = {
+const undoPendingApprovalStaysUndoneTest = {
   name: 'undo-pending-approval-stays-undone',
   description: 'Undo of a pending tool-approval removes the tool-action and keeps it removed',
   fixture: 'unit-test-fixture',
@@ -119,7 +119,7 @@ export const undoPendingApprovalStaysUndoneTest = {
  * re-execute the tool, only restore the recorded state.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const undoRedoRestoresPendingTest = {
+const undoRedoRestoresPendingTest = {
   name: 'undo-redo-restores-pending',
   description: 'Redo after undo restores the tool-action in pending state',
   fixture: 'unit-test-fixture',
@@ -180,7 +180,7 @@ export const undoRedoRestoresPendingTest = {
  * `error` item ("mock responses exhausted") into the doc.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const undoPendingApprovalDoesNotRedispatchTest = {
+const undoPendingApprovalDoesNotRedispatchTest = {
   name: 'undo-pending-approval-does-not-redispatch',
   description: 'Undoing a pending approval clears stale LLM activity and does not call the LLM again',
   fixture: 'unit-test-fixture',
@@ -246,7 +246,7 @@ export const undoPendingApprovalDoesNotRedispatchTest = {
  * partial state — potentially triggering re-execution.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const undoRedoAutoApprovedRestoresResultTest = {
+const undoRedoAutoApprovedRestoresResultTest = {
   name: 'undo-redo-auto-approved-restores-result',
   description: 'Redo after undo restores the auto-approved tool result without re-executing',
   fixture: 'unit-test-fixture',

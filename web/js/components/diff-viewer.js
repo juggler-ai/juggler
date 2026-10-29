@@ -1253,5 +1253,3 @@ export function createDiffViewer({ readOnly = true } = {}) {
   viewer.readOnly = readOnly;
   return viewer;
 }
-
-export default DiffViewer;

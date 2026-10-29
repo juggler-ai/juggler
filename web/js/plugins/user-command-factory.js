@@ -76,7 +76,7 @@ function humanize(name) {
  * @returns {string} A provider name, or ''
  */
 function providerFor(providerName, modelId) {
-  const advertises = (/** @type {any} */ p) => (p.modelsWithContext || []).some((/** @type {any} */ m) => m.id === modelId);
+  const advertises = (/** @type {import('../services/providers-cache.js').Provider} */ p) => (p.modelsWithContext || []).some((m) => m.id === modelId);
   const providers = providersCache.getChat();
   const named = providerName ? providers.find((p) => p.name === providerName) : null;
   if (named && advertises(named)) return named.name;
@@ -173,8 +173,9 @@ export function makeUserCommandClass(def) {
             modelConfig,
           });
           // Swallow cancellation/teardown — the parent surfaces the result.
-          promise.catch((/** @type {any} */ err) => {
-            if (err?.name !== 'AbortError') console.error('[UserCommand] subthread failed:', err);
+          promise.catch((/** @type {unknown} */ err) => {
+            const name = typeof err === 'object' && err !== null && 'name' in err ? err.name : undefined;
+            if (name !== 'AbortError') console.error('[UserCommand] subthread failed:', err);
           });
           return { handled: true };
         }

@@ -32,7 +32,6 @@ func TestStopReasonIsCanonicalType(t *testing.T) {
 		{"worker.ProviderTurnMessage", reflect.TypeOf(ProviderTurnMessage{})},
 		{"worker.MockResponse", reflect.TypeOf(MockResponse{})},
 		{"provider.StreamResult", reflect.TypeOf(provider.StreamResult{})},
-		{"provider.StructuredResponse", reflect.TypeOf(provider.StructuredResponse{})},
 	} {
 		field, ok := tc.typ.FieldByName("StopReason")
 		if !ok {

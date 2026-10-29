@@ -43,7 +43,7 @@ const MAIN_GO = '<file path="src/main.go">\n' +
  * Uses intermediate assertion to verify loop hasn't continued.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalBlocksLoopTest = {
+const approvalBlocksLoopTest = {
   name: 'approval-blocks-loop',
   description: 'LLM loop blocks waiting for approval - does not continue prematurely',
   fixture: 'unit-test-fixture',
@@ -104,7 +104,7 @@ export const approvalBlocksLoopTest = {
  * After approving first tool, second is still pending - loop should NOT continue.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalBlocksMultiToolTest = {
+const approvalBlocksMultiToolTest = {
   name: 'approval-blocks-multi-tool',
   description: 'LLM loop blocks until all tools in batch are resolved',
   fixture: 'unit-test-fixture',
@@ -191,7 +191,7 @@ export const approvalBlocksMultiToolTest = {
  * 3. BUG: checkBatchComplete sees old read with result, signals completion prematurely
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const approvalBlocksAfterCompletedBatchTest = {
+const approvalBlocksAfterCompletedBatchTest = {
   name: 'approval-blocks-after-completed-batch',
   description: 'LLM loop waits for current batch even when previous batch has completed tools',
   fixture: 'unit-test-fixture',

@@ -32,7 +32,8 @@ import {
   createTestSession,
   createApprovalTestConversation,
   assert,
-  waitFor
+  waitFor,
+  nextTask
 } from '../utilities/test-helpers.js';
 import {
   createUserMessage,
@@ -68,15 +69,6 @@ class ContextProbePin extends PinboardItemType {
     container.textContent = 'context probe';
     return { teardown: () => { probe.teardowns++; } };
   }
-}
-
-/**
- * Let a queued task run — the properties column is built from the item-selected
- * event, and a click is answered on the same turn it is dispatched.
- * @returns {Promise<void>} Resolves on the next macrotask.
- */
-function settle() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /**
@@ -461,7 +453,7 @@ export async function runTests() {
       stop();
       const seen = hits;
       addPlan(session, conversation, null, 'plan-root', 'Root plan, revised again');
-      await settle();
+      await nextTask();
       assert(hits === seen, `unsubscribing must stop it; ${hits - seen} more arrived`);
     });
 

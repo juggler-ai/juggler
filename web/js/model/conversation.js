@@ -75,14 +75,14 @@ export const INITIALISED_KEY = 'initialised';
  * seeded at all. Seeding happens before the binding does, so this is what says
  * whether the pass that would run at the binding has anything left to do.
  */
-export const SEEDED_FOR_KEY = 'seededFor';
+const SEEDED_FOR_KEY = 'seededFor';
 
 /**
  * Doc-metadata key marking a conversation nobody is attending — a headless
  * `juggler run` (see Conversation.setUnattended). The Go worker reads the same
  * key (`worker/unattended.go`).
  */
-export const UNATTENDED_KEY = 'unattended';
+const UNATTENDED_KEY = 'unattended';
 
 /**
  * How long the worker may say nothing while a cancel settles before the wait
@@ -111,22 +111,11 @@ const MAX_TRUNCATION_BUDGET = 200000;
  */
 
 /**
- * @typedef {import('../../sdk/lib/message.js').Message} Message
- */
-
-/**
  * Model configuration: a concrete (provider, model) pair.
  * @typedef {object} ModelConfig
  * @property {string} [provider] - Provider name (e.g., 'anthropic', 'openai', 'google')
  * @property {string} [model] - Model identifier (e.g., 'claude-sonnet-4-20250514')
  * @property {string} [thinking] - Optional canonical thinking level ('off'|'low'|'medium'|'high'|'max'); absent ⇒ provider default. Inherits atomically with the model down the thread tree.
- */
-
-/**
- * Execute permission pattern entry
- * @typedef {object} ExecutePermissionPattern
- * @property {string} pattern - The pattern string (e.g., 'npm *', 'git *')
- * @property {boolean} enabled - Whether this pattern is currently enabled
  */
 
 /**
@@ -136,13 +125,6 @@ const MAX_TRUNCATION_BUDGET = 200000;
  * @typedef {object} SendSchedule
  * @property {number} [notBefore] - Epoch ms before which the send waits.
  * @property {'run-end'} [hold] - Wait for the thread's run to end or rest.
- */
-
-/**
- * Conversation permissions configuration
- * @typedef {object} ConversationPermissions
- * @property {boolean} writeFile - Whether file writes are auto-approved
- * @property {ExecutePermissionPattern[]} execute - Shell command patterns that are auto-approved
  */
 
 /**
@@ -1032,7 +1014,7 @@ class Conversation {
     for (const thread of this.getAllMessageThreads()) {
       const toolAction = thread.getToolAction(toolUseId);
       if (toolAction) {
-        return contextItemRegistry.getByToolName(toolAction.get('toolName'));
+        return contextItemRegistry.getByToolName(toolAction.get('toolName') ?? '');
       }
     }
     return undefined;

@@ -220,7 +220,7 @@ export function revealInConversation(target) {
  * @param {string} toolUseId - The tool call.
  * @returns {any} The action's Yjs map, or null.
  */
-export function findToolAction(conversation, threadId, toolUseId) {
+function findToolAction(conversation, threadId, toolUseId) {
   if (!conversation || !toolUseId) return null;
   const threads = conversation.getAllMessageThreads?.() || [];
   /**
@@ -255,7 +255,7 @@ export function findToolAction(conversation, threadId, toolUseId) {
 export function resolveToolTarget(conversation, target) {
   const action = findToolAction(conversation, target.thread ?? null, target.id || '');
   const itemId = action ? itemField(action, 'itemId') : '';
-  return itemId ? { kind: 'item', id: itemId } : { kind: 'thread', id: target.thread ?? null };
+  return typeof itemId === 'string' && itemId ? { kind: 'item', id: itemId } : { kind: 'thread', id: target.thread ?? null };
 }
 
 /**
@@ -273,7 +273,7 @@ export function resolveToolTarget(conversation, target) {
  * @param {number} [timeoutMs] - How long to wait before giving up.
  * @returns {Promise<void>} Resolves when the column is up, or on the deadline.
  */
-export function waitForTab(conversationId, timeoutMs = 1000) {
+function waitForTab(conversationId, timeoutMs = 1000) {
   const tab = /** @type {any} */ (document.getElementById(`conversation-tab-${conversationId}`));
   if (tab?.shown) return Promise.resolve();
   return new Promise((resolve) => {
@@ -343,7 +343,8 @@ function writingRowId(thread, type) {
     if (itemField(item, 'type') !== 'tool-action') continue;
     if (itemField(item, 'toolName') !== type) continue;
     if (itemField(itemField(item, 'result'), 'resultType') === 'context') continue;
-    return itemField(item, 'itemId') || null;
+    const itemId = itemField(item, 'itemId');
+    return typeof itemId === 'string' && itemId ? itemId : null;
   }
   return null;
 }
@@ -2202,5 +2203,3 @@ export function describePin(pin, active) {
 }
 
 customElements.define('pinboard-content', PinboardContent);
-
-export default PinboardContent;

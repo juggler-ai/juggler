@@ -24,7 +24,7 @@
  * @module unit-tests/pinboard-satellite-test
  */
 
-import { assert, styledProbeFrame, waitFor } from '../utilities/test-helpers.js';
+import { assert, styledProbeFrame, waitFor, nextTask } from '../utilities/test-helpers.js';
 import pinboardStore from '../../js/services/pinboard-store.js';
 import pinboardView from '../../js/services/pinboard-view.js';
 import pinboardItemRegistry from '../../js/registries/pinboard-item-registry.js';
@@ -34,7 +34,7 @@ import { isMac } from '../../js/services/key-shortcut-manager.js';
 import { __resetPopupManagerForTests, isAnyPopupOpen } from '../../js/utils/popup-manager.js';
 import {
   __setViewModeForTests, isPinboardView, ownerViewerId, initialPinId, boardConversationId,
-  viewMode, windowRole, VIEW_MAIN, VIEW_PINBOARD,
+  windowRole,
 } from '../../js/utils/view-mode.js';
 import { scopedKey, __resetPrefsForTests } from '../../js/services/prefs.js';
 import PinboardItemType from 'juggler/pinboard-item-type';
@@ -443,7 +443,7 @@ async function mountShell({
   const shell = /** @type {any} */ (document.createElement('pinboard-shell'));
   document.body.appendChild(shell);
   shell.setSession(theSession);
-  await settle();
+  await nextTask();
   return {
     shell,
     panel: shell.querySelector('pinboard-panel'),
@@ -535,14 +535,6 @@ function tabLabels(shell) {
 }
 
 /**
- * Let pending promises resolve.
- * @returns {Promise<void>}
- */
-function settle() {
-  return new Promise((resolve) => { setTimeout(resolve, 0); });
-}
-
-/**
  * Open the board in the ordinary view, with the overlay layer in a known state.
  *
  * An open board claims that layer, and a case that had one open earlier can
@@ -554,7 +546,7 @@ function settle() {
  */
 async function openBoard() {
   __resetPopupManagerForTests();
-  await settle();
+  await nextTask();
   pinboardView.open();
 }
 
@@ -618,8 +610,7 @@ export async function runTests() {
     await run('the mode is read from the query, and junk ids are not ids', () => {
       try {
         __setViewModeForTests('?view=pinboard&owner=v_owner&pin=pin_seed&conversation=conv_seed');
-        assert(viewMode() === VIEW_PINBOARD, 'view=pinboard is a pinboard view');
-        assert(isPinboardView(), 'and says so');
+        assert(isPinboardView(), 'view=pinboard is a pinboard view');
         assert(ownerViewerId() === 'v_owner', `owner read as ${ownerViewerId()}`);
         assert(initialPinId() === 'pin_seed', `pin read as ${initialPinId()}`);
         assert(boardConversationId() === 'conv_seed', `conversation read as ${boardConversationId()}`);
@@ -630,20 +621,20 @@ export async function runTests() {
         assert(boardConversationId() === '', 'and for the conversation');
 
         __setViewModeForTests('?view=something-else&conversation=conv_seed');
-        assert(viewMode() === VIEW_MAIN, 'an unknown view is the ordinary one');
+        assert(!isPinboardView(), 'an unknown view is the ordinary one');
         assert(ownerViewerId() === '', 'which has no owner');
         assert(boardConversationId() === '',
           'and is not stuck to a conversation: the ordinary window follows the user');
 
         __setViewModeForTests('');
-        assert(viewMode() === VIEW_MAIN, 'and so is no view at all');
+        assert(!isPinboardView(), 'and so is no view at all');
       } finally {
         __setViewModeForTests();
       }
     });
 
     // A window's own preferences are kept under its role, so this string has to
-    // be the one both Go sides compute (core.WindowRoleForView, and
+    // be the one both Go sides use (core.WindowRolePinboardFor, and
     // windowOpts.role() in the desktop app). Get it wrong and a board writes its
     // preferences into one slot and reads another back, which is invisible until
     // the next launch.
@@ -733,7 +724,7 @@ export async function runTests() {
       const { teardown } = await mountDetached([]);
       try {
         document.dispatchEvent(chord());
-        await settle();
+        await nextTask();
         assert(pinboardView.isOpen(), 'the board that is the window stays');
       } finally {
         teardown();
@@ -886,7 +877,7 @@ export async function runTests() {
         // Someone else takes away the pin being read, the way a shared board does.
         wsService._emit('pinboard-changed',
           { board: BOARD_ID, pins: board.filter((pin) => pin.id !== 'pin_a') });
-        await settle();
+        await nextTask();
         assert(pinboardView.getActivePinId() === 'pin_b',
           `the tab that slid into its place — a seed still held would drag the user back to where the window opened, long after they had moved on, got ${pinboardView.getActivePinId()}`);
       } finally {
@@ -940,7 +931,7 @@ export async function runTests() {
       try {
         await waitFor(() => board.urls.some((url) => url.includes('/api/session/ui-prefs')),
           'the window to ask what it remembers');
-        for (let i = 0; i < 5; i++) await settle();
+        for (let i = 0; i < 5; i++) await nextTask();
         assert(pinboardView.getActivePinId() === 'pin_a',
           `a pop-out names the pin the user was reading, and that is newer than anything remembered, got ${pinboardView.getActivePinId()}`);
       } finally {
@@ -958,7 +949,7 @@ export async function runTests() {
       try {
         await waitFor(() => board.urls.some((url) => url.includes('/api/session/ui-prefs')),
           'the window to ask what it remembers');
-        for (let i = 0; i < 5; i++) await settle();
+        for (let i = 0; i < 5; i++) await nextTask();
         assert(pinboardView.getActivePinId() === 'pin_a',
           `the board falls back to its first tab, got ${pinboardView.getActivePinId()}`);
       } finally {
@@ -983,7 +974,7 @@ export async function runTests() {
         answer();
         await waitFor(() => board.urls.some((url) => url.includes('/api/session/ui-prefs')),
           'the window to ask what it remembers');
-        for (let i = 0; i < 5; i++) await settle();
+        for (let i = 0; i < 5; i++) await nextTask();
         assert(pinboardView.getActivePinId() === 'pin_b',
           `a slow session must not move a user who has already chosen, got ${pinboardView.getActivePinId()}`);
       } finally {
@@ -1071,7 +1062,7 @@ export async function runTests() {
         announceViewerId('v_self');
 
         pinboardView.setActivePin('pin_b');
-        await settle();
+        await nextTask();
         assert(!slot.querySelector('.app-header__board-name'),
           'the selected tab is not named up here — the tab strip below is already showing which one is up');
         assert(shownConversation() === 'Board conversation',
@@ -1093,7 +1084,7 @@ export async function runTests() {
       const { teardown } = await mountShell({ pins: PROBE_BOARD, search: '' });
       try {
         pinboardView.setActivePin('pin_a');
-        await settle();
+        await nextTask();
         assert(slot.textContent === 'untouched',
           'in the ordinary view the header is the app’s own and the board is a guest in it');
       } finally {
@@ -1169,7 +1160,7 @@ export async function runTests() {
         relay.deliver('v_owner', 'context', { seq: 9, active: { conversation: { id: 'conv_elsewhere' } } });
         relay.deliver('v_owner', 'bye');
         relay.deliver('v_stranger', 'context', { seq: 9, active: { conversation: { id: 'conv_stranger' } } });
-        await settle();
+        await nextTask();
 
         assert(tabLabels(shell).includes(`alpha@${BOARD_CONVERSATION}`),
           `the board stays where it was opened, got ${JSON.stringify(tabLabels(shell))}`);
@@ -1183,7 +1174,7 @@ export async function runTests() {
       const session = makeBoardSession({ load: gates.hold });
       const { shell, teardown } = await mountShell({ pins: PROBE_BOARD, session });
       try {
-        await settle();
+        await nextTask();
         assert(session.loaded.includes(BOARD_CONVERSATION),
           'getConversation answers with a live EMPTY conversation for one this viewer never opened, so the board must ask for it first');
         assert(tabLabels(shell).length === 0,
@@ -1305,7 +1296,7 @@ export async function runTests() {
           'the action is a view of the same lookup as the body, so a toolbar asked only at mount would stay dim over a plan that is plainly there');
 
         action().click();
-        await settle();
+        await nextTask();
         assert(relay.sent.some((/** @type {any} */ m) => m.kind === 'reveal' && m.to === 'v_owner'),
           'and it works: the reveal goes back to the window with the columns');
       } finally {
@@ -1318,7 +1309,7 @@ export async function runTests() {
       const { teardown, relay } = await mountShell({ search: '', session });
       try {
         relay.deliver('v_sat', 'hello');
-        await settle();
+        await nextTask();
         assert(ownerLink.satellites().includes('v_sat'),
           'a board that introduces itself is one whose reveals this window will carry out');
         assert(relay.sent.length === 0,
@@ -1333,11 +1324,11 @@ export async function runTests() {
       const { teardown, relay } = await mountShell({ search: '', session });
       try {
         relay.deliver('v_sat', 'hello');
-        await settle();
+        await nextTask();
 
         session.visible = { id: 'conv_other', name: 'Other' };
         session.emit('conversation:switched');
-        await settle();
+        await nextTask();
 
         assert(relay.sent.length === 0,
           `a board is a view of one conversation, so this window moving is none of its business, got ${JSON.stringify(relay.sent)}`);
@@ -1389,14 +1380,14 @@ export async function runTests() {
       const { teardown, relay } = await mountShell({ search: '', session });
       try {
         relay.deliver('v_stranger', 'reveal', { kind: 'thread', id: 'thread_x', conversation: 'conv_main' });
-        await settle();
+        await nextTask();
         assert(tab.threads.length === 0,
           'a viewer that never said hello is not a board this window opened, and `from` cannot be forged');
 
         relay.deliver('v_sat', 'hello');
         relay.deliver('v_sat', 'reveal', { kind: 'thread', id: 'thread_7', conversation: 'conv_main' });
         relay.deliver('v_sat', 'reveal', { kind: 'item', id: 'item_9', conversation: 'conv_main' });
-        await settle();
+        await nextTask();
         assert(tab.threads.length === 1 && tab.threads[0] === 'thread_7',
           `the owner reveals the thread its board pointed at, got ${JSON.stringify(tab.threads)}`);
         assert(tab.items.length === 1 && tab.items[0] === 'item_9',
@@ -1420,7 +1411,7 @@ export async function runTests() {
         relay.deliver('v_stranger', 'compose', {
           text: 'Review feedback:\n\nFrom nobody.', conversation: 'conv_other', thread: null,
         });
-        await settle();
+        await nextTask();
         assert(conversation.sent.length === 0 && session.switched.length === 0,
           'a viewer that never said hello cannot put words in the prompt of a window a person is working in');
 
@@ -1461,7 +1452,7 @@ export async function runTests() {
 
         // The window that opened it closes: it leaves the connected list, for good.
         wsService._emit('clients-changed', { count: 1, clients: [{ id: 'c1', viewerId: 'v_self' }] });
-        await settle();
+        await nextTask();
 
         assert(tabLabels(shell).includes(`alpha@${BOARD_CONVERSATION}`),
           'a board reads its own conversation, so the window it came from closing takes nothing away \u2014 which is the whole reason to leave one open on work that is running');
@@ -1485,7 +1476,7 @@ export async function runTests() {
           count: 2,
           clients: [{ id: 'c1', viewerId: 'v_self' }, { id: 'c2', viewerId: 'v_owner' }],
         });
-        await settle();
+        await nextTask();
 
         const took = satelliteLink.compose('Review feedback:\n\n./a.js:3 (new)\n>  x\nWrong.',
           BOARD_CONVERSATION, 'thread_7');
@@ -1508,7 +1499,7 @@ export async function runTests() {
         // message nothing will ever receive, and the caller would stop looking
         // for somewhere else to put the feedback.
         wsService._emit('clients-changed', { count: 1, clients: [{ id: 'c1', viewerId: 'v_self' }] });
-        await settle();
+        await nextTask();
 
         assert(satelliteLink.compose('Review feedback:\n\nWrong.', BOARD_CONVERSATION, null) === false,
           'a board with nowhere to hand the review must say so');
@@ -1523,12 +1514,12 @@ export async function runTests() {
       const { teardown, relay } = await mountShell({ pins: PROBE_BOARD });
       try {
         wsService._emit('clients-changed', { count: 1, clients: [{ id: 'c1', viewerId: 'v_self' }] });
-        await settle();
+        await nextTask();
         wsService._emit('clients-changed', {
           count: 2,
           clients: [{ id: 'c1', viewerId: 'v_self' }, { id: 'c2', viewerId: 'v_owner' }],
         });
-        await settle();
+        await nextTask();
         assert(relay.sent.filter((/** @type {any} */ m) => m.kind === 'hello').length >= 2,
           'a reloaded window has forgotten every board it opened, so a board that stayed quiet would find its reveals refused');
       } finally {
@@ -1545,10 +1536,10 @@ export async function runTests() {
         const popOut = shell.querySelector('.pinboard-toolbar__popout');
         assert(!!popOut, 'an attached board offers a window of its own');
         popOut.click();
-        await settle();
+        await nextTask();
         pinboardView.open();
         popOut.click();
-        await settle();
+        await nextTask();
 
         assert(opened.urls.length === 2, `a second pop-out is a second board, got ${opened.urls.length}`);
         const url = new URL(opened.urls[0]);
@@ -1599,7 +1590,7 @@ export async function runTests() {
           'nothing is opened before this viewer knows its own address, since a board opened then could answer to nobody');
 
         announceViewerId('v_self');
-        await settle();
+        await nextTask();
 
         assert(opened.urls.length === 2, `both boards come back, got ${opened.urls.length}`);
         const first = new URL(opened.urls[0]);
@@ -1619,7 +1610,7 @@ export async function runTests() {
 
         // A second announcement is a reconnect, not a second launch.
         announceViewerId('v_self');
-        await settle();
+        await nextTask();
         assert(opened.urls.length === 2,
           `a reconnect must not reopen everything again, got ${opened.urls.length}`);
         assert(!!shell.querySelector('pinboard-panel'), 'and the panel is undisturbed by any of it');
@@ -1638,7 +1629,7 @@ export async function runTests() {
       try {
         await openBoard();
         shell.querySelector('.pinboard-toolbar__popout').click();
-        await settle();
+        await nextTask();
         assert(opened.urls.length === 0, `nothing must be opened, got ${opened.urls.length}`);
         const status = shell.querySelector('.pinboard-panel__status');
         assert(status?.textContent === "Couldn't detach the board. There's no conversation for it to be a view of.",
@@ -1657,7 +1648,7 @@ export async function runTests() {
       const { shell, teardown } = await mountShell({ pins: PROBE_BOARD, search: '', session });
       try {
         shell.querySelector('.pinboard-toolbar__popout').click();
-        await settle();
+        await nextTask();
         const [, target, features] = opened.calls[0];
         assert(target === '_blank', `a board opens in a new browsing context, got ${JSON.stringify(target)}`);
         assert(!features,
@@ -1707,7 +1698,7 @@ export async function runTests() {
         // layout fact, which is the only thing this case is about.
         panel.style.transition = 'none';
         await openBoard();
-        await settle();
+        await nextTask();
         ownerLink.detach = async (/** @type {any[]} */ ...args) => { sent = args[3]; return ''; };
         // Measured before the click: the handler measures the panel and then
         // awaits a detach that ends by putting the panel away, so a rect read
@@ -1717,7 +1708,7 @@ export async function runTests() {
         assert(rect.width > 0 && rect.right <= window.innerWidth + 1,
           `the panel is open and in the page before it is measured, got ${JSON.stringify(rect.toJSON())} in ${window.innerWidth}x${window.innerHeight}`);
         shell.querySelector('.pinboard-toolbar__popout').click();
-        await settle();
+        await nextTask();
         assert(sent && sent.width === Math.round(rect.width) && sent.height === Math.round(rect.height),
           `the rect sent is the panel's, got ${JSON.stringify(sent)} for ${rect.width}x${rect.height}`);
         assert(sent.x === Math.round(rect.left) && sent.y === Math.round(rect.top),
@@ -1737,7 +1728,7 @@ export async function runTests() {
       try {
         await openBoard();
         shell.querySelector('.pinboard-toolbar__popout').click();
-        await settle();
+        await nextTask();
         const status = shell.querySelector('.pinboard-panel__status');
         assert(status?.textContent === "Couldn't open that board. The browser blocked the tab.",
           `the status line says what happened, got ${status?.textContent}`);
@@ -1754,7 +1745,7 @@ export async function runTests() {
       const { shell, teardown } = await mountShell({ pins: PROBE_BOARD, search: '', viewerId: '' });
       try {
         announceViewerId('');
-        await settle();
+        await nextTask();
         assert(shell.querySelector('.pinboard-toolbar__popout')?.hidden === true,
           'a peer-to-peer viewer has no id for a board to answer, so a Pop-out button could only open a board whose reveals go nowhere');
       } finally {
@@ -1769,7 +1760,7 @@ export async function runTests() {
       try {
         await openBoard();
         shell.querySelector('.pinboard-toolbar__popout').click();
-        await settle();
+        await nextTask();
         assert(opened.urls.length === 1, 'the board opened in a window of its own');
         assert(!pinboardView.isOpen(),
           'the board moved rather than being copied: leaving the overlay up would cover the workspace with a second view of what the new window is showing');
@@ -1806,7 +1797,7 @@ export async function runTests() {
         assert(popOut.hidden, 'and stays out of sight while nothing can address this viewer');
 
         announceViewerId('v_self');
-        await settle();
+        await nextTask();
         assert(!popOut.hidden,
           'the session frame is the first moment a viewer knows its own id: a board that asked at build time would offer Pop-out to nobody, ever');
       } finally {
@@ -1822,7 +1813,7 @@ export async function runTests() {
           'the board to open anyway: what it shows never depended on that answer');
 
         announceViewerId('v_self');
-        await settle();
+        await nextTask();
         assert(relay.sent.some((/** @type {any} */ m) => m.kind === 'hello' && m.to === 'v_owner'),
           `the board introduces itself as soon as it can be reached, got ${JSON.stringify(relay.sent)}`);
       } finally {

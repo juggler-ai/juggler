@@ -123,7 +123,7 @@ class ProbeRegistry extends BaseRegistry {
 /**
  * Run the capability-manifest validation tests.
  * @param {object} _ctx - Unused test context.
- * @returns {Promise<import('../utilities/test-helpers.js').TestResult>} Aggregated result.
+ * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated result.
  */
 export async function runTests(_ctx) {
   let passed = 0;

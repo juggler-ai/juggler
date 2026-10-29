@@ -75,7 +75,7 @@ export async function extractFileSource(source, ctx = {}) {
     const kind = source.mime || (source.isBinary ? 'binary' : 'this');
     return { warning: `No viewer is available for ${kind} content, so it cannot be read as text.` };
   }
-  const viewer = new (/** @type {any} */ (ViewerClass))();
+  const viewer = new ViewerClass();
   return viewer.extract(source, ctx);
 }
 

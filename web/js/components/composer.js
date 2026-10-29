@@ -70,6 +70,7 @@ import {
   teardownPasteMirror,
   tokenAtPoint,
   expandTokenWithFeedback,
+  insertCodeReference as insertCodeReferenceInto,
 } from './composer-paste-tokens.js';
 import {
   buildSchedulePicker,
@@ -1211,6 +1212,16 @@ class Composer extends JugglerElement {
     // the new known-good value (never something to revert to a stale base).
     this._pasteLastValue = textarea.value;
     this._pasteLastCaret = textarea.selectionStart;
+  }
+
+  /**
+   * Write a code reference into the box at the caret, on a line of its own,
+   * keeping the draft around it and one undo away from it.
+   * @param {import('../utils/code-selection.js').CodeSelection|object} reference - What to quote.
+   * @returns {boolean} True when the text landed.
+   */
+  insertCodeReference(reference) {
+    return insertCodeReferenceInto(this, reference);
   }
 
   /**

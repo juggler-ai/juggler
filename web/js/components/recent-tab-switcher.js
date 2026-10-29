@@ -27,7 +27,7 @@ import { registerOpenPopup } from '../utils/popup-manager.js';
 import { t } from '../../sdk/lib/i18n.js';
 
 /** The popup id the switcher's HUD registers under. */
-export const RECENT_TABS_POPUP_ID = 'recent-tabs';
+const RECENT_TABS_POPUP_ID = 'recent-tabs';
 
 /**
  * What one row of the list shows.

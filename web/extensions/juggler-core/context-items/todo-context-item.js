@@ -19,11 +19,6 @@ const t = translator('@juggler/core');
  */
 
 /**
- * @typedef {object} TodoData
- * @property {TodoItem[]} todos - The current todo list
- */
-
-/**
  * @typedef {object} TodoResult
  * @property {number} total - Total items in the list
  * @property {number} completed - Items marked completed
@@ -202,9 +197,20 @@ class TodoContextItem extends ContextItem {
     return false;
   }
 
+  /**
+   * The stored list. `data.todos` is written only by {@link TodoContextItem#setTodos}
+   * and the tool's own execute, so an array of it is a TodoItem[].
+   * @returns {TodoItem[]} The list, empty when none is stored
+   * @private
+   */
+  _todos() {
+    const todos = this.data.todos;
+    return Array.isArray(todos) ? /** @type {TodoItem[]} */ (todos) : [];
+  }
+
   /** @returns {string} Brief summary */
   getBriefSummary() {
-    const todos = this.data.todos || [];
+    const todos = this._todos();
     const total = todos.length;
     if (total === 0) {
       return t('No todos');
@@ -219,7 +225,7 @@ class TodoContextItem extends ContextItem {
    * @private
    */
   _countByStatus(status) {
-    const todos = this.data.todos || [];
+    const todos = this._todos();
     return todos.filter((/** @type {TodoItem} */ t) => t.status === status).length;
   }
 
@@ -233,7 +239,7 @@ class TodoContextItem extends ContextItem {
   createContextText(contextParams) {
     const { helpers } = contextParams;
 
-    const content = renderTodoMarkdown(this.data.todos, { statusWords: true });
+    const content = renderTodoMarkdown(this._todos(), { statusWords: true });
     if (!content) {
       return '';
     }
@@ -256,7 +262,7 @@ class TodoContextItem extends ContextItem {
    */
   createPropertiesPanelElement() {
     const container = createElement('div', 'ci-expanded');
-    const todos = this.data.todos || [];
+    const todos = this._todos();
     if (todos.length === 0) {
       container.appendChild(createEmptyState(t('No todos yet'), ''));
       return container;
@@ -472,7 +478,8 @@ class TodoContextItem extends ContextItem {
       const todoCI = ctx.messageThread?.contextItems?.find(
         (/** @type {{type: string}} */ ci) => ci.type === 'todo'
       );
-      if (todoCI?.data?.todos) todos = todoCI.data.todos;
+      const stored = todoCI?.data?.todos;
+      if (Array.isArray(stored)) todos = /** @type {TodoItem[]} */ (stored);
     }
 
     if (todos.length > 0) {

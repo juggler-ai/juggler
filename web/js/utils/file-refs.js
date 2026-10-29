@@ -250,7 +250,7 @@ export function createFileRefResolver(options = {}) {
 }
 
 /** The resolver every assistant message shares. */
-export const fileRefResolver = createFileRefResolver();
+const fileRefResolver = createFileRefResolver();
 
 /** Class a confirmed reference carries; the click handler and CSS key on it. */
 export const FILE_REF_CLASS = 'markdown-file-ref';

@@ -14,7 +14,7 @@
  * @module unit-tests/custom-providers-test
  */
 
-import { assert, waitFor } from '../utilities/test-helpers.js';
+import { assert, waitFor, nextTask } from '../utilities/test-helpers.js';
 import { budgetFor } from '../utilities/test-deadline.js';
 import '../../js/components/model-selector.js';
 import {
@@ -1330,7 +1330,6 @@ export async function runTests(_ctx) {
         assert(!!host.querySelector('#claudecode-binary-input'), 'the Claude Code path row was not drawn');
         assert(!!host.querySelector('.model-window-assumed'), 'the assumed marker was not drawn');
 
-        const settle = () => new Promise(r => setTimeout(r, 0));
         const dialogCount = (/** @type {number} */ n, /** @type {string} */ description) =>
           waitFor(() => dialogs.length >= n, { timeoutMs: budgetFor(4000), description });
         const fieldOf = (/** @type {string} */ name) => /** @type {HTMLElement} */ (host.querySelector(`.provider-field[data-provider="${name}"]`));
@@ -1357,7 +1356,7 @@ export async function runTests(_ctx) {
         const box = /** @type {HTMLInputElement} */ (list.querySelector('[data-model="1"] .model-visibility-check'));
         box.checked = false;
         box.dispatchEvent(new Event('change'));
-        await settle();
+        await nextTask();
         const count = list.querySelector('.model-visibility-count')?.textContent || '';
         assert(isPseudoLocalized(count), `the shown count is plain English: ${JSON.stringify(count)}`);
         fail.settings = true;

@@ -24,7 +24,7 @@ import { tabFor } from '../utilities/conversation-tab-lookup.js';
  *   system-prompt=$ITEM_1, user=$ITEM_2, assistant=$ITEM_3, thread=$ITEM_4
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadCommandBasicTest = {
+const threadCommandBasicTest = {
   name: 'thread-command-basic',
   description: '/thread command creates empty thread with given goal',
   fixture: 'unit-test-fixture',
@@ -71,7 +71,7 @@ export const threadCommandBasicTest = {
  * The thread item is inserted during tool execution, before the continuation turn.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadCreateToolTest = {
+const threadCreateToolTest = {
   name: 'thread-create-tool',
   description: 'LLM create_thread tool creates thread with nested prompt, runs thread, returns result',
   fixture: 'unit-test-fixture',
@@ -107,7 +107,7 @@ export const threadCreateToolTest = {
  * path); this asserts both when it IS supplied.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadResultSpecTest = {
+const threadResultSpecTest = {
   name: 'thread-result-spec',
   description: 'create_thread resultSpec is stored and appended to the seed message',
   fixture: 'unit-test-fixture',
@@ -161,7 +161,7 @@ export const threadResultSpecTest = {
  * Requires a prior message to initialize the worker (runCommand needs _waitForIdle).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadDefaultGoalTest = {
+const threadDefaultGoalTest = {
   name: 'thread-default-goal',
   description: '/thread with no args creates thread with default goal',
   fixture: 'unit-test-fixture',
@@ -193,7 +193,7 @@ export const threadDefaultGoalTest = {
  * make item counts non-obvious.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadUndoTest = {
+const threadUndoTest = {
   name: 'thread-undo',
   description: 'Undo reverts thread creation',
   fixture: 'unit-test-fixture',
@@ -235,7 +235,7 @@ export const threadUndoTest = {
  * 4. Assert: root items have NO error items (error is only in the thread via Yjs)
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadErrorNotInRootTest = {
+const threadErrorNotInRootTest = {
   name: 'thread-error-not-in-root',
   description: 'LLM error in thread does not create error item in root',
   fixture: 'unit-test-fixture',
@@ -282,7 +282,7 @@ export const threadErrorNotInRootTest = {
  * still showed "Waiting for sub-thread" because footer state was not re-derived.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadDeleteClearsBusyStateTest = {
+const threadDeleteClearsBusyStateTest = {
   name: 'thread-delete-clears-busy-state',
   description: 'Deleting a thread item removes it from root items',
   fixture: 'unit-test-fixture',
@@ -324,7 +324,7 @@ export const threadDeleteClearsBusyStateTest = {
  * not a tool-action. The thread item appears in the items array.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const singleThreadLifecycleTest = {
+const singleThreadLifecycleTest = {
   name: 'thread-lifecycle-single',
   description: 'Single thread: create, run, come to rest, parent continues with result in context',
   fixture: 'unit-test-fixture',
@@ -363,7 +363,7 @@ export const singleThreadLifecycleTest = {
  * verifies that L1's result reaches the parent context.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const nestedThreadLifecycleTest = {
+const nestedThreadLifecycleTest = {
   name: 'thread-lifecycle-nested',
   description: 'A spawn-capable interactive thread nests one child and returns its result to root',
   fixture: 'unit-test-fixture',
@@ -418,7 +418,7 @@ export const nestedThreadLifecycleTest = {
  * the user types.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadSettlesOnTrailingTextTest = {
+const threadSettlesOnTrailingTextTest = {
   name: 'thread-settles-on-trailing-text',
   description: 'A thread ending in assistant text summarises with that reply and stays usable',
   fixture: 'unit-test-fixture',
@@ -480,7 +480,7 @@ export const threadSettlesOnTrailingTextTest = {
  *   3. Root: text continuation
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadResultVisibleInTranscriptTest = {
+const threadResultVisibleInTranscriptTest = {
   name: 'thread-result-visible-in-transcript',
   description: 'Completed thread shows its result once in the open thread column, as the message it rested on',
   fixture: 'unit-test-fixture',
@@ -533,7 +533,7 @@ export const threadResultVisibleInTranscriptTest = {
  * nothing claiming to be a conclusion while the column stays open.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadResultBlockFollowsTheRunTest = {
+const threadResultBlockFollowsTheRunTest = {
   name: 'thread-result-block-follows-the-run',
   description: 'A resumed run never sits under a block presenting the previous run\'s answer',
   fixture: 'unit-test-fixture',
@@ -589,7 +589,7 @@ export const threadResultBlockFollowsTheRunTest = {
  * thread must come back with result='Task done', not as a running thread.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadUndoRedoPreservesResultTest = {
+const threadUndoRedoPreservesResultTest = {
   name: 'thread-undo-redo-preserves-result',
   description: 'After undoing and redoing a completed thread its result is preserved',
   fixture: 'unit-test-fixture',
@@ -703,7 +703,7 @@ export const threadUndoRedoPreservesResultTest = {
  * Also uses atMostThreadCount to catch the "more threads than started" regression.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadUndoRedoDeleteInterleaveTest = {
+const threadUndoRedoDeleteInterleaveTest = {
   name: 'thread-undo-redo-delete-interleave',
   description: 'Thread undo/redo/delete interleaving always produces correct document state',
   fixture: 'unit-test-fixture',
@@ -781,7 +781,7 @@ export const threadUndoRedoDeleteInterleaveTest = {
  * so the deletion inside the nested Y.Array was never recorded in the undo log.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadDeleteLastItemUndoRedoTest = {
+const threadDeleteLastItemUndoRedoTest = {
   name: 'thread-delete-last-item-undo-redo',
   description: 'Undo/redo restores/removes last item deleted from inside a subthread',
   fixture: 'unit-test-fixture',
@@ -823,7 +823,7 @@ export const threadDeleteLastItemUndoRedoTest = {
  * Deleting the first item (user message) from a subthread and undoing restores it; redo removes it.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadDeleteFirstItemUndoRedoTest = {
+const threadDeleteFirstItemUndoRedoTest = {
   name: 'thread-delete-first-item-undo-redo',
   description: 'Undo/redo restores/removes first item deleted from inside a subthread',
   fixture: 'unit-test-fixture',
@@ -870,7 +870,7 @@ export const threadDeleteFirstItemUndoRedoTest = {
  * removes both.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadDeleteMiddleItemUndoRedoTest = {
+const threadDeleteMiddleItemUndoRedoTest = {
   name: 'thread-delete-middle-item-undo-redo',
   description: 'Two rapid thread-item deletions are grouped and undone together',
   fixture: 'unit-test-fixture',
@@ -914,7 +914,7 @@ export const threadDeleteMiddleItemUndoRedoTest = {
  * Starting with 4 items, delete last, then undo/redo, then delete index 2, then undo/redo.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadMultiDeleteUndoRedoTest = {
+const threadMultiDeleteUndoRedoTest = {
   name: 'thread-multi-delete-undo-redo',
   description: 'Delete-last and delete-first are each independently undoable and redoable',
   fixture: 'unit-test-fixture',
@@ -973,7 +973,7 @@ export const threadMultiDeleteUndoRedoTest = {
  * performs), and asserts the item landed in the sub-thread, not root.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadContextItemToSubThreadTest = {
+const threadContextItemToSubThreadTest = {
   name: 'thread-context-item-to-sub-thread',
   description: 'Adding a context item from sub-thread menu adds it to sub-thread, not root',
   fixture: 'unit-test-fixture',
@@ -1008,7 +1008,7 @@ export const threadContextItemToSubThreadTest = {
  * sub-thread (not a no-op due to root dedup), giving the sub-thread its own copy.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadAIFilesToSubThreadTest = {
+const threadAIFilesToSubThreadTest = {
   name: 'thread-ai-files-to-sub-thread',
   description: 'AI assistant files added from sub-thread footer go to sub-thread, not root',
   fixture: 'unit-test-fixture',
@@ -1039,7 +1039,7 @@ export const threadAIFilesToSubThreadTest = {
  * Removing a context item from a sub-thread must remove it from the sub-thread, not silently fail.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadContextItemRemoveFromSubThreadTest = {
+const threadContextItemRemoveFromSubThreadTest = {
   name: 'thread-context-item-remove-from-sub-thread',
   description: 'Removing a context item from sub-thread removes it from sub-thread, not root',
   fixture: 'unit-test-fixture',
@@ -1069,7 +1069,7 @@ export const threadContextItemRemoveFromSubThreadTest = {
  * The fix is to skip the re-insert when an item with that ID already exists.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadContextItemUndoDeleteNoDuplicateTest = {
+const threadContextItemUndoDeleteNoDuplicateTest = {
   name: 'thread-context-item-undo-delete-no-duplicate',
   description: 'Undo of sub-thread context item deletion does not create duplicate when item was re-added',
   fixture: 'unit-test-fixture',
@@ -1101,7 +1101,7 @@ export const threadContextItemUndoDeleteNoDuplicateTest = {
 
 /**
  * Walk a parent thread's items and find a child thread Y.Map by goal.
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @param {string|null} parentThreadItemId - null for root
  * @param {string} goal
  * @returns {any} The matched thread Y.Map, or null if not found
@@ -1121,7 +1121,7 @@ function findChildThreadByGoal(conversation, parentThreadItemId, goal) {
 
 /**
  * Assert a thread item exists at a given location and has the expected result.
- * @param {import('../../model/conversation.js').default} conversation
+ * @param {import('../../js/model/conversation.js').default} conversation
  * @param {string|null} parentId
  * @param {string} goal
  * @param {string} expectedResult
@@ -1155,7 +1155,7 @@ function assertChildResult(conversation, parentId, goal, expectedResult) {
  *   4. root continuation: text "All complete"
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const siblingThreadsLifecycleTest = {
+const siblingThreadsLifecycleTest = {
   name: 'thread-lifecycle-siblings',
   description: 'Two sibling sub-threads spawned in one turn both start and complete',
   fixture: 'unit-test-fixture',
@@ -1207,7 +1207,7 @@ export const siblingThreadsLifecycleTest = {
  * autonomous model-created thread to spawn children.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const siblingThreadsAtMultipleDepthsTest = {
+const siblingThreadsAtMultipleDepthsTest = {
   name: 'thread-lifecycle-siblings-multi-depth',
   description: 'Nested sibling leaves under an interactive thread each complete',
   fixture: 'unit-test-fixture',
@@ -1267,7 +1267,7 @@ export const siblingThreadsAtMultipleDepthsTest = {
  *   4. (consumed by continue-sub-thread) sub-thread's resumed LLM call: text "v2"
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const continueStalledSubThreadTest = {
+const continueStalledSubThreadTest = {
   name: 'thread-continue-stalled-sub-thread',
   description: 'Continue button on a stalled sub-thread restarts its LLM loop',
   fixture: 'unit-test-fixture',
@@ -1319,7 +1319,7 @@ export const continueStalledSubThreadTest = {
  * (column 0), so it can only pass if the status bubbled up past L2 to L1.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const nestedApprovalBubblesToAncestorTileTest = {
+const nestedApprovalBubblesToAncestorTileTest = {
   name: 'thread-nested-approval-bubbles-to-ancestor-tile',
   description: 'Pending approval in a deeply-nested sub-thread marks ancestor tiles as paused',
   fixture: 'unit-test-fixture',
@@ -1351,7 +1351,7 @@ export const nestedApprovalBubblesToAncestorTileTest = {
  * make the field disagree with the run record the caller was answered from.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadSummaryNotAutoChangedTest = {
+const threadSummaryNotAutoChangedTest = {
   name: 'thread-summary-not-auto-changed-by-edits',
   description: 'Deleting thread items does not auto-change the summary (the run wrote it, nothing re-derives it)',
   fixture: 'unit-test-fixture',
@@ -1400,7 +1400,7 @@ export const threadSummaryNotAutoChangedTest = {
  * column footer must show NO next-steps indicator.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadPlanIndicatorScopedTest = {
+const threadPlanIndicatorScopedTest = {
   name: 'thread-plan-indicator-scoped-to-emitting-thread',
   description: 'A sub-thread <plan> does not surface on the root column footer',
   fixture: 'unit-test-fixture',
@@ -1467,7 +1467,7 @@ export const threadPlanIndicatorScopedTest = {
  * position — in the middle of the turn's own history.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadSessionAliasTilesTest = {
+const threadSessionAliasTilesTest = {
   name: 'thread-session-alias-tiles',
   description: 'A resumed session adds a second tile carrying its own result; both open one column',
   fixture: 'unit-test-fixture',
@@ -1557,7 +1557,7 @@ export const threadSessionAliasTilesTest = {
  * with it (promoteThreadView).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const threadAliasDeleteRemovesOneTileTest = {
+const threadAliasDeleteRemovesOneTileTest = {
   name: 'thread-alias-delete-removes-one-tile',
   description: 'Deleting one tile of a resumed session removes that tile alone',
   fixture: 'unit-test-fixture',
@@ -1621,7 +1621,7 @@ export const threadAliasDeleteRemovesOneTileTest = {
  * The thread is a parameter of the function. Nothing needs to be inferred.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const responseUsageLandsOnItsOwnThreadTest = {
+const responseUsageLandsOnItsOwnThreadTest = {
   name: 'response-usage-lands-on-its-own-thread',
   description: 'Token counts from a final response are recorded against the thread that produced them, not the conversation\'s projected run.',
   fixture: 'unit-test-fixture',

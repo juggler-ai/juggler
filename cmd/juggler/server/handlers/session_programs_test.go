@@ -22,11 +22,7 @@ import (
 func newProgramsFixture(t *testing.T) (*SessionAPI, string) {
 	t.Helper()
 	projectDir := t.TempDir()
-	store, err := core.NewFileSessionStore(projectDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mgr, err := core.NewSessionManager(core.SessionManagerConfig{Store: store, ProjectPath: projectDir})
+	mgr, err := core.NewSessionManagerForPath(projectDir)
 	if err != nil {
 		t.Fatal(err)
 	}

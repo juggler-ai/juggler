@@ -19,7 +19,8 @@ import {
   initializeRegistries,
   createTestSession,
   createTestConversation,
-  assert
+  assert,
+  waitFor
 } from '../utilities/test-helpers.js';
 import {
   createUserMessage,
@@ -29,14 +30,6 @@ import {
 } from '../../sdk/lib/message.js';
 import '../../js/components/conversation-tab.js';
 
-/** Rule 15's re-assert window is 5 × 30ms; clear it with room. */
-const FOCUS_SETTLE_MS = 300;
-
-/**
- * @param {number} ms
- * @returns {Promise<void>} Resolves after `ms`.
- */
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
@@ -101,7 +94,9 @@ export async function runTests() {
     assert(!!leafEl, 'the leaf item should have a tile in the root column');
     leafEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     leafEl.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await sleep(FOCUS_SETTLE_MS);
+    // Building the root column opened a Rule 15 window that re-focuses its box
+    // whenever focus is lost; let it close before letting go of the keyboard.
+    await waitFor(() => tab.pendingFocusReasserts === 0, 'the root column\'s focus re-assert window to close');
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     assert(rootCol.getSelectedItemId() === leafId,
       `test setup: clicking the leaf should select it, got ${rootCol.getSelectedItemId()}`);
@@ -117,7 +112,12 @@ export async function runTests() {
     assert(!!tab.querySelector('conversation-area.thread-column'),
       'test setup: selecting the tile should open the thread column');
 
-    await sleep(FOCUS_SETTLE_MS);
+    // The two things that could take the keyboard: the thread column's composer
+    // arriving, and a Rule 15 window the rebuild opened. Wait for both to be
+    // over, then look where focus is.
+    const threadCol = /** @type {HTMLElement} */ (tab.querySelector('conversation-area.thread-column'));
+    await waitFor(() => threadCol.querySelector('composer-box textarea') && tab.pendingFocusReasserts === 0,
+      'the thread column\'s composer to arrive and any focus re-assert window to close');
     const active = /** @type {HTMLElement|null} */ (document.activeElement);
     assert(!active || active.tagName !== 'TEXTAREA',
       'arrow-keying onto a sub-thread must not move focus into a message box ' +

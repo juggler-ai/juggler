@@ -558,7 +558,7 @@
 		{
 			"file": "components/pinboard.css",
 			"layer": "components",
-			"owns": [
+			"owns": ["[data-view=\"pinboard\"]", 
 				"app-header__board-*",
 				"pinboard-add-*",
 				"pinboard-content",
@@ -669,18 +669,19 @@
 		}
 	],
 	"$enumerates": "A sheet whose job is to state ONE policy across every surface it applies to, rather than to own a group of its own: base/text-selection.css (what a mouse drag may select), patterns/popup-surface.css (the outer card every transient surface wears) and patterns/labels.css (the type of the small uppercase labels). Their selectors name roots other sheets own, and that is the point — the alternative is the same declaration copied into a dozen component files, where nobody can see it is one decision. The ownership check skips them. They earn it by being small, by holding one policy each, and by sitting in the lowest layer that can state it, so any component can still override its own case.",
-	"$dynamicClasses": "Class names assembled in JS, so no literal exists to find. Each pattern below was proven by locating the composing expression (e.g. `color-${…}`) in web/js or web/sdk. Keep them tight: a pattern broad enough to cover a whole family stops the dead-selector check from seeing anything in it.",
+	"$dynamicClasses": "Class names assembled in JS, so no literal exists to find. Each entry is { pattern, builtBy }: a literal prefix with one trailing *, and the production file whose code composes that prefix (`prefix${…}` or `'prefix' + …`). lint-css-arch re-proves every entry on every run — the file must exist, must not be a test, must contain the composing expression, and some sheet must style a class the pattern matches — so an entry cannot outlive its code or stand in for an allowlist.",
 	"dynamicClasses": [
-		"color-*",
-		"status-*",
-		"origin-*",
-		"tx-tool-category-*",
-		"plugin-tree-toggle-*",
-		"slash-command-scope-*",
-		"approval-source-*",
-		"pp-status--*",
-		"task-box--*",
-		"bash-command-segment-*"
+		{ "pattern": "color-*", "builtBy": "web/js/utils/icon-message-renderer.js" },
+		{ "pattern": "status-*", "builtBy": "web/js/components/config-tab.js" },
+		{ "pattern": "origin-*", "builtBy": "web/js/components/settings/connectivity-tab.js" },
+		{ "pattern": "tx-tool-category-*", "builtBy": "web/js/components/transaction-detail-renderer.js" },
+		{ "pattern": "plugin-tree-toggle-*", "builtBy": "web/js/components/plugin-catalog.js" },
+		{ "pattern": "slash-command-scope-*", "builtBy": "web/js/components/slash-command-provider.js" },
+		{ "pattern": "approval-source-*", "builtBy": "web/js/services/renderers/item-renderers.js" },
+		{ "pattern": "pp-status--*", "builtBy": "web/js/components/project-picker.js" },
+		{ "pattern": "task-box--*", "builtBy": "web/sdk/lib/markdown.js" },
+		{ "pattern": "bash-command-segment-*", "builtBy": "web/sdk/lib/syntax-highlight.js" },
+		{ "pattern": "task-list-item--*", "builtBy": "web/sdk/lib/markdown.js" }
 	],
 	"$jsSetProperties": "Custom properties set from JS rather than declared in CSS, so a bare var() referring to one is not a dangling reference.",
 	"jsSetProperties": [

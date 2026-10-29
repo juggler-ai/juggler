@@ -841,16 +841,6 @@ func (cp *controlProtocol) stashIndexByKeyAnyGeneration(key mcpMatchKey) int {
 	return -1
 }
 
-// outOfBandRoundCount returns how many out-of-band tool rounds openNewGenerationLocked
-// has detected this session (always 0 unless the CLI violated the
-// blocked-while-parked invariant). Actor-read so it is race-free against the
-// reader goroutine that mutates the counter.
-func (cp *controlProtocol) outOfBandRoundCount() int {
-	var n int
-	cp.runOnActor(func() { n = cp.outOfBandRounds })
-	return n
-}
-
 // takeParkedLocked / takeStashLocked remove and return the entry at idx,
 // preserving FIFO order of the remaining entries.
 func (cp *controlProtocol) takeParkedLocked(idx int) pendingMCPCall {

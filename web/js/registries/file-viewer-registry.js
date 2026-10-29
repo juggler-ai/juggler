@@ -74,12 +74,13 @@ class FileViewerRegistry extends BaseRegistry {
     const mime = (descriptor.mime || '').toLowerCase();
     const ext = extensionOf(descriptor.path || '');
 
-    /** @type {{ViewerClass: any, priority: number, order: number}[]} */
+    /** @type {{ViewerClass: typeof import('juggler/file-viewer').default, priority: number, order: number}[]} */
     const candidates = [];
     let order = 0;
     for (const { id, class: ViewerClass } of this.getAll()) {
       const index = order++;
-      const manifest = /** @type {any} */ (ViewerClass).MANIFEST || {};
+      /** @type {Partial<import('juggler/file-viewer').FileViewerManifest>} */
+      const manifest = ViewerClass.MANIFEST || {};
 
       const declarative =
         !!manifest.matchAll ||
@@ -96,8 +97,8 @@ class FileViewerRegistry extends BaseRegistry {
 
       let verdict;
       try {
-        verdict = typeof (/** @type {any} */ (ViewerClass).claims) === 'function'
-          ? /** @type {any} */ (ViewerClass).claims(descriptor)
+        verdict = typeof ViewerClass.claims === 'function'
+          ? ViewerClass.claims(descriptor)
           : undefined;
       } catch (err) {
         // A viewer that throws while deciding must not break resolution for
@@ -119,7 +120,7 @@ class FileViewerRegistry extends BaseRegistry {
 
     if (candidates.length === 0) return undefined;
     candidates.sort((a, b) => (b.priority - a.priority) || (a.order - b.order));
-    return /** @type {any} */ (candidates[0]).ViewerClass;
+    return candidates[0]?.ViewerClass;
   }
 }
 

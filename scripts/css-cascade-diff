@@ -3,7 +3,7 @@
  * css-cascade-diff — did a CSS refactor change what the browser paints today?
  *
  * `lint-css-arch`'s layer-inversion check looks forward: it finds rules that
- * would stop working once the sheets are wrapped in @layer. This looks the
+ * would stop working once the sheets are wrapped in `@layer`. This looks the
  * other way. It takes every pair of rules that can land on one element and
  * contest a property, works out which one wins under TODAY's cascade —
  * specificity, then source order down the <link> list — and compares that
@@ -21,7 +21,7 @@
  * change the rendered page.
  *
  * A rule is identified by what it says, not where it lives: the selector with
- * any `:where()` wrappers unwrapped, its @media context, and the properties it
+ * any `:where()` wrappers unwrapped, its `@media` context, and the properties it
  * sets. So a rule keeps its identity across a move or a `:where()`, and the
  * diff can hold it to the same verdict.
  *
@@ -39,43 +39,71 @@ const fs = require('fs');
 const path = require('path');
 
 const {
-	canMeet,
-	cssDir,
-	declarationsIn,
-	loadMarkupModel,
-	mediaCompatible,
-	mediaContext,
-	overlappingProperty,
-	parseComplex,
-	parseRules,
-	selectorParts,
-	specificity,
-	SPEC_SCORE,
-	unwrapGrouping,
+  canMeet,
+  cssDir,
+  declarationsIn,
+  loadMarkupModel,
+  mediaCompatible,
+  mediaContext,
+  overlappingProperty,
+  parseComplex,
+  parseRules,
+  selectorParts,
+  specificity,
+  SPEC_SCORE,
+  unwrapGrouping,
 } = require('./lint-css-arch');
 
 const repoRoot = path.resolve(__dirname, '..');
 const cssPrefix = `${path.relative(repoRoot, cssDir).split(path.sep).join('/')}/`;
 
+/**
+ * One manifest sheet of a side, with its text.
+ * @typedef {object} SideSheet
+ * @property {string} file - Its path under web/css/.
+ * @property {string} layer - The layer it declares.
+ * @property {number} rank - That layer's index in the manifest's list, or -1 when unlisted.
+ * @property {string} source - Its text.
+ */
+
+/**
+ * One selector of a rule, flattened for comparison across sides.
+ * @typedef {import('./lint-css-arch').Reachable & {
+ *   id: string, file: string, layer: string, rank: number, line: number,
+ *   order: number, declarations: import('./lint-css-arch').Declarations,
+ *   media: string[], score: number, pseudoElement: string,
+ * }} DiffRule
+ */
+
 // ---------------------------------------------------------------------------
 // Reading a side: the working tree, or a revision out of git.
 // ---------------------------------------------------------------------------
 
+/**
+ * A file under web/css/ at a revision, read out of git.
+ * @param {string} rev - The revision.
+ * @param {string} file - The file's path under web/css/.
+ * @returns {string} Its text at that revision.
+ */
 function fromGit(rev, file) {
-	return execFileSync('git', ['show', `${rev}:${cssPrefix}${file}`], { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return execFileSync('git', ['show', `${rev}:${cssPrefix}${file}`], { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
-/** The manifest's sheets and their text, in <link> order, for one side. */
+/**
+ * The manifest's sheets and their text, in <link> order, for one side.
+ * @param {string|null} rev - The revision to read, or null for the working tree.
+ * @returns {SideSheet[]} The sheets in manifest order.
+ */
 function readSide(rev) {
-	const manifestText = rev ? fromGit(rev, 'manifest.json') : fs.readFileSync(path.join(cssDir, 'manifest.json'), 'utf8');
-	const manifest = JSON.parse(manifestText);
-	const rank = new Map(manifest.layers.map((layer, i) => [layer, i]));
-	return manifest.sheets.map((sheet) => ({
-		file: sheet.file,
-		layer: sheet.layer,
-		rank: rank.get(sheet.layer) ?? -1,
-		source: rev ? fromGit(rev, sheet.file) : fs.readFileSync(path.join(cssDir, sheet.file), 'utf8'),
-	}));
+  const manifestText = rev ? fromGit(rev, 'manifest.json') : fs.readFileSync(path.join(cssDir, 'manifest.json'), 'utf8');
+  const manifest = JSON.parse(manifestText);
+  const rank = new Map(manifest.layers.map((layer, i) => [layer, i]));
+  return manifest.sheets.map((sheet) => ({
+    file: sheet.file,
+    layer: sheet.layer,
+    rank: rank.get(sheet.layer) ?? -1,
+    source: rev ? fromGit(rev, sheet.file) : fs.readFileSync(path.join(cssDir, sheet.file), 'utf8'),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -92,72 +120,80 @@ function readSide(rev) {
  * the two names are folded together. Without that, re-weighting one reads as
  * the old rule disappearing and a new one arriving, and the verdict that
  * changed between them is never compared.
+ * @param {string} selector - One selector.
+ * @returns {string} Its identity: unwrapped, `:is(` written `:where(`, whitespace normalised.
  */
 function canonicalSelector(selector) {
-	return unwrapGrouping(selector)
-		.replace(/:is\(/g, ':where(')
-		.replace(/\s*([>+~,])\s*/g, '$1')
-		.replace(/\s+/g, ' ')
-		.trim();
+  return unwrapGrouping(selector)
+    .replace(/:is\(/g, ':where(')
+    .replace(/\s*([>+~,])\s*/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // ---------------------------------------------------------------------------
 // One side, flattened into comparable rules
 // ---------------------------------------------------------------------------
 
+/**
+ * Every selector of every rule that declares something, as a comparable rule
+ * whose identity survives a move or a `:where()`.
+ * @param {SideSheet[]} sheets - One side's sheets, in <link> order.
+ * @returns {DiffRule[]} The rules in source order down the <link> list.
+ */
 function collectRules(sheets) {
-	const rules = [];
-	const counts = new Map();
-	let order = 0;
+  const rules = [];
+  const counts = new Map();
+  let order = 0;
 
-	for (const sheet of sheets) {
-		for (const rule of parseRules(sheet.source)) {
-			const declarations = declarationsIn(rule.body || '');
-			if (!declarations.size) continue;
-			const media = mediaContext(rule.at);
-			const properties = [...declarations.keys()].sort().join(',');
-			for (const part of selectorParts(rule.selector)) {
-				const selector = part.trim();
-				if (!selector) continue;
+  for (const sheet of sheets) {
+    for (const rule of parseRules(sheet.source)) {
+      const declarations = declarationsIn(rule.body || '');
+      if (!declarations.size) continue;
+      const media = mediaContext(rule.at);
+      const properties = [...declarations.keys()].sort().join(',');
+      for (const part of selectorParts(rule.selector)) {
+        const selector = part.trim();
+        if (!selector) continue;
 
-				// Specificity is read from the selector as written, because that
-				// is the thing under test. Everything else — what the rule can
-				// land on, what it sits under — is read from the unwrapped form,
-				// so that wrapping a class in :where() does not also hide it
-				// from the reachability filter and quietly retire the pair
-				// instead of reporting that it changed hands.
-				const canonical = canonicalSelector(selector);
-				const compounds = parseComplex(canonical);
-				if (!compounds.length) continue;
-				const subject = compounds[compounds.length - 1];
+        // Specificity is read from the selector as written, because that
+        // is the thing under test. Everything else — what the rule can
+        // land on, what it sits under — is read from the unwrapped form,
+        // so that wrapping a class in :where() does not also hide it
+        // from the reachability filter and quietly retire the pair
+        // instead of reporting that it changed hands.
+        const canonical = canonicalSelector(selector);
+        const compounds = parseComplex(canonical);
+        if (!compounds.length) continue;
+        const subject = compounds[compounds.length - 1];
 
-				// Identity has to survive a move and a :where(), and still tell
-				// two genuinely different rules apart. Selector + media context
-				// + property list does that; the occurrence counter breaks the
-				// tie when a sheet says the same thing twice.
-				const base = `${canonical}@{${media.join('&&')}}{${properties}}`;
-				const seen = (counts.get(base) || 0) + 1;
-				counts.set(base, seen);
+        // Identity has to survive a move and a :where(), and still tell
+        // two genuinely different rules apart. Selector + media context
+        // + property list does that; the occurrence counter breaks the
+        // tie when a sheet says the same thing twice.
+        const base = `${canonical}@{${media.join('&&')}}{${properties}}`;
+        const seen = (counts.get(base) || 0) + 1;
+        counts.set(base, seen);
 
-				rules.push({
-					id: seen === 1 ? base : `${base}#${seen}`,
-					file: sheet.file,
-					layer: sheet.layer,
-					rank: sheet.rank,
-					line: rule.line,
-					order: order++,
-					declarations,
-					media,
-					score: SPEC_SCORE(specificity(selector)),
-					subject,
-					parent: compounds.length > 1 ? compounds[compounds.length - 2] : null,
-					ancestorTokens: compounds.slice(0, -1).flatMap((c) => [...c.classes, ...(c.tag ? [c.tag] : [])]),
-					pseudoElement: subject.pseudoElements.join(','),
-				});
-			}
-		}
-	}
-	return rules;
+        rules.push({
+          id: seen === 1 ? base : `${base}#${seen}`,
+          file: sheet.file,
+          layer: sheet.layer,
+          rank: sheet.rank,
+          line: rule.line,
+          order: order++,
+          declarations,
+          media,
+          score: SPEC_SCORE(specificity(selector)),
+          subject,
+          parent: compounds.length > 1 ? compounds[compounds.length - 2] : null,
+          ancestorTokens: compounds.slice(0, -1).flatMap((c) => [...c.classes, ...(c.tag ? [c.tag] : [])]),
+          pseudoElement: subject.pseudoElements.join(','),
+        });
+      }
+    }
+  }
+  return rules;
 }
 
 /**
@@ -165,30 +201,38 @@ function collectRules(sheets) {
  * one, and on a tie the one further down the <link> list. Importance never
  * enters into it — `overlappingProperty` only reports a contest when both
  * sides are quiet about the property they share.
+ * @param {DiffRule} a - One rule.
+ * @param {DiffRule} b - The other.
+ * @returns {DiffRule} The one that wins.
  */
 function winnerOf(a, b) {
-	if (a.score !== b.score) return a.score > b.score ? a : b;
-	return a.order > b.order ? a : b;
+  if (a.score !== b.score) return a.score > b.score ? a : b;
+  return a.order > b.order ? a : b;
 }
 
-/** Every contested pair on one side, as `pair key → id of the rule that wins`. */
+/**
+ * Every contested pair on one side, as `pair key → id of the rule that wins`.
+ * @param {DiffRule[]} rules - One side's rules.
+ * @param {import('./lint-css-arch').MarkupFacts} model - The markup model, for whether two rules can meet.
+ * @returns {{winners: Map<string, string>, byId: Map<string, DiffRule>}} The winner of each pair, keyed by the two ids joined with NUL in sorted order, and the rules by id.
+ */
 function verdicts(rules, model) {
-	const winners = new Map();
-	const byId = new Map();
-	for (const rule of rules) if (!byId.has(rule.id)) byId.set(rule.id, rule);
-	for (let i = 0; i < rules.length; i++) {
-		const a = rules[i];
-		for (let j = i + 1; j < rules.length; j++) {
-			const b = rules[j];
-			if (a.pseudoElement !== b.pseudoElement) continue;
-			if (!overlappingProperty(a.declarations, b.declarations) && !overlappingProperty(b.declarations, a.declarations)) continue;
-			if (!mediaCompatible(a.media, b.media)) continue;
-			if (!canMeet(a, b, model) || !canMeet(b, a, model)) continue;
-			const key = a.id < b.id ? `${a.id}\u0000${b.id}` : `${b.id}\u0000${a.id}`;
-			winners.set(key, winnerOf(a, b).id);
-		}
-	}
-	return { winners, byId };
+  const winners = new Map();
+  const byId = new Map();
+  for (const rule of rules) if (!byId.has(rule.id)) byId.set(rule.id, rule);
+  for (let i = 0; i < rules.length; i++) {
+    const a = rules[i];
+    for (let j = i + 1; j < rules.length; j++) {
+      const b = rules[j];
+      if (a.pseudoElement !== b.pseudoElement) continue;
+      if (!overlappingProperty(a.declarations, b.declarations) && !overlappingProperty(b.declarations, a.declarations)) continue;
+      if (!mediaCompatible(a.media, b.media)) continue;
+      if (!canMeet(a, b, model) || !canMeet(b, a, model)) continue;
+      const key = a.id < b.id ? `${a.id}\u0000${b.id}` : `${b.id}\u0000${a.id}`;
+      winners.set(key, winnerOf(a, b).id);
+    }
+  }
+  return { winners, byId };
 }
 
 /**
@@ -200,80 +244,87 @@ function verdicts(rules, model) {
  *                the wrap will do anyway, so the flip is the work landing.
  *   winner down  a lower layer took it off a higher one, which is a new
  *                inversion — lint-css-arch's ratchet reports the same thing.
+ * @param {DiffRule|undefined} was - The rule that used to win, as it stands now.
+ * @param {DiffRule|undefined} now - The rule that wins now.
+ * @returns {'same-layer'|'winner-up'|'winner-down'} Which kind of flip it is; a rule that is gone counts as same-layer.
  */
 function classify(was, now) {
-	if (!was || !now || was.rank === now.rank) return 'same-layer';
-	return now.rank > was.rank ? 'winner-up' : 'winner-down';
+  if (!was || !now || was.rank === now.rank) return 'same-layer';
+  return now.rank > was.rank ? 'winner-up' : 'winner-down';
 }
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Compare the base revision's verdicts with the working tree's, print the
+ * same-layer flips grouped by file pair, and exit 1 if there are any.
+ */
 function main() {
-	const at = process.argv.indexOf('--base');
-	const base = at >= 0 ? process.argv[at + 1] : 'HEAD';
-	const limit = 30;
-	// `--all` prints every flip in a file pair rather than the first few, which
-	// is what you want while working through one pair.
-	const detail = process.argv.includes('--all') ? Infinity : 3;
+  const at = process.argv.indexOf('--base');
+  const base = at >= 0 ? process.argv[at + 1] : 'HEAD';
+  const limit = 30;
+  // `--all` prints every flip in a file pair rather than the first few, which
+  // is what you want while working through one pair.
+  const detail = process.argv.includes('--all') ? Infinity : 3;
 
-	const model = loadMarkupModel();
-	const before = verdicts(collectRules(readSide(base)), model);
-	const after = verdicts(collectRules(readSide(null)), model);
+  const model = loadMarkupModel();
+  const before = verdicts(collectRules(readSide(base)), model);
+  const after = verdicts(collectRules(readSide(null)), model);
 
-	const flipped = { 'same-layer': [], 'winner-up': [], 'winner-down': [] };
-	let shared = 0;
-	for (const [key, winner] of before.winners) {
-		if (!after.winners.has(key)) continue;
-		shared++;
-		const now = after.winners.get(key);
-		if (now === winner) continue;
-		flipped[classify(after.byId.get(winner), after.byId.get(now))].push([key, winner, now]);
-	}
+  const flipped = { 'same-layer': [], 'winner-up': [], 'winner-down': [] };
+  let shared = 0;
+  for (const [key, winner] of before.winners) {
+    if (!after.winners.has(key)) continue;
+    shared++;
+    const now = after.winners.get(key);
+    if (now === winner) continue;
+    flipped[classify(after.byId.get(winner), after.byId.get(now))].push([key, winner, now]);
+  }
 
-	const gone = before.winners.size - shared;
-	const fresh = after.winners.size - shared;
-	const context = `${shared} contested pair${shared === 1 ? '' : 's'} on both sides`
+  const gone = before.winners.size - shared;
+  const fresh = after.winners.size - shared;
+  const context = `${shared} contested pair${shared === 1 ? '' : 's'} on both sides`
 		+ `${gone ? `, ${gone} only in ${base}` : ''}${fresh ? `, ${fresh} only in the working tree` : ''}`;
 
-	const up = flipped['winner-up'].length;
-	const down = flipped['winner-down'].length;
-	const crossLayer = `${up} went to the higher layer, ${down} to the lower`;
+  const up = flipped['winner-up'].length;
+  const down = flipped['winner-down'].length;
+  const crossLayer = `${up} went to the higher layer, ${down} to the lower`;
 
-	const faults = flipped['same-layer'];
-	if (!faults.length) {
-		console.log(`✓ css cascade: no same-layer verdict changed (${context}; ${crossLayer})`);
-		if (down) console.log(`  ${down} pair${down === 1 ? '' : 's'} now decided by a lower layer — lint-css-arch counts those as inversions.`);
-		return;
-	}
+  const faults = flipped['same-layer'];
+  if (!faults.length) {
+    console.log(`✓ css cascade: no same-layer verdict changed (${context}; ${crossLayer})`);
+    if (down) console.log(`  ${down} pair${down === 1 ? '' : 's'} now decided by a lower layer — lint-css-arch counts those as inversions.`);
+    return;
+  }
 
-	// Grouped by file pair, because that is the unit the fix comes in — the
-	// same shape lint-css-arch --inversions reports.
-	const byPair = new Map();
-	for (const flip of faults) {
-		const [key] = flip;
-		const [left, right] = key.split('\u0000');
-		const files = [after.byId.get(left), after.byId.get(right)].map((r) => (r ? r.file : '?')).sort();
-		const pair = files.join(' vs ');
-		if (!byPair.has(pair)) byPair.set(pair, []);
-		byPair.get(pair).push(flip);
-	}
+  // Grouped by file pair, because that is the unit the fix comes in — the
+  // same shape lint-css-arch --inversions reports.
+  const byPair = new Map();
+  for (const flip of faults) {
+    const [key] = flip;
+    const [left, right] = key.split('\u0000');
+    const files = [after.byId.get(left), after.byId.get(right)].map((r) => (r ? r.file : '?')).sort();
+    const pair = files.join(' vs ');
+    if (!byPair.has(pair)) byPair.set(pair, []);
+    byPair.get(pair).push(flip);
+  }
 
-	console.error(`\n✗ css cascade: ${faults.length} same-layer verdict${faults.length === 1 ? '' : 's'} changed (${context}; ${crossLayer})\n`);
-	for (const [pair, flips] of [...byPair].sort((a, b) => b[1].length - a[1].length)) {
-		console.error(`  ${pair} — ${flips.length}`);
-		const at = (id) => {
-			const rule = after.byId.get(id);
-			return rule ? `${rule.file}:${rule.line}` : '?';
-		};
-		for (const [, was, now] of flips.slice(0, detail)) {
-			console.error(`      won: ${was}  [${at(was)}]`);
-			console.error(`      now: ${now}  [${at(now)}]`);
-		}
-		if (flips.length > detail) console.error(`      … and ${flips.length - detail} more`);
-		console.error('');
-	}
-	if (byPair.size > limit) console.error(`    … and ${byPair.size - limit} more file pairs`);
-	process.exit(1);
+  console.error(`\n✗ css cascade: ${faults.length} same-layer verdict${faults.length === 1 ? '' : 's'} changed (${context}; ${crossLayer})\n`);
+  for (const [pair, flips] of [...byPair].sort((a, b) => b[1].length - a[1].length)) {
+    console.error(`  ${pair} — ${flips.length}`);
+    const at = (id) => {
+      const rule = after.byId.get(id);
+      return rule ? `${rule.file}:${rule.line}` : '?';
+    };
+    for (const [, was, now] of flips.slice(0, detail)) {
+      console.error(`      won: ${was}  [${at(was)}]`);
+      console.error(`      now: ${now}  [${at(now)}]`);
+    }
+    if (flips.length > detail) console.error(`      … and ${flips.length - detail} more`);
+    console.error('');
+  }
+  if (byPair.size > limit) console.error(`    … and ${byPair.size - limit} more file pairs`);
+  process.exit(1);
 }
 
 main();

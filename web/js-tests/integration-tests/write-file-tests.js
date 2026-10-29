@@ -22,7 +22,7 @@ const TD_wfc = testDirFor('write-file-create');
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const writeFileCreateTest = {
+const writeFileCreateTest = {
   name: 'write-file-create',
   description: 'Create a new file',
   fixture: 'unit-test-fixture',
@@ -70,7 +70,7 @@ const TD_wfnd = testDirFor('write-file-nested-dirs');
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const writeFileNestedDirsTest = {
+const writeFileNestedDirsTest = {
   name: 'write-file-nested-dirs',
   description: 'Create file in nested directories (auto-creates parents)',
   fixture: 'unit-test-fixture',
@@ -118,7 +118,7 @@ const TD_wfp = testDirFor('write-file-parallel');
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const writeFileParallelTest = {
+const writeFileParallelTest = {
   name: 'write-file-parallel',
   description: 'Create multiple files in parallel',
   fixture: 'unit-test-fixture',
@@ -189,7 +189,7 @@ const TD_wfsc = testDirFor('write-file-special-chars');
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const writeFileSpecialCharsTest = {
+const writeFileSpecialCharsTest = {
   name: 'write-file-special-chars',
   description: 'Write file with special characters',
   fixture: 'unit-test-fixture',
@@ -237,7 +237,7 @@ const TD_wfu = testDirFor('write-file-unicode');
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const writeFileUnicodeTest = {
+const writeFileUnicodeTest = {
   name: 'write-file-unicode',
   description: 'Write file with unicode content',
   fixture: 'unit-test-fixture',
@@ -285,7 +285,7 @@ const TD_wfe = testDirFor('write-file-empty');
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const writeFileEmptyTest = {
+const writeFileEmptyTest = {
   name: 'write-file-empty',
   description: 'Write empty file',
   fixture: 'unit-test-fixture',
@@ -333,7 +333,7 @@ const TD_wfm = testDirFor('write-file-multiline');
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const writeFileMultilineTest = {
+const writeFileMultilineTest = {
   name: 'write-file-multiline',
   description: 'Write multiline content',
   fixture: 'unit-test-fixture',
@@ -381,7 +381,7 @@ const TD_wfj = testDirFor('write-file-json');
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const writeFileJsonTest = {
+const writeFileJsonTest = {
   name: 'write-file-json',
   description: 'Write JSON content',
   fixture: 'unit-test-fixture',
@@ -429,7 +429,7 @@ const TD_wfco = testDirFor('write-file-code');
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const writeFileCodeTest = {
+const writeFileCodeTest = {
   name: 'write-file-code',
   description: 'Write code file',
   fixture: 'unit-test-fixture',
@@ -479,7 +479,7 @@ const TD_wfrtw = testDirFor('write-file-read-then-write');
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const writeFileReadThenWriteTest = {
+const writeFileReadThenWriteTest = {
   name: 'write-file-read-then-write',
   description: 'Read file first, then overwrite succeeds',
   fixture: 'unit-test-fixture',
@@ -573,7 +573,7 @@ const TD_wftd = testDirFor('write-file-target-is-dir');
  * so the failure is deterministic and OS-independent.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const writeFileTargetIsDirTest = {
+const writeFileTargetIsDirTest = {
   name: 'write-file-target-is-dir',
   description: 'OS-level write failure (target is a directory) surfaces an isError result',
   fixture: 'unit-test-fixture',

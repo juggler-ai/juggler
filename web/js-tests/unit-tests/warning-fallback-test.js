@@ -24,7 +24,7 @@
 import { assert } from '../utilities/test-helpers.js';
 import Conversation from '../../js/model/conversation.js';
 import SessionEvents from '../../js/model/session-events.js';
-import { dumpTape } from '../../js/utils/event-tape.js';
+import { __dumpTapeForTests } from '../../js/utils/event-tape.js';
 import '../../js/components/conversation-tab.js';
 
 /**
@@ -55,7 +55,7 @@ function conversationWith(tab) {
  * @returns {any[]} Matching tape entries, oldest first
  */
 function dropsFor(conv) {
-  return dumpTape(conv.id).filter(e => e.kind === 'warning-dropped');
+  return __dumpTapeForTests(conv.id).filter(e => e.kind === 'warning-dropped');
 }
 
 /**
@@ -136,7 +136,7 @@ export async function runTests() {
     const other = conversationWith(null);
     conv.showWarning('Still connecting to the engine', 5000);
 
-    assert(dumpTape(conv.id).some(e => e.kind === 'warning-dropped'),
+    assert(__dumpTapeForTests(conv.id).some(e => e.kind === 'warning-dropped'),
       'the drop must be filed under the conversation that dropped it');
     assert(dropsFor(other).length === 0,
       "and must not appear under another conversation's id");

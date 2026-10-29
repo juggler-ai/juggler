@@ -26,10 +26,6 @@ import * as Y from '../vendor/yjs.mjs';
 const PENDING_REQUESTS_KEY = 'pendingRequests';
 
 /**
- * @typedef {'requested' | 'claimed' | 'completed' | 'error' | 'cancelled'} RequestStatus
- */
-
-/**
  * Ensure the pendingRequests Y.Array exists on the thread's own container (the
  * doc root for the root thread, the thread Y.Map for a sub-thread). Lazy-creating
  * it keeps the schema additive — pre-existing docs that have never used the array
@@ -38,7 +34,7 @@ const PENDING_REQUESTS_KEY = 'pendingRequests';
  * @param {import('../model/message-thread.js').default} thread
  * @returns {any} The Y.Array holding this thread's pending request entries.
  */
-export function ensurePendingRequests(thread) {
+function ensurePendingRequests(thread) {
   const container = thread.container;
   let arr = container.get(PENDING_REQUESTS_KEY);
   if (!arr) {
@@ -59,7 +55,7 @@ export function ensurePendingRequests(thread) {
  * @param {string} id - Request id.
  * @returns {any|null} The Y.Map entry, or null if not found.
  */
-export function findRequestEntry(requests, id) {
+function findRequestEntry(requests, id) {
   for (let i = 0; i < requests.length; i++) {
     const entry = requests.get(i);
     if (entry && typeof entry.get === 'function' && entry.get('id') === id) {

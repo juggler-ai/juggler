@@ -20,8 +20,8 @@ import { resolveAssetUrl, importModuleUrl } from '../js/utils/asset-url.js';
  * Add or restore one pin on the shared main board and ask eligible viewers to
  * reveal it. `id` must be stable for an idempotent retry. The update following
  * the add also restores the expected config if that id was already present.
- * @param {{id: string, type: string, config: Record<string, any>, from: string, signal?: AbortSignal}} request - Pin request.
- * @returns {Promise<{board?: string, pins?: any[]}>} Resulting board.
+ * @param {{id: string, type: string, config: Record<string, unknown>, from: string, signal?: AbortSignal}} request - Pin request.
+ * @returns {Promise<{board?: string, pins?: import('../js/services/pinboard-store.js').Pin[]}>} Resulting board.
  */
 export function pinToPinboard(request) {
   const { id, type, config, from, signal } = request;
@@ -49,7 +49,7 @@ export function pinToPinboard(request) {
  */
 export async function loadPinAgentDescriptors() {
   const [refs, known] = await Promise.all([
-    getExtensionCapabilities(/** @type {any} */ ('pinboard-item-meta')),
+    getExtensionCapabilities('pinboard-item-meta'),
     fetchDisabledPluginIds(),
   ]);
   // Unknown reads as "nothing switched off": describing a pin type the user has

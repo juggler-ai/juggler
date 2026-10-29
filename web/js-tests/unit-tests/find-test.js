@@ -37,7 +37,7 @@
  * @module unit-tests/find-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, waitFor } from '../utilities/test-helpers.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import FindController from '../../js/services/find-controller.js';
@@ -55,16 +55,19 @@ import '../../js/components/pinboard-content.js';
  * @property {string[]} errors - Error messages for failed tests.
  */
 
-/** Comfortably longer than the bar's 120ms input debounce. */
-const INPUT_WAIT_MS = 180;
-/** Comfortably longer than the bar's 150ms MutationObserver debounce. */
-const OBSERVER_WAIT_MS = 250;
-
 /**
- * @param {number} ms
- * @returns {Promise<void>}
+ * Wait for the bar's counter in `host` to read something other than `from`:
+ * the debounced search (or the debounced MutationObserver refresh) has run and
+ * redrawn it. The caller then asserts exactly what it reads.
+ * @param {HTMLElement} host - The panel the bar is mounted in.
+ * @param {string} from - The counter text before the change.
+ * @param {string} what - What the redraw follows from.
+ * @returns {Promise<string>} The new counter text.
  */
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function counterChanged(host, from, what) {
+  return waitFor(() => (counterText(host) !== from ? counterText(host) : ''),
+    () => `the counter to redraw after ${what} (still "${counterText(host)}")`);
+}
 
 /**
  * Build a detached fixture, fill it with `html`, attach it to the document (so
@@ -433,7 +436,7 @@ export async function runTests(_ctx) {
       const input = /** @type {HTMLInputElement} */ (col.querySelector('.find-bar__input'));
       input.value = 'needle';
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      await sleep(INPUT_WAIT_MS);
+      await counterChanged(col, '', 'typing');
       assert(counterTotal(col) === 3, `expected "of 3", counter was "${counterText(col)}"`);
       assert(counterCurrent(col) === 1, `expected current 1, counter was "${counterText(col)}"`);
     } finally {
@@ -450,7 +453,7 @@ export async function runTests(_ctx) {
       const input = /** @type {HTMLInputElement} */ (col.querySelector('.find-bar__input'));
       input.value = 'needle';
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      await sleep(INPUT_WAIT_MS);
+      await counterChanged(col, '', 'typing');
       assert(counterCurrent(col) === 1, 'starts at match 1');
       // Typing doesn't scroll (it would yank the view on every keystroke), so
       // the first Enter shows match 1 where it lies instead of stepping off it.
@@ -474,7 +477,7 @@ export async function runTests(_ctx) {
       const input = /** @type {HTMLInputElement} */ (col.querySelector('.find-bar__input'));
       input.value = 'needle';
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      await sleep(INPUT_WAIT_MS);
+      await counterChanged(col, '', 'typing');
       assert(counterTotal(col) === 3, `plain search should find 3, got "${counterText(col)}"`);
       const wordBtn = /** @type {HTMLElement} */ (col.querySelector('.find-bar__word'));
       assert(!!wordBtn, 'whole-word toggle button exists');
@@ -543,15 +546,16 @@ export async function runTests(_ctx) {
       const input = /** @type {HTMLInputElement} */ (col.querySelector('.find-bar__input'));
       input.value = 'needle';
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      await sleep(INPUT_WAIT_MS);
+      await counterChanged(col, '', 'typing');
       const before = counterTotal(col);
       assert(before === 3, `expected 3 before append, got ${before}`);
       const list = /** @type {HTMLElement} */ (col.querySelector('#message-list'));
       const added = document.createElement('div');
       added.className = 'msg';
       added.textContent = 'another needle here';
+      const shownBefore = counterText(col);
       list.appendChild(added);
-      await sleep(OBSERVER_WAIT_MS);
+      await counterChanged(col, shownBefore, 'a message streamed in');
       assert(counterTotal(col) === before + 1,
         `observer should recount to ${before + 1}, got "${counterText(col)}"`);
     } finally {
@@ -573,7 +577,7 @@ export async function runTests(_ctx) {
         `expected the panel's own label, got "${input.getAttribute('aria-label')}"`);
       input.value = 'needle';
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      await sleep(INPUT_WAIT_MS);
+      await counterChanged(panel, '', 'typing');
       assert(counterTotal(panel) === 3, `expected 3 matches, got "${counterText(panel)}"`);
     } finally {
       findBar.close();
@@ -604,16 +608,17 @@ export async function runTests(_ctx) {
       const input = /** @type {HTMLInputElement} */ (panel.querySelector('.find-bar__input'));
       input.value = 'needle';
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      await sleep(INPUT_WAIT_MS);
+      await counterChanged(panel, '', 'typing');
       assert(counterTotal(panel) === 3, `expected 3 before the re-render, got "${counterText(panel)}"`);
 
       // What the panel does on every render: throw the whole section away and
       // build a new one. The bar is mounted on the panel, not in the section,
       // so it survives — but its root has just been detached under it.
       const content = /** @type {HTMLElement} */ (panel.querySelector('properties-panel-content'));
+      const shownBefore = counterText(panel);
       content.innerHTML =
         '<properties-panel-section><div>one needle</div><div>needle two</div></properties-panel-section>';
-      await sleep(OBSERVER_WAIT_MS);
+      await counterChanged(panel, shownBefore, 'the section was re-rendered');
 
       assert(findBar.isOpen() === true, 'the bar survives the re-render');
       assert(counterTotal(panel) === 2, `expected 2 after the re-render, got "${counterText(panel)}"`);
@@ -634,7 +639,7 @@ export async function runTests(_ctx) {
         `expected the board's own label, got "${input.getAttribute('aria-label')}"`);
       input.value = 'needle';
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      await sleep(INPUT_WAIT_MS);
+      await counterChanged(content, '', 'typing');
       assert(counterTotal(content) === 3, `expected 3 matches, got "${counterText(content)}"`);
     } finally {
       findBar.close();
@@ -843,9 +848,12 @@ export async function runTests(_ctx) {
         assert(counterText(col) === '', 'an empty query shows no counter');
         collect(bar, 'empty');
         for (const [query, where] of [['111', 'matches'], ['333', 'single match'], ['999', 'no matches']]) {
+          // Each query reads differently ("1 of 2", "1 of 1", "No results"), so
+          // a redraw is a change of counter text.
+          const shownBefore = counterText(col);
           input.value = query;
           input.dispatchEvent(new Event('input', { bubbles: true }));
-          await sleep(INPUT_WAIT_MS);
+          await counterChanged(col, shownBefore, `searching for ${query}`);
           assert(counterText(col) !== '', `the counter shows something (${where})`);
           collect(bar, `${where}, counter ${counterText(col)}`);
         }

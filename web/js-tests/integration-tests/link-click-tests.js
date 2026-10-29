@@ -48,7 +48,7 @@ function findLink(conversation) {
  * stopping propagation there would leave the anchor to navigate.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const linkClickInUnselectedMessage = {
+const linkClickInUnselectedMessage = {
   name: 'link-click-in-unselected-message',
   description: 'A link click in a not-yet-selected message reaches the document-level guard',
   fixture: 'unit-test-fixture',

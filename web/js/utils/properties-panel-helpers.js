@@ -11,7 +11,7 @@
  * without coupling to the PropertiesPanel component.
  */
 
-import { revealLabel } from '../components/reveal-button.js';
+import { revealLabel } from './reveal-label.js';
 import { uiPort } from '../services/ui-port.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { registerContextMenuProvider, codeReferenceMenuItem } from '../services/context-menu-service.js';

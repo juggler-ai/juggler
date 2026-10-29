@@ -312,5 +312,3 @@ class ToolGroupMessage extends JugglerElement {
 }
 
 customElements.define('tool-group-message', ToolGroupMessage);
-
-export default ToolGroupMessage;

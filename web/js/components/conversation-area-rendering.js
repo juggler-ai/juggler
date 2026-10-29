@@ -37,6 +37,7 @@ import {
   isErrorMessage,
   isNoticeMessage,
   isThreadMessage,
+  itemField,
 } from '../../sdk/lib/message.js';
 import { FINAL_ITEM_ATTR } from './base-message.js';
 import { isGroupEntry } from '../utils/item-grouping.js';
@@ -996,7 +997,7 @@ function createToolActionElement(message, itemIndex) {
 
   // Context item results are rendered by context item messages, not here
   const result = msg.get('result');
-  if ((result?.get ? result.get('resultType') : result?.resultType) === 'context') {
+  if (itemField(result, 'resultType') === 'context') {
     return null;
   }
 
@@ -1049,8 +1050,7 @@ function createNoticeBubble(message, itemIndex) {
   const attributes = { 'notice-text': itemSummaryText(message) };
   // A notice whose cause is a correctable setting names it in its data; the
   // row turns that into its one link. See notice-message.js.
-  const data = message.get('data');
-  const plain = data && typeof data.toJSON === 'function' ? data.toJSON() : data;
+  const plain = readItemData(message);
   const settings = plain?.settings;
   if (settings) attributes['notice-settings'] = JSON.stringify(settings);
   // A turn cut off at its Max output may offer a one-off retry at a larger one.
@@ -1095,8 +1095,10 @@ function createContextItemBubble(area, message, itemIndex) {
   };
 
   if (icon) attrs['icon'] = icon;
-  if (msg.get('itemId')) attrs['item-id'] = msg.get('itemId');
-  if (msg.get('error')) attrs['error'] = msg.get('error');
+  const itemId = msg.get('itemId');
+  if (itemId) attrs['item-id'] = itemId;
+  const error = msg.get('error');
+  if (error) attrs['error'] = error;
 
   return createMessageElement('context-item-message', {
     itemId: msg.get('itemId'),

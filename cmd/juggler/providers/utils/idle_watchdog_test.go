@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"juggler/internal/machineload"
+	"juggler/internal/machineload/machineloadtest"
 )
 
 // firedCancel returns a CancelFunc that closes done when called, so a test can
@@ -75,7 +75,7 @@ func TestIdleWatchdog_ResetPreventsFire(t *testing.T) {
 	blameTheFire := func() {
 		t.Helper()
 		if g := gap(); g >= windowUnderResets {
-			machineload.Skip(t, "this test went %v without getting a reset in — longer than the %v "+
+			machineloadtest.Skip(t, "this test went %v without getting a reset in — longer than the %v "+
 				"window it is asking the watchdog to honour — so the fire is unattributable",
 				g.Round(time.Millisecond), windowUnderResets)
 		}

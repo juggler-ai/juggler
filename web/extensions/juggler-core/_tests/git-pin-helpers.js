@@ -11,10 +11,9 @@
  * @module _tests/git-pin-helpers
  */
 
-/** @typedef {import('../pins/git-pin.js').default} GitPin */
+import { nextTask } from '../../../js-tests/utilities/test-helpers.js';
 
-/** @returns {Promise<void>} Resolved once the pending promise chains have run. */
-export const settle = () => new Promise((resolve) => { setTimeout(resolve, 0); });
+/** @typedef {import('../pins/git-pin.js').default} GitPin */
 
 /**
  * A repo with everything filled in, so a case overrides only what it is about.
@@ -229,7 +228,6 @@ export function mountPin(pin, options = {}) {
     clears: () => clears,
     composes: () => composes,
     draft: () => draft,
-    settle,
     holdDiffs: (/** @type {boolean} */ hold) => { holdDiffs = hold; },
     setManifest: (/** @type {any} */ next) => { manifest = next; },
     failReview: (/** @type {any} */ e) => { reviewFailure = e; },
@@ -265,7 +263,7 @@ export function mountPin(pin, options = {}) {
  */
 export async function mountedPin(pin, options = {}) {
   const m = mountPin(pin, options);
-  await settle();
-  await settle();
+  await nextTask();
+  await nextTask();
   return m;
 }

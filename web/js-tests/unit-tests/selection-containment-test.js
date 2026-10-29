@@ -21,7 +21,7 @@
  * @module unit-tests/selection-containment-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, nextTask } from '../utilities/test-helpers.js';
 
 /**
  * @typedef {object} TestResult
@@ -29,15 +29,6 @@ import { assert } from '../utilities/test-helpers.js';
  * @property {number} failed - Number of failed tests
  * @property {string[]} errors - Error messages for failed tests
  */
-
-/**
- * Yields to the task queue, so a deferred disarm (and any selectionchange the
- * engine queues for a selection this test built) has run before the next case.
- * @returns {Promise<void>} Resolves on the next task.
- */
-function nextTask() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
 
 /**
  * @param {object} _ctx - Test context (unused)

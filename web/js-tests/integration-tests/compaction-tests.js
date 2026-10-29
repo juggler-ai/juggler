@@ -34,7 +34,7 @@ function summaryResponse(result) {
  * worker writes a summary. The parent ends with exactly one thread tile.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionBasicTest = {
+const compactionBasicTest = {
   name: 'compaction-basic',
   description: 'Compaction moves the entire conversation into one summary thread',
   fixture: 'unit-test-fixture',
@@ -80,7 +80,7 @@ export const compactionBasicTest = {
  * unchanged by the refactor (the helper still takes an explicit index).
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionUpToTest = {
+const compactionUpToTest = {
   name: 'compaction-up-to',
   description: 'compactUpTo() creates a thread covering the first N items',
   fixture: 'unit-test-fixture',
@@ -128,7 +128,7 @@ export const compactionUpToTest = {
  * after compact. The fix expands the filter to MESSAGE_TYPES.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionSweepsThinkingTest = {
+const compactionSweepsThinkingTest = {
   name: 'compaction-sweeps-thinking',
   description: 'Compaction moves thinking blocks into the thread alongside user/assistant',
   fixture: 'unit-test-fixture',
@@ -179,7 +179,7 @@ export const compactionSweepsThinkingTest = {
  * in-flight processing first.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionUndoRestoresConversationTest = {
+const compactionUndoRestoresConversationTest = {
   name: 'compaction-undo-restores',
   description: 'Undo after compaction restores the pre-compact conversation',
   fixture: 'unit-test-fixture',
@@ -226,7 +226,7 @@ export const compactionUndoRestoresConversationTest = {
  * thread is missing X" failure mode is impossible to slip past.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionSweepsAllItemsTest = {
+const compactionSweepsAllItemsTest = {
   name: 'compaction-sweeps-all-items',
   description: 'Compaction sweeps the first AND last messages into the thread, leaving none at parent',
   fixture: 'unit-test-fixture',
@@ -290,7 +290,7 @@ export const compactionSweepsAllItemsTest = {
  * "items missing from thread" as a clear mismatch.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionSweepsToolActionsTest = {
+const compactionSweepsToolActionsTest = {
   name: 'compaction-sweeps-tool-actions',
   description: 'Long conversation with tool calls compacts without orphans',
   fixture: 'unit-test-fixture',
@@ -356,7 +356,7 @@ export const compactionSweepsToolActionsTest = {
  * thread; and the summarization turn still produces its result.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionPreservesLeadingAgentsFilesTest = {
+const compactionPreservesLeadingAgentsFilesTest = {
   name: 'compaction-preserves-leading-agents-files',
   description: 'Leading file-content (agents) pins stay at the parent across compaction; the summary turn still sees them via root context',
   fixture: 'unit-test-fixture',
@@ -433,7 +433,7 @@ export const compactionPreservesLeadingAgentsFilesTest = {
  * only the leading run is preserved, not every file-content item.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionSweepsMidConversationFileTest = {
+const compactionSweepsMidConversationFileTest = {
   name: 'compaction-sweeps-mid-conversation-file',
   description: 'A file pinned mid-conversation is swept into the thread, not preserved at parent',
   fixture: 'unit-test-fixture',
@@ -497,7 +497,7 @@ export const compactionSweepsMidConversationFileTest = {
  * must remain at the parent and NEITHER may leak into the thread.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionPreservesMemoryTest = {
+const compactionPreservesMemoryTest = {
   name: 'compaction-preserves-memory',
   description: 'Project memory (and a standing item after it) stays at the parent across /compact',
   fixture: 'unit-test-fixture',
@@ -586,7 +586,7 @@ export const compactionPreservesMemoryTest = {
  *   (iii) the new tab is the visible conversation.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const newConversationTest = {
+const newConversationTest = {
   name: 'new-conversation-command',
   description: '/new opens a fresh empty conversation in a new tab and switches to it',
   fixture: 'unit-test-fixture',
@@ -666,7 +666,7 @@ function duplicateCopyMatches(conv) {
   });
 }
 
-export const duplicateConversationTest = {
+const duplicateConversationTest = {
   name: 'duplicate-conversation-command',
   description: '/duplicate clones the conversation into a new conversation after the source and switches to it',
   fixture: 'unit-test-fixture',
@@ -753,7 +753,7 @@ export const duplicateConversationTest = {
  * once the test settles.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionCancelsRunningTurnTest = {
+const compactionCancelsRunningTurnTest = {
   name: 'compaction-cancels-running-turn',
   description: '/compact mid-flight asks, then cancels the live turn before snapshotting; no item is left stuck running',
   fixture: 'unit-test-fixture',
@@ -832,7 +832,7 @@ export const compactionCancelsRunningTurnTest = {
  * own; a compaction would have no summariser response to consume.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionDeclinedLeavesTurnRunningTest = {
+const compactionDeclinedLeavesTurnRunningTest = {
   name: 'compaction-declined-leaves-turn-running',
   description: 'Declining the mid-turn confirmation abandons /compact and leaves the live turn to finish',
   fixture: 'unit-test-fixture',
@@ -881,7 +881,7 @@ export const compactionDeclinedLeavesTurnRunningTest = {
  * summary message) carries a non-empty itemId.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionSummaryMessageSelectableTest = {
+const compactionSummaryMessageSelectableTest = {
   name: 'compaction-summary-message-selectable',
   description: 'The appended summary user message gets an itemId so it is selectable/deletable like any message',
   fixture: 'unit-test-fixture',
@@ -935,7 +935,7 @@ export const compactionSummaryMessageSelectableTest = {
  * whatever its last run rested on, so a different one is a message away.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const compactionResummariseTest = {
+const compactionResummariseTest = {
   name: 'compaction-resummarise',
   description: 'A compaction fold can be summarised again from its Result block',
   fixture: 'unit-test-fixture',

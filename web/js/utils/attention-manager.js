@@ -188,11 +188,6 @@ export function setSoundEnabled(on) {
   savePrefs({ sound: !!on });
 }
 
-/** @returns {boolean} Whether the out-of-app attention signal is enabled. */
-export function isNotifyEnabled() {
-  return getAttentionPrefs().notify;
-}
-
 /**
  * Toggle the out-of-app attention signal (dock-icon bounce / browser-tab title
  * badge). Does NOT touch the in-app conversation-tab flash, which always fires;

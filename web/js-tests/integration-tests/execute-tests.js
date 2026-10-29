@@ -24,7 +24,7 @@ import { textResponse, toolUseResponse, multiToolResponse } from '../utilities/i
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const executeEchoTest = {
+const executeEchoTest = {
   name: 'execute-echo',
   description: 'Simple echo command with approval',
   fixture: 'unit-test-fixture',
@@ -69,7 +69,7 @@ export const executeEchoTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const executeMultilineTest = {
+const executeMultilineTest = {
   name: 'execute-multiline',
   description: 'Multi-line output captured',
   fixture: 'unit-test-fixture',
@@ -114,7 +114,7 @@ export const executeMultilineTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const executeDeniedTest = {
+const executeDeniedTest = {
   name: 'execute-denied',
   description: 'Denied command not executed',
   fixture: 'unit-test-fixture',
@@ -157,7 +157,7 @@ export const executeDeniedTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const executeCreateFileTest = {
+const executeCreateFileTest = {
   name: 'execute-create-file',
   description: 'Command creates file (side effect)',
   fixture: 'unit-test-fixture',
@@ -206,7 +206,7 @@ export const executeCreateFileTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-export const executeSequentialTest = {
+const executeSequentialTest = {
   name: 'execute-sequential',
   description: 'Multiple commands in sequence',
   fixture: 'unit-test-fixture',

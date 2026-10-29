@@ -128,10 +128,15 @@ window-caption-controls {
 }
 
 /* Windows: full-height buttons flush to the top-right corner, native-caption
-   style. Cancel the header's right + vertical padding so they sit flush. */
+   style. Cancel the header's right + vertical padding so they sit flush — read
+   from the header (app-header.css), which tightens it on a narrow window. */
 :where(:root[data-window-platform="windows"] .window-mode) window-caption-controls {
     align-self: stretch; /* span the full header height */
-    margin: -0.75rem -1.25rem -0.75rem 0;
+    margin:
+        calc(-1 * var(--app-header-pad-block))
+        calc(-1 * var(--app-header-pad-inline))
+        calc(-1 * var(--app-header-pad-block))
+        0;
 }
 
 /* Linux: compact rounded buttons inset from the corner, matching the GNOME /

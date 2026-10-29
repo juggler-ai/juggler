@@ -674,10 +674,11 @@ conversation-message-list-wrapper {
     pointer-events: none;
 }
 
-/* The wordmark shrinks with the header's padding at the same breakpoint. */
+/* The wordmark shrinks with the header's padding at the same breakpoint — by a
+   fifth, so it still reads as the wordmark. */
 @media (width <= 64rem) {
     .logo::before {
-        height: 1.5rem;
+        height: 2rem;
     }
 }
 

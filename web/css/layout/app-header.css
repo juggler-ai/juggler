@@ -10,8 +10,24 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+
+    /* Named so a control that sits flush to the header's edge (the Windows
+       caption buttons, window-chrome.css) can cancel exactly the padding in
+       force at every width. Set these, never `padding`, below. */
     /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
-    padding: 12px 20px;
+    --app-header-pad-block: 12px;
+    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
+    --app-header-pad-inline: 20px;
+
+    /* The left edge, where the wordmark sits. Its own setting, so a narrow
+       window can tighten the other edges without crowding the wordmark. */
+    --app-header-pad-start: var(--app-header-pad-inline);
+
+    padding:
+        var(--app-header-pad-block)
+        var(--app-header-pad-inline)
+        var(--app-header-pad-block)
+        var(--app-header-pad-start);
     flex-shrink: 0;
     gap: 1.5rem;
 
@@ -290,7 +306,12 @@ header-actions .btn-icon-header::before {
 /* Tighten the header's padding before anything else has to move. */
 @media (width <= 64rem) {
     .app-header {
-        padding: 0.5rem 0.75rem;
+        --app-header-pad-block: 0.5rem;
+        --app-header-pad-inline: 0.75rem;
+
+        /* …but the wordmark keeps the full header's clearance from the edge. */
+        /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
+        --app-header-pad-start: 20px;
     }
 }
 
@@ -320,7 +341,12 @@ header-actions .btn-icon-header::before {
     .app-header {
         flex-wrap: wrap;
         gap: 0 0.5rem;
-        padding: 0.5rem 0.75rem;
+
+        --app-header-pad-block: 0.5rem;
+        --app-header-pad-inline: 0.75rem;
+
+        /* The hamburger leads row 1 here, not the wordmark. */
+        --app-header-pad-start: 0.75rem;
     }
 
     /* The break between the rows: a zero-height, full-width flex item ordered

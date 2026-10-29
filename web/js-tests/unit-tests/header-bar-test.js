@@ -27,6 +27,10 @@
  *   8. Under en-XA the network button's title and accessible name are translated.
  *   9. A window on a server the app did not start names that server's host
  *      inside the network button, which leads the button row.
+ *  10. A frameless Windows or Linux window's caption buttons stay inside it at
+ *      every header width — on Windows flush to the top-right corner.
+ *  11. The condensed header shrinks the wordmark only a little, and keeps it
+ *      as far from the left edge as the full-width header does.
  * @module unit-tests/header-bar-test
  */
 
@@ -794,6 +798,78 @@ export async function runTests() {
     assert(raw.length === 0, `plain English under en-XA (remote network button): ${JSON.stringify(raw)}`);
     passed++;
   } catch (e) { failed++; errors.push(`remote host in the network button: ${msg(e)}`); }
+
+  // --- 10: the caption buttons of a frameless window stay inside it ---
+  try {
+    // Every header layout (wide, the tightened padding under 64rem, the
+    // wrapped phone rows), and a zoomed root font-size, which scales rems but
+    // not the header's px padding.
+    for (const [platform, width, rootFontSize] of /** @type {const} */ ([
+      ['windows', 1400, ''], ['windows', 800, ''], ['windows', 400, ''], ['windows', 1400, '20px'],
+      ['linux', 1400, ''], ['linux', 800, ''], ['linux', 400, ''],
+    ])) {
+      const f = await framedHeader(served, width);
+      const where = `${platform}, ${width}px${rootFontSize ? `, root font ${rootFontSize}` : ''}`;
+      try {
+        const root = f.doc.documentElement;
+        root.dataset.windowPlatform = platform;
+        root.dataset.windowMode = '1';
+        root.style.fontSize = rootFontSize;
+        f.doc.body.classList.add('window-mode');
+        // The element stays inert in the frame, so give it the buttons it draws.
+        const controls = f.el('window-caption-controls');
+        for (const kind of ['minimise', 'maximise', 'close']) {
+          const b = f.doc.createElement('button');
+          b.className = `window-caption-btn window-caption-btn--${kind}`;
+          controls.appendChild(b);
+        }
+        const header = f.box('.app-header');
+        const close = f.box('.window-caption-btn--close');
+        const box = controls.getBoundingClientRect();
+        assert(close.width > 0 && close.right <= header.right + 0.5 && close.right <= width + 0.5,
+          `${where}: close sits inside the window (right edge ${close.right}, header ${header.right})`);
+        assert(box.left >= header.left - 0.5 && box.top >= header.top - 0.5,
+          `${where}: the caption buttons sit inside the header (top ${box.top - header.top}px)`);
+        if (platform === 'windows') {
+          assert(Math.abs(close.right - header.right) < 0.5 && Math.abs(box.top - header.top) < 0.5,
+            `${where}: the caption strip is flush to the top-right corner (${header.right - close.right}px from the right, ${box.top - header.top}px from the top)`);
+        }
+      } finally {
+        f.frame.remove();
+      }
+    }
+    passed++;
+  } catch (e) { failed++; errors.push(`caption buttons: ${msg(e)}`); }
+
+  // --- 11: the condensed header shrinks the wordmark, but not too far ---
+  try {
+    /**
+     * @param {number} width - Header width to lay out at.
+     * @returns {Promise<{height: number, clearance: number}>} The wordmark's
+     *   height and its distance from the header's left edge.
+     */
+    const wordmarkAt = async (width) => {
+      const f = await framedHeader(served, width);
+      try {
+        const logo = f.el('.logo');
+        return {
+          height: parseFloat(/** @type {Window} */ (f.doc.defaultView).getComputedStyle(logo, '::before').height),
+          clearance: logo.getBoundingClientRect().left - f.box('.app-header').left,
+        };
+      } finally {
+        f.frame.remove();
+      }
+    };
+    const wide = await wordmarkAt(1400);
+    const condensed = await wordmarkAt(800);
+    assert(condensed.height < wide.height,
+      `the condensed header still shrinks the wordmark (${condensed.height}px vs ${wide.height}px)`);
+    assert(condensed.height >= wide.height * 0.8,
+      `the condensed wordmark keeps at least 80% of its size (${condensed.height}px of ${wide.height}px)`);
+    assert(Math.abs(condensed.clearance - wide.clearance) < 0.5,
+      `the condensed wordmark keeps the full header's left clearance (${condensed.clearance}px vs ${wide.clearance}px)`);
+    passed++;
+  } catch (e) { failed++; errors.push(`condensed wordmark: ${msg(e)}`); }
 
   return { passed, failed, errors };
 }

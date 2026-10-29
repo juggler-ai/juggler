@@ -62,12 +62,18 @@ const programExt = ".json"
 // tool-action has settled or is gone.
 type ProgramStore struct {
 	pathProvider PathProviderFunc
+
+	// remove removes one file from the programs directory, and nothing if it
+	// is not there. On Windows a reader's handle (Get, a scanner) refuses the
+	// delete for as long as it is open, so the removal outlasts one. A field
+	// so a test can fail one removal of its own store.
+	remove func(path string) error
 }
 
 // NewProgramStore returns a store backed by the given path provider. The
 // <convDir>/programs/ directory is created lazily on Save.
 func NewProgramStore(pathProvider PathProviderFunc) *ProgramStore {
-	return &ProgramStore{pathProvider: pathProvider}
+	return &ProgramStore{pathProvider: pathProvider, remove: atomicio.RobustRemoveAll}
 }
 
 // dir returns the conversation's programs directory, or "" if the
@@ -125,7 +131,7 @@ func (s *ProgramStore) Get(convID, toolUseID string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return os.ReadFile(p)
+	return atomicio.RobustReadFile(p)
 }
 
 // Delete removes a snapshot. One that is not there is not an error.
@@ -134,10 +140,7 @@ func (s *ProgramStore) Delete(convID, toolUseID string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
+	return s.remove(p)
 }
 
 // List returns the tool-use ids with a snapshot. Temp files left by an
@@ -167,21 +170,24 @@ func (s *ProgramStore) List(convID string) ([]string, error) {
 
 // Sweep deletes every snapshot whose tool-use id is not in live, and every
 // temp file older than programTmpGrace — one left by a crash or a failed
-// write, which List never reports and so no snapshot sweep would reach.
+// write, which List never reports and so no snapshot sweep would reach. A
+// removal that fails costs only its own file: the rest are still removed, and
+// the failures are returned together.
 func (s *ProgramStore) Sweep(convID string, live map[string]bool) error {
 	ids, err := s.List(convID)
 	if err != nil {
 		return err
 	}
+	var failed []error
 	for _, id := range ids {
 		if live[id] {
 			continue
 		}
 		if err := s.Delete(convID, id); err != nil {
-			return err
+			failed = append(failed, err)
 		}
 	}
-	return s.sweepTemps(convID)
+	return errors.Join(append(failed, s.sweepTemps(convID))...)
 }
 
 // sweepTemps removes the programs directory's stale temp files.
@@ -198,6 +204,7 @@ func (s *ProgramStore) sweepTemps(convID string) error {
 		return err
 	}
 	cutoff := time.Now().Add(-programTmpGrace)
+	var failed []error
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".tmp") {
 			continue
@@ -206,9 +213,9 @@ func (s *ProgramStore) sweepTemps(convID string) error {
 		if err != nil || info.ModTime().After(cutoff) {
 			continue
 		}
-		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
+		if err := s.remove(filepath.Join(dir, e.Name())); err != nil {
+			failed = append(failed, err)
 		}
 	}
-	return nil
+	return errors.Join(failed...)
 }

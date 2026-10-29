@@ -288,7 +288,9 @@ export async function runProgramSuite(defineCases) {
    * @returns {Promise<void>}
    */
   const assertParks = async (conversation, mt, command) => {
-    const d = await decideToolCall({ messageThread: mt, conversation, toolName: 'bash', toolInput: { command }, toolUseId: `probe_${++seq}` });
+    const d = await withTimeout(
+      decideToolCall({ messageThread: mt, conversation, toolName: 'bash', toolInput: { command }, toolUseId: `probe_${++seq}` }),
+      budgetFor(10000), `the decision on ${command}`);
     assert(d.verdict === 'park', `precondition: ${command} must park here, got ${d.verdict}`);
   };
 

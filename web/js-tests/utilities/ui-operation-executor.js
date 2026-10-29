@@ -1286,6 +1286,41 @@ export async function executeUIOperation(harness, op) {
       break;
     }
 
+    // Several deletions made together, as a user's quick clicks are: each its
+    // own edit and its own frame to the worker, last item first. "Together" is
+    // read off the conversation's edit clock, which is held still across them:
+    // the synchronous work each deletion sets off (observers, a re-render)
+    // takes a second of wall time on a slow core, so issuing them back to back
+    // does not make them close by any real clock.
+    case 'delete-thread-items-together': {
+      if (!op.count) {
+        throw new Error('delete-thread-items-together requires count');
+      }
+      const rootItems = harness.rootThread.items || [];
+      const threadItem = [...rootItems].reverse().find((item) => item.get?.('type') === 'thread');
+      if (!threadItem) {
+        throw new Error(`${op.type}: no thread found in root items`);
+      }
+      const messageThread = harness.conversation.resolveMessageThread(threadItem.get('itemId'));
+      const sync = /** @type {any} */ (harness.conversation)._doc._syncManager;
+      const clock = sync.now;
+      const at = clock();
+      sync.now = () => at;
+      try {
+        for (let n = 0; n < op.count; n++) {
+          const allItems = messageThread.items;
+          const deletable = allItems.filter(i => !i.get('preventUserDeletion'));
+          if (deletable.length === 0) {
+            throw new Error(`${op.type}: thread ran out of deletable items after ${n} of ${op.count}`);
+          }
+          messageThread.deleteAt(allItems.indexOf(deletable[deletable.length - 1]));
+        }
+      } finally {
+        sync.now = clock;
+      }
+      break;
+    }
+
     case 'assert-thread-item-count': {
       if (op.count === undefined) {
         throw new Error('assert-thread-item-count requires count');

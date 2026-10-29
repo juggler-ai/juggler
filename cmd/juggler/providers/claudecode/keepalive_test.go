@@ -37,7 +37,7 @@ const (
 	envFakeMode    = "JUGGLER_FAKE_CLAUDE_MODE"
 
 	fakeModeText       = "text"        // emit one assistant text turn, then result, exit (or wait stdin)
-	fakeModeToolUse    = "tool_use"    // emit assistant tool_use, then hold open until killed
+	fakeModeToolUse    = "tool_use"    // emit assistant tool_use, then hold open until torn down
 	fakeModeNoResult   = "no_result"   // emit nothing past init; hold stdin open (used to test cancel)
 	fakeModeFailFirst  = "fail_first"  // emit error result on the first turn (for error-recovery shape)
 	fakeModeFailSecond = "fail_second" // complete one turn, then fail after consuming the next request
@@ -221,8 +221,15 @@ func runFakeClaude() {
 		emitToolUse(out, "t1", "mcp__juggler__bash", map[string]any{"cmd": "ls"})
 		// CLI is paused at tool_use; in production it would POST to MCP.
 		// The fake doesn't speak MCP — just hold the process alive so
-		// the test can observe the parked state and then kill us.
-		select {}
+		// the test can observe the parked state and then tear us down.
+		// Parked on a real stdin read, as fakeModeNoResult is: select{}
+		// leaves every goroutine blocked on a channel, which is the state
+		// Go's deadlock detector ends a process for, so whether the fake
+		// outlived its park was up to the runtime. Returns on the stdin EOF
+		// that teardown opens with.
+		out.Flush()
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		return
 	case fakeModeFailFirst:
 		emitInit()
 		emit(out, map[string]any{
@@ -805,9 +812,19 @@ func TestCancel_KillsLiveSubprocess(t *testing.T) {
 
 	// Verify the subprocess is alive (read state directly off the *Client;
 	// no global map any more).
+	// A CLI that is not live here has already exited, so say how: its own
+	// last words, and the status it left once reaped.
 	sess := c.activeSession
-	if sess == nil || !sess.hasLiveCLI() {
-		t.Fatalf("expected live CLI for %s, got %+v", convID, sess)
+	if sess == nil {
+		t.Fatalf("expected live CLI for %s, got no session", convID)
+	}
+	if !sess.hasLiveCLI() {
+		stderr := sess.drainStderr()
+		status := "never spawned"
+		if sess.live != nil && sess.live.cmd != nil {
+			status = fmt.Sprint(sess.live.cmd.Wait())
+		}
+		t.Fatalf("expected live CLI for %s; the fake exited (wait: %s), stderr:\n%s", convID, status, stderr)
 	}
 	pid := sess.live.cmd.Process.Pid
 

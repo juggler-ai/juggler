@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"juggler/cmd/juggler/core"
+	"juggler/internal/atomicio"
 
 	ycrdt "github.com/skyterra/y-crdt"
 )
@@ -205,6 +206,37 @@ func TestProgramStore_SweepRemovesStaleTemps(t *testing.T) {
 	}
 	if _, err := os.Stat(fresh); err != nil {
 		t.Errorf("a temp file within the grace must be kept: %v", err)
+	}
+	if _, err := store.Get("conv", "toolu_live"); err != nil {
+		t.Errorf("a live snapshot must be kept: %v", err)
+	}
+}
+
+// TestProgramStore_SweepOutlastsOneFailedDelete pins that a snapshot the sweep
+// cannot remove — on Windows, one a reader holds open at that moment — costs
+// only itself: every other settled program's snapshot is still removed, and
+// the failure is reported. The sweep rides the next document save, so a
+// snapshot it gave up on early would stay until something else changed.
+func TestProgramStore_SweepOutlastsOneFailedDelete(t *testing.T) {
+	store, _ := testProgramStore(t)
+	for _, id := range []string{"toolu_a", "toolu_b", "toolu_live"} {
+		if err := store.Save("conv", id, []byte("{}")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	held := errors.New("held open")
+	store.remove = func(path string) error {
+		if filepath.Base(path) == "toolu_a"+programExt {
+			return held
+		}
+		return atomicio.RobustRemoveAll(path)
+	}
+
+	if err := store.Sweep("conv", map[string]bool{"toolu_live": true}); !errors.Is(err, held) {
+		t.Fatalf("Sweep must report the snapshot it could not remove: err=%v", err)
+	}
+	if _, err := store.Get("conv", "toolu_b"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a settled snapshot listed after the one that failed must still be swept: Get err=%v", err)
 	}
 	if _, err := store.Get("conv", "toolu_live"); err != nil {
 		t.Errorf("a live snapshot must be kept: %v", err)

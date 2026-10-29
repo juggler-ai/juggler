@@ -742,7 +742,8 @@ export function assertContextGolden(context, expectedMessages, toolCalls, testNa
  * @returns {Promise<Conversation>} Conversation instance without auto-approve
  */
 export async function createApprovalTestConversation(session) {
-  const convId = await session.createConversation('');
+  // A named wait, so a suite parked here says so rather than "no wait in flight".
+  const convId = await withTimeout(session.createConversation(''), 10000, 'the server to create a conversation');
   const conversation = session.conversations.get(convId);
 
   if (!conversation) {

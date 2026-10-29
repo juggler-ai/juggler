@@ -178,6 +178,16 @@ class DocumentSyncManager {
      */
     this._lastLocalEditAt = null;
 
+    /**
+     * The clock local edits are timed by, in milliseconds. Per document, so a
+     * test can hold one conversation's clock still across edits it means as
+     * made together without touching any other: on a slow enough core the
+     * synchronous work one edit sets off spaces the next further apart than
+     * any undo window, however quickly they were issued.
+     * @type {() => number}
+     */
+    this.now = () => performance.now();
+
     // Update handler for sync (bound to preserve 'this')
     /** @type {(update: Uint8Array, origin: any) => void} */
     this._updateHandler = (update, origin) => {
@@ -187,7 +197,7 @@ class DocumentSyncManager {
           this.onSyncBroadcast(update, { engineDerived: true });
           return;
         }
-        const now = performance.now();
+        const now = this.now();
         const previous = this._lastLocalEditAt;
         this._lastLocalEditAt = now;
         this.onSyncBroadcast(update, previous === null ? undefined : { sinceEditMs: Math.round(now - previous) });

@@ -64,10 +64,12 @@ function getLiveSessions() {
  * which is worth a wait but never worth a deadlock: every status this waits on
  * is written by the worker, so anything that leaves one set — a crashed worker,
  * a tool that never returns — would otherwise wedge the rebuild, and with it
- * every enable/disable in the catalog, for the life of the page.
+ * every enable/disable in the catalog, for the life of the page. It is the only
+ * clock the wait arms: anything sooner would be a poll, and the document says
+ * when a turn ends.
  * @type {number}
  */
-const QUIESCENCE_TIMEOUT_MS = 30000;
+export const QUIESCENCE_TIMEOUT_MS = 30000;
 
 /**
  * Whether a conversation is running a turn we should wait for.

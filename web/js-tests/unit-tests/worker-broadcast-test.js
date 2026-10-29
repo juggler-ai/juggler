@@ -35,6 +35,7 @@ import strategyRegistry from '../../js/registries/strategy-registry.js';
 import {
   __holdNextRegistryRebuildForTests,
   anyLocalConversationBusy,
+  QUIESCENCE_TIMEOUT_MS,
   reloadRegistries,
   whenRegistriesSettled,
 } from '../../js/registries/reload-registries.js';
@@ -338,6 +339,11 @@ export async function runTests(_ctx) {
   // The reload hears the turn end from the document, the moment it does, and is
   // not woken by a clock in between: a status that changes without the document
   // saying so is not seen until it does.
+  //
+  // "No clock" is checked by listing the clocks rather than by waiting to see
+  // whether one fires, which a slow core passes vacuously. The wait arms its
+  // timers as it starts, synchronously inside `reloadRegistries()`, where no
+  // sibling lane can run and arm one of its own.
   await test('a reload waiting for a turn goes ahead when the document says it ended', async () => {
     await whenRegistriesSettled();
     await withEngineTurn(async (turn) => {
@@ -346,11 +352,25 @@ export async function runTests(_ctx) {
       /** @type {() => void} */
       let release = () => {};
       __holdNextRegistryRebuildForTests(new Promise((resolve) => { release = () => resolve(undefined); }));
-      const reloading = reloadRegistries();
+      const g = /** @type {any} */ (globalThis);
+      const { setTimeout: realTimeout, setInterval: realInterval } = g;
+      /** @type {string[]} */
+      const armed = [];
+      g.setTimeout = (/** @type {any[]} */ ...args) => { armed.push(`setTimeout ${args[1]}`); return realTimeout(...args); };
+      g.setInterval = (/** @type {any[]} */ ...args) => { armed.push(`setInterval ${args[1]}`); return realInterval(...args); };
+      /** @type {Promise<void>} */
+      let reloading;
       try {
+        reloading = reloadRegistries();
+      } finally {
+        g.setTimeout = realTimeout;
+        g.setInterval = realInterval;
+      }
+      try {
+        assert(armed.length === 1 && armed[0] === `setTimeout ${QUIESCENCE_TIMEOUT_MS}`,
+          `the only clock a waiting reload arms is its give-up, got ${JSON.stringify(armed)}`);
         turn.processingState.status = 'idle';
-        // eslint-disable-next-line juggler/no-private-test-wait -- negative window with no fence: the claim is that no clock wakes the reload, so no later event exists to wait for
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await new Promise((resolve) => setTimeout(resolve, 0));
         assert(registriesPopulated(), `the reload went ahead before anything announced the turn had ended (strategies=${strategyRegistry.isInitialized()} items=${contextItemRegistry.isInitialized()} busy=${anyLocalConversationBusy()})`);
         turn.announce();
         await new Promise((resolve) => setTimeout(resolve, 0));

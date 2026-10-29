@@ -740,17 +740,51 @@ export async function runTests() {
       // an open form would take the focus out of the field mid-word and throw
       // away what had been typed, so a form on screen outranks anything that
       // arrived on its own.
-      const settled = openWorkspaceCreate(session);
+      //
+      // The dialog's own probe is held until the form has been typed into, or
+      // it could land before there was a form and prove nothing; then it is let
+      // go and every answer it asked for is waited for. It asks each provider
+      // as it opens, synchronously, so the stand-in is in place for exactly
+      // that probe.
+      const registry = /** @type {any} */ (workspaceProviderRegistry);
+      const ownCreate = Object.prototype.hasOwnProperty.call(registry, 'createProvider');
+      const realCreate = registry.createProvider;
+      /** @type {() => void} */
+      let letGo = () => {};
+      const held = new Promise((resolve) => { letGo = () => resolve(undefined); });
+      /** @type {Promise<unknown>[]} */
+      const answers = [];
+      registry.createProvider = function (/** @type {string} */ id, /** @type {any} */ s) {
+        const provider = realCreate.call(this, id, s);
+        if (!provider || s !== session) return provider;
+        const reconcile = provider.reconcile.bind(provider);
+        provider.reconcile = (/** @type {any[]} */ ...args) => {
+          const answer = held.then(() => reconcile(...args));
+          answers.push(answer.catch(() => {}));
+          return answer;
+        };
+        return provider;
+      };
+      /** @type {Promise<any>} */
+      let settled;
       try {
+        settled = openWorkspaceCreate(session);
+      } finally {
+        if (ownCreate) registry.createProvider = realCreate;
+        else delete registry.createProvider;
+      }
+      try {
+        assert(answers.length > 0, 'the dialog asked its providers what exists as it opened');
         await chooseFixture();
         const field = /** @type {HTMLInputElement} */ (document.querySelector('.workspace-create-overlay #fixture-dir'));
         field.focus();
         typeDirectory(`${projectPath}/half-typed`);
 
-        // The probe the dialog runs as it opens, settled and asking for a redraw.
-        await probeSetupAdoptions(session);
-        // eslint-disable-next-line juggler/no-private-test-wait -- negative window: the redraw the probe asks for has no observable completion to fence on
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        // The probe lands. From its last answer to its redraw is promise
+        // reactions alone, which all run before the next task.
+        letGo();
+        await Promise.all(answers);
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         const still = /** @type {HTMLInputElement|null} */ (document.querySelector('.workspace-create-overlay #fixture-dir'));
         assert(still === field,
@@ -758,6 +792,7 @@ export async function runTests() {
         assert(still?.value === `${projectPath}/half-typed`,
           `and still holds what was typed into it, got ${JSON.stringify(still?.value)}`);
       } finally {
+        letGo();
         press('.workspace-create-cancel');
         await settled;
       }
@@ -775,9 +810,10 @@ export async function runTests() {
         const enter = () => field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
 
         // Empty, the form is not ready, and Enter is no way round the button.
-        enter();
-        // eslint-disable-next-line juggler/no-private-test-wait -- negative window: a refused Enter leaves nothing behind to fence on
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        // The dialog's handler runs inside the dispatch and claims the key
+        // before it presses Create, so an unclaimed key is a Create not pressed.
+        const claimed = !enter();
+        assert(!claimed, 'Enter with Create disabled is left alone, so Create was not pressed');
         assert(document.querySelector('.workspace-create-overlay #fixture-dir'),
           'Enter with Create disabled does nothing');
 

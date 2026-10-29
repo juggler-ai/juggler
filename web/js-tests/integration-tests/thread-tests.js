@@ -864,8 +864,10 @@ export const threadDeleteFirstItemUndoRedoTest = {
 /**
  * Two rapid thread-item deletions are grouped into one undo step.
  *
- * Both deletions happen synchronously (<100ms) so the Go worker groups them
- * under a single undo groupID. One undo restores both; one redo removes both.
+ * Both deletions are made together — two edits, at one reading of the
+ * conversation's edit clock — so the Go worker groups them under a single undo
+ * groupID however late it applies them. One undo restores both; one redo
+ * removes both.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
 export const threadDeleteMiddleItemUndoRedoTest = {
@@ -885,10 +887,8 @@ export const threadDeleteMiddleItemUndoRedoTest = {
     { type: 'send-thread-message', message: 'Do something' },
     // Thread: [user, assistant] — 2 items
     { type: 'assert-thread-item-count', count: 2 },
-    // Delete both items rapidly (< 100ms) — they get one undo group
-    { type: 'delete-last-item-in-thread' },
-    { type: 'assert-thread-item-count', count: 1 },
-    { type: 'delete-first-item-in-thread' },
+    // Delete both items together — they get one undo group
+    { type: 'delete-thread-items-together', count: 2 },
     { type: 'assert-thread-item-count', count: 0 },
     // One undo restores both (rapid group)
     { type: 'undo' },

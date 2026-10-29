@@ -1310,8 +1310,8 @@ func (r *run) addThinkingMessage(text string) {
 // addMetaToolResult adds a meta tool result to the conversation for LLM context.
 func (r *run) addMetaToolResult(toolUseID, toolName string, toolInput json.RawMessage, content string, isError bool) {
 	result := map[string]any{
-		"content": content,
-		"isError": isError,
+		keyContent: content,
+		keyIsError: isError,
 	}
 	resultJSON, _ := json.Marshal(result)
 
@@ -1372,14 +1372,14 @@ func toolSummary(_ string, input json.RawMessage) string {
 
 	// Probe common single-value string keys in priority order (file ops,
 	// bash, glob/grep/search, web tools, thread/plan).
-	for _, key := range []string{"file_path", "command", "pattern", "query", "url", "goal", "title", "path"} {
+	for _, key := range []string{keyFilePath, keyCommand, keyPattern, keyQuery, keyURL, keyGoal, keyTitle, keyPath} {
 		if v, ok := m[key].(string); ok && v != "" {
 			return truncate(v, 80)
 		}
 	}
 
 	// Fall back to a count for array-valued batch inputs.
-	for _, key := range []string{"searches", "files", "edits"} {
+	for _, key := range []string{keySearches, keyFiles, keyEdits} {
 		if arr, ok := m[key].([]any); ok {
 			return fmt.Sprintf("%d %s", len(arr), key)
 		}

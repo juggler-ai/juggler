@@ -214,6 +214,25 @@ export async function runTests() {
   const projectPath = (await fetchJson('/api/session')).projectPath;
   const separator = projectPath.includes('\\') && !projectPath.includes('/') ? '\\' : '/';
   const ops = createBoundOps(() => ({}));
+  /**
+   * A context for calling a provider's hooks directly, shaped as the host builds one.
+   * @returns {import('../../../sdk/workspace-provider.js').ProviderContext} The context.
+   */
+  const hookContext = () => ({
+    session,
+    ops,
+    baseWorkspaceId: '',
+    signal: new AbortController().signal,
+    rollback: { push: () => {} },
+    checkpoint: async () => {},
+    progress: () => {}
+  });
+  /**
+   * A row rooted at a path, for the hooks that take one.
+   * @param {string} root - Where the row is rooted.
+   * @returns {import('../../../js/model/session.js').Workspace} The row.
+   */
+  const workspaceAt = (root) => ({ id: '', kind: 'local', root, state: 'ready' });
 
   /** @type {any} */
   let session = null;
@@ -232,10 +251,10 @@ export async function runTests() {
         'and asking a second time, as the next run of this suite in this lane does, finds it there');
 
       const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
-      assert(provider !== undefined, 'the provider is not in the registry under its own id');
+      if (!provider) throw new Error('the provider is not in the registry under its own id');
       assert(provider.getSetupLabel() === 'A subfolder of this project',
         `the "New…" row would read ${JSON.stringify(provider.getSetupLabel())}`);
-      assert(provider.finishOptions({}).length === 0,
+      assert(provider.finishOptions(workspaceAt('')).length === 0,
         'a folder has no endings: nothing was made, so nothing can be disposed of');
     });
 
@@ -329,7 +348,8 @@ export async function runTests() {
 
     await run('a path that climbs out of the project is refused, however it is spelled', async () => {
       const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
-      const ctx = { session, ops, baseWorkspaceId: '', signal: new AbortController().signal };
+      if (!provider) throw new Error('the provider is not registered');
+      const ctx = hookContext();
 
       for (const folder of ['..', `..${separator}elsewhere`, 'deep/../../elsewhere']) {
         let refusal = '';
@@ -419,7 +439,7 @@ export async function runTests() {
         // And does not name it. The row does that, from the moment any surface
         // draws; a name arriving with the status would land after the first
         // draw and change the title under whoever was reading it.
-        assert(reported.label === undefined,
+        assert(/** @type {Record<string, unknown>} */ (reported).label === undefined,
           `leaving the naming to the row, got ${JSON.stringify(reported)}`);
         assert(outcome.workspace.label === folder,
           `which is named by where it is in the project, got ${JSON.stringify(outcome.workspace.label)}`);
@@ -567,14 +587,15 @@ export async function runTests() {
       // in here is built and tested, and that nothing inside the folder will
       // ever mention them.
       const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
-      const ctx = { session };
+      if (!provider) throw new Error('the provider is not registered');
+      const ctx = hookContext();
 
       const inFolder = provider.instructionRoots(
-        { root: `${projectPath}${separator}packages${separator}ui` }, ctx);
+        workspaceAt(`${projectPath}${separator}packages${separator}ui`), ctx);
       assert(inFolder.length === 1 && inFolder[0] === projectPath,
         `a folder of the project is seeded from the project, got ${JSON.stringify(inFolder)}`);
 
-      const atTheProject = provider.instructionRoots({ root: projectPath }, ctx);
+      const atTheProject = provider.instructionRoots(workspaceAt(projectPath), ctx);
       assert(atTheProject.length === 0,
         `while a row somehow rooted at the project names nowhere else, got ${JSON.stringify(atTheProject)}`);
     });

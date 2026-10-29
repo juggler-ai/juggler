@@ -506,6 +506,24 @@ class BatchContextItem extends ContextItem {
     const start = file.offset || 1;
     return file.limit ? `lines ${start}–${start + file.limit - 1}` : `from line ${start}`;
   }
+
+  /**
+   * Test seam for {@link BatchContextItem._coerceArray}.
+   * @param {unknown} value - Raw argument value
+   * @returns {unknown} The array if coercible, otherwise the original value
+   */
+  static __coerceArrayForTests(value) {
+    return BatchContextItem._coerceArray(value);
+  }
+
+  /**
+   * Test seam for {@link BatchContextItem._grepLine}.
+   * @param {{pattern?: string, path?: string, glob?: string}} search - A batch_grep entry
+   * @returns {string} Markdown for a single list item
+   */
+  static __grepLineForTests(search) {
+    return BatchContextItem._grepLine(search);
+  }
 }
 
 export default BatchContextItem;

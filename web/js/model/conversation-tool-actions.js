@@ -24,26 +24,39 @@ import toolExecutor from '../services/tool-executor.js';
 import { resolveToolName } from '../services/tool-generator.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { isViewer } from '../../sdk/lib/client-role.js';
-import { plain, yGet } from './item-accessor.js';
+import { plainList, plainRecord, yGetRecord } from './item-accessor.js';
 import StrategyType, { APPROVAL_POLICY } from 'juggler/strategy-type';
 import { INTERACTION_KIND } from '../../sdk/context-item.js';
 import { runBeforeToolHooks } from '../services/hook-runtime.js';
 
-/** @typedef {import('../../sdk/lib/message.js').Message} Message */
+/**
+ * @typedef {import('../../sdk/lib/message.js').Message} Message
+ * @typedef {import('../../sdk/lib/message.js').ToolActionMessage} ToolActionMessage
+ * @typedef {import('./conversation.js').default} Conversation
+ * @typedef {import('./message-thread.js').default} MessageThread
+ * @typedef {import('juggler/context-item').default} ContextItem
+ * @typedef {typeof import('juggler/context-item').default} ContextItemClass
+ * @typedef {import('../../sdk/context-item-types.js').PreparedItem} PreparedItem
+ * @typedef {ReturnType<ContextItemClass['getToolDefinitions']>[number]} ItemToolDefinition
+ * @typedef {Awaited<ReturnType<typeof runBeforeToolHooks>>} HookOutcome
+ * @typedef {{messageThread: MessageThread, conversation: Conversation, toolName: string, toolInput: Record<string, unknown>, toolUseId: string}} ToolCallRequest
+ */
 
 /**
  * Framework-owned, strategy-agnostic label for the review indicator shown while
  * a strategy's `onToolPending` promise is in flight. Derived from the strategy's
  * own manifest so no strategy-specific string leaks into the core: an explicit
  * `static REVIEW_LABEL` wins, else "<name> reviewing…", else a generic fallback.
- * @param {any} strategy - The message thread's strategy instance
+ * @param {import('juggler/strategy-type').default|null|undefined} strategy - The message thread's strategy instance
  * @returns {string} Human-readable review label
  */
 function reviewLabelFor(strategy) {
-  const override = strategy?.constructor?.REVIEW_LABEL;
-  if (override) return override;
-  const name = strategy?.constructor?.MANIFEST?.name;
-  return name ? `${name} reviewing…` : 'Reviewing…';
+  const ctor = strategy?.constructor;
+  const override = ctor && 'REVIEW_LABEL' in ctor ? ctor.REVIEW_LABEL : undefined;
+  if (typeof override === 'string' && override) return override;
+  const manifest = ctor && 'MANIFEST' in ctor ? ctor.MANIFEST : undefined;
+  const name = manifest && typeof manifest === 'object' && 'name' in manifest ? manifest.name : undefined;
+  return typeof name === 'string' && name ? `${name} reviewing…` : 'Reviewing…';
 }
 
 /**
@@ -100,11 +113,12 @@ function writeReviewStatus(messageThread, toolUseId, status) {
  * `undefined`, a non-string note, an empty one — simply clears the indicator.
  * The note is trimmed, flattened to one line, and capped; it is displayed as
  * text, never markup.
- * @param {any} result - Whatever the hook's promise resolved with
+ * @param {unknown} result - Whatever the hook's promise resolved with
  * @returns {{busy: boolean, label: string}|null} The status to write, or null to clear
  */
 function closingReviewStatus(result) {
-  const note = typeof result?.note === 'string' ? result.note.replace(/\s+/g, ' ').trim() : '';
+  const raw = result && typeof result === 'object' && 'note' in result ? result.note : undefined;
+  const note = typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim() : '';
   if (!note) return null;
   return { busy: false, label: note.slice(0, MAX_REVIEW_NOTE_CHARS) };
 }
@@ -123,7 +137,7 @@ function hookHoldNote(record) {
  * Called by the items observer when it detects a running tool without a result.
  * @param {import('./message-thread.js').default} messageThread
  * @param {string} toolUseId
- * @param {any} conversation - Conversation instance
+ * @param {Conversation} conversation - Conversation instance
  */
 export async function executeToolAction(messageThread, toolUseId, conversation) {
   const toolAction = messageThread.getToolAction(toolUseId);
@@ -138,13 +152,11 @@ export async function executeToolAction(messageThread, toolUseId, conversation) 
   if (ActionClass?.MANIFEST?.workerManaged) {
     return;
   }
-  const toolInput = toolAction.get('toolInput');
-
   try {
     const toolCall = {
       id: toolUseId,
       name: toolName,
-      input: plain(toolInput)
+      input: yGetRecord(toolAction, 'toolInput') ?? {}
     };
 
     await toolExecutor.executeToolCall(toolCall, conversation._responseHandler, messageThread);
@@ -169,12 +181,12 @@ export async function executeToolAction(messageThread, toolUseId, conversation) 
  *   `invalid`, the refusal for `deny`, what it is waiting on for `park`.
  * @property {string} [content] - For `invalid`, the result text the evaluate
  *   path stores (it prefixes a preparation failure).
- * @property {any} [action] - The prepared action instance.
- * @property {any} [prepared] - What `action.prepare` returned.
- * @property {any} [toolDef] - The tool's definition.
+ * @property {ContextItem} [action] - The prepared action instance.
+ * @property {PreparedItem} [prepared] - What `action.prepare` returned.
+ * @property {ItemToolDefinition} [toolDef] - The tool's definition.
  * @property {boolean} [autoApprovable] - Whether the call may be silently approved.
  * @property {boolean} [permitted] - Whether a saved rule covers it.
- * @property {any} [hookOutcome] - The beforeTool hooks' outcome.
+ * @property {HookOutcome} [hookOutcome] - The beforeTool hooks' outcome.
  * @property {boolean} [hookAsks] - Whether a hook asked for the user.
  * @property {boolean} [approvedByHook] - Whether a hook's allow is what approved it.
  */
@@ -187,7 +199,7 @@ export async function executeToolAction(messageThread, toolUseId, conversation) 
  * path calls it too, so a caller running a tool outside the transcript is gated
  * exactly as the call would be if the model had made it. It writes nothing,
  * though the hooks it runs may have effects of their own.
- * @param {{messageThread: any, conversation: any, toolName: string, toolInput: Record<string, unknown>, toolUseId: string}} call - The call
+ * @param {ToolCallRequest} call - The call
  * @returns {Promise<ToolCallDecision>} The ruling
  */
 export async function decideToolCall(call) {
@@ -197,15 +209,15 @@ export async function decideToolCall(call) {
     return { verdict: 'invalid', reason, content: reason };
   }
   const toolDefs = ActionClass.getToolDefinitions?.() || [];
-  const toolDef = toolDefs.find((/** @type {{name: string}} */ t) => t.name === call.toolName);
+  const toolDef = toolDefs.find(t => t.name === call.toolName);
   return decideForAction(ActionClass, toolDef, call, { bindToolUseId: true });
 }
 
 /**
  * The body of {@link decideToolCall} once the tool's class is known.
- * @param {any} ActionClass - The tool's class
- * @param {any} toolDef - The tool's definition, if it has one
- * @param {{messageThread: any, conversation: any, toolName: string, toolInput: Record<string, unknown>, toolUseId: string}} call - The call
+ * @param {ContextItemClass} ActionClass - The tool's class
+ * @param {ItemToolDefinition|undefined} toolDef - The tool's definition, if it has one
+ * @param {ToolCallRequest} call - The call
  * @param {{bindToolUseId?: boolean}} [opts] - `bindToolUseId` hands the call's
  *   id to the action, as the executor does. Validation finds the call's place
  *   by it: a program tool's sub-call, the reads its program has made; a call in
@@ -344,7 +356,7 @@ async function decideForAction(ActionClass, toolDef, call, opts = {}) {
   }
   let reason;
   if (hookAsks) {
-    reason = hookHoldNote(/** @type {any} */ (hookOutcome.decidedBy));
+    reason = hookHoldNote(/** @type {import('../services/hook-runtime.js').HookRecord} */ (hookOutcome.decidedBy));
   } else if (action.interactionKind() === INTERACTION_KIND.ELICITATION) {
     reason = 'it asks you a question';
   } else if (!autoApprovable) {
@@ -370,8 +382,8 @@ const evaluationsInFlight = new Map();
  * Called by the items observer when a new tool-action is inserted.
  * @param {import('./message-thread.js').default} messageThread
  * @param {string} toolUseId
- * @param {any} conversation
- * @param {any} [existingYMap]
+ * @param {Conversation} conversation
+ * @param {ToolActionMessage|null} [existingYMap]
  * @returns {Promise<void>}
  */
 export function handleNewToolAction(messageThread, toolUseId, conversation, existingYMap = null) {
@@ -389,8 +401,8 @@ export function handleNewToolAction(messageThread, toolUseId, conversation, exis
  * The body of {@link handleNewToolAction}, run once per evaluation.
  * @param {import('./message-thread.js').default} messageThread
  * @param {string} toolUseId
- * @param {any} conversation
- * @param {any} existingYMap
+ * @param {Conversation} conversation
+ * @param {ToolActionMessage|null} existingYMap
  * @returns {Promise<void>}
  */
 async function evaluateNewToolAction(messageThread, toolUseId, conversation, existingYMap) {
@@ -398,8 +410,10 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
   const toolAction = existingYMap || messageThread.getToolAction(toolUseId);
   if (!toolAction) return;
 
-  const toolName = toolAction.get('toolName');
-  const toolInputPlain = yGet(toolAction, 'toolInput');
+  const toolName = toolAction.get('toolName') ?? '';
+  // A model can write any JSON as a call's input; one that is not an object
+  // reads as no arguments, which validation then judges.
+  const toolInputPlain = yGetRecord(toolAction, 'toolInput') ?? {};
   const ActionClass = contextItemRegistry.getByToolName(toolName);
   if (!ActionClass) {
     messageThread.completeToolAction(toolUseId, {
@@ -412,7 +426,7 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
   }
 
   const toolDefs = ActionClass.getToolDefinitions?.() || [];
-  const toolDef = toolDefs.find((/** @type {{name: string}} */ t) => t.name === toolName);
+  const toolDef = toolDefs.find(t => t.name === toolName);
 
   // Stamp the tool's category on the call: the worker orders a turn's calls by
   // it (cmd/juggler/worker/tool_ordering.go), letting reads overlap and holding
@@ -519,7 +533,7 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
           } else if (hookAsks && item.get('state') === TOOL_STATES.PENDING) {
             // Say in the approval card which hook is holding the call, and why.
             messageThread.updateItemField(i, 'reviewStatus', closingReviewStatus({
-              note: hookHoldNote(/** @type {any} */ (hookOutcome.decidedBy))
+              note: hookHoldNote(/** @type {import('../services/hook-runtime.js').HookRecord} */ (hookOutcome.decidedBy))
             }));
           }
           if (hookOutcome.records.length) {
@@ -596,7 +610,7 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
  * Whether the thread's strategy reviews parked calls: `onToolPending` always
  * exists — StrategyType defines the no-op — so the question is whether this
  * strategy overrides it.
- * @param {any} messageThread - The thread
+ * @param {MessageThread} messageThread - The thread
  * @returns {boolean} True when a reviewer would be handed a parked gate call
  */
 function strategyHasReviewer(messageThread) {
@@ -609,8 +623,8 @@ function strategyHasReviewer(messageThread) {
  * @typedef {object} ReviewableCall
  * @property {string} toolName - The tool
  * @property {Record<string, unknown>} toolInput - Its arguments
- * @property {string} [category] - The tool's category
- * @property {string} [permissionKey] - The action's permission key (e.g.
+ * @property {string|undefined} category - The tool's category
+ * @property {string} permissionKey - The action's permission key (e.g.
  *   'write-file' for every edit-family tool). Lets a strategy tell apart
  *   classes of parked call that share a category — edits and shell commands
  *   are both category 'write', but only edits report the 'write-file' key — so
@@ -624,7 +638,7 @@ function strategyHasReviewer(messageThread) {
 /**
  * Hand a parked gate call to the strategy's `onToolPending`, fire-and-forget,
  * and write the review's closing status when it settles.
- * @param {any} messageThread - The thread
+ * @param {MessageThread} messageThread - The thread
  * @param {string} toolUseId - The parked tool-action: what a reviewer resolves
  * @param {ReviewableCall} call - The call, as the reviewer is asked about it
  * @param {boolean} markedUnderReview - Whether the park was written already
@@ -673,7 +687,7 @@ function offerToReviewer(messageThread, toolUseId, call, markedUnderReview) {
  * hold is written with when the strategy has a reviewer (so the park
  * does not announce that it wants the user while a review may yet resolve
  * it), and null when it has none.
- * @param {any} messageThread - The program's thread
+ * @param {MessageThread} messageThread - The program's thread
  * @param {ToolCallDecision} decision - The held call's decision (a park)
  * @param {string} toolName - The held tool
  * @param {Record<string, unknown>} toolInput - Its arguments
@@ -696,7 +710,7 @@ export function reviewForHold(messageThread, decision, toolName, toolInput) {
  * Hand a program's held call to its strategy's reviewer, under the
  * program's own tool-use id: the program's item is what waits on the user,
  * so it is what a reviewer resolves. Called once the hold is written.
- * @param {any} messageThread - The program's thread
+ * @param {MessageThread} messageThread - The program's thread
  * @param {string} toolUseId - The program's tool-action
  * @param {ReviewableCall & {label: string|null}} review - From reviewForHold
  */
@@ -711,8 +725,8 @@ export function offerHoldToReviewer(messageThread, toolUseId, review) {
  * The compare-and-set is safe because Yjs observer callbacks are synchronous:
  * no other observer can interleave between the read and the write inside
  * the same transact() block.
- * @param {any} c - Conversation instance
- * @param {any} ymap - Tool-action Y.Map
+ * @param {Conversation} c - Conversation instance
+ * @param {ToolActionMessage} ymap - Tool-action Y.Map
  * @returns {boolean} True if this caller transitioned APPROVED → RUNNING
  */
 export function claimRunning(c, ymap) {
@@ -763,8 +777,8 @@ export function claimRunning(c, ymap) {
  * The stamps come from the in-flight execution, NOT from a fresh claim:
  * runningEpoch is the incarnation identity a later cancel-tool must match, so
  * re-asserting has to restore it rather than bump it.
- * @param {any} c - Conversation instance
- * @param {any} ymap - Tool-action Y.Map
+ * @param {Conversation} c - Conversation instance
+ * @param {ToolActionMessage} ymap - Tool-action Y.Map
  * @param {{runningEpoch: number|undefined, runningStartedAt: number|undefined}} execution -
  *   The in-flight execution's stamps (ActionExecutor.runningActionFor)
  * @returns {boolean} True if the doc read APPROVED and was repaired to RUNNING
@@ -787,8 +801,8 @@ export function reassertRunning(c, ymap, execution) {
  * carries its exact rules/paths on the tool-action (the common case), and a bare
  * 'yes-always' derives the grant from the plugin's narrowest suggestion (or a
  * framework boolean default). There is no separate per-plugin save method.
- * @param {any} c - Conversation instance
- * @param {any} ymap - The tool-action Y.Map
+ * @param {Conversation} c - Conversation instance
+ * @param {ToolActionMessage} ymap - The tool-action Y.Map
  * @param {import('./message-thread.js').default} messageThread
  */
 export function saveAutoApprovalPermission(c, ymap, messageThread) {
@@ -799,9 +813,11 @@ export function saveAutoApprovalPermission(c, ymap, messageThread) {
   const approvalRules = ymap.get('approvalRules');
   const approvalItemType = ymap.get('approvalItemType');
   if (approvalRules && approvalItemType) {
-    const rules = plain(approvalRules);
-    for (const r of rules) {
-      messageThread.addRule(approvalItemType, { kind: r.kind, value: r.value, scope: r.scope });
+    for (const r of plainList(approvalRules)) {
+      const rule = plainRecord(r);
+      if (!rule || typeof rule.kind !== 'string') continue;
+      const scope = rule.scope === 'session' || rule.scope === 'conversation' ? rule.scope : undefined;
+      messageThread.addRule(approvalItemType, { kind: rule.kind, value: rule.value, scope });
     }
     return;
   }
@@ -812,9 +828,8 @@ export function saveAutoApprovalPermission(c, ymap, messageThread) {
   // command without any command-shape wildcard.
   const approvalAllowedPaths = ymap.get('approvalAllowedPaths');
   if (approvalAllowedPaths) {
-    const paths = plain(approvalAllowedPaths);
-    for (const p of paths) {
-      messageThread.addAllowedPath(p, { scope: 'conversation' });
+    for (const p of plainList(approvalAllowedPaths)) {
+      if (typeof p === 'string') messageThread.addAllowedPath(p, { scope: 'conversation' });
     }
     return;
   }
@@ -826,11 +841,11 @@ export function saveAutoApprovalPermission(c, ymap, messageThread) {
   // a plugin that offers none gets a framework boolean default under its
   // permission key. This is the single approval-persistence system — there is no
   // separate per-plugin save path.
-  const toolName = ymap.get('toolName');
-  const toolInput = yGet(ymap, 'toolInput') || {};
+  const toolName = ymap.get('toolName') ?? '';
+  const toolInput = yGetRecord(ymap, 'toolInput') ?? {};
   const ActionClass = contextItemRegistry.getByToolName(toolName);
   if (!ActionClass) return;
-  const actionId = /** @type {any} */ (ActionClass).MANIFEST?.id || toolName;
+  const actionId = ActionClass.MANIFEST?.id || toolName;
   const action = new ActionClass({
     id: actionId,
     session: c._session,
@@ -857,14 +872,14 @@ export function saveAutoApprovalPermission(c, ymap, messageThread) {
 /**
  * The call a pending item's running program holds for the user, if it holds
  * one: its card says `held`, and `heldCall` names the call.
- * @param {any} toolAction - The pending tool-action Y.Map
+ * @param {ToolActionMessage} toolAction - The pending tool-action Y.Map
  * @returns {{name: string, input: Record<string, unknown>}|null} The held call, or null
  */
 function heldCallOf(toolAction) {
-  if (!plain(toolAction.get('approvalOptions'))?.held) return null;
-  const call = plain(toolAction.get('heldCall'));
+  if (!yGetRecord(toolAction, 'approvalOptions')?.held) return null;
+  const call = yGetRecord(toolAction, 'heldCall');
   if (typeof call?.name !== 'string') return null;
-  return { name: call.name, input: call.input || {} };
+  return { name: call.name, input: plainRecord(call.input) ?? {} };
 }
 
 /**
@@ -875,7 +890,7 @@ function heldCallOf(toolAction) {
  * rather than individual approval buttons, so rules added from any surface
  * ("yes-always", permission popup, sync from another client, tests) have the
  * same effect.
- * @param {any} c - Conversation instance
+ * @param {Conversation} c - Conversation instance
  * @param {{allowViewer?: boolean, itemTypes?: string[]}} [options] Filter/recheck options
  */
 export function approvePermittedPendingApprovals(c, options = {}) {
@@ -885,16 +900,17 @@ export function approvePermittedPendingApprovals(c, options = {}) {
     const pending = messageThread.getPendingApprovalMessages();
     for (const toolAction of pending) {
       const toolUseId = toolAction.get('toolUseId');
+      if (!toolUseId) continue;
       // A call a running program holds for the user (services/held-calls.js)
       // waits as the program's own item, and is permitted or not as the call
       // it holds: the program's tool is never what the rule names.
       const held = heldCallOf(toolAction);
-      const toolName = held ? held.name : toolAction.get('toolName');
-      const toolInputPlain = held ? held.input : yGet(toolAction, 'toolInput');
+      const toolName = held ? held.name : toolAction.get('toolName') ?? '';
+      const toolInputPlain = held ? held.input : yGetRecord(toolAction, 'toolInput') ?? {};
       const ActionClass = contextItemRegistry.getByToolName(toolName);
       if (!ActionClass) continue;
 
-      const actionId = /** @type {any} */ (ActionClass).MANIFEST?.id || toolName;
+      const actionId = ActionClass.MANIFEST?.id || toolName;
       if (opts.itemTypes && !opts.itemTypes.includes(actionId)) continue;
       const action = new ActionClass({
         id: actionId,
@@ -905,7 +921,7 @@ export function approvePermittedPendingApprovals(c, options = {}) {
       });
 
       try {
-        if (action.isPermitted(toolInputPlain || {})) {
+        if (action.isPermitted(toolInputPlain)) {
           // A saved permission rule now covers this call — provenance `rule`
           // (a prior explicit grant), so the UI leaves it un-flagged.
           messageThread.resolveApproval(toolUseId, 'yes', { source: 'rule' });

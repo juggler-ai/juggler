@@ -9,27 +9,34 @@
  * @module model/message-thread-context-items
  */
 
-import { plainToYMap, convertToYType, yGet } from './item-accessor.js';
+import { plainToYMap, convertToYType, yGetRecord, isItemView } from './item-accessor.js';
 import { createContextItemMessage } from '../../sdk/lib/message.js';
 import contextItemRegistry from '../registries/context-item-registry.js';
 import workerManager from '../services/worker-manager.js';
 
 /**
+ * @typedef {import('./message-thread.js').default} MessageThread
+ * @typedef {import('juggler/context-item').default} ContextItem
+ * @typedef {{id: string, type: string, data: Record<string, unknown>}} ContextItemDescriptor
+ */
+
+/**
  * Derive the `{id, type, data}` descriptor for a context item from a thread
  * item Y.Map, or null if the item is not a context item. Context items live
  * as standalone item Y.Maps (`itemId`, no `toolUseId`).
- * @param {any} item - Thread item Y.Map
+ * @param {unknown} item - Thread item Y.Map
  * @param {string} [wantId] - If set, only match a context item with this id
- * @returns {{id: string, type: string, data: any}|null} Descriptor, or null if not a context item
+ * @returns {ContextItemDescriptor|null} Descriptor, or null if not a context item
  */
 function contextItemDescriptor(item, wantId) {
-  if (item.get('itemId') && !item.get('toolUseId')) {
-    const id = item.get('itemId');
+  if (!isItemView(item)) return null;
+  const id = item.get('itemId');
+  if (id && !item.get('toolUseId')) {
     if (wantId !== undefined && id !== wantId) return null;
     return {
       id,
       type: item.get('type') || 'unknown',
-      data: yGet(item, 'data') || {}
+      data: yGetRecord(item, 'data') ?? {}
     };
   }
   return null;
@@ -37,8 +44,8 @@ function contextItemDescriptor(item, wantId) {
 
 /**
  * Instantiate a context item from its descriptor and wire its change handler.
- * @param {any} mt - MessageThread instance
- * @param {{id: string, type: string, data: any}} descriptor
+ * @param {MessageThread} mt - MessageThread instance
+ * @param {ContextItemDescriptor} descriptor
  * @returns {import('juggler/context-item').default|null} Instantiated item, or null if creation failed
  */
 function instantiateContextItem(mt, descriptor) {
@@ -54,7 +61,7 @@ function instantiateContextItem(mt, descriptor) {
 /**
  * Read context items from the thread's items array. Instances are
  * transient wrappers around CRDT data — fresh objects on every call.
- * @param {any} mt - MessageThread instance
+ * @param {MessageThread} mt - MessageThread instance
  * @returns {import('juggler/context-item').default[]} Context items
  */
 export function getContextItems(mt) {
@@ -73,8 +80,8 @@ export function getContextItems(mt) {
   // Keyed on contextPosition, NOT preventUserDeletion: the latter means only
   // "the user can't delete this" (system prompt alone), and must not double as
   // the display-ordering signal.
-  const isSystemPositioned = (/** @type {any} */ ci) =>
-    /** @type {any} */ (ci.constructor)?.MANIFEST?.contextPosition === 'system';
+  const isSystemPositioned = (/** @type {ContextItem} */ ci) =>
+    /** @type {typeof import('juggler/context-item').default} */ (ci.constructor).MANIFEST?.contextPosition === 'system';
   contextItems.sort(
     (a, b) => (isSystemPositioned(b) ? 1 : 0) - (isSystemPositioned(a) ? 1 : 0)
   );
@@ -82,7 +89,7 @@ export function getContextItems(mt) {
 }
 
 /**
- * @param {any} mt
+ * @param {MessageThread} mt
  * @param {string} itemId
  * @returns {import('juggler/context-item').default|undefined} Context item instance
  */
@@ -101,7 +108,7 @@ export function getContextItem(mt, itemId) {
 }
 
 /**
- * @param {any} mt
+ * @param {MessageThread} mt
  * @param {import('juggler/context-item').default} contextItem
  */
 export function addContextItem(mt, contextItem) {
@@ -112,7 +119,7 @@ export function addContextItem(mt, contextItem) {
   const itemJSON = contextItem.toJSON();
   const items = mt.items;
   const existingIndex = items.findIndex(
-    (/** @type {any} */ item) => item.get('itemId') === contextItem.id
+    item => item.get('itemId') === contextItem.id
   );
   if (existingIndex >= 0) {
     const ymap = items[existingIndex];
@@ -132,7 +139,7 @@ export function addContextItem(mt, contextItem) {
 }
 
 /**
- * @param {any} mt
+ * @param {MessageThread} mt
  * @param {string} itemId
  */
 export function removeContextItem(mt, itemId) {
@@ -159,7 +166,7 @@ export function removeContextItem(mt, itemId) {
 }
 
 /**
- * @param {any} mt
+ * @param {MessageThread} mt
  */
 export function clearContextItems(mt) {
   const contextItems = getContextItems(mt);
@@ -177,14 +184,14 @@ export function clearContextItems(mt) {
     }
   }
   mt.conversation.atomicUpdate(() => {
-    for (let i = itemIndices.length - 1; i >= 0; i--) {
-      mt.deleteAt(itemIndices[i]);
+    for (const index of [...itemIndices].reverse()) {
+      mt.deleteAt(index);
     }
   });
 }
 
 /**
- * @param {any} mt
+ * @param {MessageThread} mt
  * @param {string} itemId
  * @param {{data?: object}} updates
  */
@@ -193,16 +200,16 @@ export function updateContextItem(mt, itemId, updates) {
   if (!ymap) return;
   mt.conversation.atomicUpdate(() => {
     if (updates.data !== undefined) {
-      const mergedData = { ...(yGet(ymap, 'data') || {}), ...updates.data };
+      const mergedData = { ...(yGetRecord(ymap, 'data') ?? {}), ...updates.data };
       ymap.set('data', convertToYType(mergedData));
     }
   });
 }
 
 /**
- * @param {any} mt
+ * @param {MessageThread} mt
  * @param {string} itemTypeId
- * @param {Record<string, any>} params
+ * @param {Record<string, unknown>} params
  * @param {object} [options]
  * @returns {Promise<{id: string|null, type: string, created: boolean, error?: string}>} Result
  */
@@ -212,9 +219,9 @@ export async function executeContextItem(mt, itemTypeId, params, options) {
 }
 
 /**
- * @param {any} mt
+ * @param {MessageThread} mt
  * @param {string} itemTypeId
- * @param {Record<string, any>} params
+ * @param {Record<string, unknown>} params
  * @returns {Promise<{id: string|null, type: string, created: boolean, error?: string}>} Result
  */
 export async function executeContextItemIntoPending(mt, itemTypeId, params) {
@@ -223,7 +230,7 @@ export async function executeContextItemIntoPending(mt, itemTypeId, params) {
 }
 
 /**
- * @param {any} mt
+ * @param {MessageThread} mt
  * @param {string} itemId
  * @returns {Promise<void>}
  */
@@ -270,7 +277,7 @@ export function buildThreadInitialItems({ initialItems = [] } = {}) {
 /**
  * Initialize built-in context items (system prompt). Called once by the
  * creating client on new conversation creation.
- * @param {any} mt
+ * @param {MessageThread} mt
  */
 export function initBuiltInContextItems(mt) {
   mt.insertAt(0, plainToYMap(createSystemPromptPlaceholder()));
@@ -281,7 +288,7 @@ export function initBuiltInContextItems(mt) {
  * Ensure the root system-prompt placeholder exists. Used only by the creating
  * client's new-conversation flow (no-op if SYSTEM_1 is already present). Sub-
  * threads do NOT use this — they are seeded atomically at creation.
- * @param {any} mt
+ * @param {MessageThread} mt
  */
 export function ensureSystemPromptPlaceholder(mt) {
   if (mt._systemPromptPlaceholderEnsured) return;
@@ -292,7 +299,7 @@ export function ensureSystemPromptPlaceholder(mt) {
 }
 
 /**
- * @param {any} mt
+ * @param {MessageThread} mt
  * @param {string} itemId
  * @param {import('juggler/context-item').default} [changedItem]
  * @returns {Promise<void>}
@@ -303,7 +310,7 @@ export async function handleContextItemContentChanged(mt, itemId, changedItem) {
 }
 
 /**
- * @param {any} mt
+ * @param {MessageThread} mt
  * @returns {Promise<Set<string>>} Set of new context item IDs
  */
 export async function refreshContextItemsAndDetectChanges(mt) {

@@ -36,6 +36,9 @@ import {
   buildPolicyPrompt
 } from '../strategies/auto-approve-reviewer.js';
 
+/** @typedef {import('../../../js/services/ops-api.js').GenerateTextParams} GenerateTextParams */
+/** @typedef {import('../../../js/services/ops-api.js').GenerateTextResult} GenerateTextResult */
+
 /** The reviewer's system prompt at the default level. */
 const POLICY_PROMPT = buildPolicyPrompt(resolvePolicy(null));
 
@@ -49,9 +52,9 @@ const POLICY_PROMPT = buildPolicyPrompt(resolvePolicy(null));
 /**
  * Construct a strategy with a stubbed LLM and a fake message thread that records
  * every resolveApproval call.
- * @param {(params: any, signal?: any) => Promise<{text: string}>} completeImpl - Stubbed `_complete`
+ * @param {(params: GenerateTextParams, signal?: AbortSignal) => Promise<{text: string}>} completeImpl - Stubbed `_complete`
  * @param {{items?: any[], state?: object, rules?: any[], allowedPaths?: string[], noPermissions?: boolean, config?: Record<string, unknown>, decide?: (params: any, signal?: any) => Promise<any>}} [opts] - Optional thread items / strategy state / permission surface / `@juggler/core` settings / decision-model stub
- * @returns {{strategy: AutoApproveStrategyType, resolveCalls: any[], completeCalls: any[], decideCalls: any[]}} The strategy and its recorded calls
+ * @returns {{strategy: AutoApproveStrategyType, resolveCalls: any[], completeCalls: any[], decideCalls: any[], waits: number[], toolState: {state: string}}} The strategy, its recorded calls and backoffs, and the parked call's state
  */
 function makeStrategy(completeImpl, opts = {}) {
   /** @type {any[]} */
@@ -83,9 +86,10 @@ function makeStrategy(completeImpl, opts = {}) {
     })
   });
   const strategy = new AutoApproveStrategyType({ messageThread });
-  strategy._complete = async (/** @type {any} */ params, /** @type {any} */ signal) => {
+  strategy._complete = async (params, signal) => {
     completeCalls.push(params);
-    return completeImpl(params, signal);
+    // The stub answers only the text the strategy reads; usage is left out.
+    return /** @type {GenerateTextResult} */ (await completeImpl(params, signal));
   };
   strategy._decide = async (/** @type {any} */ params, /** @type {any} */ signal) => {
     decideCalls.push(params);
@@ -97,7 +101,7 @@ function makeStrategy(completeImpl, opts = {}) {
   // Never read the real user's extension settings: a test runs against the
   // policy it names, or the default.
   strategy._loadPolicySettings = async () => opts.config || {};
-  if (opts.state) strategy.state = opts.state;
+  if (opts.state) strategy.fromJSON({ state: opts.state });
   return { strategy, resolveCalls, completeCalls, decideCalls, waits, toolState };
 }
 
@@ -229,11 +233,11 @@ export async function runTests(_ctx) {
     // The causes need entirely different fixes (configure a cheap model / wait /
     // re-auth), so collapsing them into one apology leaves the user stuck. The
     // HTTP prefix is noise and is stripped.
-    for (const [thrown, expected] of [
+    for (const [thrown, expected] of /** @type {Array<[string, string]>} */ ([
       ['HTTP 400: no cheap model available', 'no cheap model available'],
       ['Too many concurrent completions, try again', 'Too many concurrent completions, try again'],
       ['provider "openaicodex" unavailable: no credential', 'no credential']
-    ]) {
+    ])) {
       const { strategy } = makeStrategy(async () => { throw new Error(thrown); });
       const note = (await strategy.onToolPending({ ...PENDING }))?.note ?? '';
       assert(note.includes(expected),
@@ -261,7 +265,9 @@ export async function runTests(_ctx) {
     // Non-decreasing schedule. Not strictly increasing: the jitter bands are
     // allowed to touch at their edges, and asserting `>` would be a rare flake
     // rather than a real contract.
-    assert(waits[1] >= waits[0], `backoff should not shrink, got ${JSON.stringify(waits)}`);
+    const [firstWait, secondWait] = waits;
+    assert(firstWait !== undefined && secondWait !== undefined && secondWait >= firstWait,
+      `backoff should not shrink, got ${JSON.stringify(waits)}`);
   });
 
   await run('the prompt is built once and reused across re-attempts', async () => {
@@ -314,7 +320,7 @@ export async function runTests(_ctx) {
     await strategy.onToolPending({ ...PENDING });
     assert(completeCalls.length === 2, `expected one timeout then a verdict, got ${completeCalls.length} calls`);
     assert(resolveCalls.length === 1, `the review should still approve, got ${resolveCalls.length} resolves`);
-    assert(waits.length === 1 && waits[0] > 0, `expected one non-zero backoff, got ${JSON.stringify(waits)}`);
+    assert(waits.length === 1 && (waits[0] ?? 0) > 0, `expected one non-zero backoff, got ${JSON.stringify(waits)}`);
   });
 
   await run('a reviewer that is always too slow gives up and says so in English', async () => {
@@ -640,7 +646,8 @@ export async function runTests(_ctx) {
     const result = await strategy.onToolPending({ ...PENDING });
     assert(resolveCalls.length === 0, 'an unsure decision must not approve');
     assert(completeCalls.length === 0, 'an unsure decision must not be second-guessed by the cheap model');
-    assert(result && /declined/i.test(result.note) && result.note.includes('42%'),
+    const note = result?.note ?? '';
+    assert(/declined/i.test(note) && note.includes('42%'),
       `the note must report the probability, got ${JSON.stringify(result)}`);
   });
 
@@ -665,7 +672,7 @@ export async function runTests(_ctx) {
       const { strategy, resolveCalls } = makeStrategy(async () => ({ text: 'allow' }), { decide: async () => bad });
       const result = await strategy.onToolPending({ ...PENDING });
       assert(resolveCalls.length === 0, `must not approve on ${JSON.stringify(bad)}`);
-      assert(result && result.note, `must leave a note on ${JSON.stringify(bad)}`);
+      assert(Boolean(result?.note), `must leave a note on ${JSON.stringify(bad)}`);
     }
   });
 
@@ -686,7 +693,8 @@ export async function runTests(_ctx) {
     const result = await strategy.onToolPending({ ...PENDING });
     assert(completeCalls.length === 0, 'a separately billed model must not be used behind the user\'s back');
     assert(resolveCalls.length === 0, 'a failed review must not approve');
-    assert(result && /couldn't run/i.test(result.note) && result.note.includes('jev is overloaded'),
+    const note = result?.note ?? '';
+    assert(/couldn't run/i.test(note) && note.includes('jev is overloaded'),
       `the note must say why, got ${JSON.stringify(result)}`);
   });
 
@@ -775,9 +783,11 @@ export async function runTests(_ctx) {
     for (const [level, body] of [['balanced', POLICY_BODIES.balanced], ['relaxed', POLICY_BODIES.relaxed],
       ['', POLICY_BODIES.balanced]]) {
       const view = AutoApproveStrategyType.settingsView({ reviewLevel: level, customPolicy: 'mine' }).customPolicy;
+      if (!view) throw new Error(`level ${JSON.stringify(level)} has no customPolicy view`);
       assert(view.preview === body, `level ${JSON.stringify(level)} should preview its own body`);
     }
     const custom = AutoApproveStrategyType.settingsView({ reviewLevel: 'custom', customPolicy: '' }).customPolicy;
+    if (!custom) throw new Error('custom has no customPolicy view');
     assert(custom.preview === undefined, 'custom must be editable, not previewed');
     assert(custom.seed === POLICY_BODIES.balanced, 'a blank custom policy should start from the default body');
   });

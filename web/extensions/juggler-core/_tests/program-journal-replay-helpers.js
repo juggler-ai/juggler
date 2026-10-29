@@ -500,7 +500,7 @@ export async function runReplaySeeds(first, last) {
         deaths++;
         answered += world.held() - 1;
         saved = world.snapshot();
-        assert(saved, at + ': the engine died holding a call, with no snapshot');
+        assert(saved !== null, at + ': the engine died holding a call, with no snapshot');
         continue;
       }
       answered += world.held();

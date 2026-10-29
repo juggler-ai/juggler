@@ -46,8 +46,8 @@ import {
  * handle and the call, or under the thread header when the thread has no
  * handle. A resting session is neither completed nor the only run in the
  * transcript, so "[Completed Thread]" would be twice wrong for it.
- * @param {string} goal - The thread's goal.
- * @param {string} sessionName - Its session handle, or ''.
+ * @param {string|undefined} goal - The thread's goal.
+ * @param {string|undefined} sessionName - Its session handle, if it has one.
  * @param {{status: string, result: string, call: number}} record - The run's record.
  * @returns {string} The entry text.
  */
@@ -196,12 +196,12 @@ export class ContextBuilder {
         });
 
         // Emit tool-result only if action is complete (result !== null/undefined)
-        const msgResult = msg.get('result');
+        const msgResult = /** @type {import('yjs').Map<unknown>|null|undefined} */ (msg.get('result'));
         if (msgResult !== null && msgResult !== undefined) {
-          let content = msgResult.get('content') || '';
+          let content = /** @type {string|undefined} */ (msgResult.get('content')) || '';
 
           // Check for llmFeedback in result
-          const fullResult = msgResult.get('fullResult');
+          const fullResult = /** @type {import('yjs').Map<unknown>|undefined} */ (msgResult.get('fullResult'));
           const llmFeedback = fullResult?.get('llmFeedback');
           if (llmFeedback) {
             content = `${content}\n\n<llm-context>\n${llmFeedback}\n</llm-context>`;
@@ -211,7 +211,7 @@ export class ContextBuilder {
             type: MESSAGE_TYPES.TOOL_RESULT,
             toolUseId: msg.get('toolUseId'),
             content,
-            isError: msgResult.get('isError') || false
+            isError: /** @type {boolean|undefined} */ (msgResult.get('isError')) || false
           });
         }
         continue;

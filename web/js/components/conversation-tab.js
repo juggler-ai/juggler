@@ -68,6 +68,21 @@ const MODEL_REQUESTS = new Set([
 ]);
 
 /**
+ * @typedef {'conversation:warning-requested'|'conversation:thread-open-requested'
+ *   |'composer:clear-requested'|'composer:restore-requested'|'composer:draft-requested'} ModelRequestType
+ * @typedef {{[K in ModelRequestType]: import('../model/session-events.js').SessionEventOf<K>}[ModelRequestType]} ModelRequestEvent
+ */
+
+/**
+ * Whether a session event is one of {@link MODEL_REQUESTS}.
+ * @param {import('../model/session-events.js').SessionEvent} event - The event.
+ * @returns {event is ModelRequestEvent} True for a request of the view.
+ */
+function isModelRequest(event) {
+  return MODEL_REQUESTS.has(event.type);
+}
+
+/**
  * The keys the tab's document keydown answers, each to its handler method.
  * Anything else is not looked at.
  * @type {Readonly<Record<string, '_navDelete'|'_navVertical'|'_navHorizontal'|'_navEnter'|'_navEscape'>>}
@@ -352,8 +367,8 @@ class ConversationTab extends JugglerElement {
 
         // What the conversation asks of its view is answered hidden or not:
         // a scheduled send can fire on a conversation nobody is looking at.
-        if (MODEL_REQUESTS.has(event.type)) {
-          if (event.data?.conversationId === this._conversation.id) this._answerModelRequest(event);
+        if (isModelRequest(event)) {
+          if (event.data.conversationId === this._conversation.id) this._answerModelRequest(event);
           return;
         }
 
@@ -516,21 +531,23 @@ class ConversationTab extends JugglerElement {
    * Answer one of this tab's conversation's requests of its view (see
    * {@link MODEL_REQUESTS}), in the visible composer. The conversation holds no
    * element, so this is the only place they are carried out.
-   * @param {import('../model/session-events.js').SessionEvent} event - The request.
+   * @param {ModelRequestEvent} event - The request.
    * @private
    */
   _answerModelRequest(event) {
-    const data = event.data;
     const composer = /** @type {any} */ (this.getComposer());
     switch (event.type) {
-      case 'conversation:warning-requested':
+      case 'conversation:warning-requested': {
+        const data = event.data;
         data.heard = true;
         if (composer) {
           composer.showWarning(data.message, data.duration);
           data.shown = true;
         }
         break;
+      }
       case 'composer:clear-requested': {
+        const data = event.data;
         // Only the box showing the thread the send went to, and when asked to
         // check, only a box still holding exactly that text.
         if (!composer || (composer.threadItemId ?? null) !== (data.threadId ?? null)) break;
@@ -539,13 +556,13 @@ class ConversationTab extends JugglerElement {
         break;
       }
       case 'composer:restore-requested':
-        composer?.restoreMessage(data.message);
+        composer?.restoreMessage(event.data.message);
         break;
       case 'composer:draft-requested':
-        composer?.setDraft(data.text);
+        composer?.setDraft(event.data.text);
         break;
       case 'conversation:thread-open-requested':
-        this.openThread(data.threadId);
+        this.openThread(event.data.threadId);
         break;
     }
   }

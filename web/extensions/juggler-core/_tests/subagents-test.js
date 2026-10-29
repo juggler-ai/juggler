@@ -90,7 +90,9 @@ export async function runTests(_ctx) {
   };
 
   await initializeRegistries();
-  const allTools = await generateToolDefinitions();
+  // The generator's own typedef leaves `input_schema` as a bare object; what
+  // it builds is the strategy SDK's ToolDefinition, which `filterTools` takes.
+  const allTools = /** @type {import('../../../sdk/strategy-type.js').ToolDefinition[]} */ (await generateToolDefinitions());
 
   for (const { label, Item, strategyId, toolName } of SUBAGENTS) {
     await run(`${label}: owns exactly one hidden strategy`, () => {
@@ -112,14 +114,14 @@ export async function runTests(_ctx) {
       assert(Item.MANIFEST.requiresDelegation === true,
         `${label} has no inline path, so it must declare requiresDelegation`);
       const stamped = allTools.find(t => t.name === toolName);
-      assert(stamped && stamped.requiresDelegation === true,
+      assert(stamped?.requiresDelegation === true,
         `${toolName}'s generated definition must carry requiresDelegation through to the worker`);
       // A sub-agent investigates and reports; if one of these ever gains a tool
       // that changes the working tree, this is the assertion that should stop it,
       // because the flag is what lets the reducer run a batch of them at once.
       assert(Item.MANIFEST.readOnlySubthread === true,
         `${label} only reads, so it must declare readOnlySubthread — that is what lets siblings run at once`);
-      assert(stamped && stamped.readOnlySubthread === true,
+      assert(stamped?.readOnlySubthread === true,
         `${toolName}'s generated definition must carry readOnlySubthread through to the worker`);
       const defs = Item.getToolDefinitions();
       assert(defs.length === 1 && defs[0].name === toolName,
@@ -187,14 +189,14 @@ export async function runTests(_ctx) {
     await run(`${label}: degrades instead of failing when its strategy is unregistered`, async () => {
       // The user disabled the extension's strategies. The tool must still work —
       // the child just runs under the caller's strategy instead of a filtered one.
-      const saved = strategyRegistry.items.get(strategyId);
-      strategyRegistry.items.delete(strategyId);
+      const saved = strategyRegistry.__itemsForTests().get(strategyId);
+      strategyRegistry.__itemsForTests().delete(strategyId);
       try {
         const spec = await makeItem(Item).buildSubthreadSpec({ goal: 'Anything', task: 'anything' });
         assert(spec && !spec.strategyId,
           'with the strategy gone the spec must omit strategyId, not name a missing one');
       } finally {
-        if (saved) strategyRegistry.items.set(strategyId, saved);
+        if (saved) strategyRegistry.__itemsForTests().set(strategyId, saved);
       }
     });
 
@@ -240,8 +242,9 @@ export async function runTests(_ctx) {
           `${t.name} would not be auto-approved (${approved}) — it would park with nobody to approve it`);
       }
 
-      /** @type {{id: string, reason: string}|null} */
-      let refused = null;
+      // Typed by a cast rather than a declaration: the assignment happens in a
+      // callback, which control-flow narrowing of a declared `null` cannot see.
+      let refused = /** @type {{id: string, reason: string}|null} */ (null);
       let denied = false;
       const thread = /** @type {any} */ ({
         conversation: { session: {} },
@@ -252,7 +255,7 @@ export async function runTests(_ctx) {
       parking.onToolPending({ toolUseId: 'tu-parked', toolName: 'bash', toolInput: {}, category: 'write', permissionKey: 'execute' });
       assert(refused !== null && refused.id === 'tu-parked',
         'a parked call must be refused outright, not left waiting for a human who is not there');
-      assert(/bash/.test(refused.reason),
+      assert(/bash/.test(refused?.reason ?? ''),
         'the refusal must name the call that failed, so the sub-agent can work around it');
       // A cancelled call is how a human denial is recorded, and the worker stops
       // the turn on one. Refusing that way would end the sub-agent's run at its

@@ -66,6 +66,14 @@ export async function runTests(_ctx) {
   }
 
   const pin = new TasksPin();
+  /**
+   * The same pin as the host holds it: through the pinboard contract, which
+   * hands every gate its arguments whether or not this type reads them.
+   * @type {import('../../../sdk/pinboard-item-type.js').default}
+   */
+  const hosted = pin;
+  /** @type {typeof import('../../../sdk/pinboard-item-type.js').default} */
+  const HostedType = TasksPin;
 
   let nextId = 0;
 
@@ -193,14 +201,14 @@ export async function runTests(_ctx) {
   });
 
   await test('the list is the project\'s, so it is addable with or without a conversation', () => {
-    assert(pin.canAdd(/** @type {any} */ ({ project: { path: '/p' }, conversation: null })) === true,
+    assert(hosted.canAdd(/** @type {any} */ ({ project: { path: '/p' }, conversation: null })) === true,
       'a project with no conversation open can still have things running');
-    assert(pin.canAdd(/** @type {any} */ ({ conversation: { id: 'c1', title: 'x' } })) === true,
+    assert(hosted.canAdd(/** @type {any} */ ({ conversation: { id: 'c1', title: 'x' } })) === true,
       'and so can one with');
   });
 
   await test('the tab says what the pin is, and leaves conversations to the groups', () => {
-    const described = pin.describe({}, /** @type {any} */ ({ conversation: { id: 'c1', title: 'Fix the parser' } }));
+    const described = hosted.describe({}, /** @type {any} */ ({ conversation: { id: 'c1', title: 'Fix the parser' } }));
     assert(described.title === 'Running tasks', `expected 'Running tasks', got ${described.title}`);
     assert(!described.badge && !described.subtitle,
       `each group names its own conversation, got ${JSON.stringify(described)}`);
@@ -210,7 +218,7 @@ export async function runTests(_ctx) {
     assert(TasksPin.canPinSource(/** @type {any} */ ({ kind: 'tasks' })) === true, 'tasks should be pinnable');
     assert(TasksPin.canPinSource(/** @type {any} */ ({ kind: 'plan' })) === false, 'a plan is not tasks');
     assert(TasksPin.canPinSource(/** @type {any} */ (null)) === false, 'nothing is not tasks');
-    const config = TasksPin.configFromSource(/** @type {any} */ ({ kind: 'tasks' }));
+    const config = HostedType.configFromSource(/** @type {any} */ ({ kind: 'tasks' }));
     assert(!!config && Object.keys(config).length === 0, `expected an empty config, got ${JSON.stringify(config)}`);
   });
 
@@ -268,9 +276,11 @@ export async function runTests(_ctx) {
   await test('the conversation being read is marked, and only it', () => {
     const m = mount([task('a'), task('b', { conversationId: 'c2', conversationTitle: 'Release prep' })]);
     const markers = /** @type {HTMLElement[]} */ ([...m.body.querySelectorAll('.tasks-pin__here')]);
-    assert(!markers[0].hidden && markers[0].textContent === 'this conversation',
-      `expected the active conversation marked, got ${JSON.stringify(markers[0].textContent)}`);
-    assert(markers[1].hidden, 'another conversation must not be marked as this one');
+    const [here, other] = markers;
+    if (!here || !other) throw new Error(`expected a marker in each conversation's group, got ${markers.length}`);
+    assert(!here.hidden && here.textContent === 'this conversation',
+      `expected the active conversation marked, got ${JSON.stringify(here.textContent)}`);
+    assert(!!other.hidden, 'another conversation must not be marked as this one');
     m.teardown();
   });
 

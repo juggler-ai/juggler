@@ -46,10 +46,10 @@ function setFullscreenFlag(fullscreen) {
 function watchFullscreen() {
   if (!isDesktopWindow()) return;
 
-  const wails = /** @type {any} */ (window).wails || {};
-  if (wails.Events?.On) {
-    wails.Events.On('common:WindowFullscreen', () => setFullscreenFlag(true));
-    wails.Events.On('common:WindowUnFullscreen', () => setFullscreenFlag(false));
+  const events = window.wails?.Events;
+  if (events?.On) {
+    events.On('common:WindowFullscreen', () => setFullscreenFlag(true));
+    events.On('common:WindowUnFullscreen', () => setFullscreenFlag(false));
   }
 
   // Seed from the host. Any action reports the window's state back; 'state'

@@ -105,6 +105,9 @@ const CORE_TEXT = [
  */
 export const needsExclusiveRun = true;
 
+/** @typedef {import('../../../js/model/session.js').Workspace} Workspace */
+/** @typedef {import('../../../sdk/workspace-provider.js').WorkspaceDescriptor} WorkspaceDescriptor */
+
 /**
  * @typedef {object} TestResult
  * @property {number} passed - Number of passed tests
@@ -715,7 +718,7 @@ export async function runTests() {
         // Named by its row alone. A copy whose status also named it renamed
         // itself when the walk of the two trees came back, seconds after a
         // reader had already been shown the first name.
-        assert(fresh?.label === undefined,
+        assert(/** @type {Record<string, unknown>} */ ({ ...fresh }).label === undefined,
           `which the status does not restate, got ${JSON.stringify(fresh)}`);
 
         // Edited the way the conversation bound to it would: through operations
@@ -786,9 +789,10 @@ export async function runTests() {
         await mustRun(ops, `printf 'here when the copy was taken' > ${places.pristineRel}/gone.txt`);
 
         const held = await provider?.heldWork(outcome.workspace, contextFor(outcome.workspace));
-        assert(held?.complete === true && held.paths.includes('idea.txt'),
+        if (!held) throw new Error('the scratch-copy provider accounts for the work in the copy');
+        assert(held.complete === true && held.paths.includes('idea.txt'),
           `a file written in the copy is work the copy holds, got ${JSON.stringify(held)}`);
-        assert(held?.removed.includes('gone.txt'),
+        assert(held.removed.includes('gone.txt'),
           `and a file the copy no longer has is work too, got ${JSON.stringify(held)}`);
         assert(held.paths.every((/** @type {string} */ path) => !path.startsWith('/')),
           `named relative to the copy, which is how an operation takes them, got ${JSON.stringify(held.paths)}`);
@@ -823,12 +827,12 @@ export async function runTests() {
       };
 
       const unrecorded = await provider?.heldWork(
-        { id: 'ws_nameless', root: '/nowhere/work', label: 'nameless', available: true, meta: {} }, context);
+        { id: 'ws_nameless', kind: 'local', root: '/nowhere/work', label: 'nameless', state: 'ready', available: true, meta: {} }, context);
       assert(unrecorded?.complete === false && unrecorded.paths.length === 0,
         `a row with no record of what it is a copy of cannot account for itself, got ${JSON.stringify(unrecorded)}`);
 
       const missing = await provider?.heldWork(
-        { id: 'ws_gone', root: '/nowhere/work', label: 'gone', available: false, meta: { name: 'gone', baseDir: projectPath } },
+        { id: 'ws_gone', kind: 'local', root: '/nowhere/work', label: 'gone', state: 'ready', available: false, meta: { name: 'gone', baseDir: projectPath } },
         context);
       assert(missing?.complete === false,
         `nor can one whose copy is not there to be compared, got ${JSON.stringify(missing)}`);
@@ -837,7 +841,7 @@ export async function runTests() {
     await run('a copy that is not there any more says so rather than guessing', async () => {
       const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
       const status = await provider?.status(
-        { id: 'ws_gone', root: '/nowhere/work', label: 'gone', available: false, meta: { name: 'gone' } },
+        { id: 'ws_gone', kind: 'local', root: '/nowhere/work', label: 'gone', state: 'ready', available: false, meta: { name: 'gone' } },
         {
           session,
           ops,
@@ -1149,8 +1153,10 @@ export async function runTests() {
         await mustRun(ops, `mkdir -p ${strayPlaces.workRel} ${strayPlaces.pristineRel}`);
 
         const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+        /** @type {Workspace} */
         const row = {
           id: 'ws_vanished',
+          kind: 'local',
           root: vanishedPlaces.work,
           label: vanished,
           providerId: PROVIDER_ID,
@@ -1167,15 +1173,15 @@ export async function runTests() {
           progress: () => {}
         });
 
-        const orphaned = (report?.orphanedWorkspaces ?? [])
-          .find((/** @type {any} */ entry) => entry.id === 'ws_vanished');
-        assert(orphaned,
+        const orphanedWorkspaces = /** @type {(Workspace & {tombstone?: boolean})[]} */ (report?.orphanedWorkspaces ?? []);
+        const orphaned = orphanedWorkspaces.find(entry => entry.id === 'ws_vanished');
+        assert(orphaned !== undefined,
           `a row whose copy has gone is reported, got ${JSON.stringify(report?.orphanedWorkspaces)}`);
         assert(orphaned?.tombstone !== true,
           'and is reported rather than closed: a copy that is missing is missing, not pretending to be something else');
 
-        const offered = (report?.orphanedArtifacts ?? [])
-          .find((/** @type {any} */ entry) => entry.label === stray);
+        const orphanedArtifacts = /** @type {{label: string, workspace?: WorkspaceDescriptor}[]} */ (report?.orphanedArtifacts ?? []);
+        const offered = orphanedArtifacts.find(entry => entry.label === stray);
         assert(offered?.workspace?.root === strayPlaces.work,
           `while a copy nobody has a row for is offered, got ${JSON.stringify(report?.orphanedArtifacts)}`);
 
@@ -1183,8 +1189,8 @@ export async function runTests() {
         // adopting builds nothing — the copy is already sitting there.
         await probeSetupAdoptions(session);
         const adoptRow = setupRows(session)
-          .find((/** @type {any} */ entry) => entry.kind === 'adopt' && entry.label?.includes(stray));
-        assert(adoptRow, 'the panel lists it in the band between what exists and what could be made');
+          .find(entry => entry.kind === 'adopt' && entry.label?.includes(stray));
+        if (!adoptRow) throw new Error('the panel lists it in the band between what exists and what could be made');
 
         const adopted = await adoptSetupRow(session, adoptRow.id);
         try {

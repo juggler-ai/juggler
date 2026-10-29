@@ -36,9 +36,7 @@ export class ConversationDocument {
 
     this.doc = new Y.Doc();
 
-    /** @type {*} */
     this.root = this.doc.getMap('root');
-    /** @type {*} */
     this.metadata = this.doc.getMap('metadata');
 
     /** @type {DocumentSyncManager} */
@@ -146,7 +144,7 @@ export class ConversationDocument {
   /**
    * Set metadata field
    * @param {string} key
-   * @param {*} value
+   * @param {unknown} value
    */
   setMetadata(key, value) {
     this.doc.transact(() => {
@@ -159,7 +157,7 @@ export class ConversationDocument {
     const items = this.root.get('items');
     return {
       items: items
-        ? items.toArray().map((/** @type {any} */ item) =>
+        ? items.toArray().map((/** @type {unknown} */ item) =>
           item instanceof Y.Map ? item.toJSON() : item
         )
         : [],
@@ -171,10 +169,10 @@ export class ConversationDocument {
   // OBSERVERS
   // ========================================================================
 
-  /** @param {(event: any, transaction: any) => void} callback */
+  /** @param {(event: import('yjs').YMapEvent<unknown>, transaction: import('yjs').Transaction) => void} callback */
   observeMetadata(callback) { this.metadata.observe(callback); }
 
-  /** @param {(event: any, transaction: any) => void} callback */
+  /** @param {(event: import('yjs').YMapEvent<unknown>, transaction: import('yjs').Transaction) => void} callback */
   unobserveMetadata(callback) { this.metadata.unobserve(callback); }
 
   destroy() {

@@ -58,7 +58,7 @@ export async function runTests() {
     assert(created.scope === 'session', 'plugin default scope is session for execute');
     const found = mt.getRulesFor('execute');
     assert(found.length === 1, `expected 1 rule, got ${found.length}`);
-    assert(found[0].kind === 'glob' && found[0].value === 'npm *', 'rule shape preserved');
+    assert(found[0]?.kind === 'glob' && found[0]?.value === 'npm *', 'rule shape preserved');
   });
 
   // Idempotent re-add: same itemType/kind/value returns existing, doesn't duplicate
@@ -90,7 +90,7 @@ export async function runTests() {
     mt.clearRules('execute');
     const r = mt.addRule('execute', { kind: 'glob', value: 'make *' });
     mt.updateRule(r.id, { value: 'make test' });
-    assert(mt.getRulesFor('execute')[0].value === 'make test', 'value updated');
+    assert(mt.getRulesFor('execute')[0]?.value === 'make test', 'value updated');
   });
 
   await t('session scoped rule is merged into other conversations', async () => {
@@ -101,7 +101,7 @@ export async function runTests() {
     assert(created.scope === 'session', 'created session scope');
     const seen = b.rootMessageThread.getRulesFor('execute').find(r => r.value === 'make *');
     assert(!!seen, 'second conversation sees session rule');
-    assert(seen.scope === 'session', 'merged rule retains session scope');
+    assert(seen?.scope === 'session', 'merged rule retains session scope');
   });
 
   await t('setRuleScope moves rule between stores preserving id', async () => {
@@ -111,10 +111,10 @@ export async function runTests() {
     const r = mt.addRule('execute', { kind: 'glob', value: 'scope-move *', scope: 'conversation' });
     assert(mt.setRuleScope(r.id, 'session') === true, 'move to session succeeds');
     let moved = mt.getRulesFor('execute').find(x => x.id === r.id);
-    assert(moved && moved.scope === 'session', 'rule is session scoped after move');
+    assert(moved?.scope === 'session', 'rule is session scoped after move');
     assert(mt.setRuleScope(r.id, 'conversation') === true, 'move to conversation succeeds');
     moved = mt.getRulesFor('execute').find(x => x.id === r.id);
-    assert(moved && moved.scope === 'conversation', 'rule is conversation scoped after move back');
+    assert(moved?.scope === 'conversation', 'rule is conversation scoped after move back');
   });
 
   await t('execute permission UI keeps row order stable on scope toggle', async () => {
@@ -177,7 +177,7 @@ export async function runTests() {
     mt.clearRules('execute');
     assert(mt.getRulesFor('execute').length === 0, 'execute cleared');
     assert(mt.getRulesFor('write-file').length === 1, 'write-file untouched');
-    assert(mt.getRulesFor('write-file')[0].value === true, 'write-file value preserved');
+    assert(mt.getRulesFor('write-file')[0]?.value === true, 'write-file value preserved');
   });
 
   // Allowed paths
@@ -213,13 +213,14 @@ export async function runTests() {
     mt.setAllowedPaths([]);
     const entries = mt.getAllowedPathEntries();
     const root = entries[0];
-    assert(root && root.path === session.projectPath, 'project root is listed first');
+    assert(root?.path === session.projectPath, 'project root is listed first');
+    if (!root) throw new Error('no allowed-path entries');
     assert(root.implicit === true, 'project root is implicit');
     assert(root.scope === 'session', 'project root is session-wide');
     // Fixed: cannot be removed or re-scoped (no stored entry to locate).
     assert(mt.removeAllowedPath(root.id) === false, 'project root cannot be removed');
     assert(mt.setAllowedPathScope(root.id, 'conversation') === false, 'project root cannot be re-scoped');
-    assert(mt.getAllowedPathEntries()[0].path === session.projectPath, 'project root still present and first');
+    assert(mt.getAllowedPathEntries()[0]?.path === session.projectPath, 'project root still present and first');
     // Adding the project root explicitly is a no-op (dedupes into implicit).
     assert(mt.addAllowedPath(session.projectPath) === false, 'no duplicate project root');
   });
@@ -260,10 +261,11 @@ export async function runTests() {
     mt.setAllowedPaths([]);
     mt.addAllowedPath('~/shared-root', { scope: 'session' });
     let entry = mt.getAllowedPathEntries().find(p => p.path === '~/shared-root');
-    assert(entry && entry.scope === 'session', 'path added to session scope');
+    assert(entry?.scope === 'session', 'path added to session scope');
+    if (!entry) throw new Error('~/shared-root missing from allowed paths');
     assert(mt.setAllowedPathScope(entry.id, 'conversation') === true, 'path scope move succeeds');
     entry = mt.getAllowedPathEntries().find(p => p.path === '~/shared-root');
-    assert(entry && entry.scope === 'conversation', 'path moved to conversation scope');
+    assert(entry?.scope === 'conversation', 'path moved to conversation scope');
   });
 
   // The project root is always surfaced as the implicit first entry.

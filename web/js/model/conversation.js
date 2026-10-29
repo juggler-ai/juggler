@@ -10,9 +10,9 @@ import { CHARS_PER_TOKEN } from '../utils/token-estimate.js';
 import ConversationDocument from './conversation-document.js';
 import slashCommandHandler from '../services/slash-command-handler.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
-import { isConversationalItemType } from '../../sdk/lib/message.js';
+import { isConversationalItemType, itemField } from '../../sdk/lib/message.js';
 import MessageThread from './message-thread.js';
-import { plainToYMap, plain } from './item-accessor.js';
+import { plainToYMap, plain, plainRecord, arrayItems, isItemView } from './item-accessor.js';
 import { settleRunCancelled } from './run-records.js';
 import { statusHoldsTurn } from './processing-status.js';
 import strategyRegistry from '../registries/strategy-registry.js';
@@ -111,11 +111,14 @@ const MAX_TRUNCATION_BUDGET = 200000;
  */
 
 /**
- * Model configuration: a concrete (provider, model) pair.
+ * Model configuration: a concrete (provider, model) pair. Mirrors the worker's
+ * ModelRef (cmd/juggler/core/model_ref.go), which always writes both names;
+ * an empty one means no model is resolvable.
  * @typedef {object} ModelConfig
- * @property {string} [provider] - Provider name (e.g., 'anthropic', 'openai', 'google')
- * @property {string} [model] - Model identifier (e.g., 'claude-sonnet-4-20250514')
+ * @property {string} provider - Provider name (e.g., 'anthropic', 'openai', 'google')
+ * @property {string} model - Model identifier (e.g., 'claude-sonnet-4-20250514')
  * @property {string} [thinking] - Optional canonical thinking level ('off'|'low'|'medium'|'high'|'max'); absent ⇒ provider default. Inherits atomically with the model down the thread tree.
+ * @property {string} [serviceTier] - Optional serving class, by the id the model advertised (e.g. 'priority'); absent ⇒ standard serving.
  */
 
 /**
@@ -192,7 +195,7 @@ class Conversation {
     /** @type {Set<string>} @private - Tool-actions with handleNewToolAction in flight */
     this._handlingNewToolAction = new Set();
 
-    /** @type {boolean} @private - Flag to prevent observers from firing during construction */
+    /** @type {boolean} - Flag to prevent observers from firing during construction (read by conversation-observers.js) */
     this._initializing = true;
 
     // Initialize document as client (no UndoManager, sync only)
@@ -233,13 +236,18 @@ class Conversation {
     this._stateChangeListeners = new Set();
 
     // Yjs observers for automatic event emission (stored for cleanup)
-    /** @type {((events: any[], transaction: any) => void)|null} @private */
+    // The observers and their guards are installed by conversation-observers.js,
+    // the extract that owns them.
+    /** @type {((events: Array<import('yjs').YEvent<import('yjs').AbstractType<unknown>>>, transaction: import('yjs').Transaction) => void)|null} */
     this._yjsItemsObserver = null;
-    /** @type {((event: any) => void)|null} @private */
+    /** @type {((event: import('yjs').YMapEvent<unknown>) => void)|null} */
     this._yjsMetadataObserver = null;
 
-    /** @type {boolean} @private - Guard flag to prevent recursive observer calls */
+    /** @type {boolean} - Guard flag to prevent recursive observer calls */
     this._inItemsObserver = false;
+
+    /** @type {number} - When the items observer last ran, for the trace's inter-tick gap (0 = never) */
+    this._lastObserverTickTs = 0;
 
     // Initialize built-in context items (system prompt)
     // Skip for loaded conversations - items come from worker Yjs sync
@@ -265,7 +273,7 @@ class Conversation {
 
   /**
    * Save auto-approval permission for a 'yes-always' response.
-   * @param {any} ymap - The tool-action Y.Map
+   * @param {import('../../sdk/lib/message.js').ToolActionMessage} ymap - The tool-action Y.Map
    * @param {import('./message-thread.js').default} messageThread
    */
   _saveAutoApprovalPermission(ymap, messageThread) {
@@ -278,31 +286,31 @@ class Conversation {
 
   /**
    * Resolve which MessageThread contains a given Y.Map item.
-   * @param {*} ymap - The Y.Map item
+   * @param {unknown} ymap - The Y.Map item
    * @returns {MessageThread} The matching message thread
    */
   _resolveMessageThreadForMap(ymap) {
-    const parent = ymap?.parent;
+    const parent = ymap && typeof ymap === 'object' && 'parent' in ymap ? ymap.parent : undefined;
     return parent ? this._resolveMessageThreadForArray(parent) : this._rootMessageThread;
   }
 
   /**
    * Resolve which MessageThread owns the given Y.Array.
-   * @param {*} yarray - The Y.Array that fired the event
+   * @param {unknown} yarray - The Y.Array that fired the event
    * @returns {MessageThread} The matching message thread
    */
   _resolveMessageThreadForArray(yarray) {
     const rootArr = this._doc.root.get('items');
     if (yarray === rootArr) return this._rootMessageThread;
     const found = findThreadForArray(rootArr, yarray);
-    if (found) return new MessageThread(this, found, found.get('itemId'));
+    if (found) return new MessageThread(this, found, found.get('itemId') ?? null);
     return this._rootMessageThread;
   }
 
   /**
    * Find the parent thread's Y.Map for a given threadItemId.
    * @param {string} threadItemId - Thread item ID
-   * @returns {*|null} The parent thread Y.Map, or null if at root
+   * @returns {import('./item-accessor.js').ItemView|null|undefined} The parent thread Y.Map, null if at root, undefined if not found
    */
   findParentContainer(threadItemId) {
     return findParentInArray(this._rootMessageThread.yarray, threadItemId);
@@ -326,14 +334,14 @@ class Conversation {
    */
   _forEachThreadContext(callback) {
     walkThreads(this._rootMessageThread.items, (threadYMap) => {
-      callback(new MessageThread(this, threadYMap, threadYMap.get('itemId')));
+      callback(new MessageThread(this, threadYMap, threadYMap.get('itemId') ?? null));
     });
   }
 
   /**
    * Find an item by itemId across the entire thread tree.
    * @param {string} id - Item ID to find
-   * @returns {*|null} Y.Map or null
+   * @returns {import('./item-accessor.js').ItemView|null} Y.Map or null
    */
   findItemById(id) {
     return findItemByIdRecursive(this._rootMessageThread.items, id);
@@ -481,7 +489,7 @@ class Conversation {
   /**
    * Read-only accessor for the root items array.
    * Used for rendering bootstrap (e.g., connection-manager on reconnect).
-   * @returns {Array<any>} Root items array
+   * @returns {MessageThread['items']} Root items array
    */
   get rootItems() {
     return this._rootMessageThread.items;
@@ -499,7 +507,7 @@ class Conversation {
 
   /**
    * The current model config, read from Yjs metadata via the root message thread.
-   * @returns {any} The model config object
+   * @returns {ModelConfig|null} The model config object
    */
   get modelConfig() {
     return this._rootMessageThread.modelConfig;
@@ -562,7 +570,7 @@ class Conversation {
    * of conversation state init carries: strategy, permission rules and allowed
    * paths all live in the Yjs doc and reach the worker by sync, so sending them
    * here would only be a second, ignored copy of them.
-   * @returns {{modelConfig: any}} Worker init data
+   * @returns {{modelConfig: ModelConfig|null}} Worker init data
    */
   getWorkerInitData() {
     return {
@@ -597,7 +605,7 @@ class Conversation {
    * modelConfig back over a `set-model` another viewer makes at the same
    * moment, leaving the wrong modelConfig in the document. yjs-sync
    * delivers the authoritative value; no JS-side write needed.
-   * @param {{modelConfig?: any, currentStrategyId?: string}} metadata
+   * @param {{modelConfig?: unknown, currentStrategyId?: string}} metadata
    */
   restoreWorkerMetadata(metadata) {
     if (metadata.currentStrategyId) {
@@ -809,7 +817,7 @@ class Conversation {
     if (!this._doc) return undefined;
     const raw = this._doc.metadata.get('processingState');
     if (!raw) return undefined;
-    return plain(raw);
+    return /** @type {{activity?: string, status?: string, [key: string]: unknown}|undefined} */ (plainRecord(raw));
   }
 
   /**
@@ -997,7 +1005,7 @@ class Conversation {
    * accessor for UI (e.g. the properties panel gating the Re-run control on
    * {@link ContextItem.isRerunnable}). Delegates to {@link _toolActionClass}.
    * @param {string} toolUseId
-   * @returns {any} The plugin class, or undefined if not found
+   * @returns {typeof import('juggler/context-item').default|undefined} The plugin class, or undefined if not found
    */
   toolActionClass(toolUseId) {
     return this._toolActionClass(toolUseId);
@@ -1007,7 +1015,7 @@ class Conversation {
    * Resolve the context-item plugin class that owns a tool-action, searching
    * all threads (the tool-action may live in a sub-thread).
    * @param {string} toolUseId
-   * @returns {any} The plugin class, or undefined if not found
+   * @returns {typeof import('juggler/context-item').default|undefined} The plugin class, or undefined if not found
    * @private
    */
   _toolActionClass(toolUseId) {
@@ -1104,7 +1112,7 @@ class Conversation {
 
   /**
    * Observe metadata changes on the conversation document
-   * @param {(event: any, transaction: any) => void} callback
+   * @param {(event: import('yjs').YMapEvent<unknown>, transaction: import('yjs').Transaction) => void} callback
    */
   observeMetadata(callback) {
     this._doc.observeMetadata(callback);
@@ -1112,7 +1120,7 @@ class Conversation {
 
   /**
    * Stop observing metadata changes
-   * @param {(event: any, transaction: any) => void} callback
+   * @param {(event: import('yjs').YMapEvent<unknown>, transaction: import('yjs').Transaction) => void} callback
    */
   unobserveMetadata(callback) {
     this._doc.unobserveMetadata(callback);
@@ -1121,7 +1129,7 @@ class Conversation {
   /**
    * Get a metadata value by key
    * @param {string} key
-   * @returns {any} The metadata value
+   * @returns {unknown} The metadata value
    */
   getMetadata(key) {
     return this._doc.metadata.get(key);
@@ -1130,7 +1138,7 @@ class Conversation {
   /**
    * Set a metadata value. Authored under the conversation's authorId.
    * @param {string} key
-   * @param {*} value
+   * @param {unknown} value
    */
   setMetadata(key, value) {
     this._doc.setMetadata(key, value);
@@ -1138,7 +1146,7 @@ class Conversation {
 
   /**
    * Get all metadata entries as an iterator
-   * @returns {IterableIterator<[string, any]>} Metadata entries
+   * @returns {IterableIterator<[string, unknown]>} Metadata entries
    */
   getMetadataEntries() {
     return this._doc.metadata.entries();
@@ -1399,7 +1407,7 @@ class Conversation {
    * only bites for a thread it never started — one spawned and left queued,
    * whose caller would otherwise wait forever. The thread itself stays perfectly
    * able to run again.
-   * @param {*} threadYMap - The Yjs Y.Map for the thread item
+   * @param {unknown} threadYMap - The Yjs Y.Map for the thread item
    * @returns {Promise<void>}
    */
   async cancelThread(threadYMap) {
@@ -1421,7 +1429,7 @@ class Conversation {
    * to stop waiting — happens only when the thread is stopped from its PARENT's
    * vantage: `cancelThread` (the parent tile's Stop) or `settleOpenSubThreads`
    * (a root/parent Escape).
-   * @param {*} threadYMap - The thread Y.Map.
+   * @param {unknown} threadYMap - The thread Y.Map.
    * @returns {Promise<void>}
    */
   async interruptThread(threadYMap) {
@@ -1441,7 +1449,7 @@ class Conversation {
    * @returns {void}
    */
   settleOpenSubThreads() {
-    /** @type {any[]} */
+    /** @type {import('./item-accessor.js').ItemView[]} */
     const open = [];
     walkThreads(this._rootMessageThread.items, (threadYMap) => {
       open.push(threadYMap);
@@ -1463,12 +1471,12 @@ class Conversation {
    * Every running thread is considered, not just the one the top-level
    * projection names — a parent and its read-only children run together, and a
    * subtree with any of them in it owns work worth preempting.
-   * @param {*} threadYMap - The thread Y.Map.
+   * @param {unknown} threadYMap - The thread Y.Map.
    * @returns {boolean} True if the worker is driving this subtree.
    * @private
    */
   _threadOwnsActiveWork(threadYMap) {
-    if (!threadYMap || typeof threadYMap.get !== 'function') return false;
+    if (!isItemView(threadYMap)) return false;
     const items = threadYMap.get('items');
     if (hasPendingApprovalInTree(items)) return true;
     const own = threadYMap.get('itemId');
@@ -1521,9 +1529,9 @@ class Conversation {
    * Deep-clone a toJSON snapshot, minting a fresh itemId for the node and
    * every descendant so a copy collides with nothing. Uses `minter` (a
    * conversation's _nextItemId) so cross-doc copies live in the dest id space.
-   * @param {any} snapshot - Plain object/array/primitive from toJSON.
+   * @param {unknown} snapshot - Plain object/array/primitive from toJSON.
    * @param {() => string} minter - Fresh-id generator.
-   * @returns {any} Re-id'd deep clone.
+   * @returns {unknown} Re-id'd deep clone.
    * @private
    */
   _remintItemIds(snapshot, minter) {
@@ -1531,7 +1539,7 @@ class Conversation {
       return snapshot.map(s => this._remintItemIds(s, minter));
     }
     if (snapshot && typeof snapshot === 'object') {
-      /** @type {Record<string, any>} */
+      /** @type {Record<string, unknown>} */
       const out = {};
       for (const [k, v] of Object.entries(snapshot)) {
         out[k] = this._remintItemIds(v, minter);
@@ -1640,7 +1648,7 @@ class Conversation {
 
     const parentContainer = this.findParentContainer(threadItemId);
     const parentThread = parentContainer
-      ? new MessageThread(this, parentContainer, parentContainer.get('itemId'))
+      ? new MessageThread(this, parentContainer, parentContainer.get('itemId') ?? null)
       : this._rootMessageThread;
     const idx = parentThread.findIndexByItemId(threadItemId);
     if (idx < 0) return false;
@@ -1650,9 +1658,10 @@ class Conversation {
     // owns exactly one, so carrying the child's up would duplicate it. Only the
     // placeholder is stripped; every other item moves up unchanged.
     const nested = threadYMap.get('items');
-    const snapshots = (nested?.toArray?.() || [])
-      .map((/** @type {any} */ it) => it.toJSON())
-      .filter((/** @type {{itemId?: string, type?: string}} */ it) => !(it.itemId === 'SYSTEM_1' || it.type === 'system-prompt'));
+    const snapshots = arrayItems(nested).flatMap(it => {
+      const snapshot = plainRecord(it);
+      return snapshot && !(snapshot.itemId === 'SYSTEM_1' || snapshot.type === 'system-prompt') ? [snapshot] : [];
+    });
 
     // Nothing to splice means this would be a delete wearing expand's name: the
     // tile goes and nothing takes its place, so whatever the tile itself
@@ -1662,7 +1671,7 @@ class Conversation {
 
     this.atomicUpdate(() => {
       parentThread.deleteAt(idx);
-      const ymaps = snapshots.map((/** @type {any} */ s) => plainToYMap(s));
+      const ymaps = snapshots.map(s => plainToYMap(s));
       parentThread.ensureYarray().insert(idx, ymaps);
     });
     return true;
@@ -1673,16 +1682,18 @@ class Conversation {
    * system-prompt placeholders are omitted because the destination root already
    * owns its SYSTEM_1; every remaining item gets fresh IDs in the destination
    * conversation's id space.
-   * @param {any[]} items - Source Y.Map items.
+   * @param {unknown[]} items - Source Y.Map items.
    * @param {Conversation} destConversation - Destination conversation.
-   * @returns {any[]} Plain snapshots ready for plainToYMap.
+   * @returns {unknown[]} Plain snapshots ready for plainToYMap.
    * @private
    */
   _snapshotsForNewRoot(items, destConversation) {
-    return items
-      .map((/** @type {any} */ it) => it.toJSON())
-      .filter((/** @type {any} */ it) => this._isRootTopLevelItem(it))
-      .map((/** @type {any} */ it) => this._remintItemIds(it, () => destConversation._nextItemId()));
+    return items.flatMap(it => {
+      const snapshot = plainRecord(it);
+      return this._isRootTopLevelItem(snapshot)
+        ? [this._remintItemIds(snapshot, () => destConversation._nextItemId())]
+        : [];
+    });
   }
 
   /**
@@ -1691,7 +1702,7 @@ class Conversation {
    * item that must be dropped when flattening a sub-thread into a new root: the
    * destination root seeds its own, so a copied one would duplicate the system
    * prompt.
-   * @param {any} plain - Plain snapshot from a Y.Map's toJSON().
+   * @param {Record<string, unknown>|undefined} plain - Plain snapshot from a Y.Map's toJSON().
    * @returns {boolean} True if the item belongs at a conversation root top level.
    * @private
    */
@@ -1734,7 +1745,7 @@ class Conversation {
     const sorted = this._normalizeIndices(indices, source.length);
     if (!sorted.length || !this.session?.createConversation) return null;
     const sourceItems = sorted.map(i => source.items[i]);
-    const hasCopyableItem = sourceItems.some((/** @type {any} */ it) => this._isRootTopLevelItem(it.toJSON()));
+    const hasCopyableItem = sourceItems.some(it => this._isRootTopLevelItem(plainRecord(it)));
     if (!hasCopyableItem) return null;
 
     const newId = await this.session.createConversation(options.name || 'Copied items', {
@@ -1750,7 +1761,7 @@ class Conversation {
 
     newConv.atomicUpdate(() => {
       const arr = newConv.rootMessageThread.ensureYarray();
-      arr.insert(arr.length, snapshots.map((/** @type {any} */ s) => plainToYMap(s)));
+      arr.insert(arr.length, snapshots.map(s => plainToYMap(s)));
     });
 
     this._copyNewTabState(newConv, source);
@@ -1808,7 +1819,7 @@ class Conversation {
     // Every thread is isolated and carries its own history, so the promoted
     // items are exactly the thread's own items.
     const promotedItems = sourceItems;
-    const hasCopyableItem = promotedItems.some((/** @type {any} */ it) => this._isRootTopLevelItem(it.toJSON()));
+    const hasCopyableItem = promotedItems.some((/** @type {unknown} */ it) => this._isRootTopLevelItem(plainRecord(it)));
     if (!hasCopyableItem) return null;
 
     const goal = threadYMap.get('goal') || 'Promoted thread';
@@ -1827,7 +1838,7 @@ class Conversation {
     newConv.atomicUpdate(() => {
       const root = newConv.rootMessageThread;
       const arr = root.ensureYarray();
-      arr.insert(arr.length, snapshots.map((/** @type {any} */ s) => plainToYMap(s)));
+      arr.insert(arr.length, snapshots.map(s => plainToYMap(s)));
     });
 
     this._copyNewTabState(newConv, sourceThread);
@@ -2543,8 +2554,8 @@ class Conversation {
       const finish = () => {
         if (!finished && settled()) done();
       };
-      const metaObserver = (/** @type {any} */ event) => {
-        if (event.keysChanged?.has?.('processingState')) finish();
+      const metaObserver = (/** @type {import('yjs').YMapEvent<unknown>} */ event) => {
+        if (event.keysChanged.has('processingState')) finish();
       };
       this.observeMetadata(metaObserver);
       const offActions = this._actionExecutor.onSettled(this.id, finish);
@@ -2633,15 +2644,15 @@ class Conversation {
    * than keeping the previous model's: a window is only worth showing when it
    * belongs to the model in use, and every reader falls back sensibly on unset
    * (the footer drops the denominator, truncation uses its default budget).
-   * @param {Array<any>} providers - Provider list from providers-update.
+   * @param {unknown[]} providers - Provider list from providers-update.
    * @returns {boolean} True when the cached context window changed.
    */
   applyProvidersContextWindow(providers) {
     const config = this.modelConfig;
     if (!config?.provider || !config?.model) return false;
-    const provider = providers.find((/** @type {any} */ p) => p?.name === config.provider);
-    const model = provider?.modelsWithContext?.find((/** @type {any} */ m) => m?.id === config.model);
-    const next = Number(model?.contextWindow) || null;
+    const provider = providers.find(p => itemField(p, 'name') === config.provider);
+    const model = arrayItems(itemField(provider, 'modelsWithContext')).find(m => itemField(m, 'id') === config.model);
+    const next = Number(itemField(model, 'contextWindow')) || null;
     if (next === this.contextWindow) return false;
     this.contextWindow = next;
     return true;
@@ -2720,7 +2731,7 @@ class Conversation {
    * Asked of the live provider list and the live binding, because both move
    * independently of the selection: a conversation picks claudecode in the
    * project and is then bound elsewhere, and nothing retargets the model.
-   * @param {any} messageThread - The thread being sent to, whose config wins.
+   * @param {MessageThread|null|undefined} messageThread - The thread being sent to, whose config wins.
    * @returns {import('../services/providers-cache.js').Provider|null} The stranded provider, or null to allow the send.
    * @private
    */
@@ -2729,7 +2740,7 @@ class Conversation {
     const config = messageThread?.modelConfig || this.modelConfig;
     if (!config?.provider) return null;
     const entry = providersCache.get().find(p => p.name === config.provider);
-    return /** @type {any} */ (entry)?.spawnsLocalProcess ? entry : null;
+    return entry && 'spawnsLocalProcess' in entry && entry.spawnsLocalProcess ? entry : null;
   }
 
   /**
@@ -2887,8 +2898,10 @@ class Conversation {
       switch (effect.type) {
         case 'openThread': {
           // Opening a column is the tab's: it owns the selection chain.
-          this._session?.events.notify('conversation:thread-open-requested',
-            { conversationId: this.id, threadId: data.threadId });
+          if (typeof data.threadId === 'string') {
+            this._session?.events.notify('conversation:thread-open-requested',
+              { conversationId: this.id, threadId: data.threadId });
+          }
           break;
         }
         case 'setDraft': {
@@ -3007,7 +3020,7 @@ class Conversation {
    * Whether a pending message holds nothing worth restoring or resending.
    * Judged on BOTH halves: an image-only send has empty text, so a text-only
    * test would read it as nothing and drop the images it was holding.
-   * @param {{content?: string, attachments?: Array<any>}|null} message - The pending message, if any.
+   * @param {{content?: string, attachments?: Array<import('../utils/attachments.js').AssetRef>}|null} message - The pending message, if any.
    * @returns {boolean} True when there is nothing to hand back.
    * @private
    */
@@ -3101,7 +3114,7 @@ class Conversation {
    * `no-model` send is bounced before the worker appends the user item, so the
    * refs are unreferenced rather than spent and the resend is the first thing to
    * record them.
-   * @param {{content?: string, attachments?: Array<any>}} message - The pending message to resend.
+   * @param {{content?: string, attachments?: Array<import('../utils/attachments.js').AssetRef>}} message - The pending message to resend.
    * @param {string|null} [threadItemId] - Target thread, or null for root.
    */
   resendToWorker(message, threadItemId = null) {

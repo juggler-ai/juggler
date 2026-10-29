@@ -133,8 +133,8 @@ export function getPaintedTheme() {
 
 /**
  * Whether s is a theme mode the app understands.
- * @param {string|null|undefined} s
- * @returns {boolean} True when s is 'system', 'light', or 'dark'.
+ * @param {unknown} s
+ * @returns {s is string} True when s is 'system', 'light', or 'dark'.
  * @private
  */
 function isMode(s) {
@@ -148,7 +148,7 @@ function isMode(s) {
  * @private
  */
 function injectedMode(m) {
-  return isMode(/** @type {any} */ (m)) ? /** @type {string} */ (m) : null;
+  return isMode(m) ? m : null;
 }
 
 /**

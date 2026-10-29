@@ -44,8 +44,8 @@ func setNoticeText(item *ConversationItem, summary, content msg.Message) {
 	if len(item.Data) > 0 {
 		_ = json.Unmarshal(item.Data, &data)
 	}
-	data["summaryMessage"] = summary
-	data["message"] = content
+	data[keySummaryMessage] = summary
+	data[keyMessage] = content
 	item.Data, _ = json.Marshal(data)
 }
 

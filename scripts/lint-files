@@ -20,7 +20,9 @@
 #   *.go         → gofmt check (outside GO_FOREIGN) + go vet + golangci-lint
 #                  (on each file's package, if it is one of GO_PACKAGES)
 #   *.js, *.mjs, *.cjs, extensionless
-#                → eslint (its config decides which of them it lints)
+#                → eslint (its config decides which of them it lints), and
+#                  lint-css-in-js: stylelint over the CSS they pass to
+#                  injectStylesOnce() (it decides which of them it reads)
 #   *.css        → stylelint (under CSS_DIRS)
 #   *.md         → lint-docs-code (imports in the docs' JavaScript examples)
 # A file outside a linter's scope is reported, by name, as skipped by it.
@@ -240,6 +242,9 @@ if [ ${#js_files[@]} -gt 0 ]; then
 		echo "==> eslint --fix (${#js_files[@]} file(s))"
 		NODE_NO_WARNINGS=1 "$NPM_BIN/eslint" --config tooling/eslint.config.js \
 			--fix --no-warn-ignored "${js_files[@]}" || status=1
+		ensure_node_tooling stylelint
+		echo "==> lint-css-in-js --fix (${#js_files[@]} file(s))"
+		NODE_NO_WARNINGS=1 node tooling/lint-css-in-js.js --fix "${js_files[@]}" || status=1
 	else
 		echo "==> eslint (${#js_files[@]} file(s))"
 		# --no-warn-ignored: naming a file the config ignores or does not name
@@ -248,6 +253,12 @@ if [ ${#js_files[@]} -gt 0 ]; then
 		# file that is not JS, fails the lint it is exempt from.
 		NODE_NO_WARNINGS=1 "$NPM_BIN/eslint" --config tooling/eslint.config.js \
 			--max-warnings 0 --no-warn-ignored "${js_files[@]}" || status=1
+		# The CSS they pass to injectStylesOnce(), under the stylelint config
+		# the sheets use. The script narrows the list to its own scope, as the
+		# whole-tree run in lint-css does.
+		ensure_node_tooling stylelint
+		echo "==> lint-css-in-js (${#js_files[@]} file(s))"
+		NODE_NO_WARNINGS=1 node tooling/lint-css-in-js.js "${js_files[@]}" || status=1
 		# The message catalogue is extracted from every t() in the tree, so it
 		# is checked in full whenever any JavaScript changed.
 		echo "==> i18n check"

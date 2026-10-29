@@ -70,7 +70,10 @@ function testDuckDuckGoParsing() {
     }
 
     // Check first result
-    const first = results[0];
+    const [first, second, third] = results;
+    if (!first || !second || !third) {
+      throw new Error(`Expected 3 results, got ${results.length}`);
+    }
     if (first.title !== 'Duck Result 1') {
       throw new Error(`Expected title "Duck Result 1", got "${first.title}"`);
     }
@@ -82,16 +85,16 @@ function testDuckDuckGoParsing() {
     }
 
     // Second result: HTML entities in the title must be decoded.
-    if (results[1].title !== 'Tom & Jerry <2>') {
-      throw new Error(`Expected decoded title "Tom & Jerry <2>", got "${results[1].title}"`);
+    if (second.title !== 'Tom & Jerry <2>') {
+      throw new Error(`Expected decoded title "Tom & Jerry <2>", got "${second.title}"`);
     }
-    if (results[1].url !== 'https://test.org/duck2') {
-      throw new Error(`Expected url "https://test.org/duck2", got "${results[1].url}"`);
+    if (second.url !== 'https://test.org/duck2') {
+      throw new Error(`Expected url "https://test.org/duck2", got "${second.url}"`);
     }
 
     // Third result: inline tags in the snippet must be stripped.
-    if (results[2].description !== 'Duck description 3') {
-      throw new Error(`Expected stripped description "Duck description 3", got "${results[2].description}"`);
+    if (third.description !== 'Duck description 3') {
+      throw new Error(`Expected stripped description "Duck description 3", got "${third.description}"`);
     }
 
     return { passed: true };
@@ -158,11 +161,11 @@ function testDomainFilteringAllowed() {
       throw new Error(`Expected 2 results, got ${filtered.length}`);
     }
 
-    if (filtered[0].url !== 'https://example.com/page1') {
+    if (filtered[0]?.url !== 'https://example.com/page1') {
       throw new Error('Should include example.com');
     }
 
-    if (filtered[1].url !== 'https://sub.example.com/page3') {
+    if (filtered[1]?.url !== 'https://sub.example.com/page3') {
       throw new Error('Should include sub.example.com');
     }
 
@@ -192,7 +195,7 @@ function testDomainFilteringBlocked() {
       throw new Error(`Expected 1 result, got ${filtered.length}`);
     }
 
-    if (filtered[0].url !== 'https://test.org/page2') {
+    if (filtered[0]?.url !== 'https://test.org/page2') {
       throw new Error('Should only include test.org');
     }
 
@@ -383,8 +386,9 @@ async function testBlockedRetriesAreSpaced(session, conversation) {
     if (waits.some(ms => ms < 3000)) {
       throw new Error(`Every backoff wait should be at least 3s, got ${JSON.stringify(waits)}`);
     }
-    for (let i = 1; i < waits.length; i++) {
-      if (waits[i] <= waits[i - 1]) {
+    for (const [i, wait] of waits.entries()) {
+      const before = waits[i - 1];
+      if (before !== undefined && wait <= before) {
         throw new Error(`Backoff waits should grow, got ${JSON.stringify(waits)}`);
       }
     }
@@ -435,7 +439,8 @@ async function testRateLimitCooldownSkipsNetwork(session, conversation) {
     // Once the cooldown has lapsed, searches reach the network again.
     WebSearchContextItem.blockedUntil = Date.now() - 1;
     const result = await second.search('another query');
-    if (fetched !== 1 || result.results.length !== 3) {
+    // The stub counts as the search runs, which the check above cannot see.
+    if (/** @type {number} */ (fetched) !== 1 || result.results.length !== 3) {
       throw new Error(`Expected one fetch with 3 results after the cooldown, got ${fetched} fetch(es), ${result.results.length} results`);
     }
     return { passed: true };

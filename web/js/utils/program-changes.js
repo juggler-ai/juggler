@@ -18,29 +18,45 @@
 const MAX_LINES = 50;
 
 /**
+ * A stored object as a plain record: a Y.Map's `toJSON()`, a plain object as it
+ * is, and an empty record for anything else.
+ * @param {unknown} value - A Y.Map, a plain object, or neither.
+ * @returns {Record<string, unknown>} Its fields.
+ */
+function plainRecord(value) {
+  /** @type {unknown} */
+  const data = value && typeof value === 'object' && 'toJSON' in value && typeof value.toJSON === 'function'
+    ? value.toJSON()
+    : value;
+  return data && typeof data === 'object' ? /** @type {Record<string, unknown>} */ (data) : {};
+}
+
+/**
  * The changes a program tool made, as appended to its tool_result: every
  * call that changes things, noted when it failed or never finished. Identical
  * lines (a file edited twice) are listed once, where the first fell, with a
  * count. Reads are never listed.
- * @param {any} displayData - The program's displayData, plain or a Y.Map
+ * @param {unknown} displayData - The program's displayData, plain or a Y.Map
  * @returns {string} The report, or '' when the record holds no change
  */
 export function programChangeReport(displayData) {
-  const data = displayData?.toJSON ? displayData.toJSON() : displayData;
-  const calls = Array.isArray(data?.nestedCalls) ? data.nestedCalls : [];
+  const data = plainRecord(displayData);
+  const calls = Array.isArray(data.nestedCalls) ? data.nestedCalls : [];
   /** Each distinct line, by its text, with how many calls it stands for. */
   /** @type {Map<string, number>} */
   const lines = new Map();
   for (const c of calls) {
-    if (typeof c?.effect !== 'string' || c.effect === '') continue;
-    const note = c.status === 'ok' ? '' : c.status === 'error' ? ' (failed)' : ' (interrupted)';
-    const line = `${c.effect}${note}`;
+    const call = plainRecord(c);
+    const effect = call.effect;
+    if (typeof effect !== 'string' || effect === '') continue;
+    const note = call.status === 'ok' ? '' : call.status === 'error' ? ' (failed)' : ' (interrupted)';
+    const line = `${effect}${note}`;
     lines.set(line, (lines.get(line) ?? 0) + 1);
   }
   const all = [...lines];
   const kept = all.slice(0, MAX_LINES);
   // Past the cap, the rest are counted in changes, not lines.
-  const omitted = Number.isInteger(data?.omittedEffects) ? data.omittedEffects : 0;
+  const omitted = typeof data.omittedEffects === 'number' && Number.isInteger(data.omittedEffects) ? data.omittedEffects : 0;
   const extra = all.slice(MAX_LINES).reduce((n, [, count]) => n + count, omitted);
   if (kept.length === 0 && extra === 0) return '';
   let text = '\n\nChanges the program made:'

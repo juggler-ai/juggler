@@ -117,7 +117,7 @@ export async function runTests(_ctx) {
     session.save();
     await pastEveryPendingSave();
     assert(puts.length === 1, `three saves inside one debounce window made ${puts.length} PUTs`);
-    const [activeId, history, metadata] = puts[0];
+    const [activeId, history, metadata] = puts[0] ?? [];
     assert(activeId === null, `a session with nothing loaded saves a null active id, got ${JSON.stringify(activeId)}`);
     assert(Array.isArray(history) && metadata?.flag === 1,
       `the PUT carries the history and the metadata, got ${JSON.stringify(puts[0])}`);

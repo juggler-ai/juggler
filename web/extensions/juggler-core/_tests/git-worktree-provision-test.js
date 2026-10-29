@@ -80,13 +80,13 @@ export async function runTests() {
           `printf 'echo fetching the submodules\\nsleep 0.3\\necho linked node_modules\\n' > ${repo}/.juggler/worktree-setup`
         ));
 
-        /** @type {{step: string, detail: string}[]} */
+        /** @type {{step: string, detail?: string}[]} */
         const said = [];
         outcome = await provisionWorkspace({
           session,
           providerId: PROVIDER_ID,
           values: { repo, branch: BRANCH, base: 'main', location },
-          onProgress: (/** @type {string} */ step, /** @type {string} */ detail) => said.push({ step, detail })
+          onProgress: (step, detail) => { said.push({ step, detail }); }
         });
 
         const heard = said.filter(line => /fetching the submodules|linked node_modules/.test(line.detail || ''));
@@ -168,6 +168,7 @@ export async function runTests() {
         const before = await snapshot(ops, repo);
 
         const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+        if (!provider) throw new Error('the provider is not registered');
         row = await registerWorkspace({
           kind: 'local',
           root: location,
@@ -196,8 +197,9 @@ export async function runTests() {
         await dying;
 
         const abandoned = (await listWorkspaces()).find((/** @type {any} */ w) => w.id === row.id);
-        assert(abandoned?.meta?.treeRel,
-          `the row carries what was checkpointed, got ${JSON.stringify(abandoned?.meta)}`);
+        if (!abandoned?.meta?.treeRel) {
+          throw new Error(`the row carries what was checkpointed, got ${JSON.stringify(abandoned?.meta)}`);
+        }
 
         const outcome = await provider.cleanupPartial(abandoned, {
           session,

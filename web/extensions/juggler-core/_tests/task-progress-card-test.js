@@ -135,7 +135,7 @@ export async function runTests(_ctx) {
   /**
    * Mount the card into a detached-from-layout content region.
    * @param {any} session - The stand-in session.
-   * @returns {any} The content element and levers.
+   * @returns {{contentEl: HTMLElement, rows: () => HTMLElement[], width: (kind: string, state: string) => string}} The content element and levers.
    */
   function mount(session) {
     const contentEl = document.createElement('div');

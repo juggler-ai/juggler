@@ -36,7 +36,7 @@ function isDiskServedPath(url) {
 export function resolveAssetUrl(url) {
   if (!url.startsWith('/')) return url;
   if (isDiskServedPath(url)) return serverPath(url);
-  const assetPrefix = /** @type {any} */ (globalThis).__assetPrefix;
+  const assetPrefix = /** @type {typeof globalThis & {__assetPrefix?: string}} */ (globalThis).__assetPrefix;
   return assetPrefix ? assetPrefix + url : url;
 }
 
@@ -49,7 +49,7 @@ export function resolveAssetUrl(url) {
  * imported directly. Both registry and system-prompt capability loaders go
  * through here so plugins load identically on either thread.
  * @param {string} resolvedUrl - The asset-resolved module URL
- * @returns {Promise<any>} The imported module namespace
+ * @returns {Promise<{default?: unknown}>} The imported module namespace
  */
 export function importModuleUrl(resolvedUrl) {
   if (typeof document === 'undefined') {

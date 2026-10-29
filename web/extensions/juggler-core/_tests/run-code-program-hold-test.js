@@ -53,7 +53,7 @@ export async function runTests(_ctx) {
       const parked = await waitHeld(mt, id, 'bash');
       assert(parked.result === undefined, `a held item has no result: ${JSON.stringify(parked.result)}`);
       assert(parked.heldCall?.input?.command === command, `with its input: ${JSON.stringify(parked.heldCall)}`);
-      assert(actionExecutor.runningActionFor(id, conversation.id), 'the program is still running while it waits');
+      assert(actionExecutor.runningActionFor(id, conversation.id) !== null, 'the program is still running while it waits');
       const options = parked.approvalOptions?.options || [];
       assert(options.some((/** @type {any} */ o) => o.value === 'yes') && options.some((/** @type {any} */ o) => o.value === 'no'), `yes and no: ${JSON.stringify(options)}`);
       const always = options.filter((/** @type {any} */ o) => String(o.value).startsWith('yes-always'));

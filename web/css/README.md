@@ -217,7 +217,7 @@ colour outside `tokens/` (see [Tokens](#tokens)) — and then
 | Check | What fails it |
 |---|---|
 | ownership | A selector in a file that owns neither its root nor its subject. |
-| dead selectors | A class or id no production string puts on an element (tests, comments, `t()` text and extension CSS are not evidence), matching no `dynamicClasses` pattern. |
+| dead selectors | A class or id, in any production sheet — these, an extension's, `web/machine/`'s — that no production string puts on an element (tests, comments, `t()` text and extension CSS are not evidence), matching no `dynamicClasses` pattern. |
 | token parity | A colour token defined for one theme only without the fallback idiom; a `var()` that resolves to nothing; a fallback on a token that is always defined; a fallback on a property nothing defines and JS does not set. |
 | link parity | `index.html` and `headless-test.html` disagreeing on the sheet list. |
 | layer order | A sheet whose layer in `manifest.json` is not its directory, or one listed out of layer order. |

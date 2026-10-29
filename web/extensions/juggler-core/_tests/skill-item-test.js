@@ -46,7 +46,7 @@ import { HttpError } from '../../../js/services/http.js';
  */
 class FakeSkillItem extends SkillContextItem {
   /**
-   * @param {object} ctx - ContextItem constructor context
+   * @param {import('../../../sdk/context-item-types.js').ItemContext} ctx - ContextItem constructor context
    * @param {any[]} skills - Fixture available-skills list
    * @param {Record<string, any>} bodies - name → {body, files} fixture details
    */
@@ -98,6 +98,15 @@ export async function runTests(_ctx) {
       failed++;
       errors.push(`${name}: ${e.message}`);
     }
+  }
+
+  /**
+   * The skills snapshot an item froze into its doc.
+   * @param {FakeSkillItem} item - A seeded item
+   * @returns {import('../../../js/services/skills.js').SkillMeta[]} Its `data.skills`
+   */
+  function frozenSkills(item) {
+    return /** @type {import('../../../js/services/skills.js').SkillMeta[]} */ (item.data.skills);
   }
 
   await initializeRegistries();
@@ -192,7 +201,7 @@ export async function runTests(_ctx) {
     const bad = await item.validate({});
     assert(bad.valid === false, 'missing name must be invalid');
     const ok = await item.validate({ name: '  pdf-tools  ' });
-    assert(ok.valid === true && ok.params.name === 'pdf-tools', 'valid name must be trimmed');
+    assert(ok.valid === true && ok.params?.name === 'pdf-tools', 'valid name must be trimmed');
   });
 
   await test('loading a skill returns its body and a resource listing (SKILL.md elided)', async () => {
@@ -241,7 +250,7 @@ export async function runTests(_ctx) {
   await test('properties panel lists the available skills, not just the type name', async () => {
     const item = makeItem(oneSkill, oneBody);
     const container = document.createElement('div');
-    await item._renderPanel(container);
+    await item.__renderPanelForTests(container);
     const text = container.textContent || '';
     assert(text !== 'skill', 'panel must not be just the bare type name');
     assert(text.includes('pdf-tools'), `panel should list the skill name; got:\n${text}`);
@@ -253,14 +262,14 @@ export async function runTests(_ctx) {
     const item = makeItem(oneSkill, oneBody);
     await item.execute({ name: 'pdf-tools' });
     const container = document.createElement('div');
-    await item._renderPanel(container);
+    await item.__renderPanelForTests(container);
     assert(/loaded/i.test(container.textContent || ''), 'an activated skill should be marked loaded in the panel');
   });
 
   await test('properties panel shows an empty state when no skills exist', async () => {
     const item = makeItem([]);
     const container = document.createElement('div');
-    await item._renderPanel(container);
+    await item.__renderPanelForTests(container);
     assert(/No skills yet/i.test(container.textContent || ''), 'empty catalog should show an empty-state note');
   });
 
@@ -285,10 +294,10 @@ export async function runTests(_ctx) {
     await item.handleToolCall('skill', {}, { session, conversation });
     assert(Array.isArray(item.data.skills), 'seed should freeze a skills snapshot into this.data.skills');
     assert(
-      item.data.skills.length === 1 && item.data.skills[0].name === 'pdf-tools',
+      frozenSkills(item).length === 1 && frozenSkills(item)[0]?.name === 'pdf-tools',
       `snapshot should record the available skills; got: ${JSON.stringify(item.data.skills)}`
     );
-    assert(item.data.skills[0].scope === 'project' && item.data.skills[0].source === 'juggler',
+    assert(frozenSkills(item)[0]?.scope === 'project' && frozenSkills(item)[0]?.source === 'juggler',
       'snapshot must carry scope/source so the skill tool can resolve a load');
   });
 
@@ -301,7 +310,7 @@ export async function runTests(_ctx) {
     assert(block.includes('- a-skill: first'), `block should reflect the frozen snapshot; got:\n${block}`);
     assert(!block.includes('b-skill'), 'block must not reflect post-seed catalog changes');
     const container = document.createElement('div');
-    await item._renderPanel(container);
+    await item.__renderPanelForTests(container);
     const text = container.textContent || '';
     assert(text.includes('a-skill') && !text.includes('b-skill'),
       `panel must show the frozen snapshot, not the live catalog; got:\n${text}`);
@@ -313,7 +322,7 @@ export async function runTests(_ctx) {
     item._skills = [{ name: 'b-skill', description: 'second' }];
     await item.handleToolCall('skill', {}, { session, conversation });
     assert(
-      item.data.skills.length === 1 && item.data.skills[0].name === 'a-skill',
+      frozenSkills(item).length === 1 && frozenSkills(item)[0]?.name === 'a-skill',
       `re-seed must not overwrite the frozen snapshot; got: ${JSON.stringify(item.data.skills)}`
     );
   });
@@ -423,11 +432,11 @@ export async function runTests(_ctx) {
       // Standing card, with one skill loaded so both badges show.
       await item.execute({ name: '1' });
       const panel = document.createElement('div');
-      await item._renderPanel(panel);
+      await item.__renderPanelForTests(panel);
       check('standing card', () => assertPseudoLocalized(panel, { skip: DATA, atLeast: 10, where: 'standing card' }));
       check('standing card badges', () => assert(panel.querySelectorAll('.skills-badge').length === 2, 'expected the scripts and loaded badges'));
       const empty = document.createElement('div');
-      await makeItem([])._renderPanel(empty);
+      await makeItem([]).__renderPanelForTests(empty);
       check('empty card', () => assertPseudoLocalized(empty, { skip: DATA, atLeast: 6, where: 'empty card' }));
 
       /** @type {Array<[string, any, string, string, string]>} */
@@ -441,11 +450,11 @@ export async function runTests(_ctx) {
         const host = document.createElement('div');
         const data = where === 'already loaded' ? { name, alreadyLoaded: true } : { name, alreadyLoaded: false, body: content };
         await loader._renderLoadPanel(host, name, ctxFor(data, content));
-        check(where, () => assert(host.querySelector(expect), `${where}: expected ${expect}`));
+        check(where, () => assert(host.querySelector(expect) !== null, `${where}: expected ${expect}`));
         check(where, () => assertPseudoLocalized(host, { skip: DATA, atLeast: 2, where }));
         if (!name) shown['unknown skill name'] = String(host.querySelector('.skills-card-name')?.textContent);
       }
-      shown['unnamed skill'] = String(SkillContextItem._skillCard({}).querySelector('.skills-card-name')?.textContent);
+      shown['unnamed skill'] = String(SkillContextItem.__skillCardForTests({ name: '' }).querySelector('.skills-card-name')?.textContent);
 
       const raw = Object.entries(shown).filter(([, s]) => !isPseudoLocalized(s));
       if (raw.length) failures.push(`plain English under en-XA: ${JSON.stringify(raw)}`);

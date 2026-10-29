@@ -6,6 +6,7 @@ package worker
 
 import (
 	"go/ast"
+	"go/parser"
 	"go/token"
 	"go/types"
 	"slices"
@@ -28,6 +29,12 @@ import (
 // itself a class. A class holding doc state taints its elements too, so a map
 // nested inside doc state is doc state, at any depth.
 //
+// Doc state also travels as JSON text: a string or byte slice read from the
+// doc or written into it (an item's Data, a value stored as a JSON string).
+// Text is followed as a kind of its own (flow): text read out of, or written
+// into, doc state is doc text, and the value json.Unmarshal decodes from doc
+// text, or json.Marshal encodes into it, is doc state (encodes).
+//
 // A key position is then: an index into, delete from, or literal key of doc
 // state; the key argument of a Y.Map Get/Set/Delete/Has or a yMap* reader; and,
 // computed by fixpoint, the argument a caller passes to any string parameter
@@ -42,13 +49,20 @@ type docFlow struct {
 	slots   map[slotKey]*flowNode // a func-typed variable's parameters
 	results map[slotKey]*flowNode // a function's results
 	lits    map[*ast.CompositeLit]*flowNode
+	// jsonText is the class of each json.Marshal call's result.
+	jsonText map[*ast.CallExpr]*flowNode
+	// implications are the pairs whose first class holding doc state makes
+	// the second hold it too (flow, encodes); implied indexes them.
+	implications [][2]*flowNode
+	implied      map[[2]*flowNode]bool
 	// docRead is the class of every value read out of the doc.
 	docRead *flowNode
 
 	decls map[*types.Func]*ast.FuncDecl
 	// rangeKeyOf is the map a range statement's key variable walks.
 	rangeKeyOf map[types.Object]ast.Expr
-	// keyLits are the literals a local string variable is given: assigned
+	// keyLits are the literals and constants (isKeyValue) a local string
+	// variable is given: assigned
 	// directly, or ranged over as a literal's elements.
 	keyLits map[types.Object][]ast.Expr
 	// keyParams are the string parameters that reach a key position.
@@ -67,6 +81,9 @@ type flowNode struct {
 	parent  *flowNode
 	elem    *flowNode
 	tainted bool
+	// text marks a class of text (isText); every member of a class is of its
+	// kind.
+	text bool
 }
 
 func (n *flowNode) find() *flowNode {
@@ -97,6 +114,9 @@ func union(a, b *flowNode) bool {
 	case b.elem != nil:
 		union(a.elem, b.elem)
 	}
+	if a.tainted {
+		taint(a.elem)
+	}
 	return true
 }
 
@@ -106,11 +126,12 @@ func elemOf(n *flowNode) *flowNode {
 	}
 	n = n.find()
 	if n.elem == nil {
-		n.elem = &flowNode{}
+		n.elem = &flowNode{tainted: n.tainted}
 	}
 	return n.elem
 }
 
+// taint marks n's class as doc state, and its elements at every depth.
 func taint(n *flowNode) bool {
 	if n == nil {
 		return false
@@ -120,12 +141,13 @@ func taint(n *flowNode) bool {
 		return false
 	}
 	n.tainted = true
+	taint(n.elem)
 	return true
 }
 
-// isTainted reports whether n's class holds doc state. Tainting a class taints
-// its elements, at read time: the element pointer can be replaced by a union
-// after the container was tainted.
+// isTainted reports whether n's class holds doc state. A tainted class's
+// elements are tainted with it — taint, union and elemOf all keep that so — so
+// a map nested inside doc state is doc state.
 func isTainted(n *flowNode) bool {
 	return n != nil && n.find().tainted
 }
@@ -146,13 +168,14 @@ func newDocFlow(src workerSource) *docFlow {
 		Uses:      map[*ast.Ident]types.Object{},
 		Implicits: map[ast.Node]types.Object{},
 	}
-	conf := types.Config{Importer: shallowImporter{}, Error: func(error) {}}
-	_, _ = conf.Check("worker", src.fset, files, info)
+	conf := types.Config{Importer: docFlowImporter{}, Error: func(error) {}}
+	_, _ = conf.Check(flowPkg, src.fset, files, info)
 
 	f := &docFlow{
 		src: src, info: info,
 		vars: map[types.Object]*flowNode{}, slots: map[slotKey]*flowNode{},
 		results: map[slotKey]*flowNode{}, lits: map[*ast.CompositeLit]*flowNode{},
+		jsonText: map[*ast.CallExpr]*flowNode{}, implied: map[[2]*flowNode]bool{},
 		docRead: &flowNode{tainted: true},
 		decls:   map[*types.Func]*ast.FuncDecl{}, rangeKeyOf: map[types.Object]ast.Expr{},
 		keyLits: map[types.Object][]ast.Expr{}, keyParams: map[types.Object]bool{}, funcLitOwner: map[*ast.FuncLit]types.Object{},
@@ -174,8 +197,9 @@ func newDocFlow(src workerSource) *docFlow {
 }
 
 // carriesKeys reports whether a value of type t can be, or hold, a map keyed
-// by string: only those carry doc keys, so only those are followed. A type
-// the shallow type-check could not resolve (a ycrdt one) is followed too.
+// by string: only those carry doc keys, so only those are followed. A string
+// or byte slice is followed as the JSON text of one, and a type the shallow
+// type-check could not resolve (a ycrdt one) is followed too.
 func carriesKeys(t types.Type) bool {
 	if t == nil {
 		return true
@@ -187,15 +211,70 @@ func carriesKeys(t types.Type) bool {
 	case *types.Interface:
 		return true
 	case *types.Slice:
+		if b, ok := u.Elem().Underlying().(*types.Basic); ok && b.Kind() == types.Byte {
+			return true
+		}
 		return carriesKeys(u.Elem())
 	case *types.Array:
 		return carriesKeys(u.Elem())
 	case *types.Pointer:
 		return carriesKeys(u.Elem())
 	case *types.Basic:
-		return u.Kind() == types.Invalid
+		return u.Kind() == types.Invalid || u.Info()&types.IsString != 0
 	}
 	return false
+}
+
+// isText reports whether a value of type t is text, a string or byte slice
+// (json.RawMessage among them): the JSON of a value at most, never one whose
+// keys can be indexed.
+func isText(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Basic:
+		return u.Info()&types.IsString != 0
+	case *types.Slice:
+		b, ok := u.Elem().Underlying().(*types.Basic)
+		return ok && b.Kind() == types.Byte
+	}
+	return false
+}
+
+// flowPkg is the path the worker source is type-checked as.
+const flowPkg = "worker"
+
+const jsonPath = "encoding/json"
+
+// jsonStub is the part of encoding/json the flow reads: RawMessage is text,
+// Marshal's result is the text of its argument, and Unmarshal's second
+// argument the value of its first.
+const jsonStub = `package json
+
+type RawMessage []byte
+
+func Marshal(v any) ([]byte, error) { return nil, nil }
+
+func MarshalIndent(v any, prefix, indent string) ([]byte, error) { return nil, nil }
+
+func Unmarshal(data []byte, v any) error { return nil }
+`
+
+// docFlowImporter is shallowImporter, but for encoding/json, which it answers
+// with jsonStub so that JSON text is typed as text.
+type docFlowImporter struct{}
+
+func (docFlowImporter) Import(p string) (*types.Package, error) {
+	if p != jsonPath {
+		return shallowImporter{}.Import(p)
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "json.go", jsonStub, 0)
+	if err != nil {
+		return nil, err
+	}
+	return (&types.Config{}).Check(jsonPath, fset, []*ast.File{file}, nil)
 }
 
 func (f *docFlow) varNode(obj types.Object) *flowNode {
@@ -204,20 +283,87 @@ func (f *docFlow) varNode(obj types.Object) *flowNode {
 	}
 	n := f.vars[obj]
 	if n == nil {
-		n = &flowNode{}
+		n = &flowNode{text: isText(obj.Type())}
 		f.vars[obj] = n
 	}
 	return n
 }
 
-func (f *docFlow) slot(m map[slotKey]*flowNode, obj types.Object, i int) *flowNode {
+// param is the class of the i'th parameter of a func-typed variable.
+func (f *docFlow) param(obj types.Object, i int) *flowNode {
+	return f.slot(f.slots, obj, i, func(s *types.Signature) *types.Tuple { return s.Params() })
+}
+
+// result is the class of the i'th result of a function or func-typed variable.
+func (f *docFlow) result(obj types.Object, i int) *flowNode {
+	return f.slot(f.results, obj, i, func(s *types.Signature) *types.Tuple { return s.Results() })
+}
+
+func (f *docFlow) slot(m map[slotKey]*flowNode, obj types.Object, i int, tuple func(*types.Signature) *types.Tuple) *flowNode {
 	k := slotKey{obj, i}
 	n := m[k]
 	if n == nil {
 		n = &flowNode{}
+		if sig, ok := obj.Type().Underlying().(*types.Signature); ok && i < tuple(sig).Len() {
+			n.text = isText(tuple(sig).At(i).Type())
+		}
 		m[k] = n
 	}
 	return n
+}
+
+// flow records that a value moves between the classes a and b, reporting
+// whether anything changed. Two classes of one kind are joined. Between text
+// and a value, only taint moves, from the value to the text — text read out of
+// doc state, or written into it, is doc text — so the text does not take on
+// the structure of every value it meets: a map holding a doc string beside a
+// nested map does not make that nested map doc state.
+func (f *docFlow) flow(a, b *flowNode) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	switch at, bt := a.find().text, b.find().text; {
+	case at == bt:
+		return union(a, b)
+	case at:
+		return f.imply(b, a)
+	default:
+		return f.imply(a, b)
+	}
+}
+
+// encodes records that text is the JSON of value: either is doc state when
+// the other is.
+func (f *docFlow) encodes(text, value *flowNode) bool {
+	if text == nil || value == nil {
+		return false
+	}
+	a := f.imply(text, value)
+	b := f.imply(value, text)
+	return a || b
+}
+
+// store records value stored into a container whose element class is elem: a
+// literal's element, an append, an indexed assignment. The value is doc state
+// when the container is — it is written with it — but not the reverse: a doc
+// value stored into a map makes neither the map nor the values beside it doc
+// state, which joining every value of a map[string]any into one class would.
+func (f *docFlow) store(elem, value *flowNode) bool {
+	if elem == nil || value == nil {
+		return false
+	}
+	return f.imply(elem, value)
+}
+
+// imply records that from's class holding doc state makes to's hold it too.
+func (f *docFlow) imply(from, to *flowNode) bool {
+	k := [2]*flowNode{from, to}
+	if f.implied[k] {
+		return false
+	}
+	f.implied[k] = true
+	f.implications = append(f.implications, k)
+	return true
 }
 
 // obj is the variable or function an identifier names.
@@ -238,6 +384,9 @@ func (f *docFlow) callee(call *ast.CallExpr) (*types.Func, *ast.FuncDecl) {
 		id = fn
 	case *ast.SelectorExpr:
 		id = fn.Sel
+		if m := f.convertedMethod(fn); m != nil {
+			return m, f.decls[m]
+		}
 	case *ast.IndexExpr: // a generic instantiation
 		if x, ok := fn.X.(*ast.Ident); ok {
 			id = x
@@ -247,10 +396,34 @@ func (f *docFlow) callee(call *ast.CallExpr) (*types.Func, *ast.FuncDecl) {
 		return nil, nil
 	}
 	fn, ok := f.info.Uses[id].(*types.Func)
-	if !ok {
+	if !ok || fn.Pkg() == nil || fn.Pkg().Path() != flowPkg {
 		return nil, nil
 	}
 	return fn, f.decls[fn]
+}
+
+// convertedMethod is the method a selector names on a conversion, T(x).m,
+// that the checker left unresolved because x's type is one the shallow
+// type-check could not see (a value read out of a Y.Map): T alone decides it.
+func (f *docFlow) convertedMethod(sel *ast.SelectorExpr) *types.Func {
+	if f.info.Uses[sel.Sel] != nil {
+		return nil
+	}
+	conv, ok := ast.Unparen(sel.X).(*ast.CallExpr)
+	if !ok || len(conv.Args) != 1 {
+		return nil
+	}
+	tv, ok := f.info.Types[conv.Fun]
+	if !ok || !tv.IsType() {
+		return nil
+	}
+	named, ok := tv.Type.(*types.Named)
+	if !ok {
+		return nil
+	}
+	obj, _, _ := types.LookupFieldOrMethod(named, true, named.Obj().Pkg(), sel.Sel.Name)
+	m, _ := obj.(*types.Func)
+	return m
 }
 
 // external reports whether a call leaves this package unresolved: a method of
@@ -302,6 +475,12 @@ func (f *docFlow) node(e ast.Expr) *flowNode {
 	case *ast.StarExpr:
 		return f.node(e.X)
 	case *ast.SliceExpr:
+		// A piece of text is not the JSON of the value the whole encodes: JSON
+		// cut out of free text (a provider's error in an item's Content) is
+		// that text's author's, not the doc's.
+		if tv, ok := f.info.Types[e]; ok && isText(tv.Type) {
+			return nil
+		}
 		return f.node(e.X)
 	case *ast.IndexExpr:
 		return elemOf(f.node(e.X))
@@ -321,17 +500,27 @@ func (f *docFlow) node(e ast.Expr) *flowNode {
 			return f.node(e.Args[0])
 		}
 		if fn, _ := f.callee(e); fn != nil {
-			return f.slot(f.results, fn, 0)
+			return f.result(fn, 0)
 		}
 		if id, ok := ast.Unparen(e.Fun).(*ast.Ident); ok {
 			if v, ok := f.obj(id).(*types.Var); ok {
-				return f.slot(f.results, v, 0)
+				return f.result(v, 0)
 			}
 			if b, ok := f.info.Uses[id].(*types.Builtin); ok && b.Name() == "append" && len(e.Args) > 0 {
 				return f.node(e.Args[0])
 			}
 		}
-		if pkg, name, ok := f.external(e); ok && (pkg == ycrdtPath || (pkg == "" && (name == "Get" || name == "GetMap" || name == "ToJson"))) {
+		pkg, name, ok := f.external(e)
+		switch {
+		case !ok:
+		case pkg == jsonPath && (name == "Marshal" || name == "MarshalIndent"):
+			n := f.jsonText[e]
+			if n == nil {
+				n = &flowNode{text: true}
+				f.jsonText[e] = n
+			}
+			return n
+		case pkg == ycrdtPath || (pkg == "" && (name == "Get" || name == "GetMap" || name == "ToJson")):
 			return f.docRead
 		}
 	}
@@ -342,13 +531,28 @@ func (f *docFlow) node(e ast.Expr) *flowNode {
 func (f *docFlow) walk() bool {
 	changed := false
 	join := func(a, b *flowNode) {
-		if union(a, b) {
+		if f.flow(a, b) {
 			changed = true
 		}
 	}
 	mark := func(n *flowNode) {
 		if taint(n) {
 			changed = true
+		}
+	}
+	link := func(text, value *flowNode) {
+		if f.encodes(text, value) {
+			changed = true
+		}
+	}
+	store := func(elem, value *flowNode) {
+		if f.store(elem, value) {
+			changed = true
+		}
+	}
+	for _, imp := range f.implications {
+		if isTainted(imp[0]) {
+			mark(imp[1])
 		}
 	}
 	keyPos := func(e ast.Expr) {
@@ -388,10 +592,10 @@ func (f *docFlow) walk() bool {
 			switch o := f.obj(id).(type) {
 			case *types.Var:
 				for i := 0; i < sig.Params().Len(); i++ {
-					join(f.slot(f.slots, param, i), f.slot(f.slots, o, i))
+					join(f.param(param, i), f.param(o, i))
 				}
 				for i := 0; i < sig.Results().Len(); i++ {
-					join(f.slot(f.results, param, i), f.slot(f.results, o, i))
+					join(f.result(param, i), f.result(o, i))
 				}
 				return
 			case *types.Func:
@@ -400,13 +604,13 @@ func (f *docFlow) walk() bool {
 					params = append(params, s.Params().At(i))
 				}
 				for i := 0; i < s.Results().Len(); i++ {
-					join(f.slot(f.results, param, i), f.slot(f.results, o, i))
+					join(f.result(param, i), f.result(o, i))
 				}
 			}
 		}
 		for i, p := range params {
 			if p != nil {
-				join(f.slot(f.slots, param, i), f.varNode(p))
+				join(f.param(param, i), f.varNode(p))
 			}
 		}
 	}
@@ -433,17 +637,17 @@ func (f *docFlow) walk() bool {
 				if len(fnStack) > 0 && fnStack[len(fnStack)-1] != nil {
 					fn := fnStack[len(fnStack)-1]
 					for k, r := range n.Results {
-						join(f.slot(f.results, fn, k), f.node(r))
+						join(f.result(fn, k), f.node(r))
 					}
 				}
 			case *ast.AssignStmt:
-				f.assign(n.Lhs, n.Rhs, join)
+				f.assign(n.Lhs, n.Rhs, join, store)
 			case *ast.ValueSpec:
 				lhs := make([]ast.Expr, len(n.Names))
 				for i, id := range n.Names {
 					lhs[i] = id
 				}
-				f.assign(lhs, n.Values, join)
+				f.assign(lhs, n.Values, join, store)
 			case *ast.RangeStmt:
 				x := f.node(n.X)
 				if id, ok := n.Value.(*ast.Ident); ok {
@@ -451,7 +655,7 @@ func (f *docFlow) walk() bool {
 					if lit, ok := ast.Unparen(n.X).(*ast.CompositeLit); ok {
 						if o := f.obj(id); o != nil && len(f.keyLits[o]) == 0 {
 							for _, elt := range lit.Elts {
-								if strLit(elt) != "" {
+								if f.isKeyValue(elt) {
 									f.keyLits[o] = append(f.keyLits[o], elt)
 								}
 							}
@@ -481,27 +685,46 @@ func (f *docFlow) walk() bool {
 				for _, elt := range n.Elts {
 					if kv, ok := elt.(*ast.KeyValueExpr); ok {
 						if f.isMapLit(n) {
-							join(elemOf(lit), f.node(kv.Value))
+							store(elemOf(lit), f.node(kv.Value))
 							if isTainted(lit) {
 								keyPos(kv.Key)
+							}
+						} else if id, ok := kv.Key.(*ast.Ident); ok {
+							// A struct literal's field is given its value.
+							if field, ok := f.info.Uses[id].(*types.Var); ok && field.IsField() {
+								join(f.varNode(field), f.node(kv.Value))
 							}
 						}
 						continue
 					}
-					join(elemOf(lit), f.node(elt))
+					store(elemOf(lit), f.node(elt))
 				}
 			case *ast.IndexExpr:
 				if isTainted(f.node(n.X)) && f.isMapOrAny(n.X) {
 					keyPos(n.Index)
 				}
 			case *ast.CallExpr:
-				f.call(n, join, mark, keyPos, funcArg)
+				f.call(n, join, link, store, mark, keyPos, funcArg)
 			}
 			return true
 		}
 		ast.Inspect(file, visit)
 	}
 	return changed
+}
+
+// isKeyValue reports whether e is a string literal or a named string constant:
+// a value a local key variable hands on to the key position it reaches.
+func (f *docFlow) isKeyValue(e ast.Expr) bool {
+	if strLit(e) != "" {
+		return true
+	}
+	id, ok := e.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	c, ok := f.info.Uses[id].(*types.Const)
+	return ok && isText(c.Type())
 }
 
 func (f *docFlow) isMapLit(lit *ast.CompositeLit) bool {
@@ -529,12 +752,16 @@ func (f *docFlow) isMapOrAny(e ast.Expr) bool {
 	return false
 }
 
-func (f *docFlow) assign(lhs, rhs []ast.Expr, join func(a, b *flowNode)) {
+func (f *docFlow) assign(lhs, rhs []ast.Expr, join, store func(a, b *flowNode)) {
 	if len(lhs) == len(rhs) {
 		for i := range lhs {
-			join(f.node(lhs[i]), f.node(rhs[i]))
+			if _, ok := ast.Unparen(lhs[i]).(*ast.IndexExpr); ok {
+				store(f.node(lhs[i]), f.node(rhs[i]))
+			} else {
+				join(f.node(lhs[i]), f.node(rhs[i]))
+			}
 			f.copiesKeys(lhs[i], join)
-			if id, ok := lhs[i].(*ast.Ident); ok && strLit(rhs[i]) != "" {
+			if id, ok := lhs[i].(*ast.Ident); ok && f.isKeyValue(rhs[i]) {
 				if o, ok := f.obj(id).(*types.Var); ok && !slices.Contains(f.keyLits[o], rhs[i]) {
 					f.keyLits[o] = append(f.keyLits[o], rhs[i])
 				}
@@ -548,7 +775,7 @@ func (f *docFlow) assign(lhs, rhs []ast.Expr, join func(a, b *flowNode)) {
 	if call, ok := ast.Unparen(rhs[0]).(*ast.CallExpr); ok {
 		if fn, _ := f.callee(call); fn != nil {
 			for k := range lhs {
-				join(f.node(lhs[k]), f.slot(f.results, fn, k))
+				join(f.node(lhs[k]), f.result(fn, k))
 			}
 			return
 		}
@@ -572,7 +799,7 @@ func (f *docFlow) copiesKeys(lhs ast.Expr, join func(a, b *flowNode)) {
 	}
 }
 
-func (f *docFlow) call(n *ast.CallExpr, join func(a, b *flowNode), mark func(*flowNode), keyPos func(ast.Expr), funcArg func(types.Object, ast.Expr)) {
+func (f *docFlow) call(n *ast.CallExpr, join, link, store func(a, b *flowNode), mark func(*flowNode), keyPos func(ast.Expr), funcArg func(types.Object, ast.Expr)) {
 	if id, ok := ast.Unparen(n.Fun).(*ast.Ident); ok {
 		if b, ok := f.info.Uses[id].(*types.Builtin); ok {
 			switch b.Name() {
@@ -583,7 +810,7 @@ func (f *docFlow) call(n *ast.CallExpr, join func(a, b *flowNode), mark func(*fl
 			case "append":
 				if len(n.Args) > 1 {
 					for _, a := range n.Args[1:] {
-						join(elemOf(f.node(n.Args[0])), f.node(a))
+						store(elemOf(f.node(n.Args[0])), f.node(a))
 					}
 				}
 			}
@@ -591,7 +818,7 @@ func (f *docFlow) call(n *ast.CallExpr, join func(a, b *flowNode), mark func(*fl
 		}
 		if v, ok := f.obj(id).(*types.Var); ok {
 			for i, a := range n.Args {
-				join(f.slot(f.slots, v, i), f.node(a))
+				join(f.param(v, i), f.node(a))
 			}
 			return
 		}
@@ -624,6 +851,17 @@ func (f *docFlow) call(n *ast.CallExpr, join func(a, b *flowNode), mark func(*fl
 	if pkg == ycrdtPath {
 		for _, a := range n.Args {
 			mark(f.node(a))
+		}
+		return
+	}
+	if pkg == jsonPath {
+		// The text Marshal returns, or Unmarshal decodes, is the JSON of the
+		// value it is given.
+		switch {
+		case (name == "Marshal" || name == "MarshalIndent") && len(n.Args) > 0:
+			link(f.node(n), f.node(n.Args[0]))
+		case name == "Unmarshal" && len(n.Args) == 2:
+			link(f.node(n.Args[0]), f.node(n.Args[1]))
 		}
 		return
 	}

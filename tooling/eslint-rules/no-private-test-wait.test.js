@@ -71,6 +71,28 @@ try {
       // A timer an event handler defers a re-check to does not decide the
       // promise; the event does.
       'const until = (check) => new Promise((resolve) => { new MutationObserver(() => { setTimeout(() => { if (check()) resolve(); }, 0); }).observe(el, {}); });',
+      // The same with a duration: the re-check's predicate, not the timer,
+      // decides when it resolves — guarded by an `if` or an early return.
+      'const until = (check) => new Promise((resolve) => { new MutationObserver(() => { setTimeout(() => { if (check()) resolve(); }, 50); }).observe(el, {}); });',
+      "await new Promise((resolve) => { el.addEventListener('input', () => { setTimeout(() => { if (!ready()) return; resolve(); }, 20); }); });",
+      'await new Promise((resolve) => { const recheck = () => setTimeout(() => ready() && resolve(), 30); bus.on(recheck); });',
+      // ui-driver.js `_observeUntil`: a re-check deferred a task after each
+      // mutation, bounded by the deadline that follows the test.
+      'function observeUntil(check, budgetMs) { return new Promise((resolve, reject) => { '
+        + 'const immediate = check(); if (immediate) { resolve(immediate); return; } '
+        + 'const cancelTimer = deadlineTimer(() => { observer.disconnect(); reject(new Error("late")); }, budgetMs); '
+        + 'const observer = new MutationObserver(() => { setTimeout(() => { const result = check(); '
+        + 'if (result) { observer.disconnect(); cancelTimer(); resolve(result); } }, 0); }); '
+        + 'observer.observe(target, { childList: true, subtree: true }); }); }',
+      // ui-operation-executor.js `waitForElement`: resolved by the observer,
+      // bounded by deadlineTimer.
+      'function waitForElement(selector, timeoutMs) { return new Promise((resolve, reject) => { '
+        + 'const observer = new MutationObserver(() => { const el = document.querySelector(selector); '
+        + 'if (el) { observer.disconnect(); cancelTimer(); resolve(el); } }); '
+        + 'observer.observe(document.body, { childList: true, subtree: true }); '
+        + 'const cancelTimer = deadlineTimer(() => { observer.disconnect(); reject(new Error("late")); }, budgetFor(timeoutMs)); }); }',
+      // A nested function's own parameter is not the executor's settler.
+      'await new Promise((resolve) => { el.onload = resolve; const arm = (resolve) => setTimeout(resolve, 50); arm(go); });',
       // A loop in a nested function is that function's, not the enclosing one's.
       'for (const x of xs) { items.push(async () => { await x(); }); }',
       // A sleep inside a function defined in a loop belongs to that function.
@@ -123,6 +145,25 @@ try {
       { code: 'await new Promise((r) => setTimeout(() => r(compute()), 50));', errors: [sleep] },
       // Armed from a callback, still with the resolve itself.
       { code: 'await new Promise((r) => { el.onload = () => setTimeout(r, 10); });', errors: [sleep] },
+      // Armed in a nested function with a callback that settles on every
+      // path: the timer's firing is the resolution, wherever it is armed.
+      { code: 'await new Promise((resolve) => { function later() { setTimeout(resolve, 50); } later(); });', errors: [sleep] },
+      { code: 'await new Promise((resolve) => { const tick = () => setTimeout(resolve, 100); tick(); });', errors: [sleep] },
+      { code: 'await new Promise((resolve) => { function later() { setTimeout(() => resolve(), 50); } later(); });', errors: [sleep] },
+      { code: 'await new Promise((resolve) => { const tick = () => setTimeout(() => { done = true; resolve(); }, 100); tick(); });', errors: [sleep] },
+      { code: "await new Promise((resolve) => { el.addEventListener('load', () => { setTimeout(() => resolve(el), 30); }); });", errors: [sleep] },
+      { code: "await new Promise((resolve) => { function later() { setTimeout(() => resolve(), 50); } el.addEventListener('load', later); });", errors: [sleep] },
+      {
+        code: 'await new Promise((resolve) => { new MutationObserver(() => { setTimeout(() => { observer.disconnect(); resolve(); }, 40); }).observe(el, {}); });',
+        errors: [sleep],
+      },
+      { code: 'await new Promise((resolve) => { const finish = () => resolve(); el.onload = () => setTimeout(finish, 20); });', errors: [sleep] },
+      { code: 'await new Promise((resolve) => { const finish = () => { resolve(); }; el.onload = () => setTimeout(() => finish(), 20); });', errors: [sleep] },
+      { code: 'const settle = () => new Promise((resolve) => { requestAnimationFrame(() => setTimeout(() => resolve(), 16)); });', errors: [helper] },
+      {
+        code: "await new Promise((resolve, reject) => { onReady(() => resolve()); const arm = () => setTimeout(() => reject(new Error('late')), 4000); arm(); });",
+        errors: [race],
+      },
       // Through the timer's other spellings, and an executor defined apart.
       { code: 'await new Promise((r) => window.setTimeout(r, 40));', errors: [sleep] },
       { code: 'const st = setTimeout; await new Promise((r) => st(r, 40));', errors: [sleep] },

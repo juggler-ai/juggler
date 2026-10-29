@@ -76,14 +76,15 @@ export async function runTests() {
       if (raw.length) throw new Error(`plain English under en-XA: ${JSON.stringify(raw)}`);
 
       // The delivery control in every status it can show, with and without a label.
-      for (const status of ['active', 'ended', 'stopped', null]) {
+      for (const status of /** @type {Array<'active'|'ended'|'stopped'|null>} */ (['active', 'ended', 'stopped', null])) {
         const wrapper = document.createElement('div');
         renderTaskDeliveryControl(wrapper, {
-          messageThread: {
+          // Only the task-delivery API the control reads.
+          messageThread: /** @type {import('../../../js/model/message-thread.js').MessageThread} */ (/** @type {unknown} */ ({
             getTaskDeliveryStatus: () => status,
             observePendingRequests: () => () => {},
-            cancelTaskOutputDelivery: () => {},
-          },
+            cancelTaskOutputDelivery: () => false,
+          })),
           taskId: '5',
           label: 'monitor: 4',
         });

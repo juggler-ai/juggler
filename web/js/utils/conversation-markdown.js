@@ -44,17 +44,19 @@ const TOOL_SUMMARY_MAX_CHARS = 160;
 
 /**
  * A plain value from something that may be a Y type.
- * @param {any} value - A stored field.
- * @returns {any} The value, with a Y type materialised.
+ * @param {unknown} value - A stored field.
+ * @returns {unknown} The value, with a Y type materialised.
  */
 function plain(value) {
-  return value && typeof value.toJSON === 'function' ? value.toJSON() : value;
+  return value && typeof value === 'object' && 'toJSON' in value && typeof value.toJSON === 'function'
+    ? /** @type {unknown} */ (value.toJSON())
+    : value;
 }
 
 /**
  * The text of a message item. Content is a string in practice; an array of
  * parts keeps its text parts.
- * @param {any} item - Message item.
+ * @param {unknown} item - Message item.
  * @returns {string} The trimmed text, or `''`.
  */
 export function textOf(item) {
@@ -62,7 +64,8 @@ export function textOf(item) {
   if (typeof content === 'string') return content.trim();
   if (Array.isArray(content)) {
     return content
-      .map((part) => (typeof part === 'string' ? part : (typeof part?.text === 'string' ? part.text : '')))
+      .map((part) => (typeof part === 'string' ? part
+        : (part && typeof part === 'object' && 'text' in part && typeof part.text === 'string' ? part.text : '')))
       .filter(Boolean)
       .join('\n\n')
       .trim();
@@ -72,14 +75,14 @@ export function textOf(item) {
 
 /**
  * One line saying what a tool call was asked to do.
- * @param {any} item - Tool-action item.
+ * @param {unknown} item - Tool-action item.
  * @returns {string} The summary, or `''` when the input names nothing useful.
  */
 export function toolSummary(item) {
   const input = plain(itemField(item, 'toolInput'));
   if (!input || typeof input !== 'object') return '';
   for (const key of TOOL_SUMMARY_KEYS) {
-    const value = input[key];
+    const value = /** @type {Record<string, unknown>} */ (input)[key];
     if (typeof value !== 'string') continue;
     const line = value.replace(/\s+/g, ' ').trim();
     if (!line) continue;
@@ -99,10 +102,10 @@ function quote(text) {
 
 /**
  * Render conversation items as a Markdown transcript.
- * @param {any[]} items - Thread items (Y.Maps or plain objects).
+ * @param {ReadonlyArray<import('../../sdk/lib/message.js').Message>} items - Thread items (Y.Maps or plain objects).
  * @param {object} [options] - Options.
  * @param {string} [options.title] - A top-level heading, omitted when empty.
- * @param {any} [options.siblingArray] - The Y.Array the items stand in, which
+ * @param {import('./thread-display.js').SiblingArray} [options.siblingArray] - The Y.Array the items stand in, which
  *   resolves what a sub-thread item that is a view of another call returned.
  * @returns {string} The transcript, ending in a newline.
  */
@@ -157,12 +160,12 @@ export function itemsToMarkdown(items, { title = '', siblingArray } = {}) {
  * A whole conversation — its root thread, whichever thread is on screen — as a
  * Markdown transcript headed by its name. The conversation must be loaded; an
  * unloaded one has no items to read (see `Session.ensureConversationLoaded`).
- * @param {any} conversation - A Conversation model.
+ * @param {{rootMessageThread?: {items: import('../../sdk/lib/message.js').Message[], yarray: import('yjs').Array<unknown>|null}|null, name?: string}|null|undefined} conversation - A Conversation model.
  * @returns {string} The transcript, or `''` when there is no conversation.
  */
 export function conversationToMarkdown(conversation) {
   const thread = conversation?.rootMessageThread;
   if (!thread) return '';
   const title = conversation.name ? displayConversationName(conversation.name) : '';
-  return itemsToMarkdown(thread.items, { title, siblingArray: thread.yarray });
+  return itemsToMarkdown(thread.items, { title, siblingArray: thread.yarray ?? undefined });
 }

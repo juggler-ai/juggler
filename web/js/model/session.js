@@ -49,8 +49,8 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  * @typedef {object} ApiService
  * @property {function(): Promise<SessionData>} getSession - Get session
  * @property {function(): Promise<{active: boolean, conversationIds: string[]}>} getActiveConversations - Conversations actively running a turn (excludes approval-parked)
- * @property {function(string | null, HistoryMessage[]|undefined, Record<string, any>|undefined): Promise<{success: boolean}>} updateSession - Update session state
- * @property {function(Record<string, any>): Promise<{metadata: Record<string, any>}>} patchSessionMetadata - Patch session metadata keys
+ * @property {function(string | null, HistoryMessage[]|undefined, Record<string, unknown>|undefined): Promise<{success: boolean}>} updateSession - Update session state
+ * @property {function(Record<string, unknown>): Promise<{metadata: Record<string, unknown>}>} patchSessionMetadata - Patch session metadata keys
  * @property {function(string, string=, {lane?: string, duplicateFrom?: string, origin?: string, focus?: boolean, focusFrom?: string, place?: string, after?: string}=): Promise<{id: string, name: string, created: string}>} createConversation - Atomically create a new conversation (POST /api/conversations); duplicateFrom clones that conversation's files server-side before announcing; origin is a gesture label logged for create attribution; focus broadcasts a "focus" op asking viewers to switch to the new conversation, attributed to focusFrom; place is 'head', 'after' or 'end' and after names the conversation to sit behind for 'after'
  * @property {function(string, string): Promise<{name: string}>} renameConversation - Rename a conversation's on-disk folder
  * @property {function(string, object): Promise<{success: boolean}>} updateConversation - Update single conversation
@@ -73,7 +73,7 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  * @property {string} [home] - Backend user-home directory (e.g. /Users/jules)
  * @property {ProviderInfo} providerInfo - Provider information
  * @property {Array<string|HistoryMessage>} [messageHistory] - Session-level message history for input navigation. Entries may be legacy bare strings until normalized.
- * @property {Record<string, any>} [metadata] - General-purpose key-value store for frontend flags
+ * @property {Record<string, unknown>} [metadata] - General-purpose key-value store for frontend flags
  * @property {Workspace[]} [workspaces] - The registered workspaces; absent until one is made
  * @property {boolean} [projectHostsLocalProviders] - Whether the project itself can host a provider Juggler spawns; the rows each carry their own
  */
@@ -97,7 +97,7 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  * @property {string} [providerId] - Extension owning its lifecycle; empty for one nobody manages
  * @property {string} [baseWorkspaceId] - The workspace it was provisioned from; empty means the default
  * @property {string} state - 'provisioning' | 'ready' | 'closed'
- * @property {Record<string, any>} [meta] - The provider's own record of what it built; opaque here
+ * @property {Record<string, unknown>} [meta] - The provider's own record of what it built; opaque here
  * @property {boolean} [available] - Whether its root was there when the server last looked
  * @property {boolean} [stale] - Provisioning, but nothing is provisioning it
  * @property {boolean} [hostsLocalProviders] - Whether a provider Juggler spawns as a subprocess can run there; computed by the server on every read
@@ -144,6 +144,16 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  * @type {number}
  */
 export const MAX_CONVERSATIONS = 32;
+
+/**
+ * An Error tagged with a `.code` the UI picks its message by.
+ * @param {string} message - The error's message
+ * @param {string} code - The tag ("INVALID" | "COLLISION" | "NOT_FOUND")
+ * @returns {Error & {code: string}} The tagged error
+ */
+function codedError(message, code) {
+  return Object.assign(new Error(message), { code });
+}
 
 /**
  * User-facing message shown when a creation path is blocked by the cap, in
@@ -293,7 +303,7 @@ class Session {
     /**
      * General-purpose key-value store for frontend flags
      * Used for things like hasScannedBuiltinFacts, etc.
-     * @type {Record<string, any>}
+     * @type {Record<string, unknown>}
      */
     this.metadata = {};
 
@@ -523,7 +533,7 @@ class Session {
    * and {@link Session#_dropActiveConversation}: stop any queued load, destroy
    * the worker, then remove it from the registry. Each caller adds only what is
    * its own (an action cancel; a fallback selection).
-   * @param {any} conv - The loaded conversation being removed
+   * @param {Conversation} conv - The loaded conversation being removed
    * @param {string} from - Caller, for the tape
    * @returns {Promise<void>}
    * @private
@@ -541,7 +551,7 @@ class Session {
    * id wasn't in the active map.
    * @param {string} id
    * @param {{clearVisibleIfNoFallback: boolean}} opts
-   * @returns {Promise<object|null>} Removed conv, or null if not active.
+   * @returns {Promise<Conversation|null>} Removed conv, or null if not active.
    */
   async _dropActiveConversation(id, { clearVisibleIfNoFallback }) {
     const conv = this.registry.get(id);
@@ -677,7 +687,7 @@ class Session {
    * reducer's `loadAtHead`). Returns the loaded `conv`, or null if loading
    * failed (the error is logged).
    * @param {string} id
-   * @returns {Promise<object|null>} Loaded conv, or null if load failed.
+   * @returns {Promise<Conversation|null>} Loaded conv, or null if load failed.
    * @private
    */
   async _loadIntoHead(id) {
@@ -768,18 +778,21 @@ class Session {
    * @returns {() => void} Stops this subscription.
    */
   /**
+   * @template {import('./session-events.js').SessionEventType} K
    * @overload
-   * @param {import('./session-events.js').SessionEventType} type - The one type to hear.
-   * @param {import('./session-events.js').SessionEventListener} callback - Called with each event of that type.
+   * @param {K} type - The one type to hear.
+   * @param {(event: import('./session-events.js').SessionEventOf<K>) => void} callback - Called with each event of that type.
    * @returns {() => void} Stops this subscription.
    */
   /**
-   * @param {any} typeOrCallback - A type, or the callback for everything.
-   * @param {import('./session-events.js').SessionEventListener} [callback] - The callback, when a type is given.
+   * @template {import('./session-events.js').SessionEventType} K
+   * @param {import('./session-events.js').SessionEventListener|K} typeOrCallback - A type, or the callback for everything.
+   * @param {(event: import('./session-events.js').SessionEventOf<K>) => void} [callback] - The callback, when a type is given.
    * @returns {() => void} Stops this subscription.
    */
   subscribe(typeOrCallback, callback) {
-    return this.events.subscribe(typeOrCallback, /** @type {any} */ (callback));
+    if (typeof typeOrCallback === 'function') return this.events.subscribe(typeOrCallback);
+    return callback ? this.events.subscribe(typeOrCallback, callback) : () => {};
   }
 
   /**
@@ -825,11 +838,11 @@ class Session {
     if (!conv) return;
     const fileChanges = /** @type {Array<{path: string, event: string}>} */ (changes);
     for (const contextItem of conv.rootMessageThread.contextItems) {
-      const manifest = /** @type {any} */ (contextItem.constructor).MANIFEST;
-      if (manifest?.watchesFileChanges && /** @type {any} */ (contextItem).onFileChange) {
-        for (const change of fileChanges) {
-          /** @type {any} */ (contextItem).onFileChange(change.path, change.event);
-        }
+      const manifest = /** @type {typeof import('juggler/context-item').default} */ (contextItem.constructor).MANIFEST;
+      if (!manifest?.watchesFileChanges) continue;
+      if (!('onFileChange' in contextItem) || typeof contextItem.onFileChange !== 'function') continue;
+      for (const change of fileChanges) {
+        contextItem.onFileChange(change.path, change.event);
       }
     }
   }
@@ -845,7 +858,8 @@ class Session {
    * @private
    */
   _onProvidersUpdate(providers) {
-    const list = /** @type {Array<any>} */ (Array.isArray(providers) ? providers : []);
+    /** @type {unknown[]} */
+    const list = Array.isArray(providers) ? providers : [];
     for (const conv of this.conversations.values()) {
       if (conv.applyProvidersContextWindow(list)) {
         this.events.notify('conversation:context-window-updated', conv);
@@ -1122,7 +1136,7 @@ class Session {
    * @returns {() => void} Unsubscribe function.
    */
   onLLMStatusChange(fn) {
-    const llmState = /** @type {any} */ (this._services)?.llmState;
+    const llmState = this._services?.llmState;
     if (typeof llmState?.addStatusObserver !== 'function') return () => {};
     return llmState.addStatusObserver(fn);
   }
@@ -1194,7 +1208,7 @@ class Session {
   /**
    * Read a session metadata key.
    * @param {string} key
-   * @returns {any} Metadata value, or undefined when absent
+   * @returns {unknown} Metadata value, or undefined when absent
    */
   getMetadata(key) {
     return this.metadata ? this.metadata[key] : undefined;
@@ -1203,7 +1217,7 @@ class Session {
   /**
    * Apply a metadata patch locally and notify listeners. Values set to null or
    * undefined delete the key.
-   * @param {Record<string, any>} patch
+   * @param {Record<string, unknown>} patch
    * @param {{remote?: boolean}} [options]
    */
   applySessionMetadataPatch(patch, options = {}) {
@@ -1234,7 +1248,7 @@ class Session {
   /**
    * Patch session metadata and broadcast through the backend. The local model is
    * updated optimistically so UI and permission checks react immediately.
-   * @param {Record<string, any>} patch
+   * @param {Record<string, unknown>} patch
    * @returns {Promise<void>}
    */
   async patchMetadata(patch) {
@@ -1734,7 +1748,7 @@ class Session {
   _persistOrder(label, moved = '') {
     if (isEngine()) return;
     this._apiService.reorderConversations(this.registry.ids(), moved)
-      .catch((/** @type {any} */ err) => console.error(`[Session] ${label} persist failed:`, err));
+      .catch((/** @type {unknown} */ err) => console.error(`[Session] ${label} persist failed:`, err));
   }
 
   /**
@@ -1826,7 +1840,7 @@ class Session {
     // window is taken away by the next one.
     const rows = this.workspaces ?? [];
     const byId = new Map(rows.map(row => [row.id, row]));
-    /** @type {any[]} */
+    /** @type {typeof rows} */
     const reordered = [];
     /** @type {string[]} */
     const repositioned = [];
@@ -1909,9 +1923,9 @@ class Session {
    *
    * Arrivals are folded in last-first so that several claiming one place end up
    * in the order they arrived.
-   * @param {Map<string, any>} settled - The order the server sent, as rebuilt.
-   * @param {[string, any][]} arrivals - What turned up while that was being built.
-   * @returns {Map<string, any>} The two together.
+   * @param {Map<string, Conversation>} settled - The order the server sent, as rebuilt.
+   * @param {[string, Conversation][]} arrivals - What turned up while that was being built.
+   * @returns {Map<string, Conversation>} The two together.
    * @private
    */
   _foldArrivals(settled, arrivals) {
@@ -2110,25 +2124,17 @@ class Session {
   async renameConversation(conversationId, newName) {
     const conv = this.conversations.get(conversationId);
     if (!conv) {
-      const err = new Error(`Conversation not found: ${conversationId}`);
-      /** @type {any} */ (err).code = 'NOT_FOUND';
-      throw err;
+      throw codedError(`Conversation not found: ${conversationId}`, 'NOT_FOUND');
     }
     if (!newName || newName.trim() === '') {
-      const err = new Error('Conversation name is empty');
-      /** @type {any} */ (err).code = 'INVALID';
-      throw err;
+      throw codedError('Conversation name is empty', 'INVALID');
     }
     // Data-level enforcement of the shared name-length cap. The rename input
     // caps typed input via `maxlength`, but paste and programmatic callers can
     // still overshoot — reject those here rather than letting the server
     // silently truncate the folder name to its filesystem-safety limit.
     if (newName.trim().length > MAX_CONVERSATION_NAME_LENGTH) {
-      const err = new Error(
-        `Conversation name exceeds ${MAX_CONVERSATION_NAME_LENGTH} characters`
-      );
-      /** @type {any} */ (err).code = 'INVALID';
-      throw err;
+      throw codedError(`Conversation name exceeds ${MAX_CONVERSATION_NAME_LENGTH} characters`, 'INVALID');
     }
 
     let result;
@@ -2138,14 +2144,15 @@ class Session {
       // The code comes from the response status (HttpError.status), never from
       // the message: the server's 500 quotes the OS error, which names both
       // folders and so the new name, and a name may well contain "409".
-      const msg = String(/** @type {any} */ (e)?.message || e);
-      const tagged = new Error(msg, { cause: e });
-      const code = RENAME_ERROR_CODES.get(/** @type {any} */ (e)?.status);
-      if (code) /** @type {any} */ (tagged).code = code;
-      throw tagged;
+      const message = e && typeof e === 'object' && 'message' in e && e.message ? e.message : e;
+      const status = e && typeof e === 'object' && 'status' in e ? e.status : undefined;
+      const code = typeof status === 'number' ? RENAME_ERROR_CODES.get(status) : undefined;
+      const tagged = new Error(String(message), { cause: e });
+      throw code ? Object.assign(tagged, { code }) : tagged;
     }
 
-    const canonical = (result && /** @type {any} */ (result).name) || newName.trim();
+    const returned = result && typeof result === 'object' && 'name' in result ? result.name : undefined;
+    const canonical = (typeof returned === 'string' && returned) || newName.trim();
     // The name is now the user's, so the auto-namer must never replace it. This
     // is the only client entry point for a rename, so it is the only place a
     // hand-typed name enters the system. See PROVISIONAL_NAME_KEY.

@@ -18,16 +18,16 @@ import { readItemData } from './item-data.js';
 
 /**
  * An item as a Y.Map or as the plain object a snapshot holds.
- * @typedef {any} TextItem
+ * @typedef {{get: (key: string) => unknown}|Record<string, unknown>|null|undefined} TextItem
  */
 
 /**
  * The item with a `get`, whichever shape it came in.
  * @param {TextItem} item
- * @returns {{ get: (key: string) => any }} A reader of its fields.
+ * @returns {{ get: (key: string) => unknown }} A reader of its fields.
  */
 function fields(item) {
-  return typeof item?.get === 'function' ? item : { get: (key) => itemField(item, key) };
+  return { get: (key) => itemField(item, key) };
 }
 
 /**
@@ -46,10 +46,10 @@ function wireMessage(value) {
  * @returns {string} The summary, or '' when the item has none.
  */
 export function itemSummaryText(item) {
-  item = fields(item);
-  const summary = String(item.get('summary') || '');
-  const content = String(item.get('content') || '');
-  const data = readItemData(item);
+  const reader = fields(item);
+  const summary = String(reader.get('summary') || '');
+  const content = String(reader.get('content') || '');
+  const data = readItemData(reader);
   if (data?.summaryMessage) return serverText(wireMessage(data.summaryMessage), summary);
   if (!summary || summary === content) return serverText(wireMessage(data?.message), summary || content);
   return summary;
@@ -61,6 +61,6 @@ export function itemSummaryText(item) {
  * @returns {string} The content, or '' when the item has none.
  */
 export function itemContentText(item) {
-  item = fields(item);
-  return serverText(wireMessage(readItemData(item)?.message), String(item.get('content') || ''));
+  const reader = fields(item);
+  return serverText(wireMessage(readItemData(reader)?.message), String(reader.get('content') || ''));
 }

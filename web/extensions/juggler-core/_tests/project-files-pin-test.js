@@ -323,11 +323,13 @@ export async function runTests(ctx) {
       // from folders being put first rather than from the op's own order.
       assert(rows.map((r) => r.name).join(',') === 'zed,apple.txt',
         `expected the folder first, got [${rows.map((r) => r.name).join(', ')}]`);
-      assert(rows[0].isDir && !rows[1].isDir, 'the folder knows it is one and the file knows it is not');
-      assert(rows[0].expanded === 'false', 'a folder starts closed');
-      assert(rows[1].expanded === null, 'a file is not a thing that can be expanded');
+      const [folder, file] = rows;
+      if (!folder || !file) throw new Error('expected two rows');
+      assert(folder.isDir && !file.isDir, 'the folder knows it is one and the file knows it is not');
+      assert(folder.expanded === 'false', 'a folder starts closed');
+      assert(file.expanded === null, 'a file is not a thing that can be expanded');
       assert(rows.every((r) => r.level === '1'), 'everything in the root is at the first level');
-      assert(rows[0].path === native(`${root}/zed`), `rows carry the absolute path, got "${rows[0].path}"`);
+      assert(folder.path === native(`${root}/zed`), `rows carry the absolute path, got "${folder.path}"`);
     } finally {
       mounted.teardown();
     }
@@ -349,12 +351,14 @@ export async function runTests(ctx) {
       const rows = rowsOf(mounted.body);
       assert(rows.map((r) => r.name).join(',') === 'zed,inner.txt,apple.txt',
         `children belong under their own folder, got [${rows.map((r) => r.name).join(', ')}]`);
-      assert(rows[1].level === '2', `a child is a level down, got "${rows[1].level}"`);
-      assert(rows[0].expanded === 'true', 'an open folder says so');
+      const [folderRow, child] = rows;
+      if (!folderRow || !child) throw new Error('expected the folder and its child');
+      assert(child.level === '2', `a child is a level down, got "${child.level}"`);
+      assert(folderRow.expanded === 'true', 'an open folder says so');
 
       folder.click();
       assert(!namesOf(mounted.body).includes('inner.txt'), 'closing takes the children away again');
-      assert(rowsOf(mounted.body)[0].expanded === 'false', 'and the folder says it is closed');
+      assert(rowsOf(mounted.body)[0]?.expanded === 'false', 'and the folder says it is closed');
     } finally {
       mounted.teardown();
     }
@@ -508,7 +512,7 @@ export async function runTests(ctx) {
       const rows = rowsOf(second.body);
       assert(rows.map((r) => r.name).join(',') === 'zed,deep,leaf.txt,inner.txt',
         `the tree returns as it was left, got [${rows.map((r) => r.name).join(', ')}]`);
-      assert(rows[0].expanded === 'true' && rows[1].expanded === 'true',
+      assert(rows[0]?.expanded === 'true' && rows[1]?.expanded === 'true',
         'and both folders say they are open');
     } finally {
       second.teardown();

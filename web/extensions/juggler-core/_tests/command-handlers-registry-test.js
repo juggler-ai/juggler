@@ -42,7 +42,7 @@ export async function runTests() {
   const url = new URL('../context-items/execute/command-handlers.js', import.meta.url);
   const response = await fetch(url);
   const source = await response.text();
-  const declared = [...source.matchAll(/static commandName = '([^']+)'/g)].map((m) => m[1]);
+  const declared = [...source.matchAll(/static commandName = '([^']+)'/g)].flatMap((m) => m[1] ?? []);
 
   check('the scan finds the handler classes', response.ok && declared.length > 0,
     `read ${declared.length} names from ${url.pathname} (HTTP ${response.status})`);

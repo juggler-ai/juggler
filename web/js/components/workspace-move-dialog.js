@@ -47,7 +47,7 @@ export function openWorkspaceMove(conversation, workspaceId) {
     const modal = presentModal({
       className: 'workspace-move-overlay',
       dismissSelectors: ['.workspace-move-backdrop', '.workspace-move-close', '.workspace-move-cancel'],
-      onClose: (result) => resolve(result ?? { moved: false })
+      onClose: (/** @type {{moved: boolean, workspaceId?: string}|undefined} */ result) => resolve(result ?? { moved: false })
     });
     const root = modal.root;
 

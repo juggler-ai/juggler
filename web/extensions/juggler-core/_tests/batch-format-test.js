@@ -57,15 +57,24 @@ export async function runTests(_ctx) {
 
   const item = new BatchContextItem({
     id: 'test-batch-format',
-    session: {},
-    conversation: {},
-    messageThread: {}
+    session: /** @type {import('../../../js/model/session.js').default} */ ({}),
+    conversation: /** @type {import('../../../js/model/conversation.js').default} */ ({}),
+    messageThread: /** @type {import('../../../js/model/message-thread.js').MessageThread} */ ({})
   });
+
+  /**
+   * The LLM-facing text of a finished batch call, through the public getSummary.
+   * @param {'read'|'grep'} batchType - Which batch tool produced the results
+   * @param {Record<string, unknown>[]} results - Per-file or per-search results, as execute() returns them
+   * @returns {string} The summary the model receives
+   */
+  const summarise = (batchType, results) =>
+    item.getSummary({ success: true, result: { _batchType: batchType, results } }).summary;
 
   // ---- batch_read ---------------------------------------------------------
 
   await run('batch_read renders file bodies in the shared <file> block', () => {
-    const out = item._formatBatchReadResults([
+    const out = summarise('read', [
       { file: '/a.txt', success: true, result: { content: 'alpha\nbeta', lineOffset: 1, totalLines: 2 } }
     ]);
     assert(out.includes('<file path="/a.txt">'), `expected the shared wrapper, got:\n${out}`);
@@ -76,7 +85,7 @@ export async function runTests(_ctx) {
   });
 
   await run('batch_read reports a missing file the way read_file does', () => {
-    const out = item._formatBatchReadResults([
+    const out = summarise('read', [
       { file: '/gone.txt', success: true, result: { exists: false } }
     ]);
     assert(out.includes('File does not exist: /gone.txt'),
@@ -86,7 +95,7 @@ export async function runTests(_ctx) {
   });
 
   await run('batch_read surfaces a per-file error without losing the others', () => {
-    const out = item._formatBatchReadResults([
+    const out = summarise('read', [
       { file: '/bad.txt', success: false, error: 'permission denied' },
       { file: '/ok.txt', success: true, result: { content: 'fine', lineOffset: 1, totalLines: 1 } }
     ]);
@@ -96,7 +105,7 @@ export async function runTests(_ctx) {
   });
 
   await run('batch_read prefers extracted text when the op supplies it', () => {
-    const out = item._formatBatchReadResults([
+    const out = summarise('read', [
       { file: '/doc.pdf', success: true, result: { content: '', extracted: { text: 'page one' }, lineOffset: 1 } }
     ]);
     assert(out.includes('page one'), `expected extracted text used, got:\n${out}`);
@@ -104,18 +113,20 @@ export async function runTests(_ctx) {
 
   // ---- batch_grep ---------------------------------------------------------
 
-  /** @type {{matches: {file: string, line: number, content: string}[]}} */
+  /** @type {import('../context-items/search-context-item.js').SearchResult} */
   const grepResult = {
     matches: [
       { file: 'a.go', line: 3, content: 'func A() {' },
       { file: 'a.go', line: 9, content: 'func B() {' },
       { file: 'b.go', line: 1, content: 'package main' }
-    ]
+    ],
+    matchCount: 3,
+    fileCount: 2
   };
 
   for (const mode of ['files_with_matches', 'count', 'content']) {
     await run(`batch_grep ${mode} matches the search tool byte for byte`, () => {
-      const out = item._formatBatchGrepResults([
+      const out = summarise('grep', [
         { pattern: 'func', success: true, outputMode: mode, result: grepResult }
       ]);
       const expected = formatGrepResults(grepResult, { pattern: 'func', output_mode: mode });
@@ -127,7 +138,7 @@ export async function runTests(_ctx) {
   }
 
   await run('batch_grep names the pattern when a search finds nothing', () => {
-    const out = item._formatBatchGrepResults([
+    const out = summarise('grep', [
       { pattern: 'nope', success: true, outputMode: 'content', result: { matches: [] } }
     ]);
     // Batch runs several patterns at once, so an unqualified "No matches found"
@@ -137,7 +148,7 @@ export async function runTests(_ctx) {
   });
 
   await run('batch_grep keeps each search separate', () => {
-    const out = item._formatBatchGrepResults([
+    const out = summarise('grep', [
       { pattern: 'first', success: true, outputMode: 'files_with_matches', result: grepResult },
       { pattern: 'second', success: false, error: 'bad regex' }
     ]);
@@ -148,6 +159,7 @@ export async function runTests(_ctx) {
 
   // ---- the batch_grep detail lines (UI) -------------------------------------
 
+  /** @type {Array<[string, {pattern: string, path?: string, glob?: string}, string]>} */
   const GREP_LINES = [
     ['both', { pattern: '1', path: '2', glob: '3' }, '`1` — in `2`, matching `3`'],
     ['path', { pattern: '1', path: '2' }, '`1` — in `2`'],
@@ -156,14 +168,14 @@ export async function runTests(_ctx) {
   ];
   await run('batch_grep detail lines read as they always have in English', () => {
     for (const [what, search, want] of GREP_LINES) {
-      const got = BatchContextItem._grepLine(/** @type {any} */ (search));
+      const got = BatchContextItem.__grepLineForTests(search);
       assert(got === want, `${what}: expected ${JSON.stringify(want)}, got ${JSON.stringify(got)}`);
     }
   });
   await run('batch_grep detail lines are whole messages under en-XA', async () => {
     await underPseudoLocale('batch-format-test', () => {
       for (const [what, search] of GREP_LINES.slice(0, 3)) {
-        const got = BatchContextItem._grepLine(/** @type {any} */ (search));
+        const got = BatchContextItem.__grepLineForTests(search);
         assert(isPseudoLocalized(got), `${what}: ${JSON.stringify(got)}`);
       }
     }, { '@juggler/core': ['{pattern} — in {path}, matching {glob}', '{pattern} — in {path}', '{pattern} — matching {glob}'] });

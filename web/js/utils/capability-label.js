@@ -34,11 +34,14 @@ export function capabilityLabel(label, pluginId, registry = contextItemRegistry)
  * the capability's English manifest name (the base default) is translated in
  * its extension's catalogue; any other title is the plugin's own — already
  * translated, or data such as a path — and is returned as it is.
- * @param {any} item - Context-item or action instance
+ * @param {{getTitle: () => string}} item - Context-item or action instance
  * @returns {string} The title
  */
 export function capabilityTitle(item) {
   const title = item.getTitle();
-  const manifest = item.constructor?.MANIFEST;
+  const ctor = item.constructor;
+  const manifest = 'MANIFEST' in ctor
+    ? /** @type {{id: string, name: string}|undefined} */ (ctor.MANIFEST)
+    : undefined;
   return title && title === manifest?.name ? capabilityLabel(title, manifest.id) : title;
 }

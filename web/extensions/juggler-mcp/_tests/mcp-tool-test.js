@@ -88,7 +88,7 @@ export async function runTests(_ctx) {
 
   await run('/mcp states schema tokens as it always has in English', () => {
     for (const [n, want] of [[500, '500'], [1000, '1.0k'], [1234, '1.2k'], [12345, '12.3k'], [1234567, '1234.6k']]) {
-      const got = McpCommandType._fmtTokens(/** @type {number} */ (n));
+      const got = McpCommandType.__fmtTokensForTests(/** @type {number} */ (n));
       assert(got === want, `${n}: expected ${JSON.stringify(want)}, got ${JSON.stringify(got)}`);
     }
   });
@@ -128,7 +128,7 @@ export async function runTests(_ctx) {
     const s = mcpApprovalSuggestions({ server: 'github', tool: 'get_issue', readOnly: true });
     assert(s.length === 3, `want 3 tiers, got ${s.length}`);
     assert(s.every((x) => x.itemType === 'mcp-tool'), 'wrong itemType');
-    const values = s.map((x) => x.rules[0].value);
+    const values = s.map((x) => x.rules?.[0]?.value);
     assert(values[0] === 'github/get_issue', 'exact tier wrong');
     assert(values.includes('github/#readonly'), 'missing readonly tier');
     assert(values.includes('github/*'), 'missing server-wide tier');
@@ -137,14 +137,14 @@ export async function runTests(_ctx) {
   await run('approval ladder: mutating tool omits the readonly tier', () => {
     const s = mcpApprovalSuggestions({ server: 'github', tool: 'create_issue', readOnly: false });
     assert(s.length === 2, `want 2 tiers, got ${s.length}`);
-    const values = s.map((x) => x.rules[0].value);
+    const values = s.map((x) => x.rules?.[0]?.value);
     assert(!values.includes('github/#readonly'), 'readonly tier should be absent');
   });
 
   await run('each suggestion, once applied, makes isPermitted true (the contract)', () => {
     const target = { server: 'github', tool: 'get_issue', readOnly: true };
     for (const s of mcpApprovalSuggestions(target)) {
-      const values = new Set(s.rules.map((r) => String(r.value)));
+      const values = new Set((s.rules ?? []).map((r) => String(r.value)));
       assert(mcpIsPermitted(values, target), `suggestion ${[...values]} did not permit the call`);
     }
   });
@@ -211,7 +211,9 @@ export async function runTests(_ctx) {
     const b = await createTestConversation(session);
     a.rootMessageThread.clearRules('mcp-tool');
     const [, trust] = mcpApprovalSuggestions({ server: 'github', tool: 'create_issue', readOnly: false });
-    const created = a.rootMessageThread.addRule(trust.itemType, { ...trust.rules[0], scope: trust.scope });
+    const rule = trust?.rules?.[0];
+    if (!trust?.itemType || !rule) throw new Error(`want a server-wide suggestion with one rule, got ${JSON.stringify(trust)}`);
+    const created = a.rootMessageThread.addRule(trust.itemType, { ...rule });
     assert(created.scope === 'session', `want session scope, got ${created.scope}`);
     const seen = b.rootMessageThread.getRulesFor('mcp-tool').find((r) => r.value === 'github/*');
     assert(!!seen, 'a second conversation does not see the grant');
@@ -265,13 +267,14 @@ export async function runTests(_ctx) {
       { type: 'image', mimeType: 'image/png', data: 'ZmFpbA==' },
       { type: 'audio', mimeType: 'audio/wav', data: 'd2F2' },
     ], { upload, conversationId: 'conv-1' });
-    assert(images.length === 1 && images[0].id === 'a'.repeat(64), `one image stored: ${JSON.stringify(images)}`);
+    assert(images.length === 1 && images[0]?.id === 'a'.repeat(64), `one image stored: ${JSON.stringify(images)}`);
     assert(uploads.length === 2 && uploads[0][0] === 'conv-1' && uploads[0][2] === 'image/png', `only supported images are uploaded: ${JSON.stringify(uploads)}`);
     assert(blocks.every((b) => !('data' in b)), `no block keeps its bytes: ${JSON.stringify(blocks)}`);
-    assert(blocks[0].text === 'here' && blocks[1].attached === 'a'.repeat(64), `blocks: ${JSON.stringify(blocks)}`);
-    assert(/not a type/.test(blocks[2].note) && /disk full/.test(blocks[3].note), `why one was not attached: ${JSON.stringify(blocks)}`);
+    assert(blocks[0]?.text === 'here' && blocks[1]?.attached === 'a'.repeat(64), `blocks: ${JSON.stringify(blocks)}`);
+    assert(/not a type/.test(String(blocks[2]?.note)) && /disk full/.test(String(blocks[3]?.note)), `why one was not attached: ${JSON.stringify(blocks)}`);
     const none = await storeMcpImages([{ type: 'image', mimeType: 'image/png', data: 'cG5n' }], { upload, conversationId: undefined });
-    assert(none.images.length === 0 && !('data' in none.blocks[0]), 'with no conversation, nothing is stored and the bytes still go');
+    const [onlyBlock] = none.blocks;
+    assert(none.images.length === 0 && onlyBlock !== undefined && !('data' in onlyBlock), 'with no conversation, nothing is stored and the bytes still go');
   });
 
   await run('an attached image rides the summary and is named in its text', async () => {
@@ -408,9 +411,10 @@ export async function runTests(_ctx) {
         await say('/mcp start, no server', ['start']);
         await say('/mcp logs, no server', ['logs']);
         // The subcommand is the identifier the user typed, inserted as data.
-        for (const [name, sub] of [['/mcp start, no server', 'start'], ['/mcp logs, no server', 'logs']]) {
-          assert(shown[name].includes(` ${sub} `), `${name}: ${shown[name]}`);
-          shown[name] = shown[name].replace(` ${sub} `, ' ');
+        for (const [name, sub] of /** @type {Array<[string, string]>} */ ([['/mcp start, no server', 'start'], ['/mcp logs, no server', 'logs']])) {
+          const text = shown[name] ?? '';
+          assert(text.includes(` ${sub} `), `${name}: ${text}`);
+          shown[name] = text.replace(` ${sub} `, ' ');
         }
         log = '8';
         await say('/mcp logs', ['logs', '1']);

@@ -176,7 +176,7 @@ app-container {
 
 .network-button__host {
     color: var(--text-secondary);
-    font-size: 10px;
+    font-size: var(--font-size-header-2xs);
     line-height: 13px;
     white-space: nowrap;
 }
@@ -215,7 +215,7 @@ app-container {
         padding: 0;
         background-color: transparent;
         color: var(--text-secondary);
-        font-size: 10px;
+        font-size: var(--font-size-header-2xs);
         line-height: 13px;
     }
 

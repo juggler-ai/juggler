@@ -8,7 +8,7 @@
  *
  * Three concerns, all backend-free:
  *  1. DroppedFileContextItem.createContextText — a staged text file must reach
- *     the LLM in the same `<file>`-wrapped, line-numbered form as an @-mention;
+ *     the LLM in the same `<file>`-wrapped, line-numbered form as an `@`-mention;
  *     empty content collapses to '' (nothing injected).
  *  2. normalizeDraft round-trips the new `textFiles` field, so a dropped file
  *     staged in the composer survives the draft save/reload cycle alongside the
@@ -97,6 +97,16 @@ function stubModel(box, provider) {
 }
 
 /**
+ * The context for an item whose tests reach none of its host objects: each is
+ * an empty stand-in for the session, conversation and thread.
+ * @returns {import('../../../sdk/context-item-types.js').ItemContext} The context.
+ */
+function bareItemContext() {
+  return /** @type {import('../../../sdk/context-item-types.js').ItemContext} */ (
+    { id: 'DROP_test', session: {}, conversation: {}, messageThread: {} });
+}
+
+/**
  * Run the dropped-file test suite.
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Counts and any error messages.
  */
@@ -125,7 +135,7 @@ export async function runTests() {
   // ── 1. Context item formatting ────────────────────────────────────────────
 
   await test('createContextText wraps content in <file> with line numbers', async () => {
-    const item = new DroppedFileContextItem({ id: 'DROP_test', session: {}, conversation: {}, messageThread: {} });
+    const item = new DroppedFileContextItem(bareItemContext());
     await item.onToolCall('dropped-file', { filename: 'notes.txt', content: 'alpha\nbeta' });
     const text = await item.createContextText();
     assert(text.includes('<file path="notes.txt">'), `missing <file> wrapper:\n${text}`);
@@ -135,14 +145,14 @@ export async function runTests() {
   });
 
   await test('createContextText returns "" for empty content', async () => {
-    const item = new DroppedFileContextItem({ id: 'DROP_test', session: {}, conversation: {}, messageThread: {} });
+    const item = new DroppedFileContextItem(bareItemContext());
     await item.onToolCall('dropped-file', { filename: 'empty.txt', content: '' });
     const text = await item.createContextText();
     assert(text === '', `empty content must inject nothing, got ${JSON.stringify(text)}`);
   });
 
   await test('onToolCall rejects a non-string content param', async () => {
-    const item = new DroppedFileContextItem({ id: 'DROP_test', session: {}, conversation: {}, messageThread: {} });
+    const item = new DroppedFileContextItem(bareItemContext());
     let threw = false;
     try {
       await item.onToolCall('dropped-file', { filename: 'x.txt' });
@@ -164,7 +174,7 @@ export async function runTests() {
     assert(draft.text === 'see attached', `text lost: ${JSON.stringify(draft.text)}`);
     assert(Array.isArray(draft.textFiles) && draft.textFiles.length === 1,
       `textFiles count wrong: ${JSON.stringify(draft.textFiles)}`);
-    assert(draft.textFiles[0].filename === 'log.txt' && draft.textFiles[0].content === 'line one\n',
+    assert(draft.textFiles[0]?.filename === 'log.txt' && draft.textFiles[0]?.content === 'line one\n',
       `textFiles not faithful: ${JSON.stringify(draft.textFiles)}`);
   });
 
@@ -183,7 +193,7 @@ export async function runTests() {
       textFiles: [{ filename: 'a.txt', content: 'ok', bytes: 2 }, { filename: 'b.bin' }]
     });
     assert(draft.textFiles.length === 1, `bad entry should be dropped: ${JSON.stringify(draft.textFiles)}`);
-    assert(draft.textFiles[0].filename === 'a.txt', 'the valid entry must remain');
+    assert(draft.textFiles[0]?.filename === 'a.txt', 'the valid entry must remain');
   });
 
   // ── 3. _handleTextFiles guards ────────────────────────────────────────────
@@ -208,7 +218,7 @@ export async function runTests() {
       // from file.size alone, never calling readAsText.
       box._handleTextFiles([fileWithSize('huge.log', 'x', 2 * 1024 * 1024 * 1024)]);
       await waitFor(() => warnings.length === 1, () => `expected a size warning, got ${JSON.stringify(warnings)}`);
-      assert(/too large/i.test(warnings[0]), `warning should mention size: ${warnings[0]}`);
+      assert(/too large/i.test(warnings[0] ?? ''), `warning should mention size: ${warnings[0]}`);
       assert(box._pendingTextFiles.length === 0, 'oversized file must not be staged');
     } finally {
       container.remove();
@@ -221,7 +231,7 @@ export async function runTests() {
       // A NUL byte is decisive for looksBinary().
       box._handleTextFiles([new window.File(['abc\u0000def'], 'blob.bin', { type: '' })]);
       await waitFor(() => warnings.length === 1, () => `expected a binary warning, got ${JSON.stringify(warnings)}`);
-      assert(/text file/i.test(warnings[0]), `warning should mention text: ${warnings[0]}`);
+      assert(/text file/i.test(warnings[0] ?? ''), `warning should mention text: ${warnings[0]}`);
       assert(box._pendingTextFiles.length === 0, 'binary file must not be staged');
     } finally {
       container.remove();
@@ -238,8 +248,8 @@ export async function runTests() {
       box._uploadAndAdd = () => { uploads++; };
       box._handleFiles([imageWithSize('big.png', 6 * 1024 * 1024)]);
       assert(warnings.length === 1, `expected one size warning, got ${JSON.stringify(warnings)}`);
-      assert(/too large/i.test(warnings[0]), `warning should mention size: ${warnings[0]}`);
-      assert(/5 MB per image/.test(warnings[0]), `warning should state the model's 5 MB limit: ${warnings[0]}`);
+      assert(/too large/i.test(warnings[0] ?? ''), `warning should mention size: ${warnings[0]}`);
+      assert(/5 MB per image/.test(warnings[0] ?? ''), `warning should state the model's 5 MB limit: ${warnings[0]}`);
       assert(uploads === 0, 'oversized image must not be uploaded');
       assert(box._pendingAttachments.length === 0, 'oversized image must not be staged');
     } finally {

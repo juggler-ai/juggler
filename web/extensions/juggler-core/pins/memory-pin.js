@@ -24,8 +24,14 @@ injectStylesOnce('memory-pin-styles', `
   gap: 0.5rem;
   height: 100%;
 }
-.memory-pin .memory-delete { flex-shrink: 0; opacity: 0.5; transition: opacity 0.15s; }
+
+.memory-pin .memory-delete {
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
 .memory-pin .memory-delete:hover { opacity: 1; }
+
 .memory-pin__error {
   color: var(--error-color, var(--text-secondary));
   font-size: var(--font-size-sm);

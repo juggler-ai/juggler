@@ -330,7 +330,7 @@ plugin-catalog {
 
 .plugin-detail-name {
   margin: 0;
-  font-size: 1.75rem;
+  font-size: var(--font-size-3xl);
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.0125rem;

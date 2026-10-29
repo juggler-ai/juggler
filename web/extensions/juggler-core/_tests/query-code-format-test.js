@@ -25,12 +25,20 @@ import QueryCodeContextItem from '../context-items/query-code-context-item.js';
  * @returns {Promise<TestResult>} Pass/fail counts and error messages.
  */
 export async function runTests() {
-  let passed = 0, failed = 0; const errors = [];
-  const fmt = (s) => QueryCodeContextItem._prettyPrintCode(s);
-  const check = (label, fn) => {
-    try { fn(); passed++; } catch (e) { failed++; errors.push(`${label}: ${e.message}`); }
+  let passed = 0, failed = 0;
+  /** @type {string[]} */
+  const errors = [];
+  const fmt = (/** @type {string} */ s) => QueryCodeContextItem._prettyPrintCode(s);
+  const check = (/** @type {string} */ label, /** @type {() => void} */ fn) => {
+    try { fn(); passed++; } catch (e) { failed++; errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`); }
   };
-  const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
+  const assert = (/** @type {unknown} */ cond, /** @type {string} */ msg) => { if (!cond) throw new Error(msg); };
+  /**
+   * A value of the wrong type, passed where the formatter is declared to take a string.
+   * @param {unknown} value - The value.
+   * @returns {string} The same value, typed as the parameter it is passed to.
+   */
+  const notAString = (value) => /** @type {string} */ (value);
 
   // Already multi-line input is returned byte-for-byte unchanged.
   check('multiline untouched', () => {
@@ -47,10 +55,8 @@ export async function runTests() {
   // Non-string / empty inputs are safe no-ops.
   check('non-string safe', () => {
     assert(fmt('') === '', 'empty string should pass through');
-    // @ts-expect-error intentional wrong type
-    assert(fmt(null) === null, 'null should pass through');
-    // @ts-expect-error intentional wrong type
-    assert(fmt(undefined) === undefined, 'undefined should pass through');
+    assert(fmt(notAString(null)) === null, 'null should pass through');
+    assert(fmt(notAString(undefined)) === undefined, 'undefined should pass through');
   });
 
   // A crammed single line becomes indented statements.

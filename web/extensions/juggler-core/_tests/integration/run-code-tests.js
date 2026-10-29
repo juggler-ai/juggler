@@ -18,6 +18,18 @@
 import { textResponse, toolUseResponse, testDirFor } from '../../../../js-tests/utilities/integration-test-runner.js';
 
 /**
+ * A document value as plain data: a live value's `toJSON()`, or the value itself.
+ * @param {unknown} value - A value read from the document.
+ * @returns {unknown} The plain value.
+ */
+function toPlain(value) {
+  if (value && typeof value === 'object' && 'toJSON' in value && typeof value.toJSON === 'function') {
+    return value.toJSON();
+  }
+  return value;
+}
+
+/**
  * A program that reads a file through the raw surface, edits it through
  * `tools.edit` on the strength of that read alone, and reads the result back
  * through `tools.bash`. Under YOLO nothing parks, so the turn completes
@@ -108,8 +120,7 @@ function runCodeTurnTest() {
     // The user sees one row per sub-call, and a row never carries a result.
     customAssertions: (conversation) => {
       const action = conversation.rootMessageThread.getToolAction('call_1');
-      const display = action?.get('displayData');
-      const data = display?.toJSON ? display.toJSON() : display;
+      const data = /** @type {{nestedCalls?: unknown}|null|undefined} */ (toPlain(action?.get('displayData')));
       const rows = Array.isArray(data?.nestedCalls) ? data.nestedCalls : [];
       const brief = rows.map((/** @type {any} */ r) => `${r.name}:${r.status}`).join(',');
       if (brief !== 'edit:ok,bash:ok') {
@@ -327,8 +338,7 @@ function runCodeImageTest() {
 
     customAssertions: (conversation) => {
       const action = conversation.rootMessageThread.getToolAction('call_1');
-      const raw = action?.get('attachments');
-      const attachments = raw?.toJSON ? raw.toJSON() : raw;
+      const attachments = toPlain(action?.get('attachments'));
       if (!Array.isArray(attachments) || attachments.length !== 1
           || !/^[0-9a-f]{64}$/.test(attachments[0].id) || attachments[0].mime !== 'image/png') {
         throw new Error(`the run_code item must carry the stored image: ${JSON.stringify(attachments)}`);
@@ -350,7 +360,9 @@ function runCodeImageTest() {
  */
 function runCodeHoldsAndResumesTest() {
   const TD = testDirFor('run-code-hold');
-  const [a, b, c] = ['a', 'b', 'c'].map((n) => `${TD}/${n}.txt`);
+  const a = `${TD}/a.txt`;
+  const b = `${TD}/b.txt`;
+  const c = `${TD}/c.txt`;
   const log = `${TD}/log.txt`;
   // Wrapped in a shell so no standing grant covers it: it asks.
   const command = `sh -c 'printf x >> ${log}'; printf ran`;
@@ -429,8 +441,8 @@ function runCodeHoldsAndResumesTest() {
 
     customAssertions: (conversation) => {
       const rowsOf = (/** @type {string} */ id) => {
-        const display = conversation.rootMessageThread.getToolAction(id)?.get('displayData');
-        const data = display?.toJSON ? display.toJSON() : display;
+        const data = /** @type {{nestedCalls?: unknown}|null|undefined} */ (
+          toPlain(conversation.rootMessageThread.getToolAction(id)?.get('displayData')));
         return (Array.isArray(data?.nestedCalls) ? data.nestedCalls : [])
           .map((/** @type {any} */ r) => `${r.name}:${r.status}`).join(',');
       };
@@ -536,8 +548,7 @@ function runCodeEngineLostTest() {
 
     customAssertions: (conversation) => {
       const action = conversation.rootMessageThread.getToolAction('call_1');
-      const display = action?.get('displayData');
-      const data = display?.toJSON ? display.toJSON() : display;
+      const data = /** @type {{nestedCalls?: unknown}|null|undefined} */ (toPlain(action?.get('displayData')));
       const rows = (Array.isArray(data?.nestedCalls) ? data.nestedCalls : [])
         .map((/** @type {any} */ r) => `${r.name}:${r.status}`).join(',');
       if (rows !== 'edit:ok,bash:ok') {

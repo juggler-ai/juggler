@@ -23,25 +23,6 @@ import { assert } from '../utilities/test-helpers.js';
  * @property {string[]} errors - Error messages for failed tests.
  */
 
-/**
- * Declarations allowed a literal, as `[selector ending, value]`:
- * - the network badge and host label, update button and header icon buttons
- *   size their text in px beside px geometry, which deliberately does not
- *   follow the zoom;
- * - the plugin detail title is the one 1.75rem heading;
- * - the user-message bubble and reply-suggestion chips are rounder than
- *   every radius step and short of a pill.
- */
-const ALLOWED = [
-  ['.network-button__clients', '10px'],
-  ['.network-button__host', '10px'],
-  ['update-button .update-btn', '13px'],
-  ['header-actions .btn-icon-header', '14px'],
-  ['.plugin-detail-name', '1.75rem'],
-  ['user-message article.user', '1.125rem'],
-  ['reply-suggestions .reply-suggestion', '1.25rem'],
-];
-
 /** A font-size that is not a scale literal. */
 const FONT_SIZE_OK = /^(var\(--font-size-[\w-]+\)|[\d.]+em|inherit|unset)(\s*!important)?$/;
 
@@ -121,14 +102,6 @@ export async function runTests() {
     catch (e) { failed++; errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`); }
   };
 
-  /**
-   * @param {string} selector - The rule's selector text.
-   * @param {string} value - The declared value.
-   * @returns {boolean} Whether ALLOWED excuses it.
-   */
-  const allowed = (selector, value) => ALLOWED.some(([ending, literal]) => value === literal
-    && selector.split(',').some(part => part.trim().endsWith(ending)));
-
   /** @type {string[]} */
   const fontSizes = [];
   /** @type {string[]} */
@@ -136,7 +109,6 @@ export async function runTests() {
   for (const rule of appStyleRules()) {
     for (const [, property, raw] of rule.style.cssText.matchAll(/(?:^|;)\s*(font-size|border(?:-[a-z]+)*-radius)\s*:\s*([^;]+)/g)) {
       const value = raw.trim();
-      if (allowed(rule.selectorText, value)) continue;
       if (property === 'font-size') {
         if (!FONT_SIZE_OK.test(value)) fontSizes.push(`${rule.selectorText} { font-size: ${value} }`);
       } else if (!components(value.replace(/\s*!important$/, '')).every(part => RADIUS_PART_OK.test(part))) {
@@ -158,7 +130,8 @@ export async function runTests() {
     const missing = [
       '--font-size-2xs', '--font-size-xs', '--font-size-sm', '--font-size-base', '--font-size-md',
       '--font-size-body-lg', '--font-size-lg', '--font-size-xl', '--font-size-2xl', '--font-size-3xl',
-      '--radius-sm', '--radius-md', '--radius-lg', '--radius-xl', '--radius-2xl', '--radius-pill',
+      '--font-size-header-2xs', '--font-size-header-base', '--font-size-header-md',
+      '--radius-sm', '--radius-md', '--radius-lg', '--radius-xl', '--radius-2xl', '--radius-bubble', '--radius-pill',
     ].filter(token => root.getPropertyValue(token).trim() === '');
     assert(missing.length === 0, `unset: ${missing.join(', ')}`);
   });

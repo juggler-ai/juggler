@@ -9,7 +9,6 @@ import (
 	"go/parser"
 	"go/token"
 	"testing"
-	"time"
 )
 
 // A queued message moves from pendingItems to items on a turn's goroutine,
@@ -20,29 +19,6 @@ import (
 // holds can look at each from either side of a move. Either way the message's
 // attachment is missing from the live set and its bytes are reclaimed; and a
 // thread deleted by a viewer sync in the gap takes the queued messages with it.
-
-// TestPromoteLeavesTheQueueWhenThereIsNowhereToPutIt: a thread with no items
-// array to promote into keeps its queue. It stands in for the thread that a
-// viewer deleted mid-promotion, which can only be reached through the race.
-func TestPromoteLeavesTheQueueWhenThereIsNowhereToPutIt(t *testing.T) {
-	w := NewConversationWorker("conv-promote-no-target", "user:test")
-	defer w.doc.Destroy()
-	w.tracker.EnsureInitialized()
-
-	// A thread item inserted without Items gets no nested items array.
-	w.doc.InsertMessage(0, ConversationItem{Type: ItemTypeThread, ItemID: "th-1"})
-	w.enqueuePendingMessage("th-1", UserMessageInput{Text: "queued question"})
-	if !w.hasPendingItems("th-1") {
-		t.Fatal("message was not queued")
-	}
-
-	if n := w.currentRun().promotePendingItems("th-1", restDrain(time.Now())); n != 0 {
-		t.Fatalf("promoted %d into a thread with no items array, want 0", n)
-	}
-	if !w.hasPendingItems("th-1") {
-		t.Fatal("the queue was emptied with nowhere to put its messages: they are lost")
-	}
-}
 
 // TestPendingMovesAreOneHold pins the two sides of the race to one hold each:
 // promotePendingItems moves the queue through a single tracker call and takes

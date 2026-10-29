@@ -170,7 +170,7 @@ export async function runTests() {
         'and asking a second time, as the next run of this suite in this lane does, finds it there');
 
       const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
-      assert(provider !== undefined, 'the provider is not in the registry under its own id');
+      if (!provider) throw new Error('the provider is not in the registry under its own id');
       assert(provider.getSetupLabel() === 'New git worktree',
         `the "New…" row would read ${JSON.stringify(provider.getSetupLabel())}`);
     });

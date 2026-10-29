@@ -157,9 +157,10 @@ export class SecondViewer {
     const matches = () => {
       const got = this.items();
       if (got.length !== expected.length) return false;
-      for (let i = 0; i < expected.length; i++) {
-        if (got[i].type !== expected[i].type) return false;
-        if (expected[i].content !== undefined && got[i].content !== expected[i].content) {
+      for (const [i, want] of expected.entries()) {
+        const item = got[i];
+        if (!item || item.type !== want.type) return false;
+        if (want.content !== undefined && item.content !== want.content) {
           return false;
         }
       }

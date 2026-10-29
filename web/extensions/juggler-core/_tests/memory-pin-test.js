@@ -98,7 +98,7 @@ export async function runTests(ctx) {
     // reaching the pin, or the read it causes coming back. A case's own writes
     // are awaited before it signals, and a frame has its own timeline, so an op
     // begun after the last change event is one of the pin's reads.
-    const trail = { changes: 0, lastChangeAt: 0, /** @type {{start: number, end: number}[]} */ ops: [] };
+    const trail = { changes: 0, lastChangeAt: 0, ops: /** @type {{start: number, end: number}[]} */ ([]) };
     const reads = new window.PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
         if (entry.name.includes('/ops/call')) trail.ops.push({ start: entry.startTime, end: /** @type {PerformanceResourceTiming} */ (entry).responseEnd });
@@ -151,7 +151,7 @@ export async function runTests(ctx) {
         const ago = Math.round(performance.now() - trail.lastChangeAt);
         return `${listeners.length} listener(s) to reach; ${trail.changes} change event(s) fired, the last ${ago}ms ago; ` +
           `${since.length} read(s) answered since it${since.length
-            ? ` (the last ${Math.round(performance.now() - since[since.length - 1].end)}ms ago — the read came back, and drew nothing new: stale, or the same bytes)`
+            ? ` (the last ${Math.round(performance.now() - (since[since.length - 1]?.end ?? 0))}ms ago — the read came back, and drew nothing new: stale, or the same bytes)`
             : ' — the event never reached the pin, its settling timer never read, or that read is still out'}`;
       },
       teardown: () => {
@@ -218,6 +218,7 @@ export async function runTests(ctx) {
       }
       return null;
     }, () => `the pin to say it (showed "${body.textContent || ''}")${saw ? `; ${saw()}` : ''}`, timeout);
+    if (!got) throw new Error('waitFor resolved without the body\'s text');
     return got.text;
   }
 
@@ -229,7 +230,7 @@ export async function runTests(ctx) {
    */
   function assertEmptyState(body) {
     const empty = body.querySelector('.pin-empty');
-    assert(empty && (empty.textContent || '').trim().length > 0,
+    assert(empty !== null && (empty.textContent || '').trim().length > 0,
       `expected the empty state, got ${JSON.stringify(body.textContent)}`);
     assert(body.querySelectorAll('.memory-entry').length === 0,
       'the empty state should list no entries');
@@ -499,8 +500,12 @@ export async function runTests(ctx) {
        * @param {string} selector - What to wait for.
        * @returns {Promise<Element>} The element.
        */
-      const drawn = (body, selector) => waitFor(() => body.querySelector(selector),
-        () => `${selector} drawn, but the pin shows ${JSON.stringify(body.textContent)}`);
+      const drawn = async (body, selector) => {
+        const element = await waitFor(() => body.querySelector(selector),
+          () => `${selector} drawn, but the pin shows ${JSON.stringify(body.textContent)}`);
+        if (!element) throw new Error(`${selector} never drawn`);
+        return element;
+      };
       /** @type {Record<string, string>} */
       const shown = {};
       try {

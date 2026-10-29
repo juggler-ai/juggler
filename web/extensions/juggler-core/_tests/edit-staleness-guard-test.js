@@ -156,7 +156,7 @@ export async function runTests(_ctx) {
   await test('matching hash allows edit', async () => {
     const conversation = await createTestConversation(session);
     const writeRes = await writeFile({ path: 'guard-fresh.txt', content: 'hello world\n' });
-    assert(typeof writeRes.contentHash === 'string' && writeRes.contentHash,
+    assert(typeof writeRes.contentHash === 'string' && writeRes.contentHash !== '',
       'writeFile should report the written contentHash');
     seedSeen(conversation, 'read', 'guard-fresh.txt', writeRes.contentHash);
 
@@ -247,7 +247,7 @@ export async function runTests(_ctx) {
   await test('a running program\'s live read allows its own edit', async () => {
     const conversation = await createTestConversation(session);
     const writeRes = await writeFile({ path: 'guard-live.txt', content: 'hello world\n' });
-    const live = new Map([['guard-live.txt', writeRes.contentHash]]);
+    const live = new Map([['guard-live.txt', writeRes.contentHash ?? null]]);
     const end = beginProgramReads(conversation, 'prog1', live);
     try {
       const own = mkSubCallEdit(conversation, 'code_prog1_1');

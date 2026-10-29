@@ -75,7 +75,7 @@ export function statusHoldsTurn(status) {
  * @returns {BusyState} Each answer by name.
  */
 export function busyState(conv) {
-  const c = /** @type {any} */ (conv);
+  const c = conv;
   return {
     get status() { return c.processingState?.status; },
     get turn() { return statusHoldsTurn(c.processingState?.status); },

@@ -91,7 +91,7 @@ export default class ProjectSwitchController {
     const host = this._host;
     host.setProjectPath(newPath || '');
     const projectPath = host.projectPath();
-    /** @type {any} */ (globalThis).__jugglerProjectRoot = toSandboxRoot(projectPath);
+    Object.assign(globalThis, { __jugglerProjectRoot: toSandboxRoot(projectPath) });
     workerManager.setProjectPath(projectPath);
     this._releaseConversations();
     return this._reseed();

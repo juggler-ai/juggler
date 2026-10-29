@@ -114,7 +114,7 @@ export function openCommandEditor(options = {}) {
     const modal = presentModal({
       className: 'command-editor-overlay',
       dismissSelectors: ['.command-editor-backdrop', '#cmd-close'],
-      onClose: (result) => {
+      onClose: (/** @type {string|{deleted: string}|undefined} */ result) => {
         // The picker lives on document.body, so it outlives the dialog unless
         // it is taken down with it.
         closePopupById(MODEL_PICKER_POPUP_ID);

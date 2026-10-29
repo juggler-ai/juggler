@@ -14,7 +14,6 @@
  */
 
 import { assert } from '../../../js-tests/utilities/test-helpers.js';
-import { readFile } from '../../../js/services/ops-api.js';
 import actionExecutor from '../../../js/services/action-executor.js';
 import { runProgramSuite, ended, waitUntil } from './run-code-program-helpers.js';
 
@@ -24,7 +23,7 @@ import { runProgramSuite, ended, waitUntil } from './run-code-program-helpers.js
  * @returns {Promise<import('./run-code-program-helpers.js').TestResult>} Pass/fail counts
  */
 export async function runTests(_ctx) {
-  return runProgramSuite(async ({ test, setup, rowsOf, heldCommand, assertParks, startAsAction, waitHeld, answerHeld, waitSnapshotGone, rowBrief, absent }) => {
+  return runProgramSuite(async ({ test, setup, rowsOf, heldCommand, assertParks, startAsAction, waitHeld, answerHeld, waitSnapshotGone, rowBrief, absent, readBack }) => {
     await test('denying the held call cancels the program, and the denial stands', async () => {
       const log = `rc-deny-held-${Date.now()}.txt`;
       const command = heldCommand(log);
@@ -63,7 +62,7 @@ export async function runTests(_ctx) {
       assert(done.state === 'cancelled', `the cancel stands: ${done.state} ${JSON.stringify(done.result)}`);
       await waitUntil(() => !actionExecutor.runningActionFor(id, conversation.id), 'the program to end');
       assert(await absent(log), 'the held call never ran');
-      assert(rowsOf(mt, id).every((r) => r.status !== 'ok'), `no call ran: ${rowBrief(mt, id)}`);
+      assert(rowsOf(mt, id).every((/** @type {import('./run-code-program-helpers.js').NestedCall} */ r) => r.status !== 'ok'), `no call ran: ${rowBrief(mt, id)}`);
       await waitSnapshotGone(item, 'the worker to drop the cancelled program\'s snapshot');
     });
 
@@ -82,7 +81,7 @@ export async function runTests(_ctx) {
       answerHeld(conversation, mt, id, 'B');
       const done = await ended(finished);
       assert(done.result?.content === 'answer: Pick: B', `the answer reaches the program: ${JSON.stringify(done.result)}`);
-      const ran = await readFile({ path: file });
+      const ran = await readBack(file);
       assert(String(ran.content) === 'x', `bash ran once: ${JSON.stringify(ran.content)}`);
     });
   });

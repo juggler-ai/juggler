@@ -131,13 +131,15 @@ export function getAttentionPrefs() {
   // older build (the pre-menu `pitch`/`length`/numeric-`pattern` knobs, or a
   // removed pattern/sound id) is dropped for the default rather than riding
   // through into prefs and desyncing the settings popups.
-  const storedChime = /** @type {Record<string, unknown>} */ (/** @type {any} */ (stored).chime || {});
+  /** @type {unknown} */
+  const rawChime = stored.chime;
+  const storedChime = rawChime && typeof rawChime === 'object' ? /** @type {Record<string, unknown>} */ (rawChime) : {};
   const validPatterns = new Set(chimePatterns().map((p) => p.id));
   const validSounds = new Set(chimeSounds().map((s) => s.id));
   const vol = storedChime.volume;
   const chime = /** @type {ChimeParams} */ ({
-    pattern: validPatterns.has(/** @type {any} */ (storedChime.pattern)) ? storedChime.pattern : DEFAULT_ATTENTION_PREFS.chime.pattern,
-    sound: validSounds.has(/** @type {any} */ (storedChime.sound)) ? storedChime.sound : DEFAULT_ATTENTION_PREFS.chime.sound,
+    pattern: typeof storedChime.pattern === 'string' && validPatterns.has(storedChime.pattern) ? storedChime.pattern : DEFAULT_ATTENTION_PREFS.chime.pattern,
+    sound: typeof storedChime.sound === 'string' && validSounds.has(storedChime.sound) ? storedChime.sound : DEFAULT_ATTENTION_PREFS.chime.sound,
     volume: typeof vol === 'number' ? Math.max(0, Math.min(1, vol)) : DEFAULT_ATTENTION_PREFS.chime.volume,
   });
   return { ...DEFAULT_ATTENTION_PREFS, ...stored, chime };
@@ -500,7 +502,7 @@ function onActivity(convId) {
   if (!conv) return;
 
   const llm = conv.llmState;
-  const root = /** @type {any} */ (conv).rootMessageThread;
+  const root = conv.rootMessageThread;
   // A parked call a strategy reviewer still has in hand doesn't count: it may be
   // approved without the user ever needing to look, and a chime for one that is
   // then auto-approved is a false alarm. Such a call parks already marked as
@@ -692,7 +694,7 @@ export function initAttention(sess) {
  * Test seam. Not part of the supported API. Tests import it; a test server's
  * app page also publishes it as `window.__attention`
  * (js-tests/utilities/app-test-mode.js).
- * @type {{alertCount: number, lastAlert: any, alertsFor: (convId: string) => number, setFocusedForTest: (v: boolean|null) => void, isFlagged: (convId: string) => boolean, flashForTest: (convId: string) => void, clearForTest: (convId: string) => void}}
+ * @type {{alertCount: number, lastAlert: {convId: string, t: number}|null, alertsFor: (convId: string) => number, setFocusedForTest: (v: boolean|null) => void, isFlagged: (convId: string) => boolean, flashForTest: (convId: string) => void, clearForTest: (convId: string) => void}}
  */
 export const __attention = {
   alertCount: 0,

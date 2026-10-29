@@ -21,7 +21,7 @@ const t = translator('@juggler/mcp');
  * @property {string} name - Raw MCP tool name
  * @property {string} title - Display title (falls back to name)
  * @property {string} description - Server-provided description
- * @property {object} inputSchema - JSON Schema for the tool's arguments
+ * @property {object|null} inputSchema - JSON Schema for the tool's arguments; null when the server published none
  * @property {boolean} readOnly - annotations.readOnlyHint
  * @property {boolean} destructive - annotations.destructiveHint
  * @property {number} schemaTokens - ~chars/4 estimate of the input schema

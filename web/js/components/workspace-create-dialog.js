@@ -81,7 +81,7 @@ export function openWorkspaceCreate(session) {
     const modal = presentModal({
       className: 'workspace-create-overlay',
       dismissSelectors: ['.workspace-create-backdrop', '.workspace-create-close', '.workspace-create-cancel'],
-      onClose: (result) => {
+      onClose: (/** @type {{created: boolean, workspaceId?: string}|undefined} */ result) => {
         probes.abort();
         // Escape and the backdrop end a build the same way its own Cancel does:
         // a tree finished after the question that asked for it was dismissed is

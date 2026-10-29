@@ -63,7 +63,7 @@ export function openWorkspaceReconnect(conversation) {
       dismissSelectors: [
         '.workspace-move-backdrop', '.workspace-move-close', '.workspace-move-cancel'
       ],
-      onClose: (result) => {
+      onClose: (/** @type {{reconnected: boolean, workspaceId?: string}|undefined} */ result) => {
         probes.abort();
         resolve(result ?? { reconnected: false });
       }

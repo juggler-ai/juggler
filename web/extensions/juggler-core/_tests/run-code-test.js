@@ -556,6 +556,7 @@ export async function runTests(_ctx) {
     const heldCalls = [];
     const images = createProgramImages({ max: 2, onHeld: (ids) => heldCalls.push(ids) });
     const [h] = images.receive([ref('a')], 'shot.png');
+    if (!h) throw new Error('receiving an image gives a handle for it');
     assert(h.image === ref('a').id && h.width === 4 && h.label === 'shot.png' && !('id' in h), `a handle: ${JSON.stringify(h)}`);
     assert(JSON.stringify(heldCalls.at(-1)) === JSON.stringify([ref('a').id]), 'what it was given is held at once');
     await images.show(h);

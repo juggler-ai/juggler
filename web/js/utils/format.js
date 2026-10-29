@@ -136,7 +136,7 @@ export function formatTokens(n) {
  * @returns {string|null} The formatted duration, spaces made non-breaking.
  */
 function formatDurationIntl(seconds) {
-  const DurationFormat = /** @type {any} */ (Intl).DurationFormat;
+  const DurationFormat = /** @type {typeof Intl & {DurationFormat?: new (locale: string|undefined, options: {style: string}) => {format: (parts: Record<string, number>) => string}}} */ (Intl).DurationFormat;
   if (typeof DurationFormat !== 'function' || !Number.isInteger(seconds) || seconds < 0) return null;
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);

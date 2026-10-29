@@ -36,6 +36,7 @@ import { resolveDefaultStrategyId, BUILTIN_DEFAULT_STRATEGY_ID } from '../servic
 import { workspaceInstructionRoots } from '../services/workspace-provisioning.js';
 import { BUILTIN_DEFAULT_ID } from '../../sdk/lib/system-prompt-registry.js';
 import { reportFact } from '../services/guidance/facts.js';
+import { itemField } from '../../sdk/lib/message.js';
 
 /**
  * Copy the session's new-task preferences into a freshly created conversation.
@@ -231,8 +232,11 @@ export async function addAIAssistantFiles(session, conversation, messageThread =
   // insert-time dedup matches, so it is how a candidate is recognised here.
   const pinned = new Set(
     (mt.contextItems || [])
-      .filter((/** @type {any} */ item) => item.type === 'file-content')
-      .map((/** @type {any} */ item) => (item.data?.path || '').replace(/^\/+/, ''))
+      .filter(item => item.type === 'file-content')
+      .map(item => {
+        const path = itemField(item.data, 'path');
+        return (typeof path === 'string' ? path : '').replace(/^\/+/, '');
+      })
   );
   for (const candidate of candidates) {
     if (candidate?.contentHash && pinned.has(candidate.filename.replace(/^\/+/, ''))) {
@@ -282,10 +286,9 @@ export async function seedAutoContextItems(conversation, messageThread = null) {
   const mt = messageThread || conversation.rootMessageThread;
   let count = 0;
   for (const { id, class: ItemClass } of contextItemRegistry.getAll()) {
-    const manifest = /** @type {any} */ (ItemClass).MANIFEST;
-    if (!manifest?.autoInstantiate) continue;
+    if (!ItemClass.MANIFEST?.autoInstantiate) continue;
     try {
-      const gate = /** @type {any} */ (ItemClass).shouldAutoInstantiate;
+      const gate = 'shouldAutoInstantiate' in ItemClass ? ItemClass.shouldAutoInstantiate : undefined;
       if (typeof gate === 'function' && !(await gate.call(ItemClass))) {
         continue;
       }

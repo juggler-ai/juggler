@@ -650,7 +650,7 @@ export class SkillsTab {
       const modal = presentModal({
         className: 'skills-scope-dialog',
         dismissSelectors: ['[data-scope-cancel]', '.skills-scope-backdrop'],
-        onClose: (value) => resolve(value ?? null),
+        onClose: (/** @type {string|null|undefined} */ value) => resolve(value ?? null),
       });
       const host = modal.root;
       const optionsHTML = SCOPE_OPTIONS.map(

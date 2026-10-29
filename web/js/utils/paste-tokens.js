@@ -144,7 +144,7 @@ export function expandPasteTokens(text, blobs) {
  * ids monotonic even after tokens are deleted — the append-only table preserves
  * the high-water mark, so a delete-then-paste never reissues a live id.
  * @param {string} text
- * @param {Map<number, any>|PasteBlob[]|null|undefined} blobs
+ * @param {Map<number, {content:string, bytes?:number}>|PasteBlob[]|null|undefined} blobs
  * @returns {number} The next id (>= 1).
  */
 export function nextId(text, blobs) {
@@ -162,7 +162,7 @@ export function nextId(text, blobs) {
  * as plain text (ugly, legible, harmless). Well-formed, resolvable tokens are
  * left untouched.
  * @param {string} text
- * @param {Map<number, any>|PasteBlob[]|null|undefined} [blobs] - When omitted,
+ * @param {Map<number, {content:string, bytes?:number}>|PasteBlob[]|null|undefined} [blobs] - When omitted,
  *   every well-formed token is treated as valid (grammar-only cleanup).
  * @returns {string} The cleaned text (same reference semantics as input).
  */

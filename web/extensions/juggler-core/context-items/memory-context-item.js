@@ -279,6 +279,25 @@ class MemoryContextItem extends ContextItem {
   }
 
   /**
+   * Test seam for `_read`: the last-known-good read a test drives directly.
+   * @param {string} path - File path
+   * @returns {Promise<string>} File content, last-known-good, or ''
+   */
+  __readForTests(path) {
+    return this._read(path);
+  }
+
+  /**
+   * Test seam for `_write`: a write that also records the last-known-good.
+   * @param {string} path - File path
+   * @param {string} content - Content to write
+   * @returns {Promise<void>}
+   */
+  __writeForTests(path, content) {
+    return this._write(path, content);
+  }
+
+  /**
    * Gate for auto-instantiation: only seed a memory item when the file already
    * exists, so empty projects gain no item (and unrelated conversations stay
    * unchanged). A first `remember` creates the file but adds no item to its own
@@ -648,8 +667,9 @@ class MemoryContextItem extends ContextItem {
    * exists to prevent. Only the panel, which reads the file live, shows the
    * change.
    * @param {string} changedPath - Path that changed
+   * @param {string} [_event] - The watcher's event for it (unused: any change re-reads)
    */
-  onFileChange(changedPath) {
+  onFileChange(changedPath, _event) {
     if (typeof changedPath === 'string' && changedPath.replace(/\\/g, '/').endsWith('MEMORY.md')) {
       if (typeof this.onContentChange === 'function') {
         this.onContentChange();
@@ -659,63 +679,123 @@ class MemoryContextItem extends ContextItem {
 }
 
 const MEMORY_STYLES = `
-.memory-ci-expanded { display: flex; flex-direction: column; gap: 0.5rem; }
+.memory-ci-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .memory-panel-note {
   font-size: var(--font-size-sm); line-height: 1.5;
   color: var(--text-tertiary, var(--text-secondary));
 }
+
 .memory-empty {
   padding: 1rem; font-size: var(--font-size-base);
   color: var(--context-item-text-secondary, var(--text-secondary));
 }
 
 /* Remember/forget tool-action properties panel */
-.memory-action { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.25rem 0; }
+.memory-action {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
 .memory-action-verb {
   align-self: flex-start;
   font-size: var(--font-size-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
   padding: 0.125rem 0.5rem; border-radius: var(--radius-pill);
-  background: var(--bg-raised, rgba(127, 127, 127, 0.15));
+  background: var(--bg-raised);
   color: var(--text-secondary);
 }
 .memory-action-verb--add { color: var(--accent-green); }
 .memory-action-verb--remove { color: var(--accent-red); }
+
 .memory-action-fact {
   font-size: var(--font-size-md); line-height: 1.5;
   color: var(--context-item-text, var(--text-primary));
   padding: 0.5rem 0.75rem; border-radius: var(--radius-lg);
-  background: var(--bg-secondary, rgba(127, 127, 127, 0.08));
-  border-left: 2px solid var(--ci-family-memory, #c2410c);
-  white-space: pre-wrap; word-break: break-word;
+  background: var(--bg-secondary);
+  border-left: 0.125rem solid var(--ci-family-memory);
+  white-space: pre-wrap; overflow-wrap: anywhere;
 }
+
 .memory-action-fact.muted {
   color: var(--text-tertiary, var(--text-secondary));
   font-style: italic; border-left-color: transparent;
 }
-.memory-action-removed { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+
+.memory-action-removed {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
 .memory-action-removed li {
   font-size: var(--font-size-base); line-height: 1.5;
   color: var(--text-secondary);
   padding: 0.375rem 0.625rem; border-radius: var(--radius-lg);
-  background: var(--bg-secondary, rgba(127, 127, 127, 0.08));
+  background: var(--bg-secondary);
   text-decoration: line-through; text-decoration-color: var(--accent-red);
 }
-.memory-action-note { font-size: var(--font-size-sm); color: var(--text-tertiary, var(--text-secondary)); }
-.memory-action-banner { font-size: var(--font-size-base); line-height: 1.5; padding: 0.5rem 0.75rem; border-radius: var(--radius-lg); }
-.memory-action-banner.error { color: var(--accent-red); background: rgba(248, 81, 73, 0.1); }
-.memory-action-banner.cancelled { color: var(--text-secondary); background: var(--bg-secondary, rgba(127, 127, 127, 0.08)); }
-.memory-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.375rem; }
+
+.memory-action-note {
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.memory-action-banner {
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-lg);
+}
+
+.memory-action-banner.error {
+  color: var(--accent-red);
+  background: rgb(from var(--accent-red) r g b / 10%);
+}
+
+.memory-action-banner.cancelled {
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+}
+
+.memory-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
 .memory-entry {
   display: flex; align-items: baseline; gap: 0.5rem;
   font-size: var(--font-size-base); line-height: 1.5;
   color: var(--context-item-text, var(--text-primary));
 }
+
 .memory-date {
   flex-shrink: 0; font-family: var(--font-mono); font-size: var(--font-size-xs);
   opacity: 0.6; white-space: nowrap;
 }
-.memory-text { flex: 1; min-width: 0; }
-.memory-delete { flex-shrink: 0; opacity: 0.5; transition: opacity 0.15s; }
+
+.memory-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.memory-delete {
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
 .memory-delete:hover { opacity: 1; }
 `;
 

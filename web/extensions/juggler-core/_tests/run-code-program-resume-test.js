@@ -105,7 +105,7 @@ export async function runTests(_ctx) {
       const first = await waitHeld(mt, id, 'bash');
       const answeredAt = Date.now();
       answerHeld(conversation, mt, id, 'yes');
-      const second = await waitHeld(mt, id, 'bash', (t) => t.heldCall.input.command !== first.heldCall.input.command);
+      const second = await waitHeld(mt, id, 'bash', (/** @type {import('./run-code-program-helpers.js').HeldToolAction} */ t) => t.heldCall.input.command !== first.heldCall.input.command);
       answerHeld(conversation, mt, id, 'yes');
       const done = await ended(finished);
       const held = [first, second].map((p) => p.heldCall?.input?.command);
@@ -168,7 +168,7 @@ export async function runTests(_ctx) {
       const finished = startAsAction(conversation, mt, id);
       await waitHeld(mt, id, 'bash');
       answerHeld(conversation, mt, id, 'yes');
-      await waitHeld(mt, id, 'bash', (t) => t.heldCall.input.command === second);
+      await waitHeld(mt, id, 'bash', (/** @type {import('./run-code-program-helpers.js').HeldToolAction} */ t) => t.heldCall.input.command === second);
       const kept = await snapshotOf(item);
       assert(kept?.held?.input?.command === second && kept.heldStep === 2 && kept.journal[2]?.pending
         && kept.journal[0]?.ok && kept.journal[1]?.ok, `the snapshot is the second hold's: ${JSON.stringify(kept)}`);

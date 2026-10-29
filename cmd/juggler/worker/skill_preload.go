@@ -38,7 +38,7 @@ func generateSkillToolUseID() string {
 // State is left undefined so the engine evaluates (and auto-approves) it, exactly
 // as for a model-issued skill call.
 func newSkillToolAction(name string) ConversationItem {
-	input, _ := json.Marshal(map[string]string{"name": name})
+	input, _ := json.Marshal(map[string]string{keyName: name})
 	return ConversationItem{
 		Type:      ItemTypeToolAction,
 		ItemID:    generateItemID(),

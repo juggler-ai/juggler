@@ -382,8 +382,9 @@ function generateUniqueItemId(mt, ItemClass) {
   const conv = mt.conversation;
   const metaKey = `nextItemNum_${idPrefix}`;
 
-  let nextNum = conv.getMetadata(metaKey);
-  if (typeof nextNum !== 'number') {
+  const stored = conv.getMetadata(metaKey);
+  let nextNum = typeof stored === 'number' ? stored : undefined;
+  if (nextNum === undefined) {
     // Bootstrap: scan all threads for the highest used numeric suffix for this prefix.
     const prefixUnderscore = idPrefix + '_';
     let maxNum = 0;

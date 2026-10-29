@@ -10,6 +10,8 @@
  * @module integration/golden-comparator
  */
 
+import { plain } from '../../js/model/item-accessor.js';
+
 
 
 /**
@@ -23,6 +25,9 @@
  * @property {{content: string, isError: boolean}|string} [result] - Tool result (normalized) or thread result string
  * @property {string} [itemId] - Normalized item ID ($ITEM_1, etc.)
  * @property {string} [message] - Error message text (for error items)
+ * @property {boolean} [boundedCompaction] - A thread's bounded-compaction flag
+ * @property {string} [compactionPromptItemId] - A thread's normalized compaction prompt item ID
+ * @property {NormalizedItem[]} [items] - A thread's nested items, normalized
  */
 
 /**
@@ -214,7 +219,7 @@ export function normalizeDocumentSnapshot(conversation) {
  * @returns {NormalizedItem} Normalized item
  */
 function normalizeItem(item, normalizer) {
-  const type = item.get('type');
+  const type = item.get('type') ?? '';
   /** @type {NormalizedItem} */
   const normalized = {
     type
@@ -242,7 +247,7 @@ function normalizeItem(item, normalizer) {
   const rawToolInput = item.get('toolInput');
   if (rawToolInput !== undefined && type !== 'thread') {
     // Convert Y.Map to plain object if needed, then parse if string
-    const toolInputValue = rawToolInput?.toJSON ? rawToolInput.toJSON() : rawToolInput;
+    const toolInputValue = plain(rawToolInput);
     /** @type {Record<string, any>} */
     let toolInput;
     if (typeof toolInputValue === 'string') {
@@ -267,7 +272,8 @@ function normalizeItem(item, normalizer) {
   if (result !== undefined && result !== null) {
     if (type === 'thread') {
       // Thread result is a plain string (the thread's outcome)
-      const resultStr = (typeof result === 'string') ? result : (result?.toJSON ? JSON.stringify(result.toJSON()) : String(result));
+      const plainResult = plain(result);
+      const resultStr = (typeof result === 'string') ? result : (plainResult !== result ? JSON.stringify(plainResult) : String(result));
       normalized.result = normalizer.normalizeContent(resultStr);
     } else {
       // Tool result (may be a Y.Map or JSON string encoding {content, isError})
@@ -280,11 +286,12 @@ function normalizeItem(item, normalizer) {
           // Keep as string wrapped in object
           resultObj = { content: result, isError: false };
         }
-      } else if (result?.get) {
+      } else if (typeof result === 'object' && 'get' in result && typeof result.get === 'function') {
         // Y.Map - extract fields via .get()
+        const resultMap = /** @type {import('yjs').Map<unknown>} */ (result);
         resultObj = {
-          content: result.get('content'),
-          isError: result.get('isError')
+          content: /** @type {string|undefined} */ (resultMap.get('content')),
+          isError: /** @type {boolean|undefined} */ (resultMap.get('isError'))
         };
       } else {
         resultObj = /** @type {{content?: string, isError?: boolean}} */ (result);
@@ -388,10 +395,10 @@ export function documentMatchesGolden(actual, expected) {
  * @returns {boolean} True if every expected item matches at its position
  */
 export function itemsMatchExpected(actual, expectedItems) {
-  for (let i = 0; i < expectedItems.length; i++) {
+  for (const [i, expected] of expectedItems.entries()) {
     const actualItem = actual.items[i];
     if (!actualItem) return false;
-    for (const [key, value] of Object.entries(expectedItems[i])) {
+    for (const [key, value] of Object.entries(expected)) {
       const actualValue = /** @type {Record<string, unknown>} */ (actualItem)[key];
       if (JSON.stringify(actualValue) !== JSON.stringify(value)) return false;
     }
@@ -435,8 +442,7 @@ export function assertDocumentGolden(actual, expected, testName) {
  * @throws {Error} If expected items not found
  */
 export function assertItemsExist(actual, expectedItems, testName) {
-  for (let i = 0; i < expectedItems.length; i++) {
-    const expected = expectedItems[i];
+  for (const [i, expected] of expectedItems.entries()) {
     const actualItem = actual.items[i];
 
     if (!actualItem) {
@@ -470,8 +476,7 @@ export function assertItemsExist(actual, expectedItems, testName) {
  */
 function _summarizeItems(items) {
   const lines = ['  Actual items:'];
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
+  for (const [i, it] of items.entries()) {
     const t = it.type;
     const tag = it.toolName ? `tool=${it.toolName}` : '';
     const state = it.state ? ` state=${it.state}` : '';

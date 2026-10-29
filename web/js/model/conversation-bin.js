@@ -80,12 +80,12 @@ export default class ConversationBin {
   /**
    * Adopt the server's tally from a session manifest. The manifest is the
    * authority, so any departure still awaiting its broadcast is already in it.
-   * @param {{binnedCount?: unknown, binSizeBytes?: unknown}} data - The manifest
+   * @param {object|null|undefined} data - The manifest
    * @returns {void}
    */
   adopt(data) {
-    this.count = Number(data?.binnedCount) || 0;
-    this.sizeBytes = Number(data?.binSizeBytes) || 0;
+    this.count = Number(data && 'binnedCount' in data ? data.binnedCount : 0) || 0;
+    this.sizeBytes = Number(data && 'binSizeBytes' in data ? data.binSizeBytes : 0) || 0;
     this._awaitingBroadcast.clear();
   }
 
@@ -135,7 +135,8 @@ export default class ConversationBin {
    */
   async list() {
     const resp = await this._requireApi().listBinnedConversations();
-    this.sizeBytes = Number(/** @type {any} */ (resp)?.binSizeBytes) || 0;
+    const size = resp && typeof resp === 'object' && 'binSizeBytes' in resp ? resp.binSizeBytes : 0;
+    this.sizeBytes = Number(size) || 0;
     return (resp && resp.binned) || [];
   }
 

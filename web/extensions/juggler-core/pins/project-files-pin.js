@@ -23,17 +23,20 @@ injectStylesOnce('project-files-pin-styles', `
   gap: 0.25rem;
   height: 100%;
 }
+
 .project-files-pin__list {
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: auto;
 }
+
 .project-files-pin__row {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: 0.375rem;
+
   /* The shared file buttons are 1.5rem tall, which is taller than this row's
      line box. Without a floor sized to hold them, the row a reader points at
      grows and shunts every row below it down — so the space is always there and
@@ -42,16 +45,20 @@ injectStylesOnce('project-files-pin-styles', `
   padding-right: 0.25rem;
   border-radius: var(--radius-md);
   line-height: 1.7;
+
   /* Every row answers a click — a folder opens, a file is selected and pins on a
      second — so every row says so under the pointer. */
   cursor: pointer;
 }
+
 .project-files-pin__row:hover {
   background: color-mix(in srgb, var(--text-primary) 5%, transparent);
 }
+
 .project-files-pin__row:focus-visible {
   outline-offset: calc(-1 * var(--focus-ring-width));
 }
+
 /* Drawn rather than written: a glyph would be at the mercy of whichever font the
    platform has, and this one only ever has to be a triangle that turns. A file
    keeps the space so that names down a level line up with their siblings. */
@@ -64,12 +71,15 @@ injectStylesOnce('project-files-pin-styles', `
   transition: transform var(--transition-base, 0.15s ease);
   visibility: hidden;
 }
+
 .project-files-pin__row.is-dir .project-files-pin__caret {
   visibility: visible;
 }
+
 .project-files-pin__row[aria-expanded="true"] .project-files-pin__caret {
   transform: rotate(90deg);
 }
+
 .project-files-pin__name {
   flex: 1;
   min-width: 0;
@@ -77,25 +87,30 @@ injectStylesOnce('project-files-pin-styles', `
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .project-files-pin__row.is-dir .project-files-pin__name {
   font-weight: 500;
 }
+
 /* The resting tree is names and carets. Everything a row can do to its file is
    one hover or one Tab away, and takes no width until then. */
 .project-files-pin__actions {
   display: none;
   flex-shrink: 0;
 }
+
 .project-files-pin__row:hover .project-files-pin__actions,
 .project-files-pin__row:focus-within .project-files-pin__actions {
   display: flex;
 }
+
 .project-files-pin__note {
   flex-shrink: 0;
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);
   line-height: 1.7;
 }
+
 .project-files-pin__status {
   flex-shrink: 0;
   padding: 0.25rem 0.375rem;

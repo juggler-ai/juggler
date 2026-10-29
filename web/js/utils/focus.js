@@ -18,8 +18,8 @@ export function focusWhenShown(el, { select = false, delay = FOCUS_AFTER_SHOW_MS
   if (!el) return;
   setTimeout(() => {
     el.focus();
-    if (select && typeof (/** @type {any} */ (el).select) === 'function') {
-      /** @type {any} */ (el).select();
+    if (select && 'select' in el && typeof el.select === 'function') {
+      el.select();
     }
   }, delay);
 }

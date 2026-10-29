@@ -4,7 +4,10 @@
 
 package worker
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // A replySlot is the worker's request-id-keyed end of one kind of client
 // round-trip. More than one request of the same kind may be outstanding; each
@@ -44,18 +47,11 @@ type deliverReply struct {
 	payload json.RawMessage
 }
 
-// injectReply is the test-only uncorrelated answer (see inject). accepted is
-// closed once the registry has taken it: handed to a registration, or made the
-// one injection held for the next registration. Later injections wait unaccepted
-// behind that one, so a feeder looping on inject runs one reply ahead and no more.
-type injectReply struct {
-	payload  json.RawMessage
-	abort    <-chan struct{}
-	accepted chan struct{}
-}
-
-type countReplies struct {
-	result chan int
+// pendingReply is one open registration in the registry.
+type pendingReply struct {
+	response chan json.RawMessage
+	cancel   chan struct{}
+	answered bool
 }
 
 // newReplySlot builds and starts the registry for a named request type. It
@@ -67,25 +63,11 @@ func newReplySlot(name string, done <-chan struct{}) *replySlot {
 }
 
 func (s *replySlot) run() {
-	type pendingReply struct {
-		response chan json.RawMessage
-		cancel   chan struct{}
-		answered bool
-	}
 	pending := make(map[string]pendingReply)
 	var registrationOrder []string
-	var injections []injectReply
-
-	// settleInjections drops queued injections whose feeder has given up and
-	// accepts whichever is now at the head. Only the head is ever accepted.
-	settleInjections := func() {
-		for len(injections) > 0 && closed(injections[0].abort) {
-			injections = injections[1:]
-		}
-		if len(injections) > 0 && !closed(injections[0].accepted) {
-			close(injections[0].accepted)
-		}
-	}
+	// injections holds a test-capable build's uncorrelated test answers
+	// (reply_slot_testonly.go); a release build's holds nothing.
+	var injections replyInjections
 
 	for {
 		var command any
@@ -99,12 +81,9 @@ func (s *replySlot) run() {
 			response := make(chan json.RawMessage, 1)
 			cancel := make(chan struct{})
 			entry := pendingReply{response: response, cancel: cancel}
-			settleInjections()
-			if len(injections) > 0 {
+			if payload, ok := injections.take(); ok {
 				entry.answered = true
-				response <- injections[0].payload
-				injections = injections[1:]
-				settleInjections()
+				response <- payload
 			}
 			pending[command.requestID] = entry
 			registrationOrder = append(registrationOrder, command.requestID)
@@ -143,35 +122,10 @@ func (s *replySlot) run() {
 			current.answered = true
 			pending[head.RequestID] = current
 			current.response <- command.payload
-		case injectReply:
-			if closed(command.abort) {
-				continue
+		default:
+			if !injections.handle(command, pending, registrationOrder) {
+				panic(fmt.Sprintf("replySlot %s: unknown command %T", s.name, command))
 			}
-			injected := false
-			if len(injections) == 0 {
-				for _, requestID := range registrationOrder {
-					current, ok := pending[requestID]
-					if !ok || current.answered {
-						continue
-					}
-					current.answered = true
-					pending[requestID] = current
-					current.response <- command.payload
-					close(command.accepted)
-					injected = true
-					break
-				}
-			}
-			if !injected {
-				injections = append(injections, command)
-				settleInjections()
-			}
-		case countReplies:
-			count := 0
-			for _, current := range pending {
-				count += len(current.response)
-			}
-			command.result <- count
 		}
 	}
 }
@@ -197,16 +151,6 @@ func (s *replySlot) register(requestID string) (<-chan json.RawMessage, func()) 
 		case s.commands <- unregisterReply{requestID: registration.requestID, cancel: registration.cancel}:
 		case <-s.done:
 		}
-	}
-}
-
-// closed reports whether ch has been closed. A nil channel never is.
-func closed[T any](ch <-chan T) bool {
-	select {
-	case <-ch:
-		return true
-	default:
-		return false
 	}
 }
 

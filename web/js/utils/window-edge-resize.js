@@ -67,7 +67,7 @@ function edgesResizable(state) {
  *
  * Pushes nothing on install: the host has not necessarily spoken yet, and the
  * runtime's own default (off until the host says otherwise) is the safe one.
- * @param {{setResizable?: (value: boolean) => void}} runtime - The object
+ * @param {{setResizable?: (value: boolean) => void}|undefined} runtime - The object
  *   carrying the runtime's setter (`window._wails`). Its `setResizable` is
  *   replaced.
  * @returns {{setMaximised: (v: boolean) => void, setFullscreen: (v: boolean) => void} | null}
@@ -75,7 +75,7 @@ function edgesResizable(state) {
  */
 export function installEdgeResizeGate(runtime) {
   const original = runtime?.setResizable;
-  if (typeof original !== 'function') return null;
+  if (!runtime || typeof original !== 'function') return null;
 
   /** @type {EdgeResizeState} */
   const state = { host: true, maximised: false, fullscreen: false };
@@ -115,15 +115,15 @@ function watchEdgeResize() {
   const platform = document.documentElement.dataset.windowPlatform;
   if (platform !== 'windows' && platform !== 'linux') return;
 
-  const gate = installEdgeResizeGate(/** @type {any} */ (window)._wails);
+  const gate = installEdgeResizeGate(window._wails);
   if (!gate) return;
 
-  const wails = /** @type {any} */ (window).wails || {};
-  if (wails.Events?.On) {
-    wails.Events.On('common:WindowMaximise', () => gate.setMaximised(true));
-    wails.Events.On('common:WindowUnMaximise', () => gate.setMaximised(false));
-    wails.Events.On('common:WindowFullscreen', () => gate.setFullscreen(true));
-    wails.Events.On('common:WindowUnFullscreen', () => gate.setFullscreen(false));
+  const events = window.wails?.Events;
+  if (events?.On) {
+    events.On('common:WindowMaximise', () => gate.setMaximised(true));
+    events.On('common:WindowUnMaximise', () => gate.setMaximised(false));
+    events.On('common:WindowFullscreen', () => gate.setFullscreen(true));
+    events.On('common:WindowUnFullscreen', () => gate.setFullscreen(false));
   }
 
   // Seed from the host. Any action reports the window's state back; 'state'

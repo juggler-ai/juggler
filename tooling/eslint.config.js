@@ -11,6 +11,7 @@ import testHooksInTestsOnly from './eslint-rules/test-hooks-in-tests-only.js';
 import sdkBoundary from './eslint-rules/sdk-boundary.js';
 import escapeHtmlInterpolation from './eslint-rules/escape-html-interpolation.js';
 import noPrivateTestWait from './eslint-rules/no-private-test-wait.js';
+import noLiteralSvgColour from './eslint-rules/no-literal-svg-colour.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { URL } from 'node:url';
 
@@ -24,6 +25,7 @@ const jugglerPlugin = {
     'sdk-boundary': sdkBoundary,
     'escape-html-interpolation': escapeHtmlInterpolation,
     'no-private-test-wait': noPrivateTestWait,
+    'no-literal-svg-colour': noLiteralSvgColour,
   },
 };
 
@@ -548,6 +550,21 @@ export default [
     },
   },
   // ===================================================================
+  // SVG markup in strings takes its colours from CSS (juggler/no-literal-svg-colour)
+  // ===================================================================
+  // The stylesheets' colour gate, for icons written as markup: a paint
+  // attribute is currentColor, a var(--token), a url(#…) or a keyword that
+  // picks no colour. Tests' SVG is fixture data — markdown and sanitizer input
+  // that stands for what a user writes — and is exempt.
+  {
+    files: ['web/js/**/*.js', 'web/sdk/**/*.js', 'web/extensions/**/*.js', 'web/machine/**/*.js'],
+    ignores: ['web/extensions/**/_tests/**/*.js'],
+    plugins: { juggler: jugglerPlugin },
+    rules: {
+      'juggler/no-literal-svg-colour': 'error',
+    },
+  },
+  // ===================================================================
   // Web Storage is reached through services/prefs.js
   // ===================================================================
   // A preference belongs to a realm (tab, device, window, project, machine,
@@ -800,18 +817,17 @@ export default [
     },
   },
   // `any` is refused everywhere else in the browser tree; these are the
-  // directories not yet converted (JSDoc `any` count, 2026-10-28). The list
-  // only shrinks: a directory leaves it once it has none, and a new one is
-  // covered from its first file. Convert with real types or `unknown`
-  // narrowed by typeof/instanceof, never a disable.
+  // directories not yet converted (JSDoc `any` count; model 2026-10-29, the
+  // rest 2026-10-28). The list only shrinks: a directory leaves it once it has
+  // none, and a new one is covered from its first file. Convert with real
+  // types or `unknown` narrowed by typeof/instanceof, never a disable.
   {
     files: [
       'web/js/components/**/*.js',            // 593
       'web/js/services/**/*.js',              // 558
       'web/extensions/juggler-core/**/*.js',  // 460 (+ its _tests)
-      'web/js/model/**/*.js',                 // 356
-      'web/js/utils/**/*.js',                 // 168
-      'web/js-tests/**/*.js',                 // 4455 with every _tests dir; tsc does not check tests
+      'web/js/model/**/*.js',                 // 50, all in message-thread.js
+      'web/js-tests/**/*.js',                 // 4455 with every _tests dir; tsc checks the tests off tooling/jsconfig.lint.json's list
       'web/extensions/**/_tests/**/*.js',
     ],
     rules: {

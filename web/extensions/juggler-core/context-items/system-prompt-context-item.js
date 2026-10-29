@@ -46,6 +46,7 @@ const SYSTEM_PROMPT_STYLES = `
   flex-direction: column;
   gap: 0.75rem;
 }
+
 .system-prompt-preset-btn {
   margin-top: 0.5rem;
   padding: 0.375rem 0.75rem;
@@ -58,9 +59,11 @@ const SYSTEM_PROMPT_STYLES = `
   transition: background-color 150ms ease;
   align-self: flex-start;
 }
+
 .system-prompt-preset-btn:hover {
   background-color: var(--accent-blue-light);
 }
+
 .system-prompt-textarea {
   width: 100%;
   padding: 1rem;
@@ -74,27 +77,32 @@ const SYSTEM_PROMPT_STYLES = `
   min-height: 6rem;
   line-height: 1.5;
 }
+
 .system-prompt-textarea:focus {
   outline: none;
   border-color: var(--field-focus-border);
   box-shadow: var(--field-focus-halo);
   background: var(--bg-raised);
 }
+
 .system-prompt-textarea::placeholder {
   color: var(--text-tertiary);
   opacity: 0.8;
 }
+
 .system-prompt-preview-sections {
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
 }
+
 .system-prompt-section {
   border-radius: var(--radius-2xl);
   overflow: hidden;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
 }
+
 .system-prompt-section-header {
   display: flex;
   align-items: center;
@@ -107,41 +115,50 @@ const SYSTEM_PROMPT_STYLES = `
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-color);
 }
+
 .system-prompt-section-body {
   padding: 0.625rem;
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
 }
+
 .system-prompt-section-body .ci-text-block {
   opacity: 0.85;
 }
+
 /* Tools section: a plain list, because its job is to be scanned for a name that
    should be there and isn't. */
 .system-prompt-tools {
   display: flex;
   flex-direction: column;
+
   /* Rows shrink to their text rather than stretching to the column. A row's
      tooltip is its description, and a full-width row would hang that tooltip
      off to the right of a short name, nowhere near the word it describes. */
   align-items: flex-start;
   gap: 0.1rem;
 }
+
 .system-prompt-tools > * {
   max-width: 100%;
 }
+
 .system-prompt-tools-count {
   color: var(--text-tertiary);
   margin-bottom: 0.35rem;
 }
+
 .system-prompt-tools-group {
   margin-top: 0.5rem;
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
 }
+
 .system-prompt-tools-group:first-child {
   margin-top: 0;
 }
+
 .system-prompt-tool {
   padding: 0 0 0 0.75rem;
   border: none;
@@ -155,14 +172,17 @@ const SYSTEM_PROMPT_STYLES = `
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .system-prompt-tool:hover,
 .system-prompt-tool:focus-visible {
   color: var(--text-primary);
   text-decoration: underline;
 }
+
 .system-prompt-tools-withheld {
   display: flex;
   flex-direction: column;
+
   /* Rows still shrink to their text, but the block spans the section so the rule
      that separates it from the offered tools spans it too. */
   align-items: flex-start;
@@ -172,31 +192,37 @@ const SYSTEM_PROMPT_STYLES = `
   padding-top: 0.5rem;
   border-top: 1px solid var(--border-divider);
 }
+
 .system-prompt-tool-withheld {
   color: var(--text-tertiary);
   text-decoration: line-through;
 }
+
 .system-prompt-tool-withheld:hover,
 .system-prompt-tool-withheld:focus-visible {
   color: var(--text-secondary);
   text-decoration: line-through underline;
 }
+
 .system-prompt-tools-silent {
   margin-top: 0.5rem;
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   color: var(--accent-yellow);
 }
+
 .system-prompt-tools-drift {
   margin-bottom: 0.35rem;
   color: var(--accent-yellow);
 }
+
 .system-prompt-tools-notice {
   margin-bottom: 0.35rem;
   line-height: 1.4;
   white-space: normal;
   color: var(--accent-yellow);
 }
+
 /* Preset browser + manage-presets dropdowns -------------------------------
    Self-contained rows (no shared .menu-item dependency) so the layout reads
    like a tidy macOS menu: a leading check/icon column keeps every label on one
@@ -206,12 +232,14 @@ const SYSTEM_PROMPT_STYLES = `
   min-width: 16rem;
   max-width: 22rem;
 }
+
 .system-prompt-preset-dropdown menu,
 .system-prompt-manage-dropdown menu {
   display: flex;
   flex-direction: column;
   gap: 0.0625rem;
 }
+
 .sp-preset-category {
   padding: 0.5rem 0.625rem 0.25rem;
   padding-left: calc(0.625rem + 1.125rem + 0.5rem);
@@ -224,9 +252,11 @@ const SYSTEM_PROMPT_STYLES = `
   -webkit-user-select: none;
   user-select: none;
 }
+
 .sp-preset-category:first-child {
   padding-top: 0.125rem;
 }
+
 .sp-preset-row {
   display: flex;
   align-items: center;
@@ -237,9 +267,11 @@ const SYSTEM_PROMPT_STYLES = `
   cursor: pointer;
   transition: background 120ms ease;
 }
+
 .sp-preset-row:hover {
   background: var(--bg-raised);
 }
+
 /* A row reached from the keyboard lights up as a hovered one does — the row
    itself for an action, the row around it for a preset's name. */
 .sp-preset-row[role="menuitem"]:focus-visible,
@@ -247,12 +279,15 @@ const SYSTEM_PROMPT_STYLES = `
   background: var(--bg-raised);
   outline: none;
 }
+
 .sp-preset-row-name:focus-visible {
   outline: none;
 }
+
 .sp-preset-row.sp-preset-static {
   cursor: default;
 }
+
 .sp-preset-row-icon {
   flex-shrink: 0;
   width: 1.125rem;
@@ -262,14 +297,17 @@ const SYSTEM_PROMPT_STYLES = `
   justify-content: center;
   color: var(--accent-blue);
 }
+
 .sp-preset-row-icon svg {
   width: 1rem;
   height: 1rem;
-  fill: currentColor;
+  fill: currentcolor;
 }
+
 .sp-preset-row.sp-preset-action .sp-preset-row-icon {
   color: var(--text-tertiary);
 }
+
 .sp-preset-row-name {
   flex: 1;
   min-width: 0;
@@ -278,15 +316,18 @@ const SYSTEM_PROMPT_STYLES = `
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .sp-preset-row.is-selected .sp-preset-row-name {
   font-weight: 600;
 }
+
 .sp-preset-default-badge {
   font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--accent-blue);
   white-space: nowrap;
 }
+
 .sp-preset-setdefault-btn,
 .sp-preset-delete-btn {
   font-size: var(--font-size-xs);
@@ -300,29 +341,35 @@ const SYSTEM_PROMPT_STYLES = `
   opacity: 0;
   transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease, background 120ms ease;
 }
+
 .sp-preset-row:hover .sp-preset-setdefault-btn,
 .sp-preset-row:focus-within .sp-preset-setdefault-btn,
 .sp-preset-row:hover .sp-preset-delete-btn,
 .sp-preset-row:focus-within .sp-preset-delete-btn {
   opacity: 1;
 }
+
 .sp-preset-setdefault-btn:hover {
   color: var(--text-primary);
   border-color: var(--text-tertiary);
   background: var(--bg-secondary);
 }
+
 .sp-preset-delete-btn {
   border-color: transparent;
 }
+
 .sp-preset-delete-btn:hover {
   color: var(--error-color);
   border-color: var(--error-color);
 }
+
 .sp-preset-separator {
   height: 0.0625rem;
   background: var(--border-divider, var(--border-color));
   margin: 0.375rem 0.25rem;
 }
+
 .sp-preset-empty {
   padding: 0.4rem 0.625rem;
   padding-left: calc(0.625rem + 1.125rem + 0.5rem);
@@ -914,6 +961,20 @@ class SystemPromptContextItem extends ContextItem {
     }
 
     return wrap;
+  }
+
+  /**
+   * Test seam: renders the tool inventory exactly as the properties panel does.
+   * @param {{offered: Array<any>, withheld: Array<any>, strategyName: string}} inventory - What is offered and what isn't
+   * @param {Array<{title: string, server: string|null, tools: Array<any>, tokens: number}>} groups - Offered tools, grouped
+   * @param {Map<string, {status?: string, error?: string, toolCount?: number}>} servers - MCP status by server name
+   * @param {(name: string) => {server: string, tool: string}|null} parseMcp - MCP name splitter
+   * @param {{changes: string, detail: string}|null} drift - Difference from the last turn's recorded tool list
+   * @param {string} [mcpNotice] - English line to show above the MCP servers, or ''
+   * @returns {HTMLElement} The section body content
+   */
+  __buildToolInventoryViewForTests(inventory, groups, servers, parseMcp, drift, mcpNotice = '') {
+    return this._buildToolInventoryView(inventory, groups, servers, parseMcp, drift, mcpNotice);
   }
 
   /**

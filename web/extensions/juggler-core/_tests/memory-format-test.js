@@ -74,10 +74,10 @@ export async function runTests(_ctx) {
   await test('parses canonical file into dated entries', () => {
     const { entries } = parseMemory(CANONICAL);
     assert(entries.length === 2, `expected 2 entries, got ${entries.length}`);
-    assert(entries[0].date === '2026-06-14', `date[0]=${entries[0].date}`);
-    assert(entries[0].text === 'Build is `make build`', `text[0]=${entries[0].text}`);
-    assert(entries[1].date === '2026-06-13', `date[1]=${entries[1].date}`);
-    assert(entries[1].text === 'Username is jules', `text[1]=${entries[1].text}`);
+    assert(entries[0]?.date === '2026-06-14', `date[0]=${entries[0]?.date}`);
+    assert(entries[0]?.text === 'Build is `make build`', `text[0]=${entries[0]?.text}`);
+    assert(entries[1]?.date === '2026-06-13', `date[1]=${entries[1]?.date}`);
+    assert(entries[1]?.text === 'Username is jules', `text[1]=${entries[1]?.text}`);
   });
 
   await test('empty / whitespace / absent input yields zero entries (never throws)', () => {
@@ -91,21 +91,21 @@ export async function runTests(_ctx) {
     const messy = '\n\n- [2026-06-14] one\n\n\n- [2026-06-14] two\n';
     const { entries } = parseMemory(messy);
     assert(entries.length === 2, `expected 2, got ${entries.length}`);
-    assert(entries[0].text === 'one' && entries[1].text === 'two', 'texts parsed despite no heading');
+    assert(entries[0]?.text === 'one' && entries[1]?.text === 'two', 'texts parsed despite no heading');
   });
 
   await test('undated bullets are kept with a null date', () => {
     const { entries } = parseMemory('# Memory\n\n- a plain note\n');
     assert(entries.length === 1, `expected 1, got ${entries.length}`);
-    assert(entries[0].date === null, `expected null date, got ${entries[0].date}`);
-    assert(entries[0].text === 'a plain note', `text=${entries[0].text}`);
+    assert(entries[0]?.date === null, `expected null date, got ${entries[0]?.date}`);
+    assert(entries[0]?.text === 'a plain note', `text=${entries[0]?.text}`);
   });
 
   await test('non-bullet prose lines are dropped (strict format)', () => {
     const withProse = '# Memory\n\nSome stray prose.\n- [2026-06-14] real entry\nmore prose\n';
     const { entries } = parseMemory(withProse);
     assert(entries.length === 1, `expected 1 entry, got ${entries.length}`);
-    assert(entries[0].text === 'real entry', `text=${entries[0].text}`);
+    assert(entries[0]?.text === 'real entry', `text=${entries[0]?.text}`);
   });
 
   // ---- serialize ----
@@ -153,7 +153,7 @@ export async function runTests(_ctx) {
     const out = appendEntry(CANONICAL, 'third fact', '2026-06-15');
     const { entries } = parseMemory(out);
     assert(entries.length === 3, `expected 3, got ${entries.length}`);
-    assert(entries[2].text === 'third fact' && entries[2].date === '2026-06-15', 'new entry is last');
+    assert(entries[2]?.text === 'third fact' && entries[2]?.date === '2026-06-15', 'new entry is last');
   });
 
   // ---- removeEntry ----
@@ -180,7 +180,7 @@ export async function runTests(_ctx) {
 
   await test('removeMatching is case-insensitive substring match', () => {
     const { removed } = removeMatching(CANONICAL, 'MAKE BUILD');
-    assert(removed.length === 1 && removed[0].includes('make build'), `removed=${JSON.stringify(removed)}`);
+    assert(removed.length === 1 && (removed[0] ?? '').includes('make build'), `removed=${JSON.stringify(removed)}`);
   });
 
   await test('removeMatching removes all entries that match', () => {

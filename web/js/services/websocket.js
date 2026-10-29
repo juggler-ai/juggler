@@ -1735,6 +1735,16 @@ class WebSocketService {
   // ============================================================================
 
   /**
+   * Deliver an event to this service's listeners as if it had arrived from the
+   * server, for tests that stand in for the far end of the socket.
+   * @param {WSEventType} event - Event type
+   * @param {unknown} data - Event data
+   */
+  __emitForTests(event, data) {
+    this._emit(event, data);
+  }
+
+  /**
    * Simulate WebSocket disconnection for testing.
    * Closes the connection without triggering auto-reconnect.
    * @returns {Promise<void>}

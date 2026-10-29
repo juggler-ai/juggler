@@ -222,13 +222,14 @@
     --preset-badge-bg: var(--ci-family-badge-thread, var(--ci-family-thread));
 }
 
-/* Apply preset background to icon boxes and context item containers */
-.message-icon-box:where([class*="color-"]) { background: var(--preset-badge-bg, var(--preset-bg)); }
-
-/* In light theme, colored icon boxes use saturated dark backgrounds — force
-   icons to white. That reaches a mask icon too: patterns/icons.css fills one
-   with currentcolor, which it inherits from here. */
-:where(:root[data-theme="light"]) .message-icon-box:where([class*="color-"]) { color: var(--text-on-accent); }
+/* A coloured icon box is filled from its preset, an accent fill, so its glyph
+   is the on-accent colour in both themes. Every glyph takes it from here: the
+   built-in SVGs fill with currentColor, and patterns/icons.css fills a mask
+   icon with currentcolor. */
+.message-icon-box:where([class*="color-"]) {
+    color: var(--text-on-accent);
+    background: var(--preset-badge-bg, var(--preset-bg));
+}
 
 /* The busy pulse, which --item-badge-pulse names. Here rather than with the
    element defaults because nothing but a badge circle wears it. */

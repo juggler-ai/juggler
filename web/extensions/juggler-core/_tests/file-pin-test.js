@@ -116,7 +116,8 @@ export async function runTests(ctx) {
         conversation: options.conversationId ? { id: options.conversationId, title: '' } : null,
         thread: null,
       },
-      services: {
+      // The file pin uses the file-change service alone.
+      services: /** @type {import('juggler/pinboard-item-type').PinServices} */ ({
         files: {
           onChange: (listener) => {
             listeners.push(listener);
@@ -126,7 +127,7 @@ export async function runTests(ctx) {
             };
           },
         },
-      },
+      }),
       signal: abort.signal,
       updateConfig: async () => {},
     }));
@@ -235,7 +236,7 @@ export async function runTests(ctx) {
       if (request.operation !== 'stat') return Promise.resolve(reply({ path: request.params.path, exists: false }));
       entry.stats++;
       return new Promise((resolve) => {
-        entry.held.push((present) => resolve(reply({ exists: present, isDirectory: false })));
+        entry.held.push((/** @type {boolean} */ present) => resolve(reply({ exists: present, isDirectory: false })));
       });
     };
     /**
@@ -399,7 +400,7 @@ export async function runTests(ctx) {
     // A pin may point anywhere, and a path stripped of a root it was never under
     // would name a different file — so one outside says so and is printed whole.
     const outside = ctx.fixtureDir.replace(/[\\/][^\\/]+$/, '');
-    assert(outside && outside !== ctx.fixtureDir, 'the fixture must have a parent to point at');
+    assert(outside !== '' && outside !== ctx.fixtureDir, 'the fixture must have a parent to point at');
     const mounted = mount({ path: outside, isDirectory: true });
     try {
       await settled(mounted.body);
@@ -435,7 +436,7 @@ export async function runTests(ctx) {
       await settled(mounted.body);
       // Past the read op's own default ceiling, so a pin that did not ask for
       // the whole file would stop at 2000 with a note saying so.
-      const numbers = [...mounted.body.querySelectorAll('.ci-line')]
+      const numbers = /** @type {HTMLElement[]} */ ([...mounted.body.querySelectorAll('.ci-line')])
         .map((line) => Number(line.dataset.line));
       assert(numbers.length > 0, 'the pin rendered no lines at all');
       assert(numbers[0] === 1, `the file starts at line ${numbers[0]}, want 1`);
@@ -753,6 +754,7 @@ export async function runTests(ctx) {
       const advance = (ms) => {
         const end = now + ms;
         for (;;) {
+          /** @type {[number, {at: number, fn: () => void}] | null} */
           let due = null;
           for (const [id, entry] of queue) {
             if (entry.at <= end && (due === null || entry.at < due[1].at)) due = [id, entry];
@@ -828,7 +830,7 @@ export async function runTests(ctx) {
       // in a properties panel. Re-reading the file is this pin's alone.
       assert(actions.map((a) => a.id).join(',') === 'refresh',
         `expected Refresh alone, got ${JSON.stringify(actions.map((a) => a.id))}`);
-      assert(actions[0].primary === true && actions[0].icon === 'refresh',
+      assert(actions[0]?.primary === true && actions[0]?.icon === 'refresh',
         'it is drawn as the refresh glyph, in the toolbar rather than the overflow');
       assert(actions.every((a) => typeof a.run === 'function' && a.label),
         'every action has words and something to do');
@@ -866,7 +868,7 @@ export async function runTests(ctx) {
     // Either separator: the fixture path is whatever the backend calls native,
     // which on Windows is `C:\…\browser-test-x`.
     const outside = ctx.fixtureDir.replace(/[\\/][^\\/]+$/, '');
-    assert(outside && outside !== ctx.fixtureDir, 'the fixture must have a parent to point at');
+    assert(outside !== '' && outside !== ctx.fixtureDir, 'the fixture must have a parent to point at');
     const mounted = mount({ path: outside, isDirectory: true });
     try {
       const text = await settled(mounted.body);
@@ -883,7 +885,7 @@ export async function runTests(ctx) {
     // a key, a token — in front of whoever can see the board, remote viewers
     // included, on nobody's say-so. The user pinning the same path is the grant.
     const outside = ctx.fixtureDir.replace(/[\\/][^\\/]+$/, '');
-    assert(outside && outside !== ctx.fixtureDir, 'the fixture must have a parent to point at');
+    assert(outside !== '' && outside !== ctx.fixtureDir, 'the fixture must have a parent to point at');
     const fixtureName = ctx.fixtureDir.slice(outside.length + 1);
     const mounted = mount({ path: outside, isDirectory: true, agentRequested: true });
     try {
@@ -1015,7 +1017,7 @@ export async function runTests(ctx) {
     addFilePath(folder, '/a/work', undefined, { pin: '/a/work', directory: true });
     assert(!folder.querySelector('[aria-label="Open file"]'),
       'a folder is not offered an Open of its own, which is what Reveal already does');
-    assert(folder.querySelector('[aria-label="Copy path to clipboard"]') && folder.querySelector('reveal-button'),
+    assert(folder.querySelector('[aria-label="Copy path to clipboard"]') !== null && folder.querySelector('reveal-button') !== null,
       'but keeps the two that mean something for a folder');
     assert(!!pinButton(folder), 'and can be put on the board like anything else');
   });

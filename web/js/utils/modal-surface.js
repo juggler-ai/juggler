@@ -34,27 +34,29 @@ import { trapFocus } from './dialog-a11y.js';
 
 /**
  * A presented modal overlay.
+ * @template [T=unknown]
  * @typedef {object} ModalSurface
  * @property {HTMLElement} root - The overlay element on `<body>`. Fill it in.
  * @property {boolean} closed - True once closed; test it after an `await` to
  *   bail out of a render whose modal was dismissed while it was in flight.
- * @property {(result?: any) => void} close - Tear down and settle. Idempotent —
+ * @property {(result?: T) => void} close - Tear down and settle. Idempotent —
  *   only the first call reaches `onClose`.
  */
 
 /**
  * Present a transient modal overlay.
+ * @template [T=unknown]
  * @param {object} opts
  * @param {string} opts.className - Class for the overlay root.
  * @param {string[]} [opts.dismissSelectors] - Selectors (close buttons,
  *   backdrops, cancel actions) whose click closes the modal, matched with
  *   `closest` against the click target. Delegated, so they may be re-rendered
  *   freely inside the root.
- * @param {(result?: any) => void} [opts.onClose] - Called once, after teardown,
+ * @param {(result?: T) => void} [opts.onClose] - Called once, after teardown,
  *   however the modal closed. The built-in dismissal paths — Escape, Back, a
  *   `dismissSelectors` click — pass no result, so a caller resolving a promise
  *   supplies its own cancelled value (`(v) => resolve(v ?? null)`).
- * @returns {ModalSurface} The overlay handle.
+ * @returns {ModalSurface<T>} The overlay handle.
  */
 export function presentModal({ className, dismissSelectors = [], onClose }) {
   const root = document.createElement('div');
@@ -77,7 +79,7 @@ export function presentModal({ className, dismissSelectors = [], onClose }) {
   // only it knows which element is the title.
   const releaseTrap = trapFocus(root);
 
-  const close = (/** @type {any} */ result) => {
+  const close = (/** @type {T|undefined} */ result) => {
     if (closed) return;
     closed = true;
     clearTimeout(settleScrim);

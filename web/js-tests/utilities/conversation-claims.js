@@ -131,6 +131,11 @@ export function installClaimAutoRegistration() {
     origBin(convId, { ...options, lane: laneId() });
 
   const origDuplicate = Session.prototype.duplicateConversation;
+  /**
+   * @this {Session}
+   * @param {Parameters<typeof origDuplicate>} args - duplicateConversation's own arguments
+   * @returns {Promise<string|null>} The duplicate's id, as duplicateConversation returns it
+   */
   Session.prototype.duplicateConversation = async function (...args) {
     const convId = await origDuplicate.apply(this, args);
     if (convId) registerOwnConversation(convId);

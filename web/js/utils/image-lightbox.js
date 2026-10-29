@@ -240,7 +240,7 @@ export function openImageLightbox(src, alt) {
   const onGestureChange = (e) => {
     e.preventDefault();
     if (!gestureBase) return;
-    const g = /** @type {any} */ (e);
+    const g = /** @type {Event & {scale: number, clientX: number, clientY: number}} */ (e);
     zoomTo(gestureBase * g.scale, g.clientX, g.clientY);
   };
   /** @param {Event} e */

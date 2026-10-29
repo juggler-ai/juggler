@@ -354,6 +354,16 @@ export function registerOpenPopup({ id, onClose, insideSelectors, nested = false
 
 const OVERLAY_HISTORY_MARKER = 'jugglerOverlay';
 
+/**
+ * Whether a history entry's state carries the overlay sentinel's marker.
+ * @param {unknown} state - The entry's `history.state`.
+ * @returns {boolean} True when the entry is an overlay sentinel.
+ */
+function isOverlayState(state) {
+  return !!state && typeof state === 'object' && OVERLAY_HISTORY_MARKER in state
+    && !!state[OVERLAY_HISTORY_MARKER];
+}
+
 /** @type {boolean} Whether our sentinel history entry is currently on top. */
 let overlayStatePushed = false;
 /** @type {boolean} Whether a deferred sentinel removal is already queued. */
@@ -488,8 +498,7 @@ if (typeof window !== 'undefined') {
       // same thing `history.state` holds, but read from the pop itself, so a
       // stubbed History API is answered by its own stub rather than by whatever
       // the page's real session history happens to be standing on.
-      const landedState = /** @type {any} */ (event.state);
-      overlayStatePushed = !!(landedState && landedState[OVERLAY_HISTORY_MARKER]);
+      overlayStatePushed = isOverlayState(event.state);
       ensureOverlaySentinel();
       return;
     }
@@ -504,8 +513,8 @@ if (typeof window !== 'undefined') {
 // being swallowed dismissing a phantom overlay. Only where the entry can be
 // ours: an embedded context pushes none, and must not rewrite an entry belonging
 // to the page that framed it.
-if (backIntegrationEnabled && typeof window !== 'undefined' && window.history && window.history.state
-    && /** @type {any} */ (window.history.state)[OVERLAY_HISTORY_MARKER]) {
+if (backIntegrationEnabled && typeof window !== 'undefined' && window.history
+    && isOverlayState(window.history.state)) {
   try { window.history.replaceState(null, ''); } catch (e) { /* ignore */ }
 }
 

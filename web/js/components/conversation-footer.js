@@ -453,7 +453,8 @@ class ConversationFooter extends JugglerElement {
     if (!this._undoObserver) {
       this._undoObserver = (/** @type {any} */ event) => {
         if (!event.keysChanged?.has?.('undoState')) return;
-        const seq = conversation.getMetadata('undoState')?.seq ?? null;
+        const undoState = conversation.getMetadata('undoState');
+        const seq = undoState && typeof undoState === 'object' && 'seq' in undoState && typeof undoState.seq === 'number' ? undoState.seq : null;
         if (this._undoOfferSeq === null) this._undoOfferSeq = seq;
         else if (seq !== this._undoOfferSeq) this._hideUndoOffer();
       };

@@ -20,7 +20,12 @@
  * Pure Y.Map/Y.Array walking; callers wrap the write in their own transaction.
  */
 
-import { plainToYMap } from './item-accessor.js';
+import { arrayItems, isItemMap, isItemView, isYArray, plainToYMap } from './item-accessor.js';
+
+/**
+ * @typedef {import('./item-accessor.js').ItemView} ItemView
+ * @typedef {import('./item-accessor.js').ItemMap} ItemMap
+ */
 
 /**
  * Run status for a cancelled or interrupted run. Matches the Go spelling
@@ -60,17 +65,16 @@ export const RUN_CANCELLED_NOTE = '[The run was cancelled before it finished.]';
  * the caller's `tool_result` is paired by, and the trailing message is where
  * threadRunSettled asks whether the thread is still working. Mirrors
  * openRunMessagesLocked in worker/run_records.go.
- * @param {any} threadYMap - The thread Y.Map.
- * @returns {any[]} The open run's item Y.Maps, newest first.
+ * @param {ItemView} threadYMap - The thread Y.Map.
+ * @returns {ItemMap[]} The open run's item Y.Maps, newest first.
  */
 function openRunMessages(threadYMap) {
-  const items = threadYMap?.get?.('items');
-  if (!items || typeof items.toArray !== 'function') return [];
-  const arr = items.toArray();
+  const arr = arrayItems(threadYMap.get('items'));
+  /** @type {ItemMap[]} */
   const open = [];
   for (let i = arr.length - 1; i >= 0; i--) {
     const item = arr[i];
-    if (typeof item?.get !== 'function') continue;
+    if (!isItemMap(item)) continue;
     if (item.get('type') !== 'user') continue;
     if (item.get('runStatus')) break;
     open.push(item);
@@ -89,19 +93,19 @@ function openRunMessages(threadYMap) {
  * A compaction fold answers from `result` too: it is not a run but a container
  * of folded transcript, so run records found inside one belong to whatever it
  * swallowed, not to it. Mirrors threadRunSettled in worker/run_records.go.
- * @param {any} threadYMap - The thread Y.Map.
+ * @param {unknown} threadYMap - The thread Y.Map.
  * @returns {boolean} True when the thread's latest run is over.
  */
 export function threadRunSettled(threadYMap) {
-  if (threadYMap?.get?.('boundedCompaction') !== true) {
-    const items = threadYMap?.get?.('items');
-    const arr = items && typeof items.toArray === 'function' ? items.toArray() : [];
+  if (!isItemView(threadYMap)) return false;
+  if (threadYMap.get('boundedCompaction') !== true) {
+    const arr = arrayItems(threadYMap.get('items'));
     let settled = false;
     let hasRuns = false;
     let seenStarter = false;
     for (let i = arr.length - 1; i >= 0; i--) {
       const item = arr[i];
-      if (typeof item?.get !== 'function') continue;
+      if (!isItemView(item)) continue;
       const status = item.get('runStatus');
       // Only user items carry run records. A nested thread item carries the same
       // coordinates to name its own run (model/thread-alias.js), and counting
@@ -115,7 +119,7 @@ export function threadRunSettled(threadYMap) {
     }
     if (hasRuns) return settled;
   }
-  const result = threadYMap?.get?.('result');
+  const result = threadYMap.get('result');
   return typeof result === 'string' && result.length > 0;
 }
 
@@ -126,16 +130,14 @@ export function threadRunSettled(threadYMap) {
  * meta-tool-result, user or thread item means the run had no clean reply to
  * return. Mirrors selectThreadFallbackResult in worker/thread_reducer.go, whose
  * `effectiveItems` filter this list of types is.
- * @param {any} threadYMap - The thread Y.Map.
+ * @param {ItemView} threadYMap - The thread Y.Map.
  * @returns {string} The trailing reply, or ''.
  */
 function trailingReply(threadYMap) {
-  const items = threadYMap?.get?.('items');
-  if (!items || typeof items.toArray !== 'function') return '';
-  const arr = items.toArray();
+  const arr = arrayItems(threadYMap.get('items'));
   for (let i = arr.length - 1; i >= 0; i--) {
     const item = arr[i];
-    if (typeof item?.get !== 'function') continue;
+    if (!isItemView(item)) continue;
     const type = item.get('type');
     if (type === 'assistant') return item.get('content') || '';
     if (type === 'user' || type === 'tool-action' || type === 'meta-tool-result' || type === 'thread') {
@@ -156,13 +158,14 @@ function trailingReply(threadYMap) {
  *
  * Writes no summary: the thread's own transcript shows what happened, and
  * passing a stop off as the thread's result would be a lie the tile repeats.
- * @param {any} threadYMap - The thread Y.Map.
+ * @param {unknown} threadYMap - The thread Y.Map.
  * @param {() => string} [mintItemId] - Mints an itemId, for the receipt this may
  *   have to append (see reportRunToParent). Omit only where the caller knows the
  *   thread has no parent item to report to.
  * @returns {boolean} True when a run was settled.
  */
 export function settleRunCancelled(threadYMap, mintItemId) {
+  if (!isItemView(threadYMap)) return false;
   const open = openRunMessages(threadYMap);
   if (!open.length) return false;
   const produced = trailingReply(threadYMap);
@@ -173,8 +176,8 @@ export function settleRunCancelled(threadYMap, mintItemId) {
   }
   // openRunMessages walks backwards, so the last entry started this run.
   const starter = open[open.length - 1];
-  if (mintItemId) {
-    reportRunToParent(threadYMap, starter.get('itemId'), starter.get('runToolUseId') || '',
+  if (mintItemId && starter) {
+    reportRunToParent(threadYMap, starter.get('itemId') ?? '', starter.get('runToolUseId') || '',
       mintItemId, RUN_STATUS_CANCELLED, result);
   }
   return true;
@@ -187,17 +190,15 @@ export function settleRunCancelled(threadYMap, mintItemId) {
  * itemRunRecord reads for an item that has been frozen, so the answer here is
  * what that item's tile is saying now. Mirrors shownRunOutcomeLocked in
  * worker/run_records.go.
- * @param {any} threadYMap - The canonical thread Y.Map holding the transcript.
+ * @param {ItemView} threadYMap - The canonical thread Y.Map holding the transcript.
  * @param {string} runItemId - The itemId the parent item names, or ''.
  * @param {string} toolUseId - The tool-use id of the call it was made by, or ''.
  * @returns {{status: string, result: string}|null} That run's outcome, or null.
  */
 function shownRunOutcome(threadYMap, runItemId, toolUseId) {
   if (!runItemId && !toolUseId) return null;
-  const items = threadYMap?.get?.('items');
-  const arr = typeof items?.toArray === 'function' ? items.toArray() : [];
-  for (const item of arr) {
-    if (typeof item?.get !== 'function' || item.get('type') !== 'user') continue;
+  for (const item of arrayItems(threadYMap.get('items'))) {
+    if (!isItemView(item) || item.get('type') !== 'user') continue;
     if (runItemId ? item.get('itemId') !== runItemId : item.get('runToolUseId') !== toolUseId) continue;
     return { status: item.get('runStatus') || '', result: item.get('runResult') || '' };
   }
@@ -228,7 +229,7 @@ const WIRE_SILENT_ITEM_TYPES = new Set(['error', 'notice']);
  * Mirrors fedResultUnansweredLocked in worker/run_records.go, less its
  * mid-request check: that one reads processingState, and this path settles a
  * thread nothing is driving.
- * @param {any[]} arr - The parent's items, in order.
+ * @param {unknown[]} arr - The parent's items, in order.
  * @param {number} trailingIndex - Index of the item to report to.
  * @returns {boolean} True when the read produced no answer.
  */
@@ -236,8 +237,8 @@ function fedResultUnanswered(arr, trailingIndex) {
   let silent = false;
   for (let i = trailingIndex + 1; i < arr.length; i++) {
     const item = arr[i];
-    if (typeof item?.get !== 'function') continue;
-    if (!WIRE_SILENT_ITEM_TYPES.has(item.get('type'))) return false;
+    if (!isItemView(item)) continue;
+    if (!WIRE_SILENT_ITEM_TYPES.has(item.get('type') ?? '')) return false;
     silent = true;
   }
   return silent;
@@ -267,7 +268,7 @@ function fedResultUnanswered(arr, trailingIndex) {
  * Mirrors reportRunToParentLocked in worker/run_records.go. The worker does this
  * for every run it drives; this covers the runs it does not — a stop that
  * settles a thread the worker is not driving.
- * @param {any} threadYMap - The canonical thread Y.Map, whose run just settled.
+ * @param {ItemView} threadYMap - The canonical thread Y.Map, whose run just settled.
  * @param {string} starterItemId - The itemId of the message that started it.
  * @param {string} starterCall - The tool-use id that message was called by, or ''.
  * @param {() => string} mintItemId - Mints the receipt's itemId.
@@ -276,16 +277,17 @@ function fedResultUnanswered(arr, trailingIndex) {
  * @returns {void}
  */
 function reportRunToParent(threadYMap, starterItemId, starterCall, mintItemId, status, result) {
-  const siblings = threadYMap?.parent;
-  const canonicalId = threadYMap?.get?.('itemId');
-  if (!starterItemId || !canonicalId || typeof siblings?.insert !== 'function') return;
+  const siblings = 'parent' in threadYMap ? threadYMap.parent : undefined;
+  const canonicalId = threadYMap.get('itemId');
+  if (!starterItemId || !canonicalId || !isYArray(siblings)) return;
 
-  const arr = typeof siblings.toArray === 'function' ? siblings.toArray() : [];
+  const arr = siblings.toArray();
+  /** @type {ItemMap|null} */
   let trailing = null;
   let trailingIndex = -1;
   for (let i = arr.length - 1; i >= 0; i--) {
     const item = arr[i];
-    if (typeof item?.get !== 'function' || item.get('type') !== 'thread') continue;
+    if (!isItemMap(item) || item.get('type') !== 'thread') continue;
     const id = item.get('itemId');
     if (id !== canonicalId && item.get('aliasOf') !== canonicalId) continue;
     trailing = item;
@@ -318,7 +320,7 @@ function reportRunToParent(threadYMap, starterItemId, starterCall, mintItemId, s
 
   // Not news, nothing to carry: the run this item already shows came out the
   // same way, so a receipt would only repeat it.
-  const shown = shownRunOutcome(threadYMap, runItemId, selector);
+  const shown = shownRunOutcome(threadYMap, runItemId ?? '', selector);
   if (shown && shown.status === status && shown.result === result) return;
 
   siblings.insert(siblings.length, [plainToYMap({
@@ -339,15 +341,15 @@ function reportRunToParent(threadYMap, starterItemId, starterCall, mintItemId, s
  * an error run. A run coming to rest after that is the work the parent was told
  * had not been done, which makes its receipt one the parent takes up unasked
  * (`recoversError`). Mirrors lastReadRunFailedLocked in worker/run_records.go.
- * @param {any} threadYMap - The canonical thread Y.Map holding the transcript.
- * @param {any[]} arr - The parent's items, in order.
+ * @param {ItemView} threadYMap - The canonical thread Y.Map holding the transcript.
+ * @param {unknown[]} arr - The parent's items, in order.
  * @param {string} canonicalId - The thread's itemId.
  * @returns {boolean} True when the parent last read this thread failing.
  */
 function lastReadRunFailed(threadYMap, arr, canonicalId) {
   for (let i = arr.length - 1; i >= 0; i--) {
     const item = arr[i];
-    if (typeof item?.get !== 'function' || item.get('type') !== 'thread') continue;
+    if (!isItemView(item) || item.get('type') !== 'thread') continue;
     if (item.get('itemId') !== canonicalId && item.get('aliasOf') !== canonicalId) continue;
     if (!item.get('runResultFed')) continue;
     const shown = shownRunOutcome(threadYMap, item.get('runItemId') || '', item.get('runToolUseId') || '');

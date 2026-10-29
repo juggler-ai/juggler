@@ -43,7 +43,7 @@ let _size = 0;
  * @returns {boolean} True iff tape recording is active
  */
 function _enabled() {
-  return Boolean(/** @type {any} */ (globalThis.window || globalThis).__jugglerTrace);
+  return Boolean(/** @type {typeof globalThis & {__jugglerTrace?: boolean}} */ (globalThis).__jugglerTrace);
 }
 
 /**

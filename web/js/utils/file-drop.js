@@ -56,6 +56,8 @@ const NATIVE_DROP_TARGETS = 'input[type="file"]';
  */
 const ACCEPTED = Symbol('file-drop-accepted');
 
+/** @typedef {Event & {[ACCEPTED]?: boolean}} MarkedEvent */
+
 /**
  * Declare that this zone will take the drag — call it alongside
  * `preventDefault()` in a `dragover` handler.
@@ -63,7 +65,7 @@ const ACCEPTED = Symbol('file-drop-accepted');
  * @returns {void}
  */
 export function markFileDropAccepted(event) {
-  /** @type {any} */ (event)[ACCEPTED] = true;
+  /** @type {MarkedEvent} */ (event)[ACCEPTED] = true;
 }
 
 /**
@@ -71,7 +73,7 @@ export function markFileDropAccepted(event) {
  * @returns {boolean} True when a zone has accepted this drag.
  */
 function isFileDropAccepted(event) {
-  return /** @type {any} */ (event)[ACCEPTED] === true;
+  return /** @type {MarkedEvent} */ (event)[ACCEPTED] === true;
 }
 
 /** Whether {@link installFileDropGuard} has already run for this document. */

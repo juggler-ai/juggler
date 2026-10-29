@@ -51,7 +51,7 @@ import { estimateTokens } from '../utils/token-estimate.js';
  * once it has been quiet for `quietMs`, or at `ceilingMs` however busy it is.
  * A fixed span left the item out of the model's context whenever a slow core
  * took longer than the span to apply the syncs in front of it.
- * @param {any} conv - The conversation (whenDocument and onDocumentChange).
+ * @param {Pick<import('./conversation.js').default, 'whenDocument'|'onDocumentChange'>} conv - The conversation (whenDocument and onDocumentChange).
  * @param {() => boolean} done - Whether every requested item is present.
  * @param {{quietMs: number, ceilingMs: number, now?: () => number}} opts - The quiet span, the ceiling, and the clock (a test's own).
  * @returns {Promise<boolean>} Whether they all arrived.
@@ -77,14 +77,13 @@ export async function waitForSyncedItems(conv, done, { quietMs, ceilingMs, now =
  * Install engine-role worker callbacks: context requests, tool definitions
  * and sub-thread specs. Idempotent w.r.t. the workerManager API — each
  * setter replaces any prior handler.
- * @param {any} session - Session instance
+ * @param {import('./session.js').default} session - Session instance
  */
 export function setupWorkerCallbacks(session) {
   // Handle context requests from workers
   // Worker needs context text from context items (plugins on main thread)
   workerManager.setOnContextRequest(async (request, conversationId) => {
-    /** @type {{requestId: string, itemIds?: string[], contextParams?: object}} */
-    const req = /** @type {any} */ (request);
+    const req = /** @type {{requestId: string, itemIds?: string[], contextParams?: object}} */ (request);
     const conv = session.conversations.get(conversationId);
     if (!conv) {
       // Context rendering is ENGINE-ONLY: this callback is the sole responder,
@@ -108,7 +107,7 @@ export function setupWorkerCallbacks(session) {
     const isMessageId = (/** @type {string} */ id) => id.startsWith('msg_') || id.startsWith('msg-');
     const missingContextIds = () => {
       const localIds = new Set(
-        conv.getAllMessageThreads().flatMap((/** @type {any} */ t) => t.contextItems).map((/** @type {any} */ f) => f.id)
+        conv.getAllMessageThreads().flatMap(t => t.contextItems).map(f => f.id)
       );
       return requestedIds.filter((/** @type {string} */ id) => !isMessageId(id) && !localIds.has(id));
     };
@@ -130,7 +129,7 @@ export function setupWorkerCallbacks(session) {
       }
     }
 
-    const allContextItems = conv.getAllMessageThreads().flatMap((/** @type {any} */ t) => t.contextItems);
+    const allContextItems = conv.getAllMessageThreads().flatMap(t => t.contextItems);
 
     try {
       // Build proper contextParams with helpers. `forRequest` marks this as the
@@ -153,15 +152,15 @@ export function setupWorkerCallbacks(session) {
       // A root turn's req.itemIds is every root item, so this is identical to
       // the old root-only path there.
       const requested = (req.itemIds || [])
-        .map((/** @type {string} */ id) => allContextItems.find((/** @type {any} */ f) => f.id === id))
-        .filter(Boolean);
+        .map((/** @type {string} */ id) => allContextItems.find(f => f.id === id))
+        .filter(f => f !== undefined);
       // Sync-race fallback: a sub-thread's cloned system-prompt item is minted
       // worker-side and may not have synced to the frontend yet. If the
       // requested set carries no system-prompt item, degrade to root's items so
       // the turn still gets a system prompt rather than an empty identity. The
       // exclusion set below is derived from the SAME list, so content is never
       // double-sent or dropped.
-      const hasSystemPrompt = requested.some((/** @type {any} */ f) => f.type === 'system-prompt');
+      const hasSystemPrompt = requested.some(f => f.type === 'system-prompt');
       const contextItems = hasSystemPrompt ? requested : conv.rootMessageThread.contextItems;
 
       // Assemble the system prompt via the shared builder — the single source
@@ -186,7 +185,7 @@ export function setupWorkerCallbacks(session) {
       const itemIds = req.itemIds || [];
 
       // Create a set of system-position context item IDs to exclude
-      const systemItemIds = new Set(systemPositionItems.map((/** @type {any} */ f) => f.id));
+      const systemItemIds = new Set(systemPositionItems.map(f => f.id));
 
       for (const itemId of itemIds) {
         // Skip system-position context items - their content is already in systemPrompt
@@ -194,7 +193,7 @@ export function setupWorkerCallbacks(session) {
 
         // Resolve the item across all threads — a sub-thread turn's requested
         // ids include items that live on the sub-thread, not root.
-        const item = allContextItems.find((/** @type {any} */ f) => f.id === itemId);
+        const item = allContextItems.find(f => f.id === itemId);
         if (item && typeof item.getContextText === 'function') {
           // 'none' items carry no request content.
           if (contextPositionOf(item) === 'none') continue;
@@ -218,8 +217,7 @@ export function setupWorkerCallbacks(session) {
 
   // Handle tool definitions requests from workers
   workerManager.setOnToolsRequest(async (request, conversationId) => {
-    /** @type {{requestId: string, threadItemId?: string}} */
-    const req = /** @type {*} */ (request);
+    const req = /** @type {{requestId: string, threadItemId?: string}} */ (request);
 
     try {
       // Let the strategy of the thread this turn belongs to filter the tools
@@ -236,7 +234,7 @@ export function setupWorkerCallbacks(session) {
       // decides what to send.
       const conv = session.conversations.get(conversationId);
       const thread = req.threadItemId
-        ? conv?.getAllMessageThreads?.().find((/** @type {any} */ mt) => mt.threadItemId === req.threadItemId)
+        ? conv?.getAllMessageThreads?.().find(mt => mt.threadItemId === req.threadItemId)
         : conv?.rootMessageThread;
       const { offered } = await buildToolInventory(thread || conv?.rootMessageThread);
 
@@ -252,8 +250,7 @@ export function setupWorkerCallbacks(session) {
   // validate + buildSubthreadSpec, and reply with the spec (or null → the
   // worker runs the ordinary client-side tool-action).
   workerManager.setOnSubthreadSpecRequest(async (request, conversationId) => {
-    /** @type {{requestId: string, toolUseId: string, toolName: string, toolInput?: Record<string, unknown>}} */
-    const req = /** @type {*} */ (request);
+    const req = /** @type {{requestId: string, toolUseId: string, toolName: string, toolInput?: Record<string, unknown>}} */ (request);
     const conv = session.conversations.get(conversationId);
     // Engine-targeted (never broadcast), so replying null on a missing/failed
     // conversation is safe and fast — the worker falls back to normal execution
@@ -280,7 +277,7 @@ export function setupWorkerCallbacks(session) {
         // invoked tool (see the approval handler above).
         toolName: resolveToolName(req.toolName)
       };
-      const item = new (/** @type {any} */ (ItemClass))(itemContext);
+      const item = new ItemClass(itemContext);
       const toolInput = /** @type {Record<string, unknown>} */ (req.toolInput || {});
       const validation = await item.validate(toolInput);
       if (!validation.valid) {

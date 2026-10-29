@@ -846,7 +846,11 @@ lint-fmt:
 ## lint-go: Run go vet and golangci-lint (installed at the pinned version if
 ## needed) over GO_PACKAGES, after checking that GO_PACKAGES still names every
 ## package of the module: a package dir added beside the listed ones fails here
-## rather than going unlinted.
+## rather than going unlinted. go vet runs twice, the second time with
+## -tags production: release-build compiles only the non-test files that way,
+## so nothing else type-checks the tests of a production build, and a test
+## that needs a //go:build !production symbol must carry that constraint
+## itself.
 # app-icon-embed/wails-runtime-embed regenerate the go:embed source files from
 # their assets/ sources. They must run before any Go compilation — including
 # lint — or a deleted/stale embed file fails the typecheck (the generated copies
@@ -864,6 +868,7 @@ lint-go: app-icon-embed wails-runtime-embed
 		exit 1; \
 	fi
 	@$(GOVET) $(GO_PACKAGES)
+	@$(GOVET) -tags production $(GO_PACKAGES)
 	@scripts/ensure-golangci-lint
 	@$(subst \,/,$(shell go env GOPATH))/bin/golangci-lint run --timeout=5m $(GO_PACKAGES)
 
@@ -1000,9 +1005,11 @@ node-deps:
 		cp tooling/package-lock.json $(NODE_DEPS_STAMP); \
 	fi
 
-## lint-types: Run TypeScript type checking on JavaScript files
+## lint-types: Run TypeScript type checking on JavaScript files — the browser
+## tree and its tests, less the not-yet-converted tests tooling/jsconfig.lint.json
+## lists (a list that only shrinks; see its header).
 lint-types: node-deps
-	@NODE_NO_WARNINGS=1 $(NPM_BIN)/tsc --project tooling/jsconfig.json --noEmit
+	@NODE_NO_WARNINGS=1 $(NPM_BIN)/tsc --project tooling/jsconfig.lint.json --noEmit
 
 ## lint-js: Run JavaScript linter (all warnings are errors), after the cases
 ## for the repo's own ESLint rules — a rule that misfires would make the lint
@@ -1016,6 +1023,7 @@ lint-js: node-deps
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/sdk-boundary.test.js
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/escape-html-interpolation.test.js
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/no-private-test-wait.test.js
+	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/no-literal-svg-colour.test.js
 	@NODE_NO_WARNINGS=1 $(NPM_BIN)/eslint --config tooling/eslint.config.js --max-warnings 0 .
 
 ## lint-js-deadcode: lint-deadcode for the JavaScript (tooling/js-deadcode.js),
@@ -1032,7 +1040,8 @@ lint-js: node-deps
 ## not a literal and cannot be evaluated must be listed, with what it loads, in
 ## the script's DYNAMIC_IMPORTS; an unlisted site or a stale entry fails. Over
 ## every module — production, tests, and the Node code under tooling/ and
-## tests/ — it also checks that each imported name (static, `export … from`,
+## tests/ — it also checks that each imported name (static, `ns.x` of a
+## namespace import, `export … from`,
 ## destructured `import()`, JSDoc `import('…').Name` and `@import`) is exported
 ## by its target, through re-exports and `export *`. There is no allowlist: a finding is fixed where it is. `node tooling/js-deadcode.js
 ## --summary` prints each kind's count and first findings.
@@ -1042,13 +1051,20 @@ lint-js-deadcode: node-deps
 
 ## lint-css: Run the CSS linters — stylelint (rem units, no px, no literal
 ## colour outside web/css/tokens/), after the cases for the repo's own
-## stylelint rule, then lint-css-arch, which checks the architecture contract in
+## stylelint rule; the same stylelint and config over the CSS the JavaScript
+## passes to injectStylesOnce() (tooling/lint-css-in-js.js, after its cases in
+## tooling/lint-css-in-js.test.js; it names its own scope, the web/ .js files
+## outside web/js/vendor/); then lint-css-arch, after its fixture cases
+## (tooling/lint-css-arch.test.js), which checks the architecture contract in
 ## web/css/README.md: sheet ownership, dead selectors, token parity, and that
 ## both HTML documents link the same sheets. The last is whole-tree by nature,
 ## so it always runs in full rather than over a file list.
 lint-css: node-deps
 	@NODE_NO_WARNINGS=1 node tooling/stylelint-rules/no-literal-colour-function.test.js
+	@NODE_NO_WARNINGS=1 node tooling/lint-css-arch.test.js
 	@NODE_NO_WARNINGS=1 $(NPM_BIN)/stylelint --config tooling/.stylelintrc.json $(CSS_GLOBS)
+	@NODE_NO_WARNINGS=1 node tooling/lint-css-in-js.test.js
+	@NODE_NO_WARNINGS=1 node tooling/lint-css-in-js.js
 	@node scripts/lint-css-arch
 
 ## lint-i18n: Check that web/i18n/en.json and the en-XA pseudo-locale match the
@@ -1090,9 +1106,11 @@ fix-go: app-icon-embed wails-runtime-embed
 fix-js: node-deps
 	@NODE_NO_WARNINGS=1 $(NPM_BIN)/eslint --config tooling/eslint.config.js --fix .
 
-## fix-css: stylelint --fix (same globs and config as lint-css).
+## fix-css: stylelint --fix (same globs and config as lint-css), and its fixes
+## to the CSS passed to injectStylesOnce() (lint-css-in-js --fix).
 fix-css: node-deps
 	@NODE_NO_WARNINGS=1 $(NPM_BIN)/stylelint --config tooling/.stylelintrc.json --fix $(CSS_GLOBS)
+	@NODE_NO_WARNINGS=1 node tooling/lint-css-in-js.js --fix
 
 ## fix-files: Auto-fix ONLY the named files, routed by extension to the same
 ## fixers as `make fix` (the write-mode counterpart to lint-files). Whole-program

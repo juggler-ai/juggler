@@ -39,7 +39,7 @@ const UNRUN_READ = TOOL_STATES.PENDING;
  * @param {string} toolUseId - The call's id
  * @param {string} toolName - The tool called
  * @param {Record<string, unknown>} toolInput - Its input
- * @param {string} [state] - Its lifecycle state; absent means not yet evaluated
+ * @param {import('../../../sdk/lib/message.js').ToolState} [state] - Its lifecycle state; absent means not yet evaluated
  * @returns {void}
  */
 function addTurnCall(conversation, turn, toolUseId, toolName, toolInput, state) {
@@ -278,7 +278,7 @@ export async function runTests(_ctx) {
     }
     const ta = conversation.rootMessageThread.getToolAction('turn-eval-edit');
     const result = ta?.get('result');
-    assert(!result, `the edit must not be refused at evaluation, got ${JSON.stringify(result?.toJSON?.() ?? result)}`);
+    assert(!result, `the edit must not be refused at evaluation, got ${JSON.stringify(result)}`);
     assert(ta?.get('state') === TOOL_STATES.APPROVED || ta?.get('state') === TOOL_STATES.PENDING,
       `the edit should be awaiting its turn, got ${ta?.get('state')}`);
   });

@@ -25,24 +25,47 @@ import { markUntranslated } from '../../sdk/lib/i18n.js';
  * Coerce a synced list field into a plain array. The value arrives either as a
  * plain array (embedded JSON synced from the Go worker) or, defensively, as a
  * Y.Array; anything else yields an empty array.
- * @param {any} raw
- * @returns {any[]} Plain array of the (still possibly Y.Map) entries.
+ * @param {unknown} raw
+ * @returns {unknown[]} Plain array of the (still possibly Y.Map) entries.
  */
 function toPlainList(raw) {
-  return typeof raw?.toArray === 'function' ? raw.toArray() : (Array.isArray(raw) ? raw : []);
+  if (raw && typeof raw === 'object' && 'toArray' in raw && typeof raw.toArray === 'function') {
+    /** @type {unknown} */
+    const list = raw.toArray();
+    return Array.isArray(list) ? list : [];
+  }
+  return Array.isArray(raw) ? raw : [];
 }
 
 /**
+ * One list entry as a record: a Y.Map entry read for the named fields, a plain
+ * object as it is, and null for anything that is not an object.
+ * @param {unknown} entry - The stored entry.
+ * @param {readonly string[]} keys - The fields read off a Y.Map entry.
+ * @returns {Record<string, unknown>|null} The entry's fields, or null.
+ */
+function entryFields(entry, keys) {
+  if (!entry || typeof entry !== 'object') return null;
+  if ('get' in entry && typeof entry.get === 'function') {
+    const get = entry.get;
+    return Object.fromEntries(keys.map((key) => [key, /** @type {unknown} */ (get.call(entry, key))]));
+  }
+  return /** @type {Record<string, unknown>} */ (entry);
+}
+
+/** The fields of an AssetRef. */
+const ASSET_REF_KEYS = ['id', 'mime', 'filename', 'bytes', 'width', 'height'];
+
+/**
  * Normalize a user item's `attachments` field into plain AssetRef objects.
- * @param {any} raw
+ * @param {unknown} raw
  * @returns {AssetRef[]} Plain attachment refs (empty if none).
  */
 export function normalizeAttachments(raw) {
-  return toPlainList(raw)
-    .map((/** @type {any} */ ref) => (ref && typeof ref.get === 'function')
-      ? { id: ref.get('id'), mime: ref.get('mime'), filename: ref.get('filename'), bytes: ref.get('bytes'), width: ref.get('width'), height: ref.get('height') }
-      : ref)
-    .filter((/** @type {any} */ ref) => ref && ref.id);
+  return toPlainList(raw).flatMap((entry) => {
+    const ref = entryFields(entry, ASSET_REF_KEYS);
+    return ref && ref.id ? [/** @type {AssetRef} */ (ref)] : [];
+  });
 }
 
 /**
@@ -70,20 +93,22 @@ export function normalizeAttachments(raw) {
  * plain records. Like {@link normalizeAttachments}, it accepts either a plain
  * array of plain objects (synced from the Go worker) or a Y.Array of Y.Maps.
  * Entries without string content are dropped.
- * @param {any} raw
+ * @param {unknown} raw
  * @returns {TextFileSnapshot[]} Plain text-file snapshots (empty if none).
  */
 export function normalizeTextFiles(raw) {
-  return toPlainList(raw)
-    .map((/** @type {any} */ t) => (t && typeof t.get === 'function')
-      ? { filename: t.get('filename'), content: t.get('content'), bytes: t.get('bytes') }
-      : t)
-    .filter((/** @type {any} */ t) => t && typeof t.content === 'string')
-    .map((/** @type {any} */ t) => ({
-      filename: typeof t.filename === 'string' ? t.filename : markUntranslated('dropped file'),
-      content: t.content,
-      bytes: typeof t.bytes === 'number' ? t.bytes : 0
-    }));
+  return toPlainList(raw).flatMap((entry) => {
+    const file = entryFields(entry, ['filename', 'content', 'bytes']);
+    const content = file?.content;
+    if (typeof content !== 'string') return [];
+    const filename = file?.filename;
+    const bytes = file?.bytes;
+    return [{
+      filename: typeof filename === 'string' ? filename : markUntranslated('dropped file'),
+      content,
+      bytes: typeof bytes === 'number' ? bytes : 0
+    }];
+  });
 }
 
 /**
@@ -91,20 +116,18 @@ export function normalizeTextFiles(raw) {
  * pastes collapsed into inline placeholder tokens — into plain records. Like
  * {@link normalizeTextFiles}, it accepts either a plain array or a Y.Array of
  * Y.Maps. Entries without string content or a finite id are dropped.
- * @param {any} raw
+ * @param {unknown} raw
  * @returns {PasteBlob[]} Plain paste blobs (empty if none).
  */
 export function normalizePasteBlobs(raw) {
-  return toPlainList(raw)
-    .map((/** @type {any} */ b) => (b && typeof b.get === 'function')
-      ? { id: b.get('id'), content: b.get('content'), bytes: b.get('bytes') }
-      : b)
-    .filter((/** @type {any} */ b) => b && typeof b.content === 'string' && Number.isFinite(Number(b.id)))
-    .map((/** @type {any} */ b) => ({
-      id: Number(b.id),
-      content: b.content,
-      bytes: typeof b.bytes === 'number' ? b.bytes : 0
-    }));
+  return toPlainList(raw).flatMap((entry) => {
+    const blob = entryFields(entry, ['id', 'content', 'bytes']);
+    const content = blob?.content;
+    const id = Number(blob?.id);
+    if (typeof content !== 'string' || !Number.isFinite(id)) return [];
+    const bytes = blob?.bytes;
+    return [{ id, content, bytes: typeof bytes === 'number' ? bytes : 0 }];
+  });
 }
 
 /**
@@ -116,18 +139,19 @@ export function normalizePasteBlobs(raw) {
  * Modelling the draft as ONE record (rather than a bare text string plus
  * component-local attachments) is what makes a half-persisted draft — text
  * kept, attachments/text-files lost across a reload — structurally impossible.
- * @param {any} raw
+ * @param {unknown} raw
  * @returns {Draft} The draft (empty text + no attachments/text-files when absent).
  */
 export function normalizeDraft(raw) {
-  if (!raw) return { text: '', attachments: [], textFiles: [], pasteBlobs: [] };
-  const obj = (typeof raw.toJSON === 'function') ? raw.toJSON() : raw;
-  const text = (obj && typeof obj.text === 'string') ? obj.text : '';
+  if (!raw || typeof raw !== 'object') return { text: '', attachments: [], textFiles: [], pasteBlobs: [] };
+  /** @type {unknown} */
+  const value = 'toJSON' in raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+  const obj = value && typeof value === 'object' ? /** @type {Record<string, unknown>} */ (value) : {};
   return {
-    text,
-    attachments: normalizeAttachments(obj && obj.attachments),
-    textFiles: normalizeTextFiles(obj && obj.textFiles),
-    pasteBlobs: normalizePasteBlobs(obj && obj.pasteBlobs)
+    text: typeof obj.text === 'string' ? obj.text : '',
+    attachments: normalizeAttachments(obj.attachments),
+    textFiles: normalizeTextFiles(obj.textFiles),
+    pasteBlobs: normalizePasteBlobs(obj.pasteBlobs)
   };
 }
 

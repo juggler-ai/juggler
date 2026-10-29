@@ -36,19 +36,23 @@ injectStylesOnce('git-pin-styles', `
   height: 100%;
   min-height: 0;
 }
+
 .git-pin__quiet {
   color: var(--text-tertiary);
 }
+
 .git-pin__error {
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);
 }
+
 .git-pin__content {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
 }
+
 .git-pin__scope-bar {
   display: flex;
   flex-wrap: wrap;
@@ -57,11 +61,13 @@ injectStylesOnce('git-pin-styles', `
   margin-bottom: 0.5rem;
   font-size: var(--font-size-sm);
 }
+
 .review-panel__scope .git-pin__scope-bar {
   margin-bottom: 0;
   flex: 0 1 auto;
   max-width: 100%;
 }
+
 .git-pin__scope-select,
 .git-pin__scope-input,
 .git-pin__scope-apply {
@@ -72,11 +78,13 @@ injectStylesOnce('git-pin-styles', `
   border-radius: var(--radius-md);
   padding: 0.125rem 0.375rem;
 }
+
 .git-pin__scope-input {
   flex: 1 1 12rem;
   min-width: 8rem;
   font-family: var(--font-mono);
 }
+
 .git-pin__scope-apply {
   cursor: pointer;
 }

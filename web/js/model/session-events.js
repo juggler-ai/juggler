@@ -20,7 +20,11 @@
 
 import { reportFault } from '../utils/fault-report.js';
 
-/** @typedef {import('./session.js').default} Session */
+/**
+ * @typedef {import('./session.js').default} Session
+ * @typedef {import('./conversation.js').default} Conversation
+ * @typedef {import('./message-thread.js').default} MessageThread
+ */
 
 /**
  * Every name announced on the session feed.
@@ -49,25 +53,55 @@ import { reportFault } from '../utils/fault-report.js';
  * `composer:draft-requested`. A warning request is the one that carries an
  * answer back: the tab sets `heard` and `shown` on it, so the conversation can
  * record a warning nobody showed (see `Conversation.showWarning`).
- * @typedef {'session:loaded'|'session:saved'|'session:save-error'|'session:metadata-changed'
- *   |'session:workspaces-changed'|'workspace:selected'
- *   |'conversation:created'|'conversation:deleted'|'conversation:renamed'|'conversation:rename-requested'
- *   |'conversation:reordered'|'conversation:switched'|'conversation:focus-followed'|'conversation:auto-naming'
- *   |'conversation:changed'|'conversation:loadstate-changed'|'conversation:items-removed'
- *   |'conversation:context-window-updated'|'conversation:strategy-changed'|'context-items:changed'
- *   |'processing:stopped'
- *   |'conversation:turn-requested'|'command-manager:open-requested'|'conversation-export:open-requested'
- *   |'conversation:thread-open-requested'|'conversation:warning-requested'
- *   |'composer:clear-requested'|'composer:restore-requested'|'composer:draft-requested'
- * } SessionEventType
+ * @typedef {keyof SessionEventPayloads} SessionEventType
  */
 
 /**
- * One announcement, as a listener receives it.
- * @typedef {object} SessionEvent
- * @property {SessionEventType} type - What happened
- * @property {any} data - What it happened to; the shape belongs to the name
- * @property {Session} session - The session it happened on
+ * What each announcement carries, by name: the shape of `data` a listener of
+ * that name receives.
+ * @typedef {{
+ *   'session:loaded': Session,
+ *   'session:saved': Session,
+ *   'session:save-error': unknown,
+ *   'session:metadata-changed': {keys: string[], metadata: Record<string, unknown>, remote: boolean},
+ *   'session:workspaces-changed': Session['workspaces'],
+ *   'workspace:selected': Session['workspaces'][number]|null,
+ *   'conversation:created': Conversation,
+ *   'conversation:deleted': Conversation,
+ *   'conversation:renamed': {conversationId: string},
+ *   'conversation:rename-requested': {conversationId: string},
+ *   'conversation:reordered': {conversationId?: string, beforeId?: string|null},
+ *   'conversation:switched': Conversation,
+ *   'conversation:focus-followed': {id: string, from: string},
+ *   'conversation:auto-naming': {conversationId: string, active: boolean},
+ *   'conversation:changed': {conversationId: string, insertedItemIds?: string[], metadataKeys?: string[]},
+ *   'conversation:loadstate-changed': {conversationId: string, loadState: 'unloaded'|'loading'|'loaded'|'error'},
+ *   'conversation:items-removed': {conversation: Conversation, messageThread: MessageThread, removed: number},
+ *   'conversation:context-window-updated': Conversation,
+ *   'conversation:strategy-changed': {conversation: Conversation, strategyId: string|undefined},
+ *   'context-items:changed': {conversationId: string},
+ *   'processing:stopped': string,
+ *   'conversation:turn-requested': {conversationId: string},
+ *   'command-manager:open-requested': {conversationId: string},
+ *   'conversation-export:open-requested': {conversationId: string},
+ *   'conversation:thread-open-requested': {conversationId: string, threadId: string},
+ *   'conversation:warning-requested': {conversationId: string, message: string, duration: number, heard: boolean, shown: boolean},
+ *   'composer:clear-requested': {conversationId: string, threadId: string|null, onlyIfText?: string},
+ *   'composer:restore-requested': {conversationId: string, message: NonNullable<Conversation['_pendingUserMessage']>},
+ *   'composer:draft-requested': {conversationId: string, text: string}
+ * }} SessionEventPayloads
+ */
+
+/**
+ * One announcement of a given name, as a listener of that name receives it.
+ * @template {SessionEventType} K
+ * @typedef {{type: K, data: SessionEventPayloads[K], session: Session}} SessionEventOf
+ */
+
+/**
+ * One announcement, as a listener of every name receives it: narrowing on
+ * `type` narrows `data` to that name's payload.
+ * @typedef {{[K in SessionEventType]: SessionEventOf<K>}[SessionEventType]} SessionEvent
  */
 
 /** @typedef {(event: SessionEvent) => void} SessionEventListener */
@@ -101,20 +135,33 @@ class SessionEvents {
    * @returns {() => void} Stops this subscription; calling it again does nothing.
    */
   /**
+   * @template {SessionEventType} K
    * @overload
-   * @param {SessionEventType} type - The one type to hear.
-   * @param {SessionEventListener} callback - Called synchronously with each event of that type.
+   * @param {K} type - The one type to hear.
+   * @param {(event: SessionEventOf<K>) => void} callback - Called synchronously with each event of that type.
    * @returns {() => void} Stops this subscription; calling it again does nothing.
    */
   /**
-   * @param {SessionEventListener|SessionEventType} typeOrCallback - A type, or the callback for everything.
-   * @param {SessionEventListener} [callback] - The callback, when a type is given.
+   * @template {SessionEventType} K
+   * @param {SessionEventListener|K} typeOrCallback - A type, or the callback for everything.
+   * @param {(event: SessionEventOf<K>) => void} [callback] - The callback, when a type is given.
    * @returns {() => void} Stops this subscription; calling it again does nothing.
    */
   subscribe(typeOrCallback, callback) {
-    const entry = typeof typeOrCallback === 'function'
-      ? { callback: typeOrCallback, type: null }
-      : { callback: /** @type {SessionEventListener} */ (callback), type: typeOrCallback };
+    /** @type {{callback: SessionEventListener, type: SessionEventType|null}} */
+    let entry;
+    if (typeof typeOrCallback === 'function') {
+      entry = { callback: typeOrCallback, type: null };
+    } else {
+      const type = typeOrCallback;
+      const typed = callback;
+      // notify delivers an entry only events of its own type, so the event
+      // this one receives is the K it subscribed to.
+      entry = {
+        callback: event => typed?.(/** @type {SessionEventOf<K>} */ (event)),
+        type
+      };
+    }
     this._listeners.add(entry);
     return () => { this._listeners.delete(entry); };
   }
@@ -124,14 +171,17 @@ class SessionEvents {
    * subscription order. The walk is over the live set: a listener subscribed
    * during the fan-out hears this event too, and one unsubscribed before it is
    * reached does not.
-   * @param {SessionEventType} type - What happened
-   * @param {any} data - What it happened to
+   * @template {SessionEventType} K
+   * @param {K} type - What happened
+   * @param {SessionEventPayloads[K]} data - What it happened to
    */
   notify(type, data) {
+    /** @type {SessionEventOf<K>} */
+    const event = { type, data, session: this._session };
     for (const entry of this._listeners) {
       if (entry.type !== null && entry.type !== type) continue;
       try {
-        entry.callback({ type, data, session: this._session });
+        entry.callback(/** @type {SessionEvent} */ (event));
       } catch (error) {
         reportFault(`session-listener:${type}`, error);
       }

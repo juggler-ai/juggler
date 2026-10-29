@@ -19,6 +19,8 @@ import { isViewer } from '../../sdk/lib/client-role.js';
 import { recordTape } from '../utils/event-tape.js';
 import { bytesToBase64 } from '../utils/base64.js';
 import { maybePromoteHandoffThread } from '../utils/compaction-utils.js';
+import { isItemView } from './item-accessor.js';
+import { itemField } from '../../sdk/lib/message.js';
 
 /**
  * Wire up the items and metadata observers on the conversation's Yjs doc.
@@ -26,7 +28,7 @@ import { maybePromoteHandoffThread } from '../utils/compaction-utils.js';
  *
  * Side effects: installs `_yjsItemsObserver` and `_yjsMetadataObserver`
  * on the conversation.
- * @param {any} c - Conversation instance
+ * @param {import('./conversation.js').default} c - Conversation instance
  * @returns {() => void} Cleanup function
  */
 export function setupYjsObservers(c) {
@@ -75,7 +77,7 @@ export function setupYjsObservers(c) {
   // Observe items changes → notify session for UI updates + execute approved tools.
   // Context items live in the items array, so this observer handles context item
   // changes too.
-  c._yjsItemsObserver = (/** @type {any[]} */ events, /** @type {any} */ transaction) => {
+  c._yjsItemsObserver = (/** @type {Array<import('yjs').YEvent<import('yjs').AbstractType<unknown>>>} */ events, /** @type {import('yjs').Transaction} */ transaction) => {
     // Skip if still initializing or already in observer
     if (c._initializing || c._inItemsObserver) {
       return;
@@ -94,7 +96,7 @@ export function setupYjsObservers(c) {
       // Inter-tick gap (gapMs) surfaces the single engine WebView falling
       // behind under load — the engine-throughput hypothesis. Guarded so
       // the Date.now() bookkeeping is zero-cost when tracing is off.
-      if (/** @type {any} */ (globalThis).__jugglerTrace) {
+      if (Reflect.get(globalThis, '__jugglerTrace')) {
         const nowTick = Date.now();
         const gapMs = c._lastObserverTickTs ? nowTick - c._lastObserverTickTs : 0;
         c._lastObserverTickTs = nowTick;
@@ -132,7 +134,7 @@ export function setupYjsObservers(c) {
       // so the root is never length 0 after a clear. Key off content,
       // not raw length.
       if (arrayEvent &&
-                c._rootMessageThread.items.every((/** @type {any} */ it) => it.get('preventUserDeletion'))) {
+                c._rootMessageThread.items.every(it => it.get('preventUserDeletion'))) {
         c._iterationCount = 0;
         c._llmState.stop(c.id);
       }
@@ -187,7 +189,8 @@ export function setupYjsObservers(c) {
     // value, the selector's incoming===current guard skips its render, and a
     // remote strategy switch never shows until the next unrelated doc change.
     if (event.keysChanged.has('currentStrategyId')) {
-      const newStrategyId = c.getMetadata('currentStrategyId');
+      const storedStrategyId = c.getMetadata('currentStrategyId');
+      const newStrategyId = typeof storedStrategyId === 'string' ? storedStrategyId : '';
       const root = c._rootMessageThread;
       if (newStrategyId && newStrategyId !== root.currentStrategyId) {
         // Track the active strategy and (re)build its instance so the UI — and
@@ -219,7 +222,7 @@ export function setupYjsObservers(c) {
 
     // Specific reactions to key changes
     if (event.keysChanged.has('defaultModelConfig')) {
-      const config = c.getMetadata('defaultModelConfig');
+      const config = c._rootMessageThread.ownModelConfig;
       if (config) {
         c._fetchContextWindow(config);
       } else {
@@ -233,7 +236,7 @@ export function setupYjsObservers(c) {
     if (event.keysChanged.has('currentStrategyId')) {
       c._session.events.notify('conversation:strategy-changed', {
         conversation: c,
-        strategyId: c.getMetadata('currentStrategyId')
+        strategyId: stringOrUndefined(c.getMetadata('currentStrategyId'))
       });
     }
 
@@ -263,9 +266,18 @@ export function setupYjsObservers(c) {
 }
 
 /**
+ * A stored metadata value as text.
+ * @param {unknown} value - The stored value
+ * @returns {string|undefined} The value when it is a string
+ */
+function stringOrUndefined(value) {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
  * Detect whether any context items were affected by an items array delta.
  * Pure helper used by the items observer.
- * @param {any} event - Yjs array observe event (may be undefined)
+ * @param {import('yjs').YEvent<import('yjs').AbstractType<unknown>>|undefined} event - Yjs array observe event (may be undefined)
  * @returns {boolean} True if context items were inserted or deleted
  */
 function checkForContextItemChanges(event) {
@@ -275,7 +287,7 @@ function checkForContextItemChanges(event) {
     if (change.insert) {
       const inserted = Array.isArray(change.insert) ? change.insert : [change.insert];
       for (const item of inserted) {
-        if (item && typeof item === 'object' && typeof item.get === 'function') {
+        if (isItemView(item)) {
           // Mirror contextItemDescriptor's two discriminators (the single
           // source of truth for "is this a context item"): a direct context
           // item has an itemId but is not a tool-use/tool-action, and a
@@ -288,7 +300,7 @@ function checkForContextItemChanges(event) {
           }
           if (item.get('type') === 'tool-action') {
             const result = item.get('result');
-            if (result?.get?.('resultType') === 'context') {
+            if (itemField(result, 'resultType') === 'context') {
               return true;
             }
           }

@@ -141,7 +141,7 @@ class UIDriver {
 
     // Last fallback: first button
     if (!approveButton) {
-      approveButton = buttons[0];
+      approveButton = buttons[0] ?? null;
     }
 
     if (!approveButton) {

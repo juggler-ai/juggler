@@ -173,7 +173,7 @@ export async function runTests() {
           const neighbour = getComputedStyle(choosing.base);
           assert(dressed.appearance === 'none',
             `the platform's own control is turned off, got ${JSON.stringify(dressed.appearance)}`);
-          for (const property of ['fontFamily', 'fontSize', 'borderRadius', 'borderTopWidth', 'backgroundColor', 'color']) {
+          for (const property of /** @type {const} */ (['fontFamily', 'fontSize', 'borderRadius', 'borderTopWidth', 'backgroundColor', 'color'])) {
             assert(dressed[property] === neighbour[property],
               `its ${property} is the Base field's, got ${JSON.stringify(dressed[property])} rather than ${JSON.stringify(neighbour[property])}`);
           }

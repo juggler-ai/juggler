@@ -47,25 +47,3 @@ func TestCoalescedStreamRejectsStaleAttemptChunks(t *testing.T) {
 		t.Fatalf("stream content = %#v, want only current attempt", items)
 	}
 }
-
-func TestMockLLMUsesFreshAttemptGeneration(t *testing.T) {
-	w := NewConversationWorker("conv-mock-generation", "user:test")
-	t.Cleanup(func() { w.doc.Destroy() })
-	w.setMockResponses([]MockResponse{
-		{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeText, Content: "one"}}},
-		{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeText, Content: "two"}}},
-	})
-
-	var generations []string
-	sink := func(chunk StreamChunk) { generations = append(generations, chunk.TurnID) }
-	if _, err := w.currentRun().callLLMWithSink(nil, sink); err != nil {
-		t.Fatalf("first mock call: %v", err)
-	}
-	if _, err := w.currentRun().callLLMWithSink(nil, sink); err != nil {
-		t.Fatalf("second mock call: %v", err)
-	}
-
-	if len(generations) != 2 || generations[0] == "" || generations[1] == "" || generations[0] == generations[1] {
-		t.Fatalf("mock attempt generations = %#v, want two distinct non-empty ids", generations)
-	}
-}

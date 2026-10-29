@@ -77,18 +77,23 @@ export async function runTests(_ctx) {
 
   await test('the schema stays open to any installed pinboard item type', () => {
     const [definition] = PinToPinboardContextItem.getToolDefinitions();
+    if (!definition) throw new Error('the tool should define itself');
     assert(definition.name === 'pin_to_pinboard', 'the tool should have its stable public name');
-    assert(!definition.input_schema.properties.type.enum,
+    const { type: typeSchema, parameters: parametersSchema } =
+      /** @type {Record<string, Record<string, unknown>|undefined>} */ (definition.input_schema.properties);
+    if (!typeSchema || !parametersSchema) throw new Error('the schema should declare type and parameters');
+    assert(!typeSchema.enum,
       'type must not be a closed enum — an extension-installed type has no entry to add itself to');
-    assert(definition.input_schema.properties.parameters.type === 'object',
+    assert(parametersSchema.type === 'object',
       'parameters should accept whatever shape the requested type expects');
-    assert(!definition.input_schema.properties.parameters.properties,
+    assert(!parametersSchema.properties,
       'parameters must not be pinned to one type\'s shape (file\'s, or any other\'s)');
     assert(!definition.input_schema.properties.config, 'persisted pin config must not be public input');
   });
 
   await test('the description names every installed type, with file last', () => {
     const [definition] = PinToPinboardContextItem.getToolDefinitions();
+    if (!definition) throw new Error('the tool should define itself');
     const bullets = definition.description.split('\n').filter((line) => line.startsWith('- `'));
     const ids = bullets.map((line) => line.slice(3, line.indexOf('`', 3)));
 
@@ -107,26 +112,35 @@ export async function runTests(_ctx) {
   });
 
   await test('validation dispatches to the selected type', async () => {
+    /**
+     * @param {import('juggler/context-item').ValidationResult} result - A validation result.
+     * @returns {Record<string, unknown>|undefined} Its normalized `parameters`, when an object.
+     */
+    const parametersOf = (result) => {
+      const parameters = result.params?.parameters;
+      return parameters && typeof parameters === 'object'
+        ? /** @type {Record<string, unknown>} */ (parameters) : undefined;
+    };
     assert(!(await item.validate({ type: '', parameters: { url: 'http://localhost:3000' } })).valid,
       'a missing type should be rejected');
     assert(!(await item.validate({ type: 'not-installed-here', parameters: 'not-an-object' })).valid,
       'a type\'s parameters must still be an object');
     const generic = await item.validate({ type: 'not-installed-here', parameters: { url: 'http://localhost:3000' } });
     assert(generic.valid, 'a type installed after the catalog was read should still be accepted');
-    assert(generic.params?.parameters?.url === 'http://localhost:3000',
+    assert(parametersOf(generic)?.url === 'http://localhost:3000',
       'a type with no descriptor should have its parameters forwarded unchanged');
     assert(!(await item.validate({ type: 'file', parameters: {} })).valid,
       'file parameters need a path');
     const valid = await item.validate({ type: 'file', parameters: { path: ' ./docs//report.html ' } });
     assert(valid.valid, 'a file path should be accepted');
-    assert(valid.params?.parameters?.path === 'docs/report.html', 'the file adapter should normalize its path');
+    assert(parametersOf(valid)?.path === 'docs/report.html', 'the file adapter should normalize its path');
   });
 
   await test('execute adds idempotently and requests an attributed reveal', async () => {
     const originalFetch = globalThis.fetch;
     /** @type {any} */
     let requestBody = null;
-    globalThis.fetch = /** @type {any} */ (async (_url, options) => {
+    globalThis.fetch = /** @type {any} */ (async (/** @type {unknown} */ _url, /** @type {{body: string}} */ options) => {
       requestBody = JSON.parse(options.body);
       const op = requestBody.operations[0];
       return { ok: true, json: async () => ({ pins: [{ id: op.id, type: op.type, config: op.config }] }) };
@@ -156,7 +170,7 @@ export async function runTests(_ctx) {
     const originalFetch = globalThis.fetch;
     /** @type {any} */
     let requestBody = null;
-    globalThis.fetch = /** @type {any} */ (async (_url, options) => {
+    globalThis.fetch = /** @type {any} */ (async (/** @type {unknown} */ _url, /** @type {{body: string}} */ options) => {
       requestBody = JSON.parse(options.body);
       const op = requestBody.operations[0];
       return { ok: true, json: async () => ({ pins: [{ id: op.id, type: op.type, config: op.config }] }) };
@@ -192,7 +206,7 @@ export async function runTests(_ctx) {
     let pins = board.map((pin) => ({ ...pin }));
     /** @type {any[][]} */
     const sent = [];
-    globalThis.fetch = /** @type {any} */ (async (_url, options) => {
+    globalThis.fetch = /** @type {any} */ (async (/** @type {unknown} */ _url, /** @type {{body?: string}|undefined} */ options) => {
       const body = options?.body ? JSON.parse(options.body) : null;
       if (body?.operations) {
         sent.push(body.operations);
@@ -258,7 +272,7 @@ export async function runTests(_ctx) {
       toolAction,
     }));
     const [control] = out.controls;
-    assert(control?.textContent?.includes('Show on Pinboard'), 'the panel should carry a Show on Pinboard control');
+    assert(!!control?.textContent?.includes('Show on Pinboard'), 'the panel should carry a Show on Pinboard control');
 
     const unmade = item.renderToolActionDetails(wrapper, /** @type {any} */ ({
       input: { type: made.type, parameters: made.parameters },

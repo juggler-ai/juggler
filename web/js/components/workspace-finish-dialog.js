@@ -165,7 +165,7 @@ export function openWorkspaceFinish(option, context = {}) {
       dismissSelectors: [
         '.workspace-move-backdrop', '.workspace-move-close', '.workspace-finish-cancel'
       ],
-      onClose: (result) => resolve(result ?? null)
+      onClose: (/** @type {{message: string}|undefined} */ result) => resolve(result ?? null)
     });
 
     const backdrop = document.createElement('modal-backdrop');

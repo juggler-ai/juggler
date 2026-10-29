@@ -574,22 +574,26 @@ export function injectFileContentStyles() {
   padding: 0.625rem;
   height: 100%;
 }
+
 .file-content-filename {
   font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--text-primary);
   word-break: break-all;
 }
+
 .file-content-meta {
   font-size: var(--font-size-2xs);
   font-family: var(--font-mono, 'Courier New', monospace);
   opacity: 0.7;
 }
+
 .file-content-expanded {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
+
 .file-content-warning {
   padding: 0.5rem;
   font-size: var(--font-size-sm);
@@ -598,6 +602,7 @@ export function injectFileContentStyles() {
   border-radius: var(--radius-md);
   color: var(--accent-yellow);
 }
+
 .file-content-not-found {
   padding: 0.5rem;
   font-size: var(--font-size-sm);

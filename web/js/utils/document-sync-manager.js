@@ -106,7 +106,7 @@ const EMPTY_UPDATE_LENGTH = Y.encodeStateAsUpdate(new Y.Doc()).length;
  * @property {'merge'|'apply'} phase - Which half of the batch failed. `merge` is
  *   pure and the document has not seen the bytes; `apply` means Yjs integrated
  *   the update and the UI fan-out threw afterwards.
- * @property {any} error - What was thrown.
+ * @property {unknown} error - What was thrown.
  * @property {number} bytes - Size of the payload involved.
  * @property {number} consecutive - How many batches have now failed in a row.
  * @property {boolean} unrecoverable - Set once the run passes
@@ -191,7 +191,7 @@ class DocumentSyncManager {
     this.now = () => performance.now();
 
     // Update handler for sync (bound to preserve 'this')
-    /** @type {(update: Uint8Array, origin: any) => void} */
+    /** @type {(update: Uint8Array, origin: unknown) => void} */
     this._updateHandler = (update, origin) => {
       // Don't broadcast updates that came from remote (avoid echo)
       if (origin !== this && this.onSyncBroadcast) {
@@ -433,7 +433,7 @@ class DocumentSyncManager {
    * nobody records here is a conversation that stops updating for no stated
    * reason.
    * @param {'merge'|'apply'} phase - Which half of the batch failed.
-   * @param {any} error - What was thrown.
+   * @param {unknown} error - What was thrown.
    * @param {number} bytes - Size of the payload involved.
    * @private
    */

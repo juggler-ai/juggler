@@ -161,7 +161,7 @@ export async function runTests(_ctx) {
    * @returns {HTMLElement} The rendered section body
    */
   function renderTools(offered, withheld = []) {
-    return makeItem()._buildToolInventoryView(
+    return makeItem().__buildToolInventoryViewForTests(
       { offered, withheld, strategyName: withheld.length ? 'Read-only' : '' },
       groupToolsByOrigin(offered),
       new Map(),
@@ -200,8 +200,8 @@ export async function runTests(_ctx) {
     // A withheld tool is listed, struck through, below the offered groups. It
     // is not sent, so it must not be counted — otherwise switching to Read-only
     // would report a payload that grew.
-    const offered = [TOOLS[0]];
-    const withheld = [TOOLS[1]];
+    const offered = TOOLS.slice(0, 1);
+    const withheld = TOOLS.slice(1, 2);
     const line = renderTools(offered, withheld).querySelector('.system-prompt-tools-count');
     const offeredOnly = estimateValueTokens(TOOLS[0]);
     const both = offeredOnly + estimateValueTokens(TOOLS[1]);
@@ -250,7 +250,7 @@ export async function runTests(_ctx) {
           shown[`row ${name}`] = String(ui?.summary);
           shown[`title ${name}`] = item.getTitle();
         }
-        assert(shown['title preset'].includes('2'), `the preset's name should be in its title; got ${shown['title preset']}`);
+        assert((shown['title preset'] ?? '').includes('2'), `the preset's name should be in its title; got ${shown['title preset']}`);
 
         // The properties panel while its async sections are still loading. The
         // environment body is the prompt's own English text (asserted below).
@@ -277,7 +277,7 @@ export async function runTests(_ctx) {
 
         // Empty, and one tool.
         for (const [name, offered] of /** @type {Array<[string, any[]]>} */ ([['empty', []], ['one', [{ name: '5', description: '' }]]])) {
-          const view = makeItem()._buildToolInventoryView(
+          const view = makeItem().__buildToolInventoryViewForTests(
             { offered, withheld: [], strategyName: '' }, groupToolsByOrigin(offered), new Map(), parseMcpToolName, null, '');
           collect(`tools ${name}`, shownStrings(view, '.system-prompt-tool'));
         }
@@ -294,7 +294,7 @@ export async function runTests(_ctx) {
         ]);
         const drift = { changes: formatToolDrift({ added: ['9'], removed: [] }), detail: toolDriftDetail({ added: ['9'], removed: [] }) };
         for (const strategyName of ['0', '']) {
-          const view = makeItem()._buildToolInventoryView(
+          const view = makeItem().__buildToolInventoryViewForTests(
             { offered, withheld: [{ name: '9', description: '' }, { name: 'mcp__6__1', description: '' }], strategyName },
             groupToolsByOrigin(offered), servers, parseMcpToolName, drift, MCP_DISABLED_NOTICE);
           collect(`tools full ${strategyName || 'no strategy'}`, shownStrings(view, '.system-prompt-tool'));
@@ -319,7 +319,7 @@ export async function runTests(_ctx) {
         }
         const split = splitToolsByStrategy([{ name: '5', description: '' }, { name: '9', description: '' }], new StandInStrategy());
         shown['strategy name'] = split.strategyName;
-        const byStrategy = makeItem()._buildToolInventoryView(
+        const byStrategy = makeItem().__buildToolInventoryViewForTests(
           split, groupToolsByOrigin(split.offered), new Map(), parseMcpToolName, null, '');
         collect('tools withheld by stand-in', shownStrings(byStrategy, '.system-prompt-tool'));
 

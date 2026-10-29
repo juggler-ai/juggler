@@ -18,16 +18,19 @@ injectStylesOnce('tasks-pin-styles', `
   gap: 0.75rem;
   height: 100%;
 }
+
 .tasks-pin__groups {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
+
 .tasks-pin__group {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
+
 .tasks-pin__heading {
   display: flex;
   align-items: baseline;
@@ -38,15 +41,18 @@ injectStylesOnce('tasks-pin-styles', `
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+
 .tasks-pin__here {
   color: var(--text-tertiary);
   font-weight: normal;
 }
+
 .tasks-pin__list {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
+
 .tasks-pin__row {
   display: flex;
   flex-direction: column;
@@ -55,6 +61,7 @@ injectStylesOnce('tasks-pin-styles', `
   border: 0.0625rem solid var(--border-color);
   border-radius: var(--radius-md, 0.25rem);
 }
+
 .tasks-pin__open {
   display: flex;
   flex-direction: column;
@@ -70,15 +77,18 @@ injectStylesOnce('tasks-pin-styles', `
   text-align: left;
   cursor: pointer;
 }
+
 .tasks-pin__open:hover .tasks-pin__command {
   text-decoration: underline;
 }
+
 .tasks-pin__command {
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+
 .tasks-pin__meta {
   display: flex;
   flex-wrap: wrap;
@@ -87,24 +97,30 @@ injectStylesOnce('tasks-pin-styles', `
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);
 }
+
 .tasks-pin__tool {
   font-family: var(--font-mono);
 }
+
 .tasks-pin__kind {
   text-transform: lowercase;
 }
+
 .tasks-pin__label {
   color: var(--text-secondary);
 }
+
 .tasks-pin__elapsed {
   margin-left: auto;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+
 .tasks-pin__actions {
   display: flex;
   justify-content: flex-end;
 }
+
 .tasks-pin__stop {
   padding: 0.25rem 0.5rem;
   border: 0.0625rem solid var(--border-color);
@@ -115,24 +131,26 @@ injectStylesOnce('tasks-pin-styles', `
   font-size: var(--font-size-sm);
   cursor: pointer;
 }
+
 .tasks-pin__stop:hover:not(:disabled) {
   border-color: var(--error-color, var(--border-color));
   color: var(--error-color, var(--text-primary));
 }
+
 .tasks-pin__stop:disabled {
   cursor: default;
   opacity: 0.5;
 }
+
 .tasks-pin__note {
+  margin-top: auto;
   color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
 }
+
 .tasks-pin__error {
   color: var(--error-color, var(--text-secondary));
   overflow-wrap: anywhere;
-}
-.tasks-pin__note {
-  margin-top: auto;
-  font-size: var(--font-size-sm);
 }
 `);
 

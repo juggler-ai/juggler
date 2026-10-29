@@ -37,6 +37,30 @@ import GitWorktreeWorkspaceProvider from '../workspaces/git-worktree-workspace-p
  * @property {string[]} errors - Error messages for failed tests
  */
 
+/**
+ * A row reconcile says is no longer what it claims: the row itself, with
+ * whether it asks to be closed and why.
+ * @typedef {import('../../../js/model/session.js').Workspace & {tombstone?: boolean, reason?: string}} WorktreeOrphan
+ */
+
+/**
+ * A tree reconcile found with no row, offered for adoption.
+ * @typedef {object} WorktreeArtifact
+ * @property {string} id - The repository and the tree's path relative to it
+ * @property {string} label - Its branch, or its directory's name
+ * @property {string} detail - Where it is, for the user
+ * @property {import('../../../sdk/workspace-provider.js').WorkspaceDescriptor} workspace - What adopting it would register
+ */
+
+/**
+ * What the git-worktree provider's reconcile reports, in more detail than the
+ * SDK's `ReconcileResult` promises of every provider.
+ * @typedef {object} WorktreeReport
+ * @property {WorktreeOrphan[]} [orphanedWorkspaces] - Rows whose tree is gone or on another branch
+ * @property {WorktreeArtifact[]} [orphanedArtifacts] - Trees with no row
+ * @property {string[]} [confirmed] - Ids of rows whose tree is really there
+ */
+
 /** @type {string} The provider under test, as the registry knows it. */
 export const PROVIDER_ID = GitWorktreeWorkspaceProvider.MANIFEST.id;
 

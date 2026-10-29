@@ -119,7 +119,11 @@
       "toolResult": ["content", "isError", "cancelled", "fullResult", "state"],
       "errorData": [
         "duration", "provider", "model", "errorKind", "resetAt", "message", "compactionReason", "compactionCalls",
-        "compactionSpend", "compactionUsage"
+        "compactionSpend", "compactionUsage", "summaryMessage"
+      ],
+      "toolInput": [
+        "itemIds", "name", "file_path", "command", "pattern", "query", "url", "goal", "title", "path", "searches",
+        "files", "edits"
       ],
       "compactionAccounting": [
         "passes", "calls", "estimatedSpend", "durationMs", "usage", "sourceFingerprint", "inputTokens", "outputTokens",

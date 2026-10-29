@@ -16,6 +16,7 @@ import { deadlineFor } from './test-deadline.js';
 
 /**
  * @typedef {import('./test-harness.js').TestHarnessOptions} TestHarnessOptions
+ * @typedef {import('./second-viewer.js').SecondViewer} SecondViewer
  */
 
 /**
@@ -45,11 +46,31 @@ export class UITestHarness {
     /** @type {((event: Event) => void)|null} @private */
     this._sendMessageHandler = null;
 
-    /** @type {Promise<void>|null} @private - Tracks the most recent sendMessage() call */
+    /** @type {Promise<string|null>|null} @private - Tracks the most recent sendMessage() call, which resolves with the reason a guard dropped it, or null */
     this._pendingSend = null;
 
     /** @type {{[key: string]: any}} - Named result captures for capture-tool-result / assert-tool-result-changed operations */
     this._capturedResults = {};
+
+    // The test's run state, which the runner and the operation executor
+    // (integration-test-runner.js, ui-operation-executor.js) keep here.
+
+    /**
+     * When the test's budget runs out, in Date.now() ms; 0 when no runner set
+     * one. The runner's stall watchdog moves it while the test makes progress,
+     * so every wait reads it when it starts rather than keeping a copy.
+     * @type {number}
+     */
+    this._perTestDeadlineMs = 0;
+
+    /** @type {AbortSignal|null} - The test's abort, set by the runner; it ends every wait in the test */
+    this._abortSignal = null;
+
+    /** @type {Map<string, SecondViewer>|null} - Second viewers the test opened (open-second-viewer), by conversation ID; the runner closes them */
+    this._secondViewers = null;
+
+    /** @type {Map<string, number>|null} - Each conversation's turn epoch before the latest op that can start a turn, which wait-for-idle fences on */
+    this._turnEpochBaselines = null;
   }
 
   /**
@@ -110,8 +131,7 @@ export class UITestHarness {
     // the inner harness. It reads the deadline from here on every wait, never
     // a copy: the runner's stall watchdog moves this one while the test makes
     // progress.
-    this._innerHarness._deadlineSource = () => this._perTestDeadlineMs || 0;
-    this._innerHarness._abortSignal = this._abortSignal || null;
+    this._innerHarness.followTestBudget(() => this._perTestDeadlineMs || 0, this._abortSignal || null);
     await this._innerHarness.setup();
 
     // 2. Create DOM container
@@ -212,7 +232,7 @@ export class UITestHarness {
     await waitForTurnComplete(this.conversation, {
       sinceTurn: sinceTurn ?? this.conversation.completedTurns,
       deadlineMs: deadlineFor(timeoutMs, this._perTestDeadlineMs),
-      signal: this._abortSignal,
+      signal: this._abortSignal ?? undefined,
       timeoutMs
     });
   }

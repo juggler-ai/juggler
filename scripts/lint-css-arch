@@ -5,7 +5,8 @@
  * Eight checks, all but the last driven by web/css/manifest.json:
  *
  *   ownership       a selector lives in the file that owns its root
- *   dead-selector   a class in the CSS is referenced by no JS, HTML or extension
+ *   dead-selector   a class in any production sheet (web/css's, an extension's,
+ *                   the machine page's) is referenced by no JS, HTML or extension
  *   token-parity    every var() resolves; theme colour tokens exist in both themes;
  *                   a fallback only where the token can be absent
  *   link-parity     index.html and headless-test.html link the manifest's sheets
@@ -109,7 +110,7 @@ const cssDir = path.join(repoRoot, 'web', 'css');
  * What the production sources can put on an element.
  * @typedef {object} Corpus
  * @property {Set<string>} tokens - Every word-like token of their strings and attribute values.
- * @property {Map<string, string>} files - Each read source's text, by repo-relative path.
+ * @property {Map<string, string[]>} composed - Each read source's composed strings (see jsStrings), by repo-relative path.
  */
 
 /**
@@ -234,7 +235,9 @@ function parseRules(src) {
       continue;
     }
     if (c === '}') { stack.pop(); prelude = ''; preludeLine = line; continue; }
-    if (c === ';' && stack.length === 0) { prelude = ''; preludeLine = line; continue; }
+    // A `;` ends a statement at the top level and a declaration inside a
+    // block, so neither is read into the selector of a nested rule after it.
+    if (c === ';') { prelude = ''; preludeLine = line; continue; }
     if (!prelude.trim() && /\s/.test(c)) { preludeLine = line; continue; }
     prelude += c;
   }
@@ -715,6 +718,32 @@ function productionSources(root) {
 }
 
 /**
+ * The production stylesheets outside web/css — an extension's sheets, the
+ * machine page's — which manifest.json does not list. Every `.css` under web/
+ * except web/css itself (the manifest's), tests, and vendored code.
+ *
+ * They are held to the dead-selector check against the whole production
+ * corpus, not their own directory's sources: a sheet applies to the whole
+ * document once loaded, so a class it styles is alive when any production
+ * source builds it.
+ * @param {string} root - The repository root.
+ * @returns {{sheets: Sheet[], sources: Map<string, string>}} Each sheet by repo-relative path, and its text.
+ */
+function outsideStylesheets(root) {
+  const web = path.join(root, 'web');
+  const skipped = [path.join(web, 'css'), path.join(web, 'js', 'vendor')].map((dir) => dir + path.sep);
+  const sheets = [];
+  const sources = new Map();
+  for (const file of walk(web, (n) => n.endsWith('.css'))) {
+    const rel = relPath(root, file);
+    if (skipped.some((dir) => file.startsWith(dir)) || isTestSource(rel)) continue;
+    sheets.push({ file: rel, layer: '', abs: file });
+    sources.set(rel, fs.readFileSync(file, 'utf8'));
+  }
+  return { sheets, sources };
+}
+
+/**
  * Calls whose string arguments are text for a person or a log, never a class
  * name: the translation markers and the console. A string that only appears
  * in a message cannot be what puts a class on an element.
@@ -738,17 +767,40 @@ function isTextCall(node) {
 const MODULE_PATH_NODES = new Set(['ImportDeclaration', 'ExportNamedDeclaration', 'ExportAllDeclaration', 'ImportExpression']);
 
 /**
+ * The string that ends the left operand of a `+`: `'a ' + 'chip-' + kind`
+ * parses as `('a ' + 'chip-') + kind`, and it is `'chip-'` that `kind` is
+ * appended to.
+ * @param {import('estree').Expression|import('estree').PrivateIdentifier} node - The left operand.
+ * @returns {string|null} Its last string, or null when it does not end in one.
+ */
+function trailingString(node) {
+  let leaf = node;
+  while (leaf.type === 'BinaryExpression' && leaf.operator === '+') leaf = leaf.right;
+  if (leaf.type === 'Literal' && typeof leaf.value === 'string') return leaf.value;
+  if (leaf.type === 'TemplateLiteral') {
+    const last = leaf.quasis[leaf.quasis.length - 1];
+    return last.value.cooked ?? last.value.raw;
+  }
+  return null;
+}
+
+/**
  * The string contents of one JS source: its string literals and template
  * text. Not its comments, not its identifiers (a variable called `ci` names no
  * class), not a module path (`import … from './tool-schema.js'`), and not the
  * argument of a text call. What is left is everything a class attribute can be
  * built from.
+ *
+ * Of those, the ones something is appended to at runtime — template text
+ * before a `${…}`, and a string on the left of a `+` — also go to `composed`:
+ * they are what a dynamicClasses entry must find its prefix at the end of.
  * @param {string} text - The source's text.
  * @param {string} file - Its name, for the parse error.
  * @param {typeof import('espree')} espree - The parser.
  * @param {string[]} out - Where each string is appended.
+ * @param {string[]} composed - Where each composed string is appended.
  */
-function jsStrings(text, file, espree, out) {
+function jsStrings(text, file, espree, out, composed) {
   let ast = null;
   let error = null;
   for (const sourceType of ['module', 'script']) {
@@ -765,6 +817,13 @@ function jsStrings(text, file, espree, out) {
     if ((node.type === 'CallExpression' || node.type === 'NewExpression') && isTextCall(node)) muted = true;
     if (node.type === 'Literal' && typeof node.value === 'string' && !muted) out.push(node.value);
     if (node.type === 'TemplateElement' && !muted) out.push(node.value.cooked ?? node.value.raw);
+    if (node.type === 'TemplateLiteral' && !muted) {
+      for (const quasi of node.quasis.slice(0, -1)) composed.push(quasi.value.cooked ?? quasi.value.raw);
+    }
+    if (node.type === 'BinaryExpression' && node.operator === '+' && !muted) {
+      const left = trailingString(node.left);
+      if (left !== null) composed.push(left);
+    }
     for (const [key, value] of Object.entries(node)) {
       if (key === 'source' && MODULE_PATH_NODES.has(node.type)) continue;
       if (Array.isArray(value)) value.forEach((child) => visit(child, muted));
@@ -789,8 +848,9 @@ const ATTRIBUTE_VALUE = /=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
  * @param {string} file - Its name, for a script's parse error.
  * @param {typeof import('espree')} espree - The parser.
  * @param {string[]} out - Where each string is appended.
+ * @param {string[]} composed - Where each composed string of its scripts is appended.
  */
-function htmlStrings(text, file, espree, out) {
+function htmlStrings(text, file, espree, out, composed) {
   let html = text.replace(/<!--[\s\S]*?-->/g, '');
   html = html.replace(/(<script\b([^>]*)>)([\s\S]*?)(<\/script>)/gi, (whole, open, attrs, body, close) => {
     const code = body.replace(TEMPLATE_ACTION, '_');
@@ -800,7 +860,7 @@ function htmlStrings(text, file, espree, out) {
           if (token.type === 'String') out.push(token.value);
         }
       } else {
-        jsStrings(code, `${file} <script>`, espree, out);
+        jsStrings(code, `${file} <script>`, espree, out, composed);
       }
     }
     return open + close;
@@ -812,22 +872,22 @@ function htmlStrings(text, file, espree, out) {
 
 /**
  * Every token the production sources could put on an element as a class or
- * id, and the source text of each file by repo-relative path (the
- * dynamicClasses entries are checked against it). Tests, comments, extension
+ * id, and the composed strings of each file by repo-relative path (the
+ * dynamicClasses entries are checked against them). Tests, comments, extension
  * stylesheets and prose are not evidence that an element carries a class, so
  * they are not read.
  * @param {string} root - The repository root.
  * @param {typeof import('espree')} espree - The parser.
- * @returns {Corpus} The tokens, and each read file's text.
+ * @returns {Corpus} The tokens, and each read file's composed strings.
  */
 function productionCorpus(root, espree) {
   const sources = productionSources(root);
   const strings = [];
-  const files = new Map();
+  const composed = new Map();
   for (const file of sources.js) {
-    const text = fs.readFileSync(file, 'utf8');
-    files.set(relPath(root, file), text);
-    jsStrings(text, relPath(root, file), espree, strings);
+    const into = [];
+    composed.set(relPath(root, file), into);
+    jsStrings(fs.readFileSync(file, 'utf8'), relPath(root, file), espree, strings, into);
   }
   for (const file of sources.prism) {
     for (const token of espree.tokenize(fs.readFileSync(file, 'utf8'), { ecmaVersion: 'latest' })) {
@@ -835,15 +895,15 @@ function productionCorpus(root, espree) {
     }
   }
   for (const file of sources.html) {
-    const text = fs.readFileSync(file, 'utf8');
-    files.set(relPath(root, file), text);
-    htmlStrings(text, relPath(root, file), espree, strings);
+    const into = [];
+    composed.set(relPath(root, file), into);
+    htmlStrings(fs.readFileSync(file, 'utf8'), relPath(root, file), espree, strings, into);
   }
   const tokens = new Set();
   for (const text of strings) {
     for (const token of text.split(/[^\w-]+/)) if (token) tokens.add(token);
   }
-  return { tokens, files };
+  return { tokens, composed };
 }
 
 /**
@@ -1024,8 +1084,9 @@ function selectorNames(src) {
  *
  * - the pattern is a literal prefix and one trailing `*` — no family broader
  *   than one composing expression;
- * - `builtBy` is a production source (not a test), and its text contains that
- *   prefix immediately composed with something — `prefix${` or `'prefix' +`;
+ * - `builtBy` is a production source (not a test), and its code composes that
+ *   prefix with something — `prefix${` or `'prefix' +`, the prefix a whole
+ *   word at the end of the string — outside a comment and a text call;
  * - some class in the sheets matches it, or it is covering for nothing.
  *
  * Returns the patterns as regular expressions, for the dead-selector check.
@@ -1060,13 +1121,13 @@ function checkDynamicClasses(manifest, sheets, sources, corpus, failures) {
     }
     seen.add(pattern);
     const prefix = pattern.slice(0, -1);
-    const source = corpus.files.get(builtBy);
-    if (source === undefined) {
+    const strings = corpus.composed.get(builtBy);
+    if (strings === undefined) {
       failures.push({ item: pattern, message: `manifest.json dynamicClasses: "${pattern}" names ${builtBy}, which is not a production source` });
       continue;
     }
-    const composed = new RegExp(`${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\$\\{|['"\`]\\s*\\+)`);
-    if (!composed.test(source)) {
+    const builds = (s) => s.endsWith(prefix) && !/[\w-]/.test(s.charAt(s.length - prefix.length - 1));
+    if (!strings.some(builds)) {
       failures.push({ item: pattern, message: `manifest.json dynamicClasses: ${builtBy} does not compose "${prefix}" with anything (\`${prefix}\${…}\` or '${prefix}' + …)` });
       continue;
     }
@@ -1192,9 +1253,8 @@ function checkTokenParity(manifest, sheets, sources, corpus) {
       const isDark = /data-theme\s*=\s*["']?dark/.test(rule.selector);
       const isRoot = /^\s*:root\s*$/.test(rule.selector);
       if (!isLight && !isDark && !isRoot) continue;
-      const body = blockBodyAt(clean, rule.line);
       const into = isRoot ? rootScale : themes[isLight ? 'light' : 'dark'];
-      for (const m of body.matchAll(/(--[\w-]+)\s*:/g)) into.add(m[1]);
+      for (const m of rule.body.matchAll(/(--[\w-]+)\s*:/g)) into.add(m[1]);
     }
   }
 
@@ -1240,34 +1300,16 @@ function checkTokenParity(manifest, sheets, sources, corpus) {
 }
 
 /**
- * The body of the first block that opens on or after a line.
- * @param {string} clean - Comment-free stylesheet text.
- * @param {number} line - A 1-based line, a rule's selector line.
- * @returns {string} The text inside that block's braces; '' when no brace follows, and the whole text when it never closes.
- */
-function blockBodyAt(clean, line) {
-  const lines = clean.split('\n');
-  const start = clean.split('\n').slice(0, line - 1).join('\n').length;
-  const open = clean.indexOf('{', start);
-  if (open < 0) return '';
-  let depth = 0;
-  for (let i = open; i < clean.length; i++) {
-    if (clean[i] === '{') depth++;
-    else if (clean[i] === '}') { depth--; if (depth === 0) return clean.slice(open + 1, i); }
-  }
-  return lines.join('\n');
-}
-
-/**
  * link-parity: both HTML documents link the manifest's sheets, in order.
  * @param {Manifest} manifest - The parsed manifest.
+ * @param {string} [root] - The repository root.
  * @returns {Failure[]} Missing, extra and out-of-order links, and a missing document.
  */
-function checkLinkParity(manifest) {
+function checkLinkParity(manifest, root = repoRoot) {
   const wanted = manifest.sheets.map((s) => s.file);
   const failures = [];
   for (const rel of ['web/index.html', 'web/js-tests/headless-test.html']) {
-    const file = path.join(repoRoot, rel);
+    const file = path.join(root, rel);
     let html;
     try {
       html = fs.readFileSync(file, 'utf8');
@@ -1426,19 +1468,20 @@ function valueComponents(value) {
  * unit:type-scale, which reads them as the page parsed them. Injected styles
  * are only in a page once something has used them, so they are read from
  * source here.
+ * @param {string} [root] - The repository root.
  * @returns {Failure[]} Each line of a production JS or extension CSS file that writes a literal font-size or radius.
  */
-function checkScaleLiterals() {
+function checkScaleLiterals(root = repoRoot) {
   // Tests and third-party code are not the app's styling; everything else is.
-  const vendor = path.join(repoRoot, 'web', 'js', 'vendor') + path.sep;
+  const vendor = path.join(root, 'web', 'js', 'vendor') + path.sep;
   const files = [
-    ...walk(path.join(repoRoot, 'web', 'js'), (n) => n.endsWith('.js')),
-    ...walk(path.join(repoRoot, 'web', 'sdk'), (n) => n.endsWith('.js')),
-    ...walk(path.join(repoRoot, 'web', 'extensions'), (n) => n.endsWith('.js') || n.endsWith('.css')),
-  ].filter((file) => !file.startsWith(vendor) && !isTestSource(relPath(repoRoot, file)));
+    ...walk(path.join(root, 'web', 'js'), (n) => n.endsWith('.js')),
+    ...walk(path.join(root, 'web', 'sdk'), (n) => n.endsWith('.js')),
+    ...walk(path.join(root, 'web', 'extensions'), (n) => n.endsWith('.js') || n.endsWith('.css')),
+  ].filter((file) => !file.startsWith(vendor) && !isTestSource(relPath(root, file)));
   const failures = [];
   for (const file of files) {
-    const rel = path.relative(repoRoot, file).split(path.sep).join('/');
+    const rel = relPath(root, file);
     const lines = fs.readFileSync(file, 'utf8').split('\n');
     lines.forEach((text, index) => {
       for (const match of text.matchAll(/(?:^|[\s;{"'`])(font-size|border(?:-[a-z]+)*-radius)\s*:\s*([^;}\n"'`]+)/g)) {
@@ -1917,9 +1960,15 @@ function main() {
   }
 
   const corpus = productionCorpus(repoRoot, loadParser().espree);
+  const outside = outsideStylesheets(repoRoot);
   const results = {
     'ownership': checkOwnership(manifest, sheets, sources),
-    'dead-selector': checkDeadSelectors(manifest, sheets, sources, corpus),
+    'dead-selector': checkDeadSelectors(
+      manifest,
+      [...sheets, ...outside.sheets],
+      new Map([...sources, ...outside.sources]),
+      corpus,
+    ),
     'token-parity': checkTokenParity(manifest, sheets, sources, corpus),
     'link-parity': checkLinkParity(manifest),
     'layer-order': checkLayerOrder(manifest, sheets, sources),
@@ -1952,16 +2001,26 @@ if (require.main === module) main();
 
 // The cascade model — the parser, specificity, the property families and the
 // reachability filter — is also what `scripts/css-cascade-diff` needs to answer
-// "did this refactor change who wins today?". Exporting it keeps one copy.
+// "did this refactor change who wins today?". Exporting it keeps one copy. The
+// checks are exported for their fixture cases, tooling/lint-css-arch.test.js.
 module.exports = {
   canMeet,
+  checkAssetUrls,
   checkDeadSelectors,
+  checkLayerInversion,
+  checkLayerOrder,
+  checkLinkParity,
+  checkOwnership,
+  checkScaleLiterals,
+  checkTokenParity,
   productionCorpus,
+  reportInversionRatchet,
   cssDir,
   declarationsIn,
   loadMarkupModel,
   mediaCompatible,
   mediaContext,
+  outsideStylesheets,
   overlappingProperty,
   parseComplex,
   parseRules,

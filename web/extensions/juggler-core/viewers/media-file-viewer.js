@@ -19,13 +19,16 @@ const STYLES = `
   border-radius: var(--radius-md);
   background: var(--bg-secondary);
 }
+
 video.media-view-player {
   max-height: 70vh;
 }
+
 audio.media-view-player {
   width: 100%;
   background: transparent;
 }
+
 .media-view-note {
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);

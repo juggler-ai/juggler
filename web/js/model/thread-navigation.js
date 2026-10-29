@@ -10,11 +10,23 @@
  * MessageThread instances.
  */
 
-import { TOOL_STATES } from '../../sdk/lib/message.js';
+import { TOOL_STATES, itemField } from '../../sdk/lib/message.js';
+import { arrayItems, isItemView } from './item-accessor.js';
+
+/** @typedef {import('./item-accessor.js').ItemView} ItemView */
+
+/**
+ * Whether a value is a thread item.
+ * @param {unknown} item - An element of an items array
+ * @returns {item is ItemView} True for a thread item
+ */
+function isThreadItem(item) {
+  return isItemView(item) && item.get('type') === 'thread';
+}
 
 /**
  * Extract message IDs of newly inserted items from a Yjs delta.
- * @param {Array<any>} delta - Yjs delta array
+ * @param {unknown} delta - Yjs delta array
  * @returns {string[]} Array of itemIds that were inserted
  */
 export function extractInsertedItemIds(delta) {
@@ -23,13 +35,11 @@ export function extractInsertedItemIds(delta) {
   if (!Array.isArray(delta)) return itemIds;
 
   for (const change of delta) {
-    if (change.insert && Array.isArray(change.insert)) {
-      for (const item of change.insert) {
-        if (item && typeof item === 'object') {
-          const id = item.get ? item.get('itemId') : item.itemId;
-          if (id) itemIds.push(id);
-        }
-      }
+    const insert = itemField(change, 'insert');
+    if (!Array.isArray(insert)) continue;
+    for (const item of insert) {
+      const id = itemField(item, 'itemId');
+      if (typeof id === 'string' && id) itemIds.push(id);
     }
   }
   return itemIds;
@@ -37,17 +47,13 @@ export function extractInsertedItemIds(delta) {
 
 /**
  * Find which thread Y.Map owns a given Y.Array by searching recursively.
- * @param {*} arr - Y.Array to search within
- * @param {*} targetArray - The Y.Array we're looking for
- * @returns {*|null} The thread Y.Map that owns targetArray, or null
+ * @param {unknown} arr - Y.Array to search within
+ * @param {unknown} targetArray - The Y.Array we're looking for
+ * @returns {ItemView|null} The thread Y.Map that owns targetArray, or null
  */
 export function findThreadForArray(arr, targetArray) {
-  if (!arr) return null;
-  const items = arr.toArray();
-  for (const item of items) {
-    if (!item || typeof item.get !== 'function' || item.get('type') !== 'thread') {
-      continue;
-    }
+  for (const item of arrayItems(arr)) {
+    if (!isThreadItem(item)) continue;
     const threadItems = item.get('items');
     if (threadItems === targetArray) {
       return item;
@@ -64,27 +70,21 @@ export function findThreadForArray(arr, targetArray) {
  * Find the parent thread Y.Map for a given threadItemId.
  * Returns null if the thread is at the root level (direct child of rootArr).
  * Returns undefined if not found in the subtree.
- * @param {*} arr - Y.Array to search within
+ * @param {unknown} arr - Y.Array to search within
  * @param {string} targetId - The threadItemId to find the parent for
- * @returns {*|null|undefined} Parent Y.Map, null if at root level, undefined if not found
+ * @returns {ItemView|null|undefined} Parent Y.Map, null if at root level, undefined if not found
  */
 export function findParentInArray(arr, targetId) {
   if (!arr) return undefined;
-  const items = arr.toArray();
-  for (const item of items) {
-    if (!item || typeof item.get !== 'function' || item.get('type') !== 'thread') {
-      continue;
-    }
+  for (const item of arrayItems(arr)) {
+    if (!isThreadItem(item)) continue;
     if (item.get('itemId') === targetId) {
       return null; // Found at this level — parent is the container above
     }
     const threadItems = item.get('items');
     if (threadItems) {
-      const children = threadItems.toArray();
-      for (const child of children) {
-        if (child && typeof child.get === 'function' &&
-                    child.get('type') === 'thread' &&
-                    child.get('itemId') === targetId) {
+      for (const child of arrayItems(threadItems)) {
+        if (isThreadItem(child) && child.get('itemId') === targetId) {
           return item; // This thread Y.Map is the parent
         }
       }
@@ -102,24 +102,24 @@ export function findParentInArray(arr, targetId) {
  * A Pause mark names one thread and stands over everything nested below it, so
  * this is what answers "does that mark cover this column". A thread the walk
  * cannot find is read as top-level, which keeps a root mark covering it.
- * @param {Array<*>} items - Root items array to search.
+ * @param {unknown[]} items - Root items array to search.
  * @param {string} threadItemId - Thread to walk up from; '' is the root itself.
  * @returns {string[]} Thread ids from the named thread up to the root.
  */
 export function threadAncestry(items, threadItemId) {
   if (!threadItemId) return [''];
   /**
-   * @param {Array<*>} arr - Items to search.
+   * @param {unknown[]} arr - Items to search.
    * @param {string[]} path - Ids of the threads owning arr, innermost first.
    * @returns {string[]|null} The chain, or null when this subtree lacks it.
    */
   const walk = (arr, path) => {
-    for (const item of arr || []) {
-      if (!item || typeof item.get !== 'function' || item.get('type') !== 'thread') continue;
-      const id = item.get('itemId');
+    for (const item of arr) {
+      if (!isThreadItem(item)) continue;
+      const id = item.get('itemId') ?? '';
       if (id === threadItemId) return [id, ...path, ''];
       const nested = item.get('items');
-      const found = nested ? walk(nested.toArray(), [id, ...path]) : null;
+      const found = nested ? walk(arrayItems(nested), [id, ...path]) : null;
       if (found) return found;
     }
     return null;
@@ -129,18 +129,16 @@ export function threadAncestry(items, threadItemId) {
 
 /**
  * Walk all thread items recursively, calling callback for each.
- * @param {Array<*>} items - Items to walk
- * @param {(threadYMap: any) => void} callback - Called with each thread Y.Map
+ * @param {unknown[]} items - Items to walk
+ * @param {(threadYMap: ItemView) => void} callback - Called with each thread Y.Map
  */
 export function walkThreads(items, callback) {
   for (const item of items) {
-    if (!item || typeof item.get !== 'function' || item.get('type') !== 'thread') {
-      continue;
-    }
+    if (!isThreadItem(item)) continue;
     const threadItems = item.get('items');
     if (!threadItems) continue;
     callback(item);
-    walkThreads(threadItems.toArray(), callback);
+    walkThreads(arrayItems(threadItems), callback);
   }
 }
 
@@ -151,7 +149,7 @@ export function walkThreads(items, callback) {
  * "needs your input" highlight from a deeply-nested sub-thread up to every
  * ancestor tile and the conversation tab — so the visual route from the tab to
  * the required action is unbroken regardless of nesting depth.
- * @param {Array<*>|{toArray: () => Array<*>}|null|undefined} items - Items to
+ * @param {unknown} items - Items to
  *   search. Accepts a plain JS array (MessageThread.items) or a Y.Array
  *   (threadYMap.get('items')).
  * @returns {boolean} True if any descendant tool-action is pending approval.
@@ -169,7 +167,7 @@ export function hasPendingApprovalInTree(items) {
  * yet be approved without the user ever seeing it, so it is not (yet) something
  * to interrupt them about. This is the question the attention alert asks, as
  * opposed to the highlight, which marks everything parked.
- * @param {Array<*>|{toArray: () => Array<*>}|null|undefined} items - Items to
+ * @param {unknown} items - Items to
  *   search (plain JS array or Y.Array).
  * @returns {boolean} True if any descendant tool-action is parked with no
  *   review in flight.
@@ -182,21 +180,19 @@ export function hasUnattendedPendingApprovalInTree(items) {
  * Whether a tool-action's `reviewStatus` says a strategy reviewer is in flight
  * for it. The field is a Y.Map in the doc and a plain object in the fixtures
  * that stand in for one, so read it both ways.
- * @param {*} item - A tool-action item (Y.Map or plain).
+ * @param {ItemView} item - A tool-action item (Y.Map or plain).
  * @returns {boolean} True while a review is running on this call.
  * @private
  */
 function isUnderReview(item) {
-  const reviewStatus = item.get('reviewStatus');
-  if (!reviewStatus) return false;
-  return !!(reviewStatus.get ? reviewStatus.get('busy') : reviewStatus.busy);
+  return !!itemField(item.get('reviewStatus'), 'busy');
 }
 
 /**
  * The itemId of the first tool-action awaiting approval anywhere in a subtree,
  * in document order (depth-first through nested threads) — the approval
  * jump-to-attention lands on, which may sit several threads deep.
- * @param {Array<*>|{toArray: () => Array<*>}|null|undefined} items - Items to
+ * @param {unknown} items - Items to
  *   search (plain JS array or Y.Array).
  * @returns {string|null} The approval's itemId, or null when nothing is parked.
  */
@@ -206,7 +202,7 @@ export function findFirstPendingApprovalId(items) {
 
 /**
  * Shared walk behind the two pending-approval predicates.
- * @param {Array<*>|{toArray: () => Array<*>}|null|undefined} items - Items to search.
+ * @param {unknown} items - Items to search.
  * @param {boolean} countUnderReview - Whether a parked call a strategy reviewer
  *   currently has in hand counts.
  * @returns {boolean} True if any descendant tool-action qualifies.
@@ -218,19 +214,15 @@ function anyPendingApproval(items, countUnderReview) {
 
 /**
  * The first descendant tool-action awaiting approval, depth-first.
- * @param {Array<*>|{toArray: () => Array<*>}|null|undefined} items - Items to search.
+ * @param {unknown} items - Items to search.
  * @param {boolean} countUnderReview - Whether a parked call a strategy reviewer
  *   currently has in hand counts.
- * @returns {*} The qualifying tool-action item, or null.
+ * @returns {ItemView|null} The qualifying tool-action item, or null.
  * @private
  */
 function firstPendingApproval(items, countUnderReview) {
-  if (!items) return null;
-  const arr = typeof (/** @type {any} */ (items).toArray) === 'function'
-    ? /** @type {any} */ (items).toArray()
-    : items;
-  for (const item of arr) {
-    if (!item || typeof item.get !== 'function') continue;
+  for (const item of arrayItems(items)) {
+    if (!isItemView(item)) continue;
     const type = item.get('type');
     if (type === 'tool-action') {
       const state = item.get('state');
@@ -255,17 +247,13 @@ function firstPendingApproval(items, countUnderReview) {
  * there live work anywhere under here", not just "is something awaiting
  * approval". Mirror of the Go worker's terminality check (findThreadWith-
  * IncompleteTool / cancelToolsInArray).
- * @param {Array<*>|{toArray: () => Array<*>}|null|undefined} items - Items to
+ * @param {unknown} items - Items to
  *   search (plain JS array or Y.Array).
  * @returns {boolean} True if any descendant tool-action is non-terminal.
  */
 export function hasUnsettledToolInTree(items) {
-  if (!items) return false;
-  const arr = typeof (/** @type {any} */ (items).toArray) === 'function'
-    ? /** @type {any} */ (items).toArray()
-    : items;
-  for (const item of arr) {
-    if (!item || typeof item.get !== 'function') continue;
+  for (const item of arrayItems(items)) {
+    if (!isItemView(item)) continue;
     const type = item.get('type');
     if (type === 'tool-action') {
       const state = item.get('state');
@@ -304,21 +292,17 @@ export function hasUnsettledToolInTree(items) {
  * Both numbers come from ONE walk on purpose: the callers ask on every
  * streaming tick, and a second traversal of the whole tree to answer the
  * second half of the same question is exactly the work that made this hot.
- * @param {Array<*>|{toArray: () => Array<*>}|null|undefined} items - Items to
+ * @param {unknown} items - Items to
  *   search (plain JS array or Y.Array).
  * @returns {{count: number, oldestStart: number}} How many descendant
  *   tool-actions are running, and the earliest claim stamp among them (0 when
  *   none is running or none carries a stamp).
  */
 export function runningToolsInTree(items) {
-  if (!items) return { count: 0, oldestStart: 0 };
-  const arr = typeof (/** @type {any} */ (items).toArray) === 'function'
-    ? /** @type {any} */ (items).toArray()
-    : items;
   let count = 0;
   let oldestStart = 0;
-  for (const item of arr) {
-    if (!item || typeof item.get !== 'function') continue;
+  for (const item of arrayItems(items)) {
+    if (!isItemView(item)) continue;
     const type = item.get('type');
     if (type === 'tool-action') {
       if (item.get('state') !== TOOL_STATES.RUNNING) continue;
@@ -341,19 +325,20 @@ export function runningToolsInTree(items) {
 
 /**
  * Find an item by itemId, searching recursively through nested threads.
- * @param {Array<*>} items - Items to search
+ * @param {unknown[]} items - Items to search
  * @param {string} id - Item ID to find
- * @returns {*|null} Y.Map or null
+ * @returns {ItemView|null} Y.Map or null
  */
 export function findItemByIdRecursive(items, id) {
   for (const item of items) {
+    if (!isItemView(item)) continue;
     if (item.get('itemId') === id) {
       return item;
     }
     if (item.get('type') === 'thread') {
       const threadItems = item.get('items');
       if (threadItems) {
-        const found = findItemByIdRecursive(threadItems.toArray(), id);
+        const found = findItemByIdRecursive(arrayItems(threadItems), id);
         if (found) return found;
       }
     }

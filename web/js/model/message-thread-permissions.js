@@ -25,6 +25,7 @@ import { createScopedStore, SCOPE_SESSION, SCOPE_CONVERSATION } from './scoped-p
 
 /**
  * @typedef {import('./scoped-permission-store.js').PermissionScope} PermissionScope
+ * @typedef {import('./message-thread.js').default} MessageThread
  */
 
 /**
@@ -32,7 +33,7 @@ import { createScopedStore, SCOPE_SESSION, SCOPE_CONVERSATION } from './scoped-p
  * @property {string} id
  * @property {string} itemType
  * @property {string} kind
- * @property {any} value
+ * @property {unknown} value
  * @property {PermissionScope} [scope]
  */
 
@@ -57,7 +58,25 @@ function newPathId() {
   return 'p_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-/** @param {any} mt @param {string} itemType @param {PermissionScope|undefined} requested @returns {PermissionScope} */
+/**
+ * A stored entry's fields; anything that is not an object has none.
+ * @param {unknown} value - The stored entry
+ * @returns {Record<string, unknown>} Its fields
+ */
+function fieldsOf(value) {
+  return value && typeof value === 'object' ? /** @type {Record<string, unknown>} */ (value) : {};
+}
+
+/**
+ * A stored field as text; anything that is not a string reads as ''.
+ * @param {unknown} value - The stored field
+ * @returns {string} The text
+ */
+function textOf(value) {
+  return typeof value === 'string' ? value : '';
+}
+
+/** @param {MessageThread} mt @param {string} itemType @param {PermissionScope|undefined} requested @returns {PermissionScope} */
 function defaultScopeFor(mt, itemType, requested) {
   const policy = mt.getPermissionScopePolicy?.(itemType);
   if (requested && policy?.allowedScopes?.includes?.(requested)) return requested;
@@ -65,24 +84,25 @@ function defaultScopeFor(mt, itemType, requested) {
   return policy?.defaultScope || SCOPE_CONVERSATION;
 }
 
-/** @param {any} mt @param {string} itemType @param {PermissionScope} scope @returns {boolean} */
+/** @param {MessageThread} mt @param {string} itemType @param {PermissionScope} scope @returns {boolean} */
 function scopeAllowedFor(mt, itemType, scope) {
   const policy = mt.getPermissionScopePolicy?.(itemType);
   return !policy?.allowedScopes || policy.allowedScopes.includes(scope);
 }
 
-/** @param {any} r @param {PermissionScope} fallbackScope @returns {PermissionRule} */
-function normalizeRule(r, fallbackScope) {
+/** @param {unknown} entry @param {PermissionScope} fallbackScope @returns {PermissionRule} */
+function normalizeRule(entry, fallbackScope) {
+  const r = fieldsOf(entry);
   return {
-    id: r.id || syntheticRuleId(r),
-    itemType: r.itemType,
-    kind: r.kind,
+    id: textOf(r.id) || syntheticRuleId(r),
+    itemType: textOf(r.itemType),
+    kind: textOf(r.kind),
     value: r.value,
     scope: r.scope === SCOPE_SESSION ? SCOPE_SESSION : fallbackScope
   };
 }
 
-/** @param {any} a @param {any} b @returns {boolean} */
+/** @param {PermissionRule} a @param {PermissionRule} b @returns {boolean} */
 function sameRuleIdentity(a, b) {
   return a.itemType === b.itemType && a.kind === b.kind && a.value === b.value;
 }
@@ -106,16 +126,16 @@ const rulesStore = createScopedStore({
   sessionAllows: (mt, rule) => scopeAllowedFor(mt, rule.itemType, SCOPE_SESSION),
   afterConversationSave: (mt, rules) => approvePermittedPendingApprovals(mt.conversation, {
     allowViewer: true,
-    itemTypes: [...new Set(rules.map((/** @type {PermissionRule} */ r) => r.itemType))]
+    itemTypes: [...new Set(rules.map(r => r.itemType))]
   })
 });
 
-/** @param {any} mt @returns {PermissionRule[]} */
+/** @param {MessageThread} mt @returns {PermissionRule[]} */
 export function getAllRules(mt) {
   return rulesStore.all(mt);
 }
 
-/** @param {any} mt @param {string} itemType @returns {PermissionRule[]} */
+/** @param {MessageThread} mt @param {string} itemType @returns {PermissionRule[]} */
 export function getRulesFor(mt, itemType) {
   return getAllRules(mt).filter(r => r.itemType === itemType);
 }
@@ -123,9 +143,9 @@ export function getRulesFor(mt, itemType) {
 /**
  * Add a new rule. Defaults to conversation scope unless `rule.scope` is set.
  * Dedupe checks both scopes so identical rules are not shown twice.
- * @param {any} mt
+ * @param {MessageThread} mt
  * @param {string} itemType
- * @param {Partial<PermissionRule> & {kind: string, value: any}} rule
+ * @param {Partial<PermissionRule> & {kind: string, value: unknown}} rule
  * @returns {PermissionRule}
  */
 export function addRule(mt, itemType, rule) {
@@ -141,25 +161,25 @@ export function addRule(mt, itemType, rule) {
   return desired;
 }
 
-/** @param {any} mt @param {string} ruleId @returns {boolean} */
+/** @param {MessageThread} mt @param {string} ruleId @returns {boolean} */
 export function removeRule(mt, ruleId) {
   return rulesStore.remove(mt, ruleId);
 }
 
-/** @param {any} mt @param {string} ruleId @param {Partial<PermissionRule>} patch @returns {boolean} */
+/** @param {MessageThread} mt @param {string} ruleId @param {Partial<PermissionRule>} patch @returns {boolean} */
 export function updateRule(mt, ruleId, patch) {
   return rulesStore.update(mt, ruleId, (cur, scope) =>
     normalizeRule({ ...cur, ...patch, id: cur.id, itemType: cur.itemType }, scope));
 }
 
-/** @param {any} mt @param {string} ruleId @param {PermissionScope} targetScope @returns {boolean} */
+/** @param {MessageThread} mt @param {string} ruleId @param {PermissionScope} targetScope @returns {boolean} */
 export function setRuleScope(mt, ruleId, targetScope) {
   return rulesStore.move(mt, ruleId, targetScope, {
-    canMoveTo: (m, rule) => scopeAllowedFor(m, rule.itemType, rule.scope)
+    canMoveTo: (m, rule) => scopeAllowedFor(m, rule.itemType, rule.scope ?? targetScope)
   });
 }
 
-/** @param {any} mt @param {string} itemType */
+/** @param {MessageThread} mt @param {string} itemType */
 export function clearRules(mt, itemType) {
   for (const scope of /** @type {PermissionScope[]} */ ([SCOPE_CONVERSATION, SCOPE_SESSION])) {
     rulesStore.save(mt, scope, rulesStore.read(mt, scope).filter(r => r.itemType !== itemType));
@@ -170,12 +190,13 @@ export function clearRules(mt, itemType) {
 // Allowed paths
 // ============================================================================
 
-/** @param {any} p @param {PermissionScope} fallbackScope @returns {AllowedPathEntry} */
-function normalizePathEntry(p, fallbackScope) {
-  if (typeof p === 'string') return { id: defaultPathId(p), path: p, scope: fallbackScope };
+/** @param {unknown} entry @param {PermissionScope} fallbackScope @returns {AllowedPathEntry} */
+function normalizePathEntry(entry, fallbackScope) {
+  if (typeof entry === 'string') return { id: defaultPathId(entry), path: entry, scope: fallbackScope };
+  const p = fieldsOf(entry);
   return {
-    id: p.id || defaultPathId(p.path || ''),
-    path: p.path || p.value || '',
+    id: textOf(p.id) || defaultPathId(textOf(p.path)),
+    path: textOf(p.path) || textOf(p.value),
     scope: p.scope === SCOPE_SESSION ? SCOPE_SESSION : fallbackScope
   };
 }
@@ -209,7 +230,7 @@ const pathsStore = createScopedStore({
  *
  * Null when a binding cannot be honoured — never the project as a fallback, for
  * the reason given on {@link getWorkspaceRootEntry}.
- * @param {any} mt @returns {string|null}
+ * @param {MessageThread} mt @returns {string|null}
  */
 export function getWorkingRoot(mt) {
   const conversation = mt?.conversation;
@@ -242,7 +263,7 @@ export function getWorkingRoot(mt) {
  * (`services/workspace-rebinding`): a conversation-scoped grant is re-rooted in
  * place, while a session-scoped one belongs to the project rather than to the
  * conversation and is copied down re-rooted instead of edited.
- * @param {any} mt @returns {AllowedPathEntry|null}
+ * @param {MessageThread} mt @returns {AllowedPathEntry|null}
  */
 function getWorkspaceRootEntry(mt) {
   const root = getWorkingRoot(mt);
@@ -250,7 +271,7 @@ function getWorkspaceRootEntry(mt) {
   return { id: defaultPathId(root), path: root, scope: SCOPE_SESSION, implicit: true };
 }
 
-/** @param {any} mt @returns {AllowedPathEntry[]} */
+/** @param {MessageThread} mt @returns {AllowedPathEntry[]} */
 export function getAllowedPathEntries(mt) {
   const root = getWorkspaceRootEntry(mt);
   const stored = pathsStore.all(mt).filter(p => p.path);
@@ -260,7 +281,7 @@ export function getAllowedPathEntries(mt) {
   return [root, ...stored.filter(p => p.path !== root.path)];
 }
 
-/** @param {any} mt @returns {string[]} */
+/** @param {MessageThread} mt @returns {string[]} */
 export function getAllowedPaths(mt) {
   return getAllowedPathEntries(mt).map(p => p.path);
 }
@@ -275,7 +296,7 @@ export function getAllowedPaths(mt) {
  * branched from. Writes and shell commands keep to {@link getAllowedPaths},
  * where the project is a different tree's business. A binding that cannot be
  * honoured adds nothing, for the reason given on {@link getWorkspaceRootEntry}.
- * @param {any} mt @returns {string[]}
+ * @param {MessageThread} mt @returns {string[]}
  */
 export function getReadablePaths(mt) {
   const allowed = getAllowedPaths(mt);
@@ -299,18 +320,18 @@ export function getReadablePaths(mt) {
  * so the implicit root here would be the PREVIOUS project and would re-authorise
  * reads/globs/greps across the old tree. Sending explicit grants only keeps the
  * server the sole authority for the project boundary.
- * @param {any} mt @returns {string[]}
+ * @param {MessageThread} mt @returns {string[]}
  */
 export function getExplicitAllowedPaths(mt) {
   return getAllowedPathEntries(mt).filter(p => !p.implicit).map(p => p.path);
 }
 
-/** @param {any} mt @param {string[]} paths */
+/** @param {MessageThread} mt @param {string[]} paths */
 export function setAllowedPaths(mt, paths) {
   pathsStore.save(mt, SCOPE_CONVERSATION, paths.map(path => ({ id: defaultPathId(path), path, scope: SCOPE_CONVERSATION })));
 }
 
-/** @param {any} mt @param {string} p @param {{scope?: PermissionScope}} [options] @returns {boolean} */
+/** @param {MessageThread} mt @param {string} p @param {{scope?: PermissionScope}} [options] @returns {boolean} */
 export function addAllowedPath(mt, p, options = {}) {
   const normalized = (p || '').trim();
   if (!normalized) return false;
@@ -320,19 +341,19 @@ export function addAllowedPath(mt, p, options = {}) {
   return true;
 }
 
-/** @param {any} mt @param {string} idOrPath @returns {boolean} */
+/** @param {MessageThread} mt @param {string} idOrPath @returns {boolean} */
 export function removeAllowedPath(mt, idOrPath) {
   return pathsStore.remove(mt, idOrPath);
 }
 
-/** @param {any} mt @param {string} idOrPath @param {string} newPath @returns {boolean} */
+/** @param {MessageThread} mt @param {string} idOrPath @param {string} newPath @returns {boolean} */
 export function updateAllowedPath(mt, idOrPath, newPath) {
   const normalized = (newPath || '').trim();
   if (!normalized) return false;
   return pathsStore.update(mt, idOrPath, entry => ({ ...entry, path: normalized }));
 }
 
-/** @param {any} mt @param {string} idOrPath @param {PermissionScope} targetScope @returns {boolean} */
+/** @param {MessageThread} mt @param {string} idOrPath @param {PermissionScope} targetScope @returns {boolean} */
 export function setAllowedPathScope(mt, idOrPath, targetScope) {
   return pathsStore.move(mt, idOrPath, targetScope);
 }
@@ -341,30 +362,26 @@ export function setAllowedPathScope(mt, idOrPath, targetScope) {
 // Strategy defaults
 // ============================================================================
 
-/** @param {any} mt @returns {PermissionRule[]} */
+/** @param {MessageThread} mt @returns {PermissionRule[]} */
 function getDefaultRules(mt) {
   const manifest = mt.strategy?.getManifest?.();
   const defaults = Array.isArray(manifest?.defaultRules) ? manifest.defaultRules : [];
-  return defaults.map((/** @type {any} */ r) => ({
-    id: r.id || syntheticRuleId(r),
-    itemType: r.itemType,
-    kind: r.kind,
-    value: r.value,
-    scope: SCOPE_CONVERSATION
-  }));
+  // A manifest is the strategy author's code, so a rule may carry fields
+  // DefaultRule does not declare (an `id`); normalizeRule reads them as stored.
+  return defaults.map(r => normalizeRule({ ...r, scope: SCOPE_CONVERSATION }, SCOPE_CONVERSATION));
 }
 
-/** @param {any} r @returns {string} */
+/** @param {{itemType?: unknown, kind?: unknown, value?: unknown}} r @returns {string} */
 function syntheticRuleId(r) {
   const v = typeof r.value === 'string' ? r.value : JSON.stringify(r.value);
-  return `default:${r.itemType}:${r.kind}:${v}`;
+  return `default:${String(r.itemType)}:${String(r.kind)}:${v}`;
 }
 
 /**
  * Strategy-provided default conversation paths. The project root is NOT included
  * here — the root a conversation works in is surfaced implicitly by
  * `getWorkspaceRootEntry`.
- * @param {any} mt @returns {string[]}
+ * @param {MessageThread} mt @returns {string[]}
  */
 function getDefaultAllowedPaths(mt) {
   const manifest = mt.strategy?.getManifest?.();

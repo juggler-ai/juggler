@@ -35,40 +35,43 @@
 
 import { threadRunSettled } from './run-records.js';
 import { itemField } from '../../sdk/lib/message.js';
+import { arrayItems, isItemView, isYMap } from './item-accessor.js';
+
+/** @typedef {import('./item-accessor.js').ItemView} ItemView */
 
 /**
- * Read a Y.Array, plain array, or nullish as a plain array.
- * @param {any} value - A Y.Array, plain array, or nothing.
- * @returns {Array<any>} The items, or an empty array.
+ * The array an item stands in: the one given, else the item's own parent.
+ * @param {unknown} itemYMap - The item Y.Map.
+ * @param {unknown} siblingArray - The array the caller says it stands in, if any.
+ * @returns {unknown[]} The siblings, the item among them.
  */
-function asArray(value) {
-  if (!value) return [];
-  if (typeof value.toArray === 'function') return value.toArray();
-  return Array.isArray(value) ? value : [];
+function siblingsOf(itemYMap, siblingArray) {
+  if (siblingArray) return arrayItems(siblingArray);
+  return arrayItems(itemYMap && typeof itemYMap === 'object' && 'parent' in itemYMap ? itemYMap.parent : undefined);
 }
 
 /**
  * Whether this item is an alias: a second view of a thread standing elsewhere in
  * the same array.
- * @param {any} itemYMap - The item Y.Map.
+ * @param {unknown} itemYMap - The item Y.Map.
  * @returns {boolean} True for an alias item.
  */
 export function isAlias(itemYMap) {
-  return !!itemYMap?.get?.('aliasOf');
+  return isItemView(itemYMap) && !!itemYMap.get('aliasOf');
 }
 
 /**
  * The canonical thread an alias names, from the array it stands in. Defaults to
  * the item's own containing Y.Array, which is that array by definition.
- * @param {any} itemYMap - The alias item Y.Map.
- * @param {any} [siblingArray] - The array the item stands in (Y.Array or array).
- * @returns {any|null} The canonical thread Y.Map, or null when it is gone.
+ * @param {unknown} itemYMap - The alias item Y.Map.
+ * @param {unknown} [siblingArray] - The array the item stands in (Y.Array or array).
+ * @returns {ItemView|null} The canonical thread Y.Map, or null when it is gone.
  */
 function resolveAliasTarget(itemYMap, siblingArray) {
-  const targetId = itemYMap?.get?.('aliasOf');
+  const targetId = isItemView(itemYMap) ? itemYMap.get('aliasOf') : undefined;
   if (!targetId) return null;
-  for (const item of asArray(siblingArray || itemYMap?.parent)) {
-    if (typeof item?.get !== 'function') continue;
+  for (const item of siblingsOf(itemYMap, siblingArray)) {
+    if (!isItemView(item)) continue;
     if (item.get('type') !== 'thread' || item.get('aliasOf')) continue;
     if (item.get('itemId') === targetId) return item;
   }
@@ -83,21 +86,21 @@ function resolveAliasTarget(itemYMap, siblingArray) {
  * That item is the session's live view: it shows the run the transcript is on
  * now, whoever started it. Every earlier item is a receipt for the one call it
  * was made by. Mirrors isTrailingViewOf in worker/run_records.go.
- * @param {any} itemYMap - The item Y.Map (canonical or alias).
- * @param {any} canonical - The canonical thread Y.Map it refers to.
- * @param {any} [siblingArray] - The array the item stands in.
+ * @param {unknown} itemYMap - The item Y.Map (canonical or alias).
+ * @param {unknown} canonical - The canonical thread Y.Map it refers to.
+ * @param {unknown} [siblingArray] - The array the item stands in.
  * @returns {boolean} True when no later item refers to the same session.
  */
 export function isTrailingViewOf(itemYMap, canonical, siblingArray) {
-  const canonicalId = canonical?.get?.('itemId');
+  const canonicalId = isItemView(canonical) ? canonical.get('itemId') : undefined;
   if (!canonicalId) return false;
-  const siblings = asArray(siblingArray || itemYMap?.parent);
+  const siblings = siblingsOf(itemYMap, siblingArray);
   for (let i = siblings.length - 1; i >= 0; i--) {
     const sibling = siblings[i];
-    if (typeof sibling?.get !== 'function' || sibling.get('type') !== 'thread') continue;
+    if (!isItemView(sibling) || sibling.get('type') !== 'thread') continue;
     const id = sibling.get('itemId');
     if (id !== canonicalId && sibling.get('aliasOf') !== canonicalId) continue;
-    return id === itemYMap?.get?.('itemId');
+    return isItemView(itemYMap) && id === itemYMap.get('itemId');
   }
   return false;
 }
@@ -111,14 +114,14 @@ export function isTrailingViewOf(itemYMap, canonical, siblingArray) {
  * threadRunRecords, whose "a record needs tool-use coordinates" guard is
  * load-bearing for the entries built per call — and a human-started run has no
  * coordinates at all. Mirrors runRecordByItemID in worker/run_records.go.
- * @param {any} threadYMap - The canonical thread Y.Map.
- * @param {string} itemId - The itemId of the message that started the run.
+ * @param {ItemView} threadYMap - The canonical thread Y.Map.
+ * @param {string|undefined} itemId - The itemId of the message that started the run.
  * @returns {{status: string, result: string}|null} That run's outcome, or null.
  */
 function runRecordByItemId(threadYMap, itemId) {
   if (!itemId) return null;
-  for (const item of asArray(threadYMap?.get?.('items'))) {
-    if (typeof item?.get !== 'function' || item.get('type') !== 'user') continue;
+  for (const item of arrayItems(threadYMap.get('items'))) {
+    if (!isItemView(item) || item.get('type') !== 'user') continue;
     if (item.get('itemId') !== itemId) continue;
     return { status: item.get('runStatus') || '', result: item.get('runResult') || '' };
   }
@@ -135,14 +138,14 @@ function runRecordByItemId(threadYMap, itemId) {
  * requires no run selector, which is the point — a run a human started by typing
  * into the thread is recorded on a plain user message, so threadRunRecords does
  * not see it. Mirrors trailingRunOutcome in worker/run_records.go.
- * @param {any} threadYMap - The canonical thread Y.Map.
+ * @param {ItemView} threadYMap - The canonical thread Y.Map.
  * @returns {{status: string, result: string}|null} That run's outcome, or null.
  */
 function trailingRunOutcome(threadYMap) {
-  const items = asArray(threadYMap?.get?.('items'));
+  const items = arrayItems(threadYMap.get('items'));
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
-    if (typeof item?.get !== 'function' || item.get('type') !== 'user') continue;
+    if (!isItemView(item) || item.get('type') !== 'user') continue;
     return { status: item.get('runStatus') || '', result: item.get('runResult') || '' };
   }
   return null;
@@ -154,13 +157,16 @@ function trailingRunOutcome(threadYMap) {
  * is awaiting approval, which column to open — is a question about that thread.
  * An alias whose canonical is gone resolves to itself, so callers still have a
  * Y.Map to read; it simply has no items.
- * @param {any} itemYMap - The item Y.Map.
- * @param {any} [siblingArray] - The array the item stands in.
- * @returns {any} The thread Y.Map holding the transcript.
+ * @template T
+ * @param {T} itemYMap - The item Y.Map.
+ * @param {unknown} [siblingArray] - The array the item stands in.
+ * @returns {T} The thread Y.Map holding the transcript.
  */
 export function canonicalThread(itemYMap, siblingArray) {
   if (!isAlias(itemYMap)) return itemYMap;
-  return resolveAliasTarget(itemYMap, siblingArray) || itemYMap;
+  // The canonical stands in the same array as the alias, so it is the same
+  // kind of map as the item it was reached from.
+  return /** @type {T} */ (resolveAliasTarget(itemYMap, siblingArray) || itemYMap);
 }
 
 /**
@@ -198,24 +204,27 @@ const VIEW_OWN_FIELDS = new Set([
  * every DOM key and selector that names them still resolves.
  *
  * Caller wraps this in its own transaction, along with the delete it precedes.
- * @param {any} canonicalYMap - The canonical thread Y.Map about to be deleted.
- * @param {any} [siblingArray] - The array it stands in (Y.Array or array).
- * @returns {any|null} The promoted view, or null when nothing else views it.
+ * @param {import('yjs').Map<unknown>} canonicalYMap - The canonical thread Y.Map about to be deleted.
+ * @param {unknown} [siblingArray] - The array it stands in (Y.Array or array).
+ * @returns {import('yjs').Map<unknown>|null} The promoted view, or null when nothing else views it.
  */
 export function promoteThreadView(canonicalYMap, siblingArray) {
-  const canonicalId = canonicalYMap?.get?.('itemId');
+  const canonicalId = canonicalYMap.get('itemId');
   if (!canonicalId || canonicalYMap.get('aliasOf')) return null;
 
-  const siblings = asArray(siblingArray || canonicalYMap?.parent);
-  const views = siblings.filter((/** @type {any} */ it) =>
-    typeof it?.get === 'function' && it.get('aliasOf') === canonicalId);
-  if (!views.length) return null;
-
+  const views = siblingsOf(canonicalYMap, siblingArray)
+    .filter(isYMap)
+    .filter(it => it.get('aliasOf') === canonicalId);
   const promoted = views[0];
+  if (!promoted) return null;
+
   for (const key of canonicalYMap.keys()) {
     if (VIEW_OWN_FIELDS.has(key)) continue;
     const value = canonicalYMap.get(key);
-    promoted.set(key, typeof value?.clone === 'function' ? value.clone() : value);
+    const copy = value && typeof value === 'object' && 'clone' in value && typeof value.clone === 'function'
+      ? /** @type {unknown} */ (value.clone())
+      : value;
+    promoted.set(key, copy);
   }
   promoted.delete('aliasOf');
 
@@ -228,7 +237,7 @@ export function promoteThreadView(canonicalYMap, siblingArray) {
  * The legacy `goal` a call recorded directly in its tool input. New documents
  * carry the resolved SubthreadSpec goal separately as `runGoal`, because a
  * delegating extension's detailed task field need not be named `goal`.
- * @param {any} input - A run's `runToolInput`.
+ * @param {unknown} input - A run's `runToolInput`.
  * @returns {string} The goal, or '' when the call named none.
  */
 function goalOfToolInput(input) {
@@ -242,35 +251,41 @@ function goalOfToolInput(input) {
  * threadRunRecords in worker/llm_request.go, including its exclusions — a fold
  * has no runs of its own, and a nested thread item's coordinates are its own run
  * selector, not a call into the thread holding it.
- * @param {any} threadYMap - The canonical thread Y.Map.
+ * @param {unknown} threadYMap - The canonical thread Y.Map.
  * @returns {Array<{toolUseId: string, goal: string, status: string, result: string}>} The runs.
  */
 export function threadRunRecords(threadYMap) {
-  if (threadYMap?.get?.('boundedCompaction') === true) return [];
+  if (!isItemView(threadYMap) || threadYMap.get('boundedCompaction') === true) return [];
   /** @type {Array<{toolUseId: string, goal: string, status: string, result: string}>} */
   const runs = [];
-  const add = (/** @type {any} */ read) => {
-    const toolUseId = read('runToolUseId');
+  /**
+   * @param {unknown} value - A stored run field
+   * @returns {string} The field when it is a string, else ''
+   */
+  const text = value => (typeof value === 'string' ? value : '');
+  /** @param {(key: 'runToolUseId'|'runToolInput'|'runToolName'|'runGoal'|'runStatus'|'runResult') => unknown} read */
+  const add = read => {
+    const toolUseId = text(read('runToolUseId'));
     const input = read('runToolInput');
     if (!toolUseId || !read('runToolName') || input === null || input === undefined) return;
     runs.push({
       toolUseId,
-      goal: read('runGoal') || goalOfToolInput(input),
-      status: read('runStatus') || '',
-      result: read('runResult') || ''
+      goal: text(read('runGoal')) || goalOfToolInput(input),
+      status: text(read('runStatus')),
+      result: text(read('runResult'))
     });
   };
-  for (const item of asArray(threadYMap?.get?.('items'))) {
-    if (typeof item?.get !== 'function') continue;
+  for (const item of arrayItems(threadYMap.get('items'))) {
+    if (!isItemView(item)) continue;
     if (item.get('type') === 'thread') {
       if (item.get('boundedCompaction') === true) {
-        for (const folded of asArray(item.get('foldedRuns'))) {
-          add((/** @type {string} */ key) => itemField(folded, key));
+        for (const folded of arrayItems(item.get('foldedRuns'))) {
+          add(key => itemField(folded, key));
         }
       }
       continue;
     }
-    add((/** @type {string} */ key) => item.get(key));
+    add(key => item.get(key));
   }
   return runs;
 }
@@ -287,18 +302,19 @@ export function threadRunRecords(threadYMap) {
  * Falls back to the item's `goal` field, then to the canonical's: a
  * user-created thread, a fold, and every document written before run selectors
  * carry their goal only there.
- * @param {any} itemYMap - The thread item Y.Map (canonical or alias).
- * @param {any} [siblingArray] - The array the item stands in.
+ * @param {unknown} itemYMap - The thread item Y.Map (canonical or alias).
+ * @param {unknown} [siblingArray] - The array the item stands in.
  * @returns {string} The goal to display for this item ('' when it has none).
  */
 export function itemGoal(itemYMap, siblingArray) {
-  if (itemYMap?.get?.('runToolUseId')) {
+  if (!isItemView(itemYMap)) return '';
+  if (itemYMap.get('runToolUseId')) {
     const runGoal = itemYMap.get('runGoal');
     if (typeof runGoal === 'string' && runGoal) return runGoal;
     const goal = goalOfToolInput(itemYMap.get('runToolInput'));
     if (goal) return goal;
   }
-  return itemYMap?.get?.('goal') || canonicalThread(itemYMap, siblingArray)?.get?.('goal') || '';
+  return itemYMap.get('goal') || canonicalThread(itemYMap, siblingArray).get('goal') || '';
 }
 
 /**
@@ -330,13 +346,14 @@ export function itemGoal(itemYMap, siblingArray) {
  * receipt item of its own, which selects it by the message that started it
  * (`runItemId`) because there is no call to name it by. Mirrors itemThreadRun in
  * worker/run_records.go.
- * @param {any} itemYMap - The thread item Y.Map (canonical, alias or receipt).
- * @param {any} [siblingArray] - The array the item stands in.
+ * @param {unknown} itemYMap - The thread item Y.Map (canonical, alias or receipt).
+ * @param {unknown} [siblingArray] - The array the item stands in.
  * @returns {ItemRunRecord|null} That run's record, or null.
  */
 export function itemRunRecord(itemYMap, siblingArray) {
-  const selector = itemYMap?.get?.('runToolUseId');
-  const runItemId = itemYMap?.get?.('runItemId');
+  if (!isItemView(itemYMap)) return null;
+  const selector = itemYMap.get('runToolUseId');
+  const runItemId = itemYMap.get('runItemId');
   if (!selector && !runItemId) return null;
   const canonical = isAlias(itemYMap) ? resolveAliasTarget(itemYMap, siblingArray) : itemYMap;
   if (!canonical) return null;
@@ -391,12 +408,12 @@ export function itemRunRecord(itemYMap, siblingArray) {
  * working" for as long as it exists. A RECEIPT is over by construction — it is
  * only ever appended for a run that has already settled, and nobody is waiting
  * on it. Mirrors itemRunSettled in worker/run_records.go.
- * @param {any} itemYMap - The item Y.Map (canonical, alias, receipt, or anything else).
- * @param {any} [siblingArray] - The array the item stands in.
+ * @param {unknown} itemYMap - The item Y.Map (canonical, alias, receipt, or anything else).
+ * @param {unknown} [siblingArray] - The array the item stands in.
  * @returns {boolean} True when this item's run is over.
  */
 export function itemRunSettled(itemYMap, siblingArray) {
-  if (itemYMap?.get?.('type') === 'thread' && itemYMap.get('runToolUseId')) {
+  if (isItemView(itemYMap) && itemYMap.get('type') === 'thread' && itemYMap.get('runToolUseId')) {
     const record = itemRunRecord(itemYMap, siblingArray);
     if (record) return !!record.status;
     const canonical = isAlias(itemYMap) ? resolveAliasTarget(itemYMap, siblingArray) : itemYMap;

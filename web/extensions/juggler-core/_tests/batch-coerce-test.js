@@ -62,10 +62,13 @@ export async function runTests(_ctx) {
   // ContextItem constructor only requires these fields to be truthy.
   const item = new BatchContextItem({
     id: 'test-batch',
-    session: {},
-    conversation: {},
-    messageThread: {}
+    session: /** @type {import('../../../js/model/session.js').default} */ ({}),
+    conversation: /** @type {import('../../../js/model/conversation.js').default} */ ({}),
+    messageThread: /** @type {import('../../../js/model/message-thread.js').MessageThread} */ ({})
   });
+
+  /** @type {import('../../../js/services/action-executor.js').ActionStatus} */
+  const pending = { actionId: 'batch', pending: true, success: false, error: '' };
 
   const stringifiedSearches = JSON.stringify([
     { pattern: 'window/control', glob: 'cmd/juggler/server/*.go', output_mode: 'content' },
@@ -73,20 +76,21 @@ export async function runTests(_ctx) {
   ]);
 
   await run('_coerceArray parses a JSON-string-of-an-array', () => {
-    const out = BatchContextItem._coerceArray(stringifiedSearches);
-    assert(Array.isArray(out) && out.length === 2,
+    const out = BatchContextItem.__coerceArrayForTests(stringifiedSearches);
+    if (!Array.isArray(out)) throw new Error(`expected an array, got ${JSON.stringify(out)}`);
+    assert(out.length === 2,
       `expected 2-element array, got ${JSON.stringify(out)}`);
-    assert(out[0].pattern === 'window/control',
+    assert(out[0]?.pattern === 'window/control',
       `expected first pattern preserved, got ${out[0]?.pattern}`);
   });
 
   await run('_coerceArray passes a real array through unchanged', () => {
     const arr = [{ pattern: 'x' }];
-    assert(BatchContextItem._coerceArray(arr) === arr, 'array identity should be preserved');
+    assert(BatchContextItem.__coerceArrayForTests(arr) === arr, 'array identity should be preserved');
   });
 
   await run('_coerceArray leaves a non-JSON string untouched', () => {
-    assert(BatchContextItem._coerceArray('not json') === 'not json',
+    assert(BatchContextItem.__coerceArrayForTests('not json') === 'not json',
       'unparseable string should be returned as-is');
   });
 
@@ -94,15 +98,15 @@ export async function runTests(_ctx) {
     // `{"pattern":"x"}` parses but isn't an array — return original so the
     // caller's array check still reports the real shape error.
     const obj = '{"pattern":"x"}';
-    assert(BatchContextItem._coerceArray(obj) === obj,
+    assert(BatchContextItem.__coerceArrayForTests(obj) === obj,
       'JSON object string should not be unwrapped to an object');
   });
 
   await run('validate accepts a stringified searches array (batch_grep)', async () => {
     const result = await item.validate({ searches: stringifiedSearches });
     assert(result.valid === true, `expected valid, got error: ${result.error}`);
-    assert(result.params._batchType === 'grep', `expected grep, got ${result.params?._batchType}`);
-    assert(Array.isArray(result.params.searches) && result.params.searches.length === 2,
+    assert(result.params?._batchType === 'grep', `expected grep, got ${result.params?._batchType}`);
+    assert(Array.isArray(result.params?.searches) && result.params.searches.length === 2,
       'validated searches must be a 2-element array');
   });
 
@@ -110,8 +114,8 @@ export async function runTests(_ctx) {
     const files = JSON.stringify([{ file_path: '/a.txt' }, { file_path: '/b.txt' }]);
     const result = await item.validate({ files });
     assert(result.valid === true, `expected valid, got error: ${result.error}`);
-    assert(result.params._batchType === 'read', `expected read, got ${result.params?._batchType}`);
-    assert(Array.isArray(result.params.files) && result.params.files.length === 2,
+    assert(result.params?._batchType === 'read', `expected read, got ${result.params?._batchType}`);
+    assert(Array.isArray(result.params?.files) && result.params.files.length === 2,
       'validated files must be a 2-element array');
   });
 
@@ -130,16 +134,31 @@ export async function runTests(_ctx) {
   });
 
   await run('getStatusUI counts coerced searches, not string length', () => {
-    const ui = item.getStatusUI({ pending: true }, { searches: stringifiedSearches });
+    const ui = item.getStatusUI(pending, { searches: stringifiedSearches });
+    if (!ui) throw new Error('expected a status UI for a pending call');
     assert(ui.typeName === 'BatchGrep', `expected BatchGrep, got ${ui?.typeName}`);
     assert(ui.summary === '2 searches...', `expected "2 searches...", got "${ui?.summary}"`);
   });
 
   await run('getStatusUI counts coerced files, not string length', () => {
     const files = JSON.stringify([{ file_path: '/a.txt' }, { file_path: '/b.txt' }]);
-    const ui = item.getStatusUI({ pending: true }, { files });
+    const ui = item.getStatusUI(pending, { files });
+    if (!ui) throw new Error('expected a status UI for a pending call');
     assert(ui.typeName === 'BatchRead', `expected BatchRead, got ${ui?.typeName}`);
     assert(ui.summary === '2 files...', `expected "2 files...", got "${ui?.summary}"`);
+  });
+
+  /**
+   * A render context carrying only what the batch details view reads: no tool
+   * action (so no outcomes), no session, and just the two helpers it calls.
+   * @param {string} toolName - 'batch_grep' or 'batch_read'
+   * @param {Record<string, unknown>} input - Tool input
+   * @returns {import('juggler/context-item').ToolActionRenderContext} Partial render context
+   */
+  const renderCtx = (toolName, input) => /** @type {import('juggler/context-item').ToolActionRenderContext} */ ({
+    toolName,
+    input,
+    helpers: /** @type {import('juggler/context-item').ToolActionRenderHelpers} */ ({ labeledSubsection, addFilePath })
   });
 
   // The properties-panel render path must coerce too — otherwise a stringified
@@ -150,12 +169,12 @@ export async function runTests(_ctx) {
    * Render the details view for a batch call and read back what it produced:
    * the subsection heading and the entries of its numbered list.
    * @param {string} toolName - 'batch_grep' or 'batch_read'
-   * @param {object} input - Tool input, exactly as the model emitted it
+   * @param {Record<string, unknown>} input - Tool input, exactly as the model emitted it
    * @returns {{heading: string, entries: string[]}} Heading text and list entries
    */
   const renderDetails = (toolName, input) => {
     const wrapper = document.createElement('div');
-    item.renderToolActionDetails(wrapper, { toolName, input, helpers: { labeledSubsection, addFilePath } });
+    item.renderToolActionDetails(wrapper, renderCtx(toolName, input));
     // Searches are a markdown list; files are the shared file-path rows.
     const entrySelector = toolName === 'batch_read' ? '.properties-panel-filepath-row' : '.markdown li';
     return {
@@ -168,7 +187,7 @@ export async function runTests(_ctx) {
     const { heading, entries } = renderDetails('batch_grep', { searches: stringifiedSearches });
     assert(heading === 'Searches (2)', `expected a "Searches (2)" heading, got "${heading}"`);
     assert(entries.length === 2, `expected 2 listed searches, got ${entries.length}`);
-    assert(entries[0].includes('window/control'),
+    assert((entries[0] ?? '').includes('window/control'),
       `expected the first pattern listed, got "${entries[0]}"`);
   });
 
@@ -177,7 +196,7 @@ export async function runTests(_ctx) {
     const { heading, entries } = renderDetails('batch_read', { files });
     assert(heading === 'Files (2)', `expected a "Files (2)" heading, got "${heading}"`);
     assert(entries.length === 2, `expected 2 listed files, got ${entries.length}`);
-    assert(entries[1].includes('/b.txt'), `expected the second path listed, got "${entries[1]}"`);
+    assert((entries[1] ?? '').includes('/b.txt'), `expected the second path listed, got "${entries[1]}"`);
   });
 
   // Each file is the shared path row, so it carries the same controls and
@@ -185,7 +204,7 @@ export async function runTests(_ctx) {
   await run('renderToolActionDetails shows each file as a file-path row with actions', () => {
     const wrapper = document.createElement('div');
     const input = { files: [{ file_path: '/a.txt' }, { file_path: '/b.txt', offset: 10, limit: 5 }] };
-    item.renderToolActionDetails(wrapper, { toolName: 'batch_read', input, helpers: { labeledSubsection, addFilePath } });
+    item.renderToolActionDetails(wrapper, renderCtx('batch_read', input));
     const paths = Array.from(wrapper.querySelectorAll('.properties-panel-filepath'))
       .map((el) => /** @type {HTMLElement} */ (el).dataset.filePath);
     assert(paths.join(',') === '/a.txt,/b.txt', `expected both paths as file-path rows, got "${paths.join(',')}"`);

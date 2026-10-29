@@ -7,8 +7,13 @@ import { stripThinkingTags } from './content-utils.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
 import { hasPendingApprovalInTree, hasUnsettledToolInTree } from '../model/thread-navigation.js';
 import { canonicalThread, itemGoal, itemRunRecord, isTrailingViewOf } from '../model/thread-alias.js';
+import { arrayItems } from '../model/item-accessor.js';
 import { formatTokens } from './format.js';
+import { itemField } from '../../sdk/lib/message.js';
 import { t } from '../../sdk/lib/i18n.js';
+
+/** @typedef {import('yjs').Map<unknown>|import('../../sdk/lib/message.js').YMapItem} ThreadItem */
+/** @typedef {import('yjs').Array<unknown>|ReadonlyArray<unknown>} SiblingArray */
 
 /**
  * What a thread tile shows: the result of the ONE run that item stands for.
@@ -25,14 +30,14 @@ import { t } from '../../sdk/lib/i18n.js';
  * Whatever live work is going on inside (streaming an assistant message,
  * awaiting tool approval) is visible only when the user drills into the
  * sub-thread itself — the tile face just shows a status block.
- * @param {any} threadYMap - The thread item Y.Map (canonical or alias).
- * @param {any} [siblingArray] - The array the item stands in.
+ * @param {ThreadItem} threadYMap - The thread item Y.Map (canonical or alias).
+ * @param {SiblingArray} [siblingArray] - The array the item stands in.
  * @returns {{ text: string }} The summary, or '' when there is none.
  */
 export function getThreadDisplayContent(threadYMap, siblingArray) {
   const record = itemRunRecord(threadYMap, siblingArray);
   if (record) return { text: record.result };
-  const result = threadYMap.get('result');
+  const result = itemField(threadYMap, 'result');
   return { text: (typeof result === 'string') ? result : '' };
 }
 
@@ -55,14 +60,14 @@ export function getThreadDisplayContent(threadYMap, siblingArray) {
  * transcript rather than one call into it.
  *
  * Null until a run has settled: absent figures show nothing, never a zero.
- * @param {any} threadYMap - The thread item Y.Map (canonical or alias).
- * @param {any} [siblingArray] - The array the item stands in.
+ * @param {ThreadItem} threadYMap - The thread item Y.Map (canonical or alias).
+ * @param {SiblingArray} [siblingArray] - The array the item stands in.
  * @returns {ThreadCostFigures|null} The pair, or null when there is none.
  */
 export function threadCostFigures(threadYMap, siblingArray) {
-  const thread = canonicalThread(threadYMap, siblingArray) || threadYMap;
-  const context = Number(thread?.get?.('contextTokens')) || 0;
-  const returned = Number(thread?.get?.('resultTokens')) || 0;
+  const thread = canonicalThread(threadYMap, siblingArray);
+  const context = Number(itemField(thread, 'contextTokens')) || 0;
+  const returned = Number(itemField(thread, 'resultTokens')) || 0;
   if (context <= 0 || returned <= 0) return null;
   return {
     context,
@@ -146,9 +151,9 @@ export function anyThreadLive(live) {
  *              may never have started, or it may have run and come to rest
  *              carrying a summary. Either way it accepts a message and runs
  *              again; the tile face shows the summary when there is one.
- * @param {any} threadYMap - The thread item Y.Map (canonical or alias).
+ * @param {ThreadItem} threadYMap - The thread item Y.Map (canonical or alias).
  * @param {ThreadLiveStatus|null} [live] - Live LLM status snapshot from llmState.
- * @param {any} [siblingArray] - The array the item stands in.
+ * @param {SiblingArray} [siblingArray] - The array the item stands in.
  * @returns {ThreadStatus} Classification + display fields.
  */
 export function getThreadStatus(threadYMap, live, siblingArray) {
@@ -160,7 +165,7 @@ export function getThreadStatus(threadYMap, live, siblingArray) {
   // latest call (see itemGoal in model/thread-alias.js).
   const goal = itemGoal(threadYMap, siblingArray);
 
-  const items = thread.get('items');
+  const items = itemField(thread, 'items');
 
   // Awaiting approval is a PURE FUNCTION of the current subtree and trumps
   // everything else — checked FIRST, before `result` and before the live
@@ -183,7 +188,8 @@ export function getThreadStatus(threadYMap, live, siblingArray) {
   // driving — so every item referring to the session answers yes together.
   // Asked of THIS thread's own entry: siblings run alongside it, and their
   // work says nothing about this one.
-  const itemId = thread.get('itemId');
+  const storedId = itemField(thread, 'itemId');
+  const itemId = typeof storedId === 'string' ? storedId : undefined;
   const liveMessage = liveMessageForThread(live, itemId);
   const isLive = !!liveMessage;
 
@@ -221,7 +227,7 @@ export function getThreadStatus(threadYMap, live, siblingArray) {
     return { kind: 'running', goal, message: liveMessage, spinner: true };
   }
 
-  if (thread.get('needsStrategyRun')) {
+  if (itemField(thread, 'needsStrategyRun')) {
     return { kind: 'pending', goal, message: t('Waiting to start…'), spinner: false };
   }
 
@@ -238,16 +244,15 @@ export function getThreadStatus(threadYMap, live, siblingArray) {
   // Only threads with no run selector get here: an item that stands for one run
   // was answered above, and borrowing the thread's current summary for a run
   // still in flight would show it the previous call's reply.
-  const result = !record ? thread.get('result') : '';
+  const result = !record ? itemField(thread, 'result') : '';
   if (typeof result === 'string' && result.length > 0 && !hasUnsettledToolInTree(items)) {
     return { kind: 'idle', goal, message: '', spinner: false, showSummary: true };
   }
 
-  if (items && typeof items.length === 'number') {
-    for (let i = items.length - 1; i >= 0; i--) {
-      const it = items.get(i);
-      if (!it || typeof it.get !== 'function') continue;
-      if (it.get('type') === 'error') {
+  {
+    const list = arrayItems(items);
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (itemField(list[i], 'type') === 'error') {
         // An error is how the thread stopped, not whether anything is waiting on
         // it. A run left open behind one — a child stopped by a provider cap is
         // the ordinary case — still has its caller parked, and this tile is the

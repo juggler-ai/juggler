@@ -34,6 +34,10 @@ import {
   shell
 } from './git-worktree-helpers.js';
 
+/** @typedef {import('./git-worktree-helpers.js').WorktreeReport} WorktreeReport */
+/** @typedef {import('../../../js/model/session.js').Workspace} Workspace */
+/** @typedef {import('../../../sdk/workspace-provider.js').ProviderContext} ProviderContext */
+
 /**
  * This suite builds real git repositories inside the shared fixture project and
  * removes them again, so no sibling lane may be in flight while it runs.
@@ -86,16 +90,18 @@ export async function runTests() {
         await mustRun(ops, `git -C ${repo} worktree add -q -b pool/one ../${pool} main`);
 
         const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
-        const report = await provider.reconcile([outcome.workspace], reconcileCtx(session, ops));
+        if (!provider) throw new Error('the provider is not registered');
+        const report = /** @type {WorktreeReport} */ (
+          await provider.reconcile([outcome.workspace], reconcileCtx(session, ops)));
 
-        assert(report.confirmed?.includes(outcome.workspace.id),
+        assert(report.confirmed?.includes(outcome.workspace.id) === true,
           `the row whose tree is really there is vouched for, got ${JSON.stringify(report.confirmed)}`);
         assert((report.orphanedWorkspaces ?? []).length === 0,
           `and nothing is called an orphan that is not one, got ${JSON.stringify(report.orphanedWorkspaces)}`);
 
         const offered = (report.orphanedArtifacts ?? [])
           .find((/** @type {any} */ found) => String(found.label ?? '').includes('pool/one'));
-        assert(offered,
+        assert(offered !== undefined,
           `the tree with no workspace is offered, got ${JSON.stringify(report.orphanedArtifacts)}`);
         assert(offered?.workspace?.root === `${repoRoot}-pool`,
           `with somewhere the server can find, in its own terms rather than the shell's, got ${JSON.stringify(offered?.workspace?.root)}`);
@@ -146,12 +152,13 @@ export async function runTests() {
         await mustRun(ops, `git -C ${repo}-moved-tree switch -q -c somebody/else`);
 
         const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
-        const report = await provider.reconcile(
-          [gone.workspace, moved.workspace], reconcileCtx(session, ops));
+        if (!provider) throw new Error('the provider is not registered');
+        const report = /** @type {WorktreeReport} */ (await provider.reconcile(
+          [gone.workspace, moved.workspace], reconcileCtx(session, ops)));
 
         const missing = (report.orphanedWorkspaces ?? [])
           .find((/** @type {any} */ row) => row.id === gone.workspace.id);
-        assert(missing, `the row whose tree is gone is reported, got ${JSON.stringify(report.orphanedWorkspaces)}`);
+        assert(missing !== undefined, `the row whose tree is gone is reported, got ${JSON.stringify(report.orphanedWorkspaces)}`);
         assert(missing?.tombstone !== true,
           'and is not asked to be closed — a tree can come back, and the stat that marks it unavailable already speaks for it');
 
@@ -339,22 +346,26 @@ export async function runTests() {
         await mustRun(ops, `git -C ${repo} worktree add -q -b pool/${tag} '../${tree}' main`);
 
         const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
+        if (!provider) throw new Error('the provider is not registered');
         // A finished row is how a repository is put in front of reconcile
         // without claiming any of its trees.
-        const parked = { id: `parked-${tag}`, state: 'closed', meta: { repoDir: repoRoot } };
-        const report = await provider.reconcile([parked], reconcileCtx(session, ops));
+        /** @type {Workspace} */
+        const parked = { id: `parked-${tag}`, kind: 'local', root: repoRoot, state: 'closed', meta: { repoDir: repoRoot } };
+        const report = /** @type {WorktreeReport} */ (await provider.reconcile([parked], reconcileCtx(session, ops)));
         const offered = (report.orphanedArtifacts ?? [])
           .find((/** @type {any} */ found) => found.workspace?.meta?.treeRel === `../${tree}`);
-        assert(offered,
-          `precondition: the tree is offered for adoption, got ${JSON.stringify(report.orphanedArtifacts)}`);
+        if (!offered) {
+          throw new Error(`precondition: the tree is offered for adoption, got ${JSON.stringify(report.orphanedArtifacts)}`);
+        }
 
-        const finished = await provider.finish(offered.workspace, 'discard', {
-          session,
-          baseWorkspaceId: '',
-          ops,
-          baseOps: ops,
-          signal: new AbortController().signal
-        });
+        const finished = await provider.finish(/** @type {Workspace} */ (offered.workspace), 'discard',
+          /** @type {ProviderContext} */ ({
+            session,
+            baseWorkspaceId: '',
+            ops,
+            baseOps: ops,
+            signal: new AbortController().signal
+          }));
 
         const ran = await shell(ops, `test -e ${repo}/${marker} || test -e ${marker}`);
         assert(ran.success === false,
@@ -435,8 +446,9 @@ export async function runTests() {
         // The table as a window holds it: the row is a tombstone now, and it is
         // the tombstone's presence that used to suppress the offer.
         const row = (await listWorkspaces()).find((/** @type {any} */ w) => w.id === outcome.workspace.id);
-        assert(row?.state === 'closed',
-          `precondition: with the row tombstoned, got ${JSON.stringify(row?.state)}`);
+        if (row?.state !== 'closed') {
+          throw new Error(`precondition: with the row tombstoned, got ${JSON.stringify(row?.state)}`);
+        }
         session.workspaces = [...saved.filter((/** @type {any} */ w) => w.id !== row.id), row];
 
         await probeSetupAdoptions(session);

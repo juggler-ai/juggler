@@ -550,7 +550,7 @@ user-message article.user {
     background: var(--bubble-user-bg);
     color: var(--bubble-user-text);
     padding: 0.75rem 1rem;
-    border-radius: 1.125rem;
+    border-radius: var(--radius-bubble);
     font-size: var(--font-size-md);
     overflow-wrap: break-word;
     position: relative;

@@ -34,6 +34,22 @@ const REASON = 'invalid command: command contains dangerous pattern: mkfs';
  */
 
 /**
+ * The construction context for an ExecuteContextItem under test. The session,
+ * conversation and thread are bare stand-ins: the streaming path these cases
+ * drive reads none of their members.
+ * @param {string} id - Item id
+ * @returns {import('juggler/context-item').ItemContext} The context
+ */
+function itemContext(id) {
+  return /** @type {import('juggler/context-item').ItemContext} */ ({
+    id,
+    session: {},
+    conversation: { id: 'blocked-command-feedback-conv', session: {} },
+    messageThread: {}
+  });
+}
+
+/**
  * @param {object} _ctx - Test context (unused)
  * @returns {Promise<TestResult>} Aggregated test results.
  */
@@ -75,24 +91,19 @@ export async function runTests(_ctx) {
         // The refusal chunk ops.ExecuteStreaming emits, field for field. The
         // Go side of this contract is pinned by
         // TestExecuteStreaming_RefusalIsReportedAsBlocked.
-        wsService._emit('shell-output', { shellId, done: true, error: REASON, blocked: true });
+        wsService.__emitForTests('shell-output', { shellId, done: true, error: REASON, blocked: true });
       }, 0);
       return true;
     };
 
-    const item = new ExecuteContextItem({
-      id: 'blocked-command-feedback-test',
-      session: {},
-      conversation: { id: 'blocked-command-feedback-conv', session: {} },
-      messageThread: {}
-    });
+    const item = new ExecuteContextItem(itemContext('blocked-command-feedback-test'));
 
     const result = /** @type {Record<string, unknown>} */ (await withTimeout(item.execute({ command }), 4000, 'the blocked command to settle'));
 
     // The shape action-executor.js builds for an action that resolved: the
     // action itself did not throw, so `success` is true and the command's own
     // verdict lives entirely inside `result`.
-    const summary = item.getSummary({ success: true, result, prepared: { params: { command } } });
+    const summary = item.getSummary({ success: true, result, prepared: { valid: true, params: { command } } });
     return { result, summary };
   };
 
@@ -140,22 +151,17 @@ export async function runTests(_ctx) {
       // model — an exit code of 1 says nothing about a deadline.
       wsService.sendShellStart = (/** @type {string} */ shellId) => {
         setTimeout(() => {
-          wsService._emit('shell-output', { shellId, data: 'working\n' });
-          wsService._emit('shell-output', { shellId, done: true, error: 'command timeout (exceeded 2m0s)' });
+          wsService.__emitForTests('shell-output', { shellId, data: 'working\n' });
+          wsService.__emitForTests('shell-output', { shellId, done: true, error: 'command timeout (exceeded 2m0s)' });
         }, 0);
         return true;
       };
 
-      const item = new ExecuteContextItem({
-        id: 'blocked-command-feedback-test-timeout',
-        session: {},
-        conversation: { id: 'blocked-command-feedback-conv', session: {} },
-        messageThread: {}
-      });
+      const item = new ExecuteContextItem(itemContext('blocked-command-feedback-test-timeout'));
 
       const result = /** @type {Record<string, unknown>} */ (await withTimeout(item.execute({ command: 'sleep 999' }), 4000, 'the timed-out command to settle'));
 
-      const summary = item.getSummary({ success: true, result, prepared: { params: { command: 'sleep 999' } } });
+      const summary = item.getSummary({ success: true, result, prepared: { valid: true, params: { command: 'sleep 999' } } });
       const text = typeof summary.summary === 'string' ? summary.summary : '';
       assert(text.includes('command timeout (exceeded 2m0s)'),
         `the deadline must reach the model, got ${JSON.stringify(text)}`);
@@ -171,22 +177,17 @@ export async function runTests(_ctx) {
       // on the chunk means the command ran and simply exited non-zero.
       wsService.sendShellStart = (/** @type {string} */ shellId) => {
         setTimeout(() => {
-          wsService._emit('shell-output', { shellId, data: 'boom\n' });
-          wsService._emit('shell-output', { shellId, done: true, exitCode: 2 });
+          wsService.__emitForTests('shell-output', { shellId, data: 'boom\n' });
+          wsService.__emitForTests('shell-output', { shellId, done: true, exitCode: 2 });
         }, 0);
         return true;
       };
 
-      const item = new ExecuteContextItem({
-        id: 'blocked-command-feedback-test-plain',
-        session: {},
-        conversation: { id: 'blocked-command-feedback-conv', session: {} },
-        messageThread: {}
-      });
+      const item = new ExecuteContextItem(itemContext('blocked-command-feedback-test-plain'));
 
       const result = /** @type {Record<string, unknown>} */ (await withTimeout(item.execute({ command: 'false' }), 4000, 'the failing command to settle'));
 
-      const summary = item.getSummary({ success: true, result, prepared: { params: { command: 'false' } } });
+      const summary = item.getSummary({ success: true, result, prepared: { valid: true, params: { command: 'false' } } });
       const text = typeof summary.summary === 'string' ? summary.summary : '';
       assert(text.includes('boom'), `output must survive, got ${JSON.stringify(text)}`);
       assert(text.includes('exit code: 2'), `exit code must survive, got ${JSON.stringify(text)}`);

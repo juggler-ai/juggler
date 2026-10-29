@@ -139,7 +139,7 @@ export async function runTests(_ctx) {
       assert(wire.includes(`Changes the program made:\n- bash: printf done > ${file}`), `the earlier change must be reported:\n${wire}`);
       assert(!text.includes('Changes the program made'), `the list comes from the record, not the summary:\n${text}`);
       const rows = rowsOf(mt, item.toolUseId);
-      assert(rows.some((r) => r.name === 'bash' && r.status === 'refused'), `rows: ${JSON.stringify(rows)}`);
+      assert(rows.some((/** @type {import('./run-code-program-helpers.js').NestedCall} */ r) => r.name === 'bash' && r.status === 'refused'), `rows: ${JSON.stringify(rows)}`);
     });
 
     await test('cancelling stops the sandbox and the running sub-call', async () => {

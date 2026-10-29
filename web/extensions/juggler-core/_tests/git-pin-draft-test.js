@@ -325,7 +325,7 @@ export async function runTests(_ctx) {
     const main = /** @type {HTMLElement} */ (m.body.querySelector('.review-panel__main'));
     const rail = /** @type {HTMLElement} */ (m.body.querySelector('.review-panel__rail'));
     const diff = /** @type {HTMLElement} */ (m.body.querySelector('.review-panel__diff'));
-    assert(main && rail && diff, 'the panel should have a rail and a diff area');
+    assert(!!(main && rail && diff), 'the panel should have a rail and a diff area');
     // A container query, not a media query: the Pinboard can be 20rem wide on a
     // desktop, so the viewport says nothing about the room this panel has.
     assert(rail.offsetWidth > diff.offsetWidth * 0.5,
@@ -353,12 +353,15 @@ export async function runTests(_ctx) {
       const rows = /** @type {HTMLElement[]} */ ([...m.body.querySelectorAll('.review-panel__row')]);
       const paths = /** @type {HTMLElement[]} */ ([...m.body.querySelectorAll('.review-panel__path')]);
       assert(rows.length === 2 && paths.length === 2, `expected two rows at ${width}`);
-      assert(rows[1].offsetHeight === rows[0].offsetHeight,
+      const [shortRow, longRow] = rows;
+      const longPath = paths[1];
+      if (!shortRow || !longRow || !longPath) throw new Error(`expected two rows at ${width}`);
+      assert(longRow.offsetHeight === shortRow.offsetHeight,
         `a path too long for the rail must give way, not stack a character per line, at ${width}:`
-        + ` short row ${rows[0].offsetHeight}, long row ${rows[1].offsetHeight}`);
-      assert(paths[1].offsetWidth > rail.offsetWidth * 0.5,
+        + ` short row ${shortRow.offsetHeight}, long row ${longRow.offsetHeight}`);
+      assert(longPath.offsetWidth > rail.offsetWidth * 0.5,
         `a rail is read for its paths, so most of one belongs to them at ${width}:`
-        + ` path ${paths[1].offsetWidth} of rail ${rail.offsetWidth}`);
+        + ` path ${longPath.offsetWidth} of rail ${rail.offsetWidth}`);
     }
     // The directory is what gives way. The name is the part that identifies the
     // row, so it is the last thing that may be cut.
@@ -511,7 +514,7 @@ export async function runTests(_ctx) {
       `every comment still goes out together, and the footer says where they are: ${footer}`);
 
     const button = /** @type {HTMLElement|null} */ (m.body.querySelector('.diff-comment-btn[data-side="new"][data-line="85"]'));
-    assert(button, 'expected a comment button on the added line');
+    assert(button !== null, 'expected a comment button on the added line');
     button?.click();
     const editor = m.editor();
     assert(editor, 'the button should open the editor');
@@ -751,7 +754,7 @@ export async function runTests(_ctx) {
         repo({ path: '13', branch: '6', upstream: '7', behind: 1, files: [file], total: 1 }),
       ] }) });
       for (const detail of detailed.body.querySelectorAll('.review-panel__group-detail')) {
-        shown.push(...(detail.textContent || '').split(' · ').filter((part) => !/^(\d+|→ \d+)$/.test(part)));
+        shown.push(...(detail.textContent || '').split(' · ').filter((/** @type {string} */ part) => !/^(\d+|→ \d+)$/.test(part)));
       }
       detailed.teardown();
 
@@ -804,7 +807,7 @@ export async function runTests(_ctx) {
         }),
       });
       const button = /** @type {HTMLElement|null} */ (scoped.body.querySelector('.diff-comment-btn[data-side="new"][data-line="85"]'));
-      assert(button, 'expected a comment button on the added line');
+      assert(button !== null, 'expected a comment button on the added line');
       button?.click();
       const editor = scoped.editor();
       /** @type {HTMLTextAreaElement} */ (editor.querySelector('textarea')).value = 'A new one';

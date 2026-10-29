@@ -46,6 +46,11 @@ export async function runTests(_ctx) {
   await initializeRegistries();
   const session = await createTestSession();
 
+  /**
+   * @param {import('../../../js/model/conversation.js').default} conversation - Whose tool it is.
+   * @param {string} toolName - The tool's name.
+   * @returns {object} The tool's context item.
+   */
   const makeItem = (conversation, toolName) => {
     const Klass = /** @type {any} */ (contextItemRegistry.getByToolName(toolName));
     assert(Klass !== undefined, `${toolName} action should be registered`);
@@ -138,7 +143,7 @@ export async function runTests(_ctx) {
 
     const section = buildGitignoreSection(mt);
     const btn = section.element.querySelector('.search-scope-btn');
-    assert(btn instanceof HTMLElement, 'section should render a toggle button');
+    if (!(btn instanceof HTMLElement)) throw new Error('section should render a toggle button');
     assert(btn.getAttribute('aria-checked') === 'true',
       'button should start checked (respecting .gitignore)');
 
@@ -150,6 +155,7 @@ export async function runTests(_ctx) {
     // A freshly built section renders the stored (disabled) state.
     const section2 = buildGitignoreSection(mt);
     const btn2 = section2.element.querySelector('.search-scope-btn');
+    if (!(btn2 instanceof HTMLElement)) throw new Error('a rebuilt section should render a toggle button');
     assert(btn2.getAttribute('aria-checked') === 'false',
       'a rebuilt section should reflect the disabled state');
 

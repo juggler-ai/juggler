@@ -40,10 +40,35 @@ const TEST_HOME = '/Users/jules';
 const TEST_INTERPRETERS = new Set(['bash', 'sh', 'zsh', 'python', 'python3', 'node', 'ruby', 'perl']);
 
 /**
+ * An ExecuteContextItem over stand-in session and thread objects. Each caller's
+ * stubs supply exactly the members the code path it drives reads.
+ * @param {string} id - Item id
+ * @param {object} session - Stand-in session (platform, home, projectPath)
+ * @param {object} messageThread - Stand-in message thread
+ * @returns {ExecuteContextItem} The probe item
+ */
+function probeItem(id, session, messageThread) {
+  return new ExecuteContextItem(/** @type {import('juggler/context-item').ItemContext} */ ({
+    id,
+    session,
+    conversation: { id: 'c1', session },
+    messageThread
+  }));
+}
+
+/**
+ * The status a tile is drawn from while its action is still running.
+ * @returns {import('../../../js/services/action-executor.js').ActionStatus} A pending status
+ */
+function pendingStatus() {
+  return /** @type {import('../../../js/services/action-executor.js').ActionStatus} */ ({ pending: true });
+}
+
+/**
  * @typedef {object} ApprovalCase
  * @property {string} name human-readable label for the case
  * @property {string} command the command line being tested
- * @property {string[]} patterns glob patterns already approved
+ * @property {string[]} [patterns] glob patterns already approved (default none)
  * @property {string} [platform] platform identifier string (default 'darwin')
  * @property {string[]} [allowedRoots] allowed roots (default [PROJECT_ROOT])
  * @property {boolean} [writeEnabled] whether file-writing is permitted
@@ -1694,7 +1719,7 @@ function runSuggestCase(c) {
   // enabled set, or folders added to the allowed roots), makes the whole
   // command auto-approve. This is what "minimum needed to pass" means.
   for (const s of suggestions) {
-    const mergedPatterns = s.allowedPaths ? patterns : [...patterns, ...s.patterns];
+    const mergedPatterns = s.allowedPaths ? patterns : [...patterns, ...(s.patterns || [])];
     const mergedRoots = s.allowedPaths ? [...allowedRoots, ...s.allowedPaths] : allowedRoots;
     if (!isCommandAutoApproved(c.command, { platform, home: TEST_HOME, allowedRoots: mergedRoots, patterns: mergedPatterns, writeEnabled, cwd })) {
       return { ok: false, msg: `suggest "${c.command}": suggestion ${JSON.stringify(actual[suggestions.indexOf(s)])} did NOT make the command auto-approve` };
@@ -1983,7 +2008,7 @@ export async function runTests() {
           ? (state.patterns || []).map(v => ({ kind: 'glob', value: v, scope: 'conversation' }))
           : []
       };
-      return new ExecuteContextItem({ id: 'bound-probe', session, conversation: { session }, messageThread: /** @type {any} */ (mt) });
+      return probeItem('bound-probe', session, mt);
     };
     /**
      * Whether a suggestion, once granted, approves the command.
@@ -2003,9 +2028,10 @@ export async function runTests() {
       errors.push(`bound suggestions: every suggestion for "${command}" in ${TREE} must approve it, got ${JSON.stringify(suggestions)}`);
     }
 
+    const original = { allowedPaths: [`${TEST_HOME}/x`], patterns: ['~/x'] };
     const revised = item.reviseApprovalSuggestion({
       index: 0,
-      original: { allowedPaths: [`${TEST_HOME}/x`], patterns: ['~/x'] },
+      original,
       editedText: '~/trees/shared',
       params: { command }
     });
@@ -2036,12 +2062,7 @@ export async function runTests() {
           ? (state.patterns || []).map(v => ({ kind: 'glob', value: v, scope: 'conversation' }))
           : []
       };
-      return new ExecuteContextItem({
-        id: 'revise-probe',
-        session,
-        conversation: { session },
-        messageThread: mt
-      });
+      return probeItem('revise-probe', session, mt);
     };
 
     /**
@@ -2062,8 +2083,9 @@ export async function runTests() {
         index: 0, original: globOriginal, editedText: 'git push origin main',
         params: { command: 'git push origin main' }
       });
-      record({ name: 'glob narrow stays valid', ok: res.valid === true && !!res.rules
-        && res.rules[0].value === 'git push origin main' && res.patterns[0] === 'git push origin main'
+      const rule = res.rules?.[0];
+      record({ name: 'glob narrow stays valid', ok: res.valid === true && rule !== undefined
+        && 'value' in rule && rule.value === 'git push origin main' && res.patterns[0] === 'git push origin main'
         && !res.notice, msg: JSON.stringify(res) });
     } catch (e) { record({ name: 'glob narrow stays valid', ok: false, msg: String(e) }); }
 
@@ -2328,7 +2350,7 @@ export async function runTests() {
   {
     const session = { platform: 'darwin', home: TEST_HOME, projectPath: '/p' };
     const mt = { getAllowedPaths: () => [], getRulesFor: () => [], items: [] };
-    const item = new ExecuteContextItem({ id: 'bg', session, conversation: { id: 'c1', session }, messageThread: mt });
+    const item = probeItem('bg', session, mt);
     const helpers = { addSubsection: () => {}, addLlmDescription: () => {}, labeledSubsection: () => document.createElement('div') };
     const launched = {
       get: (/** @type {string} */ k) => ({
@@ -2366,7 +2388,7 @@ export async function runTests() {
       if (controlsFor({ command: 'ls' }).length) throw new Error('panel: a foreground run offers no tasks control');
 
       // The badge: inert on an unselected card, so the click selects it as usual.
-      const summary = /** @type {any} */ (item.getStatusUI({ pending: true }, bgInput))?.summary;
+      const summary = /** @type {any} */ (item.getStatusUI(pendingStatus(), bgInput))?.summary;
       const badge = summary?.querySelector?.('.action-summary-background-tag');
       if (!badge) throw new Error('badge: none drawn');
       // A stand-in row: the real element redraws its own content when connected,
@@ -2437,10 +2459,10 @@ export async function runTests() {
       const shown = {};
       const session = { platform: 'darwin', home: TEST_HOME, projectPath: '/1' };
       const mt = { getAllowedPaths: () => [], getRulesFor: () => [], items: [] };
-      const item = new ExecuteContextItem({ id: 'xa', session, conversation: { id: 'c1', session }, messageThread: mt });
+      const item = probeItem('xa', session, mt);
       // With no project directory a relative folder resolves to nothing.
       const noCwd = { platform: 'darwin', home: TEST_HOME };
-      const homeless = new ExecuteContextItem({ id: 'xa2', session: noCwd, conversation: { id: 'c1', session: noCwd }, messageThread: mt });
+      const homeless = probeItem('xa2', noCwd, mt);
 
       // Every notice reviseApprovalSuggestion can return.
       const glob = { rules: [{ kind: 'glob', value: '1', scope: 'conversation' }], patterns: ['1'] };
@@ -2483,7 +2505,9 @@ export async function runTests() {
       const bg = /** @type {any} */ (row({ pending: true }, { command: '1', run_in_background: true })?.summary);
       shown['background tag'] = String(bg?.querySelector?.('.action-summary-background-tag')?.textContent);
 
-      for (const [name, params] of [['approval', { command: '1' }], ['approval, described', { command: '1', description: '2' }]]) {
+      /** @type {Array<[string, Record<string, unknown>]>} */
+      const approvals = [['approval', { command: '1' }], ['approval, described', { command: '1', description: '2' }]];
+      for (const [name, params] of approvals) {
         shown[name] = String((await item.getApprovalConfig(/** @type {any} */ (params)))?.message);
       }
 
@@ -2511,7 +2535,7 @@ export async function runTests() {
         items: [{ get: (/** @type {string} */ k) => (k === 'toolUseId' ? '6' : undefined) }],
         updateItemField: (/** @type {number} */ _i, /** @type {string} */ _f, /** @type {any} */ v) => { previews.push(v.output); },
       };
-      const streamer = new ExecuteContextItem({ id: 'xa3', session, conversation: { id: 'c1', session }, messageThread: streamThread });
+      const streamer = probeItem('xa3', session, streamThread);
       streamer.toolUseId = '6';
       /** @type {any} */ (streamer)._ops = {
         shellStreaming: async (/** @type {any} */ _p, /** @type {(c: any) => void} */ onChunk) => {
@@ -2522,7 +2546,7 @@ export async function runTests() {
       await streamer.execute({ command: '1' });
       const capped = previews.find((p) => p.length > 100_000);
       assertTrue(!!capped, `no capped preview was written: ${JSON.stringify(previews.map((p) => p.length))}`);
-      shown['capped preview'] = String(capped).split('\n')[0];
+      shown['capped preview'] = String(capped).split('\n')[0] ?? '';
 
       // Properties panel: a background run whose task id has not landed, then
       // one that has (its live output section is never mounted, so it stops
@@ -2541,8 +2565,10 @@ export async function runTests() {
       const starting = sections;
       assertTrue(starting.length === 4, `expected command, description, timeout, task: ${JSON.stringify(starting)}`);
       starting.forEach((s, i) => { shown[`label ${i}`] = s.label; });
-      shown['timeout'] = starting[2].content;
-      shown['task id pending'] = starting[3].content;
+      const [, , timeoutSection, taskSection] = starting;
+      if (!timeoutSection || !taskSection) throw new Error(`missing timeout or task section: ${JSON.stringify(starting)}`);
+      shown['timeout'] = timeoutSection.content;
+      shown['task id pending'] = taskSection.content;
 
       sections = [];
       const launched = {
@@ -2562,7 +2588,9 @@ export async function runTests() {
         pinboardItemRegistry.reset();
       }
       assertTrue(sections.length === 5, `expected a Result section too: ${JSON.stringify(sections)}`);
-      shown['result label'] = sections[4].label;
+      const resultSection = sections[4];
+      if (!resultSection) throw new Error(`missing Result section: ${JSON.stringify(sections)}`);
+      shown['result label'] = resultSection.label;
       const stop = panel.querySelector('.live-task-output-stop');
       assertTrue(!!stop, 'the launched task drew no Stop button');
       shown['stop button'] = String(stop?.textContent);

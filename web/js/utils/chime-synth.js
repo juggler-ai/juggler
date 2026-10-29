@@ -604,7 +604,7 @@ function audioContext() {
   // A closed context can never resume — discard it so we build a fresh one below.
   if (ctx && ctx.state === 'closed') recreateContext();
   if (ctx) return ctx;
-  const Ctor = /** @type {any} */ (window).AudioContext || /** @type {any} */ (window).webkitAudioContext;
+  const Ctor = window.AudioContext || window.webkitAudioContext;
   if (!Ctor) return null;
   let ac;
   try {
@@ -812,7 +812,7 @@ export function playChime(params = {}) {
  */
 export function audioSink(ac, useMediaSink = keepAudioContextWarm()) {
   if (!useMediaSink) return ac.destination;
-  const AudioEl = /** @type {any} */ (window).Audio;
+  const AudioEl = /** @type {Window & {Audio?: typeof Audio}} */ (window).Audio;
   if (typeof AudioEl !== 'function' || typeof ac.createMediaStreamDestination !== 'function') {
     return ac.destination; // no media-element path — best-effort direct output
   }

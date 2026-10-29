@@ -67,7 +67,7 @@ export function openConversationExport(conversation, options = {}) {
     const modal = presentModal({
       className: 'workspace-move-overlay conversation-export-overlay',
       dismissSelectors: ['.workspace-move-backdrop', '.workspace-move-close', '.conversation-export-cancel'],
-      onClose: (result) => resolve(result ?? { saved: false })
+      onClose: (/** @type {{saved: boolean, path?: string}|undefined} */ result) => resolve(result ?? { saved: false })
     });
     const root = modal.root;
 

@@ -803,7 +803,7 @@ export async function runTests(_ctx) {
   try {
     const noSuggestions = buildApprovalButtons({ getApprovalSuggestions: () => [] }, {});
     assert(noSuggestions.length === 2, `no-suggestion case should yield 2 buttons, got ${noSuggestions.length}`);
-    assert(noSuggestions[0].value === 'yes' && noSuggestions[1].value === 'no',
+    assert(noSuggestions[0]?.value === 'yes' && noSuggestions[1]?.value === 'no',
       `no-suggestion buttons should be [yes, no], got ${noSuggestions.map(o => o.value).join(',')}`);
     assert(!noSuggestions.some(o => String(o.value).startsWith('yes-always')),
       'no-suggestion case must NOT contain any yes-always button');
@@ -830,12 +830,12 @@ export async function runTests(_ctx) {
     ];
     const opts = buildApprovalButtons({ getApprovalSuggestions: () => suggestions }, {});
     assert(opts.length === 4, `expected Yes + 2 suggestions + No = 4 buttons, got ${opts.length}`);
-    assert(opts[0].value === 'yes' && opts[3].value === 'no', 'first/last must be yes/no');
-    assert(opts[1].value === 'yes-always:0' && opts[2].value === 'yes-always:1',
+    assert(opts[0]?.value === 'yes' && opts[3]?.value === 'no', 'first/last must be yes/no');
+    assert(opts[1]?.value === 'yes-always:0' && opts[2]?.value === 'yes-always:1',
       `escalating buttons should be indexed, got ${opts.map(o => o.value).join(',')}`);
-    assert(opts[1].pattern === 'cmake --build x' && opts[2].pattern === 'cmake *',
+    assert(opts[1]?.pattern === 'cmake --build x' && opts[2]?.pattern === 'cmake *',
       'each button must display its suggestion label as the pattern');
-    assert(opts[1].rules === suggestions[0].rules && opts[1].itemType === 'execute',
+    assert(opts[1]?.rules === suggestions[0]?.rules && opts[1]?.itemType === 'execute',
       'each button must carry the exact rules/itemType it will persist');
     passed++;
   } catch (e) {
@@ -854,9 +854,10 @@ export async function runTests(_ctx) {
         patterns: ['go version', 'go list -m all'] }
     ];
     const opts = buildApprovalButtons({ getApprovalSuggestions: () => suggestions }, {});
-    assert(Array.isArray(opts[1].patterns) && opts[1].patterns.length === 2,
+    const multiPatterns = opts[1]?.patterns;
+    assert(Array.isArray(multiPatterns) && multiPatterns.length === 2,
       'multi-pattern suggestion must carry its `patterns` array onto the button');
-    assert(opts[1].patterns[0] === 'go version' && opts[1].patterns[1] === 'go list -m all',
+    assert(multiPatterns?.[0] === 'go version' && multiPatterns[1] === 'go list -m all',
       'button `patterns` must preserve the suggestion order');
 
     // Render the buttons and inspect the "Don't ask again" markup.
@@ -941,7 +942,7 @@ export async function runTests(_ctx) {
     ];
     const el = /** @type {any} */ (document.createElement('action-confirmation'));
     document.body.appendChild(el);
-    el.setOptions({ options }, () => {}, { onRevise: () => ({ valid: true, patterns: ['git push *'], rules: options[0].rules }) });
+    el.setOptions({ options }, () => {}, { onRevise: () => ({ valid: true, patterns: ['git push *'], rules: options[0]?.rules }) });
 
     const row = el.querySelector('.action-approval-option[data-index="0"]');
     const input = row.querySelector('.pattern-edit-input');
@@ -973,6 +974,7 @@ export async function runTests(_ctx) {
         rules: [{ kind: 'glob', value: 'git push *' }], patterns: ['git push *'] },
       { label: 'No', value: 'no', style: 'secondary' }
     ];
+    /** @type {import('juggler/context-item').RevisedApprovalSuggestion|null} */
     let next = null;
     const el = /** @type {any} */ (document.createElement('action-confirmation'));
     el.setOptions({ options }, () => {}, { onRevise: () => next });
@@ -993,7 +995,7 @@ export async function runTests(_ctx) {
     await el._runRevise(0, '*');
     assert(button.disabled === false, 'valid revise must enable the button');
     assert(!notice.hidden && notice.classList.contains('caution'), 'valid+broad revise shows an amber caution');
-    assert(options[0].rules[0].value === '*', 'valid revise updates the option grant in place');
+    assert(options[0]?.rules?.[0]?.value === '*', 'valid revise updates the option grant in place');
 
     // Valid + no notice → notice hidden.
     next = { valid: true, patterns: ['git push origin main'], rules: [{ kind: 'glob', value: 'git push origin main' }] };
@@ -1037,7 +1039,7 @@ export async function runTests(_ctx) {
     await p1;
 
     assert(button.disabled === false, 'newer (valid) result must win over the older (invalid) one');
-    assert(options[0].rules[0].value === 'bbb', 'the newer revise grant is the one applied');
+    assert(options[0]?.rules?.[0]?.value === 'bbb', 'the newer revise grant is the one applied');
 
     passed++;
   } catch (e) {
@@ -1061,14 +1063,14 @@ export async function runTests(_ctx) {
     const reviseResult = { valid: true, patterns: ['git push origin main'], rules: [{ kind: 'glob', value: 'git push origin main' }] };
     const el = /** @type {any} */ (document.createElement('action-confirmation'));
     document.body.appendChild(el);
-    el.setOptions({ options }, (v) => { resolved = v; }, { onRevise: () => reviseResult });
+    el.setOptions({ options }, (/** @type {string} */ v) => { resolved = v; }, { onRevise: () => reviseResult });
     el._enterEditMode(0);
     const input = el.querySelector('.pattern-edit-input');
     input.value = 'git push origin main';
     await el._runRevise(0, input.value);
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     assert(resolved === 'yes-always:0', `Return in a valid input must approve, got '${resolved}'`);
-    assert(options[0].rules[0].value === 'git push origin main', 'approval persists the revised grant');
+    assert(options[0]?.rules?.[0]?.value === 'git push origin main', 'approval persists the revised grant');
 
     // Invalid input → Return does nothing.
     const options2 = [
@@ -1079,7 +1081,7 @@ export async function runTests(_ctx) {
     let resolved2 = /** @type {string|undefined} */ (undefined);
     const el2 = /** @type {any} */ (document.createElement('action-confirmation'));
     document.body.appendChild(el2);
-    el2.setOptions({ options: options2 }, (v) => { resolved2 = v; },
+    el2.setOptions({ options: options2 }, (/** @type {string} */ v) => { resolved2 = v; },
       { onRevise: () => ({ valid: false, notice: 'no match', patterns: ['zzz'], rules: [] }) });
     el2._enterEditMode(0);
     const input2 = el2.querySelector('.pattern-edit-input');
@@ -1110,7 +1112,7 @@ export async function runTests(_ctx) {
     let resolved = /** @type {string|undefined} */ (undefined);
     const el = /** @type {any} */ (document.createElement('action-confirmation'));
     document.body.appendChild(el);
-    el.setOptions({ options }, (v) => { resolved = v; },
+    el.setOptions({ options }, (/** @type {string} */ v) => { resolved = v; },
       { onRevise: () => ({ valid: true, patterns: ['git push origin main'], rules: [{ kind: 'glob', value: 'git push origin main' }] }) });
 
     const row = el.querySelector('.action-approval-option[data-index="0"]');
@@ -1121,14 +1123,14 @@ export async function runTests(_ctx) {
     await el._runRevise(0, input.value);
     assert(!field.hidden && row.classList.contains('editing'), 'is editing before Escape');
     // The valid revise updated the live grant; Escape must roll it back.
-    assert(options[0].rules[0].value === 'git push origin main', 'grant updated while editing');
+    assert(options[0]?.rules?.[0]?.value === 'git push origin main', 'grant updated while editing');
 
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
     assert(field.hidden && !row.classList.contains('editing'), 'Escape leaves edit mode');
     assert(!row.querySelector('.option-descriptor').hasAttribute('hidden'),
       'the button descriptor is shown again after Escape');
-    assert(options[0].rules[0].value === 'git push *', 'Escape reverts the grant to its pre-edit value');
+    assert(options[0]?.rules?.[0]?.value === 'git push *', 'Escape reverts the grant to its pre-edit value');
     assert(resolved === undefined, 'Escape cancels the edit only — it must NOT resolve the approval');
 
     el.remove();
@@ -1170,7 +1172,7 @@ export async function runTests(_ctx) {
     await Promise.resolve();
 
     assert(field.hidden && !row.classList.contains('editing'), 'blur leaves edit mode');
-    assert(options[0].rules[0].value === 'git push *', 'blur reverts the grant to its pre-edit value');
+    assert(options[0]?.rules?.[0]?.value === 'git push *', 'blur reverts the grant to its pre-edit value');
     assert(!row.querySelector('.option-descriptor').hasAttribute('hidden'),
       'the button descriptor is shown again after blur');
 

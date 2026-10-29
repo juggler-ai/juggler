@@ -30,28 +30,31 @@ const STYLES = `
   gap: 0.5rem;
   margin-bottom: 0.375rem;
 }
+
 .html-view-toggle {
   font-size: var(--font-size-xs);
   padding: 0.125rem 0.5rem;
-  border: 1px solid var(--border-color, currentColor);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: transparent;
   color: inherit;
   cursor: pointer;
 }
+
 .html-view-note {
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
   margin-bottom: 0.375rem;
 }
+
 .html-view-frame {
   display: block;
   width: 100%;
   height: 70vh;
   min-height: 20rem;
-  border: 1px solid var(--border-color, transparent);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  background: #fff;
+  background: var(--document-canvas);
 }
 `;
 

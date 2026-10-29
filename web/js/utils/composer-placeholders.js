@@ -103,7 +103,7 @@ const COMPOSER_PLACEHOLDERS = Object.freeze({
  * It is the boundary the worker's reducer draws its tool batch by. An item
  * with no transactionId draws no boundary, and neither does a receipt (a thread
  * item standing for a run nobody here called), which is appended later.
- * @param {ReadonlyArray<any>} items - The thread's items (Y.Maps)
+ * @param {ReadonlyArray<import('yjs').Map<unknown>|null|undefined>} items - The thread's items (Y.Maps)
  * @returns {'cancelled'|'error'|''} How the trailing turn ended; '' for normally
  */
 export function trailingTurnOutcome(items) {
@@ -112,14 +112,15 @@ export function trailingTurnOutcome(items) {
     const item = items[i];
     const type = item?.get?.('type');
     if (type === MESSAGE_TYPES.USER) break;
-    const itemTxnId = item?.get?.('transactionId') || '';
-    const isReceipt = type === MESSAGE_TYPES.THREAD && !!item.get('runItemId') && !item.get('runToolUseId');
+    const rawTxnId = item?.get?.('transactionId');
+    const itemTxnId = typeof rawTxnId === 'string' ? rawTxnId : '';
+    const isReceipt = type === MESSAGE_TYPES.THREAD && !!item?.get('runItemId') && !item?.get('runToolUseId');
     if (itemTxnId && !isReceipt) {
       if (!txnId) txnId = itemTxnId;
       else if (itemTxnId !== txnId) break;
     }
     if (type === MESSAGE_TYPES.ERROR) return 'error';
-    if (type === MESSAGE_TYPES.TOOL_ACTION && item.get('state') === TOOL_STATES.CANCELLED) {
+    if (type === MESSAGE_TYPES.TOOL_ACTION && item?.get('state') === TOOL_STATES.CANCELLED) {
       return 'cancelled';
     }
   }

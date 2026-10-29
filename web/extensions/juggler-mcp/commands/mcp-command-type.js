@@ -116,6 +116,15 @@ class McpCommandType extends CommandType {
     const thousands = formatNumber(n / 1000, { useGrouping: false, minimumFractionDigits: 1, maximumFractionDigits: 1 });
     return t('{n}k', { n: thousands }, { context: 'thousands, in a compact count' });
   }
+
+  /**
+   * Test seam for `_fmtTokens`.
+   * @param {number} n - A schema-token count
+   * @returns {string} The count as `/mcp` states it
+   */
+  static __fmtTokensForTests(n) {
+    return McpCommandType._fmtTokens(n);
+  }
 }
 
 export default McpCommandType;

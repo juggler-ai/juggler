@@ -62,7 +62,7 @@ export async function loadPinAgentDescriptors() {
     if (ref.extensionId && disabled.has(ref.extensionId)) continue;
     try {
       const module = await importModuleUrl(resolveAssetUrl(ref.path));
-      const descriptor = module?.default;
+      const descriptor = /** @type {import('./pinboard-item-type.js').PinAgentDescriptor|undefined} */ (module?.default);
       if (!descriptor?.id || typeof descriptor.description !== 'string' || !descriptor.parameters) {
         console.error(`[Pinboard] "${ref.path}" is not a pin agent descriptor`);
         continue;

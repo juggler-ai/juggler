@@ -486,6 +486,15 @@ class BaseRegistry {
   }
 
   /**
+   * Test seam: the live map of enabled items, for a test that takes one out
+   * and puts it back.
+   * @returns {Map<string, T>} The registry's own map, not a copy
+   */
+  __itemsForTests() {
+    return this.items;
+  }
+
+  /**
    * Get all registered item IDs
    * @returns {string[]} Array of item IDs
    */

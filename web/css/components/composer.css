@@ -19,7 +19,7 @@ composer-box {
 composer-box composer-box-wrapper,
 reply-suggestions .reply-suggestion {
     background: var(--bubble-user-bg);
-    border-radius: 1.25rem;
+    border-radius: var(--radius-bubble);
     transition: background var(--transition-base), box-shadow var(--transition-base);
 }
 

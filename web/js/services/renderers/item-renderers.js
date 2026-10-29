@@ -37,7 +37,7 @@ import { normalizeAttachments, formatAttachmentBytes } from '../../utils/attachm
 import { createImageThumb } from '../../utils/image-lightbox.js';
 import { renderTaskDeliveryControl } from '../../../sdk/lib/task-delivery-control.js';
 import apiService from '../../services/api.js';
-import { plain, yGet } from '../../model/item-accessor.js';
+import { plain, plainRecord, yGet, yGetRecord } from '../../model/item-accessor.js';
 import { itemGoal } from '../../model/thread-alias.js';
 import { t, markForTranslation, formatDate } from '../../../sdk/lib/i18n.js';
 
@@ -305,6 +305,17 @@ export function renderMessage(host, container, message) {
 }
 
 /**
+ * One text field of a plain record.
+ * @param {Record<string, unknown>|undefined} record - The record, or nothing
+ * @param {string} key - The field to read
+ * @returns {string} The field when it is a string, else ''
+ */
+function textField(record, key) {
+  const value = record?.[key];
+  return typeof value === 'string' ? value : '';
+}
+
+/**
  * If a user message carries a `taskSource` provenance ref (it was injected by a
  * background-task output delivery pump), append the shared Monitor status + Stop
  * control bound to that task. No-op for ordinary user messages.
@@ -315,13 +326,13 @@ export function renderMessage(host, container, message) {
 function renderTaskSourceControl(host, wrapper, message) {
   const raw = message.get('taskSource');
   if (!raw) return;
-  const ts = plain(raw);
-  const taskId = ts?.taskId || '';
+  const ts = plainRecord(raw);
+  const taskId = textField(ts, 'taskId');
   if (!taskId) return;
   renderTaskDeliveryControl(wrapper, {
     messageThread: host._messageThread,
     taskId,
-    label: ts?.label || '',
+    label: textField(ts, 'label'),
   });
 }
 
@@ -602,9 +613,8 @@ export function renderToolAction(host, container, toolAction) {
       const outputDiv = document.createElement('pre');
       outputDiv.className = 'properties-panel-result';
       const isAwaitingApproval = toolAction.get('state') === TOOL_STATES.PENDING;
-      const displayDataPlain = yGet(toolAction, 'displayData');
-      const streamedOutput = displayDataPlain?.output;
-      const streamText = streamedOutput || displayDataPlain?.status || (isAwaitingApproval ? t('Waiting for approval...') : '');
+      const displayDataPlain = yGetRecord(toolAction, 'displayData');
+      const streamText = textField(displayDataPlain, 'output') || textField(displayDataPlain, 'status') || (isAwaitingApproval ? t('Waiting for approval...') : '');
       if (isTerminal) applyAnsi(outputDiv, streamText);
       else outputDiv.textContent = streamText;
       resultSection.appendChild(outputDiv);
@@ -642,8 +652,8 @@ export function renderToolAction(host, container, toolAction) {
         // Start pulsing once running.
         if (!awaitingApproval) wrapper.setAttribute('data-processing', 'true');
 
-        const ddPlain = yGet(msg, 'displayData');
-        const liveText = ddPlain?.output || ddPlain?.status || (awaitingApproval ? t('Waiting for approval...') : '');
+        const ddPlain = yGetRecord(msg, 'displayData');
+        const liveText = textField(ddPlain, 'output') || textField(ddPlain, 'status') || (awaitingApproval ? t('Waiting for approval...') : '');
         if (isTerminal) applyAnsi(outputDiv, liveText);
         else outputDiv.textContent = liveText;
         return true;

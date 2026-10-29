@@ -42,12 +42,12 @@ export async function runTests(_ctx) {
       const { conversation, mt, item } = await setup(code, { strategy: 'default' });
       const id = item.toolUseId;
       await assertParks(conversation, mt, first);
-      await failingSaves((n) => n === 2, 500, async () => {
+      await failingSaves((/** @type {number} */ n) => n === 2, 500, async () => {
         const finished = startAsAction(conversation, mt, id);
         await waitHeld(mt, id, 'bash');
         assert((await snapshotOf(item))?.held?.input?.command === first, 'the first hold has its snapshot');
         answerHeld(conversation, mt, id, 'yes');
-        await waitHeld(mt, id, 'bash', (t) => t.heldCall.input.command === second);
+        await waitHeld(mt, id, 'bash', (/** @type {import('./run-code-program-helpers.js').HeldToolAction} */ t) => t.heldCall.input.command === second);
         await waitSnapshotGone(item, 'the first hold\'s snapshot to go with the second\'s failed save');
         await loseEngine(conversation, id, finished);
       });

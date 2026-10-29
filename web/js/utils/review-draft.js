@@ -45,6 +45,15 @@ export const REVIEW_DRAFT_LIMITS = {
 /** Where a comment hangs: a side of the diff, or the file as a whole. */
 const SIDES = new Set(['old', 'new', 'file']);
 
+/**
+ * Whether a stored value names a side a comment can hang on.
+ * @param {unknown} side - The stored side.
+ * @returns {side is 'old'|'new'|'file'} True for one of {@link SIDES}.
+ */
+function isSide(side) {
+  return typeof side === 'string' && SIDES.has(side);
+}
+
 /** The scope a comment with none was written in, spelled the way a Git pin spells it. */
 const DEFAULT_SCOPE = '@uncommitted';
 
@@ -93,23 +102,38 @@ const SCOPE_LABEL_MAX = 500;
 
 /**
  * Anything a Yjs container hands back, as a plain object.
- * @param {any} raw - A Y.Map, a plain object, or neither.
- * @returns {any} The plain form, or null if it is not an object at all.
+ * @param {unknown} raw - A Y.Map, a plain object, or neither.
+ * @returns {Record<string, unknown>|null} The plain form, or null if it is not an object at all.
  */
 function toPlain(raw) {
   if (!raw || typeof raw !== 'object') return null;
-  return typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+  /** @type {unknown} */
+  const value = 'toJSON' in raw && typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+  return value && typeof value === 'object' ? /** @type {Record<string, unknown>} */ (value) : null;
+}
+
+/**
+ * A stored list as an array, whether it is a Y.Array or a plain one.
+ * @param {unknown} raw - A Y.Array, an array, or neither.
+ * @returns {unknown[]|null} Its items, or null if it is not a list at all.
+ */
+function toList(raw) {
+  /** @type {unknown} */
+  const list = raw && typeof raw === 'object' && 'toArray' in raw && typeof raw.toArray === 'function'
+    ? raw.toArray()
+    : raw;
+  return Array.isArray(list) ? list : null;
 }
 
 /**
  * The quoted source of one comment, bounded. A quote is a copy of code the file
  * still holds, so cutting it costs nothing that cannot be read elsewhere.
- * @param {any} raw - The stored lines, whatever they turn out to be.
+ * @param {unknown} raw - The stored lines, whatever they turn out to be.
  * @returns {string[]} At most `quoteLines` lines of at most `quoteColumns` each.
  */
 function normalizeQuote(raw) {
-  const list = typeof raw?.toArray === 'function' ? raw.toArray() : raw;
-  if (!Array.isArray(list)) return [];
+  const list = toList(raw);
+  if (!list) return [];
   return list
     .filter((line) => typeof line === 'string')
     .slice(0, REVIEW_DRAFT_LIMITS.quoteLines)
@@ -118,7 +142,7 @@ function normalizeQuote(raw) {
 
 /**
  * A line number, or undefined for a comment that does not name one.
- * @param {any} value - The stored number.
+ * @param {unknown} value - The stored number.
  * @returns {number|undefined} A positive integer, or undefined.
  */
 function normalizeLine(value) {
@@ -131,7 +155,7 @@ function normalizeLine(value) {
  * comment with no id cannot be edited or deleted, one with no file has nowhere
  * to hang, and one with nothing written in it is not a comment — so none of the
  * three is worth carrying, and each is dropped rather than shown as a blank.
- * @param {any} raw - The stored comment.
+ * @param {unknown} raw - The stored comment.
  * @returns {ReviewComment|null} The comment, or null.
  */
 function normalizeComment(raw) {
@@ -140,7 +164,7 @@ function normalizeComment(raw) {
   const id = typeof obj.id === 'string' ? obj.id : '';
   const path = typeof obj.path === 'string' ? obj.path : '';
   const body = typeof obj.body === 'string' ? obj.body : '';
-  const side = SIDES.has(obj.side) ? obj.side : '';
+  const side = isSide(obj.side) ? obj.side : '';
   if (!id || !path || !body.trim() || !side) return null;
 
   const at = Number(obj.createdAt);
@@ -178,14 +202,13 @@ function normalizeComment(raw) {
  * A stored review draft as something every caller can read unconditionally.
  * Tolerant by design: this is what is already in the document, and hiding a
  * comment that is merely surprising would lose work nobody could get back.
- * @param {any} raw - The stored record: a Y.Map, a plain object, or nothing.
+ * @param {unknown} raw - The stored record: a Y.Map, a plain object, or nothing.
  * @returns {ReviewDraft} A well-formed draft, empty if there was nothing usable.
  */
 export function normalizeReviewDraft(raw) {
-  const obj = toPlain(raw);
-  const stored = typeof obj?.comments?.toArray === 'function' ? obj.comments.toArray() : obj?.comments;
-  const comments = Array.isArray(stored)
-    ? /** @type {ReviewComment[]} */ (stored.map(normalizeComment).filter(Boolean))
+  const stored = toList(toPlain(raw)?.comments);
+  const comments = stored
+    ? stored.map(normalizeComment).filter((comment) => comment !== null)
     : [];
   // Version and base are answered rather than echoed: there is one shape, and
   // what each comment compared is the comment's own business.
@@ -195,11 +218,11 @@ export function normalizeReviewDraft(raw) {
 /**
  * Why a draft may not be written, or '' if it may. Checked before the record is
  * normalised, so the refusal describes what the caller actually handed over.
- * @param {any} draft - The draft a surface wants to save.
+ * @param {unknown} draft - The draft a surface wants to save.
  * @returns {string} The complaint, ready to show, or '' when there is none.
  */
 export function reviewDraftBoundsError(draft) {
-  const comments = draft?.comments;
+  const comments = draft && typeof draft === 'object' && 'comments' in draft ? draft.comments : undefined;
   if (comments !== undefined && comments !== null && !Array.isArray(comments)) {
     return t('A review draft\'s comments must be a list.');
   }
@@ -211,8 +234,8 @@ export function reviewDraftBoundsError(draft) {
       count: formatNumber(comments.length, plain),
     });
   }
-  for (const comment of comments || []) {
-    const body = comment && typeof comment.body === 'string' ? comment.body : '';
+  for (const comment of Array.isArray(comments) ? comments : []) {
+    const body = comment && typeof comment === 'object' && typeof comment.body === 'string' ? comment.body : '';
     if (body.length > REVIEW_DRAFT_LIMITS.body) {
       return t('A comment holds at most {max} characters; this one has {length}.', {
         max: formatNumber(REVIEW_DRAFT_LIMITS.body, plain),

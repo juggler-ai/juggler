@@ -80,13 +80,14 @@ export function reportFault(source, error, detail) {
  * Deliberately not applied to work that must be transactional — this is for
  * the fan-out, where each consumer is independent and a failure is a display
  * problem, not a correctness one.
- * @template {(...args: any[]) => any} F
+ * @template {unknown[]} A
+ * @template R
  * @param {string} source - What to name this callback in a report.
- * @param {F} fn - The callback to wrap.
- * @returns {(...args: Parameters<F>) => (ReturnType<F>|undefined)} The wrapped callback.
+ * @param {(...args: A) => R} fn - The callback to wrap.
+ * @returns {(...args: A) => (R|undefined)} The wrapped callback.
  */
 export function guarded(source, fn) {
-  return (/** @type {any[]} */ ...args) => {
+  return (/** @type {A} */ ...args) => {
     try {
       return fn(...args);
     } catch (err) {

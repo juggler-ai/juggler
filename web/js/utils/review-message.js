@@ -65,7 +65,7 @@ function compareComments(a, b) {
  * The blocks are the SDK's own, so a review comment and a selection quoted out
  * of a file arrive looking identical. Nothing here is hidden and nothing is
  * parsed back — the reviewer may edit the message before it goes.
- * @param {any} draft - The review to write out, in whatever state it is stored.
+ * @param {unknown} draft - The review to write out, in whatever state it is stored.
  * @returns {string} The message, or '' when there is nothing to say.
  */
 export function formatReviewMessage(draft) {

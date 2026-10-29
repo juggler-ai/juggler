@@ -20,6 +20,7 @@ injectStylesOnce('binary-file-viewer-styles', `
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);
 }
+
 .binary-file__facts {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -27,12 +28,15 @@ injectStylesOnce('binary-file-viewer-styles', `
   margin-top: 0.5rem;
   font-size: var(--font-size-sm);
 }
+
 .binary-file-fact {
   display: contents;
 }
+
 .binary-file-fact__label {
   color: var(--text-tertiary);
 }
+
 .binary-file-fact__value {
   color: var(--text-secondary);
   font-family: var(--font-mono, 'Courier New', monospace);

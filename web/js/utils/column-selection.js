@@ -12,13 +12,14 @@
 
 import { buildDisplayItems, findGroup, isGroupId } from './item-grouping.js';
 import { canonicalThread } from '../model/thread-alias.js';
+import { isYMap } from '../model/item-accessor.js';
 
 /**
  * @typedef {object} ColumnChainEntry
  * @property {'conversation'|'properties'|'transaction'} type - What kind of column to render
- * @property {any} [container] - Y.Map container (root or thread Y.Map) that holds 'items'
+ * @property {import('yjs').Map<unknown>} [container] - Y.Map container (root or thread Y.Map) that holds 'items'
  * @property {string|undefined} [threadItemId] - Thread item ID (for thread conversation columns)
- * @property {any} [threadYMap] - The thread Y.Map (for thread conversation columns)
+ * @property {import('yjs').Map<unknown>} [threadYMap] - The thread Y.Map (for thread conversation columns)
  * @property {string} [viewItemId] - The parent item this column was opened through,
  *   which for a thread called more than once is one of several views of the same
  *   transcript. It is the tile the user is acting on, so it — not the canonical
@@ -27,10 +28,33 @@ import { canonicalThread } from '../model/thread-alias.js';
  * @property {string} [transactionId] - Round-trip id: the one the selected item
  *   belongs to (properties columns), or the one being shown (transaction columns)
  * @property {string} [groupId] - Display id of the folded tool run this column shows
- * @property {any[]} [groupItems] - The run's items (for group conversation columns)
+ * @property {unknown[]} [groupItems] - The run's items (for group conversation columns)
  */
 
-/** @typedef {(item: any) => boolean} ThreadPredicate */
+/** @typedef {(item: unknown) => boolean} ThreadPredicate */
+
+/**
+ * One field of a column item, read through its `get`.
+ * @param {unknown} item - A Y.Map, a group entry, or anything else.
+ * @param {string} key - Field name.
+ * @returns {unknown} The field value, or undefined for anything with no `get`.
+ */
+function field(item, key) {
+  if (!item || typeof item !== 'object' || !('get' in item) || typeof item.get !== 'function') return undefined;
+  return /** @type {unknown} */ (item.get(key));
+}
+
+/**
+ * A stored list's items: a Y.Array's, or nothing.
+ * @param {unknown} list - A Y.Array, or anything else.
+ * @returns {unknown[]} Its items, or an empty array.
+ */
+function listItems(list) {
+  if (!list || typeof list !== 'object' || !('toArray' in list) || typeof list.toArray !== 'function') return [];
+  /** @type {unknown} */
+  const items = list.toArray();
+  return Array.isArray(items) ? items : [];
+}
 
 const AUTO_SELECT_COOLDOWN_MS = 5000;
 
@@ -226,7 +250,7 @@ class ColumnSelectionState {
   /**
    * Resolve the column chain from root through current selections.
    * Walks the Yjs tree to determine what type each column should be.
-   * @param {{container: any, items: any[]}} rootThread - The root message thread
+   * @param {{container: import('yjs').Map<unknown>, items: unknown[]}} rootThread - The root message thread
    * @param {ThreadPredicate} isThread - Predicate to check if an item is a thread
    * @param {{groupingEnabled?: boolean}} [opts] - Display options; `groupingEnabled`
    *   lets a selection name a folded tool run rather than a single item.
@@ -278,10 +302,10 @@ class ColumnSelectionState {
         continue;
       }
 
+      /** @type {unknown} */
       let selectedItem = null;
       for (const item of currentItems) {
-        if (!item || !item.get) continue;
-        if (item.get('itemId') === selectedId) {
+        if (field(item, 'itemId') === selectedId) {
           selectedItem = item;
           break;
         }
@@ -292,9 +316,8 @@ class ColumnSelectionState {
         // not `items`. It's always a leaf (never a thread), so it gets a plain
         // properties column — same as any selected non-thread item.
         const container = chain[i]?.container;
-        const pendingArr = container && container.get ? container.get('pendingItems') : null;
-        const pending = pendingArr && pendingArr.toArray ? pendingArr.toArray() : [];
-        const isPending = pending.some((/** @type {any} */ it) => it && it.get && it.get('itemId') === selectedId);
+        const pending = listItems(container?.get('pendingItems'));
+        const isPending = pending.some((it) => field(it, 'itemId') === selectedId);
         if (isPending) {
           chain.push({
             type: /** @type {const} */ ('properties'),
@@ -312,24 +335,26 @@ class ColumnSelectionState {
         // selection keeps naming the tile the user clicked — so that tile stays
         // highlighted — and only the column it opens is the canonical's.
         const thread = canonicalThread(selectedItem, currentItems);
+        if (!isYMap(thread)) break;
         const nestedItems = thread.get('items');
         if (!nestedItems) break;
+        const threadItemId = thread.get('itemId');
 
         chain.push({
           type: /** @type {const} */ ('conversation'),
           container: thread,
-          threadItemId: thread.get('itemId') || selectedId,
+          threadItemId: typeof threadItemId === 'string' && threadItemId ? threadItemId : selectedId,
           threadYMap: thread,
           viewItemId: selectedId
         });
 
-        currentItems = nestedItems.toArray ? nestedItems.toArray() : [];
+        currentItems = listItems(nestedItems);
       } else {
         chain.push({
           type: /** @type {const} */ ('properties'),
           selectedItemId: selectedId,
           container: chain[i]?.container,
-          transactionId: String(selectedItem.get('transactionId') || '')
+          transactionId: String(field(selectedItem, 'transactionId') || '')
         });
         break;
       }
@@ -359,31 +384,29 @@ class ColumnSelectionState {
   /**
    * Resolve the chain of thread item IDs from root to a target thread.
    * Recursively walks the Yjs tree to find the path.
-   * @param {any[]} rootItems - Root-level items to search
+   * @param {unknown[]} rootItems - Root-level items to search
    * @param {string} targetThreadItemId - The thread item ID to find
    * @param {ThreadPredicate} isThread - Predicate to check if an item is a thread
    * @returns {string[]} Chain of item IDs from root to target
    */
   resolveThreadChain(rootItems, targetThreadItemId, isThread) {
     /**
-     * @param {any[]} items
+     * @param {unknown[]} items
      * @returns {string[]|null} Chain if found, null otherwise
      */
     const search = (items) => {
       for (const item of items) {
-        if (!item || !item.get) continue;
-        const itemId = item.get('itemId');
-        if (!itemId) continue;
+        const itemId = field(item, 'itemId');
+        if (typeof itemId !== 'string' || !itemId) continue;
 
         if (itemId === targetThreadItemId) {
           return [itemId];
         }
 
         if (isThread(item)) {
-          const nestedItems = item.get('items');
+          const nestedItems = field(item, 'items');
           if (nestedItems) {
-            const arr = nestedItems.toArray ? nestedItems.toArray() : [];
-            const result = search(arr);
+            const result = search(listItems(nestedItems));
             if (result) {
               return [itemId, ...result];
             }
@@ -415,7 +438,7 @@ class ColumnSelectionState {
    * composer, scrolling back to the end) the thread that is running by then
    * opens — the deferral postpones the reveal rather than cancelling it.
    * @param {string|null} statusThreadId - Current LLM status thread ID
-   * @param {any[]} rootItems - Root-level items for chain resolution
+   * @param {unknown[]} rootItems - Root-level items for chain resolution
    * @param {ThreadPredicate} isThread - Predicate to check if an item is a thread
    * @param {{userReading?: boolean, nowMs?: number}} [opts] - `userReading`: the
    *   user is reading a column of this tab — a selection of their own, or a

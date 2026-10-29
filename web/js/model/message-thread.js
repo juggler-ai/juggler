@@ -10,7 +10,7 @@
  * "am I root or thread?".
  */
 import * as Y from '../vendor/yjs.mjs';
-import { plainToYMap, convertToYType } from './item-accessor.js';
+import { plainToYMap, convertToYType, plainRecord } from './item-accessor.js';
 import { itemRunSettled, promoteThreadView } from './thread-alias.js';
 import {
   createToolActionMessage,
@@ -54,6 +54,22 @@ function filterCorruptItems(raw, label) {
   }));
 }
 
+/**
+ * A stored model config as a ModelConfig: a Y.Map or a plain object carrying a
+ * string `provider` and `model`. Anything else reads as no config.
+ * @param {unknown} value - The stored config
+ * @returns {import('./conversation.js').ModelConfig|null} The config, or null
+ */
+function modelConfigOf(value) {
+  const raw = plainRecord(value);
+  if (!raw || typeof raw.provider !== 'string' || typeof raw.model !== 'string') return null;
+  /** @type {import('./conversation.js').ModelConfig} */
+  const config = { provider: raw.provider, model: raw.model };
+  if (typeof raw.thinking === 'string') config.thinking = raw.thinking;
+  if (typeof raw.serviceTier === 'string') config.serviceTier = raw.serviceTier;
+  return config;
+}
+
 export default class MessageThread {
   /**
    * @param {import('./conversation.js').default} conversation - Parent conversation
@@ -80,7 +96,7 @@ export default class MessageThread {
     /** @type {import('juggler/strategy-type').default} */
     this.strategy = strategyRegistry.createStrategy(resolvedStrategyId, this);
 
-    /** @type {boolean} @private */
+    /** @type {boolean} - Set by message-thread-context-items.js once SYSTEM_1 is known present */
     this._systemPromptPlaceholderEnsured = false;
   }
 
@@ -113,16 +129,9 @@ export default class MessageThread {
   get ownModelConfig() {
     if (!this.threadItemId) {
       // Root thread — own config is the conversation-level DEFAULT metadata.
-      const config = this.conversation.getMetadata('defaultModelConfig');
-      return config !== undefined ? config : null;
+      return modelConfigOf(this.conversation.getMetadata('defaultModelConfig'));
     }
-    const raw = this.container.get('modelConfig');
-    if (!raw) return null;
-    // Convert Y.Map to plain object if needed
-    if (raw && typeof raw.toJSON === 'function') {
-      return raw.toJSON();
-    }
-    return raw;
+    return modelConfigOf(this.container.get('modelConfig'));
   }
 
   /**
@@ -158,15 +167,14 @@ export default class MessageThread {
     let itemId = this.threadItemId;
     while (container && itemId) {
       const raw = container.get('modelConfig');
-      if (raw) return typeof raw.toJSON === 'function' ? raw.toJSON() : raw;
+      if (raw) return modelConfigOf(raw);
       const parent = this.conversation.findParentContainer(itemId);
       if (!parent) break; // parent is the root — fall through to metadata
       container = parent;
-      itemId = parent.get('itemId');
+      itemId = parent.get('itemId') ?? null;
     }
     // Root level — conversation-level DEFAULT (`defaultModelConfig`).
-    const config = this.conversation.getMetadata('defaultModelConfig');
-    return config !== undefined ? config : null;
+    return modelConfigOf(this.conversation.getMetadata('defaultModelConfig'));
   }
 
   /**
@@ -188,7 +196,7 @@ export default class MessageThread {
       const parent = this.conversation.findParentContainer(itemId);
       if (!parent) break; // parent is the root — fall through to metadata
       container = parent;
-      itemId = parent.get('itemId');
+      itemId = parent.get('itemId') ?? null;
     }
     const meta = this.conversation.getMetadata('currentStrategyId');
     return meta ? /** @type {string} */ (meta) : 'default';

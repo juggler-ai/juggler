@@ -27,6 +27,17 @@ import { ConversationLoader } from './conversation-loader.js';
 import { bytesToBase64 } from '../utils/base64.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 
+/**
+ * One flag of the worker's `undoState` metadata.
+ * @param {unknown} undoState - The stored undo state
+ * @param {'canUndo'|'canRedo'} key - The flag
+ * @returns {boolean} The flag, false when absent
+ */
+function undoFlag(undoState, key) {
+  return !!(undoState && typeof undoState === 'object' && key in undoState
+    && /** @type {Record<string, unknown>} */ (undoState)[key]);
+}
+
 // ============================================================================
 // Type Definitions
 // ============================================================================
@@ -1201,8 +1212,7 @@ export class WorkerManager {
    */
   canUndo(conversationId) {
     const conversation = this._session?.conversations.get(conversationId);
-    const undoState = conversation?.getMetadata('undoState');
-    return undoState?.canUndo ?? false;
+    return undoFlag(conversation?.getMetadata('undoState'), 'canUndo');
   }
 
   /**
@@ -1212,8 +1222,7 @@ export class WorkerManager {
    */
   canRedo(conversationId) {
     const conversation = this._session?.conversations.get(conversationId);
-    const undoState = conversation?.getMetadata('undoState');
-    return undoState?.canRedo ?? false;
+    return undoFlag(conversation?.getMetadata('undoState'), 'canRedo');
   }
 
   // ============================================================================

@@ -47,11 +47,11 @@
     "../web/sdk/**/*.js",
     "../web/extensions/**/*.js",
     "../web/machine/**/*.js",
-    "../examples/**/*.js"
+    "../examples/**/*.js",
+    "../web/js-tests/**/*.js"
   ],
   "exclude": [
     "../web/js/vendor/**",
-    "../web/extensions/**/_tests/**",
     "node_modules"
   ]
 }

@@ -622,7 +622,7 @@ update-button .update-btn {
     background: var(--accent-blue);
     color: var(--text-on-accent);
     font-family: var(--font-ui);
-    font-size: 13px;
+    font-size: var(--font-size-header-base);
     font-weight: 600;
     white-space: nowrap;
     cursor: pointer;

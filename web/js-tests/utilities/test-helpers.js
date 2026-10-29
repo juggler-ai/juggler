@@ -29,6 +29,7 @@ import {
 import workerManager from '../../js/services/worker-manager.js';
 import { plainToYMap } from '../../js/model/item-accessor.js';
 import toolExecutor from '../../js/services/tool-executor.js';
+import { toolActionResult } from '../../extensions/juggler-core/lib/tool-action-result.js';
 import { closeAllPopups, __resetPopupManagerForTests } from '../../js/utils/popup-manager.js';
 import { noteProjectSize } from './project-size.js';
 import { forgetOwnConversation } from './conversation-claims.js';
@@ -484,20 +485,20 @@ export async function executeToolsAndGetContext(conversation, session, toolCalls
 function extractToolOutcomes(items, toolCalls) {
   return toolCalls.map(tc => {
     // Items contain tool-action messages with a nested result property
-    const toolAction = /** @type {Message|undefined} */ (
+    const toolAction = /** @type {import('yjs').Map<unknown>|undefined} */ (
       items.find(
         item => isToolActionMessage(/** @type {Message} */ (item)) &&
-        /** @type {any} */ (item).get('toolUseId') === tc.id
+        /** @type {Message} */ (item).get('toolUseId') === tc.id
       )
     );
     if (toolAction && toolAction.get('result')) {
-      const result = toolAction.get('result');
+      const result = toolActionResult(toolAction);
       return {
         toolName: tc.name,
-        success: !result.get('isError'),
-        result: result.get('content'),
-        error: result.get('isError') ? result.get('content') : undefined,
-        resultStatus: result.get('cancelled') ? 'cancelled' : result.get('isError') ? 'error' : 'success'
+        success: !result.isError,
+        result: result.content,
+        error: result.isError ? result.content : undefined,
+        resultStatus: result.cancelled ? 'cancelled' : result.isError ? 'error' : 'success'
       };
     }
     return {

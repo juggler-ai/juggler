@@ -26,21 +26,22 @@
 import { TOOL_STATES } from '../../sdk/lib/message.js';
 import { markUntranslated } from '../../sdk/lib/i18n.js';
 import { isRestingStatus } from './processing-status.js';
+import { arrayItems, isItemView } from './item-accessor.js';
 
 /**
  * Single-pass scan of the tool states the turn fence needs, so a wait walks the
  * item tree (including nested threads) once per observer fire rather than once
  * per question asked of it.
- * @param {any[]} items - Items to scan
+ * @param {unknown[]} items - Items to scan
  * @returns {{hasIncomplete: boolean, hasPending: boolean, pendingTool: string}} In-flight-result and pending-approval flags, plus the first tool awaiting approval
  */
 export function scanToolStates(items) {
   let hasIncomplete = false;
   let hasPending = false;
   let pendingTool = '';
-  const walk = (/** @type {any[]} */ list) => {
-    if (!list) return;
+  const walk = (/** @type {unknown[]} */ list) => {
     for (const item of list) {
+      if (!isItemView(item)) continue;
       const type = item.get('type');
       if (type === 'tool-action') {
         const state = item.get('state');
@@ -53,7 +54,7 @@ export function scanToolStates(items) {
         }
       } else if (type === 'thread') {
         const nested = item.get('items');
-        if (nested) walk(nested.toArray ? nested.toArray() : []);
+        if (nested) walk(arrayItems(nested));
       }
     }
   };
@@ -73,8 +74,8 @@ export function scanToolStates(items) {
  * Pass `sinceTurn = conversation.completedTurns` captured *before* the action
  * that starts the turn (send / compact). Omit it for **settle mode**, where the
  * current turn just needs to quiesce and no new turn epoch is expected.
- * @param {any} conversation - Conversation instance
- * @param {any[]} items - The root thread's items
+ * @param {import('./conversation.js').default} conversation - Conversation instance
+ * @param {unknown[]} items - The root thread's items
  * @param {{sinceTurn?: number}} [opts]
  * @returns {{done: boolean, parked: boolean, parkedTool: string}} Terminal state, and the tool parked on when there is one
  */
@@ -110,8 +111,8 @@ export function inspectTurn(conversation, items, { sinceTurn } = {}) {
  * nested change thereafter. The predicate is also evaluated once up front, so a
  * condition already satisfied resolves without waiting for a change that may
  * never come.
- * @param {any} conversation - Conversation instance
- * @param {(items: any[], ps: any) => boolean} predicate - Terminal condition
+ * @param {import('./conversation.js').default} conversation - Conversation instance
+ * @param {(items: unknown[], ps: unknown) => boolean} predicate - Terminal condition
  * @param {{timeoutMs?: number, signal?: AbortSignal, label?: string}} [opts]
  * @returns {Promise<void>} Rejects on timeout, on abort, or if the predicate throws
  */
@@ -174,7 +175,7 @@ export function observeUntil(conversation, predicate, { timeoutMs = 5000, signal
 
 /**
  * Wait for a turn to reach a durable terminal state and report which one.
- * @param {any} conversation - Conversation instance
+ * @param {import('./conversation.js').default} conversation - Conversation instance
  * @param {{sinceTurn?: number, timeoutMs?: number, signal?: AbortSignal, label?: string}} [opts]
  * @returns {Promise<{parked: boolean, parkedTool: string}>} How the turn ended; rejects on timeout or abort
  */

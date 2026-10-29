@@ -35,12 +35,43 @@ import { capabilityLabel } from './capability-label.js';
  */
 export const NOTICE_TYPE_NAME = markForTranslation('Warning');
 
-const USER_AVATAR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="14" viewBox="0 -960 960 960" width="14" fill="white"><path d="M480-480q-66 0-113-47t-47-113q0-66 47-113t113-47q66 0 113 47t47 113q0 66-47 113t-113 47ZM160-160v-112q0-34 17.5-62.5T224-378q62-31 126-46.5T480-440q66 0 130 15.5T736-378q29 15 46.5 43.5T800-272v112H160Z"/></svg>';
+/**
+ * One field of a Yjs message item, read through its `get`.
+ * @param {unknown} item - A Y.Map, or anything else.
+ * @param {string} key - Field name.
+ * @returns {unknown} The field value, or undefined for anything with no `get`.
+ */
+function field(item, key) {
+  if (!item || typeof item !== 'object' || !('get' in item) || typeof item.get !== 'function') return undefined;
+  return /** @type {unknown} */ (item.get(key));
+}
+
+/**
+ * A stored value as a plain record, or null when it is not an object.
+ * @param {unknown} value - A plain value (already materialised from any Y type).
+ * @returns {Record<string, unknown>|null} The record, or null.
+ */
+function asRecord(value) {
+  return value && typeof value === 'object' ? /** @type {Record<string, unknown>} */ (value) : null;
+}
+
+const USER_AVATAR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="14" viewBox="0 -960 960 960" width="14" fill="currentColor"><path d="M480-480q-66 0-113-47t-47-113q0-66 47-113t113-47q66 0 113 47t47 113q0 66-47 113t-113 47ZM160-160v-112q0-34 17.5-62.5T224-378q62-31 126-46.5T480-440q66 0 130 15.5T736-378q29 15 46.5 43.5T800-272v112H160Z"/></svg>';
+
+/**
+ * @typedef {import('juggler/context-item').default} ContextItem
+ * @typedef {typeof import('juggler/context-item').default} ContextItemClass
+ * @typedef {import('../services/action-executor.js').ActionStatus} ActionStatus
+ */
+
+/**
+ * The arguments a tile hands a plugin's getStatusUI().
+ * @typedef {[(ActionStatus|null)?, Record<string, unknown>?, {conversation?: unknown, session?: unknown, toolUseId?: string}?]} StatusArgs
+ */
 
 /**
  * @typedef {object} BadgeContext
- * @property {any} [conversation] - Current Conversation (for plugin instance construction)
- * @property {any} [messageThread] - Current MessageThread (resolves context-item instances by id)
+ * @property {import('../model/conversation.js').default|null} [conversation] - Current Conversation (for plugin instance construction)
+ * @property {import('../model/message-thread.js').MessageThread|null} [messageThread] - Current MessageThread (resolves context-item instances by id)
  * @property {string} [fallbackType] - Item type to assume when the item itself can't report one
  *   (used by attribute-driven tiles like thinking-message that hold no Yjs item)
  */
@@ -55,7 +86,7 @@ const USER_AVATAR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="14" vie
 /**
  * The registry id of a plugin CLASS — the id the extensions catalog lists its
  * capability under.
- * @param {any} PluginClass - Plugin class, or null/undefined
+ * @param {ContextItemClass|null|undefined} PluginClass - Plugin class, or null/undefined
  * @returns {string|null} The capability id, or null
  */
 function classPluginId(PluginClass) {
@@ -65,7 +96,7 @@ function classPluginId(PluginClass) {
 /**
  * The registry id behind a context-item plugin instance. `type` is seeded from
  * the class's MANIFEST id, so it stands in when the manifest isn't reachable.
- * @param {any} instance - Context-item plugin instance
+ * @param {ContextItem} instance - Context-item plugin instance
  * @returns {string|null} The capability id, or null
  */
 function instancePluginId(instance) {
@@ -74,12 +105,12 @@ function instancePluginId(instance) {
 
 /**
  * Icon options for a context-item plugin instance, from its static badge.
- * @param {any} instance - Context-item plugin instance
+ * @param {ContextItem} instance - Context-item plugin instance
  * @returns {IconOptions} Icon options
  */
 function contextItemIconOptions(instance) {
   const badge = instance.getBadgeOptions?.() ?? { color: 'slate' };
-  const iconSvg = /** @type {any} */ (badge).iconSvg;
+  const iconSvg = 'iconSvg' in badge && typeof badge.iconSvg === 'string' ? badge.iconSvg : undefined;
   return {
     color: badge.color,
     iconClass: badge.icon || undefined,
@@ -91,7 +122,7 @@ function contextItemIconOptions(instance) {
  * Icon options from a plugin CLASS's static getBadgeOptions() — the mask-class
  * icon + colour every plugin-backed item (tool-action, thread) shares. Falls
  * back to an inline SVG only when the plugin declares no mask-class icon.
- * @param {any} PluginClass - Plugin class, or null/undefined
+ * @param {ContextItemClass|null|undefined} PluginClass - Plugin class, or null/undefined
  * @param {string} [fallbackSvg] - Inline SVG used when the plugin has no icon class
  * @returns {IconOptions} Icon options
  */
@@ -104,11 +135,11 @@ function classIconOptions(PluginClass, fallbackSvg) {
 
 /**
  * Whether a value is a context-item plugin instance (vs a Yjs message item).
- * @param {any} item - Candidate
- * @returns {boolean} True if it looks like a context-item instance
+ * @param {unknown} item - Candidate
+ * @returns {item is ContextItem} True if it looks like a context-item instance
  */
 function isContextItemInstance(item) {
-  return !!item && typeof item.getTitle === 'function';
+  return !!item && typeof item === 'object' && 'getTitle' in item && typeof item.getTitle === 'function';
 }
 
 /**
@@ -116,25 +147,25 @@ function isContextItemInstance(item) {
  * when the item carries no tool name or none is registered. Thread items carry
  * the invocation name in `runToolName`; tool actions and older thread documents
  * use `toolName`.
- * @param {any} item - Yjs message item (tool-action or delegated thread).
- * @returns {typeof import('juggler/context-item').default|null} The class, or null.
+ * @param {unknown} item - Yjs message item (tool-action or delegated thread).
+ * @returns {ContextItemClass|null} The class, or null.
  */
 function actionClassFor(item) {
-  const toolName = item?.get?.('runToolName') || item?.get?.('toolName');
-  return toolName ? (contextItemRegistry.getByToolName(toolName) ?? null) : null;
+  const toolName = field(item, 'runToolName') || field(item, 'toolName');
+  return typeof toolName === 'string' && toolName ? (contextItemRegistry.getByToolName(toolName) ?? null) : null;
 }
 
 /**
  * Resolve the circular icon's colour + glyph for a conversation item. Shared by
  * the tiles and the panel so the icon is identical in both.
- * @param {any} item - Yjs message item (has `.get('type')`) or a context-item instance
+ * @param {unknown} item - Yjs message item (has `.get('type')`) or a context-item instance
  * @param {BadgeContext} [ctx] - Resolution context
  * @returns {IconOptions} Icon options ready for createIconBox/createIconBadge
  */
 export function iconOptionsForItem(item, ctx = {}) {
   if (isContextItemInstance(item)) return contextItemIconOptions(item);
 
-  const type = item?.get?.('type') ?? ctx.fallbackType;
+  const type = field(item, 'type') ?? ctx.fallbackType;
   switch (type) {
     case 'error': return { color: /** @type {string} */ (TYPE_COLORS.error), iconSvg: TYPE_ICONS.error };
     // Same warning triangle as an error, in amber: something happened worth
@@ -157,7 +188,7 @@ export function iconOptionsForItem(item, ctx = {}) {
       return classIconOptions(actionClassFor(item), TYPE_ICONS.action);
     }
     case 'context-item': {
-      const inst = ctx.messageThread?.getContextItem?.(item.get('itemId'));
+      const inst = ctx.messageThread?.getContextItem?.(String(field(item, 'itemId') ?? ''));
       return inst ? contextItemIconOptions(inst) : { color: 'blue', iconSvg: TYPE_ICONS.context };
     }
     default:
@@ -168,18 +199,20 @@ export function iconOptionsForItem(item, ctx = {}) {
 /**
  * Construct a throwaway plugin instance for a getStatusUI() call, mirroring the
  * args the tile passes so the label resolves identically.
- * @param {any} PluginClass - Plugin class
+ * @param {ContextItemClass} PluginClass - Plugin class
  * @param {BadgeContext} ctx - Resolution context
- * @returns {any} Instance, or null if construction throws
+ * @returns {ContextItem|null} Instance, or null if construction throws
  */
 function makeInstance(PluginClass, ctx) {
   try {
-    return new PluginClass({
+    // A badge may be asked for outside any conversation; a plugin that needs
+    // one throws, and the badge falls back to the class's static labels.
+    return new PluginClass(/** @type {import('../../sdk/context-item-types.js').ItemContext} */ ({
       id: 'item-badge',
       session: ctx.conversation?.session,
       conversation: ctx.conversation,
       messageThread: ctx.messageThread,
-    });
+    }));
   } catch {
     return null;
   }
@@ -193,9 +226,9 @@ function makeInstance(PluginClass, ctx) {
  * static type label then the supplied fallback. getStatusUI's typeName is
  * already in the user's language; the static label and manifest name are the
  * capability's English, translated here.
- * @param {any} instance - Plugin instance, or null
- * @param {any} PluginClass - Plugin class, or null
- * @param {any[]} statusArgs - Arguments forwarded to getStatusUI
+ * @param {ContextItem|null} instance - Plugin instance, or null
+ * @param {ContextItemClass|null|undefined} PluginClass - Plugin class, or null
+ * @param {StatusArgs} statusArgs - Arguments forwarded to getStatusUI
  * @param {string} fallback - Last-resort label, already in the user's language
  * @param {string|null} [pluginId] - Registry id whose extension owns the static labels
  * @returns {string} The lozenge label
@@ -210,9 +243,18 @@ function pluginTypeName(instance, PluginClass, statusArgs, fallback, pluginId = 
 }
 
 /**
+ * The class a context-item instance was built from.
+ * @param {ContextItem} instance - Context-item plugin instance
+ * @returns {ContextItemClass} Its class
+ */
+function classOf(instance) {
+  return /** @type {ContextItemClass} */ (instance.constructor);
+}
+
+/**
  * The lozenge fallback for a context-item instance: its manifest name, else its
  * type id, else the generic label.
- * @param {any} inst - Context-item plugin instance
+ * @param {ContextItem} inst - Context-item plugin instance
  * @returns {string} The fallback label
  */
 function contextItemFallback(inst) {
@@ -225,38 +267,49 @@ function contextItemFallback(inst) {
  * Reconstruct the (actionStatus, input, context) args a tool-action tile passes
  * to getStatusUI: the completed result when present, else the pending/running
  * shape for an in-flight tool.
- * @param {any} item - Tool-action Yjs item
+ * @param {unknown} item - Tool-action Yjs item
  * @param {BadgeContext} ctx - Resolution context
- * @returns {any[]} Args array for getStatusUI
+ * @returns {StatusArgs} Args array for getStatusUI
  */
 function toolActionStatusArgs(item, ctx) {
-  const toolName = (item.get('toolName') || '').toLowerCase();
-  const input = yGet(item, 'toolInput') || {};
-  const resultPlain = yGet(item, 'result') || null;
-  const actionStatus = resultPlain
-    ? { content: resultPlain.content || '', ...resultPlain }
-    : { pending: true, actionId: toolName, displayData: yGet(item, 'displayData'), state: item.get('state') };
+  const storedName = field(item, 'toolName');
+  const toolName = (typeof storedName === 'string' ? storedName : '').toLowerCase();
+  /** @type {unknown} */
+  const storedInput = yGet(item, 'toolInput');
+  const input = asRecord(storedInput) ?? {};
+  /** @type {unknown} */
+  const storedResult = yGet(item, 'result');
+  const resultPlain = asRecord(storedResult);
+  /** @type {unknown} */
+  const displayData = yGet(item, 'displayData');
+  // The stored result, or the in-flight shape, as the live tile hands it over.
+  /** @type {Record<string, unknown>} */
+  const status = resultPlain
+    ? { content: '', ...resultPlain }
+    : { pending: true, actionId: toolName, displayData, state: field(item, 'state') };
+  const actionStatus = /** @type {ActionStatus} */ (status);
+  const toolUseId = field(item, 'toolUseId');
   const context = {
     conversation: ctx.conversation,
     messageThread: ctx.messageThread,
     session: ctx.conversation?.session,
-    toolUseId: item.get('toolUseId'),
+    toolUseId: typeof toolUseId === 'string' ? toolUseId : undefined,
   };
   return [actionStatus, input, context];
 }
 
 /**
  * Resolve the type-name lozenge label for a conversation item.
- * @param {any} item - Yjs message item or a context-item instance
+ * @param {unknown} item - Yjs message item or a context-item instance
  * @param {BadgeContext} [ctx] - Resolution context
  * @returns {string} The lozenge label
  */
 export function typeNameForItem(item, ctx = {}) {
   if (isContextItemInstance(item)) {
-    return pluginTypeName(item, item.constructor, [], contextItemFallback(item));
+    return pluginTypeName(item, classOf(item), [], contextItemFallback(item));
   }
 
-  const type = item?.get?.('type') ?? ctx.fallbackType;
+  const type = field(item, 'type') ?? ctx.fallbackType;
   switch (type) {
     case 'error': return t('Error');
     // A notice is labelled by kind, not by incident: its summary is the
@@ -271,26 +324,27 @@ export function typeNameForItem(item, ctx = {}) {
       // user asked for: it stands where the folded history began and is the way
       // in to the folded items, so it says what it is rather than wearing the
       // generic lozenge of an ordinary sub-thread.
-      if (item?.get?.('boundedCompaction')) return t('Compacted');
+      if (field(item, 'boundedCompaction')) return t('Compacted');
       // Delegated threads label as their delegating tool (e.g. "Web Fetch")
       // rather than the generic "Thread"; mirrors the tool-action label path but
       // uses the static type label (no per-call tool result to feed getStatusUI).
       // The tool name itself is an identifier, shown as it is.
-      const toolName = item?.get?.('runToolName') || item?.get?.('toolName');
+      const toolName = String(field(item, 'runToolName') || field(item, 'toolName') || '');
       const ActionClass = actionClassFor(item);
       if (ActionClass) return pluginTypeName(null, ActionClass, [], toolName);
       return pluginTypeName(null, contextItemRegistry.get('thread'), [], t('Thread'));
     }
     case 'tool-action': {
-      const toolName = item.get('toolName');
+      const toolName = field(item, 'toolName');
       const ActionClass = actionClassFor(item);
       const instance = ActionClass ? makeInstance(ActionClass, ctx) : null;
-      return pluginTypeName(instance, ActionClass, toolActionStatusArgs(item, ctx), toolName || t('Tool Action'));
+      return pluginTypeName(instance, ActionClass, toolActionStatusArgs(item, ctx),
+        (typeof toolName === 'string' && toolName) || t('Tool Action'));
     }
     case 'context-item': {
-      const inst = ctx.messageThread?.getContextItem?.(item.get('itemId'));
-      if (inst) return pluginTypeName(inst, inst.constructor, [], contextItemFallback(inst));
-      return item.get?.('type') || t('Context Item');
+      const inst = ctx.messageThread?.getContextItem?.(String(field(item, 'itemId') ?? ''));
+      if (inst) return pluginTypeName(inst, classOf(inst), [], contextItemFallback(inst));
+      return String(type) || t('Context Item');
     }
     default:
       return t('Message');
@@ -302,14 +356,14 @@ export function typeNameForItem(item, ctx = {}) {
  * id its capability is listed under in the extensions catalog. Null for items
  * no plugin owns (plain user/assistant messages, thinking, errors), which is
  * what the properties panel keys its "open this in Extensions" link off.
- * @param {any} item - Yjs message item or a context-item instance
+ * @param {unknown} item - Yjs message item or a context-item instance
  * @param {BadgeContext} [ctx] - Resolution context
  * @returns {string|null} The capability id, or null when no plugin owns the item
  */
 function pluginIdForItem(item, ctx = {}) {
   if (isContextItemInstance(item)) return instancePluginId(item);
 
-  const type = item?.get?.('type') ?? ctx.fallbackType;
+  const type = field(item, 'type') ?? ctx.fallbackType;
   switch (type) {
     case 'thread': {
       // Same resolution order as the icon: a delegated thread belongs to its
@@ -319,7 +373,7 @@ function pluginIdForItem(item, ctx = {}) {
     case 'tool-action':
       return classPluginId(actionClassFor(item));
     case 'context-item': {
-      const inst = ctx.messageThread?.getContextItem?.(item.get('itemId'));
+      const inst = ctx.messageThread?.getContextItem?.(String(field(item, 'itemId') ?? ''));
       return inst ? instancePluginId(inst) : null;
     }
     default:
@@ -333,7 +387,7 @@ function pluginIdForItem(item, ctx = {}) {
  * this; tiles that only need the icon use `iconOptionsForItem` directly.
  * `pluginId` rides along so the panel can link the badge to the owning
  * capability; tiles simply ignore it.
- * @param {any} item - Yjs message item or a context-item instance
+ * @param {unknown} item - Yjs message item or a context-item instance
  * @param {BadgeContext} [ctx] - Resolution context
  * @returns {IconOptions & {typeName: string, pluginId: string|null}} Icon options, lozenge label, owning capability id
  */

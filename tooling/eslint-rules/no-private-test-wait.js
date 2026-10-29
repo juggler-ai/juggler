@@ -39,8 +39,13 @@ import * as eslintScope from 'eslint-scope';
  * inline, or a local function passed by name — arms `setTimeout` or
  * `setInterval` (bare, through `window`/`globalThis`/`self`, or a local alias)
  * with its resolve or reject, among any other work: the settler itself
- * wherever it is armed, or a callback that calls one when the executor arms it
- * directly (a timer an event handler arms to defer a re-check is that event's).
+ * wherever it is armed; a callback — inline or a local function — that calls
+ * one when the executor arms it directly; or, armed in a nested function (an
+ * event handler, an observer, a function called later), a callback that
+ * settles on every path through it, so the timer firing is the resolution. A
+ * nested timer whose callback settles only when a predicate holds is a
+ * re-check, and the predicate decides the promise (ui-driver.js
+ * `_observeUntil`).
  * Its timer is a **deadline** when it only rejects or another settler can win.
  * A **timer wait** is a timer promise, a `.then`/`.catch`/`.finally` chain on
  * one, a `Promise.race/any/all/allSettled` over one (`race`/`any` make it a
@@ -427,13 +432,76 @@ function createAnalysis(view, program) {
     const [resolveParam, rejectParam] = fn.params;
     const resolveName = resolveParam?.type === 'Identifier' ? resolveParam.name : null;
     const rejectName = rejectParam?.type === 'Identifier' ? rejectParam.name : null;
-    const isSettler = (/** @type {ASTNode} */ n) => n?.type === 'Identifier' && (n.name === resolveName || n.name === rejectName);
     if (!resolveName && !rejectName) return null;
+    const own = view.getScope(fn);
+    const settlers = new Set([resolveName, rejectName].filter(Boolean).map((name) => own.set.get(/** @type {string} */ (name))));
+    // A settler is the executor's own parameter, not a nested function's of the same name.
+    const isSettler = (/** @type {ASTNode} */ n) => n?.type === 'Identifier' && (n.name === resolveName || n.name === rejectName)
+      && settlers.has(/** @type {Variable} */ (variableOf(n)));
     /**
      * @param {ASTNode} n - A node, itself included.
      * @param {(m: ASTNode) => void} visit - The visitor.
      */
     const each = (n, visit) => { visit(n); walk(n, visit); };
+    /**
+     * The local function a timer callback names or is, other than the executor.
+     * @param {ASTNode} cb - A callback expression.
+     * @returns {ASTNode|null} The function.
+     */
+    const callbackFunction = (cb) => {
+      if (FUNCTIONS.has(cb.type)) return cb;
+      if (cb.type !== 'Identifier') return null;
+      const value = boundValue(variableOf(cb));
+      return value && FUNCTIONS.has(value.type) && value !== fn ? value : null;
+    };
+    /** @type {Set<ASTNode>} */ const visiting = new Set();
+    /**
+     * The settler references `cb` calls on every path through it: a call to
+     * a settler, or to a local function that itself settles on every path,
+     * made as a statement of its body before anything that may return or
+     * throw. A call under an `if`, a loop, a `&&` or a `?:` is the
+     * predicate's, not the callback's.
+     * @param {ASTNode} cb - A function.
+     * @returns {ASTNode[]} The settler references.
+     */
+    const settlesAlways = (cb) => {
+      if (visiting.has(cb)) return [];
+      visiting.add(cb);
+      /** @type {ASTNode[]} */ const refs = [];
+      /** @param {ASTNode} e - An expression evaluated on every path. */
+      const fromExpression = (e) => {
+        if (e.type === 'SequenceExpression') e.expressions.forEach(fromExpression);
+        else if ((e.type === 'UnaryExpression' && e.operator === 'void') || e.type === 'AwaitExpression') fromExpression(e.argument);
+        else if (e.type === 'CallExpression') {
+          if (isSettler(e.callee)) refs.push(e.callee);
+          else if (e.callee.type === 'Identifier') {
+            const inner = callbackFunction(e.callee);
+            if (inner) refs.push(...settlesAlways(inner));
+          }
+        }
+      };
+      /**
+       * @param {ASTNode[]} body - Statements run in order.
+       * @returns {boolean} Whether every path reaches the statement after them.
+       */
+      const fromStatements = (body) => {
+        for (const s of body) {
+          if (s.type === 'ExpressionStatement') fromExpression(s.expression);
+          else if (s.type === 'BlockStatement') { if (!fromStatements(s.body)) return false; continue; }
+          if (s.type === 'FunctionDeclaration') continue;
+          let exits = false;
+          each(s, (m) => {
+            if ((m.type === 'ReturnStatement' || m.type === 'ThrowStatement') && enclosingFunction(m) === cb) exits = true;
+          });
+          if (exits) return false;
+        }
+        return true;
+      };
+      if (cb.body.type === 'BlockStatement') fromStatements(cb.body.body);
+      else fromExpression(cb.body);
+      visiting.delete(cb);
+      return refs;
+    };
     /** @type {Array<ASTNode|undefined>} */ const delays = [];
     /** Settler references the timers account for. */
     const timed = new Set();
@@ -444,13 +512,19 @@ function createAnalysis(view, program) {
       if (!cb) return;
       /** @type {ASTNode[]} */ const refs = [];
       if (isSettler(cb)) refs.push(cb);
-      // A timer whose callback settles counts when the executor arms it
-      // itself; one a nested callback arms (an event handler deferring a
-      // re-check) is that event's, and the event decides the promise.
-      else if (FUNCTIONS.has(cb.type) && enclosingFunction(n) === fn) {
-        each(cb.body, (m) => {
-          if (m.type === 'CallExpression' && isSettler(m.callee)) refs.push(m.callee);
-        });
+      else {
+        // A timer the executor arms itself counts when its callback settles
+        // at all. One armed in a nested function — an event handler, an
+        // observer, a function called later — counts when its callback
+        // settles on every path, since then its firing is the resolution; a
+        // callback that settles only when a predicate holds is a re-check,
+        // and the predicate decides the promise.
+        const cbFn = callbackFunction(cb);
+        if (cbFn && enclosingFunction(n) === fn) {
+          each(cbFn.body, (m) => {
+            if (m.type === 'CallExpression' && isSettler(m.callee)) refs.push(m.callee);
+          });
+        } else if (cbFn) refs.push(...settlesAlways(cbFn));
       }
       if (!refs.length) return;
       delays.push(delay);

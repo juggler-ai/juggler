@@ -67,6 +67,12 @@ import { budgetFor, deadlineFor, deadlineTimer } from './test-deadline.js';
  */
 
 /**
+ * One captured action-progress event: the event's own fields, plus the
+ * action's running output total and when the capture saw it.
+ * @typedef {{accumulatedOutput: string, timestamp: number, [key: string]: unknown}} ProgressEvent
+ */
+
+/**
  * Integration test harness that exercises real code paths with mock LLM responses.
  */
 /**
@@ -118,7 +124,7 @@ export class IntegrationTestHarness {
     /**
      * Where this test's own deadline is read from, every time a wait asks.
      * By default it is the field above. A UITestHarness points it at its own
-     * field instead, which is the one the runner's stall watchdog moves while
+     * field instead (followTestBudget), which is the one the runner's stall watchdog moves while
      * the test makes progress: a value copied at setup would expire ~26s in
      * and leave every later wait a 0ms budget, however live the test.
      * @type {() => number} @private
@@ -182,7 +188,7 @@ export class IntegrationTestHarness {
     /**
      * Map of active progress captures (toolUseId -> {events, handler})
      * Used for streaming action tests.
-     * @type {Map<string, {events: object[], handler: Function}>}
+     * @type {Map<string, {events: ProgressEvent[], handler: Function}>}
      * @private
      */
     this._progressCaptures = new Map();
@@ -197,10 +203,10 @@ export class IntegrationTestHarness {
     this._toolExecCounts = new Map();
 
     /**
-     * BroadcastChannel subscription that increments _toolExecCounts when
-     * the engine WebviewWindow posts a toolExecutor.executeToolCall start.
-     * `null` when no subscription is installed.
-     * @type {BroadcastChannel | null}
+     * The engine-bridge subscription that increments _toolExecCounts when
+     * the engine WebviewWindow posts a toolExecutor.executeToolCall start;
+     * `close()` unsubscribes it. `null` when no subscription is installed.
+     * @type {{close: () => void} | null}
      * @private
      */
     this._toolExecChannel = null;
@@ -489,7 +495,7 @@ export class IntegrationTestHarness {
     await waitForTurnComplete(this._conversation, {
       sinceTurn,
       deadlineMs: this._deadline(6000),
-      signal: this._abortSignal,
+      signal: this._abortSignal ?? undefined,
       label: 'turn complete'
     });
   }
@@ -746,7 +752,7 @@ export class IntegrationTestHarness {
     }
     await waitForTurnComplete(this._conversation, {
       deadlineMs: this._deadline(timeoutMs),
-      signal: this._abortSignal,
+      signal: this._abortSignal ?? undefined,
       timeoutMs,
       label: 'idle'
     });
@@ -773,7 +779,7 @@ export class IntegrationTestHarness {
     // budget). The caller's timeoutMs is the fallback when no deadline is set.
     await observeUntil(this._conversation, predicate, {
       deadlineMs: this._deadline(timeoutMs),
-      signal: this._abortSignal,
+      signal: this._abortSignal ?? undefined,
       timeoutMs,
       label
     });
@@ -788,6 +794,37 @@ export class IntegrationTestHarness {
       throw new Error('Conversation not initialized');
     }
     return this._conversation;
+  }
+
+  /**
+   * Bound this harness's waits by a wrapping harness's per-test budget: the
+   * deadline is read from `deadlineSource` on every wait, so it follows the
+   * runner's stall watchdog as it moves; `signal` aborts them all.
+   * @param {() => number} deadlineSource - The test's current deadline, or 0 for none
+   * @param {AbortSignal|null} signal - The test's abort, or null for none
+   */
+  followTestBudget(deadlineSource, signal) {
+    this._deadlineSource = deadlineSource;
+    this._abortSignal = signal;
+  }
+
+  /**
+   * The fixture directory this harness's test runs in.
+   * @returns {string} Its path
+   */
+  get fixtureDir() {
+    return this._fixtureDir;
+  }
+
+  /**
+   * Track a conversation the app opened outside this harness (a copy, move or
+   * promotion into a new tab), so `$CONV_N` placeholders and switching reach it.
+   * @param {string} convId - Its ID
+   * @param {import('../../js/model/conversation.js').default} conversation - The conversation
+   */
+  trackConversation(convId, conversation) {
+    this._conversations.set(convId, conversation);
+    this._conversationOrder.push(convId);
   }
 
   /**
@@ -877,7 +914,7 @@ export class IntegrationTestHarness {
     }
 
     // Resolve placeholder
-    const resolvedSourceId = this._resolveConversationId(sourceId);
+    const resolvedSourceId = this.resolveConversationId(sourceId);
 
     // Get source conversation's item count BEFORE duplication
     // We'll wait for this many items to sync to the new conversation
@@ -926,7 +963,7 @@ export class IntegrationTestHarness {
    * @returns {Promise<string>} New conversation ID
    */
   async forkConversation(sourceId, at, llmResponses) {
-    const source = this._conversations.get(this._resolveConversationId(sourceId));
+    const source = this._conversations.get(this.resolveConversationId(sourceId));
     const target = source?.rootMessageThread.items.find(
       (/** @type {any} */ it) => it.get('type') === at.type && it.get('content') === at.content);
     if (!target) {
@@ -960,7 +997,7 @@ export class IntegrationTestHarness {
     // the array directly would silently register nothing and miss that sync.
     await observeUntil(conv, (items) => items.length >= expectedCount, {
       deadlineMs: this._deadline(timeout),
-      signal: this._abortSignal,
+      signal: this._abortSignal ?? undefined,
       timeoutMs: timeout,
       label: `${expectedCount} items to sync in ${conversationId}`
     });
@@ -972,7 +1009,7 @@ export class IntegrationTestHarness {
    */
   switchConversation(conversationId) {
     // Resolve $CONV_N placeholder
-    const resolvedId = this._resolveConversationId(conversationId);
+    const resolvedId = this.resolveConversationId(conversationId);
 
     const conv = this._conversations.get(resolvedId);
     if (!conv) {
@@ -998,7 +1035,7 @@ export class IntegrationTestHarness {
     }
 
     // Resolve $CONV_N placeholder
-    const resolvedId = this._resolveConversationId(conversationId);
+    const resolvedId = this.resolveConversationId(conversationId);
 
     const success = await this._session.deleteConversation(resolvedId, 'test-op:delete-conversation');
     if (!success) {
@@ -1016,7 +1053,7 @@ export class IntegrationTestHarness {
     if (this._conversation?.id === resolvedId) {
       const remaining = [...this._conversations.values()];
       if (remaining.length > 0) {
-        this._conversation = remaining[0];
+        this._conversation = remaining[0] ?? null;
       } else {
         this._conversation = null;
       }
@@ -1044,7 +1081,7 @@ export class IntegrationTestHarness {
     if (!this._session) {
       throw new Error('Session not initialized');
     }
-    const resolvedId = this._resolveConversationId(conversationId);
+    const resolvedId = this.resolveConversationId(conversationId);
     await import('../../js/components/conversation-bar.js');
     const bar = document.createElement('conversation-bar');
     /** @type {any} */ (bar)._session = this._session;
@@ -1073,14 +1110,13 @@ export class IntegrationTestHarness {
    * Resolve $CONV_N placeholder to actual conversation ID.
    * @param {string} conversationId - ID or $CONV_N placeholder
    * @returns {string} Resolved conversation ID
-   * @private
    */
-  _resolveConversationId(conversationId) {
+  resolveConversationId(conversationId) {
     const match = conversationId.match(/^\$CONV_(\d+)$/);
     if (match) {
-      const index = parseInt(match[1], 10);
-      if (index >= 0 && index < this._conversationOrder.length) {
-        return this._conversationOrder[index];
+      const resolved = this._conversationOrder[Number(match[1])];
+      if (resolved !== undefined) {
+        return resolved;
       }
       throw new Error(`Invalid conversation placeholder: ${conversationId} (only ${this._conversationOrder.length} conversations exist)`);
     }
@@ -1128,7 +1164,7 @@ export class IntegrationTestHarness {
     // Fallback: return normalized raw state
     const items = /** @type {RawItem[]} */ (this.rootThread.items || []);
     return {
-      items: items.map(item => ({ type: item.get('type') }))
+      items: items.map(item => ({ type: item.get('type') ?? '' }))
     };
   }
 
@@ -1217,9 +1253,10 @@ export class IntegrationTestHarness {
     await this._conversation.sendMessage(message, null, this.rootThread);
     await this._waitForIdle();
 
-    const switchedConvId = this._session.visibleConversationId;
-    if (switchedConvId && switchedConvId !== sourceConvId) {
-      const switchedConv = this._session.getConversation(switchedConvId);
+    const session = this._session;
+    const switchedConvId = session?.visibleConversationId;
+    if (session && switchedConvId && switchedConvId !== sourceConvId) {
+      const switchedConv = session.getConversation(switchedConvId);
       if (switchedConv) {
         this._conversations.set(switchedConvId, switchedConv);
         this._conversationOrder.push(switchedConvId);
@@ -1344,6 +1381,7 @@ export class IntegrationTestHarness {
    * @param {boolean} [condition.hasCompactionBarrier] - Whether compaction barrier exists
    * @param {number} [condition.completedThreadCount] - Minimum count of threads whose run has settled
    * @param {string} [condition.pendingContent] - Content of a message that must be in the root thread's pendingItems queue
+   * @param {string} [condition.anyThreadResultIncludes] - Text some thread item's result, at any depth, must contain
    * @param {number} [condition.atMostThreadCount] - Constraint: fail immediately if total thread count exceeds this
    * @param {number} [condition.maxCompletedThreadCount] - Constraint: fail immediately if settled thread count exceeds this
    * @param {boolean} [condition.mainThreadBusy] - Whether the main thread footer shows a spinner
@@ -1378,14 +1416,14 @@ export class IntegrationTestHarness {
         if (c !== condition.contextItemCount) goalsMet = false;
       }
       if (condition.processingStatus !== undefined) {
-        const ps = this._conversation?.getMetadata('processingState');
+        const ps = this._conversation?.processingState;
         if (ps?.status !== condition.processingStatus) goalsMet = false;
       }
       if (condition.politePending !== undefined) {
         // Server-authoritative pause-pending cue: the worker publishes
         // processingState.politePending while a Pause is still winding covered
         // work down, so this is what a reloaded client rehydrates from.
-        const ps = this._conversation?.getMetadata('processingState');
+        const ps = this._conversation?.processingState;
         if ((ps?.politePending === true) !== condition.politePending) goalsMet = false;
       }
       if (condition.hasThreadItem !== undefined) {
@@ -1470,7 +1508,7 @@ export class IntegrationTestHarness {
    * @param {string} toolUseId - Tool use ID to capture events for
    */
   startCapturingProgress(toolUseId) {
-    /** @type {object[]} */
+    /** @type {ProgressEvent[]} */
     const events = [];
     /** @type {(e: CustomEvent) => void} */
     const handler = (e) => {
@@ -1492,7 +1530,7 @@ export class IntegrationTestHarness {
   /**
    * Stop capturing and return captured events.
    * @param {string} toolUseId - Tool use ID
-   * @returns {object[]} Captured progress events
+   * @returns {ProgressEvent[]} Captured progress events
    */
   stopCapturingProgress(toolUseId) {
     const capture = this._progressCaptures.get(toolUseId);

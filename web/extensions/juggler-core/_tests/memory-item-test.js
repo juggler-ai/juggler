@@ -23,6 +23,7 @@ import {
   initializeRegistries,
   createTestSession,
   createTestConversation,
+  waitFor,
   assert
 } from '../../../js-tests/utilities/test-helpers.js';
 import { underPseudoLocale, assertPseudoLocalized } from '../../../js-tests/utilities/pseudo-locale.js';
@@ -94,6 +95,28 @@ export async function runTests(ctx) {
     });
     item.data.path = path;
     return { item, path };
+  }
+
+  /**
+   * The snapshot `onToolCall` froze into the item's doc data.
+   * @param {MemoryContextItem} item - A seeded item
+   * @returns {Array<{date: string, text: string}>} The frozen rows
+   */
+  function snapshotOf(item) {
+    const entries = item.data.entries;
+    if (!Array.isArray(entries)) throw new Error(`seeding should record a snapshot array, got: ${JSON.stringify(entries)}`);
+    return /** @type {Array<{date: string, text: string}>} */ (entries);
+  }
+
+  /**
+   * Open the item's properties panel and wait for its live read to draw it.
+   * @param {MemoryContextItem} item - The item
+   * @returns {Promise<HTMLElement>} The populated panel
+   */
+  async function renderedPanel(item) {
+    const panel = item.createPropertiesPanelElement();
+    await waitFor(() => panel.querySelector('.memory-panel-note'), 'the memory panel to draw');
+    return panel;
   }
 
   /**
@@ -183,10 +206,10 @@ export async function runTests(ctx) {
     const { item } = makeItem();
     await item.execute({ action: 'remember', fact: 'frozen fact' });
     await item.onToolCall('memory', {});
-    assert(Array.isArray(item.data.entries), `seeding should record a snapshot array, got: ${JSON.stringify(item.data.entries)}`);
-    assert(item.data.entries.length === 1, `snapshot should hold 1 entry, got ${item.data.entries.length}`);
-    assert(item.data.entries[0].text === 'frozen fact', `snapshot text: ${JSON.stringify(item.data.entries[0])}`);
-    assert(item.data.entries[0].date === TODAY, `snapshot date should be stamped: ${JSON.stringify(item.data.entries[0])}`);
+    const entries = snapshotOf(item);
+    assert(entries.length === 1, `snapshot should hold 1 entry, got ${entries.length}`);
+    assert(entries[0]?.text === 'frozen fact', `snapshot text: ${JSON.stringify(entries[0])}`);
+    assert(entries[0]?.date === TODAY, `snapshot date should be stamped: ${JSON.stringify(entries[0])}`);
   });
 
   await test('onToolCall is write-once — re-seeding keeps the original snapshot', async () => {
@@ -195,8 +218,9 @@ export async function runTests(ctx) {
     await item.onToolCall('memory', {});
     await item.execute({ action: 'remember', fact: 'added later' });
     await item.onToolCall('memory', {});
-    assert(item.data.entries.length === 1, `re-seeding must not re-snapshot, got ${item.data.entries.length} entries`);
-    assert(item.data.entries[0].text === 'original', `snapshot should still be the original: ${JSON.stringify(item.data.entries)}`);
+    const entries = snapshotOf(item);
+    assert(entries.length === 1, `re-seeding must not re-snapshot, got ${entries.length} entries`);
+    assert(entries[0]?.text === 'original', `snapshot should still be the original: ${JSON.stringify(entries)}`);
   });
 
   await test('a write made elsewhere leaves the injected block byte-identical', async () => {
@@ -206,7 +230,7 @@ export async function runTests(ctx) {
     const before = await item.createContextText({ helpers: {} });
 
     // Another conversation (or a hand edit) rewrites the store underneath us.
-    await item._write(path, `# Memory\n\n- [${TODAY}] known at start\n- [${TODAY}] added by someone else\n`);
+    await item.__writeForTests(path, `# Memory\n\n- [${TODAY}] known at start\n- [${TODAY}] added by someone else\n`);
 
     const after = await item.createContextText({ helpers: {} });
     assert(after === before, `an external write must not move this conversation's block:\n--- before ---\n${before}\n--- after ---\n${after}`);
@@ -220,7 +244,7 @@ export async function runTests(ctx) {
     await item.onToolCall('memory', {});
     const before = await item.createContextText({ helpers: {} });
 
-    await item._write(path, `# Memory\n\n- [${TODAY}] fact one\n`);
+    await item.__writeForTests(path, `# Memory\n\n- [${TODAY}] fact one\n`);
 
     const after = await item.createContextText({ helpers: {} });
     assert(after === before, `an external forget must not move this conversation's block:\n--- before ---\n${before}\n--- after ---\n${after}`);
@@ -230,14 +254,14 @@ export async function runTests(ctx) {
 
   await test('_read returns "" for a genuinely absent file (stat confirms exists:false)', async () => {
     const { item, path } = makeItem();
-    const content = await item._read(path);
+    const content = await item.__readForTests(path);
     assert(content === '', `absent file should read as empty string, got: ${JSON.stringify(content)}`);
   });
 
   await test('_read serves last-known-good on a transient read failure of an existing file', async () => {
     const { item, path } = makeItem();
-    await item._write(path, 'FACT');
-    const first = await item._read(path);
+    await item.__writeForTests(path, 'FACT');
+    const first = await item.__readForTests(path);
     assert(first === 'FACT', `seed read should return the file content, got: ${JSON.stringify(first)}`);
 
     // Simulate a transient read blip: an already-aborted signal makes
@@ -246,7 +270,7 @@ export async function runTests(ctx) {
     const ac = new AbortController();
     ac.abort();
     item.signal = ac.signal;
-    const second = await item._read(path);
+    const second = await item.__readForTests(path);
     assert(second === 'FACT', `transient read failure on an existing file must serve last-known-good, got: ${JSON.stringify(second)}`);
   });
 
@@ -256,7 +280,7 @@ export async function runTests(ctx) {
     // against the new project. So the same path string names a different file
     // after a switch, and the previous project's facts must not be served for it.
     const root = session.projectPath;
-    assert(root && (ctx.fixtureDir === root || ctx.fixtureDir.startsWith(`${root}/`)),
+    assert(!!root && (ctx.fixtureDir === root || ctx.fixtureDir.startsWith(`${root}/`)),
       `precondition: the fixture (${ctx.fixtureDir}) must be, or sit under, the session's project (${root})`);
     const fixtureRel = ctx.fixtureDir === root ? '' : `${ctx.fixtureDir.slice(root.length + 1)}/`;
     const rel = `${fixtureRel}_memory_test/rel${++pathCounter}-${Date.now()}/MEMORY.md`;
@@ -275,9 +299,9 @@ export async function runTests(ctx) {
     const blip = () => { const ac = new AbortController(); ac.abort(); return ac.signal; };
 
     const before = itemIn(root);
-    await before._write(rel, 'PREVIOUS PROJECT FACT');
+    await before.__writeForTests(rel, 'PREVIOUS PROJECT FACT');
     before.signal = blip();
-    const same = await before._read(rel);
+    const same = await before.__readForTests(rel);
     assert(same === 'PREVIOUS PROJECT FACT',
       `a blip within one project must still serve its last-known-good, got ${JSON.stringify(same)}`);
 
@@ -285,7 +309,7 @@ export async function runTests(ctx) {
     // file exists (here, the same file on disk stands in for it) and the read blips.
     const after = itemIn(`${root}-another-project`);
     after.signal = blip();
-    const crossed = await after._read(rel);
+    const crossed = await after.__readForTests(rel);
     assert(crossed !== 'PREVIOUS PROJECT FACT',
       'the previous project\'s memory was served as the new project\'s last-known-good — the next remember would write it into the new project');
   });
@@ -375,7 +399,7 @@ export async function runTests(ctx) {
   await test('mergeOrReplace makes memory a singleton (reuse existing)', () => {
     const { item } = makeItem();
     const merge = MemoryContextItem.mergeOrReplace({}, [item]);
-    assert(merge && merge.action === 'reuse' && merge.item === item, `should reuse existing singleton: ${JSON.stringify(merge)}`);
+    assert(merge !== null && merge.action === 'reuse' && merge.item === item, `should reuse existing singleton: ${JSON.stringify(merge)}`);
     assert(MemoryContextItem.mergeOrReplace({}, []) === null, 'no existing → create new');
   });
 
@@ -383,8 +407,7 @@ export async function runTests(ctx) {
 
   await test('the panel note names the file this item reads, not the default path', async () => {
     const { item, path } = makeItem();
-    const panel = document.createElement('div');
-    await item._renderPanel(panel);
+    const panel = await renderedPanel(item);
     const note = panel.querySelector('.memory-panel-note')?.textContent ?? '';
     assert(note.includes(path), `the note must name ${path}: ${JSON.stringify(note)}`);
     assert(!note.includes(MemoryContextItem.DEFAULT_PATH), `the note must not name the default path: ${JSON.stringify(note)}`);
@@ -393,7 +416,7 @@ export async function runTests(ctx) {
   // ---- en-XA: what the user sees is translated, what the model reads is not ----
 
   await test('en-XA: the card, every row, both panels translated; the model\u2019s result English', async () => {
-    const { item } = makeItem();
+    const { item, path } = makeItem();
     await underPseudoLocale('memory-item-test', async () => {
       /** @type {Record<string, string>} */
       const shown = {};
@@ -452,18 +475,16 @@ export async function runTests(ctx) {
       assert(failedPanel.textContent === 'Memory update failed: 1', `a failed write shows the model's English: ${failedPanel.textContent}`);
 
       // The store's properties panel, empty and then holding one fact.
-      const empty = document.createElement('div');
-      await item._renderPanel(empty);
-      const full = document.createElement('div');
+      const empty = await renderedPanel(item);
       await item.execute({ action: 'remember', fact: '1' });
-      await item._renderPanel(full);
+      const full = await renderedPanel(item);
       for (const [name, panel] of /** @type {Array<[string, HTMLElement]>} */ ([['empty', empty], ['one fact', full]])) {
         const note = panel.querySelector('.memory-panel-note')?.textContent ?? '';
-        shown[`store ${name}, note`] = note.replace(item.data.path, '');
+        shown[`store ${name}, note`] = note.replace(path, '');
         assertPseudoLocalized(panel, { skip: '.memory-panel-note, .memory-date, .memory-text', atLeast: name === 'empty' ? 1 : 0, where: `store, ${name}` });
       }
       const del = full.querySelector('.memory-delete');
-      assert(del, 'the one fact has a delete button');
+      assert(del !== null, 'the one fact has a delete button');
       shown['delete button title'] = String(del?.getAttribute('title'));
 
       const raw = Object.entries(shown).filter(([, s]) => !isPseudoLocalized(s));

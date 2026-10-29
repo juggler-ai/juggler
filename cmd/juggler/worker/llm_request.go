@@ -388,8 +388,8 @@ func buildToolResultMap(item ConversationItem) map[string]any {
 	if err := json.Unmarshal(item.Result, &result); err != nil {
 		return nil
 	}
-	content, _ := result["content"].(string)
-	isError, _ := result["isError"].(bool)
+	content, _ := result[keyContent].(string)
+	isError, _ := result[keyIsError].(bool)
 	content += programChangeReport(item.DisplayData)
 	content += toolResultHookNotes(item)
 	m := map[string]any{

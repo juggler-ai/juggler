@@ -470,12 +470,12 @@ class TestExecutor {
       }
 
       // Set provider and model
-      const modelId = this.model || (requestedProvider.modelsWithContext && requestedProvider.modelsWithContext.length > 0 ? requestedProvider.modelsWithContext[0].id : '');
+      const modelId = this.model || (requestedProvider.modelsWithContext?.[0]?.id || '');
       this.conversation.setModelConfig({
         provider: requestedProvider.name,
         model: modelId
       });
-      logger.info(`Conversation created: ${convId} with REQUESTED provider: ${this.conversation.modelConfig.provider}, model: ${this.conversation.modelConfig.model}`);
+      logger.info(`Conversation created: ${convId} with REQUESTED provider: ${requestedProvider.name}, model: ${modelId}`);
     } else {
       // Select a default provider/model (test-only helper)
       await selectDefaultProvider(this.conversation);
@@ -616,8 +616,7 @@ class TestExecutor {
             lastTokenCount = currentTokenCount;
           } else {
             // Use Yjs metadata for accurate processing state (isProcessing relies on UI observer)
-            const processingState = this.conversation.getMetadata('processingState');
-            const status = processingState?.status || 'unknown';
+            const status = this.conversation.processingState?.status || 'unknown';
             logger.debug(`[TestExecutor] Polling for completion... transactions: ${txCount}, status: ${status}, lastType: ${lastType}`);
           }
         }
@@ -625,8 +624,7 @@ class TestExecutor {
         // Check if conversation is done processing
         // Use Yjs metadata directly - isProcessing relies on UI observer setup which doesn't exist in headless mode
         // Check processingState.status === 'idle' which is set by the worker when the strategy loop ends
-        const processingState = this.conversation.getMetadata('processingState');
-        const isIdle = processingState?.status === 'idle';
+        const isIdle = this.conversation.processingState?.status === 'idle';
 
         if (txCount > 0 && isIdle) {
           const totalDuration = ((Date.now() - runStartTime) / 1000).toFixed(1);

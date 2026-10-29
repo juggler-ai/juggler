@@ -41,7 +41,7 @@
 
 import contextItemRegistry from '../registries/context-item-registry.js';
 import { hasPendingApprovalInTree, hasUnsettledToolInTree } from '../model/thread-navigation.js';
-import { TOOL_STATES, isProviderStateMessage } from '../../sdk/lib/message.js';
+import { TOOL_STATES, MESSAGE_TYPES, itemField } from '../../sdk/lib/message.js';
 import { anyThreadLive } from './thread-display.js';
 import { t, formatList } from '../../sdk/lib/i18n.js';
 
@@ -61,22 +61,34 @@ const MAX_SUMMARY_KINDS = 3;
 const NBSP = '\u00A0';
 
 /**
+ * One field of a row, read through its `get` — a Y.Map's, or a group's.
+ * @param {unknown} item - The row.
+ * @param {string} key - Field name.
+ * @returns {unknown} The field value, or undefined for anything with no `get`.
+ */
+function field(item, key) {
+  if (!item || typeof item !== 'object' || !('get' in item) || typeof item.get !== 'function') return undefined;
+  return /** @type {unknown} */ (item.get(key));
+}
+
+/**
  * The rows a group still has in the document.
  *
  * Deleting a Y.Map clears all of its entries, so a member removed by an undo
  * (or any delete) reports `undefined` for EVERY field — including `type`. Such
  * a row is not part of the run any more and must not be counted or described.
- * @param {any[]} members - The group's members, live or stale.
- * @returns {any[]} Only the members the document still holds.
+ * @template T
+ * @param {ReadonlyArray<T>} members - The group's members, live or stale.
+ * @returns {T[]} Only the members the document still holds.
  */
 function presentRows(members) {
-  return members.filter((m) => m?.get?.('type') === 'tool-action');
+  return members.filter((m) => field(m, 'type') === 'tool-action');
 }
 
 /**
  * How many rows a group actually shows. The tile's badge and its composition
  * summary both count this, so the two always agree.
- * @param {any[]} members - The group's tool-action items.
+ * @param {ReadonlyArray<unknown>} members - The group's tool-action items.
  * @returns {number} Number of rows still in the document.
  */
 export function countGroupRows(members) {
@@ -91,24 +103,40 @@ export function countGroupRows(members) {
  * `positionElements` handle a group with no special-casing. The id is derived
  * from the first member, so it stays stable as the run grows — the common case
  * while a turn streams in.
+ * @template [T=unknown]
  */
 export class ItemGroup {
   /**
-   * @param {any[]} members - The tool-action Y.Maps in this run, in order.
+   * @param {T[]} members - The tool-action Y.Maps in this run, in order.
    */
   constructor(members) {
-    /** @type {any[]} */
+    /** @type {T[]} */
     this.members = members;
     /** @type {string} @private */
-    this._id = GROUP_ID_PREFIX + (members[0]?.get?.('itemId') || '');
+    this._id = GROUP_ID_PREFIX + String(field(members[0], 'itemId') || '');
   }
 
+  /**
+   * @overload
+   * @param {'itemId'|'type'} key - Field name.
+   * @returns {string} The group's display id, or its display type.
+   */
+  /**
+   * @overload
+   * @param {'items'} key - Field name.
+   * @returns {T[]} The group's members.
+   */
+  /**
+   * @overload
+   * @param {string} key - Field name.
+   * @returns {string|T[]|undefined} The field value, or undefined.
+   */
   /**
    * Yjs-shaped field read. Only the fields the render/selection path asks for
    * are answered; anything else is undefined, exactly as for a Y.Map key that
    * was never set.
    * @param {string} key - Field name.
-   * @returns {any} The field value, or undefined.
+   * @returns {string|T[]|undefined} The field value, or undefined.
    */
   get(key) {
     switch (key) {
@@ -122,8 +150,8 @@ export class ItemGroup {
 
 /**
  * Whether a display entry is a folded group rather than a document item.
- * @param {any} entry - Entry from {@link buildDisplayItems}.
- * @returns {boolean} True for a group entry.
+ * @param {unknown} entry - Entry from {@link buildDisplayItems}.
+ * @returns {entry is ItemGroup} True for a group entry.
  */
 export function isGroupEntry(entry) {
   return entry instanceof ItemGroup;
@@ -141,14 +169,14 @@ export function isGroupId(id) {
 /**
  * Read a field off a tool-action's `result`, which may be a Y.Map or a plain
  * object depending on how it was written.
- * @param {any} item - Tool-action item.
+ * @param {unknown} item - Tool-action item.
  * @param {string} key - Result field name.
- * @returns {any} The field value, or undefined.
+ * @returns {unknown} The field value, or undefined.
  */
 function resultField(item, key) {
-  const result = item?.get?.('result');
-  if (!result) return undefined;
-  return result.get ? result.get(key) : result[key];
+  const result = field(item, 'result');
+  if (!result || typeof result !== 'object') return undefined;
+  return 'get' in result ? field(result, key) : /** @type {Record<string, unknown>} */ (result)[key];
 }
 
 /**
@@ -157,15 +185,16 @@ function resultField(item, key) {
  * tool-action that produced a context item (rendered as that context item, not
  * as a tool row), a text bubble with nothing visible in it, and a Continue's
  * marker, which is a run record rather than a message.
- * @param {any} item - Conversation item Y.Map.
+ * @param {unknown} item - Conversation item Y.Map.
  * @returns {boolean} True if the item paints nothing.
  */
 function rendersNothing(item) {
-  const type = item?.get?.('type');
-  if (type === 'user') return !!item.get('continuation');
+  const type = field(item, 'type');
+  if (type === 'user') return !!field(item, 'continuation');
   if (type === 'tool-action') return resultField(item, 'resultType') === 'context';
   if (type === 'assistant' || type === 'thinking') {
-    const content = item.get('content') || '';
+    const stored = field(item, 'content');
+    const content = typeof stored === 'string' ? stored : '';
     // Plan tags are surfaced by the next-steps indicator, not as a bubble, so a
     // message holding only a plan paints nothing — same test the bubble uses.
     return !content.replace(/<plan>[\s\S]*?<\/plan>/g, '').replace(/<plan[\s\S]*$/, '').trim();
@@ -181,42 +210,43 @@ function rendersNothing(item) {
  * every case {@link rendersNothing} covers, plus durable provider continuation
  * state, which the bubble factory discards before any of them
  * (`conversation-area-rendering.createBubblesForEvent`).
- * @param {any} item - Conversation item Y.Map.
+ * @param {unknown} item - Conversation item Y.Map.
  * @returns {boolean} True if the item has no row of its own.
  */
 export function paintsNoRow(item) {
-  return isProviderStateMessage(item) || rendersNothing(item);
+  return itemField(item, 'type') === MESSAGE_TYPES.PROVIDER_STATE || rendersNothing(item);
 }
 
 /**
  * The context-item plugin class that owns a tool row, if any is registered for
  * its tool name. A tool no plugin claims (an MCP tool, an unknown name) has no
  * class, and callers fall back to their defaults.
- * @param {any} item - Tool-action item.
- * @returns {any} The owning plugin class, or null.
+ * @param {unknown} item - Tool-action item.
+ * @returns {typeof import('juggler/context-item').default|null} The owning plugin class, or null.
  */
 function pluginFor(item) {
-  const toolName = item?.get?.('toolName') || '';
-  return toolName ? contextItemRegistry.getByToolName(toolName) || null : null;
+  const toolName = field(item, 'toolName');
+  return typeof toolName === 'string' && toolName ? contextItemRegistry.getByToolName(toolName) || null : null;
 }
 
 /**
  * Whether an item is a tool row eligible to fold into a group. A row whose
  * owning plugin declares `static isGroupable()` false is never folded; a tool
  * with no registered plugin folds, as every ordinary tool does.
- * @param {any} item - Conversation item Y.Map.
+ * @param {unknown} item - Conversation item Y.Map.
  * @returns {boolean} True if the item is a visible, foldable tool-action row.
  */
 function isGroupable(item) {
-  if (item?.get?.('type') !== 'tool-action' || rendersNothing(item)) return false;
+  if (field(item, 'type') !== 'tool-action' || rendersNothing(item)) return false;
   return pluginFor(item)?.isGroupable?.() !== false;
 }
 
 /**
  * Fold each maximal run of adjacent tool rows into a single display entry.
- * @param {any[]} items - The column's items, in document order.
+ * @template T
+ * @param {T[]|null|undefined} items - The column's items, in document order.
  * @param {{enabled?: boolean}} [opts] - `enabled: false` returns the items untouched.
- * @returns {{entries: any[], memberToGroup: Map<string, string>}} The entries to
+ * @returns {{entries: Array<T|ItemGroup<T>>, memberToGroup: Map<string, string>}} The entries to
  *   render (items and {@link ItemGroup}s), and a lookup from a folded member's
  *   itemId to the display id of the group hiding it.
  */
@@ -226,11 +256,11 @@ export function buildDisplayItems(items, opts = {}) {
   const memberToGroup = new Map();
   if (!opts.enabled) return { entries: list, memberToGroup };
 
-  /** @type {any[]} */
+  /** @type {Array<T|ItemGroup<T>>} */
   const entries = [];
-  /** @type {any[]} */
+  /** @type {T[]} */
   let run = [];
-  /** @type {any[]} */
+  /** @type {T[]} */
   let passengers = [];
 
   // Close the open run: fold it when it's long enough to be worth folding,
@@ -239,7 +269,11 @@ export function buildDisplayItems(items, opts = {}) {
   const flush = () => {
     if (run.length >= MIN_RUN) {
       const group = new ItemGroup(run);
-      for (const member of run) memberToGroup.set(member.get('itemId'), group.get('itemId'));
+      const groupId = String(group.get('itemId'));
+      for (const member of run) {
+        const memberId = field(member, 'itemId');
+        if (typeof memberId === 'string') memberToGroup.set(memberId, groupId);
+      }
       entries.push(group);
     } else {
       entries.push(...run);
@@ -250,7 +284,7 @@ export function buildDisplayItems(items, opts = {}) {
   };
 
   for (const item of list) {
-    if (!item || !item.get) continue;
+    if (!item || typeof item !== 'object' || !('get' in item) || !item.get) continue;
     if (isGroupable(item)) {
       run.push(item);
     } else if (paintsNoRow(item)) {
@@ -269,9 +303,10 @@ export function buildDisplayItems(items, opts = {}) {
 /**
  * Re-derive a group by its display id. Used by the column chain, which holds
  * only the selected id and must recover the run it stands for.
- * @param {any[]} items - The column's items, in document order.
+ * @template T
+ * @param {T[]|null|undefined} items - The column's items, in document order.
  * @param {string} groupId - Display id of the group to find.
- * @returns {ItemGroup|null} The group, or null if the run no longer exists.
+ * @returns {ItemGroup<T>|null} The group, or null if the run no longer exists.
  */
 export function findGroup(items, groupId) {
   if (!isGroupId(groupId)) return null;
@@ -288,11 +323,11 @@ export function findGroup(items, groupId) {
  * observer is bound to a group, so a row going pending → completed is only
  * noticed through this key.
  * @param {string} groupId - Display id of the group.
- * @param {any[]} members - The group's rows, in order.
+ * @param {ReadonlyArray<unknown>} members - The group's rows, in order.
  * @returns {string} The render key.
  */
 export function groupRenderKey(groupId, members) {
-  const rows = members.map((member) => `${member?.get?.('itemId') ?? ''}:${member?.get?.('state') ?? ''}`);
+  const rows = members.map((member) => `${String(field(member, 'itemId') ?? '')}:${String(field(member, 'state') ?? '')}`);
   return `${groupId}|${rows.join(',')}`;
 }
 
@@ -303,7 +338,7 @@ export function groupRenderKey(groupId, members) {
  * This stays display-side work: it reads the list it is handed and returns
  * indices into it, exactly as {@link buildDisplayItems} reads that list and
  * returns entries. Mutating the document is entirely the caller's business.
- * @param {any[]} items - The column's items, in document order.
+ * @param {unknown[]} items - The column's items, in document order.
  * @param {string} groupId - Display id of the group.
  * @returns {number[]} Ascending indices of the group's rows; empty when the run
  *   no longer exists.
@@ -311,11 +346,11 @@ export function groupRenderKey(groupId, members) {
 export function groupMemberIndices(items, groupId) {
   const group = findGroup(items, groupId);
   if (!group) return [];
-  const memberIds = new Set(presentRows(group.members).map((member) => member.get('itemId')));
+  const memberIds = new Set(presentRows(group.members).map((member) => field(member, 'itemId')));
   /** @type {number[]} */
   const indices = [];
   items.forEach((item, index) => {
-    if (memberIds.has(item?.get?.('itemId'))) indices.push(index);
+    if (memberIds.has(field(item, 'itemId'))) indices.push(index);
   });
   return indices;
 }
@@ -324,11 +359,12 @@ export function groupMemberIndices(items, groupId) {
  * The user-facing label for one tool row — the owning plugin's manifest name
  * ("Read File", "Execute Command"), falling back to the raw tool name for a
  * tool no plugin claims.
- * @param {any} item - Tool-action item.
+ * @param {unknown} item - Tool-action item.
  * @returns {string} Display label.
  */
 function toolLabel(item) {
-  return pluginFor(item)?.MANIFEST?.name || item?.get?.('toolName') || 'Tool';
+  const toolName = field(item, 'toolName');
+  return pluginFor(item)?.MANIFEST?.name || (typeof toolName === 'string' && toolName) || 'Tool';
 }
 
 /**
@@ -347,7 +383,7 @@ function toolLabel(item) {
  * separators between kinds, which makes them the only places it can break — the
  * list wraps between entries, never leaving a bare "3×" stranded at the end of
  * a line from the kind it belongs to.
- * @param {any[]} members - The group's tool-action items.
+ * @param {ReadonlyArray<unknown>} members - The group's tool-action items.
  * @returns {string} Composition summary.
  */
 export function summarizeGroup(members) {
@@ -387,7 +423,7 @@ export function summarizeGroup(members) {
  * report is the conversation's own, already painted in the column footer
  * directly beneath the tile; repeating it word for word buys nothing. The
  * tile's pulse (driven by `kind`, not by `spinner`) is the whole signal.
- * @param {any[]} members - The group's tool-action items.
+ * @param {ReadonlyArray<unknown>} members - The group's tool-action items.
  * @param {import('./thread-display.js').ThreadLiveStatus|null} [live] - Live LLM status snapshot.
  * @returns {import('./thread-display.js').ThreadStatus} Classification + display fields.
  */
@@ -400,7 +436,7 @@ export function getGroupStatus(members, live) {
 
   if (hasPendingApprovalInTree(present)) {
     const waiting = present.filter((m) => {
-      const state = m?.get?.('state');
+      const state = field(m, 'state');
       return state === TOOL_STATES.PENDING || state === 'awaiting_approval';
     }).length;
     const message = waiting > 1 ? `${waiting} waiting for approval` : 'Waiting for approval';
@@ -419,7 +455,7 @@ export function getGroupStatus(members, live) {
   // several threads may be running: it only widens the window in which THESE
   // rows — already required to be unsettled — count as live.
   const claimed = present.some((m) => {
-    const state = m?.get?.('state');
+    const state = field(m, 'state');
     return state === TOOL_STATES.APPROVED || state === TOOL_STATES.RUNNING;
   });
   if (claimed || (anyThreadLive(live) && hasUnsettledToolInTree(present))) {

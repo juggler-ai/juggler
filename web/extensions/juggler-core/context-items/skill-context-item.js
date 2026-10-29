@@ -487,6 +487,26 @@ class SkillContextItem extends ContextItem {
   }
 
   /**
+   * Test seam: fills the standing Skills card and resolves once it is filled,
+   * which {@link SkillContextItem#createPropertiesPanelElement} does without
+   * waiting.
+   * @param {HTMLElement} container - Panel container to fill
+   * @returns {Promise<void>}
+   */
+  __renderPanelForTests(container) {
+    return this._renderPanel(container);
+  }
+
+  /**
+   * Test seam: builds one skill card as the standing list and a load panel do.
+   * @param {{name: string, description?: string, scope?: string, source?: string, hasScripts?: boolean}} skill - Skill metadata
+   * @returns {HTMLElement} Card element
+   */
+  static __skillCardForTests(skill) {
+    return SkillContextItem._skillCard(skill);
+  }
+
+  /**
    * The "how skills work" explainer shown atop the standing Skills card: a lead
    * sentence plus the progressive-disclosure model in plain language, so the
    * user understands what this item contributes and that the assistant may load

@@ -65,6 +65,7 @@ type wireManifest struct {
 			ProcessingState      []string `json:"processingState"`
 			ToolResult           []string `json:"toolResult"`
 			ErrorData            []string `json:"errorData"`
+			ToolInput            []string `json:"toolInput"`
 			CompactionAccounting []string `json:"compactionAccounting"`
 			UndoState            []string `json:"undoState"`
 			DisplayData          []string `json:"displayData"`
@@ -126,7 +127,7 @@ func parseWorkerSource(t *testing.T) workerSource {
 		t.Fatal(err)
 	}
 	fset := token.NewFileSet()
-	src := workerSource{fset: fset, files: map[string]*ast.File{}, docKeys: map[string]string{}, otherConsts: map[string]bool{}}
+	files := map[string]*ast.File{}
 	for _, p := range paths {
 		if strings.HasSuffix(p, "_test.go") {
 			continue
@@ -135,8 +136,16 @@ func parseWorkerSource(t *testing.T) workerSource {
 		if err != nil {
 			t.Fatalf("parse %s: %v", p, err)
 		}
-		src.files[p] = f
+		files[p] = f
 	}
+	return newWorkerSource(fset, files)
+}
+
+// newWorkerSource is the workerSource of parsed files, keyed by file name: the
+// key constants are read from the one named docKeysFile and from the meta* and
+// runField* constants of any of them.
+func newWorkerSource(fset *token.FileSet, files map[string]*ast.File) workerSource {
+	src := workerSource{fset: fset, files: files, docKeys: map[string]string{}, otherConsts: map[string]bool{}}
 	for p, f := range src.files {
 		for _, decl := range f.Decls {
 			gen, ok := decl.(*ast.GenDecl)
@@ -622,6 +631,7 @@ func TestWireParityDocKeys(t *testing.T) {
 		"processingState":      keys.ProcessingState,
 		"toolResult":           keys.ToolResult,
 		"errorData":            keys.ErrorData,
+		"toolInput":            keys.ToolInput,
 		"compactionAccounting": keys.CompactionAccounting,
 		"undoState":            keys.UndoState,
 		"displayData":          keys.DisplayData,
@@ -670,6 +680,14 @@ func TestWireParityDocKeysAreConstants(t *testing.T) {
 		}
 	}
 
+	for _, b := range keyFindings(src) {
+		t.Error(b + " — name it with a " + docKeysFile + " constant, or a meta* one beside the feature that owns it, and declare it in " + wireFixture + " under worker.docKeys")
+	}
+}
+
+// keyFindings is every key position in src (docFlow) not named by a key
+// constant, as "file:line: …", sorted.
+func keyFindings(src workerSource) []string {
 	var bad []string
 	seen := map[ast.Expr]bool{}
 	newDocFlow(src).keyPositions(func(file string, e ast.Expr, _ string) {
@@ -690,9 +708,7 @@ func TestWireParityDocKeysAreConstants(t *testing.T) {
 		}
 	})
 	sort.Strings(bad)
-	for _, b := range bad {
-		t.Error(b + " — name it with a " + docKeysFile + " constant, or a meta* one beside the feature that owns it, and declare it in " + wireFixture + " under worker.docKeys")
-	}
+	return bad
 }
 
 // funcHasStringParam reports whether a function or method called name exists

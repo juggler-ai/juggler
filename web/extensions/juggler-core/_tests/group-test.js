@@ -40,6 +40,9 @@ import GroupWorkspaceProvider from '../workspaces/group-workspace-provider.js';
 import { underPseudoLocale } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 
+/** @typedef {import('../../../js/model/session.js').Workspace} Workspace */
+/** @typedef {import('../../../sdk/workspace-provider.js').ProviderContext} ProviderContext */
+
 /** juggler-core's English for what a group says, standing in for its catalogue. */
 const CORE_TEXT = [
   'Name', 'Enter group name',
@@ -148,14 +151,14 @@ export async function runTests() {
       assert(refusal === '', `the registry refused the provider: ${refusal}`);
 
       const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
-      assert(provider !== undefined, 'the provider is not in the registry under its own id');
+      if (!provider) throw new Error('the provider is not in the registry under its own id');
       assert(provider.getSetupLabel() === 'New group',
         `the "New…" row would read ${JSON.stringify(provider.getSetupLabel())}`);
 
-      const endings = provider.finishOptions({});
+      const endings = provider.finishOptions(/** @type {Workspace} */ ({}));
       assert(JSON.stringify(endings.map((/** @type {any} */ e) => e.id)) === '["ungroup","delete"]',
         `a group ends by being ungrouped or deleted, in that order, got ${JSON.stringify(endings)}`);
-      assert(!endings[0].danger && endings[1].danger === true,
+      assert(!endings[0]?.danger && endings[1]?.danger === true,
         `and only deleting destroys anything, got ${JSON.stringify(endings)}`);
     });
 
@@ -173,7 +176,8 @@ export async function runTests() {
 
       const settled = openWorkspaceCreate(session);
       try {
-        await waitFor(() => document.querySelector('.workspace-create-overlay .setup-row') !== null, 2000);
+        await waitFor(() => document.querySelector('.workspace-create-overlay .setup-row') !== null,
+          'the create dialog to list its rows');
         const chosen = /** @type {HTMLElement|undefined} */ (Array.from(
           document.querySelectorAll('.workspace-create-overlay .setup-row'))
           .find((row) => row.getAttribute('aria-checked') === 'true'));
@@ -214,7 +218,7 @@ export async function runTests() {
         outcomes.push(await provisionWorkspace({ session, providerId: PROVIDER_ID, values: { name: '  ' } }));
         outcomes.push(await provisionWorkspace({ session, providerId: PROVIDER_ID, values: {} }));
         const [first, second] = outcomes.map((outcome) => String(outcome.workspace.label));
-        assert(/^Group \d+$/.test(first) && /^Group \d+$/.test(second),
+        assert(/^Group \d+$/.test(first ?? '') && /^Group \d+$/.test(second ?? ''),
           `a blank name becomes "Group N", got ${JSON.stringify([first, second])}`);
         assert(first !== second,
           `and two of them are told apart, got ${JSON.stringify([first, second])}`);
@@ -239,10 +243,11 @@ export async function runTests() {
           `and nothing else, since what is in its tree is the project's, got ${JSON.stringify(reported)}`);
 
         const provider = workspaceProviderRegistry.createProvider(PROVIDER_ID, session);
-        const held = await provider.heldWork(outcome.workspace, { session });
+        if (!provider) throw new Error('the provider is not registered');
+        const held = await provider.heldWork(outcome.workspace, /** @type {ProviderContext} */ ({ session }));
         assert(held?.complete === true && held.paths.length === 0 && held.removed.length === 0,
           `a group holds no work, rather than leaving git to count the project's, got ${JSON.stringify(held)}`);
-        const roots = provider.instructionRoots(outcome.workspace, { session });
+        const roots = provider.instructionRoots(outcome.workspace, /** @type {ProviderContext} */ ({ session }));
         assert(Array.isArray(roots) && roots.length === 0,
           `and names no instructions beyond the project's, which are already its own, got ${JSON.stringify(roots)}`);
 

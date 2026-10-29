@@ -22,6 +22,7 @@ injectStylesOnce('env-pin-styles', `
   height: 100%;
   overflow: auto;
 }
+
 .env-pin__pending {
   display: flex;
   flex-direction: column;
@@ -30,18 +31,65 @@ injectStylesOnce('env-pin-styles', `
   border: 0.0625rem solid var(--accent-orange);
   border-radius: var(--radius-lg);
 }
-.env-pin__pending-list { margin: 0; padding-left: 1.25rem; font-family: var(--font-mono); font-size: var(--font-size-sm); }
-.env-pin__error { color: var(--error-color, var(--text-secondary)); font-size: var(--font-size-sm); }
-.env-pin__scope { display: flex; flex-direction: column; gap: 0.25rem; }
+
+.env-pin__pending-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.env-pin__error {
+  color: var(--error-color, var(--text-secondary));
+  font-size: var(--font-size-sm);
+}
+
+.env-pin__scope {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
 .env-pin__scope-title { font-weight: 600; }
-.env-pin__scope-path { color: var(--text-secondary); font-size: var(--font-size-sm); word-break: break-all; }
-.env-pin__row { display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: var(--font-size-sm); }
-.env-pin__name { flex: 0 1 auto; overflow-wrap: anywhere; }
-.env-pin__value { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--text-secondary); }
+
+.env-pin__scope-path {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  word-break: break-all;
+}
+
+.env-pin__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.env-pin__name {
+  flex: 0 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.env-pin__value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
 .env-pin__shadowed .env-pin__name, .env-pin__shadowed .env-pin__value { text-decoration: line-through; }
 .env-pin__row button { flex-shrink: 0; }
-.env-pin__add { display: flex; gap: 0.25rem; }
-.env-pin__add input { min-width: 0; flex: 1 1 0; font-family: var(--font-mono); font-size: var(--font-size-sm); }
+
+.env-pin__add {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.env-pin__add input {
+  min-width: 0;
+  flex: 1 1 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
 `);
 
 /** What each file is, in the user's terms, in merge order. */

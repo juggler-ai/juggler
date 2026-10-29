@@ -191,7 +191,7 @@ export async function runTests(_ctx) {
   });
 
   await test('describe reads nothing, because layout calls it', () => {
-    const described = pin.describe();
+    const described = pin.describe({}, { project: { path: '', displayName: '' }, conversation: null, thread: null });
     assert(described.title === 'Plan', `expected 'Plan', got ${described.title}`);
     assert(!described.badge, 'a badge would need the model, which describe may not touch');
   });
@@ -470,7 +470,11 @@ export async function runTests(_ctx) {
       const context = item.createContextText(/** @type {any} */ ({
         helpers: { xml: (/** @type {string} */ tag, /** @type {string} */ body) => `<${tag}>${body}</${tag}>` },
       }));
-      const echo = PlanContextItem._renderPlanEcho(digitPlan);
+      const echo = item.getSummary({
+        success: true,
+        prepared: { valid: true, params: { action: 'complete_step', index: 1 } },
+        result: { index: 1, oldStatus: 'in_progress', newStatus: 'completed', completed: 1, total: 2, planSnapshot: digitPlan },
+      }).feedbackForLLM ?? '';
       for (const [where, text] of Object.entries({ context, echo })) {
         assert(text.includes('# Plan: 7\nStatus: executing | Progress: 1/2 completed\n'),
           `${where}: the model's plan heading is not English: ${JSON.stringify(text)}`);

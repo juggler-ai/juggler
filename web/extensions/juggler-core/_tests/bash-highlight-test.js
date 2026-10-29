@@ -108,7 +108,7 @@ export async function runTests(_ctx) {
     // The whole body up to and including the closing delimiter is one inert block.
     const bodies = [...el.querySelectorAll('.bash-command-heredoc')];
     assert(bodies.length === 1, 'here-doc body should be a single inert block');
-    assert(bodies[0].textContent === "import { register } from 'node:module';\nconsole.log('registered ok');\nEOF",
+    assert(bodies[0]?.textContent === "import { register } from 'node:module';\nconsole.log('registered ok');\nEOF",
       'here-doc body (with closing delimiter) should be captured verbatim');
     // Body words must NOT be styled as commands; only cat/node are heads.
     assert([...el.querySelectorAll('.bash-command-head')].map(n => n.textContent).join(',') === 'cat,node',
@@ -133,7 +133,7 @@ export async function runTests(_ctx) {
     const el = render('cat <<A <<B\nbody a; x > y\nA\nbody b | z\nB\necho done');
     const bodies = [...el.querySelectorAll('.bash-command-heredoc')];
     assert(bodies.length === 1, 'both bodies are consumed as one contiguous inert block');
-    assert(bodies[0].textContent === 'body a; x > y\nA\nbody b | z\nB', 'both bodies through their terminators are inert');
+    assert(bodies[0]?.textContent === 'body a; x > y\nA\nbody b | z\nB', 'both bodies through their terminators are inert');
     assert([...el.querySelectorAll('.bash-command-head')].map(n => n.textContent).join(',') === 'cat,echo',
       'operators inside the bodies must not create command heads');
   });
@@ -247,13 +247,16 @@ export async function runTests(_ctx) {
 
   run('tile summary drops the redundant cd while the panel keeps it', () => {
     const command = `cd ${PROJECT} && make check`;
-    const item = new ExecuteContextItem({
+    // Bare stand-ins: the tile reads only the conversation's session paths.
+    const item = new ExecuteContextItem(/** @type {import('juggler/context-item').ItemContext} */ ({
       id: 'bash-highlight-test-execute',
       session: {},
       conversation: { session: { projectPath: PROJECT, home: HOME, platform: 'darwin' } },
       messageThread: {}
-    });
-    const ui = item.getStatusUI({ success: true, result: { exitCode: 0 } }, { command });
+    }));
+    /** @type {import('../../../js/services/action-executor.js').ActionStatusSuccess} */
+    const status = { actionId: 'execute', success: true, result: { exitCode: 0 }, formatted: { summary: '', success: true } };
+    const ui = item.getStatusUI(status, { command });
     const summary = ui?.summary;
     const text = typeof summary === 'string' ? summary : (summary?.textContent || '');
     assert(text === 'make check', `tile summary should drop the cd, got ${JSON.stringify(text)}`);

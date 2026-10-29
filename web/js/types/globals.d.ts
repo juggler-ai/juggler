@@ -84,6 +84,29 @@ interface Window {
 	 */
 	__projectKey?: string;
 
+	/**
+	 * Safari's prefixed Web Audio constructor, where the unprefixed one is absent.
+	 */
+	webkitAudioContext?: typeof AudioContext;
+
+	/**
+	 * The Wails desktop runtime's public surface, present in a desktop window.
+	 * Its event bus delivers the host's window events (maximise, fullscreen).
+	 */
+	wails?: {
+		Events?: {
+			On?(name: string, callback: (event?: unknown) => void): unknown;
+		};
+	};
+
+	/**
+	 * The Wails runtime's internals. window-edge-resize.js wraps its
+	 * resizable setter.
+	 */
+	_wails?: {
+		setResizable?: (value: boolean) => void;
+	};
+
 }
 
 /**

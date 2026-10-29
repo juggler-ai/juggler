@@ -12,7 +12,7 @@ import { countGroupRows, getGroupStatus } from '../utils/item-grouping.js';
  * Stacked-layers glyph: several rows folded into one. Matches the header
  * toggle's meaning ("these rows are collapsed").
  */
-const GROUP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="14" viewBox="0 -960 960 960" width="14" fill="white"><path d="M480-80 120-280v-80l360 200 360-200v80L480-80Zm0-160L120-440v-80l360 200 360-200v80L480-240Zm0-166L146-590l334-184 334 184-334 184Z"/></svg>';
+const GROUP_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="14" viewBox="0 -960 960 960" width="14" fill="currentColor"><path d="M480-80 120-280v-80l360 200 360-200v80L480-80Zm0-160L120-440v-80l360 200 360-200v80L480-240Zm0-166L146-590l334-184 334 184-334 184Z"/></svg>';
 
 const FAMILY_COLORS = new Set([
   'read', 'search', 'web', 'edit', 'memory', 'execute',

@@ -27,7 +27,7 @@ const ITEMS_KEY = 'items';
 
 /**
  * Whether a queue entry carries a hold.
- * @param {any} entry
+ * @param {unknown} entry
  * @returns {boolean} True for a held entry.
  */
 function isHeld(entry) {
@@ -36,7 +36,7 @@ function isHeld(entry) {
 
 /**
  * Whether the thread container `map`, or any thread below it, holds a held send.
- * @param {any} map - The doc root or a thread's item map.
+ * @param {Y.Map} map - The doc root or a thread's item map.
  * @returns {boolean} True when some queue holds one.
  */
 function holdsHeldSend(map) {
@@ -61,7 +61,8 @@ function touchesQueues(tr) {
     const key = type._item?.parentSub;
     if (type instanceof Y.Array && (key === PENDING_KEY || key === ITEMS_KEY)) return true;
     // A key of a queue entry: a hold stamped or dropped.
-    if (type instanceof Y.Map && /** @type {any} */ (type._item?.parent)?._item?.parentSub === PENDING_KEY) return true;
+    const parent = type._item?.parent;
+    if (type instanceof Y.Map && parent instanceof Y.AbstractType && parent._item?.parentSub === PENDING_KEY) return true;
   }
   return false;
 }
@@ -69,7 +70,7 @@ function touchesQueues(tr) {
 export class HeldSendFlag {
   /**
    * @param {Y.Doc} doc - The conversation's document.
-   * @param {any} root - Its root map, where the root thread's queue lives.
+   * @param {Y.Map} root - Its root map, where the root thread's queue lives.
    */
   constructor(doc, root) {
     this._doc = doc;

@@ -14,7 +14,7 @@ import {
 } from '../../sdk/lib/message.js';
 import { wrapWithIcon, createErrorArticle } from '../utils/icon-message-renderer.js';
 import { iconOptionsForItem } from '../utils/item-badge.js';
-import { plain, yGet } from '../model/item-accessor.js';
+import { plain, yGet, yGetRecord } from '../model/item-accessor.js';
 import JugglerElement from './juggler-element.js';
 import { capabilityLabel } from '../utils/capability-label.js';
 import { t, htmlSlots, withHtml, formatList } from '../../sdk/lib/i18n.js';
@@ -568,7 +568,7 @@ class ToolActionMessage extends JugglerElement {
    */
   _renderCancelled(item) {
     const toolName = item.get('toolName');
-    const result = yGet(item, 'result');
+    const result = yGetRecord(item, 'result');
     const conversation = this._getConversation();
 
     // Create article wrapper

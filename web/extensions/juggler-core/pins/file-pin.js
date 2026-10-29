@@ -22,6 +22,7 @@ injectStylesOnce('file-pin-styles', `
   gap: 0.5rem;
   height: 100%;
 }
+
 .file-pin__note {
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);

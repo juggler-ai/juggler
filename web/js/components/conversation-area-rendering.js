@@ -79,7 +79,7 @@ const PENDING_ZONE_CLASS = 'pending-messages';
 const WORKSPACE_BANNER_CLASS = 'conversation-workspace-banner';
 
 // Corner-up-left "return" arrow — the summary is what the thread came back with.
-const RESULT_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="14" viewBox="0 -960 960 960" width="14" fill="white"><path d="M280-200v-80h360q33 0 56.5-23.5T720-360q0-33-23.5-56.5T640-440H300l84 84-56 56-180-180 180-180 56 56-84 84h340q66 0 113 47t47 113q0 66-47 113t-113 47H280Z"/></svg>';
+const RESULT_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" height="14" viewBox="0 -960 960 960" width="14" fill="currentColor"><path d="M280-200v-80h360q33 0 56.5-23.5T720-360q0-33-23.5-56.5T640-440H300l84 84-56 56-180-180 180-180 56 56-84 84h340q66 0 113 47t47 113q0 66-47 113t-113 47H280Z"/></svg>';
 
 /**
  * True for a child managed outside the item-diff: the footer, the synthesized

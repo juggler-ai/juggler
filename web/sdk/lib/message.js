@@ -199,6 +199,9 @@ export const ACTION_STATES = Object.freeze({
  * @property {unknown} approvalOptions - Approval form options
  * @property {string} approvalResponse - The answer written to the approval form
  * @property {string} approvalSource - What approved the call
+ * @property {unknown} approvalRules - The rules the chosen "don't ask again" suggestion persists
+ * @property {unknown} approvalAllowedPaths - The folders the chosen path-grant suggestion adds
+ * @property {string} approvalItemType - The permission item type `approvalRules` belong to
  * @property {unknown} displayData - Display data for the UI
  * @property {unknown} result - A tool action's ToolActionResult, or a thread's result text
  * @property {boolean} isError - Whether the item is an error result
@@ -233,6 +236,8 @@ export const ACTION_STATES = Object.freeze({
  * @property {boolean} canSpawnThreads - The thread's model may call create_thread
  * @property {boolean} delegated - A delegating tool's child
  * @property {boolean} readOnly - The child changes nothing outside its transcript
+ * @property {number} contextTokens - A thread's estimated transcript size, stamped when a run settles
+ * @property {number} resultTokens - A thread's estimated answer size, stamped when a run settles
  * @property {string} taskSource - What queued the item
  * @property {string} runToolUseId - Run record: the parent's tool use id
  * @property {string} runToolName - Run record: the parent's tool name
@@ -508,7 +513,7 @@ export function isNoticeMessage(msg) {
 
 /**
  * Type guard for ThreadMessage
- * @param {Message} msg - Message to check
+ * @param {unknown} msg - Message to check
  * @returns {msg is ThreadMessage} True if message is a ThreadMessage
  */
 export function isThreadMessage(msg) {

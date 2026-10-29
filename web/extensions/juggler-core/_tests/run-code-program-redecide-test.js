@@ -16,7 +16,6 @@
  */
 
 import { assert } from '../../../js-tests/utilities/test-helpers.js';
-import { readFile } from '../../../js/services/ops-api.js';
 import YoloStrategyType from '../strategies/yolo-strategy-type.js';
 import { runProgramSuite, ended } from './run-code-program-helpers.js';
 
@@ -26,7 +25,7 @@ import { runProgramSuite, ended } from './run-code-program-helpers.js';
  * @returns {Promise<import('./run-code-program-helpers.js').TestResult>} Pass/fail counts
  */
 export async function runTests(_ctx) {
-  return runProgramSuite(async ({ test, setup, rowsOf, heldCommand, assertParks, runAsAction, startAsAction, waitHeld, answerHeld, loseEngine, snapshotOf, absent }) => {
+  return runProgramSuite(async ({ test, setup, rowsOf, heldCommand, assertParks, runAsAction, startAsAction, waitHeld, answerHeld, loseEngine, snapshotOf, absent, readBack }) => {
     // The worker resets a parked item to "" when its thread's strategy
     // changes, clearing its card, and the new strategy then approves the item
     // itself. That is no answer to the held call, which is decided again
@@ -50,7 +49,7 @@ export async function runTests(_ctx) {
       });
       const done = await ended(finished);
       assert(done.state === 'completed' && done.result?.content === 'done', `it runs under the new strategy: ${JSON.stringify(done.result)}`);
-      const ran = await readFile({ path: log });
+      const ran = await readBack(log);
       assert(String(ran.content) === 'x', `once: ${JSON.stringify(ran.content)}`);
     });
 
@@ -72,7 +71,7 @@ export async function runTests(_ctx) {
         ymap.set('approvalOptions', { options: [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }] });
       });
       answerHeld(conversation, mt, id, 'yes');
-      const again = await waitHeld(mt, id, 'bash', (t) => t.approvalOptions?.held === true);
+      const again = await waitHeld(mt, id, 'bash', (/** @type {import('./run-code-program-helpers.js').HeldToolAction} */ t) => t.approvalOptions?.held === true);
       assert(again.heldCall.input.command === command, `the same call waits again: ${JSON.stringify(again.heldCall)}`);
       assert(await absent(log), 'it did not run on the program\'s approval');
       assert(mt.resolveApproval(id, 'no'), 'the denial is written');
@@ -104,7 +103,7 @@ export async function runTests(_ctx) {
       assert(text.includes("Couldn't resume the program") && text.includes('step 1') && text.includes(String(shown).slice(prefix.length)),
         `it says the call differed from the one approved: ${text}`);
       assert(await absent(log), 'neither command ran');
-      assert(rowsOf(mt, id).every((r) => r.status !== 'ok'), `no call ran: ${JSON.stringify(rowsOf(mt, id))}`);
+      assert(rowsOf(mt, id).every((/** @type {import('./run-code-program-helpers.js').NestedCall} */ r) => r.status !== 'ok'), `no call ran: ${JSON.stringify(rowsOf(mt, id))}`);
       assert(!(await snapshotOf(item)) && !done.heldCall, 'the program is over: no snapshot, no held call');
     });
   });

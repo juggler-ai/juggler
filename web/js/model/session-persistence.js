@@ -54,8 +54,25 @@ import { normalizeAttachments } from '../utils/attachments.js';
  * @property {string} platform - darwin/linux/windows
  * @property {string} home - The backend user's home directory
  * @property {HistoryMessage[]} messageHistory - The prompt history
- * @property {Record<string, any>} metadata - The frontend flags
+ * @property {Record<string, unknown>} metadata - The frontend flags
  */
+
+/**
+ * The conversation folder names a session manifest carries, by id; a name that
+ * is not a string is left out.
+ * @param {unknown} data - The manifest
+ * @returns {Record<string, string>} The names
+ */
+function conversationNamesOf(data) {
+  const raw = data && typeof data === 'object' && 'conversationNames' in data ? data.conversationNames : undefined;
+  /** @type {Record<string, string>} */
+  const names = {};
+  if (!raw || typeof raw !== 'object') return names;
+  for (const [id, name] of Object.entries(raw)) {
+    if (typeof name === 'string') names[id] = name;
+  }
+  return names;
+}
 
 /**
  * What the persistence may ask of the session.
@@ -69,14 +86,14 @@ import { normalizeAttachments } from '../utils/attachments.js';
  * @property {() => ReadonlySet<string>} removedPendingConfirm - Ids this client removed whose removal the server has not acknowledged
  * @property {() => ConversationLoadQueue|null} loadQueue - The queue hydrating stubs, if the load built one
  * @property {(queue: ConversationLoadQueue|null) => void} setLoadQueue - Record the load's queue on the session
- * @property {(type: import('./session-events.js').SessionEventType, data: any) => void} notify - Announce on the session's event feed
+ * @property {<K extends import('./session-events.js').SessionEventType>(type: K, data: import('./session-events.js').SessionEventPayloads[K]) => void} notify - Announce on the session's event feed
  * @property {(id: string) => Promise<void>} requestLoad - Ask for a stub to be hydrated (`Session._requestConversationLoad`)
  * @property {(id: string) => boolean} switchTo - Put a conversation on screen (`Session.switchConversation`)
- * @property {(settled: Map<string, any>, arrivals: [string, any][]) => Map<string, any>} foldArrivals - Place what arrived mid-refresh (`Session._foldArrivals`)
+ * @property {(settled: Map<string, Conversation>, arrivals: [string, Conversation][]) => Map<string, Conversation>} foldArrivals - Place what arrived mid-refresh (`Session._foldArrivals`)
  * @property {() => Promise<void>} createInitialConversation - Seed the first conversation of an empty project
  * @property {() => Conversation|null} visibleConversation - The conversation on screen (`Session.getVisibleConversation`)
  * @property {(conversation: Conversation) => Promise<unknown>} seedAutoItems - Seed a conversation's assistant files and auto items (`Session.seedConversationAutoItems`)
- * @property {(patch: Record<string, any>) => void} patchMetadata - Apply a metadata patch locally and announce it (`Session.applySessionMetadataPatch`); the next save carries it
+ * @property {(patch: Record<string, unknown>) => void} patchMetadata - Apply a metadata patch locally and announce it (`Session.applySessionMetadataPatch`); the next save carries it
  */
 
 /**
@@ -222,8 +239,7 @@ export default class SessionPersistence {
         // project switch (ProjectSwitchController.apply) is the only thing that moves
         // it, and the sandbox never lags the loaded project.
         if (isEngine()) {
-          /** @type {any} */ (globalThis).__jugglerProjectRoot =
-            toSandboxRoot(data.projectPath);
+          Object.assign(globalThis, { __jugglerProjectRoot: toSandboxRoot(data.projectPath) });
         }
       }
       // The workspace table belongs in this block for the same reason as the
@@ -274,11 +290,9 @@ export default class SessionPersistence {
 
         // Conversation names live on the on-disk folder name (parsed by the
         // backend on every GET /api/session) — no client-side title cache.
-        const names = /** @type {Record<string, string>} */ (
-          (data && /** @type {any} */(data).conversationNames) || {}
-        );
+        const names = conversationNamesOf(data);
         registry.adoptNames(names);
-        host.bin().adopt(/** @type {any} */ (data));
+        host.bin().adopt(data);
 
         const services = host.services();
         if (!services) {
@@ -406,8 +420,8 @@ export default class SessionPersistence {
       .flatMap(conv => conv.rootMessageThread.contextItems);
 
     for (const item of allItems) {
-      if (typeof /** @type {any} */ (item).onSessionReload === 'function') {
-        /** @type {any} */ (item).onSessionReload();
+      if ('onSessionReload' in item && typeof item.onSessionReload === 'function') {
+        item.onSessionReload();
       }
     }
   }
@@ -512,11 +526,8 @@ export default class SessionPersistence {
     // Folder names on disk are the source of truth, but a conversation this
     // refresh is about to remove keeps its last known name until it is gone
     // (ConversationRegistry#mergeNames).
-    const names = /** @type {Record<string, string>} */ (
-      (data && /** @type {any} */(data).conversationNames) || {}
-    );
-    registry.mergeNames(names);
-    host.bin().adopt(/** @type {any} */ (data));
+    registry.mergeNames(conversationNamesOf(data));
+    host.bin().adopt(data);
     this.adoptManifest(data, { notify: true });
 
     // The manifest, not the rebuild's own success, says what still exists:

@@ -45,7 +45,7 @@ func (r *run) executeMetaTool(toolUseID, toolName string, toolInput json.RawMess
 // context items whose itemId appears in the input set. Returns the log message
 // and an error for malformed input.
 func (w *ConversationWorker) execDropContextItems(input map[string]any) (string, error) {
-	rawIDs, ok := input["itemIds"].([]any)
+	rawIDs, ok := input[keyItemIDs].([]any)
 	if !ok {
 		err := fmt.Errorf("drop_context_items: invalid itemIds input (expected array)")
 		return fmt.Sprintf("Error: %v", err), err

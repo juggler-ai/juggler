@@ -24,7 +24,7 @@ import { buildApprovalButtons } from './approval-options.js';
 import { t } from '../../sdk/lib/i18n.js';
 import { RESULT_TYPES, ACTION_STATES, TOOL_STATES, itemField } from '../../sdk/lib/message.js';
 import { INTERACTION_KIND } from '../../sdk/context-item.js';
-import { plain } from '../model/item-accessor.js';
+import { plain, plainRecord } from '../model/item-accessor.js';
 import workerManager from './worker-manager.js';
 import wsService from './websocket.js';
 import { APPROVAL_POLICY } from 'juggler/strategy-type';
@@ -381,7 +381,7 @@ async function handleApprovalFlow(rh, toolCall, action, prepared, messageThread,
                  itemField(existingResult, 'cancelled') === true);
     if (hasRealResult) {
       // Already executed by resolveApproval - return result
-      const result = plain(existingResult);
+      const result = plainRecord(existingResult) ?? {};
 
       return {
         toolName: toolCall.name,
@@ -389,7 +389,7 @@ async function handleApprovalFlow(rh, toolCall, action, prepared, messageThread,
         resultStatus: result.isError
           ? /** @type {ResultStatus} */ ('error')
           : /** @type {ResultStatus} */ ('success'),
-        content: result.content,
+        content: typeof result.content === 'string' ? result.content : undefined,
         result: result.fullResult
       };
     }

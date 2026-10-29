@@ -178,7 +178,7 @@ export async function runTests(_ctx) {
   });
 
   await test('describe reads nothing, because layout calls it', () => {
-    const described = pin.describe();
+    const described = pin.describe({}, { project: { path: '', displayName: '' }, conversation: null, thread: null });
     assert(described.title === 'Todos', `expected 'Todos', got ${described.title}`);
     assert(!described.badge, 'a badge would need the model, which describe may not touch');
   });
@@ -396,6 +396,7 @@ export async function runTests(_ctx) {
 
       // The list block: its heading and progress line are the pin's to show
       // translated. Item text is data, so the list items are skipped.
+      /** @type {import('../context-items/todo-context-item.js').TodoItem[]} */
       const digitTodos = [{ content: '1', status: 'completed' }, { content: '2', status: 'in_progress' }];
       const block = mount(todoFound(digitTodos));
       const markdown = /** @type {HTMLElement} */ (block.body.querySelector('.markdown'));

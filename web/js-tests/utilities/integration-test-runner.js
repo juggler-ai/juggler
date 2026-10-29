@@ -108,7 +108,7 @@ __tapeChan.onmessage = (/** @type {MessageEvent} */ ev) => {
 
 /**
  * @typedef {object} TestOperation
- * @property {'send-message'|'send-message-no-wait'|'send-thread-message'|'send-thread-message-no-wait'|'assert-input-warning'|'approve'|'approve-no-wait'|'deny'|'wait-for-approval'|'wait-for-thread-approval'|'approve-thread-tool'|'approve-thread-tool-no-wait'|'deny-thread-tool'|'run-command'|'compact-up-to'|'simulate-disconnect'|'wait-for-state'|'wait-for-idle'|'create-conversation'|'duplicate-conversation'|'fork-conversation'|'switch-conversation'|'delete-conversation'|'undo'|'redo'|'set-model'|'assert-document'|'assert-transaction-markers'|'validate-context-snapshot'|'validate-thread-context'|'set-plugin-enabled'|'start-capture-progress'|'wait-for-progress'|'assert-streaming-chunks'|'assert-no-result'|'assert-tool-field'|'cancel'|'cancel-from-root'|'cancel-thread'|'delete-last-item'|'delete-last-item-in-thread'|'delete-first-item-in-thread'|'delete-item-in-thread'|'delete-thread-items-together'|'assert-thread-item-count'|'wait-for-execution'|'rerun-tool'|'rerun-tool-no-wait'|'cancel-via-ui-flow'|'continue'|'continue-sub-thread'|'continue-in-new-thread'|'assert-dom'|'click-dom'|'set-dom-value'|'move-items'|'copy-items'|'copy-items-new-tab'|'move-items-new-tab'|'expand-thread'|'promote-thread'|'start-tool-exec-counter'|'assert-tool-exec-count'|'start-spinner-capture'|'assert-spinner-was-visible'|'capture-tool-result'|'assert-tool-result-changed'|'add-context-item-to-sub-thread'|'add-context-item-to-root'|'add-ai-files-to-sub-thread'|'remove-context-item-from-sub-thread'|'wait-ms'|'ping-worker'|'stop-undo-capturing'|'at-mention-file'|'wait-for-mock-paused'|'release-mock'|'add-execute-pattern'|'set-strategy'|'run-command-no-wait'|'expect-confirm'|'assert-confirm-shown'|'wait-for-nested-call'|'wait-for-held-call'|'clear-rules'|'restart-engine'|'assert-program-snapshot'} type - Operation type
+ * @property {'send-message'|'send-message-no-wait'|'send-thread-message'|'send-thread-message-no-wait'|'assert-input-warning'|'approve'|'approve-no-wait'|'deny'|'wait-for-approval'|'wait-for-thread-approval'|'approve-thread-tool'|'approve-thread-tool-no-wait'|'deny-thread-tool'|'run-command'|'compact-up-to'|'simulate-disconnect'|'wait-for-state'|'wait-for-idle'|'create-conversation'|'duplicate-conversation'|'fork-conversation'|'switch-conversation'|'delete-conversation'|'undo'|'redo'|'set-model'|'assert-document'|'assert-transaction-markers'|'validate-context-snapshot'|'validate-thread-context'|'set-plugin-enabled'|'start-capture-progress'|'wait-for-progress'|'assert-streaming-chunks'|'assert-no-result'|'assert-tool-field'|'cancel'|'cancel-from-root'|'cancel-thread'|'delete-last-item'|'delete-last-item-in-thread'|'delete-first-item-in-thread'|'delete-item-in-thread'|'delete-thread-items-together'|'assert-thread-item-count'|'wait-for-execution'|'rerun-tool'|'rerun-tool-no-wait'|'cancel-via-ui-flow'|'continue'|'continue-sub-thread'|'continue-in-new-thread'|'assert-dom'|'click-dom'|'set-dom-value'|'move-items'|'copy-items'|'copy-items-new-tab'|'move-items-new-tab'|'expand-thread'|'promote-thread'|'start-tool-exec-counter'|'assert-tool-exec-count'|'start-spinner-capture'|'assert-spinner-was-visible'|'capture-tool-result'|'assert-tool-result-changed'|'add-context-item-to-sub-thread'|'add-context-item-to-root'|'add-ai-files-to-sub-thread'|'remove-context-item-from-sub-thread'|'wait-ms'|'ping-worker'|'stop-undo-capturing'|'at-mention-file'|'wait-for-mock-paused'|'release-mock'|'add-execute-pattern'|'set-strategy'|'run-command-no-wait'|'expect-confirm'|'assert-confirm-shown'|'wait-for-nested-call'|'wait-for-held-call'|'clear-rules'|'restart-engine'|'assert-program-snapshot'|'pause'|'cancel-pause'|'bin-conversation'|'write-fixture-file'|'delete-fixture-file'|'wait-for-action-output'|'click-item'|'click-approval-shifted'|'open-second-viewer'|'assert-second-viewer-converges'} type - Operation type
  * @property {string} [message] - Message text (for send-message)
  * @property {string} [toolUseId] - Tool use ID (for approve/deny/wait-for-approval/streaming operations)
  * @property {string} [response] - Custom response value (for approve - used by AskUserQuestion answers)
@@ -162,7 +162,10 @@ __tapeChan.onmessage = (/** @type {MessageEvent} */ ev) => {
  * @property {number} [expectedCount] - Expected numeric count (for assert-tool-exec-count)
  * @property {'main'|'sub'} [threadType] - Which column to check spinner in (for start-spinner-capture)
  * @property {string} [key] - Named slot key (for capture-tool-result / assert-tool-result-changed)
- * @property {string} [path] - File path (for at-mention-file)
+ * @property {string} [path] - File path (for at-mention-file, write-fixture-file, delete-fixture-file)
+ * @property {string} [content] - File content (for write-fixture-file)
+ * @property {string} [aboveSelector] - Element the shifted click lands on, inside the conversation area (for click-approval-shifted; defaults to assistant-message)
+ * @property {boolean} [activate] - Whether the new tab becomes the active one (for copy-items-new-tab, move-items-new-tab, promote-thread; defaults to true)
  * @property {string} [pattern] - Execute pattern glob (for add-execute-pattern)
  * @property {string} [strategy] - Strategy ID to switch to mid-test (for set-strategy)
  * @property {boolean} [answer] - How to answer the dialog: true confirms, false cancels (for expect-confirm; defaults to true)
@@ -264,11 +267,12 @@ export function testDirFor(testName) {
  * @returns {object} a small object of the op's identifying arg fields
  */
 function _summariseOp(op) {
+  /** @type {Record<string, unknown>} */
   const out = {};
   const keys = ['message', 'toolUseId', 'command', 'index', 'threadIndex', 'key',
     'selector', 'path', 'minEvents', 'contains', 'count', 'expectedCount'];
   for (const k of keys) {
-    const v = /** @type {any} */ (op)[k];
+    const v = /** @type {Record<string, unknown>} */ (op)[k];
     if (v !== undefined) out[k] = typeof v === 'string' && v.length > 40 ? v.slice(0, 40) + '…' : v;
   }
   if (op.condition) out.condition = op.condition;
@@ -342,7 +346,7 @@ function _renderDocSnapshot(conversation) {
  * Render one tape entry into the failure block. Compact and grep-friendly:
  * `12:34:56.789  pool-0  ws-out         {type:"send-message"}`.
  * @param {string} prefix - Per-line prefix (iframe label, or `[worker]`).
- * @param {{ts: number, kind: string, summary?: object, convId?: string}} e
+ * @param {{ts: number, kind: string, summary?: object, convId?: string|null}} e
  * @returns {string} a single formatted, grep-friendly tape line
  */
 function _renderTapeEntry(prefix, e) {
@@ -598,8 +602,7 @@ async function _runTestBody(harness, testDef, trace) {
   }
 
   trace.stage = 'operations';
-  for (let i = 0; i < testDef.operations.length; i++) {
-    const op = testDef.operations[i];
+  for (const [i, op] of testDef.operations.entries()) {
     trace.opIndex = i;
     trace.currentOpType = op.type;
     trace.currentOpSummary = _summariseOp(op);
@@ -1233,9 +1236,9 @@ function assertDOMMatchesExpected(driver, expectedItems, testName) {
   }
 
   // Verify each rendered element matches the expected type
-  for (let i = 0; i < renderableItems.length; i++) {
-    const expectedTag = ITEM_TYPE_TO_TAG[renderableItems[i].type];
-    const actualTag = rendered[i].type;
+  for (const [i, item] of renderableItems.entries()) {
+    const expectedTag = ITEM_TYPE_TO_TAG[item.type];
+    const actualTag = rendered[i]?.type;
     if (actualTag !== expectedTag) {
       throw new Error(
         `[${testName}] DOM element type mismatch at position ${i}!\n` +

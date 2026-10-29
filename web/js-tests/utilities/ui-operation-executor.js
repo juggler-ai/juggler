@@ -751,7 +751,7 @@ export async function executeUIOperation(harness, op) {
       // /api/test/delete-file endpoint which handles missing files
       // gracefully and uses os.RemoveAll under the hood.
       if (!op.path) throw new Error('delete-fixture-file requires path');
-      const fixtureDir = harness.innerHarness?._fixtureDir;
+      const fixtureDir = harness.innerHarness.fixtureDir;
       if (!fixtureDir) throw new Error('delete-fixture-file: no fixtureDir on harness');
       const url = apiUrl(`/test/delete-file?dir=${encodeURIComponent(fixtureDir)}&path=${encodeURIComponent(op.path)}`);
       await fetch(url, { method: 'POST' });
@@ -993,7 +993,8 @@ export async function executeUIOperation(harness, op) {
       // selector within the conversation area. Optionally disambiguate by
       // visible text (op.text) or position (op.index). Used to drive custom
       // approval forms (e.g. AskUserQuestion option/submit buttons).
-      if (!op.selector) {
+      const { selector, text } = op;
+      if (!selector) {
         throw new Error('click-dom operation requires selector');
       }
       // op.global searches the whole tab (all columns) rather than just the root
@@ -1002,9 +1003,9 @@ export async function executeUIOperation(harness, op) {
         const clickContainer = op.global
           ? driver.getContainer()
           : (driver.getConversationArea() || driver.getContainer());
-        const candidates = Array.from(clickContainer.querySelectorAll(op.selector));
-        return op.text !== undefined
-          ? candidates.find(c => (c.textContent || '').includes(op.text))
+        const candidates = Array.from(clickContainer.querySelectorAll(selector));
+        return text !== undefined
+          ? candidates.find(c => (c.textContent || '').includes(text))
           : candidates[op.index || 0];
       };
       const clickEl = await waitFor(findClickTarget, {
@@ -1123,11 +1124,10 @@ export async function executeUIOperation(harness, op) {
         ? await harness.conversation.copyItemsToNewTab(source, op.indices, { activate: op.activate !== false, name: op.name })
         : await harness.conversation.moveItemsToNewTab(source, op.indices, { activate: op.activate !== false, name: op.name });
       if (!newId) throw new Error(`${op.type}: returned null`);
-      const inner = harness.innerHarness || harness;
+      const inner = harness.innerHarness;
       const newConv = inner.session.getConversation(newId);
       if (newConv) {
-        inner._conversations.set(newId, newConv);
-        inner._conversationOrder.push(newId);
+        inner.trackConversation(newId, newConv);
         if (op.activate !== false) inner.switchConversation(newId);
       }
       await renderFence(harness);
@@ -1144,14 +1144,12 @@ export async function executeUIOperation(harness, op) {
       }
       const newId = await conversation.promoteThreadToNewTab(threadItems[idx].get('itemId'), { activate: op.activate !== false });
       if (!newId) throw new Error('promote-thread: promote returned null');
-      const inner = harness.innerHarness || harness;
+      const inner = harness.innerHarness;
       const newConv = inner.session.getConversation(newId);
       if (newConv) {
-        inner._conversations.set(newId, newConv);
-        inner._conversationOrder.push(newId);
+        inner.trackConversation(newId, newConv);
         if (op.activate !== false) inner.switchConversation(newId);
       }
-      inner._lastPromotedConversationId = newId;
       await renderFence(harness);
       break;
     }
@@ -1203,14 +1201,15 @@ export async function executeUIOperation(harness, op) {
     case 'set-dom-value': {
       // Set the value of an input/textarea matched by selector and dispatch an
       // 'input' event so listeners react. op.global searches the whole tab.
-      if (!op.selector) {
+      const { selector } = op;
+      if (!selector) {
         throw new Error('set-dom-value operation requires selector');
       }
       const field = /** @type {HTMLInputElement|HTMLTextAreaElement} */ (await waitFor(() => {
         const valueContainer = op.global
           ? driver.getContainer()
           : (driver.getConversationArea() || driver.getContainer());
-        return valueContainer.querySelector(op.selector);
+        return valueContainer.querySelector(selector);
       }, { timeoutMs: budgetFor(3000), description: `set-dom-value: an element matching "${op.selector}"` }));
       field.value = op.value ?? '';
       field.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1412,7 +1411,8 @@ export async function executeUIOperation(harness, op) {
     }
 
     case 'assert-dom': {
-      if (!op.selector) {
+      const { selector } = op;
+      if (!selector) {
         throw new Error('assert-dom operation requires selector');
       }
       const domContainer = () => (op.global
@@ -1424,12 +1424,12 @@ export async function executeUIOperation(harness, op) {
         // Presence is waited for: a render can land after the update that
         // caused it. The checks below then say what was missing.
         await waitFor(() => {
-          const all = domContainer().querySelectorAll(op.selector);
+          const all = domContainer().querySelectorAll(selector);
           return all.length > 0 && (op.minCount === undefined || all.length >= op.minCount);
         }, { timeoutMs: budgetFor(3000), description: `assert-dom: "${op.selector}" to render` }).catch(() => {});
       }
       const container = domContainer();
-      const el = container.querySelector(op.selector);
+      const el = container.querySelector(selector);
       if (op.absent) {
         if (el) {
           throw new Error(`assert-dom: expected no element matching "${op.selector}", but found one`);
@@ -1439,7 +1439,7 @@ export async function executeUIOperation(harness, op) {
           throw new Error(`assert-dom: expected element matching "${op.selector}", but none found`);
         }
         if (op.minCount !== undefined) {
-          const count = container.querySelectorAll(op.selector).length;
+          const count = container.querySelectorAll(selector).length;
           if (count < op.minCount) {
             throw new Error(`assert-dom: expected at least ${op.minCount} elements matching "${op.selector}", but found ${count}`);
           }
@@ -1691,7 +1691,7 @@ export async function executeUIOperation(harness, op) {
       // existing conversation, simulating two tabs on one conversation — the
       // production multi-tab case the iframe pool otherwise never exercises.
       const convId = op.conversationId
-        ? harness.innerHarness._resolveConversationId(op.conversationId)
+        ? harness.innerHarness.resolveConversationId(op.conversationId)
         : harness.conversation.id;
       if (!harness._secondViewers) harness._secondViewers = new Map();
       const sv = new SecondViewer(convId);
@@ -1707,7 +1707,7 @@ export async function executeUIOperation(harness, op) {
       // granularity. Viewer-1 is already settled here: send-message awaits
       // waitForTurnComplete and undo awaits the worker ack + flush.
       const convId = op.conversationId
-        ? harness.innerHarness._resolveConversationId(op.conversationId)
+        ? harness.innerHarness.resolveConversationId(op.conversationId)
         : harness.conversation.id;
       const sv = harness._secondViewers && harness._secondViewers.get(convId);
       if (!sv) {
@@ -1715,8 +1715,8 @@ export async function executeUIOperation(harness, op) {
       }
       // Project viewer-1's items to the {type, content} shape SecondViewer
       // exposes, reading its doc directly (matches SecondViewer.items()).
-      const primaryJson = harness.conversation._doc.toJSON();
-      const expected = (Array.isArray(primaryJson.items) ? primaryJson.items : [])
+      const primaryItems = /** @type {{items?: unknown}} */ (harness.conversation._doc.toJSON()).items;
+      const expected = (Array.isArray(primaryItems) ? primaryItems : [])
         .map((/** @type {any} */ it) => ({ type: it.type, content: it.content }));
       await sv.waitForConverge(expected, { timeoutMs: op.timeoutMs || 5000 });
       break;

@@ -5,6 +5,21 @@
 import { StatusMessageBuilder } from './status-message-builder.js';
 import { serverText, t } from '../../sdk/lib/i18n.js';
 
+/**
+ * The worker's `processingState` metadata frame.
+ * @typedef {{status: string, message?: string, code?: string, threadItemId?: string, activity?: string, runs?: object, startedAt?: number, inputTokens?: number, outputTokens?: number, cachedTokens?: number, phase?: string, description?: string}} ProcessingStateFrame
+ */
+
+/**
+ * A stored `processingState` as a frame; one with no string status reads as none.
+ * @param {unknown} value - The stored metadata value
+ * @returns {ProcessingStateFrame|null} The frame, or null
+ */
+function processingStateOf(value) {
+  if (!value || typeof value !== 'object' || !('status' in value) || typeof value.status !== 'string') return null;
+  return /** @type {ProcessingStateFrame} */ (value);
+}
+
 // The elapsed-time ticker uses requestAnimationFrame in the viewer. The engine
 // worker has no rAF, so fall back to a timer there — it only needs ~1Hz updates.
 const requestFrame = typeof requestAnimationFrame === 'function'
@@ -683,7 +698,7 @@ class LLMState {
     // Create observer for processingState changes
     const observer = (/** @type {any} */ event) => {
       if (event.keysChanged.has('processingState')) {
-        const state = conversation.getMetadata('processingState');
+        const state = processingStateOf(conversation.getMetadata('processingState'));
         this._handleProcessingStateChange(conversationId, state);
       }
     };
@@ -693,7 +708,7 @@ class LLMState {
     this._metadataObservers.set(conversationId, observer);
 
     // Read initial state
-    const initialState = conversation.getMetadata('processingState');
+    const initialState = processingStateOf(conversation.getMetadata('processingState'));
     if (initialState) {
       this._handleProcessingStateChange(conversationId, initialState);
     }

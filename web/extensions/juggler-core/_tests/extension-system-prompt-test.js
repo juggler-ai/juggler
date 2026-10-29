@@ -60,6 +60,14 @@ const ECONOMY_LINES = [
 ];
 
 /**
+ * Hand an argument outside the contribution's declared shape to it as that
+ * shape, for the cases that check it survives a caller that breaks the contract.
+ * @param {unknown} args - The malformed argument.
+ * @returns {Parameters<typeof systemPromptContribution>[0]} The same value.
+ */
+const malformed = (args) => /** @type {Parameters<typeof systemPromptContribution>[0]} */ (args);
+
+/**
  * Run extension system-prompt tests.
  * @param {object} _ctx - Test context (unused)
  * @returns {Promise<TestResult>} Test results
@@ -208,11 +216,11 @@ export async function runTests(_ctx) {
   await test('tolerates a missing/invalid enabledPluginIds without throwing', () => {
     // Everything in the contribution is plugin-gated now, so missing ids yield
     // no per-tool sections (memory/explore/thread/specialized) — just a string.
-    const out1 = systemPromptContribution({});
+    const out1 = systemPromptContribution(malformed({}));
     assert(typeof out1 === 'string', 'undefined ids → returns a string');
     assert(!out1.includes('## Memory'), 'undefined ids → no memory section');
     assert(!out1.includes(THREAD_MARKER), 'undefined ids → no thread section');
-    const out2 = systemPromptContribution({ enabledPluginIds: null });
+    const out2 = systemPromptContribution(malformed({ enabledPluginIds: null }));
     assert(typeof out2 === 'string', 'null ids → returns a string');
   });
 

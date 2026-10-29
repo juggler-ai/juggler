@@ -56,10 +56,10 @@ function item(fields) {
   return { get: (k) => fields[k] };
 }
 
-const userItem = (content) => item({ type: 'user', content });
-const toolItem = (toolName, toolInput) => item({ type: 'tool-action', toolName, toolInput });
-const assistantItem = (content) => item({ type: 'assistant', content });
-const toolResultItem = (content) => item({ type: 'tool-result', content });
+const userItem = (/** @type {string} */ content) => item({ type: 'user', content });
+const toolItem = (/** @type {string} */ toolName, /** @type {Record<string, unknown>} */ toolInput) => item({ type: 'tool-action', toolName, toolInput });
+const assistantItem = (/** @type {string} */ content) => item({ type: 'assistant', content });
+const toolResultItem = (/** @type {string} */ content) => item({ type: 'tool-result', content });
 
 /** The reviewer's system prompt at the default level. */
 const POLICY_PROMPT = buildPolicyPrompt(resolvePolicy(null));
@@ -307,7 +307,8 @@ export async function runTests(_ctx) {
 
   await run('drops blank / empty grant entries instead of emitting an empty line', () => {
     const out = buildReviewerPrompt([], { toolName: 'bash', toolInput: {} },
-      { context: { projectRoot: '/p', allowedPaths: ['', '   ', null], allowedCommands: [] } });
+      // A null entry stands for an untyped grant list the reviewer must tolerate.
+      { context: { projectRoot: '/p', allowedPaths: /** @type {string[]} */ (/** @type {unknown} */ (['', '   ', null])), allowedCommands: [] } });
     assert(!out.includes('ALLOWED PATHS'), `an all-blank list must emit nothing, got:\n${out}`);
     assert(!out.includes('ALLOWLISTED COMMANDS'), `an empty list must emit nothing, got:\n${out}`);
   });
@@ -491,8 +492,10 @@ export async function runTests(_ctx) {
       }
       assert(schedule.length >= 2, `expected a few re-attempts, got ${JSON.stringify(schedule)}`);
       assert(schedule.every((d) => d > 0), `every delay must be positive, got ${JSON.stringify(schedule)}`);
-      for (let i = 1; i < schedule.length; i++) {
-        assert(schedule[i] >= schedule[i - 1], `schedule should not shrink: ${JSON.stringify(schedule)}`);
+      for (const [i, d] of schedule.entries()) {
+        const prev = schedule[i - 1];
+        if (prev === undefined) continue;
+        assert(d >= prev, `schedule should not shrink: ${JSON.stringify(schedule)}`);
       }
       assert(Math.max(...schedule) <= 5000, `no single wait should outlast a few seconds, got ${JSON.stringify(schedule)}`);
     }

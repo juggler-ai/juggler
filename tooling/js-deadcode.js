@@ -56,8 +56,10 @@
  * One check more rides on the same graph, over every module of the tree —
  * production, tests, and the Node tooling (`importsOnly`) whose liveness it
  * does not judge: each name a module imports must be one its target exports.
- * A static `import` (named or default), an `export … from`, a destructured
- * or member-read `import()` with a literal specifier, and a JSDoc type
+ * A static `import` (named or default), each member a namespace import reads
+ * by name (`ns.x`, `ns['x']` — checked even where the namespace escapes, which
+ * makes every export live), an `export … from`, a destructured or member-read
+ * `import()` with a literal specifier, and a JSDoc type
  * (`import('…').Name`, `@import`) are followed through re-exports and
  * `export *`; a value import of a name the target declares only as a
  * `@typedef` is one too, since a type has no value. A broken one is reported
@@ -793,6 +795,14 @@ function buildTree(root, config) {
           } else {
             const v = scopeManager.getDeclaredVariables(s)[0];
             edge(spec, v ? referenceNames(v) : '*', line, owner);
+            // Each member read by a name the code spells out must be an
+            // export, however else the namespace is used.
+            for (const r of v?.references ?? []) {
+              const p = r.identifier.parent;
+              if (p?.type !== 'MemberExpression' || p.object !== r.identifier) continue;
+              const n = memberName(p);
+              if (n !== '*') for (const x of n) named(spec, x, p.property.loc.start.line, false);
+            }
           }
         }
       } else if (stmt.type === 'ExportNamedDeclaration') {

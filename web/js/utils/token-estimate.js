@@ -63,7 +63,7 @@ export function estimateValueTokens(value) {
  * output is clipped by `truncateForLLM` before it reaches the model, and the
  * stored result holds the clipped text, so measuring it here stays honest for
  * exactly the enormous read where the difference matters.
- * @param {any} item - Conversation item Y.Map (or a plain equivalent).
+ * @param {{get: (key: string) => unknown}|null|undefined} item - Conversation item Y.Map (or a stand-in with a `get`).
  * @returns {string} The item's LLM-facing text ('' when it contributes none).
  */
 export function llmTextForItem(item) {
@@ -71,22 +71,44 @@ export function llmTextForItem(item) {
   const type = item.get('type');
 
   if (type === 'tool-action') {
+    /** @type {unknown} */
     const input = yGet(item, 'toolInput');
-    const result = plain(item.get('result')) || {};
+    /** @type {unknown} */
+    const result = plain(item.get('result'));
     const args = input ? JSON.stringify(input) : '';
-    const output = typeof result.content === 'string'
-      ? result.content
-      : (typeof result.output === 'string' ? result.output : '');
+    const output = textField(result, 'content') || textField(result, 'output');
     // A program tool's tool_result also carries the changes it made,
     // appended by the worker's projection from the call record.
     return args + output + programChangeReport(item.get('displayData'));
   }
 
   if (type === 'thread') {
-    const goal = item.get('goal') || '';
-    const summary = item.get('summary') || item.get('content') || '';
+    const goal = textOf(item.get('goal'));
+    const summary = textOf(item.get('summary')) || textOf(item.get('content'));
     return `${goal}${summary}`;
   }
 
-  return item.get('content') || '';
+  return textOf(item.get('content'));
+}
+
+/**
+ * A stored field as the text it contributes: a string as it is, anything else
+ * that is set as it stringifies, and nothing for an absent or empty one.
+ * @param {unknown} value - The stored field.
+ * @returns {string} The text, or ''.
+ */
+function textOf(value) {
+  return value ? String(value) : '';
+}
+
+/**
+ * A string field of a plain record.
+ * @param {unknown} record - The record, or anything else.
+ * @param {string} key - The field to read.
+ * @returns {string} The field when it is a string, else ''.
+ */
+function textField(record, key) {
+  if (!record || typeof record !== 'object' || !(key in record)) return '';
+  const value = /** @type {Record<string, unknown>} */ (record)[key];
+  return typeof value === 'string' ? value : '';
 }

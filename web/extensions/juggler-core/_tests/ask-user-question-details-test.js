@@ -37,6 +37,23 @@ const CORE_TEXT = [
  * @property {string[]} errors - Messages from failed assertions.
  */
 
+/** @typedef {import('../context-items/ask-user-question-context-item.js').Question} Question */
+/** @typedef {import('../../../js/model/message-thread.js').MessageThread} MessageThread */
+
+/**
+ * The first element under `root` matching `selector`, checked to be a `type`.
+ * @template {Element} T
+ * @param {ParentNode} root - Where to look
+ * @param {string} selector - CSS selector
+ * @param {{new (): T, name: string}} type - Element class it must be
+ * @returns {T} The element
+ */
+function find(root, selector, type) {
+  const el = root.querySelector(selector);
+  if (!(el instanceof type)) throw new Error(`expected ${selector} to be a ${type.name}`);
+  return el;
+}
+
 /**
  * The tool-action `result` the action pipeline stores for these answers: the
  * model's text (as getSummary writes it) beside the structured record.
@@ -54,7 +71,7 @@ function storedResult(answers) {
 /**
  * Render the details view for a question set + stored answers and return the
  * set of option labels that rendered in the selected (ticked) state.
- * @param {object[]} questions - Question definitions
+ * @param {Question[]} questions - Question definitions
  * @param {Record<string, string|string[]>} answers - The stored answers
  * @returns {Set<string>} Labels rendered as selected
  */
@@ -66,7 +83,7 @@ function renderSelectedLabels(questions, answers) {
   }));
   const wrapper = document.createElement('div');
   /** @type {any} */ (item).renderToolActionDetails(wrapper, {
-    toolAction: { get: key => (key === 'result' ? storedResult(answers) : undefined) },
+    toolAction: { get: (/** @type {string} */ key) => (key === 'result' ? storedResult(answers) : undefined) },
     toolName: 'askuserquestion',
     input: { questions },
     helpers: { labeledSubsection },
@@ -75,19 +92,20 @@ function renderSelectedLabels(questions, answers) {
     session: null,
     selectedItemId: 'test'
   });
+  /** @type {Set<string>} */
   const selected = new Set();
   for (const optionItem of wrapper.querySelectorAll('.option-item.selected')) {
     // A selected option must carry a ticked checkbox (not "[x]" text) and the
     // bare option label.
-    assert(optionItem.querySelector('.option-tick.checked'),
+    assert(optionItem.querySelector('.option-tick.checked') !== null,
       'selected option must render a checked tick box');
     const label = optionItem.querySelector('.option-label');
-    if (label) selected.add(label.textContent);
+    if (label) selected.add(label.textContent ?? '');
   }
   // An unselected option must show an unchecked tick (a tick box, no .checked).
   for (const optionItem of wrapper.querySelectorAll('.option-item:not(.selected)')) {
     const tick = optionItem.querySelector('.option-tick');
-    assert(tick && !tick.classList.contains('checked'),
+    assert(tick !== null && !tick.classList.contains('checked'),
       'unselected option must render an unchecked tick box');
   }
   return selected;
@@ -96,7 +114,7 @@ function renderSelectedLabels(questions, answers) {
 /**
  * Render the details view and return the user's typed custom-answer text for a
  * header (the ticked `.custom-answer` row), or null if none rendered.
- * @param {object[]} questions - Question definitions
+ * @param {Question[]} questions - Question definitions
  * @param {Record<string, string|string[]>} answers - The stored answers
  * @param {string} header - The question header whose custom answer to read
  * @returns {string|null} The custom-answer text, or null if none rendered
@@ -107,7 +125,7 @@ function renderCustomAnswer(questions, answers, header) {
   }));
   const wrapper = document.createElement('div');
   /** @type {any} */ (item).renderToolActionDetails(wrapper, {
-    toolAction: { get: key => (key === 'result' ? storedResult(answers) : undefined) },
+    toolAction: { get: (/** @type {string} */ key) => (key === 'result' ? storedResult(answers) : undefined) },
     toolName: 'askuserquestion',
     input: { questions },
     helpers: { labeledSubsection },
@@ -117,12 +135,12 @@ function renderCustomAnswer(questions, answers, header) {
     selectedItemId: 'test'
   });
   const blocks = wrapper.querySelectorAll('.question-block');
-  for (let i = 0; i < questions.length; i++) {
-    if (questions[i].header === header) {
+  for (const [i, q] of questions.entries()) {
+    if (q.header === header) {
       const row = blocks[i]?.querySelector('.option-item.custom-answer');
       if (!row) return null;
       // A custom-answer row must be ticked and carry the typed text.
-      assert(row.querySelector('.option-tick.checked'), 'custom answer must render a checked tick');
+      assert(row.querySelector('.option-tick.checked') !== null, 'custom answer must render a checked tick');
       return row.querySelector('.option-label')?.textContent ?? null;
     }
   }
@@ -130,18 +148,35 @@ function renderCustomAnswer(questions, answers, header) {
 }
 
 /**
+ * @typedef {object} ThreadStub
+ * @property {(toolUseId: string, response: string) => void} resolveApproval - Records the response
+ * @property {string|null} lastResolve - The last response resolveApproval received, or null
+ */
+
+/**
  * A stand-in for MessageThread that just captures the resolveApproval response.
  * The form's in-progress draft lives in the plugin's module-scoped store keyed
  * by toolUseId (not on the thread), so rebuild-survival is exercised purely by
  * rebuilding with the same toolUseId.
- * @returns {{resolveApproval: Function, lastResolve: any}} A thread stub capturing the last resolveApproval response.
+ * @returns {ThreadStub} A thread stub capturing the last resolveApproval response.
  */
 function makeThread() {
-  const store = { lastResolve: /** @type {any} */ (null) };
+  /** @type {{lastResolve: string|null}} */
+  const store = { lastResolve: null };
   return {
-    resolveApproval: (_id, response) => { store.lastResolve = response; },
+    resolveApproval: (/** @type {string} */ _id, /** @type {string} */ response) => { store.lastResolve = response; },
     get lastResolve() { return store.lastResolve; }
   };
+}
+
+/**
+ * The answers a form submitted through `thread`, parsed.
+ * @param {ThreadStub} thread - The thread stub the form resolved through
+ * @returns {Record<string, string|string[]>} The submitted answers
+ */
+function submitted(thread) {
+  if (thread.lastResolve === null) throw new Error('the form submitted nothing');
+  return JSON.parse(thread.lastResolve);
 }
 
 /**
@@ -149,9 +184,9 @@ function makeThread() {
  * returning the form element. A fresh plugin instance is used each call to
  * mimic `tool-action-message` rebuilding the form on every re-render; reusing
  * the same toolUseId across calls models the draft surviving a rebuild.
- * @param {object[]} questions - Question definitions
+ * @param {Question[]} questions - Question definitions
  * @param {string} toolUseId - Stable tool-use id keying the draft
- * @param {object} [thread] - messageThread stub (defaults to a fresh one)
+ * @param {ThreadStub} [thread] - messageThread stub (defaults to a fresh one)
  * @returns {HTMLElement} The built form element
  */
 function buildForm(questions, toolUseId, thread = makeThread()) {
@@ -171,7 +206,7 @@ function buildForm(questions, toolUseId, thread = makeThread()) {
  */
 function selectedLabels(form) {
   return Array.from(form.querySelectorAll('.question-option-btn.selected'))
-    .map(b => b.querySelector('.option-btn-label')?.textContent)
+    .map(b => b.querySelector('.option-btn-label')?.textContent ?? '')
     .sort();
 }
 
@@ -182,15 +217,20 @@ function selectedLabels(form) {
 export async function runTests() {
   let passed = 0;
   let failed = 0;
+  /** @type {string[]} */
   const errors = [];
 
+  /**
+   * @param {string} name - Test name
+   * @param {() => void} fn - Test body
+   */
   const check = (name, fn) => {
     try {
       fn();
       passed++;
     } catch (e) {
       failed++;
-      errors.push(`${name}: ${e.message}`);
+      errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -257,8 +297,16 @@ export async function runTests() {
   // draft store (keyed by toolUseId), so when an unrelated re-render rebuilds
   // the form from scratch the picks come back.
 
-  const click = (form, label) => Array.from(form.querySelectorAll('.question-option-btn'))
-    .find(b => b.querySelector('.option-btn-label')?.textContent === label).click();
+  /**
+   * @param {HTMLElement} form - The form
+   * @param {string} label - Label of the option button to click
+   */
+  const click = (form, label) => {
+    const btn = Array.from(form.querySelectorAll('.question-option-btn'))
+      .find(b => b.querySelector('.option-btn-label')?.textContent === label);
+    if (!(btn instanceof window.HTMLButtonElement)) throw new Error(`no option button labelled ${label}`);
+    btn.click();
+  };
 
   check('multi-select picks survive a form rebuild', () => {
     const toolUseId = 'tu_multi_rebuild';
@@ -276,7 +324,7 @@ export async function runTests() {
     assert(selectedLabels(form2).join(',') === 'File refs,Messages',
       `post-rebuild expected both still ticked, got ${selectedLabels(form2).join(',')}`);
     // Submit must be enabled on the rebuilt form (every question answered).
-    assert(!form2.querySelector('.multi-question-submit').disabled,
+    assert(!find(form2, '.multi-question-submit', window.HTMLButtonElement).disabled,
       'post-rebuild Submit should be enabled from the restored draft');
 
     // Toggling on the rebuilt form mutates the same persisted draft.
@@ -292,8 +340,8 @@ export async function runTests() {
     const form = buildForm(multiQuestions, toolUseId, thread);
     click(form, 'Messages');
     click(form, 'Code & diffs');
-    form.querySelector('.multi-question-submit').click();
-    const answers = JSON.parse(thread.lastResolve);
+    find(form, '.multi-question-submit', window.HTMLButtonElement).click();
+    const answers = submitted(thread);
     assert(Array.isArray(answers.Surfaces) && answers.Surfaces.slice().sort().join(',') === 'Code & diffs,Messages',
       `expected both picks submitted, got ${thread.lastResolve}`);
   });
@@ -310,15 +358,19 @@ export async function runTests() {
     ]
   }];
 
+  /**
+   * @param {HTMLElement} form - The form
+   * @param {string} text - Text to type into the custom field
+   */
   const typeCustom = (form, text) => {
-    const field = form.querySelector('.question-custom-field');
+    const field = find(form, '.question-custom-field', window.HTMLTextAreaElement);
     field.value = text;
     field.dispatchEvent(new Event('input', { bubbles: true }));
   };
 
   check('a custom field is rendered as an option for every question', () => {
     const form = buildForm(singleQuestions, 'tu_custom_present', makeThread());
-    assert(form.querySelector('.question-options .question-custom-option .question-custom-field'),
+    assert(form.querySelector('.question-options .question-custom-option .question-custom-field') !== null,
       'custom answer must render as an option row inside the options list');
   });
 
@@ -328,12 +380,12 @@ export async function runTests() {
     const form = buildForm(singleQuestions, toolUseId, thread);
     typeCustom(form, 'something else entirely');
     // The custom option selects itself; Submit becomes enabled with no preset picked.
-    assert(form.querySelector('.question-custom-option').classList.contains('selected'),
+    assert(find(form, '.question-custom-option', HTMLElement).classList.contains('selected'),
       'custom option should be selected once typed into');
-    assert(!form.querySelector('.multi-question-submit').disabled,
+    assert(!find(form, '.multi-question-submit', window.HTMLButtonElement).disabled,
       'a typed custom answer should satisfy the question');
-    form.querySelector('.multi-question-submit').click();
-    const answers = JSON.parse(thread.lastResolve);
+    find(form, '.multi-question-submit', window.HTMLButtonElement).click();
+    const answers = submitted(thread);
     assert(answers.Choice === 'something else entirely',
       `expected typed text as the answer, got ${thread.lastResolve}`);
   });
@@ -346,8 +398,8 @@ export async function runTests() {
     typeCustom(form, 'my own');
     assert(selectedLabels(form).length === 0,
       `expected no preset selected after typing, got ${selectedLabels(form).join(',')}`);
-    form.querySelector('.multi-question-submit').click();
-    assert(JSON.parse(thread.lastResolve).Choice === 'my own',
+    find(form, '.multi-question-submit', window.HTMLButtonElement).click();
+    assert(submitted(thread).Choice === 'my own',
       `expected custom answer to win, got ${thread.lastResolve}`);
   });
 
@@ -357,15 +409,20 @@ export async function runTests() {
     const form = buildForm(singleQuestions, toolUseId, thread);
     typeCustom(form, 'draft text');
     click(form, 'Beta');
-    assert(form.querySelector('.question-custom-field').value === '',
+    assert(find(form, '.question-custom-field', window.HTMLTextAreaElement).value === '',
       'custom field should clear when a preset is chosen');
-    assert(!form.querySelector('.question-custom-option').classList.contains('selected'),
+    assert(!find(form, '.question-custom-option', HTMLElement).classList.contains('selected'),
       'custom option should deselect when a preset is chosen');
-    form.querySelector('.multi-question-submit').click();
-    assert(JSON.parse(thread.lastResolve).Choice === 'Beta',
+    find(form, '.multi-question-submit', window.HTMLButtonElement).click();
+    assert(submitted(thread).Choice === 'Beta',
       `expected the preset to win, got ${thread.lastResolve}`);
   });
 
+  /**
+   * @param {Element} field - Where to press Enter
+   * @param {KeyboardEventInit} [opts] - Extra event fields
+   * @returns {boolean} dispatchEvent's result
+   */
   const pressEnter = (field, opts = {}) => field.dispatchEvent(
     new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...opts }));
 
@@ -373,10 +430,10 @@ export async function runTests() {
     const toolUseId = 'tu_custom_enter';
     const thread = makeThread();
     const form = buildForm(singleQuestions, toolUseId, thread);
-    const field = form.querySelector('.question-custom-field');
+    const field = find(form, '.question-custom-field', window.HTMLTextAreaElement);
     typeCustom(form, 'typed and entered');
     pressEnter(field);
-    assert(thread.lastResolve && JSON.parse(thread.lastResolve).Choice === 'typed and entered',
+    assert(thread.lastResolve !== null && JSON.parse(thread.lastResolve).Choice === 'typed and entered',
       `expected Enter to submit the typed answer, got ${thread.lastResolve}`);
   });
 
@@ -384,7 +441,7 @@ export async function runTests() {
     const toolUseId = 'tu_custom_enter_blocked';
     const thread = makeThread();
     const form = buildForm(singleQuestions, toolUseId, thread);
-    const field = form.querySelector('.question-custom-field');
+    const field = find(form, '.question-custom-field', window.HTMLTextAreaElement);
     pressEnter(field); // nothing typed, no preset chosen
     assert(thread.lastResolve === null,
       `expected no submit while unanswered, got ${thread.lastResolve}`);
@@ -394,7 +451,7 @@ export async function runTests() {
     const toolUseId = 'tu_custom_shift_enter';
     const thread = makeThread();
     const form = buildForm(singleQuestions, toolUseId, thread);
-    const field = form.querySelector('.question-custom-field');
+    const field = find(form, '.question-custom-field', window.HTMLTextAreaElement);
     typeCustom(form, 'line one');
     pressEnter(field, { shiftKey: true });
     assert(thread.lastResolve === null,
@@ -407,9 +464,9 @@ export async function runTests() {
     const form1 = buildForm(singleQuestions, toolUseId, thread);
     typeCustom(form1, 'keep me');
     const form2 = buildForm(singleQuestions, toolUseId, thread);
-    assert(form2.querySelector('.question-custom-field').value === 'keep me',
+    assert(find(form2, '.question-custom-field', window.HTMLTextAreaElement).value === 'keep me',
       'custom answer should be restored from the draft after a rebuild');
-    assert(form2.querySelector('.question-custom-option').classList.contains('selected'),
+    assert(find(form2, '.question-custom-option', HTMLElement).classList.contains('selected'),
       'restored custom answer should show as selected');
   });
 
@@ -419,7 +476,7 @@ export async function runTests() {
     const form = buildForm(singleQuestions, toolUseId, thread);
     typeCustom(form, 'x');
     typeCustom(form, '   ');
-    assert(form.querySelector('.multi-question-submit').disabled,
+    assert(find(form, '.multi-question-submit', window.HTMLButtonElement).disabled,
       'a blank custom answer must not satisfy the question');
   });
 
@@ -429,8 +486,8 @@ export async function runTests() {
     const form = buildForm(multiQuestions, toolUseId, thread);
     click(form, 'Messages');
     typeCustom(form, 'and a fourth surface');
-    form.querySelector('.multi-question-submit').click();
-    const answers = JSON.parse(thread.lastResolve);
+    find(form, '.multi-question-submit', window.HTMLButtonElement).click();
+    const answers = submitted(thread);
     assert(Array.isArray(answers.Surfaces)
 			&& answers.Surfaces.includes('Messages')
 			&& answers.Surfaces.includes('and a fourth surface'),
@@ -462,14 +519,16 @@ export async function runTests() {
   check('applyApprovalResponse parses a JSON multi-answer object', () => {
     const out = AskUserQuestionContextItem.applyApprovalResponse(
       askInput, JSON.stringify({ Approach: ['A', 'B'] }));
-    assert(Array.isArray(out.answers.Approach) && out.answers.Approach.length === 2,
+    const answers = /** @type {Record<string, string|string[]>} */ (out.answers);
+    assert(Array.isArray(answers.Approach) && answers.Approach.length === 2,
       `expected the parsed answers object, got ${JSON.stringify(out.answers)}`);
     assert(out.questions === askInput.questions, 'original input fields must be preserved');
   });
 
   check('applyApprovalResponse treats a non-JSON response as a single label', () => {
     const out = AskUserQuestionContextItem.applyApprovalResponse(askInput, 'Beta');
-    assert(out.answers.Approach === 'Beta',
+    const answers = /** @type {Record<string, string|string[]>} */ (out.answers);
+    assert(answers.Approach === 'Beta',
       `expected the label keyed under the first header, got ${JSON.stringify(out.answers)}`);
   });
 
@@ -507,7 +566,7 @@ export async function runTests() {
         { question: '1', header: '2', multiSelect: false, options: [{ label: '3', description: '' }, { label: '4', description: '' }] },
         { question: '5', header: '6', multiSelect: true, options: [{ label: '7', description: '' }, { label: '8', description: '' }] },
       ];
-      const ctx = { conversation: null, messageThread: makeThread(), toolUseId: 'tu_xa' };
+      const ctx = { messageThread: /** @type {MessageThread} */ (/** @type {unknown} */ (makeThread())), toolUseId: 'tu_xa' };
 
       const approval = await item.getApprovalConfig({ questions: qs });
       shown['approval title, two questions'] = String(approval?.title);
@@ -541,7 +600,7 @@ export async function runTests() {
         helpers: { labeledSubsection },
         conversation: null, messageThread: null, session: null, selectedItemId: 'test'
       });
-      assert(wrapper.querySelector('.custom-answer'), 'details must draw the typed answer');
+      assert(wrapper.querySelector('.custom-answer') !== null, 'details must draw the typed answer');
       collect('details', wrapper, data);
 
       // The model's side stays English under any UI language.

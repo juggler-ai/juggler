@@ -216,7 +216,7 @@ export async function runTests(_ctx) {
       `walking the rail must reuse the one viewer, got ${m.viewers().length}`);
     assert(m.active()?.textContent?.includes('file39.js'), 'the last file walked to should be current');
     assert(m.diffs().length === 4,
-      `expected one request per file visited, got ${JSON.stringify(m.diffs().map((d) => d.path))}`);
+      `expected one request per file visited, got ${JSON.stringify(m.diffs().map((/** @type {{path: string}} */ d) => d.path))}`);
     m.teardown();
   });
 

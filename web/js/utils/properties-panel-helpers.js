@@ -137,7 +137,8 @@ export function addLlmDescription(wrapper, label, text) {
  * @param {HTMLElement} wrapper
  * @param {string} path
  * @param {string} [info] - Optional annotation (e.g. "1.2 KB | 42 lines")
- * @param {{pin?: string}} [options] - `pin` is the absolute path to pin.
+ * @param {{pin?: string, directory?: boolean}} [options] - `pin` is the absolute
+ *   path to pin; `directory` says the path names a folder.
  */
 export function addFilePath(wrapper, path, info, options = {}) {
   const row = document.createElement('div');
@@ -344,7 +345,7 @@ const SHOW_PIN_LABEL = markForTranslation('Show on Pinboard');
  * @typedef {object} PinRef
  * @property {string} pin - The pin's id.
  * @property {string} type - Its item-type id.
- * @property {Record<string, any>} config - Its config.
+ * @property {Record<string, unknown>} config - Its config.
  */
 
 /**
@@ -374,6 +375,34 @@ export function createShowPinControl(ref) {
 }
 
 /**
+ * A recorded before/after snapshot of a file, as a tool action's display data
+ * carries it under `diffData`.
+ * @typedef {object} DiffSnapshot
+ * @property {string} oldContent - The file before.
+ * @property {string} newContent - The file after.
+ * @property {string} path - The file's path, or '' when the snapshot names none.
+ * @property {number} startLineNumber - The first line's number, or 0 when unrecorded.
+ */
+
+/**
+ * The diff snapshot in a tool action's display data, when both sides were recorded.
+ * @param {unknown} displayData - The display data, plain.
+ * @returns {DiffSnapshot|null} The snapshot, or null when there is none.
+ */
+function diffSnapshotOf(displayData) {
+  if (!displayData || typeof displayData !== 'object' || !('diffData' in displayData)) return null;
+  const d = displayData.diffData;
+  if (!d || typeof d !== 'object' || !('oldContent' in d) || !('newContent' in d)) return null;
+  if (typeof d.oldContent !== 'string' || typeof d.newContent !== 'string') return null;
+  return {
+    oldContent: d.oldContent,
+    newContent: d.newContent,
+    path: 'path' in d && typeof d.path === 'string' ? d.path : '',
+    startLineNumber: 'startLineNumber' in d && typeof d.startLineNumber === 'number' ? d.startLineNumber : 0,
+  };
+}
+
+/**
  * Append a diff viewer if the tool-action has a diffData snapshot.
  *
  * An empty side is a recorded snapshot like any other — it is what a file
@@ -381,18 +410,19 @@ export function createShowPinControl(ref) {
  * sides were recorded, not that both hold something. Only a snapshot with
  * nothing on either side has no diff to draw.
  * @param {HTMLElement} wrapper
- * @param {any} toolAction - Y.Map for the tool action
+ * @param {unknown} toolAction - Y.Map for the tool action
  * @param {string} fallbackPath
  * @returns {boolean} True if a diff viewer was added
  */
 export function addDiffViewer(wrapper, toolAction, fallbackPath) {
-  const diffData = yGet(toolAction, 'displayData')?.diffData;
-  if (typeof diffData?.oldContent !== 'string' || typeof diffData?.newContent !== 'string') return false;
+  const diffData = diffSnapshotOf(yGet(toolAction, 'displayData'));
+  if (!diffData) return false;
   if (diffData.oldContent === '' && diffData.newContent === '') return false;
 
-  const diffViewer = document.createElement('diff-viewer');
+  const diffViewer = /** @type {HTMLElement & {setDiff: (oldContent: string, newContent: string, filePath: string, startLineNumber?: number) => void}} */ (
+    document.createElement('diff-viewer'));
   diffViewer.classList.add('properties-panel-diff');
-  /** @type {any} */ (diffViewer).setDiff(
+  diffViewer.setDiff(
     diffData.oldContent,
     diffData.newContent,
     diffData.path || fallbackPath,
@@ -467,7 +497,7 @@ registerContextMenuProvider({
       items.push({ label: t(PIN_LABEL), onClick: () => { void pinFile(path); } });
     }
     const host = subject.closest('[data-context-item-id]');
-    const unpin = host && /** @type {any} */ (host)._jugglerRemoveFromContext;
+    const unpin = host && /** @type {Element & {_jugglerRemoveFromContext?: unknown}} */ (host)._jugglerRemoveFromContext;
     if (typeof unpin === 'function') {
       items.push({ separator: true });
       items.push({ label: t('Remove from context'), danger: true, onClick: () => unpin() });

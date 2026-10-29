@@ -93,12 +93,26 @@ const PSEUDO_ELEMENT = /::?(?:before|after|marker|placeholder|selection|backdrop
  * @property {Date} [now] - When the export was made, for the header.
  */
 
+/** @typedef {import('../model/conversation.js').default} Conversation */
+/** @typedef {import('../../sdk/lib/message.js').Message} Message */
+/** @typedef {import('../../sdk/lib/message.js').ToolActionResult} ToolActionResult */
+/** @typedef {{id: string, mime?: string, filename?: string, width?: number, height?: number}} ImageRef */
+
+/**
+ * A stored value as a plain record, or null when it is not an object.
+ * @param {unknown} value - A plain value (already materialised from any Y type).
+ * @returns {Record<string, unknown>|null} The record, or null.
+ */
+function asRecord(value) {
+  return value && typeof value === 'object' ? /** @type {Record<string, unknown>} */ (value) : null;
+}
+
 /**
  * @typedef {object} RenderContext
  * @property {Document} doc - The inert document the page is built in.
- * @property {any} conversation - The Conversation model.
- * @property {any} messageThread - The root MessageThread.
- * @property {any} siblingArray - The Y.Array the items stand in.
+ * @property {Conversation|undefined} conversation - The Conversation model.
+ * @property {import('../model/message-thread.js').MessageThread|undefined} messageThread - The root MessageThread.
+ * @property {import('./thread-display.js').SiblingArray|undefined} siblingArray - The Y.Array the items stand in.
  * @property {boolean} includeToolDetails - See {@link ExportOptions}.
  * @property {boolean} includeFiles - See {@link ExportOptions}.
  * @property {Map<string, string>} assets - Attachment id → data: URI, loaded up front.
@@ -107,7 +121,7 @@ const PSEUDO_ELEMENT = /::?(?:before|after|marker|placeholder|selection|backdrop
 /**
  * A whole conversation — its root thread — as a self-contained HTML page. The
  * conversation must be loaded (see `Session.ensureConversationLoaded`).
- * @param {any} conversation - A Conversation model.
+ * @param {Conversation|null|undefined} conversation - A Conversation model.
  * @param {ExportOptions} [options] - What to include.
  * @returns {Promise<string>} The page, from `<!DOCTYPE html>`.
  */
@@ -138,7 +152,7 @@ export async function conversationToHtml(conversation, options = {}) {
 
   /** @type {RenderContext} */
   const ctx = {
-    doc, conversation, messageThread, siblingArray: messageThread?.yarray,
+    doc, conversation: conversation ?? undefined, messageThread, siblingArray: messageThread?.yarray ?? undefined,
     includeToolDetails, includeFiles, assets,
   };
 
@@ -200,7 +214,7 @@ export function exportFileName(name) {
 
 /**
  * One row of the page, or null for an item that is not conversation.
- * @param {any} item - A thread item.
+ * @param {Message} item - A thread item.
  * @param {RenderContext} ctx - Render context.
  * @returns {HTMLElement|null} The row.
  */
@@ -229,7 +243,7 @@ function fillRow(host, article) {
 /**
  * The user's message: Markdown when it reads as Markdown, verbatim otherwise,
  * exactly as `<user-message>` decides; then its images when files are in.
- * @param {any} item - User message item.
+ * @param {import('../../sdk/lib/message.js').UserMessage} item - User message item.
  * @param {RenderContext} ctx - Render context.
  * @returns {HTMLElement|null} The row.
  */
@@ -261,7 +275,7 @@ function renderUser(item, ctx) {
 
 /**
  * The agent's reply, rendered as the transcript renders it.
- * @param {any} item - Assistant message item.
+ * @param {import('../../sdk/lib/message.js').AssistantMessage} item - Assistant message item.
  * @param {RenderContext} ctx - Render context.
  * @returns {HTMLElement|null} The row.
  */
@@ -283,7 +297,7 @@ function renderAssistant(item, ctx) {
  * A tool call: the plugin's own one-line status, as the transcript shows it,
  * and — with tool details on — a collapsed `<details>` holding its input and
  * output.
- * @param {any} item - Tool-action item.
+ * @param {import('../../sdk/lib/message.js').ToolActionMessage} item - Tool-action item.
  * @param {RenderContext} ctx - Render context.
  * @returns {HTMLElement} The row.
  */
@@ -291,8 +305,12 @@ function renderTool(item, ctx) {
   const { doc } = ctx;
   const toolName = String(itemField(item, 'toolName') || 'tool');
   const ToolClass = contextItemRegistry.getByToolName(toolName) || null;
-  const input = plain(itemField(item, 'toolInput')) || {};
-  const result = plain(itemField(item, 'result')) || null;
+  /** @type {unknown} */
+  const storedInput = plain(itemField(item, 'toolInput'));
+  const input = asRecord(storedInput) ?? {};
+  /** @type {unknown} */
+  const storedResult = plain(itemField(item, 'result'));
+  const result = /** @type {ToolActionResult|null} */ (asRecord(storedResult));
 
   const status = renderResultStatusMessage(toolStatus(item, ToolClass, input, result, ctx));
   const article = doc.createElement('article');
@@ -316,10 +334,10 @@ function renderTool(item, ctx) {
  * The status line for a tool row. Asks the tool's plugin, as the live row
  * does, and falls back to the tool's name and the one argument that says what
  * the call was for.
- * @param {any} item - Tool-action item.
- * @param {any} ToolClass - The plugin class, or null.
+ * @param {unknown} item - Tool-action item.
+ * @param {typeof import('juggler/context-item').default|null} ToolClass - The plugin class, or null.
  * @param {Record<string, unknown>} input - The call's input.
- * @param {any} result - The call's stored result, or null.
+ * @param {ToolActionResult|null} result - The call's stored result, or null.
  * @param {RenderContext} ctx - Render context.
  * @returns {import('../../sdk/lib/html.js').ResultStatusMessage} The status.
  */
@@ -328,22 +346,28 @@ function toolStatus(item, ToolClass, input, result, ctx) {
   const cancelled = !!result?.cancelled || itemField(item, 'state') === 'cancelled';
   if (ToolClass && typeof ToolClass.prototype?.getStatusUI === 'function') {
     const config = safeCall(() => {
-      const instance = new ToolClass({
+      // An export may run outside the conversation's live session; a plugin
+      // that needs one throws, and the row falls back to the plain status.
+      const instance = new ToolClass(/** @type {import('../../sdk/context-item-types.js').ItemContext} */ ({
         id: 'conversation-export',
         session: ctx.conversation?.session,
         conversation: ctx.conversation,
         messageThread: ctx.messageThread,
-      });
+      }));
       const full = result?.fullResult || null;
-      const actionResult = full
+      /** @type {Record<string, unknown>} */
+      const status = full
         ? { content: result?.content || '', ...(cancelled ? { cancelled: true } : {}), ...full }
         : { content: result?.content || '', cancelled, pending: !result && !cancelled };
-      return instance.getStatusUI(actionResult, input, {
+      const actionResult = /** @type {import('../services/action-executor.js').ActionStatus} */ (status);
+      const toolUseId = itemField(item, 'toolUseId');
+      const statusContext = {
         conversation: ctx.conversation,
         messageThread: ctx.messageThread,
         session: ctx.conversation?.session,
-        toolUseId: itemField(item, 'toolUseId'),
-      });
+        toolUseId: typeof toolUseId === 'string' ? toolUseId : undefined,
+      };
+      return instance.getStatusUI(actionResult, input, statusContext);
     }, null);
     if (config && (config.summary || config.typeName)) {
       if (!config.typeName) config.typeName = badgeForItem(item, toolBadgeContext(ctx)).typeName || toolName;
@@ -360,7 +384,7 @@ function toolStatus(item, ToolClass, input, result, ctx) {
 /**
  * What the badge resolver needs to name a tool row.
  * @param {RenderContext} ctx - Render context.
- * @returns {{conversation: any, messageThread: any, fallbackType: string}} Badge context.
+ * @returns {import('./item-badge.js').BadgeContext} Badge context.
  */
 function toolBadgeContext(ctx) {
   return { conversation: ctx.conversation, messageThread: ctx.messageThread, fallbackType: 'tool-action' };
@@ -370,7 +394,7 @@ function toolBadgeContext(ctx) {
  * A tool's input and output, collapsed behind one disclosure.
  * @param {Document} doc - The page's document.
  * @param {Record<string, unknown>} input - The call's input.
- * @param {any} result - The call's stored result, or null.
+ * @param {ToolActionResult|null} result - The call's stored result, or null.
  * @param {boolean} withholdOutput - The output is file contents the user left out.
  * @returns {HTMLElement} The `<details>`.
  */
@@ -436,7 +460,7 @@ function codeSection(doc, label, text, language) {
 /**
  * A sub-thread: its goal under the thread badge, and the answer it handed back,
  * painted by the tile's own summary painter.
- * @param {any} item - Thread item.
+ * @param {import('../../sdk/lib/message.js').ThreadMessage} item - Thread item.
  * @param {RenderContext} ctx - Render context.
  * @returns {HTMLElement} The row.
  */
@@ -464,7 +488,7 @@ function renderThread(item, ctx) {
 
 /**
  * An error, as the transcript's error row shows it.
- * @param {any} item - Error item.
+ * @param {import('../../sdk/lib/message.js').ErrorMessage} item - Error item.
  * @param {RenderContext} ctx - Render context.
  * @returns {HTMLElement|null} The row.
  */
@@ -547,20 +571,25 @@ function renderFooter(doc) {
 
 /**
  * The image attachments an item carries.
- * @param {any} item - A thread item.
- * @returns {Array<{id: string, mime?: string, filename?: string, width?: number, height?: number}>} The refs.
+ * @param {unknown} item - A thread item.
+ * @returns {ImageRef[]} The refs.
  */
 function imageRefs(item) {
+  /** @type {unknown} */
   const refs = plain(itemField(item, 'attachments'));
   if (!Array.isArray(refs)) return [];
-  return refs.filter((ref) => ref && typeof ref.id === 'string' && ref.id
-    && (!ref.mime || String(ref.mime).startsWith('image/')));
+  return refs.flatMap((entry) => {
+    const ref = asRecord(entry);
+    if (!ref || typeof ref.id !== 'string' || !ref.id) return [];
+    if (ref.mime && !String(ref.mime).startsWith('image/')) return [];
+    return [/** @type {ImageRef} */ (ref)];
+  });
 }
 
 /**
  * Every image the exported rows can show.
- * @param {any[]} items - Thread items.
- * @returns {Array<{id: string, mime?: string}>} The refs, in order.
+ * @param {Message[]} items - Thread items.
+ * @returns {ImageRef[]} The refs, in order.
  */
 function imageRefsIn(items) {
   return items.filter((item) => isUserMessage(item) || isToolActionMessage(item)).flatMap(imageRefs);
@@ -688,8 +717,11 @@ function collectUsedCss(doc) {
 function usedRules(rules, doc, seen) {
   // The CSSOM rule classes, read off the window: a missing one (an engine
   // without @layer, say) simply matches nothing.
-  const css = /** @type {any} */ (window);
-  const is = (/** @type {CSSRule} */ rule, /** @type {string} */ kind) => !!css[kind] && rule instanceof css[kind];
+  const is = (/** @type {CSSRule} */ rule, /** @type {string} */ kind) => {
+    /** @type {unknown} */
+    const ctor = Reflect.get(window, kind);
+    return typeof ctor === 'function' && rule instanceof ctor;
+  };
   /** @type {string[]} */
   const out = [];
   for (const rule of Array.from(rules)) {
@@ -697,7 +729,7 @@ function usedRules(rules, doc, seen) {
       const style = /** @type {CSSStyleRule} */ (rule);
       if (selectorUsed(style.selectorText, doc, seen)) out.push(style.cssText);
     } else if (is(rule, 'CSSLayerBlockRule')) {
-      const layer = /** @type {any} */ (rule);
+      const layer = /** @type {CSSLayerBlockRule} */ (rule);
       const inner = usedRules(layer.cssRules, doc, seen);
       if (inner) out.push(`@layer ${layer.name} {\n${inner}\n}`);
     } else if (is(rule, 'CSSMediaRule')) {

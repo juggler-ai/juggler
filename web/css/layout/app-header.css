@@ -217,7 +217,7 @@ header-actions .btn-icon-header {
     width: 32px;
     height: 32px;
     padding: 0;
-    font-size: 14px;
+    font-size: var(--font-size-header-md);
 }
 
 header-actions .btn-icon-header svg,

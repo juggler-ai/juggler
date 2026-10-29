@@ -207,7 +207,7 @@ export function maybePromoteHandoffThread(mt) {
           const idx = mt.findIndexByItemId(threadId);
           if (idx < 0) return;
           mt.deleteAt(idx);
-          const msg = /** @type {any} */ (createUserMessage(result));
+          const msg = createUserMessage(result);
           // insertItem mints an itemId (via _ensureItemId) so the message is
           // addressable/selectable; reinsert at the thread's old slot (right
           // after the preserved context items).

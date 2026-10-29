@@ -202,7 +202,7 @@ export async function runTests() {
     const m = mount({ user: { EDITOR: 'vim' }, local: { API_KEY: 'sk-secret' } });
     try {
       const key = await until(m.body, (b) => row(b, 'local', 'API_KEY'), 'the local variable drawn');
-      assert(row(m.body, 'user', 'EDITOR'), 'the user variable is drawn in the user section');
+      assert(row(m.body, 'user', 'EDITOR') !== null, 'the user variable is drawn in the user section');
       assert(!(m.body.textContent || '').includes('sk-secret'), 'a value is shown before anyone asked');
       /** @type {HTMLButtonElement} */ (key.querySelector('.env-pin__reveal')).click();
       await until(m.body, (b) => (b.textContent || '').includes('sk-secret'), 'Show to reveal the value');
@@ -244,7 +244,7 @@ export async function runTests() {
       const box = await until(m.body, (b) => b.querySelector('.env-pin__pending'), 'the approval banner');
       assert((box.textContent || '').includes('GIT_SSH_COMMAND=ssh -i deploy'),
         `approval must show the variables themselves, not a count: ${box.textContent}`);
-      assert(row(m.body, 'project', 'GIT_SSH_COMMAND')?.classList.contains('env-pin__shadowed'),
+      assert(row(m.body, 'project', 'GIT_SSH_COMMAND')?.classList.contains('env-pin__shadowed') === true,
         'a pending variable is drawn as in effect');
       /** @type {HTMLButtonElement} */ (box.querySelector('.env-pin__approve')).click();
       await until(m.body, (b) => !b.querySelector('.env-pin__pending'), 'the banner to go once approved');
@@ -286,7 +286,7 @@ export async function runTests() {
       const a = await until(m.body, (b) => row(b, 'user', 'A'), 'A drawn');
       /** @type {HTMLButtonElement} */ (a.querySelector('.env-pin__delete')).click();
       await until(m.body, (b) => !row(b, 'user', 'A'), 'A gone');
-      assert(row(m.body, 'user', 'B'), 'removing one variable removed another');
+      assert(row(m.body, 'user', 'B') !== null, 'removing one variable removed another');
       assert(JSON.stringify(m.server.writes()[0]?.params) === JSON.stringify({ scope: 'user', env: { B: '2' } }),
         `unexpected write ${JSON.stringify(m.server.writes())}`);
     } finally { m.teardown(); }
@@ -368,7 +368,7 @@ export async function runTests() {
       try {
         await until(full.body, (b) => b.querySelector('.env-pin__pending'), 'the banner');
         // Shadowed and pending rows both drawn, so both titles are on screen.
-        assert(row(full.body, 'user', '_1')?.title && row(full.body, 'project', '_2')?.title, 'a row title is missing');
+        assert(!!(row(full.body, 'user', '_1')?.title && row(full.body, 'project', '_2')?.title), 'a row title is missing');
         full.server.failNextSet('7');
         /** @type {HTMLButtonElement} */ (full.body.querySelector('.env-pin__delete')).click();
         await until(full.body, (b) => b.querySelector('.env-pin__error--action'), 'the save error');

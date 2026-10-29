@@ -168,7 +168,7 @@ const _depthColumns = new WeakMap();
 /**
  * The width a column at `depth` takes from what is stored: that depth's own,
  * else the deepest stored above it. A single number is every depth's width.
- * @param {any} stored - The preference's value: a number, or widths by depth
+ * @param {unknown} stored - The preference's value: a number, or widths by depth
  *   with null where a depth has none.
  * @param {number} depth
  * @returns {number|null} The width in rem, or null when nothing applies.
@@ -211,7 +211,7 @@ export function applyColumnWidthRem(element, prefName, rem, minWidthRem = COL_MI
  * it, and one with a width of its own is unchanged.
  * @param {HTMLElement} element
  * @param {string} prefName
- * @param {any[]} widths
+ * @param {ReadonlyArray<unknown>} widths
  * @private
  */
 function _restyleSiblings(element, prefName, widths) {
@@ -313,12 +313,12 @@ export function setupColumnResize(
 
 /**
  * A stored width, or null when there is nothing usable.
- * @param {any} value
+ * @param {unknown} value
  * @returns {number|null} The width in rem.
  * @private
  */
 function _storedWidthRem(value) {
-  const rem = typeof value === 'number' ? value : parseFloat(value);
+  const rem = typeof value === 'number' ? value : typeof value === 'string' ? parseFloat(value) : NaN;
   return Number.isFinite(rem) && rem > 0 ? rem : null;
 }
 
@@ -339,7 +339,7 @@ function _storedWidthRem(value) {
  */
 function _loadColumnWidth(element, prefName, minWidthRem, defaultWidthRem = undefined, depth = undefined) {
   /**
-   * @param {any} stored
+   * @param {unknown} stored
    * @returns {number|null} This column's width in rem, or null.
    */
   const widthOf = (stored) => (typeof depth === 'number'

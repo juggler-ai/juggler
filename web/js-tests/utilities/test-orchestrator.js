@@ -321,13 +321,11 @@ class TestOrchestrator {
     const categoryStats = {};
 
     for (const result of this.results) {
-      if (!categoryStats[result.category]) {
-        categoryStats[result.category] = { passed: 0, total: 0, tasks: 0 };
-      }
-      categoryStats[result.category].tasks++;
+      const stats = categoryStats[result.category] ??= { passed: 0, total: 0, tasks: 0 };
+      stats.tasks++;
       if (result.testsTotal) {
-        categoryStats[result.category].passed += result.testsPassed || 0;
-        categoryStats[result.category].total += result.testsTotal;
+        stats.passed += result.testsPassed || 0;
+        stats.total += result.testsTotal;
       }
     }
 
@@ -336,8 +334,7 @@ class TestOrchestrator {
     if (categoryList) {
       categoryList.innerHTML = '';
 
-      for (const category in categoryStats) {
-        const stats = categoryStats[category];
+      for (const [category, stats] of Object.entries(categoryStats)) {
 
         const li = document.createElement('li');
         li.className = 'category-item';

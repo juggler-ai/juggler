@@ -22,11 +22,11 @@ export function bytesToBase64(bytes) {
   // limit rather than near it.
   const BLOCK = 0x8000;
   if (bytes.length <= BLOCK) {
-    return globalThis.btoa(String.fromCharCode.apply(null, /** @type {any} */ (bytes)));
+    return globalThis.btoa(String.fromCharCode(...bytes));
   }
   const blocks = [];
   for (let i = 0; i < bytes.length; i += BLOCK) {
-    blocks.push(String.fromCharCode.apply(null, /** @type {any} */ (bytes.subarray(i, i + BLOCK))));
+    blocks.push(String.fromCharCode(...bytes.subarray(i, i + BLOCK)));
   }
   return globalThis.btoa(blocks.join(''));
 }

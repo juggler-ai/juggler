@@ -20,23 +20,29 @@
  * same id but sits on the input side, and is not an anchor.
  */
 
+/**
+ * A thread item, read through its `get` (a Y.Map, or a stand-in with one).
+ * @typedef {{get?: (key: string) => unknown}|null|undefined} AnchorItem
+ */
+
 /** Item types a round-trip produces; see the module comment. */
 const ROUND_TRIP_OUTPUT_TYPES = new Set(['assistant', 'thinking', 'tool-action']);
 
 /**
  * The transactionId an item anchors, or '' when it is not a round-trip's output.
- * @param {{get?: (key: string) => any}|undefined} item
+ * @param {AnchorItem} item
  * @returns {string} The round-trip's transactionId, or ''
  */
 function anchoredTxnId(item) {
   const get = item?.get?.bind(item);
-  if (!get || !ROUND_TRIP_OUTPUT_TYPES.has(get('type'))) return '';
+  const type = get?.('type');
+  if (!get || typeof type !== 'string' || !ROUND_TRIP_OUTPUT_TYPES.has(type)) return '';
   return String(get('transactionId') || '');
 }
 
 /**
  * The transactionId of a thread's most recent round-trip.
- * @param {Array<{get?: (key: string) => any}>} items - Y.Array items (or empty)
+ * @param {ReadonlyArray<AnchorItem>|null|undefined} items - Y.Array items (or empty)
  * @returns {string} transactionId, or '' if no round-trip has left an item
  */
 export function findLastRoundTripTxnId(items) {
@@ -52,7 +58,7 @@ export function findLastRoundTripTxnId(items) {
  * simply the latest round-trip walks back from the newest until it finds one,
  * which is what the limit bounds: each step costs a blob read, and a
  * measurement many calls old describes a context that has since moved on.
- * @param {Array<{get?: (key: string) => any}>} items - Y.Array items (or empty)
+ * @param {ReadonlyArray<AnchorItem>|null|undefined} items - Y.Array items (or empty)
  * @param {number} [limit] - How many to return at most
  * @returns {string[]} transactionIds, newest first; empty if the thread has none
  */
@@ -73,7 +79,7 @@ export function findRoundTripTxnIds(items, limit = 1) {
  * recent item a round-trip produced — of `txnId`'s round-trip when one is given.
  * The transaction panel is a lens on a selected item, so anything wanting to
  * *open* a round-trip needs an item of it, not the blob id.
- * @param {Array<{get?: (key: string) => any}>} items - Y.Array items (or empty)
+ * @param {ReadonlyArray<AnchorItem>|null|undefined} items - Y.Array items (or empty)
  * @param {string} [txnId] - The round-trip to name an item of; any when omitted
  * @returns {string} itemId, or '' if there is no such item
  */

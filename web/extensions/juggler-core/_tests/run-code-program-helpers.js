@@ -90,6 +90,19 @@ import {
  * @property {string[]} errors - Error messages for failed tests
  */
 
+/**
+ * One row the item shows for a call its program made.
+ * @typedef {import('../../../js/services/tool-invoker.js').NestedCall} NestedCall
+ */
+
+/**
+ * A program's tool-action, plain, as it waits on the user for a call.
+ * @typedef {object} HeldToolAction
+ * @property {string} [state] - Where the item is
+ * @property {{name: string, input: Record<string, unknown>}} heldCall - The call it waits on
+ * @property {{held?: boolean, options?: Array<{label: string, value: string}>}} [approvalOptions] - The card it asks with
+ */
+
 let seq = 0;
 
 /**
@@ -175,8 +188,10 @@ export async function runProgramSuite(defineCases) {
     const conversation = await createApprovalTestConversation(session);
     const mt = conversation.rootMessageThread;
     // Under the default policy each tool's own rule decides: the helper's
-    // conversation permits edits and leaves bash to ask.
-    mt.strategy = strategy === 'yolo' ? { getApprovalPolicy: YoloStrategyType.prototype.getApprovalPolicy } : {};
+    // conversation permits edits and leaves bash to ask. Either stand-in holds
+    // only what the approval gate reads of a strategy: its approval policy.
+    mt.strategy = /** @type {import('juggler/strategy-type').default} */ (
+      strategy === 'yolo' ? { getApprovalPolicy: YoloStrategyType.prototype.getApprovalPolicy } : {});
     const toolUseId = opts.toolUseId ?? `rc${++seq}_${Date.now()}`;
     // Seeded pending: the conversation's worker is live and commands an
     // unevaluated or approved item into the engine, which would run this
@@ -211,9 +226,9 @@ export async function runProgramSuite(defineCases) {
    * Run a program to completion and return what the model would read.
    * @param {any} item - The run_code item
    * @param {string} code - The program
-   * @returns {Promise<{out: any, text: string, wire: string}>} The raw result,
-   *   the item's own summary, and the tool_result the model is sent (the
-   *   summary plus the worker's change report)
+   * @returns {Promise<{out: any, text: string, summary: import('juggler/context-item').ItemSummary, wire: string}>}
+   *   The raw result, the summary's text, the item's own summary, and the
+   *   tool_result the model is sent (the summary plus the worker's change report)
    */
   const run = async (item, code) => {
     const out = await item.execute({ code });
@@ -240,7 +255,7 @@ export async function runProgramSuite(defineCases) {
    * The rows the item shows for its calls.
    * @param {any} mt - Thread
    * @param {string} toolUseId - The program's id
-   * @returns {any[]} Recorded calls
+   * @returns {NestedCall[]} Recorded calls
    */
   const rowsOf = (mt, toolUseId) => {
     const data = displayOf(mt, toolUseId);
@@ -346,7 +361,7 @@ export async function runProgramSuite(defineCases) {
    * @param {any} mt - Thread
    * @param {string} toolUseId - The program's id
    * @param {string} name - The held tool
-   * @param {(t: any) => boolean} [also] - Anything else to wait for
+   * @param {(t: HeldToolAction) => boolean} [also] - Anything else to wait for
    * @returns {Promise<any>} The tool-action, plain
    */
   const waitHeld = async (mt, toolUseId, name, also) => {
@@ -431,11 +446,15 @@ export async function runProgramSuite(defineCases) {
   };
 
   /**
-   * The snapshot kept for a program, as stored, or null.
+   * The snapshot kept for a program, as stored, or null. A named wait within
+   * this test's budget: a read that never comes back fails as that read,
+   * rather than parking the suite with no wait in flight.
    * @param {any} item - The run_code item
+   * @param {string} [what] - Named in the failure
    * @returns {Promise<any>} The snapshot
    */
-  const snapshotOf = (item) => loadProgramSnapshot(item.conversation.id, item.toolUseId).catch(() => null);
+  const snapshotOf = (item, what = `a read of ${item.toolUseId}'s snapshot`) => withTimeout(
+    loadProgramSnapshot(item.conversation.id, item.toolUseId).catch(() => null), budgetFor(5000), what);
 
   /**
    * Keep a snapshot for a program, as a hold would have left it.
@@ -469,7 +488,7 @@ export async function runProgramSuite(defineCases) {
     await waitUntil(() => {
       if (failed) throw failed;
       if (!gone && !reading) {
-        reading = withTimeout(snapshotOf(item), budgetFor(5000), `a read of the snapshot, ${what}`)
+        reading = snapshotOf(item, `a read of the snapshot, ${what}`)
           .then((snapshot) => { gone = !snapshot; }, (err) => { failed = err; })
           .finally(() => { reading = null; });
       }
@@ -511,18 +530,29 @@ export async function runProgramSuite(defineCases) {
   const rowBrief = (mt, toolUseId) => rowsOf(mt, toolUseId).map((r) => `${r.name}:${r.status}`).join(',');
 
   /**
-   * Whether a file is absent.
+   * Read a file, as a named wait within this test's budget: a read that never
+   * comes back fails naming the file, rather than parking the suite with no
+   * wait in flight.
+   * @param {string} path - The file
+   * @returns {Promise<any>} What readFile answered
+   */
+  const readBack = (path) => withTimeout(readFile({ path }), budgetFor(5000), `a read of ${path}`);
+
+  /**
+   * Whether a file is absent. A read that fails says so; one that never comes
+   * back fails the wait, never reads as absent.
    * @param {string} path - The file
    * @returns {Promise<boolean>} It does not exist
    */
-  const absent = async (path) => (await readFile({ path }).catch(() => null))?.exists !== true;
+  const absent = async (path) => (await withTimeout(
+    readFile({ path }).catch(() => null), budgetFor(5000), `a read of ${path}`))?.exists !== true;
 
   try {
     await defineCases({
       test, session, setup, displayOf, run, heldOf, rowsOf, withDecision,
       heldCommand, assertParks, runAsAction, startAsAction, waitHeld, answerHeld,
       loseEngine, seedHeld, snapshotOf, seedSnapshot, waitSnapshotGone,
-      failingSaves, rowBrief, absent
+      failingSaves, rowBrief, absent, readBack
     });
   } finally {
     /** @type {any} */ (globalThis).JUGGLER_ENGINE = prevEngine;

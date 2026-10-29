@@ -22,6 +22,7 @@ import { plain } from './item-accessor.js';
 
 /**
  * @typedef {'session'|'conversation'} PermissionScope
+ * @typedef {import('./message-thread.js').default} MessageThread
  */
 
 export const SCOPE_SESSION = 'session';
@@ -30,44 +31,47 @@ export const SCOPE_CONVERSATION = 'conversation';
 /** @type {PermissionScope[]} Lookup order: session entries outrank conversation ones. */
 const SCOPES = [SCOPE_SESSION, SCOPE_CONVERSATION];
 
-/** @param {any} mt @returns {Record<string, any>} */
+/** @param {MessageThread} mt @returns {Record<string, unknown>} */
 function sessionMetadata(mt) {
   return mt.conversation?.session?.metadata || {};
 }
 
 /**
+ * @template E
  * @typedef {object} ScopedStoreConfig
  * @property {string} sessionKey Key holding the session-scoped array in `session.metadata`.
  * @property {string} conversationKey Key holding the conversation-scoped array in the Yjs doc.
- * @property {(entry: any, fallbackScope: PermissionScope) => any} normalize Coerce a stored entry into its canonical shape, defaulting its scope.
- * @property {(a: any, b: any) => boolean} sameIdentity Whether two entries mean the same grant (dedupe across scopes).
- * @property {(entry: any, key: string) => boolean} matches Whether an entry is the one a caller named (id, path, …).
- * @property {(mt: any) => any[]} [defaults] Entries to fall back to when the conversation has never stored any.
- * @property {(mt: any, entry: any) => boolean} [sessionAllows] Drop session-scoped entries this returns false for (see the rules store).
- * @property {(mt: any, entries: any[]) => void} [afterConversationSave] Side effect to run once a conversation-scope write lands.
+ * @property {(entry: unknown, fallbackScope: PermissionScope) => E} normalize Coerce a stored entry into its canonical shape, defaulting its scope.
+ * @property {(a: E, b: E) => boolean} sameIdentity Whether two entries mean the same grant (dedupe across scopes).
+ * @property {(entry: E, key: string) => boolean} matches Whether an entry is the one a caller named (id, path, …).
+ * @property {(mt: MessageThread) => unknown[]} [defaults] Entries to fall back to when the conversation has never stored any.
+ * @property {(mt: MessageThread, entry: E) => boolean} [sessionAllows] Drop session-scoped entries this returns false for (see the rules store).
+ * @property {(mt: MessageThread, entries: E[]) => void} [afterConversationSave] Side effect to run once a conversation-scope write lands.
  */
 
 /**
+ * @template E
  * @typedef {object} ScopedStore
- * @property {(mt: any, scope: PermissionScope) => any[]} read
- * @property {(mt: any, scope: PermissionScope, entries: any[]) => void} save
- * @property {(mt: any) => any[]} all
- * @property {(mt: any, entry: any, scope: PermissionScope) => void} append
- * @property {(mt: any, key: string) => {scope: PermissionScope, entries: any[], entry: any, index: number}|null} locate
- * @property {(mt: any, key: string) => boolean} remove
- * @property {(mt: any, key: string, mutate: (entry: any, scope: PermissionScope) => any) => boolean} update
- * @property {(mt: any, key: string, targetScope: PermissionScope, options?: {canMoveTo?: (mt: any, entry: any) => boolean}) => boolean} move
+ * @property {(mt: MessageThread, scope: PermissionScope) => E[]} read
+ * @property {(mt: MessageThread, scope: PermissionScope, entries: E[]) => void} save
+ * @property {(mt: MessageThread) => E[]} all
+ * @property {(mt: MessageThread, entry: E, scope: PermissionScope) => void} append
+ * @property {(mt: MessageThread, key: string) => {scope: PermissionScope, entries: E[], entry: E, index: number}|null} locate
+ * @property {(mt: MessageThread, key: string) => boolean} remove
+ * @property {(mt: MessageThread, key: string, mutate: (entry: E, scope: PermissionScope) => E) => boolean} update
+ * @property {(mt: MessageThread, key: string, targetScope: PermissionScope, options?: {canMoveTo?: (mt: MessageThread, entry: E) => boolean}) => boolean} move
  */
 
 /**
  * Build one two-scope collection.
- * @param {ScopedStoreConfig} config
- * @returns {ScopedStore}
+ * @template {object} E
+ * @param {ScopedStoreConfig<E>} config
+ * @returns {ScopedStore<E>}
  */
 export function createScopedStore(config) {
   const { sessionKey, conversationKey, normalize, sameIdentity, matches, defaults, sessionAllows, afterConversationSave } = config;
 
-  /** @param {any} mt @returns {any[]} */
+  /** @param {MessageThread} mt @returns {E[]} */
   function readSession(mt) {
     const stored = sessionMetadata(mt)[sessionKey];
     if (!Array.isArray(stored)) return [];
@@ -75,14 +79,15 @@ export function createScopedStore(config) {
     return sessionAllows ? entries.filter(e => sessionAllows(mt, e)) : entries;
   }
 
-  /** @param {any} mt @returns {any[]} */
+  /** @param {MessageThread} mt @returns {E[]} */
   function readConversation(mt) {
     const stored = plain(mt.conversation.getMetadata(conversationKey));
+    /** @type {unknown[]} */
     const source = Array.isArray(stored) ? stored : (defaults?.(mt) || []);
-    return source.map((/** @type {any} */ e) => normalize(e, SCOPE_CONVERSATION));
+    return source.map(e => normalize(e, SCOPE_CONVERSATION));
   }
 
-  /** @param {any} mt @param {any[]} entries */
+  /** @param {MessageThread} mt @param {E[]} entries */
   function saveSession(mt, entries) {
     const session = mt.conversation?.session;
     const normalized = entries.map(e => normalize(e, SCOPE_SESSION));
@@ -90,45 +95,46 @@ export function createScopedStore(config) {
     else if (session) session.metadata = { ...(session.metadata || {}), [sessionKey]: normalized };
   }
 
-  /** @param {any} mt @param {any[]} entries */
+  /** @param {MessageThread} mt @param {E[]} entries */
   function saveConversation(mt, entries) {
     const normalized = entries.map(e => normalize(e, SCOPE_CONVERSATION));
     mt.conversation.setMetadata(conversationKey, normalized);
     afterConversationSave?.(mt, normalized);
   }
 
-  /** @param {any} mt @param {PermissionScope} scope @returns {any[]} */
+  /** @param {MessageThread} mt @param {PermissionScope} scope @returns {E[]} */
   function read(mt, scope) {
     return scope === SCOPE_SESSION ? readSession(mt) : readConversation(mt);
   }
 
-  /** @param {any} mt @param {PermissionScope} scope @param {any[]} entries */
+  /** @param {MessageThread} mt @param {PermissionScope} scope @param {E[]} entries */
   function save(mt, scope, entries) {
     if (scope === SCOPE_SESSION) saveSession(mt, entries);
     else saveConversation(mt, entries);
   }
 
-  /** @param {any} mt @returns {any[]} */
+  /** @param {MessageThread} mt @returns {E[]} */
   function all(mt) {
     return [...readSession(mt), ...readConversation(mt)];
   }
 
-  /** @param {any} mt @param {any} entry @param {PermissionScope} scope */
+  /** @param {MessageThread} mt @param {E} entry @param {PermissionScope} scope */
   function append(mt, entry, scope) {
     save(mt, scope, [...read(mt, scope), entry]);
   }
 
-  /** @param {any} mt @param {string} key @returns {{scope: PermissionScope, entries: any[], entry: any, index: number}|null} */
+  /** @param {MessageThread} mt @param {string} key @returns {{scope: PermissionScope, entries: E[], entry: E, index: number}|null} */
   function locate(mt, key) {
     for (const scope of SCOPES) {
       const entries = read(mt, scope);
       const index = entries.findIndex(e => matches(e, key));
-      if (index !== -1) return { scope, entries, entry: entries[index], index };
+      const entry = entries[index];
+      if (index !== -1 && entry !== undefined) return { scope, entries, entry, index };
     }
     return null;
   }
 
-  /** @param {any} mt @param {string} key @returns {boolean} */
+  /** @param {MessageThread} mt @param {string} key @returns {boolean} */
   function remove(mt, key) {
     const hit = locate(mt, key);
     if (!hit) return false;
@@ -138,7 +144,7 @@ export function createScopedStore(config) {
     return true;
   }
 
-  /** @param {any} mt @param {string} key @param {(entry: any, scope: PermissionScope) => any} mutate @returns {boolean} */
+  /** @param {MessageThread} mt @param {string} key @param {(entry: E, scope: PermissionScope) => E} mutate @returns {boolean} */
   function update(mt, key, mutate) {
     const hit = locate(mt, key);
     if (!hit) return false;
@@ -151,10 +157,10 @@ export function createScopedStore(config) {
   /**
    * Move an entry to the other scope. Already-there is success; an entry the
    * destination already holds (by identity) is dropped rather than duplicated.
-   * @param {any} mt
+   * @param {MessageThread} mt
    * @param {string} key
    * @param {PermissionScope} targetScope
-   * @param {{canMoveTo?: (mt: any, entry: any) => boolean}} [options]
+   * @param {{canMoveTo?: (mt: MessageThread, entry: E) => boolean}} [options]
    * @returns {boolean}
    */
   function move(mt, key, targetScope, options = {}) {

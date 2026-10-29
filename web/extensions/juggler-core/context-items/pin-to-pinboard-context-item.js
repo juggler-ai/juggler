@@ -22,6 +22,7 @@ injectStylesOnce('pin-to-pinboard-styles', `
   white-space: nowrap;
   min-width: 0;
 }
+
 .pinned-summary-link:hover {
   text-decoration: underline;
 }

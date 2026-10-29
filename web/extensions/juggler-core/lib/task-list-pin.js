@@ -32,6 +32,7 @@ injectStylesOnce('task-list-pin-styles', `
   gap: 0.5rem;
   height: 100%;
 }
+
 .task-list-pin__source {
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);

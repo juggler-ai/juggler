@@ -487,45 +487,37 @@ column-container workspace-panel[style*="width"] {
     flex: 0 var(--column-shrink, 0) auto;
 }
 
-/* Unless it is the only thing between the window and a properties panel sliced
-   in half by the edge of it.
+/* The fit: a first column followed only by a properties panel gives up width
+   so the panel fits on screen — but only the width it has above the kept width.
+   The rule is stated, with every other width rule, in the header of
+   js/utils/column-resize.js; this is the half of it only CSS can carry.
 
    A column carries a width in rem that was decided somewhere else: on a wider
    window, before this one was made smaller, or at a zoom that has since made
-   every rem bigger. The panel beside it has a floor it cannot go below, so when
-   the two no longer fit, column-container scrolls — and a panel that is read by
-   scrolling sideways to reach it is one most people will never know is there.
-
-   So the conversation gives up the difference instead. It is the column that
-   can: prose reads at any width, while a panel below its floor is unusable. The
-   inline width is untouched and comes back the moment the window has room for
-   it again.
+   every rem bigger. A width past the kept one is a page rather than a column of
+   prose, and can spare the panel its room. A width up to it was chosen by
+   someone who widened a column they were reading, so it wins, and the panel
+   spills off the edge into the sideways scroll column-container already has.
+   The inline width is untouched by the squeeze and comes back the moment the
+   window has room for it again.
 
    Exactly two columns, and only with the panel second — a longer chain is read
    by scrolling, which is the whole of what a Miller column is, and squeezing
    one would narrow every column in it the further the user drilled.
 
-   And only down to a floor. Fitting the pair is worth doing until it costs the
-   conversation more than the panel is worth, and then it is worth nothing at
-   all: a conversation narrowed past reading has not been fitted, it has been
-   taken away to make room for a panel. Below the floor the panel gives instead,
-   spilling off the edge into the scroll a Miller column is read by anyway.
+   The floor is --column-fit-floor, which styleColumnWidth sets inline beside
+   every width it writes: the width itself, capped at the kept width. A column
+   with no inline width has none, and keeps the usual floor (COL_MIN_WIDTH_REM).
 
-   The floor is deliberately NOT min-width's usual 12.5rem (COL_MIN_WIDTH_REM in
-   js/utils/column-resize.js). That number is the narrowest a user may DRAG a
-   column to — a width they chose, and may have every reason to want. This is the
-   narrowest the layout may take on its own initiative, which is a different
-   question and deserves a different, kinder answer.
-
-   It rides on a custom property for the same reason --column-shrink does: read
-   by the base rule above, at the specificity every component sheet expects to
-   override, rather than declared here where these selectors would out-specify
-   every min-width in the app. It is also what lets the phone rule below put the
-   floor back to 0 with a plain declaration. */
+   Both ride on custom properties so the decision stays here in the layout layer
+   yet is read by the base rules, at the specificity every component sheet
+   expects to override; declared directly here, these selectors would
+   out-specify every flex-shrink and min-width in the app. It is also what lets
+   the phone rule below put the floor back to 0 with a plain declaration. */
 column-container > conversation-area:nth-child(1):nth-last-child(2):has(+ properties-panel),
 column-container > workspace-panel:nth-child(1):nth-last-child(2):has(+ properties-panel) {
     --column-shrink: 1;
-    --column-floor: 24rem;
+    --column-floor: var(--column-fit-floor, 12.5rem);
 }
 
 /* Selected item in inactive columns — muted/gray highlight (Finder-style) */
@@ -548,7 +540,8 @@ conversation-area reply-suggestions {
     flex-shrink: 0;
 }
 
-/* Properties panel: when last, grow to fill remaining space. */
+/* Properties panel: when last, grow to fill remaining space. 30rem is
+   PROPERTIES_MIN_REM in js/utils/column-resize.js. */
 column-container properties-panel {
     flex: 1;
     min-width: 30rem;
@@ -626,10 +619,10 @@ conversation-area {
 /* The floor a column will not shrink past, whoever is asking.
 
    12.5rem is COL_MIN_WIDTH_REM in js/utils/column-resize.js: the narrowest a
-   user may DRAG a column to. The arrangement that shrinks a column of its own
-   accord raises it (--column-floor, set where that arrangement is named above),
-   because a width the user chose and a width the layout took are not the same
-   question and do not deserve the same answer.
+   user may DRAG a column to. The one arrangement that shrinks a column of its
+   own accord, the fit above, replaces it with --column-floor so the squeeze
+   stops at the width the user chose, up to the kept width — the rules are in
+   that module's header.
 
    Nothing clamps it to the room available. Below it the columns stop fitting and
    start overspilling, and the container scrolls — which is not the failure case,

@@ -27,6 +27,31 @@
  *
  * Hiding the handle on the rightmost column is handled by CSS
  * (`properties-panel.column-rightmost col-resize-handle`), not here.
+ *
+ * ## The width rules, all of them
+ *
+ * Every rule that decides how wide a column is lives here, or is named here
+ * when only the stylesheet can carry it (`css/layout/app-shell.css`, whose
+ * comments point back at this list):
+ *
+ * - **Drag range.** A column may be dragged to anything in
+ *   [`COL_MIN_WIDTH_REM`, `COL_MAX_WIDTH_REM`] — its caller may raise the
+ *   minimum (the tab sidebar does). `styleColumnWidth` clamps every write to it.
+ * - **Starting width.** A conversation column on a window that has stored none
+ *   starts at `startingColumnWidthRem`: the window less the sidebar and the
+ *   properties panel, within [`START_WIDTH_MIN_REM`, `START_WIDTH_MAX_REM`].
+ *   It is never stored; the first drag is.
+ * - **The fit.** When the first column — a conversation, or the workspace panel
+ *   standing in for one — is followed only by a properties panel, it gives up
+ *   width to fit the panel (`PROPERTIES_MIN_REM`) on screen, but only the width
+ *   it has above `COLUMN_KEPT_WIDTH_REM` (`columnFitFloorRem`). Up to that, the
+ *   chosen width wins and the panel spills off the right edge into the
+ *   container's sideways scroll. `styleColumnWidth` hands the floor to the CSS
+ *   as `--column-fit-floor`, which the fit rule alone reads.
+ * - **Longer chains** scroll and never squeeze: three or more columns each keep
+ *   their width, and the container is read by scrolling.
+ * - **On a phone** (≤36rem) each column is one screen wide, whatever width it
+ *   carries — CSS only.
  * @module utils/column-resize
  */
 
@@ -41,6 +66,25 @@ const COL_MAX_WIDTH_REM = 100;
  * @type {number}
  */
 const START_WIDTH_MAX_REM = 50;
+
+/**
+ * The most of its width a first column keeps against the properties panel
+ * beside it (the fit, in the module header). It is the widest a column starts
+ * at for the same reason: past this a column is a page, and a page can spare
+ * room for the panel; below it, someone who widened the column had a reason to.
+ * @type {number}
+ */
+export const COLUMN_KEPT_WIDTH_REM = START_WIDTH_MAX_REM;
+
+/**
+ * The narrowest the fit may squeeze a first column carrying `widthRem`: all of
+ * it up to `COLUMN_KEPT_WIDTH_REM`, so only the width above that is given up.
+ * @param {number} widthRem - The width the column carries.
+ * @returns {number} The fit floor, in rem.
+ */
+export function columnFitFloorRem(widthRem) {
+  return Math.min(widthRem, COLUMN_KEPT_WIDTH_REM);
+}
 
 /**
  * Narrowest a conversation column starts at — the flex basis the CSS gives one
@@ -58,7 +102,7 @@ const START_WIDTH_MIN_REM = 30;
  * off the right-hand edge — `column-container` scrolls rather than reflows.
  * @type {number}
  */
-const PROPERTIES_MIN_REM = 30;
+export const PROPERTIES_MIN_REM = 30;
 
 /**
  * Room the tab sidebar takes out of the window before any column gets any,
@@ -137,16 +181,18 @@ export function columnScrollDelta(colRect, containerRect, peek) {
 }
 
 /**
- * Set a column's width without storing it, and report what it settled on.
+ * Set a column's width without storing it, and report what it settled on. The
+ * one place a column width is written: it clamps to the drag range and gives
+ * the stylesheet the fit floor that goes with the width (module header).
  * @param {HTMLElement} element
  * @param {number} rem
- * @param {number} minWidthRem
+ * @param {number} [minWidthRem]
  * @returns {number} The clamped width, in rem.
- * @private
  */
-function _styleColumnWidth(element, rem, minWidthRem) {
+export function styleColumnWidth(element, rem, minWidthRem = COL_MIN_WIDTH_REM) {
   const clamped = Math.max(minWidthRem, Math.min(COL_MAX_WIDTH_REM, rem));
   element.style.width = `${clamped}rem`;
+  element.style.setProperty('--column-fit-floor', `${columnFitFloorRem(clamped)}rem`);
   return clamped;
 }
 
@@ -191,7 +237,7 @@ export function columnWidthAtDepth(stored, depth) {
  * @param {number} [minWidthRem]
  */
 export function applyColumnWidthRem(element, prefName, rem, minWidthRem = COL_MIN_WIDTH_REM) {
-  const clamped = _styleColumnWidth(element, rem, minWidthRem);
+  const clamped = styleColumnWidth(element, rem, minWidthRem);
   const column = _depthColumns.get(element);
   if (!column || column.prefName !== prefName) {
     void setWindowPref(prefName, clamped);
@@ -220,7 +266,7 @@ function _restyleSiblings(element, prefName, widths) {
     if (sibling === element || !column || column.prefName !== prefName) continue;
     if (sibling.querySelector('col-resize-handle.dragging')) continue;
     const rem = columnWidthAtDepth(widths, column.depth) ?? column.defaultWidthRem;
-    if (typeof rem === 'number') _styleColumnWidth(/** @type {HTMLElement} */ (sibling), rem, column.minWidthRem);
+    if (typeof rem === 'number') styleColumnWidth(/** @type {HTMLElement} */ (sibling), rem, column.minWidthRem);
   }
 }
 
@@ -281,19 +327,15 @@ export function setupColumnResize(
     const startX = pointerEvent.clientX;
     const startWidth = element.getBoundingClientRect().width;
     const remPx = rootFontSizePx();
-    const minPx = minWidthRem * remPx;
-    const maxPx = COL_MAX_WIDTH_REM * remPx;
 
     handle.classList.add('dragging');
 
     const onMove = (/** @type {Event} */ e) => {
       const moveEvent = /** @type {PointerEvent} */ (e);
       const deltaX = moveEvent.clientX - startX;
-      let newWidth = startWidth + deltaX;
-      newWidth = Math.max(minPx, Math.min(maxPx, newWidth));
-      // Use px during drag for smooth pixel-accurate feedback;
-      // converted back to rem on pointerup.
-      element.style.width = `${newWidth}px`;
+      // Through the one setter, so the fit floor follows the pointer and a
+      // widening the fit would squeeze back is shown as it will be kept.
+      styleColumnWidth(element, (startWidth + deltaX) / remPx, minWidthRem);
     };
 
     const onUp = () => {
@@ -347,18 +389,18 @@ function _loadColumnWidth(element, prefName, minWidthRem, defaultWidthRem = unde
     : _storedWidthRem(stored));
   const cached = widthOf(cachedWindowPref(prefName, null));
   if (cached !== null) {
-    _styleColumnWidth(element, cached, minWidthRem);
+    styleColumnWidth(element, cached, minWidthRem);
   } else if (typeof defaultWidthRem === 'number') {
     // The caller's default gives a new user a sensible fixed width instead of
     // the flex-fill one, which otherwise has the column resize to fill the page
     // as its siblings are shown and hidden.
-    _styleColumnWidth(element, defaultWidthRem, minWidthRem);
+    styleColumnWidth(element, defaultWidthRem, minWidthRem);
   }
 
   void getWindowPref(prefName, null).then((stored) => {
     const rem = widthOf(stored);
     if (rem === null || rem === cached) return;
     if (element.querySelector('col-resize-handle.dragging')) return;
-    _styleColumnWidth(element, rem, minWidthRem);
+    styleColumnWidth(element, rem, minWidthRem);
   });
 }

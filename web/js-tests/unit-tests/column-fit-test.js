@@ -3,24 +3,34 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * A conversation and the properties panel beside it fit the window they are in.
+ * A conversation and the properties panel beside it, sharing a window.
  *
  * The panel has a floor it cannot be squeezed below, and a conversation column
  * holds a width in rem that came from somewhere else entirely — a drag on a
  * wider window, a window since made smaller, a zoom level that made every rem
- * bigger. When the two no longer fit, `column-container` scrolls sideways, so
- * what the user sees is a properties panel sliced down the middle by the edge
- * of the window, on a screen where nothing else scrolls sideways.
+ * bigger. When the two do not fit, one of them has to give.
  *
- * Choosing better starting widths does not fix that: a starting width is only
- * ever read once, by a window that has stored nothing. These pin the property
- * that holds for every window — that the pair fits, whatever width the column
- * is carrying — and that a deeper chain still scrolls, which is what Miller
- * columns are for.
+ * The conversation gives up only the width it has above a kept width
+ * (`COLUMN_KEPT_WIDTH_REM`); up to that, the width the user chose wins and the
+ * panel spills into the sideways scroll `column-container` already has. These
+ * pin both halves of that rule against the real stylesheet, that a deeper chain
+ * scrolls rather than squeezing, and that the CSS floors still agree with the
+ * numbers `utils/column-resize.js` states them as.
+ *
+ * Widths are applied through `styleColumnWidth`, the one place the app writes
+ * them, and containers are sized in rem, so every expectation holds at any zoom.
  * @module unit-tests/column-fit-test
  */
 
 import { assert } from '../utilities/test-helpers.js';
+import {
+  COL_MIN_WIDTH_REM,
+  COLUMN_KEPT_WIDTH_REM,
+  PROPERTIES_MIN_REM,
+  columnFitFloorRem,
+  rootFontSizePx,
+  styleColumnWidth,
+} from '../../js/utils/column-resize.js';
 
 /**
  * A column container of a known width, holding the columns named. Absolutely
@@ -39,16 +49,16 @@ import { assert } from '../utilities/test-helpers.js';
  * `column-container conversation-area` are specificity-identical, so which one
  * wins is decided by source order, and a column with no tab above it is read by
  * a different rule than every column in the app.
- * @param {number} widthPx - How much room the columns have between them.
+ * @param {number} widthRem - How much room the columns have between them.
  * @param {string[]} tags - Column element names, in order.
  * @returns {{container: HTMLElement, columns: HTMLElement[], teardown: () => void}}
  *   The container, its columns in the order named, and the removal of both.
  */
-function mountColumns(widthPx, tags) {
+function mountColumns(widthRem, tags) {
   const parent = document.createElement('div');
   parent.setAttribute(
     'style',
-    `position:absolute;left:0;top:0;width:${widthPx}px;height:600px;display:flex;`,
+    `position:absolute;left:0;top:0;width:${widthRem}rem;height:37.5rem;display:flex;`,
   );
   const tab = document.createElement('conversation-tab');
   tab.setAttribute('style', 'display:flex;flex:1;min-width:0;');
@@ -64,6 +74,26 @@ function mountColumns(widthPx, tags) {
     return /** @type {HTMLElement} */ (column);
   });
   return { container, columns, teardown: () => parent.remove() };
+}
+
+/**
+ * An element's rendered width, in rem.
+ * @param {Element} element
+ * @returns {number} The width, in rem.
+ */
+function widthRem(element) {
+  return element.getBoundingClientRect().width / rootFontSizePx();
+}
+
+/**
+ * Whether two widths in rem are the same once rendered — within a pixel, which
+ * is all layout rounding can account for.
+ * @param {number} a
+ * @param {number} b
+ * @returns {boolean} True when they are within a pixel of each other.
+ */
+function sameWidth(a, b) {
+  return Math.abs(a - b) * rootFontSizePx() <= 1;
 }
 
 /**
@@ -84,92 +114,81 @@ export async function runTests() {
     catch (e) { failed++; errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`); }
   };
 
-  check('a conversation and the panel beside it fit the window', () => {
-    // 56rem is a width someone dragged to on a window wider than this one, or
-    // on the same window before they zoomed in. It is wider than the room left
-    // once the panel has its floor, which is the whole case.
-    const { container, columns, teardown } = mountColumns(1000, ['conversation-area', 'properties-panel']);
+  /**
+   * Mount a conversation and a properties panel, give the conversation a width,
+   * and hand the pair to `fn`.
+   * @param {number} containerRem
+   * @param {number} chosenRem - The width the conversation column carries.
+   * @param {(container: HTMLElement, area: HTMLElement, panel: HTMLElement) => void} fn
+   */
+  const withPair = (containerRem, chosenRem, fn) => {
+    const { container, columns, teardown } = mountColumns(containerRem, ['conversation-area', 'properties-panel']);
     const [area, panel] = columns;
-    area.style.width = '56rem';
     try {
-      const box = container.getBoundingClientRect();
-      const panelBox = panel.getBoundingClientRect();
-      assert(box.width > 0 && panelBox.width > 0,
-        `both are laid out at all, got container ${box.width}px and panel ${panelBox.width}px`);
-      assert(Math.round(panelBox.right) <= Math.round(box.right),
-        'the panel ends inside the window rather than past its right edge, where the only thing that '
-        + `reveals it is a sideways scrollbar, got ${Math.round(panelBox.right)}px against ${Math.round(box.right)}px`);
+      styleColumnWidth(area, chosenRem);
+      fn(container, area, panel);
+    } finally {
+      teardown();
+    }
+  };
+
+  check('the kept width is the most a conversation keeps against the panel', () => {
+    assert(columnFitFloorRem(COLUMN_KEPT_WIDTH_REM + 20) === COLUMN_KEPT_WIDTH_REM,
+      `a wider column gives up what it has above the kept width, got ${columnFitFloorRem(COLUMN_KEPT_WIDTH_REM + 20)}`);
+    assert(columnFitFloorRem(20) === 20,
+      `and a narrower one keeps all of it, got ${columnFitFloorRem(20)}`);
+  });
+
+  check('a window with room for both fits the pair', () => {
+    // 90rem was chosen on a wider window. This one has room for the kept width
+    // and the panel, so the conversation gives up the rest and nothing scrolls.
+    withPair(100, 90, (container, area, panel) => {
+      assert(sameWidth(widthRem(area), 100 - PROPERTIES_MIN_REM),
+        `the conversation takes what the panel leaves, got ${widthRem(area).toFixed(2)}rem`);
+      assert(sameWidth(widthRem(panel), PROPERTIES_MIN_REM),
+        `the panel keeps its floor, got ${widthRem(panel).toFixed(2)}rem`);
       assert(container.scrollWidth <= container.clientWidth,
-        `and the pair leaves nothing to scroll to, got ${container.scrollWidth}px of columns in ${container.clientWidth}px`);
-    } finally {
-      teardown();
-    }
+        `and there is nothing to scroll to, got ${container.scrollWidth}px of columns in ${container.clientWidth}px`);
+    });
   });
 
-  check('the conversation gives up the room, not the panel', () => {
-    // Which of the two narrows is the whole point: a panel below its floor is
-    // unreadable, while a conversation is a column of prose that reads at any
-    // width. The panel keeps 30rem; the conversation takes what is left.
-    const { container, columns, teardown } = mountColumns(1000, ['conversation-area', 'properties-panel']);
-    const [area, panel] = columns;
-    area.style.width = '56rem';
-    try {
-      const remPx = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
-      const panelWidth = panel.getBoundingClientRect().width;
-      const areaWidth = area.getBoundingClientRect().width;
-      assert(Math.round(panelWidth) >= Math.round(30 * remPx),
-        `the panel keeps its 30rem floor, got ${Math.round(panelWidth)}px`);
-      assert(areaWidth < 56 * remPx,
-        `and the conversation is the one that gave way, got ${Math.round(areaWidth)}px of the 56rem it asked for`);
-      assert(areaWidth > 0,
-        'without collapsing to nothing, which would be a different kind of broken');
+  check('a width up to the kept width wins over the panel', () => {
+    // The reported case: a user widening a cramped conversation on a smaller
+    // window. The panel gives way by spilling into the scroll, not the drag.
+    withPair(56, 36, (container, area) => {
+      assert(sameWidth(widthRem(area), 36),
+        `the conversation keeps the 36rem it was given, got ${widthRem(area).toFixed(2)}rem`);
+      assert(container.scrollWidth > container.clientWidth,
+        'and the panel spills past the edge, to be reached by scrolling');
+    });
+  });
+
+  check('a wider width gives up exactly what it has above the kept width', () => {
+    withPair(56, 70, (container, area) => {
+      assert(sameWidth(widthRem(area), COLUMN_KEPT_WIDTH_REM),
+        `the conversation stops at the kept ${COLUMN_KEPT_WIDTH_REM}rem, got ${widthRem(area).toFixed(2)}rem`);
+      assert(container.scrollWidth > container.clientWidth, 'and the panel spills');
+    });
+  });
+
+  check('a narrow chosen width is not raised by the fit', () => {
+    // The fit only ever takes width away. Its floor is the chosen width when
+    // that is below the kept width, so a column dragged narrow stays narrow.
+    withPair(90, 15, (container, area) => {
+      assert(sameWidth(widthRem(area), 15),
+        `the conversation keeps the 15rem it was given, got ${widthRem(area).toFixed(2)}rem`);
       void container;
-    } finally {
-      teardown();
-    }
+    });
   });
 
-  check('a window too small for both stops squeezing and spills instead', () => {
-    // Fitting the pair is worth doing right up until the point where it costs
-    // the conversation more than the panel is worth, and then it is worth
-    // nothing at all: a conversation narrowed past reading is not a conversation
-    // that fits, it is one that has been taken away to make room for a panel.
-    // Below the floor the panel is the one that gives, by spilling off the edge
-    // into the scroll that Miller columns are read by anyway.
-    const { container, columns, teardown } = mountColumns(700, ['conversation-area', 'properties-panel']);
-    const [area] = columns;
-    area.style.width = '56rem';
-    try {
-      const remPx = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
-      const areaWidth = area.getBoundingClientRect().width;
-      assert(areaWidth >= Math.round(24 * remPx),
-        `the conversation keeps a width it can still be read at, got ${Math.round(areaWidth)}px`);
-      assert(container.scrollWidth > container.clientWidth,
-        'and the pair spills past the window, to be reached by scrolling');
-    } finally {
-      teardown();
-    }
-  });
-
-  check('the floor holds even when it is wider than the window', () => {
-    // Narrower still, and the floor itself no longer fits. It holds anyway. A
-    // floor that gave way to the window would be no floor at all — it would just
-    // move the squeeze to a smaller window, which is where it hurts most. The
-    // column overspills, the container scrolls, and that is the scrolling view
-    // doing the job it exists for rather than a failure to fit.
-    const { container, columns, teardown } = mountColumns(360, ['conversation-area', 'properties-panel']);
-    const [area] = columns;
-    area.style.width = '56rem';
-    try {
-      const remPx = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
-      const areaWidth = area.getBoundingClientRect().width;
-      assert(areaWidth >= Math.round(24 * remPx),
-        `the conversation keeps its floor rather than taking what is left, got ${Math.round(areaWidth)}px in 360px`);
-      assert(container.scrollWidth > container.clientWidth,
-        'and the row overspills, to be read by scrolling');
-    } finally {
-      teardown();
-    }
+  check('the kept width holds even when it is wider than the window', () => {
+    // A floor that gave way to the window would only move the squeeze to a
+    // smaller window. The row overspills and the container scrolls.
+    withPair(22.5, 70, (container, area) => {
+      assert(sameWidth(widthRem(area), COLUMN_KEPT_WIDTH_REM),
+        `the conversation keeps the kept width, got ${widthRem(area).toFixed(2)}rem`);
+      assert(container.scrollWidth > container.clientWidth, 'and the row overspills, to be read by scrolling');
+    });
   });
 
   check('a deeper chain still scrolls rather than squeezing every column', () => {
@@ -177,18 +196,39 @@ export async function runTests() {
     // instead would make every column in it narrower the further you drilled.
     // Only the pair at the end of a two-column chain is made to fit.
     const { container, columns, teardown } = mountColumns(
-      1000,
+      62.5,
       ['conversation-area', 'conversation-area', 'properties-panel'],
     );
     const [first, second] = columns;
-    first.style.width = '40rem';
-    second.style.width = '40rem';
     try {
-      const remPx = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
-      assert(Math.round(first.getBoundingClientRect().width) === Math.round(40 * remPx),
-        `the first column keeps the width it was given, got ${Math.round(first.getBoundingClientRect().width)}px`);
+      styleColumnWidth(first, 40);
+      styleColumnWidth(second, 40);
+      assert(sameWidth(widthRem(first), 40),
+        `the first column keeps the width it was given, got ${widthRem(first).toFixed(2)}rem`);
       assert(container.scrollWidth > container.clientWidth,
         'and the chain scrolls, which is how a chain longer than the window is read');
+    } finally {
+      teardown();
+    }
+  });
+
+  check('the stylesheet floors are the numbers column-resize.js states', () => {
+    // The CSS cannot import a constant, so it repeats them. This is where a
+    // drift between the two is caught.
+    const { columns, teardown } = mountColumns(
+      62.5,
+      ['conversation-area', 'conversation-area', 'properties-panel'],
+    );
+    const [first, , panel] = columns;
+    try {
+      styleColumnWidth(first, 40);
+      const remPx = rootFontSizePx();
+      const panelMin = parseFloat(window.getComputedStyle(panel).minWidth);
+      assert(sameWidth(panelMin / remPx, PROPERTIES_MIN_REM),
+        `the last properties panel's min-width is PROPERTIES_MIN_REM (${PROPERTIES_MIN_REM}rem), got ${panelMin}px`);
+      const columnMin = parseFloat(window.getComputedStyle(first).minWidth);
+      assert(sameWidth(columnMin / remPx, COL_MIN_WIDTH_REM),
+        `a column outside the fit has COL_MIN_WIDTH_REM (${COL_MIN_WIDTH_REM}rem) as its floor, got ${columnMin}px`);
     } finally {
       teardown();
     }

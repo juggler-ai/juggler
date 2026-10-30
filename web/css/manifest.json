@@ -698,6 +698,7 @@
 		"--spinner-angle",
 		"--spinner-phase",
 		"--line-digits",
-		"--tt-arrow-x"
+		"--tt-arrow-x",
+		"--column-fit-floor"
 	]
 }

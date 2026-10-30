@@ -42,13 +42,13 @@ func TestUndoGroupingMarksAreOneShot(t *testing.T) {
 	if _, ok := u.takeCommandMerge(); ok {
 		t.Fatal("a fresh grouping has a command bracket open")
 	}
-	u.markCompactionStart(3)
-	u.openCommand(0)
-	if idx, ok := u.takeCompactionMerge(); !ok || idx != 3 {
-		t.Fatalf("takeCompactionMerge = %d,%v, want 3,true", idx, ok)
+	u.markCompactionStart(undoMark{seq: 3})
+	u.openCommand(undoMark{})
+	if m, ok := u.takeCompactionMerge(); !ok || m.seq != 3 {
+		t.Fatalf("takeCompactionMerge = %+v,%v, want seq 3,true", m, ok)
 	}
-	if idx, ok := u.takeCommandMerge(); !ok || idx != 0 {
-		t.Fatalf("takeCommandMerge = %d,%v, want 0,true (index 0 is a real mark)", idx, ok)
+	if m, ok := u.takeCommandMerge(); !ok || m != (undoMark{}) {
+		t.Fatalf("takeCommandMerge = %+v,%v, want the zero mark,true (the zero mark is a real mark)", m, ok)
 	}
 	if _, ok := u.takeCompactionMerge(); ok {
 		t.Fatal("the compaction mark survived being taken")

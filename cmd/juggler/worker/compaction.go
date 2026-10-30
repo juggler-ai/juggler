@@ -732,10 +732,17 @@ func (w *ConversationWorker) foldPrefixIntoSummaryTracked(threadItemID string, s
 	w.tracker.refreshScopeIfNeeded()
 	um := w.tracker.ensureUndoManager()
 	um.StopCapturing()
+	before := w.tracker.markNextLocked()
 	ycrdt.Transact(w.doc.doc, func(_ *ycrdt.Transaction) {
 		spliceSummaryIntoPrefix(arr, start, count, keep, summary)
 	}, w.doc.authorID, true)
 	um.StopCapturing()
+	// A fold still owed its summary is merged with that summary's run on idle,
+	// starting from this group — not from whatever tops the stack by the time
+	// the pickup runs.
+	if summary.NeedsStrategyRun && w.tracker.markNextLocked() != before {
+		w.tracker.noteFoldGroupLocked(summary.ItemID)
+	}
 	return true
 }
 

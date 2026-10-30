@@ -1271,18 +1271,28 @@ func (r *run) bumpTurnCounterAtIdle() {
 func (w *ConversationWorker) finishIdleTransition() {
 	w.sched.releaseActivity()
 	// If a compaction was in flight, collapse every undo group the
-	// strategy added during the run into the single stack item that
-	// holds the viewer's compact insert — so the user undoes the
-	// whole compaction in one press. See checkForNewThreads for the
-	// snapshot that captured the start index.
-	if idx, ok := w.undo.takeCompactionMerge(); ok {
-		w.tracker.MergeFromIndex(idx)
+	// strategy added during the run into the group holding the fold — so
+	// the user undoes the whole compaction in one press. See
+	// checkForNewThreads for the mark.
+	if mark, ok := w.undo.takeCompactionMerge(); ok {
+		w.logUndoMerge("compaction", w.tracker.MergeFromMark(mark))
 	}
 	// Close the current undo capture window so the next browser-originated
 	// action (e.g. /thread command) is recorded as a separate undo group
 	// rather than being coalesced with the just-completed turn's operations.
 	w.tracker.StopCapturing()
 	w.batcher.Flush()
+}
+
+// logUndoMerge records a multi-step operation's undo merge that could not
+// cover the whole operation, so one Undo will not revert all of it.
+func (w *ConversationWorker) logUndoMerge(what string, out undoMergeOutcome) {
+	switch {
+	case out.gone:
+		w.log.Info("[undo] %s merge skipped: its first undo group has left the stack", what)
+	case out.lost > 0:
+		w.log.Error("[undo] %s merge lost its %d oldest undo group(s) to the stack cap; merged the rest", what, out.lost)
+	}
 }
 
 // sendReady answers the init being dispatched. It is addressed to the client
@@ -1553,15 +1563,14 @@ func (r *run) checkForNewThreads() bool {
 		// Compaction-style threads (noAutoSelect) must undo as a single
 		// atomic operation from the user's perspective — they didn't
 		// author the LLM turns inside the sub-thread, only the act of
-		// asking for the compaction. The viewer's compact insert has
-		// already been captured as the top of the UndoStack by the time
-		// we get here (handleYjsSync ran first); snapshot that index so
-		// every group the strategy adds during the run can be collapsed
-		// back into it on idle. Regular sub-threads (the user typed
-		// /thread, or the LLM did create_thread) DO get their natural
-		// per-turn grouping — we only merge for noAutoSelect.
+		// asking for the compaction. The fold's own undo group is the
+		// mark (CompactionMergeMark), so a tracked write landing between
+		// the fold and this pickup is collapsed with it, as is every group
+		// the strategy adds during the run, on idle. Regular sub-threads
+		// (the user typed /thread, or the LLM did create_thread) DO get
+		// their natural per-turn grouping — we only merge for noAutoSelect.
 		if candidate.noAutoSelect {
-			r.undo.markCompactionStart(r.tracker.UndoStackLen() - 1)
+			r.undo.markCompactionStart(r.tracker.CompactionMergeMark(threadID))
 		}
 		// Consume the one-shot trigger before running. Completion is tracked by
 		// the thread result; cancellation must not leave a persistent trigger that

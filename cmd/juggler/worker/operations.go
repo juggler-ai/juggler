@@ -46,6 +46,42 @@ type OperationTracker struct {
 	// stacked holds every StackItem on the undo or redo stack as of the last
 	// releaseDroppedLocked, so the next one can tell which have left since.
 	stacked map[*ycrdt.StackItem]bool
+	// pruned counts every group that has left the undo stack from the front —
+	// past maxGroups, by ClearHistory, or with a manager replaced by
+	// refreshScopeIfNeeded — so an undoMark can turn the position it recorded
+	// into the entry's index now.
+	pruned int64
+	// foldGroups holds, per fold thread item id, the mark of the undo group an
+	// unsummarized fold landed in, until the pickup that runs its summarizer
+	// takes it (CompactionMergeMark).
+	foldGroups map[string]undoMark
+}
+
+// undoMark names a point in the undo stack that stays put while the stack is
+// pruned from the front. A bare index does not: every push past maxGroups
+// drops the oldest group and slides each entry down one place, so an index
+// taken before a run names a later entry, or none, by the run's end.
+//
+// A mark is anchored on a stack entry by identity, together with that entry's
+// position counted from the first group the tracker held (pruned + index).
+type undoMark struct {
+	// anchor is the entry the mark was taken on; nil when the stack was empty.
+	anchor *ycrdt.StackItem
+	// seq is anchor's position counted from the first group ever held; for a
+	// nil anchor, the position just below the first entry pushed after the mark.
+	seq int64
+	// after makes the span start above anchor rather than at it.
+	after bool
+}
+
+// undoMergeOutcome reports what a merge from an undoMark could do.
+type undoMergeOutcome struct {
+	// lost counts the span's oldest groups pruned past maxGroups before the
+	// merge. What remained of the span was merged.
+	lost int
+	// gone is set when the anchor left the stack by an undo or by another
+	// merge rather than by pruning. Nothing was merged.
+	gone bool
 }
 
 // undoCaptureTimeoutMs is the UndoManager's capture window: a tracked change
@@ -125,6 +161,8 @@ func (t *OperationTracker) refreshScopeIfNeeded() {
 	// what the old one's entries kept: nothing can undo them any more.
 	old := t.undoManager
 	t.undoManager = nil
+	t.pruned += int64(len(old.UndoStack))
+	t.foldGroups = nil
 	t.releaseStackItemsLocked(old, append(append([]*ycrdt.StackItem{}, old.UndoStack...), old.RedoStack...), nil)
 	t.stacked = nil
 	t.ensureUndoManager()
@@ -236,6 +274,7 @@ func (t *OperationTracker) ensureUndoManager() *ycrdt.UndoManager {
 		// Prune oldest group when stack grows beyond limit
 		for len(um.UndoStack) > t.maxGroups {
 			um.UndoStack = um.UndoStack[1:]
+			t.pruned++
 		}
 		t.releaseDroppedLocked()
 		t.emitUndoState()
@@ -531,8 +570,10 @@ type threadCreation struct {
 // between, or at whatever item had slid into the new thread's index.
 //
 // The undo boundaries are those of the separate calls this replaces: the
-// insert starts a group, the seeds join it, and MergeFromIndex folds anything
-// that started a group of its own back into the one creation.
+// insert starts a group, the seeds join it, and a merge from the undoMark taken
+// first folds anything that started a group of its own back into the one
+// creation — by mark, since on a full stack each of those groups prunes the
+// oldest and shifts the creation's index.
 func (t *OperationTracker) CreateThread(c threadCreation) (string, error) {
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
@@ -545,7 +586,7 @@ func (t *OperationTracker) CreateThread(c threadCreation) (string, error) {
 	}
 
 	t.stopCapturingLocked()
-	mergeFrom := t.undoStackLenLocked()
+	mergeFrom := t.markNextLocked()
 
 	t.ensureUndoManager().StopCapturing()
 	var threadYMap *ycrdt.YMap
@@ -567,7 +608,7 @@ func (t *OperationTracker) CreateThread(c threadCreation) (string, error) {
 		t.appendMessageIntoArrayLocked(nested, *c.Invocation)
 	}
 
-	t.mergeFromIndexLocked(mergeFrom)
+	t.mergeFromMarkLocked(mergeFrom)
 	t.stopCapturingLocked()
 	return threadItemID, nil
 }
@@ -617,7 +658,7 @@ func (t *OperationTracker) ResumeThread(res threadResume) error {
 	}
 
 	t.stopCapturingLocked()
-	mergeFrom := t.undoStackLenLocked()
+	mergeFrom := t.markNextLocked()
 
 	goal := yMapString(threadYMap, keyGoal)
 	resultSpec := yMapString(threadYMap, keyResultSpec)
@@ -643,7 +684,7 @@ func (t *OperationTracker) ResumeThread(res threadResume) error {
 	}
 	t.appendMessageIntoArrayLocked(nested, res.Invocation)
 
-	t.mergeFromIndexLocked(mergeFrom)
+	t.mergeFromMarkLocked(mergeFrom)
 	t.stopCapturingLocked()
 	return nil
 }
@@ -850,9 +891,7 @@ func (t *OperationTracker) stopCapturingLocked() {
 	t.undoManager.StopCapturing()
 }
 
-// UndoStackLen returns the current number of undo groups. Used to snapshot
-// the stack height before a long-running operation so MergeFromIndex can
-// collapse everything added since.
+// UndoStackLen returns the current number of undo groups.
 func (t *OperationTracker) UndoStackLen() int {
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
@@ -867,23 +906,134 @@ func (t *OperationTracker) undoStackLenLocked() int {
 	return len(t.undoManager.UndoStack)
 }
 
-// MergeFromIndex collapses every UndoStack entry from startIdx onward into
-// a single group living at startIdx. Use when a long-running operation
-// (e.g. a compaction whose strategy run spans many LLM turns) has added
-// several intermediate stack items the user expects to undo as one unit.
+// MarkUndoTop marks the group on top of the undo stack, so a merge from the
+// mark starts at that group. On an empty stack it marks the first group
+// pushed afterwards.
+func (t *OperationTracker) MarkUndoTop() undoMark {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	return t.markTopLocked()
+}
+
+// MarkUndoNext marks the point above the top of the undo stack, so a merge
+// from the mark starts at the first group pushed afterwards.
+func (t *OperationTracker) MarkUndoNext() undoMark {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	return t.markNextLocked()
+}
+
+// markTopLocked is MarkUndoTop for a caller already holding ycrdtMu.
+func (t *OperationTracker) markTopLocked() undoMark {
+	m := t.markNextLocked()
+	if m.anchor != nil {
+		m.after = false
+	}
+	return m
+}
+
+// markNextLocked is MarkUndoNext for a caller already holding ycrdtMu.
+func (t *OperationTracker) markNextLocked() undoMark {
+	n := t.undoStackLenLocked()
+	if n == 0 {
+		return undoMark{seq: t.pruned - 1, after: true}
+	}
+	return undoMark{anchor: t.undoManager.UndoStack[n-1], seq: t.pruned + int64(n) - 1, after: true}
+}
+
+// markStartLocked resolves m to the index on the undo stack its span starts
+// at now. An anchor that is still on the stack sits exactly pruned places
+// below where it was marked, since nothing else moves an entry without taking
+// it off the stack. Called under ycrdtMu with the UndoManager present.
+func (t *OperationTracker) markStartLocked(m undoMark) (int, undoMergeOutcome) {
+	if m.anchor != nil {
+		stack := t.undoManager.UndoStack
+		if i := m.seq - t.pruned; i >= 0 && i < int64(len(stack)) && stack[i] == m.anchor {
+			if m.after {
+				i++
+			}
+			return int(i), undoMergeOutcome{}
+		}
+		if m.seq >= t.pruned {
+			return 0, undoMergeOutcome{gone: true}
+		}
+	}
+	first := m.seq
+	if m.after {
+		first++
+	}
+	if first < t.pruned {
+		return 0, undoMergeOutcome{lost: int(t.pruned - first)}
+	}
+	return int(first - t.pruned), undoMergeOutcome{}
+}
+
+// MergeFromMark collapses every undo group from m's span onward into one, so
+// a multi-step operation — a compaction whose summarizer spans several writes,
+// a browser-bracketed command — undoes in a single press. When the cap has
+// pruned the span's oldest groups, what remains is merged; when the anchor
+// left the stack another way, nothing is. The outcome says which, for the
+// caller to log.
+func (t *OperationTracker) MergeFromMark(m undoMark) undoMergeOutcome {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	return t.mergeFromMarkLocked(m)
+}
+
+// mergeFromMarkLocked is MergeFromMark for a caller already holding ycrdtMu.
+func (t *OperationTracker) mergeFromMarkLocked(m undoMark) undoMergeOutcome {
+	if t.undoManager == nil {
+		return undoMergeOutcome{}
+	}
+	start, out := t.markStartLocked(m)
+	if !out.gone {
+		t.mergeFromIndexLocked(start)
+	}
+	return out
+}
+
+// noteFoldGroupLocked records the group on top of the undo stack as the one
+// the unsummarized fold threadItemID landed in, for the pickup that runs its
+// summarizer to merge from (CompactionMergeMark). Called under ycrdtMu.
+func (t *OperationTracker) noteFoldGroupLocked(threadItemID string) {
+	if t.undoStackLenLocked() == 0 {
+		return
+	}
+	if t.foldGroups == nil {
+		t.foldGroups = make(map[string]undoMark)
+	}
+	t.foldGroups[threadItemID] = t.markTopLocked()
+}
+
+// CompactionMergeMark returns where the undo merge for the compaction thread
+// threadItemID's summarizer run starts: the fold's own group when that is
+// still on the stack, so anything written between the fold and the pickup —
+// the assumed-window notice beside it — undoes with it. A fold the tracker
+// did not record, or whose group has left the stack (undone and redone), marks
+// the top of the stack instead.
+func (t *OperationTracker) CompactionMergeMark(threadItemID string) undoMark {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	m, ok := t.foldGroups[threadItemID]
+	delete(t.foldGroups, threadItemID)
+	if ok && t.undoManager != nil {
+		if _, out := t.markStartLocked(m); !out.gone && out.lost == 0 {
+			return m
+		}
+	}
+	return t.markTopLocked()
+}
+
+// mergeFromIndexLocked collapses every UndoStack entry from startIdx onward
+// into a single group living at startIdx, for a caller already holding
+// ycrdtMu. An index is only good within the ycrdtMu hold that read it: a span
+// that outlives the hold merges from an undoMark instead.
 //
 // The merge is structurally identical to the captureTimeout-driven merge
 // inside the UndoManager — same MergeDeleteSets calls, just done after the
 // fact across an arbitrary span instead of pairwise during capture.
 //
 // No-op if startIdx is out of range or there is nothing to merge.
-func (t *OperationTracker) MergeFromIndex(startIdx int) {
-	ycrdtMu.Lock()
-	defer ycrdtMu.Unlock()
-	t.mergeFromIndexLocked(startIdx)
-}
-
-// mergeFromIndexLocked is MergeFromIndex for a caller already holding ycrdtMu.
 func (t *OperationTracker) mergeFromIndexLocked(startIdx int) {
 	if t.undoManager == nil {
 		return
@@ -909,7 +1059,9 @@ func (t *OperationTracker) ClearHistory() {
 	if t.undoManager == nil {
 		return
 	}
+	t.pruned += int64(len(t.undoManager.UndoStack))
 	t.undoManager.Clear()
+	t.foldGroups = nil
 	t.threadGroups = nil
 	t.clientGroups = nil
 	t.stacked = nil

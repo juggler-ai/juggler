@@ -306,6 +306,82 @@ func TestFoldSummarizerCancellationMarksThreadUnsummarized(t *testing.T) {
 	}
 }
 
+// fillUndoStack writes n tracked root messages, each its own undo group, so the
+// undo stack reaches the tracker's cap and prunes from the front on every
+// later push — the state of any conversation long enough to be worth folding.
+func fillUndoStack(w *ConversationWorker, n int) {
+	for i := range n {
+		w.tracker.InsertMessage(i, ConversationItem{Type: ItemTypeUser, ItemID: generateItemID(), Content: "turn " + strings.Repeat("x", i%7)})
+		w.tracker.StopCapturing()
+	}
+}
+
+// compactThenUndoOnce folds and summarizes the conversation through /compact,
+// presses Undo once, and fails unless root reads exactly as it did before the
+// fold. One press is the contract: the fold, the pickup's trigger write and the
+// summary are one user action.
+func compactThenUndoOnce(t *testing.T, w *ConversationWorker) {
+	t.Helper()
+	before := itemIDs(w.doc.GetItems())
+
+	waitAck := captureAck(t, w, "client-1", "u1")
+	w.currentRun().handleCompact(json.RawMessage(`{"type":"compact","ackId":"u1"}`))
+	w.quiesce(t)
+	if result, _ := waitAck()["result"].(map[string]any); result["folded"] != true {
+		t.Fatalf("ack result = %v, want {folded:true}", result)
+	}
+	items := w.doc.GetItems()
+	if len(items) == 0 || threadResult(w, items[0].ItemID) != "undo me summary" {
+		t.Fatalf("after /compact root = %s, want the summarized fold first", itemIDs(items))
+	}
+
+	if !w.tracker.Undo() {
+		t.Fatal("the compaction was not undoable")
+	}
+	if after := itemIDs(w.doc.GetItems()); after != before {
+		t.Fatalf("one Undo after /compact left root = %s, want the pre-fold history %s", after, before)
+	}
+}
+
+// One Undo after /compact restores the transcript even when the undo stack is
+// at its cap. The stack prunes its oldest group on every push past the cap, so
+// a merge start recorded as a stack index slides off the fold as the pickup and
+// the summary land after it, and a merge from that stale index does nothing:
+// the first Undo then strips only the summary, leaving a bare fold tile.
+func TestCompactUndoRestoresHistoryWithFullUndoStack(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.currentRun().storeState(StateIdle)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+	feedCompactionContextAndTools(w)
+	w.SetLLMCaller(func(_ context.Context, _ json.RawMessage, _ func(StreamChunk)) (*LLMResponse, error) {
+		return &LLMResponse{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeText, Content: "undo me summary"}}}, nil
+	})
+	fillUndoStack(w, w.tracker.maxGroups+10)
+
+	compactThenUndoOnce(t, w)
+}
+
+// The assumed-window notice /compact writes beside the fold is part of the
+// same user action, so the one Undo takes it too — and it must not become the
+// merge start, which would leave the fold behind with its summarizer re-armed.
+func TestCompactUndoRestoresHistoryWithAssumedWindowNotice(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.currentRun().storeState(StateIdle)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "local", "model": "qwen"})
+	w.SetWindowResolver(func(ModelConfig) ContextWindowInfo {
+		return ContextWindowInfo{WindowTokens: 8192, ReserveTokens: 1638, Assumed: true}
+	})
+	feedCompactionContextAndTools(w)
+	w.SetLLMCaller(func(_ context.Context, _ json.RawMessage, _ func(StreamChunk)) (*LLMResponse, error) {
+		return &LLMResponse{Blocks: []LLMResponseBlock{{Type: provider.ContentBlockTypeText, Content: "undo me summary"}}}, nil
+	})
+	fillUndoStack(w, 3)
+
+	compactThenUndoOnce(t, w)
+}
+
 // Re-summarise is the recovery route, so it has to clear the marker and the
 // marker has to survive only until a summary actually exists.
 func TestResummariseClearsUnsummarizedMarker(t *testing.T) {

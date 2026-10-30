@@ -1242,26 +1242,26 @@ func (r *run) handleUndoOrRedo(fn func() bool, payload json.RawMessage) {
 	r.reply(AckMessage{Type: msgAck, AckID: msg.AckID, Result: success})
 }
 
-// handleBeginUndoCoalesce snapshots the current undo-stack height so a
+// handleBeginUndoCoalesce marks the current top of the undo stack so a
 // browser-driven multi-step command (e.g. /clear: wipe history + re-seed auto
 // items) can be collapsed into a single undo group by the matching end marker.
 // Closes the capture window first so the command's first mutation starts a
-// fresh group exactly at the snapshotted index. The command's mutations arrive
-// as ordered yjs-sync frames on the same channel after this marker, so the
-// snapshot reflects state strictly before the command's first write.
+// fresh group just above the mark. The command's mutations arrive as ordered
+// yjs-sync frames on the same channel after this marker, so the mark reflects
+// state strictly before the command's first write.
 func (w *ConversationWorker) handleBeginUndoCoalesce() {
 	w.tracker.StopCapturing()
-	w.undo.openCommand(w.tracker.UndoStackLen())
+	w.undo.openCommand(w.tracker.MarkUndoNext())
 }
 
 // handleEndUndoCoalesce collapses every undo group added since the matching
 // begin marker into one, so the bracketed command reverts in a single undo.
-// Structurally identical to the compaction merge (see MergeFromIndex); a no-op
-// when zero or one group was added. Acks so the browser can await completion.
+// The same merge as the compaction's (MergeFromMark); a no-op when zero or one
+// group was added. Acks so the browser can await completion.
 func (w *ConversationWorker) handleEndUndoCoalesce(payload json.RawMessage) {
 	ackID := w.ackIDOf("end-undo-coalesce", payload)
-	if idx, ok := w.undo.takeCommandMerge(); ok {
-		w.tracker.MergeFromIndex(idx)
+	if mark, ok := w.undo.takeCommandMerge(); ok {
+		w.logUndoMerge("command", w.tracker.MergeFromMark(mark))
 		w.tracker.StopCapturing()
 	}
 	w.batcher.Flush()

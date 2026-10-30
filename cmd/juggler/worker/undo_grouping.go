@@ -15,13 +15,14 @@ const historyNavRecoil = 500 * time.Millisecond
 // one press reverts one user action, and an undo or redo is not taken as a
 // request to advance the conversation. It holds two pieces:
 //
-//   - Two merge marks: the undo-stack index a multi-step operation started at,
-//     so every group added since can be collapsed into one on its end. One is
+//   - Two merge marks: where on the undo stack a multi-step operation started
+//     (an undoMark, which survives the stack's pruning from the front), so
+//     every group added since can be collapsed into one on its end. One is
 //     for a compaction run, one for a browser-bracketed command (e.g. /clear).
 //   - Two reducer holds around a history step: the items observer muted while
 //     the UndoManager applies it, and a short recoil window after it.
 //
-// It records indices and windows; the undo stack itself is the tracker's.
+// It records marks and windows; the undo stack itself is the tracker's.
 // Every field is read and written only by the methods in this file
 // (TestWorkerSeamsOwnTheirState). Run goroutine only, which every method
 // asserts (actor_guard.go).
@@ -48,24 +49,20 @@ type undoGrouping struct {
 	// no awaiting_llm to dispatch on and rests exactly as it would inside it
 	// (TestUndoEchoAfterRecoilDoesNotRedispatch).
 	navRecoilUntilMs int64
-	// compactionMergeFrom, when >= 0, is the undo-stack index whose entry holds
-	// the viewer-side compaction insert. While set, every undo group the
-	// strategy adds during the compaction run is collapsed into that entry on
-	// idle, so the whole compaction undoes as one user action. -1 means no
+	// compactionMerge, when set, marks the undo group holding the compaction
+	// fold. Every undo group the summarizer run adds is collapsed into it on
+	// idle, so the whole compaction undoes as one user action. Nil means no
 	// compaction in flight.
-	compactionMergeFrom int
-	// commandMergeFrom, when >= 0, is the undo-stack index captured at the start
-	// of a browser-driven multi-step command. On the matching end marker every
-	// undo group added since is collapsed into that entry. -1 means no command
-	// bracket is open.
-	commandMergeFrom int
+	compactionMerge *undoMark
+	// commandMerge, when set, marks the point a browser-driven multi-step
+	// command started at. On the matching end marker every undo group added
+	// since is collapsed into one. Nil means no command bracket is open.
+	commandMerge *undoMark
 }
 
-// newUndoGrouping returns grouping state with nothing in flight. Both marks
-// mean "nothing in flight" at -1, so the zero value would read as "collapse
-// everything from entry 0".
+// newUndoGrouping returns grouping state with nothing in flight.
 func newUndoGrouping(actor *actorGuard) undoGrouping {
-	return undoGrouping{undoActor: actor, compactionMergeFrom: -1, commandMergeFrom: -1}
+	return undoGrouping{undoActor: actor}
 }
 
 // own asserts the caller is the actor.
@@ -107,24 +104,32 @@ func (u *undoGrouping) inNavRecoil(now time.Time) bool {
 
 // ---- Merge marks ----
 
-// markCompactionStart records the undo-stack index of the compaction insert.
-func (u *undoGrouping) markCompactionStart(idx int) { u.own(); u.compactionMergeFrom = idx }
+// markCompactionStart records the mark of the compaction fold's undo group.
+func (u *undoGrouping) markCompactionStart(m undoMark) { u.own(); u.compactionMerge = &m }
 
 // takeCompactionMerge returns the compaction mark and clears it; ok is false
 // when no compaction is in flight.
-func (u *undoGrouping) takeCompactionMerge() (idx int, ok bool) {
+func (u *undoGrouping) takeCompactionMerge() (undoMark, bool) {
 	u.own()
-	idx, u.compactionMergeFrom = u.compactionMergeFrom, -1
-	return idx, idx >= 0
+	m := u.compactionMerge
+	u.compactionMerge = nil
+	if m == nil {
+		return undoMark{}, false
+	}
+	return *m, true
 }
 
-// openCommand records the undo-stack index a bracketed command starts at.
-func (u *undoGrouping) openCommand(idx int) { u.own(); u.commandMergeFrom = idx }
+// openCommand records the mark a bracketed command starts at.
+func (u *undoGrouping) openCommand(m undoMark) { u.own(); u.commandMerge = &m }
 
 // takeCommandMerge returns the command mark and clears it; ok is false when no
 // bracket is open.
-func (u *undoGrouping) takeCommandMerge() (idx int, ok bool) {
+func (u *undoGrouping) takeCommandMerge() (undoMark, bool) {
 	u.own()
-	idx, u.commandMergeFrom = u.commandMergeFrom, -1
-	return idx, idx >= 0
+	m := u.commandMerge
+	u.commandMerge = nil
+	if m == nil {
+		return undoMark{}, false
+	}
+	return *m, true
 }

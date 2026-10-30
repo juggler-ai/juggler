@@ -886,10 +886,11 @@ func TestBoundedCompactionFinalWriteMergesWithFoldUndoGroup(t *testing.T) {
 	w.tracker.InsertMessage(0, ConversationItem{Type: ItemTypeUser, ItemID: "history", Content: "keep me"})
 	w.tracker.StopCapturing()
 	threadID := insertBoundedCompactionThread(t, w, "source")
-	mergeFrom := w.tracker.UndoStackLen() - 1
-	if mergeFrom < 1 {
-		t.Fatalf("fold undo index = %d, want group after history", mergeFrom)
+	if w.tracker.UndoStackLen() < 2 {
+		t.Fatalf("undo stack holds %d groups, want the fold in a group after history", w.tracker.UndoStackLen())
 	}
+	mergeFrom := w.tracker.MarkUndoTop()
+	height := w.tracker.UndoStackLen()
 	w.tracker.StopCapturing()
 	if !w.writeBoundedCompactionResult(threadID, CompactionResult{Summary: "final result"}) {
 		t.Fatal("final result was not written")
@@ -897,10 +898,12 @@ func TestBoundedCompactionFinalWriteMergesWithFoldUndoGroup(t *testing.T) {
 	if got, _ := w.doc.GetThreadYMap(threadID).Get("result").(string); got != "final result" {
 		t.Fatalf("thread result = %q", got)
 	}
-	if w.tracker.UndoStackLen() <= mergeFrom+1 {
+	if w.tracker.UndoStackLen() <= height {
 		t.Fatal("final result write was not tracked as a compaction merge entry")
 	}
-	w.tracker.MergeFromIndex(mergeFrom)
+	if out := w.tracker.MergeFromMark(mergeFrom); out != (undoMergeOutcome{}) {
+		t.Fatalf("merge outcome = %+v, want a whole merge", out)
+	}
 	if !w.tracker.Undo() {
 		t.Fatal("merged compaction group was not undoable")
 	}

@@ -48,6 +48,46 @@ func TestItemInsertDeleteUndo(t *testing.T) {
 	doc.Destroy()
 }
 
+// TestUndoMarksSurviveTheStackCap pins the merge marks against the undo stack's
+// pruning from the front. On a full stack every push drops the oldest group,
+// so an operation that adds several groups must still undo in one press, and a
+// span longer than the cap merges what is left of it and says what it lost.
+func TestUndoMarksSurviveTheStackCap(t *testing.T) {
+	doc := NewConversationDocument("test-conv", "user:test")
+	defer doc.Destroy()
+	tracker := NewOperationTracker(doc)
+	push := func(n int) {
+		for range n {
+			tracker.InsertMessage(len(doc.GetItems()), ConversationItem{Type: ItemTypeUser, ItemID: generateItemID(), Content: "turn"})
+			tracker.StopCapturing()
+		}
+	}
+	push(tracker.maxGroups + 5)
+
+	t.Run("thread creation on a full stack is one undo", func(t *testing.T) {
+		before := itemIDs(doc.GetItems())
+		invocation := ConversationItem{Type: ItemTypeUser, ItemID: generateItemID(), Content: "go"}
+		if _, err := tracker.CreateThread(threadCreation{Goal: "child", Invocation: &invocation}); err != nil {
+			t.Fatalf("CreateThread: %v", err)
+		}
+		tracker.Undo()
+		if after := itemIDs(doc.GetItems()); after != before {
+			t.Fatalf("one Undo after CreateThread left root = %s, want %s", after, before)
+		}
+	})
+
+	t.Run("a span outliving the cap merges what remains", func(t *testing.T) {
+		mark := tracker.MarkUndoNext()
+		push(tracker.maxGroups + 3)
+		if out := tracker.MergeFromMark(mark); out.gone || out.lost != 3 {
+			t.Fatalf("merge outcome = %+v, want lost 3", out)
+		}
+		if n := tracker.UndoStackLen(); n != 1 {
+			t.Fatalf("undo stack holds %d groups after the merge, want 1", n)
+		}
+	})
+}
+
 // TestAppendRunStarterToThreadJoinsAnOpenRun pins the decide-and-append: a run
 // starter goes in only when the thread's trailing run has settled (or it has
 // none), and nowhere when the thread has gone.

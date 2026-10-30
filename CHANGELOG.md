@@ -5,6 +5,7 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
+- One Undo after compacting a long conversation restores its full history again
 - Quick successive edits undo as one step even when the machine is busy
 - `juggler` in a folder opens it on this machine's one server, starting it if needed
 - Composer settings moved to a status line under the box; tools sit by Send

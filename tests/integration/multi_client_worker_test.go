@@ -111,21 +111,35 @@ func TestWorker_MultipleCallbacks(t *testing.T) {
 	}
 }
 
-// TestWorker_AddRemoveCallback verifies callback addition and removal.
+// TestWorker_AddRemoveCallback verifies callback addition and removal: a pong
+// to a ping sent after a removal reaches the client still attached and never
+// the one removed.
+//
+// The pong is the only frame either check reads. Sync batches go out on the
+// batcher's own timer, and a ping flushes any still pending just ahead of its
+// pong, so the frame before the pong is whatever the machine's speed made it.
 func TestWorker_AddRemoveCallback(t *testing.T) {
 	w := worker.NewConversationWorker("test-conv", "user:main")
 	w.Start(context.Background())
 	defer w.Stop()
 
-	client1Chan := make(chan []byte, 10)
-	client2Chan := make(chan []byte, 10)
+	// Buffered generously and never blocking, so frames nobody reads cannot
+	// stall a client's delivery.
+	client1Chan := make(chan []byte, 1024)
+	client2Chan := make(chan []byte, 1024)
 
 	// Add two callbacks with unique client IDs
 	w.SetCallback("client1", func(msg []byte) {
-		client1Chan <- msg
+		select {
+		case client1Chan <- msg:
+		default:
+		}
 	})
 	w.SetCallback("client2", func(msg []byte) {
-		client2Chan <- msg
+		select {
+		case client2Chan <- msg:
+		default:
+		}
 	})
 
 	// Initialize worker
@@ -149,37 +163,47 @@ func TestWorker_AddRemoveCallback(t *testing.T) {
 	waitForReady(client1Chan, t)
 	waitForReady(client2Chan, t)
 
-	// Remove client1's callback
+	// Remove client1's callback. The removal and the pong's broadcast serialize
+	// through the same callback registry, so the pong is issued after it.
 	w.RemoveCallback("client1")
-
-	// Drain channels
-	drainChannel(client1Chan, 100*time.Millisecond)
-	drainChannel(client2Chan, 100*time.Millisecond)
-
-	// Send another message
 	w.Send("ping", nil)
 
-	// Only client2 should receive pong
-	select {
-	case msg := <-client2Chan:
-		var parsed map[string]string
-		_ = json.Unmarshal(msg, &parsed)
-		if parsed["type"] != "pong" {
-			t.Errorf("Client 2 expected 'pong', got %v", parsed)
+	// Client 2 gets the pong. The 10s bound only names a wedged worker.
+	deadline := time.After(10 * time.Second)
+	for gotPong := false; !gotPong; {
+		select {
+		case msg := <-client2Chan:
+			gotPong = isPong(msg)
+		case <-deadline:
+			t.Fatal("Client 2 never received the pong — the worker's message loop is not running")
 		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("Client 2 timeout waiting for pong")
 	}
 
-	// Client1 should NOT receive pong
-	select {
-	case msg := <-client1Chan:
-		t.Errorf("Client 1 should not receive message after removal, got: %s", string(msg))
-	case <-time.After(200 * time.Millisecond):
-		// Expected - no message
+	// Client 1 never does. Frames issued before its removal may still be in its
+	// queue; a pong cannot be one of them. The window only bounds how long the
+	// absence is watched for — on a slow machine it can miss a stray pong, never
+	// invent one.
+	quiet := time.After(200 * time.Millisecond)
+watch:
+	for {
+		select {
+		case msg := <-client1Chan:
+			if isPong(msg) {
+				t.Fatalf("Client 1 received a pong after its callback was removed: %s", string(msg))
+			}
+		case <-quiet:
+			break watch
+		}
 	}
 
 	w.RemoveCallback("client2")
+}
+
+// isPong reports whether a worker frame is a pong.
+func isPong(msg []byte) bool {
+	var parsed map[string]any
+	_ = json.Unmarshal(msg, &parsed)
+	return parsed["type"] == "pong"
 }
 
 // TestWorker_SendWithNoCallbacks verifies that a worker whose broadcasts reach

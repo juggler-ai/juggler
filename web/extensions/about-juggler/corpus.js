@@ -173,7 +173,17 @@ Type "/" in the composer. Built in: **/new** (new empty conversation),
 (compact everything into a summary thread), **/handoff** (summarise into a new
 conversation to continue), **/thread** (new sub-conversation thread),
 **/export** (save as an HTML page to share), **/commands** (manage custom
-commands). Juggler MCP adds **/mcp**.
+commands), **/init** (have the agent survey the project and draft an
+AGENTS.md), **/shell** (run a shell command yourself). Juggler MCP adds **/mcp**.
+
+**Running a command yourself**: start a message with "!" ("! npm run lint" is
+the same as "/shell npm run lint"). The command runs in the conversation's
+workspace with the same shell and project environment as the bash tool, but
+with no model call and no approval card. While it runs the composer shows it
+with a Stop button. When it ends, its output joins the conversation as a Shell
+item, and the model reads it with your next message. If a turn is running, the
+output waits for the turn's next boundary. A "!" on its own is an ordinary
+message.
 
 **Custom commands** need no code: a markdown file of YAML frontmatter over a
 prompt template, hot-reloaded on save. "$1".."$9" are positional arguments,

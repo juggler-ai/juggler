@@ -188,6 +188,60 @@ reply-suggestions .reply-suggestion:hover {
     background: var(--bubble-user-bg-hover);
 }
 
+/* `! cmd`: the box will run its text in the shell rather than send it to the
+   model, so it says so before Send — a ring, and the text set as a command. */
+composer-box[shell-input] composer-box-wrapper {
+    box-shadow: 0 0 0 0.125rem var(--accent-green);
+}
+
+composer-box[shell-input] textarea:not(.field-input) {
+    font-family: var(--font-mono);
+}
+
+/* Commands the user is running from this box (`! cmd`), one row each with its
+   Stop. Their output joins the transcript when they end. */
+composer-box composer-shell-runs:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding-bottom: 0.5rem;
+}
+
+composer-box .shell-run {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+composer-box .shell-run-command {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    color: var(--bubble-user-text);
+}
+
+composer-box .shell-run-stop {
+    flex: none;
+    padding: 0.125rem 0.5rem;
+    background: transparent;
+    border: 0.0625rem solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+composer-box .shell-run-stop:hover:not(:disabled) {
+    color: var(--accent-red);
+    border-color: var(--accent-red);
+}
+
 /* Staged image-attachment chip row. Hidden until it holds chips so it adds no
    vertical space to an empty input. Rebuilt independently of the textarea so
    re-rendering chips never disturbs the caret. */

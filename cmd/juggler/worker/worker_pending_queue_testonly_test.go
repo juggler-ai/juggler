@@ -164,6 +164,62 @@ func TestMessageQueuedAsATurnEndsIsAnswered(t *testing.T) {
 	}
 }
 
+// TestContextQueuedAloneLandsWithoutATurn pins what a queued context item with
+// no message behind it asks for. The user ran a shell command from the
+// composer while a turn was in flight, so its output was queued rather than
+// written under the running turn. When the turn ends the output must land in
+// the transcript, where the user's next message will find it — and nothing
+// more: it is not a message, and answering it would spend a model call the user
+// ran the command to avoid.
+func TestContextQueuedAloneLandsWithoutATurn(t *testing.T) {
+	w := NewConversationWorker("conv-context-queued-alone", "user:test")
+	defer w.doc.Destroy()
+	r := w.currentRun()
+	r.storeState(StateIdle)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+	// One turn's worth of script, so a turn wrongly started is answered and
+	// shows up as a consumed response rather than as an exhausted-script error.
+	w.setMockResponses([]MockResponse{
+		{Blocks: []LLMResponseBlock{{Type: "text", Content: "nobody asked"}}, StopReason: "end_turn"},
+	})
+	stop := make(chan struct{})
+	defer close(stop)
+	feedEngine(w, stop)
+
+	if !r.claimLLM("") {
+		t.Fatal("could not claim the root")
+	}
+	tr := r.beginTurn("")
+	tr.storeState(StateProcessing)
+	r.runTurn(tr, func(tr *run) {
+		enqueuePendingItemForTest(w, "", ConversationItem{
+			Type: "shell-output", ItemID: "SHELL_1", IsNew: true,
+			Data: json.RawMessage(`{"command":"echo hi","output":"hi","exitCode":0}`),
+		})
+		tr.finishStrategyRun()
+	})
+	w.quiesce(t)
+
+	if w.hasPendingItems("") {
+		t.Fatal("the queued output is still queued under an idle conversation")
+	}
+	found := false
+	for _, it := range w.doc.GetItems() {
+		if it.ItemID == "SHELL_1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the queued output never reached the transcript: %+v", w.doc.GetItems())
+	}
+	if n := w.mock().remaining(); n != 1 {
+		t.Fatalf("a model turn ran for a context item queued with no message (%d scripted response(s) left, want 1)", n)
+	}
+	if a := w.currentRun().threadActivity(""); a != ActivityNone {
+		t.Fatalf("the conversation was left %q, not at rest, by a context item queued with no message", a)
+	}
+}
+
 // TestPromotePendingKeepsReadGroupedWithMessage verifies the guarantee the
 // "queue reads with the message" fix depends on: when a mid-turn @-mention
 // enqueues a file-content read onto pendingItems ahead of the queued user

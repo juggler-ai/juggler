@@ -13,6 +13,7 @@ of changes; this project follows semantic versioning.
 - The first column widens freely beside a properties panel, which scrolls if needed
 - File paths in your messages, thread summaries and bash commands are clickable too
 - Double-clicking Duplicate or Fork makes one copy, and shows "Duplicating…" meanwhile
+- `! command` (or /shell) runs a command and adds its output, no model call
 
 ## [0.7.9] - 2026-10-28
 

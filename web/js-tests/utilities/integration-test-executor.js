@@ -299,6 +299,7 @@ import { runTests as runInfoRailTests } from '../unit-tests/info-rail-test.js';
 import { runTests as runTabDragGhostTests } from '../unit-tests/tab-drag-ghost-test.js';
 import { runTests as runReorderDragTests } from '../unit-tests/reorder-drag-test.js';
 import { runTests as runSlashCompletionTests } from '../unit-tests/slash-completion-test.js';
+import { runTests as runShellCommandTests } from '../unit-tests/shell-command-test.js';
 import { runTests as runSkillCompletionTests } from '../unit-tests/skill-completion-test.js';
 import { runTests as runComposerMenuAriaTests } from '../unit-tests/composer-menu-aria-test.js';
 import { runTests as runDialogAriaTests } from '../unit-tests/dialog-aria-test.js';
@@ -760,6 +761,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:tab-drag-ghost', run: runTabDragGhostTests },
   { name: 'unit:reorder-drag', run: runReorderDragTests },
   { name: 'unit:slash-completion', run: runSlashCompletionTests },
+  { name: 'unit:shell-command', run: runShellCommandTests },
   { name: 'unit:skill-completion', run: runSkillCompletionTests },
   { name: 'unit:composer-menu-aria', run: runComposerMenuAriaTests },
   { name: 'unit:dialog-aria', run: runDialogAriaTests, needsExclusiveRun: true },

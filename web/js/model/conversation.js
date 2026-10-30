@@ -9,6 +9,7 @@ import { DEFAULT_TRUNCATION_BUDGET } from 'juggler/context-item';
 import { CHARS_PER_TOKEN } from '../utils/token-estimate.js';
 import ConversationDocument from './conversation-document.js';
 import slashCommandHandler from '../services/slash-command-handler.js';
+import { runUserShell, shellShortcutCommand } from '../services/user-shell.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { isConversationalItemType, itemField } from '../../sdk/lib/message.js';
 import MessageThread from './message-thread.js';
@@ -1934,6 +1935,14 @@ class Conversation {
     // What goes to the worker. `userMessage` stays what was typed, which is
     // what up-arrow history keeps.
     let outgoingMessage = userMessage;
+    // `! cmd` is how `/shell cmd` is typed: from here on it is that command, so
+    // both spellings run, schedule and report alike. `typed` is still what the
+    // box holds.
+    const typed = userMessage;
+    if (interpretCommands) {
+      const shellCommand = shellShortcutCommand(userMessage);
+      if (shellCommand !== null) userMessage = `/shell ${shellCommand}`;
+    }
 
     // A command runs here and now, and the worker that fires a held send can
     // only deliver a message. So a held send that reads as a command is held as
@@ -1973,7 +1982,7 @@ class Conversation {
       // The request is answered synchronously, so the box is judged as it
       // stands before the command can change the active column.
       if (/^\/[a-zA-Z]/.test(userMessage)) {
-        this._requestComposerClear(this._targetThreadId(messageThread, threadItemId), userMessage);
+        this._requestComposerClear(this._targetThreadId(messageThread, threadItemId), typed);
       }
       // A command is content too: /clear re-seeds, /handoff clones, and both
       // want a conversation that has already chosen where it works.
@@ -1984,7 +1993,7 @@ class Conversation {
           this.showWarning(result.message, 3000);
         }
         if (result.sideEffects) {
-          this._handleCommandSideEffects(result.sideEffects);
+          this._handleCommandSideEffects(result.sideEffects, messageThread);
         }
         return null;
       }
@@ -2889,13 +2898,25 @@ class Conversation {
    * This is the single point where commands' declared intents are dispatched
    * to the host application (UI, session, etc.).
    * @param {import('juggler/command-type').CommandSideEffect[]} sideEffects
+   * @param {import('./message-thread.js').MessageThread} [messageThread] - The thread the command was invoked for
    * @returns {void}
    * @private
    */
-  _handleCommandSideEffects(sideEffects) {
+  _handleCommandSideEffects(sideEffects, messageThread) {
     for (const effect of sideEffects) {
       const data = effect.data || {};
       switch (effect.type) {
+        case 'runShell': {
+          // `! cmd` / `/shell cmd`: run in the thread it was typed into. Not
+          // awaited — the composer is free while it runs, and shows it running.
+          const mt = messageThread || this.rootMessageThread;
+          if (typeof data.command === 'string' && data.command && mt) {
+            runUserShell(mt, data.command).catch((err) => {
+              console.error('[Conversation] user shell command failed:', err);
+            });
+          }
+          break;
+        }
         case 'openThread': {
           // Opening a column is the tab's: it owns the selection chain.
           if (typeof data.threadId === 'string') {

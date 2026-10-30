@@ -19,6 +19,8 @@ import { ComposerPopup } from './composer-popup.js';
 import { CompletionMenu } from './completion-menu.js';
 import { createFileMentionProvider, extractFileMentionsAsync } from './file-mention-provider.js';
 import { slashCommandProvider } from './slash-command-provider.js';
+import { followShellRuns, renderShellRuns, updateShellInputCue } from './composer-shell-runs.js';
+import { shellShortcutCommand } from '../services/user-shell.js';
 import {
   createSkillMentionProvider,
   getThreadSkillSnapshot,
@@ -384,6 +386,7 @@ class Composer extends JugglerElement {
     this._bindPaste(textarea);
     this._bindTextEditing(textarea);
     this._bindTokenPills(textarea);
+    this._renderBindings.push(followShellRuns(this, () => this._messageThread));
 
     // Render any chips that survived a re-render.
     renderAttachmentChips(this);
@@ -922,6 +925,7 @@ class Composer extends JugglerElement {
       sendBtn.setAttribute('aria-label', title);
     }
     this._updateNewThreadControls();
+    updateShellInputCue(this, this.querySelector('textarea')?.value ?? '');
     // The schedule button follows the same empty rule; updateScheduleButton
     // re-reads emptiness itself, so just re-render it.
     updateScheduleButton(this);
@@ -1585,7 +1589,10 @@ class Composer extends JugglerElement {
       // "## Skills" list), so the composer forwards names rather than loading.
       /** @type {string[]} */
       let skillNames = [];
-      if (this._messageThread) {
+      // A shell command line is the shell's text, not prose: an `@` or a `$` in
+      // it (`npm i pkg@latest`, `echo $HOME`) is the command's own.
+      const isShellCommand = shellShortcutCommand(message) !== null || /^\/shell(\s|$)/.test(message);
+      if (this._messageThread && !isShellCommand) {
         const mt = this._messageThread;
 
         // The mention and dropped-file reads below are the first content to
@@ -1801,6 +1808,7 @@ class Composer extends JugglerElement {
 
     this._messageThread = messageThread;
     this.threadItemId = messageThread.threadItemId;
+    renderShellRuns(this, messageThread);
 
     this._syncStrategySelector();
 
@@ -2472,6 +2480,7 @@ class Composer extends JugglerElement {
             <composer-box-wrapper>
                 <composer-config-strip></composer-config-strip>
                 <composer-box-attachments></composer-box-attachments>
+                <composer-shell-runs hidden></composer-shell-runs>
                 <div class="paste-mirror" aria-hidden="true" hidden></div>
                 <textarea
                     aria-label="${escapeHtml(t('Message input'))}"

@@ -21,7 +21,7 @@ of changes; this project follows semantic versioning.
 - Running tasks pin lists every conversation's commands, foreground too; click to jump
 - After repeated approvals, the approval card suggests switching to Auto-approve or YOLO
 - Claude Code conversations recover from a lost tool result instead of hanging; Stop always works
-- The interface is available in Japanese, Korean, German, French, Spanish and Brazilian Portuguese, under Settings → Language
+- The interface is available in Japanese, Korean, German, French, Spanish, Brazilian Portuguese and Simplified Chinese, under Settings → Language
 - Up to 100 windows can be open at once, up from 11 (or 2 on Windows)
 - A window whose server fails to start says why instead of never appearing
 - A window whose remote server has been gone a minute shows "Can't reach the server"

@@ -22,7 +22,7 @@
   "Server": "服务器",
   "This conversation": "此对话",
   "Tool": "工具",
-  "Tools provided by connected MCP (Model Context Protocol) servers": "已连接的 MCP（Model Context Protocol）服务器提供的工具",
+  "Tools provided by connected MCP (Model Context Protocol) servers": "已连接的 MCP（模型上下文协议）服务器提供的工具",
   "Unknown subcommand \"{subcommand}\". Try: /mcp, /mcp start|stop|restart <server>, /mcp reload, /mcp logs <server>": "未知子命令 \"{subcommand}\"。可用：/mcp、/mcp start|stop|restart <server>、/mcp reload、/mcp logs <server>",
   "Usage: /mcp {subcommand} <server>": "用法：/mcp {subcommand} <server>",
   "all read-only tools on \"{server}\"": "\"{server}\" 上的所有只读工具",

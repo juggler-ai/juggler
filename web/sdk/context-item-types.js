@@ -128,7 +128,11 @@
  * Plugins return this to describe what to display; the framework handles rendering.
  * @typedef {object} ResultStatusMessage
  * @property {string} [typeName] - Type label rendered as a lozenge badge (e.g., "Read", "Question")
- * @property {string|HTMLElement} summary - Status line content (string or custom element, will be truncated)
+ * @property {string|HTMLElement} summary - Status line content (string or custom element, will be truncated).
+ *   An element inside it carrying a `data-file-refs` attribute opts its text in
+ *   to path linking: bare paths in it that name an existing file in the
+ *   conversation's working tree become links that open the file. Mark only text
+ *   that names files, such as a command line.
  * @property {ResultStatus} [status] - Semantic status for styling (success, error, cancelled, running)
  * @property {HTMLElement} [customFormElement] - Custom form element rendered below the status row, indented to the badge column, in place of the default approval buttons
  */
@@ -241,7 +245,11 @@
  * @property {import('yjs').Map<unknown>} toolAction - The Y.Map representing the tool action (has .get())
  * @property {string} toolName - Lowercased tool name
  * @property {Record<string, unknown>} input - Plain-object snapshot of toolInput
- * @property {ToolActionRenderHelpers} helpers - DOM helpers (addSubsection, addFilePath, addDiffViewer, createCopyableText)
+ * @property {ToolActionRenderHelpers} helpers - DOM helpers (addSubsection, addFilePath, addDiffViewer, createCopyableText).
+ *   `addSubsection` and `createCopyableText` take a `fileRefs: true` option that
+ *   marks the text with `data-file-refs`, so paths in it that name existing files
+ *   in the conversation's working tree become links; any element the method
+ *   adds with that attribute is treated the same way.
  * @property {import('../js/model/conversation.js').default | null} conversation - Active conversation
  * @property {import('../js/model/message-thread.js').default | null} messageThread - Message thread containing the action
  * @property {import('../js/model/session.js').default | null} session - Session for the conversation

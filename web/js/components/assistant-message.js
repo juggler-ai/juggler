@@ -62,18 +62,6 @@ class AssistantMessage extends BaseMessage {
   }
 
   /**
-   * The tree this reply's file references resolve in: where its conversation
-   * works, asked afresh per segment so a message rendered before its row was
-   * attached simply decorates nothing until it is.
-   * @returns {{root: string, workspaceId: string}} Root '' when not known.
-   * @private
-   */
-  _fileRefContext() {
-    const root = this._getMessageThread()?.getWorkingRoot?.() || '';
-    return { root, workspaceId: this._getConversation()?.workspaceId || '' };
-  }
-
-  /**
    * Efficient content update for streaming - only updates content, not entire element
    * @protected
    * @override

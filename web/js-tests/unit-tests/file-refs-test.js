@@ -286,5 +286,94 @@ export async function runTests(_ctx) {
     assert(calls.length === 0 && !holder.querySelector('[data-file-ref-pending]'), 'nothing asked or marked');
   });
 
+  // ── Scanning plain text: terminal output, typed messages ──────────────────
+
+  const { decorateTextFileRefs, FILE_REFS_ATTR } = await import('../../js/utils/file-refs.js');
+
+  /**
+   * @param {string} html - Markup to parse.
+   * @returns {HTMLElement} A detached holder of it.
+   */
+  const fragment = (html) => {
+    const holder = document.createElement('div');
+    holder.innerHTML = html;
+    return holder;
+  };
+
+  await run('bare paths in opted-in text become references to the existing ones', async () => {
+    const { resolver, calls } = fakeResolver({ files: new Set([`${ROOT}/web/a.js`, `${ROOT}/README.md`]) });
+    const holder = fragment(`<pre ${FILE_REFS_ATTR}><span class="ansi-red">web/a.js:12:5</span>: error, see web/gone.js.\n`
+      + 'README.md. https://example.com/web/a.js ~/web/a.js a.b</pre>');
+    const before = holder.textContent;
+    const waiting = decorateTextFileRefs(holder, { root: ROOT, workspaceId: '', resolver });
+    assert(waiting !== null, 'unknown paths are asked about');
+    await waiting;
+    assert(calls.length === 1, `expected 1 request, got ${calls.length}`);
+    assert(calls[0].paths.join() === `${ROOT}/web/a.js,${ROOT}/web/gone.js,${ROOT}/README.md`,
+      `URLs, home paths and property accesses are never asked about: ${calls[0].paths}`);
+    const refs = [...holder.querySelectorAll('.markdown-file-ref')];
+    assert(refs.length === 2, `expected 2 references, got ${refs.length}`);
+    assert(refs[0].textContent === 'web/a.js:12:5' && refs[0].getAttribute('data-file-path') === `${ROOT}/web/a.js`
+      && refs[0].getAttribute('data-file-line') === '12', `first: ${refs[0].outerHTML}`);
+    assert(refs[0].parentElement?.classList.contains('ansi-red'), 'the reference stays inside its colour span');
+    assert(refs[1].textContent === 'README.md' && refs[1].getAttribute('data-file-path') === `${ROOT}/README.md`
+      && !refs[1].hasAttribute('data-file-line'), `second: ${refs[1].outerHTML}`);
+    assert(refs.every((r) => r.getAttribute('role') === 'link' && r.getAttribute('tabindex') === '0'), 'keyboard links');
+    assert(holder.textContent === before, 'the text is unchanged');
+  });
+
+  await run('only opted-in text is scanned, the scope included, and twice changes nothing', async () => {
+    const { resolver } = fakeResolver({ files: new Set([`${ROOT}/web/a.js`]) });
+    await resolver.request('', [`${ROOT}/web/a.js`]);
+    const holder = fragment(`<p ${FILE_REFS_ATTR}>see web/a.js</p><p>see web/a.js</p>`);
+    assert(decorateTextFileRefs(holder, { root: ROOT, workspaceId: '', resolver }) === null, 'a known answer applies at once');
+    assert(holder.querySelectorAll('.markdown-file-ref').length === 1, 'only the opted-in paragraph is decorated');
+    assert(!holder.lastElementChild?.querySelector('.markdown-file-ref'), 'the other is left alone');
+    decorateTextFileRefs(holder, { root: ROOT, workspaceId: '', resolver });
+    assert(holder.querySelectorAll('.markdown-file-ref').length === 1, 'decorating again adds nothing');
+    assert(!holder.querySelector('.markdown-file-ref .markdown-file-ref'), 'no reference is nested in another');
+
+    const scope = fragment('web/a.js');
+    scope.setAttribute(FILE_REFS_ATTR, '');
+    decorateTextFileRefs(scope, { root: ROOT, workspaceId: '', resolver });
+    assert(scope.querySelectorAll('.markdown-file-ref').length === 1, 'an opted-in scope is scanned itself');
+  });
+
+  await run('text that changed while its paths were asked about is left alone', async () => {
+    const { resolver } = fakeResolver({ files: new Set([`${ROOT}/web/a.js`]) });
+    const holder = fragment(`<pre ${FILE_REFS_ATTR}>web/a.js</pre>`);
+    const node = /** @type {Text} */ (holder.querySelector('pre')?.firstChild);
+    const waiting = decorateTextFileRefs(holder, { root: ROOT, workspaceId: '', resolver });
+    node.data = 'web/a.js and more';
+    await waiting;
+    assert(!holder.querySelector('.markdown-file-ref'), 'nothing is wrapped in text that moved');
+    assert(holder.textContent === 'web/a.js and more', 'the text is untouched');
+  });
+
+  await run('a huge output asks about a bounded number of paths', async () => {
+    const { resolver, calls } = fakeResolver();
+    const lines = Array.from({ length: 1000 }, (_, i) => `web/f${i}.js`).join('\n');
+    const holder = fragment(`<pre ${FILE_REFS_ATTR}></pre>`);
+    /** @type {HTMLElement} */ (holder.firstElementChild).textContent = lines;
+    await decorateTextFileRefs(holder, { root: ROOT, workspaceId: '', resolver });
+    const asked = calls.reduce((n, c) => n + c.paths.length, 0);
+    assert(asked > 0 && asked <= 200, `expected 1..200 paths asked, got ${asked}`);
+  });
+
+  // ── Thread summaries ──────────────────────────────────────────────────────
+
+  const { paintThreadSummary } = await import('../../js/utils/thread-display.js');
+
+  await run('a thread summary decorates its file references when given a tree', async () => {
+    const { resolver } = fakeResolver({ files: new Set([`${ROOT}/web/a.js`]) });
+    await resolver.request('', [`${ROOT}/web/a.js`]);
+    const withRefs = document.createElement('div');
+    paintThreadSummary(withRefs, 'Changed `web/a.js`.', { fileRefs: { root: ROOT, workspaceId: '', resolver } });
+    assert(withRefs.querySelectorAll('code.markdown-file-ref').length === 1, `got ${withRefs.innerHTML}`);
+    const without = document.createElement('div');
+    paintThreadSummary(without, 'Changed `web/a.js`.');
+    assert(!without.querySelector('.markdown-file-ref'), 'not without one');
+  });
+
   return { passed, failed, errors };
 }

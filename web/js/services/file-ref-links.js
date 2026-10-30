@@ -5,8 +5,9 @@
 /**
  * File-reference links — what activating a file reference in a reply does.
  *
- * References are inline code spans that utils/file-refs.js has confirmed name a
- * file in the conversation's tree. One delegated handler serves them all, so a
+ * References are inline code spans, or spans around a bare path in terminal
+ * output or plain text, that utils/file-refs.js has confirmed name a file in
+ * the conversation's tree. One delegated handler serves them all, so a
  * streaming reply that rebuilds its tail on every delta never has a listener to
  * re-attach. A click (or Enter/Space on a focused one) pins the file to the
  * Pinboard, which reveals the pin instead when it is already there; a Cmd/Ctrl
@@ -32,7 +33,7 @@ import { openPath } from './ops-api.js';
  */
 function refFor(e) {
   const target = /** @type {Element|null} */ (e.target);
-  return /** @type {HTMLElement|null} */ (target?.closest?.(`code.${FILE_REF_CLASS}[data-file-path]`) ?? null);
+  return /** @type {HTMLElement|null} */ (target?.closest?.(`.${FILE_REF_CLASS}[data-file-path]`) ?? null);
 }
 
 /**

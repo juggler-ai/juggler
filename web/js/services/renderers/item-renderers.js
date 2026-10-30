@@ -29,6 +29,7 @@ import { badgeForItem } from '../../utils/item-badge.js';
 import { readItemData } from '../../utils/item-data.js';
 import { itemContentText } from '../../utils/item-text.js';
 import { getThreadDisplayContent, getThreadStatus, paintThreadSummary } from '../../utils/thread-display.js';
+import { decorateTextFileRefs, fileRefContext } from '../../utils/file-refs.js';
 import contextItemRegistry from '../../registries/context-item-registry.js';
 import * as panelHelpers from '../../utils/properties-panel-helpers.js';
 import { applyAnsi } from '../../../sdk/lib/ansi.js';
@@ -606,7 +607,10 @@ export function renderToolAction(host, container, toolAction) {
           // declared result language (or JSON for the raw envelope dump).
           const declaredLang = ActionClass ? (/** @type {any} */ (ActionClass).resultSectionLanguage?.(toolName) || '') : '';
           const language = isTerminal ? '' : (usedJsonDump ? 'json' : declaredLang);
-          resultSection.appendChild(panelHelpers.createCopyableText(resultText, 'properties-panel-result', { ansi: isTerminal, language }));
+          // Terminal output names files (compiler errors, grep hits, ls), so its
+          // paths are linked; the live stream above is left plain, since it is
+          // rewritten many times a second.
+          resultSection.appendChild(panelHelpers.createCopyableText(resultText, 'properties-panel-result', { ansi: isTerminal, language, fileRefs: isTerminal }));
         }
       }
     } else if (toolAction.get('toolUseId')) {
@@ -665,6 +669,10 @@ export function renderToolAction(host, container, toolAction) {
 
   const hooksText = describeHookRecords(yGet(toolAction, 'hooks'));
   if (hooksText) panelHelpers.addSubsection(wrapper, t('Hooks'), hooksText, 'properties-panel-text');
+
+  // Whatever the plugin and the result section opted into data-file-refs
+  // (a command line, terminal output) gets its paths linked.
+  void decorateTextFileRefs(wrapper, fileRefContext(host._messageThread, host._messageThread?.conversation));
 
   container.appendChild(wrapper);
 }
@@ -744,7 +752,7 @@ function renderThread(host, container, message) {
       if (Object.keys(byThread).length > 0) live = { byThread };
     }
     const status = getThreadStatus(message, live);
-    paintThreadSummary(summary, text, { status });
+    paintThreadSummary(summary, text, { status, fileRefs: fileRefContext(host._messageThread, conv) });
     // The copy affordance belongs to the summary surface, so it appears exactly
     // when paintThreadSummary paints one.
     copyHeader.style.display = status.showSummary ? '' : 'none';

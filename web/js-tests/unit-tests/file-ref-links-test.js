@@ -119,6 +119,16 @@ export async function runTests(_ctx) {
       assert(pinned.length === 2, `pinned ${JSON.stringify(pinned)}`);
     });
 
+    run('a reference in terminal output, a span in a pre, pins its file too', () => {
+      reset();
+      const pre = document.createElement('pre');
+      pre.innerHTML = 'error in <span class="markdown-file-ref" data-file-path="/r/b.js" role="link" tabindex="0">b.js</span>';
+      host.appendChild(pre);
+      assert(click(/** @type {Element} */ (pre.querySelector('span'))), 'the click is claimed');
+      assert(pinned.join() === '/r/b.js', `pinned ${JSON.stringify(pinned)}`);
+      pre.remove();
+    });
+
     run('a right click is left to the context menu', () => {
       reset();
       const e = new MouseEvent('click', { bubbles: true, cancelable: true, button: 2 });

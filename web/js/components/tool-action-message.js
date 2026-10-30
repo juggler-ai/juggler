@@ -17,6 +17,7 @@ import { iconOptionsForItem } from '../utils/item-badge.js';
 import { plain, yGet, yGetRecord } from '../model/item-accessor.js';
 import JugglerElement from './juggler-element.js';
 import { capabilityLabel } from '../utils/capability-label.js';
+import { decorateTextFileRefs, fileRefContext } from '../utils/file-refs.js';
 import { t, htmlSlots, withHtml, formatList } from '../../sdk/lib/i18n.js';
 
 /**
@@ -439,6 +440,10 @@ class ToolActionMessage extends JugglerElement {
     } else {
       this._renderResult(item);
     }
+
+    // A plugin's status line can opt text into data-file-refs (the shell tool's
+    // command line); the paths in it become links to the files.
+    void decorateTextFileRefs(this, fileRefContext(this._getMessageThread(), this._getConversation()));
   }
 
   /**

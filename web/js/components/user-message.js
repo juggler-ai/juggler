@@ -7,6 +7,7 @@ import apiService from '../services/api.js';
 import { createImageThumb } from '../utils/image-lightbox.js';
 import { applyCollapsible } from '../utils/collapsible.js';
 import { renderMarkdownWrapped, decorateCodeBlocks, looksLikeMarkdown } from '../../sdk/lib/markdown.js';
+import { decorateFileRefs, decorateTextFileRefs, FILE_REFS_ATTR } from '../utils/file-refs.js';
 import { t } from '../../sdk/lib/i18n.js';
 
 /**
@@ -64,11 +65,16 @@ class UserMessage extends BaseMessage {
         // stays on the `content` attribute, which copy/rollback/branch read.
         text.innerHTML = renderMarkdownWrapped(this.content, { escapeXml: true });
         decorateCodeBlocks(text);
+        void decorateFileRefs(text, this._fileRefContext());
       } else {
         // Plain text: verbatim, whitespace-significant, mono. The `.plain` class
-        // supplies pre-wrap; stray `*`/`_`/`#` stay literal, no reflow.
+        // supplies pre-wrap; stray `*`/`_`/`#` stay literal, no reflow. A path
+        // typed here has no backticks around it, so the text is scanned for
+        // bare ones.
         text.classList.add('plain');
+        text.setAttribute(FILE_REFS_ATTR, '');
         text.textContent = this.content;
+        void decorateTextFileRefs(text, this._fileRefContext());
       }
       article.appendChild(text);
     }

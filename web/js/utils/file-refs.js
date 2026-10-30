@@ -3,8 +3,9 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * File references in a reply: inline code spans that name a file inside the
- * conversation's tree.
+ * File references in a conversation: inline code spans in rendered markdown,
+ * and bare paths in text a surface opts in (terminal output, a command line, a
+ * plain-text message), that name a file inside the conversation's tree.
  *
  * Deciding that is two questions of very different cost. Whether a span LOOKS
  * like a path is answered here, synchronously, by a few anchored regexes over
@@ -249,7 +250,7 @@ export function createFileRefResolver(options = {}) {
   return { lookup, request };
 }
 
-/** The resolver every assistant message shares. */
+/** The resolver every surface that decorates file references shares. */
 const fileRefResolver = createFileRefResolver();
 
 /** Class a confirmed reference carries; the click handler and CSS key on it. */
@@ -259,9 +260,9 @@ export const FILE_REF_CLASS = 'markdown-file-ref';
 const PENDING_ATTR = 'data-file-ref-pending';
 
 /**
- * Turn a code span into a reference to `path`. It carries `data-file-path`, so
+ * Turn an element into a reference to `path`. It carries `data-file-path`, so
  * the file context menu (properties-panel-helpers.js) offers itself on it too.
- * @param {Element} code - The inline code element.
+ * @param {Element} code - The inline code element, or the span around a bare path.
  * @param {{path: string, line?: number}} ref - What it names.
  */
 function markRef(code, ref) {
@@ -315,4 +316,130 @@ export function decorateFileRefs(holder, { root, workspaceId, resolver = fileRef
       if (resolver.lookup(workspaceId, ref.path) === true) markRef(code, ref);
     }
   });
+}
+
+/**
+ * The tree a message's file references resolve in: where its conversation
+ * works. Root '' when the message is not yet attached to one, which decorates
+ * nothing.
+ * @param {{getWorkingRoot?: () => string|null}|null|undefined} messageThread - The
+ *   thread the message is shown in.
+ * @param {{workspaceId?: string}|null|undefined} conversation - Its conversation.
+ * @returns {{root: string, workspaceId: string}} The context for the decorators.
+ */
+export function fileRefContext(messageThread, conversation) {
+  return { root: messageThread?.getWorkingRoot?.() || '', workspaceId: conversation?.workspaceId || '' };
+}
+
+/**
+ * Attribute opting an element's text into {@link decorateTextFileRefs}. It is
+ * the whole contract with code that cannot import this module: a surface marks
+ * the text that is worth scanning, and whoever paints it decorates the result.
+ */
+export const FILE_REFS_ATTR = 'data-file-refs';
+
+/**
+ * A path-shaped run of text: an optional drive, path characters, and an
+ * optional `:line`, `:line:col` or `:line-line`. Deliberately loose — every
+ * match is put to fileRefCandidate, which decides.
+ */
+const TEXT_TOKEN_RE = /(?:[a-z]:[\\/])?[\w@+./\\-]+(?::\d+(?::\d+|-\d+)?)?/gi;
+
+/**
+ * Characters that, just before a token, make it the tail of something that is
+ * not a path in the tree: a home directory, a URL's host or port, a variable.
+ */
+const TOKEN_PREFIX_RE = /[~:$%]/;
+
+/**
+ * Distinct unknown paths one scan may ask about. Terminal output can name
+ * thousands; the first few hundred are the ones anyone will click.
+ */
+const TEXT_SCAN_MAX = 200;
+
+/**
+ * Turn the bare paths in opted-in text — terminal output, a command line, a
+ * message typed as plain text — that name an existing file inside `root` into
+ * references to it.
+ *
+ * Scans the text of every element in `scope` carrying {@link FILE_REFS_ATTR},
+ * `scope` included, leaving text already inside a reference alone, so decorating
+ * the same element again adds nothing. Each hit is split out of its text node
+ * into a span of its own, so the styling around it — an ANSI colour, a
+ * highlighted argument — is kept. Paths already answered are applied at once;
+ * the rest when their answer arrives, unless the text they were found in has
+ * changed or gone by then.
+ * @param {ParentNode & Node} scope - What to search for opted-in elements.
+ * @param {object} context - The tree the text is about.
+ * @param {string} context.root - Its absolute root; '' when unknown, which
+ *   decorates nothing.
+ * @param {string} context.workspaceId - Its workspace id, '' for the project.
+ * @param {FileRefResolver} [context.resolver] - Where existence is asked.
+ * @returns {Promise<void>|null} Settles once the asked-about paths are applied;
+ *   null when everything was known and applied already.
+ */
+export function decorateTextFileRefs(scope, { root, workspaceId, resolver = fileRefResolver }) {
+  if (!root) return null;
+  /** @type {Element[]} */
+  const opted = [...scope.querySelectorAll(`[${FILE_REFS_ATTR}]`)];
+  if (scope instanceof Element && scope.hasAttribute(FILE_REFS_ATTR)) opted.unshift(scope);
+  if (!opted.length) return null;
+
+  /** @type {Array<{node: Text, data: string, hits: Array<{start: number, end: number, ref: {path: string, line?: number}}>}>} */
+  const scanned = [];
+  /** @type {Set<Text>} */
+  const seen = new Set();
+  /** @type {Set<string>} */
+  const unknown = new Set();
+  let allKnown = true;
+
+  for (const el of opted) {
+    const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = /** @type {Text|null} */ (walker.nextNode()); node; node = /** @type {Text|null} */ (walker.nextNode())) {
+      if (seen.has(node)) continue;
+      seen.add(node);
+      if (node.parentElement?.closest(`.${FILE_REF_CLASS}`)) continue;
+      const data = node.data;
+      const hits = [];
+      for (const match of data.matchAll(TEXT_TOKEN_RE)) {
+        const start = match.index ?? 0;
+        if (start > 0 && TOKEN_PREFIX_RE.test(data[start - 1] || '')) continue;
+        let token = match[0];
+        if (!LINE_SUFFIX_RE.test(token)) token = token.replace(/\.+$/, '');
+        const ref = fileRefCandidate(token, root);
+        if (!ref) continue;
+        const known = resolver.lookup(workspaceId, ref.path);
+        if (known === false) continue;
+        if (known === undefined) {
+          if (!unknown.has(ref.path) && unknown.size >= TEXT_SCAN_MAX) continue;
+          unknown.add(ref.path);
+          allKnown = false;
+        }
+        hits.push({ start, end: start + token.length, ref });
+      }
+      if (hits.length) scanned.push({ node, data, hits });
+    }
+  }
+
+  const apply = () => {
+    for (const { node, data, hits } of scanned) {
+      if (!node.parentNode || node.data !== data) continue;
+      // Last hit first, so splitting off the tail leaves the earlier offsets valid.
+      for (const { start, end, ref } of [...hits].reverse()) {
+        if (resolver.lookup(workspaceId, ref.path) !== true) continue;
+        const hit = node.splitText(start);
+        hit.splitText(end - start);
+        const span = node.ownerDocument.createElement('span');
+        /** @type {ParentNode} */ (hit.parentNode).replaceChild(span, hit);
+        span.appendChild(hit);
+        markRef(span, ref);
+      }
+    }
+  };
+
+  if (allKnown) {
+    apply();
+    return null;
+  }
+  return resolver.request(workspaceId, [...unknown]).then(apply);
 }

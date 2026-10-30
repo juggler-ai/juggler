@@ -47,6 +47,7 @@ import { readItemData } from '../utils/item-data.js';
 import { itemSummaryText } from '../utils/item-text.js';
 import { renderAssistantContentWrapped, decorateCodeBlocks } from '../../sdk/lib/markdown.js';
 import { stripThinkingTags } from '../utils/content-utils.js';
+import { decorateFileRefs, fileRefContext } from '../utils/file-refs.js';
 import { itemGoal } from '../model/thread-alias.js';
 import { liveMessageForThread } from '../utils/thread-display.js';
 import { rebindConversation } from '../services/workspace-rebinding.js';
@@ -587,11 +588,14 @@ function threadResultLabel(text) {
  * that nothing is lost and how to get a summary written.
  * @param {HTMLElement} body
  * @param {string} text - The fold's summary, or '' when it has none.
+ * @param {{root: string, workspaceId: string}} fileRefs - The tree the
+ *   summary's file references resolve in (utils/file-refs.js).
  */
-function renderThreadResultBody(body, text) {
+function renderThreadResultBody(body, text, fileRefs) {
   if (text) {
     body.innerHTML = renderAssistantContentWrapped(stripThinkingTags(text));
     decorateCodeBlocks(body);
+    void decorateFileRefs(body, fileRefs);
     return;
   }
   body.textContent = t('The folded transcript is intact in this thread. Re-summarise to write a summary for it.');
@@ -673,7 +677,7 @@ export function ensureThreadResult(area, messageList, footer) {
       const label = /** @type {HTMLElement|null} */ (existing.querySelector('.thread-result-label'));
       if (label) label.textContent = threadResultLabel(text);
       const body = /** @type {HTMLElement|null} */ (existing.querySelector('.thread-result-body'));
-      if (body) renderThreadResultBody(body, text);
+      if (body) renderThreadResultBody(body, text, fileRefContext(area.getMessageThread?.(), area.conversation));
     }
     // Keep it pinned immediately before the footer (after the last item).
     if (existing.nextSibling !== footer) {
@@ -722,7 +726,7 @@ export function ensureThreadResult(area, messageList, footer) {
 
   const body = document.createElement('div');
   body.className = 'thread-result-body markdown';
-  renderThreadResultBody(body, text);
+  renderThreadResultBody(body, text, fileRefContext(area?.getMessageThread?.(), area?.conversation));
   content.appendChild(header);
   content.appendChild(body);
 

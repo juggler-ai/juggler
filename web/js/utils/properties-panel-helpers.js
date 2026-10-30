@@ -28,6 +28,7 @@ import { yGet } from '../model/item-accessor.js';
 import { t, markForTranslation } from '../../sdk/lib/i18n.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
 import { diffSnapshotShape, isEmptyDiff, loadDiffSides } from './diff-snapshot-sides.js';
+import { FILE_REFS_ATTR } from './file-refs.js';
 
 // Re-exported so existing importers keep their `properties-panel-helpers`
 // import path; the button itself is now a plugin-neutral primitive.
@@ -37,15 +38,17 @@ export { createCopyButton };
  * Create a copyable text container with inline copy button.
  * @param {string} text - Text to copy
  * @param {string} [className] - CSS class for the text element
- * @param {{ansi?: boolean, language?: string}} [options] - When `ansi` is set,
+ * @param {{ansi?: boolean, language?: string, fileRefs?: boolean}} [options] - When `ansi` is set,
  *   render the text as terminal output (parse ANSI colour codes into styled
  *   spans) and copy the escape-stripped visible text to the clipboard. When
  *   `language` is set (e.g. 'bash'), syntax-highlight the text via Prism; the
  *   copy button always yields the raw, un-highlighted text. `ansi` takes
- *   precedence over `language`.
+ *   precedence over `language`. When `fileRefs` is set, the text element
+ *   carries `data-file-refs`, so paths in it that name files in the
+ *   conversation's tree become links to them.
  * @returns {HTMLElement} Wrapper element containing text and copy button
  */
-export function createCopyableText(text, className = 'properties-panel-text', { ansi = false, language = '' } = {}) {
+export function createCopyableText(text, className = 'properties-panel-text', { ansi = false, language = '', fileRefs = false } = {}) {
   const wrapper = document.createElement('div');
   wrapper.className = 'properties-panel-copyable';
 
@@ -65,6 +68,7 @@ export function createCopyableText(text, className = 'properties-panel-text', { 
   } else {
     textEl.textContent = text;
   }
+  if (fileRefs) textEl.setAttribute(FILE_REFS_ATTR, '');
   wrapper.appendChild(textEl);
 
   return wrapper;
@@ -76,8 +80,9 @@ export function createCopyableText(text, className = 'properties-panel-text', { 
  * @param {string} label
  * @param {string} text
  * @param {string} [className]
- * @param {{ansi?: boolean, language?: string}} [options] - Forwarded to
- *   {@link createCopyableText} (e.g. `{ language: 'bash' }` to syntax-highlight).
+ * @param {{ansi?: boolean, language?: string, fileRefs?: boolean}} [options] - Forwarded to
+ *   {@link createCopyableText} (e.g. `{ language: 'bash' }` to syntax-highlight,
+ *   `{ fileRefs: true }` to link the paths in it).
  */
 export function addSubsection(wrapper, label, text, className = 'properties-panel-code', options = {}) {
   const section = labeledSubsection(label);

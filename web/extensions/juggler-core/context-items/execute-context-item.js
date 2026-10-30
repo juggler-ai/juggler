@@ -181,6 +181,18 @@ function stripLeadingProjectCd(command, opts = {}) {
 }
 
 /**
+ * The tile's highlighted command line, opted in with `data-file-refs` so the
+ * host turns the paths it names into links to the files.
+ * @param {string} command - The command as the tile shows it
+ * @returns {HTMLElement} The highlighted command
+ */
+function commandLine(command) {
+  const el = createHighlightedCode(command, 'bash');
+  el.setAttribute('data-file-refs', '');
+  return el;
+}
+
+/**
  * ExecuteContextItem - Execute shell commands
  *
  * Executes shell commands via backend API.
@@ -1052,7 +1064,7 @@ class ExecuteContextItem extends ContextItem {
       void pinSource(TASKS_SOURCE);
     });
     mainEl.appendChild(tag);
-    mainEl.appendChild(createHighlightedCode(command, 'bash'));
+    mainEl.appendChild(commandLine(command));
     wrapper.appendChild(mainEl);
 
     if (description) {
@@ -1113,7 +1125,7 @@ class ExecuteContextItem extends ContextItem {
     if (result?.pending) {
       summary = backgroundRequested
         ? this._backgroundSummary(tileCommand, description)
-        : createSummaryWithSubtitle(createHighlightedCode(tileCommand, 'bash'), description);
+        : createSummaryWithSubtitle(commandLine(tileCommand), description);
       status = 'running';
     } else if (result?.cancelled) {
       summary = t('Command cancelled: {command}', { command: tileCommand });
@@ -1125,14 +1137,14 @@ class ExecuteContextItem extends ContextItem {
         summary = this._backgroundSummary(tileCommand, description);
         status = 'success';
       } else {
-        summary = createSummaryWithSubtitle(createHighlightedCode(tileCommand, 'bash'), description);
+        summary = createSummaryWithSubtitle(commandLine(tileCommand), description);
         status = exitCode === 0 ? 'success' : 'error';
       }
     } else if (result) {
       summary = t('{command} — failed', { command: tileCommand });
       status = 'error';
     } else {
-      summary = createSummaryWithSubtitle(createHighlightedCode(tileCommand, 'bash'), description);
+      summary = createSummaryWithSubtitle(commandLine(tileCommand), description);
       status = 'running';
     }
 
@@ -1186,7 +1198,7 @@ class ExecuteContextItem extends ContextItem {
    */
   renderToolActionDetails(wrapper, ctx) {
     const { input, helpers, toolAction } = ctx;
-    helpers.addSubsection(wrapper, t('Command'), formatCommandForDisplay(inputText(input, 'command')), 'properties-panel-code', { language: 'bash' });
+    helpers.addSubsection(wrapper, t('Command'), formatCommandForDisplay(inputText(input, 'command')), 'properties-panel-code', { language: 'bash', fileRefs: true });
     if (input.description) {
       helpers.addLlmDescription(wrapper, t('Description'), String(input.description));
     }

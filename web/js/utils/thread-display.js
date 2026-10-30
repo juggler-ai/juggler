@@ -9,6 +9,7 @@ import { hasPendingApprovalInTree, hasUnsettledToolInTree } from '../model/threa
 import { canonicalThread, itemGoal, itemRunRecord, isTrailingViewOf } from '../model/thread-alias.js';
 import { arrayItems } from '../model/item-accessor.js';
 import { formatTokens } from './format.js';
+import { decorateFileRefs } from './file-refs.js';
 import { itemField } from '../../sdk/lib/message.js';
 import { t } from '../../sdk/lib/i18n.js';
 
@@ -330,9 +331,12 @@ export function threadHasWorkOutstanding(status) {
  * showing this body — the tile's badge row, the panel's section header, the
  * group tile's title — so each surface paints it there itself, and this stays
  * the body beneath it.
+ *
+ * With `opts.fileRefs`, the summary's inline code naming a file in that tree
+ * becomes a reference to it (utils/file-refs.js); without it nothing is asked.
  * @param {HTMLElement} el - Element to populate.
  * @param {string} text - Summary text (only used when status.showSummary).
- * @param {{status?: ThreadStatus}} [opts]
+ * @param {{status?: ThreadStatus, fileRefs?: Parameters<typeof decorateFileRefs>[1]}} [opts]
  */
 export function paintThreadSummary(el, text, opts) {
   const status = opts?.status;
@@ -341,6 +345,7 @@ export function paintThreadSummary(el, text, opts) {
     el.className = 'thread-summary';
     el.innerHTML = renderAssistantContentWrapped(stripThinkingTags(text));
     decorateCodeBlocks(el);
+    if (opts?.fileRefs) void decorateFileRefs(el, opts.fileRefs);
     return;
   }
 

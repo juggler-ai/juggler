@@ -4,6 +4,7 @@
 
 import JugglerElement from './juggler-element.js';
 import { createCopyButton } from '../utils/properties-panel-helpers.js';
+import { fileRefContext } from '../utils/file-refs.js';
 
 /**
  * Attribute marking the element that renders the thread's final item, written
@@ -122,6 +123,17 @@ class BaseMessage extends JugglerElement {
   _getMessageThread() {
     const conversationArea = /** @type {any} */ (this.closest('conversation-area'));
     return conversationArea?.getMessageThread?.() || null;
+  }
+
+  /**
+   * The tree this message's file references resolve in: where its conversation
+   * works, asked afresh each time so a message rendered before its row was
+   * attached simply decorates nothing until it is.
+   * @returns {{root: string, workspaceId: string}} Root '' when not known.
+   * @protected
+   */
+  _fileRefContext() {
+    return fileRefContext(this._getMessageThread(), this._getConversation());
   }
 
   // === Override Points ===

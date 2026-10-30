@@ -9,6 +9,7 @@ import { getThreadStatus, getThreadDisplayContent, paintThreadSummary, paintThre
   threadHasWorkOutstanding } from '../utils/thread-display.js';
 import { applyCollapsible } from '../utils/collapsible.js';
 import { canonicalThread } from '../model/thread-alias.js';
+import { fileRefContext } from '../utils/file-refs.js';
 import { t } from '../../sdk/lib/i18n.js';
 
 /**
@@ -243,7 +244,7 @@ class ThreadMessage extends JugglerElement {
       const body = document.createElement('div');
       body.className = 'thread-body message-row-body';
       const summaryDiv = document.createElement('div');
-      paintThreadSummary(summaryDiv, result, status ? { status } : undefined);
+      paintThreadSummary(summaryDiv, result, { ...(status ? { status } : {}), fileRefs: this._fileRefContext() });
       body.appendChild(summaryDiv);
       article.appendChild(body);
       this._paintCost(article, cost);
@@ -295,11 +296,22 @@ class ThreadMessage extends JugglerElement {
     const summaryDiv = /** @type {HTMLElement|null} */ (this.querySelector('.thread-summary'));
     if (!summaryDiv) return;
     if (showsSummary) {
-      paintThreadSummary(summaryDiv, result, { status });
+      paintThreadSummary(summaryDiv, result, { status, fileRefs: this._fileRefContext() });
       applyCollapsible(summaryDiv, { key: this._item?.get?.('itemId') || '', maxChars: THREAD_SUMMARY_MAX_CHARS });
       return;
     }
     if (status) paintThreadStatusText(summaryDiv, status);
+  }
+
+  /**
+   * The tree the summary's file references resolve in: where the conversation
+   * this tile sits in works. Root '' before the tile is attached to one.
+   * @returns {{root: string, workspaceId: string}} The context for paintThreadSummary.
+   * @private
+   */
+  _fileRefContext() {
+    const area = /** @type {any} */ (this.closest('conversation-area'));
+    return fileRefContext(area?.getMessageThread?.(), area?.conversation);
   }
 }
 

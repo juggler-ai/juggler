@@ -161,8 +161,10 @@ export async function runTests() {
       const [text, threadItemId, sentThread, options] = sends[0];
       assert(text === 'continue', `the held message must be "continue", got ${JSON.stringify(text)}`);
       assert(threadItemId === 'T1' && sentThread === thread, 'the send must go to the error\'s own thread');
-      assert(options?.schedule?.notBefore === data.resetAt,
-        `the send must be held until the reset, got ${JSON.stringify(options?.schedule)}`);
+      // Ten seconds past the stated reset, so a clock running ahead of the
+      // provider's cannot land the continue on a cap that has not lifted yet.
+      assert(options?.schedule?.notBefore === data.resetAt + 10_000,
+        `the send must be held until 10s past the reset, got ${JSON.stringify(options?.schedule)}`);
       assert(options.consumeComposer === false && options.interpretCommands === false,
         `the send must leave the composer alone, got ${JSON.stringify(options)}`);
       assert(btn.disabled, 'a continue already scheduled must not be offered again');

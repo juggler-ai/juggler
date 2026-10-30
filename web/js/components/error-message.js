@@ -18,6 +18,13 @@ import { escapeHtml } from '../../sdk/lib/html.js';
 const AUTO_CONTINUE_MESSAGE = 'continue';
 
 /**
+ * How long past the provider's stated reset an Auto-continue is held. The reset
+ * is the provider's clock and the hold is ours; the margin keeps a clock running
+ * slightly ahead from sending into a cap that has not lifted yet.
+ */
+const AUTO_CONTINUE_MARGIN_MS = 10_000;
+
+/**
  * Whether a thread's queue already holds a held send — a message waiting for a
  * time or for the run to end.
  * @param {any} thread - The message thread
@@ -97,11 +104,14 @@ const SETUP_ERROR_KIND = 'setup';
  * that isn't installed is one the reader may never have meant to use.
  *
  * A usage cap the provider dated (`reset-at`) carries Auto-continue, ahead of
- * Retry and under the same last-item gate: a "continue" held until the reset,
- * exactly as if the user had typed it and scheduled it with Send later. The
- * worker fires it itself, with or without a window open. It is not offered once
- * the reset has passed (Retry does the same thing now), nor on a thread whose
- * queue already holds a send, which already says what happens next.
+ * Retry and under the same last-item gate: a "continue" held until ten seconds
+ * past the reset, so a clock slightly ahead of the provider's cannot send it
+ * into a cap that has not lifted yet. Otherwise it is exactly as if the user
+ * had typed it and scheduled it with Send later. The button shows the stated
+ * reset, to the minute. The worker fires it itself, with or without a window
+ * open. It is not offered once the reset has passed (Retry does the same thing
+ * now), nor on a thread whose queue already holds a send, which already says
+ * what happens next.
  */
 class ErrorMessage extends BaseMessage {
   static get observedAttributes() {
@@ -258,12 +268,13 @@ class ErrorMessage extends BaseMessage {
   }
 
   /**
-   * Schedule "continue" for the reset: the composer's Send later path, with the
-   * message supplied here rather than typed, so the box and its draft are left
-   * alone. The button stands down at once so a second press cannot queue a
-   * second continue; a refused send gives it back.
+   * Schedule "continue" for just after the reset (`AUTO_CONTINUE_MARGIN_MS`
+   * past it): the composer's Send later path, with the message supplied here
+   * rather than typed, so the box and its draft are left alone. The button
+   * stands down at once so a second press cannot queue a second continue; a
+   * refused send gives it back.
    * @param {HTMLButtonElement} button - The pressed button
-   * @param {number} resetAt - Epoch ms the send is held until
+   * @param {number} resetAt - Epoch ms the provider says the cap lifts
    * @param {string} time - The reset as the button showed it
    * @private
    */
@@ -276,7 +287,7 @@ class ErrorMessage extends BaseMessage {
     const refusal = await thread.conversation.sendMessage(AUTO_CONTINUE_MESSAGE, thread.threadItemId ?? null, thread, {
       consumeComposer: false,
       interpretCommands: false,
-      schedule: { notBefore: resetAt },
+      schedule: { notBefore: resetAt + AUTO_CONTINUE_MARGIN_MS },
     });
     if (refusal) {
       button.disabled = false;

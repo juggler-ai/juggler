@@ -14,11 +14,13 @@ const t = translator('@juggler/core');
  * conversation placed directly after the source, then switch to the clone. The source
  * is left intact.
  *
- * Duplication is refused while a turn is active (see
- * `Session.duplicateConversation`): a mid-turn clone can't be flushed without
- * hanging on the worker, and silently cancelling the turn to allow it would
- * discard the user's in-flight work. The session surfaces the refusal as a
- * warning, so this command only adds its own message for genuine failures.
+ * A running conversation is duplicated as it stands: the server snapshots the
+ * live document and the clone loads stopped. Only `refuseWhileActive` callers
+ * (/handoff) decline mid-turn. While a plain duplicate of the source is
+ * already in flight, `Session.duplicateConversation` hands this command that
+ * same copy rather than making a second; while a fork or handoff of it is, it
+ * refuses. The session shows its own refusals as a warning, so this command
+ * only adds its own message for genuine failures.
  *
  * Tab management is a Session concern, so the command reaches the session
  * through `messageThread.conversation.session`. "Duplicate then compact" is
@@ -48,9 +50,10 @@ class DuplicateConversationCommandType extends CommandType {
     try {
       const newId = await session.duplicateConversation(sourceConversation.id);
       if (!newId) {
-        // A null clone means the source vanished (plain duplicate forks even a
-        // running conversation, so there's no mid-turn refusal here). Treat as
-        // handled (not an error) so the slash handler stays quiet.
+        // A null clone means the source vanished, or the session refused the
+        // duplicate because a fork or handoff of it is in flight and has said
+        // so itself. Treat as handled (not an error) so the slash handler stays
+        // quiet.
         return { handled: true };
       }
       session.switchConversation(newId);

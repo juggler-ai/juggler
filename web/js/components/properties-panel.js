@@ -384,6 +384,15 @@ class PropertiesPanel extends JugglerElement {
     // shows strategy content).
     const conversation = this._messageThread?.conversation;
     const unsubscribe = conversation?.session?.subscribe((event) => {
+      // Fork is a duplicate, so it stands disabled while one of this
+      // conversation is being made, as the footer's Duplicate button does.
+      if (event.type === 'conversation:duplicating') {
+        if (event.data.conversationId !== conversation?.id) return;
+        for (const btn of this.querySelectorAll('.properties-panel-fork-btn')) {
+          /** @type {HTMLButtonElement} */ (btn).disabled = event.data.active;
+        }
+        return;
+      }
       if (event.type !== 'conversation:strategy-changed' || event.data?.conversation !== conversation) return;
       if (this._selectedItemId) {
         // Force full re-render by clearing snapshot
@@ -986,7 +995,9 @@ class PropertiesPanel extends JugglerElement {
         // is offered in the root column only.
         if ((type === 'user' || type === 'assistant') && !this._messageThread.threadItemId) {
           const branchBtn = document.createElement('button');
-          branchBtn.className = 'properties-panel-btn';
+          branchBtn.className = 'properties-panel-btn properties-panel-fork-btn';
+          const conversation = this._messageThread.conversation;
+          branchBtn.disabled = !!conversation?.session?.isDuplicating?.(conversation.id);
           const label = type === 'user'
             ? t('Fork a new conversation from here')
             : t('Fork a new conversation after this reply');

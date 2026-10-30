@@ -78,8 +78,9 @@ class HandoffCommandType extends CommandType {
       return { handled: true, message: t("Couldn't hand off: {error}", { error: extractErrorMessage(error) }), error: true };
     }
     if (!newId) {
-      // Null clone is duplicateConversation's mid-turn refusal (or a missing
-      // source): it already surfaced its own notice, so stay quiet.
+      // Null clone is duplicateConversation's refusal — mid-turn, or while
+      // another duplicate of the source is in flight — or a missing source: it
+      // already surfaced its own notice, so stay quiet.
       return { handled: true };
     }
 

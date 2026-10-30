@@ -13,6 +13,7 @@ import {
 import {
   MAX_MESSAGE_HISTORY,
   HANDOFF_WHILE_ACTIVE_NOTICE,
+  DUPLICATE_IN_PROGRESS_NOTICE,
   MAX_CONVERSATION_NAME_LENGTH
 } from '../utils/constants.js';
 import workerManager from '../services/worker-manager.js';
@@ -333,6 +334,14 @@ class Session {
      * @private
      */
     this._autoNaming = undefined;
+
+    /**
+     * Duplicates in flight, by source conversation: the promise a joining
+     * caller is handed, and whether it may be joined (see duplicateConversation).
+     * @type {Map<string, {promise: Promise<string|null>, joinable: boolean}>}
+     * @private
+     */
+    this._duplicating = new Map();
 
     /**
      * The project's bin: its count and size, and the requests that list,
@@ -1619,7 +1628,28 @@ class Session {
   }
 
   /**
-   * Duplicate a conversation and add it to the session, inserted right after the source
+   * Duplicate a conversation and add it to the session, inserted right after the source.
+   *
+   * One duplicate per source at a time. The copy is slow on a slow machine —
+   * the server copies every file, then this viewer loads the lot — and slow
+   * enough to be clicked twice, which made two full copies. So while a
+   * duplicate of a source is in flight, another request for it never starts a
+   * second copy. What it gets instead depends on what its caller does next:
+   *
+   * - A plain duplicate joins the one in flight: it is handed the same promise,
+   *   so both resolve to the one copy, or both hear its one failure. Its
+   *   callers go on only to switch to the copy, which is harmless twice.
+   * - A caller that goes on to change the copy can't share it, so it is
+   *   refused, with a notice, and resolves null: a fork (`exclusive`), which
+   *   cuts the copy at its fork point, and a renamed derivation (/handoff's
+   *   "continued"), which runs a turn on it. A plain duplicate asked for while
+   *   one of those is in flight is refused the same way. Sharing would hand two
+   *   callers one copy — two forks cutting it at two points, or a fork cutting
+   *   the copy a duplicate asked for whole. Refusing is the simplest answer
+   *   that is always correct; the gesture can be repeated once the copy lands.
+   *
+   * The mark is announced as `conversation:duplicating` and read back with
+   * isDuplicating, and it clears however the duplicate ends.
    * @param {string} conversationId - ID of conversation to duplicate
    * @param {object} [options] - Options
    * @param {string} [options.nameSuffix] - Suffix word for the derived name
@@ -1629,11 +1659,54 @@ class Session {
    *   Default false: plain duplicate/branch fork a running conversation, and the
    *   clone loads stopped. /handoff opts in because its follow-up is an LLM turn
    *   that a half-forked, still-running source can't cleanly seed.
-   * @returns {Promise<string|null>} New conversation ID, or null if source not
-   *   found; rejects, copying nothing, when the source's worker falls silent
-   *   before confirming its flush
+   * @param {boolean} [options.exclusive] - The caller will change the copy (a
+   *   fork cuts it), so it must have one of its own: refused rather than joined
+   *   while another duplicate of the source is in flight.
+   * @returns {Promise<string|null>} New conversation ID, or null if the source
+   *   is not found or the duplicate was refused; rejects, copying nothing, when
+   *   the source's worker falls silent before confirming its flush
    */
-  async duplicateConversation(conversationId, { nameSuffix = 'copy', refuseWhileActive = false } = {}) {
+  duplicateConversation(conversationId, { nameSuffix = 'copy', refuseWhileActive = false, exclusive = false } = {}) {
+    // Decided synchronously, before anything is awaited, so two calls in one
+    // task — a double click's two events — can't both find nothing in flight.
+    const joinable = !exclusive && nameSuffix === 'copy';
+    const inFlight = this._duplicating.get(conversationId);
+    if (inFlight) {
+      if (joinable && inFlight.joinable) return inFlight.promise;
+      this.getConversation(conversationId)?.showWarning(t(DUPLICATE_IN_PROGRESS_NOTICE), 5000);
+      return Promise.resolve(null);
+    }
+    if (!this.getConversation(conversationId)) return Promise.resolve(null);
+
+    const promise = this._copyConversation(conversationId, { nameSuffix, refuseWhileActive }).finally(() => {
+      this._duplicating.delete(conversationId);
+      this.events.notify('conversation:duplicating', { conversationId, active: false });
+    });
+    this._duplicating.set(conversationId, { promise, joinable });
+    this.events.notify('conversation:duplicating', { conversationId, active: true });
+    return promise;
+  }
+
+  /**
+   * Whether a duplicate of this conversation is in flight — what the Duplicate
+   * and Fork buttons read to disable themselves while the copy is made.
+   * `conversation:duplicating` announces each change.
+   * @param {string} conversationId - The source conversation to ask about.
+   * @returns {boolean} True from the duplicate's start until it lands or fails.
+   */
+  isDuplicating(conversationId) {
+    return this._duplicating.has(conversationId);
+  }
+
+  /**
+   * Make the copy duplicateConversation asked for: the one place a duplicate
+   * is actually made, always behind its one-per-source guard.
+   * @param {string} conversationId - ID of conversation to duplicate
+   * @param {{nameSuffix: string, refuseWhileActive: boolean}} options - As duplicateConversation's
+   * @returns {Promise<string|null>} New conversation ID, or null if declined
+   * @private
+   */
+  async _copyConversation(conversationId, { nameSuffix, refuseWhileActive }) {
     const source = this.getConversation(conversationId);
     if (!source) {
       return null;

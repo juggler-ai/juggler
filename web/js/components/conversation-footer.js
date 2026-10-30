@@ -10,6 +10,7 @@
  * @property {boolean} [showSpinner] - Whether to show the spinner animation (default true)
  * @property {string} [nextSteps] - Optional next steps guidance
  * @property {boolean} [showDuplicateTab] - Whether to show the duplicate tab button (root thread only)
+ * @property {boolean} [duplicating] - A duplicate of this conversation is in flight: the duplicate button is disabled and reads "Duplicating…"
  * @property {string} [busyItemMessageId] - message-id of the busy thread item, enables clicking footer to select it
  * @property {boolean} [politePending] - A polite stop (Pause) covering this column is still winding its work down: render the Pause button active
  * @property {boolean} [politePaused] - A Pause covering this column has landed: this thread is at rest and runs nothing until it is lifted
@@ -860,7 +861,7 @@ class ConversationFooter extends JugglerElement {
                     <div class="footer-idle-right">
                         <button class="message-action-btn duplicate-to-tab-btn hidden">
                             ${FORK_SVG}
-                            ${escapeHtml(t('Duplicate as new conversation'))}
+                            <span class="duplicate-to-tab-label">${escapeHtml(t('Duplicate as new conversation'))}</span>
                         </button>
                         <button class="message-action-btn continue-btn">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M240-240v-480h66.67v480H240Zm169.33 0 390-240-390-240v480ZM476-363.67v-232.66L665-480 476-363.67ZM476-480Z"/></svg>
@@ -1079,7 +1080,7 @@ class ConversationFooter extends JugglerElement {
     const text = this.querySelector('.llm-busy-text');
     const nextSteps = /** @type {HTMLElement|null} */ (this.querySelector('.llm-next-steps'));
     const continueBtn = /** @type {HTMLElement|null} */ (this.querySelector('.continue-btn'));
-    const duplicateTabBtn = /** @type {HTMLElement|null} */ (this.querySelector('.duplicate-to-tab-btn'));
+    const duplicateTabBtn = /** @type {HTMLButtonElement|null} */ (this.querySelector('.duplicate-to-tab-btn'));
     const addCIBtn = /** @type {HTMLElement|null} */ (this.querySelector('.add-context-item-btn'));
 
     const hide = (/** @type {Element|null} */ el) => el?.classList.add('hidden');
@@ -1197,6 +1198,15 @@ class ConversationFooter extends JugglerElement {
       // Duplicate tab is offered only on a conversation's root thread
       // (the owner sets showDuplicateTab), never on sub-threads.
       toggle(duplicateTabBtn, !!state.showDuplicateTab);
+      // While a duplicate of this conversation is being made the button can't
+      // be pressed again, and says why: on a slow machine the copy takes long
+      // enough that a button which looked idle got pressed twice.
+      if (duplicateTabBtn) {
+        const duplicating = !!state.duplicating;
+        if (duplicateTabBtn.disabled !== duplicating) duplicateTabBtn.disabled = duplicating;
+        setText(duplicateTabBtn.querySelector('.duplicate-to-tab-label'),
+          duplicating ? t('Duplicating…') : t('Duplicate as new conversation'));
+      }
 
       show(addCIBtn);
     }

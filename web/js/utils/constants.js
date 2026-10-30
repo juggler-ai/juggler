@@ -132,3 +132,12 @@ export const TURN_CANCELLED_NOTICE = markForTranslation('Stopped the turn that w
  */
 export const HANDOFF_WHILE_ACTIVE_NOTICE =
   markForTranslation("Can't hand off while a turn is running — wait for it to finish, or stop it first.");
+
+/**
+ * Notice shown when a duplicate of a conversation is asked for while another
+ * is still being made and the two can't share one copy — a fork, a handoff, or
+ * a plain duplicate during either (see Session.duplicateConversation).
+ * Translated where it is shown.
+ */
+export const DUPLICATE_IN_PROGRESS_NOTICE =
+  markForTranslation('This conversation is already being duplicated — wait for the copy to finish.');

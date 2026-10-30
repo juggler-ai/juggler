@@ -334,11 +334,90 @@ export async function runTests(_ctx) {
       assert(outcome instanceof Error && /said nothing/.test(outcome.message),
         `a duplicate whose worker fell silent must fail, saying so; got ${outcome instanceof Error ? outcome.message : String(outcome)}`);
       assert(posted.length === 1, `and copy nothing: ${posted.length} POST(s)`);
+      assert(session.isDuplicating('src') === false,
+        'a duplicate refused before its POST must not leave the source marked as duplicating');
     } finally {
       loader.loadExisting = saved.loadExisting;
       wm.clearUndoStacks = saved.clearUndoStacks;
       wm.isWorkerReady = saved.isWorkerReady;
       wm.sendToWorker = saved.sendToWorker;
+    }
+  });
+
+  await run('one duplicate per source at a time, and the mark clears when it fails', async () => {
+    /** @type {Array<{id: string, settle: (v: unknown) => void, fail: (e: Error) => void}>} */
+    const posts = [];
+    const session = /** @type {any} */ (trackTestSession(new Session(/** @type {any} */ ({
+      createConversation: (/** @type {string} */ _name, /** @type {string} */ id) =>
+        new Promise((settle, fail) => { posts.push({ id, settle, fail }); }),
+      reorderConversations: async () => null,
+      updateSession: async () => ({ success: true })
+    }))));
+    /**
+     * @param {number} i - Which POST, in the order they were made.
+     * @returns {{id: string, settle: (v: unknown) => void, fail: (e: Error) => void}} That POST, held open.
+     */
+    const post = (i) => {
+      const p = posts[i];
+      if (!p) throw new Error(`no POST #${i}: ${posts.length} made`);
+      return p;
+    };
+    /** @type {string[]} */
+    const warnings = [];
+    session.registry.insert('src', {
+      id: 'src', name: 'Source', isTurnActive: () => false,
+      showWarning: (/** @type {string} */ m) => { warnings.push(m); }
+    }, 'test');
+
+    const wm = /** @type {any} */ (workerManager);
+    const loader = wm.loader;
+    const saved = { loadExisting: loader.loadExisting, clearUndoStacks: wm.clearUndoStacks, isWorkerReady: wm.isWorkerReady };
+    loader.loadExisting = async (/** @type {string} */ id) => ({ id, name: 'Source copy' });
+    wm.clearUndoStacks = async () => {};
+    // No worker, so no flush: the POST is the first thing a duplicate awaits.
+    wm.isWorkerReady = () => false;
+    /** @type {string[]} */
+    const marks = [];
+    const unsubscribe = session.subscribe('conversation:duplicating',
+      (/** @type {any} */ e) => { marks.push(`${e.data.conversationId}:${e.data.active}`); });
+
+    try {
+      const first = session.duplicateConversation('src');
+      const again = session.duplicateConversation('src');
+      const fork = session.duplicateConversation('src', { exclusive: true });
+      /** @type {unknown[]} */
+      const outcomes = [];
+      first.catch((/** @type {unknown} */ e) => { outcomes.push(e); });
+      again.catch((/** @type {unknown} */ e) => { outcomes.push(e); });
+
+      // Read before anything is awaited: a POST is made synchronously when no
+      // flush precedes it, and every POST here is held open, so a second copy
+      // would be awaited for ever.
+      assert(posts.length === 1, `a repeated duplicate must not start a second copy: ${posts.length} POST(s)`);
+      assert(await fork === null, 'a fork while a duplicate of its source is in flight is refused');
+      assert(warnings.length === 1, `the refusal says why: ${JSON.stringify(warnings)}`);
+      assert(session.isDuplicating('src') === true, 'the source reads as duplicating while its copy is made');
+      assert(JSON.stringify(marks) === '["src:true"]', `the start is announced once: ${JSON.stringify(marks)}`);
+
+      post(0).fail(new Error('disk full'));
+      await Promise.allSettled([first, again]);
+      assert(outcomes.length === 2 && outcomes.every((e) => e instanceof Error && /disk full/.test(e.message)),
+        `both callers hear the one failure: ${outcomes.map(String).join(', ')}`);
+      assert(session.isDuplicating('src') === false, 'a failed duplicate clears the mark');
+      assert(JSON.stringify(marks) === '["src:true","src:false"]', `the end is announced: ${JSON.stringify(marks)}`);
+
+      // With nothing in flight, the next duplicate is a copy of its own.
+      const retry = session.duplicateConversation('src');
+      await Promise.resolve();
+      assert(posts.length === 2, `after a failure a duplicate starts afresh: ${posts.length} POST(s)`);
+      post(1).settle({ id: post(1).id, name: 'Source copy' });
+      assert(await retry === post(1).id, 'and resolves to its own copy');
+      assert(session.isDuplicating('src') === false, 'a finished duplicate clears the mark');
+    } finally {
+      unsubscribe();
+      loader.loadExisting = saved.loadExisting;
+      wm.clearUndoStacks = saved.clearUndoStacks;
+      wm.isWorkerReady = saved.isWorkerReady;
     }
   });
 

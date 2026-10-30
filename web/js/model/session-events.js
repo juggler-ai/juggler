@@ -37,7 +37,8 @@ import { reportFault } from '../utils/fault-report.js';
  * The conversation list: `conversation:created`, `conversation:deleted`,
  * `conversation:renamed`, `conversation:rename-requested`,
  * `conversation:reordered`, `conversation:switched`,
- * `conversation:focus-followed`, `conversation:auto-naming`.
+ * `conversation:focus-followed`, `conversation:auto-naming`,
+ * `conversation:duplicating` (a duplicate of `conversationId` started or ended).
  *
  * One conversation, announced by the Conversation itself:
  * `conversation:changed`, `conversation:loadstate-changed`,
@@ -74,6 +75,7 @@ import { reportFault } from '../utils/fault-report.js';
  *   'conversation:switched': Conversation,
  *   'conversation:focus-followed': {id: string, from: string},
  *   'conversation:auto-naming': {conversationId: string, active: boolean},
+ *   'conversation:duplicating': {conversationId: string, active: boolean},
  *   'conversation:changed': {conversationId: string, insertedItemIds?: string[], metadataKeys?: string[]},
  *   'conversation:loadstate-changed': {conversationId: string, loadState: 'unloaded'|'loading'|'loaded'|'error'},
  *   'conversation:items-removed': {conversation: Conversation, messageThread: MessageThread, removed: number},

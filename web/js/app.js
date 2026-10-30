@@ -888,8 +888,10 @@ class JugglerApp {
     }
     const { item } = located;
 
-    // Duplicate the conversation (creates a clone with new ID)
-    const newConvId = await this._duplicateConversationGuarded(session, conversation.id);
+    // Duplicate the conversation (creates a clone with new ID). Exclusive: the
+    // copy is cut below, so it must be this fork's alone — refused, not shared,
+    // while another duplicate of the source is in flight.
+    const newConvId = await this._duplicateConversationGuarded(session, conversation.id, { exclusive: true });
     if (!newConvId) {
       return;
     }
@@ -925,15 +927,16 @@ class JugglerApp {
    * branch-from-message path so the cap behaves identically everywhere.
    * @param {import('./model/session.js').default} session
    * @param {string} conversationId
+   * @param {{exclusive?: boolean}} [options] - Passed to Session.duplicateConversation
    * @returns {Promise<string|null>} New conversation ID, or null if not created
    * @private
    */
-  async _duplicateConversationGuarded(session, conversationId) {
+  async _duplicateConversationGuarded(session, conversationId, options) {
     if (session.conversations.size >= MAX_CONVERSATIONS) {
       await showConversationLimitAlert();
       return null;
     }
-    return await session.duplicateConversation(conversationId);
+    return await session.duplicateConversation(conversationId, options);
   }
 
   /**

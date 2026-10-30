@@ -256,6 +256,9 @@ class ConversationArea extends JugglerElement {
     // so the item path would never hear about it.
     const unsubscribe = conversation.session?.subscribe((event) => {
       if (event.type === 'session:workspaces-changed') this._refreshConversationTop();
+      // The footer's Duplicate button stands disabled while this conversation
+      // is being copied — a mark the session keeps, not the doc.
+      if (event.type === 'conversation:duplicating' && event.data.conversationId === conversation.id) this.updateFooter();
     });
     this._unsubscribeSession = unsubscribe || null;
 
@@ -1999,6 +2002,7 @@ class ConversationArea extends JugglerElement {
       showSpinner,
       nextSteps: this._nextSteps,
       showDuplicateTab,
+      duplicating: showDuplicateTab && !!this._conversation?.session?.isDuplicating?.(this._conversation.id),
       busyItemMessageId: itemBusy?.messageId,
       // Asked of THIS column. A pause covers a thread and everything below it,
       // so the conversation-wide answer would put "Pausing…" on every footer in

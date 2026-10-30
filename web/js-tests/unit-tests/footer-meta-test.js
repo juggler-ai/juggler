@@ -19,6 +19,8 @@
  *      same reading, so the same visibility — and must name the conversation it
  *      belongs to when it deep-links into the Logs tab.
  *   5–6. Under en-XA, the meter and then the footer around it show no English.
+ *   7. While a duplicate of this conversation is in flight, the Duplicate
+ *      button is disabled and says so, so a second click has nothing to press.
  * @module unit-tests/footer-meta-test
  */
 
@@ -293,6 +295,9 @@ export async function runTests() {
       assert(!!xaFooter.querySelector('.footer-last-activity')?.textContent, 'an idle footer dates the thread');
       collect('idle');
 
+      xaFooter.update({ isProcessing: false, canContinue: true, showDuplicateTab: true, duplicating: true, lastActivityAt: at });
+      collect('duplicating');
+
       xaFooter.update({ isProcessing: false, canContinue: true, politePaused: true, lastActivityAt: at });
       collect('paused');
 
@@ -318,6 +323,32 @@ export async function runTests() {
     errors.push(`footer en-XA: ${msg(e)}`);
   } finally {
     xaFooter?.remove();
+  }
+
+  // --- 7: a duplicate in flight disables its button ------------------------
+  const dupFooter = /** @type {any} */ (document.createElement('conversation-footer'));
+  document.body.appendChild(dupFooter);
+  try {
+    const btn = () => /** @type {HTMLButtonElement|null} */ (dupFooter.querySelector('.duplicate-to-tab-btn'));
+    const label = () => (btn()?.textContent || '').trim();
+
+    dupFooter.update({ isProcessing: false, canContinue: true, showDuplicateTab: true });
+    assert(btn()?.disabled === false && label() === 'Duplicate as new conversation',
+      `at rest the button is live and offers the duplicate, got disabled=${btn()?.disabled} "${label()}"`);
+
+    dupFooter.update({ isProcessing: false, canContinue: true, showDuplicateTab: true, duplicating: true });
+    assert(btn()?.disabled === true, 'while the copy is made the button cannot be pressed again');
+    assert(label() === 'Duplicating…', `and it says what is happening, got "${label()}"`);
+
+    dupFooter.update({ isProcessing: false, canContinue: true, showDuplicateTab: true, duplicating: false });
+    assert(btn()?.disabled === false && label() === 'Duplicate as new conversation',
+      `once it lands the button comes back, got disabled=${btn()?.disabled} "${label()}"`);
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`footer duplicating: ${msg(e)}`);
+  } finally {
+    dupFooter.remove();
   }
 
   return { passed, failed, errors };

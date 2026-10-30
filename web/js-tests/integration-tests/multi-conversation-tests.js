@@ -15,6 +15,7 @@
 
 import { textResponse, toolUseResponse } from '../utilities/integration-test-runner.js';
 import workerManager from '../../js/services/worker-manager.js';
+import { snapshotOwnConversationIds } from '../utilities/conversation-claims.js';
 
 // ============================================================================
 // TEST DEFINITIONS
@@ -446,6 +447,62 @@ const duplicateConversationTwiceNameTest = {
 };
 
 /**
+ * A double click on Duplicate: two duplicates of one source, the second started
+ * before the first has answered, make one copy, and both callers are handed it.
+ * A fork asked for meanwhile is refused rather than handed that copy — it would
+ * cut a copy the duplicate's caller is also holding. The copies are counted by
+ * this lane's claims, which every POST /conversations registers, so a second
+ * server-side copy shows even before (or without) its load landing here.
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+const duplicateConversationConcurrentTest = {
+  name: 'duplicate-conversation-concurrent',
+  description: 'Two duplicates of one source started together make one copy, and a fork meanwhile is refused',
+  fixture: 'unit-test-fixture',
+
+  llmResponses: [
+    textResponse('Hello world response.')
+  ],
+
+  operations: [
+    { type: 'send-message', message: 'Hello world' }
+  ],
+
+  customAssertions: async (conversation, ctx) => {
+    const session = conversation.session;
+    const sourceId = ctx.harness.conversationIds()[0];
+    const before = snapshotOwnConversationIds();
+
+    // None is awaited before the next starts.
+    const first = session.duplicateConversation(sourceId);
+    const second = session.duplicateConversation(sourceId);
+    const fork = session.duplicateConversation(sourceId, { exclusive: true });
+    const inFlight = session.isDuplicating?.(sourceId);
+    const [a, b, forked] = await Promise.all([first, second, fork]);
+
+    const made = [...snapshotOwnConversationIds()].filter((id) => !before.has(id));
+    if (made.length !== 1) {
+      throw new Error(`duplicate-conversation-concurrent: expected one copy, the server made ${made.length}: ${JSON.stringify(made)}`);
+    }
+    if (a !== made[0] || b !== made[0]) {
+      throw new Error(`duplicate-conversation-concurrent: both duplicates should resolve to the copy ${made[0]}, got ${a} and ${b}`);
+    }
+    if (!session.getConversation(a)) {
+      throw new Error(`duplicate-conversation-concurrent: the copy ${a} is not in the session`);
+    }
+    if (forked !== null) {
+      throw new Error(`duplicate-conversation-concurrent: a fork during a duplicate should be refused (null), got ${forked}`);
+    }
+    if (inFlight !== true) {
+      throw new Error(`duplicate-conversation-concurrent: isDuplicating should be true while the copy is made, got ${inFlight}`);
+    }
+    if (session.isDuplicating(sourceId)) {
+      throw new Error('duplicate-conversation-concurrent: isDuplicating should clear once the copy has landed');
+    }
+  }
+};
+
+/**
  * The types of a conversation's root items, for a whole-list comparison (the
  * runner's expectedItems is a prefix match, and a fork is about what it drops).
  * @param {any} conversation
@@ -697,6 +754,7 @@ export const tests = [
   duplicateConversationTest,
   duplicateConversationNameTest,
   duplicateConversationTwiceNameTest,
+  duplicateConversationConcurrentTest,
   forkFromAssistantMessageTest,
   forkFromAssistantBeforeToolCallTest,
   deleteActiveTabMruTest,

@@ -891,9 +891,14 @@ func (fs *FileSessionStore) removeConversationFiles(convID string, permanent boo
 	if !ok {
 		return nil
 	}
+	// The conversation's worker is still stopping when this runs (the manager
+	// acks a removal before the stop), so on Windows its last write — or a
+	// handler serving one of its files — can briefly hold a handle in the
+	// folder. RobustRemoveAll outlasts that hold; a failed delete would keep
+	// the conversation.
 	var err error
 	if permanent {
-		err = os.RemoveAll(dir)
+		err = atomicio.RobustRemoveAll(dir)
 	} else {
 		err = trashOrRemove(dir)
 	}

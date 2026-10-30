@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -330,5 +331,109 @@ func TestAssetStore_SaveIsContentAddressedDedup(t *testing.T) {
 	}
 	if len(shas) != 1 {
 		t.Fatalf("dedup failed: %d files on disk, want 1 (%v)", len(shas), shas)
+	}
+}
+
+// diffRefDisplayData is a tool-action's displayData for an edit whose two sides
+// are stored as text assets: the document carries their ids, not the files.
+func diffRefDisplayData(oldID, newID string) json.RawMessage {
+	raw, _ := json.Marshal(map[string]any{"diffData": map[string]any{
+		"path": "src/a.go", "startLineNumber": 1, "oldRef": oldID, "newRef": newID, "added": 1, "removed": 1,
+	}})
+	return raw
+}
+
+// TestSweepAssets_KeepsDiffSnapshotRefs pins that the sides of an edit's diff,
+// stored as text assets and named by the tool-action's displayData, count as
+// live — at root and inside a thread — and are reclaimed once no item names
+// them.
+func TestSweepAssets_KeepsDiffSnapshotRefs(t *testing.T) {
+	store, _ := testAssetStore(t)
+	const convID = "conv-diff-gc"
+
+	save := func(text string) AssetRef {
+		ref, err := store.Save(convID, []byte(text), "text/plain")
+		if err != nil {
+			t.Fatalf("save %q: %v", text, err)
+		}
+		return ref
+	}
+	before, after := save("a\nb\n"), save("a\nc\n")
+	nestedBefore, nestedAfter := save("x\n"), save("y\n")
+	orphan := save("nobody names me\n")
+
+	nested, _ := json.Marshal([]ConversationItem{{
+		Type: ItemTypeToolAction, ItemID: "e2", ToolUseID: "call_2", State: StateCompleted,
+		DisplayData: diffRefDisplayData(nestedBefore.ID, nestedAfter.ID),
+	}})
+	items := []ConversationItem{
+		{Type: ItemTypeToolAction, ItemID: "e1", ToolUseID: "call_1", State: StateCompleted, DisplayData: diffRefDisplayData(before.ID, after.ID)},
+		{Type: ItemTypeThread, ItemID: "t1", Items: nested},
+	}
+
+	live := make(map[string]bool)
+	collectAssetIDsFromItems(items, live)
+	for name, ref := range map[string]AssetRef{"before": before, "after": after, "nested before": nestedBefore, "nested after": nestedAfter} {
+		if !live[ref.ID] {
+			t.Errorf("the %s side of a diff is missing from the live set; live=%v", name, live)
+		}
+	}
+	if live[orphan.ID] {
+		t.Errorf("an asset no item names was marked live; live=%v", live)
+	}
+	if err := store.Sweep(convID, live, 0); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if _, _, err := store.Get(convID, before.ID); err != nil {
+		t.Fatalf("a referenced diff side was swept: %v", err)
+	}
+	if _, _, err := store.Get(convID, orphan.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the unreferenced asset survived the sweep: %v", err)
+	}
+
+	// The items go: nothing names the sides any more, and they are reclaimed.
+	if err := store.Sweep(convID, map[string]bool{}, 0); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if _, _, err := store.Get(convID, before.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a diff side outlived the item that named it: %v", err)
+	}
+}
+
+// TestCollectLiveAssetIDs_KeepsDiffRefsOfUndoableEdits pins that deleting an
+// edit's tool-action does not orphan its diff while undo can bring it back: the
+// sides it names stay live from the undo stack.
+func TestCollectLiveAssetIDs_KeepsDiffRefsOfUndoableEdits(t *testing.T) {
+	w := NewConversationWorker("conv-diff-undo", "user:test")
+	w.tracker.AppendMessage(ConversationItem{
+		Type: ItemTypeToolAction, ItemID: "e1", ToolUseID: "call_1", State: StateCompleted,
+		DisplayData: diffRefDisplayData("old-side-sha", "new-side-sha"),
+	})
+	w.tracker.StopCapturing()
+	w.tracker.DeleteMessages([]int{0})
+	w.tracker.StopCapturing()
+
+	live, _ := w.collectLiveAssetIDs()
+	for _, id := range []string{"old-side-sha", "new-side-sha"} {
+		if !live[id] {
+			t.Errorf("%s is named by an undoable edit but is missing from the live set; live=%v", id, live)
+		}
+	}
+}
+
+// TestAssetStore_TextKeepsItsTypeThroughACopy pins that a text asset reads back
+// as text, so duplicating a conversation (CopyAll) stores it under the same id
+// and type rather than as an anonymous binary.
+func TestAssetStore_TextKeepsItsTypeThroughACopy(t *testing.T) {
+	store, _ := testAssetStore(t)
+	ref, err := store.Save("src", []byte("one\ntwo\n"), "text/plain")
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if _, mime, err := store.Get("src", ref.ID); err != nil || mime != "text/plain" {
+		t.Fatalf("Get = %q, %v; want text/plain", mime, err)
+	}
+	if p, ok := store.Path("src", ref.ID); !ok || filepath.Ext(p) != ".txt" {
+		t.Fatalf("stored at %q, want a .txt file", p)
 	}
 }

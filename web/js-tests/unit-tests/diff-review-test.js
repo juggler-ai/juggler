@@ -13,7 +13,9 @@
  * @module unit-tests/diff-review-test
  */
 
-import { assert } from '../utilities/test-helpers.js';
+import { assert, createTestSession, createTestConversation } from '../utilities/test-helpers.js';
+import { uploadAssetText } from '../../js/services/ops-api.js';
+import { diffSnapshotShape, loadDiffSides } from '../../js/utils/diff-snapshot-sides.js';
 
 /**
  * @typedef {object} TestResult
@@ -309,6 +311,52 @@ export async function runTests(_ctx) {
       'a tool-action diff must not offer comment anchors');
     assert(wrapper.querySelector('.review-panel__rail') === null,
       'a properties panel must never acquire a file rail');
+  });
+
+  /**
+   * Draw a tool action's recorded diff the way the properties panel does, and
+   * wait until it is drawn. A stored side is fetched through the same cached
+   * request the panel made, so awaiting it here settles after the panel's own
+   * handler has run.
+   * @param {Record<string, unknown>} diffData - The recorded diff.
+   * @param {string} conversationId - The conversation a stored side lives in.
+   * @returns {Promise<any>} The drawn viewer.
+   */
+  const drawRecorded = async (diffData, conversationId) => {
+    const wrapper = document.createElement('div');
+    const action = { get: (/** @type {string} */ key) => (key === 'displayData' ? { diffData } : undefined) };
+    assert(addDiffViewer(wrapper, action, '', conversationId) === true, 'a recorded diff should draw');
+    document.body.appendChild(wrapper);
+    mounted.push(wrapper);
+    const shape = diffSnapshotShape({ diffData });
+    if (shape) await loadDiffSides(conversationId, shape).catch(() => {});
+    const el = /** @type {any} */ (wrapper.querySelector('diff-viewer'));
+    await el.drawn;
+    return el;
+  };
+
+  const session = await createTestSession();
+  const conversation = await createTestConversation(session);
+  const before = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n') + '\n';
+  const after = before.replace('line 15\n', 'line fifteen\n');
+
+  await run('a stored diff draws the same hunks as the same diff inline', async () => {
+    const [oldRef, newRef] = await Promise.all([
+      uploadAssetText(conversation.id, before), uploadAssetText(conversation.id, after),
+    ]);
+    const inline = rows(await drawRecorded({ oldContent: before, newContent: after, path: 'src/a.txt' }, conversation.id));
+    const stored = rows(await drawRecorded({ oldRef: oldRef.id, newRef: newRef.id, path: 'src/a.txt' }, conversation.id));
+    assert(inline.some((r) => r.endsWith('+|line fifteen')), `the inline diff should show the change, got ${inline.join(' / ')}`);
+    assert(JSON.stringify(stored) === JSON.stringify(inline),
+      `a stored diff should draw what the inline one does:\n stored ${stored.join(' / ')}\n inline ${inline.join(' / ')}`);
+  });
+
+  await run('a stored diff whose side cannot be fetched says so', async () => {
+    const missing = 'f'.repeat(64);
+    const el = await drawRecorded({ oldRef: missing, newRef: missing, path: 'src/gone.txt' }, conversation.id);
+    assert(el.mode === 'error', `a failed fetch should leave the viewer in its error state, got ${el.mode}`);
+    assert((el.textContent || '').includes("Couldn't load this diff."),
+      `the viewer should say the diff could not be loaded, got ${el.textContent}`);
   });
 
   await run('an annotatable diff offers one literal anchor per line', async () => {

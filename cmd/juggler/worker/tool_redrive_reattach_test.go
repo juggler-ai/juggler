@@ -214,3 +214,24 @@ func hasToolResultFor(messages []map[string]any, toolUseID string) bool {
 	}
 	return false
 }
+
+// TestReattach_NullResultIsNoResult: a stranded running tool whose result is a
+// JS-written null (createToolActionMessage's `result: null`) has no result, so
+// reattach must reset and re-drive it like any other stranded tool.
+func TestReattach_NullResultIsNoResult(t *testing.T) {
+	h := newReattachHarness(t, "conv-reattach-null-result")
+	w := h.w
+
+	w.doc.InsertMessage(0, ConversationItem{
+		Type: ItemTypeToolAction, ItemID: "ta-2", ToolUseID: "tu-2",
+		ToolName: "bash", State: StateRunning,
+	})
+	setNullResult(w, "tu-2")
+
+	h.reattach()
+	h.flush(t)
+
+	if got := h.executeCount("tu-2"); got != 1 {
+		t.Fatalf("reattach must re-drive a stranded running tool whose result is null: want 1 execute-tool, got %d", got)
+	}
+}

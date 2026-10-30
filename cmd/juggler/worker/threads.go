@@ -177,7 +177,7 @@ func (r *run) dispatchThread(spec threadSpec) (string, error) {
 		return "", err
 	}
 	r.requestLLM(threadItemID)
-	r.requestReconcile()
+	r.requestReconcile(reconcileThreadCreated)
 	return threadItemID, nil
 }
 

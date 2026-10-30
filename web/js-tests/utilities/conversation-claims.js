@@ -168,7 +168,10 @@ export async function deleteOwnConversationsCreatedSince(before, reason) {
       try {
         await apiService.deleteConversation(id, { permanent: true, reason });
       } catch {
-        // Already gone (the test deleted it itself, or another cleanup won).
+        // A refused delete (the server answers an already-gone conversation
+        // with 204, so this is a real failure; apiService has logged it). The
+        // reconcile below asks once more, and a conversation still owned after
+        // that is the run's leak check to report.
       }
       owned.delete(id);
     }
@@ -205,7 +208,7 @@ async function reconcileServerOwnedConversations(reason) {
       try {
         await apiService.deleteConversation(id, { permanent: true, reason: `reconcile:${reason}` });
       } catch {
-        // Already gone; ownership was released by the delete above.
+        // Refused again; the run's leak check reports it.
       }
       owned?.delete(id);
     }

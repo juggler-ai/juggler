@@ -136,7 +136,7 @@ func (r *run) finishRetiredTurn(t *turnState) {
 		// undo capture window still used by live runs.
 		r.batcher.Flush()
 	}
-	r.sched.markReconcile()
+	r.sched.markReconcile(reconcileTurnRetired)
 }
 
 // turnBoundary is the state one logical turn carries between its LLM runs.

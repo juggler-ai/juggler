@@ -206,7 +206,8 @@ export async function runTests() {
       throw new Error(`shrink should be deferred, but count changed to ${el.clubs} immediately`);
     // The shrink lands once the quiet period has passed: wait for it, not for
     // a guess at how long a loaded lane takes to run the timer.
-    await waitFor(() => el.clubs === 3, () => `the deferred shrink to 3 (still ${el.clubs})`, 3000);
+    await waitFor(() => el.clubs === 3, () => `the deferred shrink to 3 (still ${el.clubs}; `
+      + `connected ${el.isConnected}, shrink timer ${el._shrinkTimer ? 'armed' : 'none'})`, 3000);
     passed++;
   } catch (e) { failed++; errors.push(`shrink is deferred: ${e.message}`); }
 

@@ -112,7 +112,7 @@ func (r *run) recoverTurnBackstop(tr *run) {
 	tr.releaseLLM(threadID)
 	tr.resetThreadContext()
 	tr.sendStatus("idle", "")
-	tr.requestReconcile()
+	tr.requestReconcile(reconcileTurnPanic)
 }
 
 // registeredThread returns the thread a live turn was registered for, or "" for

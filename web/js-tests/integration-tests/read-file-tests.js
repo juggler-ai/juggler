@@ -339,6 +339,79 @@ const readFileImageAttachesTest = {
   }
 };
 
+/**
+ * The batch_read tool-action in a conversation's root items, or undefined.
+ * @param {import('../../js/model/conversation.js').default} conversation - The conversation.
+ * @returns {any} The tool-action.
+ */
+function batchReadAction(conversation) {
+  return [...conversation.rootItems].find(
+    item => isToolActionMessage(/** @type {any} */ (item)) &&
+    /** @type {any} */ (item).get('toolName') === 'batch_read'
+  );
+}
+
+/**
+ * A batch_read stores each file's text once: in the result content the model
+ * was handed. The per-file outcomes kept beside it still say whether each read
+ * succeeded and the hash of what it saw — what the staleness guard and the
+ * panel read — but not the text a second time.
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+const batchReadStoredOnceTest = {
+  name: 'batch-read-stored-once',
+  description: 'batch_read keeps each file\'s text once, in the result content',
+  fixture: 'unit-test-fixture',
+  setupFiles: {
+    'batch-once-a.txt': 'only-once-alpha\n',
+    'batch-once-b.txt': 'only-once-beta\n'
+  },
+
+  llmResponses: [
+    toolUseResponse(
+      'call_1',
+      'batch_read',
+      { files: [{ file_path: 'batch-once-a.txt' }, { file_path: 'batch-once-b.txt' }] },
+      'Reading both.'
+    ),
+    textResponse('Read both.')
+  ],
+
+  operations: [
+    { type: 'send-message', message: 'Read both files' }
+  ],
+
+  settleUntil(conversation) {
+    return batchReadAction(conversation)?.get('state') === 'completed';
+  },
+
+  customAssertions(conversation) {
+    const action = batchReadAction(conversation);
+    if (!action) throw new Error('batch_read tool-action not found in items');
+    const raw = action.get('result');
+    const result = raw?.toJSON ? raw.toJSON() : raw;
+    const stored = JSON.stringify(result);
+    for (const marker of ['only-once-alpha', 'only-once-beta']) {
+      const copies = stored.split(marker).length - 1;
+      if (copies !== 1) {
+        throw new Error(`${marker} should be stored once, found ${copies} copies in ${stored}`);
+      }
+    }
+    if (!String(result?.content || '').includes('only-once-alpha')) {
+      throw new Error(`the result content lost the file text: ${JSON.stringify(result?.content)}`);
+    }
+    const outcomes = result?.fullResult?.result?.results;
+    if (!Array.isArray(outcomes) || outcomes.length !== 2) {
+      throw new Error(`expected two per-file outcomes, got ${JSON.stringify(outcomes)}`);
+    }
+    for (const outcome of outcomes) {
+      if (outcome?.success !== true || !/^[0-9a-f]+$/.test(String(outcome?.result?.contentHash || ''))) {
+        throw new Error(`a per-file outcome lost its success or hash: ${JSON.stringify(outcome)}`);
+      }
+    }
+  }
+};
+
 // Export all tests
 export const tests = [
   readFileSingleTest,
@@ -346,5 +419,6 @@ export const tests = [
   readFileParallelTest,
   readFileStringOffsetTest,
   readFileNonNumericOffsetTest,
-  readFileImageAttachesTest
+  readFileImageAttachesTest,
+  batchReadStoredOnceTest
 ];

@@ -23,21 +23,42 @@ import (
 // enough that a backlog is visible long before it costs a turn.
 const slowLoopIteration = 250 * time.Millisecond
 
+// slowIteration is one run() iteration's timing.
+type slowIteration struct {
+	// event names what the iteration handled.
+	event string
+	// handled is the time spent on the event, reconcile the time in the
+	// reducer drain after it, over passes passes.
+	handled, reconcile time.Duration
+	passes             int
+	// waited is how long the handled message sat in the inbox before the loop
+	// took it; zero for an event that does not come through the inbox.
+	waited time.Duration
+	// depth is how many messages were still queued when the iteration ended.
+	depth int
+}
+
 // describeSlowIteration reports a run() iteration that took long enough to log,
 // naming the event it handled and splitting its time between that event and the
-// reducer drain after it. ok is false for an iteration under the threshold.
-func describeSlowIteration(event string, handled, reconcile time.Duration, passes int) (string, bool) {
-	total := handled + reconcile
+// reducer drain after it, with how long the message had already waited in the
+// inbox and how many are still queued behind it. ok is false for an iteration
+// under the threshold.
+func describeSlowIteration(it slowIteration) (string, bool) {
+	total := it.handled + it.reconcile
 	if total < slowLoopIteration {
 		return "", false
 	}
-	return fmt.Sprintf("%s took %dms: %dms handling it, %dms in %d reconcile pass(es)",
-		event, total.Milliseconds(), handled.Milliseconds(), reconcile.Milliseconds(), passes), true
+	desc := fmt.Sprintf("%s took %dms: %dms handling it, %dms in %d reconcile pass(es)",
+		it.event, total.Milliseconds(), it.handled.Milliseconds(), it.reconcile.Milliseconds(), it.passes)
+	if it.waited > 0 {
+		desc += fmt.Sprintf("; it waited %dms in the inbox", it.waited.Milliseconds())
+	}
+	return desc + fmt.Sprintf("; %d queued", it.depth), true
 }
 
 // reportSlowIteration logs one run() iteration if it was slow.
-func (r *run) reportSlowIteration(event string, handled, reconcile time.Duration, passes int) {
-	if desc, ok := describeSlowIteration(event, handled, reconcile, passes); ok {
+func (r *run) reportSlowIteration(it slowIteration) {
+	if desc, ok := describeSlowIteration(it); ok {
 		r.log.Info("[loop] %s", desc)
 	}
 }

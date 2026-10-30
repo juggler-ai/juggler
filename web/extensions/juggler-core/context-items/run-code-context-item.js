@@ -576,7 +576,7 @@ class RunCodeContextItem extends QueryCodeContextItem {
       const items = thread.items;
       for (let i = 0; i < items.length; i++) {
         if (items[i].get('toolUseId') === this.toolUseId) {
-          thread.updateItemField(i, 'displayData', {
+          thread.updateDerivedItemField(i, 'displayData', {
             nestedCalls: record.calls.map((c) => ({ ...c })),
             omitted: record.omitted,
             omittedEffects: record.omittedEffects

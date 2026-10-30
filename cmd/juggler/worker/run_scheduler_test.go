@@ -66,15 +66,15 @@ func TestRunSchedulerHandOffs(t *testing.T) {
 	done := make(chan struct{})
 	s := newRunScheduler(done)
 
-	s.wakeReconcile()
-	s.wakeReconcile()
+	s.wakeReconcile(reconcileTestDriven)
+	s.wakeReconcile(reconcileTestDriven)
 	if n := len(s.wakes()); n != 1 {
 		t.Fatalf("two wakes queued %d loop iterations, want 1", n)
 	}
 	if !s.takeReconcile() || s.reconcilePending() || s.takeReconcile() {
 		t.Fatal("takeReconcile does not clear the bit exactly once")
 	}
-	s.markReconcile()
+	s.markReconcile(reconcileTestDriven)
 	s.dropReconcile()
 	if s.reconcilePending() {
 		t.Fatal("dropReconcile left the bit set")

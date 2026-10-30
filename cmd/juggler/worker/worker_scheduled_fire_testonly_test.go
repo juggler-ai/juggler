@@ -114,7 +114,7 @@ func TestScheduledSendLiftsTheCapOverAParkedParent(t *testing.T) {
 
 	at := fakeEpoch.Add(4 * time.Hour)
 	sendMsg(t, w, SendMessageMessage{Type: "send-message", Text: "try again then", NotBefore: at.UnixMilli()})
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileTestDriven)
 	w.quiesce(t)
 	if left := w.mock().remaining(); left != 2 {
 		t.Fatalf("%d of 2 scripted turns ran before the scheduled send fired; the cap should still hold", 2-left)

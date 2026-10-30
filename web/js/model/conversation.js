@@ -3090,17 +3090,28 @@ class Conversation {
   /**
    * Re-broadcast this conversation's full doc state to its worker: the repair
    * for a worker whose doc is missing a write this client already holds (the
-   * outbound-sync gap). Two callers, both of which detect the gap by its
-   * consequence rather than by watching the transport:
-   *   - the "no-model" divergence (trySelfHealMissingModel) — the worker resolved no model though
-   *     this client is displaying one. Full state includes `defaultModelConfig`,
-   *     so the next send validates.
-   *   - a tool command the engine declined because the worker is behind on that
-   *     tool (worker-manager-protocols resyncWorkerBehindTool), which would
-   *     otherwise have the worker fail a tool this engine has already run.
+   * outbound-sync gap), detected by its consequence rather than by watching the
+   * transport — the "no-model" divergence (trySelfHealMissingModel), where the
+   * worker resolved no model though this client is displaying one. Full state
+   * includes `defaultModelConfig`, so the next send validates.
    */
   resyncToWorker() {
     this._doc.broadcastFullState();
+  }
+
+  /**
+   * Send the worker exactly the ops this doc holds that `workerStateVector`
+   * does not cover, as an ordinary yjs-sync. The repair for a worker whose
+   * state vector shows it lacks a write of ours (worker-manager-protocols
+   * resyncWorkerBehindTool) — a delta, never full state.
+   * @param {Uint8Array} workerStateVector - The worker's encoded Yjs state vector.
+   * @returns {number} Bytes sent; 0 when the worker lacks nothing.
+   */
+  sendMissingOpsToWorker(workerStateVector) {
+    const update = this._doc.updateSince(workerStateVector);
+    if (!update) return 0;
+    this._doc.broadcastUpdate(update);
+    return update.length;
   }
 
   /**

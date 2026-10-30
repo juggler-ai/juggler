@@ -451,6 +451,27 @@ function stripLargeArrays(result) {
 }
 
 /**
+ * The part of an action's raw result to keep in the conversation, as the tool
+ * declares it through `storedResult`. A tool whose declaration throws keeps its
+ * result whole: storing too much is a cost, storing nothing loses the call.
+ * @param {string} actionId - Resolved action manifest id
+ * @param {string} toolName - The invoked tool's name
+ * @param {unknown} result - The raw result, large arrays already stripped
+ * @param {string} content - The result content stored beside it
+ * @returns {unknown} The result to store
+ */
+function storedActionResult(actionId, toolName, result, content) {
+  const ActionClass = /** @type {any} */ (contextItemRegistry.get(actionId) || contextItemRegistry.getByToolName(toolName));
+  if (typeof ActionClass?.storedResult !== 'function') return result;
+  try {
+    return ActionClass.storedResult(result, { toolName: resolveToolName(toolName), content });
+  } catch (error) {
+    console.error(`[ResponseHandler] storedResult failed for ${toolName}:`, error);
+    return result;
+  }
+}
+
+/**
  * The hook record to store on a completed call: the beforeTool records already on
  * the tool-action, followed by this execution's afterTool records. Earlier
  * afterTool records are dropped — they described a previous run of the call.
@@ -552,8 +573,9 @@ async function runActionAndComplete(rh, toolCall, actionId, toolInput, messageTh
     const llmFeedback = resultData?.llmFeedback;
 
     // Strip large arrays from result: UI renders `content` (same as the LLM
-    // sees), so duplicating them in fullResult is wasted storage.
-    const minimalResult = stripLargeArrays(result.result);
+    // sees), so duplicating them in fullResult is wasted storage. The tool then
+    // leaves out whatever else of its raw result `content` already carries.
+    const minimalResult = storedActionResult(actionId, toolCall.name, stripLargeArrays(result.result), content);
 
     // Update tool-action with final result (summary omitted — redundant with content)
     /** @type {import('../../sdk/lib/message.js').ActionFullResult} */

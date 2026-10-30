@@ -29,6 +29,10 @@ import (
 // turn waiting on something the test never provided.
 const quiesceTimeout = 10 * time.Second
 
+// reconcileTestDriven names a reconcile bit a test raised itself, standing in
+// for whichever event would have raised it under the run loop.
+const reconcileTestDriven reconcileReason = 1<<32 - 1
+
 // quiesce serves the run loop's scheduler cases on the calling goroutine until,
 // after a reducer drain, no scheduler event is ready and no turn is live — the
 // point at which the run loop itself would block waiting for an input. Like the
@@ -78,7 +82,7 @@ func (r *run) serveSchedulerEvent(wait <-chan time.Time) bool {
 	if wait == nil {
 		select {
 		case <-r.sched.wakes():
-			r.sched.markReconcile()
+			r.sched.markWoken()
 		case t := <-r.sched.dispatches():
 			r.startPreparedThreadRun(t)
 		case t := <-r.sched.retirements():
@@ -90,7 +94,7 @@ func (r *run) serveSchedulerEvent(wait <-chan time.Time) bool {
 	}
 	select {
 	case <-r.sched.wakes():
-		r.sched.markReconcile()
+		r.sched.markWoken()
 	case t := <-r.sched.dispatches():
 		r.startPreparedThreadRun(t)
 	case t := <-r.sched.retirements():

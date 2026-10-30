@@ -51,6 +51,7 @@ function undoFlag(undoState, key) {
  * @property {object|null} [metadata] - Metadata extracted from ready message (for existing conversations)
  * @property {boolean} [loadFromDisk] - Whether this entry was spawned with loadFromDisk:true
  * @property {{loadFromDisk?: boolean, [key: string]: unknown}} serialized - The conversation data this entry was spawned with, kept so its init can be re-sent (see reinitPendingConversations)
+ * @property {{restart: () => void, stop: () => void}} [readyWatch] - The spawn's silence bound on its ready (see _watchReady); restarted with each init sent
  */
 
 /**
@@ -70,7 +71,9 @@ function undoFlag(undoState, key) {
 // ============================================================================
 
 /**
- * Default timeout for a conversation worker to reach the ready state.
+ * How long a starting conversation's link may deliver nothing towards its
+ * worker's ready before the wait fails — a bound on silence, not on the wait's
+ * length (see WorkerManager#_watchReady).
  */
 const WORKER_READY_TIMEOUT_MS = 60000;
 
@@ -325,32 +328,33 @@ export class WorkerManager {
     };
     this._workers.set(conversationId, entry);
 
-    // Wait for ready with timeout. 60s — large CRDT loads, WS write congestion
-    // during initial cold start, or a backgrounded tab can blow past anything
-    // tighter. A timeout here drops the conversation from session, so be
-    // generous: a longer wait is strictly better than losing user data.
+    // Wait for ready, bounded by silence (see _watchReady). A timeout here
+    // drops the conversation from the session, so it must mean nothing is
+    // arriving — never merely that a large sync is taking a slow link a while.
     /** @type {Promise<void>} */
     const readyPromise = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error('Worker initialization timeout'));
-      }, WORKER_READY_TIMEOUT_MS);
+      entry.readyWatch = this._watchReady(conversationId, (why) => {
+        reject(new Error(`Worker initialization timeout: ${why}`));
+      });
       entry.readyCallbacks.push((/** @type {object|null} */ _metadata) => {
-        clearTimeout(timer);
+        entry.readyWatch?.stop();
         resolve();  // Ignore metadata here - caller uses waitForWorkerReady to get it
       });
       // A worker that fails its init reports an error and then says nothing —
       // and the error path unwinds REJECTORS, so a wait registered without one
       // is a wait that answer cannot reach. This is the first wait of a load, so
-      // without it the whole timeout above is spent on a conversation the server
+      // without it the whole silence bound is spent on a conversation the server
       // has already said it cannot open.
       (entry.readyRejectors ??= []).push((/** @type {Error} */ err) => {
-        clearTimeout(timer);
+        entry.readyWatch?.stop();
         reject(err);
       });
     });
 
-    // Send init message via WebSocket (or alternate transport)
+    // Send init message via WebSocket (or alternate transport). The silence
+    // clock starts with the send: nothing can answer an init before it goes.
     this._sendInit(conversationId, serializedConversation);
+    entry.readyWatch?.restart();
 
     try {
       await readyPromise;
@@ -361,6 +365,47 @@ export class WorkerManager {
       if (this._workers.get(conversationId) === entry) this._workers.delete(conversationId);
       throw error;
     }
+  }
+
+  /**
+   * The bound on a starting worker's ready: {@link WORKER_READY_TIMEOUT_MS} in
+   * which nothing arrives that could be bringing it closer.
+   *
+   * The ready is queued on this client's link behind the worker's sync, which
+   * for a long conversation runs to tens of megabytes — minutes of transfer to
+   * a viewer on a slow tunnel. So the wait measures silence, not age: each
+   * frame of a split message the link delivers ({@link
+   * WebSocketService#receiveProgress}, whichever transport) and each message
+   * from this conversation's worker restarts it. Server beats do not: they say
+   * the link is up, not that anything queued for it is moving.
+   * @param {string} conversationId - Conversation whose worker is starting
+   * @param {(why: string) => void} onExpire - Called once, with what was
+   *   waited for and received, when the silence bound is reached
+   * @returns {{restart: () => void, stop: () => void}} `restart` (re)starts
+   *   the clock from now, for each init sent; `stop` ends the watch
+   * @private
+   */
+  _watchReady(conversationId, onExpire) {
+    let stopWatching = () => {};
+    const restart = () => {
+      stopWatching();
+      const progress = wsService.receiveProgress;
+      const sentAt = Date.now();
+      const chunksAtSend = progress.chunks;
+      const bytesAtSend = progress.bytes;
+      stopWatching = this.watchSilence(conversationId, WORKER_READY_TIMEOUT_MS, (expiry) => {
+        const heardAt = this._lastHeardAt.get(conversationId) ?? 0;
+        const heard = heardAt >= sentAt
+          ? `its worker last spoke ${Math.round((Date.now() - heardAt) / 1000)}s ago`
+          : 'nothing from its worker';
+        const chunks = progress.chunks - chunksAtSend;
+        const mib = ((progress.bytes - bytesAtSend) / (1024 * 1024)).toFixed(1);
+        onExpire(`waited ${Math.round(expiry.elapsedMs / 1000)}s since the init was sent, the last ` +
+          `${Math.round(expiry.quietMs / 1000)}s with nothing arriving; received ${mib} MiB on the link ` +
+          `(${chunks} chunk frame${chunks === 1 ? '' : 's'}) and ${heard}`);
+      }, Infinity, () => progress.chunkAt);
+    };
+    return { restart, stop: () => stopWatching() };
   }
 
   /**
@@ -848,9 +893,11 @@ export class WorkerManager {
    * @param {number} silenceMs - How long the worker may say nothing
    * @param {(expiry: {silent: boolean, quietMs: number, elapsedMs: number, describe: () => string}) => void} onExpire - Called once, on expiry
    * @param {number} [ceilingMs] - The longest the watch lasts however chatty the worker
+   * @param {() => number} [progressAt] - When something else that counts as
+   *   progress last happened, as epoch ms; 0 for never
    * @returns {() => void} Stops the watch
    */
-  watchSilence(conversationId, silenceMs, onExpire, ceilingMs = ACK_CEILING_MS) {
+  watchSilence(conversationId, silenceMs, onExpire, ceilingMs = ACK_CEILING_MS, progressAt = () => 0) {
     const startedAt = Date.now();
     let quietFrom = startedAt;
     let lastCheckAt = startedAt;
@@ -861,7 +908,7 @@ export class WorkerManager {
       const unobserved = now - lastCheckAt - ACK_CHECK_MS * 2;
       lastCheckAt = now;
       if (unobserved > 0) quietFrom += unobserved;
-      const quietMs = now - Math.max(quietFrom, this._lastHeardAt.get(conversationId) ?? 0);
+      const quietMs = now - Math.max(quietFrom, this._lastHeardAt.get(conversationId) ?? 0, progressAt());
       const elapsedMs = now - startedAt;
       if (quietMs < silenceMs && elapsedMs < ceilingMs) {
         timeoutId = setTimeout(check, Math.min(ACK_CHECK_MS, silenceMs - quietMs));
@@ -1085,6 +1132,9 @@ export class WorkerManager {
     for (const [conversationId, entry] of this._workers) {
       if (entry.ready || !entry.serialized) continue;
       this._sendInit(conversationId, entry.serialized);
+      // The worker answers this init from the start; time spent on the one
+      // the dead link carried is no measure of it.
+      entry.readyWatch?.restart();
     }
   }
 
@@ -1296,13 +1346,15 @@ export class WorkerManager {
 
   /**
    * Wait for a spawned worker to report ready. Rejects at once when there is
-   * no entry, when the worker reports an error instead, or at the timeout.
+   * no entry, when the worker reports an error instead, or once `timeoutMs`
+   * passes with nothing arriving towards it — the same silence bound as the
+   * spawn's own wait (see {@link WorkerManager#_watchReady}), so a caller
+   * queued behind a slow sync is not failed while it is still arriving.
    * @param {string} conversationId - Conversation ID
-   * @param {number} [timeoutMs=WORKER_READY_TIMEOUT_MS] - Timeout in milliseconds
+   * @param {number} [timeoutMs=WORKER_READY_TIMEOUT_MS] - How long nothing may arrive, in milliseconds
    * @returns {Promise<object|null>} Metadata from ready message (null for new conversations)
    */
   async waitForWorkerReady(conversationId, timeoutMs = WORKER_READY_TIMEOUT_MS) {
-    const timeout = timeoutMs;
     const entry = this._workers.get(conversationId);
     if (!entry) {
       throw new Error(`Worker not found: ${conversationId}`);
@@ -1312,19 +1364,21 @@ export class WorkerManager {
     }
 
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error(`Worker ${conversationId} not ready after ${timeout}ms`));
-      }, timeout);
+      const progress = wsService.receiveProgress;
+      const stopWatching = this.watchSilence(conversationId, timeoutMs, (expiry) => {
+        reject(new Error(`Worker ${conversationId} not ready: nothing arrived for ${Math.round(expiry.quietMs / 1000)}s ` +
+          `of the ${Math.round(expiry.elapsedMs / 1000)}s waited`));
+      }, Infinity, () => progress.chunkAt);
 
       entry.readyCallbacks.push((/** @type {object|null} */ metadata) => {
-        clearTimeout(timer);
+        stopWatching();
         resolve(metadata || null);
       });
       // A worker that fails its init reports an error and then says nothing.
       // Without this the wait runs to its full timeout, and the user watches a
       // spinner for a minute over a failure the server already described.
       (entry.readyRejectors ??= []).push((/** @type {Error} */ err) => {
-        clearTimeout(timer);
+        stopWatching();
         reject(err);
       });
     });

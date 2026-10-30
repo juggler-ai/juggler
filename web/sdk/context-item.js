@@ -1129,6 +1129,25 @@ class ContextItem {
   }
 
   /**
+   * What of an executed action's result to keep in the conversation, under the
+   * tool-action's `result.fullResult.result`. The result content the model was
+   * handed is stored beside it, and every client that opens the conversation
+   * loads both, so a tool whose raw result repeats text that content already
+   * carries can leave that text out here. What is returned must still hold every
+   * field this tool's own renderers and guards read back from the stored item.
+   *
+   * Called once, when the action completes; the result the model and the
+   * afterTool hooks see is unaffected. Default: the result unchanged.
+   * @param {unknown} result - The raw result `execute` returned.
+   * @param {{toolName: string, content: string}} _context - The name of the
+   *   tool invoked, and the result content stored beside it.
+   * @returns {unknown} The result to store.
+   */
+  static storedResult(result, _context) {
+    return result;
+  }
+
+  /**
    * Resolve terminal (cancelled/error) status from an action status object.
    * @param {import('../js/services/action-executor.js').ActionStatus} actionStatus - Action status
    * @param {string} [failurePrefix] - Prefix for error messages

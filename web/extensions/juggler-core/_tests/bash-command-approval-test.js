@@ -2533,7 +2533,7 @@ export async function runTests() {
       const streamThread = {
         ...mt,
         items: [{ get: (/** @type {string} */ k) => (k === 'toolUseId' ? '6' : undefined) }],
-        updateItemField: (/** @type {number} */ _i, /** @type {string} */ _f, /** @type {any} */ v) => { previews.push(v.output); },
+        updateDerivedItemField: (/** @type {number} */ _i, /** @type {string} */ _f, /** @type {any} */ v) => { previews.push(v.output); },
       };
       const streamer = probeItem('xa3', session, streamThread);
       streamer.toolUseId = '6';
@@ -2605,6 +2605,41 @@ export async function runTests() {
   } catch (e) {
     failed++;
     errors.push(`en-XA: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // === The streamed preview is engine-derived, never an authored edit ===
+  // Each preview write replaces the last, and the worker's UndoManager keeps
+  // every value an authored write replaces for as long as its undo entry lives
+  // — a long command's previews pinned in memory and in every save — while an
+  // Undo could only peel the preview off, never bring back the one before.
+  try {
+    /** @type {string[]} */
+    const authored = [];
+    /** @type {string[]} */
+    const derived = [];
+    const thread = {
+      getAllowedPaths: () => [],
+      getRulesFor: () => [],
+      items: [{ get: (/** @type {string} */ k) => (k === 'toolUseId' ? 'tu-preview' : undefined) }],
+      updateItemField: (/** @type {number} */ _i, /** @type {string} */ f) => { authored.push(f); },
+      updateDerivedItemField: (/** @type {number} */ _i, /** @type {string} */ f) => { derived.push(f); },
+    };
+    const streamer = probeItem('preview-origin', { platform: 'darwin', home: TEST_HOME, projectPath: '/p' }, thread);
+    streamer.toolUseId = 'tu-preview';
+    /** @type {any} */ (streamer)._ops = {
+      shellStreaming: async (/** @type {any} */ _p, /** @type {(c: any) => void} */ onChunk) => {
+        onChunk({ data: 'one\n' });
+        onChunk({ data: 'two\n' });
+        return { command: 'echo', stdout: 'one\ntwo\n', exitCode: 0, success: true };
+      },
+    };
+    await streamer.execute({ command: 'echo' });
+    assertTrue(authored.length === 0, `the preview was written as an authored edit: ${JSON.stringify(authored)}`);
+    assertTrue(derived.includes('displayData'), `no engine-derived preview write: ${JSON.stringify(derived)}`);
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`preview origin: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   return { passed, failed, errors };

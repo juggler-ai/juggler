@@ -368,6 +368,31 @@ async function decideForAction(ActionClass, toolDef, call, opts = {}) {
 }
 
 /**
+ * Whether a tool-action carries a result. The result is what the model is told
+ * about the call, so a call with one is finished whatever its `state` says: the
+ * two can disagree, because concurrent writes to `state` resolve by client id,
+ * not by time (an escalation's completed+result can lose `state` to an engine's
+ * approved). Nothing may claim, run or rule on such a call again; the worker
+ * settles its state to match (settledFromResult, cmd/juggler/worker).
+ * @param {any} ymap - Tool-action Y.Map
+ * @returns {boolean} True when a result is present
+ */
+export function toolActionHasResult(ymap) {
+  const result = ymap?.get('result');
+  return result !== undefined && result !== null;
+}
+
+/**
+ * Whether a tool-action is still the engine's to evaluate: unevaluated, with
+ * no result.
+ * @param {any} ymap - Tool-action Y.Map
+ * @returns {boolean} True when an evaluation may rule on it
+ */
+export function awaitingEvaluation(ymap) {
+  return (ymap.get('state') ?? '') === '' && !toolActionHasResult(ymap);
+}
+
+/**
  * Evaluations running now, by conversation and toolUseId. The worker re-sends an
  * `evaluate-tool` that has gone unanswered for its re-drive interval, and a
  * second evaluation started beside a first that is still waiting on a hook
@@ -409,6 +434,10 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
 
   const toolAction = existingYMap || messageThread.getToolAction(toolUseId);
   if (!toolAction) return;
+  // Evaluation rules once, on an unevaluated call with no result. Anything else
+  // has been ruled on already, or finished: running the hooks or writing a
+  // verdict again would rewrite a settled call.
+  if (!awaitingEvaluation(toolAction)) return;
 
   const toolName = toolAction.get('toolName') ?? '';
   // A model can write any JSON as a call's input; one that is not an object
@@ -459,6 +488,12 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
     messageThread, conversation, toolName, toolInput: toolInputPlain, toolUseId
   }, { bindToolUseId: true });
 
+  // The call may have been settled while the decision awaited its hooks or the
+  // action's prepare() (a reset and re-evaluation, a cancel, a worker
+  // escalation's result). Only a call still unevaluated, with no result, is ours
+  // to rule on.
+  if (!awaitingEvaluation(toolAction)) return;
+
   if (decision.verdict === 'invalid') {
     const errorMessage = decision.reason;
     messageThread.completeToolAction(toolUseId, {
@@ -474,9 +509,6 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
   const { action, prepared, autoApprovable, permitted, hookOutcome, hookAsks, approvedByHook } =
     /** @type {Required<ToolCallDecision>} */ (decision);
 
-  // Another evaluation may have settled the call while the hooks ran (a reset
-  // and re-evaluation, a cancel). Only a call still unevaluated is ours to rule on.
-  if (hookOutcome.records.length && (toolAction.get('state') || '') !== '') return;
   if (decision.verdict === 'deny') {
     messageThread.completeToolAction(toolUseId, {
       content: decision.reason,
@@ -508,6 +540,10 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
   // engineDerivedUpdate and the worker's UndoManager skips them — otherwise
   // undo of the tool-action's insert would only pop these derivations and the
   // engine would immediately re-derive on the next observer tick.
+  // Whether this evaluation's verdict landed. Each CAS below declines a call
+  // that has moved on or carries a result, and a declined verdict writes none of
+  // its companion fields either.
+  let ruled = false;
   conversation.engineDerivedUpdate(() => {
     if (needsApproval) {
       const approvalOptions = conversation._responseHandler.buildApprovalOptions(action, prepared);
@@ -515,6 +551,8 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
       // A concurrent handleNewToolAction call that beat us to APPROVED would
       // have the tool executing; don't reset it to pending.
       messageThread.updateToolActionState(toolUseId, TOOL_STATES.PENDING, { ifState: '' });
+      if (toolAction.get('state') !== TOOL_STATES.PENDING) return;
+      ruled = true;
       const items = messageThread.items;
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
@@ -551,6 +589,8 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
       // Prevents a late-arriving duplicate handleNewToolAction call from
       // resetting RUNNING → APPROVED and triggering a second execution.
       messageThread.updateToolActionState(toolUseId, TOOL_STATES.APPROVED, { ifState: '' });
+      if (toolAction.get('state') !== TOOL_STATES.APPROVED) return;
+      ruled = true;
       // Stamp approval provenance for the UI, naming the approving body. A saved
       // permission rule permitted it → `rule`. Otherwise the active strategy
       // approved it without individual confirmation — a force-approve strategy
@@ -595,7 +635,7 @@ async function evaluateNewToolAction(messageThread, toolUseId, conversation, exi
   //
   // Never for a call a hook asked the user about: that hook wants the human,
   // and a reviewer approving it would be exactly the stand-in it ruled out.
-  if (needsApproval && !hookAsks && action.interactionKind() === INTERACTION_KIND.GATE) {
+  if (ruled && needsApproval && !hookAsks && action.interactionKind() === INTERACTION_KIND.GATE) {
     offerToReviewer(messageThread, toolUseId, {
       toolName,
       toolInput: toolInputPlain,
@@ -735,7 +775,9 @@ export function claimRunning(c, ymap) {
   // state, so it goes through engineDerivedUpdate and the worker's
   // UndoManager doesn't see it as a separate undoable step.
   c.engineDerivedUpdate(() => {
-    if (ymap.get('state') === TOOL_STATES.APPROVED) {
+    // A call with a result has been answered already (toolActionHasResult);
+    // running it would act on a call the model was told is over.
+    if (ymap.get('state') === TOOL_STATES.APPROVED && !toolActionHasResult(ymap)) {
       ymap.set('state', TOOL_STATES.RUNNING);
       // Stamp the moment execution actually starts so the properties
       // panel's "Running… Xs" elapsed digit anchors to *this* run, not

@@ -55,6 +55,8 @@ export {
   // Filesystem
   readFile,
   uploadAssetBase64,
+  // Text kept beside the conversation and named by id, such as an edit diff side
+  uploadAssetText,
   // The snapshot a program tool keeps while one of its calls waits on the user
   saveProgramSnapshot,
   loadProgramSnapshot,

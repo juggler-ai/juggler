@@ -18,6 +18,7 @@ import { recordWrittenHash, __resetWrittenHashesForTest } from '../context-items
 import { handleNewToolAction } from '../../../js/model/conversation-tool-actions.js';
 import { createToolActionMessage, TOOL_STATES } from '../../../sdk/lib/message.js';
 import { BOGUS_HASH, makeGuardHarness } from './edit-staleness-helpers.js';
+import { diffSnapshotShape, loadDiffSides } from '../../../js/utils/diff-snapshot-sides.js';
 
 /**
  * States for the calls of a case that drives validate and execute itself. The
@@ -97,11 +98,14 @@ export async function runTests(_ctx) {
     const res = await write.validate({ file_path: 'guard-clobber-diff.txt', content: 'gone\n' });
     assert(res.valid === true, `never-read overwrite must be allowed, got ${JSON.stringify(res)}`);
     const approval = await write.getApprovalConfig(res.params || {});
-    const diff = /** @type {any} */ (approval)?.display?.diffData;
-    assert(diff?.oldContent === 'precious\n',
-      `approval diff must show the bytes being destroyed, got ${JSON.stringify(diff?.oldContent)}`);
-    assert(diff?.newContent === 'gone\n',
-      `approval diff must show the replacement, got ${JSON.stringify(diff?.newContent)}`);
+    // The sides may be inline or stored apart; either way they read back whole.
+    const shape = diffSnapshotShape(/** @type {any} */ (approval)?.display);
+    assert(shape !== null, `approval must carry a diff, got ${JSON.stringify(approval)}`);
+    const diff = await loadDiffSides(conversation.id, /** @type {any} */ (shape));
+    assert(diff.oldContent === 'precious\n',
+      `approval diff must show the bytes being destroyed, got ${JSON.stringify(diff.oldContent)}`);
+    assert(diff.newContent === 'gone\n',
+      `approval diff must show the replacement, got ${JSON.stringify(diff.newContent)}`);
   });
 
   await test('new-file write allowed', async () => {

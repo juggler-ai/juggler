@@ -22,12 +22,15 @@ import { whenRegistriesRebuilt } from '../registries/registry-ready.js';
 import actionExecutor from './action-executor.js';
 import { heldDelivery } from './held-calls.js';
 import wsService from './websocket.js';
+import * as Y from '../vendor/yjs.mjs';
 import {
   handleNewToolAction,
   executeToolAction,
   claimRunning,
   reassertRunning,
   saveAutoApprovalPermission,
+  toolActionHasResult,
+  awaitingEvaluation,
 } from '../model/conversation-tool-actions.js';
 
 // ── context/tools round-trip stamps ──────────────────────────────────────────
@@ -686,8 +689,44 @@ const PAST_APPROVED = /** @type {Set<string>} */ (new Set([
 ]));
 
 /**
- * Push this engine's full doc state to the worker when a tool command was
- * declined because the worker is behind on that very tool.
+ * How long a delta repair sent for one tool is presumed still on its way to the
+ * worker. Commands the worker dispatched before the repair reached it carry a
+ * vector that does not yet cover the repair, and resending for each of them is
+ * the feedback loop this guards against: a worker whose inbox is minutes behind
+ * re-drives every few seconds, and each duplicate is more for it to apply while
+ * it is behind. A command whose vector covers the repair proves it landed and
+ * lifts the hold at once; this span only bounds how long a repair that was lost
+ * outright goes unsent, so it is several of the worker's re-drive intervals.
+ */
+const REPAIR_IN_TRANSIT_MS = 30_000;
+
+/**
+ * Per conversation, per tool: the engine's state vector (decoded) when a delta
+ * repair was last sent for that tool, and when. Weakly keyed so an unloaded
+ * conversation takes its entries with it.
+ * @type {WeakMap<object, Map<string, {vector: Map<number, number>, at: number}>>}
+ */
+const _workerRepairs = new WeakMap();
+
+/**
+ * Whether a decoded state vector holds every struct another one names: each
+ * client's clock at least as far on. Deletions advance no clock, so they are
+ * outside what this can see.
+ * @param {Map<number, number>} held - The vector being tested
+ * @param {Map<number, number>} wanted - The structs it must cover
+ * @returns {boolean} True when nothing in `wanted` is missing from `held`.
+ */
+function vectorCovers(held, wanted) {
+  for (const [client, clock] of wanted) {
+    if ((held.get(client) ?? 0) < clock) return false;
+  }
+  return true;
+}
+
+/**
+ * Repair a worker that commanded `execute-tool` for a tool this engine has
+ * already moved past `approved`, if — and only if — the worker actually lacks
+ * an engine write.
  *
  * The worker drives the tool lifecycle off its own doc, so a `running` or
  * terminal write of ours that never reached it leaves it commanding execute-tool
@@ -696,27 +735,59 @@ const PAST_APPROVED = /** @type {Set<string>} */ (new Set([
  * engine acknowledged the request but never carried it out", since our decline
  * traces are exactly what proves the engine is alive.
  *
- * Only pushed when we are AHEAD (PAST_APPROVED). Being behind instead needs no
+ * But a command can also simply be stale: dispatched before our write, already
+ * queued at the worker, was applied there. The command's `workerStateVector` —
+ * the worker's vector at dispatch — tells the two apart. When it covers every
+ * struct this engine holds, the worker is merely slow and is sent nothing
+ * (`stale-command`). Otherwise it is sent just the ops it lacks, as an ordinary
+ * yjs-sync (`resync-diverged`, with the delta's size), and later commands for
+ * the tool that predate that delta's arrival send nothing more
+ * (`resync-in-flight`; see REPAIR_IN_TRANSIT_MS). Full state is never sent: on
+ * a large conversation it is megabytes the worker must decode and save, which
+ * is exactly what keeps a backed-up worker behind.
+ *
+ * Only repaired when we are AHEAD (PAST_APPROVED). Being behind instead needs no
  * repair: the worker pushes its own state ahead of every command it dispatches.
- * The push is a Yjs merge and cannot revert the worker — ops it already holds
- * are a no-op, and anything it wrote more recently still wins — so the worst
- * case is a wasted encode.
+ * A delta is a Yjs merge and cannot revert the worker — ops it already holds are
+ * a no-op, and anything it wrote more recently still wins.
  * @param {any} wm - WorkerManager instance
  * @param {any} c - Conversation instance
  * @param {string} conversationId
  * @param {string} toolUseId
  * @param {string} observedState - This engine's state for the tool
+ * @param {Uint8Array|null} workerStateVector - The command's worker state vector
  * @returns {void}
  */
-function resyncWorkerBehindTool(wm, c, conversationId, toolUseId, observedState) {
+function resyncWorkerBehindTool(wm, c, conversationId, toolUseId, observedState, workerStateVector) {
   if (!PAST_APPROVED.has(observedState)) return;
-  try {
-    c.resyncToWorker();
-  } catch (err) {
-    sendEngineTrace(wm, conversationId, 'resync-diverged-failed', { toolUseId, error: extractErrorMessage(err) });
+  if (!workerStateVector) {
+    sendEngineTrace(wm, conversationId, 'resync-no-vector', { toolUseId, state: observedState });
     return;
   }
-  sendEngineTrace(wm, conversationId, 'resync-diverged', { toolUseId, state: observedState });
+  try {
+    const held = Y.decodeStateVector(workerStateVector);
+    const ours = Y.decodeStateVector(c.getYjsStateVector());
+    let repairs = _workerRepairs.get(c);
+    if (!repairs) {
+      repairs = new Map();
+      _workerRepairs.set(c, repairs);
+    }
+    if (vectorCovers(held, ours)) {
+      repairs.delete(toolUseId);
+      sendEngineTrace(wm, conversationId, 'stale-command', { toolUseId, state: observedState });
+      return;
+    }
+    const prior = repairs.get(toolUseId);
+    if (prior && !vectorCovers(held, prior.vector) && Date.now() - prior.at < REPAIR_IN_TRANSIT_MS) {
+      sendEngineTrace(wm, conversationId, 'resync-in-flight', { toolUseId, state: observedState, sinceMs: Date.now() - prior.at });
+      return;
+    }
+    const bytes = c.sendMissingOpsToWorker(workerStateVector);
+    repairs.set(toolUseId, { vector: ours, at: Date.now() });
+    sendEngineTrace(wm, conversationId, 'resync-diverged', { toolUseId, state: observedState, bytes });
+  } catch (err) {
+    sendEngineTrace(wm, conversationId, 'resync-diverged-failed', { toolUseId, error: extractErrorMessage(err) });
+  }
 }
 
 /**
@@ -771,6 +842,16 @@ export async function handleEvaluateTool(wm, conversationId, toolUseId) {
     // it means the first evaluation has been running that long — an evaluation
     // stalled inside action.prepare() reads as repeated 'in-flight' lines.
     sendEngineTrace(wm, conversationId, 'evaluate-noact', { toolUseId, reason: 'in-flight' });
+    return true;
+  }
+  // Evaluation rules once. A re-driven or stale command for a call already
+  // ruled on (any state past ''), or one carrying a result, has nothing left
+  // to evaluate: re-running it would run the hooks again and could rewrite a
+  // settled call. Declined before any hook runs or anything is written. Like
+  // 'in-flight', it answers the command, so the worker counts it as one.
+  const evaluating = mt.getToolAction(toolUseId);
+  if (evaluating && !awaitingEvaluation(evaluating)) {
+    sendEngineTrace(wm, conversationId, 'evaluate-noact', { toolUseId, reason: 'already-evaluated', state: evaluating.get('state') ?? '', hasResult: toolActionHasResult(evaluating) });
     return true;
   }
   c._handlingNewToolAction.add(toolUseId);
@@ -831,11 +912,13 @@ export function handOverToHeldCall(c, mt, ymap, toolUseId) {
  * @param {any} wm - WorkerManager instance
  * @param {string} conversationId
  * @param {string} toolUseId
+ * @param {Uint8Array|null} workerStateVector - The worker's encoded Yjs state
+ *   vector when it dispatched the command (ToolCommand.StateVector).
  * @returns {Promise<boolean>} true if handled, false if it could not act. The
  *   caller ignores it — the worker re-drives from doc state, not from an ack —
  *   but the value stays as a diagnostic of whether this command found its tool.
  */
-export async function handleExecuteTool(wm, conversationId, toolUseId) {
+export async function handleExecuteTool(wm, conversationId, toolUseId, workerStateVector) {
   if (!isEngine()) {
     throw new Error('execute-tool received in a viewer — tool execution runs only in the engine');
   }
@@ -851,6 +934,14 @@ export async function handleExecuteTool(wm, conversationId, toolUseId) {
   if (!mt) { sendEngineTrace(wm, conversationId, 'execute-noact', { toolUseId, reason: 'no-thread' }); return false; }
   const ymap = mt.getToolAction(toolUseId);
   if (!ymap) { sendEngineTrace(wm, conversationId, 'execute-noact', { toolUseId, reason: 'no-ymap' }); return false; }
+  // A call carrying a result is finished whatever its state reads — the model
+  // has been told how it ended — so it is never claimed or run. The worker
+  // settles its state from the result, and the decline answers the command.
+  if (toolActionHasResult(ymap)) {
+    const state = /** @type {string} */ (ymap.get('state'));
+    sendEngineTrace(wm, conversationId, 'execute-noact', { toolUseId, reason: 'has-result', state });
+    return true;
+  }
   // Re-entrancy guard: never start a second concurrent run of a toolUseId this
   // engine is already executing. claimRunning's compare-and-set holds only while
   // the doc keeps the `running` it wrote; when that claim is lost the worker's
@@ -878,7 +969,7 @@ export async function handleExecuteTool(wm, conversationId, toolUseId) {
     // nothing at all.
     const state = /** @type {string} */ (ymap.get('state'));
     sendEngineTrace(wm, conversationId, 'execute-noact', { toolUseId, reason: 'already-executing', repaired, state });
-    if (!repaired) resyncWorkerBehindTool(wm, c, conversationId, toolUseId, state);
+    if (!repaired) resyncWorkerBehindTool(wm, c, conversationId, toolUseId, state, workerStateVector);
     return false;
   }
   // 'yes-always' persists the auto-approval permission. resolveApproval writes
@@ -901,7 +992,7 @@ export async function handleExecuteTool(wm, conversationId, toolUseId) {
   const observed = /** @type {string} */ (ymap.get('state'));
   const claimed = claimRunning(c, ymap);
   sendEngineTrace(wm, conversationId, 'execute-claim', { toolUseId, toolName: ymap.get('toolName'), claimed, state: observed });
-  if (!claimed) resyncWorkerBehindTool(wm, c, conversationId, toolUseId, observed);
+  if (!claimed) resyncWorkerBehindTool(wm, c, conversationId, toolUseId, observed, workerStateVector);
   if (claimed) {
     sendEngineTrace(wm, conversationId, 'execute-start', { toolUseId });
     // Arm the level-based tool-execution reporter for the duration of this run.

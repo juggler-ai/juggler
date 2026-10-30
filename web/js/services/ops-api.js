@@ -642,6 +642,56 @@ export async function uploadAssetBase64(convId, base64, mime, signal) {
 }
 
 /**
+ * Store UTF-8 text in the conversation's content-addressed asset store and
+ * return its AssetRef. Identical text gets the identical id, so storing the same
+ * file twice keeps one copy. Used for the two sides of an edit's diff, which the
+ * conversation then names by id instead of carrying.
+ * @param {string} convId - Conversation that owns the asset
+ * @param {string} text - The text; must not be empty
+ * @param {AbortSignal} [signal] - Abort signal for cancellation
+ * @returns {Promise<AssetRef>} The stored asset reference
+ */
+export async function uploadAssetText(convId, text, signal) {
+  if (!convId) {
+    throw new TypeError('convId is required');
+  }
+  const headers = withApiToken({ 'Content-Type': 'text/plain; charset=utf-8' });
+  const response = await fetch(
+    apiUrl(`/session/conversations/${encodeURIComponent(convId)}/assets`),
+    { method: 'POST', headers, body: new TextEncoder().encode(text), signal }
+  );
+  if (!response.ok) {
+    const detail = await extractHttpErrorDetail(response);
+    throw new OpsError(`Failed to store text (HTTP ${response.status}): ${detail}`);
+  }
+  return /** @type {Promise<AssetRef>} */ (response.json());
+}
+
+/**
+ * Read back a text asset stored by {@link uploadAssetText}. The token rides in
+ * the header, the credential every API call carries, so it reads wherever the
+ * page can call the API at all — the desktop app, or a browser viewer.
+ * @param {string} convId - Conversation that owns the asset
+ * @param {string} sha - The asset id
+ * @param {AbortSignal} [signal] - Abort signal for cancellation
+ * @returns {Promise<string>} The text
+ */
+export async function fetchAssetText(convId, sha, signal) {
+  if (!convId || !sha) {
+    throw new TypeError('convId and sha are required');
+  }
+  const response = await fetch(
+    apiUrl(`/session/conversations/${encodeURIComponent(convId)}/assets/${encodeURIComponent(sha)}`),
+    { headers: withApiToken({}), signal }
+  );
+  if (!response.ok) {
+    const detail = await extractHttpErrorDetail(response);
+    throw new OpsError(`Failed to load stored text (HTTP ${response.status}): ${detail}`);
+  }
+  return response.text();
+}
+
+/**
  * The URL of a program's snapshot.
  * @param {string} convId - Conversation that owns the program
  * @param {string} toolUseId - The program's tool-use id

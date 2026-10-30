@@ -525,7 +525,7 @@ func (r *run) finishStrategyRun() {
 	// evidence that this run has work outstanding.
 	if r.threadActivity(r.t.thread.itemID) == ActivityAwaitingLLM {
 		r.storeState(StateIdle)
-		r.requestReconcile()
+		r.requestReconcile(reconcileTurnEnded)
 		return
 	}
 
@@ -599,7 +599,7 @@ func (r *run) finishStrategyRun() {
 	// the idle path itself. The run is over, so this is a rest drain.
 	defer func() {
 		if r.requestLLMIfQueued(completedThreadID, restDrain(r.clock.Now())) {
-			r.requestReconcile()
+			r.requestReconcile(reconcileTurnEnded)
 		}
 	}()
 
@@ -633,7 +633,7 @@ func (r *run) finishStrategyRun() {
 				// status written at all — a doc left mid-turn with nothing driving
 				// it never rests, and never fires the send this guard protects.
 				if r.requestLLM(openID) {
-					r.requestReconcile()
+					r.requestReconcile(reconcileTurnEnded)
 					return
 				}
 			}
@@ -659,7 +659,7 @@ func (r *run) finishStrategyRun() {
 
 		if requeue {
 			r.requestLLM(queuedID)
-			r.requestReconcile()
+			r.requestReconcile(reconcileTurnEnded)
 			return
 		}
 
@@ -683,7 +683,7 @@ func (r *run) finishStrategyRun() {
 		// end-of-run turnContinue), never here.
 		if completedThreadID != "" && r.promotePendingItems("", restDrain(r.clock.Now())) > 0 {
 			r.requestLLM("")
-			r.requestReconcile()
+			r.requestReconcile(reconcileTurnEnded)
 			return
 		}
 
@@ -705,7 +705,7 @@ func (r *run) finishStrategyRun() {
 		// hook's effects are external side-effects, not doc writes.
 		r.dispatchContextTurnHook()
 	} else {
-		r.requestReconcile()
+		r.requestReconcile(reconcileTurnEnded)
 	}
 }
 
@@ -961,7 +961,7 @@ func (w *ConversationWorker) signalParentThread(completedThreadID string) bool {
 	if !w.requestLLM(parentThreadID) {
 		return false
 	}
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileChildSignalledParent)
 	return true
 }
 
@@ -1263,7 +1263,7 @@ func (r *run) processLLMResponse(response *LLMResponse) (bool, error) {
 		// tool-action, rather than relying on the engine to auto-load on an
 		// incidental sync (racy → the "tools stuck" wedge). The reducer pass does
 		// the driving, on the run loop, once this turn has handed it back.
-		r.requestReconcile()
+		r.requestReconcile(reconcileToolsCommanded)
 	}
 
 	return true, nil

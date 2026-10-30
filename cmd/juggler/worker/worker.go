@@ -321,6 +321,9 @@ type workerMessage struct {
 	Payload      json.RawMessage
 	OriginClient string
 	Ack          chan error
+	// EnqueuedAt is when the message entered the inbox (workerInbox.push), so
+	// the time it waited there can be told from the time it took to handle.
+	EnqueuedAt time.Time
 }
 
 // NewConversationWorker creates a new conversation worker.
@@ -788,6 +791,9 @@ func (r *run) run(ctx context.Context) {
 		// slow-iteration report below (loop_timing.go).
 		var event string
 		var started time.Time
+		// waited is how long the handled message sat in the inbox; zero for
+		// events that do not come through it.
+		var waited time.Duration
 		select {
 		case <-ctx.Done():
 			return
@@ -795,6 +801,8 @@ func (r *run) run(ctx context.Context) {
 			return
 		case msg := <-r.inbox.messages():
 			event, started = "message "+msg.Type, time.Now()
+			r.inbox.taken(msg)
+			waited = started.Sub(msg.EnqueuedAt)
 			r.handleMessage(msg)
 		case <-r.doc.UpdateSignal():
 			event, started = "doc update signal", time.Now()
@@ -821,7 +829,7 @@ func (r *run) run(ctx context.Context) {
 			r.handleItemsChange()
 		case <-r.sched.wakes():
 			event, started = "reconcile request", time.Now()
-			r.sched.markReconcile()
+			r.sched.markWoken()
 		case t := <-r.sched.dispatches():
 			event, started = "thread dispatch", time.Now()
 			r.startPreparedThreadRun(t)
@@ -850,7 +858,10 @@ func (r *run) run(ctx context.Context) {
 		// Last, so the timer is armed against what this event and its passes
 		// left in the queues.
 		r.rearmHeldTimer()
-		r.reportSlowIteration(event, handled, time.Since(reconcileStarted), passes)
+		r.reportSlowIteration(slowIteration{
+			event: event, handled: handled, reconcile: time.Since(reconcileStarted), passes: passes,
+			waited: waited, depth: r.inbox.depth(),
+		})
 	}
 }
 
@@ -1528,11 +1539,13 @@ func (r *run) checkForNewThreads() bool {
 			continue
 		}
 
-		// Reserve the thread's capability slot before claiming it. Re-tickle on
-		// failure: needsStrategyRun is consumed only after both checks succeed, and
-		// releasing another thread's claim does not fire the items observer.
+		// Reserve the thread's capability slot before claiming it. needsStrategyRun
+		// is consumed only after both checks succeed, so a refused thread stays
+		// armed. The refusal asks for no further pass: every reducer pass runs this
+		// pickup, and what clears a refusal — a turn retiring, a pickup abandoned —
+		// asks for that pass itself, while one asked for now would be refused
+		// again, spinning the drain to its cap on every event.
 		if !r.canAdmitThread(threadID) || !r.claimLLM(threadID) {
-			r.sched.markReconcile()
 			return false
 		}
 
@@ -1623,7 +1636,7 @@ func (r *run) abandonThreadRun(threadItemID string) {
 	r.storeState(StateIdle)
 	r.t.processingStartedAt.Store(0)
 	r.sendStatus("idle", "")
-	r.requestReconcile()
+	r.requestReconcile(reconcilePickupAbandoned)
 }
 
 // setThreadNeedsStrategyRun re-arms the one-shot doc-driven run trigger on a

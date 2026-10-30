@@ -282,7 +282,7 @@ func (w *ConversationWorker) handleUnpause(threadItemID string) {
 	// Both are cheap and idempotent when there is nothing waiting.
 	r := w.currentRun()
 	r.checkForNewThreads()
-	r.requestReconcile()
+	r.requestReconcile(reconcileUnpause)
 }
 
 // nudgePoliteStop asks any covered run parked in a retry backoff to abandon the

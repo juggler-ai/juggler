@@ -397,7 +397,15 @@ func TestEngineNoActReasons_AreAllClassified(t *testing.T) {
 	// no hold is wanted, and they reset the attempt cap rather than count against
 	// it. Listed rather than assumed so that adding one is a decision, not a
 	// default.
-	engaged := engineInFlightReasons
+	engaged := map[string]bool{}
+	for r := range engineInFlightReasons {
+		engaged[r] = true
+	}
+	// Reasons that mean the engine reached the tool and found nothing left for
+	// the command to do: answers, but not progress.
+	for r := range engineSettledReasons {
+		engaged[r] = true
+	}
 
 	found := map[string]bool{}
 	for _, m := range regexp.MustCompile(`sendEngineTrace\([^\n]*?reason:\s*'([^']+)'`).FindAllSubmatch(src, -1) {
@@ -419,7 +427,14 @@ func TestEngineNoActReasons_AreAllClassified(t *testing.T) {
 			"it means the engine could not REACH the tool, add it to "+
 			"engineUnreachableReasons (tool_command_state.go) so the tool is held while "+
 			"the engine recovers; if it means the engine reached the tool and is still "+
-			"working on it, add it to engineInFlightReasons", reason)
+			"working on it, add it to engineInFlightReasons; if it means the engine reached "+
+			"the tool and found nothing left to do, add it to engineSettledReasons", reason)
+	}
+	for reason := range engineSettledReasons {
+		if !found[reason] {
+			t.Errorf("the worker classifies %q as a settled-tool answer, but no trace in %s "+
+				"emits it", reason, protocols)
+		}
 	}
 	for reason := range engineUnreachableReasons {
 		if !found[reason] {

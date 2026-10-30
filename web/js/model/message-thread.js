@@ -859,6 +859,27 @@ export default class MessageThread {
     });
   }
 
+  /**
+   * updateItemField for a value the engine derives rather than the user
+   * authors — a running tool's live preview, rewritten many times a second.
+   * The write is tagged engine-derived, so the worker's UndoManager neither
+   * offers it as an undo step nor keeps each value it replaces.
+   * @plugin-api
+   * @param {number} index - Item index in this thread
+   * @param {string} field - Field to set
+   * @param {any} value - Plain value (converted to Yjs types)
+   */
+  updateDerivedItemField(index, field, value) {
+    const yarray = this.ensureYarray();
+    if (index < 0 || index >= yarray.length) return;
+    this.conversation.engineDerivedUpdate(() => {
+      const ymap = yarray.get(index);
+      if (ymap instanceof Y.Map) {
+        ymap.set(field, convertToYType(value));
+      }
+    });
+  }
+
   // ── Event/message operations ──────────────────────────────────────
 
   /**
@@ -1008,6 +1029,14 @@ export default class MessageThread {
           if (promotedDisplayData && !ymap.get('displayData')) {
             ymap.set('displayData', convertToYType(promotedDisplayData));
           }
+          // `displayData.output` is the live preview a running command streams
+          // for the panel, which reads it only while the item has no result. The
+          // result written here supersedes it, and the output it previewed is in
+          // the result's content, so it goes rather than stay a second copy.
+          const liveDisplayData = ymap.get('displayData');
+          if (liveDisplayData instanceof Y.Map && liveDisplayData.has('output')) {
+            liveDisplayData.delete('output');
+          }
         }
       });
     }
@@ -1059,7 +1088,9 @@ export default class MessageThread {
    * Update the lifecycle state of a tool action.
    * @param {string} toolUseId
    * @param {import('../../sdk/lib/message.js').ToolState} state
-   * @param {{ifState?: string}} [options] - Optional CAS on current state
+   * @param {{ifState?: string}} [options] - Optional CAS on current state. A
+   *   CAS write also refuses a call that carries a result: that call is
+   *   finished whatever its state reads, so no transition may move it.
    */
   updateToolActionState(toolUseId, state, { ifState } = {}) {
     this.transact(() => {
@@ -1068,6 +1099,7 @@ export default class MessageThread {
         const item = items[i];
         if (isToolActionMessage(/** @type {Message} */ (item)) && item.get('toolUseId') === toolUseId) {
           if (ifState !== undefined && (item.get('state') ?? '') !== ifState) break;
+          if (ifState !== undefined && item.get('result') !== undefined && item.get('result') !== null) break;
           item.set('state', state);
           break;
         }

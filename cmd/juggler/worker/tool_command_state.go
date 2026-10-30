@@ -248,6 +248,26 @@ var engineInFlightReasons = map[string]bool{
 	"already-executing": true,
 }
 
+// engineSettledReasons are the no-act `reason` values that mean the engine
+// reached the tool and found nothing left for this command to do:
+// 'already-evaluated' (an evaluate-tool for a call already ruled on, or carrying
+// a result) and 'has-result' (an execute-tool for a call carrying a result,
+// which is finished whatever its state reads). The worker's doc is behind the
+// engine's, or the call's state disagrees with its result, which the walk
+// settles (settledFromResult).
+//
+// They count as answers — the engine engaged with the tool, so no unproven hold
+// applies — but unlike engineInFlightReasons they do not reset the attempts
+// count: the engine is not working on the tool, so a phase that goes on hearing
+// this is not progress. recordTrace gives them the default engagement handling;
+// the table exists so that is a decision rather than a default.
+//
+// Same wire contract as engineUnreachableReasons, checked by the same test.
+var engineSettledReasons = map[string]bool{
+	"already-evaluated": true,
+	"has-result":        true,
+}
+
 // engineLivenessOnlyEvents are engine traces that prove the engine received a
 // command and nothing more. They are stamped as liveness — the engine is alive
 // and running handlers — but must NOT count as engagement with the tool.

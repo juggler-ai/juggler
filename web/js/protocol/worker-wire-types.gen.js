@@ -166,8 +166,7 @@
  * 	"execute-tool"  — claim approved→running and run the side effect
  * 	"cancel-tool"   — abort an in-flight execution
  *
- * The conversationId is added by the outbound envelope (FormatWorkerMessage),
- * so only the type and toolUseId travel in the payload.
+ * The conversationId is added by the outbound envelope (FormatWorkerMessage).
  *
  * RunningEpoch scopes a cancel-tool command to one execution generation (the
  * value claimRunning stamped on the tool-action). The engine aborts an
@@ -175,10 +174,19 @@
  * prior run can't kill a fresh re-run of the same toolUseId. Omitted (0) for
  * evaluate-tool/execute-tool and for pre-claim cancels of an approved tool
  * (no epoch stamped yet), where the abort stays unscoped.
+ *
+ * StateVector is the worker's Yjs state vector when the command went out. A
+ * command for a tool the engine has already moved on from means one of two
+ * things: the engine's write is still on its way here and the command merely
+ * overtook it, or the write never arrived. The vector tells them apart — it
+ * covers every op the engine holds in the first case and not in the second —
+ * so the engine sends nothing for a stale command and only the ops this worker
+ * lacks for a divergent one, never full state. Base64 in JSON.
  * @typedef {object} EvaluateToolMessage
  * @property {'evaluate-tool'} type
  * @property {string} toolUseId
  * @property {number} [runningEpoch]
+ * @property {string|null} stateVector - Base64.
  */
 
 /**
@@ -187,6 +195,7 @@
  * @property {'execute-tool'} type
  * @property {string} toolUseId
  * @property {number} [runningEpoch]
+ * @property {string|null} stateVector - Base64.
  */
 
 /**
@@ -195,6 +204,7 @@
  * @property {'cancel-tool'} type
  * @property {string} toolUseId
  * @property {number} [runningEpoch]
+ * @property {string|null} stateVector - Base64.
  */
 
 /**

@@ -112,6 +112,8 @@ import { runTests as runStrategyInjectionTests } from '../unit-tests/strategy-in
 import { runTests as runObserverDecouplingTests } from '../unit-tests/observer-decoupling-test.js';
 import { runTests as runToolPendingHookTests } from '../unit-tests/tool-pending-hook-test.js';
 import { runTests as runToolHooksTests } from '../unit-tests/tool-hooks-test.js';
+import { runTests as runToolResultTerminalTests } from '../unit-tests/tool-result-terminal-test.js';
+import { runTests as runToolCommandResyncTests } from '../unit-tests/tool-command-resync-test.js';
 import { runTests as runToolCallDecisionTests } from '../unit-tests/tool-call-decision-test.js';
 import { runTests as runToolInvokerTests } from '../unit-tests/tool-invoker-test.js';
 import { runTests as runProgramChangeReportTests } from '../unit-tests/program-change-report-test.js';
@@ -725,6 +727,8 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:observer-decoupling', run: runObserverDecouplingTests },
   { name: 'unit:tool-pending-hook', run: runToolPendingHookTests },
   { name: 'unit:tool-hooks', run: runToolHooksTests },
+  { name: 'unit:tool-result-terminal', run: runToolResultTerminalTests },
+  { name: 'unit:tool-command-resync', run: runToolCommandResyncTests },
   { name: 'unit:tool-call-decision', run: runToolCallDecisionTests },
   { name: 'unit:tool-invoker', run: runToolInvokerTests },
   { name: 'unit:program-change-report', run: runProgramChangeReportTests },

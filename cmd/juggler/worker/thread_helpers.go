@@ -455,7 +455,7 @@ func (w *ConversationWorker) finalizeStuckRunningToolOnField(toolUseID, epochFie
 			if state := yMapString(m, keyState); state != StateRunning {
 				return true
 			}
-			if r := m.Get(keyResult); r != nil {
+			if toolHasResult(m) {
 				return true
 			}
 			// Epoch guard: only finalize the exact execution the caller observed. A

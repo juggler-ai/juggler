@@ -707,7 +707,7 @@ export async function runTests(_ctx) {
         loader: { pendingAutoLoad: () => null, loadExisting: async () => conversation },
         sendToWorker: () => {},
       };
-      const handled = await handleExecuteTool(spyWm, conversation.id, toolUseId);
+      const handled = await handleExecuteTool(spyWm, conversation.id, toolUseId, null);
 
       assert(handled === false, 're-driven execute-tool for an executing id must report that it did not act');
       const stillOne = actionExecutor.executingSetFor(conversation.id);

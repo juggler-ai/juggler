@@ -22,12 +22,14 @@
  * @module unit-tests/worker-inbound-test
  */
 
-import { assert, waitFor, withTimeout } from '../utilities/test-helpers.js';
+import { assert, nextTask, waitFor, withTimeout } from '../utilities/test-helpers.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { WorkerManager } from '../../js/services/worker-manager.js';
 import { ConversationLoader } from '../../js/services/conversation-loader.js';
 import { INBOUND_HANDLERS, routeWorkerMessage } from '../../js/services/worker-manager-inbound.js';
+import wsService from '../../js/services/websocket.js';
+import { WS_CHUNK_HEADER_SIZE } from '../../js/utils/ws-chunk.js';
 
 /**
  * @typedef {object} TestResult
@@ -94,6 +96,120 @@ function managerWithEntry(conversationId, { loadFromDisk = false } = {}) {
  */
 function soon(promise, what) {
   return withTimeout(promise, 1000, `${what} to settle`);
+}
+
+/**
+ * A clock of the test's own. Code run through `run` sees its time in
+ * `Date.now` and has its timers held here rather than scheduled; `advanceTo`
+ * fires the held timers in due order, each at its due time. Nothing is stubbed
+ * outside those synchronous calls, so the other lanes sharing this page never
+ * see it.
+ * @returns {{now: () => number, run: <T>(fn: () => T) => T, advanceTo: (at: number) => void}} The clock
+ */
+function fakeClock() {
+  let now = Date.now();
+  /** @type {Array<{at: number, cb: () => void, id: object}>} */
+  const due = [];
+  /**
+   * @template T
+   * @param {() => T} fn - What to run on this clock
+   * @returns {T} Its value
+   */
+  const run = (fn) => {
+    const realNow = Date.now;
+    const realSet = window.setTimeout;
+    const realClear = window.clearTimeout;
+    Date.now = () => now;
+    // An object id: one that escapes and reaches the real clearTimeout is a no-op there.
+    window.setTimeout = /** @type {any} */ ((/** @type {() => void} */ cb, /** @type {number} */ ms = 0) => {
+      const id = {};
+      due.push({ at: now + ms, cb, id });
+      return id;
+    });
+    window.clearTimeout = /** @type {any} */ ((/** @type {unknown} */ id) => {
+      const i = due.findIndex((d) => d.id === id);
+      if (i >= 0) due.splice(i, 1);
+    });
+    try { return fn(); } finally {
+      Date.now = realNow;
+      window.setTimeout = realSet;
+      window.clearTimeout = realClear;
+    }
+  };
+  const start = now;
+  return {
+    now: () => now,
+    run,
+    advanceTo(at) {
+      run(() => {
+        for (;;) {
+          due.sort((a, b) => a.at - b.at);
+          const next = due[0];
+          if (!next || next.at > start + at) break;
+          due.shift();
+          now = next.at;
+          next.cb();
+        }
+        now = start + at;
+      });
+    }
+  };
+}
+
+/**
+ * Split a text message into the binary chunk frames a WebSocket carries it as
+ * (utils/ws-chunk.js), under a run id no server connection uses.
+ * @param {number} id - Low word of the run id
+ * @param {string} text - The message
+ * @param {number} total - How many frames
+ * @returns {ArrayBuffer[]} The frames
+ */
+function wsChunkFrames(id, text, total) {
+  const bytes = new TextEncoder().encode(text);
+  const size = Math.ceil(bytes.length / total);
+  return Array.from({ length: total }, (_, index) => {
+    const data = bytes.subarray(index * size, (index + 1) * size);
+    const buf = new ArrayBuffer(WS_CHUNK_HEADER_SIZE + data.length);
+    const view = new DataView(buf);
+    new Uint8Array(buf).set([0x4a, 0x47, 0x43, 0x31]);
+    view.setUint8(4, 0);
+    view.setUint32(5, 0xfeedface);
+    view.setUint32(9, id);
+    view.setUint32(13, index);
+    view.setUint32(17, total);
+    new Uint8Array(buf).set(data, WS_CHUNK_HEADER_SIZE);
+    return buf;
+  });
+}
+
+/**
+ * Split a text message into the `__juggler_dc_chunk` envelopes a DataChannel
+ * carries it as.
+ * @param {string} id - The run id
+ * @param {string} text - The message
+ * @param {number} total - How many envelopes
+ * @returns {Array<{type: string, id: string, index: number, total: number, data: string}>} The envelopes
+ */
+function dcChunkFrames(id, text, total) {
+  const size = Math.ceil(text.length / total);
+  return Array.from({ length: total }, (_, index) => ({
+    type: '__juggler_dc_chunk', id, index, total, data: text.slice(index * size, (index + 1) * size)
+  }));
+}
+
+/** A message both transports may carry and this client ignores. */
+const IGNORED_MESSAGE = '{"type":"heartbeat"}';
+
+/**
+ * A manager whose spawns go nowhere: it counts the inits it would have sent.
+ * @returns {{wm: any, inits: () => number}} The manager and its init count
+ */
+function managerSendingNothing() {
+  const wm = /** @type {any} */ (new WorkerManager());
+  wm._config = {};
+  let inits = 0;
+  wm._sendInit = () => { inits++; return true; };
+  return { wm, inits: () => inits };
 }
 
 /**
@@ -372,6 +488,106 @@ export async function runTests(_ctx) {
     for (const wm of [noWorker, refused, neverReady]) {
       assert(wm._pendingAcks.size === 0, 'a request that failed must leave no pending ack behind');
     }
+  });
+
+  // A starting worker's ready is queued behind its sync on this client's link,
+  // so on a slow link the wait for it is as long as the transfer. Its bound is
+  // the link's silence: chunk frames of a split message, on either transport,
+  // and the worker's own messages are progress. Time is the test's own clock,
+  // so the cases say what the bound does rather than how fast this core runs.
+  await run('a starting worker waits out a slow transfer, frame by frame, past the ready timeout', async () => {
+    const conv = 'conv_inbound_ready_slow_link';
+    const { wm } = managerSendingNothing();
+    const clock = fakeClock();
+    await captureConsole(conv, async () => {
+      /** @type {unknown} */
+      let outcome = 'pending';
+      const spawning = clock.run(() => wm.spawnWorker(conv, { loadFromDisk: true }));
+      spawning.then(() => { outcome = 'resolved'; }, (/** @type {unknown} */ e) => { outcome = e; });
+      const ws = wsChunkFrames(1, IGNORED_MESSAGE, 3);
+      const dc = dcChunkFrames(`ready-slow-${conv}`, IGNORED_MESSAGE, 3);
+      // Each gap is under the minute; the whole wait is four of them.
+      /** @type {Array<[number, () => void]>} */
+      const arrivals = [
+        [40_000, () => wsService._handleBinaryMessage(ws[0])],
+        [80_000, () => wsService._handleBinaryMessage(ws[1])],
+        [120_000, () => wsService._handleTransportChunk(dc[0])],
+        [160_000, () => wsService._handleTransportChunk(dc[1])],
+        [210_000, () => wm._handleWorkerMessage(conv, { type: 'debug-sync-progress' })],
+      ];
+      for (const [at, arrive] of arrivals) {
+        clock.advanceTo(at);
+        await nextTask();
+        assert(outcome === 'pending', `the wait must still be open at ${at / 1000}s, with progress at every step; got ${outcome}`);
+        clock.run(arrive);
+      }
+      clock.advanceTo(260_000);
+      await nextTask();
+      assert(outcome === 'pending', `the wait must still be open 50s after the worker last spoke; got ${outcome}`);
+      clock.run(() => wm.markReady(conv, { created: '2026-10-29T00:00:00Z' }));
+      await soon(spawning, 'the spawn whose ready arrived');
+      // Finish both runs, so neither is left part-way in the shared service.
+      wsService._handleBinaryMessage(ws[2]);
+      wsService._handleTransportChunk(dc[2]);
+    });
+  });
+
+  await run('a starting worker\'s link silent for the ready timeout fails the spawn, saying what it waited and received', async () => {
+    const conv = 'conv_inbound_ready_silent';
+    const { wm } = managerSendingNothing();
+    const clock = fakeClock();
+    await captureConsole(conv, async () => {
+      /** @type {unknown} */
+      let outcome = 'pending';
+      const spawning = clock.run(() => wm.spawnWorker(conv, { loadFromDisk: true }));
+      spawning.then(() => { outcome = 'resolved'; }, (/** @type {unknown} */ e) => { outcome = e; });
+      const ws = wsChunkFrames(2, IGNORED_MESSAGE, 2);
+      clock.advanceTo(10_000);
+      clock.run(() => wsService._handleBinaryMessage(ws[0]));
+      // A server beat proves the link alive, not that anything for this
+      // client is moving, so it does not hold the wait open.
+      clock.advanceTo(40_000);
+      const inboundAt = wsService._lastInboundAt;
+      clock.run(() => wsService._handleMessageData(IGNORED_MESSAGE));
+      wsService._lastInboundAt = inboundAt;
+      clock.advanceTo(69_000);
+      await nextTask();
+      assert(outcome === 'pending', `59s after the last frame the wait must still be open; got ${outcome}`);
+      clock.advanceTo(71_000);
+      await nextTask();
+      assert(outcome instanceof Error, `a minute of silence must fail the spawn; got ${outcome}`);
+      const message = /** @type {Error} */ (outcome).message;
+      assert(message.includes('Worker initialization timeout'), `the failure must still name the ready timeout; got: ${message}`);
+      assert(/waited 7[01]s/.test(message), `the failure must say how long it waited in all; got: ${message}`);
+      assert(/1 chunk frame/.test(message) && /received/.test(message), `the failure must say what arrived meanwhile; got: ${message}`);
+      assert(wm.workerState(conv) !== 'starting', 'the failed spawn must leave no entry behind');
+      wsService._handleBinaryMessage(ws[1]);
+    });
+  });
+
+  await run('re-sending a starting worker\'s init on reconnect restarts its silence clock', async () => {
+    // The init the dead link carried may never have arrived, and the worker
+    // answers the re-sent one from scratch: time spent before it is no measure
+    // of the worker.
+    const conv = 'conv_inbound_ready_reinit';
+    const { wm, inits } = managerSendingNothing();
+    const clock = fakeClock();
+    await captureConsole(conv, async () => {
+      /** @type {unknown} */
+      let outcome = 'pending';
+      const spawning = clock.run(() => wm.spawnWorker(conv, { loadFromDisk: true }));
+      spawning.then(() => { outcome = 'resolved'; }, (/** @type {unknown} */ e) => { outcome = e; });
+      clock.advanceTo(50_000);
+      clock.run(() => wm.reinitPendingConversations());
+      assert(inits() === 2, `the reconnect must re-send the init; got ${inits()} init(s)`);
+      clock.advanceTo(109_000);
+      await nextTask();
+      assert(outcome === 'pending', `59s after the re-sent init the wait must still be open; got ${outcome}`);
+      clock.advanceTo(111_000);
+      await nextTask();
+      assert(outcome instanceof Error && outcome.message.includes('Worker initialization timeout'),
+        `a minute of silence after the re-sent init must fail the spawn; got ${outcome}`);
+    });
   });
 
   await run('the manager is a transport: the loader builds conversations, tests send their own messages', async () => {

@@ -82,7 +82,7 @@ func TestPoliteStop_ReducerRestsBeforeNextTurn(t *testing.T) {
 	}()
 
 	// Drive the reducer exactly as the event loop would after the tool completes.
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileTestDriven)
 	w.quiesce(t)
 
 	// The model was NOT re-invoked: the scripted turn is still on the queue.

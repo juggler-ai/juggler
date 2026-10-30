@@ -27,6 +27,7 @@ import { highlightCode } from '../../sdk/lib/syntax-highlight.js';
 import { yGet } from '../model/item-accessor.js';
 import { t, markForTranslation } from '../../sdk/lib/i18n.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
+import { diffSnapshotShape, isEmptyDiff, loadDiffSides } from './diff-snapshot-sides.js';
 
 // Re-exported so existing importers keep their `properties-panel-helpers`
 // import path; the button itself is now a plugin-neutral primitive.
@@ -375,59 +376,40 @@ export function createShowPinControl(ref) {
 }
 
 /**
- * A recorded before/after snapshot of a file, as a tool action's display data
- * carries it under `diffData`.
- * @typedef {object} DiffSnapshot
- * @property {string} oldContent - The file before.
- * @property {string} newContent - The file after.
- * @property {string} path - The file's path, or '' when the snapshot names none.
- * @property {number} startLineNumber - The first line's number, or 0 when unrecorded.
- */
-
-/**
- * The diff snapshot in a tool action's display data, when both sides were recorded.
- * @param {unknown} displayData - The display data, plain.
- * @returns {DiffSnapshot|null} The snapshot, or null when there is none.
- */
-function diffSnapshotOf(displayData) {
-  if (!displayData || typeof displayData !== 'object' || !('diffData' in displayData)) return null;
-  const d = displayData.diffData;
-  if (!d || typeof d !== 'object' || !('oldContent' in d) || !('newContent' in d)) return null;
-  if (typeof d.oldContent !== 'string' || typeof d.newContent !== 'string') return null;
-  return {
-    oldContent: d.oldContent,
-    newContent: d.newContent,
-    path: 'path' in d && typeof d.path === 'string' ? d.path : '',
-    startLineNumber: 'startLineNumber' in d && typeof d.startLineNumber === 'number' ? d.startLineNumber : 0,
-  };
-}
-
-/**
  * Append a diff viewer if the tool-action has a diffData snapshot.
  *
  * An empty side is a recorded snapshot like any other — it is what a file
  * created from nothing, or emptied out, looks like — so the test is that both
  * sides were recorded, not that both hold something. Only a snapshot with
  * nothing on either side has no diff to draw.
+ *
+ * A side kept inline is drawn at once. A side stored in the conversation's asset
+ * store (utils/diff-snapshot-sides.js) is fetched: the viewer shows its loading
+ * state meanwhile, and its error state if the fetch fails.
  * @param {HTMLElement} wrapper
  * @param {unknown} toolAction - Y.Map for the tool action
  * @param {string} fallbackPath
+ * @param {string} [conversationId] - The conversation a stored side is fetched from
  * @returns {boolean} True if a diff viewer was added
  */
-export function addDiffViewer(wrapper, toolAction, fallbackPath) {
-  const diffData = diffSnapshotOf(yGet(toolAction, 'displayData'));
-  if (!diffData) return false;
-  if (diffData.oldContent === '' && diffData.newContent === '') return false;
+export function addDiffViewer(wrapper, toolAction, fallbackPath, conversationId = '') {
+  const shape = diffSnapshotShape(yGet(toolAction, 'displayData'));
+  if (!shape || isEmptyDiff(shape)) return false;
 
-  const diffViewer = /** @type {HTMLElement & {setDiff: (oldContent: string, newContent: string, filePath: string, startLineNumber?: number) => void}} */ (
+  const diffViewer = /** @type {HTMLElement & {setDiff: (oldContent: string, newContent: string, filePath: string, startLineNumber?: number) => void, setLoading: () => void, setError: (error: unknown) => void}} */ (
     document.createElement('diff-viewer'));
   diffViewer.classList.add('properties-panel-diff');
-  diffViewer.setDiff(
-    diffData.oldContent,
-    diffData.newContent,
-    diffData.path || fallbackPath,
-    diffData.startLineNumber || 1
-  );
+  const filePath = shape.path || fallbackPath;
+  const startLineNumber = shape.startLineNumber || 1;
+  if ('content' in shape.old && 'content' in shape.new) {
+    diffViewer.setDiff(shape.old.content, shape.new.content, filePath, startLineNumber);
+  } else {
+    diffViewer.setLoading();
+    loadDiffSides(conversationId, shape).then(
+      ({ oldContent, newContent }) => diffViewer.setDiff(oldContent, newContent, filePath, startLineNumber),
+      (error) => diffViewer.setError(error)
+    );
+  }
   wrapper.appendChild(diffViewer);
   return true;
 }

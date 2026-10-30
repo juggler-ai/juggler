@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/msg"
@@ -802,6 +803,8 @@ func assetContentType(path string) string {
 		return "image/gif"
 	case "webp":
 		return "image/webp"
+	case "txt":
+		return worker.TextAssetMime + "; charset=utf-8"
 	default:
 		return "application/octet-stream"
 	}
@@ -811,20 +814,46 @@ func assetContentType(path string) string {
 // body, so this bounds memory per upload.
 const maxAssetUploadBytes = 25 << 20 // 25 MiB
 
-// HandleUploadAsset accepts the raw image bytes as the request body (mime in the
-// Content-Type header), stores them content-addressed via worker.AssetStore, and
-// returns the resulting AssetRef as JSON. HandleGetAsset serves them back.
+// maxTextAssetBytes caps an uploaded text asset — one side of an edit's diff,
+// which is a whole source file. A file past it is kept inline by the client.
+const maxTextAssetBytes = 16 << 20 // 16 MiB
+
+// textUploadType reports whether a Content-Type header names plain UTF-8 text:
+// text/plain with no charset, or with charset utf-8. Every other text type —
+// text/html above all, which a browser would render — is refused.
+func textUploadType(header string) bool {
+	mediaType, params, _ := strings.Cut(header, ";")
+	if !strings.EqualFold(strings.TrimSpace(mediaType), worker.TextAssetMime) {
+		return false
+	}
+	for param := range strings.SplitSeq(params, ";") {
+		name, value, _ := strings.Cut(strings.TrimSpace(param), "=")
+		if strings.EqualFold(name, "charset") && !strings.EqualFold(strings.Trim(value, `"`), "utf-8") {
+			return false
+		}
+	}
+	return true
+}
+
+// HandleUploadAsset accepts the raw bytes of an image, or of UTF-8 text (the
+// sides of an edit's diff), as the request body (mime in the Content-Type
+// header), stores them content-addressed via worker.AssetStore, and returns the
+// resulting AssetRef as JSON. HandleGetAsset serves them back.
 func (api *SessionAPI) HandleUploadAsset(w http.ResponseWriter, r *http.Request) {
 	convID, ok := ConvIDFromVars(w, r)
 	if !ok {
 		return
 	}
 
-	contentType := r.Header.Get("Content-Type")
+	header := r.Header.Get("Content-Type")
+	contentType := header
 	if mediaType, _, ok := strings.Cut(contentType, ";"); ok {
 		contentType = strings.TrimSpace(mediaType)
 	}
-	if !strings.HasPrefix(contentType, "image/") {
+	isText := textUploadType(header)
+	if isText {
+		contentType = worker.TextAssetMime
+	} else if !strings.HasPrefix(contentType, "image/") {
 		WriteMessageError(w, r, http.StatusBadRequest, msg.New("Only image/* uploads are accepted"))
 		return
 	}
@@ -833,7 +862,11 @@ func (api *SessionAPI) HandleUploadAsset(w http.ResponseWriter, r *http.Request)
 	// knowing nothing about the project layout.
 	assetStore := worker.NewAssetStore(api.convDirOf)
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxAssetUploadBytes)
+	limit := int64(maxAssetUploadBytes)
+	if isText {
+		limit = maxTextAssetBytes
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		WriteMessageError(w, r, http.StatusBadRequest, msg.New("Upload too large or read failed"))
@@ -841,6 +874,10 @@ func (api *SessionAPI) HandleUploadAsset(w http.ResponseWriter, r *http.Request)
 	}
 	if len(data) == 0 {
 		WriteMessageError(w, r, http.StatusBadRequest, msg.New("Empty upload"))
+		return
+	}
+	if isText && !utf8.Valid(data) {
+		WriteMessageError(w, r, http.StatusBadRequest, msg.New("Text upload is not valid UTF-8"))
 		return
 	}
 

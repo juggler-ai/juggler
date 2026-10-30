@@ -13,6 +13,8 @@ import { reportFault } from '../utils/fault-report.js';
 
 const WEBRTC_CHUNK_TYPE = '__juggler_dc_chunk';
 const WEBRTC_CHUNK_SIZE = 16 * 1024;
+/** How a chunk envelope's raw text begins, as the server marshals it. */
+const STUDIO_CHUNK_PREFIX = `{"type":"${WEBRTC_CHUNK_TYPE}"`;
 
 // Link liveness. The server sends a beat whenever it has had nothing to say for
 // serverBeatInterval (cmd/juggler/server/link_liveness.go), and checks each link
@@ -97,6 +99,20 @@ const LINK_STABLE_AFTER_MS = 10000;
 
 /**
  * @typedef {'open'|'close'|'error'|'message'|'session'|'file-change'|'project-changed'|'plugin-changed'|'providers-update'|'providers-ready'|'shell-output'|'reconnect-attempt'|'engine-bridge'|'update-status'|'clients-changed'|'pinboard-changed'|'pinboard-reveal'|'processes-changed'|'viewer-relay'|'workspaces-changed'|'settings-changed'|'server-full'} WSEventType
+ */
+
+/**
+ * What this client has received on its link, counted since the service was
+ * made. A message the server has to split arrives as many frames — binary
+ * chunk frames on a WebSocket, `__juggler_dc_chunk` envelopes on a
+ * DataChannel — and each frame is stamped as it lands, so a wait for something
+ * queued behind a large message can tell a link still delivering it from one
+ * that has gone quiet. Server beats are deliberately not chunk progress: they
+ * prove the link is alive, not that anything queued for this client is moving.
+ * @typedef {object} ReceiveProgress
+ * @property {number} chunkAt - When a chunk frame last arrived, as epoch ms; 0 before the first
+ * @property {number} chunks - How many chunk frames have arrived
+ * @property {number} bytes - How much has arrived on the link, in bytes (UTF-16 units for text frames)
  */
 
 /**
@@ -273,6 +289,13 @@ class WebSocketService {
      * @type {WSChunkReassembler} @private
      */
     this._wsChunks = new WSChunkReassembler();
+    /**
+     * What has arrived on the link, for waits that are bounded by progress
+     * rather than by wall time (see {@link WebSocketService#receiveProgress}).
+     * Updated in place on every inbound frame, so reading it costs nothing.
+     * @type {ReceiveProgress} @private
+     */
+    this._received = { chunkAt: 0, chunks: 0, bytes: 0 };
     /** @type {Record<WSEventType, WSEventCallback[]>} @private */
     this._listeners = {
       open: [],
@@ -506,6 +529,18 @@ class WebSocketService {
     // (http/chunk frames removed) by bootstrap, so feed them straight in.
     studio.setRealtimeHandler((/** @type {string} */ raw) => this._handleMessageData(raw));
 
+    // Bootstrap swallows the chunk envelopes it reassembles, so a large message
+    // would reach this service only whole — minutes after its first frame on a
+    // slow link. Watching the channel itself counts each frame as it lands. The
+    // server marshals the envelope with `type` first (webRTCChunk in
+    // cmd/juggler/server/webrtc.go), so a prefix test identifies one without
+    // parsing it.
+    studio.dc.addEventListener('message', (/** @type {MessageEvent} */ event) => {
+      const data = event.data;
+      this._countReceived(data);
+      if (typeof data === 'string' && data.startsWith(STUDIO_CHUNK_PREFIX)) this._noteChunkFrame();
+    });
+
     // The channel is open at adoption time; settle it as a first connection.
     // There was no prior connection to compare servers against, so this never
     // takes the reconnect handshake in _configureTransport.
@@ -592,8 +627,38 @@ class WebSocketService {
     };
 
     transport.onmessage = (event) => {
+      this._countReceived(event.data);
       this._handleMessageData(event.data);
     };
+  }
+
+  /**
+   * What this client has received on its link so far. The object is live and
+   * updated in place — read its fields, don't keep it as a snapshot.
+   * @returns {Readonly<ReceiveProgress>} The running totals
+   */
+  get receiveProgress() {
+    return this._received;
+  }
+
+  /**
+   * Add one raw inbound frame to {@link WebSocketService#receiveProgress}'s
+   * byte count.
+   * @param {unknown} data - The frame as the transport delivered it
+   * @private
+   */
+  _countReceived(data) {
+    if (typeof data === 'string') this._received.bytes += data.length;
+    else if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) this._received.bytes += data.byteLength;
+  }
+
+  /**
+   * Stamp the arrival of one frame of a split message.
+   * @private
+   */
+  _noteChunkFrame() {
+    this._received.chunkAt = Date.now();
+    this._received.chunks++;
   }
 
   /**
@@ -608,6 +673,7 @@ class WebSocketService {
    * @private
    */
   _handleBinaryMessage(raw) {
+    this._noteChunkFrame();
     const message = this._wsChunks.accept(raw);
     if (!message) return;
     if (message.kind === WS_CHUNK_KIND_TEXT) {
@@ -995,6 +1061,7 @@ class WebSocketService {
       return;
     }
     if (chunk.total <= 0 || chunk.index < 0 || chunk.index >= chunk.total) return;
+    this._noteChunkFrame();
     let entry = this._dcIncomingChunks.get(chunk.id);
     if (!entry) {
       entry = { total: chunk.total, parts: new Array(chunk.total), received: 0 };

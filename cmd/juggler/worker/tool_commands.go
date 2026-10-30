@@ -28,6 +28,10 @@ import (
 // (engineInFlightReasons): each such answer resets the count, so the cap only
 // measures commands that go unanswered or are declined for a real reason. Those
 // answers are bounded by engineInFlightCeiling instead.
+//
+// And it counts only re-drives made with nothing from the engine still waiting
+// in the worker's inbox: an answer the worker has not read yet is not silence
+// (see driveToolActionsExcept).
 const maxToolCommandAttempts = 6
 
 // engineInFlightCeiling bounds how long a delivery phase may go on with the
@@ -94,7 +98,10 @@ const engineUnreachableHold = 90 * time.Second
 // Called from tryReconcile on every reconcile tick. It scans root + nested
 // threads and, per non-terminal tool-action, dispatches the command matching its
 // state: "" → evaluate-tool, approved → execute-tool. pending (awaiting the user)
-// and running (already claimed) need no command. Terminal tools are skipped.
+// and running (already claimed) need no command. Terminal tools are skipped, and
+// so is any tool carrying a result whatever its state: the result is what the
+// model is told, so a tool with one is finished, and one whose state disagrees is
+// settled to the terminal state the result implies (settledFromResult).
 //
 // Dedup + recovery are one level-based rule: re-dispatch a tool's command only
 // when the doc state still demands one AND it wasn't already dispatched at that
@@ -146,6 +153,11 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 	// otherwise it would be suppressed as a re-drive and counted towards the
 	// attempts cap.
 	var holding []string
+	// Calls that carry a result: finished, whatever their state says. Their
+	// bookkeeping goes, and those whose state is not yet terminal are settled
+	// (settledFromResult) so the doc agrees with the result it holds.
+	var finished []string
+	var settled []map[string]any
 
 	withYDoc(func() {
 		walkAllItems(w.doc.getItems(), "", func(m *ycrdt.YMap, threadID string) bool {
@@ -160,6 +172,24 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 				return false
 			}
 			state := yMapString(m, keyState)
+			if toolHasResult(m) {
+				// The result is what the model is told about this call, so once
+				// one is written the call is over: commanding it again would run a
+				// tool already reported to the model as finished. See
+				// settledFromResult for how state and result come to disagree.
+				if w.tools.lookup(id) != nil {
+					finished = append(finished, id)
+				}
+				if !isTerminalToolState(state) {
+					final := settledFromResult(m)
+					w.doc.transactInternal(func(_ *ycrdt.Transaction) {
+						m.Set(keyState, final)
+						m.Set(keyRunningStartedAt, nil)
+					})
+					settled = append(settled, map[string]any{"id": id, "from": state, "to": final})
+				}
+				return false
+			}
 			if txnID := yMapString(m, keyTransactionID); txnID != "" {
 				category := yMapString(m, keyCategory)
 				key := [2]string{threadID, txnID}
@@ -191,6 +221,18 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 	for _, id := range holding {
 		w.tools.clear(id)
 	}
+	for _, id := range finished {
+		w.tools.clear(id)
+	}
+	if len(settled) > 0 {
+		for _, s := range settled {
+			w.tape.Record("tool-settled-by-result", s)
+			w.log.Info("[worker] tool %s carried a result at state=%q; settling it as %s", s["id"], s["from"], s["to"])
+		}
+		// The reducer rests while any call is non-terminal, so the settled state
+		// is what releases a turn parked on these.
+		w.sched.markReconcile(reconcileToolSettledByResult)
+	}
 
 	held := map[string]bool{}
 	for _, calls := range turns {
@@ -204,6 +246,19 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 	// dispatch at this state has aged past the re-drive interval. recordDispatch stamps
 	// the dispatch and returns the attempt count; past maxToolCommandAttempts the
 	// tool is escalated to a terminal error instead of re-driven forever.
+	//
+	// Every judgement below that the engine has not answered rests on the worker
+	// having read what the engine sent. The engine answers in milliseconds, but
+	// its answer is a message in this worker's inbox, reached only when the run
+	// loop gets to it — and a saturated loop can be minutes behind. While anything
+	// from the engine is still queued, the answer to the last command may be in
+	// it, so a re-drive at the same state waits: it is not sent, not counted
+	// towards the cap, and cannot escalate. Re-sending into the backlog would
+	// only lengthen it. This bounds the attempts by the engine's progress as the
+	// worker has seen it, rather than by the worker's clock while it is behind.
+	// A fresh delivery (first command, or the demanded state changed) is new
+	// demand rather than a re-drive, and goes out regardless.
+	answersQueued := w.inbox.pendingFrom(w.callbacks.engineClientID()) > 0
 	now := time.Now()
 	var toDispatch, escalate []toolCmd
 	for _, c := range cmds {
@@ -212,6 +267,9 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 		}
 		if !w.tools.shouldRedrive(c.id, c.state, now) {
 			continue // already dispatched at this state and not yet stale
+		}
+		if answersQueued && w.tools.commandedAt(c.id, c.state) {
+			continue // its answer may be queued behind this pass
 		}
 		n := w.tools.recordDispatch(c.id, c.state, now)
 		if w.engineInFlightTooLong(c.id, now) {
@@ -254,6 +312,43 @@ func (w *ConversationWorker) driveToolActionsExcept(liveThreads map[string]bool)
 	for _, c := range escalate {
 		w.escalateStaleToolCommand(c.id, c.state)
 	}
+}
+
+// toolHasResult reports whether a tool-action carries a result. A result read
+// back from a JS client's `result: null` decodes as ycrdt.Null rather than nil,
+// so absence is any of nil, Null or Undefined. Must be called with ycrdtMu held.
+func toolHasResult(m *ycrdt.YMap) bool {
+	switch m.Get(keyResult).(type) {
+	case nil, ycrdt.NullType, ycrdt.UndefinedType:
+		return false
+	default:
+		return true
+	}
+}
+
+// settledFromResult is the terminal state a tool-action's result implies:
+// cancelled for a result marked as a cancellation, completed otherwise — the
+// pair completeToolAction writes together.
+//
+// It is needed because state and result are written together but resolve apart.
+// Two clients' concurrent writes to the same Y.Map key are ordered by client id,
+// not by time, so when the worker escalates a tool (state=completed plus an
+// error result) while the engine's state=approved for it is still in flight, the
+// engine's state can win and sit beside the worker's result. The result is what
+// the model is told, so it decides: the state is brought into line with it.
+// Must be called with ycrdtMu held.
+func settledFromResult(m *ycrdt.YMap) string {
+	var cancelled bool
+	switch r := m.Get(keyResult).(type) {
+	case *ycrdt.YMap:
+		cancelled = yMapBool(r, keyCancelled)
+	case map[string]any:
+		cancelled, _ = r[keyCancelled].(bool)
+	}
+	if cancelled {
+		return StateCancelled
+	}
+	return StateCompleted
 }
 
 // reaskFields are the fields that make a tool action ask again: back to the
@@ -534,8 +629,10 @@ func (w *ConversationWorker) dispatchToolCommand(action wireMsgType, toolUseID s
 // generation, so a cancel-tool command aborts only the incarnation it was
 // issued against (see ToolCommand.RunningEpoch). Epoch 0 is omitted from the
 // wire and means "unscoped" — the value passed by every non-cancel command.
+// Every command carries the doc's state vector as of the send (see
+// ToolCommand.StateVector); the caller must not hold ycrdtMu.
 func (w *ConversationWorker) dispatchToolCommandEpoch(action wireMsgType, toolUseID string, runningEpoch int64) {
-	data, err := json.Marshal(ToolCommand{Type: action, ToolUseID: toolUseID, RunningEpoch: runningEpoch})
+	data, err := json.Marshal(ToolCommand{Type: action, ToolUseID: toolUseID, RunningEpoch: runningEpoch, StateVector: w.doc.GetStateVector()})
 	if err != nil {
 		w.log.Error("[worker] marshal tool-command %s: %v", action, err)
 		return
@@ -736,7 +833,7 @@ func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
 		}
 		toolName = yMapString(m, keyToolName)
 		state := yMapString(m, keyState)
-		return state == expectState && m.Get(keyResult) == nil
+		return state == expectState && !toolHasResult(m)
 	}, map[string]any{
 		keyState: StateCompleted,
 		keyResult: map[string]any{
@@ -747,6 +844,10 @@ func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
 	})
 	w.clearToolCommandBookkeeping(id)
 	if len(failed) == 0 {
+		// The engine moved the tool on first. If it moved it to a result, the
+		// next walk settles it and never commands it again; if to a later
+		// delivery state with no result, that state is the engine's to have and
+		// is driven like any other.
 		return
 	}
 	w.log.Error("[worker] tool-command for %s (%s) in %s stayed at state=%q (verdict=%s, attempt cap %d); failing the tool to unblock the turn (engine=%s lastEngineTrace=%s lastToolTrace=%s)",
@@ -756,5 +857,5 @@ func (w *ConversationWorker) escalateStaleToolCommand(id, expectState string) {
 		"engine": engine, "lastEngineTrace": lastTrace, "lastToolTrace": toolTrace,
 		"verdict": verdict, "mute": mute,
 	})
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileToolEscalated)
 }

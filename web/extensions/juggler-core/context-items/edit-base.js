@@ -9,6 +9,7 @@ import { isPathInsideAllowedRoots, canonicalRoot } from 'juggler/utils/path-cont
 import { renderWriteFilePermissionSection } from './edit/permission-section.js';
 import { tildeify } from './path-approval.js';
 import { translator, markUntranslated } from 'juggler/i18n';
+import { uploadAssetText } from 'juggler/ops';
 
 const t = translator('@juggler/core');
 
@@ -274,7 +275,8 @@ class EditBase extends ContextItem {
    * Build standard approval config for edit actions
    * @protected
    * @param {string} path - File path being edited
-   * @param {{oldContent: string, newContent: string, startLineNumber?: number}} diffData - Diff data
+   * @param {{startLineNumber?: number} & Record<string, unknown>} diffData - Diff data, sides inline or
+   *   stored (see {@link EditBase#_storeDiffSnapshot})
    * @returns {import('juggler/context-item').ApprovalConfig} Approval config
    */
   _buildApprovalConfig(path, diffData) {
@@ -288,12 +290,53 @@ class EditBase extends ContextItem {
       message: outOfRoot ? t('⚠ Write outside the project folder: {path}', { path }) : '',
       display: {
         diffData: {
-          oldContent: diffData.oldContent,
-          newContent: diffData.newContent,
+          ...diffData,
           path: path,
           startLineNumber: diffData.startLineNumber || 1
         }
       }
+    };
+  }
+
+  /**
+   * The diff to record for a change from `oldContent` to `newContent`. Each
+   * non-empty side is stored as a text asset in the conversation's asset store
+   * and named by its id (`oldRef` / `newRef`), so the conversation carries the
+   * ids and the line counts rather than the whole file twice; identical text is
+   * stored once however many edits name it. An empty side stays inline as ''.
+   *
+   * Storing is an optimisation, never a reason for the edit to fail: with no
+   * conversation to store into, or if either upload fails, both sides are kept
+   * inline, which every reader draws as well.
+   * @protected
+   * @param {string} path - The file's path
+   * @param {string} oldContent - The whole file before
+   * @param {string} newContent - The whole file after
+   * @param {number} [startLineNumber=1] - The first line's number
+   * @returns {Promise<Record<string, unknown>>} The diffData
+   */
+  async _storeDiffSnapshot(path, oldContent, newContent, startLineNumber = 1) {
+    const inline = { oldContent, newContent, path, startLineNumber };
+    const conversationId = this.conversation?.id;
+    if (!conversationId) return inline;
+    const store = (/** @type {string} */ text) => (text === ''
+      ? Promise.resolve(null)
+      : uploadAssetText(conversationId, text, this.signal).then((ref) => ref.id));
+    let refs;
+    try {
+      refs = await Promise.all([store(oldContent), store(newContent)]);
+    } catch (error) {
+      console.warn(`[edit] diff kept inline, storing it failed: ${error instanceof Error ? error.message : String(error)}`);
+      return inline;
+    }
+    const [oldRef, newRef] = refs;
+    const stats = EditBase._lineStats(oldContent, newContent);
+    return {
+      ...(oldRef ? { oldRef } : { oldContent: '' }),
+      ...(newRef ? { newRef } : { newContent: '' }),
+      path,
+      startLineNumber,
+      ...(stats ? { added: stats.added, removed: stats.removed } : {})
     };
   }
 
@@ -372,10 +415,10 @@ class EditBase extends ContextItem {
 
   /**
    * Derive a `{added, removed}` line diffstat for a completed edit's status
-   * tile. Prefers the diff/content preview persisted in `displayData` (present
-   * on every edit tile — the history diff viewer renders from it too, so this
-   * works for items written before counts were stored) and falls back to the
-   * `linesAdded`/`linesRemoved` the action recorded at execute time.
+   * tile. Prefers the counts a stored diff records, then the diff/content
+   * preview persisted inline in `displayData` (items written before the sides
+   * were stored apart), and falls back to the `linesAdded`/`linesRemoved` the
+   * action recorded at execute time.
    * @protected
    * @param {any} displayData - The tool-action displayData (diffData / contentData)
    * @param {any} result - The action result (may carry linesAdded/linesRemoved)
@@ -383,6 +426,9 @@ class EditBase extends ContextItem {
    */
   static _editStats(displayData, result) {
     const diff = displayData?.diffData;
+    if (diff && typeof diff.added === 'number' && typeof diff.removed === 'number') {
+      return { added: diff.added, removed: diff.removed };
+    }
     if (diff && typeof diff.oldContent === 'string' && typeof diff.newContent === 'string') {
       return EditBase._lineStats(diff.oldContent, diff.newContent);
     }

@@ -336,7 +336,7 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 		// because queueing a message asks for none, and without one the thread the
 		// cap was holding is never re-offered.
 		if carriesIntent && r.liftRateLimitForSend(msg.ThreadItemID) {
-			r.requestReconcile()
+			r.requestReconcile(reconcileUserSend)
 		}
 		return
 	}
@@ -437,7 +437,7 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 		r.injectSkillPreloadsInto(dest, skillsToLoad)
 		r.batcher.Flush()
 		r.handleItemsChange()
-		r.sched.markReconcile()
+		r.sched.markReconcile(reconcileUserSend)
 		return
 	}
 
@@ -454,7 +454,7 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 	// activity="awaiting_llm" atomically; the reducer picks it up on
 	// the next event-loop tick via tryReconcile → dispatchCallLLM.
 	r.requestLLM(msg.ThreadItemID)
-	r.sched.markReconcile()
+	r.sched.markReconcile(reconcileUserSend)
 }
 
 // openIdleSend is what a user's send does to an idle thread before it writes
@@ -821,7 +821,7 @@ func (r *run) handleCancelOn(processingID string, reason cancelReason) {
 			// hand off to the reducer, which continues a queued turn or rests.
 			// Deliberately does NOT write idle here — that would clear
 			// awaiting_llm before the reducer runs and strand the continuation.
-			r.sched.markReconcile()
+			r.sched.markReconcile(reconcileCancel)
 			return
 		}
 
@@ -1010,7 +1010,7 @@ func (w *ConversationWorker) resetRunningToolsForReattach() {
 		if state := yMapString(m, keyState); state != StateRunning {
 			return false
 		}
-		if m.Get(keyResult) != nil {
+		if toolHasResult(m) {
 			return false // already finished
 		}
 		// A result for this still-running tool was already delivered to the

@@ -43,6 +43,9 @@ type OperationTracker struct {
 	// tracked edit landed in, so its next edit can be grouped by the client's
 	// clock (ApplyClientEdit). Entries are by identity, like threadGroups.
 	clientGroups map[string]*ycrdt.StackItem
+	// stacked holds every StackItem on the undo or redo stack as of the last
+	// releaseDroppedLocked, so the next one can tell which have left since.
+	stacked map[*ycrdt.StackItem]bool
 }
 
 // undoCaptureTimeoutMs is the UndoManager's capture window: a tracked change
@@ -118,8 +121,12 @@ func (t *OperationTracker) refreshScopeIfNeeded() {
 	}
 	// Scope is stale — the browser's Y.Array won the conflict. The old
 	// manager's afterTransaction handler will become a permanent no-op since
-	// the old array is tombstoned. Re-create with the current array.
+	// the old array is tombstoned. Re-create with the current array, releasing
+	// what the old one's entries kept: nothing can undo them any more.
+	old := t.undoManager
 	t.undoManager = nil
+	t.releaseStackItemsLocked(old, append(append([]*ycrdt.StackItem{}, old.UndoStack...), old.RedoStack...), nil)
+	t.stacked = nil
 	t.ensureUndoManager()
 }
 
@@ -230,6 +237,7 @@ func (t *OperationTracker) ensureUndoManager() *ycrdt.UndoManager {
 		for len(um.UndoStack) > t.maxGroups {
 			um.UndoStack = um.UndoStack[1:]
 		}
+		t.releaseDroppedLocked()
 		t.emitUndoState()
 	}))
 
@@ -890,6 +898,7 @@ func (t *OperationTracker) mergeFromIndexLocked(startIdx int) {
 		merged.Insertions = ycrdt.MergeDeleteSets([]*ycrdt.DeleteSet{merged.Insertions, stack[i].Insertions})
 	}
 	t.undoManager.UndoStack = stack[:startIdx+1]
+	t.releaseDroppedLocked()
 	t.emitUndoState()
 }
 
@@ -903,7 +912,91 @@ func (t *OperationTracker) ClearHistory() {
 	t.undoManager.Clear()
 	t.threadGroups = nil
 	t.clientGroups = nil
+	t.stacked = nil
 	t.emitUndoState()
+}
+
+// releaseDroppedLocked releases what the StackItems that have left the undo
+// and redo stacks since its last call kept from garbage collection.
+//
+// The UndoManager keeps every in-scope item a tracked transaction deletes, and
+// each of its ancestors, so an undo can bring it back; y-crdt lets go only in
+// Clear. An entry pruned past maxGroups, or dropped with the whole redo stack
+// by a fresh tracked edit, can never be applied again, so nothing can restore
+// what only it kept; left kept, that content stays in memory and in every save
+// for the life of the worker.
+//
+// An entry popped by the undo or redo that applies it is not released: what it
+// deleted is restored as copies whose Redone links run through the originals,
+// and a later redo follows those links. Only the bookkeeping forgets it.
+// Called under ycrdtMu.
+func (t *OperationTracker) releaseDroppedLocked() {
+	um := t.undoManager
+	if um == nil {
+		return
+	}
+	popping := um.Undoing || um.Redoing
+	current := make(map[*ycrdt.StackItem]bool, len(um.UndoStack)+len(um.RedoStack))
+	remaining := make([]*ycrdt.StackItem, 0, len(um.UndoStack)+len(um.RedoStack))
+	for _, stack := range [][]*ycrdt.StackItem{um.UndoStack, um.RedoStack} {
+		for _, si := range stack {
+			if !current[si] {
+				current[si] = true
+				remaining = append(remaining, si)
+			}
+		}
+	}
+	var dropped []*ycrdt.StackItem
+	for si := range t.stacked {
+		if !current[si] {
+			dropped = append(dropped, si)
+		}
+	}
+	t.stacked = current
+	if len(dropped) > 0 && !popping {
+		t.releaseStackItemsLocked(um, dropped, remaining)
+	}
+}
+
+// releaseStackItemsLocked un-keeps what um's dropped entries deleted, keeps
+// again what its remaining entries deleted, and garbage-collects whatever of
+// the dropped deletions is left unkept. Un-keeping an item un-keeps its
+// ancestors too, so the remaining entries must be re-kept after, not merely
+// skipped: one may hold a deletion beneath an item a dropped entry also
+// deleted. Called under ycrdtMu.
+func (t *OperationTracker) releaseStackItemsLocked(um *ycrdt.UndoManager, dropped, remaining []*ycrdt.StackItem) {
+	if um == nil || len(dropped) == 0 {
+		return
+	}
+	inScope := func(item *ycrdt.Item) bool {
+		for _, scope := range um.Scopes {
+			if ycrdt.IsParentOf(scope, item) {
+				return true
+			}
+		}
+		return false
+	}
+	doc := t.doc.doc
+	sets := make([]*ycrdt.DeleteSet, 0, len(dropped))
+	doc.Transact(func(trans *ycrdt.Transaction) {
+		mark := func(stack []*ycrdt.StackItem, keep bool) {
+			for _, si := range stack {
+				ycrdt.IterateDeletedStructs(trans, si.Deletions, func(s ycrdt.IAbstractStruct) {
+					if item, ok := s.(*ycrdt.Item); ok && inScope(item) {
+						ycrdt.KeepItem(item, keep)
+					}
+				})
+			}
+		}
+		mark(dropped, false)
+		mark(remaining, true)
+		for _, si := range dropped {
+			sets = append(sets, si.Deletions)
+		}
+	}, docInternalOrigin)
+	if doc.GC {
+		ycrdt.TryGc(ycrdt.MergeDeleteSets(sets), doc.Store, doc.GCFilter)
+	}
 }
 
 // =============================================================================
@@ -989,7 +1082,8 @@ func (t *OperationTracker) undoableTransactionIDs() []string {
 // Mirrors undoableTransactionIDs, but the "attachments" field holds a JSON
 // array of AssetRef rather than a scalar string, so each deleted item's
 // attachments value is round-tripped through fromYcrdt → JSON → []AssetRef to
-// recover the ids.
+// recover the ids. Its displayData is read the same way for the diff sides an
+// edit stores as assets.
 func (t *OperationTracker) undoableAssetIDs() []string {
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
@@ -1021,26 +1115,40 @@ func (t *OperationTracker) undoableAssetIDs() []string {
 				if !ok {
 					return
 				}
-				mapItem, ok := ymap.GetMap()[keyAttachments]
-				if !ok {
-					return
+				note := func(id string) {
+					if id != "" && !seen[id] {
+						seen[id] = true
+						ids = append(ids, id)
+					}
 				}
-				content := mapItem.Content.GetContent()
-				if len(content) == 0 {
-					return
+				// The value a deleted item's field held, as JSON.
+				fieldJSON := func(key string) []byte {
+					mapItem, ok := ymap.GetMap()[key]
+					if !ok {
+						return nil
+					}
+					content := mapItem.Content.GetContent()
+					if len(content) == 0 {
+						return nil
+					}
+					raw, err := json.Marshal(fromYcrdt(content[len(content)-1]))
+					if err != nil {
+						return nil
+					}
+					return raw
 				}
-				raw, err := json.Marshal(fromYcrdt(content[len(content)-1]))
-				if err != nil {
-					return
+				if raw := fieldJSON(keyAttachments); raw != nil {
+					var atts []AssetRef
+					if json.Unmarshal(raw, &atts) == nil {
+						for _, att := range atts {
+							note(att.ID)
+						}
+					}
 				}
-				var atts []AssetRef
-				if json.Unmarshal(raw, &atts) != nil {
-					return
-				}
-				for _, att := range atts {
-					if att.ID != "" && !seen[att.ID] {
-						seen[att.ID] = true
-						ids = append(ids, att.ID)
+				// An edit's diff names the two sides it stores as assets.
+				if raw := fieldJSON(keyDisplayData); raw != nil {
+					for _, id := range diffSnapshotAssetIDs(raw) {
+						note(id)
 					}
 				}
 			})

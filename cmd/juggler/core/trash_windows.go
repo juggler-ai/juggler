@@ -8,10 +8,11 @@ package core
 
 import (
 	"fmt"
-	"os"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"juggler/internal/atomicio"
 )
 
 // Win32 shell file-operation constants (shellapi.h).
@@ -50,8 +51,9 @@ func trashOrRemove(path string) error {
 	if err := moveToRecycleBin(path); err == nil {
 		return nil
 	}
-	// Recycle failed (e.g. network volume, overlong path) — permanent delete.
-	return os.RemoveAll(path)
+	// Recycle failed (e.g. network volume, overlong path, a handle held in the
+	// folder) — permanent delete, outlasting a briefly held handle.
+	return atomicio.RobustRemoveAll(path)
 }
 
 func moveToRecycleBin(path string) error {

@@ -5,6 +5,7 @@
 package worker
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -246,6 +247,78 @@ func TestToolCommandRedrive_HoldStartsAFreshPhase(t *testing.T) {
 	}
 	if it, ok := findToolItem(w.currentRun().getTargetItems(), "tu-1"); !ok || it.State != StateApproved {
 		t.Fatalf("the program must still be awaiting its run, not escalated: %+v (ok=%v)", it, ok)
+	}
+}
+
+// TestToolCommandRedrive_ResultIsTerminal: a tool-action that carries a result is
+// finished, whatever its state says. The shape arises when the worker escalates a
+// tool at state "" while the engine's concurrent state=approved is still unread:
+// the two writes to `state` resolve by client id, not by time, so the engine's
+// approved can win and leave approved beside the worker's error result. The model
+// has already been told that tool failed, so it must never be commanded — not
+// re-driven, not escalated again — and its state must converge to the terminal
+// one the result implies, so the reducer feeds that result and moves on.
+func TestToolCommandRedrive_ResultIsTerminal(t *testing.T) {
+	for _, state := range []string{StateUnevaluated, StateApproved, StatePending, StateRunning} {
+		t.Run("state="+state, func(t *testing.T) {
+			h := newReattachHarness(t, "conv-redrive-result-"+state)
+			w := h.w
+			w.tools.redriveAfter = 0
+
+			w.doc.InsertMessage(0, ConversationItem{
+				Type: ItemTypeToolAction, ItemID: "ta-1", ToolUseID: "tu-1",
+				ToolName: "bash", State: StateApproved,
+			})
+			// Bookkeeping from the phase before the write landed: it must go too.
+			w.driveToolActions()
+			h.flush(t)
+			before := h.executeCount("tu-1")
+			w.doc.UpdateToolActionFieldsRecursive("tu-1", map[string]any{
+				keyState:  state,
+				keyResult: map[string]any{keyContent: "Couldn't run this tool", keyIsError: true},
+			})
+
+			for i := 0; i < maxToolCommandAttempts+3; i++ {
+				w.driveToolActions()
+				h.flush(t)
+			}
+			if got := h.executeCount("tu-1") - before; got != 0 {
+				t.Fatalf("a tool with a result was commanded %d more time(s); it is finished and must never run", got)
+			}
+			if s := w.tools.byID["tu-1"]; s != nil {
+				t.Fatalf("bookkeeping for a finished tool survived: %+v", s)
+			}
+			it, ok := findToolItem(w.currentRun().getTargetItems(), "tu-1")
+			if !ok || it.State != StateCompleted {
+				t.Fatalf("state = %q (ok=%v), want %q: a result present means the tool is finished", it.State, ok, StateCompleted)
+			}
+			if !strings.Contains(string(it.Result), "Couldn't run this tool") {
+				t.Fatalf("the existing result must be kept as the tool's answer, got %s", it.Result)
+			}
+		})
+	}
+}
+
+// TestToolCommandRedrive_CancelledResultNormalisesToCancelled: a result that
+// says it was a cancellation settles the tool as cancelled, as completeToolAction
+// would have written it.
+func TestToolCommandRedrive_CancelledResultNormalisesToCancelled(t *testing.T) {
+	h := newReattachHarness(t, "conv-redrive-result-cancelled")
+	w := h.w
+	w.doc.InsertMessage(0, ConversationItem{
+		Type: ItemTypeToolAction, ItemID: "ta-1", ToolUseID: "tu-1",
+		ToolName: "bash", State: StateApproved,
+	})
+	w.doc.UpdateToolActionFieldsRecursive("tu-1", map[string]any{
+		keyResult: map[string]any{keyContent: "Action was cancelled.", keyCancelled: true},
+	})
+	w.driveToolActions()
+	h.flush(t)
+	if got := h.executeCount("tu-1"); got != 0 {
+		t.Fatalf("execute-tool sent %d time(s) for a cancelled tool", got)
+	}
+	if it, _ := findToolItem(w.currentRun().getTargetItems(), "tu-1"); it.State != StateCancelled {
+		t.Fatalf("state = %q, want %q", it.State, StateCancelled)
 	}
 }
 

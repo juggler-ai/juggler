@@ -256,6 +256,18 @@ class DocumentSyncManager {
   }
 
   /**
+   * Broadcast an update this doc already holds — a delta from updateSince — to
+   * the worker, through the same sink as incremental updates and so with the
+   * same transport and origin handling. No-op when no broadcast sink is wired.
+   * @param {Uint8Array} update - The update to send.
+   */
+  broadcastUpdate(update) {
+    if (this.onSyncBroadcast) {
+      this.onSyncBroadcast(update);
+    }
+  }
+
+  /**
    * The ops this doc holds that a peer whose state is `remoteStateVector`
    * lacks — a delta, never full state; the vector argument is what makes it
    * one. Returns null when the peer is already up to date, so callers send

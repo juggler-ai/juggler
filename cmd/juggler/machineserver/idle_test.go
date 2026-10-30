@@ -159,7 +159,10 @@ func TestAControlAPIRequestRestartsTheIdleClock(t *testing.T) {
 	defer front.Close()
 	r := watchIdleOf(t, s)
 
-	t0 := time.Now()
+	// A second in the past, so the request is stamped after it: Windows' wall
+	// clock advances in steps of a millisecond or so, and a request within the
+	// same step as t0 would be stamped t0 itself.
+	t0 := time.Now().Add(-time.Second)
 	r.tick(t, t0)
 	if code := send(t, "GET", front.URL+"/api/server/status", testToken, ""); code != http.StatusOK {
 		t.Fatalf("status: %d", code)

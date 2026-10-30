@@ -261,7 +261,7 @@ func TestReducer_EmptyUserThreadDoesNotAutoRunUnderAwaitingLLM(t *testing.T) {
 	}, w.doc.authorID)
 
 	// Drive the reducer exactly as the event loop would after the insert.
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileTestDriven)
 	w.quiesce(t)
 
 	arr := w.doc.GetThreadItemsArray(threadItemID)

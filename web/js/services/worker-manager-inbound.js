@@ -298,7 +298,7 @@ export const INBOUND_HANDLERS = new Map([
   entry('run-strategy-hook', (wm, id, data) => protocols.handleRunStrategyHook(wm, id, data)),
   entry('run-context-hook', (wm, id, data) => protocols.handleRunContextHook(wm, id, data)),
   entry('evaluate-tool', (wm, id, data) => protocols.handleEvaluateTool(wm, id, data.toolUseId)),
-  entry('execute-tool', (wm, id, data) => protocols.handleExecuteTool(wm, id, data.toolUseId)),
+  entry('execute-tool', (wm, id, data) => protocols.handleExecuteTool(wm, id, data.toolUseId, bytesField(data.stateVector))),
   entry('cancel-tool', (wm, id, data) => protocols.handleCancelTool(wm, id, data.toolUseId, data.runningEpoch)),
   entry('cancel-strategy-execution', onCancelStrategyExecution),
   entry('create-thread-response', onCreateThreadResponse),

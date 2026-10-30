@@ -5,6 +5,7 @@
 package worker
 
 import (
+	"bytes"
 	"encoding/json"
 )
 
@@ -165,6 +166,10 @@ func collectAssetIDsFromItems(items []ConversationItem, dst map[string]bool) {
 				}
 			}
 		}
+		// An edit's diff names the two sides it stores as assets.
+		for _, id := range diffSnapshotAssetIDs(it.DisplayData) {
+			dst[id] = true
+		}
 		// Threads carry their nested items in Items as JSON.
 		if it.Type == ItemTypeThread && len(it.Items) > 0 {
 			var nested []ConversationItem
@@ -173,4 +178,30 @@ func collectAssetIDsFromItems(items []ConversationItem, dst map[string]bool) {
 			}
 		}
 	}
+}
+
+// diffSnapshotAssetIDs returns the asset ids a tool-action's displayData names
+// for the two sides of an edit's diff (diffData.oldRef / diffData.newRef). The
+// files themselves are stored as text assets, out of the document. Display data
+// that names neither costs a byte scan, not a parse.
+func diffSnapshotAssetIDs(displayData []byte) []string {
+	if !bytes.Contains(displayData, []byte(`"oldRef"`)) && !bytes.Contains(displayData, []byte(`"newRef"`)) {
+		return nil
+	}
+	var parsed struct {
+		DiffData struct {
+			OldRef string `json:"oldRef"`
+			NewRef string `json:"newRef"`
+		} `json:"diffData"`
+	}
+	if json.Unmarshal(displayData, &parsed) != nil {
+		return nil
+	}
+	var ids []string
+	for _, id := range []string{parsed.DiffData.OldRef, parsed.DiffData.NewRef} {
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }

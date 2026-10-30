@@ -280,12 +280,11 @@ class ReplaceTextContextItem extends EditBase {
     const path = /** @type {string} */ (params.path);
     const result = /** @type {import('../../../js/services/ops-api.js').ReadFileEditResult} */ (params._dryRunResult);
 
-    const diffData = {
-      oldContent: result.oldContent || '',
-      newContent: result.newContent || /** @type {string} */ (params.new_str),
+    const diffData = await this._storeDiffSnapshot(
       path,
-      startLineNumber: 1
-    };
+      result.oldContent || '',
+      result.newContent || /** @type {string} */ (params.new_str)
+    );
 
     return this._buildApprovalConfig(path, diffData);
   }
@@ -531,7 +530,7 @@ class ReplaceTextContextItem extends EditBase {
       errorDiv.className = 'properties-panel-result error';
       errorDiv.textContent = errorText;
       wrapper.appendChild(errorDiv);
-    } else if (!helpers.addDiffViewer(wrapper, toolAction, filePath)) {
+    } else if (!helpers.addDiffViewer(wrapper, toolAction, filePath, ctx.conversation?.id)) {
       if (input.old_string !== undefined) {
         helpers.addSubsection(wrapper, t('Search'), String(input.old_string), 'properties-panel-code');
       }

@@ -482,6 +482,32 @@ class BatchContextItem extends ContextItem {
   }
 
   /**
+   * A batch_read's per-file outcomes are kept for whether each read succeeded and
+   * the hash of what it saw — what the panel and the staleness guard read back —
+   * but not each file's text, which the result content already carries.
+   * @override
+   * @param {unknown} result - The raw result
+   * @param {{toolName: string, content: string}} _context - Unused
+   * @returns {unknown} The result to store
+   */
+  static storedResult(result, _context) {
+    const raw = /** @type {any} */ (result);
+    if (raw?._batchType !== 'read' || !Array.isArray(raw.results)) return result;
+    const results = raw.results.map((/** @type {any} */ entry) => {
+      const fileResult = entry?.result;
+      if (!fileResult || typeof fileResult !== 'object') return entry;
+      const { content: _content, extracted, ...rest } = fileResult;
+      const kept = /** @type {Record<string, unknown>} */ (rest);
+      if (extracted && typeof extracted === 'object') {
+        const { text: _text, ...extractedRest } = extracted;
+        if (Object.keys(extractedRest).length > 0) kept.extracted = extractedRest;
+      }
+      return { ...entry, result: kept };
+    });
+    return { ...raw, results };
+  }
+
+  /**
    * One search as a markdown line: the pattern, then whatever narrows it.
    * @param {{pattern?: string, path?: string, glob?: string}} search - A batch_grep entry
    * @returns {string} Markdown for a single list item

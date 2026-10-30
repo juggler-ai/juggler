@@ -94,6 +94,15 @@ export class ConversationDocument {
   }
 
   /**
+   * Broadcast an update this document already holds to the worker. See
+   * DocumentSyncManager.broadcastUpdate.
+   * @param {Uint8Array} update - The update to send.
+   */
+  broadcastUpdate(update) {
+    this._syncManager.broadcastUpdate(update);
+  }
+
+  /**
    * Apply a sync update from remote
    * @param {Uint8Array} update
    */

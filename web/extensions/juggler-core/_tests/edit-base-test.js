@@ -101,5 +101,19 @@ export async function runTests() {
     errors.push(`en-XA: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  // Storing a diff's sides is an optimisation: when the store refuses them (here
+  // the server knows no conversation 'c'), the diff keeps both sides inline and
+  // the edit goes on.
+  try {
+    const diff = await /** @type {any} */ (item)._storeDiffSnapshot('/2/6', 'a\n', 'b\n');
+    if (diff.oldContent !== 'a\n' || diff.newContent !== 'b\n' || 'oldRef' in diff || 'newRef' in diff) {
+      throw new Error(`a failed upload should keep the sides inline, got ${JSON.stringify(diff)}`);
+    }
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`diff upload fallback: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   return { passed, failed, errors };
 }

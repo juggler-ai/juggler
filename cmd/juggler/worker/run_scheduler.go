@@ -5,7 +5,9 @@
 package worker
 
 import (
+	"fmt"
 	"sync/atomic"
+	"time"
 
 	"juggler/cmd/juggler/osactivity"
 )
@@ -41,6 +43,16 @@ type runScheduler struct {
 	// whose only meaning is "look again". Only the run goroutine clears it, so
 	// the reducer itself stays single-threaded.
 	reconcileBit atomic.Bool
+
+	// reconcileReasonCode is the reconcileReason of the last raise of the bit,
+	// whoever made it. Read only to name the culprit when a drain hits its cap.
+	reconcileReasonCode atomic.Uint32
+
+	// cappedDrains counts the drains that stopped at maxReconcilePasses with the
+	// bit still raised since the last report of one, and cappedDrainReportedAt is
+	// when that report was made. Run goroutine only.
+	cappedDrains          int
+	cappedDrainReportedAt time.Time
 
 	// reconcileWake carries "the reducer needs another pass" to the run loop.
 	// Buffered by one and sent to non-blockingly: the bit is a single bit, so a
@@ -98,13 +110,103 @@ func newRunScheduler(done <-chan struct{}) runScheduler {
 
 // ---- The reconcile bit ----
 
+// reconcileReason names who raised the reconcile bit. Nothing decides on it: it
+// is recorded so that a drain which hits its cap can say what kept asking.
+type reconcileReason uint32
+
+const (
+	reconcileUnnamed reconcileReason = iota
+	reconcileItemsChange
+	reconcileThreadPickup
+	reconcilePickupAbandoned
+	reconcileRested
+	reconcileTurnRetired
+	reconcileTurnEnded
+	reconcileTurnPanic
+	reconcileToolsCommanded
+	reconcileToolEscalated
+	reconcileToolSettledByResult
+	reconcileToolFinalized
+	reconcileChildSignalledParent
+	reconcileThreadCreated
+	reconcileUserSend
+	reconcileCancel
+	reconcileUnpause
+	reconcileTaskDelivery
+	reconcileHeldSend
+	reconcileWoken
+)
+
+var reconcileReasonNames = [...]string{
+	reconcileUnnamed:              "unnamed",
+	reconcileItemsChange:          "items change",
+	reconcileThreadPickup:         "doc-driven thread pickup",
+	reconcilePickupAbandoned:      "doc-driven pickup abandoned",
+	reconcileRested:               "reducer rest",
+	reconcileTurnRetired:          "turn retired",
+	reconcileTurnEnded:            "turn ended",
+	reconcileTurnPanic:            "turn panic",
+	reconcileToolsCommanded:       "tools commanded",
+	reconcileToolEscalated:        "stale tool command escalated",
+	reconcileToolSettledByResult:  "tool state settled from its result",
+	reconcileToolFinalized:        "tool absent from exec report finalized",
+	reconcileChildSignalledParent: "child signalled parent",
+	reconcileThreadCreated:        "thread created",
+	reconcileUserSend:             "user send",
+	reconcileCancel:               "cancel",
+	reconcileUnpause:              "unpause",
+	reconcileTaskDelivery:         "task delivery",
+	reconcileHeldSend:             "held send due",
+	reconcileWoken:                "wake",
+}
+
+func (r reconcileReason) String() string {
+	if int(r) < len(reconcileReasonNames) {
+		return reconcileReasonNames[r]
+	}
+	return fmt.Sprintf("reconcileReason(%d)", uint32(r))
+}
+
+// cappedDrainReportEvery is how often a worker may report a drain that hit its
+// cap. A drain that hits it once hits it on every event, so the report counts
+// rather than repeats.
+const cappedDrainReportEvery = 30 * time.Second
+
 // markReconcile raises the reconcile bit without waking the loop. Enough from
 // anything the loop is already iterating for, since it drains after every event.
-func (s *runScheduler) markReconcile() { s.reconcileBit.Store(true) }
+func (s *runScheduler) markReconcile(reason reconcileReason) {
+	s.reconcileReasonCode.Store(uint32(reason))
+	s.reconcileBit.Store(true)
+}
+
+// markWoken re-raises the bit for a received wake, keeping the reason the waker
+// recorded. Run goroutine only.
+func (s *runScheduler) markWoken() { s.reconcileBit.Store(true) }
+
+// lastReconcileReason reports who raised the reconcile bit last.
+func (s *runScheduler) lastReconcileReason() reconcileReason {
+	return reconcileReason(s.reconcileReasonCode.Load())
+}
+
+// noteCappedDrain records one drain that stopped at maxReconcilePasses with the
+// bit still raised, and reports whether it is due a log line: the first, then
+// at most one per cappedDrainReportEvery. n is how many capped drains the line
+// covers. Run goroutine only.
+func (s *runScheduler) noteCappedDrain(now time.Time) (n int, due bool) {
+	s.cappedDrains++
+	if !s.cappedDrainReportedAt.IsZero() && now.Sub(s.cappedDrainReportedAt) < cappedDrainReportEvery {
+		return 0, false
+	}
+	n = s.cappedDrains
+	s.cappedDrains = 0
+	s.cappedDrainReportedAt = now
+	return n, true
+}
 
 // wakeReconcile raises the reconcile bit and wakes the loop to run the pass. A
 // wake to a loop that has since stopped is dropped, which is what shutdown wants.
-func (s *runScheduler) wakeReconcile() {
+func (s *runScheduler) wakeReconcile(reason reconcileReason) {
+	s.reconcileReasonCode.Store(uint32(reason))
 	s.reconcileBit.Store(true)
 	select {
 	case s.reconcileWake <- struct{}{}:

@@ -114,7 +114,7 @@ func (r *run) fireHeldSends() {
 func (r *run) offerDueSendToBusyThread(threadItemID string) {
 	r.sched.nudgeRetryWait(threadItemID)
 	r.liftRateLimitForSend(threadItemID)
-	r.sched.markReconcile()
+	r.sched.markReconcile(reconcileHeldSend)
 }
 
 // fireHeldSend answers what pc lets out of an idle thread's queue as the
@@ -141,7 +141,7 @@ func (r *run) fireHeldSend(threadItemID string, pc promoteCtx) {
 	if !r.requestLLMIfQueued(threadItemID, pc) {
 		return
 	}
-	r.sched.markReconcile()
+	r.sched.markReconcile(reconcileHeldSend)
 	r.promoteThreadSpawnCapable(threadItemID)
 	if text := r.firstRootUserMessageText(); name && strings.TrimSpace(text) != "" {
 		r.fireAutoName(text, mc.Provider, mc.Model, mc.Thinking, false)

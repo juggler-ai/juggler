@@ -14,6 +14,7 @@
 import { textResponse, toolUseResponse } from '../utilities/integration-test-runner.js';
 import { testDirFor } from '../utilities/integration-test-runner.js';
 import { isToolActionMessage } from '../../sdk/lib/message.js';
+import { diffSnapshotShape, loadDiffSides } from '../../js/utils/diff-snapshot-sides.js';
 
 // ============================================================================
 // TEST DEFINITIONS
@@ -730,7 +731,7 @@ const editDisplayDataTest = {
     ]
   },
 
-  customAssertions(conversation) {
+  async customAssertions(conversation) {
     const items = [...conversation.rootItems];
     const editAction = items.find(
       item => isToolActionMessage(/** @type {any} */ (item)) &&
@@ -741,14 +742,14 @@ const editDisplayDataTest = {
     }
     const raw = editAction.get('displayData');
     const dd = raw?.toJSON ? raw.toJSON() : raw;
-    if (!dd?.diffData) {
-      throw new Error('displayData.diffData missing on edit tool-action YMap — properties panel cannot show diff');
+    const shape = diffSnapshotShape(dd);
+    if (!shape) {
+      throw new Error(`displayData.diffData missing on edit tool-action YMap — properties panel cannot show diff: ${JSON.stringify(dd)}`);
     }
-    if (!dd.diffData.oldContent || !dd.diffData.newContent) {
-      throw new Error(`diffData has empty content: oldContent=${!!dd.diffData.oldContent}, newContent=${!!dd.diffData.newContent}`);
-    }
-    if (dd.diffData.oldContent === dd.diffData.newContent) {
-      throw new Error('diffData.oldContent === newContent — diff would be empty');
+    // The sides may be inline or stored apart; either way they read back whole.
+    const { oldContent, newContent } = await loadDiffSides(conversation.id, shape);
+    if (oldContent !== 'Hello foo world' || newContent !== 'Hello bar world') {
+      throw new Error(`diff sides read back as ${JSON.stringify({ oldContent, newContent })}`);
     }
 
     // …and stored exactly once. A diff holds the whole file twice over, so the
@@ -764,6 +765,75 @@ const editDisplayDataTest = {
           `${/** @type {any} */ (item).get('toolName')} stored displayData inside result.fullResult as well as on the item — the diff is in the document twice`
         );
       }
+    }
+  }
+};
+
+const TD_editRefs = testDirFor('edit-diff-refs');
+/** Forty numbered lines, so the file dwarfs the one line the edit changes. */
+const EDIT_REFS_BEFORE = Array.from({ length: 40 }, (_, i) => `keep-line-${i + 1}`).join('\n') + '\n';
+/**
+ * An edit's diff is stored as two text assets the document names by id: the
+ * tool-action carries the refs and the line counts, and none of the file's text.
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+const editDiffRefsTest = {
+  name: 'edit-diff-refs',
+  description: 'An edit stores its diff sides as assets named by id, not inline',
+  fixture: 'unit-test-fixture',
+
+  llmResponses: [
+    toolUseResponse(
+      'call_1',
+      'write',
+      { file_path: `${TD_editRefs}/file.txt`, content: EDIT_REFS_BEFORE },
+      'Creating file.'
+    ),
+    toolUseResponse(
+      'call_2',
+      'edit',
+      { file_path: `${TD_editRefs}/file.txt`, old_string: 'keep-line-20\n', new_string: 'changed-line-20\n' },
+      'Editing file.'
+    ),
+    textResponse('Done.')
+  ],
+
+  operations: [
+    { type: 'send-message', message: `Create then edit ${TD_editRefs}/file.txt` }
+  ],
+
+  settleUntil(conversation) {
+    return [...conversation.rootItems].some(
+      item => isToolActionMessage(/** @type {any} */ (item)) &&
+      /** @type {any} */ (item).get('toolName') === 'edit' &&
+      /** @type {any} */ (item).get('state') === 'completed'
+    );
+  },
+
+  customAssertions(conversation) {
+    const editAction = /** @type {any} */ ([...conversation.rootItems].find(
+      item => isToolActionMessage(/** @type {any} */ (item)) &&
+      /** @type {any} */ (item).get('toolName') === 'edit'
+    ));
+    if (!editAction) throw new Error('edit tool-action not found in items');
+    const raw = editAction.get('displayData');
+    const dd = raw?.toJSON ? raw.toJSON() : raw;
+    const diff = dd?.diffData;
+    const stored = JSON.stringify(dd);
+    const hex = /^[0-9a-f]{64}$/;
+    if (!hex.test(String(diff?.oldRef)) || !hex.test(String(diff?.newRef))) {
+      throw new Error(`the edit's diff should name both sides by asset id, got ${stored}`);
+    }
+    if ('oldContent' in diff || 'newContent' in diff || stored.includes('keep-line-30')) {
+      throw new Error(`the edit's diff still carries file text inline: ${stored}`);
+    }
+    if (diff.added !== 1 || diff.removed !== 1) {
+      throw new Error(`expected +1 -1 stored with the diff, got ${stored}`);
+    }
+    // Refs, counts and a path, whatever the file's size: the two sides inline
+    // would be twice the file's 500-odd bytes.
+    if (stored.length > 300) {
+      throw new Error(`the stored diff is ${stored.length} bytes, want at most 300: ${stored}`);
     }
   }
 };
@@ -833,5 +903,6 @@ export const tests = [
   editSequentialTest,
   editWhitespaceTest,
   editDisplayDataTest,
+  editDiffRefsTest,
   editNoDoubleExecutionTest
 ];

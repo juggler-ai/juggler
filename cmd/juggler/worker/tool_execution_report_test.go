@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	ycrdt "github.com/skyterra/y-crdt"
 )
 
 // insertRunningTool inserts a running-with-no-result tool-action and stamps its
@@ -286,4 +288,38 @@ func TestExecReport_ApprovedToolUntouched(t *testing.T) {
 // with no live thread spared.
 func (w *ConversationWorker) finalizeToolsAbsentFromExecReport() {
 	w.finalizeToolsAbsentFromExecReportExcept(nil)
+}
+
+// setNullResult writes `result: null` onto a tool-action the way a JS client's
+// createToolActionMessage does: decoded on this side it reads as ycrdt.Null,
+// not as an absent key.
+func setNullResult(w *ConversationWorker, toolUseID string) {
+	withYDoc(func() {
+		walkAllItems(w.doc.getItems(), "", func(m *ycrdt.YMap, _ string) bool {
+			if yMapString(m, keyToolUseID) != toolUseID {
+				return false
+			}
+			w.doc.transactInternal(func(trans *ycrdt.Transaction) { setAnyLikeJS(trans, m, keyResult, ycrdt.Null) })
+			return true
+		})
+	})
+}
+
+// TestExecReport_NullResultIsNoResult: a running tool whose result is a
+// JS-written null has no result, so the liveness rule must still finalize it
+// when the engine provably is not running it. Reading the null as a result left
+// such a tool running forever.
+func TestExecReport_NullResultIsNoResult(t *testing.T) {
+	h := newCancelEpochHarness(t, "conv-exec-null-result")
+	w := h.w
+	insertRunningTool(w, "ta-1", "tu-1", "bash", 3, 1000)
+	setNullResult(w, "tu-1")
+
+	sendExecReport(w, "engine", 1, 5000, map[string]int64{})
+	sendExecReport(w, "engine", 2, 6000, map[string]int64{})
+
+	w.finalizeToolsAbsentFromExecReport()
+	if got := toolState(w, "tu-1"); got != StateCancelled {
+		t.Fatalf("a running tool with a null result absent from two reports should be finalized cancelled, got %q", got)
+	}
 }

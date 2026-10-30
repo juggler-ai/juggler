@@ -192,12 +192,7 @@ class WriteFileContextItem extends EditBase {
 
     if (existingContent !== undefined) {
       // File exists - show diff
-      const diffData = {
-        oldContent: existingContent,
-        newContent: content,
-        path,
-        startLineNumber: 1
-      };
+      const diffData = await this._storeDiffSnapshot(path, existingContent, content);
       return {
         title,
         message,
@@ -436,7 +431,7 @@ class WriteFileContextItem extends EditBase {
     }
 
     const content = inputText(input, 'content');
-    if (!helpers.addDiffViewer(wrapper, toolAction, filePath) && content) {
+    if (!helpers.addDiffViewer(wrapper, toolAction, filePath, ctx.conversation?.id) && content) {
       // The content the model intended to write, not a file on disk — so the
       // source carries the text directly and resolves to the text viewer. The
       // path is already at the top of the wrapper, so the view omits its own.

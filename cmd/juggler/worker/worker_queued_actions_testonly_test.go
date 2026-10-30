@@ -48,7 +48,7 @@ func TestReleaseQueuedOnABusyThreadJoinsTheNextDrain(t *testing.T) {
 	deliverQueuedAction(t, w, msgReleaseQueued, "", queuedUserID(t, w, "", "later"))
 	requireLabels(t, "queue right after Send now", queuedLabels(t, w, ""), []string{"later"})
 
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileTestDriven)
 	w.quiesce(t)
 	requireLabels(t, "transcript", transcript(w), []string{
 		ItemTypeUser + ":run bash",

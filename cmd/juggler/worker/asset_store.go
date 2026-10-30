@@ -280,10 +280,16 @@ func (s *AssetStore) Sweep(convID string, liveSet map[string]bool, grace time.Du
 	return nil
 }
 
-// extForMime maps a supported image mime type to its on-disk file extension.
+// TextAssetMime is the type a stored text asset carries: UTF-8 plain text, such
+// as one side of an edit's diff. It is kept as a .txt file.
+const TextAssetMime = "text/plain"
+
+// extForMime maps a supported mime type to its on-disk file extension.
 // Unknown types fall back to "bin".
 func extForMime(mime string) string {
 	switch mime {
+	case TextAssetMime:
+		return "txt"
 	case "image/png":
 		return "png"
 	case "image/jpeg":
@@ -301,6 +307,8 @@ func extForMime(mime string) string {
 // extensions fall back to a generic binary type.
 func mimeForExt(ext string) string {
 	switch strings.ToLower(ext) {
+	case "txt":
+		return TextAssetMime
 	case "png":
 		return "image/png"
 	case "jpeg", "jpg":

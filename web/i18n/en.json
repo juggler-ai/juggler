@@ -1388,6 +1388,7 @@
   "Tell me about new versions": "Tell me about new versions",
   "Tell someone about Juggler": "Tell someone about Juggler",
   "Text this strategy adds to the conversation when you switch to it. It is an ordinary message, not a change to the system prompt, and it is everything the model is told about the strategy.": "Text this strategy adds to the conversation when you switch to it. It is an ordinary message, not a change to the system prompt, and it is everything the model is told about the strategy.",
+  "Text upload is not valid UTF-8": "Text upload is not valid UTF-8",
   "Thanks! — Julian": "Thanks! — Julian",
   "That failed. What would you like to try?": "That failed. What would you like to try?",
   "That is not a server address. Enter one like http://devbox:8080.": "That is not a server address. Enter one like http://devbox:8080.",

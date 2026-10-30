@@ -104,7 +104,7 @@ func (w *ConversationWorker) finalizeToolsAbsentFromExecReportExcept(liveThreads
 			if state := yMapString(m, keyState); state != StateRunning {
 				return false
 			}
-			if m.Get(keyResult) != nil {
+			if toolHasResult(m) {
 				return false
 			}
 			// Cond 2: worker-executed tools never appear in an engine report — the
@@ -136,7 +136,7 @@ func (w *ConversationWorker) finalizeToolsAbsentFromExecReportExcept(liveThreads
 	for _, c := range cands {
 		if w.finalizeStuckRunningToolOnField(c.id, keyRunningEpoch, float64(c.epoch), "exec-report-absent") {
 			// Settle the parked turn now that the tool reached terminal.
-			w.sched.markReconcile()
+			w.sched.markReconcile(reconcileToolFinalized)
 		}
 	}
 }

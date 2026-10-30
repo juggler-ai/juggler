@@ -44,7 +44,7 @@ func TestScheduledSendIsNotPromotedBeforeItsTime(t *testing.T) {
 	defer close(stop)
 	feedEngine(w, stop)
 
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileTestDriven)
 	w.quiesce(t)
 
 	if n := w.mock().remaining(); n != 1 {
@@ -104,7 +104,7 @@ func TestRunEndSendWaitsOutToolRounds(t *testing.T) {
 	defer close(stop)
 	feedEngine(w, stop)
 
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileTestDriven)
 	w.quiesce(t)
 
 	items := w.doc.GetItems()

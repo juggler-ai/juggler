@@ -70,7 +70,7 @@ func TestQueuedMessageJoinsToolResultContinuation(t *testing.T) {
 	feedEngine(w, stop)
 
 	// Drive the reducer exactly as the event loop would after the tool completes.
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileTestDriven)
 	w.quiesce(t)
 
 	// Exactly the one scripted turn must have run.

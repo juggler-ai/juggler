@@ -770,7 +770,7 @@ class ExecuteContextItem extends ContextItem {
       const clearItems = this.messageThread.items;
       for (let ci = 0; ci < clearItems.length; ci++) {
         if (clearItems[ci].get('toolUseId') === this.toolUseId) {
-          this.messageThread.updateItemField(ci, 'displayData', { output: '' });
+          this.messageThread.updateDerivedItemField(ci, 'displayData', { output: '' });
           break;
         }
       }
@@ -794,7 +794,7 @@ class ExecuteContextItem extends ContextItem {
         const items = this.messageThread.items;
         for (let i = 0; i < items.length; i++) {
           if (items[i].get('toolUseId') === this.toolUseId) {
-            this.messageThread.updateItemField(i, 'displayData', { output: preview });
+            this.messageThread.updateDerivedItemField(i, 'displayData', { output: preview });
             break;
           }
         }
@@ -1156,6 +1156,24 @@ class ExecuteContextItem extends ContextItem {
    */
   static rendersTerminalOutput() {
     return true;
+  }
+
+  /**
+   * The command's stdout is what the result content is made from, so the stored
+   * result leaves it out whenever the content holds it verbatim. Output too long
+   * for the model's cut of it is kept, as the only whole copy. Everything read
+   * back from the stored item — exit code, background flag, task id — stays.
+   * @override
+   * @param {unknown} result - The raw result
+   * @param {{toolName: string, content: string}} context - The stored content
+   * @returns {unknown} The result to store
+   */
+  static storedResult(result, context) {
+    const raw = /** @type {Record<string, unknown>|null} */ (result && typeof result === 'object' ? result : null);
+    const stdout = raw?.stdout;
+    if (!raw || typeof stdout !== 'string' || !stdout || !String(context?.content || '').includes(stdout)) return result;
+    const { stdout: _stdout, ...rest } = raw;
+    return rest;
   }
 
   /**

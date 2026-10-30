@@ -335,7 +335,7 @@ func TestReconcile_DeletedThreadWithStandingClaimDoesNotRun(t *testing.T) {
 		t.Fatal("thread still present after delete")
 	}
 
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileTestDriven)
 	w.quiesce(t)
 
 	if calls != 0 {

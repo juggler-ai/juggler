@@ -105,7 +105,7 @@ func TestScheduledSendDueMidRunJoinsThatRun(t *testing.T) {
 	w.currentRun().fireHeldSends()
 	requireLabels(t, "queue after the timer fired on a busy thread", queuedLabels(t, w, ""), []string{"scheduled", "not yet"})
 
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileTestDriven)
 	w.quiesce(t)
 	requireLabels(t, "transcript", transcript(w), []string{
 		ItemTypeUser + ":run bash",
@@ -137,7 +137,7 @@ func TestRunEndSendOverTheWire(t *testing.T) {
 	sendMsg(t, w, SendMessageMessage{Type: "send-message", Text: "after the run", Hold: pendingHoldRunEnd})
 	requireLabels(t, "queue", queuedLabels(t, w, ""), []string{"after the run"})
 
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileTestDriven)
 	w.quiesce(t)
 	base := []string{
 		ItemTypeUser + ":run bash",

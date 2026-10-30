@@ -345,7 +345,7 @@ func hasThreadResult(item ConversationItem) bool {
 // raises the scheduler's reconcile bit; the main event loop's tryReconcile()
 // dispatches the actual action at the top level.
 func (w *ConversationWorker) reconcileThread() {
-	w.sched.markReconcile()
+	w.sched.markReconcile(reconcileItemsChange)
 }
 
 // updateApprovalWaitAnchor keeps the spinner's elapsed digit measuring active
@@ -419,11 +419,19 @@ const maxReconcilePasses = 10
 // stamped read-only siblings without letting it dispatch over an owned thread.
 //
 // It returns the number of passes it ran, for the run() loop's slow-iteration
-// report.
+// report. A drain that reaches the cap with a pass still asked for is a pass
+// re-raising the bit without progress, and it is reported (rate-limited, see
+// runScheduler.noteCappedDrain) naming whoever raised the bit last.
 func (r *run) drainReconcile() int {
 	passes := 0
 	for ; passes < maxReconcilePasses && r.sched.reconcilePending(); passes++ {
 		r.tryReconcile()
+	}
+	if passes == maxReconcilePasses && r.sched.reconcilePending() {
+		if n, due := r.sched.noteCappedDrain(r.clock.Now()); due {
+			r.log.Info("[reducer] drain stopped at its %d-pass cap with a pass still pending, last raised by %s "+
+				"(%d capped drain(s) since the last report)", maxReconcilePasses, r.sched.lastReconcileReason(), n)
+		}
 	}
 	return passes
 }
@@ -434,8 +442,8 @@ func (r *run) drainReconcile() int {
 // stack. That is what lets a turn hand the reducer back at its end rather than
 // driving the next turn from inside the one that just finished. A post to a loop
 // that has since stopped is dropped, which is what shutdown wants.
-func (r *run) requestReconcile() {
-	r.sched.wakeReconcile()
+func (r *run) requestReconcile(reason reconcileReason) {
+	r.sched.wakeReconcile(reason)
 }
 
 // tryReconcile is one pass of the reducer, and one of the two ways a sub-thread
@@ -484,7 +492,7 @@ func (r *run) tryReconcile() {
 	if r.checkForNewThreads() {
 		// The pickup claimed a thread and marked the conversation busy; re-evaluate
 		// from scratch rather than walking down with items read before it.
-		r.sched.markReconcile()
+		r.sched.markReconcile(reconcileThreadPickup)
 		return
 	}
 
@@ -617,7 +625,8 @@ func (r *run) tryReconcile() {
 			// siblings, and they are dispatched in this same pass rather than one
 			// per pass — so a batch of read-only children all start together
 			// instead of arriving staggered across reconcile ticks. A dispatch the
-			// admission gate refuses re-raises the reconcile bit itself.
+			// admission gate refuses is offered again by the pass the retirement
+			// that frees its slot asks for.
 			r.dispatchCallLLMOnThread(target.threadItemID)
 
 		case ActionGoIdle:
@@ -643,7 +652,7 @@ func (r *run) tryReconcile() {
 				return
 			}
 			r.restPromotingQueue(target.threadItemID)
-			r.sched.markReconcile()
+			r.sched.markReconcile(reconcileRested)
 			return
 		}
 	}
@@ -672,17 +681,16 @@ func (r *run) restPromotingQueue(threadItemID string) {
 // or a child thread, the loop sets activity="awaiting_llm" and returns.
 // The reducer re-dispatches when all work completes.
 func (r *run) dispatchCallLLMOnThread(threadItemID string) {
-	// Only dispatch when the worker is idle. If state is mid-transition
-	// (the previous turn's deferred cleanup hasn't flipped back to Idle yet),
-	// re-tickle the reducer so the next event-loop tick retries — otherwise
-	// the request is orphaned until some other event re-wakes the loop, which
-	// presents to the user as "user message appended but LLM loop never starts;
-	// hitting Continue kicks it off".
-	//
 	// The live registry is what admits a thread: one run per thread, one
 	// write-capable run at a time, and the read-only ceiling.
+	//
+	// A refusal asks for no further pass. It changes nothing a pass reads, so a
+	// pass asked for now would be refused again — and the drain after every event
+	// would spend its whole cap re-walking the document for as long as the
+	// refusal stood. Only the registry decides admission, and every way an entry
+	// leaves it asks for the pass itself: a turn retiring (finishRetiredTurn), a
+	// pickup abandoned before it started (abandonThreadRun).
 	if !r.canAdmitThread(threadItemID) {
-		r.sched.markReconcile()
 		return
 	}
 
@@ -732,9 +740,9 @@ func (r *run) dispatchCallLLMOnThread(threadItemID string) {
 	// The live registry reserves the capability slot; the document claim is the
 	// same-thread compare-and-set backstop.
 	if !r.claimLLM(threadItemID) {
-		// A turn is already in flight — re-tickle so the next reconcile
-		// tick picks this up after that call completes.
-		r.sched.markReconcile()
+		// A turn is already in flight on this thread. It asks for the pass that
+		// picks this up when it retires (finishRetiredTurn); asking for one now
+		// would only be refused again.
 		return
 	}
 	explicitContinuation := r.consumeExplicitContinuation(threadItemID)

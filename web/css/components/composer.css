@@ -469,7 +469,7 @@ composer-box textarea:disabled {
 
 composer-box textarea::placeholder {
     /* Explicit colour so transparent-text (mirrored) mode can't blank it. */
-    color: var(--text-secondary);
+    color: var(--text-placeholder);
 }
 
 /* ── Pasted-text placeholder tokens ──────────────────────────────────────

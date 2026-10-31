@@ -28,6 +28,7 @@
     --text-primary: #1f2328;
     --text-secondary: #656d76;
     --text-tertiary: #8c959f;
+    --text-placeholder: #aab0b8; /* input hint text (see tokens/theme-dark.css) */
     --text-on-accent: #fff;
 
     /* Accent colors */

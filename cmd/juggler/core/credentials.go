@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -415,44 +414,38 @@ func loadCodexCLIAccessToken() (string, string, error) {
 	// seconds left passes a bare check and is then rejected mid-stream, which
 	// surfaces as an opaque upstream failure instead of a sign-in prompt. The
 	// ChatGPT app refreshes in the same window, so a token this close to expiry is
-	// one it is already replacing.
-	if jwtExpired(auth.Tokens.AccessToken, time.Now().Add(codexRefreshMargin)) {
+	// one it is already replacing. A token with no readable `exp`, such as an
+	// opaque placeholder a credential proxy swaps for the real one, has no known
+	// expiry. Pass it through and let the backend judge it.
+	if exp, ok := jwtExpiry(auth.Tokens.AccessToken); ok && !exp.After(time.Now().Add(codexRefreshMargin)) {
 		return "", "", fmt.Errorf("codex access token is expired; %s", hint)
 	}
 	return auth.Tokens.AccessToken, auth.Tokens.AccountID, nil
 }
 
-func jwtExpired(token string, now time.Time) bool {
+// jwtExpiry returns the `exp` claim of token, and false when token is not a
+// JWT or carries no readable `exp`.
+func jwtExpiry(token string) (time.Time, bool) {
 	parts := strings.Split(token, ".")
 	if len(parts) < 2 {
-		return true
+		return time.Time{}, false
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return true
+		return time.Time{}, false
 	}
-	var claims map[string]any
+	// json.Number takes `exp` as a number or a numeric string.
+	var claims struct {
+		Exp json.Number `json:"exp"`
+	}
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return true
+		return time.Time{}, false
 	}
-	exp, ok := claims["exp"]
-	if !ok {
-		return true
+	expUnix, err := claims.Exp.Float64()
+	if err != nil {
+		return time.Time{}, false
 	}
-	var expUnix int64
-	switch v := exp.(type) {
-	case float64:
-		expUnix = int64(v)
-	case string:
-		parsed, err := strconv.ParseInt(v, 10, 64)
-		if err != nil {
-			return true
-		}
-		expUnix = parsed
-	default:
-		return true
-	}
-	return !now.Before(time.Unix(expUnix, 0))
+	return time.Unix(int64(expUnix), 0), true
 }
 
 // IsProviderEnabled returns whether a keyless provider (like claudecode) is enabled

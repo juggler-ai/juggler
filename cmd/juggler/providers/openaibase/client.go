@@ -263,7 +263,12 @@ type Client struct {
 	// sent per chat request by sessionHeaderOpts, so only a request that
 	// belongs to a conversation carries them.
 	sessionHeaders map[string]string
+	// unauthorizedHint is the hint shown on a 401. Register stamps it from
+	// Descriptor.UnauthorizedHint, or defaultUnauthorizedHint when that is empty.
+	unauthorizedHint string
 }
+
+const defaultUnauthorizedHint = "your API key may be invalid"
 
 // enhanceError maps a failed call onto the provider vocabulary the worker
 // classifies, adding human-oriented hints to the common cases. A typed
@@ -294,7 +299,7 @@ func (c *Client) enhanceError(err error) error {
 	errMsg := err.Error()
 	switch {
 	case strings.Contains(errMsg, "401") || strings.Contains(errMsg, "Unauthorized"):
-		return fmt.Errorf("%w (hint: your API key may be invalid)", err)
+		return fmt.Errorf("%w (hint: %s)", err, c.unauthorizedHint)
 	case strings.Contains(errMsg, "429") || strings.Contains(errMsg, "Too Many Requests"):
 		return rateLimited(err, nil)
 	case strings.Contains(errMsg, "insufficient_quota") || strings.Contains(errMsg, "quota") ||
@@ -322,7 +327,7 @@ func (c *Client) apiFailure(err error, apiErr *openai.Error) error {
 	message := withProviderMessage(err.Error(), apiErr)
 	switch {
 	case apiErr.StatusCode == http.StatusUnauthorized:
-		message += " (hint: your API key may be invalid)"
+		message += " (hint: " + c.unauthorizedHint + ")"
 	case errType == "insufficient_quota":
 		message += " (hint: your account may be out of credits)"
 	}

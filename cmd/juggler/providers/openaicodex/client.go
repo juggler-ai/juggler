@@ -65,6 +65,7 @@ func Register() {
 		// on it that the user never chose to. Sol is the everyday tier; newest
 		// first, with gpt-5.6-sol for accounts without GPT-6.
 		DefaultModels:      []string{"gpt-6.1-sol", "gpt-6-sol", "gpt-5.6-sol"},
+		UnauthorizedHint:   "ChatGPT rejected the Codex token. Sign in with the ChatGPT app or run `codex login`",
 		ListModelsOverride: listModels,
 		UsageStatsOverride: usageStats,
 		ThinkingSpecFn:     codexThinkingSpec,

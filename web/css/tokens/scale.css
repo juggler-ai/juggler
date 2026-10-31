@@ -166,15 +166,6 @@
     --font-size-2xl: 1.25rem;    /* 20px: headings */
     --font-size-3xl: 1.5rem;     /* 24px: page titles */
 
-    /* The header's controls are pinned to pixels so the +/- zoom, which scales
-       the root font-size, leaves them alone (layout/app-header.css). Their
-       type is pinned with them, so it cannot come from the rem steps above. */
-    /* stylelint-disable rem-over-px/rem-over-px, unit-disallowed-list */
-    --font-size-header-2xs: 10px;  /* the network button's host and client count */
-    --font-size-header-base: 13px; /* the update pill's label */
-    --font-size-header-md: 14px;   /* the icon buttons' glyphs */
-    /* stylelint-enable rem-over-px/rem-over-px, unit-disallowed-list */
-
     /* Border radius scale */
     --radius-sm: 0.1875rem;  /* 3px */
     --radius-md: 0.25rem;    /* 4px */

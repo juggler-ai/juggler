@@ -130,7 +130,6 @@ export async function runTests() {
     const missing = [
       '--font-size-2xs', '--font-size-xs', '--font-size-sm', '--font-size-base', '--font-size-md',
       '--font-size-body-lg', '--font-size-lg', '--font-size-xl', '--font-size-2xl', '--font-size-3xl',
-      '--font-size-header-2xs', '--font-size-header-base', '--font-size-header-md',
       '--radius-sm', '--radius-md', '--radius-lg', '--radius-xl', '--radius-2xl', '--radius-bubble', '--radius-pill',
     ].filter(token => root.getPropertyValue(token).trim() === '');
     assert(missing.length === 0, `unset: ${missing.join(', ')}`);

@@ -127,21 +127,23 @@ app-container {
    button (on a phone the header row has no width to spare). The " connected"
    suffix is only shown where the header has room for the count as a label.
    One class of specificity, so nothing here outranks a later layer's rule, and
-   no `display` of its own, so the [hidden] attribute keeps hiding it. */
+   no `display` of its own, so the [hidden] attribute keeps hiding it. Sized
+   and set on the button's outer corner to fit the glyph's bare top-right,
+   right of its top box and above its crossbar, so it covers none of the ink. */
 .network-button__clients {
     position: absolute;
-    top: 0.125rem;
-    right: 0;
-    min-width: 0.875rem;
-    height: 0.875rem;
-    padding: 0 0.1875rem;
+    top: -0.0625rem;
+    right: -0.0625rem;
+    min-width: 0.75rem;
+    height: 0.75rem;
+    padding: 0 0.125rem;
     border-radius: var(--radius-pill);
     background-color: var(--text-secondary);
     color: var(--bg-primary);
     font-size: var(--font-size-2xs);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
-    line-height: 0.875rem;
+    line-height: 0.75rem;
     text-align: center;
     pointer-events: none;
 }
@@ -160,24 +162,24 @@ app-container {
    could read as another machine's. The button stacks its text: where a wide
    header spells out "N connected" (below), that is a second line under the
    host, so the button is only ever as wide as its longer line. The count badge
-   stays pinned over the icon's corner rather than the end of the wider button.
-   Pixel-sized like the rest of the header's controls. */
-/* stylelint-disable rem-over-px/rem-over-px, unit-disallowed-list */
+   stays pinned over the icon's corner rather than the end of the wider button. */
 .network-button.is-remote {
     width: auto;
     flex-direction: column;
     align-items: flex-start;
-    padding: 0 8px 0 30px;
+    padding: 0 0.5rem 0 1.875rem;
 }
 
+/* The glyph sits a touch left of the inset's middle, so the badge has room
+   between its bare corner and the host. */
 .network-button.is-remote::before {
-    left: 15px;
+    left: 0.875rem;
 }
 
 .network-button__host {
     color: var(--text-secondary);
-    font-size: var(--font-size-header-2xs);
-    line-height: 13px;
+    font-size: var(--font-size-2xs);
+    line-height: 0.8125rem;
     white-space: nowrap;
 }
 
@@ -187,23 +189,20 @@ app-container {
 
 :where(.network-button.is-remote) .network-button__clients {
     right: auto;
-    left: 18px;
+    left: 1.125rem;
 }
-/* stylelint-enable rem-over-px/rem-over-px, unit-disallowed-list */
 
 /* A wide header has room to say it: the badge becomes a "2 connected" label
    beside the icon, and the button grows to hold it. `.has-clients` is set with
-   the count by header-controls.js. Pixel-sized like the rest of the header's
-   controls, so the zoom buttons leave them alone. */
-/* stylelint-disable rem-over-px/rem-over-px, unit-disallowed-list */
-@container app-header (width >= 1440px) {
+   the count by header-controls.js. */
+@container app-header (width >= 90rem) {
     .network-button.has-clients {
         width: auto;
-        padding: 0 10px 0 32px;
+        padding: 0 0.625rem 0 2rem;
     }
 
     .network-button.has-clients::before {
-        left: 16px;
+        left: 1rem;
     }
 
     /* One class of specificity, like the badge rules above that these follow
@@ -215,8 +214,8 @@ app-container {
         padding: 0;
         background-color: transparent;
         color: var(--text-secondary);
-        font-size: var(--font-size-header-2xs);
-        line-height: 13px;
+        font-size: var(--font-size-2xs);
+        line-height: 0.8125rem;
     }
 
     :where(.network-button.has-clients:hover) .network-button__clients {
@@ -231,14 +230,13 @@ app-container {
     /* On a remote window the label is the host's second line. After the rules
        above so the stacked layout's geometry wins. */
     .network-button.is-remote.has-clients {
-        padding: 0 8px 0 30px;
+        padding: 0 0.5rem 0 1.875rem;
     }
 
     .network-button.is-remote.has-clients::before {
-        left: 15px;
+        left: 0.875rem;
     }
 }
-/* stylelint-enable rem-over-px/rem-over-px, unit-disallowed-list */
 
 /* Notification Sounds (bell) Button — inline SVG bell (inherits the shared
    header icon sizing/colour). When sounds are off, a diagonal slash crosses the

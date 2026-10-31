@@ -15,6 +15,7 @@ of changes; this project follows semantic versioning.
 - Reasoning from Mistral-hosted models shows as thinking instead of raw JSON
 - Double-clicking Duplicate or Fork makes one copy, and shows "Duplicating…" meanwhile
 - `! command` (or /shell) runs a command and adds its output, no model call
+- Zooming the interface scales the whole header bar, its buttons included
 
 ## [0.7.9] - 2026-10-28
 

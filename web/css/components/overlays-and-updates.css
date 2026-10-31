@@ -606,29 +606,24 @@ update-button {
     align-items: center;
 }
 
-/* The pill is a header-actions control, so it is pinned to pixels like the rest
-   of them (layout/app-header.css): the +/- zoom scales the root font-size, and a
-   rem-sized pill would grow and shrink beside neighbours that do not. */
-/* stylelint-disable rem-over-px/rem-over-px, unit-disallowed-list */
 update-button .update-btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    height: 28px;
-    margin: 0 4px;
-    padding: 0 12px;
+    gap: 0.375rem;
+    height: 1.75rem;
+    margin: 0 0.25rem;
+    padding: 0 0.75rem;
     border: none;
     border-radius: var(--radius-pill);
     background: var(--accent-blue);
     color: var(--text-on-accent);
     font-family: var(--font-ui);
-    font-size: var(--font-size-header-base);
+    font-size: var(--font-size-base);
     font-weight: 600;
     white-space: nowrap;
     cursor: pointer;
     transition: background var(--transition-base), filter var(--transition-base);
 }
-/* stylelint-enable rem-over-px/rem-over-px, unit-disallowed-list */
 
 update-button .update-btn:hover {
     background: var(--accent-blue-light);

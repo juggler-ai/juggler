@@ -31,6 +31,8 @@
  *      every header width — on Windows flush to the top-right corner.
  *  11. The condensed header shrinks the wordmark only a little, and keeps it
  *      as far from the left edge as the full-width header does.
+ *  12. The +/- zoom scales the whole header as one — its height, padding,
+ *      buttons, glyphs, badge and gaps — so nothing in it shifts against the rest.
  * @module unit-tests/header-bar-test
  */
 
@@ -711,12 +713,37 @@ export async function runTests() {
         const host = f.el('.network-button__host');
         const hostShown = () => view.getComputedStyle(host).display !== 'none';
 
+        /**
+         * Where the count badge lands on the "lan" glyph, as fractions of the
+         * glyph's box. Its ink leaves the top-right corner bare — right of the
+         * top box (x 640 of the 960 viewBox) and above the crossbar (y 440) —
+         * and the badge belongs in that corner.
+         * @param {string} where - Label for the assertion.
+         */
+        const assertBadgeClearsGlyph = (where) => {
+          const glyph = view.getComputedStyle(button, '::before');
+          const b = button.getBoundingClientRect();
+          const size = parseFloat(glyph.width);
+          // Positioned in the padding box, inside the button's border.
+          const left = b.left + button.clientLeft + parseFloat(glyph.left) - size / 2;
+          const top = b.top + button.clientTop + parseFloat(glyph.top) - size / 2;
+          const badge = f.el('.network-button__clients').getBoundingClientRect();
+          const x = (badge.left - left) / size;
+          const y = (badge.bottom - top) / size;
+          assert(x >= 640 / 960 - 0.01 && y <= 440 / 960 + 0.01,
+            `${where}: the badge sits in the glyph's bare top-right corner, clear of its ink (left edge at ${x.toFixed(2)} of the glyph, needs ≥ 0.67; bottom at ${y.toFixed(2)}, needs ≤ 0.46)`);
+        };
+
         // This computer's own server: the icon alone, as ever.
         const local = bindNetworkClients(button, { events, seed: async () => 1, host: '' });
         await local.ready;
         assert(!hostShown(), `${width}px: a local window names no host`);
         assert(Math.round(button.getBoundingClientRect().width) === 32,
           `${width}px: a local window's button is icon-sized, got ${button.getBoundingClientRect().width}px`);
+        if (width === 1000) {
+          clientsChanged(3);
+          assertBadgeClearsGlyph(`${width}px, local`);
+        }
         local.dispose();
 
         const remote = bindNetworkClients(button, { events, seed: async () => 1, host: 'devbox:8080' });
@@ -751,6 +778,10 @@ export async function runTests() {
             // than drifting to the end of a now-wider button.
             assert(c.left < at.left + 32,
               `${width}px: the badge sits over the icon (badge at ${Math.round(c.left - at.left)}px into the button)`);
+            assertBadgeClearsGlyph(`${width}px, remote`);
+            const badge = f.el('.network-button__clients').getBoundingClientRect();
+            assert(badge.right <= host.getBoundingClientRect().left + 0.5,
+              `${width}px, remote: the badge stops short of the host (badge right ${Math.round(badge.right - at.left)}px, host left ${Math.round(host.getBoundingClientRect().left - at.left)}px)`);
           } else {
             // Wide, the "N connected" label is a second line under the host
             // rather than a second run of text beside it, so the button only
@@ -802,8 +833,8 @@ export async function runTests() {
   // --- 10: the caption buttons of a frameless window stay inside it ---
   try {
     // Every header layout (wide, the tightened padding under 64rem, the
-    // wrapped phone rows), and a zoomed root font-size, which scales rems but
-    // not the header's px padding.
+    // wrapped phone rows), and a zoomed root font-size, which scales the
+    // header's padding the caption strip has to cancel.
     for (const [platform, width, rootFontSize] of /** @type {const} */ ([
       ['windows', 1400, ''], ['windows', 800, ''], ['windows', 400, ''], ['windows', 1400, '20px'],
       ['linux', 1400, ''], ['linux', 800, ''], ['linux', 400, ''],
@@ -870,6 +901,51 @@ export async function runTests() {
       `the condensed wordmark keeps the full header's left clearance (${condensed.clearance}px vs ${wide.clearance}px)`);
     passed++;
   } catch (e) { failed++; errors.push(`condensed wordmark: ${msg(e)}`); }
+
+  // --- 12: the +/- zoom scales the whole header as one ---
+  try {
+    /**
+     * The header's geometry at one root font-size, in a frame widened in step
+     * with it, so every breakpoint lands on the same side at both sizes.
+     * @param {string} rootFontSize - The root font-size the zoom would set.
+     * @param {number} width - The frame's width in px.
+     * @returns {Promise<Record<string, number>>} Each measure, in px.
+     */
+    const geometryAt = async (rootFontSize, width) => {
+      const f = await framedHeader(served, width);
+      try {
+        f.doc.documentElement.style.fontSize = rootFontSize;
+        const view = /** @type {Window} */ (f.doc.defaultView);
+        f.el('.network-button__clients').hidden = false;
+        f.el('.network-button__count').textContent = '2';
+        const update = f.el('update-button');
+        update.hidden = false;
+        const pill = f.doc.createElement('button');
+        pill.className = 'update-btn';
+        pill.textContent = 'Update';
+        update.appendChild(pill);
+        return {
+          'header height': f.box('.app-header').height,
+          'wordmark clearance': f.box('.logo').left - f.box('.app-header').left,
+          'icon button': f.box('#theme-button').width,
+          'icon glyph': f.box('#theme-button svg').width,
+          'network glyph': parseFloat(view.getComputedStyle(f.el('#network-button'), '::before').width),
+          'client badge': f.box('.network-button__clients').height,
+          'gap within a group': f.box('#bell-button').left - f.box('#theme-button').right,
+          'undo button': f.box('#control-undo-button').height,
+          'update pill': f.box('.update-btn').height,
+        };
+      } finally {
+        f.frame.remove();
+      }
+    };
+    const plain = await geometryAt('', 1200);
+    const zoomed = await geometryAt('20px', 1500);
+    const off = Object.keys(plain).filter((k) => Math.abs(zoomed[k] / plain[k] - 1.25) > 0.04)
+      .map((k) => `${k} ${Math.round(plain[k] * 10) / 10}px → ${Math.round(zoomed[k] * 10) / 10}px`);
+    assert(off.length === 0, `at 125% zoom every header measure grows by 125%, but: ${off.join(', ')}`);
+    passed++;
+  } catch (e) { failed++; errors.push(`zoomed header: ${msg(e)}`); }
 
   return { passed, failed, errors };
 }

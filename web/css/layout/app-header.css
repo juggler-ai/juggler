@@ -14,10 +14,8 @@
     /* Named so a control that sits flush to the header's edge (the Windows
        caption buttons, window-chrome.css) can cancel exactly the padding in
        force at every width. Set these, never `padding`, below. */
-    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
-    --app-header-pad-block: 12px;
-    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
-    --app-header-pad-inline: 20px;
+    --app-header-pad-block: 0.75rem;
+    --app-header-pad-inline: 1.25rem;
 
     /* The left edge, where the wordmark sits. Its own setting, so a narrow
        window can tighten the other edges without crowding the wordmark. */
@@ -96,12 +94,11 @@
 
 /* Undo/redo: the conversation's history, kept beside the project chip. The
    header's free space opens after this group, pushing header-actions to the
-   right edge. Pixel-sized like header-actions below, for the same reason. */
+   right edge. */
 .header-history {
     display: flex;
     align-items: center;
-    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
-    gap: 4px;
+    gap: 0.25rem;
     flex-shrink: 0;
     margin-right: auto;
 }
@@ -178,33 +175,31 @@
 }
 
 /* Header Actions Container
-   Pinned to absolute pixel sizes so the +/- zoom (which works by scaling
-   the root font-size) does not affect these controls. px is intentional
-   here — rems would defeat the purpose. */
-/* stylelint-disable rem-over-px/rem-over-px, unit-disallowed-list */
+   Sized in rems like everything else in the header, so the +/- zoom (which
+   scales the root font-size) grows and shrinks the whole bar as one. */
 header-actions {
     display: flex;
     align-items: center;
-    gap: 2px;
-    padding: 4px 8px;
+    gap: 0.125rem;
+    padding: 0.25rem 0.5rem;
     flex-shrink: 0;
 }
 
 /* The regular controls: a row of groups whose spacing grows with the header —
-   20px apart on an ordinary window, opening out to 40px on a wide one — while
-   the buttons inside a group stay a tight 4px apart, so the groups read as
+   1rem apart on an ordinary window, opening out to 2.5rem on a wide one — while
+   the buttons inside a group stay a tight 0.25rem apart, so the groups read as
    groups. On a phone the groups dissolve into one row; see the width <= 36rem
    block below. */
 .header-actions-controls {
     display: flex;
     align-items: center;
-    gap: clamp(16px, 2cqi, 40px);
+    gap: clamp(1rem, 2cqi, 2.5rem);
 }
 
 .header-group {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 0.25rem;
 }
 
 /* A group whose every button is hidden (the panel group, before there is a
@@ -214,21 +209,23 @@ header-actions {
 }
 
 header-actions .btn-icon-header {
-    width: 32px;
-    height: 32px;
+    width: 2rem;
+    height: 2rem;
     padding: 0;
-    font-size: var(--font-size-header-md);
+    font-size: var(--font-size-md);
 }
 
 header-actions .btn-icon-header svg,
 header-actions .btn-icon-header::before {
-    width: 20px;
-    height: 20px;
+    width: 1.25rem;
+    height: 1.25rem;
 }
 
-/* Overflow: under 900px of header the row runs short, so help and zoom — each
-   also on a shortcut, zoom on the View menu too — fold out of it and the "…"
-   button (utils/header-overflow-menu.js) offers them instead. The controls
+/* Overflow: under 56.25rem of header (900px at 100%) the row runs short, so
+   help and zoom — each also on a shortcut, zoom on the View menu too — fold
+   out of it and the "…" button (utils/header-overflow-menu.js) offers them
+   instead. In rems, so a zoomed row folds when its larger buttons run out of
+   room rather than at a fixed pixel width. The controls
    that show state (theme, sound, network) and Settings always stay. What
    folds is the wrapper, never the button, so nothing here contends with the
    button pattern's own display; shown, a wrapper is `contents` and its buttons
@@ -249,7 +246,7 @@ header-actions .btn-icon-header::before {
     display: contents;
 }
 
-@container app-header (width < 900px) {
+@container app-header (width < 56.25rem) {
     .header-foldable {
         display: none;
     }
@@ -258,40 +255,35 @@ header-actions .btn-icon-header::before {
         display: contents;
     }
 }
-/* stylelint-enable rem-over-px/rem-over-px, unit-disallowed-list */
 
 /* Touch devices: the header controls are sized for a mouse (2rem), below the
    comfortable tap target. Grow them where the pointer is coarse and there's no
-   hover to aid aiming — and pin them to an absolute 44px (the iOS minimum),
-   like the desktop header-actions above, so the +/- zoom (which scales the root
-   font-size) can't blow the tap targets up or shrink them away on a phone. The
-   hamburger rides the same fixed size; its glyph is pinned too. The logo is
-   pinned alongside them so the whole header-bar row stays a fixed, deliberate
-   size on a phone regardless of zoom. */
-/* stylelint-disable rem-over-px/rem-over-px, unit-disallowed-list */
+   hover to aid aiming, to 2.75rem (the iOS minimum of 44px at 100%). The
+   hamburger and the undo/redo circles ride the same size, and the logo grows
+   with them, so the row stays in proportion at any zoom. */
 @media (hover: none) {
     header-actions .btn-icon-header,
     .app-header .sidebar-toggle-button,
     .app-header .btn-circular-control {
-        width: 44px;
-        height: 44px;
+        width: 2.75rem;
+        height: 2.75rem;
     }
 
     .app-header .sidebar-toggle-button svg {
-        width: 24px;
-        height: 24px;
+        width: 1.5rem;
+        height: 1.5rem;
     }
 
     .app-header .btn-circular-control svg {
-        width: 18px;
-        height: 18px;
+        width: 1.125rem;
+        height: 1.125rem;
     }
 
     /* .app-header prefix raises specificity above the .logo::before height in
        the @media (width <= 64rem) block in app-shell.css, which also matches on
        a phone. Both are `layout`, so specificity settles it. */
     .app-header .logo::before {
-        height: 28px;
+        height: 1.75rem;
     }
 
     /* The help button opens Settings › Keyboard shortcuts — a reference surface
@@ -301,7 +293,6 @@ header-actions .btn-icon-header::before {
         display: none;
     }
 }
-/* stylelint-enable rem-over-px/rem-over-px, unit-disallowed-list */
 
 /* Tighten the header's padding before anything else has to move. */
 @media (width <= 64rem) {
@@ -310,8 +301,7 @@ header-actions .btn-icon-header::before {
         --app-header-pad-inline: 0.75rem;
 
         /* …but the wordmark keeps the full header's clearance from the edge. */
-        /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
-        --app-header-pad-start: 20px;
+        --app-header-pad-start: 1.25rem;
     }
 }
 
@@ -335,7 +325,7 @@ header-actions .btn-icon-header::before {
    above them, present only when relevant.
    ========================================================================== */
 @media (width <= 36rem) {
-    /* Tighten the whole header on a phone: the desktop's generous 12px/20px
+    /* Tighten the whole header on a phone: the desktop's generous 0.75rem/1.25rem
        padding wastes scarce width and height once the actions drop to their own
        row. */
     .app-header {
@@ -384,8 +374,7 @@ header-actions .btn-icon-header::before {
         flex-wrap: nowrap;
         justify-content: space-between;
         min-width: 0;
-        /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
-        gap: 2px;
+        gap: 0.125rem;
     }
 
     /* The groups dissolve: their buttons spread across the row as one set. */

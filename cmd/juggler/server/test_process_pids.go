@@ -23,6 +23,21 @@ type testPoolHooks struct {
 	// laneWait waits for a test pool's lanes to ask for work (see
 	// WaitForTestLanes). Installed by RegisterTestRoutes; nil elsewhere.
 	laneWait atomic.Pointer[LaneWait]
+	// lanesHold reports whether a browser test queued on this server is not
+	// yet finished with it (see testLanesHold). Installed by
+	// RegisterTestRoutes; nil elsewhere.
+	lanesHold atomic.Pointer[func() bool]
+}
+
+// testLanesHold reports whether a browser test queued on this server has yet
+// to have its result read, which holds the session against retirement: the
+// lane's window may still be loading, and nothing but the test's own progress
+// says how long that takes.
+func (s *Server) testLanesHold() bool {
+	if fn := s.testPool.lanesHold.Load(); fn != nil {
+		return (*fn)()
+	}
+	return false
 }
 
 // ProcessPIDs lists processes that do this server's work without being in its

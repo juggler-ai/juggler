@@ -33,8 +33,7 @@ import {
   initializeRegistries,
   createTestSession,
   createApprovalTestConversation,
-  assert,
-  waitFor
+  assert
 } from '../utilities/test-helpers.js';
 import {
   createUserMessage,
@@ -65,6 +64,69 @@ function completedToolAction(id) {
 }
 
 /**
+ * Stands in for IntersectionObserver while the case runs. A real observer
+ * reports in a rendering update, and the test-pool window is hidden, so it may
+ * get none for as long as a test is willing to wait. This one reports when the
+ * case calls {@link deliverIntersections}, from the layout the case can read
+ * synchronously — the report a rendering update would have made then.
+ */
+class ScriptedIntersectionObserver {
+  /** @type {Set<ScriptedIntersectionObserver>} */
+  static live = new Set();
+
+  /**
+   * @param {IntersectionObserverCallback} callback - Notified on delivery.
+   * @param {IntersectionObserverInit} [options] - Only `root` is honoured; threshold 0 is assumed.
+   */
+  constructor(callback, options = {}) {
+    this.callback = callback;
+    this.root = options.root ?? null;
+    /** @type {Set<Element>} */
+    this.targets = new Set();
+  }
+
+  /** @param {Element} el - Begin reporting on el. */
+  observe(el) {
+    this.targets.add(el);
+    ScriptedIntersectionObserver.live.add(this);
+  }
+
+  /** @param {Element} el - Stop reporting on el. */
+  unobserve(el) { this.targets.delete(el); }
+
+  disconnect() {
+    this.targets.clear();
+    ScriptedIntersectionObserver.live.delete(this);
+  }
+
+  /** @returns {IntersectionObserverEntry[]} Nothing is ever queued. */
+  takeRecords() { return []; }
+}
+
+/**
+ * Report every target of each live observer rooted at `root`, as a rendering
+ * update would now: at threshold 0 a target intersects when its box touches
+ * the root's.
+ * @param {Element} root - The root whose observers are notified.
+ * @returns {number} How many observers were notified.
+ */
+function deliverIntersections(root) {
+  const r = root.getBoundingClientRect();
+  let notified = 0;
+  for (const observer of [...ScriptedIntersectionObserver.live]) {
+    if (observer.root !== root || observer.targets.size === 0) continue;
+    const entries = [...observer.targets].map((target) => {
+      const t = target.getBoundingClientRect();
+      const isIntersecting = t.bottom >= r.top && t.top <= r.bottom && t.right >= r.left && t.left <= r.right;
+      return /** @type {IntersectionObserverEntry} */ (/** @type {unknown} */ ({ target, isIntersecting }));
+    });
+    observer.callback(entries, /** @type {IntersectionObserver} */ (/** @type {unknown} */ (observer)));
+    notified++;
+  }
+  return notified;
+}
+
+/**
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Aggregated test results.
  */
 export async function runTests() {
@@ -74,6 +136,10 @@ export async function runTests() {
   let failed = 0;
   /** @type {string[]} */
   const errors = [];
+
+  // Installed before the tab exists, so rule C's watcher is one of ours.
+  const realIntersectionObserver = window.IntersectionObserver;
+  /** @type {any} */ (window).IntersectionObserver = ScriptedIntersectionObserver;
 
   const container = document.createElement('div');
   container.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:1200px;height:800px;';
@@ -172,26 +238,15 @@ export async function runTests() {
       `reader selected (selection moved to ${rootCol.getSelectedItemId()})`);
 
     // The symptom. Rule C demotes the pin on a timer it arms only when its
-    // IntersectionObserver reports the tile offscreen, and that report comes in
-    // the rendering update after the inserts. An observer made now on the same
-    // tile and root is notified in that same update, after rule C's (observers
-    // are notified in creation order) — so once it has reported, rule C has
-    // heard where the tile is, and any demotion it is going to make is armed.
+    // IntersectionObserver reports the tile offscreen, a report that comes in
+    // the rendering update after the inserts. That update is delivered here,
+    // from the layout as it stands, so rule C hears where the tile is and any
+    // demotion it is going to make is armed.
     const watcher = rootCol._selection;
     assert(watcher._visibilityObserver !== null,
       'test setup: rule C must be watching the pinned tile, or there is no demotion to wait for');
-    /** @type {IntersectionObserverEntry|null} */
-    let seen = null;
-    const probe = new IntersectionObserver((entries) => { seen = entries[entries.length - 1] ?? seen; },
-      { root: list, threshold: 0 });
-    probe.observe(/** @type {HTMLElement} */ (tileEl));
-    try {
-      await waitFor(() => seen !== null, 'an intersection report for the pinned tile');
-    } finally {
-      probe.disconnect();
-    }
-    assert(/** @type {IntersectionObserverEntry} */ (/** @type {unknown} */ (seen)).isIntersecting,
-      'the pinned tile must still intersect the list after the parent turn carried on');
+    assert(deliverIntersections(list) > 0,
+      'test setup: rule C\'s watcher must be rooted at the message list, or no report reaches it');
     assert(watcher._offscreenTimer === null,
       'rule C must not have armed a demotion: nothing but the reader may retire the pin, ' +
       'and the reader has not touched anything');
@@ -227,6 +282,7 @@ export async function runTests() {
   } finally {
     conversation?.llmState?.stop?.(conversation.id);
     container.remove();
+    window.IntersectionObserver = realIntersectionObserver;
     if (conversation && session) {
       try {
         await session.deleteConversation(conversation.id, 'thread-pin-survives-reveal:cleanup');

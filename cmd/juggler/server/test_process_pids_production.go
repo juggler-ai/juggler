@@ -10,3 +10,6 @@ package server
 
 // testPoolHooks holds nothing in a release build: no test pool installs hooks.
 type testPoolHooks struct{}
+
+// testLanesHold is false in a release build: it queues no browser tests.
+func (s *Server) testLanesHold() bool { return false }

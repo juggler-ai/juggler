@@ -104,9 +104,12 @@ func (s *Server) RegisterTestRoutes(testAPI any) {
 		HandleAudit(w http.ResponseWriter, r *http.Request)
 		HandlePostProgress(w http.ResponseWriter, r *http.Request)
 		HandleMachine(w http.ResponseWriter, r *http.Request)
+		HoldsSession() bool
 	}
 	rapi, ok := testAPI.(runAPI)
 	mustMatch(ok, "run-API")
+	hold := rapi.HoldsSession
+	s.testPool.lanesHold.Store(&hold)
 	// How far each lane of the pool got, read by the harness when a wait on
 	// the pool gives up (laneTrace).
 	lanes := newLaneTrace()

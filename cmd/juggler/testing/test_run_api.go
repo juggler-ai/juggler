@@ -132,6 +132,29 @@ func (api *TestRunAPI) HandleRun(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// HoldsSession reports whether any queued test is unfinished: still in the
+// queue, or taken by a lane whose result its harness has not yet read. Each
+// name's audit counts every queueing and every served result, so a name queued
+// more often than served is one the harness is still waiting on. The list
+// sentinel is answered with names rather than a result, so it holds only while
+// it is queued.
+func (api *TestRunAPI) HoldsSession() bool {
+	held := false
+	api.withState(func(s *actorState) {
+		if len(s.pending) > 0 {
+			held = true
+			return
+		}
+		for name, rec := range s.audit {
+			if name != "__list__" && rec.resultServed < rec.queued {
+				held = true
+				return
+			}
+		}
+	})
+	return held
+}
+
 // HandlePending returns the next queued test, or 204 if none is waiting.
 // GET /api/test/pending
 //

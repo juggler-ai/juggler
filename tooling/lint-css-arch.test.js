@@ -446,6 +446,16 @@ try {
   if (report.includes('a > b')) wrong.push(`layer-inversion ratchet: the matching pair a > b was reported\n${report}\n`);
   if (problems !== 8) wrong.push(`layer-inversion ratchet: ${problems} problems, want 8\n`);
 
+  // A Windows checkout of a `text=auto` file has CRLF line endings: a comment
+  // line must still be dropped whole, and an entry must keep no stray \r.
+  for (const eol of ['\n', '\r\n']) {
+    const entries = arch.parseInversionRatchet(['# a comment', '#', 'a > b 2  # trailing', '', 'c > d 5'].join(eol) + eol);
+    const want = ['a > b 2', 'c > d 5'];
+    if (JSON.stringify(entries) !== JSON.stringify(want)) {
+      wrong.push(`layer-inversion ratchet (${JSON.stringify(eol)} line ends): parsed ${JSON.stringify(entries)}, want ${JSON.stringify(want)}\n`);
+    }
+  }
+
   assert.equal(wrong.length, 0, `lint-css-arch fixture (+ unexpected, - missing):\n${wrong.join('')}`);
   log('✓ lint-css-arch cases');
 } finally {

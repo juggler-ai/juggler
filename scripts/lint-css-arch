@@ -624,7 +624,7 @@ function readManifest() {
  * starting a comment. A missing file is a failure, not an empty ratchet — an
  * absent file would otherwise read as "no inversions allowed" only until
  * someone noticed the check had gone quiet.
- * @returns {string[]} Its non-empty lines with comments removed, unparsed.
+ * @returns {string[]} Its entries (parseInversionRatchet).
  */
 function readInversionRatchet() {
   const file = path.join(cssDir, '.layer-inversion-ratchet');
@@ -635,8 +635,18 @@ function readInversionRatchet() {
     console.error(`lint-css-arch: cannot read web/css/.layer-inversion-ratchet — ${err.message}`);
     process.exit(2);
   }
+  return parseInversionRatchet(text);
+}
+
+/**
+ * The ratchet's text as its entries. Lines may end in CRLF — a Windows
+ * checkout of the file has them, and `.` in the comment pattern stops at \r.
+ * @param {string} text - The file's contents.
+ * @returns {string[]} Its non-empty lines with comments removed, unparsed.
+ */
+function parseInversionRatchet(text) {
   const entries = [];
-  for (const raw of text.split('\n')) {
+  for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/#.*$/, '').trim();
     if (line) entries.push(line);
   }
@@ -2023,6 +2033,7 @@ module.exports = {
   outsideStylesheets,
   overlappingProperty,
   parseComplex,
+  parseInversionRatchet,
   parseRules,
   readManifest,
   selectorParts,

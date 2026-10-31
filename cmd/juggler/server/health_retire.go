@@ -19,6 +19,12 @@ import (
 // begins, and a caller that has gone learns a commit from this process's exit.
 func (s *Server) handleHealthRetire(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, 1<<10))
+	// A browser test queued on a test server holds it like a turn: its window
+	// may still be loading, and has no viewer to show for it yet.
+	if s.testLanesHold() {
+		handlers.WriteJSON(w, r, http.StatusConflict, map[string]any{"status": "held"})
+		return
+	}
 	accepted := true
 	if s.workerManager != nil {
 		var err error

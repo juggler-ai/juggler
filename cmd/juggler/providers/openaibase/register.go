@@ -5,6 +5,7 @@
 package openaibase
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"time"
@@ -120,6 +121,10 @@ type Descriptor struct {
 	// gateway that advertises a window it will not honour needs the catalog to
 	// stay in charge, and this is the switch for it.
 	LimitDiscoveryUnsupported bool
+
+	// UnauthorizedHint is the hint shown when the backend answers 401. Empty
+	// keeps the default, which blames the API key.
+	UnauthorizedHint string
 
 	// ListModelsOverride, if non-nil, replaces the standard
 	// SDK Models.List + Filter + ContextWindowFn flow. Use for providers
@@ -254,6 +259,7 @@ func Register(d Descriptor) {
 		}
 		base.sessionHeaders = sessionHeaders
 		base.limitDiscoveryDisabled = d.LimitDiscoveryUnsupported
+		base.unauthorizedHint = cmp.Or(d.UnauthorizedHint, defaultUnauthorizedHint)
 		base.catalogMaxOutput = catalogMaxOutputLookup(d, capsSynthesised)
 		// Label this client's provider-boundary errors (notably the idle-stall
 		// message) with the id the user configured, not the shared "openai".

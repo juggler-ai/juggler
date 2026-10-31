@@ -271,15 +271,26 @@ export async function runTests(_ctx) {
     const m = mount(session);
     assert(m.width('plan', 'completed') === '25%', `one step done, got ${m.width('plan', 'completed')}`);
     assert(m.width('plan', 'in-progress') === 'none', `nothing under way, got ${m.width('plan', 'in-progress')}`);
+    /**
+     * Emit a change and wait out the card's gathered re-read. The card arms a
+     * FOLLOW_MS timer as the event lands and redraws synchronously when it fires;
+     * timers of equal delay fire in the order they were armed, so one armed here
+     * afterwards fires after that redraw however late the page's timers are run.
+     * @returns {Promise<void>} Resolves once the card has re-read the change.
+     */
+    const changeAndFollow = async () => {
+      session.emit('conversation:changed', { conversationId: 'c1' });
+      // eslint-disable-next-line juggler/no-private-test-wait -- the card's own FOLLOW_MS gather window is the subject: a timer of equal delay armed after it fires after it
+      await new Promise((resolve) => { setTimeout(resolve, FOLLOW_MS); });
+    };
     // A step starting leaves the done count where it was; the bar still moves.
     session.items[0].data = plan(['completed', 'in_progress', 'pending', 'pending']);
-    session.emit('conversation:changed', { conversationId: 'c1' });
-    await waitFor(() => m.width('plan', 'in-progress') === '25%',
-      { timeoutMs: FOLLOW_MS * 20, description: 'the started step to show' });
+    await changeAndFollow();
+    assert(m.width('plan', 'in-progress') === '25%', `the started step shows, got ${m.width('plan', 'in-progress')}`);
     session.items[0].data = plan(['completed', 'completed', 'in_progress', 'pending']);
-    session.emit('conversation:changed', { conversationId: 'c1' });
-    await waitFor(() => m.width('plan', 'completed') === '50%' && m.width('plan', 'in-progress') === '25%',
-      { timeoutMs: FOLLOW_MS * 20, description: 'the strip to move on a step' });
+    await changeAndFollow();
+    assert(m.width('plan', 'completed') === '50%' && m.width('plan', 'in-progress') === '25%',
+      `the strip moves on a step, got ${m.width('plan', 'completed')} done, ${m.width('plan', 'in-progress')} under way`);
   });
 
   await test('the rail is told only when the card should come or go', async () => {

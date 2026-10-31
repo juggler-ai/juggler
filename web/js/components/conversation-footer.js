@@ -198,6 +198,14 @@ class ConversationFooter extends JugglerElement {
   _tokenUpdateBurstStartedAt = undefined;
 
   /**
+   * When the pending coalesced render is due (Date.now() time); read only while
+   * one is pending, so an event that cannot move it later leaves it alone.
+   * @type {number}
+   * @private
+   */
+  _tokenUpdateDueAt = 0;
+
+  /**
    * Status-only mode: the footer is reduced to the status line (see the class
    * comment). Set by the owning column, and applied structurally by
    * `_applyStatusOnly` rather than on every `update()` tick.
@@ -523,12 +531,19 @@ class ConversationFooter extends JugglerElement {
   _scheduleTokenDisplayUpdate() {
     const now = Date.now();
     if (this._tokenUpdateTimer === undefined) this._tokenUpdateBurstStartedAt = now;
+    // Events arriving closer together than the debounce may keep pushing the
+    // render back, but only to the ceiling — past that the burst has had its
+    // coalescing and the meter is owed a number.
+    const dueAt = Math.min(now + TOKEN_UPDATE_DEBOUNCE_MS,
+      (this._tokenUpdateBurstStartedAt ?? now) + TOKEN_UPDATE_MAX_WAIT_MS);
+    // An event that cannot push the render any later leaves the pending one
+    // where it is. Cancelling and re-arming it for the same moment would let a
+    // stream of events that keeps landing first — as they do whenever this page's
+    // timers run late and come due together — postpone it past the ceiling.
+    if (this._tokenUpdateTimer !== undefined && dueAt <= this._tokenUpdateDueAt) return;
     this._cancelDeferredTokenDisplayUpdate();
-    // What is left of the ceiling. Events arriving closer together than the
-    // debounce may keep pushing the render back, but only to here — past that the
-    // burst has had its coalescing and the meter is owed a number.
-    const remaining = TOKEN_UPDATE_MAX_WAIT_MS - (now - (this._tokenUpdateBurstStartedAt ?? now));
-    const delay = Math.max(0, Math.min(TOKEN_UPDATE_DEBOUNCE_MS, remaining));
+    this._tokenUpdateDueAt = dueAt;
+    const delay = Math.max(0, dueAt - now);
     this._tokenUpdateTimer = window.setTimeout(() => {
       // Cleared first, so the next event opens a new burst rather than inheriting
       // a ceiling this one has already spent.

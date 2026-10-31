@@ -237,7 +237,7 @@ func TestMachineServerDrivesASessionInABrowser(t *testing.T) {
 		Errors      []string `json:"errors"`
 		PostedUnder string   `json:"postedUnder"`
 	}
-	if err := helpers.PollJSON(ms.Addr, prefix+"/api/test/result?name="+name, 120*time.Second, &result, nil); err != nil {
+	if err := ms.pollLaneResult(prefix, name, &result); err != nil {
 		t.Fatalf("waiting for %s through the proxy: %v\n%s", name, err, ms.whereTheLaneStopped(prefix, name))
 	}
 	// The test queue is the child's own, so a lane that loaded the child
@@ -454,7 +454,7 @@ func TestMachineServerLaunchesTwoSessionsFromThePage(t *testing.T) {
 		go func() {
 			o := &outcome{prefix: "/s/" + sess.ID}
 			if o.err = helpers.PostJSON(ms.Addr, o.prefix+"/api/test/run", map[string]any{"name": name, "projectPath": fixtures[i]}, nil); o.err == nil {
-				o.err = helpers.PollJSON(ms.Addr, o.prefix+"/api/test/result?name="+name, 120*time.Second, &o.result, nil)
+				o.err = ms.pollLaneResult(o.prefix, name, &o.result)
 			}
 			done <- o
 		}()

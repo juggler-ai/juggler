@@ -1319,6 +1319,7 @@
   "Stop this thread": "このスレッドを停止",
   "Stop turn": "ターンを停止",
   "Stop waiting for this thread": "このスレッドの待機をやめる",
+  "Stop {command}": "{command} を停止",
   "Stop {mode}": "{mode} を停止",
   "Stop: {reason}": "停止: {reason}",
   "Stopped": "停止しました",

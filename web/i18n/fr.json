@@ -1319,6 +1319,7 @@
   "Stop this thread": "Arrêter ce fil",
   "Stop turn": "Arrêter le tour",
   "Stop waiting for this thread": "Ne plus attendre ce fil",
+  "Stop {command}": "Arrêter {command}",
   "Stop {mode}": "Arrêter {mode}",
   "Stop: {reason}": "Arrêt : {reason}",
   "Stopped": "Arrêté",

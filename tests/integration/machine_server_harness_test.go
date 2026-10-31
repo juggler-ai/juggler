@@ -381,6 +381,46 @@ func (ms *machineServer) stderrText() string {
 	return string(b)
 }
 
+// A browser test run through a session's proxy is waited on the way the browser
+// suite waits on its own (pollResultWhileProgressing, browser_suite_test.go):
+// for as long as its lane keeps reporting progress, giving up only after
+// laneSilenceWindow with neither a result nor a report. A fixed wall-clock wait
+// failed a test that was still moving, because time the session spent getting its
+// engine back counted against the test.
+const (
+	laneSilenceWindow = 120 * time.Second
+	// laneResultCeiling is the backstop for a lane that reports progress forever,
+	// kept well under the package's 15m -timeout (Makefile) so it reports first.
+	laneResultCeiling = 8 * time.Minute
+)
+
+// pollLaneResult waits for name's result from the session at prefix for as long
+// as the lane running it keeps reporting progress, up to laneResultCeiling.
+func (ms *machineServer) pollLaneResult(prefix, name string, out any) error {
+	started := time.Now()
+	for {
+		err := helpers.PollJSON(ms.Addr, prefix+"/api/test/result?name="+name, laneSilenceWindow, out, nil)
+		if err == nil {
+			return nil
+		}
+		var audit struct {
+			Progress      int   `json:"progress"`
+			ProgressAgeMs int64 `json:"progressAgeMs"`
+		}
+		if aerr := helpers.PollJSON(ms.Addr, prefix+"/api/test/audit?name="+name, 5*time.Second, &audit, nil); aerr != nil {
+			return err
+		}
+		age := time.Duration(audit.ProgressAgeMs) * time.Millisecond
+		if audit.ProgressAgeMs < 0 || age >= laneSilenceWindow {
+			return fmt.Errorf("%w — no result, and the lane's last progress report is not recent (age %dms; -1 is never)", err, audit.ProgressAgeMs)
+		}
+		if time.Since(started) >= laneResultCeiling {
+			return fmt.Errorf("%w — the lane was still reporting progress (%d reports, the last %s ago) after %v, the ceiling for one test",
+				err, audit.Progress, age, laneResultCeiling)
+		}
+	}
+}
+
 // whereTheLaneStopped says how far a browser test queued in the session at
 // prefix got, for a wait on its result that ran out: the child's queue audit
 // (never dispatched means its window never asked for work — not loaded, or not

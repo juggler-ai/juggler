@@ -1319,6 +1319,7 @@
   "Stop this thread": "이 스레드 중지",
   "Stop turn": "턴 중지",
   "Stop waiting for this thread": "이 스레드 기다리기 중지",
+  "Stop {command}": "{command} 중지",
   "Stop {mode}": "{mode} 중지",
   "Stop: {reason}": "중지: {reason}",
   "Stopped": "중지됨",

@@ -265,5 +265,46 @@ export async function runTests(_ctx) {
     errors.push(`renders while the conversation never goes quiet: ${msg(e)}`);
   }
 
+  // =========================================================================
+  // 5: an event past the ceiling leaves the render it is owed in place
+  // =========================================================================
+  //
+  // Case 4 by its mechanism rather than its outcome. Once a burst has spent its
+  // ceiling the render is due now, and an event arriving before it fires can only
+  // ask for the same moment — so cancelling it and arming another lets a stream
+  // of events that keeps landing first postpone the render for as long as it
+  // lasts. That happens whenever the page's timers run late and come due
+  // together, which no wall-clock wait reproduces on demand. The pending timer's
+  // handle shows it directly: re-armed means taken away.
+  try {
+    const footer = /** @type {any} */ (document.createElement('conversation-footer'));
+    document.body.appendChild(footer);
+    let renders = 0;
+    footer._updateTokenDisplay = () => { renders++; };
+    try {
+      footer._scheduleTokenDisplayUpdate();
+      // The burst opened a full ceiling ago, so its render is due at once.
+      footer._tokenUpdateBurstStartedAt = Date.now() - TOKEN_UPDATE_MAX_WAIT_MS;
+      footer._scheduleTokenDisplayUpdate();
+      const owed = footer._tokenUpdateTimer;
+      footer._scheduleTokenDisplayUpdate();
+      assert(owed !== undefined && footer._tokenUpdateTimer === owed,
+        'an event after the ceiling must leave the pending render alone, not cancel and re-arm it');
+      await waitFor(() => renders > 0, {
+        timeoutMs: budgetFor(2000),
+        description: 'the render owed at the ceiling'
+      });
+      assert(renders === 1, `one burst, one render; got ${renders}`);
+    } finally {
+      footer._cancelDeferredTokenDisplayUpdate();
+      footer.remove();
+    }
+
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`keeps the render owed at the ceiling: ${msg(e)}`);
+  }
+
   return { passed, failed, errors };
 }

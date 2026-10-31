@@ -1319,6 +1319,7 @@
   "Stop this thread": "Parar esta thread",
   "Stop turn": "Parar turno",
   "Stop waiting for this thread": "Parar de esperar por esta thread",
+  "Stop {command}": "Parar {command}",
   "Stop {mode}": "Parar {mode}",
   "Stop: {reason}": "Parar: {reason}",
   "Stopped": "Parado",

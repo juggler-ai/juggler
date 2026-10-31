@@ -1319,6 +1319,7 @@
   "Stop this thread": "停止此线程",
   "Stop turn": "停止回合",
   "Stop waiting for this thread": "停止等待此线程",
+  "Stop {command}": "停止 {command}",
   "Stop {mode}": "停止 {mode}",
   "Stop: {reason}": "停止：{reason}",
   "Stopped": "已停止",

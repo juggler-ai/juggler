@@ -1319,6 +1319,7 @@
   "Stop this thread": "Diesen Thread stoppen",
   "Stop turn": "Durchlauf stoppen",
   "Stop waiting for this thread": "Nicht mehr auf diesen Thread warten",
+  "Stop {command}": "{command} stoppen",
   "Stop {mode}": "{mode} beenden",
   "Stop: {reason}": "Stopp: {reason}",
   "Stopped": "Gestoppt",

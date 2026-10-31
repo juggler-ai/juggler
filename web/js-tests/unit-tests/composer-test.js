@@ -194,7 +194,7 @@ export async function runTests() {
     }
   });
 
-  await run('en-XA: the controls, menus and actions sheet draw no plain English', async () => {
+  await run('en-XA: the controls and menus draw no plain English', async () => {
     const { box, container } = mountComposer();
     const handler = /** @type {any} */ (slashCommandHandler);
     const realInit = handler.init;
@@ -277,19 +277,6 @@ export async function runTests() {
           }
         }
 
-        // The actions sheet, every section (skills present, so both lists draw).
-        await box._actionsPopup.open();
-        const sheet = box._actionsPopup.surface;
-        try {
-          assert(!!sheet, 'the actions sheet did not open');
-          assert(sheet.querySelectorAll('details').length === 2, 'the actions sheet drew fewer than two sections');
-          shown.push(['actions sheet label', sheet.getAttribute('aria-label') || '']);
-          collect('actions sheet', sheet, data);
-          userTextAsGiven(sheet, 'actions sheet');
-        } finally {
-          box._actionsPopup.close();
-        }
-
         const raw = shown.filter(([, s]) => !isPseudoLocalized(s));
         assert(raw.length === 0, `plain English under en-XA: ${JSON.stringify(raw)}`);
       }, { [STAND_IN_EXTENSION]: ['Stand-in command'] });
@@ -297,30 +284,6 @@ export async function runTests() {
       handler.init = realInit;
       handler.getCommands = realGetCommands;
       box._messageThread = realThread;
-      container.remove();
-    }
-  });
-
-  await run('the actions sheet\'s New Thread row is disabled while a turn runs, and re-enabled after', async () => {
-    const { box, container } = mountComposer();
-    let busy = true;
-    box._conversation = { isTurnActive: () => busy };
-    try {
-      await box._actionsPopup.open();
-      const row = /** @type {HTMLElement|null} */ (document.querySelector('#actions-sheet [data-action="new-thread"]'));
-      assert(!!row, 'the actions sheet has no New Thread row');
-      assert(row.getAttribute('aria-disabled') === 'true' && row.classList.contains('disabled'),
-        `the row opened enabled mid-turn (aria-disabled=${row.getAttribute('aria-disabled')})`);
-      busy = false;
-      box._updateNewThreadControls();
-      assert(row.getAttribute('aria-disabled') === 'false' && !row.classList.contains('disabled'),
-        `the row stayed disabled after the turn (aria-disabled=${row.getAttribute('aria-disabled')})`);
-      busy = true;
-      box._updateNewThreadControls();
-      assert(row.getAttribute('aria-disabled') === 'true', 'a turn starting with the sheet open left the row enabled');
-    } finally {
-      box._actionsPopup.close();
-      box._conversation = null;
       container.remove();
     }
   });
@@ -334,7 +297,6 @@ export async function runTests() {
   for (const [label, popup, selector, button] of /** @type {Array<[string, string, string, string]>} */ ([
     ['commands menu', '_commandsPopup', '#commands-menu', '#commands-button'],
     ['skill picker', '_skillPopup', '#skill-menu', '#skill-button'],
-    ['actions sheet', '_actionsPopup', '#actions-sheet', '#more-actions-button'],
     ['schedule picker', '_schedulePopup', '#schedule-send-menu', '.schedule-send-btn'],
   ])) {
     // A reattach keeps the box's DOM, so an open begun before the detach

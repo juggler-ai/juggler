@@ -156,8 +156,8 @@ export async function runTests() {
 
         // A rival popup that closes ours the instant ours announces itself —
         // which happens INSIDE presentPopup, before it has returned a release.
-        // (The mobile actions sheet does exactly this: it closes, and closing
-        // re-parents the selector, whose disconnect closes its menu.)
+        // (A popup that re-parents the host on closing does exactly this: the
+        // host's disconnect closes its menu.)
         let closedDuringPresentation = false;
         const releaseRival = registerOpenPopup({
           id: 'rival',
@@ -214,6 +214,46 @@ export async function runTests() {
           release();
           anchor.remove();
           surface.remove();
+          document.querySelectorAll('.popup-sheet-scrim').forEach((el) => el.remove());
+          __resetPopupManagerForTests();
+        }
+      });
+    });
+
+    // However tall its content, a sheet leaves a gap of page above it: the
+    // scrim showing there is where a tap dismisses it, and the content scrolls
+    // inside the sheet instead. The cap is the visible height, not `vh`, which
+    // on a phone counts the browser bar's space even while the bar is showing,
+    // and the keyboard's always. utils/viewport-fit publishes the visible
+    // height; here it stands in for a phone's, well short of the test window.
+    await run('a sheet of tall content leaves a gap above it and scrolls', async () => {
+      await asPhone(async () => {
+        __resetPopupManagerForTests();
+        const visible = 400;
+        document.documentElement.style.setProperty('--visual-viewport-height', `${visible}px`);
+        const anchor = document.createElement('button');
+        const surface = document.createElement('nav');
+        surface.className = 'dropdown-menu permissions-popup show';
+        // Content that cannot shrink, as rows of text cannot: the permissions
+        // popup is a flex column, which would squeeze an empty block to nothing.
+        surface.innerHTML = '<div style="height:200rem;flex-shrink:0"></div>';
+        document.body.append(anchor);
+        const release = presentPopup({ surface, anchor, id: 'tall-sheet', onClose: () => {} });
+        try {
+          await nextTask();
+          assert(surface.classList.contains('popup-sheet'), 'the surface must be presented as a sheet');
+          const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+          const height = surface.getBoundingClientRect().height;
+          const room = visible - 3 * rem;
+          assert(height <= room + 0.5,
+            `a sheet must leave a 3rem gap above it (${Math.round(height)}px tall, ${visible}px visible)`);
+          const cs = getComputedStyle(surface);
+          assert(height > 0 && surface.scrollHeight > surface.clientHeight && cs.overflowY === 'auto',
+            `what the sheet cannot show must scroll inside it (${surface.clientHeight}px showing of ${surface.scrollHeight}px, display ${cs.display}, overflow-y ${cs.overflowY}, max-height ${cs.maxHeight})`);
+        } finally {
+          document.documentElement.style.removeProperty('--visual-viewport-height');
+          release();
+          anchor.remove();
           document.querySelectorAll('.popup-sheet-scrim').forEach((el) => el.remove());
           __resetPopupManagerForTests();
         }

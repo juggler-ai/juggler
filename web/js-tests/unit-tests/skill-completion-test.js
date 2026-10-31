@@ -23,8 +23,7 @@
  *      dispatches the trigger-stripped prose "do it"; a bare `$tdd` is a preload
  *      (skill loaded, box cleared, no turn dispatched);
  *   7. detaching the composer releases an open picker, and an open still
- *      awaiting the snapshot when the box detaches presents nothing;
- *   8. the touch actions sheet lists skills with the picker's shared row.
+ *      awaiting the snapshot when the box detaches presents nothing.
  * @module unit-tests/skill-completion-test
  */
 
@@ -374,59 +373,6 @@ export async function runTests() {
       box._skillPopup.close();
       opened?.remove();
       document.querySelector('#skill-menu')?.remove();
-      box._completions?.close();
-      container.remove();
-    }
-  }
-
-  // ── Test 8: the touch actions sheet lists skills with the shared row ──────
-  // The sheet's Skills section stands in for the `$` picker on touch, so its
-  // rows are the picker's own (renderSkillMenuItem): the mono `$name` and a
-  // single ellipsised line of description, at the sheet's tap height.
-  {
-    const container = document.createElement('div');
-    container.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:480px;height:600px;';
-    const box = /** @type {any} */ (document.createElement('composer-box'));
-    box.isCoarsePointer = () => true;
-    container.appendChild(box);
-    document.body.appendChild(container);
-    box.setupListeners();
-    box.setupListeners = () => {};
-    try {
-      const long = { name: 'long', description: 'First line\nsecond line ' + 'word '.repeat(80), scope: 'project', source: 'juggler', hasScripts: false };
-      const { thread } = makeStubThread(/** @type {any} */ ([...FIXTURE, long]));
-      box._messageThread = thread;
-      await box._actionsPopup.open();
-      const sheet = /** @type {HTMLElement|null} */ (document.querySelector('#actions-sheet'));
-      assert(!!sheet, 'the actions sheet must open');
-      const rows = /** @type {HTMLElement[]} */ ([...(sheet?.querySelectorAll('li[data-skill]') ?? [])]);
-      assert(rows.length === FIXTURE.length + 1, `the sheet must list one row per skill, got ${rows.length}`);
-      for (const row of rows) {
-        const name = row.dataset.skill;
-        assert(row.classList.contains('skill-mention-item') && row.classList.contains('actions-sheet-item'),
-          `$${name}: the row must be the shared skill row at the sheet's tap height, got class "${row.className}"`);
-        assert(row.querySelector('.menu-item-command')?.textContent === '$' + name,
-          `$${name}: the row must lead with the shared mono $name`);
-        const desc = /** @type {HTMLElement|null} */ (row.querySelector('.menu-item-desc'));
-        assert(!!desc, `$${name}: the row must carry the shared description`);
-        const style = getComputedStyle(/** @type {HTMLElement} */ (desc));
-        assert(style.whiteSpace === 'nowrap' && style.textOverflow === 'ellipsis' && style.overflow === 'hidden',
-          `$${name}: the description must be one ellipsised line, got white-space ${style.whiteSpace}, text-overflow ${style.textOverflow}, overflow ${style.overflow}`);
-      }
-      const longDesc = rows.find((r) => r.dataset.skill === 'long')?.querySelector('.menu-item-desc')?.textContent || '';
-      assert(!longDesc.includes('\n') && longDesc.length <= 200,
-        `a long description must be collapsed and bounded, got ${longDesc.length} chars`);
-
-      /** @type {HTMLElement} */ (rows.find((r) => r.dataset.skill === 'tdd')).click();
-      assert(!document.querySelector('#actions-sheet'), 'choosing a skill must close the sheet');
-      const textarea = /** @type {HTMLTextAreaElement} */ (box.querySelector('textarea'));
-      assert(textarea.value === '$tdd ', `choosing a skill must splice "$tdd ", got ${JSON.stringify(textarea.value)}`);
-      passed++;
-    } catch (e) {
-      failed++;
-      errors.push('actions-sheet-skill-rows: ' + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      box._actionsPopup.close();
       box._completions?.close();
       container.remove();
     }

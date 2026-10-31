@@ -26,6 +26,29 @@
  * file, not here: the model picker's stacking rules are in model-picker.css.
  */
 
+/* A sheet's height: however tall its content, it leaves a gap of page above
+   it — the scrim showing there is where a tap dismisses it — and scrolls what
+   it cannot show. The cap is the height actually visible, which
+   utils/viewport-fit publishes on a touch device (the browser bar and the
+   keyboard both taken off it); elsewhere the dynamic viewport stands in. Never
+   `vh`, which on a phone counts the bar's space even while the bar is showing,
+   and so ran a tall sheet off the top of the page.
+
+   Outside the media query because `.popup-sheet` is only ever on a surface
+   presented as a sheet, and so that a test — whose window cannot be narrowed —
+   can measure it. */
+.popup-sheet,
+.popup-sheet.dropdown-menu,
+.popup-sheet.strategy-dropdown,
+.popup-sheet.permissions-popup,
+.popup-sheet.pp-panel,
+.popup-sheet.model-picker {
+    --sheet-top-gap: 3rem;
+
+    max-height: min(85dvh, var(--visual-viewport-height, 100dvh) - var(--sheet-top-gap));
+    overflow-y: auto;
+}
+
 @media (width <= 36rem) {
     .popup-sheet,
     .popup-sheet.dropdown-menu,
@@ -39,12 +62,10 @@
         width: 100%;
         min-width: 0;
         max-width: 100%;
-        max-height: 85vh;
         margin: 0;
         border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
         border-bottom: none;
         box-shadow: 0 -0.5rem 1.5rem color-mix(in srgb, var(--shadow-color) 45%, transparent);
-        overflow-y: auto;
         z-index: calc(var(--z-modal) + 1);
         animation: popup-sheet-up 200ms ease;
     }

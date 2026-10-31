@@ -5,21 +5,16 @@ of changes; this project follows semantic versioning.
 
 ## [Unreleased]
 
-- One Undo after compacting a long conversation restores its full history again
-- Desktop and terminal projects share one machine server, with automatic session cleanup
-- LAN access is one switch for the whole machine, in Settings → Connectivity
-- Tunnels open machine-wide from Settings → Connectivity, reaching every session
-- Connect the desktop app to another computer's Juggler and open its sessions
-- Quick successive edits undo as one step even when the machine is busy
-- Composer settings moved to a status line under the box; tools sit by Send
-- Long files are no longer shown cut short in a panel about 100 lines tall
-- The first column widens freely beside a properties panel, which scrolls if needed
-- File paths in your messages, thread summaries and bash commands are clickable too
-- Reasoning from Mistral-hosted models shows as thinking instead of raw JSON
-- Double-clicking Duplicate or Fork makes one copy, and shows "Duplicating…" meanwhile
+- Total refactor of juggler's server/network stack - instead of running a server per session, there's a server per machine and this manages multiple sessions
 - `! command` (or /shell) runs a command and adds its output, no model call
-- Zooming the interface scales the whole header bar, its buttons included
 - New Slash commands settings page lists built-in and custom commands, with editing
+- Improvements to UI layout of the composer box, column handling and mobile layouts
+- File paths in your messages, thread summaries and bash commands are now clickable
+- Reasoning from Mistral-hosted models shows as thinking instead of raw JSON
+- One Undo after compacting a long conversation restores its full history again
+- Quick successive edits undo as one step even when the machine is busy
+- Long files are no longer shown cut short in a panel about 100 lines tall
+- Double-clicking Duplicate or Fork makes one copy, and shows "Duplicating…" meanwhile
 
 ## [0.7.9] - 2026-10-28
 

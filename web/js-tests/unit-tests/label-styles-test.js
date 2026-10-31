@@ -24,7 +24,7 @@ import { assert } from '../utilities/test-helpers.js';
 const EYEBROWS = [
   '.pp-recents-label',
   '.model-picker-recent-label', '.model-current-label', '.model-thinking-label', '.model-speed-label',
-  '.actions-sheet .actions-sheet-section-header', '.pending-messages-label',
+  '.pending-messages-label',
   '.thread-result-final .thread-result-label', '.permissions-popup .plugin-section-heading',
   ':where(.dropdown-menu) .category-header', '.menu-header',
   '.skill-panel-heading', '.skills-section-title',

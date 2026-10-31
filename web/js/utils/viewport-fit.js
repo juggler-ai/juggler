@@ -20,6 +20,10 @@
  * keyboard closes the visual viewport returns to full height and the inline
  * styles relax back to the CSS `inset: 0`.
  *
+ * It also publishes the visible height as `--visual-viewport-height` on the
+ * root, which the bottom sheets cap their height by: a sheet lives on <body>,
+ * outside the pinned container, and is sized against the viewport.
+ *
  * Touch-only: gated on the same `(hover: none) and (pointer: coarse)` query as
  * the touch-composer rules in components/composer.css, so desktop pinch-zoom — which
  * moves the visual viewport — never reshapes the app.
@@ -48,6 +52,11 @@ export function initViewportFit() {
   let raf = 0;
   const apply = () => {
     raf = 0;
+    // The height actually visible, keyboard and browser bar off it, for
+    // whatever must fit on screen whole: a bottom sheet caps its height by it
+    // (components/popup-sheet.css). Published always, not only while shrunk —
+    // `vh` overstates the visible height whenever the browser bar shows.
+    document.documentElement.style.setProperty('--visual-viewport-height', `${vv.height}px`);
     // Only deviate from the CSS `inset: 0` when the visual viewport is actually
     // smaller than (or pushed down from) the layout viewport — i.e. a keyboard
     // (or other inset) is present. Otherwise clear the inline styles so the

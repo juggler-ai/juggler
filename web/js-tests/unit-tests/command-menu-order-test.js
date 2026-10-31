@@ -3,9 +3,8 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * The order and row shape shared by the two button-opened command lists — the
- * composer's `/` dropdown and the mobile actions sheet — which
- * `command-manager-entry.js` owns so the two cannot drift apart.
+ * The order and row shape of the composer's button-opened command list (the
+ * `/` dropdown), which `command-manager-entry.js` owns.
  * @module unit-tests/command-menu-order-test
  */
 
@@ -53,11 +52,11 @@ export async function runTests(_ctx) {
   });
 
   await run('a row carries the command, its label, and the surface\'s classes', () => {
-    const row = buildCommandRow({ name: 'clear', danger: true }, { extraClass: 'actions-sheet-item', labelClass: 'actions-sheet-label' });
-    assert(row.className === 'menu-item actions-sheet-item danger', `className was ${row.className}`);
+    const row = buildCommandRow({ name: 'clear', danger: true }, { extraClass: 'surface-item', labelClass: 'surface-label' });
+    assert(row.className === 'menu-item surface-item danger', `className was ${row.className}`);
     assert(row.dataset.command === 'clear', `data-command was ${row.dataset.command}`);
     assert(row.querySelector('code')?.textContent === '/clear', 'the row must lead with /clear');
-    const label = row.querySelector('.actions-sheet-label');
+    const label = row.querySelector('.surface-label');
     assert(label?.textContent === 'Clear', `a label-less command shows its capitalised name, got ${label?.textContent}`);
   });
 

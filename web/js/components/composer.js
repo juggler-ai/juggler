@@ -27,7 +27,7 @@ import {
   renderSkillMenuItem,
 } from './skill-mention-provider.js';
 import {
-  THREAD_ARROW_SVG, PAPERCLIP_SVG, SEND_ARROW_SVG, KEBAB_SVG, CLOCK_SVG, OPEN_IN_FULL_SVG, CLOSE_FULLSCREEN_SVG,
+  THREAD_ARROW_SVG, PAPERCLIP_SVG, SEND_ARROW_SVG, CLOCK_SVG, OPEN_IN_FULL_SVG, CLOSE_FULLSCREEN_SVG,
 } from '../utils/icons.js';
 import { showNotice } from './modal-dialog.js';
 import { openSettings } from '../services/settings-launcher.js';
@@ -75,7 +75,6 @@ import {
 } from './composer-paste-tokens.js';
 import {
   buildSchedulePicker,
-  schedulePickerAnchor,
   updateScheduleButton,
 } from './composer-schedule.js';
 
@@ -257,22 +256,12 @@ class Composer extends JugglerElement {
       surfaceSelector: '.skill-menu',
       build: () => this._buildSkillMenu(),
     });
-    /** @type {ComposerPopup} @private - The touch-only "⋮" actions sheet. */
-    this._actionsPopup = new ComposerPopup(this, {
-      id: 'input-actions-sheet',
-      buttonSelector: '#more-actions-button',
-      surfaceSelector: '.actions-sheet',
-      build: () => this._buildActionsSheet(),
-      // Its New Thread row follows the turn, read through `surface`.
-      onPresent: () => this._updateNewThreadControls(),
-    });
     /** @type {ComposerPopup} @private - The send-later delay picker (composer-schedule.js). */
     this._schedulePopup = new ComposerPopup(this, {
       id: 'schedule-send',
       buttonSelector: '.schedule-send-btn',
       surfaceSelector: '.schedule-send-menu',
       build: () => buildSchedulePicker(this),
-      anchor: () => schedulePickerAnchor(this),
       align: 'right',
       gap: 8,
       dialog: true,
@@ -344,13 +333,12 @@ class Composer extends JugglerElement {
     // Drop a queued height measurement: it would resolve against a detached box
     // and measure nothing.
     this._cancelScheduledAutoResize();
-    // Tear down an open commands menu, skill picker, actions sheet and delay
-    // picker (surface, scrim, observer, dismissal) through their close paths,
-    // which also clear the open state — state left set would make the first tap
-    // after a reattach close a popup that is not there.
+    // Tear down an open commands menu, skill picker and delay picker (surface,
+    // scrim, observer, dismissal) through their close paths, which also clear
+    // the open state — state left set would make the first tap after a
+    // reattach close a popup that is not there.
     this._commandsPopup.close();
     this._skillPopup.close();
-    this._actionsPopup.close();
     this._schedulePopup.close();
     // The completion menu is portaled to <body> too.
     this._completions?.close();
@@ -653,10 +641,6 @@ class Composer extends JugglerElement {
     const cacheWarnBtn = /** @type {HTMLElement|null} */ (this.querySelector('#context-cache-warning'));
     if (cacheWarnBtn) onClick('#context-cache-warning', () => tooltipManager.showFor(cacheWarnBtn));
 
-    // Touch-only "⋮" overflow button: opens the actions sheet (commands, attach
-    // image, new thread) so those affordances need no inline row on a phone.
-    onClick('#more-actions-button', () => this._actionsPopup.toggle());
-
     // Expand / shrink the box (shown once the text outgrows its cap).
     onClick('.expand-input-btn', () => this.setExpanded(!this.hasAttribute('expanded')));
   }
@@ -945,12 +929,7 @@ class Composer extends JugglerElement {
         ? t('Wait for the current turn to finish before creating a new thread')
         : t('Create a new sub-thread');
     }
-    // The actions sheet is presented on <body>, outside this box.
-    const rows = [
-      ...Array.from(this.querySelectorAll('[data-command="thread"], [data-action="new-thread"]')),
-      ...Array.from(this._actionsPopup.surface?.querySelectorAll('[data-action="new-thread"]') ?? []),
-    ];
-    rows.forEach((row) => {
+    this.querySelectorAll('[data-command="thread"]').forEach((row) => {
       row.classList.toggle('disabled', busy);
       row.setAttribute('aria-disabled', String(busy));
     });
@@ -1025,8 +1004,9 @@ class Composer extends JugglerElement {
 
   /**
    * Whether this composer should behave as a touch composer: Enter inserts a
-   * newline (the onscreen keyboard's return key) and the touch-only Send / "⋮"
-   * affordances are active. Gated on a coarse pointer with no hover. This is
+   * newline (the onscreen keyboard's return key), so Send is the only way to
+   * send, and the controls take finger-sized targets. Gated on a coarse pointer
+   * with no hover. This is
    * the single source of that decision — _applyTouchLayout turns it into
    * the `touch-composer` class the CSS layout selects on — so the key
    * behaviour and the layout cannot disagree. A narrow DESKTOP window (fine
@@ -1055,10 +1035,10 @@ class Composer extends JugglerElement {
 
   /**
    * Write the `touch-composer` class the CSS touch layout selects on, from
-   * _isTouchComposer(). The config controls — strategy, permissions, model —
-   * stay in `<composer-status-line>` under the bubble on every layout; on touch
-   * the CSS only enlarges their tap targets and folds the row's secondary
-   * actions into the "⋮" sheet.
+   * _isTouchComposer(). Touch has the desktop's layout — every tool on the row
+   * in the bubble, every setting on the status line under it — and the CSS only
+   * enlarges the tap targets; narrowness, touch or not, is met by each control's
+   * compact form (composer.css).
    * @private
    */
   _applyTouchLayout() {
@@ -1714,11 +1694,7 @@ class Composer extends JugglerElement {
     this._updateNewThreadControls();
     this._updatePlaceholder();
 
-    const permissionControls = this.querySelector('permission-controls');
-    if (permissionControls && 'setMessageThread' in permissionControls) {
-      /** @type {HTMLElement & {setMessageThread: function(import('../model/message-thread.js').default|null): void}} */
-      (permissionControls).setMessageThread(this._messageThread);
-    }
+    this._syncPermissionControls();
     const modelSelector = this.querySelector('model-selector');
     if (modelSelector && 'setConversation' in modelSelector) {
       /** @type {any} */ (modelSelector).setConversation(this._conversation);
@@ -1737,6 +1713,21 @@ class Composer extends JugglerElement {
     if (!strategySelector || !('setMessageThread' in strategySelector)) return;
     /** @type {{setMessageThread: function(import('../model/message-thread.js').default|null): void}} */
     (strategySelector).setMessageThread(this._messageThread);
+  }
+
+  /**
+   * Bind the permissions control to this composer's thread. Called from both
+   * setConversation and setMessageThread, so it is bound whichever arrives last
+   * — column-builder sets the conversation first, while the thread is still
+   * null, and a reused box is handed a new thread on its own. Unbound, the
+   * control renders nothing.
+   * @private
+   */
+  _syncPermissionControls() {
+    const permissionControls = this.querySelector('permission-controls');
+    if (!permissionControls || !('setMessageThread' in permissionControls)) return;
+    /** @type {{setMessageThread: function(import('../model/message-thread.js').default|null): void}} */
+    (permissionControls).setMessageThread(this._messageThread);
   }
 
   /**
@@ -1771,6 +1762,7 @@ class Composer extends JugglerElement {
     renderShellRuns(this, messageThread);
 
     this._syncStrategySelector();
+    this._syncPermissionControls();
 
     const modelSelector = this.querySelector('model-selector');
     if (modelSelector && 'setMessageThread' in modelSelector) {
@@ -2283,144 +2275,6 @@ class Composer extends JugglerElement {
     await this._conversation.sendMessage('/' + commandName, null, this._messageThread || undefined);
   }
 
-  /**
-   * Build the "⋮" actions sheet. Essential controls lead — Send
-   * later, New Thread — always visible so they never scroll off behind a long
-   * list. (Attach files is not among them: it stays inline beside Send on touch
-   * too, where it can be found.) Below them, slash commands and skills each get their own
-   * closed-by-default collapsible section (standing in for the inline `/` and `$`
-   * buttons, which are hidden on touch), so the sheet opens short and each list is
-   * one tap away. On a narrow viewport presentPopup renders it as a bottom sheet
-   * (drag-to-dismiss); on a wider one it anchors to the "⋮" button. The rows reuse
-   * the same handlers as the inline controls, so nothing nests a second popup.
-   * Presented by `_actionsPopup`.
-   * @returns {Promise<HTMLElement>} The detached sheet.
-   * @private
-   */
-  async _buildActionsSheet() {
-    await slashCommandHandler.init();
-    /** @type {import('../services/skills.js').SkillMeta[]} */
-    let skills = [];
-    try {
-      skills = await getThreadSkillSnapshot(this._messageThread);
-    } catch {
-      skills = [];
-    }
-
-    const close = () => this._actionsPopup.close();
-    const menu = document.createElement('menu');
-    menu.className = 'dropdown-menu actions-sheet';
-    menu.id = 'actions-sheet';
-
-    /**
-     * @param {string} label
-     * @param {string} iconSvg
-     * @param {() => void} onClick
-     * @param {string} [action]
-     */
-    const addRow = (label, iconSvg, onClick, action = '') => {
-      const item = document.createElement('li');
-      item.className = 'menu-item actions-sheet-item';
-      if (action) item.dataset.action = action;
-      const icon = document.createElement('span');
-      icon.className = 'actions-sheet-icon';
-      icon.innerHTML = iconSvg;
-      item.appendChild(icon);
-      const text = document.createElement('span');
-      text.className = 'actions-sheet-label';
-      text.textContent = label;
-      item.appendChild(text);
-      item.addEventListener('click', () => {
-        close();
-        onClick();
-      });
-      menu.appendChild(item);
-    };
-
-    // Essentials lead the sheet so they never scroll off behind a long command
-    // list. Strategy is not among them: on touch it is on show in the config
-    // strip, which is both a display of the current strategy and the control
-    // that changes it. Nor is Attach files, which stays inline beside Send.
-    // Schedule-send ("send later") is a rarely-used control, so on touch it
-    // lives here rather than on the inline row. The row opens the same picker as
-    // the inline clock button, which touch hides.
-    addRow(t('Send later'), CLOCK_SVG, () => this._schedulePopup.toggle());
-
-    /**
-     * Append a closed-by-default collapsible section of pre-built rows (native
-     * `<details>`, so the header toggle needs no JS state). Skipped when empty.
-     * @param {string} title - Section header label
-     * @param {HTMLElement[]} rows - Row elements revealed when the section expands
-     */
-    const addSection = (title, rows) => {
-      if (!rows.length) return;
-      const section = document.createElement('details');
-      section.className = 'actions-sheet-section';
-      const summary = document.createElement('summary');
-      summary.className = 'actions-sheet-section-header';
-      summary.textContent = title;
-      section.appendChild(summary);
-      for (const row of rows) section.appendChild(row);
-      menu.appendChild(section);
-    };
-
-    // Slash commands section (collapsed), led by the settings page's button in
-    // place of the `/commands` row it stands for.
-    const settingsRow = buildCommandsSettingsRow('actions-sheet-item');
-    settingsRow.addEventListener('click', () => {
-      close();
-      openSettings(COMMANDS_SETTINGS_TAB);
-    });
-    const commandRows = menuOrderedCommands(slashCommandHandler.getCommands()).map((cmd) => {
-      const row = buildCommandRow(cmd, { extraClass: 'actions-sheet-item', labelClass: 'actions-sheet-label' });
-      row.addEventListener('click', () => {
-        close();
-        this._executeSlashCommand(cmd.name);
-      });
-      return row;
-    });
-    addSection(t('Slash commands'), [settingsRow, ...commandRows]);
-
-    // Skills section (collapsed) — this thread's frozen snapshot, standing in for
-    // the inline `$` picker on touch. Selecting one splices `$name ` into the
-    // composer via the same path as the picker/autocomplete, and the section is
-    // led by the same "Manage skills…" row the picker ends with, so it is there
-    // to be found when the thread advertises no skills at all. Each row is the
-    // picker's own ({@link renderSkillMenuItem}), at the sheet's tap height.
-    const skillRows = (Array.isArray(skills) ? skills : [])
-      .slice()
-      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-      .map((skill) => {
-        const row = renderSkillMenuItem(skill);
-        row.classList.add('actions-sheet-item');
-        row.addEventListener('click', () => {
-          close();
-          this._insertSkillMention(skill.name);
-        });
-        return row;
-      });
-    const manageSkillsRow = document.createElement('li');
-    manageSkillsRow.className = 'menu-item actions-sheet-item skill-menu-manage';
-    manageSkillsRow.dataset.action = 'manage-skills';
-    const manageSkillsLabel = document.createElement('span');
-    manageSkillsLabel.className = 'actions-sheet-label';
-    manageSkillsLabel.textContent = t('Manage skills…');
-    manageSkillsRow.appendChild(manageSkillsLabel);
-    manageSkillsRow.addEventListener('click', () => {
-      close();
-      openSettings('skills');
-    });
-    addSection(t('Skills'), [manageSkillsRow, ...skillRows]);
-
-    // New Thread closes the sheet — it starts a fresh sub-thread rather than
-    // acting on this composer, so it sits apart at the bottom below the command
-    // and skill sections.
-    addRow(t('New Thread'), THREAD_ARROW_SVG, () => this._createThread(), 'new-thread');
-
-    applyMenuRoles(menu, t('More actions'));
-    return menu;
-  }
-
   render() {
     this.innerHTML = `
             <composer-box-wrapper>
@@ -2449,12 +2303,6 @@ class Composer extends JugglerElement {
                                     aria-label="${escapeHtml(t('Load a skill'))}"
                                     aria-haspopup="menu" aria-expanded="false">
                                 <span class="skill-glyph" aria-hidden="true">$</span>
-                            </button>
-                            <button class="more-actions-btn input-ctrl-btn" id="more-actions-button"
-                                    title="${escapeHtml(t('More actions'))}"
-                                    aria-label="${escapeHtml(t('More actions'))}"
-                                    aria-haspopup="menu" aria-expanded="false">
-                                <span class="more-actions-icon">${KEBAB_SVG}</span>
                             </button>
                             <button class="schedule-send-btn input-ctrl-btn"
                                     title="${escapeHtml(t('Send later'))}"

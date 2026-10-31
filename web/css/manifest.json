@@ -430,9 +430,8 @@
 		{
 			"file": "components/composer.css",
 			"layer": "components",
-			"owns": [
-				"actions-sheet",
-				"composer-box",
+				"owns": [
+					"composer-box",
 				"composer-box-wrapper",
 				"new-thread-btn",
 				"permission-controls",
@@ -716,6 +715,7 @@
 		"--spinner-phase",
 		"--line-digits",
 		"--tt-arrow-x",
-		"--column-fit-floor"
+		"--column-fit-floor",
+		"--visual-viewport-height"
 	]
 }

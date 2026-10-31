@@ -36,10 +36,10 @@
 }
 
 /* "Browse/edit slash commands…" — the pinned row above the list, shared by the
-   `/` completion menu, the commands dropdown and the mobile actions sheet.
-   Tinted so it reads as the way IN to commands rather than one more command to
-   run, and keeping the same full corner radius as every other row: it
-   highlights as an ordinary row, it is simply not a command row. */
+   `/` completion menu and the commands dropdown. Tinted so it reads as the way
+   IN to commands rather than one more command to run, and keeping the same full
+   corner radius as every other row: it highlights as an ordinary row, it is
+   simply not a command row. */
 
 .slash-command-pinned {
     position: relative;

@@ -141,7 +141,7 @@ export async function runTests() {
     // The tray's buttons fill it rather than float.
     for (const btn of box.querySelectorAll('input-controls-actions .input-ctrl-btn')) {
       const r = btn.getBoundingClientRect();
-      if (r.width === 0) continue; // hidden on desktop (⋮, expand)
+      if (r.width === 0) continue; // hidden until the text is long (expand)
       assert(Math.abs(r.height - (first - 2)) <= 0.5,
         `${btn.className.split(' ')[0]} must fill the tray's inner height (${r.height}px in a ${first}px tray)`);
     }

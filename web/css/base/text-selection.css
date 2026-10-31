@@ -55,7 +55,7 @@
 /* Transient surfaces: every anchored dropdown (strategy, model, permissions,
    completions, info-cards, path recents, the right-click menu), the phone
    bottom sheets those same surfaces become, the project picker, and the
-   composer's actions sheet. `.dropdown-menu` is the shared surface class for
+   composer's `/` and `$` menus. `.dropdown-menu` is the shared surface class for
    all of them, so this one selector covers both presentations. */
 .dropdown-menu,
 .pp-panel {

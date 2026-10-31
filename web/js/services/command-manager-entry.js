@@ -4,9 +4,9 @@
 
 /**
  * The pinned "Browse/edit slash commands…" button above a command list, shared
- * by every surface that lists slash commands: the typed-`/` completion menu, the
- * composer's `/` button dropdown, and the mobile actions sheet. The last two
- * also share their command order and row builder from here.
+ * by every surface that lists slash commands: the typed-`/` completion menu and
+ * the composer's `/` button dropdown. The dropdown also takes its command order
+ * and row builder from here.
  *
  * That a user can write their own commands is not something a list of commands
  * conveys — `/commands` sitting among them reads as one more command to run, not
@@ -51,8 +51,7 @@ const MENU_ORDER = ['new', 'duplicate', 'thread', 'clear', 'compact'];
 /**
  * The commands a button-opened list shows, in its order: `/commands` dropped
  * (its pinned button stands in for it) and {@link MENU_ORDER} leading.
- * Shared by the composer's `/` dropdown and the mobile actions sheet, so the two
- * cannot list the same commands in different orders.
+ * The composer's `/` dropdown lists in this order.
  * @template {{name: string}} T
  * @param {T[]} commands - Commands as the handler reports them
  * @returns {T[]} A new, ordered list

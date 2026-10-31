@@ -341,9 +341,8 @@ export function presentInlineMenu({ host, surfaceSelector, anchorSelector, onClo
     });
     // A close can arrive DURING presentPopup, before it has returned anything to
     // own: it announces itself to the popup manager from inside that call, and a
-    // popup closing in response can synchronously close this one too (the mobile
-    // actions sheet does exactly that — it re-parents the host, and a re-parent
-    // disconnects it). Such a close finds `frame` already null and `release`
+    // popup closing in response can synchronously close this one too (by
+    // re-parenting the host, say, since a re-parent disconnects it). Such a close finds `frame` already null and `release`
     // still null, so it can only set the flag; honouring it here is what stops
     // the teardown being stranded on a handle the host has already dropped —
     // which left the surface and its scrim on <body> with nothing able to

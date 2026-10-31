@@ -143,9 +143,8 @@ function oneLineDescription(text) {
 /**
  * Build one skill menu row — mono `$name` then a one-line (length-bounded)
  * description — shared by every skill surface: the `$` completion menu (this
- * provider's `renderItem`), the composer's button-anchored skill picker
- * (composer-box's `_createSkillMenu`) and the touch actions sheet's Skills
- * section (`_buildActionsSheet`, which adds its tap-height class). The row carries the SAME `menu-item-command`
+ * provider's `renderItem`) and the composer's button-anchored skill picker
+ * (composer-box's `_buildSkillMenu`). The row carries the SAME `menu-item-command`
  * / `menu-item-desc` classes as a slash-command row, so both skill surfaces
  * inherit the slash popup's colour scheme and (in the picker's grid) its
  * justified two-column layout with no bespoke styling. Scope/source is

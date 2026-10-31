@@ -299,7 +299,7 @@ class PermissionControls extends JugglerElement {
     const includePopupHtml = this.popupOpen && !existingPopup;
 
     this.innerHTML = `
-            <button class="permission-btn input-ctrl-btn ${/* eslint-disable-line juggler/escape-html-interpolation -- 'allowed' or 'ask', left bare so css-markup-model reads them */ this._buttonStateClass()} ${this.popupOpen ? 'open' : ''}" title="${escapeHtml(t('Manage auto-approval permissions'))}" data-shortcut-id="toggle-file-editing" aria-haspopup="dialog" aria-expanded="${this.popupOpen ? 'true' : 'false'}">
+            <button class="permission-btn input-ctrl-btn ${/* eslint-disable-line juggler/escape-html-interpolation -- 'allowed' or 'ask', left bare so css-markup-model reads them */ this._buttonStateClass()} ${this.popupOpen ? 'open' : ''}" title="${escapeHtml(t('Manage auto-approval permissions'))}" aria-label="${escapeHtml(this._buttonLabel())}" data-shortcut-id="toggle-file-editing" aria-haspopup="dialog" aria-expanded="${this.popupOpen ? 'true' : 'false'}">
                   ${this._buttonInnerHTML()}
               </button>
             ${includePopupHtml ? `<div class="dropdown-menu permissions-popup show" role="dialog" aria-label="${escapeHtml(t('Permissions'))}"></div>` : ''}
@@ -332,6 +332,7 @@ class PermissionControls extends JugglerElement {
     if (!btn) return;
     btn.className = `permission-btn input-ctrl-btn ${this._buttonStateClass()} ${this.popupOpen ? 'open' : ''}`;
     btn.setAttribute('aria-expanded', String(this.popupOpen));
+    btn.setAttribute('aria-label', this._buttonLabel());
     btn.innerHTML = this._buttonInnerHTML();
   }
 
@@ -361,25 +362,48 @@ class PermissionControls extends JugglerElement {
    * @private
    */
   _buttonInnerHTML() {
+    if (!this.messageThread) return '';
+    const { head, detail } = this._buttonText();
+    // The words and the counts each live in a span so a narrow status line can
+    // drop them — the counts first, then the words, leaving the ✓ / 🔒 icon,
+    // whose colour carries the state (composer.css). The button's aria-label
+    // keeps the whole summary, whatever is on show.
+    const icon = this._editsAllowed() ? CHECK_ICON : LOCK_ICON;
+    const detailHtml = detail
+      ? `<span class="permission-detail">${escapeHtml(detail)}</span>`
+      : '';
+    return `${icon}<span class="permission-label">${escapeHtml(head)}</span>${detailHtml}`;
+  }
+
+  /**
+   * The button's summary as text: the edit state ("Edits on") and the counts
+   * (" · 3 cmds · 2 paths", empty when both are zero, so the button never
+   * carries noise). One message for the counts, so the separators are
+   * translated with the counts they join.
+   * @returns {{head: string, detail: string}} The two parts of the summary.
+   * @private
+   */
+  _buttonText() {
     const mt = this.messageThread;
-    if (!mt) return '';
-    const allowed = this._editsAllowed();
+    if (!mt) return { head: '', detail: '' };
     const cmdCount = mt.getRulesFor('execute').filter((/** @type {any} */ r) => r.kind === 'glob').length;
     const pathCount = mt.getAllowedPaths().length;
-    const head = allowed
-      ? `${CHECK_ICON} ${escapeHtml(t('Edits on'))}`
-      : `${LOCK_ICON} ${escapeHtml(t('Edits off'))}`;
-    // Counts live in a span so the touch composer can drop them (keeping just
-    // "✓ Edits on") to fit the single-line control row; desktop shows them all.
-    // One message, so the separators are translated with the counts they join.
+    const head = this._editsAllowed() ? t('Edits on') : t('Edits off');
     const detail = (cmdCount > 0 || pathCount > 0)
       ? t('{cmds, plural, =0 {} one { · # cmd} other { · # cmds}}{paths, plural, =0 {} one { · # path} other { · # paths}}',
         { cmds: cmdCount, paths: pathCount })
       : '';
-    const detailHtml = detail
-      ? `<span class="permission-detail">${escapeHtml(detail)}</span>`
-      : '';
-    return head + detailHtml;
+    return { head, detail };
+  }
+
+  /**
+   * @returns {string} The button's accessible name: the whole summary, which
+   *   stays complete when a narrow line shows only part of it.
+   * @private
+   */
+  _buttonLabel() {
+    const { head, detail } = this._buttonText();
+    return head + detail;
   }
 
   /**

@@ -936,7 +936,7 @@ model-tuning:empty {
     /* The SHEET is the single scroll container: every section takes its natural
        height and none scrolls on its own. A column keeping its own
        `flex: 1 1 auto` scroller gets no height here — the detail column alone
-       can meet the 85vh cap, squeezing the list to nothing.
+       can meet the sheet's height cap, squeezing the list to nothing.
 
        EVERY nested scroller must be listed. A flex item left on the desktop's
        `min-height: 0` is free to shrink below its content, and with the overflow

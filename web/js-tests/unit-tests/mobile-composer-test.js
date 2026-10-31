@@ -3,25 +3,25 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * UX invariants for the touch (mobile) composer on the composer:
+ * UX invariants for the touch (mobile) composer:
  *
  *   1. On a touch composer a plain Enter inserts a NEWLINE (the onscreen
  *      keyboard's return key) and MUST NOT dispatch a send-message — the user
  *      can no longer accidentally fire the message by pressing return.
- *   2. The touch-only Send button DOES dispatch send-message with the typed
- *      text — it is the send affordance that replaces Enter.
- *   3. The "⋮" overflow button opens the actions sheet, whose rows reuse the
- *      existing handlers: the New Thread row dispatches the /thread command.
- *      Opening the sheet and picking a row closes it. Attach files is NOT in
- *      the sheet: the paperclip stays inline beside Send, where it can be
- *      found, and triggers the hidden file input.
- *   4. The strategy menu opened from inside that sheet is dismissible. It is the
- *      one row that presents a popup of its own, which closes the sheet
- *      mid-presentation and re-parents the selector — a cascade that must still
- *      leave a menu that closes and releases its open-popup token.
- *   5. At the narrowest column the layout allows, every control still lies
+ *   2. The Send button DOES dispatch send-message with the typed text — it is
+ *      the send affordance that replaces Enter.
+ *   3. The strategy menu opened from the status line is dismissible: it presents
+ *      on <body> as a bottom sheet and must still close and release its
+ *      open-popup token.
+ *   4. At the narrowest column the layout allows, every control still lies
  *      inside the composer bubble. A control laid out past the content edge is
  *      a control the user cannot reach.
+ *   5. At every phone width the touch composer IS the desktop composer, at a
+ *      finger's size: the same tools on the row inside the bubble — nothing
+ *      folded away behind a "more" button — and the same three settings on the
+ *      status line under it, each legible, none squeezed out of sight. The
+ *      composer is bound as column-builder binds it (conversation, then
+ *      thread), so a binding that leaves a control unbound fails here too.
  *
  * The touch decision normally reads `matchMedia('(hover: none) and
  * (pointer: coarse)')`, which the headless harness cannot drive. So the test
@@ -29,7 +29,9 @@
  * @module unit-tests/mobile-composer-test
  */
 
-import { initializeRegistries, assert, nextTask } from '../utilities/test-helpers.js';
+import {
+  initializeRegistries, createTestSession, createTestConversation, assert, nextTask,
+} from '../utilities/test-helpers.js';
 import { closeAllPopups, isAnyPopupOpen, __resetPopupManagerForTests } from '../../js/utils/popup-manager.js';
 import { COL_MIN_WIDTH_REM } from '../../js/utils/column-resize.js';
 import '../../js/components/composer.js';
@@ -78,11 +80,28 @@ function pressKey(textarea, init) {
 }
 
 /**
+ * The left and right edges of an element's content box.
+ * @param {Element} el
+ * @returns {{left: number, right: number}} Content-box edges in viewport px.
+ */
+function contentEdges(el) {
+  const r = el.getBoundingClientRect();
+  const cs = getComputedStyle(el);
+  return {
+    left: r.left + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0),
+    right: r.right - (parseFloat(cs.borderRightWidth) || 0) - (parseFloat(cs.paddingRight) || 0),
+  };
+}
+
+/**
  * Run the mobile touch-composer test suite.
  * @returns {Promise<{passed: number, failed: number, errors: string[]}>} Counts of passed/failed checks and any error messages.
  */
 export async function runTests() {
   await initializeRegistries();
+  const session = await createTestSession();
+  const conversation = await createTestConversation(session);
+  const thread = conversation.rootMessageThread;
 
   let passed = 0;
   let failed = 0;
@@ -146,76 +165,7 @@ export async function runTests() {
     }
   }
 
-  // ── Test 3: "+" sheet lists slash commands + actions; New Thread dispatches ─
-  {
-    const { box, container, sent } = mountTouchComposer();
-    try {
-      await /** @type {any} */ (box)._actionsPopup.open();
-
-      const sheet = /** @type {HTMLElement|null} */ (document.querySelector('.actions-sheet'));
-      assert(!!sheet, 'the "+" button must open an .actions-sheet');
-
-      // The sheet lists slash commands plus the two action rows.
-      const commandRows = sheet.querySelectorAll('.menu-item[data-command]');
-      assert(commandRows.length > 0, 'actions sheet must list slash-command rows');
-
-      const rows = Array.from(sheet.querySelectorAll('.actions-sheet-item'));
-      const threadRow = rows.find((r) => r.textContent?.includes('New Thread') && !r.hasAttribute('data-command'));
-      assert(!!threadRow, 'actions sheet must have a "New Thread" action row');
-
-      // Strategy is NOT in the sheet: on touch it is on show in the status
-      // line, which is also the control that changes it.
-      assert(!sheet.querySelector('strategy-selector'),
-        'strategy-selector must stay in the status line, not move into the sheet');
-
-      // Clicking New Thread dispatches the /thread command (via _createThread).
-      /** @type {HTMLElement} */ (threadRow).click();
-      await Promise.resolve();
-      assert(sent.length === 1 && /^\/thread\b/.test(sent[0].message),
-        `New Thread row must dispatch the /thread command, got ${JSON.stringify(sent.map((s) => s.message))}`);
-      assert(!document.querySelector('.actions-sheet'),
-        'picking an actions-sheet row must close the sheet');
-      passed++;
-    } catch (e) {
-      failed++;
-      errors.push('actions-sheet-new-thread: ' + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      /** @type {any} */ (box)._actionsPopup.close();
-      container.remove();
-    }
-  }
-
-  // ── Test 4: the paperclip stays inline on touch and opens the picker ──────
-  {
-    const { box, container } = mountTouchComposer();
-    try {
-      const attachBtn = /** @type {HTMLElement|null} */ (box.querySelector('#attach-button'));
-      assert(!!attachBtn, 'touch composer must render an #attach-button');
-      assert(attachBtn.getBoundingClientRect().width > 0,
-        'the attach button must stay visible on touch, not collapse into the sheet');
-
-      const fileInput = /** @type {HTMLInputElement} */ (box.querySelector('.attach-file-input'));
-      let pickerOpened = false;
-      fileInput.click = () => { pickerOpened = true; };
-      attachBtn.click();
-      assert(pickerOpened, 'the attach button must trigger the file picker');
-
-      // One way to it, not two: the sheet carries no attach row.
-      await /** @type {any} */ (box)._actionsPopup.open();
-      const attachRow = Array.from(document.querySelectorAll('.actions-sheet-item'))
-        .find((r) => /attach/i.test(r.textContent || ''));
-      assert(!attachRow, 'the actions sheet must not duplicate the inline attach button');
-      passed++;
-    } catch (e) {
-      failed++;
-      errors.push('actions-sheet-attach: ' + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      /** @type {any} */ (box)._actionsPopup.close();
-      container.remove();
-    }
-  }
-
-  // ── Test 5: the strategy menu opened from the status line is dismissible ──
+  // ── Test 3: the strategy menu opened from the status line is dismissible ──
   // On touch the menu presents as a bottom sheet with a scrim. It must still
   // present on <body>, still close, and still release its open-popup token (a
   // leaked one makes Escape stop dismissing popups AND stop reaching the
@@ -261,12 +211,11 @@ export async function runTests() {
       passed++;
     } catch (e) {
       failed++;
-      errors.push('actions-sheet-strategy-menu: ' + (e instanceof Error ? e.message : String(e)));
+      errors.push('status-line-strategy-menu: ' + (e instanceof Error ? e.message : String(e)));
     } finally {
       closeAllPopups();
       document.querySelectorAll('.strategy-dropdown[data-strategy-selector="true"], .popup-sheet-scrim')
         .forEach((el) => el.remove());
-      /** @type {any} */ (box)._actionsPopup.close();
       container.remove();
       window.requestAnimationFrame = realRaf;
       window.cancelAnimationFrame = realCancelRaf;
@@ -274,7 +223,7 @@ export async function runTests() {
     }
   }
 
-  // ── Test 6: a narrow column never pushes a control outside the bubble ─────
+  // ── Test 4: a narrow column never pushes a control outside the bubble ─────
   // A column can be dragged down to COL_MIN_WIDTH_REM, so the invariant has to
   // hold there — a control laid out past the bubble's content edge cannot be
   // tapped. (`unit:composer-row` holds the same invariant, status line
@@ -318,82 +267,117 @@ export async function runTests() {
     }
   }
 
-  // ── Test 7: the touch composer's status line, at phone width ─────────────
-  // Touch lays the settings out as the desktop does: one line under the bubble,
-  // not inside it. The bubble keeps only the controls row, and the line holds
-  // one line whatever the model is called, inside the composer.
-  {
+  // ── Test 5: at phone width the touch composer is the desktop composer ─────
+  // The tools on the row and the settings on the status line, all of them, at
+  // every width a phone gives the composer — and with the expand button, the
+  // cache warning, or both on show as well, the row at its longest. One line
+  // throughout, bar one case: on a 320px screen with both extras on show, Send
+  // may drop under the tray, still at the far end and still inside the bubble.
+  /** The row's tools, every one on show on touch as on desktop. */
+  const ROW_TOOLS = ['#commands-button', '#skill-button', '.schedule-send-btn', '#attach-button',
+    '.new-thread-btn', '#send-button'];
+  /** A long-but-real model name: it ellipsises, it never squeezes the others. */
+  const LONG_MODEL = 'Claude Sonnet 4.5 (CLI)';
+  const phoneCases = ['320px', '360px', '390px', '430px']
+    .flatMap((w) => ['', 'expand', 'warning', 'both'].map((x) => /** @type {[string, string]} */ ([w, x])));
+  for (const [width, extras] of phoneCases) {
+    const name = `phone-layout@${width}${extras ? '+' + extras : ''}`;
+    const mayWrap = width === '320px' && extras === 'both';
     const container = document.createElement('div');
-    container.style.cssText = 'position:absolute;left:0;top:0;width:390px;';
-    const box = document.createElement('composer-box');
-    /** @type {any} */ (box).isCoarsePointer = () => true;
+    container.style.cssText = `position:absolute;left:0;top:0;width:${width};`;
+    const box = /** @type {any} */ (document.createElement('composer-box'));
+    box.isCoarsePointer = () => true;
     container.appendChild(box);
     document.body.appendChild(container);
     try {
-      const line = /** @type {HTMLElement|null} */ (box.querySelector('composer-status-line'));
-      assert(!!line, 'the touch composer must render a composer-status-line');
+      // Bound exactly as column-builder binds a column's composer.
+      box.setSession(session);
+      box.setConversation(conversation);
+      box.setMessageThread(thread);
+      if (extras === 'expand' || extras === 'both') box.querySelector('.expand-input-btn').hidden = false;
+      if (extras === 'warning' || extras === 'both') box.querySelector('#context-cache-warning').hidden = false;
+      const modelName = box.querySelector('composer-status-line .model-name');
+      if (modelName) modelName.textContent = LONG_MODEL;
 
-      // All three controls are in the status line, in the desktop's order, and
-      // the bubble keeps none of them.
-      const homed = Array.from(/** @type {HTMLElement} */ (line).children).map((el) => el.tagName.toLowerCase());
-      assert(homed.join(' ') === 'strategy-selector permission-controls model-selector',
-        `the status line must hold strategy, permissions and model in that order, got: ${homed.join(' ') || '(empty)'}`);
-      assert(!box.querySelector('composer-box-wrapper :is(strategy-selector, permission-controls, model-selector)'),
-        'the touch bubble must hold none of the config controls');
-
-      // A long model id must ellipsise inside the line, not widen it.
-      const modelName = /** @type {HTMLElement|null} */ (box.querySelector('.model-name'));
-      assert(!!modelName, 'the status line must render a .model-name');
-      /** @type {HTMLElement} */ (modelName).textContent =
-        'anthropic/claude-sonnet-4-5-20260930-thinking-preview';
-
-      const wrapper = /** @type {HTMLElement} */ (box.querySelector('composer-box-wrapper'));
-      const wrapperRect = wrapper.getBoundingClientRect();
-      const lineRect = /** @type {HTMLElement} */ (line).getBoundingClientRect();
-      assert(lineRect.height > 0, 'the touch status line must be laid out, not collapsed');
-      assert(lineRect.top >= wrapperRect.bottom - 0.5,
-        `the status line must sit under the bubble (line top ${Math.round(lineRect.top)}, bubble bottom ${Math.round(wrapperRect.bottom)})`);
-      assert(lineRect.right <= box.getBoundingClientRect().right + 0.5,
-        `the status line must stay inside the composer (right edge ${Math.round(lineRect.right)}, box ends ${Math.round(box.getBoundingClientRect().right)})`);
-      for (const btn of /** @type {HTMLElement} */ (line).querySelectorAll('button.input-ctrl-btn')) {
-        const r = btn.getBoundingClientRect();
-        if (r.width === 0) continue;
-        assert(r.right <= lineRect.right + 0.5,
-          `${btn.className.split(' ')[0]} must lie inside the status line (right edge ${Math.round(r.right)}, line ends ${Math.round(lineRect.right)})`);
+      // The row: no "more" button, every tool on show, inside the bubble, on
+      // one line, at a finger's height.
+      const row = contentEdges(box.querySelector('composer-box-wrapper'));
+      /** @type {string[]} */
+      const rowFaults = [];
+      if (box.querySelector('#more-actions-button')) rowFaults.push('it folds its tools behind a "more" button');
+      const rowRects = ROW_TOOLS.map((sel) => {
+        const el = box.querySelector(sel);
+        const r = el?.getBoundingClientRect();
+        if (!el || !r || r.width === 0) rowFaults.push(`${sel} is not on show`);
+        else if (r.left < row.left - 0.5 || r.right > row.right + 0.5) {
+          rowFaults.push(`${sel} spills (${Math.round(r.left)}–${Math.round(r.right)}, bubble ${Math.round(row.left)}–${Math.round(row.right)})`);
+        }
+        return r;
+      });
+      const rowTops = new Set(rowRects.filter((r) => r && r.width > 0)
+        .map((r) => Math.round(r.top + r.height / 2)));
+      if (rowTops.size > (mayWrap ? 2 : 1)) {
+        const tools = Array.from(box.querySelectorAll('input-controls-tools button'))
+          .map((el) => [el.id || el.className.split(' ')[0], el.getBoundingClientRect().width])
+          .filter(([, w]) => /** @type {number} */ (w) > 0)
+          .map(([n, w]) => `${n} ${Math.round(/** @type {number} */ (w))}`);
+        rowFaults.push(`it wraps onto ${rowTops.size} lines (row ${Math.round(row.right - row.left)}px: ${tools.join(', ')})`);
       }
+      const send = box.querySelector('#send-button').getBoundingClientRect();
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      if (send.height < 2 * rem - 0.5) rowFaults.push(`its tools are not finger-sized (Send is ${send.height}px tall)`);
 
-      // One line: the line is no taller than the tallest single control.
-      const tallest = Math.max(...Array.from(/** @type {HTMLElement} */ (line).children)
-        .map((el) => el.getBoundingClientRect().height));
-      assert(lineRect.height <= tallest + 1,
-        `the status line must stay on one line (height ${Math.round(lineRect.height)} vs control ${Math.round(tallest)})`);
-
-      const contentRight = wrapperRect.right - (parseFloat(getComputedStyle(wrapper).paddingRight) || 0);
-
-      // And the row in the bubble holds the three controls that matter, all
-      // inside it.
-      for (const id of ['more-actions-button', 'attach-button', 'send-button']) {
-        const btn = /** @type {HTMLElement|null} */ (box.querySelector('#' + id));
-        assert(!!btn, `the touch controls row must render #${id}`);
-        const rect = /** @type {HTMLElement} */ (btn).getBoundingClientRect();
-        assert(rect.width > 0, `#${id} must be visible on the touch controls row`);
-        assert(rect.right <= contentRight + 0.5,
-          `#${id} must lie inside the bubble (right edge ${Math.round(rect.right)}, bubble ends ${Math.round(contentRight)})`);
+      // The status line: strategy, permissions and model, each on show, inside
+      // the line, and each legible — permissions never clipped, strategy
+      // showing its icon or a few characters of its name, the model a few
+      // characters of its own.
+      const lineEl = box.querySelector('composer-status-line');
+      const line = contentEdges(lineEl);
+      /** @type {string[]} */
+      const lineFaults = [];
+      const settings = {
+        strategy: box.querySelector('composer-status-line .strategy-selector-button'),
+        permissions: box.querySelector('composer-status-line .permission-btn'),
+        model: box.querySelector('composer-status-line .model-selector-button'),
+      };
+      for (const [what, el] of Object.entries(settings)) {
+        const r = el?.getBoundingClientRect();
+        if (!el || !r || r.width === 0) { lineFaults.push(`${what} is not on show`); continue; }
+        if (r.left < line.left - 0.5 || r.right > line.right + 0.5) {
+          lineFaults.push(`${what} spills (${Math.round(r.left)}–${Math.round(r.right)}, line ${Math.round(line.left)}–${Math.round(line.right)})`);
+        }
       }
-
-      // [⋮] … [attach][send]: the paperclip sits beside Send, the free space
-      // before it, even though it lives at the end of the desktop tool tray.
-      const more = /** @type {HTMLElement} */ (box.querySelector('#more-actions-button')).getBoundingClientRect();
-      const clip = /** @type {HTMLElement} */ (box.querySelector('#attach-button')).getBoundingClientRect();
-      const send = /** @type {HTMLElement} */ (box.querySelector('#send-button')).getBoundingClientRect();
-      assert(send.left - clip.right >= 0 && send.left - clip.right <= 12,
-        `the paperclip must sit just before Send (gap ${Math.round(send.left - clip.right)}px)`);
-      assert(clip.left - more.right > 3 * clip.width,
-        `the free space must lie between ⋮ and the paperclip (gap ${Math.round(clip.left - more.right)}px)`);
+      const perm = settings.permissions;
+      if (perm && perm.scrollWidth > perm.clientWidth + 1) {
+        lineFaults.push(`permissions is clipped (${perm.clientWidth}px of ${perm.scrollWidth}px)`);
+      }
+      const strategy = settings.strategy;
+      if (strategy) {
+        if (strategy.scrollWidth > strategy.clientWidth + 1) {
+          lineFaults.push(`strategy is clipped (${strategy.clientWidth}px of ${strategy.scrollWidth}px)`);
+        }
+        const icon = strategy.querySelector('.strategy-icon')?.getBoundingClientRect().width ?? 0;
+        const label = strategy.querySelector('.strategy-name')?.getBoundingClientRect().width ?? 0;
+        if (icon === 0 && label < 2 * rem) {
+          lineFaults.push(`strategy shows neither its icon nor its name (name ${Math.round(label)}px)`);
+        }
+      }
+      const modelLabel = box.querySelector('composer-status-line .model-name')?.getBoundingClientRect().width ?? 0;
+      if (modelLabel < 3 * rem) lineFaults.push(`the model's name is squeezed to ${Math.round(modelLabel)}px`);
+      const lineTops = new Set(Object.values(settings)
+        .map((el) => el?.getBoundingClientRect())
+        .filter((r) => r && r.width > 0)
+        .map((r) => Math.round(/** @type {DOMRect} */ (r).top + /** @type {DOMRect} */ (r).height / 2)));
+      if (lineTops.size > 1) lineFaults.push(`it wraps onto ${lineTops.size} lines`);
+      assert(rowFaults.length + lineFaults.length === 0,
+        [rowFaults.length ? `the row: ${rowFaults.join('; ')}` : '',
+          lineFaults.length ? `the status line: ${lineFaults.join('; ')}` : ''].filter(Boolean).join(' | '));
+      assert(lineEl.getBoundingClientRect().top >= box.querySelector('composer-box-wrapper').getBoundingClientRect().bottom - 0.5,
+        'the status line must sit under the bubble');
       passed++;
     } catch (e) {
       failed++;
-      errors.push('touch-status-line: ' + (e instanceof Error ? e.message : String(e)));
+      errors.push(`${name}: ` + (e instanceof Error ? e.message : String(e)));
     } finally {
       container.remove();
     }

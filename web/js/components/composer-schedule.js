@@ -86,22 +86,8 @@ export function updateScheduleButton(composer) {
 }
 
 /**
- * What the delay picker hangs from: the clock button, or — on touch, where that
- * button is hidden (it lives in the "⋮" actions sheet) —
- * the still-visible overflow button. On a phone the picker is a bottom sheet,
- * where the anchor is moot anyway.
- * @param {any} composer - Composer instance
- * @returns {HTMLElement|null} The anchor, or null when neither is rendered.
- */
-export function schedulePickerAnchor(composer) {
-  const clock = /** @type {HTMLElement|null} */ (composer.querySelector('.schedule-send-btn'));
-  if (clock && clock.offsetParent !== null) return clock;
-  return /** @type {HTMLElement|null} */ (composer.querySelector('#more-actions-button')) || clock;
-}
-
-/**
  * Build the delay picker, detached; the composer's `_schedulePopup` presents
- * it, anchored by {@link schedulePickerAnchor} (or as a bottom sheet on a
+ * it, anchored to the clock button (or as a bottom sheet on a
  * phone): full-width preset chips (15m…5h), hours + 5-minute steppers, one
  * full-width "Schedule to send at HH:MM" button that both previews the target
  * time and confirms it, and below them the other wait: "Run at end of turn",

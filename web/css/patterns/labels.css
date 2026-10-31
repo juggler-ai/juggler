@@ -26,7 +26,6 @@
 .model-current-label,
 .model-thinking-label,
 .model-speed-label,
-:where(.actions-sheet) .actions-sheet-section-header,
 .pending-messages-label,
 :where(.thread-result-final) .thread-result-label,
 :where(.permissions-popup) .plugin-section-heading,

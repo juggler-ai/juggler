@@ -3,14 +3,14 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * ARIA semantics of the composer's three button-opened menus: the commands
- * (`/`) menu, the skill (`$`) picker and the touch "⋮" actions sheet.
+ * ARIA semantics of the composer's button-opened menus: the commands (`/`)
+ * menu and the skill (`$`) picker — and the send-later picker, which is a
+ * dialog instead.
  *
  *   1. Each trigger announces itself as a menu button (`aria-haspopup="menu"`)
  *      and starts collapsed.
  *   2. Each surface is a `menu`: every row is a `menuitem`, a divider is a
- *      `separator`, the empty-state hint is a disabled item, and the sheet's
- *      collapsible sections are labelled groups.
+ *      `separator`, and the empty-state hint is a disabled item.
  *   3. `aria-expanded` follows the menu: true while it is open, false again
  *      after a dismissal through the popup manager (the Escape / outside-click
  *      route) and after choosing a row.
@@ -37,15 +37,12 @@ const FIXTURE = /** @type {any} */ ([
 /**
  * Mount a <composer-box> and bind its listeners synchronously (render() defers
  * setupListeners() to rAF, which never pumps in the hidden test window).
- * @param {object} [opts]
- * @param {boolean} [opts.touch] - Force the touch composer (the "⋮" sheet path).
  * @returns {{box: any, container: HTMLElement}} The mounted composer-box and its container.
  */
-function mountComposer({ touch = false } = {}) {
+function mountComposer() {
   const container = document.createElement('div');
   container.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:480px;height:600px;';
   const box = /** @type {any} */ (document.createElement('composer-box'));
-  if (touch) box.isCoarsePointer = () => true;
   container.appendChild(box);
   document.body.appendChild(container);
   box.setupListeners();
@@ -184,48 +181,7 @@ export async function runTests() {
     }
   }
 
-  // ── Test 3: the touch "⋮" actions sheet ───────────────────────────────────
-  {
-    __resetPopupManagerForTests();
-    const { box, container } = mountComposer({ touch: true });
-    try {
-      box._messageThread = makeStubThread(FIXTURE);
-      const button = /** @type {HTMLElement|null} */ (box.querySelector('#more-actions-button'));
-      assertTrigger(button, 'false', 'sheet closed');
-
-      await box._actionsPopup.open();
-      const sheet = /** @type {HTMLElement|null} */ (document.querySelector('#actions-sheet'));
-      assertMenuSurface(sheet, 'actions sheet');
-      const sections = /** @type {HTMLElement[]} */ ([...(sheet?.querySelectorAll('.actions-sheet-section') ?? [])]);
-      assert(sections.length === 2, `actions sheet: expected two sections, got ${sections.length}`);
-      for (const s of sections) {
-        assert(s.getAttribute('role') === 'group' && !!s.getAttribute('aria-label'),
-          `actions sheet: section "${(s.querySelector('summary')?.textContent || '').trim()}" is not a labelled group`);
-        // A collapsed section's rows are not rendered, so its header is the only
-        // way to them from the keyboard: it is an item that says it expands.
-        const summary = /** @type {HTMLDetailsElement} */ (s).querySelector('summary');
-        assert(summary?.getAttribute('role') === 'menuitem' && summary.getAttribute('aria-expanded') === 'false',
-          'actions sheet: a collapsed section header is not a collapsed menu item');
-        /** @type {HTMLDetailsElement} */ (s).open = true;
-        s.dispatchEvent(new Event('toggle'));
-        assert(summary?.getAttribute('aria-expanded') === 'true', 'actions sheet: an expanded section header still says collapsed');
-      }
-      assertTrigger(button, 'true', 'sheet open');
-
-      closeAllPopups();
-      assert(!document.querySelector('#actions-sheet'), 'sheet: the dismissed sheet is still in the page');
-      assertTrigger(button, 'false', 'sheet dismissed');
-      passed++;
-    } catch (e) {
-      failed++;
-      errors.push('actions-sheet: ' + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      box._actionsPopup.close();
-      container.remove();
-    }
-  }
-
-  // ── Test 5: the schedule-send picker is a dialog, not a menu ──────────────
+  // ── Test 3: the schedule-send picker is a dialog, not a menu ──────────────
   // It holds preset chips, steppers and a confirm button, which a menu could not.
   {
     __resetPopupManagerForTests();

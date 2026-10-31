@@ -8,7 +8,7 @@ submodule-fork workflow — is [`AGENTS.md`](AGENTS.md).
 
 Juggler needs:
 
-- **Go 1.26+** — the only requirement for compiling.
+- **Go 1.27+** — the only requirement for compiling.
 - **A recent Node toolchain** — for the JS/CSS linters and the frontend
   type-check. `make lint`, `make build` and `make test-full` need it; `make
   go-build` and `make test` don't. The first lint run installs the toolchain

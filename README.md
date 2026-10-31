@@ -145,7 +145,7 @@ Most customisation can be done through extensions without rebuilding Juggler. If
 
 ### Clone the repository
 
-All platforms require Go 1.26+ and the vendored submodules:
+All platforms require Go 1.27+ and the vendored submodules:
 
 ```bash
 git clone --recurse-submodules https://github.com/juggler-ai/juggler.git

@@ -118,6 +118,40 @@ func TestLoadCodexCLIAccessTokenFallsBackToHome(t *testing.T) {
 	}
 }
 
+// TestLoadCodexCLIAccessTokenAcceptsUnknownExpiry: a token whose expiry cannot
+// be read, such as an opaque placeholder a credential proxy swaps for the real
+// token, is passed through for the backend to judge.
+func TestLoadCodexCLIAccessTokenAcceptsUnknownExpiry(t *testing.T) {
+	noExp := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`)) + "." +
+		base64.RawURLEncoding.EncodeToString([]byte(`{"iss":"example","sub":"x"}`)) + ".sig"
+	tests := []struct {
+		name  string
+		token string
+	}{
+		{name: "opaque token", token: "opaque_" + strings.Repeat("ab", 32)},
+		{name: "jwt without exp", token: noExp},
+		{name: "undecodable payload", token: "a.!!!.c"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("CODEX_HOME", dir)
+			writeCodexAuth(t, dir, map[string]any{
+				"auth_mode": "chatgpt",
+				"tokens":    map[string]any{"access_token": tt.token},
+			})
+
+			got, _, err := loadCodexCLIAccessToken()
+			if err != nil {
+				t.Fatalf("loadCodexCLIAccessToken: %v", err)
+			}
+			if got != tt.token {
+				t.Fatalf("token = %q, want %q", got, tt.token)
+			}
+		})
+	}
+}
+
 func TestLoadCodexCLIAccessTokenRejectsInvalidAuth(t *testing.T) {
 	tests := []struct {
 		name string
@@ -128,6 +162,7 @@ func TestLoadCodexCLIAccessTokenRejectsInvalidAuth(t *testing.T) {
 		{name: "wrong auth mode", body: `{"auth_mode":"api_key","tokens":{"access_token":"` + testJWT(t, time.Now().Add(time.Hour)) + `"}}`},
 		{name: "missing token", body: `{"auth_mode":"chatgpt","tokens":{}}`},
 		{name: "expired token", body: `{"auth_mode":"chatgpt","tokens":{"access_token":"` + testJWT(t, time.Now().Add(-time.Hour)) + `"}}`},
+		{name: "token inside refresh margin", body: `{"auth_mode":"chatgpt","tokens":{"access_token":"` + testJWT(t, time.Now().Add(codexRefreshMargin/2)) + `"}}`},
 	}
 
 	for _, tt := range tests {

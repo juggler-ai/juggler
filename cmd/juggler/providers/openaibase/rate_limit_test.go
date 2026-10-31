@@ -7,9 +7,13 @@ package openaibase
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openai/openai-go/v3"
 
 	"juggler/cmd/juggler/providers/provider"
 )
@@ -74,5 +78,24 @@ func TestEnhanceErrorLeavesOtherHintsUntyped(t *testing.T) {
 		if !strings.Contains(err.Error(), "hint: ") {
 			t.Fatalf("%q lost its hint: %v", msg, err)
 		}
+	}
+}
+
+// A 401 carries the client's hint whether the SDK typed the error or only its
+// text says so.
+func TestEnhanceErrorUnauthorizedHint(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "https://example.test/responses", nil)
+	typed := &openai.Error{
+		StatusCode: http.StatusUnauthorized,
+		Request:    req,
+		Response:   &http.Response{StatusCode: http.StatusUnauthorized, Request: req, Header: http.Header{}},
+	}
+	for name, err := range map[string]error{"typed": typed, "text": errors.New("401 Unauthorized")} {
+		t.Run(name, func(t *testing.T) {
+			c := &Client{unauthorizedHint: "run `codex login`"}
+			if got := c.enhanceError(err).Error(); !strings.Contains(got, "hint: run `codex login`") {
+				t.Fatalf("error = %q, want the client's hint", got)
+			}
+		})
 	}
 }

@@ -6,18 +6,18 @@
 import CommandType from 'juggler/command-type';
 
 /**
- * Commands manager - open the user-defined slash-command manager.
+ * Commands manager - open the Slash commands settings page.
  *
- * Lists every slash command grouped by origin (built-in / this project / all
- * projects) with edit, delete, and "new command" actions. The dialog itself is
- * a host UI surface, so this command only declares the intent via a side effect.
+ * The page lists every slash command — the user's own, by where they are saved,
+ * then the built-ins — and edits, deletes and creates the user's own. It is a
+ * host UI surface, so this command only declares the intent via a side effect.
  */
 class CommandsCommandType extends CommandType {
   static MANIFEST = {
     id: 'commands',
     name: 'Manage Commands',
     version: '1.0.0',
-    description: 'Create and manage user-defined slash commands',
+    description: 'Browse slash commands, and create or edit your own',
     icon: 'icon-slash',
   };
 

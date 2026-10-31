@@ -51,6 +51,7 @@ import StrategySwitcher from './services/strategy-switcher.js';
 import { ModelCycler, ThinkingCycler } from './services/model-cycler.js';
 import wsService from './services/websocket.js';
 import { openSettings } from './services/settings-launcher.js';
+import { COMMANDS_SETTINGS_TAB } from './services/command-manager-entry.js';
 import { startSetupWizard, ONBOARDING_DISMISSED_PREF } from './components/onboarding/setup-wizard.js';
 import { getUserPref, setUserPref } from './services/prefs.js';
 import {
@@ -89,7 +90,6 @@ import { showNotice } from './components/modal-dialog.js';
 import { failedModulesMessage, showConversationLimitAlert } from './services/app-notices.js';
 import { SESSION_MESSAGE_HANDLERS } from './protocol/session-message-handlers.js';
 import { markUntranslated } from '../sdk/lib/i18n.js';
-import { openCommandManager } from './components/command-editor-dialog.js';
 import { exportConversation } from './components/conversation-export-dialog.js';
 import { setFaultSink, reportFault } from './utils/fault-report.js';
 import { startWordOfMouth } from './components/word-of-mouth.js';
@@ -597,7 +597,7 @@ class JugglerApp {
       if (event.type === 'session:loaded') syncWindowTitle();
       // A command (/commands) asked for the manager: the model only announces
       // it, because the dialog is app-level UI.
-      else if (event.type === 'command-manager:open-requested') openCommandManager();
+      else if (event.type === 'command-manager:open-requested') openSettings(COMMANDS_SETTINGS_TAB);
       // /export asked for its conversation's export dialog, likewise.
       else if (event.type === 'conversation-export:open-requested') {
         const conversation = session.getConversation(event.data?.conversationId || '');

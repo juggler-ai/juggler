@@ -28,7 +28,7 @@ const EYEBROWS = [
   '.thread-result-final .thread-result-label', '.permissions-popup .plugin-section-heading',
   ':where(.dropdown-menu) .category-header', '.menu-header',
   '.skill-panel-heading', '.skills-section-title',
-  '.command-manager-group h3', '.workspace-move-now-lead', '.workspace-banner-lead',
+  '.command-page-group-title', '.workspace-move-now-lead', '.workspace-banner-lead',
   'conversation-bar .info-card__eyebrow', '.pinboard-toolbar__identity', '.app-header__board-kind'
 ];
 

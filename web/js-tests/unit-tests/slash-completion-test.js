@@ -39,6 +39,7 @@ import { slashCommandProvider } from '../../js/components/slash-command-provider
 import { extractFileMentionsAsync } from '../../js/components/file-mention-provider.js';
 import commandRegistry from '../../js/registries/command-registry.js';
 import { registerUiPort, uiPort } from '../../js/services/ui-port.js';
+import { registerSettingsOpener } from '../../js/services/settings-launcher.js';
 import { menuOrderedCommands, buildCommandRow } from '../../js/services/command-manager-entry.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { underPseudoLocale, assertPseudoLocalized } from '../utilities/pseudo-locale.js';
@@ -96,28 +97,28 @@ export async function runTests() {
         'once a space is typed the command name is settled — no trigger');
 
       // fetch() is registry-backed; await it directly (no debounce). The list is
-      // bracketed by synthetic rows (no `name`) — the two pinned buttons and the
-      // "New command…" row; real commands are isolated by dropping them all.
+      // bracketed by synthetic rows (no `name`) — the pinned settings button and
+      // the "New command…" row; real commands are isolated by dropping them all.
       const realNames = (/** @type {any[]} */ items) => items.filter((c) => typeof c.name === 'string').map((c) => c.name);
       const bareItems = await slashCommandProvider.fetch('');
       const all = realNames(bareItems);
       assert(all.includes('clear'), `fetch("") must offer /clear, got ${JSON.stringify(all)}`);
 
-      // A bare "/" leads with the two buttons — the manager, standing in for the
-      // /commands row it replaces (one action, one row), and the built-ins,
-      // which live in the Extensions settings.
-      assert(bareItems[0]?.action === 'manage-commands',
-        `fetch("") must lead with the manage-commands row, got ${JSON.stringify(bareItems[0])}`);
-      assert(bareItems[1]?.action === 'browse-commands',
-        `fetch("") must follow it with the browse-commands row, got ${JSON.stringify(bareItems[1])}`);
+      // A bare "/" leads with one button — the Slash commands settings page,
+      // standing in for the /commands row it replaces (one action, one row) —
+      // and goes straight on to the commands.
+      assert(bareItems[0]?.action === 'commands-settings',
+        `fetch("") must lead with the commands-settings row, got ${JSON.stringify(bareItems[0])}`);
+      assert(typeof bareItems[1]?.name === 'string',
+        `fetch("") must follow it with a real command, got ${JSON.stringify(bareItems[1])}`);
       assert(!all.includes('commands'),
         `fetch("") must drop the plain /commands row, got ${JSON.stringify(all)}`);
 
       // Typing brings it back: the buttons are a discovery affordance, not
       // permanent rows competing with what the user is filtering for.
       const typed = await slashCommandProvider.fetch('comm');
-      assert(typed.every((c) => c.action !== 'manage-commands' && c.action !== 'browse-commands'),
-        'a typed query must NOT pin the manage-commands or browse-commands rows');
+      assert(typed.every((c) => c.action !== 'commands-settings'),
+        'a typed query must NOT pin the commands-settings row');
       assert(realNames(typed).includes('commands'),
         `fetch("comm") must offer /commands itself, got ${JSON.stringify(realNames(typed))}`);
 
@@ -153,10 +154,26 @@ export async function runTests() {
         'a command declaring an argsHint must NOT submit on accept');
       assert(slashCommandProvider.submitAfterAccept({ action: 'new-command', query: 'x' }) === false,
         'the New command row must NOT submit on accept');
-      assert(slashCommandProvider.submitAfterAccept({ action: 'manage-commands' }) === false,
-        'the manage-commands row must NOT submit on accept');
-      assert(slashCommandProvider.submitAfterAccept({ action: 'browse-commands' }) === false,
-        'the browse-commands row must NOT submit on accept');
+      assert(slashCommandProvider.submitAfterAccept({ action: 'commands-settings' }) === false,
+        'the commands-settings row must NOT submit on accept');
+
+      // Both synthetic rows open the Slash commands settings page: the button on
+      // its list, "New command…" on a draft carrying the typed name.
+      /** @type {any[]} */
+      const opened = [];
+      const restoreOpener = registerSettingsOpener((tab, options) => { opened.push({ tab, options }); });
+      try {
+        assert(slashCommandProvider.insert({ action: 'commands-settings' }) === '',
+          'accepting the settings row must clear the typed text');
+        assert(slashCommandProvider.insert({ action: 'new-command', query: 'standup' }) === '',
+          'accepting the New command row must clear the typed text');
+      } finally {
+        restoreOpener();
+      }
+      assert(JSON.stringify(opened) === JSON.stringify([
+        { tab: 'commands' },
+        { tab: 'commands', options: { newCommand: { name: 'standup' } } },
+      ]), `the rows must open the Slash commands page, got ${JSON.stringify(opened)}`);
       passed++;
     } catch (e) {
       failed++;

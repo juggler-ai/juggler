@@ -145,7 +145,6 @@
   "Create a new independent conversation seeded with an initial message": "Criar uma nova conversa independente iniciada com uma mensagem inicial",
   "Create a new sub-conversation thread": "Criar uma nova thread de subconversa",
   "Create a user-defined slash command": "Criar um comando de barra definido pelo usuário",
-  "Create and manage user-defined slash commands": "Criar e gerenciar comandos de barra definidos pelo usuário",
   "Create or overwrite files with new content": "Criar ou sobrescrever arquivos com novo conteúdo",
   "Created {file}": "{file} criado",
   "Creating the worktree": "Criando o worktree",

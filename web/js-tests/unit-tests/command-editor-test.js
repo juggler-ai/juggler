@@ -5,7 +5,7 @@
 /**
  * Command editor tests — the model override, from file to picker and back.
  *
- * The dialog now hosts the same `<model-chip>` + `<model-picker>` pair the
+ * The form hosts the same `<model-chip>` + `<model-picker>` pair the
  * composer and settings use, and a model reference is four fields, not one. The
  * failure worth guarding is invisible: a dial dropped between the picker and the
  * PUT leaves a command that reads correctly in the editor and runs at settings
@@ -18,7 +18,7 @@
 import { assert, neutralizeStrayOverlays, waitFor } from '../utilities/test-helpers.js';
 import { assertDialogPopover } from '../utilities/menu-assertions.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
-import { openCommandEditor, openCommandManager } from '../../js/components/command-editor-dialog.js';
+import { mountCommandEditor } from '../../js/components/command-editor.js';
 import { buildModelConfig } from '../../js/model/model-config.js';
 import providersCache from '../../js/services/providers-cache.js';
 import { fetchUserCommands, resetUserCommandsCache } from '../../js/services/user-commands.js';
@@ -112,17 +112,49 @@ function stubEnvironment() {
   };
 }
 
+/** Containers the editor was mounted into, taken down after each test. */
+/** @type {Set<{container: HTMLElement, handle: import('../../js/components/command-editor.js').CommandEditorHandle}>} */
+const mounted = new Set();
+
 /**
- * Open the editor on {@link DEF} and hand back its parts.
- * @returns {{done: Promise<any>, overlay: any, chip: any, save: HTMLElement}} The open dialog.
+ * Mount the editor into a fresh container. `done` settles when the form reports
+ * a save (with the name) or a delete (with `{deleted}`).
+ * @param {import('../../js/components/command-editor.js').CommandEditorOptions} options
+ * @returns {{done: Promise<any>, overlay: any, handle: import('../../js/components/command-editor.js').CommandEditorHandle}} The mounted form; `overlay` is its container.
+ */
+function mount(options) {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  /** @type {(v: any) => void} */
+  let settle = () => {};
+  const done = new Promise((resolve) => { settle = resolve; });
+  const handle = mountCommandEditor(container, options, {
+    onSaved: (name) => settle(name),
+    onDeleted: (name) => settle({ deleted: name }),
+  });
+  mounted.add({ container, handle });
+  return { done, overlay: container, handle };
+}
+
+/** Take down every mounted editor. */
+function unmountAll() {
+  for (const { container, handle } of mounted) {
+    handle.dispose();
+    container.remove();
+  }
+  mounted.clear();
+}
+
+/**
+ * Mount the editor on {@link DEF} and hand back its parts.
+ * @returns {{done: Promise<any>, overlay: any, chip: any, save: HTMLElement, handle: import('../../js/components/command-editor.js').CommandEditorHandle}} The mounted form.
  */
 function openEditor() {
-  const done = openCommandEditor({ def: /** @type {any} */ (DEF) });
-  const overlay = /** @type {any} */ (document.querySelector('.command-editor-overlay'));
-  assert(!!overlay, 'the editor must mount an overlay');
+  const { done, overlay, handle } = mount({ def: /** @type {any} */ (DEF) });
   return {
     done,
     overlay,
+    handle,
     chip: overlay.querySelector('#cmd-model'),
     save: overlay.querySelector('#cmd-save'),
   };
@@ -229,9 +261,9 @@ const STRATEGY_NAME = 'Stand In Strategy';
 const dataToDigits = (s) => String(s).replace(/\$ARGUMENTS|\$\$|\$[19]|qq|qr|zz|ok/g, '9');
 
 /**
- * Walk every state the editor and the manager draw under en-XA, collecting what
- * each shows, and assert once at the end. Every collaborator the dialogs read
- * is stubbed for the walk only: the commands endpoint, the providers cache, the
+ * Walk every state the editor draws under en-XA, collecting what each shows,
+ * and assert once at the end. Every collaborator the form reads is stubbed for
+ * the walk only: the commands endpoint, the providers cache, the
  * built-in command list, the strategy registry (pinned to a stand-in strategy
  * under a stand-in extension) and the modal presenter.
  * @returns {Promise<void>}
@@ -292,9 +324,7 @@ async function pseudoLocaleWalk() {
       resetUserCommandsCache();
 
       // ── a new command ─────────────────────────────────────────────────────
-      const created = openCommandEditor({});
-      let overlay = /** @type {any} */ (document.querySelector('.command-editor-overlay'));
-      assert(!!overlay, 'the editor must mount an overlay');
+      let { overlay } = mount({});
       // The name field's placeholder is an example command name, an identifier.
       const skipNew = '.command-editor-slash, #cmd-name, #cmd-path-hint, #cmd-preview-out';
       collect('new', overlay, skipNew);
@@ -327,29 +357,16 @@ async function pseudoLocaleWalk() {
       const templateError = overlay.querySelector('[data-error-for="template"]');
       await waitFor(() => !!templateError.textContent, { description: 'the save failure' });
       note('save failed', templateError.textContent);
-      overlay.querySelector('#cmd-close').click();
-      await created;
+      unmountAll();
 
       // ── an existing command ───────────────────────────────────────────────
-      const edited = openCommandEditor({
+      ({ overlay } = mount({
         def: /** @type {any} */ ({ name: 'qq', scope: 'project', path: '/1', frontmatter: { description: '1', run: 'subthread', goal: '2' }, body: '3' }),
-      });
-      overlay = /** @type {any} */ (document.querySelector('.command-editor-overlay'));
+      }));
       collect('edit', overlay, `${skipNew}, #cmd-template`);
       overlay.querySelector('#cmd-delete').click();
       await waitFor(() => modals.length === 1, { description: 'the delete confirmation' });
-      overlay.querySelector('#cmd-close').click();
-      await edited;
-
-      // ── the manager ───────────────────────────────────────────────────────
-      const managed = openCommandManager();
-      overlay = /** @type {any} */ (document.querySelector('.command-editor-overlay'));
-      await waitFor(() => overlay.querySelectorAll('.command-manager-row').length === 2, { description: 'the manager list' });
-      collect('manager', overlay, 'code, .command-manager-desc, .command-manager-error');
-      overlay.querySelector('.command-manager-delete').click();
-      await waitFor(() => modals.length === 2, { description: 'the manager delete confirmation' });
-      overlay.querySelector('#cmd-close').click();
-      await managed;
+      unmountAll();
 
       for (const [i, m] of modals.entries()) {
         for (const key of ['title', 'message', 'confirmText', 'cancelText']) note(`confirm ${i} ${key}`, m[key]);
@@ -367,7 +384,7 @@ async function pseudoLocaleWalk() {
   }
 
   assert(said.some(({ text }) => text.includes('9')), 'the walk must have shown its data');
-  assert(said.length >= 30, `the dialogs drew too little: ${JSON.stringify(said)}`);
+  assert(said.length >= 25, `the form drew too little: ${JSON.stringify(said)}`);
   const raw = said.filter(({ text }) => !isPseudoLocalized(dataToDigits(text)));
   assert(raw.length === 0, `plain English under en-XA: ${JSON.stringify(raw)}`);
 }
@@ -397,7 +414,8 @@ export async function runTests(_ctx) {
       errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       env.restore();
-      // Through the sweep, not by removing the element: the overlay holds a
+      unmountAll();
+      // Through the sweep, not by removing the element: a confirm holds a
       // popup-manager token that only its own close releases, and a token left
       // registered suppresses every shortcut for the rest of the lane.
       neutralizeStrayOverlays();
@@ -406,7 +424,7 @@ export async function runTests(_ctx) {
   };
 
   await run('the chip shows the model the file names', async () => {
-    const { done, overlay, save, chip } = openEditor();
+    const { done, save, chip } = openEditor();
     assert(chip?.tagName?.toLowerCase() === 'model-chip', `the model field must be a chip, got ${chip?.tagName}`);
     const config = chip.config;
     assert(config?.provider === 'p' && config?.model === 'm',
@@ -416,8 +434,27 @@ export async function runTests(_ctx) {
     assert((chip.querySelector('.model-name')?.textContent || '').includes('Model'),
       `the button must name the model, got ${JSON.stringify(chip.textContent)}`);
     /** @type {any} */ (save).click();
-    await done;
-    assert(!overlay.isConnected, 'saving must close the dialog');
+    assert(await done === 'review', 'saving must report the saved name');
+  });
+
+  // The page asks before throwing an edit away, so the form must tell an edit
+  // from a glance — and a provider list landing late, which re-seeds the chip,
+  // is not an edit.
+  await run('the form knows when it has been edited', async () => {
+    const { overlay, handle, chip } = openEditor();
+    assert(!handle.isDirty(), 'a form just mounted must not count as edited');
+    const template = overlay.querySelector('#cmd-template');
+    template.value = 'Review $1 carefully';
+    template.dispatchEvent(new Event('input'));
+    assert(handle.isDirty(), 'a changed template must count as an edit');
+    template.value = DEF.body;
+    template.dispatchEvent(new Event('input'));
+    assert(!handle.isDirty(), 'putting the text back must count as no edit');
+    overlay.querySelector('[data-scope="user"]').click();
+    assert(handle.isDirty(), 'a changed scope must count as an edit');
+    overlay.querySelector('[data-scope="project"]').click();
+    chip.dispatchEvent(new CustomEvent('change', { detail: buildModelConfig('p', 'other', '', '') }));
+    assert(handle.isDirty(), 'a chosen model must count as an edit');
   });
 
   await run('saving writes the whole model reference, dials included', async (calls) => {
@@ -542,6 +579,7 @@ export async function runTests(_ctx) {
       failed++;
       errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
+      unmountAll();
       neutralizeStrayOverlays();
       await __whenRegistriesSettledForTests();
       resetUserCommandsCache();
@@ -557,9 +595,7 @@ export async function runTests(_ctx) {
     const restore = serveUserCommands(() => (saved ? [userDef('mid-turn')] : []), () => { saved = true; });
     try {
       await duringTurn(async () => {
-        const done = openCommandEditor({ name: 'mid-turn', scope: 'user' });
-        const overlay = /** @type {any} */ (document.querySelector('.command-editor-overlay'));
-        assert(!!overlay, 'the editor must mount an overlay');
+        const { done, overlay } = mount({ name: 'mid-turn', scope: 'user' });
         overlay.querySelector('#cmd-description').value = 'the mid-turn command';
         overlay.querySelector('#cmd-template').value = 'hi';
         overlay.querySelector('#cmd-name').dispatchEvent(new Event('input'));
@@ -618,8 +654,9 @@ export async function runTests(_ctx) {
     passed++;
   } catch (e) {
     failed++;
-    errors.push(`en-XA: every state of the editor and the manager is translated: ${e instanceof Error ? e.message : String(e)}`);
+    errors.push(`en-XA: every state of the editor is translated: ${e instanceof Error ? e.message : String(e)}`);
   } finally {
+    unmountAll();
     neutralizeStrayOverlays();
     document.querySelector('model-picker')?.remove();
   }

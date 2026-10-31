@@ -15,6 +15,7 @@
 /**
  * @typedef {object} OpenSettingsOptions
  * @property {{itemType: string, id: string}} [capability] - Reveal this extension capability
+ * @property {{name?: string}} [newCommand] - Open a new command's draft in the Slash commands tab, the name pre-filled
  * @property {any} [mcpServer] - Reveal this MCP server
  * @property {string} [conversationLog] - Reveal this conversation's log in the Logs tab
  * @property {{provider: string, id: string}} [model] - Reveal this model's Context window field in the Providers tab

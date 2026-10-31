@@ -763,6 +763,14 @@ settings-panel #tab-logs {
     overflow: hidden;
 }
 
+/* Slash commands tab: a master/detail page whose list and detail scroll on
+   their own, so the tab is a flex column that does not scroll itself. */
+settings-panel #tab-commands {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
 settings-panel #logs-form {
     display: flex;
     flex-direction: column;

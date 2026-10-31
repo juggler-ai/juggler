@@ -41,7 +41,7 @@ patterns/markdown.css > components/workspace-dialogs.css 19
 patterns/modal-dialog.css > components/model-picker.css 16
 patterns/markdown.css > components/workspace-panel.css 18
 layout/app-shell.css > components/pinboard.css 17
-patterns/markdown.css > components/slash-commands.css 17
+patterns/markdown.css > components/slash-commands.css 11
 patterns/markdown.css > components/model-picker.css 16
 patterns/modal-dialog.css > components/diff-viewer.css 4
 layout/app-header.css > patterns/buttons.css 10

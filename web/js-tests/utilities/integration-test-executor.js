@@ -397,6 +397,7 @@ import { runTests as runDecisionProvidersTests } from '../unit-tests/decision-pr
 import { runTests as runDecideOpTests } from '../unit-tests/decide-op-test.js';
 import { runTests as runReplySuggestionsTests } from '../unit-tests/reply-suggestions-test.js';
 import { runTests as runCommandEditorTests } from '../unit-tests/command-editor-test.js';
+import { runTests as runCommandsTabTests } from '../unit-tests/commands-tab-test.js';
 import { runTests as runFindTests } from '../unit-tests/find-test.js';
 import { runTests as runContextMenuTests } from '../unit-tests/context-menu-test.js';
 import { runTests as runComposerSelectionQuoteTests } from '../unit-tests/composer-selection-quote-test.js';
@@ -689,6 +690,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:decide-op', run: runDecideOpTests },
   { name: 'unit:reply-suggestions', run: runReplySuggestionsTests },
   { name: 'unit:command-editor', run: runCommandEditorTests },
+  { name: 'unit:commands-tab', run: runCommandsTabTests },
   { name: 'unit:find', run: runFindTests },
   { name: 'unit:context-item-persistence', run: runContextItemPersistenceTests },
   { name: 'unit:context-item-seed-execute', run: runContextItemSeedExecuteTests },

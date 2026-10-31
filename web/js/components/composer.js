@@ -8,8 +8,7 @@ import JugglerElement from './juggler-element.js';
 
 import { DRAFT_SAVE_DEBOUNCE_MS } from '../utils/constants.js';
 import slashCommandHandler from '../services/slash-command-handler.js';
-import { menuOrderedCommands, buildCommandRow, buildManageCommandsRow, buildBrowseCommandsRow } from '../services/command-manager-entry.js';
-import { openCommandManager } from './command-editor-dialog.js';
+import { menuOrderedCommands, buildCommandRow, buildCommandsSettingsRow, COMMANDS_SETTINGS_TAB } from '../services/command-manager-entry.js';
 import { isAnyPopupOpen } from '../utils/popup-manager.js';
 import { isTabListFocused } from '../services/tab-list-focus.js';
 import { handleEscapeKey } from '../services/escape-behaviour.js';
@@ -2173,8 +2172,8 @@ class Composer extends JugglerElement {
   }
 
   /**
-   * Build the commands dropdown: the manager and built-ins buttons, then one row
-   * per slash command. Presented by `_commandsPopup`.
+   * Build the commands dropdown: the "Browse/edit slash commands…" button, then
+   * one row per slash command. Presented by `_commandsPopup`.
    * @returns {Promise<HTMLElement>} The detached menu.
    * @private
    */
@@ -2185,23 +2184,14 @@ class Composer extends JugglerElement {
     menu.className = 'dropdown-menu commands-menu';
     menu.id = 'commands-menu';
 
-    // The manager leads as a button rather than sitting in the list as
+    // The settings page leads as a button rather than sitting in the list as
     // `/commands`, which is the row nobody reads as "you can write your own".
-    // The built-ins below it are the ones this list already shows, so their
-    // button goes where the rest of what the app loads is documented.
-    const manageRow = buildManageCommandsRow();
-    manageRow.addEventListener('click', () => {
+    const settingsRow = buildCommandsSettingsRow();
+    settingsRow.addEventListener('click', () => {
       this._commandsPopup.close();
-      openCommandManager();
+      openSettings(COMMANDS_SETTINGS_TAB);
     });
-    menu.appendChild(manageRow);
-
-    const browseRow = buildBrowseCommandsRow();
-    browseRow.addEventListener('click', () => {
-      this._commandsPopup.close();
-      openSettings('extensions');
-    });
-    menu.appendChild(browseRow);
+    menu.appendChild(settingsRow);
 
     for (const cmd of menuOrderedCommands(slashCommandHandler.getCommands())) {
       const item = buildCommandRow(cmd);
@@ -2413,17 +2403,12 @@ class Composer extends JugglerElement {
       menu.appendChild(section);
     };
 
-    // Slash commands section (collapsed), led by the manager button in place of
-    // the `/commands` row it stands for, and the built-ins' button beside it.
-    const manageRow = buildManageCommandsRow('actions-sheet-item');
-    manageRow.addEventListener('click', () => {
+    // Slash commands section (collapsed), led by the settings page's button in
+    // place of the `/commands` row it stands for.
+    const settingsRow = buildCommandsSettingsRow('actions-sheet-item');
+    settingsRow.addEventListener('click', () => {
       close();
-      openCommandManager();
-    });
-    const browseRow = buildBrowseCommandsRow('actions-sheet-item');
-    browseRow.addEventListener('click', () => {
-      close();
-      openSettings('extensions');
+      openSettings(COMMANDS_SETTINGS_TAB);
     });
     const commandRows = menuOrderedCommands(slashCommandHandler.getCommands()).map((cmd) => {
       const row = buildCommandRow(cmd, { extraClass: 'actions-sheet-item', labelClass: 'actions-sheet-label' });
@@ -2433,7 +2418,7 @@ class Composer extends JugglerElement {
       });
       return row;
     });
-    addSection(t('Slash commands'), [manageRow, browseRow, ...commandRows]);
+    addSection(t('Slash commands'), [settingsRow, ...commandRows]);
 
     // Skills section (collapsed) — this thread's frozen snapshot, standing in for
     // the inline `$` picker on touch. Selecting one splices `$name ` into the

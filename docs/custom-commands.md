@@ -15,12 +15,13 @@ Three ways, all equivalent — they write the same file:
 
 - **Type a name that doesn't exist.** `/standup` with no such command offers a
   pinned **"New command '/standup'…"** row that opens the editor pre-filled.
-- **"Edit custom slash commands…"** — the button at the top of the slash menu
-  (and of the `/` button's list) opens the manager, listing your own commands by
-  scope, where **New command…** creates one and each existing command can be
-  edited or deleted. `/commands` does the same thing from the keyboard. The
-  button beside it, **"Browse built-in commands…"**, opens the built-ins in the
-  Extensions settings, where every capability Juggler loads is documented.
+- **"Browse/edit slash commands…"** — the button at the top of the slash menu
+  (and of the `/` button's list) opens **Settings → Slash commands**. It lists
+  every command: your own, grouped by scope, then the built-ins. **New command…**
+  creates one; selecting one of yours opens it in the editor beside the list,
+  where it can be changed or deleted. Selecting a built-in shows what it does,
+  and **Show in Extensions** takes you to the extension that provides it.
+  `/commands` opens the same page from the keyboard.
 - **Ask the assistant.** "Make that a slash command" → it calls `define_command`
   and you approve the full definition before it's written.
 
@@ -100,16 +101,16 @@ A command lives in one of two places:
 
 If both scopes define the same name, the **project** command wins. A custom
 command may **not** shadow a built-in command (`/clear`, `/compact`, …): such a
-file still loads but is flagged invalid in the `/commands` manager with the
-reason, so it never silently overrides a built-in.
+file still loads but is flagged invalid on the Slash commands settings page with
+the reason, so it never silently overrides a built-in.
 
 ## Sharing and trust
 
 Project-scoped commands arrive with the repository, so a command someone else
 wrote can ship in a project you clone. A command is only ever run when **you**
 invoke it — never automatically — and its scope is shown as a badge in the menu
-and in the manager, so you can always see where a command came from before you
-run it. Commands cannot run shell or read files on their own; they only send a
+and as its group on the Slash commands settings page, so you can always see
+where a command came from before you run it. Commands cannot run shell or read files on their own; they only send a
 prompt (which the model then acts on under your normal approval rules).
 
 ## Importing from Claude Code

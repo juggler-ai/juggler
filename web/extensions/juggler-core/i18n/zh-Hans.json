@@ -145,7 +145,6 @@
   "Create a new independent conversation seeded with an initial message": "创建一个以初始消息为起点的新独立对话",
   "Create a new sub-conversation thread": "创建新的子对话线程",
   "Create a user-defined slash command": "创建用户自定义斜杠命令",
-  "Create and manage user-defined slash commands": "创建和管理用户自定义斜杠命令",
   "Create or overwrite files with new content": "用新内容创建或覆盖文件",
   "Created {file}": "已创建 {file}",
   "Creating the worktree": "正在创建工作树",

@@ -35,14 +35,15 @@
     color: var(--accent-green);
 }
 
-/* "Edit custom slash commands…" and "Browse built-in commands…" — the pair of
-   pinned rows above the list, shared by the `/` completion menu, the commands
-   dropdown and the mobile actions sheet. Tinted so they read as the way IN to
-   commands rather than two more commands to run, and keeping the same full
-   corner radius as every other row: they highlight as ordinary rows, they are
-   simply not command rows. */
+/* "Browse/edit slash commands…" — the pinned row above the list, shared by the
+   `/` completion menu, the commands dropdown and the mobile actions sheet.
+   Tinted so it reads as the way IN to commands rather than one more command to
+   run, and keeping the same full corner radius as every other row: it
+   highlights as an ordinary row, it is simply not a command row. */
 
 .slash-command-pinned {
+    position: relative;
+    margin-bottom: 0.55rem;
     color: var(--accent-blue);
 }
 
@@ -50,16 +51,11 @@
     background: color-mix(in srgb, var(--accent-blue) 16%, transparent);
 }
 
-/* The rule dividing the pair from the commands is drawn in the gap below the
-   last button rather than as its border, so the hovered row keeps its rounded
-   box and the line stays straight and full-width instead of curving with it. */
+/* The rule dividing the row from the commands is drawn in the gap below it
+   rather than as its border, so the hovered row keeps its rounded box and the
+   line stays straight and full-width instead of curving with it. */
 
-.slash-command-pinned-last {
-    position: relative;
-    margin-bottom: 0.55rem;
-}
-
-.slash-command-pinned-last::after {
+.slash-command-pinned::after {
     content: "";
     position: absolute;
     left: 0;
@@ -69,7 +65,7 @@
 }
 
 /* The commands dropdown lays every row out as a two-column subgrid of name and
-   description. These rows are single buttons carrying only a label, so they opt
+   description. This row is a single button carrying only a label, so it opts
    back out to a flex line rather than being squeezed into the narrow name
    column. */
 
@@ -87,48 +83,200 @@
     white-space: nowrap;
 }
 
-/* Command editor dialog. */
+/* ── Slash commands settings page ────────────────────────────────────────── */
 
-.command-editor-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: var(--z-modal);
+/* Master/detail, as the Extensions catalog beside it: the list on the left,
+   scrolling on its own, the selected command on the right. */
+
+.command-page {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1.5rem;
-}
-
-/* These dialogs stack — the editor opens over the manager — so two scrims lie
-   over the page at once. That is exactly why the strength is not chosen here:
-   anything heavier than the house value compounds into near-black. */
-
-.command-editor-backdrop {
-    position: absolute;
-    inset: 0;
-    background: var(--modal-scrim);
-}
-
-.command-editor-panel {
-    position: relative;
-    width: min(38rem, 100%);
-    max-height: 90vh;
-    display: flex;
-    flex-direction: column;
-    background: var(--bg-raised);
-    border: 1px solid var(--border-floating);
-    border-radius: var(--radius-xl);
-    box-shadow: var(--popup-shadow);
+    flex: 1;
+    min-height: 0;
     overflow: hidden;
 }
 
-.command-editor-header {
+.command-page-sidebar {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    width: 18rem;
+    flex-shrink: 0;
+    min-height: 0;
+    border-right: 0.0625rem solid var(--border-divider);
+    background: var(--bg-secondary);
+}
+
+.command-page-toolbar {
+    display: flex;
+    flex-direction: column;
     gap: 0.5rem;
-    padding: 0.9rem 1.1rem;
-    border-bottom: 1px solid var(--border-divider);
+    padding: 0.75rem;
+    border-bottom: 0.0625rem solid var(--border-divider);
+}
+
+.command-page-filter {
+    width: 100%;
+    padding: 0.35rem 0.55rem;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--font-size-base);
+}
+
+.command-page-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0.25rem 0 0.75rem;
+}
+
+.command-page-group-title {
+    padding: 0.75rem 1rem 0.3rem;
+    color: var(--accent-blue);
+}
+
+.command-page-empty {
+    padding: 0.2rem 1rem 0.4rem;
+    font-size: var(--font-size-sm);
+    font-style: italic;
+    color: var(--text-tertiary);
+    text-align: center;
+}
+
+/* A row is a button: the mono name over its description, one line each. The
+   name is the title, so it sits flush and the description is indented under
+   it, a step fainter. */
+
+.command-page-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    width: 100%;
+    padding: 0.4rem 1rem;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+}
+
+.command-page-row:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.command-page-row.selected {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--accent-blue) 16%, transparent);
+}
+
+/* Not inline code's chip: no padding, so the name starts at the row's edge. */
+.command-page-row-name {
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-md);
+    color: var(--text-primary);
+}
+
+.command-page-row-desc {
+    padding-left: 0.75rem;
+    font-size: var(--font-size-sm);
+    color: var(--text-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.command-page-row.is-broken .command-page-row-desc {
+    color: var(--accent-red);
+}
+
+.command-page-detail {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.command-page-intro,
+.command-page-builtin {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    max-width: 40rem;
+    padding: 1.5rem 2rem;
+    color: var(--text-secondary);
+    font-size: var(--font-size-md);
+    line-height: 1.5;
+}
+
+.command-page-builtin h2 {
+    font-size: var(--font-size-xl);
+}
+
+.command-page-builtin h2 code {
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+}
+
+.command-page-builtin-label {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+/* A link to the command's entry in the Extensions tab. The chrome comes from
+   .btn-ghost; this owns the size, matching the catalog's own small buttons. */
+
+.command-page-show-extension {
+    padding: 0.25rem 0.75rem;
+    font-size: var(--font-size-base);
+    font-weight: 500;
+}
+
+.command-page-builtin-source {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    padding-top: 0.9rem;
+    border-top: 0.0625rem solid var(--border-divider);
+}
+
+/* Phones: stack the list over the detail, as the Extensions catalog does. */
+@media (width <= 36rem) {
+    .command-page {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .command-page-sidebar {
+        width: 100%;
+        max-height: 40%;
+        border-right: none;
+        border-bottom: 0.0625rem solid var(--border-divider);
+    }
+
+    .command-page-intro,
+    .command-page-builtin {
+        padding: 1rem;
+    }
+}
+
+/* Command editor: the form in the page's detail pane. It fills the pane, the
+   fields scroll and the footer — where the file lands, and Save — stays put. */
+
+.command-editor {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.command-editor-header {
+    padding: 1.1rem 2rem 0;
 }
 
 .command-editor-header h2 {
@@ -136,15 +284,11 @@
     font-size: var(--font-size-lg);
 }
 
-/* Pulled out into the header's padding so the button's box hangs off the corner
-   while its icon stays optically aligned with the title. */
-
-.command-editor-close {
-    margin: -0.4rem -0.3rem;
-}
-
 .command-editor-body {
-    padding: 1rem 1.1rem;
+    flex: 1;
+    min-height: 0;
+    max-width: 48rem;
+    padding: 1rem 2rem;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
@@ -362,10 +506,11 @@
 
 .command-editor-footer {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-end;
     justify-content: space-between;
     gap: 0.75rem;
-    padding: 0.8rem 1.1rem;
+    padding: 0.8rem 2rem;
     border-top: 1px solid var(--border-divider);
 }
 
@@ -395,75 +540,4 @@
 
 .command-editor-actions .hidden {
     display: none;
-}
-
-/* Commands manager. */
-
-.command-manager-group {
-    margin-bottom: 1rem;
-}
-
-.command-manager-group h3 {
-    margin: 0 0 0.4rem;
-    color: var(--text-secondary);
-}
-
-.command-manager-row {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 0.45rem 0.5rem;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    margin-bottom: 0.35rem;
-}
-
-.command-manager-row.is-broken {
-    border-color: var(--accent-red);
-    opacity: 0.9;
-}
-
-.command-manager-row code {
-    font-family: var(--font-mono);
-    color: var(--text-primary);
-}
-
-.command-manager-row .command-manager-desc {
-    color: var(--text-secondary);
-    font-size: var(--font-size-base);
-    flex: 1;
-}
-
-.command-manager-row .command-manager-error {
-    color: var(--accent-red);
-    font-size: var(--font-size-sm);
-    flex: 1;
-}
-
-.command-manager-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-}
-
-/* The row's delete: the app's standard trashcan button — square, transparent,
-   the icon on currentcolor so it rests muted and turns red under the pointer. */
-
-.command-manager-delete {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-md);
-    color: var(--text-tertiary);
-    cursor: pointer;
-}
-
-.command-manager-delete:hover {
-    color: var(--accent-red);
-    background: color-mix(in srgb, var(--accent-red) 12%, transparent);
 }

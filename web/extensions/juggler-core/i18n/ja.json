@@ -145,7 +145,6 @@
   "Create a new independent conversation seeded with an initial message": "最初のメッセージを入れた、独立した新しい会話を作成",
   "Create a new sub-conversation thread": "新しいサブ会話スレッドを作成",
   "Create a user-defined slash command": "ユーザー定義のスラッシュコマンドを作成",
-  "Create and manage user-defined slash commands": "ユーザー定義のスラッシュコマンドを作成・管理",
   "Create or overwrite files with new content": "ファイルを新しい内容で作成または上書き",
   "Created {file}": "{file} を作成しました",
   "Creating the worktree": "ワークツリーを作成中",

@@ -24,7 +24,7 @@
 import { assert } from '../utilities/test-helpers.js';
 import { assertMenuShape, assertDialogPopover } from '../utilities/menu-assertions.js';
 import { closeAllPopups, __resetPopupManagerForTests } from '../../js/utils/popup-manager.js';
-import { buildCommandRow, buildManageCommandsRow } from '../../js/services/command-manager-entry.js';
+import { buildCommandRow, buildCommandsSettingsRow } from '../../js/services/command-manager-entry.js';
 import { renderSkillMenuItem } from '../../js/components/skill-mention-provider.js';
 import '../../js/components/composer.js';
 
@@ -255,7 +255,7 @@ export async function runTests() {
     try {
       const rows = [
         buildCommandRow({ name: 'clear' }),
-        buildManageCommandsRow('slash-command-item'),
+        buildCommandsSettingsRow('slash-command-item'),
         renderSkillMenuItem(FIXTURE[0]),
       ];
       const roled = rows.filter((r) => r.hasAttribute('role')).map((r) => r.className);

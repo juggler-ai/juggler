@@ -28,6 +28,7 @@ import { ShortcutsTab } from './settings/shortcuts-tab.js';
 import { LogsTab } from './settings/logs-tab.js';
 import { McpTab, AcpTab } from './settings/subprocess-tabs.js';
 import { SkillsTab } from './settings/skills-tab.js';
+import { CommandsTab } from './settings/commands-tab.js';
 import { UpdatesTab } from './settings/updates-tab.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
 import { t, markUntranslated, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
@@ -133,6 +134,7 @@ class SettingsPanel extends JugglerElement {
       connectivity: this._connectivityTab,
       mcp: new McpTab(this),
       acp: new AcpTab(this),
+      commands: new CommandsTab(this),
       skills: new SkillsTab(this),
       appearance: new AppearanceTab(this),
       language: new LanguageTab(this),
@@ -205,6 +207,7 @@ class SettingsPanel extends JugglerElement {
                         <button class="settings-tab" data-tab="defaults">${escapeHtml(t('Defaults'))}</button>
                         <button class="settings-tab" data-tab="connectivity">${escapeHtml(t('Connectivity'))}</button>
                         <button class="settings-tab" data-tab="extensions">${escapeHtml(t('Extensions'))}</button>
+                        <button class="settings-tab" data-tab="commands">${escapeHtml(t('Slash commands'))}</button>
                         <button class="settings-tab" data-tab="skills">${escapeHtml(t('Skills'))}</button>
                         <button class="settings-tab" data-tab="mcp">${escapeHtml(t('MCP servers'))}</button>
                         <button class="settings-tab" data-tab="acp">${escapeHtml(t('ACP agents'))}</button>
@@ -269,6 +272,10 @@ class SettingsPanel extends JugglerElement {
                      <section class="settings-tab-content" id="tab-extensions">
                           <plugin-catalog></plugin-catalog>
                      </section>
+
+                      <section class="settings-tab-content" id="tab-commands">
+                          <div class="command-page" id="commands-tab-root"></div>
+                      </section>
 
                       <section class="settings-tab-content" id="tab-skills">
                           <p class="settings-description">
@@ -478,7 +485,7 @@ class SettingsPanel extends JugglerElement {
   /**
    * Open the settings panel
    * @param {string} [tab] - Optional tab to switch to on open
-   * @param {{capability?: {itemType: string, id: string}, mcpServer?: string, conversationLog?: string, model?: {provider: string, id: string}}} [options] - Optional target to reveal inside the tab
+   * @param {import('../services/settings-launcher.js').OpenSettingsOptions} [options] - Optional target to reveal inside the tab
    */
   async open(tab, options = {}) {
     const isFirstLoad = !this._hasLoadedOnce;
@@ -504,6 +511,10 @@ class SettingsPanel extends JugglerElement {
 
     if (options.capability) {
       this._revealCapability(options.capability);
+    }
+
+    if (options.newCommand) {
+      this._revealNewCommand(options.newCommand.name);
     }
 
     if (options.mcpServer) {
@@ -541,6 +552,17 @@ class SettingsPanel extends JugglerElement {
     const catalog = /** @type {any} */ (this.querySelector('plugin-catalog'));
     Promise.resolve(catalog?.revealCapability?.(capability.itemType, capability.id))
       .catch((error) => console.error('Failed to reveal capability in the extensions catalog:', error));
+  }
+
+  /**
+   * Deep-link into the Slash commands tab: open a new command's draft. The tab
+   * reads its own lists, so it is handed the name and applies it once they land.
+   * @param {string} [name] - Name to pre-fill
+   * @private
+   */
+  _revealNewCommand(name) {
+    Promise.resolve(/** @type {any} */ (this._tabs.commands)?.revealNewCommand?.(name))
+      .catch((error) => console.error('Failed to open a new command in settings:', error));
   }
 
   /**
@@ -605,8 +627,9 @@ class SettingsPanel extends JugglerElement {
     // custom headers, Ollama host, Claude Code path, stream idle timeout): those
     // must stay visible across a panel close/reopen, since open() only re-fetches
     // and re-renders on first load — blanking them here would leave them empty
-    // forever and make a saved value look lost.
-    const inputs = this.querySelectorAll('input[type="text"]:not(.settings-value-input)');
+    // forever and make a saved value look lost. The command editor's fields are
+    // a draft the Slash commands tab keeps across a close, so they stay too.
+    const inputs = this.querySelectorAll('input[type="text"]:not(.settings-value-input, .command-editor-input)');
     inputs.forEach(input => {
       /** @type {HTMLInputElement} */ (input).value = '';
     });

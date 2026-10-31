@@ -35,7 +35,7 @@
 .menu-header,
 .skill-panel-heading,
 .skills-section-title,
-:where(.command-manager-group) h3,
+.command-page-group-title,
 .workspace-move-now-lead,
 .workspace-banner-lead,
 :where(conversation-bar) .info-card__eyebrow,

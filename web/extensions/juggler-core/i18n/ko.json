@@ -145,7 +145,6 @@
   "Create a new independent conversation seeded with an initial message": "초기 메시지로 시작하는 독립된 새 대화 만들기",
   "Create a new sub-conversation thread": "새 하위 대화 스레드 만들기",
   "Create a user-defined slash command": "사용자 정의 슬래시 명령 만들기",
-  "Create and manage user-defined slash commands": "사용자 정의 슬래시 명령 만들기 및 관리",
   "Create or overwrite files with new content": "새 내용으로 파일 만들기 또는 덮어쓰기",
   "Created {file}": "{file} 만듦",
   "Creating the worktree": "워크트리 만드는 중",

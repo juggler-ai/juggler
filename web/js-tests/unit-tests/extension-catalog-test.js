@@ -600,6 +600,36 @@ export async function runTests(_ctx) {
       'an unknown capability is reported and leaves the selection alone');
   });
 
+  // The Slash commands tab's "Show in Extensions" lands here: the command's
+  // row must be the one selected, even when its extension is collapsed and is
+  // not the one the catalog opened on.
+  await run('revealCapability selects a command inside a collapsed extension', async () => {
+    const ext = (/** @type {string} */ id, /** @type {string} */ name, /** @type {string} */ path) => ({
+      manifest: { id, name, version: '1.0.0' },
+      source: 'user',
+      capabilities: { contextItems: [], strategies: [], commands: [path] },
+      error: '',
+    });
+    const extensions = [ext('@jules/one', 'One', '/u/one/a-command-type.js'), ext('@jules/two', 'Two', '/u/two/b-command-type.js')];
+    const byPath = new Map([
+      ['/u/one/a-command-type.js', { id: 'a', manifest: { name: 'A' }, itemType: 'command', disabled: false }],
+      ['/u/two/b-command-type.js', { id: 'b', manifest: { name: 'B' }, itemType: 'command', disabled: false }],
+    ]);
+
+    const el = /** @type {PluginCatalog} */ (document.createElement('plugin-catalog'));
+    el._cards = buildExtensionCards(extensions, byPath, new Map(), new Set());
+    el.render();
+    assert(el._selectedKey === 'ext:@jules/one', `precondition: the first extension is selected by default, got ${el._selectedKey}`);
+    /** @type {any} */ (el)._toggleExpanded('ext:@jules/two');
+    assert(!el.querySelector('.plugin-tree-row[data-key="cap:command:b"]'), 'precondition: the second extension is collapsed');
+
+    const revealed = await el.revealCapability('command', 'b');
+    assert(revealed === true, 'revealCapability reports the command was found');
+    assert(el._selectedKey === 'cap:command:b', `the command is now selected, got ${el._selectedKey}`);
+    const selected = /** @type {HTMLElement} */ (el.querySelector('.plugin-tree-row.selected'));
+    assert(selected && selected.dataset.key === 'cap:command:b', 'its tree row, expanded into view, carries the selection');
+  });
+
   // 6 — a registry rebuild must not wait for a conversation parked on a tool
   // approval. The worker keeps publishing `processing_tools` for the whole time
   // the user deliberates, while the server's own activity signal deliberately

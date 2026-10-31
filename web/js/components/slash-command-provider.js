@@ -4,8 +4,7 @@
 
 import slashCommandHandler from '../services/slash-command-handler.js';
 import { longestCommonPrefix } from './completion-menu.js';
-import { openCommandEditor, openCommandManager } from './command-editor-dialog.js';
-import { withoutManagerCommand, buildManageCommandsRow, buildBrowseCommandsRow, commandText } from '../services/command-manager-entry.js';
+import { withoutManagerCommand, buildCommandsSettingsRow, commandText, COMMANDS_SETTINGS_TAB } from '../services/command-manager-entry.js';
 import { openSettings } from '../services/settings-launcher.js';
 import { markForTranslation, t } from '../../sdk/lib/i18n.js';
 
@@ -26,31 +25,27 @@ import { markForTranslation, t } from '../../sdk/lib/i18n.js';
  * is suppressed when the query exactly names an existing command, since creating
  * a duplicate is impossible.
  *
- * A bare `/` also leads with the two pinned buttons — "Edit custom slash
- * commands…", standing in for the `/commands` row it replaces, and "Browse
- * built-in commands…", which hands the built-ins to the Extensions settings.
- * Opening the menu with nothing typed is the moment someone is looking for what
- * is there, and the one place a button costs no one anything. Once a query is
- * typed they are gone and `/commands` completes normally — permanently pinned
- * rows would take the first ArrowDown away from the first real match, and would
- * leave every single-match list three items long, which is what Tab's
- * auto-accept shortcut keys off.
+ * A bare `/` also leads with the pinned "Browse/edit slash commands…" button,
+ * standing in for the `/commands` row it replaces and opening the Slash
+ * commands settings page. Opening the menu with nothing typed is the moment
+ * someone is looking for what is there, and the one place a button costs no one
+ * anything. Once a query is typed it is gone and `/commands` completes normally
+ * — a permanently pinned row would take the first ArrowDown away from the first
+ * real match, and would leave every single-match list two items long, which is
+ * what Tab's auto-accept shortcut keys off.
  * @module components/slash-command-provider
  */
 
 /**
- * The sentinel items accepted to open the editor and the manager. Kept distinct
- * from real commands (which have `name`) so `accept`/`insert` can special-case
- * them.
+ * The sentinel items accepted to open the Slash commands settings page, on a new
+ * draft or on its list. Kept distinct from real commands (which have `name`) so
+ * `accept`/`insert` can special-case them.
  * @type {{action: 'new-command', query: string}}
  */
 const NEW_COMMAND_SENTINEL = { action: 'new-command', query: '' };
 
-/** @type {{action: 'manage-commands'}} */
-const MANAGE_COMMANDS_SENTINEL = { action: 'manage-commands' };
-
-/** @type {{action: 'browse-commands'}} */
-const BROWSE_COMMANDS_SENTINEL = { action: 'browse-commands' };
+/** @type {{action: 'commands-settings'}} */
+const COMMANDS_SETTINGS_SENTINEL = { action: 'commands-settings' };
 
 /**
  * Whether an item is one of the synthetic rows rather than a real command. They
@@ -59,7 +54,7 @@ const BROWSE_COMMANDS_SENTINEL = { action: 'browse-commands' };
  * @returns {boolean} True for the synthetic rows
  */
 function isSynthetic(item) {
-  return item.action === 'new-command' || item.action === 'manage-commands' || item.action === 'browse-commands';
+  return item.action === 'new-command' || item.action === 'commands-settings';
 }
 
 /**
@@ -100,9 +95,9 @@ export const slashCommandProvider = {
     const matches = /** @type {any[]} */ (listed
       .filter(c => c.name.toLowerCase().startsWith(q) || (c.label?.toLowerCase().startsWith(q) ?? false))
       .sort((a, b) => a.name.localeCompare(b.name)));
-    // Lead a bare `/` with the two buttons, the first in place of the
-    // `/commands` row just dropped.
-    if (q === '') matches.unshift({ ...MANAGE_COMMANDS_SENTINEL }, { ...BROWSE_COMMANDS_SENTINEL });
+    // Lead a bare `/` with the button, in place of the `/commands` row just
+    // dropped.
+    if (q === '') matches.unshift({ ...COMMANDS_SETTINGS_SENTINEL });
     // Pin a "New command…" row at the end so an unmatched query (e.g. /standup)
     // becomes the create path. It carries the current query to pre-fill the name.
     // Suppress it when the query already names an existing command (built-in or
@@ -113,12 +108,8 @@ export const slashCommandProvider = {
   },
 
   renderItem(cmd) {
-    if (cmd.action === 'manage-commands') {
-      return buildManageCommandsRow('slash-command-item');
-    }
-
-    if (cmd.action === 'browse-commands') {
-      return buildBrowseCommandsRow('slash-command-item');
+    if (cmd.action === 'commands-settings') {
+      return buildCommandsSettingsRow('slash-command-item');
     }
 
     if (cmd.action === 'new-command') {
@@ -159,18 +150,14 @@ export const slashCommandProvider = {
   },
 
   insert(cmd) {
-    // Opening a dialog is a side effect; the accepted text is cleared so the
+    // Opening settings is a side effect; the accepted text is cleared so the
     // half-typed "/name" does not linger behind it.
-    if (cmd.action === 'manage-commands') {
-      openCommandManager();
-      return '';
-    }
-    if (cmd.action === 'browse-commands') {
-      openSettings('extensions');
+    if (cmd.action === 'commands-settings') {
+      openSettings(COMMANDS_SETTINGS_TAB);
       return '';
     }
     if (cmd.action === 'new-command') {
-      openCommandEditor({ name: cmd.query || '' });
+      openSettings(COMMANDS_SETTINGS_TAB, { newCommand: { name: cmd.query || '' } });
       return '';
     }
     return '/' + cmd.name + ' ';
@@ -181,7 +168,7 @@ export const slashCommandProvider = {
     // so fire it on that same Enter/click rather than splicing "/name " and
     // waiting for a second Enter. Commands that declare an argsHint expect the
     // user to type arguments next, so those keep the accept-then-send flow. The
-    // synthetic rows open a dialog (never submit the composer).
+    // synthetic rows open settings (never submit the composer).
     return !isSynthetic(cmd) && !cmd.argsHint;
   },
 

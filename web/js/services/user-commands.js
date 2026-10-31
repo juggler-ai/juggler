@@ -22,7 +22,7 @@ import { apiUrl } from '../utils/api-url.js';
  * Allowed command name (= filename sans .md): lowercase, starting with a
  * letter, using only letters, digits, and hyphens. Mirrors the server's
  * userCommandNamePattern (core/user_commands.go) — the single frontend
- * definition; the editor dialog and the define_command tool both use it.
+ * definition; the command editor and the define_command tool both use it.
  * @type {RegExp}
  */
 export const USER_COMMAND_NAME_RE = /^[a-z][a-z0-9-]*$/;
@@ -84,7 +84,7 @@ export async function fetchUserCommands() {
 /**
  * The registerable definitions: valid (no `error`) commands with project scope
  * shadowing user scope on a name collision. This is what the command registry
- * synthesises classes from — the manager UI reads the raw {@link fetchUserCommands}
+ * synthesises classes from — the Slash commands settings page reads the raw {@link fetchUserCommands}
  * list instead so it can show broken and shadowed definitions.
  * @returns {Promise<UserCommandDef[]>} Registerable definitions, project-shadowed
  */

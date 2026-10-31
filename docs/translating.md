@@ -71,6 +71,7 @@ From the repository root:
 ```bash
 node scripts/i18n check    # fails on any broken translation, naming the file and key
 node scripts/i18n status   # how much of each language is translated
+node scripts/i18n coverage # fails unless every language is translated in full
 node scripts/i18n extract  # after the source changes: lists keys whose English is gone
 ```
 

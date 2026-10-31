@@ -8,13 +8,13 @@
  *
  * The page lists the sessions this machine runs — what each is doing, and a
  * way to open, stop, retry or dismiss it — and launches new ones from the
- * machine's recent projects or a typed path. Opening a session goes to a tab
- * of its own, named for it, so opening it again finds that tab.
+ * machine's recent projects or a typed path. In a browser, opening a session
+ * takes this tab to it; the session's way back is its header's server button.
  * @module unit-tests/machine-sessions-page-test
  */
 
 import { assert, nextTask, waitFor } from '../utilities/test-helpers.js';
-import { mountSessionsPage, sessionWindowName } from '../../machine/sessions-view.js';
+import { mountSessionsPage } from '../../machine/sessions-view.js';
 import { createControlApi, readPageConfig, ControlApiError, TOKEN_HEADER } from '../../machine/control-api.js';
 import { desktopHost } from '../../machine/native-host.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
@@ -79,8 +79,10 @@ function withExposure(api) {
     lan: { enabled: false, urls: [] },
     tunnel: tunnelModes(),
     launch: { lanOnLaunch: false, wanOnLaunch: '' },
+    server: { status: 'ok', pid: 4242, addr: '127.0.0.1:3939', appStarted: true },
     /** @type {string} - A call to refuse, as the server refuses one. */
     refuse: '',
+    getStatus: async () => { api.calls.push(['getStatus']); return api.server; },
     getLAN: async () => { api.calls.push(['getLAN']); return api.lan; },
     getTunnel: async () => { api.calls.push(['getTunnel']); return api.tunnel; },
     getLaunch: async () => { api.calls.push(['getLaunch']); return api.launch; },
@@ -130,30 +132,14 @@ async function submitNewFolder(root, parent, name) {
 }
 
 /**
- * A stand-in window.open: records each call and hands back a window whose
- * location and name can be read afterwards.
- * @returns {{opened: Array<{url: string, name: string, win: any}>, openWindow: (url: string, name: string) => any}} The log and the stand-in.
+ * A stand-in for sending this tab to a page: records each address it is sent
+ * to, and goes nowhere.
+ * @returns {{went: string[], navigate: (url: string) => void}} The log and the stand-in.
  */
-function stubWindows() {
-  /** @type {Array<{url: string, name: string, win: any}>} */
-  const opened = [];
-  /**
-   * @param {string} url
-   * @param {string} name
-   * @returns {any} The stand-in window.
-   */
-  const openWindow = (url, name) => {
-    const win = {
-      name,
-      closed: false,
-      location: { href: url },
-      document: { title: '', body: { textContent: '' } },
-      close() { this.closed = true; },
-    };
-    opened.push({ url, name, win });
-    return win;
-  };
-  return { opened, openWindow };
+function stubNavigate() {
+  /** @type {string[]} */
+  const went = [];
+  return { went, navigate: (url) => { went.push(url); } };
 }
 
 /**
@@ -303,10 +289,10 @@ export async function runTests() {
   // A whole running session's row opens it, by the same path as its Open link;
   // the row's own controls do only their own thing. The Open link stays the
   // keyboard's way in, so the row adds no second, nested control.
-  await test('clicking a running session\'s row opens it in its tab; its controls do not', async () => {
+  await test('clicking a running session\'s row opens it in this tab; its controls do not', async () => {
     const api = stubApi(sessions);
-    const windows = stubWindows();
-    const m = await mount(api, { openWindow: windows.openWindow, confirm: () => false });
+    const nav = stubNavigate();
+    const m = await mount(api, { navigate: nav.navigate, confirm: () => false });
     // The Open link's own navigation is the browser's; keep it out of the lane.
     const noNavigate = (/** @type {Event} */ e) => {
       if (/** @type {Element} */ (e.target).closest('a')) e.preventDefault();
@@ -314,19 +300,18 @@ export async function runTests() {
     m.root.addEventListener('click', noNavigate);
     try {
       /** @type {HTMLElement} */ (row(m.root, 'aaa').querySelector('.ms-session-name')).click();
-      assert(JSON.stringify(windows.opened.map((w) => [w.url, w.name])) === JSON.stringify([['/s/aaa/', sessionWindowName('aaa')]]),
-        `a row click opened ${JSON.stringify(windows.opened.map((w) => [w.url, w.name]))}`);
+      assert(JSON.stringify(nav.went) === '["/s/aaa/"]', `a row click went to ${JSON.stringify(nav.went)}`);
       assert(row(m.root, 'aaa').classList.contains('ms-session-openable'), 'a running row does not show it can be opened');
 
-      windows.opened.length = 0;
+      nav.went.length = 0;
       /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('button.ms-session-stop')).click();
       /** @type {HTMLElement} */ (row(m.root, 'bbb').querySelector('a.ms-session-open')).click();
       await nextTask();
-      assert(windows.opened.length === 0, `the row's controls also opened ${JSON.stringify(windows.opened.map((w) => w.url))}`);
+      assert(nav.went.length === 0, `the row's controls also went to ${JSON.stringify(nav.went)}`);
 
       /** @type {HTMLElement} */ (row(m.root, 'ddd').querySelector('.ms-session-name')).click();
       /** @type {HTMLElement} */ (row(m.root, 'ccc').querySelector('.ms-session-name')).click();
-      assert(windows.opened.length === 0, 'a session that is not running opened from its row');
+      assert(nav.went.length === 0, 'a session that is not running opened from its row');
       assert(!row(m.root, 'ddd').classList.contains('ms-session-openable'), 'an errored row shows it can be opened');
 
       const link = /** @type {HTMLAnchorElement} */ (row(m.root, 'aaa').querySelector('a.ms-session-open'));
@@ -340,14 +325,14 @@ export async function runTests() {
 
   await test('in a desktop window clicking a running session\'s row shows it in that window', async () => {
     const host = stubHost();
-    const windows = stubWindows();
-    const m = await mount(stubApi(sessions), { host, openWindow: windows.openWindow });
+    const nav = stubNavigate();
+    const m = await mount(stubApi(sessions), { host, navigate: nav.navigate });
     try {
       /** @type {HTMLElement} */ (row(m.root, 'aaa').querySelector('.ms-path')).click();
       /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('button.ms-session-stop')).click();
       await nextTask();
       assert(JSON.stringify(host.attached) === '["aaa"]', `attached ${JSON.stringify(host.attached)}`);
-      assert(windows.opened.length === 0, `${windows.opened.length} tabs opened in a desktop window`);
+      assert(nav.went.length === 0, `a desktop window went to ${JSON.stringify(nav.went)}`);
     } finally {
       m.dispose();
     }
@@ -368,13 +353,13 @@ export async function runTests() {
     }
   });
 
-  await test('Open goes to the session in a tab named for it', async () => {
+  await test('Open goes to the session in this tab', async () => {
     const m = await mount(stubApi(sessions));
     try {
       const open = /** @type {HTMLAnchorElement|null} */ (row(m.root, 'aaa').querySelector('a.ms-session-open'));
       assert(!!open, 'a running session has no Open link');
       assert(open?.getAttribute('href') === '/s/aaa/', `Open href ${open?.getAttribute('href')}`);
-      assert(open?.target === sessionWindowName('aaa'), `Open target ${open?.target}`);
+      assert(!open?.target, `Open targets ${open?.target}, want this tab`);
       assert(!row(m.root, 'ddd').querySelector('a.ms-session-open'), 'an errored session offers Open');
       assert(!row(m.root, 'ccc').querySelector('a.ms-session-open'), 'a restarting session offers Open');
     } finally {
@@ -411,8 +396,8 @@ export async function runTests() {
 
   await test('an errored session can be retried or dismissed', async () => {
     const api = stubApi(sessions);
-    const windows = stubWindows();
-    const m = await mount(api, { openWindow: windows.openWindow });
+    const nav = stubNavigate();
+    const m = await mount(api, { navigate: nav.navigate });
     try {
       const delta = row(m.root, 'ddd');
       /** @type {HTMLButtonElement} */ (delta.querySelector('button.ms-session-retry')).click();
@@ -426,10 +411,10 @@ export async function runTests() {
     }
   });
 
-  await test('a typed path opens a session and takes the user to it', async () => {
+  await test('a typed path opens a session and takes this tab to it', async () => {
     const api = stubApi([]);
-    const windows = stubWindows();
-    const m = await mount(api, { openWindow: windows.openWindow });
+    const nav = stubNavigate();
+    const m = await mount(api, { navigate: nav.navigate });
     try {
       assert(!!m.root.querySelector('.ms-sessions-empty'), 'no empty state with no sessions');
       const input = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-launch-input'));
@@ -438,23 +423,18 @@ export async function runTests() {
       await nextTask();
       await nextTask();
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '~/code/new-thing'), `opened ${JSON.stringify(api.calls)}`);
-      // The tab is opened inside the click, before the server answers, so no
-      // popup blocker stands in the way; then it is sent to the session.
-      assert(windows.opened.length === 1, `${windows.opened.length} windows opened, want 1`);
-      const { win } = windows.opened[0];
-      assert(win.location.href === '/s/new1/' && win.name === sessionWindowName('new1'),
-        `the new tab went to ${win.location.href} as ${win.name}`);
+      assert(JSON.stringify(nav.went) === '["/s/new1/"]', `the tab went to ${JSON.stringify(nav.went)}`);
       assert(input.value === '', 'the path field was not cleared after a successful open');
     } finally {
       m.dispose();
     }
   });
 
-  await test('a refused open says why, and closes the tab it opened', async () => {
+  await test('a refused open says why, and goes nowhere', async () => {
     const api = stubApi([]);
     api.onOpen = async () => { throw new ControlApiError(400, 'project some/rel: give an absolute path, or one starting with ~/'); };
-    const windows = stubWindows();
-    const m = await mount(api, { openWindow: windows.openWindow });
+    const nav = stubNavigate();
+    const m = await mount(api, { navigate: nav.navigate });
     try {
       const input = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-launch-input'));
       input.value = 'some/rel';
@@ -463,7 +443,7 @@ export async function runTests() {
       await nextTask();
       const err = m.root.querySelector('.ms-launch-error');
       assert(!!err && (err.textContent || '').includes('absolute path'), `error shown: ${err?.textContent}`);
-      assert(windows.opened.length === 1 && windows.opened[0].win.closed, 'the placeholder tab was left open');
+      assert(nav.went.length === 0, `a refused open went to ${JSON.stringify(nav.went)}`);
       assert(input.value === 'some/rel', 'the refused path was cleared');
     } finally {
       m.dispose();
@@ -503,8 +483,8 @@ export async function runTests() {
       throw new ControlApiError(400, 'Stand-in refusal for 1/2.', { key: template, params: { path: '1/2' } });
     };
     await underPseudoLocale('machine-sessions-messages', async () => {
-      const windows = stubWindows();
-      const m = await mount(api, { openWindow: windows.openWindow });
+      const nav = stubNavigate();
+      const m = await mount(api, { navigate: nav.navigate });
       try {
         const input = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-launch-input'));
         input.value = '1/2';
@@ -522,8 +502,8 @@ export async function runTests() {
 
   await test('recent projects open a session', async () => {
     const api = stubApi(sessions, ['/work/zeta']);
-    const windows = stubWindows();
-    const m = await mount(api, { openWindow: windows.openWindow });
+    const nav = stubNavigate();
+    const m = await mount(api, { navigate: nav.navigate });
     try {
       const zeta = m.root.querySelector('.ms-recent[data-project="/work/zeta"]');
       assert(!!zeta, 'recents not listed');
@@ -593,6 +573,61 @@ export async function runTests() {
     }
   });
 
+  // The yellow notice's Reload button is drawn in the notice's own ink, not the
+  // page's: the page's text colour is near-white in the dark theme, and on the
+  // notice's yellow it cannot be read. Measured on the page's own stylesheets
+  // and each theme's tokens, in a frame of its own.
+  await test('the notice\'s button reads on the notice in both themes', async () => {
+    /**
+     * @param {string} css - A computed colour.
+     * @returns {number[]} Its r, g, b, a.
+     */
+    const rgba = (css) => {
+      const n = (css.match(/[\d.]+/g) || []).map(Number);
+      return [n[0], n[1], n[2], n.length > 3 ? n[3] : 1];
+    };
+    /**
+     * @param {number[]} c - r, g, b.
+     * @returns {number} Its relative luminance (WCAG).
+     */
+    const lum = (c) => {
+      const [r, g, b] = c.slice(0, 3).map((v) => {
+        const s = v / 255;
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    for (const theme of ['dark', 'light']) {
+      const frame = document.createElement('iframe');
+      frame.style.cssText = 'position:absolute;left:-10000px;width:40rem;height:10rem;border:0';
+      document.body.appendChild(frame);
+      try {
+        const doc = /** @type {Document} */ (frame.contentDocument);
+        const win = /** @type {Window & typeof globalThis} */ (/** @type {unknown} */ (frame.contentWindow));
+        const sheets = await Promise.all(['../../css/tokens/scale.css', `../../css/tokens/theme-${theme}.css`, '../../machine/sessions.css'].map(async (rel) => {
+          const resp = await fetch(new URL(rel, import.meta.url));
+          assert(resp.ok, `${rel}: ${resp.status}`);
+          const sheet = new win.CSSStyleSheet();
+          sheet.replaceSync(await resp.text());
+          return sheet;
+        }));
+        doc.adoptedStyleSheets = sheets;
+        doc.documentElement.dataset.theme = theme;
+        doc.body.innerHTML = '<div class="ms-unreachable"><span>This page belongs to a Juggler server that has since restarted.</span>'
+          + '<button class="ms-button ms-button-quiet">Reload</button></div>';
+        const notice = rgba(win.getComputedStyle(/** @type {Element} */ (doc.querySelector('.ms-unreachable'))).backgroundColor);
+        const style = win.getComputedStyle(/** @type {Element} */ (doc.querySelector('button')));
+        const own = rgba(style.backgroundColor);
+        const behind = own[3] === 0 ? notice : own;
+        const [hi, lo] = [lum(rgba(style.color)), lum(behind)].sort((a, b) => b - a);
+        const ratio = (hi + 0.05) / (lo + 0.05);
+        assert(ratio >= 4.5, `${theme}: the Reload button is ${style.color} on ${style.backgroundColor === 'rgba(0, 0, 0, 0)' ? 'the notice' : style.backgroundColor} — contrast ${ratio.toFixed(2)}, want at least 4.5`);
+      } finally {
+        frame.remove();
+      }
+    }
+  });
+
   // A way in that cannot start shows why in its controls column, and that
   // reason can be long — an install line with a URL. It wraps in the column
   // rather than widening it: the title and description keep the row's larger
@@ -635,20 +670,16 @@ export async function runTests() {
     }
   });
 
-  await test('a new folder is made, then opened in a tab', async () => {
+  await test('a new folder is made, then opened in this tab', async () => {
     const api = stubApi([]);
-    const windows = stubWindows();
-    const m = await mount(api, { openWindow: windows.openWindow });
+    const nav = stubNavigate();
+    const m = await mount(api, { navigate: nav.navigate });
     try {
       await submitNewFolder(m.root, ' /work ', ' fresh ');
       const asked = api.calls.filter((c) => c[0] === 'folder' || c[0] === 'open');
       assert(JSON.stringify(asked) === JSON.stringify([['folder', '/work', 'fresh'], ['open', '/work/fresh']]),
         `calls ${JSON.stringify(asked)}`);
-      // As with a typed path, the tab is opened inside the click.
-      assert(windows.opened.length === 1, `${windows.opened.length} windows opened, want 1`);
-      const { win } = windows.opened[0];
-      assert(win.location.href === '/s/new1/' && win.name === sessionWindowName('new1'),
-        `the new tab went to ${win.location.href} as ${win.name}`);
+      assert(JSON.stringify(nav.went) === '["/s/new1/"]', `the tab went to ${JSON.stringify(nav.went)}`);
       const nameInput = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-folder-name'));
       assert(nameInput.value === '', 'the name was not cleared after the folder opened');
     } finally {
@@ -656,18 +687,18 @@ export async function runTests() {
     }
   });
 
-  await test('a refused new folder says why, closes its tab and opens nothing', async () => {
+  await test('a refused new folder says why and opens nothing', async () => {
     const api = stubApi([]);
     api.onCreateFolder = async () => { throw new ControlApiError(409, 'there is already something called fresh in /work'); };
-    const windows = stubWindows();
-    const m = await mount(api, { openWindow: windows.openWindow });
+    const nav = stubNavigate();
+    const m = await mount(api, { navigate: nav.navigate });
     try {
       await submitNewFolder(m.root, '/work', 'fresh');
       const err = m.root.querySelector('.ms-folder-error');
       assert(!!err && !(/** @type {HTMLElement} */ (err)).hidden && (err.textContent || '').includes('already something called fresh'),
         `error shown: ${err?.textContent}`);
       assert(!api.calls.some((c) => c[0] === 'open'), 'a folder that was not made was opened');
-      assert(windows.opened.length === 1 && windows.opened[0].win.closed, 'the placeholder tab was left open');
+      assert(nav.went.length === 0, `a refused folder went to ${JSON.stringify(nav.went)}`);
       const nameInput = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-folder-name'));
       assert(nameInput.value === 'fresh', 'the refused name was cleared');
     } finally {
@@ -677,9 +708,9 @@ export async function runTests() {
 
   await test('in a desktop window a new folder opens in that window', async () => {
     const api = stubApi([]);
-    const windows = stubWindows();
+    const nav = stubNavigate();
     const host = stubHost('/picked');
-    const m = await mount(api, { openWindow: windows.openWindow, host });
+    const m = await mount(api, { navigate: nav.navigate, host });
     try {
       const browse = /** @type {HTMLButtonElement|null} */ (m.root.querySelector('form.ms-new-folder button.ms-folder-browse'));
       assert(!!browse, 'no Browse for the parent in a desktop window');
@@ -690,7 +721,7 @@ export async function runTests() {
       await submitNewFolder(m.root, '/picked', 'fresh');
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/picked/fresh'), `calls ${JSON.stringify(api.calls)}`);
       assert(host.attached.length === 1 && host.attached[0] === 'new1', `attached ${JSON.stringify(host.attached)}`);
-      assert(windows.opened.length === 0, `${windows.opened.length} tabs opened in a desktop window`);
+      assert(nav.went.length === 0, `a desktop window went to ${JSON.stringify(nav.went)}`);
     } finally {
       m.dispose();
     }
@@ -840,6 +871,24 @@ export async function runTests() {
     }
   });
 
+  await test('on this machine the page says whether the app or a terminal started the server', async () => {
+    const api = withExposure(stubApi([]));
+    api.server = { status: 'ok', pid: 4242, addr: '127.0.0.1:3939', appStarted: false };
+    const m = await mountLocal(api);
+    try {
+      /** @returns {string} What the server's row says. */
+      const said = () => m.root.querySelector('.ms-exposure .connectivity-server')?.textContent || '';
+      assert(said().includes('from a terminal') && said().includes('4242') && said().includes('127.0.0.1:3939'),
+        `a terminal's server: ${JSON.stringify(said())}`);
+      api.server = { status: 'ok', pid: 77, addr: '127.0.0.1:3939', appStarted: true };
+      await m.page.refresh();
+      assert(said().includes('Juggler app') && !said().includes('terminal') && said().includes('77'),
+        `the app's server: ${JSON.stringify(said())}`);
+    } finally {
+      m.dispose();
+    }
+  });
+
   await test('a refused switch says why, in the server\'s words', async () => {
     const api = withExposure(stubApi([]));
     api.refuse = 'setLAN';
@@ -860,7 +909,7 @@ export async function runTests() {
     const m = await mount(api);
     try {
       assert(!m.root.querySelector('.ms-exposure'), 'switches offered to a viewer off this machine');
-      assert(!api.calls.some((c) => ['getLAN', 'getTunnel', 'getLaunch'].includes(c[0])), `asked for what it may not switch: ${JSON.stringify(api.calls)}`);
+      assert(!api.calls.some((c) => ['getLAN', 'getTunnel', 'getLaunch', 'getStatus'].includes(c[0])), `asked for what it may not switch: ${JSON.stringify(api.calls)}`);
     } finally {
       m.dispose();
     }
@@ -873,6 +922,8 @@ export async function runTests() {
         const label = m.root.querySelector('.ms-exposure .connectivity-launch')?.textContent || '';
         assert(isPseudoLocalized(label), `the start-with-Juggler box was not translated: ${JSON.stringify(label)}`);
         assert(isPseudoLocalized(m.root.querySelector('.ms-exposure h2')?.textContent || ''), 'the section heading was not translated');
+        const server = m.root.querySelector('.ms-exposure .connectivity-server')?.textContent || '';
+        assert(isPseudoLocalized(server), `who started the server was not translated: ${JSON.stringify(server)}`);
       } finally {
         m.dispose();
       }
@@ -902,11 +953,13 @@ export async function runTests() {
     await api.setTunnel('p2p');
     await api.getLaunch();
     await api.setLaunch({ wanOnLaunch: 'p2p' });
+    await api.getStatus();
     const ways = sent.slice(3).map(({ url, init }) => `${init.method} ${url} ${init.body || ''}`);
     assert(JSON.stringify(ways) === JSON.stringify([
       'GET /api/server/lan ', 'PUT /api/server/lan {"enabled":true}',
       'GET /api/server/tunnel ', 'PUT /api/server/tunnel {"mode":"p2p"}',
       'GET /api/server/launch ', 'PUT /api/server/launch {"wanOnLaunch":"p2p"}',
+      'GET /api/server/status ',
     ]), `the ways in were asked for as ${JSON.stringify(ways)}`);
     assert(sent[2].url === '/api/server/folders' && sent[2].init.method === 'POST', `folder request ${sent[2].init.method} ${sent[2].url}`);
     const folderBody = JSON.parse(sent[2].init.body);
@@ -930,11 +983,16 @@ export async function runTests() {
     const attached = [];
     /** @type {string[]} */
     const closeAnswers = [];
+    /** @type {string[]} */
+    const opened = [];
     return {
       attached,
       closeAnswers,
+      opened,
       /** @type {(id: string) => Promise<void>} */
       attach: async (id) => { attached.push(id); },
+      /** @type {(url: string) => void} */
+      openURL: (url) => { opened.push(url); },
       takesDroppedFolders: true,
       /** @type {((address: string) => Promise<void>)|undefined} */
       connect: undefined,
@@ -963,9 +1021,9 @@ export async function runTests() {
 
   await test('in a desktop window a launched session opens in that window, not a tab', async () => {
     const api = stubApi([]);
-    const windows = stubWindows();
+    const nav = stubNavigate();
     const host = stubHost();
-    const m = await mount(api, { openWindow: windows.openWindow, host });
+    const m = await mount(api, { navigate: nav.navigate, host });
     try {
       const input = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-launch-input'));
       input.value = '/work/new';
@@ -974,8 +1032,35 @@ export async function runTests() {
       await nextTask();
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/new'), `opened ${JSON.stringify(api.calls)}`);
       assert(host.attached.length === 1 && host.attached[0] === 'new1', `attached ${JSON.stringify(host.attached)}`);
-      assert(windows.opened.length === 0, `${windows.opened.length} tabs opened in a desktop window`);
+      assert(nav.went.length === 0, `a desktop window went to ${JSON.stringify(nav.went)}`);
     } finally {
+      m.dispose();
+    }
+  });
+
+  // A native WebView drops a target=_blank click on a plain http address, so
+  // in a desktop window an address card's link goes through the app, which
+  // opens it in the system browser.
+  await test('in a desktop window an address on its card opens in the system browser, through the app', async () => {
+    const api = withExposure(stubApi([]));
+    api.lan = { enabled: true, urls: [{ url: 'http://192.168.1.4:3939/', interface: 'en0', qr: QR }] };
+    const host = stubHost();
+    const m = await mount(api, { host, config: { token: 't', version: 'v1.2.3', host: 'studio', local: true } });
+    let leftToTheWebView = true;
+    /** @param {Event} e */
+    const after = (e) => {
+      leftToTheWebView = !e.defaultPrevented;
+      e.preventDefault();
+    };
+    m.root.addEventListener('click', after);
+    try {
+      const link = /** @type {HTMLAnchorElement|null} */ (m.root.querySelector('.ms-exposure a.connectivity-address-link'));
+      assert(!!link, 'no address link on the card');
+      /** @type {HTMLAnchorElement} */ (link).click();
+      assert(JSON.stringify(host.opened) === '["http://192.168.1.4:3939/"]', `the app was asked to open ${JSON.stringify(host.opened)}`);
+      assert(!leftToTheWebView, 'the click was left to the WebView, which drops it');
+    } finally {
+      m.root.removeEventListener('click', after);
       m.dispose();
     }
   });

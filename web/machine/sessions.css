@@ -398,6 +398,22 @@ body {
     font-size: var(--font-size-sm);
 }
 
+/* A button on the notice is drawn in the notice's ink, not the page's: the
+   page's text and raised surface are near-white and dark grey in the dark
+   theme, and neither reads on the yellow. An outline of the ink, and a tint of
+   it on hover. */
+.ms-unreachable .ms-button {
+    flex: none;
+    border-color: color-mix(in srgb, var(--notice-text) 45%, transparent);
+    background: transparent;
+    color: inherit;
+}
+
+.ms-unreachable .ms-button:hover:not(:disabled) {
+    border-color: var(--notice-text);
+    background: color-mix(in srgb, var(--notice-text) 12%, transparent);
+}
+
 @media (width <= 36rem) {
     .ms-page {
         padding: var(--spacing-lg) var(--spacing-md);

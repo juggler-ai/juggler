@@ -53,6 +53,7 @@
   "Binary": "バイナリ",
   "Branch": "ブランチ",
   "Broad — grants read access to a large tree": "広範 — 大きなツリーへの読み取りアクセスを許可します",
+  "Browse slash commands, and create or edit your own": "スラッシュコマンドを表示し、独自のコマンドを作成・編集する",
   "Bundles scripts that can be run through the normal tools": "通常のツールで実行できるスクリプトを同梱",
   "Can't create a conversation: this conversation has no session.": "会話を作成できません: この会話にはセッションがありません。",
   "Can't duplicate: this conversation has no session.": "複製できません: この会話にはセッションがありません。",

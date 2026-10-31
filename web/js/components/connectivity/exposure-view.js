@@ -81,10 +81,19 @@ import { createCopyButton } from '../../../sdk/lib/copy-button.js';
  */
 
 /**
+ * The machine server's status, as far as this view reads it.
+ * @typedef {object} ServerStatus
+ * @property {number} pid - Its process
+ * @property {string} addr - Its loopback address, host:port
+ * @property {boolean} [appStarted] - Whether the desktop app started it, rather than someone at a terminal
+ */
+
+/**
  * How a page reaches the machine server's ways in. A refusal throws an error
  * carrying the server's reason as `detail`, and the message it was rendered
  * from as `serverMessage`, when it gave one.
  * @typedef {object} ExposureApi
+ * @property {() => Promise<ServerStatus>} [getServer] - The machine server's status.
  * @property {() => Promise<LANState>} getLAN - LAN access as it stands.
  * @property {(enabled: boolean) => Promise<LANState>} setLAN - Switches it, answering what is.
  * @property {() => Promise<TunnelState>} getTunnel - The tunnel as it stands.
@@ -131,11 +140,14 @@ function failureText(lead, err) {
 
 /**
  * One address as a link with its copy button, under its label when it has one.
+ * The link opens apart from the page: in a new tab, or through open when the
+ * page has one (a desktop window, whose WebView drops a target=_blank click).
  * @param {HTMLElement} into - Where it goes.
  * @param {string} url - The address.
  * @param {string} label - What it opens ('' for no label).
+ * @param {((url: string) => void)|null} open - Opens the address, if the page opens it itself.
  */
-function addressLine(into, url, label) {
+function addressLine(into, url, label, open) {
   if (label) {
     const name = document.createElement('div');
     name.className = 'connectivity-address-label';
@@ -150,6 +162,12 @@ function addressLine(into, url, label) {
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
   link.textContent = url;
+  if (open) {
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      open(url);
+    });
+  }
   row.appendChild(link);
   row.appendChild(createCopyButton(url, 'connectivity-address-copy', t('Copy address')));
   into.appendChild(row);
@@ -163,9 +181,10 @@ function addressLine(into, url, label) {
  * machine's sessions page under it.
  * @param {{url: string, qr?: string, session?: PageLink}} address - The machine's address, and the session's there.
  * @param {string[]} notes - How to use it, and anything else worth knowing; '' entries are skipped.
+ * @param {((url: string) => void)|null} open - Opens an address, if the page opens it itself (addressLine).
  * @returns {HTMLElement} The card.
  */
-function addressCard(address, notes) {
+function addressCard(address, notes, open) {
   const card = document.createElement('div');
   card.className = 'connectivity-address';
   const scanned = address.session || address;
@@ -181,10 +200,10 @@ function addressCard(address, notes) {
   const details = document.createElement('div');
   details.className = 'connectivity-address-details';
   if (address.session) {
-    addressLine(details, address.session.url, t('This session'));
-    addressLine(details, address.url, t('All sessions on this machine'));
+    addressLine(details, address.session.url, t('This session'), open);
+    addressLine(details, address.url, t('All sessions on this machine'), open);
   } else {
-    addressLine(details, address.url, '');
+    addressLine(details, address.url, '', open);
   }
   for (const text of notes) {
     if (!text) continue;
@@ -254,18 +273,30 @@ function shownError(section) {
 /**
  * LAN access and the tunnel, drawn into two sections a page owns, and
  * switched through its ExposureApi. A switch in flight owns the sections until
- * it answers: refreshes leave them be, and their controls are held.
+ * it answers: refreshes leave them be, and their controls are held. Above
+ * them, in a third section when the page gives one, is the machine server
+ * itself: which process, and whether the desktop app or a terminal started it.
  */
 export class ExposureView {
   /**
    * @param {object} options
+   * @param {HTMLElement} [options.serverSection] - Where the machine server is named.
    * @param {HTMLElement} options.lanSection - Where LAN access is drawn.
    * @param {HTMLElement} options.tunnelSection - Where the tunnel modes are drawn.
    * @param {ExposureApi} options.api - How the machine server is reached.
    * @param {ExposureChrome} options.chrome - How the page draws a row and a button.
    * @param {LaunchState} [options.launch] - What opens at start, as last known.
+   * @param {(url: string) => void} [options.openAddress] - Opens an address
+   *   card's link, for a page whose WebView would drop it (a desktop window);
+   *   without it a link opens in a new tab.
    */
-  constructor({ lanSection, tunnelSection, api, chrome, launch = { lanOnLaunch: false, wanOnLaunch: '' } }) {
+  constructor({ serverSection, lanSection, tunnelSection, api, chrome, launch = { lanOnLaunch: false, wanOnLaunch: '' }, openAddress }) {
+    /** @private */
+    this._openAddress = openAddress || null;
+    /** @private */
+    this._serverSection = serverSection || null;
+    /** @type {string} @private - What the server section last drew. */
+    this._serverDrawn = '';
     /** @private */
     this._lanSection = lanSection;
     /** @private */
@@ -299,22 +330,25 @@ export class ExposureView {
     this.pending = Promise.resolve();
   }
 
-  /** Hide both sections, as for a viewer who may not switch them. */
+  /** Hide every section, as for a viewer who may not switch them. */
   hide() {
+    if (this._serverSection) this._serverSection.hidden = true;
     this._lanSection.hidden = true;
     this._tunnelSection.hidden = true;
   }
 
   /**
-   * Fetch and show LAN access, the tunnel and what opens at start. A switch in
-   * flight owns the sections until it answers, a choice made while the fetch
-   * was out stands over what it answers, and whatever failed to fetch is left
-   * as it was.
+   * Fetch and show the machine server, LAN access, the tunnel and what opens
+   * at start. A switch in flight owns the sections until it answers, a choice
+   * made while the fetch was out stands over what it answers, and whatever
+   * failed to fetch is left as it was.
    * @returns {Promise<void>} Resolves once shown.
    */
   async refresh() {
     const saves = this._launchSaves;
-    const [lan, tunnel, launch] = await Promise.all([
+    const getServer = this._serverSection && this._api.getServer;
+    const [server, lan, tunnel, launch] = await Promise.all([
+      getServer ? getServer().catch(() => null) : null,
       this._api.getLAN().catch(() => null),
       this._api.getTunnel().catch(() => null),
       this._api.getLaunch().catch(() => null),
@@ -322,9 +356,32 @@ export class ExposureView {
     if (launch && saves === this._launchSaves) {
       this.launch = { lanOnLaunch: !!launch.lanOnLaunch, wanOnLaunch: launch.wanOnLaunch || '' };
     }
+    if (server) this._showServer(server);
     if (this._busy) return;
     if (lan) this._showLAN(lan);
     if (tunnel) this._showTunnel(tunnel);
+  }
+
+  /**
+   * Name the machine server: its process and address, and whether the desktop
+   * app started it — and so starts it again if it stops — or someone at a
+   * terminal, where it is theirs to start again.
+   * @private
+   * @param {ServerStatus} server
+   */
+  _showServer(server) {
+    const section = this._serverSection;
+    if (!section) return;
+    section.hidden = false;
+    const params = { pid: server.pid, addr: server.addr };
+    const description = server.appStarted
+      ? t('Started by the Juggler app, which restarts it if it stops. Process {pid} on {addr}.', params)
+      : t('Started from a terminal. If it stops, restart it there, or let the app start a new one. Process {pid} on {addr}.', params);
+    if (description === this._serverDrawn) return;
+    this._serverDrawn = description;
+    const row = this._chrome.row(t('Juggler server'), description, [], '');
+    row.classList.add('connectivity-server');
+    section.replaceChildren(row);
   }
 
   /**
@@ -420,7 +477,7 @@ export class ExposureView {
       for (const u of lan.urls) {
         addresses.appendChild(addressCard(u, [u.session
           ? t('Scan with a phone on the same network to open this session, or open either address on another device.')
-          : t('Scan with a phone on the same network, or open the address on another device.')]));
+          : t('Scan with a phone on the same network, or open the address on another device.')], this._openAddress));
       }
       row.appendChild(addresses);
     }
@@ -479,7 +536,7 @@ export class ExposureView {
             ? t('Scan with a phone to open this session, or open either link on any device.')
             : t('Scan with a phone, or open the link on any device.'),
           running.relay ? modeText(m, 'relayNote') : '',
-        ]));
+        ], this._openAddress));
         row.appendChild(addresses);
       }
       return row;

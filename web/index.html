@@ -390,9 +390,9 @@
             <div class="app-header__board-title" id="board-title"></div>
 
             <!-- Project: the session's folder, read-only (a session stays on
-                 its project), + an inline "open new window" button. The
-                 new-window button is native-window-only (hidden by CSS in
-                 remote browser tabs — they have no host to spawn a window). -->
+                 its project), + an inline "open new window" button. In a
+                 browser tab, which has no app to open a window, the button
+                 opens the server's page in a tab instead (header-controls.js). -->
             <project-path-display id="project-path-display" title="Project directory">
                 <span class="ppd-chip" id="project-path-chip">
                     <span class="ppd-path"></span>

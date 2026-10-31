@@ -302,7 +302,7 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 	assetsFromDisk := flag.Bool("assets-from-disk", false, "Developer flag: serve web assets from the on-disk web/ tree (requires a source checkout) instead of the embedded FS, disabling caching and reloading templates per request; implies --dev")
 	version := flag.Bool("version", false, "Print version and exit")
 	window := flag.Bool("window", false, "Test-mode only: show the test harness's debug lane window")
-	project := flag.String("project", "", "Project folder to open (defaults to the current folder when run from a terminal)")
+	project := flag.String("project", "", "Project folder to open a session for (default: none; open one from the server's page)")
 	port := flag.Int("port", 0, "Port for the Juggler server, when this starts it, or the first free one after it (default 3939)")
 	testMode := flag.Bool("test", false, "Enable test API routes and print JUGGLER_ADDR to stdout")
 	testIframes := flag.Int("test-iframes", 0, "Test-mode only: open the viewer window at /test-pool?n=N (tiled iframes acting as parallel test lanes) instead of the production UI")
@@ -336,7 +336,7 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 	// juggler-app desktop process; this binary is the headless engine + server.
 	// This is what stops the server impersonating the app on a Windows
 	// double-click. hasTerminal still distinguishes a shell launch from an icon
-	// launch for the project default (cwd vs none); see resolveStartupProject.
+	// launch, for the PATH repair and whether keys are read from the terminal.
 
 	return appFlags{
 		verbose:        *verbose,

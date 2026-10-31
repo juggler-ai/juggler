@@ -122,6 +122,7 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 		"locale?locale=en",
 		"restart-server",
 		"retry-server",
+		"start-server",
 		"open-local",
 		"zoom?zoom=0",
 		"pick-file",

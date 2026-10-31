@@ -92,6 +92,7 @@ export class ControlApiError extends Error {
  *   setTunnel: (mode: string) => Promise<TunnelState>,
  *   getLaunch: () => Promise<LaunchState>,
  *   setLaunch: (change: Partial<LaunchState>) => Promise<LaunchState>,
+ *   getStatus: () => Promise<import('../js/components/connectivity/exposure-view.js').ServerStatus>,
  * }} The calls the sessions page makes.
  */
 export function createControlApi({ token, fetchImpl = (input, init) => fetch(input, init) }) {
@@ -155,5 +156,8 @@ export function createControlApi({ token, fetchImpl = (input, init) => fetch(inp
     getLaunch: async () => /** @type {LaunchState} */ (await request('GET', '/launch')),
     // Saves the keys it is given, and answers with both as saved.
     setLaunch: async (change) => /** @type {LaunchState} */ (await request('PUT', '/launch', change)),
+    // The server's own status: its process, and whether the desktop app
+    // started it.
+    getStatus: async () => /** @type {import('../js/components/connectivity/exposure-view.js').ServerStatus} */ (await request('GET', '/status')),
   };
 }

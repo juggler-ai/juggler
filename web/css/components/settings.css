@@ -1188,6 +1188,16 @@ settings-panel .connectivity-section:not([hidden]) {
     display: contents;
 }
 
+/* The server's row has no controls, so its description takes the whole row
+   rather than wrapping in the 40% a title column gets. */
+settings-panel #connectivity-form .connectivity-server {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+settings-panel #connectivity-form .connectivity-server > .provider-control:empty {
+    display: none;
+}
+
 /* A way in's Start/Stop sits at its natural width, like a switch would. */
 settings-panel #connectivity-form .provider-control > .settings-btn {
     align-self: flex-start;

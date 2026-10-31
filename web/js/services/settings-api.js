@@ -271,6 +271,15 @@ export function getConnectivity(policy = {}) {
  */
 
 /**
+ * GET /api/connectivity/server: the machine server's status — its process and
+ * address, and whether the desktop app started it (`appStarted`).
+ * @returns {Promise<import('../components/connectivity/exposure-view.js').ServerStatus>} The status.
+ */
+export function getServer() {
+  return fetchJson(apiUrl('/connectivity/server'));
+}
+
+/**
  * GET /api/connectivity/lan: this machine's LAN access (the machine server's).
  * @returns {Promise<LANState>} LAN access as it stands.
  */

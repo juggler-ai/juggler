@@ -108,14 +108,15 @@ func (e *openFailedError) notice(a *appState) string {
 // own query: a server by URL as given; on this machine's server, an empty
 // window's server page or a project's session (opened now, or found running).
 // It also returns which process of this machine's server that is (zero for a
-// server by URL). A server that cannot be had is the serverClient's error; a
-// session it will not open is an *openFailedError.
-func (a *appState) resolveWindow(spec windowSpec) (string, serverProc, error) {
+// server by URL). Without start, this machine's server is only found, never
+// started (serverClient). A server that cannot be had is the serverClient's
+// error; a session it will not open is an *openFailedError.
+func (a *appState) resolveWindow(spec windowSpec, start bool) (string, serverProc, error) {
 	if spec.isURL() {
 		return normalizeURL(spec.url), serverProc{}, nil
 	}
 	for attempt := 1; ; attempt++ {
-		c, err := a.serverClient()
+		c, err := a.serverClient(start)
 		if err != nil {
 			return "", serverProc{}, err
 		}

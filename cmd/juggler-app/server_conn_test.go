@@ -35,7 +35,10 @@ type stubMachineServer struct {
 	build string
 	srv   *httptest.Server
 
-	attaches  atomic.Int32
+	attaches atomic.Int32
+	// holding counts the attachments it is holding now, which its status
+	// counts among its clients, as a server counts the app attached to it.
+	holding   atomic.Int32
 	shutdowns atomic.Int32
 	// drop closes to end every held attachment while the server stays up
 	// (dropAttachments); stopped closes when the server goes.
@@ -63,16 +66,18 @@ type stubMachineServer struct {
 	// What its status reports beyond its sessions: started by hand, other
 	// clients attached, LAN access on, a running tunnel's mode.
 	handStarted atomic.Bool
-	attached    atomic.Int32
-	lan         atomic.Bool
-	tunnel      atomic.Pointer[string]
+	// appStarted is a server the desktop app started (serve --started-by).
+	appStarted atomic.Bool
+	attached   atomic.Int32
+	lan        atomic.Bool
+	tunnel     atomic.Pointer[string]
 	// refusals counts the conditional shutdowns it refused (409).
 	refusals atomic.Int32
 }
 
 // occupancy is what stopping the stand-in would end.
 func (s *stubMachineServer) occupancy() machineserver.Occupancy {
-	o := machineserver.Occupancy{Sessions: *s.list.Load(), Clients: int(s.attached.Load()), LAN: s.lan.Load(), HandStarted: s.handStarted.Load()}
+	o := machineserver.Occupancy{Sessions: *s.list.Load(), Clients: int(s.attached.Load() + s.holding.Load()), LAN: s.lan.Load(), HandStarted: s.handStarted.Load()}
 	if t := s.tunnel.Load(); t != nil {
 		o.Tunnel = *t
 	}
@@ -136,7 +141,7 @@ func (s *stubMachineServer) dropAttachments() {
 func (s *stubMachineServer) status() map[string]any {
 	o := s.occupancy()
 	return map[string]any{"status": "ok", "pid": os.Getpid(), "addr": s.addr(), "version": s.version, "build": s.build, "sessions": len(o.Sessions),
-		"implicit": !o.HandStarted, "attached": o.Clients, "lan": o.LAN, "tunnel": o.Tunnel}
+		"implicit": !o.HandStarted, "appStarted": s.appStarted.Load(), "attached": o.Clients, "lan": o.LAN, "tunnel": o.Tunnel}
 }
 
 func (s *stubMachineServer) serve(w http.ResponseWriter, r *http.Request) {
@@ -167,6 +172,8 @@ func (s *stubMachineServer) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		drop := *s.drop.Load()
+		s.holding.Add(1)
+		defer s.holding.Add(-1)
 		st := s.status()
 		st["attachment"] = "att"
 		w.WriteHeader(http.StatusOK)
@@ -241,7 +248,7 @@ func TestTheAppAttachesOnceAndAgainWhenItsAttachmentIsDropped(t *testing.T) {
 	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: "http://" + srv.addr() + "/s/s1"})
 
 	for range 3 {
-		c, err := a.serverClient()
+		c, err := a.serverClient(true)
 		if err != nil || c.Addr() != srv.addr() {
 			t.Fatalf("serverClient: %v, %v; want the stand-in", c, err)
 		}
@@ -273,7 +280,7 @@ func TestTheAppsLocalWindowsStandInAtOnceWhenItsServerGoes(t *testing.T) {
 	lost := lostWindows(t)
 	srv := newStubMachineServer(t, a, core.Version)
 	base := "http://" + srv.addr()
-	c, err := a.serverClient()
+	c, err := a.serverClient(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,6 +325,59 @@ func TestALostServerTakesOnlyTheWindowsOpenedOnIt(t *testing.T) {
 	}
 }
 
+// standInActions is the control actions si's page offers, in order.
+func standInActions(si *standIn) []string {
+	var actions []string
+	for _, b := range si.buttons {
+		actions = append(actions, b.action)
+	}
+	return actions
+}
+
+// TestALostServerTheAppDidNotStartIsLookedForNotStarted: a server run outside
+// the app — in a terminal — that goes takes its windows with it as any does,
+// but their stand-in's Try again only looks for it, and Start a server is
+// offered beside it. A server the app started is started again, as ever.
+func TestALostServerTheAppDidNotStartIsLookedForNotStarted(t *testing.T) {
+	a := newTestAppState(t)
+	got := make(chan *standIn, 16)
+	orig := openLostServerStandIn
+	openLostServerStandIn = func(_ *appState, _ windowSpec, si *standIn, _ windowOpts) { got <- si }
+	t.Cleanup(func() { openLostServerStandIn = orig })
+
+	ours := serverProc{addr: "127.0.0.1:3939", pid: 101, appStarted: true}
+	terminals := serverProc{addr: "127.0.0.1:3939", pid: 202}
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/s/s1", server: ours})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{project: "/q"}, serverURL: "http://127.0.0.1:3939/s/s2", server: terminals})
+
+	a.serverLost(ours)
+	if si := <-got; si.startedElsewhere || strings.Join(standInActions(si), ",") != "retry-server" {
+		t.Fatalf("stand-in for the app's own server: elsewhere %v, %v; want the app's, offering retry-server", si.startedElsewhere, standInActions(si))
+	}
+	a.serverLost(terminals)
+	if si := <-got; !si.startedElsewhere || strings.Join(standInActions(si), ",") != "retry-server,start-server" {
+		t.Fatalf("stand-in for a terminal's server: elsewhere %v, %v; want elsewhere, offering retry-server and start-server", si.startedElsewhere, standInActions(si))
+	}
+
+	// Try again on it, with no server there: none is started, and the stand-in
+	// comes back.
+	starts := 0
+	a.connectOpts.Start = func() (int, <-chan struct{}, error) {
+		starts++
+		return 0, nil, errors.New("this test starts no server")
+	}
+	p := a.planWindow(windowSpec{}, windowOpts{noStart: true})
+	if starts != 0 || p.standIn == nil || !p.standIn.startedElsewhere {
+		t.Fatalf("looking again with no server: %d started, stand-in %+v; want none started and the stand-in again", starts, p.standIn)
+	}
+	// With the terminal's server back, the window opens on it.
+	srv := newStubMachineServer(t, a, core.Version)
+	p = a.planWindow(windowSpec{}, windowOpts{noStart: true})
+	if starts != 0 || p.standIn != nil || p.serverURL != "http://"+srv.addr() || p.server.appStarted {
+		t.Fatalf("looking again with a server there: %d started, stand-in %+v, %s on %+v; want the terminal's server", starts, p.standIn, p.serverURL, p.server)
+	}
+}
+
 // TestAWindowIsReplacedOnceWhenItsServerGoes: the app's attachment ending with
 // its server gone, and the window's page reporting the same loss, replace the
 // window once between them.
@@ -325,7 +385,7 @@ func TestAWindowIsReplacedOnceWhenItsServerGoes(t *testing.T) {
 	a := newTestAppState(t)
 	lost := lostWindows(t)
 	srv := newStubMachineServer(t, a, core.Version)
-	c, err := a.serverClient()
+	c, err := a.serverClient(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +414,7 @@ func TestAServerThatIsThereButRefusesTheAttachmentLeavesItsWindows(t *testing.T)
 	a := newTestAppState(t)
 	lost := lostWindows(t)
 	srv := newStubMachineServer(t, a, core.Version)
-	c, err := a.serverClient()
+	c, err := a.serverClient(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +426,7 @@ func TestAServerThatIsThereButRefusesTheAttachmentLeavesItsWindows(t *testing.T)
 	srv.dropAttachments()
 	<-att.Done()
 	// Waits for the flight settling the ended attachment, then tries again.
-	if _, err := a.serverClient(); err == nil {
+	if _, err := a.serverClient(true); err == nil {
 		t.Fatal("serverClient attached to a server refusing attachments")
 	}
 	select {
@@ -387,7 +447,7 @@ func TestAServerOfAnotherVersionWithNoSessionsIsRestartedSilently(t *testing.T) 
 		fresh = newStubMachineServer(t, a, core.Version)
 		return os.Getpid(), make(chan struct{}), nil
 	}
-	c, err := a.serverClient()
+	c, err := a.serverClient(true)
 	if err != nil {
 		t.Fatalf("serverClient: %v", err)
 	}
@@ -413,7 +473,7 @@ func TestARebuiltServerIsAnotherVersion(t *testing.T) {
 		fresh = newStubMachineServerBuild(t, a, core.Version, a.serverBuild)
 		return os.Getpid(), make(chan struct{}), nil
 	}
-	c, err := a.serverClient()
+	c, err := a.serverClient(true)
 	if err != nil {
 		t.Fatalf("serverClient: %v", err)
 	}
@@ -432,7 +492,7 @@ func TestAServerOfAnotherVersionWithSessionsIsLeftForTheUser(t *testing.T) {
 	a := newTestAppState(t)
 	old := newStubMachineServer(t, a, "v0.0.1-old")
 	old.list.Store(&[]machineserver.Session{{ID: "s1", Project: "/work/alpha", State: machineserver.SessionRunning}})
-	_, err := a.serverClient()
+	_, err := a.serverClient(true)
 	var mismatch *versionMismatchError
 	if !errors.As(err, &mismatch) {
 		t.Fatalf("serverClient: %v, want a version mismatch", err)
@@ -479,7 +539,7 @@ func TestAServerOfAnotherVersionInUseIsLeftForTheUser(t *testing.T) {
 			a := newTestAppState(t)
 			old := newStubMachineServer(t, a, "v0.0.1-old")
 			c.occupy(old)
-			_, err := a.serverClient()
+			_, err := a.serverClient(true)
 			mismatch, ok := asVersionMismatch(err)
 			if !ok {
 				t.Fatalf("serverClient: %v, want a version mismatch", err)
@@ -502,7 +562,7 @@ func TestARestartStopsOnlyWhatTheUserWasShown(t *testing.T) {
 	a := newTestAppState(t)
 	old := newStubMachineServer(t, a, "v0.0.1-old")
 	old.list.Store(&[]machineserver.Session{{ID: "s1", Project: "/work/alpha", State: machineserver.SessionRunning}})
-	_, err := a.serverClient()
+	_, err := a.serverClient(true)
 	mismatch, ok := asVersionMismatch(err)
 	if !ok {
 		t.Fatalf("serverClient: %v, want a version mismatch", err)
@@ -537,7 +597,7 @@ func TestAWindowResolvesToItsProjectsSessionOrTheServersPage(t *testing.T) {
 	base := "http://" + srv.addr()
 	proj := t.TempDir()
 
-	got, server, err := a.resolveWindow(windowSpec{project: proj})
+	got, server, err := a.resolveWindow(windowSpec{project: proj}, true)
 	on := serverProc{addr: srv.addr(), pid: os.Getpid()}
 	if err != nil || got != base+"/s/s1" || server != on {
 		t.Fatalf("resolve a project: %q on %+v, %v; want %s/s/s1 on %+v", got, server, err, base, on)
@@ -545,13 +605,13 @@ func TestAWindowResolvesToItsProjectsSessionOrTheServersPage(t *testing.T) {
 	if p := <-srv.opened; p != proj {
 		t.Fatalf("opened %q, want %q", p, proj)
 	}
-	if got, server, err := a.resolveWindow(windowSpec{}); err != nil || got != base || server != on {
+	if got, server, err := a.resolveWindow(windowSpec{}, true); err != nil || got != base || server != on {
 		t.Fatalf("resolve an empty window: %q on %+v, %v; want %s on %+v", got, server, err, base, on)
 	}
 
 	refusal := "project /gone: no such file or directory"
 	srv.refuseOpen.Store(&refusal)
-	_, _, err = a.resolveWindow(windowSpec{project: "/gone"})
+	_, _, err = a.resolveWindow(windowSpec{project: "/gone"}, true)
 	var failed *openFailedError
 	if !errors.As(err, &failed) || failed.serverURL != base || failed.server != on || !strings.Contains(failed.Error(), "no such file") {
 		t.Fatalf("resolve a project the server refuses: %v; want the server's page with why", err)
@@ -571,7 +631,7 @@ func TestAttachShowsAChosenSessionInTheEmptyWindow(t *testing.T) {
 	srv.list.Store(&[]machineserver.Session{{ID: "s7", Project: "/work/alpha", State: machineserver.SessionRunning}})
 	empty := registerWindow(a, &winEntry{id: "w1", role: roleMain, serverURL: base})
 	showing := registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{project: "/work/beta"}, serverURL: base + "/s/s2"})
-	if _, err := a.serverClient(); err != nil {
+	if _, err := a.serverClient(true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -600,7 +660,8 @@ func TestAttachShowsAChosenSessionInTheEmptyWindow(t *testing.T) {
 }
 
 // TestQuitTalliesBusySessionsFromOneList: what a quit or an update restart
-// would stop is every busy session on the server, read from one sessions list.
+// would stop, on a server only this app holds up, is every busy session on
+// it, read from one sessions list.
 func TestQuitTalliesBusySessionsFromOneList(t *testing.T) {
 	a := newTestAppState(t)
 	srv := newStubMachineServer(t, a, core.Version)
@@ -609,16 +670,52 @@ func TestQuitTalliesBusySessionsFromOneList(t *testing.T) {
 		{ID: "b", Project: "/b", State: machineserver.SessionRunning},
 		{ID: "c", Project: "/c", State: machineserver.SessionRunning, Busy: true},
 	})
-	if _, err := a.serverClient(); err != nil {
+	if _, err := a.serverClient(true); err != nil {
 		t.Fatal(err)
 	}
-	if n := a.busySessions(); n != 2 {
-		t.Fatalf("busySessions = %d, want 2", n)
+	if n := a.sessionsAQuitStops(); n != 2 {
+		t.Fatalf("sessionsAQuitStops = %d, want 2", n)
 	}
 	rec := httptest.NewRecorder()
 	a.handleUpdaterRestart(rec, httptest.NewRequest(http.MethodPost, "/win/w1/updater?op=restart", nil))
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"busy":2`) {
 		t.Fatalf("update restart with two busy sessions: %d %s; want 409 with busy 2", rec.Code, rec.Body.String())
+	}
+}
+
+// TestQuitStopsNothingOnAServerThatOutlivesTheApp: a server started by hand,
+// or one another local client holds up — a terminal's juggler, another app —
+// goes on when this app lets it go, and its sessions run their turns to the
+// end with no viewer. A quit stops none of them, so there is nothing to warn
+// of.
+func TestQuitStopsNothingOnAServerThatOutlivesTheApp(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(*stubMachineServer)
+	}{
+		{"started by hand", func(s *stubMachineServer) { s.handStarted.Store(true) }},
+		{"another client attached", func(s *stubMachineServer) { s.attached.Store(1) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newTestAppState(t)
+			srv := newStubMachineServer(t, a, core.Version)
+			srv.list.Store(&[]machineserver.Session{{ID: "a", Project: "/a", State: machineserver.SessionRunning, Busy: true}})
+			tc.setup(srv)
+			if _, err := a.serverClient(true); err != nil {
+				t.Fatal(err)
+			}
+			if n := a.sessionsAQuitStops(); n != 0 {
+				t.Fatalf("sessionsAQuitStops = %d, want 0", n)
+			}
+			saved := updaterRestart
+			updaterRestart = func() error { return errors.New("nothing staged") }
+			t.Cleanup(func() { updaterRestart = saved })
+			rec := httptest.NewRecorder()
+			a.handleUpdaterRestart(rec, httptest.NewRequest(http.MethodPost, "/win/w1/updater?op=restart", nil))
+			if rec.Code == http.StatusConflict {
+				t.Fatalf("update restart: %d %s; want no busy refusal", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 
@@ -648,7 +745,7 @@ func returnsPromptly(t *testing.T, name string, fn func()) {
 
 // TestARestartWaitingOnTheServerHoldsUpNoQuickCall: a restart waits for the
 // old server to go, for as long as its drain takes. Meanwhile what Cmd+Q
-// reads (busySessions) and what a quit does (detachServer) still return,
+// reads (sessionsAQuitStops) and what a quit does (detachServer) still return,
 // bounded by their own work.
 func TestARestartWaitingOnTheServerHoldsUpNoQuickCall(t *testing.T) {
 	a := newTestAppState(t)
@@ -661,7 +758,7 @@ func TestARestartWaitingOnTheServerHoldsUpNoQuickCall(t *testing.T) {
 	go func() { restarted <- a.restartServer(&versionMismatchError{app: a.wantBuild(), server: "v0.0.1-old"}) }()
 	<-old.shutdownAsked
 
-	returnsPromptly(t, "busySessions", func() { a.busySessions() })
+	returnsPromptly(t, "sessionsAQuitStops", func() { a.sessionsAQuitStops() })
 	returnsPromptly(t, "detachServer", a.detachServer)
 	select {
 	case err := <-restarted:
@@ -676,13 +773,13 @@ func TestARestartWaitingOnTheServerHoldsUpNoQuickCall(t *testing.T) {
 
 // TestAWindowWaitingForItsServerToGoHoldsUpNoQuickCall: a window whose open
 // caught the server on its way out (503) waits for that server to end the
-// app's attachment. Meanwhile busySessions still reads the server's list, and
+// app's attachment. Meanwhile sessionsAQuitStops still reads the server's list, and
 // detachServer still lets the server go — which ends the wait.
 func TestAWindowWaitingForItsServerToGoHoldsUpNoQuickCall(t *testing.T) {
 	a := newTestAppState(t)
 	srv := newStubMachineServer(t, a, core.Version)
 	srv.list.Store(&[]machineserver.Session{{ID: "a", Project: "/a", State: machineserver.SessionRunning, Busy: true}})
-	if _, err := a.serverClient(); err != nil {
+	if _, err := a.serverClient(true); err != nil {
 		t.Fatal(err)
 	}
 	going := "the machine server is shutting down"
@@ -690,14 +787,14 @@ func TestAWindowWaitingForItsServerToGoHoldsUpNoQuickCall(t *testing.T) {
 	srv.refuseStatus.Store(http.StatusServiceUnavailable)
 	resolved := make(chan error, 1)
 	go func() {
-		_, _, err := a.resolveWindow(windowSpec{project: t.TempDir()})
+		_, _, err := a.resolveWindow(windowSpec{project: t.TempDir()}, true)
 		resolved <- err
 	}()
 	<-srv.opened
 
-	returnsPromptly(t, "busySessions", func() {
-		if n := a.busySessions(); n != 1 {
-			t.Errorf("busySessions = %d, want 1", n)
+	returnsPromptly(t, "sessionsAQuitStops", func() {
+		if n := a.sessionsAQuitStops(); n != 1 {
+			t.Errorf("sessionsAQuitStops = %d, want 1", n)
 		}
 	})
 	returnsPromptly(t, "detachServer", a.detachServer)
@@ -718,7 +815,7 @@ func TestConcurrentCallersShareOneAttach(t *testing.T) {
 	got := make(chan error, 2)
 	for range 2 {
 		go func() {
-			c, err := a.serverClient()
+			c, err := a.serverClient(true)
 			if err == nil && c.Addr() != srv.addr() {
 				err = errors.New("a client of " + c.Addr() + ", not the stand-in")
 			}

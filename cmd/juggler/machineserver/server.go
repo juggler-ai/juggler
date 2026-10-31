@@ -313,6 +313,10 @@ type statusResponse struct {
 	// AwaitingStarter is the client that started the server not yet attached,
 	// which holds it up until it does or dies (ServeOptions.StartedBy).
 	AwaitingStarter bool `json:"awaitingStarter,omitempty"`
+	// AppStarted is a server the desktop app started: run with --started-by,
+	// which only DetachedStarter passes. A server run in a terminal — bare
+	// juggler, or juggler serve by hand — is not, implicit or not.
+	AppStarted bool `json:"appStarted,omitempty"`
 	// Build is which build of Version the server is (BuildOf).
 	Build string `json:"build,omitempty"`
 	// LAN is whether LAN access is on (lan.go).
@@ -346,6 +350,7 @@ func (s *Server) status() statusResponse {
 		LAN:       s.lan.Load(),
 		// The same reading of the hold as heldUp's.
 		AwaitingStarter: s.starter > 0 && !s.starterGone.Load(),
+		AppStarted:      s.starter > 0,
 	}
 	// The peer identity is named while a tunnel is open, the only time a peer
 	// can reach this machine. Asking for it reads or mints it, which every

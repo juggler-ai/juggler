@@ -231,8 +231,8 @@ func boardOnly(r *http.Request) bool { return windowOptsFromQuery(r.URL.Query())
 // Refused it, as app-wide or on this machine's files: locale (the app's
 // language and menus), zoom (the next window's zoom), folder-dropped,
 // pick-directory and pick-file (they answer with a local path), updater,
-// connect, quit, and the stand-in actions retry-server, restart-server and
-// open-local, which no page of another server shows.
+// connect, quit, and the stand-in actions retry-server, start-server,
+// restart-server and open-local, which no page of another server shows.
 var windowActions = map[string]controlAction{
 	"theme":          {handle: (*appState).controlTheme, remote: anyRequest},
 	"title":          {handle: (*appState).controlTitle, remote: anyRequest},
@@ -258,6 +258,7 @@ var windowActions = map[string]controlAction{
 	"connect":        {handle: (*appState).controlConnect, refusal: &connectFromURLWindowRefusal},
 	"quit":           {handle: (*appState).controlQuit},
 	"retry-server":   {handle: (*appState).controlRetryServer},
+	"start-server":   {handle: (*appState).controlStartServer},
 	"restart-server": {handle: (*appState).controlRestartServer},
 	"open-local":     {handle: (*appState).controlOpenLocal},
 }
@@ -822,7 +823,7 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 // the app keeps running and the page can surface the reason.
 func (a *appState) handleUpdaterRestart(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("force") != "1" {
-		if total := a.busySessions(); total > 0 {
+		if total := a.sessionsAQuitStops(); total > 0 {
 			writeJSON(w, http.StatusConflict, map[string]any{
 				"busy":        total,
 				"message":     restartBusyMessage(total).English(),

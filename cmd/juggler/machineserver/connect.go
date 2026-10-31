@@ -173,7 +173,7 @@ func probeStatus(info *ServerInfo) (*Client, int, bool) {
 	c.http = &http.Client{Timeout: cliTimeout}
 	// A server from before builds were told apart reports none, and is
 	// known by its version alone.
-	c.Version, c.Build, c.Implicit, c.PID = st.Version, cmp.Or(st.Build, st.Version), st.Implicit, st.PID
+	c.Version, c.Build, c.Implicit, c.AppStarted, c.PID = st.Version, cmp.Or(st.Build, st.Version), st.Implicit, st.AppStarted, st.PID
 	return c, st.PID, true
 }
 
@@ -194,7 +194,10 @@ type Client struct {
 	// a server only of its own build.
 	Build    string
 	Implicit bool
-	PID      int
+	// AppStarted is whether the desktop app started the server
+	// (statusResponse.AppStarted), rather than someone at a terminal.
+	AppStarted bool
+	PID        int
 	// Started is whether the Connect that returned this client started the
 	// server.
 	Started bool

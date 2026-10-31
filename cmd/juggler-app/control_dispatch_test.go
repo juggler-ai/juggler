@@ -70,7 +70,7 @@ func TestWindowControlActionTable(t *testing.T) {
 		"open": true, "new": true, "save-file": true,
 		"locale": false, "zoom": false, "folder-dropped": false, "pick-directory": false,
 		"pick-file": false, "updater": false, "connect": false,
-		"quit": false, "retry-server": false, "restart-server": false, "open-local": false,
+		"quit": false, "retry-server": false, "start-server": false, "restart-server": false, "open-local": false,
 	}
 	if len(windowActions) != len(want) {
 		t.Fatalf("windowActions has %d entries, want %d: %v", len(windowActions), len(want), want)

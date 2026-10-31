@@ -103,7 +103,7 @@ func TestALocalWindowWhoseSessionIsLostBecomesItsStandIn(t *testing.T) {
 	srv := newStubMachineServer(t, a, core.Version)
 	base := "http://" + srv.addr()
 	srv.list.Store(&[]machineserver.Session{{ID: "s1", Project: "/p", State: machineserver.SessionRunning}})
-	c, err := a.serverClient()
+	c, err := a.serverClient(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,13 +130,15 @@ func TestALocalWindowWhoseSessionIsLostBecomesItsStandIn(t *testing.T) {
 }
 
 // TestStandInActionsBelongToStandIns: a working window cannot be made to
-// replace itself, and only a version mismatch's stand-in restarts the server.
+// replace itself, only a version mismatch's stand-in restarts the server, and
+// only the stand-in for a server run elsewhere starts one in its place.
 func TestStandInActionsBelongToStandIns(t *testing.T) {
 	a := newTestAppState(t)
 	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:1/s/s1"})
 	registerStandIn(a, "w2", windowSpec{project: "/p"}, lostServerStandIn())
 	for _, c := range []struct{ id, action string }{
 		{"w1", "retry-server"}, {"w1", "open-local"}, {"w1", "restart-server"}, {"w2", "restart-server"},
+		{"w1", "start-server"}, {"w2", "start-server"},
 	} {
 		if rec := controlRequest(a, http.MethodPost, "/win/"+c.id+"/"+c.action); rec.Code != http.StatusConflict {
 			t.Errorf("%s on %s: status = %d, want 409", c.action, c.id, rec.Code)
@@ -156,7 +158,9 @@ func TestEachStandInOffersItsWayOn(t *testing.T) {
 		{unreachableStandIn("http://devbox:8080"), []string{"retry-server", "open-local"}},
 		{failedStandIn(errors.New("could not start")), []string{"retry-server", "quit"}},
 		{lostServerStandIn(), []string{"retry-server"}},
-		{lostSessionStandIn("/p"), []string{"retry-server"}},
+		{lostSessionStandIn("/p", true), []string{"retry-server"}},
+		{lostElsewhereStandIn(false), []string{"retry-server", "start-server"}},
+		{lostElsewhereStandIn(true), []string{"retry-server", "start-server"}},
 		{mismatchStandIn(&versionMismatchError{server: "v0.0.1"}), []string{"restart-server", "quit"}},
 	} {
 		page := a.standInPageFor(c.si, "w7", "secret")
@@ -188,6 +192,36 @@ func TestAStandInHoldsThePlacesOfTheWindowsItKeeps(t *testing.T) {
 	a.reg(func(st *regState) { specs = restorableSpecs(st) })
 	if len(specs) != 3 || specs[0].project != "/a" || specs[1].project != "/b" || specs[2].url != "http://devbox:8080" {
 		t.Fatalf("restorable %+v, want /a, /b and the connected server", specs)
+	}
+}
+
+// TestAWindowThatLosesItsServerStaysWhereItIs: a stand-in opens where the
+// window it takes the place of was, so a window whose server goes neither
+// moves nor lands on the others, and the window that answers it opens where
+// the stand-in is. A stand-in nobody placed — one a launch opened, with no
+// window to take the place of — hands on no frame, and its answer opens where
+// its own frame was saved, as does any other window opened in another's place.
+func TestAWindowThatLosesItsServerStaysWhereItIs(t *testing.T) {
+	window := &winEntry{id: "w1"}
+	placed := &winEntry{id: "w2", standIn: lostServerStandIn(), keepsFrame: true}
+	unplaced := &winEntry{id: "w3", standIn: failedStandIn(errors.New("no server"))}
+	for _, c := range []struct {
+		name     string
+		replaced *winEntry
+		standIn  bool
+		want     bool
+	}{
+		{"a stand-in for a window", window, true, true},
+		{"a stand-in for a placed stand-in", placed, true, true},
+		{"a stand-in for an unplaced stand-in", unplaced, true, false},
+		{"the answer to a placed stand-in", placed, false, true},
+		{"the answer to an unplaced stand-in", unplaced, false, false},
+		{"a window for a window", window, false, false},
+		{"nothing replaced", nil, true, false},
+	} {
+		if got := inheritsFrame(c.replaced, c.standIn); got != c.want {
+			t.Errorf("%s: inheritsFrame = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 

@@ -26,7 +26,7 @@ import (
 	"juggler/internal/srcroot"
 )
 
-// loadConfig determines the project path (from --project or cwd) and loads
+// loadConfig determines the project path (from --project) and loads
 // .juggler/config.json from it. A launch that serves in this process serves
 // one project, so finding none is fatal: another folder is another session,
 // opened from the machine server's sessions page.
@@ -34,7 +34,7 @@ import (
 func (a *App) loadConfig() error {
 	projectPath, err := a.resolveStartupProject()
 	if err == nil && projectPath == "" {
-		err = errors.New("no project folder: pass --project <folder>, or run juggler from a project folder")
+		err = errors.New("no project folder: pass --project <folder>")
 	}
 	if err != nil {
 		fatal("%v", err)
@@ -52,55 +52,31 @@ func (a *App) loadConfig() error {
 	return nil
 }
 
-// resolveStartupProject returns the absolute project path to open at startup,
-// or "" for none. Rules:
-//   - --project <path> always wins; resolved to absolute and validated.
-//   - else if launched with a controlling terminal: use cwd, UNLESS cwd is a
-//     "silly" well-known location (home, Desktop, Documents, a system folder,
-//     the filesystem root, …) with no existing .juggler/. Adopting such a cwd
-//     would scatter a stray .juggler/ where the user doesn't expect one, so
-//     there is none.
-//   - else (no terminal and no flag): none.
-//
-// The cwd rule is bare juggler's (runBare); a session child and the test
-// harness are always given --project.
+// resolveStartupProject returns the absolute project path to open at startup:
+// --project's, resolved and validated, or "" for none. The folder juggler was
+// run in plays no part: the server is the machine's, and a session opens only
+// for a folder a client asks for. A session child and the test harness are
+// always given --project.
 func (a *App) resolveStartupProject() (string, error) {
-	if a.flags.projectSet {
-		raw := a.flags.project
-		if raw == "" {
-			return "", fmt.Errorf("--project requires a path")
-		}
-		abs, err := filepath.Abs(raw)
-		if err != nil {
-			return "", fmt.Errorf("--project: %w", err)
-		}
-		info, err := os.Stat(abs)
-		if err != nil {
-			return "", fmt.Errorf("--project %s: %w", abs, err)
-		}
-		if !info.IsDir() {
-			return "", fmt.Errorf("--project %s: not a directory", abs)
-		}
-		return abs, nil
+	if !a.flags.projectSet {
+		return "", nil
 	}
-	if a.flags.hasTerminal {
-		wd, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("failed to get current directory: %w", err)
-		}
-		// If a .juggler/ already exists here the user has deliberately used
-		// juggler in this folder before, so honour it regardless of location.
-		// Otherwise refuse to seed one in a well-known/system location.
-		if !hasJugglerDir(wd) {
-			home, _ := os.UserHomeDir()
-			if core.IsUnsuitableProjectRoot(wd, home) {
-				fmt.Printf("ℹ️  %s looks like a system/home location; not creating a session here.\n", wd)
-				return "", nil
-			}
-		}
-		return wd, nil
+	raw := a.flags.project
+	if raw == "" {
+		return "", fmt.Errorf("--project requires a path")
 	}
-	return "", nil
+	abs, err := filepath.Abs(raw)
+	if err != nil {
+		return "", fmt.Errorf("--project: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("--project %s: %w", abs, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("--project %s: not a directory", abs)
+	}
+	return abs, nil
 }
 
 // nonEmptyOr returns s, or fallback when s is empty.
@@ -109,13 +85,6 @@ func nonEmptyOr(s, fallback string) string {
 		return fallback
 	}
 	return s
-}
-
-// hasJugglerDir reports whether dir already contains a .juggler/ directory —
-// the marker that juggler has been used in this folder before.
-func hasJugglerDir(dir string) bool {
-	info, err := os.Stat(filepath.Join(dir, ".juggler"))
-	return err == nil && info.IsDir()
 }
 
 // initLogging brings up jlog according to config + --verbose, and registers

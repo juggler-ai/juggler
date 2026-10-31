@@ -86,6 +86,67 @@ func TestExtractGoMessages(t *testing.T) {
 	}
 }
 
+// `scripts/i18n coverage` passes a catalogue only when it has a file for each
+// language web/i18n has, translating every message in its en.json.
+func TestCoverageRequiresEveryLanguageInFull(t *testing.T) {
+	catalog := t.TempDir()
+	args := []string{"--go-root", "testdata/extract/good", "--catalog", catalog}
+	if out, ok := runI18n(t, append([]string{"extract"}, args...)...); !ok {
+		t.Fatalf("extract failed:\n%s", out)
+	}
+	source := readCatalog(t, filepath.Join(catalog, "en.json"))
+	locales, err := filepath.Glob("../../../web/i18n/*.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var languages []string
+	for _, f := range locales {
+		if name := strings.TrimSuffix(filepath.Base(f), ".json"); name != "en" && name != "en-XA" {
+			languages = append(languages, name)
+		}
+	}
+	if len(languages) == 0 {
+		t.Fatal("web/i18n has no translations to hold the catalogue to")
+	}
+
+	if out, ok := runI18n(t, append([]string{"coverage"}, args...)...); ok {
+		t.Fatalf("coverage passed a catalogue with no translations:\n%s", out)
+	} else if !strings.Contains(out, languages[0]+".json") {
+		t.Fatalf("coverage does not name the missing %s.json:\n%s", languages[0], out)
+	}
+
+	write := func(language string, messages map[string]string) {
+		t.Helper()
+		data, err := json.Marshal(messages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(catalog, language+".json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, language := range languages {
+		write(language, source)
+	}
+	if out, ok := runI18n(t, append([]string{"coverage"}, args...)...); !ok {
+		t.Fatalf("coverage failed a fully translated catalogue:\n%s", out)
+	}
+
+	partial := map[string]string{}
+	for k, v := range source {
+		partial[k] = v
+	}
+	partial["Plain"] = ""
+	write(languages[0], partial)
+	out, ok := runI18n(t, append([]string{"coverage"}, args...)...)
+	if ok {
+		t.Fatalf("coverage passed a catalogue with an empty translation:\n%s", out)
+	}
+	if !strings.Contains(out, languages[0]+".json") || !strings.Contains(out, `"Plain"`) {
+		t.Fatalf("coverage does not name the file and the untranslated key:\n%s", out)
+	}
+}
+
 // A template that is not a literal would never be extracted, and so never
 // translated: extraction refuses it.
 func TestExtractRefusesANonLiteralTemplate(t *testing.T) {

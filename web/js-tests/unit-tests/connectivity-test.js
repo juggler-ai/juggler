@@ -97,6 +97,9 @@ function installConnectivityFetch(state) {
       if (state.holdLaunchRead) await state.holdLaunchRead;
       return ok(asked);
     }
+    if (u === '/api/connectivity/server') {
+      return ok(state.server || { status: 'ok', pid: 4242, addr: '127.0.0.1:3939', appStarted: true });
+    }
     if (u === '/api/connectivity/tunnel') {
       if (method === 'PUT') {
         state.tunnel = {
@@ -245,6 +248,33 @@ export async function runTests(_ctx) {
         await tab.pending;
         assert(api.calls.filter((c) => c.method === 'PUT').at(-1)?.body.enabled === false, 'stop did not turn it off');
         assert(el.querySelectorAll('.connectivity-address').length === 0, 'the cards outlived LAN access');
+      } finally {
+        el.remove();
+      }
+    });
+  });
+
+  await run('the tab says whether the app or a terminal started the machine server, to a viewer on this machine only', async () => {
+    const terminal = { status: 'ok', pid: 4242, addr: '127.0.0.1:3939', appStarted: false };
+    await withRoutes({ exposure: true, lan: { enabled: false, urls: [] }, tunnel: { modes: [], running: null }, server: terminal }, async (api) => {
+      const { el, tab } = await mountWith({ clientCount: 1, clients: [], exposure: true });
+      try {
+        /** @returns {string} What the server's row says. */
+        const said = () => el.querySelector('#connectivity-server-section .connectivity-server')?.textContent || '';
+        assert(said().includes('from a terminal') && said().includes('4242') && said().includes('127.0.0.1:3939'),
+          `a terminal's server: ${JSON.stringify(said())}`);
+        api.state.server = { status: 'ok', pid: 77, addr: '127.0.0.1:3939', appStarted: true };
+        await tab.refreshConnectivity();
+        assert(said().includes('Juggler app') && !said().includes('terminal'), `the app's server: ${JSON.stringify(said())}`);
+      } finally {
+        el.remove();
+      }
+    });
+    await withRoutes({ exposure: false, server: terminal }, async (api) => {
+      const { el } = await mountWith({ clientCount: 1, clients: [], exposure: false });
+      try {
+        assert(!el.querySelector('.connectivity-server'), 'who started the server was shown to a viewer off this machine');
+        assert(!api.calls.some((c) => c.url === '/api/connectivity/server'), 'the tab asked a viewer off this machine for the server');
       } finally {
         el.remove();
       }
@@ -442,7 +472,8 @@ export async function runTests(_ctx) {
         el.switchTab('connectivity');
         const rows = [...el.querySelectorAll('#connectivity-form .provider-field')];
         assert(rows[0]?.id === 'connectivity-clients-section', `the first row is ${rows[0]?.id || rows[0]?.textContent}`);
-        assert(rows.length === 5, `${rows.length} rows, want clients, LAN and 3 modes`);
+        assert(rows.length === 6, `${rows.length} rows, want clients, the server, LAN and 3 modes`);
+        assert(rows[1]?.classList.contains('connectivity-server'), `the second row is ${rows[1]?.textContent}, want the server`);
         const boxes = rows.map((r) => r.getBoundingClientRect());
         assert(boxes.every((b) => b.height > 0), 'the rows were never laid out');
         const gaps = boxes.slice(1).map((b, i) => Math.round(b.top - boxes[i].bottom));

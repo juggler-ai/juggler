@@ -136,6 +136,7 @@ function settingsButton(text, kind) {
  * @type {import('../connectivity/exposure-view.js').ExposureApi}
  */
 const sessionExposureApi = {
+  getServer: () => settingsApi.getServer(),
   getLAN: () => settingsApi.getLAN(),
   setLAN: (enabled) => settingsApi.setLAN(enabled),
   getTunnel: () => settingsApi.getTunnel(),
@@ -334,6 +335,12 @@ export class ConnectivityTab {
     clientsSection.className = 'settings-group provider-field connectivity-clients';
     container.appendChild(clientsSection);
 
+    const serverSection = document.createElement('div');
+    serverSection.id = 'connectivity-server-section';
+    serverSection.className = 'connectivity-section';
+    serverSection.hidden = true;
+    container.appendChild(serverSection);
+
     const lanSection = document.createElement('div');
     lanSection.id = 'connectivity-lan-section';
     lanSection.className = 'connectivity-section';
@@ -346,6 +353,7 @@ export class ConnectivityTab {
     tunnelSection.hidden = true;
     container.appendChild(tunnelSection);
     this._exposure = new ExposureView({
+      serverSection,
       lanSection,
       tunnelSection,
       api: sessionExposureApi,

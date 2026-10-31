@@ -24,8 +24,9 @@ import {
 } from '../utilities/test-helpers.js';
 import { pingWorker } from '../utilities/worker-test-hooks.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
-import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
+import { isPseudoLocalized, t } from '../../sdk/lib/i18n.js';
 import { setupHeaderControls } from '../../js/components/header-controls.js';
+import { sessionsPageUrl, SESSIONS_PAGE_TARGET } from '../../js/utils/project-open-mode.js';
 
 /**
  * Deterministic barrier — no sleep. One ping makes the worker force-close the
@@ -210,6 +211,33 @@ export async function runTests() {
     }
     passed++;
 
+    // --- In a browser the new-window button opens the server's page --------
+    // A tab has no app to open a window, so the button is the way back to the
+    // server's page from a session: in its own named tab, found again by a
+    // second press.
+    {
+      const newWindowBtn = /** @type {HTMLButtonElement} */ (root.querySelector('#project-new-window-button'));
+      /** @type {unknown[]} */
+      const opened = [];
+      const realOpen = window.open;
+      const realNewWindow = apiService.newWindow;
+      window.open = /** @type {any} */ ((/** @type {unknown[]} */ ...args) => { opened.push(args); return null; });
+      apiService.newWindow = async () => { opened.push('newWindow'); };
+      try {
+        newWindowBtn.click();
+        await Promise.resolve();
+        await Promise.resolve();
+        assert(JSON.stringify(opened) === JSON.stringify([[sessionsPageUrl(), SESSIONS_PAGE_TARGET]]),
+          `the button in a browser opened ${JSON.stringify(opened)}, want the server's page in ${SESSIONS_PAGE_TARGET}`);
+        assert(newWindowBtn.title === 'Open the server page' && newWindowBtn.getAttribute('aria-label') === 'Open the server page',
+          `the button in a browser is named "${newWindowBtn.title}" / "${newWindowBtn.getAttribute('aria-label')}"`);
+      } finally {
+        window.open = realOpen;
+        apiService.newWindow = realNewWindow;
+      }
+    }
+    passed++;
+
     // --- en-XA: every title and label the header controls draw -------------
     /** @type {string[]} */
     const shown = [];
@@ -228,6 +256,9 @@ export async function runTests() {
         /** @type {any} */ (headerListener)({ type: 'session:loaded' });
         assert(pathLabel.textContent === '/1/2', `the chip shows the path as given, got "${pathLabel.textContent}"`);
         shown.push(...pathChip.title.split('\n'));
+        // Named once, as the header is set up: the browser's name was asked
+        // for in English then, so it is checked as a message here.
+        shown.push(t('Open the server page'));
 
         // A window that cannot be opened says so, under a translated title.
         /** @type {any[]} */

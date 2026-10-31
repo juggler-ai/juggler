@@ -38,13 +38,16 @@ const maxExposureBody = 64 << 10
 // GET /api/connectivity (who else is connected), the switches for LAN access
 // and tunnels, and which of them opens whenever Juggler starts. Those are the
 // machine server's, machine-wide; a viewer on this machine switches and saves
-// them from any session, which passes the call on (exposureRoute).
+// them from any session, which passes the call on (exposureRoute). So does
+// GET /api/connectivity/server, the machine server's status: which process it
+// is, and whether the desktop app started it or someone at a terminal.
 func (s *Server) setupConnectivityRoutes() {
 	api := s.router.PathPrefix("/api").Subrouter()
 	api.HandleFunc("/connectivity", s.handleGetConnectivity).Methods("GET")
 	api.Handle("/connectivity/lan", s.exposureRoute("/api/server/lan")).Methods("GET", "PUT")
 	api.Handle("/connectivity/tunnel", s.exposureRoute("/api/server/tunnel")).Methods("GET", "PUT")
 	api.Handle("/connectivity/launch", s.exposureRoute("/api/server/launch")).Methods("GET", "PUT")
+	api.Handle("/connectivity/server", s.exposureRoute("/api/server/status")).Methods("GET")
 }
 
 func (s *Server) handleGetConnectivity(w http.ResponseWriter, r *http.Request) {

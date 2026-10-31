@@ -14,7 +14,7 @@
  * @module machine/native-host
  */
 
-import { pickDirectory, reportDraftsFlushed, windowControlURL } from '../sdk/lib/window-control.js';
+import { openExternalURL, pickDirectory, reportDraftsFlushed, windowControlURL } from '../sdk/lib/window-control.js';
 import { ControlApiError } from './control-api.js';
 
 /**
@@ -44,6 +44,7 @@ export function desktopHost({ external }) {
   const host = {
     attach: (id) => post('attach', `?session=${encodeURIComponent(id)}`),
     answerClose: reportDraftsFlushed,
+    openURL: openExternalURL,
   };
   if (external) return host;
   return {

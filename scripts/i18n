@@ -14,6 +14,8 @@
  *                          parse, placeholders that differ from the English, a
  *                          plural branch the locale lacks, or markup (run by lint)
  *   scripts/i18n status    each catalogue's coverage (an empty translation is missing)
+ *   scripts/i18n coverage  fail unless each shipped catalogue translates every
+ *                          message into every language web/i18n has
  *
  * Each command also takes `--go-root <dir>` (repeatable) and `--catalog <dir>`,
  * which replace the catalogues below with one: the messages in the Go under
@@ -157,6 +159,7 @@ function uiFiles() {
  * @property {string[]} [goFiles] - Absolute Go source files whose messages it holds.
  * @property {string} [packagingFile] - Absolute path of the installers' English source, for the core one.
  * @property {import('../web/js/services/extensions.js').ExtensionManifest} [manifest] - The extension manifest, for an extension's.
+ * @property {boolean} [example] - An example extension's, which the app does not ship.
  */
 
 /**
@@ -223,6 +226,7 @@ function targets() {
     },
     ...exts.map((e) => ({
       label: e.i18nDir, dir: path.join(repoRoot, e.i18nDir), files: jsFiles([e.root]), manifest: e.manifest,
+      example: e.root.startsWith('examples/'),
     })),
   ];
 }
@@ -961,7 +965,42 @@ function cmdStatus(_sdk) {
   return 0;
 }
 
-const COMMANDS = { extract: cmdExtract, pseudo: cmdPseudo, check: cmdCheck, status: cmdStatus };
+/**
+ * Fail unless every shipped catalogue translates every message in its en.json
+ * into each language web/i18n has: the languages the Language menu offers. A
+ * missing language file, or a message missing or empty in one, is reported by
+ * file and key. The examples are not shipped, so they are not held to it.
+ * @param {typeof import('../web/sdk/lib/i18n.js')} _sdk
+ * @returns {number} The exit status.
+ */
+function cmdCoverage(_sdk) {
+  const LISTED = 10;
+  const languages = translationFiles(i18nDir);
+  let status = 0;
+  for (const target of targets()) {
+    if (target.example) continue;
+    const keys = Object.keys(readCatalog(path.join(target.dir, 'en.json')));
+    if (keys.length === 0) continue;
+    for (const file of languages) {
+      const where = `${target.label}/${file}`;
+      if (!fs.existsSync(path.join(target.dir, file))) {
+        console.error(`${where}: missing — translate its ${keys.length} message(s)`);
+        status = 1;
+        continue;
+      }
+      const catalog = readCatalog(path.join(target.dir, file));
+      const missing = keys.filter((k) => typeof catalog[k] !== 'string' || catalog[k] === '');
+      if (missing.length === 0) continue;
+      console.error(`${where}: ${missing.length} of ${keys.length} message(s) untranslated:`);
+      for (const k of missing.slice(0, LISTED)) console.error(`  ${JSON.stringify(k)}`);
+      if (missing.length > LISTED) console.error(`  … and ${missing.length - LISTED} more`);
+      status = 1;
+    }
+  }
+  return status;
+}
+
+const COMMANDS = { extract: cmdExtract, pseudo: cmdPseudo, check: cmdCheck, status: cmdStatus, coverage: cmdCoverage };
 
 // Required rather than run, it is the translation check, for the Go port's
 // parity test (cmd/juggler/i18nextract/translation_test.go).

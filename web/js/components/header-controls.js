@@ -195,7 +195,9 @@ function localizeHeaderMarkup(root = document) {
   const names = [
     ['sidebar-toggle-button', t('Toggle conversations'), t('Toggle conversation sidebar')],
     ['project-path-display', t('Project directory'), null],
-    ['project-new-window-button', t('Open a new window'), t('Open a new window')],
+    hasNativeHost()
+      ? ['project-new-window-button', t('Open a new window'), t('Open a new window')]
+      : ['project-new-window-button', t('Open the server page'), t('Open the server page')],
     ['control-undo-button', null, t('Undo last operation')],
     ['control-redo-button', null, t('Redo last undone operation')],
     ['tool-grouping-button', t('Group consecutive tool uses'), t('Group consecutive tool uses')],
@@ -307,10 +309,8 @@ export function setupHeaderControls(session) {
       }
     });
   }
-  // Inline "open new window" button: a window on the server's page, where the
-  // user picks a folder. Only a native desktop window has a host able to do
-  // this; in a remote browser tab apiService.newWindow() is a no-op and the
-  // button is hidden by CSS anyway.
+  // A new window, on the server's page, where the user picks a folder: what
+  // the inline button, ⇧⌘N and the native menu ask a desktop window for.
   const openNewWindow = async () => {
     try {
       const { default: apiService } = await import('../services/api.js');
@@ -320,8 +320,14 @@ export function setupHeaderControls(session) {
       await uiPort()?.alert(extractUserMessage(err), t('New window'));
     }
   };
+  // The inline button opens that window in the desktop app. A browser tab has
+  // no app to open a window, so there the button opens the server's page in a
+  // tab of its own instead: a session's way back to it (chooseProject, with no
+  // host).
   if (newWindowBtn) {
-    newWindowBtn.addEventListener('click', openNewWindow);
+    newWindowBtn.addEventListener('click', () => {
+      void (hasNativeHost() ? openNewWindow() : chooseProject(undefined, null));
+    });
   }
   // ⇧⌘N / Ctrl+Shift+N — same action as the button. Desktop only: a plain browser
   // tab has no native host to open a window, so we return false and leave ⇧⌘N to

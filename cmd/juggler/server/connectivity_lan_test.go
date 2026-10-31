@@ -80,6 +80,8 @@ func TestSessionExposureIsTheMachineServers(t *testing.T) {
 		{http.MethodPut, "/api/connectivity/tunnel", `{"mode":"p2p"}`, "/api/server/tunnel"},
 		{http.MethodGet, "/api/connectivity/launch", "", "/api/server/launch"},
 		{http.MethodPut, "/api/connectivity/launch", `{"lanOnLaunch":true}`, "/api/server/launch"},
+		// Who started the machine server, which the tab says beside them.
+		{http.MethodGet, "/api/connectivity/server", "", "/api/server/status"},
 	} {
 		*calls = nil
 		rec := httptest.NewRecorder()

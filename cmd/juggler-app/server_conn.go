@@ -28,7 +28,7 @@ import (
 // (startConn) and every window asks for the server through (serverClient), so
 // they all share one connection. That goroutine only reads and records: it
 // does no network I/O and waits on nothing, so a quick call — attachedClient,
-// busySessions, detachServer — is never held up behind a slow one. The slow
+// sessionsAQuitStops, detachServer — is never held up behind a slow one. The slow
 // work on the connection — a Connect, an attach, settling an attachment that
 // ended, a restart — is a flight, run on the goroutine that needs it, one at a
 // time (claimFlight): callers arriving meanwhile wait for it, off the owning
@@ -40,7 +40,9 @@ import (
 // this app's beats, after a sleep or a stall — and is still there, so the app
 // attaches again and its windows carry on; or the server has gone, and every
 // local window becomes its stand-in at once, whose Try again finds or starts
-// a server and reopens the window's session.
+// a server and reopens the window's session. A server the app did not start —
+// run in a terminal — is only looked for again: the app starts its own only
+// when the user asks (serverClient).
 //
 // The app never attaches to a server of another version. One that a client
 // started and nothing uses is restarted without asking (shut down, waited
@@ -178,10 +180,11 @@ func (a *appState) wantBuild() string {
 const connectAttempts = 3
 
 // serverClient returns a client of this machine's server, which the app is
-// attached to: the one it holds, or one it finds or starts now and attaches
-// to, as a flight. A server of another version that is in use is a
+// attached to: the one it holds, or one it finds or (with start) starts now
+// and attaches to, as a flight. Without start, no server running is
+// machineserver.ErrNoServer. A server of another version that is in use is a
 // *versionMismatchError.
-func (a *appState) serverClient() (*machineserver.Client, error) {
+func (a *appState) serverClient(start bool) (*machineserver.Client, error) {
 	quitting := false
 	flight, c, ended := a.claimFlight(func(st *connState) bool {
 		quitting = st.closed
@@ -193,7 +196,7 @@ func (a *appState) serverClient() (*machineserver.Client, error) {
 	case flight == nil:
 		return c, nil
 	}
-	c, att, err := a.attach(c, ended)
+	c, att, err := a.attach(c, ended, start)
 	if !a.landAttached(flight, c, att) && err == nil {
 		return nil, errAppQuitting
 	}
@@ -214,17 +217,22 @@ func (a *appState) attachedClient() *machineserver.Client {
 
 // attach is serverClient's flight, on its caller's goroutine. An attachment
 // that ended (ended, to prev's server) is settled first; then, with none, it
-// finds or starts a server and attaches to it. A server of another build is
-// replaced if it is idle — once: one found after that is the user's.
-func (a *appState) attach(prev *machineserver.Client, ended *machineserver.Attachment) (*machineserver.Client, *machineserver.Attachment, error) {
+// finds or (with start) starts a server and attaches to it. A server of
+// another build is replaced if it is idle — once: one found after that is the
+// user's.
+func (a *appState) attach(prev *machineserver.Client, ended *machineserver.Attachment, start bool) (*machineserver.Client, *machineserver.Attachment, error) {
 	if ended != nil {
 		if c, att := a.settle(prev); att != nil {
 			return c, att, nil
 		}
 	}
+	opts := a.connectOpts
+	if !start {
+		opts.Start = nil
+	}
 	restarted := false
 	for attempt := 1; ; attempt++ {
-		c, err := machineserver.Connect(a.connectOpts)
+		c, err := machineserver.Connect(opts)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -293,11 +301,16 @@ func (a *appState) attachmentEnded(att *machineserver.Attachment) {
 type serverProc struct {
 	addr string
 	pid  int
+	// appStarted is whether this app (or an earlier run of it) started the
+	// process (machineserver.Client.AppStarted), rather than someone at a
+	// terminal. Read with the process, so it never tells apart two that addr
+	// and pid do not.
+	appStarted bool
 }
 
 // procOf is the server process c reaches.
 func procOf(c *machineserver.Client) serverProc {
-	return serverProc{addr: c.Addr(), pid: c.PID}
+	return serverProc{addr: c.Addr(), pid: c.PID, appStarted: c.AppStarted}
 }
 
 // settle handles the end of the app's attachment to the server c reached, on
@@ -384,20 +397,25 @@ func (a *appState) restartServer(shown *versionMismatchError) error {
 	return err
 }
 
-// busySessions is how many sessions on the server are running a turn: what a
-// quit or an update restart would stop. Read from one sessions list; none when
-// the app is attached to no server, or it does not answer.
-func (a *appState) busySessions() int {
+// sessionsAQuitStops is how many sessions running a turn a quit or an update
+// restart would stop. Letting the server go stops it, and every session on
+// it, only when a client started it on demand and this app is the last local
+// client holding it up. A server started by hand, or held by another client —
+// a terminal's juggler, another app — goes on, and its sessions run their
+// turns to the end with no viewer, so a quit stops none. Read from one status
+// and one sessions list; none when the app is attached to no server, or it
+// does not answer.
+func (a *appState) sessionsAQuitStops() int {
 	c := a.attachedClient()
 	if c == nil {
 		return 0
 	}
-	list, err := c.ListSessions()
-	if err != nil {
+	occ, err := c.Occupancy()
+	if err != nil || occ.HandStarted || occ.Clients > 1 {
 		return 0
 	}
 	n := 0
-	for _, s := range list {
+	for _, s := range occ.Sessions {
 		if s.Busy {
 			n++
 		}
@@ -427,7 +445,7 @@ func (a *appState) serverLost(proc serverProc) {
 	})
 	for _, w := range lost {
 		logf("window %s: its server %s (pid %d) has gone; opening its stand-in", w.id, proc.addr, proc.pid)
-		openLostServerStandIn(a, w.spec, lostServerStandIn(), windowOpts{theme: w.theme, replaces: w.id})
+		openLostServerStandIn(a, w.spec, lostServerStandInFor(proc), windowOpts{theme: w.theme, replaces: w.id})
 	}
 }
 

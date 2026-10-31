@@ -20,7 +20,7 @@ func TestQuitAsksOnceWhileItsConfirmationIsUp(t *testing.T) {
 	a := newTestAppState(t)
 	srv := newStubMachineServer(t, a, core.Version)
 	srv.list.Store(&[]machineserver.Session{{ID: "a", Project: "/a", State: machineserver.SessionRunning, Busy: true}})
-	if _, err := a.serverClient(); err != nil {
+	if _, err := a.serverClient(true); err != nil {
 		t.Fatal(err)
 	}
 

@@ -33,15 +33,18 @@ import (
 //     Try again, or quit;
 //   - this machine's server, or the window's session on it, gone under a live
 //     window (lost): Try again, which finds or starts a server and reopens the
-//     session;
+//     session — or, for a server this app did not start (one run in a
+//     terminal), only finds it, with Start a server beside it;
 //   - this machine's server running another version, in use — what a restart
 //     would stop (machineserver.Occupancy) is listed (mismatch): Restart
 //     server, or quit.
 //
 // A stand-in is filed under the spec it stands in for, so it keeps that
-// window's place in the workspace set, and its frame is kept where that
-// window's would be: on this machine for a server by URL, and nowhere for a
-// local window, whose session is not there to keep it.
+// window's place in the workspace set. It opens at that window's frame, and
+// the window answering it at the stand-in's (inheritsFrame), so a window that
+// loses its server stays where it is. Its frame is kept where that window's
+// would be: on this machine for a server by URL, and nowhere for a local
+// window, whose session is not there to keep it.
 
 // The kinds of stand-in.
 const (
@@ -56,6 +59,9 @@ var (
 	failedPageTitle     = msg.New("Couldn't reach the Juggler server")
 	lostWindowTitle     = msg.New("Server stopped — Juggler")
 	lostPageTitle       = msg.New("The Juggler server stopped")
+	stillNotRunning     = msg.New("The Juggler server still isn't running")
+	startServerLabel    = msg.New("Start a server")
+	startingLabel       = msg.New("Starting…")
 	sessionLostTitle    = msg.New("This session stopped")
 	mismatchWindowTitle = msg.New("Server version — Juggler")
 	mismatchPageTitle   = msg.New("Another version of the Juggler server is running")
@@ -91,6 +97,10 @@ type standIn struct {
 	// mismatch is a version mismatch's: the servers, and what the page says a
 	// restart stops — all the restart may stop (restartServer).
 	mismatch *versionMismatchError
+	// startedElsewhere is a stand-in for a window onto a server this app did
+	// not start — one run in a terminal. Its Try again only looks for that
+	// server (windowOpts.noStart); starting one is the page's other button.
+	startedElsewhere bool
 }
 
 func retryButton() standInButton {
@@ -133,15 +143,48 @@ func lostServerStandIn() *standIn {
 	}
 }
 
-// lostSessionStandIn stands in for a window whose session has stopped on a
-// server that is still running.
-func lostSessionStandIn(project string) *standIn {
+// lostElsewhereStandIn stands in for a local window whose server has gone when
+// this app did not start it — someone ran it in a terminal — so Try again only
+// looks for it, and starting one of the app's own is the user's choice. again
+// is a Try again that found none.
+func lostElsewhereStandIn(again bool) *standIn {
+	title := lostPageTitle
+	if again {
+		title = stillNotRunning
+	}
 	return &standIn{
 		kind:        standInLost,
 		windowTitle: lostWindowTitle,
-		title:       sessionLostTitle,
-		message:     []msg.Message{msg.New("The session for {project} has stopped. Try again opens it again.", "project", project)},
-		buttons:     []standInButton{retryButton()},
+		title:       title,
+		message:     []msg.Message{msg.New("This window's Juggler server was started outside this app, from a terminal, and is no longer running. Start it again there and press Try again, or press Start a server to have this app run one.")},
+		buttons: []standInButton{
+			retryButton(),
+			{label: startServerLabel, action: "start-server", busy: &startingLabel},
+		},
+		startedElsewhere: true,
+	}
+}
+
+// lostServerStandInFor is the stand-in for a local window whose server, proc,
+// has gone: Try again starts the server again only if this app started it.
+func lostServerStandInFor(proc serverProc) *standIn {
+	if proc.appStarted {
+		return lostServerStandIn()
+	}
+	return lostElsewhereStandIn(false)
+}
+
+// lostSessionStandIn stands in for a window whose session has stopped on a
+// server that is still running, which this app started or (startedElsewhere)
+// did not.
+func lostSessionStandIn(project string, startedElsewhere bool) *standIn {
+	return &standIn{
+		kind:             standInLost,
+		windowTitle:      lostWindowTitle,
+		title:            sessionLostTitle,
+		message:          []msg.Message{msg.New("The session for {project} has stopped. Try again opens it again.", "project", project)},
+		buttons:          []standInButton{retryButton()},
+		startedElsewhere: startedElsewhere,
 	}
 }
 
@@ -283,13 +326,14 @@ func (a *appState) standInPageFor(si *standIn, id, secret string) string {
 
 // buildStandInWindow opens a native window onto si's page, registered under
 // spec as a stand-in, so it keeps its place in the workspace set for as long as
-// it is open. Must run on the main thread. A window onto a server by URL opens
-// where that window was last left.
-func (a *appState) buildStandInWindow(spec windowSpec, si *standIn, inheritedTheme string) *winEntry {
+// it is open. Must run on the main thread. It opens where the window it takes
+// the place of (opts.replaces) is (inheritsFrame); with none, a window onto a
+// server by URL opens where that window was last left.
+func (a *appState) buildStandInWindow(spec windowSpec, si *standIn, opts windowOpts) *winEntry {
 	logf("stand-in (%s) for %+v", si.kind, spec.entry())
 	id := <-a.ids
 	secret := mintControlSecret()
-	startupTheme := normaliseTheme(inheritedTheme)
+	startupTheme := normaliseTheme(opts.theme)
 	if startupTheme == "" {
 		a.reg(func(st *regState) { startupTheme = st.lastTheme })
 	}
@@ -297,8 +341,8 @@ func (a *appState) buildStandInWindow(spec windowSpec, si *standIn, inheritedThe
 	if bgTheme == "" {
 		bgTheme = "dark"
 	}
-	var saved core.WindowState
-	if spec.isURL() {
+	saved, keepsFrame := a.inheritedFrame(opts, true)
+	if !keepsFrame && spec.isURL() {
 		saved, _ = a.remoteFrames.get(normalizeURL(spec.url), roleMain)
 	}
 	place := windowgeom.PlaceVisible(saved, a.app.Screen.GetAll())
@@ -324,7 +368,7 @@ func (a *appState) buildStandInWindow(spec windowSpec, si *standIn, inheritedThe
 	if win == nil {
 		fatalf("Window.NewWithOptions returned nil for stand-in window %s (%+v)", id, spec.entry())
 	}
-	e := &winEntry{id: id, win: win, ctlSecret: secret, spec: spec, standIn: si, role: roleMain, currentTheme: startupTheme,
+	e := &winEntry{id: id, win: win, ctlSecret: secret, spec: spec, standIn: si, keepsFrame: keepsFrame, role: roleMain, currentTheme: startupTheme,
 		geom: windowgeom.NewTracker(windowgeom.Seed(place), a.app.Screen.GetAll), saves: windowgeom.NewDebouncer(), stopSave: make(chan struct{})}
 	a.reg(func(st *regState) { st.windows[id] = e })
 	a.persistWorkspace()
@@ -335,21 +379,68 @@ func (a *appState) buildStandInWindow(spec windowSpec, si *standIn, inheritedThe
 	return e
 }
 
+// inheritsFrame reports whether a window opened in replaced's place opens at
+// replaced's live frame; standIn is whether the new window is a stand-in. A
+// stand-in takes the frame of the window it stands in for, so a window whose
+// server goes neither moves nor lands on the others. The window that answers a
+// stand-in opens where the stand-in is, if the stand-in's frame was the user's
+// (winEntry.keepsFrame). Any other window opens at its own saved frame.
+func inheritsFrame(replaced *winEntry, standIn bool) bool {
+	switch {
+	case replaced == nil:
+		return false
+	case replaced.standIn == nil:
+		return standIn
+	default:
+		return replaced.keepsFrame
+	}
+}
+
+// inheritedFrame is the live frame of the window opts.replaces names, when a
+// window opened in its place inherits it (inheritsFrame); standIn is whether
+// that window is a stand-in. None when there is no such window, or its frame
+// is not worth taking (windowgeom.Tracker.Capture). Must run on the main
+// thread, which reads native window state.
+func (a *appState) inheritedFrame(opts windowOpts, standIn bool) (core.WindowState, bool) {
+	if opts.replaces == "" {
+		return core.WindowState{}, false
+	}
+	old := a.window(opts.replaces)
+	if old == nil || old.win == nil || old.geom == nil || !inheritsFrame(old, standIn) {
+		return core.WindowState{}, false
+	}
+	return old.geom.Capture(old.win)
+}
+
 // openStandIn opens a stand-in for spec, which cannot be shown, in the place of
 // opts.replaces when it names a window.
 func (a *appState) openStandIn(spec windowSpec, si *standIn, opts windowOpts, why string) {
 	application.InvokeAsync(func() {
-		a.showOpened(a.buildStandInWindow(spec, si, opts.theme), opts, why)
+		a.showOpened(a.buildStandInWindow(spec, si, opts), opts, why)
 	})
 }
 
 // controlRetryServer is a stand-in's "Try again": another attempt at the window
 // it stands in for, which takes its place — another stand-in if it still
-// cannot be shown. The page posts a form, which any reply with a body would
-// replace, so it is answered 204.
+// cannot be shown. For a server this app did not start, the attempt only looks
+// for it. The page posts a form, which any reply with a body would replace, so
+// it is answered 204.
 func (a *appState) controlRetryServer(w http.ResponseWriter, _ *http.Request, e *winEntry) {
 	spec, si := a.standInOf(e)
 	if si == nil {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	a.openWindow(spec, windowOpts{theme: a.windowTheme(e), replaces: e.id, noStart: si.startedElsewhere})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// controlStartServer is "Start a server" on the stand-in for a server this app
+// did not start: the window opens in its place on whatever server is running,
+// or on one this app starts. Answered 204, as Try again is.
+func (a *appState) controlStartServer(w http.ResponseWriter, _ *http.Request, e *winEntry) {
+	spec, si := a.standInOf(e)
+	if si == nil || !si.startedElsewhere {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
@@ -421,7 +512,7 @@ func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *
 		return
 	}
 	theme := a.windowTheme(e)
-	lost := lostServerStandIn()
+	var lost *standIn
 	if spec.isURL() {
 		ctx, cancel := context.WithTimeout(r.Context(), remoteReachBudget)
 		defer cancel()
@@ -431,6 +522,7 @@ func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *
 		}
 		lost = unreachableStandIn(spec.url)
 	} else {
+		lost = lostServerStandInFor(e.server)
 		c, gone := a.serverOfWindow(e)
 		if !gone {
 			running, answered := a.sessionRunning(c, a.serverURLOf(e))
@@ -438,7 +530,7 @@ func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *
 				writeJSON(w, http.StatusOK, map[string]bool{"replaced": false})
 				return
 			}
-			lost = lostSessionStandIn(spec.project)
+			lost = lostSessionStandIn(spec.project, !e.server.appStarted)
 		}
 	}
 	if !a.claimReplacement(e) {

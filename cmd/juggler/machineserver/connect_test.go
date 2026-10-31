@@ -135,6 +135,10 @@ func TestConnectWaitsOutTheWindowBeforeTheAddressIsRecorded(t *testing.T) {
 	if r.err != nil || r.c.Addr() != s.addr {
 		t.Fatalf("Connect once the address was recorded: %+v, %v; want %s", r.c, r.err, s.addr)
 	}
+	// Nothing started this server with --started-by: it is not the app's.
+	if r.c.AppStarted {
+		t.Fatalf("client of a server with no starter: AppStarted, want not")
+	}
 }
 
 // deadPID returns the process ID of a process that has exited.
@@ -209,8 +213,8 @@ func TestConnectStartsAnImplicitServer(t *testing.T) {
 		t.Fatalf("Connect started %d servers (Started=%v), want 1", started(), c.Started)
 	}
 	info := NewMachineLock(userpaths.ConfigDir()).readInfo()
-	if info == nil || info.Addr != c.Addr() || !info.Implicit || !c.Implicit {
-		t.Fatalf("server.json %+v, client %+v: want the started server, marked implicit", info, c)
+	if info == nil || info.Addr != c.Addr() || !info.Implicit || !c.Implicit || !c.AppStarted {
+		t.Fatalf("server.json %+v, client %+v: want the started server, marked implicit and app-started", info, c)
 	}
 
 	again, err := Connect(ConnectOptions{Start: start})

@@ -5,6 +5,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -32,6 +34,26 @@ func TestOnlyChildrenAndTheHarnessServeOneProjectInProcess(t *testing.T) {
 		if got := c.flags.standaloneLaunch(); got != c.want {
 			t.Errorf("%s: standaloneLaunch() = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// TestBareJugglerOpensNoSessionForItsFolder: the server is the machine's, not
+// a folder's, so bare juggler opens a session only for a folder it is given
+// (--project), never for the one it was run in — not even one juggler has
+// been used in before.
+func TestBareJugglerOpensNoSessionForItsFolder(t *testing.T) {
+	here := t.TempDir()
+	if err := os.Mkdir(filepath.Join(here, ".juggler"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(here)
+	if got, err := (&App{flags: appFlags{hasTerminal: true}}).resolveStartupProject(); got != "" || err != nil {
+		t.Fatalf("from a terminal in a project folder: %q, %v; want no project", got, err)
+	}
+	other := t.TempDir()
+	got, err := (&App{flags: appFlags{hasTerminal: true, project: other, projectSet: true}}).resolveStartupProject()
+	if want, _ := filepath.EvalSymlinks(other); err != nil || (got != other && got != want) {
+		t.Fatalf("--project %s: %q, %v; want that folder", other, got, err)
 	}
 }
 

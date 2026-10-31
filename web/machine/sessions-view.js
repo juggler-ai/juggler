@@ -8,14 +8,13 @@
  * machine's recent projects, a typed path, or a new folder it makes.
  *
  * Everything it does goes through the control API it is given, and every
- * window it opens through the `openWindow` it is given, so it runs as well
- * against stand-ins as against the server.
+ * page it sends this tab to through the `navigate` it is given, so it runs as
+ * well against stand-ins as against the server.
  *
- * In a browser, a session opens in a tab named for it ({@link sessionWindowName}),
- * so opening it again from here finds the tab it is already in. A session
- * launched from here gets its tab inside the click — before the server has
- * answered, so no popup blocker refuses it — and the tab is sent to the session
- * once it runs.
+ * In a browser, a session opens in this tab, as a link does — a modified click
+ * on its Open link still gives it a tab of its own — and a session launched
+ * from here takes this tab to it once it runs. The session's header has a
+ * button back to this page.
  *
  * In a desktop app's window the page is that window's empty state, and the app
  * is its `host`: a session opens in the same window, by asking the host to show
@@ -27,7 +26,8 @@
  * The page asks for the list as it mounts, and shows the app's spinner in its
  * place until the first answer.
  *
- * A viewer on this machine (`config.local`) also gets the machine's ways in —
+ * A viewer on this machine (`config.local`) also gets the server itself —
+ * whether the desktop app or a terminal started it — and the machine's ways in:
  * LAN access and each tunnel mode, with Start and Stop, the address cards and
  * whether each opens whenever Juggler starts — drawn by the same ExposureView
  * as a session's Settings → Connectivity, through the control API. A viewer
@@ -63,33 +63,21 @@ const RECENTS_SHOWN = 8;
  *   setTunnel?: (mode: string) => Promise<import('./control-api.js').TunnelState>,
  *   getLaunch?: () => Promise<import('./control-api.js').LaunchState>,
  *   setLaunch?: (change: Partial<import('./control-api.js').LaunchState>) => Promise<unknown>,
+ *   getStatus?: () => Promise<import('../js/components/connectivity/exposure-view.js').ServerStatus>,
  * }} ControlApi
- * @typedef {{
- *   name: string,
- *   closed?: boolean,
- *   location: { href: string },
- *   document?: { title: string, body: { textContent: string } | null },
- *   close: () => void,
- * }} OpenedWindow
  * @typedef {{
  *   attach: (id: string) => Promise<void>,
  *   answerClose: (token: string) => Promise<void>,
  *   pickDirectory?: () => Promise<string|null>,
  *   takesDroppedFolders?: boolean,
  *   connect?: (address: string) => Promise<void>,
+ *   openURL?: (url: string) => void,
  * }} NativeHost
  *   The desktop app (native-host.js). The folder chooser, dropped folders and
- *   Connect are there only in a window on this machine's server.
+ *   Connect are there only in a window on this machine's server. openURL opens
+ *   an address in the system browser, which a click on a link to it in the
+ *   window's WebView would not.
  */
-
-/**
- * The name of the tab a session opens in.
- * @param {string} id - The session's ID.
- * @returns {string} A window name unique to the session.
- */
-export function sessionWindowName(id) {
-  return `juggler-session-${id}`;
-}
 
 /**
  * The URL a session is opened at from this page.
@@ -238,6 +226,7 @@ function controlExposureApi(api) {
     }
   };
   return {
+    getServer: () => asExposure(() => api.getStatus()),
     getLAN: () => asExposure(() => api.getLAN()),
     setLAN: (enabled) => asExposure(() => api.setLAN(enabled)),
     getTunnel: () => asExposure(() => api.getTunnel()),
@@ -287,7 +276,7 @@ function exposureButton(text, kind) {
  * @param {object} options
  * @param {ControlApi} options.api - The control API.
  * @param {PageConfig} options.config - What the server handed the page.
- * @param {(url: string, name: string) => OpenedWindow|null} [options.openWindow] - Opens a tab.
+ * @param {(url: string) => void} [options.navigate] - Sends this tab to a page.
  * @param {(message: string) => boolean} [options.confirm] - Asks the user a yes/no question.
  * @param {() => number} [options.now] - The time now, in ms.
  * @param {number} [options.pollMs] - How often to refresh the list (0: never by itself).
@@ -301,7 +290,7 @@ function exposureButton(text, kind) {
 export function mountSessionsPage(root, {
   api,
   config,
-  openWindow = (url, name) => /** @type {OpenedWindow|null} */ (/** @type {unknown} */ (window.open(url, name))),
+  navigate = (url) => { window.location.assign(url); },
   confirm = (message) => window.confirm(message),
   now = () => Date.now(),
   pollMs = 2000,
@@ -439,21 +428,26 @@ export function mountSessionsPage(root, {
   // The machine's ways in, for a viewer on this machine: the two sections are
   // wrappers the layout looks through, so their rows are spaced alike.
   const api0 = /** @type {Required<ControlApi>} */ (api);
+  const serverBox = el('div', { className: 'ms-exposure-way' });
   const lanBox = el('div', { className: 'ms-exposure-way' });
   const tunnelBox = el('div', { className: 'ms-exposure-way' });
+  serverBox.hidden = true;
   lanBox.hidden = true;
   tunnelBox.hidden = true;
   const exposure = config.local && api.getLAN
     ? new ExposureView({
+      serverSection: api.getStatus ? serverBox : undefined,
       lanSection: lanBox,
       tunnelSection: tunnelBox,
       api: controlExposureApi(api0),
       chrome: { row: exposureRow, button: exposureButton },
+      openAddress: host?.openURL,
     })
     : null;
   const exposureSection = exposure
     ? el('section', { className: 'ms-section ms-exposure' }, [
       el('h2', { text: t('Connectivity') }),
+      serverBox,
       lanBox,
       tunnelBox,
     ])
@@ -575,26 +569,12 @@ export function mountSessionsPage(root, {
     const report = options.report || showLaunchError;
     report('');
     if (host) return launchHere(project, options);
-    // The tab is opened now, inside the user's click, and filled in later.
-    const win = openWindow('', '');
-    if (win?.document?.body) {
-      try {
-        win.document.title = t('Starting…');
-        win.document.body.textContent = t('Starting a session for {project}…', { project });
-      } catch {
-        // A tab the browser would not let us write to still gets its URL below.
-      }
-    }
     try {
       const sess = await api.openSession(options.make ? await options.make() : project);
-      if (win && !win.closed) {
-        win.location.href = sessionUrl(sess.id);
-        win.name = sessionWindowName(sess.id);
-      }
+      navigate(sessionUrl(sess.id));
       await refresh();
       return true;
     } catch (err) {
-      win?.close();
       report(err instanceof Error ? errorText(err) : t('The session could not be started.'));
       return false;
     }
@@ -651,7 +631,7 @@ export function mountSessionsPage(root, {
   }
 
   /**
-   * A link that opens a session in its tab.
+   * A link that opens a session.
    * @param {Session} s - The session.
    * @param {string} className - The link's class.
    * @returns {HTMLElement} The link.
@@ -662,18 +642,18 @@ export function mountSessionsPage(root, {
   }
 
   /**
-   * Open a session as its link does: its own tab in a browser; in a desktop
+   * Open a session as its link does: in this tab in a browser; in a desktop
    * window, this window, through the host.
    * @param {Session} s - The session.
    */
   function openSession(s) {
     if (host) void attach(s.id);
-    else openWindow(sessionUrl(s.id), sessionWindowName(s.id));
+    else navigate(sessionUrl(s.id));
   }
 
   /**
-   * A link to a session: its own tab in a browser; in a desktop window, this
-   * window, through the host.
+   * A link to a session: this tab in a browser, as a plain link goes; in a
+   * desktop window, this window, through the host.
    * @param {Session} s - The session.
    * @param {string} className - The link's classes.
    * @param {Array<Node>} children - What it shows.
@@ -681,10 +661,7 @@ export function mountSessionsPage(root, {
    */
   function sessionLink(s, className, children) {
     if (!host) {
-      return el('a', {
-        className,
-        attrs: { href: sessionUrl(s.id), target: sessionWindowName(s.id), rel: 'opener' },
-      }, children);
+      return el('a', { className, attrs: { href: sessionUrl(s.id) } }, children);
     }
     const a = el('a', { className, attrs: { href: sessionUrl(s.id) } }, children);
     a.addEventListener('click', (event) => {

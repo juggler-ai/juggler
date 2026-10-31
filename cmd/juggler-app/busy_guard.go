@@ -11,16 +11,20 @@ import (
 )
 
 // Quitting the app lets this machine's server go, which stops its sessions and
-// any turn running in them once no other client holds it. Closing a window
-// stops nothing: a session lives while it has viewers. (A browser tab is
-// different — it is never the server's client — so this guard lives only in
-// the desktop app.) Before a quit or an update restart we ask the server which
-// sessions are running a turn and, if any are, confirm the discard with the
+// any turn running in them when a client started it on demand and no other
+// client holds it. A server run in a terminal, or held by one, outlives the
+// app, and a session with no viewer runs its turns to the end there, so a quit
+// stops nothing on it. Closing a window stops nothing either: a session lives
+// while it has viewers or a running turn. (A browser tab is different — it is
+// never the server's client — so this guard lives only in the desktop app.)
+// Before a quit or an update restart we ask the server which sessions running
+// a turn letting it go would stop and, if any, confirm the discard with the
 // user.
 //
-// The server is the source of truth: its sessions list says which sessions are
-// running a turn (busySessions), so we read it on demand rather than caching
-// busy state app-side. A turn merely parked on a pending tool approval is NOT
+// The server is the source of truth: its status says whether it outlives the
+// app, and its sessions list which sessions are running a turn
+// (sessionsAQuitStops), so we read them on demand rather than caching state
+// app-side. A turn merely parked on a pending tool approval is NOT
 // counted — it survives a restart intact, so quitting then is fine and must not
 // warn. Fail-open — if the server can't be reached there is nothing running to
 // lose, so the quit proceeds.
@@ -55,7 +59,7 @@ func (a *appState) confirmThenQuit() {
 		return
 	}
 	defer a.reg(func(st *regState) { st.confirmingQuit = false })
-	if total := a.busySessions(); total > 0 {
+	if total := a.sessionsAQuitStops(); total > 0 {
 		if !confirmQuitDiscard(a, total) {
 			return // user chose to keep working
 		}

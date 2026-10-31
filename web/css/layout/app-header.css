@@ -131,11 +131,11 @@
     text-overflow: ellipsis;
 }
 
-/* Inline "open new window" button welded to the right of the chip. Native
-   window only — hidden by default and revealed under .window-mode (styles.css),
-   since a remote browser tab has no host able to spawn a window. */
+/* Inline "open new window" button welded to the right of the chip. In a
+   desktop window it opens another window; in a browser tab, the server's page
+   in a tab of its own (header-controls.js). */
 :where(.app-header) .ppd-new-window-button {
-    display: none;
+    display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;

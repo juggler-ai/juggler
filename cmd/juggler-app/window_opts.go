@@ -117,6 +117,12 @@ type windowOpts struct {
 	// openFailedError). Set by planWindow, never off the wire.
 	notice string
 
+	// noStart opens a local window only on a server already running: none
+	// found is the stand-in for a server run elsewhere again, never one this
+	// app starts. The Try again of that stand-in (standIn.startedElsewhere).
+	// Set by the control endpoint, never off the wire.
+	noStart bool
+
 	// panel is where the board was on screen in the window that asked, so the
 	// new window can open over it: a pop-out is the panel leaving the window,
 	// and a window that appeared somewhere else entirely would be a new one.

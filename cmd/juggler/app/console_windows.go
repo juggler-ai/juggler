@@ -35,9 +35,8 @@ var (
 // launch shares the shell's console, so ≥2 processes are attached, whereas an
 // icon launch owns a brand-new console alone (exactly 1). term.IsTerminal can't
 // distinguish them — both look like a genuine console — so this process-count
-// test is the reliable signal. The result only drives the project default
-// (cwd for a shell launch, none/"choose a session" for an icon launch); see
-// resolveStartupProject.
+// test is the reliable signal. The result decides, for one, whether bare
+// juggler reads keys from its terminal.
 func launchedFromTerminal() bool {
 	var pids [2]uint32
 	n, _, _ := procGetConsoleProcessList.Call(uintptr(unsafe.Pointer(&pids[0])), uintptr(len(pids)))

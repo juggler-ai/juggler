@@ -136,6 +136,11 @@ type winEntry struct {
 	// (stand_in.go): its page is then a static one, and serverURL is empty.
 	// Immutable.
 	standIn *standIn
+	// keepsFrame is set on a stand-in opened at the frame of the window whose
+	// place it took (inheritsFrame) — one the user put there — so the window
+	// that answers it opens there too. A stand-in a launch opened, with no
+	// window to take the place of, is at a frame nobody chose. Immutable.
+	keepsFrame bool
 
 	// fileDrop is whether native file drop is currently on for this window —
 	// true while it shows no project. Tracked so a repeated report of the same
@@ -690,10 +695,12 @@ type windowPlan struct {
 // planWindow resolves spec (resolveWindow) and reads the frame its window opens
 // at. A server that cannot be had, and a server by URL that does not answer,
 // plan the window's stand-in; a session the server will not open plans the
-// server's own page, saying why. Blocking, so never on the main thread.
+// server's own page, saying why. A window opened only on a server already
+// running (opts.noStart) that finds none plans the stand-in for a server run
+// elsewhere, still not running. Blocking, so never on the main thread.
 func (a *appState) planWindow(spec windowSpec, opts windowOpts) windowPlan {
 	p := windowPlan{spec: spec, opts: opts}
-	serverURL, server, err := a.resolveWindow(spec)
+	serverURL, server, err := a.resolveWindow(spec, !opts.noStart)
 	var failed *openFailedError
 	switch {
 	case errors.As(err, &failed):
@@ -701,6 +708,10 @@ func (a *appState) planWindow(spec windowSpec, opts windowOpts) windowPlan {
 		p.spec = windowSpec{}
 		p.opts.notice = failed.notice(a)
 		serverURL, server = failed.serverURL, failed.server
+	case err != nil && opts.noStart && errors.Is(err, machineserver.ErrNoServer):
+		logf("window for %+v: %v; starting none", spec.entry(), err)
+		p.standIn = lostElsewhereStandIn(true)
+		return p
 	case err != nil:
 		logf("window for %+v: %v", spec.entry(), err)
 		p.standIn = standInFor(err)
@@ -725,7 +736,7 @@ func (a *appState) planWindow(spec windowSpec, opts windowOpts) windowPlan {
 // app.Run() (the initial window) or, on the main thread, after it.
 func (a *appState) buildPlanned(p windowPlan) *winEntry {
 	if p.standIn != nil {
-		return a.buildStandInWindow(p.spec, p.standIn, p.opts.theme)
+		return a.buildStandInWindow(p.spec, p.standIn, p.opts)
 	}
 	return a.buildWindow(p.spec, p.serverURL, p.server, p.saved, p.hasSaved, p.opts)
 }
@@ -1145,8 +1156,16 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, server serverP
 	// judge it — neither for reachability nor for size. fitWindowToScreens
 	// re-checks the live frame once the app is up, before the window is
 	// revealed; this log line is what says which of the two decided the outcome.
+	//
+	// A window answering a stand-in the user's window became opens where that
+	// stand-in is instead (inheritsFrame): the window never moved for losing its
+	// server, and does not for getting it back.
 	screens := a.app.Screen.GetAll()
 	frame := openingFrame(saved, hasSaved, opts, a.openerFrame(opts.openedBy), screens)
+	inherited, inherits := a.inheritedFrame(opts, false)
+	if inherits {
+		frame = inherited
+	}
 	place := windowgeom.PlaceVisible(frame, screens)
 	logf("placing window %s: saved=%s screens=%s → %s", id, describeFrame(frame), describeScreens(screens), describePlacement(place))
 	width, height := place.Width, place.Height
@@ -1154,8 +1173,10 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, server serverP
 	initialPos, startState := place.Position, place.State
 	// Don't stack a new window exactly on top of an open one (e.g. a second
 	// window for the same project, which shares the session's geometry): nudge it
-	// down-right until its top-left no longer coincides with another window.
-	if initialPos == application.WindowXY {
+	// down-right until its top-left no longer coincides with another window. The
+	// stand-in a window inherits its frame from is that window's own place,
+	// and closes once it is up.
+	if initialPos == application.WindowXY && !inherits {
 		posX, posY = a.cascadeFrom(posX, posY)
 		place.X, place.Y = posX, posY
 	}

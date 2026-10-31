@@ -77,24 +77,6 @@
 }
 
 /* ============================================================================
-   PROJECT NEW-WINDOW BUTTON
-   The inline button welded to the project chip opens another desktop window.
-   Only meaningful inside the native desktop app, which handles it via its
-   loopback nativeCtl endpoint; a remote browser tab has no native host (the
-   request is a no-op there), so the affordance stays hidden. Base styles +
-   default (hidden) state live in app-header.css next to the chip.
-   Shown on every native platform (mac/windows/linux).
-   ============================================================================ */
-
-/* `.window-mode` keeps its weight because it is the condition under which this
-   rule means to win: it has to beat the base hide rule in app-header.css
-   (`.app-header .ppd-new-window-button`), which is in the same layer and loads
-   later. `.app-header` only says where to look, so it carries none. */
-.window-mode :where(.app-header) .ppd-new-window-button {
-    display: flex;
-}
-
-/* ============================================================================
    CAPTION CONTROLS (frameless Windows + Linux)
    The frameless Windows and Linux windows have no native title bar, so the
    header supplies its own minimise / maximise / close buttons

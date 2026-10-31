@@ -101,6 +101,59 @@ func TestReasoningContentSurfacedAsThinking(t *testing.T) {
 	}
 }
 
+// TestArrayContentChunksSurfacedAsThinkingAndText proves a Mistral-style
+// stream — `delta.content` as an array of typed chunks, with chain-of-thought
+// in `thinking` chunks — is split into live thinking and answer text. The SDK
+// types `content` as a string and drops the array's raw JSON into it, so
+// reading that string alone shows `[{"type":"thinking",…}]` as the answer.
+func TestArrayContentChunksSurfacedAsThinkingAndText(t *testing.T) {
+	body := sseBody(
+		`{"id":"x","object":"chat.completion.chunk","created":0,"model":"glm","choices":[{"index":0,"delta":{"role":"assistant","content":[{"type":"thinking","thinking":[{"type":"text","text":"The"}],"closed":true}]},"finish_reason":null}]}`,
+		`{"id":"x","object":"chat.completion.chunk","created":0,"model":"glm","choices":[{"index":0,"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":" user sent"},{"type":"text","text":" \"test\""}],"closed":true},{"type":"mystery","data":1}]},"finish_reason":null}]}`,
+		`{"id":"x","object":"chat.completion.chunk","created":0,"model":"glm","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}`,
+		`{"id":"x","object":"chat.completion.chunk","created":0,"model":"glm","choices":[{"index":0,"delta":{"content":[{"type":"text","text":" there."}]},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":42}}`,
+	)
+	c := streamingClientWithSSE(t, body)
+
+	var thinkingChunks []string
+	var sawProgressDuringThinking bool
+	var text strings.Builder
+	_, err := c.streamMessage(context.Background(), provider.MessageRequest{
+		Messages: []provider.Message{{Type: "user", Content: "hello"}},
+	}, func(chunk provider.StreamChunk) (*provider.ToolResult, error) {
+		switch chunk.Type {
+		case provider.ContentBlockTypeThinking:
+			if chunk.Content != "" {
+				thinkingChunks = append(thinkingChunks, chunk.Content)
+			}
+		case provider.ContentBlockTypeProgress:
+			if text.Len() == 0 {
+				sawProgressDuringThinking = true
+			}
+		case provider.ContentBlockTypeText:
+			text.WriteString(chunk.Content)
+		}
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatalf("streamMessage: %v", err)
+	}
+
+	if got, want := strings.Join(thinkingChunks, "|"), `The| user sent "test"`; got != want {
+		t.Fatalf("thinking chunks = %q, want %q", got, want)
+	}
+	if !sawProgressDuringThinking {
+		t.Fatal("array-form thinking did not drive a progress chunk")
+	}
+	got := text.String()
+	if strings.Contains(got, `"type":`) || strings.Contains(got, `[{`) {
+		t.Fatalf("raw content-chunk JSON leaked into the text: %q", got)
+	}
+	if got != "Hello there." {
+		t.Fatalf("text = %q, want \"Hello there.\"", got)
+	}
+}
+
 // TestOpenRouterReasoningFieldSurfacedAsThinking proves the OpenRouter relay
 // key — `reasoning` rather than GLM/DeepSeek's `reasoning_content` — is also
 // surfaced as live thinking. OpenRouter routes through openaibase, so without

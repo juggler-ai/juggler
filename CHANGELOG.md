@@ -12,6 +12,7 @@ of changes; this project follows semantic versioning.
 - Long files are no longer shown cut short in a panel about 100 lines tall
 - The first column widens freely beside a properties panel, which scrolls if needed
 - File paths in your messages, thread summaries and bash commands are clickable too
+- Reasoning from Mistral-hosted models shows as thinking instead of raw JSON
 - Double-clicking Duplicate or Fork makes one copy, and shows "Duplicating…" meanwhile
 - `! command` (or /shell) runs a command and adds its output, no model call
 

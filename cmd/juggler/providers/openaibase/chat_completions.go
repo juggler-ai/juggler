@@ -409,6 +409,30 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 		return err
 	}
 
+	// emitThinking and emitText stream one non-empty delta of reasoning or
+	// answer text, recording it for the turn and the progress estimate.
+	emitThinking := func(s string) error {
+		if s == "" {
+			return nil
+		}
+		thinkingContent.WriteString(s)
+		sess.Progress(s)
+		_, err := callback(provider.StreamChunk{Type: provider.ContentBlockTypeThinking, Content: s})
+		return err
+	}
+	emitText := func(s string) error {
+		if s == "" {
+			return nil
+		}
+		if err := stampReasoning(); err != nil {
+			return err
+		}
+		textContent.WriteString(s)
+		sess.Progress(s)
+		_, err := callback(provider.StreamChunk{Type: provider.ContentBlockTypeText, Content: s})
+		return err
+	}
+
 	// Process the stream
 	for stream.Next() {
 		sess.Reset()
@@ -450,36 +474,28 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 			// models on the Chat Completions wire (GLM, DeepSeek-R1, OpenRouter,
 			// …) carry chain-of-thought in a non-standard delta field
 			// (`reasoning_content` or `reasoning`), which the SDK parks in
-			// ExtraFields. Surfacing it both
-			// shows live thinking and — crucially — feeds the output-token
-			// progress estimate, so a model that reasons for minutes no longer
-			// leaves the spinner frozen on "Receiving" with no movement.
-			if reasoning := extraReasoningDelta(choice.Delta.JSON.ExtraFields); reasoning != "" {
-				thinkingContent.WriteString(reasoning)
-				sess.Progress(reasoning)
-				streamChunk := provider.StreamChunk{
-					Type:    provider.ContentBlockTypeThinking,
-					Content: reasoning,
-				}
-				if _, err := callback(streamChunk); err != nil {
-					return nil, err
-				}
+			// ExtraFields. Surfacing it both shows live thinking and feeds the
+			// output-token progress estimate, so a model that reasons for
+			// minutes still moves the spinner.
+			if err := emitThinking(extraReasoningDelta(choice.Delta.JSON.ExtraFields)); err != nil {
+				return nil, err
 			}
 
-			// Stream text content immediately
-			if choice.Delta.Content != "" {
-				if err := stampReasoning(); err != nil {
-					return nil, err
+			// Stream content immediately. An array of typed chunks (Mistral's
+			// reasoning models) carries thinking and text side by side; the
+			// SDK's string Content holds only that array's raw JSON then.
+			if parts, ok := parseContentChunks(choice.Delta.JSON.Content.Raw()); ok {
+				for _, p := range parts {
+					emit := emitText
+					if p.thinking {
+						emit = emitThinking
+					}
+					if err := emit(p.text); err != nil {
+						return nil, err
+					}
 				}
-				textContent.WriteString(choice.Delta.Content)
-				sess.Progress(choice.Delta.Content)
-				streamChunk := provider.StreamChunk{
-					Type:    provider.ContentBlockTypeText,
-					Content: choice.Delta.Content,
-				}
-				if _, err := callback(streamChunk); err != nil {
-					return nil, err
-				}
+			} else if err := emitText(choice.Delta.Content); err != nil {
+				return nil, err
 			}
 
 			// Accumulate tool calls
@@ -542,6 +558,69 @@ func (c *Client) streamMessageChatCompletions(ctx context.Context, req provider.
 		OutputTokens:           outputTokens,
 		CachedTokens:           cachedTokens,
 	}, nil
+}
+
+// contentPart is one piece of a delta's array-form content: reasoning when
+// thinking is set, answer text otherwise.
+type contentPart struct {
+	thinking bool
+	text     string
+}
+
+// parseContentChunks reads a delta's `content` when it is an array of typed
+// chunks, as Mistral streams for reasoning models:
+//
+//	[{"type":"thinking","thinking":[{"type":"text","text":"…"}]},{"type":"text","text":"…"}]
+//
+// It returns the chunks' parts in order, with a thinking chunk's inner text
+// joined; chunk types other than thinking and text are dropped. ok=false
+// means raw is not an array, and the string content applies.
+func parseContentChunks(raw string) ([]contentPart, bool) {
+	if !strings.HasPrefix(strings.TrimSpace(raw), "[") {
+		return nil, false
+	}
+	var chunks []struct {
+		Type     string          `json:"type"`
+		Text     string          `json:"text"`
+		Thinking json.RawMessage `json:"thinking"`
+	}
+	if err := json.Unmarshal([]byte(raw), &chunks); err != nil {
+		// An array that is not a list of chunk objects is still not answer text.
+		return nil, true
+	}
+	parts := make([]contentPart, 0, len(chunks))
+	for _, ch := range chunks {
+		switch ch.Type {
+		case "text":
+			parts = append(parts, contentPart{text: ch.Text})
+		case "thinking":
+			parts = append(parts, contentPart{thinking: true, text: thinkingChunkText(ch.Thinking)})
+		}
+	}
+	return parts, true
+}
+
+// thinkingChunkText joins the text of a thinking chunk's inner parts, which
+// arrive as a list of text chunks or, defensively, as a plain string.
+func thinkingChunkText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var inner []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &inner) != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range inner {
+		if p.Type == "text" {
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
 }
 
 func mapOpenAIFinishReason(reason string) provider.StopReason {

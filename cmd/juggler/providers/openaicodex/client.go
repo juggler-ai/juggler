@@ -43,7 +43,8 @@ func Register() {
 		Description:    msg.New("Uses your local ChatGPT app or Codex CLI login, so any ChatGPT plan including Free can run Codex here without an OpenAI Platform API key."),
 		AuthType:       provider.AuthTypeOAuthBearer,
 		AuthSource:     "codex_cli",
-		BaseURLFunc:    codexBaseURL,
+		BaseURLFunc:    func() string { base, _ := codexBaseURL(); return base },
+		BaseURLErr:     func() error { _, err := codexBaseURL(); return err },
 		ContextWindows: ModelContextWindows,
 		// The static windows are catalogContextWindow guesses (see models.go), and
 		// the backend answers an over-long request with "exceeds the context
@@ -225,7 +226,11 @@ func admitModel(model codexModel) bool {
 }
 
 func listModels(ctx context.Context, bearerToken string, headers map[string]string) ([]provider.ModelInfo, error) {
-	endpoint, err := url.Parse(codexBaseURL() + "/models")
+	base, err := codexBaseURL()
+	if err != nil {
+		return nil, err
+	}
+	endpoint, err := url.Parse(base + "/models")
 	if err != nil {
 		return nil, fmt.Errorf("failed to build OpenAI Codex models URL: %w", err)
 	}

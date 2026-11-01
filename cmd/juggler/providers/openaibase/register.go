@@ -149,6 +149,11 @@ type Descriptor struct {
 	BaseURLFunc func() string // If set, resolved at NewClient time (overrides BaseURL).
 	Quirks      Quirks        // Per-vendor request-shape divergences. Zero value = standard OpenAI.
 	Headers     map[string]string
+	// BaseURLErr, if set, reports why the descriptor's endpoint is unusable, for
+	// one that comes from user configuration and failed validation. NewClient
+	// then fails with it rather than send the credential anywhere else. An
+	// endpoint on the config replaces the descriptor's, so it is not consulted.
+	BaseURLErr func() error
 	// HeadersFunc resolves the static (per-provider) headers at NewClient time,
 	// overriding Headers when set. Use for user-configured headers (e.g. a
 	// gateway that requires a custom User-Agent) that aren't known at
@@ -243,6 +248,10 @@ func Register(d Descriptor) {
 		// which is every built-in vendor.
 		if cfg.BaseURL != "" {
 			baseURL = cfg.BaseURL
+		} else if d.BaseURLErr != nil {
+			if err := d.BaseURLErr(); err != nil {
+				return nil, err
+			}
 		}
 		staticHeaders := d.Headers
 		if d.HeadersFunc != nil {

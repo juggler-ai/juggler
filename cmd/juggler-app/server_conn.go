@@ -37,8 +37,10 @@ import (
 // running (land).
 //
 // When the attachment ends, the server either dropped it — it had not heard
-// this app's beats, after a sleep or a stall — and is still there, so the app
-// attaches again and its windows carry on; or the server has gone, and every
+// this app's beats and could not see this app's process alive, which a server
+// that keeps a silent but live client never does to a running app — and is
+// still there, so the app attaches again and its windows carry on; or the
+// server has gone, and every
 // local window becomes its stand-in at once, whose Try again finds or starts
 // a server and reopens the window's session. A server the app did not start —
 // run in a terminal — is only looked for again: the app starts its own only

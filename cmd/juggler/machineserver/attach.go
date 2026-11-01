@@ -7,6 +7,7 @@ package machineserver
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -27,13 +28,18 @@ import (
 
 // An attachment is held two ways. The held POST /api/server/attach ends the
 // moment the client's process does, however it ended. And the client beats
-// (POST /api/server/attach/<id>/beat) every attachBeatEvery, which tells a live
-// client from one whose process is still there but has stopped — hung, or its
-// connection silently gone. The server checks every attachCheckEvery, and drops
-// an attachment that has not beaten since attachMissLimit of its checks in a
-// row: it ends the held response, which the client sees as Done. A live client
-// then attaches again. The count is of the server's own checks, not of time, so
-// a machine that sleeps misses no beats: its checks sleep with it.
+// (POST /api/server/attach/<id>/beat) every attachBeatEvery, which covers what
+// the held request cannot see: a connection left half-open. The server checks
+// every attachCheckEvery, and an attachment that has not beaten since
+// attachMissLimit of its checks in a row has gone silent. A silent attachment
+// whose client process is alive stands: a client the OS has starved of CPU —
+// an app napped behind a dark display on a saturated machine — beats late, and
+// is still the client; letting it go would shut an implicit server down under
+// it, and every turn its sessions are running with it. Only a silent attachment
+// whose process has exited, or that named none, is dropped: the held response
+// ends, which the client sees as Done. The count is of the server's own checks,
+// not of time, so a machine that sleeps misses no beats: its checks sleep with
+// it.
 const (
 	attachBeatEvery  = 5 * time.Second
 	attachCheckEvery = 5 * time.Second
@@ -46,6 +52,9 @@ type attachment struct {
 	beaten atomic.Bool
 	// missed counts the checks in a row that found no beat since the last.
 	missed atomic.Int32
+	// pid is the client's process, as it named it when it attached; zero
+	// named none.
+	pid int
 	// dropped closes when the server drops the attachment.
 	dropped  chan struct{}
 	dropOnce sync.Once
@@ -71,7 +80,8 @@ type attachStatus struct {
 // under it. It answers 200 at once with one line of JSON (attachStatus), sent
 // only once the caller is counted, and then sends nothing more. The response
 // ends when the caller goes — its connection closing, however its process ended
-// — when it stops beating (checkAttachments), or when the server's lifetime
+// — when it stops beating with no live process (checkAttachments), or when the
+// server's lifetime
 // ends, so a held attachment never stalls the shutdown's drain. A server
 // already shutting down refuses with 503, as an open does, so a client that
 // caught it on its way out learns so from the answer rather than from an
@@ -137,7 +147,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	if s.starter > 0 && req.PID == s.starter {
 		s.starterGone.Store(true)
 	}
-	a := &attachment{dropped: make(chan struct{}), detach: detach}
+	a := &attachment{dropped: make(chan struct{}), detach: detach, pid: req.PID}
 	s.attachments.Store(id, a)
 	defer s.attachments.Delete(id)
 	w.Header().Set("Content-Type", "application/x-ndjson")
@@ -171,16 +181,28 @@ func (s *Server) handleBeat(w http.ResponseWriter, r *http.Request) {
 
 // checkAttachments is one of the server's checks: each attachment that has not
 // beaten since the last one has missed it, and one that has missed
-// attachMissLimit in a row is dropped.
+// attachMissLimit in a row has gone silent. A silent one whose client process
+// is alive stands, and is logged once when it goes silent and once when it
+// beats again; any other is dropped.
 func (s *Server) checkAttachments() {
 	s.attachments.Range(func(k, v any) bool {
 		a := v.(*attachment)
 		if a.beaten.Swap(false) {
-			a.missed.Store(0)
+			if n := a.missed.Swap(0); n >= attachMissLimit {
+				jlog.Info("[machineserver] attachment %s (pid %d) beats again after %d missed checks", k, a.pid, n)
+			}
 			return true
 		}
-		if a.missed.Add(1) >= attachMissLimit {
-			jlog.Info("[machineserver] attachment %s stopped beating — dropping it", k)
+		n := a.missed.Add(1)
+		switch {
+		case n < attachMissLimit:
+		case a.pid > 0 && processAlive(a.pid):
+			if n == attachMissLimit {
+				jlog.Info("[machineserver] attachment %s stopped beating, but its process (pid %d) is alive — keeping it", k, a.pid)
+			}
+		default:
+			jlog.Info("[machineserver] attachment %s stopped beating and names no live process (pid %d) — dropping it", k, a.pid)
+			s.attachments.Delete(k)
 			a.drop()
 		}
 		return true
@@ -234,7 +256,7 @@ func (c *Client) Attach(sessionIDs ...string) (*Attachment, error) {
 	body, _ := json.Marshal(struct {
 		PID     int    `json:"pid"`
 		Session string `json:"session,omitempty"`
-	}{PID: os.Getpid(), Session: session})
+	}{PID: cmp.Or(c.attachPID, os.Getpid()), Session: session})
 	// No clock bounds any of it: the response stays open for as long as the
 	// attachment stands, and the wait for the server's first answer lasts
 	// while the server does — the connection dropping ends it, and so does

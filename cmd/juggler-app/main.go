@@ -64,6 +64,7 @@ func main() {
 	// redundant launch never starts or attaches to anything; the running
 	// instance opens/raises the window (onSecondInstance).
 	app.initApplication()
+	holdOffAppNap()
 
 	// Bind the loopback control endpoint so its port can be baked into window
 	// URLs as ?nativeCtl=.

@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,18 @@ import (
 // the attachment.
 func heldAttach(t *testing.T, base string) (id string, ended <-chan struct{}) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, base+"/api/server/attach", http.NoBody) //nolint:noctx // closed by the test
+	return heldAttachAs(t, base, 0)
+}
+
+// heldAttachAs is heldAttach for a client that names pid as its process; zero
+// names none.
+func heldAttachAs(t *testing.T, base string, pid int) (id string, ended <-chan struct{}) {
+	t.Helper()
+	body := io.Reader(http.NoBody)
+	if pid != 0 {
+		body = strings.NewReader(fmt.Sprintf(`{"pid":%d}`, pid))
+	}
+	req, err := http.NewRequest(http.MethodPost, base+"/api/server/attach", body) //nolint:noctx // closed by the test
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,9 +121,42 @@ func TestAttachmentIsDroppedAfterSixMissedChecks(t *testing.T) {
 	}
 }
 
+// TestASilentAttachmentStandsWhileItsClientProcessLives: an attachment whose
+// client process is alive stands however many checks it misses — a client
+// starved of CPU (a napped app on a saturated machine) is still the client, and
+// the implicit server it alone holds stays up under it. Silent attachments whose
+// process has exited, or that named none, are dropped as before.
+func TestASilentAttachmentStandsWhileItsClientProcessLives(t *testing.T) {
+	s := &Server{reg: newRegistry(), token: testToken, implicit: true, shutdownReq: make(chan struct{}, 1)}
+	front := httptest.NewServer(s.routes())
+	t.Cleanup(front.Close)
+
+	live, liveEnded := heldAttachAs(t, front.URL, os.Getpid())
+	_, deadEnded := heldAttachAs(t, front.URL, deadPID(t))
+	_, unnamedEnded := heldAttach(t, front.URL)
+
+	for range 2 * attachMissLimit {
+		s.check()
+	}
+	<-deadEnded
+	<-unnamedEnded
+	waitAttached(t, s, 1)
+	select {
+	case <-liveEnded:
+		t.Fatal("the attachment of a live client process was dropped for missing beats")
+	default:
+	}
+	if len(s.shutdownReq) != 0 {
+		t.Fatal("the implicit server shut down under a live client that had only gone quiet")
+	}
+	if code := beat(t, front.URL, live); code != http.StatusNoContent {
+		t.Fatalf("beat after the silence: %d, want 204", code)
+	}
+}
+
 // TestAClientThatStopsBeatingSeesItsAttachmentEnd: a client whose beats stop
-// reaching the server is dropped like any other, and sees Done close, which is
-// what tells a live one to attach again. One that keeps beating is not dropped.
+// reaching the server, and whose process the server cannot see alive, is dropped
+// and sees Done close. One that keeps beating is not dropped.
 func TestAClientThatStopsBeatingSeesItsAttachmentEnd(t *testing.T) {
 	s := &Server{reg: newRegistry(), token: testToken}
 	front := httptest.NewServer(s.routes())
@@ -133,7 +178,7 @@ func TestAClientThatStopsBeatingSeesItsAttachmentEnd(t *testing.T) {
 		t.Fatalf("attach: %v", err)
 	}
 	t.Cleanup(a.Close)
-	hung := &Client{addr: addr, token: testToken, http: &http.Client{Timeout: 5 * time.Second}, beatEvery: time.Hour}
+	hung := &Client{addr: addr, token: testToken, http: &http.Client{Timeout: 5 * time.Second}, beatEvery: time.Hour, attachPID: deadPID(t)}
 	h, err := hung.Attach()
 	if err != nil {
 		t.Fatalf("attach: %v", err)

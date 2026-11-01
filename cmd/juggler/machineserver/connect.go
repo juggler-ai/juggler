@@ -206,6 +206,9 @@ type Client struct {
 	beatEvery time.Duration
 	// beaten, when set, is told each beat the server answered.
 	beaten func(id string)
+	// attachPID is the process an attachment of this client names; zero is
+	// this process.
+	attachPID int
 }
 
 // Addr is the server's host:port.

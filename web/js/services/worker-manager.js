@@ -586,8 +586,10 @@ export class WorkerManager {
    *   before this turn; the worker injects each as a visible `skill` tool-action.
    * @param {import('../model/conversation.js').SendSchedule|null} [schedule] - Holds the send:
    *   the worker queues it and fires it at `notBefore`, or when the run ends.
+   * @param {string} [shellCommand] - A command the user typed as `! cmd`; the worker
+   *   posts it as an approved `bash` tool-action and starts no turn for it.
    */
-  sendMessage(conversationId, text, threadItemId, attachments, skills, schedule) {
+  sendMessage(conversationId, text, threadItemId, attachments, skills, schedule, shellCommand) {
     // Store only the reference fields on the doc item — never raw bytes / data
     // URLs. Omit the key entirely when there are no attachments so the worker
     // writes a byte-identical user item to a plain text message.
@@ -608,6 +610,7 @@ export class WorkerManager {
       threadItemId: threadItemId || undefined,
       attachments: refs,
       skills: skillNames,
+      shellCommand: shellCommand || undefined,
       notBefore: schedule?.notBefore,
       hold: schedule?.hold
     });

@@ -26,6 +26,7 @@ import (
 // skills-only send (no prose) injects the actions without requesting an LLM turn
 // (see handleSendMessage): the reducer rests on the completed tool-action because
 // activity never becomes awaiting_llm, so the skills load with no empty turn.
+// A user's `! cmd` is placed the same way (shell_command.go, sendPreloads).
 
 // generateSkillToolUseID mints a unique tool-use id for an injected skill
 // action, distinguishable in logs/tape from a model-issued call.
@@ -65,14 +66,13 @@ func dedupSkills(names []string) []string {
 	return out
 }
 
-// injectSkillPreloadsInto appends a `skill` tool-action into dest for each name,
-// in order. The caller places it relative to the user message; driveToolActions
-// (triggered by the surrounding handleItemsChange) evaluates, approves, and
-// executes each.
-func (r *run) injectSkillPreloadsInto(dest threadContext, names []string) {
-	for _, name := range names {
-		item := newSkillToolAction(name)
-		r.log.Tool("skill", name)
+// injectPreloadsInto appends a send's preloaded tool-actions (sendPreloads) into
+// dest, in order. The caller places them relative to the user message;
+// driveToolActions (triggered by the surrounding handleItemsChange) evaluates,
+// approves, and executes each.
+func (r *run) injectPreloadsInto(dest threadContext, items []ConversationItem) {
+	for _, item := range items {
+		r.log.Tool(item.ToolName, string(item.ToolInput))
 		r.appendMessageTo(dest, item)
 	}
 }

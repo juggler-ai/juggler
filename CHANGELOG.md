@@ -6,7 +6,8 @@ of changes; this project follows semantic versioning.
 ## [Unreleased]
 
 - Total refactor of juggler's server/network stack - instead of running a server per session, there's a server per machine and this manages multiple sessions
-- `! command` (or /shell) runs a command and adds its output, no model call
+- `! command` (or /shell) posts a bash call you run yourself, no model call
+- Running bash calls have a Stop command button in their properties panel
 - New Slash commands settings page lists built-in and custom commands, with editing
 - Improvements to UI layout of the composer box, column handling and mobile layouts
 - File paths in your messages, thread summaries and bash commands are now clickable

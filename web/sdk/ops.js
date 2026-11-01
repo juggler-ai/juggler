@@ -87,6 +87,10 @@ export {
   // long-lived task polls this rather than dragging the whole log back with
   // `shellOutput` every few seconds.
   shellStatus,
+  // The session inventory of running shell processes, foreground ones included,
+  // and stopping one of them by its inventory id
+  shellListProcesses,
+  shellStopProcess,
   // Web
   httpRequest,
   webFetch,

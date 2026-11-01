@@ -11,14 +11,13 @@ const t = translator('@juggler/core');
 /**
  * Shell command — `/shell <command>`, also typed as `! <command>`.
  *
- * Runs the command with no model call and adds its output to the conversation
- * as a `shell-output` context item, which the model reads with the user's next
- * message. The command only declares the run; the host performs it (it has the
- * socket the shell streams over, and the composer that shows it running).
+ * Posts the command to the conversation as an ordinary bash tool call, already
+ * approved, with no model call. The command only declares the run; the host
+ * sends it, and the worker writes the call.
  *
  * Deliberately neither `mutatesConversation` nor `rejectWhileBusy`: it never
- * stops a running turn, and output that finishes mid-turn is queued for the
- * next turn boundary like a message typed while busy.
+ * stops a running turn, and one typed mid-turn is queued for the next turn
+ * boundary like a message typed while busy.
  */
 class ShellCommandType extends CommandType {
   static MANIFEST = {

@@ -164,15 +164,14 @@ func TestMessageQueuedAsATurnEndsIsAnswered(t *testing.T) {
 	}
 }
 
-// TestContextQueuedAloneLandsWithoutATurn pins what a queued context item with
-// no message behind it asks for. The user ran a shell command from the
-// composer while a turn was in flight, so its output was queued rather than
-// written under the running turn. When the turn ends the output must land in
-// the transcript, where the user's next message will find it — and nothing
-// more: it is not a message, and answering it would spend a model call the user
-// ran the command to avoid.
-func TestContextQueuedAloneLandsWithoutATurn(t *testing.T) {
-	w := NewConversationWorker("conv-context-queued-alone", "user:test")
+// TestShellCommandQueuedWhileBusyRunsWithoutATurn pins `! cmd` typed while a
+// turn is in flight. Its bash call is queued, not written under the running
+// turn; when the turn ends it lands in the transcript and runs — and nothing
+// more. Neither landing nor finishing asks for a model turn: the call is the
+// user's, and answering its result would spend the model call the user ran the
+// command to avoid.
+func TestShellCommandQueuedWhileBusyRunsWithoutATurn(t *testing.T) {
+	w := NewConversationWorker("conv-shell-queued", "user:test")
 	defer w.doc.Destroy()
 	r := w.currentRun()
 	r.storeState(StateIdle)
@@ -192,31 +191,35 @@ func TestContextQueuedAloneLandsWithoutATurn(t *testing.T) {
 	tr := r.beginTurn("")
 	tr.storeState(StateProcessing)
 	r.runTurn(tr, func(tr *run) {
-		enqueuePendingItemForTest(w, "", ConversationItem{
-			Type: "shell-output", ItemID: "SHELL_1", IsNew: true,
-			Data: json.RawMessage(`{"command":"echo hi","output":"hi","exitCode":0}`),
-		})
+		payload, _ := json.Marshal(SendMessageMessage{ShellCommand: "echo hi"})
+		tr.handleSendMessage(payload)
+		if !w.hasPendingItems("") {
+			t.Error("a shell command sent to a busy thread must be queued")
+		}
 		tr.finishStrategyRun()
 	})
 	w.quiesce(t)
 
 	if w.hasPendingItems("") {
-		t.Fatal("the queued output is still queued under an idle conversation")
+		t.Fatal("the queued shell command is still queued under an idle conversation")
 	}
-	found := false
-	for _, it := range w.doc.GetItems() {
-		if it.ItemID == "SHELL_1" {
-			found = true
-		}
+	bash := bashActions(w.doc.GetItems())
+	if len(bash) != 1 {
+		t.Fatalf("the queued shell command never reached the transcript: %+v", w.doc.GetItems())
 	}
-	if !found {
-		t.Fatalf("the queued output never reached the transcript: %+v", w.doc.GetItems())
-	}
+
+	// The engine finishes the command.
+	w.doc.UpdateToolActionFieldsRecursive(bash[0].ToolUseID, map[string]any{
+		"state": StateCompleted, "result": map[string]any{"content": "hi", "isError": false},
+	})
+	w.sched.markReconcile(reconcileTestDriven)
+	w.quiesce(t)
+
 	if n := w.mock().remaining(); n != 1 {
-		t.Fatalf("a model turn ran for a context item queued with no message (%d scripted response(s) left, want 1)", n)
+		t.Fatalf("a model turn ran for the user's shell command (%d scripted response(s) left, want 1)", n)
 	}
 	if a := w.currentRun().threadActivity(""); a != ActivityNone {
-		t.Fatalf("the conversation was left %q, not at rest, by a context item queued with no message", a)
+		t.Fatalf("the conversation was left %q, not at rest, by the user's shell command", a)
 	}
 }
 

@@ -157,22 +157,25 @@ const (
 )
 
 // Keys of a tool action's input that the worker reads or writes itself
-// (docKeys.toolInput): drop_context_items' itemIds, the skill tool's name, and
-// the inputs toolSummary probes for its log line — goal among them, declared
-// with the item keys.
+// (docKeys.toolInput): drop_context_items' itemIds, the skill tool's name, the
+// bash input of a user's shell command (newShellToolAction), and the inputs
+// toolSummary probes for its log line — goal among them, declared with the
+// item keys.
 const (
-	keyItemIDs  = "itemIds"
-	keyName     = "name"
-	keyFilePath = "file_path"
-	keyCommand  = "command"
-	keyPattern  = "pattern"
-	keyQuery    = "query"
-	keyURL      = "url"
-	keyTitle    = "title"
-	keyPath     = "path"
-	keySearches = "searches"
-	keyFiles    = "files"
-	keyEdits    = "edits"
+	keyItemIDs     = "itemIds"
+	keyName        = "name"
+	keyFilePath    = "file_path"
+	keyCommand     = "command"
+	keyDescription = "description"
+	keyTimeout     = "timeout"
+	keyPattern     = "pattern"
+	keyQuery       = "query"
+	keyURL         = "url"
+	keyTitle       = "title"
+	keyPath        = "path"
+	keySearches    = "searches"
+	keyFiles       = "files"
+	keyEdits       = "edits"
 )
 
 // Keys the worker writes into a tool action's displayData (docKeys.displayData).

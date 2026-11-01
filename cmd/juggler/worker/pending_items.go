@@ -157,7 +157,9 @@ func (w *ConversationWorker) hasPromotablePending(threadItemID string, pc promot
 // thread's items array as user messages (chronologically last). The
 // promoted items are left UNSTAMPED (no transactionId) so the strategy loop's
 // findUnstampedUserMsgID picks up the last one for the next round-trip. Returns
-// the number promoted. The move itself, and why it is one hold, is
+// the number promoted that ask for a turn — every caller reads it as "start or
+// continue one" — so a user's shell command, promoted like any entry, is not
+// counted (turnAskingCount). The move itself, and why it is one hold, is
 // OperationTracker.PromotePending.
 //
 // The items-change pass the promotion calls for runs on the actor. A turn
@@ -184,7 +186,7 @@ func (r *run) promotePendingItems(threadItemID string, pc promoteCtx) int {
 	} else {
 		r.signalItemsChange()
 	}
-	return len(pending)
+	return turnAskingCount(pending)
 }
 
 // collectPendingAssetIDsLocked adds every asset id referenced by a QUEUED

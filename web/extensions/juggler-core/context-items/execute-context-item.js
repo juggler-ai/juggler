@@ -5,7 +5,7 @@
 
 import ContextItem from 'juggler/context-item';
 import { translator, markUntranslated } from 'juggler/i18n';
-import { shellKill, MAX_EXEC_TIMEOUT_MS, DEFAULT_EXEC_TIMEOUT_MS } from 'juggler/ops';
+import { shellKill, shellListProcesses, shellStopProcess, MAX_EXEC_TIMEOUT_MS, DEFAULT_EXEC_TIMEOUT_MS } from 'juggler/ops';
 import { createHighlightedCode, createSummaryWithSubtitle, renderLiveTaskOutput, pinSource, canPinSource } from 'juggler/ui';
 import { resolveAgainstCwd, posixNormalize, canonicalRoot, isGrantableRoot } from 'juggler/utils/path-containment';
 import { isCommandAutoApproved, suggestApprovalPatterns, MAX_SUGGESTED_PATTERN_LENGTH } from './execute/command-approval.js';
@@ -1193,8 +1193,8 @@ class ExecuteContextItem extends ContextItem {
    * @param {HTMLElement} wrapper
    * @param {import('juggler/context-item').ToolActionRenderContext} ctx
    * @returns {{ skipResultSection?: boolean, controls?: HTMLElement[] } | void} Render result; set
-   *   skipResultSection when output is rendered inline, and a background run's
-   *   control to show the Running tasks pin
+   *   skipResultSection when output is rendered inline, a background run's
+   *   control to show the Running tasks pin, and a running command's Stop
    */
   renderToolActionDetails(wrapper, ctx) {
     const { input, helpers, toolAction } = ctx;
@@ -1205,7 +1205,10 @@ class ExecuteContextItem extends ContextItem {
     const ms = typeof input.timeout === 'number' ? input.timeout : DEFAULT_EXEC_TIMEOUT_MS;
     helpers.addSubsection(wrapper, t('Timeout'), prettyTimeout(ms), 'properties-panel-code');
 
-    if (!input.run_in_background) return;
+    if (!input.run_in_background) {
+      const stop = ExecuteContextItem._createStopControl(toolAction);
+      return stop ? { controls: [stop] } : undefined;
+    }
 
     // Background runs spawn a durable, addressable process. Surface its task id
     // as a first-class property so the user can find the handle to read
@@ -1240,6 +1243,37 @@ class ExecuteContextItem extends ContextItem {
 
     const showTasks = ExecuteContextItem._createShowTasksControl();
     return { skipResultSection: true, controls: showTasks ? [showTasks] : [] };
+  }
+
+  /**
+   * The panel control that stops a foreground command while it runs, or null
+   * once it is not running. Stopping one command is not stopping the turn: the
+   * call ends "Killed by user" and a turn it belongs to carries on with that
+   * result. The process is found in the session's inventory by the call's
+   * tool-use id, and stopped as the Running tasks pin stops it.
+   * @param {any} toolAction - The tool-action Y.Map.
+   * @returns {HTMLButtonElement|null} The control, or null to offer nothing.
+   */
+  static _createStopControl(toolAction) {
+    if (toolAction?.get?.('state') !== 'running') return null;
+    const toolUseId = toolAction.get('toolUseId');
+    if (!toolUseId) return null;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'properties-panel-btn bash-stop';
+    button.textContent = t('Stop command');
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        const { processes } = await shellListProcesses();
+        const process = processes.find((p) => p.toolUseId === toolUseId);
+        if (process) await shellStopProcess({ id: process.id });
+      } catch (err) {
+        console.error('[execute] could not stop the command:', err);
+        button.disabled = false;
+      }
+    });
+    return button;
   }
 
   /**

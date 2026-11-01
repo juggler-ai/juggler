@@ -280,6 +280,7 @@
  * @property {string} [threadItemId]
  * @property {AssetRef[]} [attachments]
  * @property {string[]} [skills] - Skills lists Agent Skill names the user explicitly chose to load before this turn (via the composer `$name` mention or picker). Each is loaded as a real `skill` tool-action — the same visible, auto-approved action the model issues — injected ahead of the assistant's response so its instructions are in context first. A skills-only send (empty Text) is a preload: the skills load and the worker rests without starting an LLM turn.
+ * @property {string} [shellCommand] - ShellCommand is a command line the user typed as `! cmd` (or `/shell cmd`). It is posted as an ordinary `bash` tool-action, already approved because the user typed it, and asks for no LLM turn (see shell_command.go).
  * @property {number} [notBefore] - NotBefore schedules the send: epoch milliseconds before which it waits in the thread's pending queue. A time already passed holds nothing, and the send is an ordinary one.
  * @property {string} [hold] - Hold "run-end" keeps the send queued until the thread's run ends or rests. Any other non-empty value is read the same way. A continuation, and a send with no message, ignore both holds.
  */

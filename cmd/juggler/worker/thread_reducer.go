@@ -178,6 +178,16 @@ func decideNextAction(items []ConversationItem, activity string, isRoot bool, ex
 			}
 			return ActionGoIdle
 		}
+		// A batch that is only the user's own shell commands is news, like a
+		// receipt: the user ran them to avoid a model call, so their results are
+		// read on the next turn something else asks for. Mixed with the model's
+		// work, the batch is answered as ever.
+		if allUserShellActions(batch) {
+			if explicitContinuation {
+				return ActionCallLLM
+			}
+			return ActionGoIdle
+		}
 		return ActionCallLLM
 
 	case ItemTypeAssistant:

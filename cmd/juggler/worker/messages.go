@@ -286,6 +286,10 @@ type SendMessageMessage struct {
 	// in context first. A skills-only send (empty Text) is a preload: the skills
 	// load and the worker rests without starting an LLM turn.
 	Skills []string `json:"skills,omitempty"`
+	// ShellCommand is a command line the user typed as `! cmd` (or `/shell cmd`).
+	// It is posted as an ordinary `bash` tool-action, already approved because
+	// the user typed it, and asks for no LLM turn (see shell_command.go).
+	ShellCommand string `json:"shellCommand,omitempty"`
 	// NotBefore schedules the send: epoch milliseconds before which it waits in
 	// the thread's pending queue. A time already passed holds nothing, and the
 	// send is an ordinary one.

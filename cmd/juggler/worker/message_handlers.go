@@ -278,6 +278,9 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 	// messages and continuations have nothing to queue.
 	input := msg.UserInput()
 	skillsToLoad := dedupSkills(msg.Skills)
+	// Tool-actions the send posts ahead of the reply: chosen skills, and a
+	// command the user typed as `! cmd` (shell_command.go).
+	preloads := sendPreloads(skillsToLoad, msg.ShellCommand)
 
 	// A held send asks for nothing now. It goes straight to the queue, busy
 	// thread or idle, and touches no run: it supersedes no request a retry
@@ -287,25 +290,22 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 		return
 	}
 
-	// Whether this send asks for anything at all. An empty, skill-less,
+	// Whether this send asks for anything at all. An empty, preload-less,
 	// non-continuation send is not a send: below the gate it is refused outright,
 	// and above it there is nothing for it to queue.
-	carriesIntent := msg.IsContinuation || !input.isEmpty() || len(skillsToLoad) > 0
+	carriesIntent := msg.IsContinuation || !input.isEmpty() || len(preloads) > 0
 	// Asked of the TARGET thread (threadBusy): a message for an idle thread must
 	// not queue behind an unrelated sibling's run. The ask and the enqueue are one
 	// hold (queueIfBusy).
 	//
-	// Skills chosen while a turn is in flight ride the pending queue ahead of the
+	// Preloads sent while a turn is in flight ride the pending queue ahead of the
 	// message, so they promote and execute before its turn.
 	var userItem ConversationItem
 	busy, queued := r.queueIfBusy(msg.ThreadItemID, func() []ConversationItem {
 		if msg.IsContinuation {
 			return nil
 		}
-		var queue []ConversationItem
-		for _, name := range skillsToLoad {
-			queue = append(queue, newSkillToolAction(name))
-		}
+		queue := append([]ConversationItem(nil), preloads...)
 		if !input.isEmpty() {
 			userItem = newUserItem(input)
 			queue = append(queue, userItem)
@@ -349,11 +349,11 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 	dest, destFound := r.resolveThread(msg.ThreadItemID)
 
 	// Guard: empty message (no text AND no attachments) with no incomplete
-	// tools in the target thread = nothing to do. An explicit skills-only send is
-	// the exception — it carries no text but must still load the chosen skills
+	// tools in the target thread = nothing to do. A preload-only send is the
+	// exception — it carries no text but must still post its tool-actions
 	// (handled below).
 	toolsOutstanding := destFound && r.hasIncompleteToolsIn(dest)
-	if input.isEmpty() && !msg.IsContinuation && !toolsOutstanding && len(skillsToLoad) == 0 {
+	if input.isEmpty() && !msg.IsContinuation && !toolsOutstanding && len(preloads) == 0 {
 		return
 	}
 
@@ -416,7 +416,7 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 		// reducer rests on these non-terminal tool-actions, drives them to
 		// completion, then dispatches the LLM call (requestLLM below sets the
 		// awaiting_llm activity that authorises that dispatch).
-		r.injectSkillPreloadsInto(dest, skillsToLoad)
+		r.injectPreloadsInto(dest, preloads)
 		r.batcher.Flush()
 		r.handleItemsChange()
 
@@ -427,14 +427,14 @@ func (r *run) handleSendMessage(payload json.RawMessage) {
 		// attention. No-op at root (full tool list already) and for delegated
 		// subthreads. See promoteThreadSpawnCapable.
 		r.promoteThreadSpawnCapable(msg.ThreadItemID)
-	} else if !msg.IsContinuation && len(skillsToLoad) > 0 {
-		// Skills-only send (no prose): load the chosen skills as visible
-		// tool-actions but start NO turn. driveToolActions (via handleItemsChange)
-		// evaluates, approves, and executes them; because we never requestLLM,
-		// activity stays idle and the reducer rests on the completed tool-action
-		// rather than dispatching an empty turn.
+	} else if !msg.IsContinuation && len(preloads) > 0 {
+		// Preload-only send (no prose) — skills, or a `! cmd`: post them as
+		// visible tool-actions but start NO turn. driveToolActions (via
+		// handleItemsChange) evaluates, approves, and executes them; because we
+		// never requestLLM, activity stays idle and the reducer rests on the
+		// completed tool-action rather than dispatching an empty turn.
 		r.promotePendingItems(msg.ThreadItemID, restDrain(r.clock.Now()))
-		r.injectSkillPreloadsInto(dest, skillsToLoad)
+		r.injectPreloadsInto(dest, preloads)
 		r.batcher.Flush()
 		r.handleItemsChange()
 		r.sched.markReconcile(reconcileUserSend)

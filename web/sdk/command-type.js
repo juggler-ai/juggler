@@ -49,9 +49,9 @@ import { validateManifest } from './lib/manifest.js';
  * Commands never perform these operations directly — they declare intent and the host dispatches.
  * @typedef {object} CommandSideEffect
  * @property {'openThread'|'setDraft'|'openCommandManager'|'openExportDialog'|'runShell'} type - Side effect type.
- *   `runShell` (`data: {command}`) runs a shell command the user typed in the
- *   thread the command was invoked for, with no model call, and adds its output
- *   to that thread as a `shell-output` context item when it ends.
+ *   `runShell` (`data: {command}`) posts a shell command the user typed to the
+ *   thread the command was invoked for, as an ordinary bash tool call that is
+ *   already approved and starts no model turn.
  * @property {Record<string, unknown>} [data] - Side effect payload
  */
 

@@ -18,8 +18,7 @@ import { ComposerPopup } from './composer-popup.js';
 import { CompletionMenu } from './completion-menu.js';
 import { createFileMentionProvider, extractFileMentionsAsync } from './file-mention-provider.js';
 import { slashCommandProvider } from './slash-command-provider.js';
-import { followShellRuns, renderShellRuns, updateShellInputCue } from './composer-shell-runs.js';
-import { shellShortcutCommand } from '../services/user-shell.js';
+import { shellShortcutCommand } from '../services/shell-shortcut.js';
 import {
   createSkillMentionProvider,
   getThreadSkillSnapshot,
@@ -373,7 +372,6 @@ class Composer extends JugglerElement {
     this._bindPaste(textarea);
     this._bindTextEditing(textarea);
     this._bindTokenPills(textarea);
-    this._renderBindings.push(followShellRuns(this, () => this._messageThread));
 
     // Render any chips that survived a re-render.
     renderAttachmentChips(this);
@@ -914,7 +912,6 @@ class Composer extends JugglerElement {
       sendBtn.setAttribute('aria-label', title);
     }
     this._updateNewThreadControls();
-    updateShellInputCue(this, this.querySelector('textarea')?.value ?? '');
     // The schedule button follows the same empty rule; updateScheduleButton
     // re-reads emptiness itself, so just re-render it.
     updateScheduleButton(this);
@@ -1759,7 +1756,6 @@ class Composer extends JugglerElement {
 
     this._messageThread = messageThread;
     this.threadItemId = messageThread.threadItemId;
-    renderShellRuns(this, messageThread);
 
     this._syncStrategySelector();
     this._syncPermissionControls();
@@ -2279,7 +2275,6 @@ class Composer extends JugglerElement {
     this.innerHTML = `
             <composer-box-wrapper>
                 <composer-box-attachments></composer-box-attachments>
-                <composer-shell-runs hidden></composer-shell-runs>
                 <div class="paste-mirror" aria-hidden="true" hidden></div>
                 <textarea
                     aria-label="${escapeHtml(t('Message input'))}"

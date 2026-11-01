@@ -123,7 +123,7 @@
       ],
       "toolInput": [
         "itemIds", "name", "file_path", "command", "pattern", "query", "url", "goal", "title", "path", "searches",
-        "files", "edits"
+        "files", "edits", "description", "timeout"
       ],
       "compactionAccounting": [
         "passes", "calls", "estimatedSpend", "durationMs", "usage", "sourceFingerprint", "inputTokens", "outputTokens",

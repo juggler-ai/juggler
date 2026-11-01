@@ -9,7 +9,7 @@ import { DEFAULT_TRUNCATION_BUDGET } from 'juggler/context-item';
 import { CHARS_PER_TOKEN } from '../utils/token-estimate.js';
 import ConversationDocument from './conversation-document.js';
 import slashCommandHandler from '../services/slash-command-handler.js';
-import { runUserShell, shellShortcutCommand } from '../services/user-shell.js';
+import { shellShortcutCommand } from '../services/shell-shortcut.js';
 import { extractErrorMessage } from '../../sdk/lib/error-utils.js';
 import { isConversationalItemType, itemField } from '../../sdk/lib/message.js';
 import MessageThread from './message-thread.js';
@@ -1898,7 +1898,7 @@ class Conversation {
    * @param {string} userMessage - User's message content
    * @param {string|null} [threadItemId] - Thread item ID if sending from a thread column
    * @param {import('./message-thread.js').MessageThread} [messageThread] - Column-scoped message thread
-   * @param {{preemptProcessing?: boolean, consumeComposer?: boolean, interpretCommands?: boolean, attachments?: Array<{id:string,mime:string,filename:string,bytes:number,width:number,height:number}>, skills?: string[], schedule?: SendSchedule}} [options] -
+   * @param {{preemptProcessing?: boolean, consumeComposer?: boolean, interpretCommands?: boolean, attachments?: Array<{id:string,mime:string,filename:string,bytes:number,width:number,height:number}>, skills?: string[], schedule?: SendSchedule, shellCommand?: string}} [options] -
    *   When `preemptProcessing` is set, an in-flight turn is cancelled-and-settled
    *   (worker truth) before this message is delivered, instead of the message
    *   being silently dropped by the "already processing" guard. A visible notice
@@ -1915,6 +1915,9 @@ class Conversation {
    *   `interpretCommands: false` says the text is a message whatever it starts
    *   with, so generated text that happens to begin with `/` is sent rather than
    *   run.
+   *
+   *   `shellCommand` is a command the user typed as `! cmd`: the worker posts
+   *   it as an approved bash call and starts no turn for it.
    *
    *   `schedule` holds the send ("Send later"): the worker queues it at once,
    *   even on an idle thread, and fires it itself. It takes the queueing path —
@@ -2165,7 +2168,7 @@ class Conversation {
     // Route to worker - the worker owns the strategy loop. Turns are driven
     // exclusively by the Go worker; there is no viewer-side fallback loop.
     if (this._workerManager.isWorkerReady(this.id)) {
-      this._workerManager.sendMessage(this.id, outgoingMessage, messageThread?.threadItemId || threadItemId, options.attachments, options.skills, schedule);
+      this._workerManager.sendMessage(this.id, outgoingMessage, messageThread?.threadItemId || threadItemId, options.attachments, options.skills, schedule, options.shellCommand);
       const acceptedConfig = messageThread?.modelConfig || this.modelConfig;
       if (acceptedConfig?.provider && acceptedConfig?.model) {
         recentModels.record(acceptedConfig.provider, acceptedConfig.model, acceptedConfig.thinking, acceptedConfig.serviceTier);
@@ -2907,13 +2910,14 @@ class Conversation {
       const data = effect.data || {};
       switch (effect.type) {
         case 'runShell': {
-          // `! cmd` / `/shell cmd`: run in the thread it was typed into. Not
-          // awaited — the composer is free while it runs, and shows it running.
+          // `! cmd` / `/shell cmd`: posted to the thread it was typed into as
+          // a bash call (the worker's shell_command.go). It goes as a send, so
+          // it meets the same refusals and queues behind a running turn the
+          // same way; the box was already cleared for the command.
           const mt = messageThread || this.rootMessageThread;
-          if (typeof data.command === 'string' && data.command && mt) {
-            runUserShell(mt, data.command).catch((err) => {
-              console.error('[Conversation] user shell command failed:', err);
-            });
+          if (typeof data.command === 'string' && data.command) {
+            void this.sendMessage('', mt?.threadItemId ?? null, mt,
+              { consumeComposer: false, interpretCommands: false, shellCommand: data.command });
           }
           break;
         }

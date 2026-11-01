@@ -6,6 +6,7 @@ package openaibase
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -102,6 +103,33 @@ func TestRegisterDescriptorBaseURLStandsWithoutAConfigOverride(t *testing.T) {
 				t.Fatalf("server asked for %q, want /models", *gotPath)
 			}
 		})
+	}
+}
+
+// TestRegisterRefusesAnUnusableDescriptorBaseURL: a descriptor that reports its
+// endpoint unusable gets no client, so the credential goes nowhere; an endpoint
+// on the config stands in for it and is used as usual.
+func TestRegisterRefusesAnUnusableDescriptorBaseURL(t *testing.T) {
+	unusable := errors.New("the endpoint override is invalid")
+	name := "openaibase-baseurl-err-" + t.Name()
+	Register(Descriptor{
+		Name:            name,
+		BaseURL:         closedPort,
+		BaseURLErr:      func() error { return unusable },
+		ContextWindowFn: func(string) (int, int) { return 2000, 200 },
+	})
+
+	if _, err := provider.InitializeProvider(name, provider.Config{APIKey: "test", Model: "m"}); !errors.Is(err, unusable) {
+		t.Fatalf("InitializeProvider error = %v, want %v", err, unusable)
+	}
+
+	srv, gotPath := modelListServer(t)
+	p, err := provider.InitializeProvider(name, provider.Config{APIKey: "test", Model: "m", BaseURL: srv.URL})
+	if err != nil {
+		t.Fatalf("InitializeProvider with a config endpoint: %v", err)
+	}
+	if _, err := p.ListModelsWithInfo(context.Background()); err != nil || *gotPath != "/models" {
+		t.Fatalf("ListModelsWithInfo = %v, path %q; want the config's endpoint", err, *gotPath)
 	}
 }
 

@@ -17,6 +17,7 @@ of changes; this project follows semantic versioning.
 - Double-clicking Duplicate or Fork makes one copy, and shows "Duplicating…" meanwhile
 - Codex no longer rejects non-JWT access tokens as expired
 - A rejected Codex sign-in says how to sign in again, not to check an API key
+- `JUGGLER_CODEX_BASE_URL` points the Codex provider at another endpoint
 
 ## [0.7.9] - 2026-10-28
 

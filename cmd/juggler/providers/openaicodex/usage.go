@@ -37,8 +37,12 @@ type usageWindow struct {
 }
 
 func usageStats(ctx context.Context, bearerToken string, headers map[string]string) (provider.UsageStats, error) {
+	base, err := codexBaseURL()
+	if err != nil {
+		return provider.UsageStats{}, err
+	}
 	var parsed usageResponse
-	if err := utils.GetJSON(ctx, baseURL+"/usage", utils.JSONGetOptions{
+	if err := utils.GetJSON(ctx, base+"/usage", utils.JSONGetOptions{
 		Bearer:  bearerToken,
 		Headers: headers,
 		Defaults: map[string]string{

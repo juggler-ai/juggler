@@ -77,10 +77,12 @@ func buildResolver(cfg Config) *resolver {
 // IPC must stay reachable no matter how the proxy is configured. This backstops
 // the bypass the resolvers already apply, in case a future resolver omits it.
 func isLoopback(u *url.URL) bool {
-	if u == nil {
-		return false
-	}
-	host := u.Hostname()
+	return u != nil && IsLoopbackHost(u.Hostname())
+}
+
+// IsLoopbackHost reports whether host, as url.URL.Hostname returns it, is
+// localhost or a loopback IP.
+func IsLoopbackHost(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}

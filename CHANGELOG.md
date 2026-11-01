@@ -16,6 +16,7 @@ of changes; this project follows semantic versioning.
 - Long files are no longer shown cut short in a panel about 100 lines tall
 - Double-clicking Duplicate or Fork makes one copy, and shows "Duplicating…" meanwhile
 - Codex no longer rejects non-JWT access tokens as expired
+- `JUGGLER_CODEX_BASE_URL` points the Codex provider at another endpoint
 
 ## [0.7.9] - 2026-10-28
 

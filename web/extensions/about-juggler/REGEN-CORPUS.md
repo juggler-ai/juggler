@@ -170,7 +170,10 @@ Paths are relative to the `juggler/` repo root.
 - **Updates/connectivity** — `internal/updatecheck/` confirms the update check;
   keep connectivity claims conservative and true (LLM calls go to the configured
   provider; WebFetch/WebSearch reach requested sites; version check runs). Do not
-  assert "no telemetry" unless the source supports it.
+  assert "no telemetry" unless the source supports it. The proxy modes, the
+  certificate variables and `JUGGLER_CODEX_BASE_URL` come from
+  `docs/network.md`, cross-checked against `internal/httpx/` and
+  `cmd/juggler/providers/openaicodex/baseurl.go`.
 
 ## After regenerating
 

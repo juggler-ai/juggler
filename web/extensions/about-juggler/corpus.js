@@ -408,6 +408,31 @@ extensions may reach the hosts they declare, and Juggler checks for new
 versions. Model traffic goes straight from the machine Juggler's server runs on
 to the provider you chose; Juggler does not proxy it.
 
+All of these connections follow one proxy setting, in Settings → Connectivity →
+Outbound proxy: System (the default; honours HTTPS_PROXY, HTTP_PROXY and
+NO_PROXY, then the OS proxy), Direct, or Manual (a URL you enter). Loopback
+addresses always go direct. Three variables are read from Juggler's own
+environment when its server starts, not from the env.json files (those reach
+commands only). On macOS an app opened from the Dock does not read the shell
+profile, so set them with launchctl setenv or start Juggler from a terminal:
+
+- **SSL_CERT_FILE** / **SSL_CERT_DIR** — trust a proxy's certificate authority.
+  On macOS and Windows setting either one REPLACES the system certificate store
+  (CAs only in the Keychain or Windows store, such as a company's, stop
+  counting), so the file must also hold the public roots for any connection
+  that bypasses the proxy; GODEBUG=x509sslcertoverrideplatform=0 makes those
+  platforms ignore both. On Linux they replace the default bundle file and the
+  default directories respectively.
+- **JUGGLER_CODEX_BASE_URL** — replaces https://chatgpt.com/backend-api/codex
+  for every Codex request (turns, model list, usage). $NAME in it is expanded.
+  It must be https, or http to a loopback host, with no user name, password,
+  query or fragment. An unusable value stops Codex with an error naming the
+  variable; it never falls back to chatgpt.com.
+
+A Codex access token that is not a JWT (such as a credential proxy's
+placeholder) is sent as it is, and the backend decides. docs/network.md covers
+running behind a TLS-intercepting or credential-injecting proxy.
+
 ## Troubleshooting
 
 - **Logs** — not in ~/.juggler; on this platform they are written to
@@ -431,7 +456,8 @@ https://github.com/juggler-ai/juggler/blob/develop/docs/extension_guide.md.
   workspace-provider.js, hook-type.js. web/extensions/ holds the built-in
   extensions; both are readable in-app via ReadJugglerSource.
 - **Configuration** — docs/config-directory.md (~/.juggler, durable vs. cache),
-  docs/project-env.md (environment variables for commands).
+  docs/project-env.md (environment variables for commands), docs/network.md
+  (proxies, certificate authorities, the Codex endpoint).
 - **Features** — docs/custom-commands.md, docs/hooks.md, docs/memory.md,
   docs/context-window.md (measuring, budgeting, compacting), docs/mcp.md.
 - **Running** — docs/logging.md, docs/headless-linux.md, docs/distribution.md;

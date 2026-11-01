@@ -71,6 +71,9 @@ press Refresh.
 - **Windows:** commands run in Git Bash, which sees every variable as set. On a
   machine without Git for Windows they run in WSL instead, and each variable
   but `PATH` is passed in through `WSLENV`; WSL builds its own Linux `PATH`.
+- **Juggler itself** never reads them. Variables that change how Juggler
+  connects, such as the proxy, `SSL_CERT_FILE` and `JUGGLER_CODEX_BASE_URL`,
+  belong in the environment it starts with ([network.md](./network.md)).
 - **MCP servers and agent providers** have their own `env` settings and do not
   read these files. A provider that runs commands with its own shell tool, such
   as the Claude Code CLI, does not see them either.

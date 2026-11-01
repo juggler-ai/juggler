@@ -936,11 +936,7 @@ DEADCODE_SEAMS := \
 	cmd/juggler/webui/webui.go:RegisterCatalogFS \
 	cmd/juggler/webui/webui.go:updateCatalogSources
 lint-deadcode: app-icon-embed wails-runtime-embed
-	@dc="$(subst \,/,$(shell go env GOPATH))/bin/deadcode$(BIN_EXT)"; \
-	if ! $(GOCMD) version -m "$$dc" 2>/dev/null | grep -q "golang.org/x/tools[[:space:]]*$(DEADCODE_VERSION)[[:space:]]"; then \
-		echo "Installing deadcode $(DEADCODE_VERSION)..."; \
-		$(GOCMD) install golang.org/x/tools/cmd/deadcode@$(DEADCODE_VERSION) || exit 1; \
-	fi
+	@DEADCODE_VERSION="$(DEADCODE_VERSION)" scripts/ensure-deadcode
 	@dc="$(subst \,/,$(shell go env GOPATH))/bin/deadcode$(BIN_EXT)"; \
 	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
 	mains=$$($(GOCMD) list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' $(GO_PACKAGES)) || exit 1; \

@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#
+# Ensure the deadcode at $(go env GOPATH)/bin is golang.org/x/tools at exactly
+# the version the Makefile pins in DEADCODE_VERSION, built with the installed
+# toolchain's Go release (major.minor), installing it if either differs.
+#
+# deadcode type-checks the program with the go/types it was compiled with, so a
+# binary built by an older Go rejects every package whose go.mod declares a
+# newer one ("package requires newer Go version go1.N (application built with
+# go1.M)"). A Go upgrade with the pinned version already present therefore
+# needs a rebuild, not just a version match -- the same rule as
+# scripts/ensure-golangci-lint.
+#
+# Used by the Makefile's lint-deadcode. Never install deadcode by hand -- go
+# through this, or the pin drifts.
+
+set -euo pipefail
+
+if [ -z "${DEADCODE_VERSION:-}" ]; then
+	echo "ensure-deadcode: DEADCODE_VERSION is not set" >&2
+	exit 1
+fi
+
+bin="$(go env GOPATH)/bin/deadcode$(go env GOEXE)"
+have=""
+built=""
+
+# "go1.26.3", "go1.27rc1", "go1.26.3 X:nocoverageredesign" -> "1.26" / "1.27"
+go_minor() { sed -n 's/^go\([0-9]*\.[0-9]*\).*/\1/p'; }
+toolchain="$(go env GOVERSION | go_minor)"
+
+# "/path/deadcode: go1.26.3" then "	mod	golang.org/x/tools	v0.51.0	h1:..."
+if [ -x "$bin" ]; then
+	info="$(go version -m "$bin" 2>/dev/null || true)"
+	have="$(printf '%s\n' "$info" | awk '$1 == "mod" && $2 == "golang.org/x/tools" { print $3 }')"
+	built="$(printf '%s\n' "$info" | sed -n '1s/^.*: //p' | go_minor)"
+fi
+
+if [ "$have" != "$DEADCODE_VERSION" ]; then
+	echo "Installing deadcode $DEADCODE_VERSION (found: ${have:-none})..."
+	go install "golang.org/x/tools/cmd/deadcode@$DEADCODE_VERSION"
+elif [ "$built" != "$toolchain" ]; then
+	echo "Rebuilding deadcode $DEADCODE_VERSION with go$toolchain (built with: go${built:-unknown})..."
+	go install "golang.org/x/tools/cmd/deadcode@$DEADCODE_VERSION"
+fi

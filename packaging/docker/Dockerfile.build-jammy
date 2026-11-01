@@ -23,8 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Go from the official tarball, pinned to one version and checksum: Ubuntu
 # 22.04 packages a Go far below go.mod's floor, and a pinned tarball rebuilds
 # identically where an apt repo tracking a moving toolchain does not.
-ENV GO_VERSION=1.26.8
-ENV GO_SHA256=d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b
+ENV GO_VERSION=1.27.3
+ENV GO_SHA256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
 
 RUN set -eux; \
     tarball="go${GO_VERSION}.linux-amd64.tar.gz"; \

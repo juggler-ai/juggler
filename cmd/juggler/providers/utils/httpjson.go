@@ -38,10 +38,26 @@ type JSONGetOptions struct {
 	Client *http.Client
 }
 
+// HTTPStatusError is GetJSON's error for a non-200 answer, so a caller can act
+// on the status (errors.As) instead of matching the message.
+type HTTPStatusError struct {
+	// Label names the endpoint: JSONGetOptions.Label, else the request URL.
+	Label string
+	// Status is the HTTP status code the endpoint answered with.
+	Status int
+	// Body is up to 4 KiB of the response body.
+	Body string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("%s returned %d: %s", e.Label, e.Status, e.Body)
+}
+
 // GetJSON issues a GET request to url and decodes a 200 JSON response body into
 // dst. It centralises the request-build → header-set → status-check → decode
 // boilerplate duplicated across provider usage and list-model probes. On a
-// non-200 status it returns an error including up to 4 KiB of the response body.
+// non-200 status it returns an *HTTPStatusError including up to 4 KiB of the
+// response body.
 func GetJSON(ctx context.Context, url string, opts JSONGetOptions, dst any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -80,7 +96,7 @@ func GetJSON(ctx context.Context, url string, opts JSONGetOptions, dst any) erro
 		if label == "" {
 			label = url
 		}
-		return fmt.Errorf("%s returned %d: %s", label, resp.StatusCode, string(body))
+		return &HTTPStatusError{Label: label, Status: resp.StatusCode, Body: string(body)}
 	}
 	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)

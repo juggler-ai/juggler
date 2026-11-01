@@ -5,7 +5,6 @@
 package openaibase
 
 import (
-	"cmp"
 	"context"
 	"slices"
 	"time"
@@ -259,7 +258,7 @@ func Register(d Descriptor) {
 		}
 		base.sessionHeaders = sessionHeaders
 		base.limitDiscoveryDisabled = d.LimitDiscoveryUnsupported
-		base.unauthorizedHint = cmp.Or(d.UnauthorizedHint, defaultUnauthorizedHint)
+		base.unauthorizedHint = d.UnauthorizedHint
 		base.catalogMaxOutput = catalogMaxOutputLookup(d, capsSynthesised)
 		// Label this client's provider-boundary errors (notably the idle-stall
 		// message) with the id the user configured, not the shared "openai".

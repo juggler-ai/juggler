@@ -82,7 +82,8 @@ func TestEnhanceErrorLeavesOtherHintsUntyped(t *testing.T) {
 }
 
 // A 401 carries the client's hint whether the SDK typed the error or only its
-// text says so.
+// text says so, and a client given no hint, however it was built, blames the
+// API key.
 func TestEnhanceErrorUnauthorizedHint(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "https://example.test/responses", nil)
 	typed := &openai.Error{
@@ -90,12 +91,20 @@ func TestEnhanceErrorUnauthorizedHint(t *testing.T) {
 		Request:    req,
 		Response:   &http.Response{StatusCode: http.StatusUnauthorized, Request: req, Header: http.Header{}},
 	}
-	for name, err := range map[string]error{"typed": typed, "text": errors.New("401 Unauthorized")} {
-		t.Run(name, func(t *testing.T) {
-			c := &Client{unauthorizedHint: "run `codex login`"}
-			if got := c.enhanceError(err).Error(); !strings.Contains(got, "hint: run `codex login`") {
-				t.Fatalf("error = %q, want the client's hint", got)
-			}
-		})
+	clients := map[string]struct {
+		client *Client
+		want   string
+	}{
+		"own hint": {client: &Client{unauthorizedHint: "run `codex login`"}, want: "hint: run `codex login`"},
+		"no hint":  {client: &Client{}, want: "hint: your API key may be invalid"},
+	}
+	for clientName, tc := range clients {
+		for errName, err := range map[string]error{"typed": typed, "text": errors.New("401 Unauthorized")} {
+			t.Run(clientName+"/"+errName, func(t *testing.T) {
+				if got := tc.client.enhanceError(err).Error(); !strings.Contains(got, tc.want) {
+					t.Fatalf("error = %q, want %q", got, tc.want)
+				}
+			})
+		}
 	}
 }

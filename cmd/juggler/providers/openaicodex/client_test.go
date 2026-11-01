@@ -450,6 +450,33 @@ func TestUsageStatsCallsCodexEndpoint(t *testing.T) {
 	}
 }
 
+// A token the backend rejects fails the model list or usage probe with the
+// Codex sign-in hint rather than a bare status, since the model list is the
+// first request a rejected token meets.
+func TestCodexProbesHintSignInOn401(t *testing.T) {
+	originalBaseURL := baseURL
+	t.Cleanup(func() { baseURL = originalBaseURL })
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"detail":"Unauthorized"}`, http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	baseURL = server.URL
+
+	probes := map[string]func() error{
+		"models": func() error { _, err := listModels(context.Background(), "token", nil); return err },
+		"usage":  func() error { _, err := usageStats(context.Background(), "token", nil); return err },
+	}
+	for name, probe := range probes {
+		t.Run(name, func(t *testing.T) {
+			err := probe()
+			if err == nil || !strings.Contains(err.Error(), "hint: "+unauthorizedHint) {
+				t.Fatalf("error = %v, want it to carry the hint %q", err, unauthorizedHint)
+			}
+		})
+	}
+}
+
 // TestListModelsPrefersMaxContextWindow pins which of the catalog's two windows
 // a model is run at.
 //

@@ -50,7 +50,7 @@ func usageStats(ctx context.Context, bearerToken string, headers map[string]stri
 		},
 		Label: "OpenAI Codex /usage",
 	}, &parsed); err != nil {
-		return provider.UsageStats{}, err
+		return provider.UsageStats{}, hintUnauthorized(err)
 	}
 	return buildUsageStats(parsed, time.Now()), nil
 }

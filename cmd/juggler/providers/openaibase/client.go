@@ -5,6 +5,7 @@
 package openaibase
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -263,12 +264,20 @@ type Client struct {
 	// sent per chat request by sessionHeaderOpts, so only a request that
 	// belongs to a conversation carries them.
 	sessionHeaders map[string]string
-	// unauthorizedHint is the hint shown on a 401. Register stamps it from
-	// Descriptor.UnauthorizedHint, or defaultUnauthorizedHint when that is empty.
+	// unauthorizedHint is the provider's own hint for a 401, stamped by
+	// Register from Descriptor.UnauthorizedHint. Read it through
+	// unauthorizedHintText, which supplies the default when it is empty.
 	unauthorizedHint string
 }
 
 const defaultUnauthorizedHint = "your API key may be invalid"
+
+// unauthorizedHintText is the hint shown on a 401: the provider's own, else
+// one blaming the API key — so a client built without Register still says
+// something useful.
+func (c *Client) unauthorizedHintText() string {
+	return cmp.Or(c.unauthorizedHint, defaultUnauthorizedHint)
+}
 
 // enhanceError maps a failed call onto the provider vocabulary the worker
 // classifies, adding human-oriented hints to the common cases. A typed
@@ -299,7 +308,7 @@ func (c *Client) enhanceError(err error) error {
 	errMsg := err.Error()
 	switch {
 	case strings.Contains(errMsg, "401") || strings.Contains(errMsg, "Unauthorized"):
-		return fmt.Errorf("%w (hint: %s)", err, c.unauthorizedHint)
+		return fmt.Errorf("%w (hint: %s)", err, c.unauthorizedHintText())
 	case strings.Contains(errMsg, "429") || strings.Contains(errMsg, "Too Many Requests"):
 		return rateLimited(err, nil)
 	case strings.Contains(errMsg, "insufficient_quota") || strings.Contains(errMsg, "quota") ||
@@ -327,7 +336,7 @@ func (c *Client) apiFailure(err error, apiErr *openai.Error) error {
 	message := withProviderMessage(err.Error(), apiErr)
 	switch {
 	case apiErr.StatusCode == http.StatusUnauthorized:
-		message += " (hint: " + c.unauthorizedHint + ")"
+		message += " (hint: " + c.unauthorizedHintText() + ")"
 	case errType == "insufficient_quota":
 		message += " (hint: your account may be out of credits)"
 	}

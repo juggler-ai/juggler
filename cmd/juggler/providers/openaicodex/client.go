@@ -6,7 +6,9 @@ package openaicodex
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"sync/atomic"
@@ -32,7 +34,23 @@ const (
 	// of returns the same rows as the newest one it has. We pin a real published
 	// release anyway, so that a claim we make about ourselves stays true.
 	codexClientVersion = "0.160.0"
+
+	// unauthorizedHint rides every 401 from the Codex backend: the chat path
+	// through Descriptor.UnauthorizedHint, the model list and usage probes
+	// through hintUnauthorized. It is the cure, since a rejected token is one
+	// the ChatGPT app or Codex CLI has to replace.
+	unauthorizedHint = "sign in with the ChatGPT app or run `codex login`"
 )
+
+// hintUnauthorized appends unauthorizedHint to a probe's error when the backend
+// answered 401, and returns any other error as it is.
+func hintUnauthorized(err error) error {
+	var status *utils.HTTPStatusError
+	if errors.As(err, &status) && status.Status == http.StatusUnauthorized {
+		return fmt.Errorf("%w (hint: %s)", err, unauthorizedHint)
+	}
+	return err
+}
 
 // Register adds the OpenAI Codex-plan provider to the global registry. It
 // uses the ChatGPT OAuth token of the local ChatGPT app or Codex CLI, not a Platform API key.
@@ -65,7 +83,7 @@ func Register() {
 		// on it that the user never chose to. Sol is the everyday tier; newest
 		// first, with gpt-5.6-sol for accounts without GPT-6.
 		DefaultModels:      []string{"gpt-6.1-sol", "gpt-6-sol", "gpt-5.6-sol"},
-		UnauthorizedHint:   "ChatGPT rejected the Codex token. Sign in with the ChatGPT app or run `codex login`",
+		UnauthorizedHint:   unauthorizedHint,
 		ListModelsOverride: listModels,
 		UsageStatsOverride: usageStats,
 		ThinkingSpecFn:     codexThinkingSpec,
@@ -239,7 +257,7 @@ func listModels(ctx context.Context, bearerToken string, headers map[string]stri
 		Headers: headers,
 		Label:   "OpenAI Codex /models",
 	}, &parsed); err != nil {
-		return nil, fmt.Errorf("failed to list models from OpenAI Codex: %w", err)
+		return nil, fmt.Errorf("failed to list models from OpenAI Codex: %w", hintUnauthorized(err))
 	}
 
 	sort.SliceStable(parsed.Models, func(i, j int) bool {

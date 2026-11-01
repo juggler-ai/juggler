@@ -103,23 +103,31 @@ func TestLLMErrorRecovery(t *testing.T) {
 	})
 	ts.Manager.HandleMessage(ts.ConvID, "send-message", sendPayload, nil)
 
-	// Wait for worker to return to idle (error path)
-	err := helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second)
-	if err != nil {
-		t.Fatalf("Worker did not return to idle after error: %v", err)
-	}
-
-	// Verify error item appeared in document
-	err = helpers.WaitForDocumentCondition(t, ts.Worker, 5*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.Type == "error" {
-				return true
+	// Each turn is awaited by what it does — reaching the model, then writing
+	// its item — never by the worker being idle, which it still is before a
+	// queued turn starts.
+	hasItem := func(match func(worker.ConversationItem) bool) func() bool {
+		return func() bool {
+			doc := ts.Worker.Document()
+			if doc == nil {
+				return false
 			}
+			for _, item := range doc.GetItems() {
+				if match(item) {
+					return true
+				}
+			}
+			return false
 		}
-		return false
-	})
-	if err != nil {
+	}
+	if err := helpers.WaitUntil(t, "the first turn to call the model", func() bool { return callCount.Load() >= 1 }); err != nil {
+		t.Fatal(err)
+	}
+	if err := helpers.WaitUntil(t, "the error item", hasItem(func(item worker.ConversationItem) bool { return item.Type == "error" })); err != nil {
 		t.Fatalf("Error item did not appear: %v", err)
+	}
+	if err := helpers.WaitUntil(t, "the worker to settle after the error", func() bool { return ts.Worker.State() == worker.StateIdle }); err != nil {
+		t.Fatalf("Worker did not return to idle after error: %v", err)
 	}
 
 	// Second message — LLM succeeds
@@ -129,22 +137,12 @@ func TestLLMErrorRecovery(t *testing.T) {
 	})
 	ts.Manager.HandleMessage(ts.ConvID, "send-message", sendPayload2, nil)
 
-	// Wait for worker to return to idle (success path)
-	err = helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second)
-	if err != nil {
-		t.Fatalf("Worker did not return to idle after recovery: %v", err)
+	if err := helpers.WaitUntil(t, "the second turn to call the model", func() bool { return callCount.Load() >= 2 }); err != nil {
+		t.Fatal(err)
 	}
-
-	// Verify assistant response appeared
-	err = helpers.WaitForDocumentCondition(t, ts.Worker, 5*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.Type == "assistant" && item.Content == "Recovery successful" {
-				return true
-			}
-		}
-		return false
-	})
-	if err != nil {
+	if err := helpers.WaitUntil(t, "the recovered assistant reply", hasItem(func(item worker.ConversationItem) bool {
+		return item.Type == "assistant" && item.Content == "Recovery successful"
+	})); err != nil {
 		t.Fatalf("Assistant response did not appear after recovery: %v", err)
 	}
 

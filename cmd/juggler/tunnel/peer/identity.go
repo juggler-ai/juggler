@@ -58,32 +58,37 @@ func fingerprint(cert *webrtc.Certificate) string {
 // newIdentity) and WebRTC peers authenticate by the SDP fingerprint, not by
 // certificate validity (RFC 8122). Rotating it is a manual act: delete the file.
 //
-// Where there is no file yet, minters racing to make the first one agree on
-// one: each puts its own in place only if none is there by then, and one that
-// finds another's there adopts it, so no process presents a fingerprint the
-// file has already lost. An unreadable file is replaced outright.
+// Minters racing to make the first one agree on one: each puts its own in place
+// only if nothing is there by then, and one that finds a file there adopts it,
+// so no process presents a fingerprint the file has already lost. Whether a
+// file is there is decided by that put alone, never by an earlier look, which a
+// rival's file can land just after. Only a file read and found unparseable is
+// replaced, and the replacer then presents whatever the file holds, so
+// replacers racing each other converge on the last one in place.
 func loadOrCreateCertificate(path string) (*webrtc.Certificate, error) {
 	if cert, ok := loadCertificate(path); ok {
 		return cert, nil
 	}
-	_, statErr := os.Lstat(path)
-	absent := os.IsNotExist(statErr)
 	cert, err := newIdentity()
 	if err != nil {
 		return nil, err
 	}
-	won, err := writeCertificate(path, cert, absent)
+	won, err := writeCertificate(path, cert, true)
 	if err != nil {
 		return nil, err
 	}
-	if !won {
-		if theirs, ok := loadCertificate(path); ok {
-			return theirs, nil
-		}
-		// Theirs is unreadable after all (a hand-made file): replace it.
-		if _, err := writeCertificate(path, cert, false); err != nil {
-			return nil, err
-		}
+	if won {
+		return cert, nil
+	}
+	if theirs, ok := loadCertificate(path); ok {
+		return theirs, nil
+	}
+	// What is there is unreadable (a hand-made or torn file): replace it.
+	if _, err := writeCertificate(path, cert, false); err != nil {
+		return nil, err
+	}
+	if onDisk, ok := loadCertificate(path); ok {
+		return onDisk, nil
 	}
 	return cert, nil
 }

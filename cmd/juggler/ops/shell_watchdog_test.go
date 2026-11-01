@@ -44,16 +44,17 @@ func drain(out <-chan ShellStreamChunk) []ShellStreamChunk {
 // TestExecuteStreaming_NeutralHeartbeat verifies that a command which stays
 // silent without exiting emits a neutral Status:"running" chunk (no permission
 // claim), driven by the injectable short heartbeat interval. The probe returns
-// fast (a normal stat of the temp dir), so the awaiting-permission path must
-// NOT fire.
+// at once, so the awaiting-permission path must NOT fire. It is injected rather
+// than the real stat, which a busy disk can hold past any short deadline.
 func TestExecuteStreaming_NeutralHeartbeat(t *testing.T) {
 	requirePOSIXShell(t)
 
 	dir := t.TempDir()
 	shellOps := NewShellOperations(NewPathScope(dir, nil))
-	// probeDeadline < heartbeatInterval, both tiny so the test is fast.
-	shellOps.probeDeadline = 20 * time.Millisecond
-	shellOps.heartbeatInterval = 80 * time.Millisecond
+	shellOps.probeFn = func(string) {}
+	// probeDeadline < heartbeatInterval, both well inside the command's sleep.
+	shellOps.probeDeadline = 300 * time.Millisecond
+	shellOps.heartbeatInterval = 600 * time.Millisecond
 
 	// The command is stopped and drained before the test returns: it runs in
 	// the temp dir, which Windows will not remove while a process works in it.
@@ -119,26 +120,39 @@ func TestExecuteStreaming_AwaitingPermission(t *testing.T) {
 	}
 }
 
-// TestExecuteStreaming_NoStatusWhenChatty verifies the negative case: a command
-// that emits output promptly produces NO status chunk at all — the watchdog
-// stands down on the first byte.
+// TestExecuteStreaming_NoStatusWhenChatty verifies the negative case: once a
+// command has written output the watchdog stands down for good, so no status
+// chunk ever follows a data chunk. The probe blocks for the whole run and the
+// command outlives both deadlines after it prints, so a watchdog still running
+// would certainly claim permission. What is asserted is the order, never a
+// race against the shell's start-up: a shell slow enough to print after a
+// deadline earns that status first, which is the watchdog working, not
+// failing.
 func TestExecuteStreaming_NoStatusWhenChatty(t *testing.T) {
 	requirePOSIXShell(t)
 
 	dir := t.TempDir()
 	shellOps := NewShellOperations(NewPathScope(dir, nil))
-	// Probe deadline tiny (the probe still returns fast → never claims
-	// permission); heartbeat generous so the only thing that can suppress a
-	// status chunk is the first output byte, which a chatty command delivers.
-	shellOps.probeDeadline = 20 * time.Millisecond
-	shellOps.heartbeatInterval = 2 * time.Second
+	release := make(chan struct{})
+	shellOps.probeFn = func(string) { <-release }
+	shellOps.probeDeadline = 300 * time.Millisecond
+	shellOps.heartbeatInterval = 600 * time.Millisecond
 
 	out := make(chan ShellStreamChunk, 64)
-	go shellOps.ExecuteStreaming(context.Background(), "shell-chatty", "", "printf 'hello world\\n'", "", 30000, out)
+	go shellOps.ExecuteStreaming(context.Background(), "shell-chatty", "", "printf 'hello world\\n'; sleep 1.5", "", 30000, out)
 
-	for _, c := range drain(out) {
-		if c.Status != "" {
-			t.Fatalf("chatty command must not emit a status chunk, got %+v", c)
+	chunks := drain(out)
+	close(release)
+	sawData := false
+	for _, c := range chunks {
+		switch {
+		case c.Data != "":
+			sawData = true
+		case c.Status != "" && sawData:
+			t.Fatalf("a status chunk followed the command's output: %+v", c)
 		}
+	}
+	if !sawData {
+		t.Fatalf("the command's output never arrived: %+v", chunks)
 	}
 }

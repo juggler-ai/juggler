@@ -39,6 +39,26 @@ func WaitForReady(t *testing.T, ready <-chan struct{}) error {
 	}
 }
 
+// WaitUntil polls cond until it holds or ReadyTimeout passes, for a wait on
+// something a worker does once it is scheduled — a turn reaching its model, the
+// item that turn writes. As with an init, how long that takes under this
+// package's parallel load is a scheduling question; the deadline only names a
+// hang. what says what was awaited, for the error.
+func WaitUntil(t *testing.T, what string, cond func() bool) error {
+	t.Helper()
+
+	deadline := time.Now().Add(ReadyTimeout)
+	backoff := 10 * time.Millisecond
+	for !cond() {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout waiting for %s after %v", what, ReadyTimeout)
+		}
+		time.Sleep(backoff)
+		backoff = min(2*backoff, 100*time.Millisecond)
+	}
+	return nil
+}
+
 // WaitForDocumentCondition polls the document until the condition returns true or timeout.
 // Uses exponential backoff (10ms -> 100ms) for efficient polling.
 func WaitForDocumentCondition(

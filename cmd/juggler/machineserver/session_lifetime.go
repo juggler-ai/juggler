@@ -44,6 +44,18 @@ func (r *registry) holdViewer(id string) (release func(), ok bool) {
 	}, true
 }
 
+// renewUnviewed restarts the grace of running session id if it has no viewer:
+// a request through the proxy is a page loading it, whose socket is still to
+// come, so the grace is measured from its last request rather than from when
+// the child came up, and a load slower than the grace is not retired under it.
+func (r *registry) renewUnviewed(id string) {
+	r.do(func(m map[string]*sessionEntry) {
+		if e := m[id]; e != nil && e.State == SessionRunning && e.viewers == 0 {
+			e.unviewedSince = time.Now()
+		}
+	})
+}
+
 // retireUnviewed claims c's session, running with no viewer for the grace as
 // of at, for the question whether its child may retire: the session turns
 // stopping before the child is asked, so no viewer can arrive while it

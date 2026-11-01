@@ -48,6 +48,7 @@ func (s *Server) handleSessionProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session cannot identify a remote caller", http.StatusBadGateway)
 		return
 	}
+	s.reg.renewUnviewed(id)
 
 	// Who a tunnel's transport says the caller is, passed on as it said it.
 	var user string

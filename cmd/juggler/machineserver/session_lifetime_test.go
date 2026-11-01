@@ -110,6 +110,10 @@ func TestSessionLifetimeViewersAndReconnect(t *testing.T) {
 		since = e.unviewedSince
 	})
 	second()
+	// Back-date the grace to the fixture's past instant, so the reconnect's
+	// departure stamps a later time however coarse the clock: two releases
+	// microseconds apart can read the same tick (Windows' is ~0.5-15.6ms).
+	r.do(func(m map[string]*sessionEntry) { m[id].unviewedSince = at })
 	reconnect, ok := r.holdViewer(id)
 	if !ok {
 		t.Fatal("reconnect refused during grace")
@@ -117,7 +121,7 @@ func TestSessionLifetimeViewersAndReconnect(t *testing.T) {
 	reconnect()
 	var reconnected time.Time
 	r.do(func(m map[string]*sessionEntry) { reconnected = m[id].unviewedSince })
-	if !reconnected.After(since) {
+	if !reconnected.After(at) {
 		t.Fatal("reconnect's departure did not restart the grace")
 	}
 	r.do(func(m map[string]*sessionEntry) {

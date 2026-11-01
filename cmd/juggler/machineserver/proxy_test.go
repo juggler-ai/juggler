@@ -293,6 +293,46 @@ func TestOriginGuardRejectsCrossOrigin(t *testing.T) {
 	}
 }
 
+// TestProxiedRequestRenewsAnUnviewedGrace: a page still loading its session —
+// fetching through the proxy, its socket not yet open — is a viewer on its way,
+// so each request it makes renews the grace, and a slow load is not retired
+// under it. With a viewer connected the grace is not running, and a request
+// leaves it alone.
+func TestProxiedRequestRenewsAnUnviewedGrace(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer backend.Close()
+
+	s := &Server{reg: newRegistry()}
+	sess, _ := s.reg.reserve("/p")
+	c := &child{addr: strings.TrimPrefix(backend.URL, "http://")}
+	s.reg.setRunning(sess.ID, c, 1)
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+
+	// A fixed past instant, so the renewal is later however coarse the clock.
+	past := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	s.reg.do(func(m map[string]*sessionEntry) { m[sess.ID].unviewedSince = past })
+	if code, _ := get(t, front.URL+"/s/"+sess.ID+"/js/app.js"); code != http.StatusOK {
+		t.Fatalf("proxied asset: status %d, want 200", code)
+	}
+	if s.reg.retireUnviewed(sess.ID, c, past.Add(sessionViewerGrace)) {
+		t.Fatal("a session whose page was loading through the proxy was retired on the grace that ran before it")
+	}
+
+	release, ok := s.reg.holdViewer(sess.ID)
+	if !ok {
+		t.Fatal("viewer refused")
+	}
+	defer release()
+	s.reg.do(func(m map[string]*sessionEntry) { m[sess.ID].unviewedSince = past })
+	get(t, front.URL+"/s/"+sess.ID+"/js/app.js")
+	s.reg.do(func(m map[string]*sessionEntry) {
+		if !m[sess.ID].unviewedSince.Equal(past) {
+			t.Errorf("a request with a viewer connected moved the grace to %s", m[sess.ID].unviewedSince)
+		}
+	})
+}
+
 // TestProxiedWebSocketDoesNotAttachToServer: a viewer's socket to its
 // session is a session viewer, not a local client holding the server up.
 func TestProxiedWebSocketDoesNotAttachToServer(t *testing.T) {

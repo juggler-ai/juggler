@@ -149,10 +149,31 @@ func (ops *ShellOperations) ExecuteStreamingFor(
 
 	// firstByteCh is closed the moment the command emits its first output byte.
 	// The watchdog (below) uses it to stand down — a chatty/normal command never
-	// triggers any status chunk.
+	// triggers any status chunk. statusTurn, a one-token channel, orders the
+	// two: the close and a status send each hold its token, and a status is sent
+	// only while firstByteCh is open, so a status chunk never follows output,
+	// even when a deadline and the first byte land together.
 	firstByteCh := make(chan struct{})
 	var firstByteOnce sync.Once
-	signalFirstByte := func() { firstByteOnce.Do(func() { close(firstByteCh) }) }
+	statusTurn := make(chan struct{}, 1)
+	statusTurn <- struct{}{}
+	signalFirstByte := func() {
+		firstByteOnce.Do(func() {
+			<-statusTurn
+			close(firstByteCh)
+			statusTurn <- struct{}{}
+		})
+	}
+	// sendStatus sends a status chunk unless output has begun.
+	sendStatus := func(c ShellStreamChunk) {
+		<-statusTurn
+		defer func() { statusTurn <- struct{}{} }()
+		select {
+		case <-firstByteCh:
+		default:
+			output <- c
+		}
+	}
 
 	// Output-volume guard. We forward the first outputHeadLimit bytes live, then
 	// stop forwarding and retain only the last outputTailLimit bytes in a ring.
@@ -230,11 +251,11 @@ func (ops *ShellOperations) ExecuteStreamingFor(
 					// Probe still blocked past its deadline: a consent dialog is
 					// almost certainly pending. This is the ONLY path that claims
 					// permission.
-					output <- ShellStreamChunk{
+					sendStatus(ShellStreamChunk{
 						ShellID: shellID,
 						Status:  "awaiting-permission",
 						Hint:    "Waiting for filesystem-access permission — check for a system dialog",
-					}
+					})
 					return
 				}
 			case <-heartbeatTimer.C:
@@ -242,11 +263,11 @@ func (ops *ShellOperations) ExecuteStreamingFor(
 				case <-probeReturned:
 					// Generic silence with a decided probe — say nothing about
 					// permissions.
-					output <- ShellStreamChunk{
+					sendStatus(ShellStreamChunk{
 						ShellID: shellID,
 						Status:  "running",
 						Hint:    "Running… (no output yet)",
-					}
+					})
 				default:
 					// Probe still pending: the awaiting-permission path owns
 					// this. (Unreachable while probeDeadline < heartbeatInterval;

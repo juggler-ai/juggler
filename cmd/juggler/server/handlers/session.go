@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -788,7 +789,34 @@ func (api *SessionAPI) HandleGetAsset(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", assetContentType(assetPath))
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeContent(w, r, filepath.Base(assetPath), time.Time{}, f)
+	http.ServeContent(sendfileFallback{w}, r, filepath.Base(assetPath), time.Time{}, f)
+}
+
+// sendfileFallback lets a response finish by plain copy when the kernel denies
+// sendfile. net/http reaches sendfile through ReadFrom and returns a denial to
+// the caller instead of retrying. macOS sandboxes that confine network traffic
+// to a proxy (nono's allowlist mode) deny it, although ordinary socket writes
+// work.
+type sendfileFallback struct{ http.ResponseWriter }
+
+// Unwrap exposes the wrapped writer to http.ResponseController.
+func (w sendfileFallback) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// ReadFrom copies src to the response, through sendfile when the server offers
+// it. After a permission denial, src holds exactly the bytes not yet sent, so the rest goes
+// through Write.
+func (w sendfileFallback) ReadFrom(src io.Reader) (int64, error) {
+	plain := struct{ io.Writer }{w.ResponseWriter}
+	rf, ok := w.ResponseWriter.(io.ReaderFrom)
+	if !ok {
+		return io.Copy(plain, src)
+	}
+	n, err := rf.ReadFrom(src)
+	if !errors.Is(err, fs.ErrPermission) {
+		return n, err
+	}
+	m, err := io.Copy(plain, src)
+	return n + m, err
 }
 
 // assetContentType derives the response mime type from a stored asset's file

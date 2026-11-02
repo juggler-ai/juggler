@@ -7,9 +7,12 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -63,6 +66,77 @@ func TestAssetRoutes_TextRoundTrip(t *testing.T) {
 	}
 	if ct := got.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
 		t.Fatalf("served Content-Type %q, want text/plain; charset=utf-8", ct)
+	}
+}
+
+// deniedSendfileWriter stands in for net/http's response: ReadFrom copies
+// sniff bytes the ordinary way, then fails with EPERM as a sandboxed sendfile
+// does. A zero sniff is the denial arriving before any byte moved.
+type deniedSendfileWriter struct {
+	*httptest.ResponseRecorder
+	sniff int64
+}
+
+func (w *deniedSendfileWriter) ReadFrom(r io.Reader) (int64, error) {
+	n, err := io.Copy(w.ResponseRecorder, io.LimitReader(r, w.sniff))
+	if err != nil {
+		return n, err
+	}
+	return n, &os.SyscallError{Syscall: "sendfile", Err: fs.ErrPermission}
+}
+
+// TestAssetRoutes_SendfileDeniedFallsBack checks that complete and ranged
+// asset reads survive a sendfile denial, whether or not bytes moved first.
+func TestAssetRoutes_SendfileDeniedFallsBack(t *testing.T) {
+	api, convID := newProgramsFixture(t)
+	body := bytes.Repeat([]byte("source line héllo\n"), 120000)
+	upload := assetUpload(api, convID, "text/plain", body)
+	wantStatus(t, "upload", upload, http.StatusOK)
+	var ref struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(upload.Body.Bytes(), &ref); err != nil || len(ref.ID) != 64 {
+		t.Fatalf("upload ref = %+v, error = %v", ref, err)
+	}
+
+	get := func(rangeHeader string, sniff int64) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/session/conversations/"+convID+"/assets/"+ref.ID, nil)
+		req = mux.SetURLVars(req, map[string]string{"convId": convID, "sha": ref.ID})
+		if rangeHeader != "" {
+			req.Header.Set("Range", rangeHeader)
+		}
+		w := &deniedSendfileWriter{ResponseRecorder: httptest.NewRecorder(), sniff: sniff}
+		api.HandleGetAsset(w, req)
+		return w.ResponseRecorder
+	}
+
+	for _, sniff := range []int64{0, 512} {
+		t.Run(fmt.Sprintf("sniff=%d", sniff), func(t *testing.T) {
+			full := get("", sniff)
+			wantStatus(t, "full GET", full, http.StatusOK)
+			if !bytes.Equal(full.Body.Bytes(), body) {
+				t.Errorf("full GET body differs: got %d bytes, want %d", full.Body.Len(), len(body))
+			}
+			for name, want := range map[string]string{
+				"Content-Type":           "text/plain; charset=utf-8",
+				"Cache-Control":          "public, max-age=31536000, immutable",
+				"X-Content-Type-Options": "nosniff",
+			} {
+				if got := full.Header().Get(name); got != want {
+					t.Errorf("%s = %q, want %q", name, got, want)
+				}
+			}
+
+			const start, end = 65530, 131100
+			partial := get(fmt.Sprintf("bytes=%d-%d", start, end), sniff)
+			wantStatus(t, "range GET", partial, http.StatusPartialContent)
+			if !bytes.Equal(partial.Body.Bytes(), body[start:end+1]) {
+				t.Errorf("range body differs: got %d bytes, want %d", partial.Body.Len(), end-start+1)
+			}
+			if got, want := partial.Header().Get("Content-Range"), fmt.Sprintf("bytes %d-%d/%d", start, end, len(body)); got != want {
+				t.Errorf("Content-Range = %q, want %q", got, want)
+			}
+		})
 	}
 }
 

@@ -6,6 +6,8 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
+- Fixed truncated assets when a sandbox denies sendfile
+
 - Total refactor of juggler's server/network stack - instead of running a server per session, there's a server per machine and this manages multiple sessions
 - `! command` (or /shell) posts a bash call you run yourself, no model call
 - Running bash calls have a Stop command button in their properties panel

@@ -7,9 +7,11 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -63,6 +65,114 @@ func TestAssetRoutes_TextRoundTrip(t *testing.T) {
 	}
 	if ct := got.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
 		t.Fatalf("served Content-Type %q, want text/plain; charset=utf-8", ct)
+	}
+}
+
+// assetReadFromRecorder observes the reader ServeContent passes to io.Copy.
+type assetReadFromRecorder struct {
+	*httptest.ResponseRecorder
+	reader io.Reader
+}
+
+func (w *assetReadFromRecorder) ReadFrom(r io.Reader) (int64, error) {
+	w.reader = r
+	return io.Copy(w.ResponseRecorder, r)
+}
+
+// TestAssetRoutes_SendfileReader pins the file visibility used by ServeContent.
+func TestAssetRoutes_SendfileReader(t *testing.T) {
+	api, convID := newProgramsFixture(t)
+	body := bytes.Repeat([]byte("asset content\n"), 1024)
+	upload := assetUpload(api, convID, "text/plain", body)
+	wantStatus(t, "upload", upload, http.StatusOK)
+	var ref struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(upload.Body.Bytes(), &ref); err != nil || len(ref.ID) != 64 {
+		t.Fatalf("upload ref = %+v, error = %v", ref, err)
+	}
+
+	for _, tc := range []struct {
+		name     string
+		value    string
+		unset    bool
+		wantFile bool
+	}{
+		{"default", "", true, true},
+		{"disabled", "1", false, false},
+		{"zero", "0", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("JUGGLER_DISABLE_ASSET_SENDFILE", tc.value)
+			if tc.unset {
+				if err := os.Unsetenv("JUGGLER_DISABLE_ASSET_SENDFILE"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			req := httptest.NewRequest(http.MethodGet, "/api/session/conversations/"+convID+"/assets/"+ref.ID, nil)
+			req = mux.SetURLVars(req, map[string]string{"convId": convID, "sha": ref.ID})
+			rr := &assetReadFromRecorder{ResponseRecorder: httptest.NewRecorder()}
+			api.HandleGetAsset(rr, req)
+			wantStatus(t, "get", rr.ResponseRecorder, http.StatusOK)
+			if !bytes.Equal(rr.Body.Bytes(), body) {
+				t.Errorf("body differs: got %d bytes, want %d", rr.Body.Len(), len(body))
+			}
+			limited, ok := rr.reader.(*io.LimitedReader)
+			if !ok {
+				t.Fatalf("ReadFrom reader = %T, want *io.LimitedReader", rr.reader)
+			}
+			if _, ok := limited.R.(io.ReadSeeker); !ok {
+				t.Errorf("underlying reader = %T, want io.ReadSeeker", limited.R)
+			}
+			if _, ok := limited.R.(*os.File); ok != tc.wantFile {
+				t.Errorf("underlying reader = %T, want *os.File: %t", limited.R, tc.wantFile)
+			}
+		})
+	}
+}
+
+// TestAssetRoutes_LargeResponsesAndHTTP checks complete and ranged asset reads
+// with the sendfile workaround enabled.
+func TestAssetRoutes_LargeResponsesAndHTTP(t *testing.T) {
+	t.Setenv("JUGGLER_DISABLE_ASSET_SENDFILE", "1")
+	api, convID := newProgramsFixture(t)
+	body := bytes.Repeat([]byte("source line héllo\n"), 120000)
+	upload := assetUpload(api, convID, "text/plain", body)
+	wantStatus(t, "upload", upload, http.StatusOK)
+	var ref struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(upload.Body.Bytes(), &ref); err != nil || len(ref.ID) != 64 {
+		t.Fatalf("upload ref = %+v, error = %v", ref, err)
+	}
+
+	full := assetGet(api, convID, ref.ID)
+	wantStatus(t, "full GET", full, http.StatusOK)
+	if !bytes.Equal(full.Body.Bytes(), body) {
+		t.Errorf("full GET body differs: got %d bytes, want %d", full.Body.Len(), len(body))
+	}
+	for name, want := range map[string]string{
+		"Content-Type":           "text/plain; charset=utf-8",
+		"Cache-Control":          "public, max-age=31536000, immutable",
+		"X-Content-Type-Options": "nosniff",
+	} {
+		if got := full.Header().Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+
+	const start, end = 65530, 131100
+	req := httptest.NewRequest(http.MethodGet, "/api/session/conversations/"+convID+"/assets/"+ref.ID, nil)
+	req = mux.SetURLVars(req, map[string]string{"convId": convID, "sha": ref.ID})
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+	partial := httptest.NewRecorder()
+	api.HandleGetAsset(partial, req)
+	wantStatus(t, "range GET", partial, http.StatusPartialContent)
+	if !bytes.Equal(partial.Body.Bytes(), body[start:end+1]) {
+		t.Errorf("range body differs: got %d bytes, want %d", partial.Body.Len(), end-start+1)
+	}
+	if got, want := partial.Header().Get("Content-Range"), fmt.Sprintf("bytes %d-%d/%d", start, end, len(body)); got != want {
+		t.Errorf("Content-Range = %q, want %q", got, want)
 	}
 }
 

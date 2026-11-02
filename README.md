@@ -63,6 +63,8 @@ The server accepts connections from your machine only until you turn on LAN acce
 
 To serve it through a reverse proxy on the same machine, such as `tailscale serve`, launch with `--allow-host <name>` for the name the proxy publishes. The flag is repeatable. Requests under that name count as remote viewers; see [SECURITY.md](SECURITY.md).
 
+If diffs fail to load because a sandbox denies `sendfile`, set `JUGGLER_DISABLE_ASSET_SENDFILE=1` in the server's environment before starting it. This disables the fast file-copy path for conversation assets only; the default leaves it enabled. Restart any already-running machine server so its session children inherit the setting.
+
 A build made from this repository supports local and LAN access. The official binaries from [juggler.studio](https://juggler.studio) also include WAN modes for reaching your server over the internet; see [LICENSING.md](LICENSING.md) for the boundary between this repository and those additional components.
 
 ----------

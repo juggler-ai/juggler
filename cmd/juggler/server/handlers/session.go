@@ -788,7 +788,13 @@ func (api *SessionAPI) HandleGetAsset(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", assetContentType(assetPath))
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeContent(w, r, filepath.Base(assetPath), time.Time{}, f)
+	var content io.ReadSeeker = f
+	if os.Getenv("JUGGLER_DISABLE_ASSET_SENDFILE") == "1" {
+		// Some sandboxes deny sendfile even when file reads and socket writes
+		// work. Hide the fast-copy interfaces, but retain seeking for ranges.
+		content = struct{ io.ReadSeeker }{f}
+	}
+	http.ServeContent(w, r, filepath.Base(assetPath), time.Time{}, content)
 }
 
 // assetContentType derives the response mime type from a stored asset's file

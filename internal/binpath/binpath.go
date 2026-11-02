@@ -38,16 +38,17 @@ func Sibling(exe, name string) (string, bool) {
 // bundleDirs is where a binary in dir looks for the other: dir itself, and
 // across Juggler.app when dir is in it. The desktop app is Juggler.app's
 // executable, in Contents/MacOS. The server is the executable of a bundle of
-// its own, ServerBundle in Contents/Helpers, with an identity of its own.
-// LaunchServices files a process under its own bundle, or with none under the
-// app that started it; a server in Contents/MacOS, or loose in
-// Contents/Helpers, is filed as the desktop app, so a click on the app's Dock
-// icon can reach the server instead, and opening the app while one runs can
-// bring the server forward instead of launching it.
+// its own, ServerBundle in Contents/Helpers, with an identity of its own,
+// which the app launches through LaunchServices as a launch of its own
+// (machineserver.DetachedStarter). A server in Contents/MacOS, or loose in
+// Contents/Helpers, has no bundle to launch: it is started as the app's child
+// and filed under the app's launch, so a click on the app's Dock icon can reach
+// the server instead, and opening the app while one runs can bring the server
+// forward instead of launching it.
 //
 // Contents/Helpers/juggler is a link into ServerBundle, for links made to that
 // path, and in an older bundle the server itself; the app looks there last, so
-// it finds the server's real path, which is what gives the server its bundle.
+// it finds the server's real path, which is what gives it a bundle to launch.
 func bundleDirs(dir string) []string {
 	dirs := []string{dir}
 	contents := filepath.Dir(dir)

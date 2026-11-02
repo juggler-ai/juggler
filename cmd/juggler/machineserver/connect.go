@@ -20,7 +20,9 @@ import (
 	"strings"
 	"time"
 
+	"juggler/internal/bundlelaunch"
 	"juggler/internal/detach"
+	"juggler/internal/jlog"
 	"juggler/internal/logpaths"
 	"juggler/internal/userpaths"
 )
@@ -56,12 +58,28 @@ const (
 const connectStarts = 3
 
 // DetachedStarter is the Starter for bin, this machine's juggler: it runs
-// `bin serve --implicit --started-by <pid>` detached (see the detach package), so the server
-// outlives whoever started it, with stdio on the null device. Its address is
-// read from server.json, never from its output.
+// `bin serve --implicit --started-by <pid>` so the server outlives whoever
+// started it, with stdio on the null device. Its address is read from
+// server.json, never from its output.
+//
+// When bin is the executable of a macOS app bundle (JugglerServer.app in
+// Juggler.app), the bundle is launched through LaunchServices as a launch of
+// its own (see the bundlelaunch package). Started as the desktop app's child,
+// the server and its session children would be filed under the app's launch,
+// and the first of them to check in as an app would take the launch the Dock
+// is waiting on. Otherwise, or should LaunchServices refuse, it is started
+// detached (see the detach package).
 func DetachedStarter(bin string) Starter {
 	return func() (int, <-chan struct{}, error) {
-		cmd, err := detach.Start(detach.Command(bin, "serve", "--implicit", "--started-by", strconv.Itoa(os.Getpid())))
+		args := []string{"serve", "--implicit", "--started-by", strconv.Itoa(os.Getpid())}
+		if bundle, ok := bundlelaunch.Bundle(bin); ok {
+			pid, exited, err := bundlelaunch.Start(bundle, args, os.Environ())
+			if err == nil {
+				return pid, exited, nil
+			}
+			jlog.Error("start the Juggler server through LaunchServices: %v; starting it as a child instead", err)
+		}
+		cmd, err := detach.Start(detach.Command(bin, args...))
 		if err != nil {
 			return 0, nil, fmt.Errorf("start the Juggler server: %w", err)
 		}

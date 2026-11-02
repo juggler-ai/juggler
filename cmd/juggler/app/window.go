@@ -288,11 +288,13 @@ type applicationEventHooks interface {
 // Wails answers a reopen of an app with no visible window by showing every
 // hidden one, and the server's one window is the hidden engine page: the server
 // would show a small blank window and come to the front with a menu bar and its
-// Quit. In Juggler.app the server is a bundle of its own, so the Dock does not
-// take it for Juggler; a server run from a bundle without that one
-// (internal/binpath) is filed as the app that started it, and a click on
-// Juggler's Dock icon can reach it. A hook runs before Wails' listeners and a
-// cancelled event reaches none of them.
+// Quit. In Juggler.app the server is a bundle of its own, which the app
+// launches as a launch of its own (machineserver.DetachedStarter), so the Dock
+// does not take it for Juggler. A server the app starts as its child — one
+// with no bundle to launch (internal/binpath), or when LaunchServices refuses
+// — is filed under the app's launch, and a click on Juggler's Dock icon can
+// reach it. A hook runs before Wails' listeners and a cancelled event reaches
+// none of them.
 func declineDockReopen(hooks applicationEventHooks) {
 	hooks.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
 		e.Cancel()

@@ -141,6 +141,7 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 		"quit":            http.StatusNoContent,
 		"attach?session=": http.StatusBadRequest, // reached attachRemote, which wants an id
 		"server-page":     http.StatusNoContent,
+		"reopen":          http.StatusOK,
 		// open reaches its handler, which hands the system browser nothing
 		// but an http(s) URL.
 		"open?url=file%3A%2F%2F%2Fetc%2Fpasswd": http.StatusBadRequest,

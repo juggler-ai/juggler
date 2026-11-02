@@ -1423,6 +1423,7 @@
   "The session could not be started.": "无法启动会话。",
   "The session could not be stopped.": "无法停止会话。",
   "The session for {project} could not be opened: {error}": "无法打开 {project} 的会话：{error}",
+  "The session for {project} could not be reopened: {error}": "无法重新打开 {project} 的会话：{error}",
   "The session for {project} has stopped. Try again opens it again.": "{project} 的会话已停止。点击“重试”会重新打开它。",
   "The strategies, context items, and commands this extension provides. Select one to see its details.": "此扩展提供的策略、上下文项和命令。选择一项即可查看其详情。",
   "The strategy each new conversation starts on. You can still switch strategy per conversation afterwards.": "每个新对话启动时使用的策略。之后你仍可按对话切换策略。",

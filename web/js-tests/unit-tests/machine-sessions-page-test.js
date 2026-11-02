@@ -1277,6 +1277,55 @@ export async function runTests() {
     }
   });
 
+  // A window on another computer's server comes back at the next launch on
+  // that server's page. The app tells the page which project's session the
+  // window was showing, and the page opens it by its project rather than its
+  // id, which does not outlive a restart of that server. A session that will
+  // not open leaves the window on the server's page, saying why.
+  await test('in a window on a server by URL the page reopens the project the app hands it', async () => {
+    const api = stubApi([]);
+    const host = stubHost();
+    /** @type {string[]} */
+    const attachedProjects = [];
+    let asked = 0;
+    const remoteHost = {
+      attach: async (/** @type {string} */ id, /** @type {string} */ project) => {
+        host.attached.push(id);
+        attachedProjects.push(project);
+      },
+      answerClose: host.answerClose,
+      reopen: async () => { asked++; return '/home/me/proj'; },
+    };
+    const m = await mount(api, { host: remoteHost });
+    try {
+      await waitFor(() => host.attached.length > 0, { description: 'the reopened session shown in the window' });
+      assert(asked === 1, `the app was asked ${asked} times what to reopen`);
+      assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/home/me/proj'), `opened ${JSON.stringify(api.calls)}`);
+      assert(JSON.stringify(host.attached) === '["new1"]' && JSON.stringify(attachedProjects) === '["/home/me/proj"]',
+        `attached ${JSON.stringify(host.attached)} for ${JSON.stringify(attachedProjects)}`);
+      // A session opened from the list names its project to the app too.
+      api.sessions = sessions;
+      await m.page.refresh();
+      /** @type {HTMLElement} */ (row(m.root, 'aaa').querySelector('.ms-session-name')).click();
+      await nextTask();
+      assert(attachedProjects[1] === '/work/alpha', `the session opened from the list was attached for ${attachedProjects[1]}`);
+    } finally {
+      m.dispose();
+    }
+
+    const gone = stubApi([]);
+    gone.onOpen = async () => { throw new Error('no such folder'); };
+    const goneHost = { ...remoteHost, attach: async () => { throw new Error('attached a session that did not open'); } };
+    const g = await mount(gone, { host: goneHost });
+    try {
+      await waitFor(() => (g.root.querySelector('.ms-launch-error')?.textContent || '') !== '', { description: 'why it did not reopen' });
+      const err = g.root.querySelector('.ms-launch-error')?.textContent || '';
+      assert(err.includes('/home/me/proj') && err.includes('no such folder'), `the page says ${JSON.stringify(err)}`);
+    } finally {
+      g.dispose();
+    }
+  });
+
   await test('the desktop host offers this machine\'s folders and Connect only on this machine\'s server', () => {
     const local = desktopHost({ external: false });
     const remote = desktopHost({ external: true });
@@ -1285,6 +1334,8 @@ export async function runTests() {
     assert(!remote.pickDirectory && !remote.connect && !remote.takesDroppedFolders,
       'a window on a server by URL offers this machine\'s folders or Connect');
     assert(typeof remote.attach === 'function' && typeof remote.answerClose === 'function', 'a window on a server by URL cannot open a session');
+    assert(typeof remote.reopen === 'function' && !local.reopen,
+      'only a window on a server by URL asks the app which session to reopen (this machine\'s windows are reopened by the app)');
   });
 
   await test('in a desktop window a refused attach says why', async () => {

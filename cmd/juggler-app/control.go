@@ -213,6 +213,8 @@ func anyRequest(*http.Request) bool { return true }
 //   - drafts-flushed: its reply to a close or quit the app announced to it.
 //   - attach, server-page: moving itself to a session of its own server, or
 //     back to that server's page (attachRemote, controlServerPage).
+//   - reopen: the project of the session of its own server it showed when the
+//     app last quit, which its page opens there again (controlReopen).
 //   - server-lost: its page giving up on its server; the app checks for itself
 //     and replaces only this window, with a stand-in of its own.
 //   - open: a link followed to the system browser, as a browser tab would;
@@ -241,6 +243,7 @@ var windowActions = map[string]controlAction{
 	"drafts-flushed": {handle: (*appState).controlDraftsFlushed, remote: anyRequest},
 	"attach":         {handle: (*appState).controlAttach, remote: anyRequest},
 	"server-page":    {handle: (*appState).controlServerPage, remote: anyRequest},
+	"reopen":         {handle: (*appState).controlReopen, remote: anyRequest},
 	"server-lost":    {handle: (*appState).controlServerLost, remote: anyRequest},
 	"open":           {handle: controlOpenURL, remote: anyRequest},
 	"new":            {handle: (*appState).controlNewWindow, remote: anyRequest},
@@ -357,14 +360,16 @@ func (a *appState) controlAttach(w http.ResponseWriter, r *http.Request, e *winE
 // window: its page has opened the session through that server's own control
 // API, which this app holds no credential for, so the app only moves the
 // window to /s/<id>/ there. The id must be one (normaliseID), so the page can
-// send the window nowhere but a session of its own server. The window keeps
-// its spec, so it reopens on the server's page.
+// send the window nowhere but a session of its own server. The window stays
+// that server's, filed with the session's ?project= (windowSpec.remoteProject)
+// so a next launch can open that project's session there again.
 func (a *appState) attachRemote(w http.ResponseWriter, r *http.Request, e *winEntry, spec windowSpec) {
 	id := normaliseID(r.URL.Query().Get("session"))
 	if id == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": attachNotRunning.English(), "message": attachNotRunning})
 		return
 	}
+	spec.remoteProject = strings.TrimSpace(r.URL.Query().Get("project"))
 	a.navigateWindow(e, spec, strings.TrimRight(spec.url, "/")+"/s/"+id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -379,8 +384,37 @@ func (a *appState) controlServerPage(w http.ResponseWriter, _ *http.Request, e *
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
+	page.remoteProject = ""
 	a.navigateWindow(e, page, page.url)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// controlReopen answers a window on a server by URL's sessions page with the
+// project whose session the window showed when the app last quit
+// ({"project": ...}, "" for none), which the page opens there again by its
+// project — the session's id may not have outlived a restart of that server.
+//
+// It is handed over once: the window is filed as showing the server's page
+// from then on, until the page attaches the session it opens, which files it
+// again. A session that will not open leaves the window on the server's page,
+// and that is what a next launch restores. A window on this machine's server
+// reopens its project's session itself (resolveWindow), so it is refused (409),
+// as is any window but a main one.
+func (a *appState) controlReopen(w http.ResponseWriter, _ *http.Request, e *winEntry) {
+	page, ok := a.pageSpecOf(e.id)
+	if !ok || !page.isURL() || e.role != roleMain {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	project := ""
+	a.reg(func(*regState) {
+		project = e.spec.remoteProject
+		e.spec.remoteProject = ""
+	})
+	if project != "" {
+		a.persistWorkspace()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"project": project})
 }
 
 var (

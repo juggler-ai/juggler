@@ -1423,6 +1423,7 @@
   "The session could not be started.": "세션을 시작할 수 없습니다.",
   "The session could not be stopped.": "세션을 중지할 수 없습니다.",
   "The session for {project} could not be opened: {error}": "{project}의 세션을 열 수 없습니다: {error}",
+  "The session for {project} could not be reopened: {error}": "{project}의 세션을 다시 열 수 없습니다: {error}",
   "The session for {project} has stopped. Try again opens it again.": "{project}의 세션이 중지되었습니다. 다시 시도하면 세션을 다시 엽니다.",
   "The strategies, context items, and commands this extension provides. Select one to see its details.": "이 확장이 제공하는 전략, 컨텍스트 항목, 명령입니다. 세부 정보를 보려면 하나를 선택하세요.",
   "The strategy each new conversation starts on. You can still switch strategy per conversation afterwards.": "각 새 대화가 시작할 때 사용하는 전략입니다. 이후에도 대화별로 전략을 전환할 수 있습니다.",

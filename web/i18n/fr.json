@@ -1423,6 +1423,7 @@
   "The session could not be started.": "La session n’a pas pu être démarrée.",
   "The session could not be stopped.": "La session n’a pas pu être arrêtée.",
   "The session for {project} could not be opened: {error}": "La session de {project} n’a pas pu être ouverte : {error}",
+  "The session for {project} could not be reopened: {error}": "La session de {project} n’a pas pu être rouverte : {error}",
   "The session for {project} has stopped. Try again opens it again.": "La session de {project} s’est arrêtée. Réessayer la rouvre.",
   "The strategies, context items, and commands this extension provides. Select one to see its details.": "Les stratégies, éléments de contexte et commandes fournis par cette extension. Sélectionnez-en un pour voir ses détails.",
   "The strategy each new conversation starts on. You can still switch strategy per conversation afterwards.": "La stratégie sur laquelle démarre chaque nouvelle conversation. Vous pouvez toujours changer de stratégie par conversation ensuite.",

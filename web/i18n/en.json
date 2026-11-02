@@ -1423,6 +1423,7 @@
   "The session could not be started.": "The session could not be started.",
   "The session could not be stopped.": "The session could not be stopped.",
   "The session for {project} could not be opened: {error}": "The session for {project} could not be opened: {error}",
+  "The session for {project} could not be reopened: {error}": "The session for {project} could not be reopened: {error}",
   "The session for {project} has stopped. Try again opens it again.": "The session for {project} has stopped. Try again opens it again.",
   "The strategies, context items, and commands this extension provides. Select one to see its details.": "The strategies, context items, and commands this extension provides. Select one to see its details.",
   "The strategy each new conversation starts on. You can still switch strategy per conversation afterwards.": "The strategy each new conversation starts on. You can still switch strategy per conversation afterwards.",

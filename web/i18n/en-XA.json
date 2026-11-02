@@ -1423,6 +1423,7 @@
   "The session could not be started.": "[Ţĥé šéššîöñ çöûļð ñöţ ƀé šţåŕţéð. ·········]",
   "The session could not be stopped.": "[Ţĥé šéššîöñ çöûļð ñöţ ƀé šţöþþéð. ·········]",
   "The session for {project} could not be opened: {error}": "[Ţĥé šéššîöñ ƒöŕ {project} çöûļð ñöţ ƀé öþéñéð: {error} ··········]",
+  "The session for {project} could not be reopened: {error}": "[Ţĥé šéššîöñ ƒöŕ {project} çöûļð ñöţ ƀé ŕéöþéñéð: {error} ···········]",
   "The session for {project} has stopped. Try again opens it again.": "[Ţĥé šéššîöñ ƒöŕ {project} ĥåš šţöþþéð. Ţŕý åĝåîñ öþéñš îţ åĝåîñ. ···············]",
   "The strategies, context items, and commands this extension provides. Select one to see its details.": "[Ţĥé šţŕåţéĝîéš, çöñţéẋţ îţéɱš, åñð çöɱɱåñðš ţĥîš éẋţéñšîöñ þŕöṽîðéš. Šéļéçţ öñé ţö šéé îţš ðéţåîļš. ····························]",
   "The strategy each new conversation starts on. You can still switch strategy per conversation afterwards.": "[Ţĥé šţŕåţéĝý éåçĥ ñéŵ çöñṽéŕšåţîöñ šţåŕţš öñ. Ýöû çåñ šţîļļ šŵîţçĥ šţŕåţéĝý þéŕ çöñṽéŕšåţîöñ åƒţéŕŵåŕðš. ·······························]",

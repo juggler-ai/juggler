@@ -43,10 +43,19 @@ import (
 // launch is a one-shot connection to an address someone else supplied — a
 // script or a shortcut, naming a server that may be up for that run only — so
 // restoring it could open a window onto a dead server.
+//
+// remoteProject is, for a window on a server by URL, the project of the session
+// it shows there (a path on that machine), or "" while it shows the server's
+// page. The window is still that server's: its frame, sameView and what it may
+// ask of the app go by url alone. It is kept by project rather than session id
+// because an id does not outlive a restart of that server, and a next launch
+// hands it to the server's page, which opens that project's session again
+// (controlReopen).
 type windowSpec struct {
-	project   string
-	url       string
-	connected bool
+	project       string
+	url           string
+	connected     bool
+	remoteProject string
 }
 
 func (s windowSpec) isURL() bool { return s.url != "" }
@@ -71,11 +80,11 @@ func (s windowSpec) sameView(o windowSpec) bool {
 
 // entry is the persisted form of a spec. A connected server is filed under its
 // own key, so an address under "url" can always be read as a --url window and
-// dropped (see load).
+// dropped (see load); the project beside it is the one it shows there.
 func (s windowSpec) entry() workspaceEntry {
 	switch {
 	case s.connected:
-		return workspaceEntry{Server: s.url}
+		return workspaceEntry{Server: s.url, Project: s.remoteProject}
 	case s.isURL():
 		return workspaceEntry{URL: s.url}
 	}
@@ -152,7 +161,8 @@ func expandProject(project string) string {
 	return project
 }
 
-// workspaceEntry is the on-disk form of one open window.
+// workspaceEntry is the on-disk form of one open window. Project beside Server
+// is a project on that server (windowSpec.remoteProject), not this machine's.
 type workspaceEntry struct {
 	Project string `json:"project,omitempty"`
 	URL     string `json:"url,omitempty"`
@@ -162,7 +172,7 @@ type workspaceEntry struct {
 func (e workspaceEntry) spec() windowSpec {
 	switch {
 	case e.Server != "":
-		return windowSpec{url: e.Server, connected: true}
+		return windowSpec{url: e.Server, connected: true, remoteProject: e.Project}
 	case e.URL != "":
 		return windowSpec{url: e.URL}
 	}

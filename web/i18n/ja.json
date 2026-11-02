@@ -1423,6 +1423,7 @@
   "The session could not be started.": "セッションを開始できませんでした。",
   "The session could not be stopped.": "セッションを停止できませんでした。",
   "The session for {project} could not be opened: {error}": "{project} のセッションを開けませんでした: {error}",
+  "The session for {project} could not be reopened: {error}": "{project} のセッションを再び開けませんでした: {error}",
   "The session for {project} has stopped. Try again opens it again.": "{project} のセッションが停止しました。「もう一度試す」で再度開きます。",
   "The strategies, context items, and commands this extension provides. Select one to see its details.": "この拡張機能が提供するストラテジー、コンテキスト項目、コマンドです。選択すると詳細が表示されます。",
   "The strategy each new conversation starts on. You can still switch strategy per conversation afterwards.": "新しい会話の開始時のストラテジーです。後から会話ごとにストラテジーを切り替えることもできます。",

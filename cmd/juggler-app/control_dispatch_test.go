@@ -66,7 +66,7 @@ func TestWindowControlActionTable(t *testing.T) {
 	// server (TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer).
 	want := map[string]bool{
 		"theme": true, "title": true, "control": true, "attention": true,
-		"drafts-flushed": true, "attach": true, "server-page": true, "server-lost": true,
+		"drafts-flushed": true, "attach": true, "server-page": true, "reopen": true, "server-lost": true,
 		"open": true, "new": true, "save-file": true, "quit": true,
 		"locale": false, "zoom": false, "folder-dropped": false, "pick-directory": false,
 		"pick-file": false, "updater": false, "connect": false,

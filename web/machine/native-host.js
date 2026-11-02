@@ -10,7 +10,8 @@
  * folder chooser, takes dropped folders and connects to another computer's
  * server. In a window on a server by URL (another computer's: `external`) the
  * page's folders are not this machine's and the window may not be pointed at a
- * third server, so the app only shows a session there and answers a close.
+ * third server, so the app only shows a session there, answers a close, and
+ * says which project's session the window showed when it last quit.
  * @module machine/native-host
  */
 
@@ -25,13 +26,36 @@ import { ControlApiError } from './control-api.js';
  * @returns {Promise<void>} Resolves once the app has taken it.
  */
 async function post(action, query) {
+  await request(action, query);
+}
+
+/**
+ * Post to one of the app's window-control actions and answer with its reply,
+ * turning a refusal into the error it says.
+ * @param {string} action - The action (/win/<id>/<action>).
+ * @param {string} query - Its query, with the leading '?'.
+ * @returns {Promise<Response|null>} The reply, or null without a native host.
+ */
+async function request(action, query) {
   const url = windowControlURL(action, query);
-  if (!url) return;
+  if (!url) return null;
   const resp = await fetch(url, { method: 'POST' });
-  if (resp.ok) return;
+  if (resp.ok) return resp;
   /** @type {{error?: string, message?: {key?: unknown, params?: unknown}}|null} */
   const body = await resp.json().catch(() => null);
   throw new ControlApiError(resp.status, body?.error || resp.statusText, body?.message);
+}
+
+/**
+ * Which project's session a window on a server by URL showed when the app last
+ * quit. The app tells it once, so a page that loads again is told nothing.
+ * @returns {Promise<string>} The project, a path on that server's machine, or ''.
+ */
+async function reopen() {
+  const resp = await request('reopen', '');
+  /** @type {{project?: unknown}|null} */
+  const body = resp ? await resp.json().catch(() => null) : null;
+  return typeof body?.project === 'string' ? body.project : '';
 }
 
 /**
@@ -42,11 +66,13 @@ async function post(action, query) {
 export function desktopHost({ external }) {
   /** @type {import('./sessions-view.js').NativeHost} */
   const host = {
-    attach: (id) => post('attach', `?session=${encodeURIComponent(id)}`),
+    attach: (id, project) => post('attach', `?session=${encodeURIComponent(id)}&project=${encodeURIComponent(project)}`),
     answerClose: reportDraftsFlushed,
     openURL: openExternalURL,
   };
-  if (external) return host;
+  // This machine's server's windows are reopened on their project's session
+  // by the app itself.
+  if (external) return { ...host, reopen };
   return {
     ...host,
     pickDirectory,

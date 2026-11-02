@@ -5,6 +5,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,23 +17,27 @@ import (
 // A window on a server by URL — another machine's, connected to from Session ▸
 // Connect to Server — shows that server's sessions page, and opening a session
 // there shows it in the same window, as a viewer. The window stays the
-// server's: it keeps its URL spec (so it reopens on the server's page), and the
-// page it loads stays marked as being on a server this app did not start.
+// server's, and the page it loads stays marked as being on a server this app
+// did not start. It also remembers the project of the session it shows, so a
+// next launch can open that project's session there again.
 
 // TestAttachInAWindowOnAServerByURLShowsTheSessionThere: the page has opened the
 // session through its own server's control API; the app only moves the window
 // to /s/<id>/ on that same server. An id that is not one is refused, so the
-// page cannot send the window anywhere else.
+// page cannot send the window anywhere else. The project the page names is
+// what the workspace records, beside the server, since a session's id does not
+// outlive that server's restart and its project does.
 func TestAttachInAWindowOnAServerByURLShowsTheSessionThere(t *testing.T) {
 	userpathstest.Isolate(t)
 	a := newTestAppState(t)
-	a.workspace = newWorkspaceStoreAt(workspacePath(t))
+	path := workspacePath(t)
+	a.workspace = newWorkspaceStoreAt(path)
 	const server = "http://devbox:3939"
 	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: server, connected: true}, serverURL: server})
 
 	post := func(session string) int {
 		rec := httptest.NewRecorder()
-		a.controlAttach(rec, httptest.NewRequest(http.MethodPost, "/win/w1/attach?session="+session, nil), remote)
+		a.controlAttach(rec, httptest.NewRequest(http.MethodPost, "/win/w1/attach?session="+session+"&project=%2Fhome%2Fme%2Fproj", nil), remote)
 		return rec.Code
 	}
 	for _, bad := range []string{"", "..%2F..%2Fevil", "a%2Fb"} {
@@ -46,8 +51,55 @@ func TestAttachInAWindowOnAServerByURLShowsTheSessionThere(t *testing.T) {
 	var spec windowSpec
 	var url string
 	a.reg(func(*regState) { spec, url = remote.spec, remote.serverURL })
-	if spec != (windowSpec{url: server, connected: true}) || url != server+"/s/abc123" {
-		t.Fatalf("after attach the window is %+v on %s; want still the server's, on %s/s/abc123", spec, url, server)
+	want := windowSpec{url: server, connected: true, remoteProject: "/home/me/proj"}
+	if spec != want || url != server+"/s/abc123" {
+		t.Fatalf("after attach the window is %+v on %s; want %+v, on %s/s/abc123", spec, url, want, server)
+	}
+	a.persistWorkspaceSync()
+	if got := readWorkspaceFile(path).Windows; len(got) != 1 || got[0] != (workspaceEntry{Server: server, Project: "/home/me/proj"}) {
+		t.Fatalf("the workspace records %+v, want the server and the session's project", got)
+	}
+	if got := newWorkspaceStoreAt(path).load(); len(got) != 1 || got[0] != want {
+		t.Fatalf("a next launch reads back %+v, want %+v", got, want)
+	}
+}
+
+// TestAWindowOnAServerByURLReopensItsProjectOnce: a restored window loads its
+// server's page, which asks the app what it was showing and opens that
+// project's session there, through its own server's control API. The app hands
+// it over once and forgets it: if the session opens, the attach records it
+// again; if it does not, the window is on the server's page, and is saved as
+// that. Only a main window on a server by URL is asked about.
+func TestAWindowOnAServerByURLReopensItsProjectOnce(t *testing.T) {
+	userpathstest.Isolate(t)
+	a := newTestAppState(t)
+	a.workspace = newWorkspaceStoreAt(workspacePath(t))
+	const server = "http://devbox:3939"
+	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: server, connected: true, remoteProject: "/home/me/proj"}, serverURL: server})
+	local := registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/s/x"})
+
+	post := func(e *winEntry) (int, string) {
+		rec := httptest.NewRecorder()
+		a.controlReopen(rec, httptest.NewRequest(http.MethodPost, "/win/"+e.id+"/reopen", nil), e)
+		var body struct {
+			Project string `json:"project"`
+		}
+		_ = json.NewDecoder(rec.Body).Decode(&body)
+		return rec.Code, body.Project
+	}
+	if code, _ := post(local); code != http.StatusConflict {
+		t.Errorf("reopen from a window on this machine's server: %d, want 409", code)
+	}
+	if code, project := post(remote); code != http.StatusOK || project != "/home/me/proj" {
+		t.Fatalf("reopen: %d %q, want 200 /home/me/proj", code, project)
+	}
+	var spec windowSpec
+	a.reg(func(*regState) { spec = remote.spec })
+	if spec != (windowSpec{url: server, connected: true}) {
+		t.Fatalf("after reopen the window is filed as %+v, want the server's page", spec)
+	}
+	if code, project := post(remote); code != http.StatusOK || project != "" {
+		t.Fatalf("a second reopen: %d %q, want 200 and nothing", code, project)
 	}
 	a.workspace.flush(nil)
 }
@@ -79,7 +131,7 @@ func TestServerPageReturnsAWindowOnAServerByURLToItsPage(t *testing.T) {
 	a := newTestAppState(t)
 	a.workspace = newWorkspaceStoreAt(workspacePath(t))
 	const server = "http://devbox:3939"
-	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: server, connected: true}, serverURL: server + "/s/abc"})
+	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: server, connected: true, remoteProject: "/home/me/proj"}, serverURL: server + "/s/abc"})
 	local := registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/s/x"})
 
 	post := func(e *winEntry) int {
@@ -94,9 +146,13 @@ func TestServerPageReturnsAWindowOnAServerByURLToItsPage(t *testing.T) {
 		t.Fatalf("server-page: %d, want 204", code)
 	}
 	var url string
-	a.reg(func(*regState) { url = remote.serverURL })
+	var spec windowSpec
+	a.reg(func(*regState) { url, spec = remote.serverURL, remote.spec })
 	if url != server {
 		t.Fatalf("after server-page the window is on %s, want %s", url, server)
+	}
+	if spec != (windowSpec{url: server, connected: true}) {
+		t.Fatalf("after server-page the window is filed as %+v, still showing a session", spec)
 	}
 	a.workspace.flush(nil)
 }

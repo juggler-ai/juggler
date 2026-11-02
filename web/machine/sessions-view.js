@@ -19,6 +19,8 @@
  * In a desktop app's window the page is that window's empty state, and the app
  * is its `host`: a session opens in the same window, by asking the host to show
  * it there, and the host's folder chooser and dropped folders open projects too.
+ * A window on another computer's server, restored at launch, opens again the
+ * project whose session it showed when the app last quit (`host.reopen`).
  *
  * A running session's whole row opens it, as its Open link does; the link stays
  * the keyboard's way in, so the row adds no second control around the others.
@@ -66,17 +68,21 @@ const RECENTS_SHOWN = 8;
  *   getStatus?: () => Promise<import('../js/components/connectivity/exposure-view.js').ServerStatus>,
  * }} ControlApi
  * @typedef {{
- *   attach: (id: string) => Promise<void>,
+ *   attach: (id: string, project: string) => Promise<void>,
  *   answerClose: (token: string) => Promise<void>,
  *   pickDirectory?: () => Promise<string|null>,
  *   takesDroppedFolders?: boolean,
  *   connect?: (address: string) => Promise<void>,
  *   openURL?: (url: string) => void,
+ *   reopen?: () => Promise<string>,
  * }} NativeHost
- *   The desktop app (native-host.js). The folder chooser, dropped folders and
- *   Connect are there only in a window on this machine's server. openURL opens
- *   an address in the system browser, which a click on a link to it in the
- *   window's WebView would not.
+ *   The desktop app (native-host.js). attach is told the session's project too,
+ *   which the app keeps for the window. The folder chooser, dropped folders and
+ *   Connect are there only in a window on this machine's server; reopen only in
+ *   a window on a server by URL, answering the project whose session the window
+ *   showed when the app last quit ('' for none), which the page opens again.
+ *   openURL opens an address in the system browser, which a click on a link to
+ *   it in the window's WebView would not.
  */
 
 /**
@@ -523,13 +529,14 @@ export function mountSessionsPage(root, {
   /**
    * Show session id in this window, through the host. A refusal says why.
    * @param {string} id - The session's ID.
+   * @param {string} project - Its project.
    * @param {(message: string) => void} [report] - Where a refusal is shown.
    * @returns {Promise<boolean>} Whether the host took it.
    */
-  async function attach(id, report = showLaunchError) {
+  async function attach(id, project, report = showLaunchError) {
     if (!host) return false;
     try {
-      await host.attach(id);
+      await host.attach(id, project);
       return true;
     } catch (err) {
       report(err instanceof Error ? errorText(err) : t('The session could not be opened in this window.'));
@@ -554,7 +561,7 @@ export function mountSessionsPage(root, {
   async function launchHere(project, { make, report = showLaunchError } = {}) {
     try {
       const sess = await api.openSession(make ? await make() : project);
-      return await attach(sess.id, report);
+      return await attach(sess.id, sess.project || project, report);
     } catch (err) {
       report(err instanceof Error ? errorText(err) : t('The session could not be started.'));
       return false;
@@ -596,6 +603,28 @@ export function mountSessionsPage(root, {
       report(err instanceof Error ? errorText(err) : t('The session could not be started.'));
       return false;
     }
+  }
+
+  /**
+   * Open again, in this window, the session the app says the window showed
+   * when it last quit. It goes by the session's project, not its id, since
+   * the server may have restarted since. A session that will not open leaves
+   * the window on this page, saying why.
+   * @param {() => Promise<string>} ask - The host's reopen.
+   */
+  async function reopenLast(ask) {
+    let project = '';
+    try {
+      project = await ask();
+    } catch {
+      return;
+    }
+    if (!project || disposed) return;
+    await launch(project, {
+      report: (message) => showLaunchError(message
+        ? t('The session for {project} could not be reopened: {error}', { project, error: message })
+        : ''),
+    });
   }
 
   folderForm.addEventListener('submit', async (event) => {
@@ -665,7 +694,7 @@ export function mountSessionsPage(root, {
    * @param {Session} s - The session.
    */
   function openSession(s) {
-    if (host) void attach(s.id);
+    if (host) void attach(s.id, s.project);
     else navigate(sessionUrl(s.id));
   }
 
@@ -684,7 +713,7 @@ export function mountSessionsPage(root, {
     const a = el('a', { className, attrs: { href: sessionUrl(s.id) } }, children);
     a.addEventListener('click', (event) => {
       event.preventDefault();
-      void attach(s.id);
+      void attach(s.id, s.project);
     });
     return a;
   }
@@ -879,6 +908,7 @@ export function mountSessionsPage(root, {
   render();
   void refresh();
   schedule();
+  if (host?.reopen) void reopenLast(host.reopen);
 
   return {
     refresh,

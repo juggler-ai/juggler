@@ -115,7 +115,7 @@ func (a *appState) openingState(spec windowSpec, serverURL, role string) (ws cor
 	if _, _, reached = readWindowState(ctx, serverURL, role); !reached {
 		return core.WindowState{}, false, false
 	}
-	ws, hasState = a.remoteFrames.get(serverURL, role)
+	ws, hasState = a.remoteFrames.get(remoteFrameServer(spec), role)
 	return ws, hasState, true
 }
 
@@ -123,21 +123,20 @@ func (a *appState) openingState(spec windowSpec, serverURL, role string) (ws cor
 // server this app runs, or on this machine for a window onto a server by URL.
 // Gives up on a session write when ctx does.
 //
-// A stand-in's frame goes where the window it stands in for keeps its own, so
-// that window comes back where the stand-in was: on this machine, under the
-// server by URL. A local window's session is not there to keep one, so its
-// stand-in keeps none; nor does an empty window, which has no session.
+// A window onto a server by URL, and a stand-in for one, keep it on this
+// machine under that server (remoteFrameServer), whichever of its pages the
+// window shows; a stand-in's goes there so the window it stands in for comes
+// back where the stand-in was. A local window's session is not there to keep
+// one, so its stand-in keeps none; nor does an empty window, which has no
+// session.
 func (a *appState) storeFrame(ctx context.Context, e *winEntry, ws core.WindowState) {
 	spec, si := a.standInOf(e)
-	serverURL := a.serverURLOf(e)
 	switch {
-	case si != nil && spec.isURL():
-		a.remoteFrames.put(normalizeURL(spec.url), e.role, ws)
-	case si != nil, spec == (windowSpec{}):
 	case spec.isURL():
-		a.remoteFrames.put(serverURL, e.role, ws)
+		a.remoteFrames.put(remoteFrameServer(spec), e.role, ws)
+	case si != nil, spec == (windowSpec{}):
 	default:
-		putWindowStateCtx(ctx, serverURL, e.role, ws)
+		putWindowStateCtx(ctx, a.serverURLOf(e), e.role, ws)
 	}
 }
 

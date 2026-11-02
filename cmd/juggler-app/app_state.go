@@ -1551,10 +1551,9 @@ func (a *appState) handleWindowClosed(e *winEntry) {
 	// the session is written before anything below can take the process down. A
 	// board onto a server by URL has its frame on this machine, so it goes here.
 	if a.boardFinishedWith(e) {
-		serverURL := a.serverURLOf(e)
-		forgetBoard(serverURL, e.board)
-		if e.spec.isURL() {
-			a.remoteFrames.forget(serverURL, e.role)
+		forgetBoard(a.serverURLOf(e), e.board)
+		if spec, _ := a.standInOf(e); spec.isURL() {
+			a.remoteFrames.forget(remoteFrameServer(spec), e.role)
 		}
 	}
 	close(e.stopSave)

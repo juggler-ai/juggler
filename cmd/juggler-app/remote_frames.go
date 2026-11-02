@@ -70,6 +70,16 @@ func newRemoteFramesAt(path string) *remoteFrames {
 	return r
 }
 
+// remoteFrameServer is the server a window onto spec keeps its frame under: the
+// address it is opened on. Never the URL it shows now (winEntry.serverURL),
+// which is one of that server's sessions (/s/<id>) for most of the window's
+// life and when the app quits — but a next launch opens it on the server's
+// address, before its page reopens the session, and the session's id may not
+// outlive a restart of that server anyway.
+func remoteFrameServer(spec windowSpec) string {
+	return normalizeURL(spec.url)
+}
+
 // remoteFrameKey files a frame under the server it views and the window's role.
 func remoteFrameKey(serverURL, role string) string {
 	return strings.TrimRight(serverURL, "/") + " " + role

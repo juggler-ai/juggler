@@ -417,7 +417,7 @@ func (a *appState) buildStandInWindow(spec windowSpec, si *standIn, opts windowO
 	}
 	saved, keepsFrame := a.inheritedFrame(opts, true)
 	if !keepsFrame && spec.isURL() {
-		saved, _ = a.remoteFrames.get(normalizeURL(spec.url), roleMain)
+		saved, _ = a.remoteFrames.get(remoteFrameServer(spec), roleMain)
 	}
 	place := windowgeom.PlaceVisible(saved, a.app.Screen.GetAll())
 	win := a.app.Window.NewWithOptions(application.WebviewWindowOptions{

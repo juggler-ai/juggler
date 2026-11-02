@@ -200,6 +200,12 @@ var testSkillsDir string
 // sampling killed that, and with it the reading of the 1-minute load average
 // as CPU contention on this machine.
 //
+// Two more things that cost the same two cores and so bought nothing (measured
+// under `make test-all`, 2026-11-02): a fourth lane in each unit window — the
+// unit windows finished when they had with three, every test in them slower in
+// proportion — and starting the subprocesses all at once rather than in turn,
+// which left the pool's boot at 26-29s.
+//
 // How the lanes are SHAPED matters as much as how many there are, and 3×3 beats
 // 1×9 on the same slot count: 46s and clean against 141–214s and 5–34 arbitrary
 // failures. Lanes sharing a subprocess share its content process, so their

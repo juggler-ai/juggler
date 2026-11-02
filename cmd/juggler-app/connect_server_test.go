@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -224,39 +223,26 @@ func TestReadWindowStateReportsAnAnsweringServerReached(t *testing.T) {
 }
 
 // A stand-in's page has no server behind it, so its buttons post straight to
-// this app's control endpoint for the window showing it.
+// this app's control endpoint for the window showing it: Try again first, as
+// the page's one primary button, saying it is trying once pressed.
 func TestUnreachableServerPagePostsToItsWindow(t *testing.T) {
-	base := "http://127.0.0.1:5000/secret/win/w7"
-	page := standInPage(standInPageText{
-		title:   "Can't reach the server",
-		message: `Juggler could not connect to http://dev<box>:8080.`,
-		buttons: []standInPageButton{
-			{label: "Try again", action: "retry-server", busy: "Trying…", primary: true},
-			{label: "Open a local window instead", action: "open-local"},
-		},
-		controlBase: base,
-	})
-
-	const prefix = "data:text/html;charset=utf-8;base64,"
-	if !strings.HasPrefix(page, prefix) {
-		t.Fatalf("not a base64 data URL: %.60s", page)
-	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(page, prefix))
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc := string(raw)
+	a := newTestAppState(t)
+	a.ctlPort = 5000
+	registerStandIn(a, "w7", windowSpec{url: "http://devbox:8080", connected: true}, unreachableStandIn("http://devbox:8080"))
+	_, doc := standInPageOf(t, a, "w7")
+	base := "/" + controlSecretOf(a, "w7") + "/win/w7"
+	retry := `<form method="post" action="` + base + `/retry-server" data-busy="Trying…">`
 	for _, want := range []string{
-		`action="` + base + `/retry-server"`,
-		`action="` + base + `/open-local"`,
-		`method="post"`,
-		"dev&lt;box&gt;",
+		retry,
+		`<form method="post" action="` + base + `/open-local">`,
+		`class="ms-button ms-button-primary">Try again</button>`,
+		`class="ms-button">Open a local window instead</button>`,
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("page is missing %q:\n%s", want, doc)
 		}
 	}
-	if strings.Contains(doc, "dev<box>") {
-		t.Error("the address is shown unescaped")
+	if i, j := strings.Index(doc, retry), strings.Index(doc, "/open-local"); i < 0 || j < i {
+		t.Error("Try again is not the page's first button")
 	}
 }

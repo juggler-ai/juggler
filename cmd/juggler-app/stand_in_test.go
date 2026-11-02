@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net"
@@ -163,17 +162,13 @@ func TestEachStandInOffersItsWayOn(t *testing.T) {
 		{lostElsewhereStandIn(true), []string{"retry-server", "start-server"}},
 		{mismatchStandIn(&versionMismatchError{server: "v0.0.1"}), []string{"restart-server", "quit"}},
 	} {
-		page := a.standInPageFor(c.si, "w7", "secret")
-		raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(page, "data:text/html;charset=utf-8;base64,"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		doc := string(raw)
+		registerStandIn(a, "w7", windowSpec{project: "/p"}, c.si)
+		_, doc := standInPageOf(t, a, "w7")
 		if n := strings.Count(doc, "<form "); n != len(c.want) {
 			t.Errorf("%s page has %d buttons, want %v", c.si.kind, n, c.want)
 		}
 		for _, action := range c.want {
-			if !strings.Contains(doc, `action="`+a.controlBase("w7", "secret")+"/"+action+`"`) {
+			if !strings.Contains(doc, `action="/`+controlSecretOf(a, "w7")+"/win/w7/"+action+`"`) {
 				t.Errorf("%s page does not post %s to its window", c.si.kind, action)
 			}
 		}

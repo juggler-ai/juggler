@@ -6,17 +6,20 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
-	"html"
+	"html/template"
+	"io/fs"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/msg"
+	"juggler/cmd/juggler/webui"
 	"juggler/internal/logpaths"
 	"juggler/internal/windowgeom"
+	"juggler/web"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -25,7 +28,9 @@ import (
 // A window that cannot show what it is for opens as a stand-in for it: a
 // static page saying why, with buttons that post to this window's control
 // endpoint. There is no server to serve it from — that is usually what is
-// wrong — so it travels as a data URL (standInPage). The cases:
+// wrong — so the control endpoint serves it itself (serveStandIn), under the
+// same window shell as the sessions page (web/shell/), whose header bar is
+// what a frameless window is dragged, resized and closed by. The cases:
 //
 //   - a server by URL that does not answer (unreachable): Try again, or open a
 //     local window instead;
@@ -230,14 +235,14 @@ func asVersionMismatch(err error) (*versionMismatchError, bool) {
 	return e, ok
 }
 
-// trParagraphs is the stand-in's explanation in the shell's UI language, as
-// one block of text, for its page.
-func (a *appState) trParagraphs(ms []msg.Message) string {
+// trParagraphs is the stand-in's explanation in the shell's UI language, a
+// paragraph of its page per message.
+func (a *appState) trParagraphs(ms []msg.Message) []string {
 	parts := make([]string, 0, len(ms))
 	for _, m := range ms {
 		parts = append(parts, a.tr(m))
 	}
-	return strings.Join(parts, "\n\n")
+	return parts
 }
 
 // standInOf reports the spec window e stands in for and what it says, or a nil
@@ -262,66 +267,118 @@ func (a *appState) pageSpecOf(id string) (spec windowSpec, ok bool) {
 	return spec, ok
 }
 
-// standInPageText is what a stand-in's page says, in the UI language, and the
-// control endpoint of the window showing it.
-type standInPageText struct {
-	title, message string
-	buttons        []standInPageButton
-	controlBase    string
+// standInPageData is what a stand-in's page template (web/shell/stand-in.html)
+// is drawn from: what the page says, in the UI language, and the window
+// shell's fields (web/shell/window-shell.html).
+type standInPageData struct {
+	HTMLLang, UILocale string
+	UICatalog          map[string]string
+	Title              string
+	Message            []string
+	Buttons            []standInPageButton
+
+	AssetBase, WailsBase, CSPNonce, Theme string
+	IsWindow                              bool
 }
 
+// standInPageButton is one of the page's buttons: a form posting to Action,
+// this window's control path for its action.
 type standInPageButton struct {
-	label, action, busy string
-	primary             bool
+	Label, Action, Busy string
+	Primary             bool
 }
 
-// standInPage renders a stand-in's page as a data URL: there is no server to
-// serve it from. Its buttons are plain form posts to this window's control
-// endpoint, which need no script and no CORS — the script only says the press
-// is under way, since the window that answers it replaces this one.
-func standInPage(p standInPageText) string {
-	t := html.EscapeString(p.title)
-	var buttons strings.Builder
-	for _, b := range p.buttons {
-		onsubmit := ""
-		if b.busy != "" {
-			onsubmit = ` onsubmit="` + html.EscapeString("var b=this.querySelector('button');b.disabled=true;b.textContent="+jsString(b.busy)) + `"`
-		}
-		class := ""
-		if b.primary {
-			class = ` class="primary"`
-		}
-		buttons.WriteString(`<form method="post" action="` + html.EscapeString(p.controlBase+"/"+b.action) + `"` + onsubmit + `>` +
-			`<button type="submit"` + class + `>` + html.EscapeString(b.label) + `</button></form>`)
+// standInPageTemplates are the page's template and the window shell it shares
+// with the sessions page, in web.Shell.
+var standInPageTemplates = []string{"shell/stand-in.html", "shell/window-shell.html"}
+
+// standInPageURL is the URL window id, holding secret, opens its stand-in
+// page on: the control endpoint's, as a window onto a server is given it.
+func (a *appState) standInPageURL(id, secret string) string {
+	base := a.controlBase(id, secret)
+	return base + "/page?window=1&nativeCtl=" + url.QueryEscape(base)
+}
+
+// serveStandIn answers a stand-in window's GETs, under the window's control
+// path: its page (page), the window shell's files (shell/…, web.Shell, no
+// templates), and the Wails runtime its header drags the window by. A page
+// has no other server to load them from — that is usually what is wrong.
+func (a *appState) serveStandIn(w http.ResponseWriter, r *http.Request, e *winEntry, si *standIn, sub string) {
+	switch {
+	case sub == "page":
+		a.serveStandInPage(w, r, e, si)
+	case sub == "wails/runtime.js":
+		webui.ServeWailsRuntime(w, r)
+	case strings.HasPrefix(sub, "shell/"):
+		serveShellFile(w, r, strings.TrimPrefix(sub, "shell/"))
+	default:
+		w.WriteHeader(http.StatusNotFound)
 	}
-	doc := `<!doctype html><meta charset="utf-8"><title>` + t + `</title>` +
-		`<style>body{margin:0;padding:48px;background:#0d1117;color:#e6edf3;font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.5}` +
-		`main{max-width:720px;margin:auto}h1{margin-top:0}pre{white-space:pre-wrap;font:inherit}` +
-		`.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}form{margin:0}` +
-		`button{font:inherit;padding:8px 16px;border-radius:6px;border:1px solid #30363d;background:#21262d;color:#e6edf3;cursor:pointer}` +
-		`button.primary{background:#238636;border-color:#2ea043}button:disabled{opacity:.6;cursor:default}</style>` +
-		`<main><h1>` + t + `</h1><pre>` + html.EscapeString(p.message) + `</pre><div class="actions">` +
-		buttons.String() + `</div></main>`
-	// Base64, not percent-encoding. url.QueryEscape encodes for
-	// application/x-www-form-urlencoded, where a space is "+" — a rule no
-	// browser applies to a data URL, so every space arrives as a literal "+".
-	// PathEscape leaves "?" unescaped and lets a stray "#" truncate the
-	// document at the fragment. Base64 has no such characters to get wrong.
-	return "data:text/html;charset=utf-8;base64," + base64.StdEncoding.EncodeToString([]byte(doc))
 }
 
-// standInPageFor is si's page, in the shell's UI language, for window id
-// holding secret.
-func (a *appState) standInPageFor(si *standIn, id, secret string) string {
-	p := standInPageText{title: a.tr(si.title), message: a.trParagraphs(si.message), controlBase: a.controlBase(id, secret)}
+// serveShellFile serves rel from web.Shell: a file, never a directory or one
+// of the templates the page is drawn from.
+func serveShellFile(w http.ResponseWriter, r *http.Request, rel string) {
+	if strings.HasSuffix(rel, ".html") || !fs.ValidPath(rel) {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if info, err := fs.Stat(web.Shell, rel); err != nil || info.IsDir() {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	// A type of its own for each web asset, not the host's MIME database's.
+	if ct := webui.ContentType(rel); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeFileFS(w, r, web.Shell, rel)
+}
+
+// serveStandInPage draws si's page for window e, in the shell's UI language
+// and the window's theme.
+func (a *appState) serveStandInPage(w http.ResponseWriter, r *http.Request, e *winEntry, si *standIn) {
+	tmpl, err := template.ParseFS(web.Shell, standInPageTemplates...)
+	if err != nil {
+		logf("stand-in page template: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	base := controlPath(e.id, e.ctlSecret)
+	// The secret is random hex, which makes a nonce as good as any.
+	nonce := mintControlSecret()
+	data := standInPageData{
+		HTMLLang:  sourceLocale,
+		Title:     a.tr(si.title),
+		Message:   a.trParagraphs(si.message),
+		AssetBase: base + "/shell",
+		WailsBase: base,
+		CSPNonce:  nonce,
+		Theme:     normaliseTheme(a.windowTheme(e)),
+		IsWindow:  r.URL.Query().Has("window"),
+	}
+	if cur := a.locale.Load(); cur != nil && cur.locale != sourceLocale {
+		data.HTMLLang, data.UILocale, data.UICatalog = cur.locale, cur.locale, cur.catalog
+	}
 	for _, b := range si.buttons {
-		pb := standInPageButton{label: a.tr(b.label), action: b.action, primary: b.primary}
+		pb := standInPageButton{Label: a.tr(b.label), Action: base + "/" + b.action, Primary: b.primary}
 		if b.busy != nil {
-			pb.busy = a.tr(*b.busy)
+			pb.Busy = a.tr(*b.busy)
 		}
-		p.buttons = append(p.buttons, pb)
+		data.Buttons = append(data.Buttons, pb)
 	}
-	return standInPage(p)
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	// The page carries its window's secret.
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'nonce-"+nonce+"'; "+
+		"style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; "+
+		"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+	if err := tmpl.Execute(w, data); err != nil {
+		logf("stand-in page: %v", err)
+	}
 }
 
 // buildStandInWindow opens a native window onto si's page, registered under
@@ -348,7 +405,7 @@ func (a *appState) buildStandInWindow(spec windowSpec, si *standIn, opts windowO
 	place := windowgeom.PlaceVisible(saved, a.app.Screen.GetAll())
 	win := a.app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            a.tr(si.windowTitle),
-		URL:              a.standInPageFor(si, id, secret),
+		URL:              a.standInPageURL(id, secret),
 		Width:            place.Width,
 		Height:           place.Height,
 		MinWidth:         minWindowWidth,

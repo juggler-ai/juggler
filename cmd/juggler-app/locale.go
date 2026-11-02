@@ -29,8 +29,10 @@ import (
 // core's messages and every source registered with the server
 // (webui.RegisterCatalogFS) — which is how text that is compiled into this
 // binary by a packaged build, but whose catalogue lives with that build's
-// server, gets translated at all. It also keeps the web tree out of this binary.
-// Until a server has answered, the shell speaks English.
+// server, gets translated at all. It also keeps the web tree out of this binary,
+// which carries only the window shell its stand-in pages wear (web.Shell); a
+// stand-in's page is handed this catalogue too. Until a server has answered,
+// the shell speaks English.
 
 // sourceLocale is the language messages are written in (webui.SourceLocale).
 const sourceLocale = "en"

@@ -1,0 +1,83 @@
+{{/*
+    The desktop window's shell, shared by the pages that are not a session's:
+    the machine server's sessions page (web/machine/index.html) and the
+    desktop app's own stand-in pages (web/shell/stand-in.html). Each page puts
+    its own <header class="app-header"> between the two blocks, ending in
+    <window-caption-controls>.
+
+    The data both blocks read:
+      .AssetBase     where the asset tree is served, with no trailing slash
+      .CSPNonce      the nonce the page's inline scripts carry
+      .Theme         "light" or "dark" to paint, or "" to follow the system's
+      .WailsBase     what the Wails runtime's /wails/runtime.js is served under
+                     ("" for the server root), loaded only when .IsWindow
+      .IsWindow      whether a desktop window shows the page (?window=1)
+*/}}
+{{define "window-shell-head"}}
+    <link rel="icon" type="image/svg+xml" href="{{.AssetBase}}/resources/juggler-logo.svg">
+
+    <!-- Before the first paint: the page's theme, and a desktop window's page
+         marks itself as one and names its platform, exactly as web/index.html
+         does, so the window chrome (layout/window-chrome.css — the macOS
+         traffic-light gutter, the Windows and Linux caption buttons) applies
+         with no flash. -->
+    <script nonce="{{.CSPNonce}}">
+        (function () {
+            var root = document.documentElement;
+            var theme = "{{.Theme}}";
+            if (theme === 'light' || theme === 'dark') {
+                root.dataset.theme = theme;
+            } else {
+                var light = window.matchMedia('(prefers-color-scheme: light)');
+                var apply = function () {
+                    root.dataset.theme = light.matches ? 'light' : 'dark';
+                };
+                apply();
+                light.addEventListener('change', apply);
+            }
+            var query = new URLSearchParams(window.location.search);
+            if (query.has('window')) {
+                root.dataset.windowMode = '1';
+                // A window onto another computer's server (web/machine/native-host.js).
+                if (query.get('external') === '1') root.dataset.externalServer = '1';
+                var ua = navigator.userAgent;
+                root.dataset.windowPlatform =
+                    /Windows/.test(ua) ? 'windows' :
+                    /Macintosh|Mac OS X/.test(ua) ? 'mac' : 'linux';
+            }
+            root.style.setProperty('--logo-with-name-url',
+                "url('{{.AssetBase}}/resources/juggler-logo-with-name.svg')");
+        })();
+    </script>
+
+    <link rel="stylesheet" href="{{.AssetBase}}/css/base/fonts.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/tokens/scale.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/tokens/theme-dark.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/tokens/theme-light.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/base/reset.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/base/elements.css">
+    <!-- The app's shell: the header bar, its pattern and wordmark, and the
+         desktop window's chrome, shared with a session's page. -->
+    <link rel="stylesheet" href="{{.AssetBase}}/css/layout/app-shell.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/layout/window-chrome.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/layout/app-header.css">
+{{end}}
+
+{{define "window-shell-body"}}
+    {{if .IsWindow}}<script type="module" src="{{.WailsBase}}/wails/runtime.js"></script>{{end}}
+    <script nonce="{{.CSPNonce}}">
+        // The window-chrome rules are keyed on body.window-mode.
+        if (document.documentElement.dataset.windowMode === '1') {
+            document.body.classList.add('window-mode');
+        }
+    </script>
+    <!-- The no-drag strip along the window's top edge, which keeps the OS's
+         resize zone out of the header's drag region (layout/window-chrome.css). -->
+    <div class="window-resize-strip" aria-hidden="true"></div>
+
+    <!-- The frameless window's own chrome: going fullscreen, resizing by its
+         edges, and the caption buttons at the end of the header. -->
+    <script type="module" src="{{.AssetBase}}/js/utils/window-fullscreen.js"></script>
+    <script type="module" src="{{.AssetBase}}/js/utils/window-edge-resize.js"></script>
+    <script type="module" src="{{.AssetBase}}/js/components/window-caption-controls.js"></script>
+{{end}}

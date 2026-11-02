@@ -111,6 +111,8 @@ const CORPUS_TREE = {
   'web/engine.html': '<div class="engine-attr"></div>\n',
   'web/sandbox.html': '<div class="sandbox-attr"></div>\n',
   'web/machine/index.html': '<div class="machine-attr"></div>\n',
+  'web/shell/window-shell.html': '<div class="shell-attr"></div>\n',
+  'web/shell/stand-in.html': '<div class="stand-in-attr"></div>\n',
   // Stylesheets outside web/css: an extension's and the machine page's are
   // checked; a test's, a vendored one's and web/css's own (the manifest's) are not.
   'web/extensions/ext/e.css': [

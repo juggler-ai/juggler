@@ -505,7 +505,7 @@ func TestAServerOfAnotherVersionWithSessionsIsLeftForTheUser(t *testing.T) {
 	}
 
 	page := mismatchStandIn(mismatch)
-	text := (&appState{}).trParagraphs(page.message)
+	text := strings.Join((&appState{}).trParagraphs(page.message), "\n\n")
 	for _, want := range []string{"v0.0.1-old", core.Version, "/work/alpha"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("mismatch page %q does not say %q", text, want)
@@ -547,7 +547,7 @@ func TestAServerOfAnotherVersionInUseIsLeftForTheUser(t *testing.T) {
 			if old.shutdowns.Load() != 0 || old.attaches.Load() != 0 {
 				t.Fatalf("old server: %d shutdowns, %d attachments; want neither", old.shutdowns.Load(), old.attaches.Load())
 			}
-			if text := (&appState{}).trParagraphs(mismatchStandIn(mismatch).message); !strings.Contains(text, c.says) {
+			if text := strings.Join((&appState{}).trParagraphs(mismatchStandIn(mismatch).message), "\n\n"); !strings.Contains(text, c.says) {
 				t.Errorf("mismatch page %q does not say %q", text, c.says)
 			}
 		})
@@ -579,7 +579,7 @@ func TestARestartStopsOnlyWhatTheUserWasShown(t *testing.T) {
 	if old.shutdowns.Load() != 0 || old.refusals.Load() != 1 {
 		t.Fatalf("old server: %d shutdowns, %d refused; want it asked once, and refusing", old.shutdowns.Load(), old.refusals.Load())
 	}
-	if text := (&appState{}).trParagraphs(mismatchStandIn(again).message); !strings.Contains(text, "/work/late") {
+	if text := strings.Join((&appState{}).trParagraphs(mismatchStandIn(again).message), "\n\n"); !strings.Contains(text, "/work/late") {
 		t.Errorf("the redrawn page %q does not name the session that opened", text)
 	}
 	if err := a.restartServer(again); err != nil || old.shutdowns.Load() != 1 {

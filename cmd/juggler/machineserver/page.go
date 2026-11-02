@@ -47,8 +47,9 @@ func mintAssetVersion() string {
 // root: what the sessions page draws on, and nothing of the app's own pages.
 var assetRoots = []string{"css", "js", "machine", "resources", "sdk"}
 
-// pageTemplate is the sessions page's template in the web tree.
-const pageTemplate = "machine/index.html"
+// pageTemplates are the sessions page's template in the web tree, and the
+// desktop window's shell it shares with the app's own pages.
+var pageTemplates = []string{"machine/index.html", "shell/window-shell.html"}
 
 // assetHandler serves files of the web tree under /v<assetVersion>/, from
 // assetRoots only. Directories and HTML (page templates) are not served, and a
@@ -103,7 +104,7 @@ func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	tmpl, err := template.ParseFS(s.assets, pageTemplate)
+	tmpl, err := template.ParseFS(s.assets, pageTemplates...)
 	if err != nil {
 		jlog.Error("[machineserver] sessions page template: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -141,8 +142,12 @@ func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
 		AssetBase string
 		// IsWindow is set when a desktop app's window shows the page
 		// (?window=1): the page then loads the Wails runtime its header
-		// drags the window by.
+		// drags the window by, which this server serves at its root
+		// (WailsBase).
 		IsWindow  bool
+		WailsBase string
+		// Theme is empty: the page follows the system's.
+		Theme     string
 		CSPNonce  string
 		HTMLLang  string
 		UILocale  string

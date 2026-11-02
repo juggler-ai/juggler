@@ -74,7 +74,13 @@ func mintControlSecret() string {
 // controlBase is the ?nativeCtl= value for window id holding secret: the base
 // every page-side call appends its action to.
 func (a *appState) controlBase(id, secret string) string {
-	return fmt.Sprintf("http://127.0.0.1:%d/%s/win/%s", a.ctlPort, secret, id)
+	return fmt.Sprintf("http://127.0.0.1:%d%s", a.ctlPort, controlPath(id, secret))
+}
+
+// controlPath is controlBase's path: what a page served from the control
+// endpoint itself (a stand-in's) addresses its window by.
+func controlPath(id, secret string) string {
+	return "/" + secret + "/win/" + id
 }
 
 // windowBySecret is the open window whose page holds secret, or nil, and
@@ -105,6 +111,10 @@ func (e *winEntry) remotePage() bool {
 // remote column). Anything without a secret is a bare 404 or 405 with no CORS
 // headers, so a page that lacks one cannot read even that. A refused action is
 // a 403 saying why.
+//
+// The one GET admitted is a stand-in's, under its own window's path, for the
+// page this endpoint serves it and what that page loads (serveStandIn). It is
+// same-origin, so it needs no CORS either.
 func (a *appState) handleControl(w http.ResponseWriter, r *http.Request) {
 	secret, rest, ok := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
 	if !ok {
@@ -115,6 +125,19 @@ func (a *appState) handleControl(w http.ResponseWriter, r *http.Request) {
 	if e == nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
+	}
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		if _, si := a.standInOf(e); si != nil {
+			id, sub, ok := strings.Cut(strings.TrimPrefix(rest, "win/"), "/")
+			if !ok || !strings.HasPrefix(rest, "win/") || id != e.id {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			if _, isAction := windowActions[sub]; !isAction {
+				a.serveStandIn(w, r, e, si, sub)
+				return
+			}
+		}
 	}
 	if r.Method != http.MethodPost && r.Method != http.MethodOptions {
 		w.WriteHeader(http.StatusMethodNotAllowed)

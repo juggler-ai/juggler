@@ -806,7 +806,7 @@ GOLANGCI_LINT_VERSION=v2.14.0
 GO_PACKAGES := . ./cmd/... ./internal/... ./jlog/... ./tests/... ./web/...
 GO_TEST_PACKAGES := $(filter-out ./tests/...,$(GO_PACKAGES))
 GO_FOREIGN := 3rdparty tooling
-CSS_DIRS := web/css web/machine web/extensions web/sdk
+CSS_DIRS := web/css web/machine web/shell web/extensions web/sdk
 export GOLANGCI_LINT_VERSION GO_PACKAGES GO_FOREIGN CSS_DIRS
 GOFMT_FIND = find . -name '*.go' $(foreach d,$(GO_FOREIGN),-not -path './$(d)/*') -print0
 CSS_GLOBS = $(foreach d,$(CSS_DIRS),'$(d)/**/*.css')

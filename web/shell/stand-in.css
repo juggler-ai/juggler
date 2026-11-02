@@ -1,0 +1,38 @@
+/*
+ *     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+ *     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+ *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
+ */
+
+/* A desktop app's stand-in page (web/shell/stand-in.html). It wears the
+   window's shell and the sessions page's column and buttons
+   (machine/sessions.css); every rule here is the page's own, under si-. */
+
+/* The wordmark is only a picture here: there is no About box to open. */
+.si-logo {
+    cursor: inherit;
+}
+
+/* The explanation, a paragraph per message, each keeping its own line breaks
+   (an error, a log directory) and wrapping a long address or path. */
+.si-message {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    line-height: var(--leading-normal);
+}
+
+.si-message p {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.si-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+}
+
+.si-actions form {
+    margin: 0;
+}

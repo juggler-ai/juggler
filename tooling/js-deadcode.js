@@ -251,7 +251,7 @@ export const TREE_CONFIG = {
   tests: [/^web\/js-tests\//, /(^|\/)_tests\//],
   publicApi: ['web/sdk/'],
   serverRoot: 'web',
-  html: ['web/index.html', 'web/engine.html', 'web/sandbox.html', 'web/machine/index.html', 'web/js-tests/headless-test.html'],
+  html: ['web/index.html', 'web/engine.html', 'web/sandbox.html', 'web/machine/index.html', 'web/shell/window-shell.html', 'web/shell/stand-in.html', 'web/js-tests/headless-test.html'],
   manifests: ['web/extensions/*/juggler.extension.json', 'examples/extensions/*/juggler.extension.json'],
   goDirs: ['cmd', 'internal', 'web', 'tests'],
   jsconfig: 'tooling/jsconfig.json',

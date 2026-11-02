@@ -15,7 +15,7 @@ import (
 // itself — not a wrapper — so default serving is byte-identical to before the
 // seam existed.
 func TestFilesDefaultIsEmbedded(t *testing.T) {
-	if Files != FS(builtin) {
+	if Files != FS(&builtin) {
 		t.Fatalf("Files should default to the raw embed.FS, got %T", Files)
 	}
 	data, err := Files.ReadFile("index.html")

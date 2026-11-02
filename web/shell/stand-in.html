@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="{{.HTMLLang}}"{{if .UILocale}} data-ui-locale="{{.UILocale}}"{{end}}>
+<head>
+    <meta charset="UTF-8">
+    {{if .UICatalog}}<!-- The UI language's catalogue, read by sdk/lib/i18n.js when it loads
+         (with data-ui-locale above). Data, not script: it never runs. -->
+    <script type="application/json" id="juggler-ui-catalog">{{.UICatalog}}</script>{{end}}
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark light">
+    <title>{{.Title}}</title>
+    {{template "window-shell-head" .}}
+    <!-- The sessions page's column, header title and buttons. -->
+    <link rel="stylesheet" href="{{.AssetBase}}/machine/sessions.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/shell/stand-in.css">
+</head>
+<body>
+    {{template "window-shell-body" .}}
+
+    <!-- A desktop app's stand-in for a window it cannot show
+         (cmd/juggler-app/stand_in.go), drawn under the same header bar as the
+         sessions page, so a frameless window is still dragged, resized and
+         closed by it. It is served by the app itself: there is no server to
+         serve it, which is usually what is wrong. -->
+    <app-container>
+        <header class="app-header">
+            <div class="logo si-logo" aria-hidden="true"></div>
+            <div class="ms-header-slot">
+                <div class="ms-title"><h1>{{.Title}}</h1></div>
+            </div>
+            <window-caption-controls></window-caption-controls>
+        </header>
+        <div class="ms-scroll">
+            <main class="ms-page">
+                <div class="si-message">
+                    {{range .Message}}<p>{{.}}</p>
+                    {{end}}
+                </div>
+                <!-- Each button is a plain form post to this window's control
+                     endpoint, answered 204 so the page stays while the window
+                     that answers it is on its way. -->
+                <div class="si-actions">
+                    {{range .Buttons}}<form method="post" action="{{.Action}}"{{if .Busy}} data-busy="{{.Busy}}"{{end}}>
+                        <button type="submit" class="ms-button{{if .Primary}} ms-button-primary{{end}}">{{.Label}}</button>
+                    </form>
+                    {{end}}
+                </div>
+            </main>
+        </div>
+    </app-container>
+
+    <script nonce="{{.CSPNonce}}">
+        // A press says it is under way: the window that answers it replaces
+        // this one, and until it does, a second press would ask again.
+        document.querySelectorAll('form[data-busy]').forEach(function (form) {
+            form.addEventListener('submit', function () {
+                var button = form.querySelector('button');
+                button.disabled = true;
+                button.textContent = form.dataset.busy;
+            });
+        });
+    </script>
+</body>
+</html>

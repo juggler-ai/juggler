@@ -704,8 +704,8 @@ function isTestSource(rel) {
  *   its source, not strings. The other vendored bundles (marked, pdf.js, Yjs)
  *   are minified code whose identifiers are noise, and no sheet styles a class
  *   they emit.
- * - `html`: the documents the server renders. web/js-tests/headless-test.html
- *   is a test page and is not read.
+ * - `html`: the documents the servers and the desktop app render.
+ *   web/js-tests/headless-test.html is a test page and is not read.
  * @param {string} root - The repository root.
  * @returns {{js: string[], prism: string[], html: string[]}} Absolute paths of each kind of source.
  */
@@ -721,7 +721,7 @@ function productionSources(root) {
     }
   }
   sources.prism = walk(vendor, (n) => /^prism-[\w-]+\.js$/.test(n));
-  for (const rel of ['web/index.html', 'web/engine.html', 'web/sandbox.html', 'web/machine/index.html']) {
+  for (const rel of ['web/index.html', 'web/engine.html', 'web/sandbox.html', 'web/machine/index.html', 'web/shell/window-shell.html', 'web/shell/stand-in.html']) {
     sources.html.push(path.join(root, rel));
   }
   return sources;

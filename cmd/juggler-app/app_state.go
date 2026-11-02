@@ -251,7 +251,7 @@ type regState struct {
 
 	// quitting is set once an app-wide quit has been authorised (the quit guard
 	// found no busy work, or the user confirmed the discard). While set, the
-	// ShouldQuit hook allows termination and per-window close hooks stop
+	// ShouldQuitLater hook grants termination and per-window close hooks stop
 	// guarding, so teardown doesn't re-prompt window by window.
 	quitting bool
 
@@ -385,6 +385,23 @@ func (a *appState) openerFrame(id string) core.WindowState {
 // Matches the .app bundle identifier (MAC_BUNDLE_ID in the Makefile).
 const singleInstanceID = "studio.juggler.juggler"
 
+// singleInstanceOptions is the single-instance lock to ask Wails for, or none
+// when the platform cannot provide one (unavailable, from
+// singleInstanceUnavailable). Wails ends the launch on any failure to take the
+// lock other than finding it held, so a lock that cannot be had is not asked
+// for: the app starts without one, and a later launch is a second app rather
+// than a hand-off to this one.
+func singleInstanceOptions(unavailable error, onSecondInstance func(application.SecondInstanceData)) *application.SingleInstanceOptions {
+	if unavailable != nil {
+		logf("single instance: no lock (%v); a second launch will be a second app", unavailable)
+		return nil
+	}
+	return &application.SingleInstanceOptions{
+		UniqueID:               singleInstanceID,
+		OnSecondInstanceLaunch: onSecondInstance,
+	}
+}
+
 // initApplication constructs the single Wails application with the
 // single-instance guard installed. It MUST be called before the caller reaches
 // for the server: if this is a second instance, application.New notifies the
@@ -405,10 +422,7 @@ func (a *appState) initApplication() {
 		ErrorHandler:   onWailsError,
 		WarningHandler: onWailsWarn,
 		PanicHandler:   onWailsPanic,
-		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID:               singleInstanceID,
-			OnSecondInstanceLaunch: a.onSecondInstance,
-		},
+		SingleInstance: singleInstanceOptions(singleInstanceUnavailable(), a.onSecondInstance),
 		Mac: application.MacOptions{
 			// Many windows in one process: don't let Cocoa terminate us when a
 			// single window closes. We quit explicitly when the last one goes
@@ -416,11 +430,10 @@ func (a *appState) initApplication() {
 			// keep the count above zero, so without that we'd linger invisibly.
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
-		// Guard Cmd+Q / Quit: if any window's server still has a turn in flight,
-		// veto the terminate and ask first (see busy_guard.go). Returns
-		// synchronously, so the real decision happens asynchronously and a
-		// confirmed quit re-issues app.Quit() with the quitting flag set.
-		ShouldQuit: a.shouldQuit,
+		// Guard every quit: if any window's server still has a turn in flight,
+		// ask first (see busy_guard.go). The request is held open meanwhile, so
+		// a logout waits for the answer instead of being cancelled.
+		ShouldQuitLater: a.shouldQuitLater,
 		// The same snapshot the macOS terminate hook takes, on the platforms that
 		// have no such hook. Wails runs this first in its own teardown, before it
 		// closes the windows — which is the last moment the open set is still the
@@ -445,7 +458,7 @@ func (a *appState) initApplication() {
 	// attachment with the process, which the server sees at once.
 	a.app.Event.OnApplicationEvent(events.Mac.ApplicationWillTerminate, func(_ *application.ApplicationEvent) {
 		// Mark teardown authoritatively: any termination path that reached here is
-		// really quitting (not just the ShouldQuit-guarded ones). onSecondInstance
+		// really quitting (not just the ShouldQuitLater-guarded ones). onSecondInstance
 		// reads this to ignore a relaunch hand-off routed to us while we're dying —
 		// servicing it would build a window against a collapsing Cocoa layer and
 		// present the corrupt/blank frame seen on a quick quit-then-relaunch.

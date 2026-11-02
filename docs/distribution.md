@@ -30,9 +30,12 @@ sibling lookup resolves the matching server.
 
 The `.dmg` contains `Juggler.app`, a normal drag-to-Applications bundle. Both
 binaries live *inside* the bundle — the app in `Juggler.app/Contents/MacOS/`,
-the server in `Juggler.app/Contents/Helpers/` — so the app and its server can
-never be separated: moving or copying the app moves both.
-Launching the app spawns the bundled server automatically.
+the server in a background bundle of its own,
+`Juggler.app/Contents/Helpers/JugglerServer.app` — so the app and its server
+can never be separated: moving or copying the app moves both.
+Launching the app spawns the bundled server automatically. To run the server
+from a terminal, link `Juggler.app/Contents/Helpers/juggler` onto your `PATH`;
+that path stays put across updates.
 
 > **Opening on macOS.** Downloaded builds are quarantined by Gatekeeper. The
 > first time you open Juggler, right-click (or Control-click) the app → **Open**

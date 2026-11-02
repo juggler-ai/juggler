@@ -60,3 +60,43 @@ func TestQuitAsksOnceWhileItsConfirmationIsUp(t *testing.T) {
 		t.Fatalf("%d quit dialogs after the first was answered and a quit asked again, want 2", n)
 	}
 }
+
+// TestAQuitIsHeldOpenWhileTheUserDecides: a quit the app has not authorised —
+// at a logout, the system's — is neither refused at once, which would cancel
+// the logout, nor granted, which would discard a running turn unasked. It is
+// held open while the busy confirmation is up, and refused only once the user
+// chooses to keep working.
+func TestAQuitIsHeldOpenWhileTheUserDecides(t *testing.T) {
+	a := newTestAppState(t)
+	srv := newStubMachineServer(t, a, core.Version)
+	srv.list.Store(&[]machineserver.Session{{ID: "a", Project: "/a", State: machineserver.SessionRunning, Busy: true}})
+	if _, err := a.serverClient(true); err != nil {
+		t.Fatal(err)
+	}
+
+	up := make(chan struct{})
+	answer := make(chan struct{})
+	orig := confirmQuitDiscard
+	confirmQuitDiscard = func(*appState, int) bool {
+		close(up)
+		<-answer
+		return false
+	}
+	t.Cleanup(func() { confirmQuitDiscard = orig })
+
+	decided := make(chan bool, 2)
+	a.shouldQuitLater(func(quit bool) { decided <- quit })
+	<-up
+	select {
+	case quit := <-decided:
+		t.Fatalf("the quit was decided %v while the user was still being asked", quit)
+	default:
+	}
+	close(answer)
+	if quit := <-decided; quit {
+		t.Fatal("the user chose to keep working, and the quit was granted")
+	}
+	if len(decided) != 0 {
+		t.Fatal("the quit was decided twice")
+	}
+}

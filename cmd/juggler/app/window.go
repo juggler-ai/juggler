@@ -7,6 +7,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"juggler/cmd/juggler/server"
@@ -107,7 +108,11 @@ func runHeadlessServerApp(srv *server.Server, selected selectedEngineHost, relau
 		return
 	}
 
-	app := application.New(headlessServerAppOptions())
+	// Set just before this process's own native quit, which follows the
+	// teardown or the lapse of its budget (serverShouldQuitLater).
+	var nativeQuit atomic.Bool
+	app := application.New(headlessServerAppOptions(serverShouldQuitLater(teardownDone, &nativeQuit, requestQuit)))
+	declineDockReopen(app.Event)
 
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {
 		// Hand the App reference up to app_wait.go (no window in this mode), then
@@ -125,6 +130,7 @@ func runHeadlessServerApp(srv *server.Server, selected selectedEngineHost, relau
 		// Teardown first, native quit second — see awaitTeardown.
 		awaitTeardown(teardownDone, serverShutdownTimeout)
 		jlog.Info("[server] shutdown requested — quitting Wails")
+		nativeQuit.Store(true)
 		app.Quit()
 		// Safety net: if [NSApp terminate:] fails to land under main-queue
 		// contention it can leave the process alive; force-exit after the grace
@@ -170,7 +176,9 @@ func runHeadlessServerApp(srv *server.Server, selected selectedEngineHost, relau
 // one side lost. Give each server a process-unique name so its GApplication ID
 // can never collide. The server is windowless, so this name is never
 // user-visible.
-func headlessServerAppOptions() application.Options {
+//
+// shouldQuitLater answers every native quit (serverShouldQuitLater).
+func headlessServerAppOptions(shouldQuitLater func(decide func(quit bool))) application.Options {
 	return application.Options{
 		Name:        fmt.Sprintf("Juggler Server %d", os.Getpid()),
 		Description: "AI Code Agent",
@@ -182,6 +190,7 @@ func headlessServerAppOptions() application.Options {
 		// first, and the process dies mid-teardown with the project lock still
 		// held. Wails must not handle signals here.
 		DisableDefaultSignalHandler: true,
+		ShouldQuitLater:             shouldQuitLater,
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 			// Background process with no main window — the engine WebView stays
@@ -198,8 +207,14 @@ func headlessServerAppOptions() application.Options {
 		// idle: "accept tcp: use of closed network connection"). These are the
 		// Windows/Linux twins of the macOS ApplicationShouldTerminate... = false
 		// above.
+		//
+		// The program name is the server's own, not the desktop app's "Juggler":
+		// GTK gives it to the shell as the Wayland app_id and X11 WM_CLASS, which
+		// windows are grouped under a launcher by, and WebKitGTK names the
+		// directory of its persistent storage after it, which two processes must
+		// not share.
 		Linux: application.LinuxOptions{
-			ProgramName:                   "Juggler",
+			ProgramName:                   "juggler-server",
 			DisableQuitOnLastWindowClosed: true,
 		},
 		Windows: application.WindowsOptions{
@@ -232,3 +247,54 @@ func headlessServerAppOptions() application.Options {
 // contain code hostile enough to bring its own V8 exploit, rather than model
 // output whose tool calls are already gated.
 var serverWebViewDisabledFeatures = []string{"IsolateSandboxedIframes"}
+
+// serverShouldQuitLater is the headless server's ShouldQuitLater, which Wails
+// asks before every native quit: [NSApp terminate:] on macOS, and on Windows
+// and Linux its own quit path, which a WM_ENDSESSION or WM_CLOSE to its hidden
+// window takes.
+//
+// The server's own quit comes after its teardown — once teardownDone has
+// closed, or once the teardown's budget has lapsed and nativeQuit is set — and
+// is granted. Any other comes from outside the process: a logout, a `quit app
+// "Juggler"`, or a Quit from a Dock click that reached the server (see
+// declineDockReopen). Granted, it would end the process without unwinding, the
+// session and any turn in it with it; refused, at a logout it cancels the
+// logout. So it is held open, undecided, and handed to requestQuit, the
+// shutdown a SIGTERM gets, whose native quit once its teardown is done decides
+// it yes (App.Quit while a request is held open).
+func serverShouldQuitLater(teardownDone <-chan struct{}, nativeQuit *atomic.Bool, requestQuit func()) func(decide func(quit bool)) {
+	return func(decide func(quit bool)) {
+		if nativeQuit.Load() {
+			decide(true)
+			return
+		}
+		select {
+		case <-teardownDone:
+			decide(true)
+		default:
+			jlog.Info("[server] native quit requested from outside — shutting down first")
+			requestQuit()
+		}
+	}
+}
+
+// applicationEventHooks registers hooks on application events: the Wails event
+// manager, and a recorder in tests.
+type applicationEventHooks interface {
+	RegisterApplicationEventHook(events.ApplicationEventType, func(*application.ApplicationEvent)) func()
+}
+
+// declineDockReopen cancels the Dock's reopen event before Wails handles it.
+// Wails answers a reopen of an app with no visible window by showing every
+// hidden one, and the server's one window is the hidden engine page: the server
+// would show a small blank window and come to the front with a menu bar and its
+// Quit. In Juggler.app the server is a bundle of its own, so the Dock does not
+// take it for Juggler; a server run from a bundle without that one
+// (internal/binpath) is filed as the app that started it, and a click on
+// Juggler's Dock icon can reach it. A hook runs before Wails' listeners and a
+// cancelled event reaches none of them.
+func declineDockReopen(hooks applicationEventHooks) {
+	hooks.RegisterApplicationEventHook(events.Mac.ApplicationShouldHandleReopen, func(e *application.ApplicationEvent) {
+		e.Cancel()
+	})
+}

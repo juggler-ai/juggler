@@ -44,9 +44,30 @@ func TestSiblingNextToExe(t *testing.T) {
 }
 
 // In Juggler.app the desktop app is the bundle's executable, in
-// Contents/MacOS, and the server sits apart from it in Contents/Helpers, so
-// macOS never takes the server for the app. Each finds the other there.
+// Contents/MacOS, and the server is the executable of a bundle of its own,
+// Contents/Helpers/JugglerServer.app, so macOS never takes the server for the
+// app. Each finds the other across the two. The app finds the server's real
+// path, not the Contents/Helpers/juggler link kept for links made to it: a
+// server run through that path is not known to macOS as its own bundle.
 func TestSiblingAcrossTheAppBundle(t *testing.T) {
+	contents := filepath.Join(t.TempDir(), "Juggler.app", "Contents")
+	server := filepath.Join(contents, "Helpers", ServerBundle, "Contents", "MacOS", "juggler")
+	app := filepath.Join(contents, "MacOS", "juggler-app")
+	touch(t, server)
+	touch(t, app)
+	symlink(t, filepath.Join(ServerBundle, "Contents", "MacOS", "juggler"), filepath.Join(contents, "Helpers", "juggler"))
+
+	if got, ok := Sibling(app, "juggler"); !ok || got != server {
+		t.Fatalf("Sibling(app, juggler) = %q, %v; want %q", got, ok, server)
+	}
+	if got, ok := Sibling(server, "juggler-app"); !ok || got != app {
+		t.Fatalf("Sibling(server, juggler-app) = %q, %v; want %q", got, ok, app)
+	}
+}
+
+// A bundle from before the server had a bundle of its own keeps it at
+// Contents/Helpers/juggler, and the app still finds it there.
+func TestSiblingInABundleWithoutTheServerBundle(t *testing.T) {
 	contents := filepath.Join(t.TempDir(), "Juggler.app", "Contents")
 	server := filepath.Join(contents, "Helpers", "juggler")
 	app := filepath.Join(contents, "MacOS", "juggler-app")
@@ -62,13 +83,15 @@ func TestSiblingAcrossTheAppBundle(t *testing.T) {
 }
 
 // A package manager links only juggler into a bin directory on PATH (Homebrew's
-// cask `binary` stanza). Run through that link, the executable's path is the
-// link's, and juggler-app sits in the bundle the real binary is in.
+// cask `binary` stanza, which names Contents/Helpers/juggler, itself a link
+// into the server's bundle). Run through those links, the executable's path is
+// the first link's, and juggler-app sits in the bundle the real binary is in.
 func TestSiblingThroughSymlinkedExe(t *testing.T) {
 	root := t.TempDir()
 	contents := filepath.Join(root, "Juggler.app", "Contents")
-	touch(t, filepath.Join(contents, "Helpers", "juggler"))
+	touch(t, filepath.Join(contents, "Helpers", ServerBundle, "Contents", "MacOS", "juggler"))
 	touch(t, filepath.Join(contents, "MacOS", "juggler-app"))
+	symlink(t, filepath.Join(ServerBundle, "Contents", "MacOS", "juggler"), filepath.Join(contents, "Helpers", "juggler"))
 	link := filepath.Join(root, "bin", "juggler")
 	symlink(t, filepath.Join(contents, "Helpers", "juggler"), link)
 

@@ -25,6 +25,9 @@ the current release). The project follows semantic versioning.
 - `SSL_CERT_FILE`/`SSL_CERT_DIR` now replace the system certificate store on macOS and Windows
 - An update that can't fully replace Juggler.app restores the old app instead of leaving it empty
 - Each in-app update logs its steps to `update-helper.log`, beside `app.log`
+- Clicking Juggler's Dock icon no longer opens a blank window whose Quit ends a session
+- Logging out of macOS waits for Juggler to shut down instead of being cancelled
+- On Linux without a session D-Bus, Juggler starts instead of exiting
 
 ## [0.7.9] - 2026-10-28
 

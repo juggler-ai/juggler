@@ -29,26 +29,34 @@ import (
 // warn. Fail-open — if the server can't be reached there is nothing running to
 // lose, so the quit proceeds.
 
-// shouldQuit is the application ShouldQuit hook (Cmd+Q / Quit menu). It must
-// answer synchronously, so it allows an already-authorised quit and otherwise
-// vetoes, handing the real decision to confirmThenQuit on a background goroutine.
-func (a *appState) shouldQuit() bool {
+// shouldQuitLater is the application's ShouldQuitLater hook, which every
+// request to quit reaches: Cmd+Q, the Quit menu, and on macOS a quit the
+// system sends at logout, restart or shut down. An already-authorised quit is
+// granted at once. Any other is held open while confirmThenQuit decides it on
+// a background goroutine — which a logout waits for, where a refusal would
+// cancel it — and granted by the app.Quit that ends an authorised one (App.Quit
+// decides a held-open request yes), or refused.
+func (a *appState) shouldQuitLater(decide func(quit bool)) {
 	var quitting bool
 	a.reg(func(st *regState) { quitting = st.quitting })
 	if quitting {
-		return true
+		decide(true)
+		return
 	}
-	go a.confirmThenQuit()
-	return false
+	go func() {
+		if !a.confirmThenQuit() {
+			decide(false)
+		}
+	}()
 }
 
-// confirmThenQuit runs off the main thread after a quit was vetoed. It tallies
-// the sessions running a turn, from one sessions list, and, if any are,
-// confirms the discard; on approval it authorises the quit and re-issues it.
-// One runs at a time (regState.confirmingQuit): a quit asked for while one is
-// deciding — another Cmd+Q, the page's Exit — is that same quit, and does
-// nothing more.
-func (a *appState) confirmThenQuit() {
+// confirmThenQuit decides a quit, off the main thread. It tallies the sessions
+// running a turn, from one sessions list, and, if any are, confirms the
+// discard; on approval it authorises the quit and issues it, and reports
+// true. One runs at a time (regState.confirmingQuit): a quit asked for while
+// one is deciding — another Cmd+Q, the page's Exit — is that same quit, and
+// does nothing more; it reports false.
+func (a *appState) confirmThenQuit() bool {
 	claimed := false
 	a.reg(func(st *regState) {
 		if !st.confirmingQuit {
@@ -56,17 +64,18 @@ func (a *appState) confirmThenQuit() {
 		}
 	})
 	if !claimed {
-		return
+		return false
 	}
 	defer a.reg(func(st *regState) { st.confirmingQuit = false })
 	if total := a.sessionsAQuitStops(); total > 0 {
 		if !confirmQuitDiscard(a, total) {
-			return // user chose to keep working
+			return false // user chose to keep working
 		}
 	}
 	a.reg(func(st *regState) { st.quitting = true })
 	a.notifyAllWindowsCloseRequested()
 	application.InvokeAsync(func() { a.app.Quit() })
+	return true
 }
 
 // confirmQuitDiscard asks the user whether to quit with busy sessions running

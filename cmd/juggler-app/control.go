@@ -881,8 +881,9 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 //
 // CRITICAL sequencing: it authorises the quit (st.quitting + notify pages)
 // BEFORE calling updaterRestart(). updaterRestart spawns the swap helper and
-// then dispatches Host.Quit(); without a pre-authorised quit the shouldQuit hook
-// would veto that quit and show its own native confirm — double-prompting, and
+// then dispatches Host.Quit(); without a pre-authorised quit the
+// shouldQuitLater hook would hold that quit and show its own native confirm —
+// double-prompting, and
 // worse, leaving the already-spawned helper alive to swap the bundle at whatever
 // later moment the app eventually quits. On failure it un-authorises the quit so
 // the app keeps running and the page can surface the reason.

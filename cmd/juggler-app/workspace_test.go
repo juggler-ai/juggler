@@ -143,8 +143,10 @@ func TestWindowsEndSessionAuthorisesTheQuit(t *testing.T) {
 	if _, swallow := a.interceptWndProc(0, wmEndSession, 1, 0); swallow {
 		t.Fatal("an ending session must reach Wails, whose quit runs the shutdown")
 	}
-	if !quitting() || !a.shouldQuit() {
-		t.Fatal("an ending session must authorise the quit, so the busy guard lets it through")
+	granted := false
+	a.shouldQuitLater(func(quit bool) { granted = quit })
+	if !quitting() || !granted {
+		t.Fatal("an ending session must authorise the quit, so the busy guard grants it at once")
 	}
 }
 

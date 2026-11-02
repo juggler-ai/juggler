@@ -21,7 +21,7 @@ import "testing"
 //
 // Wails must therefore not handle signals for this process.
 func TestHeadlessServerDisablesWailsSignalHandler(t *testing.T) {
-	if !headlessServerAppOptions().DisableDefaultSignalHandler {
+	if !headlessServerAppOptions(nil).DisableDefaultSignalHandler {
 		t.Fatal("headless server must set DisableDefaultSignalHandler: Wails' handler " +
 			"calls app.Quit() on the first signal, terminating the process while our own " +
 			"graceful shutdown is still running")

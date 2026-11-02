@@ -22,13 +22,21 @@ APP_LDFLAGS :=
 endif
 MAC_APP_DIR=$(BUILD_DIR)/Juggler.app
 # The clickable bundle executable is the desktop app (juggler-app), in MacOS/.
-# The headless server binary (juggler) sits in Helpers/, never MacOS/:
-# LaunchServices files every process run from Contents/MacOS under the bundle's
-# identity, so a server there is taken for the app, and opening Juggler.app
-# while one runs brings the server forward instead of launching the app. The
-# app's serverBinPath finds it there (internal/binpath). MAC_APP_STALE_BIN is
-# where older builds put it, removed by every build.
-MAC_APP_BIN=$(MAC_APP_DIR)/Contents/Helpers/$(BINARY_NAME)
+# The headless server binary (juggler) is the executable of a bundle of its own,
+# Helpers/JugglerServer.app (MAC_SERVER_APP), with its own identifier and
+# LSUIElement. LaunchServices files a process under its own bundle, or, with
+# none, under the app that started it: a server in MacOS/, or loose in
+# Helpers/, is filed as Juggler, so a click on Juggler's Dock icon can reach the
+# server, and opening Juggler.app while one runs can bring the server forward
+# instead of launching the app. The app's serverBinPath finds it there
+# (internal/binpath, ServerBundle). Helpers/juggler (MAC_APP_CLI_LINK) is a
+# relative link to it: the path the Homebrew cask, install-mac and users' own
+# links name, which an in-app update keeps working. MAC_APP_STALE_BIN is where
+# still older builds put the server, removed by every build.
+MAC_SERVER_APP=$(MAC_APP_DIR)/Contents/Helpers/JugglerServer.app
+MAC_SERVER_PLIST=$(MAC_SERVER_APP)/Contents/Info.plist
+MAC_APP_BIN=$(MAC_SERVER_APP)/Contents/MacOS/$(BINARY_NAME)
+MAC_APP_CLI_LINK=$(MAC_APP_DIR)/Contents/Helpers/$(BINARY_NAME)
 MAC_APP_STALE_BIN=$(MAC_APP_DIR)/Contents/MacOS/$(BINARY_NAME)
 MAC_APP_APP_BIN=$(MAC_APP_DIR)/Contents/MacOS/juggler-app
 MAC_APP_RES=$(MAC_APP_DIR)/Contents/Resources
@@ -136,7 +144,7 @@ all: test build
 go-build: app-icon-embed wails-runtime-embed
 	@mkdir -p $(BUILD_DIR)
 ifeq ($(UNAME_S),Darwin)
-	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_DIR)/Contents/Helpers $(MAC_APP_RES)
+	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_SERVER_APP)/Contents/MacOS $(MAC_APP_RES)
 	@# Build into $(MAC_STAGE) and move into the bundle, rather than writing the
 	@# slot directly. A server RUNNING from this tree re-execs its own path to
 	@# recover from a main-thread wedge (relaunchInPlace), so that path must
@@ -155,7 +163,7 @@ ifeq ($(UNAME_S),Darwin)
 	@mv -f $(MAC_STAGE)/juggler-app $(MAC_APP_APP_BIN)
 	@$(MAKE) --no-print-directory mac-app-meta
 	@$(MAKE) --no-print-directory mac-codesign
-	@ln -sfn Juggler.app/Contents/Helpers/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
+	@ln -sfn Juggler.app/Contents/Helpers/JugglerServer.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
 else
 	@$(GOBUILD) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)$(BIN_EXT) ./cmd/juggler
@@ -193,7 +201,7 @@ release-build: app-icon-embed wails-runtime-embed
 	@echo "Building $(BINARY_NAME) $(VERSION_STAMP) [release]..."
 	@mkdir -p $(BUILD_DIR)
 ifeq ($(UNAME_S),Darwin)
-	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_DIR)/Contents/Helpers $(MAC_APP_RES)
+	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_SERVER_APP)/Contents/MacOS $(MAC_APP_RES)
 	@# See go-build for why each binary is built into $(MAC_STAGE) and moved in.
 	@mkdir -p $(MAC_STAGE)
 	@rm -f $(MAC_STAGE)/$(BINARY_NAME) $(MAC_STAGE)/juggler-app
@@ -205,7 +213,7 @@ ifeq ($(UNAME_S),Darwin)
 	@mv -f $(MAC_STAGE)/juggler-app $(MAC_APP_APP_BIN)
 	@$(MAKE) --no-print-directory mac-app-meta
 	@$(MAKE) --no-print-directory mac-codesign
-	@ln -sfn Juggler.app/Contents/Helpers/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
+	@ln -sfn Juggler.app/Contents/Helpers/JugglerServer.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
 else
 	$(GOBUILD_RELEASE) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)$(BIN_EXT) ./cmd/juggler
@@ -271,7 +279,7 @@ ifneq ($(UNAME_S),Darwin)
 	@echo "release-build-mac is only supported on macOS."; exit 1
 endif
 	@echo "Building Juggler.app $(VERSION_STAMP) [release, $(GOARCH_HOST)]..."
-	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_APP_DIR)/Contents/Helpers $(MAC_APP_RES)
+	@mkdir -p $(MAC_APP_DIR)/Contents/MacOS $(MAC_SERVER_APP)/Contents/MacOS $(MAC_APP_RES)
 	@# See go-build for why each binary is built into $(MAC_STAGE) and moved in.
 	@mkdir -p $(MAC_STAGE)
 	@rm -f $(MAC_STAGE)/$(BINARY_NAME) $(MAC_STAGE)/juggler-app
@@ -289,7 +297,7 @@ endif
 	@mv -f $(MAC_STAGE)/juggler-app $(MAC_APP_APP_BIN)
 	@$(MAKE) --no-print-directory mac-app-meta
 	@$(MAKE) --no-print-directory mac-codesign
-	@ln -sfn Juggler.app/Contents/Helpers/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
+	@ln -sfn Juggler.app/Contents/Helpers/JugglerServer.app/Contents/MacOS/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
 	@ln -sfn Juggler.app/Contents/MacOS/juggler-app $(BUILD_DIR)/juggler-app
 	@echo "→ $(MAC_APP_DIR) ($(GOARCH_HOST): $$(lipo -archs $(MAC_APP_APP_BIN)))"
 
@@ -568,6 +576,29 @@ ifeq ($(UNAME_S),Darwin)
 		'  </dict></array>' \
 		'</dict></plist>' \
 		> $(MAC_APP_PLIST)
+	@# The server's own bundle (see MAC_SERVER_APP): its own identifier, so
+	@# LaunchServices never files it as Juggler, and LSUIElement, so it is a
+	@# background app from launch, with no Dock icon or menu bar. Privacy
+	@# permissions are unaffected: TCC still attributes the server, and every
+	@# tool subprocess it runs, to Juggler.app, the app that started it.
+	@printf '%s\n' \
+		'<?xml version="1.0" encoding="UTF-8"?>' \
+		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+		'<plist version="1.0"><dict>' \
+		'  <key>CFBundleDevelopmentRegion</key><string>en</string>' \
+		'  <key>CFBundleExecutable</key><string>$(BINARY_NAME)</string>' \
+		'  <key>CFBundleIdentifier</key><string>$(MAC_BUNDLE_ID).server</string>' \
+		'  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>' \
+		'  <key>CFBundleName</key><string>Juggler Server</string>' \
+		'  <key>CFBundleDisplayName</key><string>Juggler Server</string>' \
+		'  <key>CFBundlePackageType</key><string>APPL</string>' \
+		'  <key>CFBundleShortVersionString</key><string>$(VERSION)</string>' \
+		'  <key>CFBundleVersion</key><string>$(VERSION)</string>' \
+		'  <key>LSMinimumSystemVersion</key><string>14.0</string>' \
+		'  <key>LSUIElement</key><true/>' \
+		'</dict></plist>' \
+		> $(MAC_SERVER_PLIST)
+	@ln -sfn JugglerServer.app/Contents/MacOS/$(BINARY_NAME) $(MAC_APP_CLI_LINK)
 	@# NSMicrophoneUsageDescription is there because TCC attributes a tool
 	@# subprocess's request to its responsible app.
 	@node scripts/i18n-bundle mac $(MAC_APP_DIR)/Contents
@@ -591,8 +622,9 @@ ifeq ($(UNAME_S),Darwin)
 	rm -rf $$tmp
 endif
 
-## mac-codesign: Seal the .app bundle (macOS only). Inner binaries first, then
-## the bundle, so the seal covers everything (inside-out).
+## mac-codesign: Seal the .app bundle (macOS only). Inner code first — the
+## server's own bundle, then the app binary — then the bundle, so the seal
+## covers everything (inside-out).
 ##
 ## ALWAYS signs — with $(CODESIGN_IDENTITY) when set, otherwise ad-hoc ("-").
 ## The ad-hoc fallback is not cosmetic: Go's linker only ad-hoc-signs each inner
@@ -625,7 +657,7 @@ ifeq ($(UNAME_S),Darwin)
 		id="-"; opts=""; \
 		echo "Signing bundle ad-hoc (set CODESIGN_IDENTITY to use a real identity)..."; \
 	fi; \
-	codesign --force --sign "$$id" $$opts --identifier "$(MAC_BUNDLE_ID).server" "$(MAC_APP_BIN)" && \
+	codesign --force --sign "$$id" $$opts "$(MAC_SERVER_APP)" && \
 	codesign --force --sign "$$id" $$opts --identifier "$(MAC_BUNDLE_ID)" "$(MAC_APP_APP_BIN)" && \
 	codesign --force --sign "$$id" $$opts --identifier "$(MAC_BUNDLE_ID)" "$(MAC_APP_DIR)" || \
 	{ echo "codesign failed (is '$$id' a valid keychain identity?)"; exit 1; }

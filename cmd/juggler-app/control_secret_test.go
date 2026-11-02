@@ -97,7 +97,8 @@ func TestANavigatedWindowsOldSecretOpensNothing(t *testing.T) {
 
 // TestARemoteWindowsSecretReachesOnlyItsOwnWindow: a page another machine's
 // server sent is refused everything app-wide or on this machine's files, and
-// keeps what showing a session in its own window needs.
+// keeps what showing a session in its own window needs and the Exit its
+// header menu offers.
 func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 	userpathstest.Isolate(t)
 	savedQuit, savedRestart := startQuit, updaterRestart
@@ -117,7 +118,6 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 		"new",
 		"updater?op=restart&force=1",
 		"updater?op=state",
-		"quit",
 		"folder-dropped?path=%2Fno%2Fsuch%2Fplace",
 		"locale?locale=en",
 		"restart-server",
@@ -133,13 +133,15 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 		}
 	}
 	if quits != 0 || restarts != 0 {
-		t.Fatalf("a remote window's secret quit the app %d times and restarted it %d", quits, restarts)
+		t.Fatalf("a remote window's refused actions quit the app %d times and restarted it %d", quits, restarts)
 	}
 
 	for action, want := range map[string]int{
 		"drafts-flushed?token=x": http.StatusNoContent,
-		"attach?session=":        http.StatusBadRequest, // reached attachRemote, which wants an id
-		"server-page":            http.StatusNoContent,
+		// The header menu's Exit, which a remote window shows like any other.
+		"quit":            http.StatusNoContent,
+		"attach?session=": http.StatusBadRequest, // reached attachRemote, which wants an id
+		"server-page":     http.StatusNoContent,
 		// open reaches its handler, which hands the system browser nothing
 		// but an http(s) URL.
 		"open?url=file%3A%2F%2F%2Fetc%2Fpasswd": http.StatusBadRequest,
@@ -152,6 +154,9 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 		if rec := controlAs(a, "w1", "w1", action); rec.Code != want {
 			t.Errorf("a remote window's %s = %d, want %d", action, rec.Code, want)
 		}
+	}
+	if quits != 1 {
+		t.Errorf("a remote window's Exit started %d quits, want 1", quits)
 	}
 	a.workspace.flush(nil)
 }

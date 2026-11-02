@@ -57,6 +57,12 @@
          checkboxes and the address cards' copy buttons. -->
     <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/copy-button.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/components/connectivity.css">
+    <!-- The About box the wordmark opens, as on a session's page: its modal
+         shell and buttons. -->
+    <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/buttons.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/popup-surface.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/overlay-chrome.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/components/about-modal.css">
     <link rel="stylesheet" href="{{.AssetBase}}/machine/sessions.css">
 
     <!-- What the page's script needs from the server (control-api.js,
@@ -77,19 +83,24 @@
     <div class="window-resize-strip" aria-hidden="true"></div>
 
     <app-container>
-        <!-- The header bar a desktop window is dragged by. -->
+        <!-- The header bar a desktop window is dragged by: the wordmark, and
+             which server this is (sessions-view.js, serverTitle). -->
         <header class="app-header">
-            <section class="logo"></section>
+            <app-wordmark class="logo"></app-wordmark>
+            <div id="sessions-title" class="ms-header-slot"></div>
             <window-caption-controls></window-caption-controls>
         </header>
         <div class="ms-scroll">
             <main id="sessions-root" class="ms-page"></main>
         </div>
     </app-container>
+    <about-modal></about-modal>
 
     <script type="module" src="{{.AssetBase}}/js/utils/window-fullscreen.js"></script>
     <script type="module" src="{{.AssetBase}}/js/utils/window-edge-resize.js"></script>
     <script type="module" src="{{.AssetBase}}/js/components/window-caption-controls.js"></script>
     <script type="module" src="{{.AssetBase}}/js/components/juggler-spinner.js"></script>
+    <script type="module" src="{{.AssetBase}}/js/components/about-modal.js"></script>
+    <script type="module" src="{{.AssetBase}}/js/components/app-wordmark.js"></script>
 </body>
 </html>

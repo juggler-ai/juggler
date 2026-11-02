@@ -5,9 +5,7 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 )
 
@@ -16,7 +14,7 @@ import (
 // that machine, so the app cannot open one of them in a window of its own: it
 // would spawn a local server for a folder that is not here. The page is told
 // which kind of window it is, so it switches in place as a browser would, and
-// the app refuses the request if it arrives anyway.
+// a new window it asks for opens on its own server, whatever project it names.
 
 func TestWindowPageURLMarksAWindowOnAnExternalServer(t *testing.T) {
 	if q := query(t, windowOpts{external: true}); q.Get("external") != "1" {
@@ -28,18 +26,21 @@ func TestWindowPageURLMarksAWindowOnAnExternalServer(t *testing.T) {
 }
 
 func TestAWindowOnAnExternalServerCannotOpenAProjectInANewWindow(t *testing.T) {
+	var got []windowSpec
+	saved := openNewWindow
+	openNewWindow = func(_ *appState, spec windowSpec, _ windowOpts) { got = append(got, spec) }
+	t.Cleanup(func() { openNewWindow = saved })
+
 	a := newTestAppState(t)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: "http://remote:8080"}, serverURL: "http://remote:8080"})
+	remote := windowSpec{url: "http://remote:8080"}
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: remote, serverURL: "http://remote:8080"})
 
 	rec := controlRequest(a, http.MethodPost, "/win/w1/new?project=%2Fhome%2Fremote%2Fproj")
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d: a remote path must not spawn a local server", rec.Code, http.StatusForbidden)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
 	}
-	var body struct {
-		Error string `json:"error"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || !strings.Contains(body.Error, "another computer") {
-		t.Fatalf("the refusal should say why, got %q (%v)", rec.Body.String(), err)
+	if len(got) != 1 || got[0] != remote {
+		t.Fatalf("opened %+v; want one window on %+v — a remote path must not spawn a local server", got, remote)
 	}
 }

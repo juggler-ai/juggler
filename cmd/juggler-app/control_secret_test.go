@@ -98,7 +98,8 @@ func TestANavigatedWindowsOldSecretOpensNothing(t *testing.T) {
 // TestARemoteWindowsSecretReachesOnlyItsOwnWindow: a page another machine's
 // server sent is refused everything app-wide or on this machine's files, and
 // keeps what showing a session in its own window needs and the Exit its
-// header menu offers.
+// header menu offers. Its new windows, which open only onto its own server,
+// are TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer's.
 func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 	userpathstest.Isolate(t)
 	savedQuit, savedRestart := startQuit, updaterRestart
@@ -114,8 +115,6 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 
 	for _, action := range []string{
 		"connect?url=http%3A%2F%2Felsewhere%3A1",
-		"new?project=%2Ftmp",
-		"new",
 		"updater?op=restart&force=1",
 		"updater?op=state",
 		"folder-dropped?path=%2Fno%2Fsuch%2Fplace",
@@ -162,8 +161,11 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 }
 
 // TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer: a window on a server by
-// URL may open a board of one of its own conversations, which opens on that
-// same server; it may not open this machine's server's page or a project path.
+// URL opens a new window as any window does — New Window, ⇧⌘N, the header's
+// button — and it opens on that same server's page, whatever project the
+// request names; a board of one of its own conversations opens on that server
+// too. Nothing it asks for opens this machine's server's page or a project
+// path.
 func TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer(t *testing.T) {
 	type opened struct {
 		spec windowSpec
@@ -183,15 +185,18 @@ func TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer(t *testing.T) {
 		"new?project=%2Ftmp",
 		"new?view=frobnicate&project=%2Ftmp",
 	} {
-		if rec := controlAs(a, "w1", "w1", action); rec.Code != http.StatusForbidden {
-			t.Errorf("a remote window's %s = %d, want 403", action, rec.Code)
+		got = nil
+		if rec := controlAs(a, "w1", "w1", action); rec.Code != http.StatusNoContent {
+			t.Errorf("a remote window's %s = %d, want 204", action, rec.Code)
+			continue
 		}
-	}
-	if len(got) != 0 {
-		t.Fatalf("refused requests opened %v", got)
+		if len(got) != 1 || got[0].spec != remote || got[0].opts.isPinboard() || got[0].opts.openedBy != "" {
+			t.Errorf("a remote window's %s opened %+v; want one main window on %+v", action, got, remote)
+		}
 	}
 
 	// A project named beside the board is not where the board opens.
+	got = nil
 	if rec := controlAs(a, "w1", "w1", "new?view=pinboard&board=b1&project=%2Ftmp"); rec.Code != http.StatusNoContent {
 		t.Fatalf("a remote window's board = %d, want 204", rec.Code)
 	}

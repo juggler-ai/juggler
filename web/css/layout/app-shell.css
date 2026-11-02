@@ -41,6 +41,13 @@ app-container {
     cursor: pointer;
 }
 
+/* The wordmark is the About box's button (components/app-wordmark.js). */
+.logo:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: var(--focus-ring-offset);
+    border-radius: var(--radius-sm);
+}
+
 .logo::before {
     content: "";
     display: block;

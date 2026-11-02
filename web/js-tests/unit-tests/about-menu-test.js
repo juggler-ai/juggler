@@ -9,12 +9,14 @@
  * `juggler:open-about` into the focused window's page (cmd/juggler-app/menu.go),
  * so that the app's own about box opens rather than the platform's stock about
  * panel. This asserts the page end of that bridge: the event opens the modal,
- * and it keeps opening on every further click of the menu item.
+ * and it keeps opening on every further click of the menu item. The header's
+ * wordmark (components/app-wordmark.js) asks for it with the same event.
  * @module unit-tests/about-menu-test
  */
 
 import { assert, waitFor } from '../utilities/test-helpers.js';
 import '../../js/components/about-modal.js';
+import '../../js/components/app-wordmark.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 
@@ -60,6 +62,27 @@ export async function runTests() {
     assert(!modal.classList.contains('is-closing'), 'the exit must end once the box has gone');
     window.dispatchEvent(new CustomEvent('juggler:open-about'));
     await waitFor(() => !!panel(), { description: 'the about box to reopen from the menu event' });
+    passed++;
+
+    // --- 4: the header's wordmark opens it, by mouse or keyboard -------------
+    // One element on a session's page and the server's sessions page alike.
+    const wordmark = document.createElement('app-wordmark');
+    document.body.appendChild(wordmark);
+    try {
+      assert(wordmark.getAttribute('role') === 'button' && wordmark.tabIndex === 0 && !!wordmark.getAttribute('aria-label'),
+        'the wordmark is not a named button the keyboard can reach');
+      assert(wordmark.classList.contains('logo'), 'the wordmark does not wear the header\'s .logo');
+      /** @type {HTMLElement} */ (modal.querySelector('#about-close')).click();
+      await waitFor(() => !panel(), { description: 'the about box to close' });
+      wordmark.click();
+      await waitFor(() => !!panel(), { description: 'the about box to open from the wordmark' });
+      /** @type {HTMLElement} */ (modal.querySelector('#about-close')).click();
+      await waitFor(() => !panel(), { description: 'the about box to close' });
+      wordmark.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await waitFor(() => !!panel(), { description: 'the about box to open from Enter on the wordmark' });
+    } finally {
+      wordmark.remove();
+    }
     passed++;
 
     // Seek the animation synchronously: offscreen lanes need not deliver frames.

@@ -271,6 +271,22 @@ function exposureButton(text, kind) {
 }
 
 /**
+ * Which server this page is, for the header bar beside the wordmark: the
+ * page's title, the machine it runs on and the server's version.
+ * @param {PageConfig} config - What the server handed the page.
+ * @returns {HTMLElement} The title block.
+ */
+export function serverTitle(config) {
+  return el('div', { className: 'ms-header' }, [
+    el('div', { className: 'ms-title' }, [
+      el('h1', { text: t('Sessions') }),
+      el('p', { className: 'ms-subtitle', text: config.host ? t('Juggler on {host}', { host: config.host }) : t('Juggler on this machine') }),
+    ]),
+    config.version ? el('span', { className: 'ms-version', text: config.version }) : null,
+  ]);
+}
+
+/**
  * Mount the sessions page into root and load it.
  * @param {HTMLElement} root - Where the page goes.
  * @param {object} options
@@ -312,13 +328,6 @@ export function mountSessionsPage(root, {
   let timer = null;
 
   root.replaceChildren();
-  const header = el('header', { className: 'ms-header' }, [
-    el('div', { className: 'ms-title' }, [
-      el('h1', { text: t('Sessions') }),
-      el('p', { className: 'ms-subtitle', text: config.host ? t('Juggler on {host}', { host: config.host }) : t('Juggler on this machine') }),
-    ]),
-    config.version ? el('span', { className: 'ms-version', text: config.version }) : null,
-  ]);
   const banner = el('div', { className: 'ms-banner-slot', attrs: { role: 'status' } });
 
   const input = /** @type {HTMLInputElement} */ (el('input', {
@@ -343,6 +352,11 @@ export function mountSessionsPage(root, {
     el('h2', { text: t('Open a project') }),
     form,
     launchError,
+  ]);
+  // The recent projects, under every other way of opening one; hidden while
+  // there are none to offer.
+  const recentsSection = el('section', { className: 'ms-section ms-recents-section' }, [
+    el('h2', { text: t('Recent') }),
     recentsList,
   ]);
 
@@ -453,9 +467,13 @@ export function mountSessionsPage(root, {
     ])
     : null;
 
-  root.append(header, banner, sessionsSection, launchSection, folderSection);
-  if (exposureSection) root.append(exposureSection);
-  if (connectSection) root.append(connectSection);
+  // Two columns, which a wide window sets side by side (sessions.css): the
+  // sessions and every way of opening one — a project, a new folder, another
+  // computer, a recent project — and the machine's ways in. With no ways in,
+  // there is one.
+  root.append(banner, el('div', { className: 'ms-column ms-main' },
+    [sessionsSection, launchSection, folderSection, connectSection, recentsSection]));
+  if (exposureSection) root.append(el('div', { className: 'ms-column ms-side' }, [exposureSection]));
 
   /**
    * Show why the app would not connect, or clear it.
@@ -794,7 +812,7 @@ export function mountSessionsPage(root, {
 
     const offered = recentsToOffer();
     recentsList.replaceChildren(...offered.map(recentRow));
-    recentsList.hidden = offered.length === 0;
+    recentsSection.hidden = offered.length === 0;
   }
 
   /**

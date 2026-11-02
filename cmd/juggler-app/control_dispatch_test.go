@@ -62,8 +62,8 @@ func TestWindowControlRouting(t *testing.T) {
 // fire-and-forget posts from the page's side, so this is where it shows; a name
 // added to the remote set is a grant to every server ever connected to.
 func TestWindowControlActionTable(t *testing.T) {
-	// Whether a remote window may ask at all; "new" is granted for a board
-	// only (TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer).
+	// Whether a remote window may ask at all; "new" opens only onto its own
+	// server (TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer).
 	want := map[string]bool{
 		"theme": true, "title": true, "control": true, "attention": true,
 		"drafts-flushed": true, "attach": true, "server-page": true, "server-lost": true,

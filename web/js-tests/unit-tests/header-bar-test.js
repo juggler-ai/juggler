@@ -326,6 +326,10 @@ export async function runTests() {
         `the project path is part of the drag region (got "${dragOf('#project-path-chip')}")`);
       assert(dragOf('#project-new-window-button') === 'no-drag',
         `the new-window button is clickable in a desktop window (got "${dragOf('#project-new-window-button')}")`);
+      // The wordmark drags the window like the rest of the title bar; a click
+      // on it still opens the About box (components/app-wordmark.js).
+      assert(dragOf('.logo') === 'drag',
+        `the wordmark is part of the drag region (got "${dragOf('.logo')}")`);
       wide.doc.body.classList.remove('window-mode');
 
       // A session stays on its project, so its path is read-only: a label with

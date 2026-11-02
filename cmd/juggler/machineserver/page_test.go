@@ -141,8 +141,8 @@ func TestSessionsPageAdmitsTheDesktopWindowsControlEndpoint(t *testing.T) {
 
 // TestSessionsPageWearsTheAppsWindowChrome: the page is drawn under the same
 // header bar as a session's page — the app shell's stylesheets, its
-// .app-header with the wordmark, the window-resize strip and the caption
-// controls a frameless window closes by — so a desktop window showing it can
+// .app-header with the wordmark that opens the About box, the window-resize
+// strip and the caption controls a frameless window closes by — so a desktop window showing it can
 // be dragged by its header and clears the platform's window buttons. In a
 // window it marks itself as one before the first paint, as web/index.html
 // does, and loads the Wails runtime that turns --wails-draggable into a drag,
@@ -157,7 +157,10 @@ func TestSessionsPageWearsTheAppsWindowChrome(t *testing.T) {
 	for name, body := range map[string]string{"window": win, "tab": tab} {
 		for _, want := range []string{
 			"/css/layout/app-shell.css", "/css/layout/window-chrome.css", "/css/layout/app-header.css",
-			`<header class="app-header">`, `<section class="logo">`, `class="window-resize-strip"`,
+			`<header class="app-header">`, `<app-wordmark class="logo">`, `class="window-resize-strip"`,
+			// The wordmark opens the About box, as on a session's page.
+			"/js/components/app-wordmark.js", "/js/components/about-modal.js",
+			"/css/components/about-modal.css", "<about-modal>",
 			"<window-caption-controls>", "/js/components/window-caption-controls.js",
 			"/js/utils/window-fullscreen.js", "/js/utils/window-edge-resize.js",
 			"dataset.windowMode", "dataset.windowPlatform", "--logo-with-name-url",
@@ -188,6 +191,63 @@ func TestSessionsPageWearsTheAppsWindowChrome(t *testing.T) {
 			!strings.HasPrefix(ct, "text/javascript") && !strings.HasPrefix(ct, "application/javascript") {
 			t.Errorf("window: GET %s: Content-Type %q, want JavaScript", m[1], ct)
 		}
+	}
+}
+
+// moduleImportPattern finds a module's static imports, `import … from '…'`,
+// `export … from '…'` and `import '…'`, each at the start of a line, so the
+// import() types in JSDoc comments are not taken for one.
+var moduleImportPattern = regexp.MustCompile(`(?m)^\s*(?:(?:import|export)\b[^;'"]*?\bfrom\s*|import\s*)['"]([^'"]+)['"]`)
+
+// TestSessionsPageModulesResolveWithoutAnImportMap: the page has no import
+// map, as a session's page does, so a bare specifier anywhere in the static
+// import graph of a module it loads (a `juggler/*` SDK name, say) fails the
+// whole module, and the page goes on without it, silently — the About box
+// the wordmark opens once did. Every module the page loads is walked, over
+// this server, and each import must be a path.
+func TestSessionsPageModulesResolveWithoutAnImportMap(t *testing.T) {
+	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "" }}
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+
+	_, _, body := fetch(t, front.URL+"/")
+	base, _ := url.Parse(front.URL + "/")
+	var queue []string
+	for _, m := range pageRefPattern.FindAllStringSubmatch(body, -1) {
+		if strings.HasSuffix(m[1], ".js") && !strings.HasPrefix(m[1], "/wails/") {
+			queue = append(queue, base.ResolveReference(&url.URL{Path: m[1]}).String())
+		}
+	}
+	seen := map[string]bool{}
+	for len(queue) > 0 {
+		u := queue[0]
+		queue = queue[1:]
+		if seen[u] {
+			continue
+		}
+		seen[u] = true
+		code, _, src := fetch(t, u)
+		if code != http.StatusOK {
+			t.Errorf("GET %s: status %d", u, code)
+			continue
+		}
+		from, _ := url.Parse(u)
+		for _, m := range moduleImportPattern.FindAllStringSubmatch(src, -1) {
+			spec := m[1]
+			if !strings.HasPrefix(spec, ".") && !strings.HasPrefix(spec, "/") {
+				t.Errorf("%s imports %q, which this page cannot resolve without an import map", from.Path, spec)
+				continue
+			}
+			ref, err := url.Parse(spec)
+			if err != nil {
+				t.Errorf("%s imports %q: %v", from.Path, spec, err)
+				continue
+			}
+			queue = append(queue, from.ResolveReference(ref).String())
+		}
+	}
+	if len(seen) < 10 {
+		t.Fatalf("walked %d modules; the page's graph is larger than that, so the walk is broken", len(seen))
 	}
 }
 

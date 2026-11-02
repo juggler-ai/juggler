@@ -6,21 +6,21 @@ import { markPopupOpen } from '../utils/popup-manager.js';
 import { focusWhenShown } from '../utils/focus.js';
 import { fetchJson } from '../services/http.js';
 import { LOGO_WITH_NAME_SVG } from '../utils/juggler-logo.js';
-import { dragGuard } from '../utils/drag-guard.js';
 import JugglerElement from './juggler-element.js';
 import { apiUrl } from '../utils/api-url.js';
 import { durationToken } from '../utils/modal-scrim.js';
 import { markDialog, trapFocus } from '../utils/dialog-a11y.js';
 import { t, markForTranslation, markUntranslated, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
-import { buildWordOfMouthAsk } from './word-of-mouth.js';
+import { buildWordOfMouthAsk } from './word-of-mouth-ask.js';
 
 /**
  * AboutModal - Shows information about the application
  *
- * Opens when clicking the logo in the header, or on `juggler:open-about` —
- * which is what the desktop app's "About Juggler" menu item dispatches, so the
- * native menu shows this box rather than the platform's own about panel.
+ * Opens on `juggler:open-about` — which the header's wordmark dispatches
+ * (components/app-wordmark.js), and so does the desktop app's "About Juggler"
+ * menu item, so the native menu shows this box rather than the platform's own
+ * about panel.
  * Displays app name, version, and a brief description with a link to the website.
  */
 /** ms between the box opening and the first club leaving the hand. */
@@ -52,26 +52,10 @@ class AboutModal extends JugglerElement {
   connectedCallback() {
     this.classList.add('modal-shell');
     this.render();
-    this._setupLogoClick();
     this.addCleanup(() => this._cancelClubThrows());
     this.addCleanup(() => this._cancelExit());
     this.addCleanup(() => this._releaseFocusTrap());
     this.onWindow('juggler:open-about', () => { void this.open(); });
-  }
-
-  /**
-   * Set up click handler on the logo
-   * @private
-   */
-  _setupLogoClick() {
-    const logo = /** @type {HTMLElement|null} */ (document.querySelector('.logo'));
-    if (logo) {
-      // The logo sits in the window's drag region, and the release that ends a
-      // window drag arrives here as a click.
-      const drag = dragGuard();
-      this.on(logo, 'pointerdown', drag.watch);
-      this.on(logo, 'click', () => { if (!drag.dragged()) this.open(); });
-    }
   }
 
   /**

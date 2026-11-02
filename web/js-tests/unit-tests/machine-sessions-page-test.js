@@ -14,7 +14,7 @@
  */
 
 import { assert, nextTask, waitFor } from '../utilities/test-helpers.js';
-import { mountSessionsPage } from '../../machine/sessions-view.js';
+import { mountSessionsPage, serverTitle } from '../../machine/sessions-view.js';
 import { createControlApi, readPageConfig, ControlApiError, TOKEN_HEADER } from '../../machine/control-api.js';
 import { desktopHost } from '../../machine/native-host.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
@@ -1157,6 +1157,102 @@ export async function runTests() {
       assert(!plain.root.querySelector('form.ms-connect'), 'a browser tab offers to connect a desktop window');
     } finally {
       plain.dispose();
+    }
+  });
+
+  // Connecting to another computer is a way of opening something, so it sits
+  // with opening a project and making a folder, in the sessions' column; the
+  // machine's ways in are a column of their own.
+  await test('Connect sits with opening a project, and the ways in are a column of their own', async () => {
+    const host = stubHost();
+    host.connect = async () => {};
+    const m = await mount(withExposure(stubApi(sessions, ['/work/epsilon'])), {
+      host,
+      config: { token: 't', version: 'v1.2.3', host: 'studio', local: true },
+    });
+    try {
+      const main = m.root.querySelector(':scope > .ms-main');
+      const side = m.root.querySelector(':scope > .ms-side');
+      assert(!!main && !!side, 'the page is not split into the sessions\' column and the ways in');
+      const headings = [...(main?.querySelectorAll(':scope > .ms-section > h2') || [])]
+        .map((h) => h.firstChild?.textContent || '');
+      assert(JSON.stringify(headings) === JSON.stringify(['Running', 'Open a project', 'New folder', 'Connect to another computer', 'Recent']),
+        `the sessions' column reads ${JSON.stringify(headings)}`);
+      const recent = /** @type {HTMLElement|null} */ (main?.querySelector(':scope > .ms-section:last-child'));
+      assert(!!recent?.querySelector('.ms-recents [data-project="/work/epsilon"]') && !recent?.hidden,
+        'the recent projects are not under Recent, at the bottom');
+      assert(!!side?.querySelector('.ms-exposure') && !side?.querySelector('form.ms-connect'),
+        'the ways in are not on their own, apart from Connect');
+    } finally {
+      m.dispose();
+    }
+    // A viewer with no ways in to show has a single column.
+    const plain = await mount(stubApi([]));
+    try {
+      assert(!plain.root.querySelector('.ms-side'), 'a page with no ways in still has a column for them');
+    } finally {
+      plain.dispose();
+    }
+  });
+
+  // The server's name and version are the window's title, in the header bar
+  // beside the wordmark, not a heading over the page.
+  await test('the header bar names the server and its version', () => {
+    const titled = serverTitle({ token: 't', version: 'v1.2.3', host: 'studio', local: false });
+    assert(titled.querySelector('h1')?.textContent === 'Sessions', `the title reads ${titled.querySelector('h1')?.textContent}`);
+    assert((titled.textContent || '').includes('Juggler on studio'), `no host in ${titled.textContent}`);
+    assert(titled.querySelector('.ms-version')?.textContent === 'v1.2.3', 'no version');
+    const here = serverTitle({ token: 't', version: '', host: '', local: true });
+    assert((here.textContent || '').includes('Juggler on this machine') && !here.querySelector('.ms-version'),
+      `this machine's title reads ${here.textContent}`);
+  });
+
+  // A desktop window is often wide and shallow. Wide enough, the sessions and
+  // the ways in sit side by side, top-aligned, each scrolling on its own, so
+  // the whole page fits the window; narrow, they stack. Measured on the page's
+  // own stylesheet in frames of their own.
+  await test('a wide window puts the sessions and the ways in side by side; a narrow one stacks them', async () => {
+    for (const [width, wide] of /** @type {Array<[string, boolean]>} */ ([['80rem', true], ['40rem', false]])) {
+      const frame = document.createElement('iframe');
+      frame.style.cssText = `position:absolute;left:-10000px;width:${width};height:20rem;border:0`;
+      document.body.appendChild(frame);
+      try {
+        const doc = /** @type {Document} */ (frame.contentDocument);
+        const win = /** @type {Window & typeof globalThis} */ (/** @type {unknown} */ (frame.contentWindow));
+        const sheets = await Promise.all(['../../css/tokens/scale.css', '../../machine/sessions.css'].map(async (rel) => {
+          const resp = await fetch(new URL(rel, import.meta.url));
+          assert(resp.ok, `${rel}: ${resp.status}`);
+          const sheet = new win.CSSStyleSheet();
+          sheet.replaceSync(await resp.text());
+          return sheet;
+        }));
+        doc.adoptedStyleSheets = sheets;
+        const tall = '<section class="ms-section" style="height:40rem"></section>';
+        doc.body.innerHTML = '<div style="display:flex;flex-direction:column;position:fixed;inset:0"><div class="ms-scroll">'
+          + `<main class="ms-page"><div class="ms-banner-slot"></div><div class="ms-column ms-main">${tall}</div>`
+          + `<div class="ms-column ms-side">${tall}</div></main></div></div>`
+          + '<section class="ms-section ms-recents-section" hidden><h2>Recent</h2></section>';
+        // A section with nothing to show (Recent, with no recent projects)
+        // takes no room, whatever display the section's own rule gives it.
+        const hiddenSection = /** @type {HTMLElement} */ (doc.querySelector('.ms-recents-section'));
+        assert(win.getComputedStyle(hiddenSection).display === 'none',
+          `a hidden section is drawn (display ${win.getComputedStyle(hiddenSection).display})`);
+        const main = /** @type {HTMLElement} */ (doc.querySelector('.ms-main'));
+        const side = /** @type {HTMLElement} */ (doc.querySelector('.ms-side'));
+        const a = main.getBoundingClientRect();
+        const b = side.getBoundingClientRect();
+        if (wide) {
+          assert(b.left >= a.right && Math.abs(b.top - a.top) < 1, `at ${width} the ways in are at ${b.left},${b.top}, not beside the sessions ending at ${a.right},${a.top}`);
+          assert(a.bottom <= win.innerHeight + 0.5 && b.bottom <= win.innerHeight + 0.5,
+            `at ${width} the columns run to ${a.bottom}/${b.bottom}px, past the ${win.innerHeight}px window`);
+          assert(main.scrollHeight > main.clientHeight && win.getComputedStyle(main).overflowY === 'auto',
+            `at ${width} a column too tall for the window does not scroll on its own`);
+        } else {
+          assert(b.top >= a.bottom, `at ${width} the ways in start at ${b.top}, over the sessions ending at ${a.bottom}`);
+        }
+      } finally {
+        frame.remove();
+      }
     }
   });
 

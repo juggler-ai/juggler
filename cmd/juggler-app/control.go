@@ -201,12 +201,6 @@ type remoteGrant func(r *http.Request) bool
 // anyRequest grants a remote window every request for an action.
 func anyRequest(*http.Request) bool { return true }
 
-// boardOnly grants a remote window "new" for a detached board alone, which
-// controlNewWindow opens on the asking window's own spec — the same server —
-// whatever else the query names. A plain new window is this machine's server's
-// page, and a project there is this machine's path.
-func boardOnly(r *http.Request) bool { return windowOptsFromQuery(r.URL.Query()).isPinboard() }
-
 // windowActions is every action a page may post, by the name it posts, and
 // what a window on a server by URL may ask of it: the one place that is
 // decided.
@@ -223,7 +217,9 @@ func boardOnly(r *http.Request) bool { return windowOptsFromQuery(r.URL.Query())
 //     and replaces only this window, with a stand-in of its own.
 //   - open: a link followed to the system browser, as a browser tab would;
 //     http and https only (isBrowserURL).
-//   - new, for a board only (boardOnly): another window onto the same server.
+//   - new: another window onto the same server — its page, or a board of one
+//     of its conversations — whatever project the query names
+//     (controlNewWindow).
 //   - save-file: what a browser download is — the user picks where in the
 //     Save dialog, and the page learns only whether it was saved
 //     (controlSaveFile).
@@ -247,7 +243,7 @@ var windowActions = map[string]controlAction{
 	"server-page":    {handle: (*appState).controlServerPage, remote: anyRequest},
 	"server-lost":    {handle: (*appState).controlServerLost, remote: anyRequest},
 	"open":           {handle: controlOpenURL, remote: anyRequest},
-	"new":            {handle: (*appState).controlNewWindow, remote: boardOnly},
+	"new":            {handle: (*appState).controlNewWindow, remote: anyRequest},
 	"save-file":      {handle: (*appState).controlSaveFile, remote: anyRequest},
 	"locale":         {handle: (*appState).controlLocale},
 	"zoom":           {handle: (*appState).controlZoom},
@@ -282,15 +278,17 @@ var windowActions = map[string]controlAction{
 // in it is the reason to detach a board at all — and comes back when the
 // window it belonged to does.
 //
-// A window on a server by URL may ask for a board alone (boardOnly), which
-// opens on its own server: the paths its page offers may be on another
-// machine, and any other new window is this machine's.
+// A window on a server by URL gets the same new window as any other, on its
+// own server: that server's page, where the user picks one of its projects.
+// The project the query names is not taken — it is a path on another machine,
+// and any new window on this machine's server would be this machine's — so
+// such a window can open windows onto nothing but the server it already shows.
 func (a *appState) controlNewWindow(w http.ResponseWriter, r *http.Request, e *winEntry) {
 	opts := windowOptsFromQuery(r.URL.Query())
 	// What the asking page shows (pageSpecOf): a stand-in's shows nothing a
 	// board could be a view of.
+	spec, ok := a.pageSpecOf(e.id)
 	if opts.isPinboard() {
-		spec, ok := a.pageSpecOf(e.id)
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -300,12 +298,18 @@ func (a *appState) controlNewWindow(w http.ResponseWriter, r *http.Request, e *w
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if ok && spec.isURL() {
+		openNewWindow(a, windowSpec{url: spec.url, connected: spec.connected}, opts)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	a.openWindowForProject(r.URL.Query().Get("project"), opts)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// openNewWindow opens the board controlNewWindow was asked for. A variable so a
-// test can see which window it asked for without a native one.
+// openNewWindow opens a window controlNewWindow was asked for on the asking
+// window's server. A variable so a test can see which window it asked for
+// without a native one.
 var openNewWindow = (*appState).openWindow
 
 // controlAttach shows a session in the window that asked, in place of the

@@ -13,7 +13,7 @@ import { t } from '../sdk/lib/i18n.js';
 import { hasNativeHost, reportFolderDropped } from '../sdk/lib/window-control.js';
 import { createControlApi, readPageConfig } from './control-api.js';
 import { desktopHost } from './native-host.js';
-import { mountSessionsPage } from './sessions-view.js';
+import { mountSessionsPage, serverTitle } from './sessions-view.js';
 
 /**
  * Take over the hooks the native side calls with the paths of a folder dropped
@@ -38,7 +38,7 @@ function installFolderDrop() {
   });
 }
 
-/** Title the page and mount it. */
+/** Title the page and its header bar, and mount it. */
 function start() {
   const config = readPageConfig();
   document.title = config.host ? t('Sessions on {host} · Juggler', { host: config.host }) : t('Sessions · Juggler');
@@ -49,6 +49,7 @@ function start() {
     : null;
   if (host?.takesDroppedFolders) installFolderDrop();
   const notice = new URL(window.location.href).searchParams.get('notice') || '';
+  document.getElementById('sessions-title')?.replaceChildren(serverTitle(config));
   const root = document.getElementById('sessions-root');
   if (root) {
     mountSessionsPage(root, { api: createControlApi({ token: config.token }), config, host, notice });

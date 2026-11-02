@@ -20,6 +20,8 @@ of changes; this project follows semantic versioning.
 - A rejected Codex sign-in says how to sign in again, not to check an API key
 - `JUGGLER_CODEX_BASE_URL` points the Codex provider at another endpoint
 - `SSL_CERT_FILE`/`SSL_CERT_DIR` now replace the system certificate store on macOS and Windows
+- An update that can't fully replace Juggler.app restores the old app instead of leaving it empty
+- Each in-app update logs its steps to `update-helper.log`, beside `app.log`
 
 ## [0.7.9] - 2026-10-28
 

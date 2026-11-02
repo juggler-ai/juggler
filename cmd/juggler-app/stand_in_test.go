@@ -18,6 +18,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/machineserver"
+	"juggler/cmd/juggler/msg"
 )
 
 // A stand-in window, as buildStandInWindow registers one: filed under the spec
@@ -125,6 +126,59 @@ func TestALocalWindowWhoseSessionIsLostBecomesItsStandIn(t *testing.T) {
 	registerWindow(a, &winEntry{id: "w4", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: serverProc{addr: on.addr, pid: on.pid + 1}})
 	if !replaced(t, controlRequest(a, http.MethodPost, "/win/w4/server-lost")) || <-got != "w4" {
 		t.Fatal("a window on a server process that has gone was not replaced")
+	}
+}
+
+// TestAWindowWhoseUserStopsReconnectingBecomesItsStandIn: Stop trying
+// (server-lost?now) replaces the window even where the app's own check finds
+// the server answering — the case that leaves a page stuck reconnecting to a
+// server the app can reach — and the stand-in says only what the app found.
+// A board still goes with its window.
+func TestAWindowWhoseUserStopsReconnectingBecomesItsStandIn(t *testing.T) {
+	a := newTestAppState(t)
+	type opened struct {
+		id    string
+		title string
+	}
+	got := make(chan opened, 4)
+	orig := openLostServerStandIn
+	openLostServerStandIn = func(_ *appState, _ windowSpec, si *standIn, opts windowOpts) {
+		got <- opened{opts.replaces, si.title.Key}
+	}
+	t.Cleanup(func() { openLostServerStandIn = orig })
+	expect := func(id string, title msg.Message) {
+		t.Helper()
+		if !replaced(t, controlRequest(a, http.MethodPost, "/win/"+id+"/server-lost?now=1")) {
+			t.Fatalf("%s: Stop trying did not replace the window", id)
+		}
+		if o := <-got; o.id != id || o.title != title.Key {
+			t.Fatalf("stand-in for %s titled %q, want %s titled %q", o.id, o.title, id, title.Key)
+		}
+	}
+
+	answering := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(answering.Close)
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: answering.URL, connected: true}, serverURL: answering.URL})
+	expect("w1", unreachablePageTitle)
+
+	srv := newStubMachineServer(t, a, core.Version)
+	base := "http://" + srv.addr()
+	srv.list.Store(&[]machineserver.Session{{ID: "s1", Project: "/p", State: machineserver.SessionRunning}})
+	c, err := a.serverClient(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	on := procOf(c)
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: on})
+	expect("w2", disconnectedPageTitle)
+	registerWindow(a, &winEntry{id: "w3", role: roleMain, spec: windowSpec{project: "/q"}, serverURL: base + "/s/s2", server: on})
+	expect("w3", sessionLostTitle)
+
+	registerWindow(a, &winEntry{id: "w4", role: rolePinboard, spec: windowSpec{url: answering.URL, connected: true}, serverURL: answering.URL})
+	if rec := controlRequest(a, http.MethodPost, "/win/w4/server-lost?now=1"); rec.Code != http.StatusConflict {
+		t.Fatalf("a board: status = %d, want 409", rec.Code)
 	}
 }
 

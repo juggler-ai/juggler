@@ -239,7 +239,8 @@ func anyRequest(*http.Request) bool { return true }
 //   - reopen: the project of the session of its own server it showed when the
 //     app last quit, which its page opens there again (controlReopen).
 //   - server-lost: its page giving up on its server; the app checks for itself
-//     and replaces only this window, with a stand-in of its own.
+//     — unless the user stopped it, with ?now — and replaces only this
+//     window, with a stand-in of its own.
 //   - open: a link followed to the system browser, as a browser tab would;
 //     http and https only (isBrowserURL).
 //   - new: another window onto the same server — its page, or a board of one

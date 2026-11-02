@@ -16,6 +16,15 @@
  * @module components/loading-overlay
  */
 
+import { t } from '../../sdk/lib/i18n.js';
+
+/**
+ * A button the overlay offers under its wording.
+ * @typedef {object} LoadingOverlayAction
+ * @property {string} label - English source, marked with `markForTranslation()`; translated when the button is drawn.
+ * @property {() => unknown} onClick - What the button does. A promise it returns holds the button disabled until it settles.
+ */
+
 /**
  * How often the wait is advanced.
  * @type {number}
@@ -79,6 +88,7 @@ class LoadingOverlay {
    * @param {((waitedMs: number) => string)|null} [options.lineForWait] - Wording for the wait, restated as it grows. Omit when the line is pushed in with {@link LoadingOverlay#setLine} instead.
    * @param {boolean} [options.detailLine] - Reserve a second line below the message.
    * @param {boolean} [options.hostLine] - Show the server this page is talking to.
+   * @param {ReadonlyArray<LoadingOverlayAction>} [options.actions] - Buttons under the wording, revealed with it.
    */
   constructor({
     variant = '',
@@ -86,7 +96,8 @@ class LoadingOverlay {
     spinnerSize = '3rem',
     lineForWait = null,
     detailLine = false,
-    hostLine = false
+    hostLine = false,
+    actions = []
   } = {}) {
     /** @type {string} @private */
     this._variant = variant;
@@ -100,6 +111,8 @@ class LoadingOverlay {
     this._detailLine = detailLine;
     /** @type {boolean} @private */
     this._hostLine = hostLine;
+    /** @type {ReadonlyArray<LoadingOverlayAction>} @private */
+    this._actions = actions;
     /** @type {string} @private The line to show, whoever decided it. */
     this._line = lineForWait ? lineForWait(0) : '';
 
@@ -203,6 +216,10 @@ class LoadingOverlay {
     if (hostElement) {
       hostElement.textContent = globalThis.location.host;
     }
+    const actionsElement = this._element.querySelector('.loading-overlay__actions');
+    if (actionsElement) {
+      actionsElement.replaceChildren(...this._actions.map((action) => this._actionButton(action)));
+    }
 
     this._waitTimer = window.setInterval(() => this._tick(), TICK_MS);
   }
@@ -264,6 +281,9 @@ class LoadingOverlay {
   _markup() {
     const detail = this._detailLine ? '<div class="loading-overlay__detail"></div>' : '';
     const host = this._hostLine ? '<div class="loading-overlay__host"></div>' : '';
+    // Inside the info block, so the buttons arrive with the wording: a blip
+    // that recovers on its own is over before there is anything to press.
+    const actions = this._actions.length > 0 ? '<div class="loading-overlay__actions"></div>' : '';
     return `
             <div class="loading-overlay__content">
                 <juggler-spinner style="--size: ${this._spinnerSize}"></juggler-spinner>
@@ -271,9 +291,32 @@ class LoadingOverlay {
                     <div class="loading-overlay__message"></div>
                     ${detail}
                     ${host}
+                    ${actions}
                 </div>
             </div>
         `;
+  }
+
+  /**
+   * One of the overlay's buttons, held disabled while what it started is
+   * still going, so a second press cannot start it again.
+   * @param {LoadingOverlayAction} action - The button to draw.
+   * @returns {HTMLButtonElement} The button.
+   * @private
+   */
+  _actionButton(action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'modal-button btn-secondary';
+    button.textContent = t(action.label);
+    button.addEventListener('click', () => {
+      button.disabled = true;
+      void Promise.resolve()
+        .then(() => action.onClick())
+        .catch((error) => console.error('[LoadingOverlay] Action failed:', error))
+        .finally(() => { button.disabled = false; });
+    });
+    return button;
   }
 
   /**

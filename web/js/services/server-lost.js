@@ -10,7 +10,8 @@
  * the page can bring it back, so after a minute of trying a desktop window asks
  * the app to put its stand-in in its place, with Try again on offer
  * (cmd/juggler-app/stand_in.go, controlServerLost). The app checks first, and
- * leaves the window alone if the server answers or the session still runs.
+ * leaves the window alone if the server answers or the session still runs —
+ * unless the user asked, with the overlay's Stop trying ({@link giveUpOnServer}).
  * The app replaces its local windows itself, at once, when this machine's
  * server goes.
  * @module services/server-lost
@@ -41,13 +42,26 @@ function hasLostServerStandIn() {
 
 /**
  * Ask the app to replace this window with its stand-in.
+ * @param {string} [query] - Query string for the request, including the leading '?'.
  * @returns {Promise<boolean>} True when the app is replacing it.
  */
-async function reportServerLost() {
-  const url = windowControlURL('server-lost');
+async function reportServerLost(query = '') {
+  const url = windowControlURL('server-lost', query);
   if (!url) return false;
   const data = await fetchJson(url, { method: 'POST', fallback: null });
   return Boolean(data && data.replaced === true);
+}
+
+/**
+ * Stop reconnecting now: the disconnection overlay's Stop trying. The app
+ * replaces this window with its stand-in without waiting out the minute and
+ * without checking the server first — the user has decided, and the check is
+ * no help to a window whose server answers the app but not the page. The
+ * stand-in's Try again is the way back.
+ * @returns {Promise<boolean>} True when the app is replacing the window.
+ */
+export function giveUpOnServer() {
+  return reportServerLost('?now=1');
 }
 
 /**

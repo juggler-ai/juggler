@@ -60,19 +60,21 @@ const (
 )
 
 var (
-	failedWindowTitle   = msg.New("Server didn't start — Juggler")
-	failedPageTitle     = msg.New("Couldn't reach the Juggler server")
-	lostWindowTitle     = msg.New("Server stopped — Juggler")
-	lostPageTitle       = msg.New("The Juggler server stopped")
-	stillNotRunning     = msg.New("The Juggler server still isn't running")
-	startServerLabel    = msg.New("Start a server")
-	startingLabel       = msg.New("Starting…")
-	sessionLostTitle    = msg.New("This session stopped")
-	mismatchWindowTitle = msg.New("Server version — Juggler")
-	mismatchPageTitle   = msg.New("Another version of the Juggler server is running")
-	restartServerLabel  = msg.New("Restart server")
-	restartingLabel     = msg.New("Restarting…")
-	quitLabel           = msg.New("Quit")
+	failedWindowTitle       = msg.New("Server didn't start — Juggler")
+	failedPageTitle         = msg.New("Couldn't reach the Juggler server")
+	lostWindowTitle         = msg.New("Server stopped — Juggler")
+	lostPageTitle           = msg.New("The Juggler server stopped")
+	stillNotRunning         = msg.New("The Juggler server still isn't running")
+	startServerLabel        = msg.New("Start a server")
+	startingLabel           = msg.New("Starting…")
+	sessionLostTitle        = msg.New("This session stopped")
+	disconnectedWindowTitle = msg.New("Disconnected — Juggler")
+	disconnectedPageTitle   = msg.New("This window stopped reconnecting")
+	mismatchWindowTitle     = msg.New("Server version — Juggler")
+	mismatchPageTitle       = msg.New("Another version of the Juggler server is running")
+	restartServerLabel      = msg.New("Restart server")
+	restartingLabel         = msg.New("Restarting…")
+	quitLabel               = msg.New("Quit")
 )
 
 // standInButton is one of a stand-in page's buttons: a form post to this
@@ -188,6 +190,21 @@ func lostSessionStandIn(project string, startedElsewhere bool) *standIn {
 		windowTitle:      lostWindowTitle,
 		title:            sessionLostTitle,
 		message:          []msg.Message{msg.New("The session for {project} has stopped. Try again opens it again.", "project", project)},
+		buttons:          []standInButton{retryButton()},
+		startedElsewhere: startedElsewhere,
+	}
+}
+
+// disconnectedStandIn stands in for a local window whose reconnect the user
+// stopped while its server and session, as far as the app can tell, are still
+// there — or the server would not say. Try again only looks for a server this
+// app did not start (startedElsewhere), as the other stand-ins' does.
+func disconnectedStandIn(startedElsewhere bool) *standIn {
+	return &standIn{
+		kind:             standInLost,
+		windowTitle:      disconnectedWindowTitle,
+		title:            disconnectedPageTitle,
+		message:          []msg.Message{msg.New("This window stopped trying to reconnect to the Juggler server on this computer. Try again reconnects it.")},
 		buttons:          []standInButton{retryButton()},
 		startedElsewhere: startedElsewhere,
 	}
@@ -556,6 +573,12 @@ var openLostServerStandIn = func(a *appState, spec windowSpec, si *standIn, opts
 //     process gone: no server there, one on its way out, or another in its
 //     place. A server that is there but does not answer has not gone.
 //
+// With ?now, it is the user stopping the reconnect (the overlay's Stop
+// trying), and the window is replaced whatever the check finds: a server that
+// answers the app is no use to a page it does not answer. What the stand-in
+// says is still what the app found, where it found anything. A remote page
+// can ask this too, which replaces only its own window.
+//
 // Answered {replaced}: false leaves the page to its own reconnect. A stand-in
 // already is one, a window already being replaced (claimReplacement) is as
 // good as one, and a board goes with the window that opened it; those are
@@ -568,14 +591,17 @@ func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
+	now := r.URL.Query().Has("now")
 	theme := a.windowTheme(e)
 	var lost *standIn
 	if spec.isURL() {
-		ctx, cancel := context.WithTimeout(r.Context(), remoteReachBudget)
-		defer cancel()
-		if _, _, reached := readWindowState(ctx, normalizeURL(spec.url), roleMain); reached {
-			writeJSON(w, http.StatusOK, map[string]bool{"replaced": false})
-			return
+		if !now {
+			ctx, cancel := context.WithTimeout(r.Context(), remoteReachBudget)
+			defer cancel()
+			if _, _, reached := readWindowState(ctx, normalizeURL(spec.url), roleMain); reached {
+				writeJSON(w, http.StatusOK, map[string]bool{"replaced": false})
+				return
+			}
 		}
 		lost = unreachableStandIn(spec.url)
 	} else {
@@ -583,11 +609,15 @@ func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *
 		c, gone := a.serverOfWindow(e)
 		if !gone {
 			running, answered := a.sessionRunning(c, a.serverURLOf(e))
-			if running || !answered {
+			switch {
+			case answered && !running:
+				lost = lostSessionStandIn(spec.project, !e.server.appStarted)
+			case !now:
 				writeJSON(w, http.StatusOK, map[string]bool{"replaced": false})
 				return
+			default:
+				lost = disconnectedStandIn(!e.server.appStarted)
 			}
-			lost = lostSessionStandIn(spec.project, !e.server.appStarted)
 		}
 	}
 	if !a.claimReplacement(e) {

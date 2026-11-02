@@ -43,7 +43,7 @@
 import LLMState from './services/llm-state.js';
 import ConnectionManager from './services/connection-manager.js';
 import DisconnectionOverlay from './components/disconnection-overlay.js';
-import { watchForLostServer } from './services/server-lost.js';
+import { watchForLostServer, giveUpOnServer } from './services/server-lost.js';
 import StartupOverlay from './components/startup-overlay.js';
 import { setAppPhase } from './services/app-phase.js';
 import UIEventManager from './services/ui-event-manager.js';
@@ -74,7 +74,7 @@ import { initAttention } from './utils/attention-manager.js';
 import { watchTurnsForEscape, provideEscapeApp } from './services/escape-behaviour.js';
 import { provideAppSession } from './utils/app-session.js';
 import { initViewportFit } from './utils/viewport-fit.js';
-import { reportDraftsFlushed } from '../sdk/lib/window-control.js';
+import { reportDraftsFlushed, hasNativeHost, closeThisWindow } from '../sdk/lib/window-control.js';
 import { installLinkGuard } from './services/link-guard.js';
 import { installFileRefLinks } from './services/file-ref-links.js';
 import { installSelectionContainment } from './services/selection-containment.js';
@@ -478,7 +478,12 @@ class JugglerApp {
     }
     this._connectionManager = new ConnectionManager({
       conversationBar: this.conversationBar,
-      disconnectionOverlay: new DisconnectionOverlay(),
+      // A desktop window's ways out of the wait; a browser tab has its own. A
+      // detached board has no stand-in of its own to become (it goes with the
+      // window that opened it), so it can only be closed.
+      disconnectionOverlay: new DisconnectionOverlay(hasNativeHost()
+        ? { onClose: closeThisWindow, onGiveUp: isPinboardView() ? null : giveUpOnServer }
+        : {}),
       showPersistentNotice: (message) => showNotice(message, { duration: 0 }),
       llmState: this._llmState,
       onServerMessage: (data) => this._handleServerMessage(data),

@@ -70,6 +70,14 @@
     font-family: var(--font-mono);
 }
 
+/* A desktop window's ways out of a dropped connection (disconnection-overlay.js). */
+.loading-overlay__actions {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    padding-top: 1.5rem;
+}
+
 /* Transaction boundary bands for conversation items */
 
 /* ===================================================================

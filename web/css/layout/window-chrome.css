@@ -32,6 +32,16 @@
     --wails-draggable: no-drag;
 }
 
+/* A loading overlay covers the whole window, header included, so while one is
+   up it is what the window is dragged by. Its buttons opt out. */
+:where(.window-mode) .loading-overlay {
+    --wails-draggable: drag;
+}
+
+:where(.window-mode) .loading-overlay__actions {
+    --wails-draggable: no-drag;
+}
+
 /* conversation-bar empty space is draggable; buttons within it are not */
 :where(.window-mode) conversation-bar button,
 :where(.window-mode) conversation-bar input,

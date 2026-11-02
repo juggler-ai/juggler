@@ -473,6 +473,7 @@
 				"completions-menu",
 				"juggler-context-menu",
 				"loading-overlay",
+				"loading-overlay__actions",
 				"loading-overlay__content",
 				"loading-overlay__detail",
 				"loading-overlay__host",

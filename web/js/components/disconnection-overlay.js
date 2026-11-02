@@ -3,6 +3,7 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 import LoadingOverlay from './loading-overlay.js';
+import { markForTranslation } from '../../sdk/lib/i18n.js';
 
 /**
  * Duration to show only the spinner before surfacing the message. Immediately
@@ -53,15 +54,33 @@ function messageForWait(waitedMs) {
  * URL it is trying to reach. The message restates itself as the wait grows (see
  * {@link MESSAGE_TIERS}), on time the page spent waiting IN VIEW — the rule that
  * makes the ladder worth climbing, and the base class's to enforce.
+ *
+ * It covers the whole window, header included, so in a desktop window it also
+ * stands in for the header: it drags the window (window-chrome.css), and it
+ * offers Stop trying and Close window. The frameless Windows and Linux caption
+ * buttons stay above it (see LoadingOverlay#show).
  */
 class DisconnectionOverlay extends LoadingOverlay {
-  constructor() {
+  /**
+   * The ways out are for a desktop window only. A browser tab has its own
+   * chrome to close or move it by, cannot close itself, and has no stand-in to
+   * become — so there, both are left out and the overlay offers none.
+   * @param {object} [options] - The ways out of the wait this window has.
+   * @param {(() => unknown)|null} [options.onClose] - Close the window.
+   * @param {(() => unknown)|null} [options.onGiveUp] - Stop reconnecting now.
+   */
+  constructor({ onClose = null, onGiveUp = null } = {}) {
+    /** @type {import('./loading-overlay.js').LoadingOverlayAction[]} */
+    const actions = [];
+    if (onGiveUp) actions.push({ label: markForTranslation('Stop trying'), onClick: onGiveUp });
+    if (onClose) actions.push({ label: markForTranslation('Close window'), onClick: onClose });
     super({
       variant: 'disconnected',
       graceMs: SPINNER_ONLY_MS,
       lineForWait: messageForWait,
       detailLine: true,
-      hostLine: true
+      hostLine: true,
+      actions
     });
 
     /** @type {number|null} @private */

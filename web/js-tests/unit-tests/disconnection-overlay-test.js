@@ -3,8 +3,9 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * Disconnection-overlay wording tests: the ladder of lines shown while the
- * connection is gone, and the rule that decides when it may climb.
+ * Disconnection-overlay tests: the ladder of lines shown while the connection
+ * is gone, the rule that decides when it may climb, and the ways out a desktop
+ * window offers while it covers the header.
  *
  * The ladder is only worth anything if it is read from the bottom. A line is
  * promoted on time the overlay spent IN VIEW, never on wall-clock elapsed,
@@ -37,10 +38,11 @@ function forceHidden(hidden) {
 
 /**
  * Mount an overlay and take its clock off the real timer.
+ * @param {ConstructorParameters<typeof DisconnectionOverlay>[0]} [options] - The window's ways out, if any.
  * @returns {DisconnectionOverlay} A mounted overlay, ticked only on demand.
  */
-function mountOverlay() {
-  const overlay = new DisconnectionOverlay();
+function mountOverlay(options) {
+  const overlay = new DisconnectionOverlay(options);
   overlay.show();
   const self = /** @type {any} */ (overlay);
   clearInterval(self._waitTimer);
@@ -182,6 +184,51 @@ export async function runTests(_ctx) {
         'a tick spanning a hidden period must accrue nothing');
       overlay.hide();
       overlay = null;
+    });
+
+    await test('a desktop window’s overlay offers Stop trying and Close window, with the wording', async () => {
+      const pressed = /** @type {string[]} */ ([]);
+      overlay = mountOverlay({ onGiveUp: () => pressed.push('give up'), onClose: () => pressed.push('close') });
+      const element = /** @type {any} */ (overlay)._element;
+      const buttons = /** @type {HTMLButtonElement[]} */ ([...element.querySelectorAll('.loading-overlay__actions button')]);
+      assert(buttons.map((b) => b.textContent).join('|') === 'Stop trying|Close window',
+        `expected Stop trying then Close window, got "${buttons.map((b) => b.textContent).join('|')}"`);
+      assert(!!element.querySelector('.loading-overlay__info .loading-overlay__actions'),
+        'the buttons must sit in the info block, so a passing blip never shows them');
+      buttons.forEach((b) => b.click());
+      await Promise.resolve();
+      assert(pressed.join('|') === 'give up|close', `each button must do its own thing, got "${pressed.join('|')}"`);
+      overlay.hide();
+      overlay = null;
+    });
+
+    await test('a browser tab’s overlay offers no buttons', () => {
+      overlay = mountOverlay();
+      const element = /** @type {any} */ (overlay)._element;
+      assert(!element.querySelector('.loading-overlay__actions, button'),
+        'a tab has its own chrome to close it by, and nothing to give up to');
+      overlay.hide();
+      overlay = null;
+    });
+
+    await test('in a desktop window the overlay drags the window, and its buttons do not', () => {
+      const hadWindowMode = document.body.classList.contains('window-mode');
+      document.body.classList.add('window-mode');
+      try {
+        overlay = mountOverlay({ onClose: () => {} });
+        const element = /** @type {HTMLElement} */ (/** @type {any} */ (overlay)._element);
+        const dragOf = (/** @type {Element} */ el) => getComputedStyle(el).getPropertyValue('--wails-draggable').trim();
+        assert(dragOf(element) === 'drag',
+          `the overlay covers the header, so it must drag the window itself (got "${dragOf(element)}")`);
+        const message = /** @type {Element} */ (element.querySelector('.loading-overlay__message'));
+        assert(dragOf(message) === 'drag', `the wording drags the window too (got "${dragOf(message)}")`);
+        const button = /** @type {Element} */ (element.querySelector('.loading-overlay__actions button'));
+        assert(dragOf(button) === 'no-drag', `a button must be clickable, not a drag handle (got "${dragOf(button)}")`);
+        overlay.hide();
+        overlay = null;
+      } finally {
+        document.body.classList.toggle('window-mode', hadWindowMode);
+      }
     });
 
     await test('hiding the overlay leaves no listener behind', () => {

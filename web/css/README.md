@@ -168,7 +168,7 @@ Rules for using them:
   stylesheet name an element by the same group-prefixed class, and a custom
   property a group sets carries the same prefix (`--spinner-angle`).
 - `__element` / `--modifier` within a component is fine and used in places
-  (`.pinboard-tabbar__list`, `.pp-status--invalid`). Consistency inside one file
+  (`.pinboard-tabbar__list`, `.update-btn--progress`). Consistency inside one file
   matters more than consistency across all of them.
 - Utilities are `u-` prefixed, and only utilities are.
 - **A class name assembled in JS must still be findable.** `color-${name}` is

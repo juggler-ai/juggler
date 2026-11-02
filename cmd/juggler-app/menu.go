@@ -34,8 +34,8 @@ type menuNode struct {
 var menuSeparator = menuNode{separator: true}
 
 // installAppMenu builds the native application menu. Session ▸ Open… asks the
-// focused window's page to show the project picker, and Session ▸ Connect to
-// Server… the server-address panel; Session ▸ New Tab creates a
+// focused window's page for the sessions page, where a project is opened or
+// another computer's server connected to; Session ▸ New Conversation creates a
 // conversation in the focused window (mirrors the in-app Cmd+N shortcut);
 // Session ▸ New Window opens another in-process window (no project → picker);
 // View carries dev-only reload/devtools plus Toggle Full Screen; Help ▸ Learn
@@ -78,11 +78,8 @@ func menuSpec(a *appState, devMode bool, goos string) []menuNode {
 	}
 
 	session := menuNode{label: msg.New("Session"), children: []menuNode{
-		{label: msg.New("Open..."), accel: "CmdOrCtrl+o", onClick: dispatch("juggler:open-project")},
-		// Asks the page for the address, as Open… asks it for the folder; the
-		// page posts it back to the control endpoint (controlConnect).
-		{label: msg.New("Connect to Server..."), onClick: dispatch("juggler:connect-server")},
-		// New Tab owns Cmd+N (the browser new-tab key most people reach for) and
+		{label: msg.New("Open or connect to a new session..."), accel: "CmdOrCtrl+o", onClick: dispatch("juggler:open-project")},
+		// New Conversation owns Cmd+N (the browser new-tab key most people reach for) and
 		// creates a conversation in the focused window by dispatching the same
 		// event the in-app Cmd+N shortcut fires. The native menu accelerator
 		// preempts the webview keydown, so this is the only path Cmd+N takes here
@@ -90,9 +87,9 @@ func menuSpec(a *appState, devMode bool, goos string) []menuNode {
 		// browser reserves that chord for its own New window and never delivers
 		// it to the page, which is why the frontend binds Alt+N as an alias (see
 		// key-shortcut-manager.js).
-		{label: msg.New("New Tab"), accel: "CmdOrCtrl+n", onClick: exec("document.dispatchEvent(new CustomEvent('juggler:new-conversation'))")},
-		// New Window moves to the Shift variant so it stops shadowing New Tab's
-		// Cmd+N. Like New Tab, it dispatches into the focused window's page rather
+		{label: msg.New("New Conversation"), accel: "CmdOrCtrl+n", onClick: exec("document.dispatchEvent(new CustomEvent('juggler:new-conversation'))")},
+		// New Window moves to the Shift variant so it stops shadowing New
+		// Conversation's Cmd+N. Like New Conversation, it dispatches into the focused window's page rather
 		// than opening the window here: the page's own newWindow() carries THIS
 		// window's live theme and font size to the child (see
 		// header-controls.js). Opening it in Go could only pass the global

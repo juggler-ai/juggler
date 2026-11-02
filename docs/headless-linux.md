@@ -68,8 +68,9 @@ manage it from another terminal on the same machine.
 
 ## Connecting from the desktop app
 
-On the machine you work at, choose **Session ▸ Connect to Server…**, or use
-**Connect to another computer** on the sessions page of an empty window, and
+On the machine you work at, choose **Session ▸ Open or connect to a new
+session…** (or open a new window), use **Connect to another computer** on the
+sessions page it shows, and
 enter the server's address, such as `http://devbox:3939`. The window becomes
 one onto that server's sessions page; open a session there and it shows in the
 same window. Like a project window, it reopens each time the app starts, on the

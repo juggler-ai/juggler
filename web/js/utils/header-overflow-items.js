@@ -93,14 +93,13 @@ export function headerOverflowItems({
   if (!platform) return foldedRows;
   return [
     {
-      label: markForTranslation('New Tab'),
+      label: markForTranslation('New Conversation'),
       shortcutId: 'new-conversation',
       run: () => dispatch('juggler:new-conversation', document),
     },
     { label: markForTranslation('New Window'), shortcutId: 'new-window', run: () => dispatch('juggler:new-window') },
     { separator: true },
-    { label: markForTranslation('Open...'), run: () => dispatch('juggler:open-project') },
-    { label: markForTranslation('Connect to Server...'), run: () => dispatch('juggler:connect-server') },
+    { label: markForTranslation('Open or connect to a new session...'), run: () => dispatch('juggler:open-project') },
     { separator: true },
     ...foldedRows,
     { separator: true },

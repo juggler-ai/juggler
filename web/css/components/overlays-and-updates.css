@@ -213,28 +213,13 @@
 }
 
 /* Outer card chrome comes from the shared popup-surface rule in styles.css.
-   overflow:hidden clips the full-bleed header/body to the rounded corner; the
-   .pp-panel-popup modifier re-enables vertical scroll for the anchored variant. */
+   overflow:hidden clips the full-bleed header/body to the rounded corner. */
 .pp-panel {
     width: 32rem;
     max-width: calc(100vw - 2rem);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-}
-
-/* When a panel is presented as a button-anchored popup (the connect-server
-   panel, via presentPopup) rather than embedded in a centred overlay, it becomes a
-   positioned surface: positionDropdown sets --dropdown-x/y and an inline
-   max-height, the bottom-sheet rules take over on a phone. Scoped to the
-   modifier class so inline `.pp-panel` consumers stay plain cards. */
-.pp-panel-popup {
-    position: fixed;
-    left: var(--dropdown-x, 0.5rem);
-    top: var(--dropdown-y, 0.5rem);
-    z-index: var(--z-dropdown);
-    max-height: 80vh;
-    overflow-y: auto;
 }
 
 .pp-header {
@@ -282,18 +267,6 @@
     white-space: nowrap;
 }
 
-/* The server address in the connect panel: a typed location, so in the path
-   field's typeface. */
-.pp-body .pp-address-input {
-    display: block;
-    width: 100%;
-    box-sizing: border-box;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-size: var(--font-size-base);
-    padding: 0.5rem 0.75rem;
-}
-
 path-input {
     display: block;
     position: relative;
@@ -319,20 +292,6 @@ path-input .path-input-field {
     font-size: var(--font-size-base);
     padding: 0.5rem 0.75rem;
 }
-
-.pp-status {
-    font-size: var(--font-size-sm);
-    min-height: 1rem;
-    padding: 0 0.125rem;
-    font-family: var(--font-mono);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.pp-status--idle { color: transparent; }
-.pp-status--checking { color: var(--text-secondary); }
-.pp-status--invalid { color: var(--accent-red); }
 
 .pp-recents {
     margin-top: 0.25rem;

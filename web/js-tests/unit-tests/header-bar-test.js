@@ -573,7 +573,7 @@ export async function runTests() {
       const posted = [];
       const compose = (/** @type {'windows'|'linux'|null} */ platform, folded = false, touch = false) =>
         headerOverflowItems({ platform, folded: () => folded, touch: () => touch, post: (action) => posted.push(action) });
-      const head = 'New Tab|New Window|—|Open...|Connect to Server...';
+      const head = 'New Conversation|New Window|—|Open or connect to a new session...';
       const tail = 'Settings|About Juggler';
       const foldedRows = 'Decrease font size|Increase font size|Tips & keyboard shortcuts';
       for (const [platform, folded, touch, want] of /** @type {const} */ ([
@@ -602,7 +602,7 @@ export async function runTests() {
         const keysOf = (/** @type {string} */ label) => named(label).querySelector('.menu-item-shortcut')?.textContent;
         assert(keysOf('New Window') === keyShortcutManager.formatBinding('new-window') && !!keysOf('New Window'),
           `New Window shows its shortcut, got "${keysOf('New Window')}"`);
-        assert(!keysOf('Open...'), 'Open... names no shortcut');
+        assert(!keysOf('Open or connect to a new session...'), 'Open... names no shortcut');
         named('Exit').click();
         assert(posted.join() === 'quit', `Exit asks the app to quit, posted [${posted}]`);
         assert(!surface(), 'choosing Exit closes the menu');
@@ -614,13 +614,13 @@ export async function runTests() {
       await underPseudoLocale('test-header-app-menu', () => {
         const opened = openMenu(compose('windows', true), 'en-XA app menu');
         try {
-          assertPseudoLocalized(opened.menu, { skip: '.menu-item-shortcut', atLeast: 10, where: 'Windows app menu' });
+          assertPseudoLocalized(opened.menu, { skip: '.menu-item-shortcut', atLeast: 9, where: 'Windows app menu' });
         } finally {
           opened.dispose();
         }
         const linux = openMenu(compose('linux'), 'en-XA linux app menu');
         try {
-          assertPseudoLocalized(linux.menu, { skip: '.menu-item-shortcut', atLeast: 7, where: 'Linux app menu' });
+          assertPseudoLocalized(linux.menu, { skip: '.menu-item-shortcut', atLeast: 6, where: 'Linux app menu' });
         } finally {
           linux.dispose();
         }

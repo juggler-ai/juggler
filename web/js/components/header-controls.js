@@ -356,12 +356,6 @@ export function setupHeaderControls(session) {
   // chooseProject via this event, since the Go side can't import the JS module.
   window.addEventListener('juggler:open-project', () => { void chooseProject(); });
 
-  // Session ▸ Connect to Server… arrives the same way.
-  window.addEventListener('juggler:connect-server', async () => {
-    const { openConnectServerPanel } = await import('./connect-server-panel.js');
-    await openConnectServerPanel();
-  });
-
   // Keyboard shortcuts (undo / redo) — bindings and platform handling live in the
   // KeyShortcutManager; here we only supply the behaviour. Each returns truthy
   // only when it actually acts, so the manager preventDefaults exactly then (and

@@ -103,7 +103,8 @@ any specific WAN mode are documented by the distribution that ships it.
 
 ### Connecting the desktop app to another server
 
-Session ▸ Connect to Server… points a desktop window at another machine's
+Connect to another computer, on the sessions page a new window shows, points a
+desktop window at another machine's
 server by URL. That server then supplies everything the window shows and sees
 everything you do in it, and its commands run on that machine, not yours. What
 its pages may ask of the desktop app is limited to their own window: its

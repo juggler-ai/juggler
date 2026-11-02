@@ -602,25 +602,6 @@ class APIService {
   }
 
   /**
-   * Open a desktop window onto the Juggler server at `address`, which the app
-   * restores at launch as it does a project window. Desktop only, like
-   * {@link APIService#newWindow}. The app checks the address and refuses it from
-   * a window that is itself on a server by URL; either refusal arrives as a
-   * thrown error whose message says why.
-   * @param {string} address - What the user typed: a URL or a bare host:port.
-   * @returns {Promise<boolean>} Resolves true once the window was asked for,
-   *   false when there is no native host to ask.
-   */
-  async connectServer(address) {
-    const params = newWindowParams();
-    params.set('url', address);
-    const url = windowControlURL('connect', `?${params.toString()}`);
-    if (!url) return false;
-    await fetchJson(url, { method: 'POST' });
-    return true;
-  }
-
-  /**
    * Open a detached pinboard in a native window of its own. Desktop only, like
    * {@link APIService#newWindow} — a browser tab opens the same URL itself.
    *

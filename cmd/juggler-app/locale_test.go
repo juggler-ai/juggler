@@ -101,7 +101,7 @@ func TestMenuEnglishIsUnchanged(t *testing.T) {
 	for _, want := range []string{
 		"/Juggler/About Juggler", "/Juggler/Services", "/Juggler/Hide Juggler", "/Juggler/Hide Others",
 		"/Juggler/Show All", "/Juggler/Quit Juggler",
-		"/Session/Open...", "/Session/New Tab", "/Session/New Window", "/Session/Close",
+		"/Session/Open or connect to a new session...", "/Session/New Conversation", "/Session/New Window", "/Session/Close",
 		"/Edit/Undo", "/Edit/Paste and Match Style", "/Edit/Select All", "/Edit/Speech/Start Speaking",
 		"/View/Zoom In", "/View/Zoom Out", "/View/Reload", "/View/Force Reload",
 		"/View/Open Developer Tools", "/View/Toggle Full Screen",

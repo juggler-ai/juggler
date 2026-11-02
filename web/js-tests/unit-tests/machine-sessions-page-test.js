@@ -1120,7 +1120,7 @@ export async function runTests() {
     assert(!api.calls.some((c) => c[1] === '/after/dispose'), 'a page taken down still opened a dropped folder');
   });
 
-  // Session ▸ Connect to Server…, from the server's page in a desktop window:
+  // Connect to another computer, from the server's page in a desktop window:
   // the address goes to the app, which replaces this window with one onto
   // that server's page.
   await test('in a desktop window the page connects to another computer\'s server', async () => {
@@ -1136,9 +1136,6 @@ export async function runTests() {
       const form = /** @type {HTMLFormElement|null} */ (m.root.querySelector('form.ms-connect'));
       assert(!!form, 'no Connect to a server form in a desktop window');
       const input = /** @type {HTMLInputElement} */ (form?.querySelector('input.ms-connect-input'));
-      window.dispatchEvent(new CustomEvent('juggler:connect-server'));
-      assert(document.activeElement === input, 'Session ▸ Connect to Server… did not take the user to the address field');
-
       input.value = 'ftp://x';
       /** @type {HTMLFormElement} */ (form).requestSubmit();
       await waitFor(() => (m.root.querySelector('.ms-connect-error')?.textContent || '') !== '', { description: 'the refusal' });

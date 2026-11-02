@@ -1,7 +1,8 @@
 # Changelog
 
-All notable changes to Juggler are recorded here. Each release is a tight list
-of changes; this project follows semantic versioning.
+All notable changes to Juggler are recorded here. Only high level changes are recorded
+which are *of interest to users*, and cover changes *from the last release* (not within
+the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 

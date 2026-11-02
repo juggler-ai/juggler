@@ -414,7 +414,7 @@ export function mountSessionsPage(root, {
     sessionsList,
   ]);
 
-  // Session ▸ Connect to Server…: a desktop window on this machine's server
+  // Connect to another computer: a desktop window on this machine's server
   // becomes a window onto another computer's.
   const connectInput = /** @type {HTMLInputElement} */ (el('input', {
     className: 'ms-launch-input ms-connect-input',
@@ -900,11 +900,8 @@ export function mountSessionsPage(root, {
     const token = /** @type {CustomEvent} */ (e).detail?.ackToken;
     if (host && typeof token === 'string') void host.answerClose(token);
   };
-  // Session ▸ Connect to Server…, which the app dispatches on this window.
-  const onConnectServer = () => connectInput.focus();
   if (host) window.addEventListener('juggler:window-close-requested', onCloseRequested);
   if (host?.takesDroppedFolders) window.addEventListener('juggler:folder-dropped', onFolderDropped);
-  if (connectSection) window.addEventListener('juggler:connect-server', onConnectServer);
   render();
   void refresh();
   schedule();
@@ -921,7 +918,6 @@ export function mountSessionsPage(root, {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('juggler:folder-dropped', onFolderDropped);
       window.removeEventListener('juggler:window-close-requested', onCloseRequested);
-      window.removeEventListener('juggler:connect-server', onConnectServer);
     },
   };
 }

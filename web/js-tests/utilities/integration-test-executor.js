@@ -341,7 +341,6 @@ import { runTests as runNudgeEngineTests } from '../unit-tests/nudge-engine-test
 import { runTests as runJugglerNudgeTests } from '../unit-tests/juggler-nudge-test.js';
 import { runTests as runGuidanceSurfacesTests } from '../unit-tests/guidance-surfaces-test.js';
 import { runTests as runNoConversationsOnboardingTests } from '../unit-tests/no-conversations-onboarding-test.js';
-import { runTests as runConnectServerPanelTests } from '../unit-tests/connect-server-panel-test.js';
 import { runTests as runProjectFixedTests } from '../unit-tests/project-fixed-test.js';
 import { runTests as runMachineSessionsPageTests } from '../unit-tests/machine-sessions-page-test.js';
 import { runTests as runProjectPickerRecentsTests } from '../unit-tests/project-picker-recents-test.js';
@@ -970,7 +969,6 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:juggler-nudge', run: runJugglerNudgeTests },
   { name: 'unit:guidance-surfaces', run: runGuidanceSurfacesTests },
   { name: 'unit:no-conversations-onboarding', run: runNoConversationsOnboardingTests },
-  { name: 'unit:connect-server-panel', run: runConnectServerPanelTests },
   { name: 'unit:project-fixed', run: runProjectFixedTests },
   { name: 'unit:machine-sessions-page', run: runMachineSessionsPageTests },
   { name: 'unit:project-picker-recents', run: runProjectPickerRecentsTests },

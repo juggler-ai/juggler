@@ -19,6 +19,7 @@ import (
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/msg"
+	"juggler/internal/userpaths/userpathstest"
 )
 
 // A stand-in window, as buildStandInWindow registers one: filed under the spec
@@ -91,6 +92,62 @@ func TestAWindowOnAServerByURLThatIsLostBecomesItsStandIn(t *testing.T) {
 		t.Fatalf("a stand-in was also opened for %s", id)
 	default:
 	}
+}
+
+// TestAWindowOnAServerByURLWhoseSessionHasGoneReopensItsProject: a window onto
+// a server by URL whose session that server has since retired — as it does one
+// left with no viewer, which a sleeping Mac's window becomes — is refused at
+// every reconnect while the server itself answers. Its page cannot bring the
+// session back, so the app returns the window to that server's page, still
+// filed with the session's project, which the page reopens there (controlReopen)
+// as it would at launch. A session the server still knows of, even one that is
+// not running yet, is left to the page's own reconnect.
+func TestAWindowOnAServerByURLWhoseSessionHasGoneReopensItsProject(t *testing.T) {
+	userpathstest.Isolate(t)
+	a := newTestAppState(t)
+	a.workspace = newWorkspaceStoreAt(workspacePath(t))
+	got := lostWindows(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/s/gone/"):
+			http.Error(w, "unknown session", http.StatusNotFound)
+		case strings.HasPrefix(r.URL.Path, "/s/starting/"):
+			http.Error(w, "session is not running (state: restarting)", http.StatusServiceUnavailable)
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	spec := windowSpec{url: srv.URL, connected: true, remoteProject: "/home/me/proj"}
+
+	for _, id := range []string{"live", "starting"} {
+		e := registerWindow(a, &winEntry{id: "w-" + id, role: roleMain, spec: spec, serverURL: srv.URL + "/s/" + id})
+		if replaced(t, controlRequest(a, http.MethodPost, "/win/w-"+id+"/server-lost")) {
+			t.Fatalf("a window whose session %q the server still knows of was replaced", id)
+		}
+		var url string
+		a.reg(func(*regState) { url = e.serverURL })
+		if url != srv.URL+"/s/"+id {
+			t.Fatalf("a window whose session %q the server still knows of was moved to %s", id, url)
+		}
+	}
+
+	gone := registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: spec, serverURL: srv.URL + "/s/gone"})
+	if !replaced(t, controlRequest(a, http.MethodPost, "/win/w1/server-lost")) {
+		t.Fatal("a window whose session the server no longer knows of was left reconnecting to it")
+	}
+	var url string
+	var now windowSpec
+	a.reg(func(*regState) { url, now = gone.serverURL, gone.spec })
+	if url != srv.URL || now != spec {
+		t.Fatalf("the window is %+v on %s; want %+v on the server's page %s", now, url, spec, srv.URL)
+	}
+	select {
+	case id := <-got:
+		t.Fatalf("a stand-in was opened for %s, whose server answers", id)
+	default:
+	}
+	a.workspace.flush(nil)
 }
 
 // TestALocalWindowWhoseSessionIsLostBecomesItsStandIn: a local window whose

@@ -567,7 +567,12 @@ var openLostServerStandIn = func(a *appState, spec windowSpec, si *standIn, opts
 // shows has really gone:
 //
 //   - onto a server by URL, the server gets remoteReachBudget to answer the
-//     app, as it would when the window opens;
+//     app, as it would when the window opens. One that answers but has
+//     forgotten the window's session (remoteSessionGone) — retired, as one
+//     left with no viewer is — is not lost, but nothing the page reconnects
+//     to will bring the session back: the window is returned to the server's
+//     page instead, still filed with the session's project, which that page
+//     opens there again (controlReopen), as a launch would;
 //   - onto this machine's server, the session must be missing from the list of
 //     the server process the window was opened on (winEntry.server), or that
 //     process gone: no server there, one on its way out, or another in its
@@ -599,6 +604,12 @@ func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *
 			ctx, cancel := context.WithTimeout(r.Context(), remoteReachBudget)
 			defer cancel()
 			if _, _, reached := readWindowState(ctx, normalizeURL(spec.url), roleMain); reached {
+				if remoteSessionGone(ctx, a.serverURLOf(e)) {
+					logf("window %s: %s has gone from its server; showing the server's page", e.id, a.serverURLOf(e))
+					a.navigateWindow(e, spec, spec.url)
+					writeJSON(w, http.StatusOK, map[string]bool{"replaced": true})
+					return
+				}
 				writeJSON(w, http.StatusOK, map[string]bool{"replaced": false})
 				return
 			}

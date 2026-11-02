@@ -65,6 +65,28 @@ func fetchWindowState(serverURL, role string) (core.WindowState, bool) {
 // with no window on screen.
 const remoteReachBudget = 5 * time.Second
 
+// remoteSessionGone reports whether a server by URL has said it no longer knows
+// the session sessionURL (its /s/<id>) names: its proxy answers 404 for an id
+// it has forgotten, as it does once it retires a session left with no viewer.
+// Anything else — another status, no answer, a URL naming no session — is not
+// that, since a session the server still holds (restarting, say) comes back
+// and a page reconnecting to it is right to wait.
+func remoteSessionGone(ctx context.Context, sessionURL string) bool {
+	if _, ok := sessionIDOf(sessionURL); !ok {
+		return false
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(sessionURL, "/")+apipaths.Health, nil) //nolint:gosec // app-owned server URL, see fetchWindowState
+	if err != nil {
+		return false
+	}
+	resp, err := windowStateHTTP.Do(req) //nolint:gosec // app-owned server URL, see fetchWindowState
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusNotFound
+}
+
 // readWindowState is fetchWindowState that also says whether the server
 // answered at all, and gives up when ctx does. reached is false only when no
 // response came back; a response of any status is the server answering.

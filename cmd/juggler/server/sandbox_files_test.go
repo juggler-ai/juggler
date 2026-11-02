@@ -5,6 +5,10 @@
 package server
 
 import (
+	"bytes"
+	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -73,6 +77,49 @@ func TestSandboxImportServesWorkspaceModules(t *testing.T) {
 			}
 			if got := filepath.Join(mod.tree.Root(), filepath.FromSlash(mod.rel)); got != filepath.FromSlash(tc.abs) {
 				t.Fatalf("resolved to %q, want %q", got, tc.abs)
+			}
+		})
+	}
+}
+
+// deniedSendfileWriter stands in for net/http's response under a sandbox that
+// denies sendfile: ReadFrom copies sniff bytes the ordinary way, then fails with
+// EPERM. A zero sniff is the denial arriving before any byte moved.
+type deniedSendfileWriter struct {
+	*httptest.ResponseRecorder
+	sniff int64
+}
+
+func (w *deniedSendfileWriter) ReadFrom(r io.Reader) (int64, error) {
+	n, err := io.Copy(w.ResponseRecorder, io.LimitReader(r, w.sniff))
+	if err != nil {
+		return n, err
+	}
+	return n, &os.SyscallError{Syscall: "sendfile", Err: fs.ErrPermission}
+}
+
+// A module served to the sandbox must arrive whole when sendfile is denied, or
+// its import fails on a truncated script.
+func TestSandboxImportSurvivesSendfileDenial(t *testing.T) {
+	s := newWorkspaceTurnServer(t)
+	body := []byte("export const lines = [\n" + strings.Repeat("  'source line héllo',\n", 4096) + "];\n")
+	abs := filepath.Join(s.ProjectPath(), "big.js")
+	if err := os.WriteFile(abs, body, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	mod, ok := s.sandboxImportFile(sandboxURLPath(abs))
+	if !ok {
+		t.Fatalf("%s was not resolved", abs)
+	}
+	for _, sniff := range []int64{0, 512} {
+		t.Run(fmt.Sprintf("sniff=%d", sniff), func(t *testing.T) {
+			w := &deniedSendfileWriter{ResponseRecorder: httptest.NewRecorder(), sniff: sniff}
+			serveSandboxImportFile(w, httptest.NewRequest(http.MethodGet, sandboxURLPath(abs), nil), mod)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", w.Code)
+			}
+			if !bytes.Equal(w.Body.Bytes(), body) {
+				t.Errorf("body differs: got %d bytes, want %d", w.Body.Len(), len(body))
 			}
 		})
 	}

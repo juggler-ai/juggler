@@ -7,6 +7,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -349,6 +350,46 @@ func TestFileBytesFailureModes(t *testing.T) {
 				t.Fatalf("status = %d, want %d", rec.Code, tc.want)
 			}
 		})
+	}
+}
+
+// TestFileRoutesSurviveSendfileDenial: a sandbox that denies sendfile must not
+// cut a viewed file short, on any of the three routes that stream one, whether
+// the denial comes before any byte moved or after net/http's 512-byte sniff.
+func TestFileRoutesSurviveSendfileDenial(t *testing.T) {
+	api, project, _ := newFilesTestAPI(t)
+	body := bytes.Repeat([]byte("source line héllo\n"), 4096)
+	big := filepath.Join(project, "big.txt")
+	if err := os.WriteFile(big, body, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	encoded, _ := json.Marshal(FileBytesRequest{Path: big})
+
+	routes := map[string]func(http.ResponseWriter){
+		"query route": func(w http.ResponseWriter) {
+			api.HandleGetFileContent(w, httptest.NewRequest(http.MethodGet, "/api/session/files/content?path="+big, nil))
+		},
+		"tree route": func(w http.ResponseWriter) {
+			p := strings.TrimPrefix(filepath.ToSlash(big), "/")
+			api.HandleGetFileTree(w, httptest.NewRequest(http.MethodGet, FileTreePrefix+"tok/"+p, nil))
+		},
+		"bytes route": func(w http.ResponseWriter) {
+			api.HandlePostFileBytes(w, httptest.NewRequest(http.MethodPost, "/api/session/files/bytes", bytes.NewReader(encoded)))
+		},
+	}
+	for name, serve := range routes {
+		for _, sniff := range []int64{0, 512} {
+			t.Run(fmt.Sprintf("%s/sniff=%d", name, sniff), func(t *testing.T) {
+				w := &deniedSendfileWriter{ResponseRecorder: httptest.NewRecorder(), sniff: sniff}
+				serve(w)
+				if w.Code != http.StatusOK {
+					t.Fatalf("status = %d, want 200 (body %q)", w.Code, w.Body.String())
+				}
+				if !bytes.Equal(w.Body.Bytes(), body) {
+					t.Errorf("body differs: got %d bytes, want %d", w.Body.Len(), len(body))
+				}
+			})
+		}
 	}
 }
 

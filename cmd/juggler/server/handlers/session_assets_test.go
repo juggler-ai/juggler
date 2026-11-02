@@ -9,10 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -67,22 +65,6 @@ func TestAssetRoutes_TextRoundTrip(t *testing.T) {
 	if ct := got.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
 		t.Fatalf("served Content-Type %q, want text/plain; charset=utf-8", ct)
 	}
-}
-
-// deniedSendfileWriter stands in for net/http's response: ReadFrom copies
-// sniff bytes the ordinary way, then fails with EPERM as a sandboxed sendfile
-// does. A zero sniff is the denial arriving before any byte moved.
-type deniedSendfileWriter struct {
-	*httptest.ResponseRecorder
-	sniff int64
-}
-
-func (w *deniedSendfileWriter) ReadFrom(r io.Reader) (int64, error) {
-	n, err := io.Copy(w.ResponseRecorder, io.LimitReader(r, w.sniff))
-	if err != nil {
-		return n, err
-	}
-	return n, &os.SyscallError{Syscall: "sendfile", Err: fs.ErrPermission}
 }
 
 // TestAssetRoutes_SendfileDeniedFallsBack checks that complete and ranged

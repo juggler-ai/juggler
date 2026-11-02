@@ -16,6 +16,7 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/ops"
+	"juggler/cmd/juggler/server/handlers"
 	"juggler/cmd/juggler/webui"
 	"juggler/cmd/juggler/workspace"
 )
@@ -242,5 +243,5 @@ func serveSandboxImportFile(w http.ResponseWriter, r *http.Request, mod sandboxM
 		ct = "text/javascript; charset=utf-8"
 	}
 	w.Header().Set("Content-Type", ct)
-	http.ServeContent(w, r, path.Base(mod.rel), info.ModTime(), f)
+	http.ServeContent(handlers.SendfileFallback(w), r, path.Base(mod.rel), info.ModTime(), f)
 }

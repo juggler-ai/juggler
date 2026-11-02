@@ -174,7 +174,7 @@ func (api *FilesAPI) serveProjectFile(w http.ResponseWriter, r *http.Request, re
 
 	// ServeContent supplies Accept-Ranges and range handling, so a viewer can
 	// fetch incrementally instead of buffering the whole file.
-	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+	http.ServeContent(SendfileFallback(w), r, info.Name(), info.ModTime(), file)
 }
 
 // FileBytesRequest is the body of a raw-bytes read. It mirrors the read op's
@@ -271,5 +271,5 @@ func (api *FilesAPI) HandlePostFileBytes(w http.ResponseWriter, r *http.Request)
 	// A POST response is not cached by default; say so explicitly since the file
 	// is live on disk and every read must see the current bytes.
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = io.Copy(w, file)
+	_, _ = io.Copy(SendfileFallback(w), file)
 }

@@ -417,7 +417,7 @@ func (s *Server) setupRoutes() {
 	if userDir := s.extensionsAPI.UserExtensionDir(); userDir != "" {
 		s.router.PathPrefix(handlers.UserExtensionURLBase).Handler(
 			http.StripPrefix(handlers.UserExtensionURLBase,
-				stripUserExtEpoch(http.FileServer(http.Dir(userDir)))),
+				stripUserExtEpoch(handlers.SendfileFallbackHandler(http.FileServer(http.Dir(userDir))))),
 		)
 	}
 
@@ -451,7 +451,7 @@ func (s *Server) setupRoutes() {
 			s.serveEmbeddedTestAssets(vPrefix)
 		} else {
 			jlog.Info("🔧 Dev mode: serving static files from %s", staticDir)
-			staticFileServer = webui.AssetHandler(http.FileServer(http.Dir(staticDir)))
+			staticFileServer = handlers.SendfileFallbackHandler(webui.AssetHandler(http.FileServer(http.Dir(staticDir))))
 			// Disk has js-tests/ alongside everything else, so serve it from disk too.
 			registerStatic(append(prodPrefixes, "/js-tests/")...)
 		}

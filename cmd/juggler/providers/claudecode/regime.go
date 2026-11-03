@@ -211,45 +211,62 @@ func classifyRegime(sess *activeSession, currentModel, systemPrompt string, mess
 //	[ tool_results closing every dangling tool_use ]  ← appended into the file
 //	[ non-tool_result tail (the user's interjection) ] ← piped on stdin (may be empty)
 //
+// The calls and their results need not be in two separate runs. The worker
+// groups a turn's ordinary tool calls ahead of their results, but a thread
+// (create_thread) is emitted as its own tool_use+tool_result pair beside that
+// group, so a turn that called a tool and a thread in parallel arrives as
+// [use, result, use, result]. A tool_use after a result is therefore still
+// taken as one of the parked turn's calls — but only a tool_use: once a result
+// is in, assistant text or thinking means the model spoke again, in a turn the
+// warm file does not hold. Whether each call really is one the warm file is
+// parked on is settled against the file itself, by identity, when the results
+// are appended (pairResultsWithToolUses), which cold-starts on any mismatch.
+//
 // On success it returns tailStart: the index splitting the leading content from
 // the stdin tail. It fails when the delta's assistant head carries no tool_use,
-// when a tool_result doesn't close one, when some tool_use is left unanswered, or
-// when a tool_result trails the non-result content — any of which makes a clean
-// warm append impossible, so the caller cold-starts fresh instead.
+// when a tool_result doesn't close a call made before it, when assistant
+// content other than a tool_use follows a result, when some tool_use is left
+// unanswered, or when a tool_result trails the non-result content — any of
+// which makes a clean warm append impossible, so the caller cold-starts fresh
+// instead.
 func pairedResultResumeSplit(messages []provider.Message, deltaStart, deltaEnd int) (tailStart int, ok bool) {
 	if deltaStart < 0 || deltaEnd > len(messages) {
 		return 0, false
 	}
-	// Phase 1: the parked assistant turn (already committed to the warm file).
-	// Collect the tool_use it is dangling on.
+	// The parked assistant turn (already committed to the warm file) and the
+	// tool_results closing every tool_use it is dangling on.
 	dangling := map[string]bool{}
+	answered := map[string]bool{}
 	i := deltaStart
 	for ; i < deltaEnd; i++ {
-		if provider.MessageTypeToRole(messages[i].Type) != "assistant" {
+		m := messages[i]
+		if m.Type == "tool-result" {
+			if !dangling[m.ToolUseID] {
+				return 0, false // a result that doesn't close a call made before it
+			}
+			answered[m.ToolUseID] = true
+			continue
+		}
+		if provider.MessageTypeToRole(m.Type) != "assistant" {
 			break
 		}
-		if messages[i].Type == "tool-use" && messages[i].ToolUseID != "" {
-			dangling[messages[i].ToolUseID] = true
+		if m.Type != "tool-use" {
+			if len(answered) > 0 {
+				return 0, false // the model spoke again: a later turn, not the parked one
+			}
+			continue
+		}
+		if m.ToolUseID != "" {
+			dangling[m.ToolUseID] = true
 		}
 	}
 	if len(dangling) == 0 {
 		return 0, false
 	}
-	// Phase 2: the tool_results closing every dangling tool_use.
-	answered := make(map[string]bool, len(dangling))
-	for ; i < deltaEnd; i++ {
-		if messages[i].Type != "tool-result" {
-			break
-		}
-		if !dangling[messages[i].ToolUseID] {
-			return 0, false // a result that doesn't close a dangling call
-		}
-		answered[messages[i].ToolUseID] = true
-	}
 	if len(answered) != len(dangling) {
 		return 0, false // not every dangling tool_use got a result
 	}
-	// Phase 3: the stdin tail must carry no further tool_result.
+	// The stdin tail must carry no further tool_result.
 	for j := i; j < deltaEnd; j++ {
 		if messages[j].Type == "tool-result" {
 			return 0, false

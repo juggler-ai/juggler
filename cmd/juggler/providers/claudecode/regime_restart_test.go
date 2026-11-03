@@ -102,6 +102,71 @@ func TestClassifyRegime_CancelInterjectAppendsWarm(t *testing.T) {
 	}
 }
 
+// TestClassifyRegime_CancelInterjectWithThreadAppendsWarm: the parked turn
+// called a tool and create_thread in parallel, the user cancelled the thread,
+// then typed a new message. The worker emits a thread as its own
+// tool_use+tool_result pair beside the turn's grouped calls, so the delta
+// interleaves them — [use read, result read, use thread, result thread, user] —
+// even though both calls belong to the one assistant turn the CLI parked on.
+// That is still a clean warm append, not a cold rebuild of the whole history.
+func TestClassifyRegime_CancelInterjectWithThreadAppendsWarm(t *testing.T) {
+	sys := "sys"
+	fed := []provider.Message{userMsg("look into it")}
+	sess := &activeSession{
+		sessionUUID: "uuid-thread-cancel",
+		sentCount:   len(fed),
+		sentHash:    hashRequestPrefix(sys, fed, len(fed)),
+	}
+	interjected := append(append([]provider.Message{}, fed...),
+		toolUseMsg("call_read", "read"),
+		toolResultMsg("call_read", "file contents"),
+		toolUseMsg("call_thread", "create_thread"),
+		toolResultMsg("call_thread", "[The run was cancelled before it finished.]"),
+		userMsg("never mind, do this instead"))
+
+	dec := classifyRegime(sess, "", sys, interjected, false /* no live CLI */)
+	if dec.Regime != regimeResumeAppendResult {
+		t.Fatalf("parallel call + cancelled thread, then interject, must warm-append; got regime=%d reason=%q", dec.Regime, dec.Reason)
+	}
+	tailStart, ok := pairedResultResumeSplit(interjected, dec.DeltaStart, dec.DeltaEnd)
+	if !ok {
+		t.Fatalf("pairedResultResumeSplit returned ok=false for the interleaved thread pair")
+	}
+	// fed(1) + two calls and their results(4) = 5; the user tail begins at 5.
+	if tailStart != 5 {
+		t.Fatalf("tailStart = %d, want 5 (both pairs, then the user tail)", tailStart)
+	}
+}
+
+// TestPairedResultResumeSplit_LaterTurnStaysFresh guards the other side of the
+// interleaving rule: once a result is in, assistant text or thinking means the
+// model spoke again — a later turn the warm file's parked one does not hold — so
+// a call after it is not one of the parked calls and the split must refuse.
+func TestPairedResultResumeSplit_LaterTurnStaysFresh(t *testing.T) {
+	msgs := []provider.Message{
+		userMsg("go"),
+		toolUseMsg("a", "read"),
+		toolResultMsg("a", "contents"),
+		assistantMsg("now the next step"),
+		toolUseMsg("b", "bash"),
+		toolResultMsg("b", "ok"),
+	}
+	if _, ok := pairedResultResumeSplit(msgs, 1, len(msgs)); ok {
+		t.Fatalf("a call made after the model spoke again must not split as part of the parked turn")
+	}
+	// A result ahead of the call it answers answers nothing yet.
+	early := []provider.Message{
+		userMsg("go"),
+		toolUseMsg("a", "read"),
+		toolResultMsg("b", "too soon"),
+		toolUseMsg("b", "bash"),
+		toolResultMsg("a", "contents"),
+	}
+	if _, ok := pairedResultResumeSplit(early, 1, len(early)); ok {
+		t.Fatalf("a result arriving before its own call must not split")
+	}
+}
+
 // TestClassifyRegime_UnpairedToolResultStaysFresh guards the narrowness of the
 // warm-append path: a tool_result-bearing delta whose result does NOT close the
 // warm transcript's dangling tool_use (here the prefix ends on a plain assistant

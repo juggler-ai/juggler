@@ -10,7 +10,7 @@
  * any one test. Two very different runs fail tests: a healthy one, where the
  * per-suite cleanup keeps the project at a handful of conversations, and one
  * where cleanup has stopped working and the project is marching toward
- * MAX_CONVERSATIONS (32) with every lane hydrating a Yjs doc per conversation
+ * MAX_CONVERSATIONS with every lane hydrating a Yjs doc per conversation
  * on every session load. They want opposite fixes, and nothing in a failure
  * message has ever distinguished them — so a failing test reports the size it
  * failed at, and the sizes this lane saw on its way there.

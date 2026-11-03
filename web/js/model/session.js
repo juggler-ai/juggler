@@ -143,7 +143,7 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  * surfaces a "bin some tabs to make room" message at the UI entry point.
  * @type {number}
  */
-export const MAX_CONVERSATIONS = 32;
+export const MAX_CONVERSATIONS = 100;
 
 /**
  * An Error tagged with a `.code` the UI picks its message by.

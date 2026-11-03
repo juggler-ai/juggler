@@ -14,7 +14,7 @@
 
 /**
  * The address to open for a page of this server.
- * @param {string} path - The page's path on the server, e.g. '/s/<id>/'.
+ * @param {string} path - The page's path on the server, e.g. '/p/<key>/'.
  * @returns {string} The path, or the rendezvous link's address for it.
  */
 export function pageURL(path) {

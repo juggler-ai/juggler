@@ -151,7 +151,7 @@ func attachTo(c *Client, opts TerminalOptions, in *bufio.Reader) (code int, agai
 		// the last local client leaving stops an implicit server immediately.
 		a.Close()
 		a = named
-		url = c.SessionURL(sess.ID)
+		url = c.SessionURL(sess)
 	}
 	defer a.Close()
 	// An attachment the server ended before the session was open is a

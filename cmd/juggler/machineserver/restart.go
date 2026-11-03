@@ -58,8 +58,8 @@ func (s *Server) startSupervising(id string, c *child, cl *claim) {
 //     someone asked for.
 //   - A crash (any other status, or a signal) turns the session to restarting
 //     and respawns its project under the same ID after restartPolicy.delay,
-//     so the /s/<id>/ a user holds keeps working. A respawn that fails counts
-//     as another crash.
+//     so the clients that hold the ID — the control API's, the child's own
+//     links — keep it. A respawn that fails counts as another crash.
 //   - Past restartPolicy.limit crashes in a row, the session is given up and
 //     turns to error.
 //
@@ -116,7 +116,7 @@ func (s *Server) supervise(id string, c *child, cl *claim) {
 			if !ok {
 				return
 			}
-			spawned, err := spawnChild(cl.ctx, s.childBin, project, s.childExtraArgs(id), s.childEnv(id))
+			spawned, err := spawnChild(cl.ctx, s.childBin, project, s.childExtraArgs(projectLink(project)), s.childEnv(id))
 			if err != nil {
 				if cl.ctx.Err() != nil {
 					return

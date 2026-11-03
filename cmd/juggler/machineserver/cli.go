@@ -135,7 +135,7 @@ func RunOpenCommand(args []string, env CLIEnv) int {
 	if err != nil {
 		return cliFail(env, "open", err)
 	}
-	url := c.SessionURL(sess.ID)
+	url := c.SessionURL(sess)
 	fmt.Fprintln(env.Stdout, url)
 	if *browser && env.OpenBrowser != nil {
 		if err := env.OpenBrowser(url); err != nil {

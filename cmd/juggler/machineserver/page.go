@@ -96,10 +96,24 @@ type pageConfig struct {
 	// (localOnly). The page offers them only then; the routes refuse anyone
 	// else whatever the page shows.
 	Local bool `json:"local"`
+	// Open is the project the page opens as it loads, when it is served at a
+	// project's link whose session is not running (serveOpener); OpenMissing
+	// is set instead when the link names no project this server knows of.
+	Open        string `json:"open,omitempty"`
+	OpenMissing bool   `json:"openMissing,omitempty"`
+	// Confirm has the page ask before it opens Open: the visitor was sent
+	// from another site (serveOpener).
+	Confirm bool `json:"confirm,omitempty"`
 }
 
 // handlePage serves the sessions page. GET /.
 func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
+	s.servePage(w, r, http.StatusOK, pageConfig{})
+}
+
+// servePage serves the sessions page with status, its config carrying what
+// cfg sets of Open, OpenMissing and Confirm.
+func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, cfg pageConfig) {
 	if s.assets == nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -160,8 +174,10 @@ func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
 		HTMLLang:  lang,
 		UILocale:  locale,
 		UICatalog: catalog,
-		Config:    pageConfig{Token: s.token, Version: core.Version, Host: host, Local: s.callerKind(r) == ""},
+		Config: pageConfig{Token: s.token, Version: core.Version, Host: host, Local: s.callerKind(r) == "",
+			Open: cfg.Open, OpenMissing: cfg.OpenMissing, Confirm: cfg.Confirm},
 	}
+	w.WriteHeader(status)
 	if err := tmpl.Execute(w, data); err != nil {
 		jlog.Error("[machineserver] sessions page: %v", err)
 	}

@@ -373,7 +373,7 @@ func TestTunnelCallersAreGatedByTheirTunnel(t *testing.T) {
 // (A caller its transport names is TestDataChannelIngressIsTheTunnels'.)
 func TestTunnelCallersReachSessionsAsTheirMode(t *testing.T) {
 	s, local := tunnelServer(t, nil)
-	id := headerEcho(t, s)
+	headerEcho(t, s)
 	c := http.DefaultClient
 	if code, body := tunnelCall(t, c, "PUT", local+"/api/server/tunnel", "", `{"mode":"fwd-test"}`, nil); code != http.StatusOK {
 		t.Fatalf("PUT tunnel: %d %s", code, body)
@@ -382,7 +382,7 @@ func TestTunnelCallersReachSessionsAsTheirMode(t *testing.T) {
 
 	seen := func(base, host string, header http.Header) map[string]string {
 		t.Helper()
-		code, body := tunnelCall(t, c, "GET", base+"/s/"+id+"/", host, "", header)
+		code, body := tunnelCall(t, c, "GET", base+projectLink("/p"), host, "", header)
 		var m map[string]string
 		if code != http.StatusOK || json.Unmarshal([]byte(body), &m) != nil {
 			t.Fatalf("GET the session via %s: %d %s", base, code, body)
@@ -407,7 +407,7 @@ func TestTunnelCallersReachSessionsAsTheirMode(t *testing.T) {
 func TestDataChannelIngressIsTheTunnels(t *testing.T) {
 	p := &fakePeer{answer: make(chan struct{})}
 	s, local := tunnelServer(t, p)
-	id := headerEcho(t, s)
+	headerEcho(t, s)
 	if code, body := tunnelCall(t, http.DefaultClient, "PUT", local+"/api/server/tunnel", "", `{"mode":"offer-test"}`, nil); code != http.StatusOK {
 		t.Fatalf("PUT tunnel: %d %s", code, body)
 	}
@@ -432,7 +432,7 @@ func TestDataChannelIngressIsTheTunnels(t *testing.T) {
 	}
 	// A name the request itself carries is the caller forging one: the child
 	// hears the transport's.
-	code, body = tunnelCall(t, link, "GET", base+"/s/"+id+"/", "", "", http.Header{ingress.UserHeader: {`{"name":"mallory"}`}})
+	code, body = tunnelCall(t, link, "GET", base+projectLink("/p"), "", "", http.Header{ingress.UserHeader: {`{"name":"mallory"}`}})
 	var got map[string]string
 	var who tunnel.CallerIdentity
 	if err := json.Unmarshal([]byte(body), &got); code != http.StatusOK || err != nil || got["kind"] != string(offerMode) ||

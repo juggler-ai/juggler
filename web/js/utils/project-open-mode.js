@@ -34,7 +34,7 @@ export function externalServerHost(root = document.documentElement, loc = window
 
 /**
  * The machine server's sessions page: the root of the origin this session is
- * served from, which the session's own pages sit under (`/s/<id>/`) — or,
+ * served from, which the session's own pages sit under (`/p/<key>/`) — or,
  * over a rendezvous link, the link's address for it (utils/page-url.js).
  * @returns {string} Absolute URL of the sessions page.
  */

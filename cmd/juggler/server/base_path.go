@@ -10,8 +10,9 @@ import (
 )
 
 // forwardedPrefixHeader names the path prefix a reverse proxy mounts this
-// server under. The machine server's session proxy (`juggler serve`, /s/<id>/)
-// sets it on every request it forwards, replacing any value the client sent.
+// server under. The machine server's proxy (`juggler serve`, a project's link
+// /p/<key>/) sets it on every request it forwards, replacing any value the
+// client sent.
 const forwardedPrefixHeader = "X-Forwarded-Prefix"
 
 // maxBasePathLen bounds an accepted base path.

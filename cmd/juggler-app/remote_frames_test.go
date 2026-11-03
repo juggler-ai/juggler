@@ -15,7 +15,7 @@ import (
 )
 
 // TestARemoteWindowShowingASessionReopensWhereItWasLeft: a window onto a
-// server by URL spends its life on one of that server's sessions (/s/<id>),
+// server by URL spends its life on one of that server's sessions,
 // which is where it is when the app quits, but it opens next launch on the
 // server's own address, before its page has reopened the session. Its frame is
 // the server's, so the frame it was left at is the one it opens at.
@@ -28,7 +28,7 @@ func TestARemoteWindowShowingASessionReopensWhereItWasLeft(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	spec := windowSpec{url: srv.URL, connected: true, remoteProject: "/p"}
-	e := &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: srv.URL + "/s/abc123"}}
+	e := &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: srv.URL + "/p/proj-0123abcd"}}
 	registerWindow(a, e)
 	left := core.WindowState{X: 300, Y: 200, Width: 1500, Height: 1000, HasPos: true}
 	a.storeFrame(context.Background(), e, left)

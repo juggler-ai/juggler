@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -193,7 +194,7 @@ func TestSpawnedChildGetsItsOwnIngressSecret(t *testing.T) {
 	front := httptest.NewServer(asCaller("203.0.113.7:54321", s.routes()))
 	defer front.Close()
 
-	if got := fetchReport(t, front.URL+"/s/"+sess.ID+"/"); got.Header != first.EnvSecret {
+	if got := fetchReport(t, front.URL+sess.Link); got.Header != first.EnvSecret {
 		t.Fatalf("remote caller through the proxy: child saw %s %q, want its own secret %q", ingress.Header, got.Header, first.EnvSecret)
 	}
 }
@@ -253,7 +254,7 @@ func TestChildrenGetTheServersDeveloperFlags(t *testing.T) {
 		{"assets from disk", &Server{childAssetsFromDisk: true}, []string{"--assets-from-disk"}, []string{"--dev"}},
 		{"test with assets from disk", &Server{testChildren: true, childAssetsFromDisk: true}, []string{"--test", "--assets-from-disk"}, nil},
 	} {
-		got := c.s.childExtraArgs("s1")
+		got := c.s.childExtraArgs("/p/proj-00000000/")
 		for _, flag := range c.want {
 			if n := countArg(got, flag); n != 1 {
 				t.Errorf("%s: %s appears %d times in %q, want once", c.name, flag, n, got)
@@ -264,6 +265,18 @@ func TestChildrenGetTheServersDeveloperFlags(t *testing.T) {
 				t.Errorf("%s: %q passes %s", c.name, got, flag)
 			}
 		}
+	}
+}
+
+// TestTestChildrenWindowOpensTheirLink: a test server's child drives its
+// browser tests through this server's proxy, so its window loads the child's
+// own session at its address here: its project's link.
+func TestTestChildrenWindowOpensTheirLink(t *testing.T) {
+	s := &Server{testChildren: true, addr: "127.0.0.1:9"}
+	args := s.childExtraArgs("/p/proj-00000000/")
+	i := slices.Index(args, "--test-window-url")
+	if i < 0 || i+1 >= len(args) || args[i+1] != "http://127.0.0.1:9/p/proj-00000000/" {
+		t.Fatalf("test child's flags %q; want --test-window-url http://127.0.0.1:9/p/proj-00000000/", args)
 	}
 }
 

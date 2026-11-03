@@ -142,8 +142,12 @@ func TestMachineServerOnTheLAN(t *testing.T) {
 
 	// The link to this session its Settings → Connectivity shares for this
 	// LAN address — asked of the session by its viewer on this machine — is
-	// the one the other device opens.
-	prefix := "/s/" + sess.ID
+	// its project's link: where the session is served, and an address the
+	// other device can keep.
+	if !strings.HasPrefix(sess.Link, "/p/") {
+		t.Fatalf("the opened session names no project link: %+v", sess)
+	}
+	prefix := strings.TrimSuffix(sess.Link, "/")
 	local := "http://" + ms.Addr
 	code, localPage := lanCall(t, ms, http.MethodGet, local, prefix+"/", nil)
 	m := apiTokenPattern.FindStringSubmatch(localPage)
@@ -169,10 +173,9 @@ func TestMachineServerOnTheLAN(t *testing.T) {
 			link = u.Session.URL
 		}
 	}
-	if link != lan+prefix+"/" {
-		t.Fatalf("the session's LAN links %s: want %s, with its QR, for %s/", shared, lan+prefix+"/", lan)
+	if link != lan+sess.Link {
+		t.Fatalf("the session's LAN links %s: want %s, with its QR, for %s/", shared, lan+sess.Link, lan)
 	}
-
 	code, sessionPage := lanCall(t, ms, http.MethodGet, link, "", nil)
 	m = apiTokenPattern.FindStringSubmatch(sessionPage)
 	if code != http.StatusOK || m == nil {

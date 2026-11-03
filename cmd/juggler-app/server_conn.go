@@ -22,7 +22,7 @@ import (
 // with the bundled juggler's serve --implicit, detached), and attaches to it
 // for its whole life — whatever its windows show, and whether or not the
 // server runs any sessions. A local window is a view onto that server: a
-// project's session (/s/<id>/) or, empty, the server's own page.
+// project's session (at its project's link) or, empty, the server's own page.
 //
 // The attachment is recorded in connState, which one goroutine owns
 // (startConn) and every window asks for the server through (serverClient), so

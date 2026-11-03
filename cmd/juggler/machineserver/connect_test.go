@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -292,7 +291,7 @@ func TestOpenSessionWaitsForRunning(t *testing.T) {
 	if again, opened, err := c.OpenSession(proj); err != nil || again.ID != sess.ID || opened {
 		t.Fatalf("second OpenSession: %+v, opened %v, %v; want %s found, not spawned", again, opened, err, sess.ID)
 	}
-	if !strings.HasSuffix(c.SessionURL(sess.ID), "/s/"+sess.ID+"/") {
-		t.Fatalf("SessionURL(%s) = %s", sess.ID, c.SessionURL(sess.ID))
+	if got, want := c.SessionURL(sess), "http://"+c.Addr()+projectLink(proj); got != want {
+		t.Fatalf("SessionURL(%s) = %s, want the project's link %s", sess.ID, got, want)
 	}
 }

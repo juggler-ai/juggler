@@ -116,6 +116,74 @@ func TestRegistryStopAndExitInterplay(t *testing.T) {
 	}
 }
 
+// TestRegistryRouteKey: a project's key finds the session the project has, in
+// whatever state it is in, from the registry alone — the proxy routes every
+// request of a project's address by it. The child's ingress secret comes with
+// it only while there is a child. Once the session leaves, however it leaves,
+// the key finds nothing until the project is opened again, and then finds the
+// new session.
+func TestRegistryRouteKey(t *testing.T) {
+	r := newRegistry()
+	key := projectKey("/proj/a")
+	if _, _, ok := r.routeKey(key); ok {
+		t.Fatal("routeKey found a session before any was opened")
+	}
+
+	s, _ := r.reserve("/proj/a")
+	other, _ := r.reserve("/proj/b")
+	got, secret, ok := r.routeKey(key)
+	if !ok || got.ID != s.ID || got.State != SessionStarting || secret != "" {
+		t.Fatalf("starting: routeKey = %+v %q %v, want %s with no secret", got, secret, ok, s.ID)
+	}
+	if got, _, _ := r.routeKey(projectKey("/proj/b")); got.ID != other.ID {
+		t.Fatalf("routeKey(/proj/b) = %s, want %s", got.ID, other.ID)
+	}
+
+	c := &child{addr: "127.0.0.1:1", ingressSecret: "sekrit"}
+	r.setRunning(s.ID, c, 1)
+	if got, secret, ok := r.routeKey(key); !ok || got.State != SessionRunning || secret != "sekrit" {
+		t.Fatalf("running: routeKey = %+v %q %v, want running with its child's secret", got, secret, ok)
+	}
+
+	r.setRestarting(s.ID, c, "crashed", time.Now().Add(time.Hour))
+	if got, secret, ok := r.routeKey(key); !ok || got.State != SessionRestarting || secret != "" {
+		t.Fatalf("restarting: routeKey = %+v %q %v, want restarting with no secret", got, secret, ok)
+	}
+
+	r.failOwned(s.ID, nil, "gave up")
+	if got, _, ok := r.routeKey(key); !ok || got.State != SessionError {
+		t.Fatalf("error: routeKey = %+v %v, want the errored session", got, ok)
+	}
+	// An open replaces an errored session; the key follows it.
+	fresh, _ := r.reserve("/proj/a")
+	if got, _, ok := r.routeKey(key); !ok || got.ID != fresh.ID || fresh.ID == s.ID {
+		t.Fatalf("after reopen: routeKey = %+v %v, want the new session %s", got, ok, fresh.ID)
+	}
+
+	r.remove(fresh.ID)
+	if _, _, ok := r.routeKey(key); ok {
+		t.Fatal("routeKey found a removed session")
+	}
+
+	c2 := &child{addr: "127.0.0.1:2"}
+	again, _ := r.reserve("/proj/a")
+	r.setRunning(again.ID, c2, 2)
+	r.removeOwned(again.ID, c2)
+	if _, _, ok := r.routeKey(key); ok {
+		t.Fatal("routeKey found a session whose child exited")
+	}
+
+	errored, _ := r.reserve("/proj/a")
+	r.setError(errored.ID, "spawn failed")
+	r.expireUnavailable(time.Now().Add(sessionViewerGrace + time.Second))
+	if _, _, ok := r.routeKey(key); ok {
+		t.Fatal("routeKey found an errored session the grace dismissed")
+	}
+	if _, _, ok := r.routeKey(""); ok {
+		t.Fatal("routeKey found a session for the empty key")
+	}
+}
+
 func TestRegistrySetRunningOnRemovedReservation(t *testing.T) {
 	r := newRegistry()
 	s, _ := r.reserve("/p")

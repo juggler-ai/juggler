@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"juggler/cmd/juggler/msg"
@@ -80,8 +79,8 @@ type lanURL struct {
 	Session *pageLink `json:"session,omitempty"`
 }
 
-// pageLink is one page of this server — a session's, under /s/<id>/ — at one
-// of its addresses, with its QR code.
+// pageLink is one page of this server — a session's, at its project's link —
+// at one of its addresses, with its QR code.
 type pageLink struct {
 	URL string `json:"url"`
 	QR  string `json:"qr,omitempty"`
@@ -96,19 +95,21 @@ func newPageLink(u string) *pageLink {
 	return link
 }
 
-// askedSession is the path of the session a LAN or tunnel request asks about
+// askedSession is the path a LAN or tunnel request's session is offered at
 // (?session=<id>, a session child asking for its own links), or "" when it
-// names none this server has. The path is the proxy's (handleSessionProxy),
-// built from the escaped id.
+// names none this server has: its project's link (projectlink.go), which is
+// where the session is served, and opens whichever session the project has
+// when someone who scanned or kept it comes back.
 func (s *Server) askedSession(r *http.Request) string {
 	id := r.URL.Query().Get("session")
 	if id == "" {
 		return ""
 	}
-	if _, ok := s.reg.get(id); !ok {
+	sess, ok := s.reg.get(id)
+	if !ok {
 		return ""
 	}
-	return "/s/" + url.PathEscape(id) + "/"
+	return projectLink(sess.Project)
 }
 
 // lanResponse is the GET/PUT /api/server/lan payload: whether LAN access is

@@ -232,9 +232,9 @@ type Client struct {
 // Addr is the server's host:port.
 func (c *Client) Addr() string { return c.addr }
 
-// SessionURL is where a session is served on this server.
-func (c *Client) SessionURL(id string) string {
-	return "http://" + c.addr + "/s/" + id + "/"
+// SessionURL is where a session is served on this server: its project's link.
+func (c *Client) SessionURL(s Session) string {
+	return "http://" + c.addr + s.Link
 }
 
 // OpenSession opens (or finds) the session for project, an absolute folder,

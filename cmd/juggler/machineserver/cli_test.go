@@ -176,7 +176,7 @@ func TestCLIOpen(t *testing.T) {
 		t.Fatalf("sessions after open = %+v, want one for %s", list, proj)
 	}
 	info := NewMachineLock(userpaths.ConfigDir()).readInfo()
-	want := "http://" + info.Addr + "/s/" + list[0].ID + "/"
+	want := "http://" + info.Addr + projectLink(proj)
 	if strings.TrimSpace(out) != want {
 		t.Fatalf("open printed %q, want %q", out, want)
 	}

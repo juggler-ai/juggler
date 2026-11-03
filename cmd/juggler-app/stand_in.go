@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"juggler/cmd/juggler/machineserver"
@@ -557,11 +558,13 @@ func (a *appState) serverOfWindow(proc serverProc) (c *machineserver.Client, gon
 	}
 }
 
-// sessionRunning reports whether the session serverURL shows (its /s/<id>
-// path) is running on c's server, and whether the server answered (never, for
-// a nil c). The server's own page is always there while the server is.
+// sessionRunning reports whether the session serverURL shows (its project's
+// link) is running on c's server, and whether the server answered (never, for
+// a nil c). The server's own page is always there while the server is. The
+// session is whichever the project has: one opened since the window's was is
+// the window's too, as its page will find when it reconnects.
 func (a *appState) sessionRunning(c *machineserver.Client, serverURL string) (running, answered bool) {
-	id, ok := sessionIDOf(serverURL)
+	mount, ok := sessionMountOf(serverURL)
 	if !ok {
 		return true, true
 	}
@@ -573,22 +576,30 @@ func (a *appState) sessionRunning(c *machineserver.Client, serverURL string) (ru
 		return false, false
 	}
 	for _, s := range list {
-		if s.ID == id {
+		if strings.TrimSuffix(s.Link, "/") == mount {
 			return s.State == machineserver.SessionRunning || s.State == machineserver.SessionRestarting, true
 		}
 	}
 	return false, true
 }
 
-// sessionIDOf is the session id in a window's server URL (…/s/<id>), if it
-// names one.
-func sessionIDOf(serverURL string) (string, bool) {
-	i := strings.LastIndex(serverURL, "/s/")
-	if i < 0 {
+// sessionMountPath matches the end of a window's server URL that shows a
+// session: its project's link, /p/<key>, or, on a server by URL older than
+// project links, /s/<id>.
+var sessionMountPath = regexp.MustCompile(`/(p/[a-z0-9-]+|s/[A-Za-z0-9_-]+)/?$`)
+
+// sessionMountOf is where in a window's server URL its session is served,
+// without the trailing slash, if the URL shows one.
+func sessionMountOf(serverURL string) (string, bool) {
+	u, err := url.Parse(serverURL)
+	if err != nil {
 		return "", false
 	}
-	id := strings.Trim(serverURL[i+len("/s/"):], "/")
-	return id, id != "" && !strings.Contains(id, "/")
+	m := sessionMountPath.FindString(u.Path)
+	if m == "" {
+		return "", false
+	}
+	return strings.TrimSuffix(m, "/"), true
 }
 
 // controlOpenLocal is an unreachable server's way out: the window shows this

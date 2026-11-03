@@ -199,7 +199,7 @@ func TestBareJugglerWithNoServerServesInItsForeground(t *testing.T) {
 	if len(list) != 1 || list[0].Project != proj || list[0].State != SessionRunning {
 		t.Fatalf("sessions = %+v, want one running for %s", list, proj)
 	}
-	if want := "http://" + s.addr + "/s/" + list[0].ID + "/"; url != want {
+	if want := "http://" + s.addr + projectLink(proj); url != want {
 		t.Fatalf("ready at %s, want %s", url, want)
 	}
 	out := run.out.text()
@@ -285,7 +285,7 @@ func TestBareJugglerAttachesToTheRunningServer(t *testing.T) {
 	run := runTerminal(t, TerminalOptions{Project: proj})
 	url := run.waitReady(t)
 	list := sessionsOf(t, c)
-	if len(list) != 1 || list[0].Project != proj || url != c.SessionURL(list[0].ID) {
+	if len(list) != 1 || list[0].Project != proj || url != c.SessionURL(list[0]) {
 		t.Fatalf("sessions %+v, ready at %s; want one for %s at its URL", list, url, proj)
 	}
 	waitStatusAttached(t, c, 2)
@@ -331,8 +331,8 @@ func TestBareJugglerLeavesASessionItDidNotOpen(t *testing.T) {
 	t.Cleanup(viewer.Close)
 
 	run := runTerminal(t, TerminalOptions{Project: proj})
-	if url := run.waitReady(t); url != c.SessionURL(sess.ID) {
-		t.Fatalf("ready at %s, want the open session's %s", url, c.SessionURL(sess.ID))
+	if url := run.waitReady(t); url != c.SessionURL(sess) {
+		t.Fatalf("ready at %s, want the open session's %s", url, c.SessionURL(sess))
 	}
 	if !strings.Contains(run.out.text(), "Ctrl-C detaches from this session.") {
 		t.Errorf("stdout %q, want it to say Ctrl-C leaves the session", run.out.text())
@@ -671,7 +671,7 @@ func TestForegroundOpenReturnsViewerHoldToServe(t *testing.T) {
 		t.Fatal("foreground open returned without a viewer hold for Serve")
 	}
 	defer release()
-	if want := "http://" + s.addr + "/s/" + sess.ID + "/"; ready != want {
+	if want := "http://" + s.addr + sess.Link; ready != want {
 		t.Fatalf("ready at %q, want %q", ready, want)
 	}
 	noSession, err := s.openForeground(&Foreground{Out: io.Discard})

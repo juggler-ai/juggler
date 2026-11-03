@@ -118,8 +118,8 @@ servers you trust.
 
 ### Sessions share one origin (by design)
 
-Every session's UI is served from the server's own address, under
-`/s/<id>/`, and the sessions page at `/` carries the server's control token
+Every session's UI is served from the server's own address, under its
+project's link `/p/<key>/`, and the sessions page at `/` carries the server's control token
 for whoever may load it — on the LAN, through a proxy or a tunnel too. To the
 browser they are all one origin. So script
 running in any session's page — for example an extension you installed in

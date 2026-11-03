@@ -24,6 +24,21 @@ export const TOKEN_HEADER = 'X-Juggler-Token';
  * @property {string} host - The machine's name.
  * @property {boolean} local - The page was loaded on this machine, which alone
  *   may switch LAN access and tunnels and choose what opens at start.
+ * @property {string} [open] - The project to open as the page loads: the page
+ *   was served at that project's link, /p/<key>/, while it had no running
+ *   session ('' or absent for none).
+ * @property {boolean} [openMissing] - The page was served at a project link
+ *   that names no project the server knows of.
+ * @property {boolean} [confirm] - Ask before opening `open`: another site sent
+ *   the visitor here.
+ */
+
+/**
+ * The machine's recent projects, as the control API serves them.
+ * @typedef {object} Recents
+ * @property {string[]} paths - The folders, most recent first.
+ * @property {Record<string, string>} links - Each folder's project link,
+ *   /p/<key>/ (absent for a folder the server named none for).
  */
 
 /**
@@ -35,8 +50,11 @@ export const TOKEN_HEADER = 'X-Juggler-Token';
 /**
  * A session as the control API lists it (machineserver.Session).
  * @typedef {object} Session
- * @property {string} id - Its ID, the <id> of its /s/<id>/ URL.
+ * @property {string} id - Its handle in the control API (stop, attach). It is
+ *   minted at every open, so it is no address.
  * @property {string} project - The project folder it runs.
+ * @property {string} link - Where it is served: its project's link, /p/<key>/,
+ *   which outlives it and serves the project's next session.
  * @property {'starting'|'running'|'stopping'|'restarting'|'error'} state - Where its child is in its life.
  * @property {string} [error] - Why it failed, or how its child last ended.
  * @property {string} startedAt - When it was opened.
@@ -55,7 +73,15 @@ export function readPageConfig(doc = document) {
   const el = doc.getElementById('machine-config');
   /** @type {Partial<PageConfig>} */
   const raw = el ? JSON.parse(el.textContent || '{}') : {};
-  return { token: raw.token || '', version: raw.version || '', host: raw.host || '', local: raw.local === true };
+  return {
+    token: raw.token || '',
+    version: raw.version || '',
+    host: raw.host || '',
+    local: raw.local === true,
+    open: typeof raw.open === 'string' ? raw.open : '',
+    openMissing: raw.openMissing === true,
+    confirm: raw.confirm === true,
+  };
 }
 
 /** A control-API call the server refused or could not answer. */
@@ -82,9 +108,9 @@ export class ControlApiError extends Error {
  * @param {typeof fetch} [options.fetchImpl] - Fetch to send with.
  * @returns {{
  *   listSessions: () => Promise<Session[]>,
- *   openSession: (project: string) => Promise<Session>,
+ *   openSession: (project: string, options?: {wait?: boolean}) => Promise<Session>,
  *   stopSession: (id: string) => Promise<void>,
- *   recents: () => Promise<string[]>,
+ *   recents: () => Promise<Recents>,
  *   createFolder: (parent: string, name: string) => Promise<string>,
  *   getLAN: () => Promise<LANState>,
  *   setLAN: (enabled: boolean) => Promise<LANState>,
@@ -140,9 +166,15 @@ export function createControlApi({ token, fetchImpl = (input, init) => fetch(inp
 
   return {
     listSessions: async () => /** @type {Session[]} */ (await request('GET', '/sessions')),
-    openSession: async (project) => /** @type {Session} */ (await request('POST', '/sessions', { project })),
+    // With wait, a spawn already in flight for the project is waited for, and
+    // answered as it settles; without, it is answered as starting at once.
+    openSession: async (project, { wait = false } = {}) => /** @type {Session} */ (
+      await request('POST', '/sessions', wait ? { project, wait } : { project })),
     stopSession: async (id) => { await request('DELETE', `/sessions/${encodeURIComponent(id)}`); },
-    recents: async () => (/** @type {{paths?: string[]}|null} */ (await request('GET', '/recents')) || {}).paths || [],
+    recents: async () => {
+      const body = /** @type {{paths?: string[], links?: Record<string, string>}|null} */ (await request('GET', '/recents')) || {};
+      return { paths: body.paths || [], links: body.links || {} };
+    },
     // Makes the folder `name` directly inside `parent` and answers its absolute
     // path; it opens nothing.
     createFolder: async (parent, name) => (/** @type {{path: string}} */ (await request('POST', '/folders', { parent, name }))).path,

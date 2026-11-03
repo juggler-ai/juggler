@@ -66,7 +66,8 @@ async function reopen() {
 export function desktopHost({ external }) {
   /** @type {import('./sessions-view.js').NativeHost} */
   const host = {
-    attach: (id, project) => post('attach', `?session=${encodeURIComponent(id)}&project=${encodeURIComponent(project)}`),
+    attach: (id, project, link) => post('attach',
+      `?session=${encodeURIComponent(id)}&project=${encodeURIComponent(project)}&link=${encodeURIComponent(link)}`),
     answerClose: reportDraftsFlushed,
     openURL: openExternalURL,
   };

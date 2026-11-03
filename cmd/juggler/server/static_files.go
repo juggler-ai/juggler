@@ -340,7 +340,7 @@ const projectStorageKeyLen = 16
 // uses to namespace its own localStorage.
 //
 // The page origin identifies the machine server, not a project: every session
-// it runs is served from that one origin under /s/<id>/, so a bare key can hold
+// it runs is served from that one origin under /p/<key>/, so a bare key can hold
 // the value another project left behind; and a viewer reaching the server over
 // the studio relay sees a single origin for every project on every machine it
 // connects to. Keyed by this, a cached preference belongs to
@@ -476,8 +476,8 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		HarnessPage:   s.test.harnessPage,
 		IsDevMode:     s.devMode,
 		APIToken:      s.apiToken,
-		// Where the client mounted this server: "" directly, /s/<id> behind
-		// the machine server's session proxy.
+		// Where the client mounted this server: "" directly, /p/<key> behind
+		// the machine server's proxy.
 		BasePath:         requestBasePath(r),
 		MachineZoom:      machineZoom,
 		MachineThemeMode: machineThemeMode,

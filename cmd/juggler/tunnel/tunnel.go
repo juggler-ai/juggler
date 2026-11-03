@@ -131,7 +131,7 @@ type ModeSpec struct {
 	// required helper binary is installed). nil means always available.
 	Available func() bool
 
-	// PageURL is the address of the server's page at path ("/s/<id>/")
+	// PageURL is the address of the server's page at path ("/p/<key>/")
 	// through a tunnel whose link (Info.URL) opens the server's root. nil
 	// means the link's own origin serves the server's paths, so the path is
 	// joined to it. A mode whose link is a bootstrap that loads the server's

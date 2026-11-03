@@ -77,7 +77,7 @@
             // Opaque per-project key from the server, namespacing this origin's
             // localStorage. The origin identifies the machine server, not a
             // project — every session it runs is served from it under
-            // /s/<id>/, and a viewer arriving over the studio relay sees one
+            // /p/<key>/, and a viewer arriving over the studio relay sees one
             // origin for every project on every machine — so a bare key would
             // hand this project whatever another left behind. A page the
             // server injected none into uses the bare key.
@@ -327,8 +327,8 @@
         // sites need no individual change. WebSocket dials pass it as a query
         // param (see services/websocket.js).
         window.__jugglerToken = '{{.APIToken}}';
-        // Where this server is mounted: '' when reached directly, '/s/<id>'
-        // behind the machine server's session proxy. Every /api and WebSocket
+        // Where this server is mounted: '' when reached directly, '/p/<key>'
+        // behind the machine server's proxy. Every /api and WebSocket
         // URL is built on it (utils/api-url.js).
         window.__jugglerBase = '{{.BasePath}}';
         (function () {

@@ -36,8 +36,14 @@ const (
 // Session is the public registry record for one session child, as served by
 // the control API.
 type Session struct {
-	ID        string       `json:"id"`
-	Project   string       `json:"project"`
+	// ID is the session's handle in the control API (stop, attach) and to its
+	// own child. It is minted afresh at every open, so it is no address.
+	ID      string `json:"id"`
+	Project string `json:"project"`
+	// Link is where the session is served, its project's link /p/<key>/
+	// (projectlink.go) — an address that outlives the session, and serves the
+	// project's next one.
+	Link      string       `json:"link"`
 	Addr      string       `json:"addr,omitempty"`
 	PID       int          `json:"pid,omitempty"`
 	State     SessionState `json:"state"`
@@ -64,6 +70,8 @@ type Session struct {
 // sessionEntry pairs the public record with the live child handle.
 type sessionEntry struct {
 	Session
+	// key is the project's key (projectKey), which the proxy routes by.
+	key   string
 	child *child
 	// cancel ends the session's context (claim.ctx), and done is the claim's
 	// channel, closed once its spawner or supervisor has let the session go.
@@ -198,16 +206,24 @@ func (r *registry) get(id string) (Session, bool) {
 	return s, ok
 }
 
-// route returns the public record for id together with its live child's
-// ingress secret ("" with no live child) — what the proxy needs to forward a
-// request. The secret stays out of Session so it can never be served.
-func (r *registry) route(id string) (s Session, secret string, ok bool) {
+// routeKey returns the record of the session of the project whose key is key,
+// together with its live child's ingress secret ("" with no live child) — what
+// the proxy needs to forward a request of the project's link. The secret stays
+// out of Session so it can never be served. It reads the registry alone: a
+// project has at most one session at a time (open), so the key names at most
+// one entry, and the live sessions are few enough that a scan costs no more
+// than the actor's round trip.
+func (r *registry) routeKey(key string) (s Session, secret string, ok bool) {
 	r.do(func(m map[string]*sessionEntry) {
-		if e, found := m[id]; found {
+		for _, e := range m {
+			if key == "" || e.key != key {
+				continue
+			}
 			s, ok = e.Session, true
 			if e.child != nil {
 				secret = e.child.ingressSecret
 			}
+			return
 		}
 	})
 	return s, secret, ok
@@ -260,8 +276,9 @@ func (r *registry) open(parent context.Context, project string, work *sync.WaitG
 		e := &sessionEntry{Session: Session{
 			ID:        id,
 			Project:   project,
+			Link:      projectLink(project),
 			StartedAt: time.Now(),
-		}, cancel: cancel, done: make(chan struct{}), unviewedSince: time.Now()}
+		}, key: projectKey(project), cancel: cancel, done: make(chan struct{}), unviewedSince: time.Now()}
 		e.setState(SessionStarting)
 		m[id] = e
 		work.Add(1)

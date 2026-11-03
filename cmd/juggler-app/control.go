@@ -13,8 +13,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -365,7 +367,7 @@ func (a *appState) controlAttach(w http.ResponseWriter, r *http.Request, e *winE
 	}
 	for _, s := range list {
 		if s.ID == id && s.State == machineserver.SessionRunning {
-			a.showView(e, showing(v), windowView{spec: windowSpec{project: s.Project}, serverURL: strings.TrimSuffix(c.SessionURL(id), "/"), server: v.server}, windowOpts{})
+			a.showView(e, showing(v), windowView{spec: windowSpec{project: s.Project}, serverURL: strings.TrimSuffix(c.SessionURL(s), "/"), server: v.server}, windowOpts{})
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -373,23 +375,46 @@ func (a *appState) controlAttach(w http.ResponseWriter, r *http.Request, e *winE
 	writeJSON(w, http.StatusNotFound, map[string]any{"error": attachNotRunning.English(), "message": attachNotRunning})
 }
 
-// attachRemote shows session ?session= of the window's server by URL in the
-// window: its page has opened the session through that server's own control
-// API, which this app holds no credential for, so the app only moves the
-// window to /s/<id>/ there. The id must be one (normaliseID), so the page can
-// send the window nowhere but a session of its own server. The window stays
-// that server's, filed with the session's ?project= (windowSpec.remoteProject)
-// so a next launch can open that project's session there again.
+// attachRemote shows the session the window's server by URL serves at
+// ?link= in the window: its page has opened the session through that server's
+// own control API, which this app holds no credential for, so the app only
+// moves the window to the session's link there (remoteSessionPath). The window
+// stays that server's, filed with the session's ?project=
+// (windowSpec.remoteProject) so a next launch can open that project's session
+// there again.
 func (a *appState) attachRemote(w http.ResponseWriter, r *http.Request, e *winEntry, v windowView) {
-	id := normaliseID(r.URL.Query().Get("session"))
-	if id == "" {
+	path, ok := remoteSessionPath(r.URL.Query())
+	if !ok {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": attachNotRunning.English(), "message": attachNotRunning})
 		return
 	}
 	spec := v.spec
 	spec.remoteProject = strings.TrimSpace(r.URL.Query().Get("project"))
-	a.showView(e, showing(v), windowView{spec: spec, serverURL: strings.TrimRight(spec.url, "/") + "/s/" + id}, windowOpts{})
+	a.showView(e, showing(v), windowView{spec: spec, serverURL: strings.TrimRight(spec.url, "/") + path}, windowOpts{})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// projectLinkPath is a project's link as a server names it, /p/<key>/
+// (machineserver/projectlink.go).
+var projectLinkPath = regexp.MustCompile(`^/p/[a-z0-9-]+/$`)
+
+// remoteSessionPath is the path, without its trailing slash, at which a
+// server by URL serves the session an attach names: ?link=, which must be a
+// project's link, or — from the page of a server older than project links,
+// which names none — /s/<?session=>, the id normalised (normaliseID). Either
+// way the page can send the window nowhere but a session of its own server; a
+// link that is not one is refused, never passed over for the id.
+func remoteSessionPath(q url.Values) (string, bool) {
+	if link := q.Get("link"); link != "" {
+		if !projectLinkPath.MatchString(link) {
+			return "", false
+		}
+		return strings.TrimSuffix(link, "/"), true
+	}
+	if id := normaliseID(q.Get("session")); id != "" {
+		return "/s/" + id, true
+	}
+	return "", false
 }
 
 // controlServerPage shows the window's server's sessions page in it again:

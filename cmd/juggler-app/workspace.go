@@ -136,7 +136,7 @@ func (a *appState) resolveWindow(spec windowSpec, start bool) (string, serverPro
 		project := expandProject(spec.project)
 		sess, _, err := c.OpenSession(project)
 		if err == nil {
-			return strings.TrimSuffix(c.SessionURL(sess.ID), "/"), procOf(c), nil
+			return strings.TrimSuffix(c.SessionURL(sess), "/"), procOf(c), nil
 		}
 		if machineserver.ServerGoing(err) && attempt < connectAttempts {
 			// Caught the server on its way out: once it has gone, the next

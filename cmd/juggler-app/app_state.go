@@ -109,8 +109,9 @@ type windowView struct {
 	// spec is what the window views (project or URL): its workspace identity.
 	spec windowSpec
 	// serverURL is where its page is served from, which it posts and reads its
-	// geometry to: a session's /s/<id> on this machine's server, that server's
-	// root for an empty window, or a server by URL. Empty for a stand-in.
+	// geometry to: a session's project link on this machine's server, that
+	// server's root for an empty window, or a server by URL. Empty for a
+	// stand-in.
 	serverURL string
 	// server is the process of this machine's server the page is served by,
 	// zero for a server by URL or a stand-in: an address alone does not tell a

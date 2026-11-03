@@ -110,6 +110,12 @@ func newStubMachineServerBuild(t *testing.T, a *appState, version, build string)
 	return s
 }
 
+// stubLink is the link the stand-in serves project's session at, as a server
+// serves each project's session at a link of its own.
+func stubLink(project string) string {
+	return "/p/stub" + strings.ReplaceAll(project, "/", "-") + "/"
+}
+
 // addr is the stand-in's host:port.
 func (s *stubMachineServer) addr() string { return s.srv.Listener.Addr().String() }
 
@@ -196,7 +202,7 @@ func (s *stubMachineServer) serve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, cmp.Or(int(s.refuseStatus.Load()), http.StatusBadRequest), map[string]string{"error": *msg})
 			return
 		}
-		writeJSON(w, http.StatusCreated, machineserver.Session{ID: "s1", Project: req.Project, State: machineserver.SessionRunning})
+		writeJSON(w, http.StatusCreated, machineserver.Session{ID: "s1", Project: req.Project, Link: stubLink(req.Project), State: machineserver.SessionRunning})
 	case r.Method == http.MethodPost && path == "/shutdown":
 		var req struct {
 			Expect *machineserver.Occupancy `json:"expect"`
@@ -266,7 +272,7 @@ func TestTheAppAttachesOnceAndAgainWhenItsAttachmentIsDropped(t *testing.T) {
 	a := newTestAppState(t)
 	lost := lostWindows(t)
 	srv := newStubMachineServer(t, a, core.Version)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://" + srv.addr() + "/s/s1"}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://" + srv.addr() + "/p/stub-p"}})
 
 	for range 3 {
 		c, err := a.serverClient(true)
@@ -306,10 +312,10 @@ func TestTheAppsLocalWindowsStandInAtOnceWhenItsServerGoes(t *testing.T) {
 		t.Fatal(err)
 	}
 	on := procOf(c)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: on}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + "/p/stub-p", server: on}})
 	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{}, serverURL: base, server: on}})
 	registerWindow(a, &winEntry{id: "w3", role: roleMain, view: windowView{spec: windowSpec{url: "http://devbox:8080", connected: true}, serverURL: "http://devbox:8080"}})
-	registerWindow(a, &winEntry{id: "w4", role: rolePinboardFor("b"), board: "b", openedBy: "w1", view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: on}})
+	registerWindow(a, &winEntry{id: "w4", role: rolePinboardFor("b"), board: "b", openedBy: "w1", view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + "/p/stub-p", server: on}})
 	registerWindow(a, &winEntry{id: "w5", role: roleMain, view: windowView{spec: windowSpec{project: "/q"}, standIn: &standIn{kind: standInFailed}, server: on}})
 
 	srv.gone()
@@ -332,8 +338,8 @@ func TestALostServerTakesOnlyTheWindowsOpenedOnIt(t *testing.T) {
 	lost := lostWindows(t)
 	base := "http://127.0.0.1:3939"
 	old, fresh := serverProc{addr: "127.0.0.1:3939", pid: 101}, serverProc{addr: "127.0.0.1:3939", pid: 202}
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: old}})
-	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/q"}, serverURL: base + "/s/s1", server: fresh}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + "/p/stub-p", server: old}})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/q"}, serverURL: base + "/p/stub-q", server: fresh}})
 
 	a.serverLost(old)
 	if id := <-lost; id != "w1" {
@@ -362,7 +368,7 @@ func TestAWindowThatLosesItsServerStaysTheSameWindow(t *testing.T) {
 	}
 	proc := procOf(c)
 	spec := windowSpec{project: "/p"}
-	e := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: c.SessionURL("s1"), server: proc}})
+	e := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: c.SessionURL(machineserver.Session{Link: stubLink("/p")}), server: proc}})
 	before := controlSecretOf(a, "w1")
 
 	a.serverLost(proc)
@@ -392,7 +398,7 @@ func TestAWindowThatLosesItsServerStaysTheSameWindow(t *testing.T) {
 		t.Fatalf("Try again opened %q, want /p", project)
 	}
 	a.reg(func(st *regState) { now, n, same = e.view, len(st.windows), st.windows["w1"] == e })
-	if !same || n != 1 || now.spec != spec || now.server != proc || now.serverURL != strings.TrimSuffix(c.SessionURL("s1"), "/") {
+	if !same || n != 1 || now.spec != spec || now.server != proc || now.serverURL != strings.TrimSuffix(c.SessionURL(machineserver.Session{Link: stubLink("/p")}), "/") {
 		t.Fatalf("after Try again: w1 the same window %v of %d, showing %+v; want the session again, on %+v", same, n, now, proc)
 	}
 }
@@ -419,8 +425,8 @@ func TestALostServerTheAppDidNotStartIsLookedForNotStarted(t *testing.T) {
 
 	ours := serverProc{addr: "127.0.0.1:3939", pid: 101, appStarted: true}
 	terminals := serverProc{addr: "127.0.0.1:3939", pid: 202}
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/s/s1", server: ours}})
-	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/q"}, serverURL: "http://127.0.0.1:3939/s/s2", server: terminals}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/p/stub-p", server: ours}})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/q"}, serverURL: "http://127.0.0.1:3939/p/stub-q", server: terminals}})
 
 	a.serverLost(ours)
 	if si := <-got; si.startedElsewhere || strings.Join(standInActions(si), ",") != "retry-server" {
@@ -461,7 +467,7 @@ func TestAWindowIsReplacedOnceWhenItsServerGoes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://" + srv.addr() + "/s/s1", server: procOf(c)}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://" + srv.addr() + "/p/stub-p", server: procOf(c)}})
 
 	srv.gone()
 	if id := <-lost; id != "w1" {
@@ -490,7 +496,7 @@ func TestAServerThatIsThereButRefusesTheAttachmentLeavesItsWindows(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://" + srv.addr() + "/s/s1", server: procOf(c)}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://" + srv.addr() + "/p/stub-p", server: procOf(c)}})
 	var att *machineserver.Attachment
 	a.withConn(func(st *connState) { att = st.att })
 
@@ -671,8 +677,8 @@ func TestAWindowResolvesToItsProjectsSessionOrTheServersPage(t *testing.T) {
 
 	got, server, err := a.resolveWindow(windowSpec{project: proj}, true)
 	on := serverProc{addr: srv.addr(), pid: os.Getpid()}
-	if err != nil || got != base+"/s/s1" || server != on {
-		t.Fatalf("resolve a project: %q on %+v, %v; want %s/s/s1 on %+v", got, server, err, base, on)
+	if want := base + strings.TrimSuffix(stubLink(proj), "/"); err != nil || got != want || server != on {
+		t.Fatalf("resolve a project: %q on %+v, %v; want its link %s on %+v", got, server, err, want, on)
 	}
 	if p := <-srv.opened; p != proj {
 		t.Fatalf("opened %q, want %q", p, proj)
@@ -700,9 +706,9 @@ func TestAttachShowsAChosenSessionInTheEmptyWindow(t *testing.T) {
 	a.workspace = newWorkspaceStoreAt(workspacePath(t))
 	srv := newStubMachineServer(t, a, core.Version)
 	base := "http://" + srv.addr()
-	srv.list.Store(&[]machineserver.Session{{ID: "s7", Project: "/work/alpha", State: machineserver.SessionRunning}})
+	srv.list.Store(&[]machineserver.Session{{ID: "s7", Project: "/work/alpha", Link: "/p/alpha-0123abcd/", State: machineserver.SessionRunning}})
 	empty := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{serverURL: base}})
-	showing := registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/work/beta"}, serverURL: base + "/s/s2"}})
+	showing := registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/work/beta"}, serverURL: base + "/p/beta-0123abcd"}})
 	if _, err := a.serverClient(true); err != nil {
 		t.Fatal(err)
 	}
@@ -724,8 +730,8 @@ func TestAttachShowsAChosenSessionInTheEmptyWindow(t *testing.T) {
 	var spec windowSpec
 	var url string
 	a.reg(func(*regState) { spec, url = empty.view.spec, empty.view.serverURL })
-	if spec != (windowSpec{project: "/work/alpha"}) || url != base+"/s/s7" {
-		t.Fatalf("after attach the window is %+v on %s; want /work/alpha on %s/s/s7", spec, url, base)
+	if spec != (windowSpec{project: "/work/alpha"}) || url != base+"/p/alpha-0123abcd" {
+		t.Fatalf("after attach the window is %+v on %s; want /work/alpha at its link on %s", spec, url, base)
 	}
 	// Let the workspace save land before the test's directory goes.
 	a.workspace.flush(nil)

@@ -79,13 +79,13 @@ func TestRegisterModeAfterSealPanics(t *testing.T) {
 func TestLinkTo(t *testing.T) {
 	plain := ModeSpec{}
 	for _, link := range []string{"https://relay.example", "https://relay.example/"} {
-		if got := plain.LinkTo(link, "/s/abc/"); got != "https://relay.example/s/abc/" {
-			t.Errorf("default LinkTo(%q) = %q, want https://relay.example/s/abc/", link, got)
+		if got := plain.LinkTo(link, "/p/abc-0123abcd/"); got != "https://relay.example/p/abc-0123abcd/" {
+			t.Errorf("default LinkTo(%q) = %q, want https://relay.example/p/abc-0123abcd/", link, got)
 		}
 	}
 	bootstrap := ModeSpec{PageURL: func(link, path string) string { return link + "#" + path }}
-	if got := bootstrap.LinkTo("https://rv.example/c/xyz", "/s/abc/"); got != "https://rv.example/c/xyz#/s/abc/" {
-		t.Errorf("a mode's own PageURL: %q, want https://rv.example/c/xyz#/s/abc/", got)
+	if got := bootstrap.LinkTo("https://rv.example/c/xyz", "/p/abc-0123abcd/"); got != "https://rv.example/c/xyz#/p/abc-0123abcd/" {
+		t.Errorf("a mode's own PageURL: %q, want https://rv.example/c/xyz#/p/abc-0123abcd/", got)
 	}
 }
 

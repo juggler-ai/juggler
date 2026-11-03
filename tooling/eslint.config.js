@@ -436,7 +436,7 @@ export default [
   // Every /api URL is built by web/js/utils/api-url.js
   // ===================================================================
   // A server may be mounted under a path prefix (the machine server's
-  // /s/<id>/), so client code never writes an absolute '/api/…' URL. Tests
+  // /p/<key>/), so client code never writes an absolute '/api/…' URL. Tests
   // are exempt: they match request URLs in fetch stubs, not build them. The
   // machine server's sessions page always sits at its origin's root, so its
   // one API client, control-api.js, addresses /api/server/* as written.

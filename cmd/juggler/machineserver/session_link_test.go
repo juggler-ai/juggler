@@ -12,19 +12,23 @@ import (
 	"testing"
 
 	"juggler/internal/qrsvg"
+	"juggler/web"
 )
 
 // TestSessionLinksOpenTheirSession: asked about a session, the LAN and tunnel
 // routes name, beside each way in's own address, that session's address
-// through it, with the QR a phone scans — and each address really opens the
-// session: through this server's listener from the LAN, under the LAN
-// address's own Host, and through a relay under its public host. A mode whose
-// link loads pages its own way (a rendezvous bootstrap's #/path) names the
-// session that way. A session it does not have, or none, gets no link.
+// through it — its project's link, which someone scans once and keeps — with
+// the QR a phone scans. Each address really opens the session: through this
+// server's listener from the LAN, under the LAN address's own Host, and
+// through a relay under its public host; and while the session is not running
+// it opens the page that opens it again. A mode whose link loads pages its own
+// way (a rendezvous bootstrap's #/path) names the session that way. A session
+// it does not have, or none, gets no link.
 func TestSessionLinksOpenTheirSession(t *testing.T) {
 	s, local := tunnelServer(t, nil)
+	s.assets, s.uiLocale = web.Files, func() string { return "" }
 	id := headerEcho(t, s)
-	path := "/s/" + id + "/"
+	path := projectLink("/p")
 	c := http.DefaultClient
 
 	// reached GETs u's path and Host through front, and returns how the
@@ -87,6 +91,18 @@ func TestSessionLinksOpenTheirSession(t *testing.T) {
 	wantQR(tun.Running.Session, "relay session link")
 	if seen := reached("http://"+lastForward.Load().addr, tun.Running.Session.URL); seen["kind"] != string(fwdMode) || seen["secret"] != "child-secret" {
 		t.Errorf("relay session link: the child saw %v; want a caller of %s, vouched for", seen, fwdMode)
+	}
+	// The same link, loaded while the session is stopping, is the page that
+	// opens its project again, for a caller who is not on this machine.
+	s.reg.beginStop(id)
+	relayed, _ := url.Parse(tun.Running.Session.URL)
+	code, body = tunnelCall(t, c, "GET", "http://"+lastForward.Load().addr+relayed.Path, relayed.Host, "",
+		http.Header{"Sec-Fetch-Dest": {"document"}, "Accept": {"text/html"}})
+	if code != http.StatusOK {
+		t.Fatalf("relay session link, session stopping: %d %s; want the page that opens it", code, body)
+	}
+	if cfg := decodePageConfig(t, body); cfg["open"] != "/p" || cfg["local"] != false {
+		t.Errorf("relay session link, session stopping: page config %v; want open /p, for a caller off this machine", cfg)
 	}
 	var unknown tunnelResponse
 	_, body = tunnelCall(t, c, "GET", local+"/api/server/tunnel?session=nope", "", "", nil)

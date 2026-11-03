@@ -112,9 +112,9 @@ func TestAWindowOnAServerByURLWhoseSessionHasGoneReopensItsProject(t *testing.T)
 	got := lostWindows(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case strings.HasPrefix(r.URL.Path, "/s/gone/"):
-			http.Error(w, "unknown session", http.StatusNotFound)
-		case strings.HasPrefix(r.URL.Path, "/s/starting/"):
+		case strings.HasPrefix(r.URL.Path, "/p/gone-0123abcd/"), strings.HasPrefix(r.URL.Path, "/s/gone/"):
+			http.Error(w, "this project has no session", http.StatusNotFound)
+		case strings.HasPrefix(r.URL.Path, "/p/starting-0123abcd/"):
 			http.Error(w, "session is not running (state: restarting)", http.StatusServiceUnavailable)
 		default:
 			w.WriteHeader(http.StatusNoContent)
@@ -123,27 +123,32 @@ func TestAWindowOnAServerByURLWhoseSessionHasGoneReopensItsProject(t *testing.T)
 	t.Cleanup(srv.Close)
 	spec := windowSpec{url: srv.URL, connected: true, remoteProject: "/home/me/proj"}
 
-	for _, id := range []string{"live", "starting"} {
-		e := registerWindow(a, &winEntry{id: "w-" + id, role: roleMain, view: windowView{spec: spec, serverURL: srv.URL + "/s/" + id}})
-		if replaced(t, controlRequest(a, http.MethodPost, "/win/w-"+id+"/server-lost")) {
-			t.Fatalf("a window whose session %q the server still knows of was replaced", id)
+	for i, mount := range []string{"/p/live-0123abcd", "/p/starting-0123abcd"} {
+		id := "w-known-" + string(rune('a'+i))
+		e := registerWindow(a, &winEntry{id: id, role: roleMain, view: windowView{spec: spec, serverURL: srv.URL + mount}})
+		if replaced(t, controlRequest(a, http.MethodPost, "/win/"+id+"/server-lost")) {
+			t.Fatalf("a window whose session at %s the server still has was replaced", mount)
 		}
 		var url string
 		a.reg(func(*regState) { url = e.view.serverURL })
-		if url != srv.URL+"/s/"+id {
-			t.Fatalf("a window whose session %q the server still knows of was moved to %s", id, url)
+		if url != srv.URL+mount {
+			t.Fatalf("a window whose session at %s the server still has was moved to %s", mount, url)
 		}
 	}
 
-	gone := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: srv.URL + "/s/gone"}})
-	if !replaced(t, controlRequest(a, http.MethodPost, "/win/w1/server-lost")) {
-		t.Fatal("a window whose session the server no longer knows of was left reconnecting to it")
-	}
-	var url string
-	var now windowSpec
-	a.reg(func(*regState) { url, now = gone.view.serverURL, gone.view.spec })
-	if url != srv.URL || now != spec {
-		t.Fatalf("the window is %+v on %s; want %+v on the server's page %s", now, url, spec, srv.URL)
+	// A server older than project links serves its sessions at /s/<id>/.
+	for i, mount := range []string{"/p/gone-0123abcd", "/s/gone"} {
+		id := "w-gone-" + string(rune('a'+i))
+		gone := registerWindow(a, &winEntry{id: id, role: roleMain, view: windowView{spec: spec, serverURL: srv.URL + mount}})
+		if !replaced(t, controlRequest(a, http.MethodPost, "/win/"+id+"/server-lost")) {
+			t.Fatalf("a window whose session at %s the server no longer has was left reconnecting to it", mount)
+		}
+		var url string
+		var now windowSpec
+		a.reg(func(*regState) { url, now = gone.view.serverURL, gone.view.spec })
+		if url != srv.URL || now != spec {
+			t.Fatalf("the window at %s is %+v on %s; want %+v on the server's page %s", mount, now, url, spec, srv.URL)
+		}
 	}
 	select {
 	case id := <-got:
@@ -162,14 +167,16 @@ func TestALocalWindowWhoseSessionIsLostBecomesItsStandIn(t *testing.T) {
 	got := lostWindows(t)
 	srv := newStubMachineServer(t, a, core.Version)
 	base := "http://" + srv.addr()
-	srv.list.Store(&[]machineserver.Session{{ID: "s1", Project: "/p", State: machineserver.SessionRunning}})
+	// The session the server runs for /p now is another than the one w1 was
+	// opened on: a window shows its project's session, whichever it is.
+	srv.list.Store(&[]machineserver.Session{{ID: "s9", Project: "/p", Link: stubLink("/p"), State: machineserver.SessionRunning}})
 	c, err := a.serverClient(true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	on := procOf(c)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: on}})
-	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/q"}, serverURL: base + "/s/s2", server: on}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + strings.TrimSuffix(stubLink("/p"), "/"), server: on}})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/q"}, serverURL: base + strings.TrimSuffix(stubLink("/q"), "/"), server: on}})
 	registerWindow(a, &winEntry{id: "w3", role: roleMain, view: windowView{serverURL: base, server: on}})
 
 	if replaced(t, controlRequest(a, http.MethodPost, "/win/w1/server-lost")) {
@@ -183,7 +190,7 @@ func TestALocalWindowWhoseSessionIsLostBecomesItsStandIn(t *testing.T) {
 	}
 	// Opened on a server process that has gone since: the session of that id
 	// running on the server there now is not its own.
-	registerWindow(a, &winEntry{id: "w4", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: serverProc{addr: on.addr, pid: on.pid + 1}}})
+	registerWindow(a, &winEntry{id: "w4", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + strings.TrimSuffix(stubLink("/p"), "/"), server: serverProc{addr: on.addr, pid: on.pid + 1}}})
 	if !replaced(t, controlRequest(a, http.MethodPost, "/win/w4/server-lost")) || <-got != "w4" {
 		t.Fatal("a window on a server process that has gone was not replaced")
 	}
@@ -223,15 +230,15 @@ func TestAWindowWhoseUserStopsReconnectingBecomesItsStandIn(t *testing.T) {
 
 	srv := newStubMachineServer(t, a, core.Version)
 	base := "http://" + srv.addr()
-	srv.list.Store(&[]machineserver.Session{{ID: "s1", Project: "/p", State: machineserver.SessionRunning}})
+	srv.list.Store(&[]machineserver.Session{{ID: "s1", Project: "/p", Link: stubLink("/p"), State: machineserver.SessionRunning}})
 	c, err := a.serverClient(true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	on := procOf(c)
-	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: on}})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + strings.TrimSuffix(stubLink("/p"), "/"), server: on}})
 	expect("w2", disconnectedPageTitle)
-	registerWindow(a, &winEntry{id: "w3", role: roleMain, view: windowView{spec: windowSpec{project: "/q"}, serverURL: base + "/s/s2", server: on}})
+	registerWindow(a, &winEntry{id: "w3", role: roleMain, view: windowView{spec: windowSpec{project: "/q"}, serverURL: base + strings.TrimSuffix(stubLink("/q"), "/"), server: on}})
 	expect("w3", sessionLostTitle)
 
 	registerWindow(a, &winEntry{id: "w4", role: rolePinboard, view: windowView{spec: windowSpec{url: answering.URL, connected: true}, serverURL: answering.URL}})
@@ -245,7 +252,7 @@ func TestAWindowWhoseUserStopsReconnectingBecomesItsStandIn(t *testing.T) {
 // only the stand-in for a server run elsewhere starts one in its place.
 func TestStandInActionsBelongToStandIns(t *testing.T) {
 	a := newTestAppState(t)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:1/s/s1"}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:1/p/p-0123abcd"}})
 	registerStandIn(a, "w2", windowSpec{project: "/p"}, lostServerStandIn())
 	for _, c := range []struct{ id, action string }{
 		{"w1", "retry-server"}, {"w1", "open-local"}, {"w1", "restart-server"}, {"w2", "restart-server"},

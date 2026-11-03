@@ -5,9 +5,9 @@
 // Package machineserver implements `juggler serve`: the persistent, per-machine
 // supervisor + broker. It owns a registry of per-project session children
 // (today's server, spawned with --session-child), a single client-facing
-// endpoint that reverse-proxies /s/<id>/… to the owning child, and a control
-// API to list/spawn/stop sessions. It is a plain HTTP process: no engine, no
-// webview, no providers.
+// endpoint that reverse-proxies each project's link, /p/<key>/…, to the
+// project's child, and a control API to list/spawn/stop sessions. It is a
+// plain HTTP process: no engine, no webview, no providers.
 package machineserver
 
 import (
@@ -134,9 +134,10 @@ func (s *Server) endLifetime() {
 
 // childExtraArgs returns the flags a session child gets beyond the fixed
 // ones: this server's developer flags, and under --test the test harness, in
-// a window pointed at the child's own session URL here, so a browser test
-// drives it through the proxy (always from on-disk assets).
-func (s *Server) childExtraArgs(sessionID string) []string {
+// a window pointed at the child's own session here — link, its project's
+// link — so a browser test drives it through the proxy (always from on-disk
+// assets).
+func (s *Server) childExtraArgs(link string) []string {
 	var args []string
 	if s.childDev {
 		args = append(args, "--dev")
@@ -145,7 +146,7 @@ func (s *Server) childExtraArgs(sessionID string) []string {
 		args = append(args, "--assets-from-disk")
 	}
 	if s.testChildren {
-		args = append(args, "--test", "--test-window-url", "http://"+s.addr+"/s/"+sessionID+"/")
+		args = append(args, "--test", "--test-window-url", "http://"+s.addr+link)
 	}
 	return args
 }
@@ -155,8 +156,8 @@ func (s *Server) childExtraArgs(sessionID string) []string {
 // which the child serves its viewer's switches for LAN access and tunnels, and
 // the session's id (SupervisorSessionEnv), by which it asks for the links that
 // open it. It widens nothing: server.json already gives both to any process
-// of this user, and the id is in every URL of the session. A server with no
-// address or token yet tells nothing.
+// of this user, and the token reads every session's id from the control API.
+// A server with no address or token yet tells nothing.
 func (s *Server) childEnv(id string) []string {
 	if s.addr == "" || s.token == "" {
 		return nil
@@ -169,8 +170,8 @@ func (s *Server) childEnv(id string) []string {
 }
 
 // routes builds the machine server's handler: the sessions page at / and the
-// assets it loads, the control API under /api/server, and the /s/<id>/ session
-// proxy. Everything is wrapped in the
+// assets it loads, the control API under /api/server, and each project's link,
+// /p/<key>/, where its session is served. Everything is wrapped in the
 // tunnel gate, the LAN gate, then the host guard, then the origin guard, so no
 // caller gets in through a tunnel that has closed, none off loopback while LAN
 // access is off, and neither a DNS-rebinding page nor a drive-by page on
@@ -199,8 +200,8 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("/attach", s.handleAttach).Methods("POST")
 	api.HandleFunc("/attach/{id}/beat", s.handleBeat).Methods("POST")
 	r.HandleFunc("/api/version", s.handleVersion).Methods("GET")
-	r.HandleFunc("/s/{id}", s.redirectSession)
-	r.PathPrefix("/s/{id}/").HandlerFunc(s.handleSessionProxy)
+	r.HandleFunc("/p/{key}", s.redirectProjectLink)
+	r.PathPrefix("/p/{key}/").HandlerFunc(s.handleProjectProxy)
 	r.HandleFunc("/", s.handlePage).Methods("GET")
 	r.PathPrefix("/v" + assetVersion + "/").Handler(s.assetHandler()).Methods("GET")
 	// What a desktop window showing the page drags by (page.go, IsWindow).
@@ -451,7 +452,7 @@ func (s *Server) openSession(caller context.Context, project string, wait bool) 
 		return openResult{sess: sess, status: http.StatusOK}
 	}
 
-	c, err := spawnChild(cl.ctx, s.childBin, project, s.childExtraArgs(sess.ID), s.childEnv(sess.ID))
+	c, err := spawnChild(cl.ctx, s.childBin, project, s.childExtraArgs(sess.Link), s.childEnv(sess.ID))
 	if err != nil {
 		if cl.ctx.Err() != nil {
 			// A stop or shutdown cancelled the spawn, and removes the session
@@ -524,21 +525,20 @@ func (s *Server) rememberRecent(project string) {
 // recentsResponse is the GET /api/server/recents payload.
 type recentsResponse struct {
 	Paths []string `json:"paths"`
+	// Links maps each of Paths to its project's link (projectlink.go).
+	Links map[string]string `json:"links"`
 }
 
 // handleRecents serves the machine's recent projects, most recent first, with
 // folders that no longer exist dropped (RecentsStore.Prune).
 // GET /api/server/recents.
 func (s *Server) handleRecents(w http.ResponseWriter, _ *http.Request) {
-	paths := []string{}
-	if s.recents != nil {
-		got, err := s.recents.Prune()
-		if err != nil {
-			jlog.Error("[machineserver] reading recents: %v", err)
-		}
-		paths = append(paths, got...)
+	paths := append([]string{}, s.knownRecents()...)
+	links := make(map[string]string, len(paths))
+	for _, p := range paths {
+		links[p] = projectLink(p)
 	}
-	writeJSON(w, http.StatusOK, recentsResponse{Paths: paths})
+	writeJSON(w, http.StatusOK, recentsResponse{Paths: paths, Links: links})
 }
 
 // handleStopSession stops a session child and drops its registry entry. A

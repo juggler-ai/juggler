@@ -91,7 +91,7 @@ func TestSessionProxyNeedsNoControlToken(t *testing.T) {
 	s.reg.setRunning(sess.ID, &child{addr: strings.TrimPrefix(backend.URL, "http://")}, 1)
 	front := httptest.NewServer(s.routes())
 	defer front.Close()
-	if code := send(t, "GET", front.URL+"/s/"+sess.ID+"/", "", ""); code != http.StatusOK {
+	if code := send(t, "GET", front.URL+sess.Link, "", ""); code != http.StatusOK {
 		t.Fatalf("proxied page without the control token: status %d, want 200", code)
 	}
 }
@@ -111,7 +111,7 @@ func TestLANGateRefusesRemoteCallersWhileOff(t *testing.T) {
 	s := &Server{reg: newRegistry(), token: testToken}
 	sess, _ := s.reg.reserve("/p")
 	s.reg.setRunning(sess.ID, &child{addr: strings.TrimPrefix(backend.URL, "http://"), ingressSecret: "child-secret"}, 1)
-	paths := []string{"/api/server/status", "/s/" + sess.ID + "/", "/s/" + sess.ID + "/api/ws"}
+	paths := []string{"/api/server/status", sess.Link, sess.Link + "api/ws"}
 
 	for _, caller := range []string{"192.168.1.20:54321", "203.0.113.7:54321", "not-an-address"} {
 		front := httptest.NewServer(asCaller(caller, s.routes()))
@@ -162,7 +162,7 @@ func TestSessionProxyNamesTheCallersTransport(t *testing.T) {
 		{"[fe80::1]:54321", ingress.KindLAN + "|[fe80::1]:54321"},
 	} {
 		front := httptest.NewServer(asCaller(c.caller, s.routes()))
-		req, err := http.NewRequest("GET", front.URL+"/s/"+sess.ID+"/", nil)
+		req, err := http.NewRequest("GET", front.URL+sess.Link, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

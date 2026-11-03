@@ -27,21 +27,25 @@ const NOW = Date.parse('2026-10-14T12:00:00Z');
  * and answers an open from `onOpen`.
  * @param {any[]} sessions
  * @param {string[]} recentPaths
+ * @param {Record<string, string>} [recentLinks] - Each recent's project link.
  * @returns {any} The stand-in, with its `calls` log.
  */
-function stubApi(sessions, recentPaths = []) {
+function stubApi(sessions, recentPaths = [], recentLinks = {}) {
   /** @type {Array<[string, ...any[]]>} */
   const calls = [];
   const api = {
     calls,
     sessions,
     /** @type {(project: string) => Promise<any>} */
-    onOpen: async (project) => ({ id: 'new1', project, state: 'running', busy: false, startedAt: '' }),
+    onOpen: async (project) => ({ id: 'new1', project, link: '/p/new1-0123abcd/', state: 'running', busy: false, startedAt: '' }),
     /** @type {() => Promise<any[]>} */
     listSessions: async () => { calls.push(['list']); return api.sessions; },
-    recents: async () => { calls.push(['recents']); return recentPaths; },
-    /** @type {(project: string) => Promise<any>} */
-    openSession: async (project) => { calls.push(['open', project]); return api.onOpen(project); },
+    recents: async () => { calls.push(['recents']); return { paths: recentPaths, links: recentLinks }; },
+    /** @type {(project: string, options?: {wait?: boolean}) => Promise<any>} */
+    openSession: async (project, options = {}) => {
+      calls.push(options.wait ? ['open', project, true] : ['open', project]);
+      return api.onOpen(project);
+    },
     /** @type {(id: string) => Promise<void>} */
     stopSession: async (id) => { calls.push(['stop', id]); },
     /** @type {(parent: string, name: string) => Promise<string>} */
@@ -201,10 +205,10 @@ export async function runTests() {
   }
 
   const sessions = [
-    { id: 'aaa', project: '/work/alpha', state: 'running', busy: false, startedAt: '', lastActive: new Date(NOW - 5 * 60_000).toISOString() },
-    { id: 'bbb', project: '/work/beta', state: 'running', busy: true, startedAt: '' },
-    { id: 'ccc', project: '/work/gamma', state: 'restarting', busy: false, startedAt: '', restarts: 2, nextRestartAt: new Date(NOW + 4000).toISOString(), error: 'session child ended: exit status 2' },
-    { id: 'ddd', project: '/work/delta', state: 'error', busy: false, startedAt: '', error: 'session child crashed 6 times in a row' },
+    { id: 'aaa', project: '/work/alpha', link: '/p/alpha-0123abcd/', state: 'running', busy: false, startedAt: '', lastActive: new Date(NOW - 5 * 60_000).toISOString() },
+    { id: 'bbb', project: '/work/beta', link: '/p/beta-0123abcd/', state: 'running', busy: true, startedAt: '' },
+    { id: 'ccc', project: '/work/gamma', link: '/p/gamma-0123abcd/', state: 'restarting', busy: false, startedAt: '', restarts: 2, nextRestartAt: new Date(NOW + 4000).toISOString(), error: 'session child ended: exit status 2' },
+    { id: 'ddd', project: '/work/delta', link: '/p/delta-0123abcd/', state: 'error', busy: false, startedAt: '', error: 'session child crashed 6 times in a row' },
   ];
 
   await test('lists every session with its project and what it is doing', async () => {
@@ -300,7 +304,7 @@ export async function runTests() {
     m.root.addEventListener('click', noNavigate);
     try {
       /** @type {HTMLElement} */ (row(m.root, 'aaa').querySelector('.ms-session-name')).click();
-      assert(JSON.stringify(nav.went) === '["/s/aaa/"]', `a row click went to ${JSON.stringify(nav.went)}`);
+      assert(JSON.stringify(nav.went) === '["/p/alpha-0123abcd/"]', `a row click went to ${JSON.stringify(nav.went)}`);
       assert(row(m.root, 'aaa').classList.contains('ms-session-openable'), 'a running row does not show it can be opened');
 
       nav.went.length = 0;
@@ -332,6 +336,7 @@ export async function runTests() {
       /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('button.ms-session-stop')).click();
       await nextTask();
       assert(JSON.stringify(host.attached) === '["aaa"]', `attached ${JSON.stringify(host.attached)}`);
+      assert(JSON.stringify(host.attachedLinks) === '["/p/alpha-0123abcd/"]', `attached at ${JSON.stringify(host.attachedLinks)}`);
       assert(nav.went.length === 0, `a desktop window went to ${JSON.stringify(nav.went)}`);
     } finally {
       m.dispose();
@@ -346,7 +351,7 @@ export async function runTests() {
     const m = await mount(stubApi(sessions));
     try {
       const open = /** @type {HTMLAnchorElement|null} */ (row(m.root, 'aaa').querySelector('a.ms-session-open'));
-      assert(open?.getAttribute('href') === '/c/abcdefghijklmnop#/s/aaa/', `Open href ${open?.getAttribute('href')}`);
+      assert(open?.getAttribute('href') === '/c/abcdefghijklmnop#/p/alpha-0123abcd/', `Open href ${open?.getAttribute('href')}`);
     } finally {
       m.dispose();
       if (had) w.__jugglerStudio = previous; else delete w.__jugglerStudio;
@@ -358,7 +363,7 @@ export async function runTests() {
     try {
       const open = /** @type {HTMLAnchorElement|null} */ (row(m.root, 'aaa').querySelector('a.ms-session-open'));
       assert(!!open, 'a running session has no Open link');
-      assert(open?.getAttribute('href') === '/s/aaa/', `Open href ${open?.getAttribute('href')}`);
+      assert(open?.getAttribute('href') === '/p/alpha-0123abcd/', `Open href ${open?.getAttribute('href')}`);
       assert(!open?.target, `Open targets ${open?.target}, want this tab`);
       assert(!row(m.root, 'ddd').querySelector('a.ms-session-open'), 'an errored session offers Open');
       assert(!row(m.root, 'ccc').querySelector('a.ms-session-open'), 'a restarting session offers Open');
@@ -423,7 +428,7 @@ export async function runTests() {
       await nextTask();
       await nextTask();
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '~/code/new-thing'), `opened ${JSON.stringify(api.calls)}`);
-      assert(JSON.stringify(nav.went) === '["/s/new1/"]', `the tab went to ${JSON.stringify(nav.went)}`);
+      assert(JSON.stringify(nav.went) === '["/p/new1-0123abcd/"]', `the tab went to ${JSON.stringify(nav.went)}`);
       assert(input.value === '', 'the path field was not cleared after a successful open');
     } finally {
       m.dispose();
@@ -679,7 +684,7 @@ export async function runTests() {
       const asked = api.calls.filter((c) => c[0] === 'folder' || c[0] === 'open');
       assert(JSON.stringify(asked) === JSON.stringify([['folder', '/work', 'fresh'], ['open', '/work/fresh']]),
         `calls ${JSON.stringify(asked)}`);
-      assert(JSON.stringify(nav.went) === '["/s/new1/"]', `the tab went to ${JSON.stringify(nav.went)}`);
+      assert(JSON.stringify(nav.went) === '["/p/new1-0123abcd/"]', `the tab went to ${JSON.stringify(nav.went)}`);
       const nameInput = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-folder-name'));
       assert(nameInput.value === '', 'the name was not cleared after the folder opened');
     } finally {
@@ -937,12 +942,13 @@ export async function runTests() {
       token: 'secret-1',
       fetchImpl: async (url, init) => {
         sent.push({ url: String(url), init });
-        const answer = String(url).endsWith('/folders') ? { path: '/p/q' } : { paths: ['/x'] };
+        const answer = String(url).endsWith('/folders') ? { path: '/p/q' } : { paths: ['/x'], links: { '/x': '/p/x-0123abcd/' } };
         return /** @type {any} */ ({ ok: true, status: 200, statusText: 'OK', text: async () => JSON.stringify(answer) });
       },
     });
-    const paths = await api.recents();
+    const { paths, links } = await api.recents();
     assert(paths.length === 1 && paths[0] === '/x', `recents ${JSON.stringify(paths)}`);
+    assert(links['/x'] === '/p/x-0123abcd/', `recent links ${JSON.stringify(links)}`);
     await api.openSession('/p');
     const made = await api.createFolder('/p', 'q');
     assert(made === '/p/q', `createFolder answered ${made}`);
@@ -982,15 +988,18 @@ export async function runTests() {
     /** @type {string[]} */
     const attached = [];
     /** @type {string[]} */
+    const attachedLinks = [];
+    /** @type {string[]} */
     const closeAnswers = [];
     /** @type {string[]} */
     const opened = [];
     return {
       attached,
+      attachedLinks,
       closeAnswers,
       opened,
-      /** @type {(id: string) => Promise<void>} */
-      attach: async (id) => { attached.push(id); },
+      /** @type {(id: string, project: string, link: string) => Promise<void>} */
+      attach: async (id, _project, link) => { attached.push(id); attachedLinks.push(link); },
       /** @type {(url: string) => void} */
       openURL: (url) => { opened.push(url); },
       takesDroppedFolders: true,
@@ -1269,6 +1278,7 @@ export async function runTests() {
       assert(!api.calls.some((c) => c[1] === '/dropped/here'), 'a folder dropped from this machine was opened there');
       /** @type {HTMLElement} */ (row(m.root, 'aaa').querySelector('.ms-session-name')).click();
       assert(JSON.stringify(host.attached) === '["aaa"]', `attached ${JSON.stringify(host.attached)}`);
+      assert(JSON.stringify(host.attachedLinks) === '["/p/alpha-0123abcd/"]', `attached at ${JSON.stringify(host.attachedLinks)}`);
     } finally {
       m.dispose();
     }
@@ -1374,6 +1384,237 @@ export async function runTests() {
     assert(cfg.token === 'tok' && cfg.version === 'v9' && cfg.host === 'box' && cfg.local === true, `config ${JSON.stringify(cfg)}`);
     el.textContent = JSON.stringify({ token: 'tok', local: 'yes' });
     assert(readPageConfig(doc).local === false, 'anything but true read as a viewer on this machine');
+    assert(readPageConfig(doc).open === '' && readPageConfig(doc).openMissing === false, 'a plain page read as a project link');
+    el.textContent = JSON.stringify({ token: 'tok', open: '/work/zeta' });
+    assert(readPageConfig(doc).open === '/work/zeta', `open read as ${JSON.stringify(readPageConfig(doc).open)}`);
+    el.textContent = JSON.stringify({ token: 'tok', openMissing: true });
+    assert(readPageConfig(doc).openMissing === true, 'a link to no known project not read as one');
+    assert(readPageConfig(doc).confirm === false, 'a link a visitor reached from here read as one to ask about');
+    el.textContent = JSON.stringify({ token: 'tok', open: '/work/zeta', confirm: true });
+    assert(readPageConfig(doc).confirm === true, 'a link reached from another site not read as one to ask about');
+  });
+
+  // A project's link is where its session is served; while it has no running
+  // session the server serves this page there instead, told to open the
+  // project (config.open). It opens it — waiting for a spawn in flight — and
+  // reloads the link, which is then the session. It never reloads into a
+  // session that is not running, which would only serve this page again.
+  await test('a project\'s link opens its project, then reloads into it', async () => {
+    const api = stubApi([]);
+    const nav = stubNavigate();
+    let reloads = 0;
+    const m = await mount(api, {
+      navigate: nav.navigate,
+      reload: () => { reloads++; },
+      config: { token: 't', version: 'v1.2.3', host: 'studio', open: '/work/zeta' },
+    });
+    try {
+      await waitFor(() => reloads > 0, { description: 'the linked project opened' });
+      assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/zeta' && c[2] === true), `opened ${JSON.stringify(api.calls)}, want with wait`);
+      assert(reloads === 1 && nav.went.length === 0, `reloaded ${reloads} times, went to ${JSON.stringify(nav.went)}`);
+      const note = /** @type {HTMLElement|null} */ (m.root.querySelector('.ms-opening'));
+      assert(!!note && !note.hidden && (note.textContent || '').includes('zeta'), `opening note ${note?.textContent}`);
+    } finally {
+      m.dispose();
+    }
+
+    const gone = stubApi([]);
+    gone.onOpen = async () => { throw new Error('no such folder'); };
+    const g = await mount(gone, {
+      reload: () => { throw new Error('reloaded into a session that did not open'); },
+      config: { token: 't', version: 'v1.2.3', host: 'studio', open: '/work/gone' },
+    });
+    try {
+      await waitFor(() => (g.root.querySelector('.ms-launch-error')?.textContent || '') !== '', { description: 'why it did not open' });
+      assert((g.root.querySelector('.ms-launch-error')?.textContent || '').includes('no such folder'), 'the failure does not say why');
+      assert(/** @type {HTMLElement} */ (g.root.querySelector('.ms-opening')).hidden, 'still says it is opening a project that failed');
+    } finally {
+      g.dispose();
+    }
+
+    const failed = stubApi([]);
+    failed.onOpen = async (project) => ({ id: 'e1', project, link: '/p/bad-0123abcd/', state: 'error', error: 'spawn failed: no binary', busy: false, startedAt: '' });
+    const f = await mount(failed, {
+      reload: () => { throw new Error('reloaded into a session that failed'); },
+      config: { token: 't', version: 'v1.2.3', host: 'studio', open: '/work/bad' },
+    });
+    try {
+      await waitFor(() => (f.root.querySelector('.ms-launch-error')?.textContent || '') !== '', { description: 'why it failed' });
+      assert((f.root.querySelector('.ms-launch-error')?.textContent || '').includes('spawn failed: no binary'), 'the failure does not say why');
+      assert(/** @type {HTMLElement} */ (f.root.querySelector('.ms-opening')).hidden, 'still says it is opening a project that failed');
+    } finally {
+      f.dispose();
+    }
+  });
+
+  await test('a project\'s link waits out a restart before it reloads', async () => {
+    const api = stubApi([]);
+    const answers = [
+      { state: 'restarting', nextRestartAt: new Date(NOW + 3000).toISOString() },
+      { state: 'running' },
+    ];
+    api.onOpen = async (project) => ({ id: 'r1', project, link: '/p/zeta-0123abcd/', busy: false, startedAt: '', ...answers.shift() });
+    /** @type {number[]} */
+    const slept = [];
+    /** @type {string[]} */
+    const notes = [];
+    let reloads = 0;
+    const m = await mount(api, {
+      reload: () => { reloads++; },
+      // It may be asked before mount returns, so it reads the page from the
+      // document rather than from m.
+      sleep: async (/** @type {number} */ ms) => {
+        slept.push(ms);
+        notes.push(document.querySelector('.ms-opening')?.textContent || '');
+      },
+      config: { token: 't', version: 'v1.2.3', host: 'studio', open: '/work/zeta' },
+    });
+    try {
+      await waitFor(() => reloads > 0, { description: 'the restarted project reloaded' });
+      assert(reloads === 1, `reloaded ${reloads} times, want once, after the restart`);
+      assert(api.calls.filter((c) => c[0] === 'open').length === 2, `opened ${JSON.stringify(api.calls)}, want twice`);
+      assert(slept.length === 1 && slept[0] === 3000, `slept ${JSON.stringify(slept)}, want until the restart is due`);
+      assert(notes[0].includes('restart') && notes[0].includes('zeta'), `while it waited the page said ${JSON.stringify(notes[0])}`);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // A page another site sent the visitor to asks before it opens anything.
+  await test('a project\'s link reached from another site asks before opening', async () => {
+    const api = stubApi([]);
+    let reloads = 0;
+    const m = await mount(api, {
+      reload: () => { reloads++; },
+      config: { token: 't', version: 'v1.2.3', host: 'studio', open: '/work/zeta', confirm: true },
+    });
+    try {
+      await nextTask();
+      assert(!api.calls.some((c) => c[0] === 'open'), `opened before asking: ${JSON.stringify(api.calls)}`);
+      const ask = /** @type {HTMLButtonElement|null} */ (m.root.querySelector('button.ms-opening-confirm'));
+      assert(!!ask && (ask.textContent || '').includes('zeta'), `no button to open it: ${ask?.textContent}`);
+      /** @type {HTMLButtonElement} */ (ask).click();
+      await waitFor(() => reloads > 0, { description: 'the project opened once asked' });
+      assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/zeta'), `opened ${JSON.stringify(api.calls)}`);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // In a desktop window the link is already the window's page: the session is
+  // reloaded into it, not attached through the app.
+  await test('in a desktop window a project\'s link reloads into its session', async () => {
+    const host = stubHost();
+    let reloads = 0;
+    const m = await mount(stubApi([]), {
+      host,
+      reload: () => { reloads++; },
+      config: { token: 't', version: 'v1.2.3', host: 'studio', open: '/work/zeta' },
+    });
+    try {
+      await waitFor(() => reloads > 0, { description: 'the linked project opened' });
+      assert(host.attached.length === 0, `attached ${JSON.stringify(host.attached)} instead of reloading`);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  await test('a project\'s link that names no known project says so, and opens nothing', async () => {
+    const api = stubApi([]);
+    const m = await mount(api, { config: { token: 't', version: 'v1.2.3', host: 'studio', openMissing: true } });
+    try {
+      const err = /** @type {HTMLElement|null} */ (m.root.querySelector('.ms-launch-error'));
+      assert(!!err && !err.hidden && (err.textContent || '').trim() !== '', `notice shown: ${err?.textContent}`);
+      assert(!api.calls.some((c) => c[0] === 'open'), `opened ${JSON.stringify(api.calls)}`);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  await test('under en-XA a project\'s link speaks the pseudo-locale', async () => {
+    await underPseudoLocale('machine-sessions-link', async () => {
+      const missing = await mount(stubApi([]), { config: { token: 't', version: 'v1', host: 'studio', openMissing: true } });
+      try {
+        const shown = missing.root.querySelector('.ms-launch-error')?.textContent || '';
+        assert(isPseudoLocalized(shown), `the missing-project notice was not translated: ${JSON.stringify(shown)}`);
+      } finally {
+        missing.dispose();
+      }
+      // A name with no letters, so the parameter, which is data, cannot read as English.
+      const opening = await mount(stubApi([]), {
+        reload: () => {},
+        config: { token: 't', version: 'v1', host: 'studio', open: '/1/2' },
+      });
+      try {
+        const shown = opening.root.querySelector('.ms-opening')?.textContent || '';
+        assert(isPseudoLocalized(shown) && shown.includes('2'), `the opening note was not translated: ${JSON.stringify(shown)}`);
+      } finally {
+        opening.dispose();
+      }
+      const restarting = stubApi([]);
+      restarting.onOpen = async (project) => ({ id: 'r1', project, link: '/p/2-0123abcd/', state: 'restarting', busy: false, startedAt: '' });
+      /** @type {string[]} */
+      const notes = [];
+      const waiting = await mount(restarting, {
+        reload: () => {},
+        // Never wakes: the note while it waits is all this asks.
+        sleep: async () => {
+          notes.push(document.querySelector('.ms-opening')?.textContent || '');
+          await new Promise(() => {});
+        },
+        config: { token: 't', version: 'v1', host: 'studio', open: '/1/2' },
+      });
+      try {
+        await waitFor(() => notes.length > 0, { description: 'the restart wait shown' });
+        assert(isPseudoLocalized(notes[0]) && notes[0].includes('2'), `the restart note was not translated: ${JSON.stringify(notes[0])}`);
+      } finally {
+        waiting.dispose();
+      }
+      const asking = await mount(stubApi([]), { config: { token: 't', version: 'v1', host: 'studio', open: '/1/2', confirm: true } });
+      try {
+        const shown = asking.root.querySelector('button.ms-opening-confirm')?.textContent || '';
+        assert(isPseudoLocalized(shown) && shown.includes('2'), `the open button was not translated: ${JSON.stringify(shown)}`);
+      } finally {
+        asking.dispose();
+      }
+    });
+  });
+
+  // A session's and a recent project's Open carry the project's link, so a
+  // link copied or bookmarked from here still works tomorrow. A session's is a
+  // plain link; a recent's plain click opens the project here, then goes to
+  // its link, and a modified click is the browser's, for a tab of its own.
+  await test('Open carries the project\'s link', async () => {
+    const api = stubApi(sessions, ['/work/zeta'], { '/work/zeta': '/p/zeta-89abcdef/' });
+    const nav = stubNavigate();
+    const m = await mount(api, { navigate: nav.navigate });
+    /** @type {boolean[]} */
+    const prevented = [];
+    const after = (/** @type {Event} */ e) => {
+      if (!(/** @type {Element} */ (e.target).closest('a'))) return;
+      prevented.push(e.defaultPrevented);
+      e.preventDefault();
+    };
+    m.root.addEventListener('click', after);
+    try {
+      const open = /** @type {HTMLAnchorElement} */ (row(m.root, 'aaa').querySelector('a.ms-session-open'));
+      assert(open.getAttribute('href') === '/p/alpha-0123abcd/', `session Open href ${open.getAttribute('href')}`);
+      open.click();
+      assert(nav.went.length === 0 && prevented[0] === false, `a session's Open was taken from the browser: ${JSON.stringify(nav.went)}`);
+
+      const recent = /** @type {HTMLAnchorElement|null} */ (m.root.querySelector('.ms-recent[data-project="/work/zeta"] a.ms-recent-open'));
+      assert(recent?.getAttribute('href') === '/p/zeta-89abcdef/', `recent Open href ${recent?.getAttribute('href')}`);
+      recent?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }));
+      assert(prevented[1] === false && !api.calls.some((c) => c[0] === 'open'), 'a modified click on a recent was taken from the browser');
+      recent?.click();
+      await waitFor(() => nav.went.length > 0, { description: 'the recent project opened' });
+      assert(prevented[2] === true, 'a plain click on a recent followed its link instead of opening it here');
+      assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/zeta'), `opened ${JSON.stringify(api.calls)}`);
+      assert(JSON.stringify(nav.went) === '["/p/new1-0123abcd/"]', `went to ${JSON.stringify(nav.went)}`);
+    } finally {
+      m.root.removeEventListener('click', after);
+      m.dispose();
+    }
   });
 
   return { passed, failed, errors };

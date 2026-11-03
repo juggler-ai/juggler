@@ -58,7 +58,7 @@ func TestAllowedHostReachesTheChildAsAProxiedRemoteCaller(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(body)
 	}
-	page := "/s/" + sess.ID + "/"
+	page := sess.Link
 
 	for _, c := range []struct {
 		name, caller, host string

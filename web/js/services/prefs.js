@@ -241,7 +241,7 @@ function projectKey() {
  * is not the ordinary one.
  *
  * The page origin identifies the machine server, not a project: every session
- * it runs is served from that one origin under /s/<id>/, and a viewer arriving
+ * it runs is served from that one origin under /p/<key>/, and a viewer arriving
  * over the studio relay sees a single origin for every project on every machine
  * it connects to. Unnamespaced, this project would read whatever another one
  * left behind. The server injects the key pre-paint; a page with none

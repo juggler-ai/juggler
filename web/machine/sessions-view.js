@@ -25,6 +25,14 @@
  * A running session's whole row opens it, as its Open link does; the link stays
  * the keyboard's way in, so the row adds no second control around the others.
  *
+ * A session is served at its project's link, /p/<key>/, an address that
+ * outlives the session; its id is only the control API's handle. Open carries
+ * the link, for copying and bookmarking. While a project has no running
+ * session, the server serves this page at its link instead, told to open the
+ * project (`config.open`): the page opens it and reloads the link, which is
+ * then the session — or, for a visitor another site sent (`config.confirm`),
+ * asks first.
+ *
  * The page asks for the list as it mounts, and shows the app's spinner in its
  * place until the first answer.
  *
@@ -55,9 +63,9 @@ const RECENTS_SHOWN = 8;
  * @typedef {import('./control-api.js').PageConfig} PageConfig
  * @typedef {{
  *   listSessions: () => Promise<Session[]>,
- *   openSession: (project: string) => Promise<Session>,
+ *   openSession: (project: string, options?: {wait?: boolean}) => Promise<Session>,
  *   stopSession: (id: string) => Promise<void>,
- *   recents: () => Promise<string[]>,
+ *   recents: () => Promise<import('./control-api.js').Recents>,
  *   createFolder: (parent: string, name: string) => Promise<string>,
  *   getLAN?: () => Promise<import('./control-api.js').LANState>,
  *   setLAN?: (enabled: boolean) => Promise<import('./control-api.js').LANState>,
@@ -68,7 +76,7 @@ const RECENTS_SHOWN = 8;
  *   getStatus?: () => Promise<import('../js/components/connectivity/exposure-view.js').ServerStatus>,
  * }} ControlApi
  * @typedef {{
- *   attach: (id: string, project: string) => Promise<void>,
+ *   attach: (id: string, project: string, link: string) => Promise<void>,
  *   answerClose: (token: string) => Promise<void>,
  *   pickDirectory?: () => Promise<string|null>,
  *   takesDroppedFolders?: boolean,
@@ -86,12 +94,13 @@ const RECENTS_SHOWN = 8;
  */
 
 /**
- * The URL a session is opened at from this page.
- * @param {string} id - The session's ID.
- * @returns {string} Its path, /s/<id>/, or the rendezvous link's address for it.
+ * Whether a click is the browser's to act on — a modified or non-primary one,
+ * which gives a link a tab or window of its own — rather than the page's.
+ * @param {MouseEvent} event - The click.
+ * @returns {boolean} True for a click the page leaves alone.
  */
-function sessionUrl(id) {
-  return pageURL(`/s/${encodeURIComponent(id)}/`);
+function browsersClick(event) {
+  return event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
 }
 
 /**
@@ -299,6 +308,8 @@ export function serverTitle(config) {
  * @param {ControlApi} options.api - The control API.
  * @param {PageConfig} options.config - What the server handed the page.
  * @param {(url: string) => void} [options.navigate] - Sends this tab to a page.
+ * @param {() => void} [options.reload] - Loads this page's address again.
+ * @param {(ms: number) => Promise<void>} [options.sleep] - Waits ms.
  * @param {(message: string) => boolean} [options.confirm] - Asks the user a yes/no question.
  * @param {() => number} [options.now] - The time now, in ms.
  * @param {number} [options.pollMs] - How often to refresh the list (0: never by itself).
@@ -313,6 +324,8 @@ export function mountSessionsPage(root, {
   api,
   config,
   navigate = (url) => { window.location.assign(url); },
+  reload = () => { window.location.reload(); },
+  sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
   confirm = (message) => window.confirm(message),
   now = () => Date.now(),
   pollMs = 2000,
@@ -323,6 +336,8 @@ export function mountSessionsPage(root, {
   let sessions = [];
   /** @type {string[]} */
   let recents = [];
+  /** @type {Record<string, string>} */
+  let recentLinks = {};
   /** @type {ControlApiError|null} */
   let unreachable = null;
   /** Whether a list has arrived: until one has, the page cannot say there are none. */
@@ -335,6 +350,9 @@ export function mountSessionsPage(root, {
 
   root.replaceChildren();
   const banner = el('div', { className: 'ms-banner-slot', attrs: { role: 'status' } });
+  // What a project's link is opening, while it opens.
+  const opening = el('p', { className: 'ms-lan-note ms-opening', attrs: { role: 'status' } });
+  opening.hidden = true;
 
   const input = /** @type {HTMLInputElement} */ (el('input', {
     className: 'ms-launch-input',
@@ -478,7 +496,7 @@ export function mountSessionsPage(root, {
   // computer, a recent project — and the machine's ways in. With no ways in,
   // there is one.
   root.append(banner, el('div', { className: 'ms-column ms-main' },
-    [sessionsSection, launchSection, folderSection, connectSection, recentsSection]));
+    [opening, sessionsSection, launchSection, folderSection, connectSection, recentsSection]));
   if (exposureSection) root.append(el('div', { className: 'ms-column ms-side' }, [exposureSection]));
 
   /**
@@ -514,7 +532,19 @@ export function mountSessionsPage(root, {
     launchError.textContent = message;
     launchError.hidden = !message;
   }
-  showLaunchError(notice);
+  showLaunchError(notice || openingNotice());
+
+  /**
+   * What the page says as it opens, for how it was reached: a project link
+   * that names no project it knows.
+   * @returns {string} The notice ('' for none).
+   */
+  function openingNotice() {
+    if (config.openMissing) {
+      return t('This link is for a project this computer has not opened recently. Open the project here and its link will work again.');
+    }
+    return '';
+  }
 
   /**
    * Show why a new folder could not be made or opened, or clear it.
@@ -530,13 +560,14 @@ export function mountSessionsPage(root, {
    * Show session id in this window, through the host. A refusal says why.
    * @param {string} id - The session's ID.
    * @param {string} project - Its project.
+   * @param {string} link - Where it is served, its project's link.
    * @param {(message: string) => void} [report] - Where a refusal is shown.
    * @returns {Promise<boolean>} Whether the host took it.
    */
-  async function attach(id, project, report = showLaunchError) {
+  async function attach(id, project, link, report = showLaunchError) {
     if (!host) return false;
     try {
-      await host.attach(id, project);
+      await host.attach(id, project, link);
       return true;
     } catch (err) {
       report(err instanceof Error ? errorText(err) : t('The session could not be opened in this window.'));
@@ -561,7 +592,7 @@ export function mountSessionsPage(root, {
   async function launchHere(project, { make, report = showLaunchError } = {}) {
     try {
       const sess = await api.openSession(make ? await make() : project);
-      return await attach(sess.id, sess.project || project, report);
+      return await attach(sess.id, sess.project || project, sess.link, report);
     } catch (err) {
       report(err instanceof Error ? errorText(err) : t('The session could not be started.'));
       return false;
@@ -596,7 +627,7 @@ export function mountSessionsPage(root, {
     if (host) return launchHere(project, options);
     try {
       const sess = await api.openSession(options.make ? await options.make() : project);
-      navigate(sessionUrl(sess.id));
+      navigate(pageURL(sess.link));
       await refresh();
       return true;
     } catch (err) {
@@ -625,6 +656,59 @@ export function mountSessionsPage(root, {
         ? t('The session for {project} could not be reopened: {error}', { project, error: message })
         : ''),
     });
+  }
+
+  /**
+   * Open the project whose link this page was served at, and reload the link,
+   * which is then its session — in a desktop window too, whose page the link
+   * already is. A spawn in flight is waited for, and a restart waited out until
+   * it is due; the link is reloaded only once the session runs, since until
+   * then it serves this page again. One that will not open leaves the page
+   * saying why.
+   * @param {string} project - The folder.
+   */
+  async function openLinked(project) {
+    const name = baseName(project);
+    opening.replaceChildren(t('Opening {name}…', { name }));
+    opening.hidden = false;
+    showLaunchError('');
+    for (;;) {
+      /** @type {Session} */
+      let sess;
+      try {
+        sess = await api.openSession(project, { wait: true });
+      } catch (err) {
+        if (disposed) return;
+        opening.hidden = true;
+        showLaunchError(err instanceof Error ? errorText(err) : t('The session could not be started.'));
+        return;
+      }
+      if (disposed) return;
+      if (sess.state === 'running') {
+        reload();
+        return;
+      }
+      if (sess.state !== 'restarting') {
+        opening.hidden = true;
+        showLaunchError(sess.error || t('The session could not be started.'));
+        return;
+      }
+      opening.replaceChildren(t('Waiting for {name} to restart…', { name }));
+      const due = sess.nextRestartAt ? Date.parse(sess.nextRestartAt) - now() : NaN;
+      await sleep(Number.isFinite(due) && due > 0 ? due : 1000);
+      if (disposed) return;
+    }
+  }
+
+  /**
+   * Offer to open the project whose link this page was served at, rather than
+   * open it: the visitor was sent here from another site.
+   * @param {string} project - The folder.
+   */
+  function offerLinked(project) {
+    opening.replaceChildren(button(t('Open {name}', { name: baseName(project) }), 'ms-button-primary ms-opening-confirm',
+      () => { void openLinked(project); }));
+    opening.hidden = false;
   }
 
   folderForm.addEventListener('submit', async (event) => {
@@ -694,27 +778,27 @@ export function mountSessionsPage(root, {
    * @param {Session} s - The session.
    */
   function openSession(s) {
-    if (host) void attach(s.id, s.project);
-    else navigate(sessionUrl(s.id));
+    if (host) void attach(s.id, s.project, s.link);
+    else navigate(pageURL(s.link));
   }
 
   /**
-   * A link to a session: this tab in a browser, as a plain link goes; in a
-   * desktop window, this window, through the host.
+   * A link to a session, at its project's link, so one copied or bookmarked
+   * from here outlives the session: this tab in a browser, as a plain link
+   * goes; in a desktop window, this window, through the host.
    * @param {Session} s - The session.
    * @param {string} className - The link's classes.
    * @param {Array<Node>} children - What it shows.
    * @returns {HTMLElement} The link.
    */
   function sessionLink(s, className, children) {
-    if (!host) {
-      return el('a', { className, attrs: { href: sessionUrl(s.id) } }, children);
+    const a = el('a', { className, attrs: { href: pageURL(s.link) } }, children);
+    if (host) {
+      a.addEventListener('click', (event) => {
+        event.preventDefault();
+        void attach(s.id, s.project, s.link);
+      });
     }
-    const a = el('a', { className, attrs: { href: sessionUrl(s.id) } }, children);
-    a.addEventListener('click', (event) => {
-      event.preventDefault();
-      void attach(s.id, s.project);
-    });
     return a;
   }
 
@@ -778,17 +862,31 @@ export function mountSessionsPage(root, {
   }
 
   /**
-   * One recent project's row, and its Open.
+   * One recent project's row, and its Open: a link to the project's link when
+   * the server named one, which a plain click opens here as the button would.
    * @param {string} project - The folder.
    * @returns {HTMLElement} Its list item.
    */
   function recentRow(project) {
+    const link = recentLinks[project];
+    /** @type {HTMLElement} */
+    let open;
+    if (link) {
+      open = el('a', { className: 'ms-button ms-button-quiet ms-recent-open', text: t('Open'), attrs: { href: pageURL(link) } });
+      open.addEventListener('click', (event) => {
+        if (!host && browsersClick(event)) return;
+        event.preventDefault();
+        void launch(project);
+      });
+    } else {
+      open = button(t('Open'), 'ms-button-quiet ms-recent-open', () => { void launch(project); });
+    }
     return el('li', { className: 'ms-recent', attrs: { 'data-project': project } }, [
       el('div', { className: 'ms-recent-main' }, [
         el('div', { className: 'ms-recent-name', text: baseName(project) }),
         el('div', { className: 'ms-path', text: project }),
       ]),
-      button(t('Open'), 'ms-button-quiet ms-recent-open', () => { void launch(project); }),
+      open,
     ]);
   }
 
@@ -861,9 +959,10 @@ export function mountSessionsPage(root, {
    */
   async function refreshSessions() {
     try {
-      const [list, paths] = await Promise.all([api.listSessions(), api.recents()]);
+      const [list, known] = await Promise.all([api.listSessions(), api.recents()]);
       sessions = list || [];
-      recents = paths || [];
+      recents = known?.paths || [];
+      recentLinks = known?.links || {};
       listed = true;
       if (!parentChosen) folderParent.value = defaultParent(recents);
       unreachable = null;
@@ -906,6 +1005,8 @@ export function mountSessionsPage(root, {
   void refresh();
   schedule();
   if (host?.reopen) void reopenLast(host.reopen);
+  if (config.open && config.confirm) offerLinked(config.open);
+  else if (config.open) void openLinked(config.open);
 
   return {
     refresh,

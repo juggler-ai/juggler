@@ -442,7 +442,7 @@ func (s *Server) openForeground(fg *Foreground) (release func(), err error) {
 		if !ok {
 			return nil, fmt.Errorf("open the session for %s: session is not running", fg.Project)
 		}
-		url = page + "s/" + res.sess.ID + "/"
+		url = strings.TrimSuffix(page, "/") + res.sess.Link
 		fmt.Fprintf(fg.Out, "Session for %s: %s\n", fg.Project, url)
 	}
 	fmt.Fprintln(fg.Out, "Ctrl-C stops the server and every session on it.")

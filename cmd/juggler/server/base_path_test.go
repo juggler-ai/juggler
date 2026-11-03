@@ -26,11 +26,11 @@ func TestRequestBasePath(t *testing.T) {
 		want   string
 	}{
 		{"", ""},
-		{"/s/81fb48e2", "/s/81fb48e2"},
+		{"/p/myapp-81fb48e2", "/p/myapp-81fb48e2"},
 		{"/a/b_c-d", "/a/b_c-d"},
-		{"s/81fb48e2", ""},     // not rooted
-		{"/s/81fb48e2/", ""},   // trailing slash
-		{"//evil.example", ""}, // protocol-relative
+		{"p/myapp-81fb48e2", ""},   // not rooted
+		{"/p/myapp-81fb48e2/", ""}, // trailing slash
+		{"//evil.example", ""},     // protocol-relative
 		{"/s/../x", ""},
 		{"/s/a b", ""},
 		{"/s/x'", ""},
@@ -85,7 +85,7 @@ func TestServedPagesCarryTheBasePath(t *testing.T) {
 	}
 	for name, serve := range pages {
 		for _, target := range []string{"/", "/?window=1"} {
-			for _, prefix := range []string{"", "/s/81fb48e2"} {
+			for _, prefix := range []string{"", "/p/myapp-81fb48e2"} {
 				req := httptest.NewRequest(http.MethodGet, target, nil)
 				req.RemoteAddr = localViewerAddr
 				if prefix != "" {

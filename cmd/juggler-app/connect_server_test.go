@@ -151,7 +151,7 @@ func TestConnectRefusesAnAddressThatIsNotAServer(t *testing.T) {
 // working window cannot be made to replace itself.
 func TestOnlyAnUnreachableServerWindowTakesItsRecoveryActions(t *testing.T) {
 	a := newTestAppState(t)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:4000/s/x"}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:4000/p/p-0123abcd"}})
 
 	for _, action := range []string{"retry-server", "open-local"} {
 		rec := controlRequest(a, http.MethodPost, "/win/w1/"+action)

@@ -45,7 +45,7 @@ type child struct {
 	waitErr error
 	// ingressSecret is this child's alone, handed to it in its environment
 	// (ingress.SecretEnv). The proxy sends it to vouch that a request came from
-	// a caller off loopback (see handleSessionProxy).
+	// a caller off loopback (see handleProjectProxy).
 	ingressSecret string
 	// apiToken is the child's API token, minted here and handed to it in its
 	// environment (ingress.TokenEnv): what its spawner sends to call its API.

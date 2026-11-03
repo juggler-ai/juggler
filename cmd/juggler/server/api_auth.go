@@ -45,11 +45,11 @@ func (s *Server) isAPIToken(token string) bool {
 // method the route is registered for.
 //
 // A session child is reached by every caller its machine server admits —
-// through the /s/<id>/ proxy, which forwards any path, from this machine, the
-// LAN or a tunnel — so an entry here is open to all of them. Every other
-// process that talks to the child holds its token: the machine server that
-// spawned it (activity polls, retirement, exposure), `juggler run` (one-shot),
-// and every page it serves. The entries are the calls that cannot quote it:
+// through its project's link (/p/<key>/), whose proxy forwards any path, from
+// this machine, the LAN or a tunnel — so an entry here is open to all of them.
+// Every other process that talks to the child holds its token: the machine
+// server that spawned it (activity polls, retirement, exposure), `juggler run`
+// (one-shot), and every page it serves. The entries are the calls that cannot quote it:
 //   - native desktop window geometry, read/written by cmd/juggler-app
 //     (window_state_client.go) before the viewer page (and its embedded token)
 //     has loaded, and as it closes;

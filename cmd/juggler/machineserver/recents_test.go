@@ -146,4 +146,45 @@ func TestOpenedSessionsBecomeRecents(t *testing.T) {
 	if got, want := getRecents(t, front.URL), []string{b, a}; strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("recents = %v, want %v", got, want)
 	}
+
+	// Each recent, and each session, comes with its project's link — which the
+	// page cannot work out for itself: the key's hash needs crypto.subtle, which
+	// a plain-http LAN origin does not have.
+	var recents struct {
+		Links map[string]string `json:"links"`
+	}
+	getJSON(t, front.URL+"/api/server/recents", &recents)
+	for _, p := range []string{a, b} {
+		if got := recents.Links[p]; got != projectLink(p) {
+			t.Errorf("recents link for %s = %q, want %q", p, got, projectLink(p))
+		}
+	}
+	var sessions []Session
+	getJSON(t, front.URL+"/api/server/sessions", &sessions)
+	if len(sessions) != 2 {
+		t.Fatalf("sessions = %v, want two", sessions)
+	}
+	for _, sess := range sessions {
+		if sess.Link != projectLink(sess.Project) {
+			t.Errorf("session %s link = %q, want %q", sess.Project, sess.Link, projectLink(sess.Project))
+		}
+	}
+}
+
+// getJSON GETs a control-API url with the token and decodes its body into v.
+func getJSON(t *testing.T, url string, v any) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set(TokenHeader, testToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: status %d", url, resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+		t.Fatal(err)
+	}
 }

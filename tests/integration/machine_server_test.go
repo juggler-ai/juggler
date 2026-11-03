@@ -84,7 +84,7 @@ func TestMachineServerSessionLifecycle(t *testing.T) {
 	if dialable(first.Addr) {
 		t.Fatalf("stopped child at %s still accepts connections", first.Addr)
 	}
-	resp, err = ms.do(http.MethodGet, "/s/"+first.ID+"/api/health", nil)
+	resp, err = ms.do(http.MethodGet, first.Link+"api/health", nil)
 	if err != nil {
 		t.Fatalf("GET through a stopped session: %v", err)
 	}
@@ -94,9 +94,9 @@ func TestMachineServerSessionLifecycle(t *testing.T) {
 	}
 }
 
-// TestMachineServerProxiesHTTP proves /s/<id>/ reaches the session's own
-// child: the instance it answers for is that child's pid and project. A bare
-// /s/<id> redirects to the prefixed root.
+// TestMachineServerProxiesHTTP proves a project's link, /p/<key>/, reaches
+// the session's own child: the instance it answers for is that child's pid and
+// project. A bare /p/<key> redirects to the prefixed root.
 func TestMachineServerProxiesHTTP(t *testing.T) {
 	ms, stop := startMachineServer(t)
 	defer stop()
@@ -104,7 +104,8 @@ func TestMachineServerProxiesHTTP(t *testing.T) {
 	project := newProjectDir(t)
 	sess := ms.openSession(project, http.StatusCreated)
 
-	code, body := sessionCall(t, http.MethodGet, ms.url("/s/"+sess.ID+apipaths.HealthInstance), ms.sessionPageToken("/s/"+sess.ID), nil)
+	prefix := strings.TrimSuffix(sess.Link, "/")
+	code, body := sessionCall(t, http.MethodGet, ms.url(prefix+apipaths.HealthInstance), ms.sessionPageToken(prefix), nil)
 	if code != http.StatusOK {
 		t.Fatalf("proxied GET %s: status %d, body %s", apipaths.HealthInstance, code, body)
 	}
@@ -122,7 +123,7 @@ func TestMachineServerProxiesHTTP(t *testing.T) {
 
 	// The page tells its scripts where it is mounted, so they address the
 	// child through the proxy rather than the machine server's own root.
-	resp, err := ms.do(http.MethodGet, "/s/"+sess.ID+"/", nil)
+	resp, err := ms.do(http.MethodGet, sess.Link, nil)
 	if err != nil {
 		t.Fatalf("proxied GET index: %v", err)
 	}
@@ -132,31 +133,101 @@ func TestMachineServerProxiesHTTP(t *testing.T) {
 	if m == nil {
 		t.Fatalf("proxied index.html does not set window.__jugglerBase")
 	}
-	if got := strings.ReplaceAll(string(m[1]), `\/`, "/"); got != "/s/"+sess.ID {
-		t.Fatalf("proxied index.html base = %q, want /s/%s", got, sess.ID)
+	if got := strings.ReplaceAll(string(m[1]), `\/`, "/"); got != prefix {
+		t.Fatalf("proxied index.html base = %q, want %s", got, prefix)
 	}
 
-	resp, err = ms.do(http.MethodGet, "/s/"+sess.ID, nil)
+	resp, err = ms.do(http.MethodGet, prefix, nil)
 	if err != nil {
-		t.Fatalf("GET bare session path: %v", err)
+		t.Fatalf("GET bare link: %v", err)
 	}
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusMovedPermanently || resp.Header.Get("Location") != "/s/"+sess.ID+"/" {
-		t.Fatalf("bare /s/<id>: status %d location %q, want 301 to /s/%s/",
-			resp.StatusCode, resp.Header.Get("Location"), sess.ID)
+	if resp.StatusCode != http.StatusMovedPermanently || resp.Header.Get("Location") != sess.Link {
+		t.Fatalf("bare %s: status %d location %q, want 301 to %s",
+			prefix, resp.StatusCode, resp.Header.Get("Location"), sess.Link)
+	}
+}
+
+// TestMachineServerProjectLinkOutlivesItsSession: a project's link is the one
+// address of its session, and stays the project's when the session stops. A
+// browser loading it then gets the sessions page set to open the project — the
+// load itself opens nothing — and once the project is opened again, under a
+// new session id, the same address serves the new session's own page.
+func TestMachineServerProjectLinkOutlivesItsSession(t *testing.T) {
+	ms, stop := startMachineServer(t)
+	defer stop()
+
+	project := newProjectDir(t)
+	first := ms.openSession(project, http.StatusCreated)
+	link := first.Link
+
+	// load GETs the link as a browser loading a page does, and returns what
+	// the page says it is: the child's (its mount) or the sessions page's
+	// (what it opens).
+	load := func() (code int, base, opens string) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, ms.url(link), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Accept", "text/html,application/xhtml+xml")
+		req.Header.Set("Sec-Fetch-Dest", "document")
+		req.Header.Set("Sec-Fetch-Site", "none")
+		resp, err := (&http.Client{Timeout: sessionOpenTimeout}).Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", link, err)
+		}
+		page, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if m := pageBasePattern.FindSubmatch(page); m != nil {
+			base = strings.ReplaceAll(string(m[1]), `\/`, "/")
+		}
+		if m := machineConfigPattern.FindSubmatch(page); m != nil {
+			var cfg struct {
+				Open string `json:"open"`
+			}
+			_ = json.Unmarshal(m[1], &cfg)
+			opens = cfg.Open
+		}
+		return resp.StatusCode, base, opens
+	}
+
+	if code, base, _ := load(); code != http.StatusOK || base != strings.TrimSuffix(link, "/") {
+		t.Fatalf("the running session's link: status %d, base %q; want its page, mounted at %s", code, base, link)
+	}
+
+	resp, err := ms.do(http.MethodDelete, "/api/server/sessions/"+first.ID, nil)
+	if err != nil {
+		t.Fatalf("DELETE session: %v", err)
+	}
+	_ = resp.Body.Close()
+	if code, base, opens := load(); code != http.StatusOK || base != "" || opens != project {
+		t.Fatalf("the stopped session's link: status %d, base %q, opens %q; want the sessions page opening %s", code, base, opens, project)
+	}
+	if list := ms.mustListSessions(); len(list) != 0 {
+		t.Fatalf("loading the link opened %+v; a load opens nothing", list)
+	}
+
+	again := ms.openSession(project, http.StatusCreated)
+	if again.ID == first.ID || again.Link != link {
+		t.Fatalf("reopened: id %s link %s; want a new id at the same link %s", again.ID, again.Link, link)
+	}
+	if code, base, _ := load(); code != http.StatusOK || base != strings.TrimSuffix(link, "/") {
+		t.Fatalf("the link after reopening: status %d, base %q; want the new session's page", code, base)
 	}
 }
 
 // TestMachineServerServesTheUIUnderItsPrefix loads the UI's page through the
 // proxy and then everything that page references by server path — scripts,
 // stylesheets, the SDK import map, the asset prefix its modules load from —
-// the way a browser there would. Each must be under /s/<id>/ and must load.
+// the way a browser there would. Each must be under the project's link,
+// /p/<key>/, and must load.
 func TestMachineServerServesTheUIUnderItsPrefix(t *testing.T) {
 	ms, stop := startMachineServer(t)
 	defer stop()
 
 	sess := ms.openSession(newProjectDir(t), http.StatusCreated)
-	prefix := "/s/" + sess.ID + "/"
+	prefix := sess.Link
 
 	resp, err := ms.do(http.MethodGet, prefix, nil)
 	if err != nil {
@@ -202,7 +273,7 @@ func TestMachineServerServesTheUIUnderItsPrefix(t *testing.T) {
 
 // TestMachineServerDrivesASessionInABrowser is the UI-under-the-proxy exit
 // test: a real browser test runs in a page the child's test window loads
-// through the machine server at /s/<id>/, so every request it makes — the
+// through the machine server at its project's link, so every request it makes — the
 // test runner's own, the app's /api calls, its WebSocket — has to find the
 // session through the prefix. The machine server's own root serves none of
 // them, so a URL that misses the prefix fails the test rather than reaching
@@ -223,7 +294,7 @@ func TestMachineServerDrivesASessionInABrowser(t *testing.T) {
 	ms.holdSession(sess.ID)
 
 	// The child's own test API, reached the way the page reaches it.
-	prefix := "/s/" + sess.ID
+	prefix := strings.TrimSuffix(sess.Link, "/")
 	const name = "integration:read-file-single"
 	if err := helpers.PostJSON(ms.Addr, prefix+"/api/test/run", map[string]any{
 		"name":        name,
@@ -274,7 +345,7 @@ func TestMachineServerCLI(t *testing.T) {
 		t.Fatalf("sessions after juggler open = %+v, want one for %s", list, project)
 	}
 	ms.noteChild(list[0])
-	if want := "http://" + ms.Addr + "/s/" + list[0].ID + "/"; strings.TrimSpace(out) != want {
+	if want := "http://" + ms.Addr + list[0].Link; strings.TrimSpace(out) != want {
 		t.Fatalf("juggler open printed %q, want %q", out, want)
 	}
 
@@ -452,7 +523,7 @@ func TestMachineServerLaunchesTwoSessionsFromThePage(t *testing.T) {
 	done := make(chan *outcome, len(sessions))
 	for i, sess := range sessions {
 		go func() {
-			o := &outcome{prefix: "/s/" + sess.ID}
+			o := &outcome{prefix: strings.TrimSuffix(sess.Link, "/")}
 			if o.err = helpers.PostJSON(ms.Addr, o.prefix+"/api/test/run", map[string]any{"name": name, "projectPath": fixtures[i]}, nil); o.err == nil {
 				o.err = ms.pollLaneResult(o.prefix, name, &o.result)
 			}
@@ -499,7 +570,7 @@ func TestMachineServerProxiesWebSocket(t *testing.T) {
 	defer stop()
 
 	sess := ms.openSession(newProjectDir(t), http.StatusCreated)
-	prefix := "/s/" + sess.ID
+	prefix := strings.TrimSuffix(sess.Link, "/")
 
 	bootID, closed := ms.greetViewer(prefix, ms.sessionPageToken(prefix))
 	if closed || bootID == "" {
@@ -694,7 +765,7 @@ func holdTurn(t *testing.T, ms *machineServer, sess machineserver.Session) (rele
 // supervisor's viewer grace. No control socket exists during the unviewed turn.
 func holdTurnWithViewer(t *testing.T, ms *machineServer, sess machineserver.Session) (release, disconnect func()) {
 	t.Helper()
-	prefix := "/s/" + sess.ID
+	prefix := strings.TrimSuffix(sess.Link, "/")
 
 	resp, err := ms.do(http.MethodGet, prefix+"/", nil)
 	if err != nil {
@@ -896,7 +967,7 @@ func holdTurnWithViewer(t *testing.T, ms *machineServer, sess machineserver.Sess
 
 // TestMachineServerRestartsACrashedChild kills a real session child out from
 // under the machine server: the session is respawned under the same ID, with a
-// new child, and the proxy routes /s/<id>/ to the new one. The policy's other
+// new child, and the proxy routes the project's link to the new one. The policy's other
 // branches (clean exit, giving up, stop during the backoff) are covered against
 // stand-in children in machineserver/restart_test.go.
 func TestMachineServerRestartsACrashedChild(t *testing.T) {
@@ -905,7 +976,7 @@ func TestMachineServerRestartsACrashedChild(t *testing.T) {
 
 	project := newProjectDir(t)
 	sess := ms.openSession(project, http.StatusCreated)
-	prefix := "/s/" + sess.ID
+	prefix := strings.TrimSuffix(sess.Link, "/")
 	oldToken := ms.sessionPageToken(prefix)
 	oldBoot, _ := ms.greetViewer(prefix, oldToken)
 
@@ -933,7 +1004,7 @@ func TestMachineServerRestartsACrashedChild(t *testing.T) {
 		t.Fatalf("instance through the restarted session: status %d (%s), %v", code, body, err)
 	}
 	if inst.PID != back.PID {
-		t.Fatalf("/s/%s/ reached pid %d, want the new child %d", sess.ID, inst.PID, back.PID)
+		t.Fatalf("%s reached pid %d, want the new child %d", sess.Link, inst.PID, back.PID)
 	}
 	if list := ms.mustListSessions(); len(list) != 1 || list[0].ID != sess.ID {
 		t.Fatalf("sessions after the restart = %+v, want only %s", list, sess.ID)
@@ -1028,7 +1099,7 @@ func TestMachineServerRefusesRebindingHost(t *testing.T) {
 	ms, stop := startMachineServer(t)
 	defer stop()
 	sess := ms.openSession(newProjectDir(t), http.StatusCreated)
-	prefix := "/s/" + sess.ID
+	prefix := strings.TrimSuffix(sess.Link, "/")
 
 	get := func(path, host string) (int, string) {
 		t.Helper()

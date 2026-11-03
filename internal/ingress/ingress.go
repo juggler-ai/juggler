@@ -77,7 +77,7 @@ const TokenEnv = "JUGGLER_SESSION_TOKEN"
 // LAN access and tunnels are the machine server's, and a session's viewer
 // switches them from the session, through its child. SupervisorSessionEnv is
 // the session's id there, by which the child asks for the links that open it
-// (its /s/<id>/). A child with no machine server (`juggler run`'s, the test
+// (its project's link). A child with no machine server (`juggler run`'s, the test
 // harness) finds none of them.
 const (
 	SupervisorAddrEnv    = "JUGGLER_SUPERVISOR_ADDR"

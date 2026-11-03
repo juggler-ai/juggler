@@ -6,7 +6,7 @@
  * ESLint rule: no absolute `/api/` URL written out in client code.
  *
  * A server may be mounted under a path prefix (the machine server serves each
- * session at /s/<id>/), so a literal '/api/…' addresses the wrong server. Every
+ * session at its project's link, /p/<key>/), so a literal '/api/…' addresses the wrong server. Every
  * /api URL is built by web/js/utils/api-url.js (`apiUrl('/config')`), which
  * prepends the page's base path. This flags a string literal, or any
  * template-literal segment, that begins with '/api/' (or is exactly '/api').

@@ -29,7 +29,7 @@ func TestMachineServerAdmitsAllowedHostAsRemote(t *testing.T) {
 	ms, stop := startMachineServer(t, "--allow-host", allowed)
 	defer stop()
 	sess := ms.openSession(newProjectDir(t), http.StatusCreated)
-	prefix := "/s/" + sess.ID
+	prefix := strings.TrimSuffix(sess.Link, "/")
 
 	do := func(method, path, host, token, body string) (int, string) {
 		t.Helper()

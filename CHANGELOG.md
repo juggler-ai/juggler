@@ -7,6 +7,7 @@ the current release). The project follows semantic versioning.
 ## [Unreleased]
 
 - Total refactor of juggler's server/network stack - instead of running a server per session, there's a server per machine and this manages multiple sessions
+- Each project has a stable link, so bookmarks and other devices always find it
 - `! command` (or /shell) posts a bash call you run yourself, no model call
 - Running bash calls have a Stop command button in their properties panel
 - New Slash commands settings page lists built-in and custom commands, with editing

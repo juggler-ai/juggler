@@ -79,7 +79,7 @@ func TestANavigatedWindowsOldSecretOpensNothing(t *testing.T) {
 	e := registerWindow(a, &winEntry{id: "w1", role: roleMain})
 	old := controlSecretOf(a, "w1")
 
-	page := a.showView(e, showing(a.viewOf(e)), windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/s/abc"}, windowOpts{})
+	page := a.showView(e, showing(a.viewOf(e)), windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/p/p-0123abcd"}, windowOpts{})
 
 	if strings.Contains(page, old) {
 		t.Fatalf("the new page %s carries the old secret", page)
@@ -111,7 +111,7 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 	a := newTestAppState(t)
 	a.workspace = newWorkspaceStoreAt(workspacePath(t))
 	const server = "http://devbox:3939"
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: server, connected: true}, serverURL: server + "/s/abc"}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: server, connected: true}, serverURL: server + "/p/proj-0123abcd"}})
 
 	for _, action := range []string{
 		"connect?url=http%3A%2F%2Felsewhere%3A1",
@@ -179,7 +179,7 @@ func TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer(t *testing.T) {
 
 	a := newTestAppState(t)
 	remote := windowSpec{url: "http://devbox:3939", connected: true}
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: remote, serverURL: remote.url + "/s/abc"}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: remote, serverURL: remote.url + "/p/proj-0123abcd"}})
 
 	for _, action := range []string{
 		"new",

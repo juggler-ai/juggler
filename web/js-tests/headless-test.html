@@ -207,8 +207,8 @@
 <body>
     <script nonce="{{.CSPNonce}}">
         window.__assetPrefix = '{{.BasePath}}/v{{.StaticVersion}}';
-        // Where this server is mounted: '' directly, '/s/<id>' behind the
-        // machine server's session proxy (see js/utils/api-url.js).
+        // Where this server is mounted: '' directly, '/p/<key>' behind the
+        // machine server's proxy (see js/utils/api-url.js).
         window.__jugglerBase = '{{.BasePath}}';
     </script>
 

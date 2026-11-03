@@ -148,11 +148,11 @@ func TestBareJugglerServesThenAttaches(t *testing.T) {
 		t.Errorf("server.json %+v: want bare juggler's server marked implicit", info)
 	}
 	list := ms.mustListSessions()
-	if len(list) != 1 || list[0].Project != project || url != "http://"+ms.Addr+"/s/"+list[0].ID+"/" {
+	if len(list) != 1 || list[0].Project != project || url != "http://"+ms.Addr+list[0].Link {
 		t.Fatalf("sessions %+v, printed URL %s: want one for %s at that URL", list, url, project)
 	}
 	ms.noteChild(list[0])
-	resp, err := ms.do(http.MethodGet, "/s/"+list[0].ID+"/", nil)
+	resp, err := ms.do(http.MethodGet, list[0].Link, nil)
 	if err != nil {
 		t.Fatalf("GET the session's page: %v", err)
 	}

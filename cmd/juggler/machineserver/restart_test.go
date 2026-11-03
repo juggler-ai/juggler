@@ -76,7 +76,7 @@ func waitForRecord(t *testing.T, s *Server, id, what string, timeout time.Durati
 }
 
 // TestCrashedSessionRestartsUnderItsID: a child that crashes is respawned
-// after a backoff, under the same session ID, so the /s/<id>/ URL a user holds
+// after a backoff, under the same session ID, so the link a user holds
 // keeps working. While it waits the record says so, with when it will try.
 func TestCrashedSessionRestartsUnderItsID(t *testing.T) {
 	s, front := restartServer(t, restartPolicy{base: 300 * time.Millisecond, max: time.Second, limit: 3, stable: time.Hour})
@@ -96,7 +96,7 @@ func TestCrashedSessionRestartsUnderItsID(t *testing.T) {
 	if back.Restarts != 1 || back.NextRestartAt != nil || back.Error != "" {
 		t.Fatalf("restarted record = %+v, want restarts 1, no next attempt, no error", back)
 	}
-	if code, _ := get(t, front.URL+"/s/"+sess.ID+"/"); code != http.StatusOK {
+	if code, _ := get(t, front.URL+sess.Link); code != http.StatusOK {
 		t.Fatalf("proxy to the restarted session: status %d, want 200", code)
 	}
 }

@@ -6,7 +6,7 @@
  * Server URL building test.
  *
  * A page served through the machine server's session proxy is mounted at
- * /s/<id>/, and says so in `window.__jugglerBase`. Every /api and WebSocket URL
+ * /p/<key>/, and says so in `window.__jugglerBase`. Every /api and WebSocket URL
  * the client builds must carry that base, or it reaches the machine server's own
  * root instead of the session. A page reached directly has an empty base and
  * must build exactly the URLs it always has.
@@ -81,25 +81,25 @@ export async function runTests(_ctx) {
     assert(!isApiUrl('/v1/js/app.js'), 'an asset is not /api');
   });
 
-  await run('a proxied page builds every URL under its base', '/s/81fb48e2', () => {
-    assert(basePath() === '/s/81fb48e2', `basePath() = ${basePath()}`);
-    assert(apiUrl('/config') === '/s/81fb48e2/api/config', `apiUrl = ${apiUrl('/config')}`);
-    assert(wsUrl('role=viewer&token=t') === `ws://${host}/s/81fb48e2/api/ws?role=viewer&token=t`,
+  await run('a proxied page builds every URL under its base', '/p/myapp-81fb48e2', () => {
+    assert(basePath() === '/p/myapp-81fb48e2', `basePath() = ${basePath()}`);
+    assert(apiUrl('/config') === '/p/myapp-81fb48e2/api/config', `apiUrl = ${apiUrl('/config')}`);
+    assert(wsUrl('role=viewer&token=t') === `ws://${host}/p/myapp-81fb48e2/api/ws?role=viewer&token=t`,
       `wsUrl = ${wsUrl('role=viewer&token=t')}`);
   });
 
-  await run('the token shim test follows the base', '/s/81fb48e2', () => {
-    assert(isApiUrl('/s/81fb48e2/api/config'), 'this session, relative');
-    assert(isApiUrl(`${origin}/s/81fb48e2/api/config`), 'this session, absolute');
+  await run('the token shim test follows the base', '/p/myapp-81fb48e2', () => {
+    assert(isApiUrl('/p/myapp-81fb48e2/api/config'), 'this session, relative');
+    assert(isApiUrl(`${origin}/p/myapp-81fb48e2/api/config`), 'this session, absolute');
     // The token belongs to this session's server: never hand it to another
     // session, nor to the machine server's own API.
-    assert(!isApiUrl('/s/deadbeef/api/config'), 'another session');
+    assert(!isApiUrl('/p/other-deadbeef/api/config'), 'another session');
     assert(!isApiUrl('/api/server/sessions'), 'the machine server itself');
   });
 
-  await run('non-API server paths follow the base', '/s/81fb48e2', () => {
-    assert(serverPath('/sandbox') === '/s/81fb48e2/sandbox', `serverPath = ${serverPath('/sandbox')}`);
-    assert(serverPath('/worker-module?url=x') === '/s/81fb48e2/worker-module?url=x',
+  await run('non-API server paths follow the base', '/p/myapp-81fb48e2', () => {
+    assert(serverPath('/sandbox') === '/p/myapp-81fb48e2/sandbox', `serverPath = ${serverPath('/sandbox')}`);
+    assert(serverPath('/worker-module?url=x') === '/p/myapp-81fb48e2/worker-module?url=x',
       `serverPath = ${serverPath('/worker-module?url=x')}`);
   });
 
@@ -107,15 +107,15 @@ export async function runTests(_ctx) {
     assert(serverPath('/sandbox') === '/sandbox', `serverPath = ${serverPath('/sandbox')}`);
   });
 
-  await run('disk-served extension assets follow the base', '/s/81fb48e2', () => {
+  await run('disk-served extension assets follow the base', '/p/myapp-81fb48e2', () => {
     // Built-in assets take the versioned prefix, which the server already
     // templates under the base; disk-served ones skip it and need the base
     // of their own.
     const got = resolveAssetUrl('/user-extensions/x/y.js');
-    assert(got === '/s/81fb48e2/user-extensions/x/y.js', `resolveAssetUrl = ${got}`);
+    assert(got === '/p/myapp-81fb48e2/user-extensions/x/y.js', `resolveAssetUrl = ${got}`);
   });
 
-  await run('APIService requests go through the base', '/s/81fb48e2', async () => {
+  await run('APIService requests go through the base', '/p/myapp-81fb48e2', async () => {
     /** @type {string[]} */
     const urls = [];
     const realFetch = window.fetch;
@@ -128,7 +128,7 @@ export async function runTests(_ctx) {
     } finally {
       window.fetch = realFetch;
     }
-    assert(urls.length === 1 && urls[0] === '/s/81fb48e2/api/health', `fetched ${JSON.stringify(urls)}`);
+    assert(urls.length === 1 && urls[0] === '/p/myapp-81fb48e2/api/health', `fetched ${JSON.stringify(urls)}`);
   });
 
   return { passed, failed, errors };

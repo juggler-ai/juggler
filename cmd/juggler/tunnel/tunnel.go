@@ -14,6 +14,7 @@ package tunnel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -62,6 +63,32 @@ type ICEServer struct {
 	URLs       []string `json:"urls"`
 	Username   string   `json:"username,omitempty"`
 	Credential string   `json:"credential,omitempty"`
+}
+
+// UnmarshalJSON accepts urls as one string or a list, as RTCIceServer does —
+// juggler.studio's rendezvous sends the string form.
+func (s *ICEServer) UnmarshalJSON(data []byte) error {
+	type plain ICEServer
+	var raw struct {
+		plain
+		URLs json.RawMessage `json:"urls"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*s = ICEServer(raw.plain)
+	if len(raw.URLs) == 0 || string(raw.URLs) == "null" {
+		return nil
+	}
+	var one string
+	if err := json.Unmarshal(raw.URLs, &one); err == nil {
+		s.URLs = []string{one}
+		return nil
+	}
+	if err := json.Unmarshal(raw.URLs, &s.URLs); err != nil {
+		return fmt.Errorf("ICE server urls: want a string or a list of strings: %w", err)
+	}
+	return nil
 }
 
 // CallerIdentity is who a remote caller is, as named by the transport that

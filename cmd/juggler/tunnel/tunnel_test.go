@@ -4,7 +4,37 @@
 
 package tunnel
 
-import "testing"
+import (
+	"encoding/json"
+	"slices"
+	"testing"
+)
+
+// TestICEServerURLsForms: WebRTC's RTCIceServer spells urls as one string or a
+// list, and a rendezvous may send either.
+func TestICEServerURLsForms(t *testing.T) {
+	for in, want := range map[string][]string{
+		`{"urls":"stun:a.example:3478"}`:                         {"stun:a.example:3478"},
+		`{"urls":["stun:a.example:3478","stun:b.example:3478"]}`: {"stun:a.example:3478", "stun:b.example:3478"},
+		`{}`: nil,
+	} {
+		var s ICEServer
+		if err := json.Unmarshal([]byte(in), &s); err != nil {
+			t.Errorf("%s: %v", in, err)
+			continue
+		}
+		if !slices.Equal(s.URLs, want) {
+			t.Errorf("%s: URLs = %q, want %q", in, s.URLs, want)
+		}
+	}
+	var s ICEServer
+	if err := json.Unmarshal([]byte(`{"urls":"turn:t.example","username":"u","credential":"c"}`), &s); err != nil || s.Username != "u" || s.Credential != "c" {
+		t.Errorf("string urls with credentials: %+v, %v", s, err)
+	}
+	if err := json.Unmarshal([]byte(`{"urls":42}`), &s); err == nil {
+		t.Error("numeric urls was accepted")
+	}
+}
 
 // withEmptyRegistry swaps the registry for the duration of a test. The
 // registry is a startup-time package global, so a test that exercises it

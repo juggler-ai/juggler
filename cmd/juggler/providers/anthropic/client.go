@@ -1056,20 +1056,43 @@ func (c *Client) streamMessage(ctx context.Context, req provider.MessageRequest,
 	return c.sendMessageStreaming(ctx, req, callback)
 }
 
+// modelsPageLimit is the largest page the Models API serves, so the whole
+// catalog normally arrives in one request.
+const modelsPageLimit = 1000
+
 // ListModelsWithInfo returns detailed information about available models from
 // the Anthropic Models API.
+//
+// The API pages its catalog, and every page is read: a list cut at the first
+// page silently omits every model past it. A page that fails fails the whole
+// list, so the caller keeps what it knew instead of a catalog with a hole in it.
+//
+// The walk ends at the first page that adds no model it has not already seen,
+// as well as where the API says it ends. That is the end of the catalog for a
+// proxy that ignores the after_id cursor and serves the same page every time,
+// which, still claiming more, would otherwise be paged forever. A model listed
+// twice keeps its first entry.
 func (c *Client) ListModelsWithInfo(ctx context.Context) ([]provider.ModelInfo, error) {
-	// Use the Anthropic Models API to list available models
-	page, err := c.client.Models.List(ctx, anthropicsdk.ModelListParams{})
+	page, err := c.client.Models.List(ctx, anthropicsdk.ModelListParams{Limit: anthropicsdk.Int(modelsPageLimit)})
+	seen := make(map[string]bool)
+	var modelInfos []provider.ModelInfo
+	for err == nil && page != nil {
+		added := false
+		for _, model := range page.Data {
+			if !seen[model.ID] {
+				seen[model.ID] = true
+				added = true
+				modelInfos = append(modelInfos, modelInfoFromAPI(model))
+			}
+		}
+		if !added {
+			break
+		}
+		page, err = page.GetNextPage()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to list models from Anthropic: %w", err)
 	}
-
-	modelInfos := make([]provider.ModelInfo, 0, len(page.Data))
-	for _, model := range page.Data {
-		modelInfos = append(modelInfos, modelInfoFromAPI(model))
-	}
-
 	return modelInfos, nil
 }
 

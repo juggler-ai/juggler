@@ -49,25 +49,14 @@ func TestHelperMachineServer(t *testing.T) {
 // helperStarter is a Starter that runs TestHelperMachineServer detached, as
 // DetachedStarter runs `juggler serve --implicit`, and counts the servers it
 // starts. Every one still running when the test ends is shut down through the
-// control API and waited for.
+// control API and waited for (stopStandIns).
 func helperStarter(t *testing.T) (start Starter, count func() int) {
 	t.Helper()
 	t.Setenv("JUGGLER_LOG_DIR", t.TempDir())
 	var n atomic.Int32
-	exits := make(chan (<-chan struct{}), 16)
-	t.Cleanup(func() {
-		if info := NewMachineLock(userpaths.ConfigDir()).readInfo(); info != nil && info.Addr != "" {
-			c := &Client{addr: info.Addr, token: info.Token, http: &http.Client{Timeout: 5 * time.Second}}
-			_ = c.do(http.MethodPost, "/shutdown", nil, nil)
-		}
-		for range n.Load() {
-			select {
-			case <-<-exits:
-			case <-time.After(30 * time.Second):
-				t.Error("a stand-in machine server did not exit after a shutdown request")
-			}
-		}
-	})
+	// One send per stand-in that exits; Connect bounds how many start.
+	exits := make(chan struct{}, 64)
+	t.Cleanup(func() { stopStandIns(t, int(n.Load()), exits) })
 	start = func() (int, <-chan struct{}, error) {
 		cmd := detach.Command(os.Args[0], "-test.run=^TestHelperMachineServer$")
 		cmd.Env = append(os.Environ(), helperServeEnv+"=1", helperStarterPIDEnv+"="+strconv.Itoa(os.Getpid()))
@@ -79,12 +68,46 @@ func helperStarter(t *testing.T) (start Starter, count func() int) {
 		go func() {
 			_ = cmd.Wait()
 			close(exited)
+			exits <- struct{}{}
 		}()
 		n.Add(1)
-		exits <- exited
 		return cmd.Process.Pid, exited, nil
 	}
 	return start, func() int { return int(n.Load()) }
+}
+
+// stopStandIns waits for all `started` stand-ins to exit, one send on exits
+// each, asking whichever holds the machine lock to shut down. One request is
+// not enough: Connect returns once any server answers, so a stand-in it started
+// may come up only after the holder has gone, take the lock in its turn, and
+// stay up — its starter, this test process, is alive — until asked. A holder
+// that has not recorded its address yet is asked once it has. It fails the
+// test when no stand-in exits for 30s.
+func stopStandIns(t *testing.T, started int, exits <-chan struct{}) {
+	t.Helper()
+	lock := NewMachineLock(userpaths.ConfigDir())
+	asked := "" // token of the holder last asked: each server mints its own
+	poll := time.NewTicker(20 * time.Millisecond)
+	defer poll.Stop()
+	stuck := time.NewTimer(30 * time.Second)
+	defer stuck.Stop()
+	for left := started; left > 0; {
+		if info := lock.readInfo(); info != nil && info.Addr != "" && info.Token != asked {
+			c := &Client{addr: info.Addr, token: info.Token, http: &http.Client{Timeout: 5 * time.Second}}
+			if c.do(http.MethodPost, "/shutdown", nil, nil) == nil {
+				asked = info.Token
+			}
+		}
+		select {
+		case <-exits:
+			left--
+			stuck.Reset(30 * time.Second)
+		case <-poll.C:
+		case <-stuck.C:
+			t.Errorf("%d stand-in machine server(s) did not exit after a shutdown request", left)
+			return
+		}
+	}
 }
 
 // TestConnectWaitsOutTheWindowBeforeTheAddressIsRecorded: a server holds the

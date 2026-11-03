@@ -170,7 +170,9 @@ already waiting.
 
 Type "/" in the composer. Built in: **/new** (new empty conversation),
 **/duplicate** (clone this one), **/clear** (clear messages), **/compact**
-(compact everything into a summary thread), **/handoff** (summarise into a new
+(fold older turns into a summary thread, keeping recent ones as Settings →
+Defaults → Keep recent conversation says; **/compact all** folds everything),
+**/handoff** (summarise into a new
 conversation to continue), **/thread** (new sub-conversation thread),
 **/export** (save as an HTML page to share), **/commands** (manage custom
 commands), **/init** (have the agent survey the project and draft an

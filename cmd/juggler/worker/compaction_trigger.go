@@ -32,8 +32,8 @@
 // result in place (a live tool_use/tool_result pair must survive, so it can
 // never be folded); then fold the leading run of history — prior summaries
 // nested inside it so they never stack — into one summary thread,
-// keeping a verbatim suffix within recoverySuffixBudgetFraction of the usable
-// window so the fold buys real headroom. Progress is judged structurally — by
+// keeping the verbatim tail chooseTail picks, which leaves the fold real
+// headroom. Progress is judged structurally — by
 // the shape of the durable items, never by a token estimate — and the retry
 // after progress dispatches guard-bypassed, so the provider rather than the
 // estimator judges whether the fold sufficed. One incident is bounded by
@@ -61,16 +61,6 @@ const (
 	// maxContextRecoveryAttempts permits several progressive folds while keeping
 	// provider retries small and independent from the reducer's internal call cap.
 	maxContextRecoveryAttempts = 4
-
-	// recoverySuffixBudgetFraction is the share of the usable history budget
-	// (window minus envelope, reserve and summary floor) a fold may spend on the
-	// verbatim suffix it keeps. Recovery triggers at the admission ceiling or at
-	// the provider's wall, so a fold that retains everything that merely fits
-	// the window puts the retried request straight back at the trigger a few
-	// turns later; spending half buys real headroom per incident. The newest
-	// unit is exempt (see the suffix walk): a live tool batch that fits the
-	// window at all must stay verbatim.
-	recoverySuffixBudgetFraction = 0.5
 )
 
 // recoverySignature captures the objective structural shape of the target
@@ -502,45 +492,33 @@ func (r *run) compactToFit(limitErr *provider.ContextLimitExceededError, modelCo
 		skip++
 	}
 
-	// Walk units backward, keeping a verbatim suffix within the fold's retain
-	// budget. fullBudget is everything the window can hold after the fixed
-	// envelope, the output reserve and the reducer's summary floor; the walk
-	// spends only recoverySuffixBudgetFraction of it, so the fold creates
-	// headroom instead of stopping at the very pressure that triggered it. The
-	// newest unit alone is granted the full budget: a live tool batch that fits
-	// the window must survive verbatim (folding it would sever the open tool
-	// pair; shrinking is reserved for results that can never fit at all). A
-	// standing unit is walked past uncharged — it stays wherever the boundary
-	// falls; any other pinned unit stops the walk, since the fold boundary may
-	// not cross it.
+	// Choose the verbatim tail by the shared rule (chooseTail). fullBudget is
+	// everything the window can hold after the fixed envelope, the output
+	// reserve and the reducer's summary floor; the tail may occupy only
+	// compactionHeadroomFraction of it, so the fold creates headroom instead of
+	// stopping at the very pressure that triggered it. The newest unit alone is
+	// granted the full budget: a live tool batch that fits the window must
+	// survive verbatim (folding it would sever the open tool pair; shrinking is
+	// reserved for results that can never fit at all).
 	fullBudget := window - envelope - reserve - recoverySummaryFloorTokens
-	suffixBudget := int64(float64(fullBudget) * recoverySuffixBudgetFraction)
-	k := len(units)
-	var suffixEst int64
-	keptNewest := false
-	for k > skip {
-		unit := units[k-1]
-		if standing(unit) {
-			k--
-			continue
+	cut := chooseTail(items, units, skip, func(u recoveryUnit) tailRole {
+		switch {
+		case standing(u):
+			return tailStanding
+		case !foldable(u):
+			return tailPinned
 		}
-		if !foldable(unit) {
-			break
-		}
-		budget := suffixBudget
-		if !keptNewest {
-			budget = fullBudget
-		}
-		if suffixEst+unit.est > budget {
-			break
-		}
-		suffixEst += unit.est
-		keptNewest = true
-		k--
-	}
-	if !keptNewest {
+		return tailFoldable
+	}, tailBounds{
+		keepFraction:          r.keepRecentFraction(),
+		headroom:              int64(float64(fullBudget) * compactionHeadroomFraction),
+		newestBudget:          fullBudget,
+		keepAllWithinHeadroom: true,
+	})
+	if !cut.keptNewest {
 		return contextRecoveryOutcome(before, items), nil
 	}
+	k, suffixEst := cut.k, cut.tailTokens
 	// The suffix walk stops at the first pinned unit from the back, but another
 	// pinned unit (an in-flight unsummarized fold, an earlier invocation
 	// message) can still sit deeper inside [skip, k) with foldable history on

@@ -419,11 +419,14 @@
  * conversation into an unsummarized bounded-compaction thread worker-side (the
  * single Go fold, shared with the proactive auto-compaction trigger), then let
  * the existing pickup summarize it. HandoffPromote tags the thread so the browser
- * promotes its result into the continued tab's parked first message.
+ * promotes its result into the continued tab's parked first message. KeepRecent
+ * leaves the recent conversation verbatim (chooseTail); without it the whole
+ * history folds, which is what /compact all and /handoff ask for.
  * @typedef {object} CompactMessage
  * @property {'compact'} type
  * @property {string} ackId
  * @property {boolean} [handoffPromote]
+ * @property {boolean} [keepRecent]
  */
 
 /**

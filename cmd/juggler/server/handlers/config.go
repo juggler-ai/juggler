@@ -41,6 +41,11 @@ const (
 	// so an absent/empty value means enabled (the default). "1" means disabled.
 	// Mirrored by createAutoCompactGate in server/llm_caller.go.
 	autoCompactDisabledKey = "auto_compact_disabled"
+	// compactKeepRecentPercentKey stores the share of the conversation a fold
+	// keeps verbatim, as a whole-percent string. Absent/unparseable ⇒
+	// worker.DefaultCompactKeepRecentPercent. Mirrored by the resolver in
+	// server/llm_caller.go.
+	compactKeepRecentPercentKey = "compact_keep_recent_percent"
 	// autoNameDisabledKey stores the disabled state of tab auto-naming, so an
 	// absent/empty value means enabled (the default). "1" means disabled. Read
 	// live by server/auto_name.go's autoNamer (gates the LLM namer) and mirrored
@@ -179,6 +184,7 @@ func (c *ConfigAPI) HandleGetConfig(w http.ResponseWriter, r *http.Request) {
 		"spendLimitTokens":         c.credStore.GetRawKey(spendLimitTokensKey),
 		"runBudgetTokens":          c.credStore.GetRawKey(runBudgetTokensKey),
 		"autoCompactDisabled":      c.credStore.GetRawKey(autoCompactDisabledKey) == "1",
+		"compactKeepRecentPercent": c.credStore.GetRawKey(compactKeepRecentPercentKey),
 		"autoNameDisabled":         c.credStore.GetRawKey(autoNameDisabledKey) == "1",
 		"autoNameInstruction":      c.credStore.GetRawKey(autoNameInstructionKey),
 		"autoNameDefaultPrompt":    c.AutoNameDefaultPrompt,
@@ -324,6 +330,16 @@ func (c *ConfigAPI) HandleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// (GetRawKey re-reads disk), so a toggle takes effect on the next turn
 	// without a restart.
 	c.storeDisabledFlag(req, autoCompactDisabledKey, "auto-compaction")
+
+	// How much recent conversation a fold keeps, same shape as the token limits:
+	// read live at the next fold, blank restores the default.
+	if v, ok := req[compactKeepRecentPercentKey]; ok {
+		if str, ok := v.(string); ok {
+			if err := c.credStore.SetRawKey(compactKeepRecentPercentKey, strings.TrimSpace(str)); err != nil {
+				jlog.Error("Failed to save keep-recent setting: %v", err)
+			}
+		}
+	}
 
 	// The global tab auto-naming off switch, same shape as the auto-compaction
 	// one. autoNamer reads it live, so a toggle takes effect on the next

@@ -319,7 +319,7 @@ const compactUnderPauseSummarisesTest = {
     { type: 'approve-no-wait', toolUseId: 'call_1' },
     // The pause has LANDED: the tool finished, the worker rested, nothing runs.
     { type: 'wait-for-state', condition: { processingStatus: 'idle' } },
-    { type: 'run-command', command: 'compact' },
+    { type: 'run-command', command: 'compact', args: 'all' },
     { type: 'wait-for-state', condition: { hasCompactionBarrier: true } }
   ],
 

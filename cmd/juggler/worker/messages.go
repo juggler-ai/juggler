@@ -906,11 +906,14 @@ type GetTransactionMessage struct {
 // conversation into an unsummarized bounded-compaction thread worker-side (the
 // single Go fold, shared with the proactive auto-compaction trigger), then let
 // the existing pickup summarize it. HandoffPromote tags the thread so the browser
-// promotes its result into the continued tab's parked first message.
+// promotes its result into the continued tab's parked first message. KeepRecent
+// leaves the recent conversation verbatim (chooseTail); without it the whole
+// history folds, which is what /compact all and /handoff ask for.
 type CompactMessage struct {
 	Type           wireMsgType `json:"type"` // "compact"
 	AckID          string      `json:"ackId"`
 	HandoffPromote bool        `json:"handoffPromote,omitempty"`
+	KeepRecent     bool        `json:"keepRecent,omitempty"`
 }
 
 // RequestAutoNameMessage asks for an out-of-band tab-title derivation from the

@@ -63,6 +63,7 @@ func TestManagerSettersReachALiveWorkerWhileItsTurnsRead(t *testing.T) {
 			m.SetRunBudget(func() int64 { return 0 })
 			m.SetWindowResolver(func(ModelConfig) ContextWindowInfo { return ContextWindowInfo{} })
 			m.SetAutoCompactGate(func() bool { return true })
+			m.SetKeepRecent(func() int { return 30 })
 			m.SetPathProvider(func(string) (string, bool) { return "", false })
 		}
 	}()

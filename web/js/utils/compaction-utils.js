@@ -161,12 +161,14 @@ export function endCompaction(conversationId) {
  * @param {object} [opts]
  * @param {boolean} [opts.handoffPromote] - Tag the fold so the browser promotes
  *   its result into a continued tab's parked first message (/handoff)
+ * @param {boolean} [opts.keepRecent] - Leave the recent conversation verbatim
+ *   (/compact); without it everything after the standing context folds
  * @returns {Promise<{ folded: boolean, error?: string }>} The worker's outcome:
  *   `folded` is false when there was nothing to fold.
  */
-export async function compactConversation(conversationId, { handoffPromote = false } = {}) {
+export async function compactConversation(conversationId, { handoffPromote = false, keepRecent = false } = {}) {
   const { default: workerManager } = await import('../services/worker-manager.js');
-  return workerManager.compact(conversationId, { handoffPromote });
+  return workerManager.compact(conversationId, { handoffPromote, keepRecent });
 }
 
 /** Guards against a single client double-promoting the same handoff thread. */

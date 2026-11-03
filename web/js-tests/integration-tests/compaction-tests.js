@@ -5,11 +5,14 @@
 /**
  * Integration tests: compaction
  *
- * /compact collapses the *entire* conversation into a single sub-thread, which
- * the worker's folded-compaction summariser then summarises with one hidden,
- * tool-free call, after which the parent conversation contains one thread tile
- * whose `result` is the summary. There is no retention window — undo restores
- * the original.
+ * /compact all collapses the *entire* conversation into a single sub-thread,
+ * which the worker's folded-compaction summariser then summarises with one
+ * hidden, tool-free call, after which the parent conversation contains one
+ * thread tile whose `result` is the summary — undo restores the original. Most
+ * tests here use it, so a two-message fixture still folds. Plain /compact keeps
+ * the recent conversation verbatim after the summary
+ * (compactionKeepsRecentTest); the Go tests in compaction_tail_test.go own the
+ * rule for how much.
  * @module integration-tests/compaction-tests
  */
 
@@ -17,6 +20,13 @@ import { textResponse, toolUseResponse } from '../utilities/integration-test-run
 
 const SUMMARY_TEXT = 'Summary: The conversation discussed reading and running commands.';
 const COMPACT_UP_TO_SUMMARY = 'Summary: Messages 1-3 discussed initial setup.';
+
+/**
+ * A reply long enough that a few of them are worth summarising.
+ * @param {number} n
+ * @returns {string} The reply for turn n.
+ */
+const LONG_REPLY = (n) => `Response ${n}. ${'Details of the work. '.repeat(400)}`;
 
 /**
  * Mock the summarisation call. It is tool-free — the folded summariser sends
@@ -50,7 +60,7 @@ const compactionBasicTest = {
     { type: 'send-message', message: 'Message 1' },
     { type: 'send-message', message: 'Message 2' },
     { type: 'send-message', message: 'Message 3' },
-    { type: 'run-command', command: 'compact' },
+    { type: 'run-command', command: 'compact', args: 'all' },
     { type: 'wait-for-state', condition: { hasCompactionBarrier: true } }
   ],
 
@@ -152,7 +162,7 @@ const compactionSweepsThinkingTest = {
   operations: [
     { type: 'send-message', message: 'Question 1' },
     { type: 'send-message', message: 'Question 2' },
-    { type: 'run-command', command: 'compact' },
+    { type: 'run-command', command: 'compact', args: 'all' },
     { type: 'wait-for-state', condition: { hasCompactionBarrier: true } }
   ],
 
@@ -193,7 +203,7 @@ const compactionUndoRestoresConversationTest = {
   operations: [
     { type: 'send-message', message: 'Message 1' },
     { type: 'send-message', message: 'Message 2' },
-    { type: 'run-command', command: 'compact' },
+    { type: 'run-command', command: 'compact', args: 'all' },
     { type: 'wait-for-state', condition: { hasCompactionBarrier: true } },
     { type: 'undo' },
     // After undo the conversation must be back to the original messages
@@ -246,7 +256,7 @@ const compactionSweepsAllItemsTest = {
     { type: 'send-message', message: 'Message 3' },
     { type: 'send-message', message: 'Message 4' },
     { type: 'send-message', message: 'Message 5' },
-    { type: 'run-command', command: 'compact' },
+    { type: 'run-command', command: 'compact', args: 'all' },
     { type: 'wait-for-state', condition: { hasCompactionBarrier: true } }
   ],
 
@@ -306,7 +316,7 @@ const compactionSweepsToolActionsTest = {
   operations: [
     { type: 'send-message', message: 'Find Go files' },
     { type: 'send-message', message: 'Find JS files' },
-    { type: 'run-command', command: 'compact' },
+    { type: 'run-command', command: 'compact', args: 'all' },
     { type: 'wait-for-state', condition: { hasCompactionBarrier: true } }
   ],
 
@@ -375,7 +385,7 @@ const compactionPreservesLeadingAgentsFilesTest = {
     // CLAUDE.md/AGENTS.md at creation.
     { type: 'send-message', message: '@src/main.go Message 1' },
     { type: 'send-message', message: 'Message 2' },
-    { type: 'run-command', command: 'compact' },
+    { type: 'run-command', command: 'compact', args: 'all' },
     { type: 'wait-for-state', condition: { hasCompactionBarrier: true } }
   ],
 
@@ -450,7 +460,7 @@ const compactionSweepsMidConversationFileTest = {
     // appended after the existing user1/assistant1 items, so it is NOT in
     // the leading run and must be swept like any other content.
     { type: 'send-message', message: '@src/main.go Message 2' },
-    { type: 'run-command', command: 'compact' },
+    { type: 'run-command', command: 'compact', args: 'all' },
     { type: 'wait-for-state', condition: { hasCompactionBarrier: true } }
   ],
 
@@ -526,7 +536,7 @@ const compactionPreservesMemoryTest = {
     { type: 'add-context-item-to-root' },
     { type: 'send-message', message: 'Message 1' },
     { type: 'send-message', message: 'Message 2' },
-    { type: 'run-command', command: 'compact' },
+    { type: 'run-command', command: 'compact', args: 'all' },
     { type: 'wait-for-state', condition: { hasCompactionBarrier: true } }
   ],
 
@@ -774,7 +784,7 @@ const compactionCancelsRunningTurnTest = {
     // Fire /compact while the worker is paused mid-turn. Confirmed, this
     // awaits cancelAndSettle() before mutating; without the cancel, the
     // snapshot races the live turn and leaves orphaned running state.
-    { type: 'run-command', command: 'compact' },
+    { type: 'run-command', command: 'compact', args: 'all' },
     {
       type: 'assert-confirm-shown',
       titleContains: 'Stop the current turn?',
@@ -847,7 +857,7 @@ const compactionDeclinedLeavesTurnRunningTest = {
     { type: 'expect-confirm', answer: false },
     // No fence: declined, the command starts nothing, and the original turn is
     // still paused — so there is no epoch bump and no idle to wait on yet.
-    { type: 'run-command-no-wait', command: 'compact' },
+    { type: 'run-command-no-wait', command: 'compact', args: 'all' },
     {
       type: 'assert-confirm-shown',
       titleContains: 'Stop the current turn?',
@@ -895,7 +905,7 @@ const compactionSummaryMessageSelectableTest = {
   operations: [
     { type: 'send-message', message: 'Message 1' },
     { type: 'send-message', message: 'Message 2' },
-    { type: 'run-command', command: 'compact' },
+    { type: 'run-command', command: 'compact', args: 'all' },
     { type: 'wait-for-state', condition: { hasCompactionBarrier: true } }
   ],
 
@@ -948,7 +958,7 @@ const compactionResummariseTest = {
 
   operations: [
     { type: 'send-message', message: 'Message 1' },
-    { type: 'run-command', command: 'compact' },
+    { type: 'run-command', command: 'compact', args: 'all' },
     { type: 'wait-for-state', condition: { hasCompactionBarrier: true } },
     // Drill into the fold; only a fold's Result block offers Re-summarise.
     { type: 'click-dom', selector: 'thread-message' },
@@ -961,8 +971,49 @@ const compactionResummariseTest = {
   ]
 };
 
+/**
+ * Plain /compact keeps the recent conversation: the older turns fold into the
+ * summary thread and the latest turn stays verbatim after it. Four turns with
+ * long replies at the default 30%: the last reply alone is about a quarter of
+ * the conversation, so the tail is the last turn, cut at its user message, and
+ * the three before it fold.
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+const compactionKeepsRecentTest = {
+  name: 'compaction-keeps-recent',
+  description: '/compact folds the older turns and leaves the latest one verbatim after the summary',
+  fixture: 'unit-test-fixture',
+
+  llmResponses: [
+    textResponse(LONG_REPLY(1)),
+    textResponse(LONG_REPLY(2)),
+    textResponse(LONG_REPLY(3)),
+    textResponse(LONG_REPLY(4)),
+    summaryResponse(SUMMARY_TEXT)
+  ],
+
+  operations: [
+    { type: 'send-message', message: 'Message 1' },
+    { type: 'send-message', message: 'Message 2' },
+    { type: 'send-message', message: 'Message 3' },
+    { type: 'send-message', message: 'Message 4' },
+    { type: 'run-command', command: 'compact' },
+    { type: 'wait-for-state', condition: { hasCompactionBarrier: true } }
+  ],
+
+  expectedDocument: {
+    items: [
+      { type: 'system-prompt', itemId: '$ITEM_1' },
+      { type: 'thread', result: SUMMARY_TEXT, boundedCompaction: true, itemId: '$ITEM_2' },
+      { type: 'user', content: 'Message 4' },
+      { type: 'assistant', content: LONG_REPLY(4) }
+    ]
+  }
+};
+
 export const tests = [
   compactionBasicTest,
+  compactionKeepsRecentTest,
   compactionSummaryMessageSelectableTest,
   compactionUpToTest,
   compactionSweepsThinkingTest,

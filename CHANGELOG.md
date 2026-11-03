@@ -16,6 +16,7 @@ the current release). The project follows semantic versioning.
 - Reasoning from Mistral-hosted models shows as thinking instead of raw JSON
 - Anthropic model lists include every model, not just the API's first page
 - One Undo after compacting a long conversation restores its full history again
+- /compact keeps recent turns verbatim, set in Settings; `/compact all` folds everything
 - Quick successive edits undo as one step even when the machine is busy
 - Long files are no longer shown cut short in a panel about 100 lines tall
 - Double-clicking Duplicate or Fork makes one copy, and shows "Duplicating…" meanwhile

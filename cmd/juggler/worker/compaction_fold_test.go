@@ -41,7 +41,7 @@ func TestFoldConversationForCompactionBuildsUnsummarizedThread(t *testing.T) {
 		arr.Push(ycrdt.ArrayAny{conversationItemToYMap(ConversationItem{Type: ItemTypeAssistant, ItemID: aID, Content: "did the thing"})})
 	}, w.doc.authorID)
 
-	threadID, folded, err := w.currentRun().foldConversationForCompaction(false)
+	threadID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
 	if err != nil || !folded {
 		t.Fatalf("foldConversationForCompaction = (%q, %v, %v), want folded success", threadID, folded, err)
 	}
@@ -191,7 +191,7 @@ func TestFoldConversationForCompactionSweepsMidConversationContext(t *testing.T)
 		arr.Push(ycrdt.ArrayAny{conversationItemToYMap(ConversationItem{Type: ItemTypeAssistant, ItemID: aID, Content: "looked"})})
 	}, w.doc.authorID)
 
-	threadID, folded, err := w.currentRun().foldConversationForCompaction(false)
+	threadID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
 	if err != nil || !folded {
 		t.Fatalf("fold = (%q, %v, %v), want folded success", threadID, folded, err)
 	}
@@ -229,7 +229,7 @@ func TestFoldConversationForCompactionNothingFoldable(t *testing.T) {
 		arr.Push(ycrdt.ArrayAny{conversationItemToYMap(ConversationItem{Type: "rule", ItemID: generateItemID(), Content: "only a rule"})})
 	}, w.doc.authorID)
 
-	threadID, folded, err := w.currentRun().foldConversationForCompaction(false)
+	threadID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
 	if folded || err != nil || threadID != "" {
 		t.Fatalf("fold = (%q, %v, %v), want no-op (nothing foldable)", threadID, folded, err)
 	}
@@ -264,7 +264,7 @@ func TestFoldConversationForCompactionSwallowsPriorSummary(t *testing.T) {
 		arr.Push(ycrdt.ArrayAny{conversationItemToYMap(ConversationItem{Type: ItemTypeUser, ItemID: freshUID, Content: "new work"})})
 	}, w.doc.authorID)
 
-	threadID, folded, err := w.currentRun().foldConversationForCompaction(false)
+	threadID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
 	if err != nil || !folded {
 		t.Fatalf("fold = (%q, %v, %v), want folded success", threadID, folded, err)
 	}
@@ -313,7 +313,7 @@ func TestFoldConversationForCompactionPinsPendingFold(t *testing.T) {
 		arr.Push(ycrdt.ArrayAny{conversationItemToYMap(ConversationItem{Type: ItemTypeUser, ItemID: freshUID, Content: "new work"})})
 	}, w.doc.authorID)
 
-	threadID, folded, err := w.currentRun().foldConversationForCompaction(false)
+	threadID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
 	if err != nil || !folded {
 		t.Fatalf("fold = (%q, %v, %v), want folded success", threadID, folded, err)
 	}
@@ -340,7 +340,7 @@ func TestFoldConversationForCompactionDeclinesSummaryOnly(t *testing.T) {
 		})})
 	}, w.doc.authorID)
 
-	threadID, folded, err := w.currentRun().foldConversationForCompaction(false)
+	threadID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
 	if folded || err != nil || threadID != "" {
 		t.Fatalf("fold = (%q, %v, %v), want no-op (nothing fresh to compact)", threadID, folded, err)
 	}

@@ -28,6 +28,8 @@ const CORE_TEXT = [
   'Conversation cleared.',
   'Pick a model before compacting.', 'Compaction is already in progress.',
   "Couldn't compact: {error}", 'Nothing to compact yet.',
+  'Nothing to compact yet — only recent turns. /compact all folds them too.',
+  '/compact takes no argument, or "all" to fold everything.',
   "Can't duplicate: this conversation has no session.", "Couldn't duplicate: {error}",
   "Can't hand off: this conversation has no session.",
   'Pick a model before handing off.', "Couldn't hand off: {error}",
@@ -41,11 +43,12 @@ const CORE_TEXT = [
  * Run a command class against a stub thread and return its result message.
  * @param {any} CommandClass - The command
  * @param {any} messageThread - What it acts on
+ * @param {string[]} [args] - The command's arguments
  * @returns {Promise<string>} The message it reports
  */
-async function messageOf(CommandClass, messageThread) {
+async function messageOf(CommandClass, messageThread, args = []) {
   const cmd = new CommandClass({ messageThread });
-  const result = await cmd.execute([]);
+  const result = await cmd.execute(args);
   return String(result?.message);
 }
 
@@ -82,6 +85,8 @@ export async function runTests() {
       shown['compact, worker error'] = await messageOf(CompactCommandType, { ...model, conversationId: 'cm3' });
       /** @type {any} */ (workerManager).compact = async () => ({ folded: false });
       shown['compact, nothing'] = await messageOf(CompactCommandType, { ...model, conversationId: 'cm4' });
+      shown['compact all, nothing'] = await messageOf(CompactCommandType, { ...model, conversationId: 'cm6' }, ['all']);
+      shown['compact, bad argument'] = await messageOf(CompactCommandType, { ...model, conversationId: 'cm7' }, ['3']);
       /** @type {any} */ (workerManager).compact = async () => { throw new Error('2'); };
       shown['compact, thrown'] = await messageOf(CompactCommandType, { ...model, conversationId: 'cm5' });
 

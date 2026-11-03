@@ -164,10 +164,10 @@ error — Juggler recovers instead of failing the turn:
 
 1. The status line shows *"Compacting"*.
 2. The oldest history is summarized into a compaction-summary item; the most
-   recent items stay verbatim, within a budget that leaves real headroom below
-   the trigger rather than stopping just under the window. Tool calls and
-   their results fold atomically, so a pair is never split, and any earlier
-   compaction summary is carried into the new one — summaries never stack.
+   recent conversation stays verbatim (see [How much is kept](#how-much-is-kept)).
+   Tool calls and their results fold atomically, so a pair is never split, and
+   any earlier compaction summary is carried into the new one — summaries
+   never stack.
 3. A tool result too large to ever fit is summarized in place (marked
    *"[tool result exceeded the model context window and was summarized]"*);
    the tool call and its summary stay paired and visible.
@@ -226,3 +226,28 @@ automatic recovery uses: a bounded map/reduce pinned to your model, capped at
 8 reduction passes and 64 hidden calls with a spend ceiling. The fold either
 converges to a faithful handoff summary or fails with a typed error — it never
 degrades into an unbounded summary-of-a-summary spiral.
+
+Like an automatic fold, `/compact` leaves the recent conversation verbatim
+after the summary. `/compact all` folds everything after the standing context
+(system prompt, agents files, memory) instead. When what `/compact` would fold
+is too small to be worth a summary, it folds nothing and says so.
+
+## How much is kept
+
+Both kinds of fold keep the same tail, decided the same way:
+
+- **A share of the conversation.** Settings → Defaults → Context → **Keep
+  recent conversation** sets it, from 0 to 60 percent; blank is the default of
+  30. A fold keeps the newest messages that fit within that share of the
+  conversation's size.
+- **At most half the room.** On a conversation that already fills the window,
+  the tail is held to half of what the window has left after the system
+  prompt, tools and reply, so the fold frees real room instead of folding again
+  a few turns later.
+- **Whole steps, starting at a request.** A tool call is never split from its
+  result, and the tail is moved back to begin at your message rather than
+  partway through the reply to it. At 0 percent that leaves just your latest
+  request and what followed it.
+
+An automatic fold that finds the whole conversation already fits within that
+half — for instance after shrinking an oversized tool result — folds nothing.

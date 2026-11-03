@@ -437,6 +437,30 @@ export class DefaultsTab {
     );
     container.appendChild(autoCompactRow);
 
+    // How much of the conversation a fold keeps verbatim — automatic folds and
+    // /compact alike (worker/compaction_tail.go owns the rule). Stored as a
+    // whole percentage; blank is the worker's default.
+    this._appendNumberField(container, {
+      name: t('Keep recent conversation (%)'),
+      description: t(
+        'How much of the newest conversation compaction leaves word for word, as a ' +
+        'percentage. The latest request is always kept, and a full conversation keeps ' +
+        'at most half the context window. /compact all folds everything. ' +
+        'Blank for the default (30), up to 60.'),
+      inputId: 'compact-keep-recent-input',
+      placeholder: '30',
+      current: () => /** @type {any} */ (this.config).compactKeepRecentPercent || '',
+      validate: (value) => (parseInt(value, 10) > 60 ? t('Must be 60 or less.') : ''),
+      save: async (value) => {
+        await settingsApi.setConfig('compact_keep_recent_percent', value);
+        /** @type {any} */ (this.config).compactKeepRecentPercent = value;
+        return value
+          ? t('Saved. Compaction keeps the newest {value}%.', { value })
+          : t('Saved. Using the default (30%).');
+      },
+      failureLog: 'keep-recent setting',
+    });
+
     this._appendNumberField(container, {
       heading: t('Stream idle timeout'),
       name: t('Seconds to wait'),

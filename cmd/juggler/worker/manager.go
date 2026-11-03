@@ -48,6 +48,7 @@ const (
 	mgrSetAutoNamer
 	mgrSetSpendLimit
 	mgrSetRunBudget
+	mgrSetKeepRecent
 	mgrConversationRestored
 	mgrRecordBackgroundTaskSnapshot
 )
@@ -106,6 +107,7 @@ type managerOp struct {
 	autoCompactGate AutoCompactGateFunc
 	spendLimit      SpendLimitFunc
 	runBudget       RunBudgetFunc
+	keepRecent      KeepRecentFunc
 	autoNameFunc    AutoNameFunc
 	engineCallback  func(convID string, msg []byte)
 	pathProvider    PathProviderFunc
@@ -192,6 +194,7 @@ func (m *Manager) run() {
 	var autoCompactGate AutoCompactGateFunc
 	var spendLimit SpendLimitFunc
 	var runBudget RunBudgetFunc
+	var keepRecent KeepRecentFunc
 	var autoNameFunc AutoNameFunc
 	var engineClientID string
 	var engineCallback func(convID string, msg []byte)
@@ -247,6 +250,9 @@ func (m *Manager) run() {
 		}
 		if runBudget != nil {
 			w.SetRunBudget(runBudget)
+		}
+		if keepRecent != nil {
+			w.SetKeepRecent(keepRecent)
 		}
 		if autoNameFunc != nil {
 			w.SetAutoNamer(autoNameFunc)
@@ -315,6 +321,12 @@ func (m *Manager) run() {
 			runBudget = op.runBudget
 			for _, w := range workers {
 				w.SetRunBudget(runBudget)
+			}
+
+		case mgrSetKeepRecent:
+			keepRecent = op.keepRecent
+			for _, w := range workers {
+				w.SetKeepRecent(keepRecent)
 			}
 
 		case mgrSetAutoNamer:
@@ -629,6 +641,12 @@ func (m *Manager) SetSpendLimit(fn SpendLimitFunc) {
 // to every existing worker and any worker created later. See RunBudgetFunc.
 func (m *Manager) SetRunBudget(fn RunBudgetFunc) {
 	m.ops <- managerOp{kind: mgrSetRunBudget, runBudget: fn}
+}
+
+// SetKeepRecent sets the keep-recent resolver applied to every existing worker
+// and any worker created later. See KeepRecentFunc.
+func (m *Manager) SetKeepRecent(fn KeepRecentFunc) {
+	m.ops <- managerOp{kind: mgrSetKeepRecent, keepRecent: fn}
 }
 
 // SetAutoNamer sets the out-of-band tab auto-naming callback applied to every

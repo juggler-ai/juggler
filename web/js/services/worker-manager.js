@@ -1226,14 +1226,15 @@ export class WorkerManager {
    * with the worker's result once the (fast) fold has committed; the summary
    * generates afterward and streams in via the normal doc sync.
    * @param {string} conversationId - Conversation whose worker performs the fold
-   * @param {{ handoffPromote?: boolean }} [opts]
+   * @param {{ handoffPromote?: boolean, keepRecent?: boolean }} [opts]
    * @returns {Promise<{ folded: boolean, error?: string }>} The worker's outcome
    *   (`folded` false when there was nothing to fold)
    */
-  async compact(conversationId, { handoffPromote = false } = {}) {
+  async compact(conversationId, { handoffPromote = false, keepRecent = false } = {}) {
     const result = await this.sendWithAck(conversationId, {
       type: 'compact',
-      handoffPromote
+      handoffPromote,
+      keepRecent
     });
     return result ?? { folded: false };
   }

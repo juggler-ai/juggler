@@ -57,7 +57,7 @@ func TestCompactionFoldKeepsDelegatedRunRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	foldID, folded, err := w.currentRun().foldConversationForCompaction(false)
+	foldID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
 	if err != nil || !folded {
 		t.Fatalf("foldConversationForCompaction = (%q, %v, %v), want a fold", foldID, folded, err)
 	}
@@ -173,7 +173,7 @@ func TestSessionFoldsConvergeToOneSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	foldID, folded, err := w.currentRun().foldConversationForCompaction(false)
+	foldID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
 	if err != nil || !folded {
 		t.Fatalf("first fold = (%q, %v, %v), want a fold", foldID, folded, err)
 	}
@@ -184,7 +184,7 @@ func TestSessionFoldsConvergeToOneSummary(t *testing.T) {
 		invocationItemForTest("invoc-tu-4", "tu-4", "answer for tu-4"),
 		ConversationItem{Type: ItemTypeAssistant, ItemID: "body-tu-4", Content: "the work behind tu-4"},
 	)
-	secondFoldID, folded, err := w.currentRun().foldConversationForCompaction(false)
+	secondFoldID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
 	if err != nil || !folded {
 		t.Fatalf("second fold = (%q, %v, %v), want a fold", secondFoldID, folded, err)
 	}

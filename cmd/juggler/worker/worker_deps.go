@@ -45,6 +45,10 @@ type workerDeps struct {
 	// See AutoCompactGateFunc.
 	autoCompactGate AutoCompactGateFunc
 
+	// keepRecent resolves how much recent conversation a fold keeps verbatim.
+	// Nil ⇒ the default applies. See KeepRecentFunc.
+	keepRecent KeepRecentFunc
+
 	// autoNameFunc is the injected server callback fired once, on the first user
 	// message of the root conversation, to auto-name the tab out-of-band. Nil
 	// (tests / not wired) ⇒ no auto-naming. See AutoNameFunc.
@@ -134,6 +138,11 @@ func (w *ConversationWorker) SetWindowResolver(fn WindowResolverFunc) {
 // and reactive compaction runs. See AutoCompactGateFunc.
 func (w *ConversationWorker) SetAutoCompactGate(fn AutoCompactGateFunc) {
 	w.setDeps(func(d *workerDeps) { d.autoCompactGate = fn })
+}
+
+// SetKeepRecent installs the keep-recent resolver. See KeepRecentFunc.
+func (w *ConversationWorker) SetKeepRecent(fn KeepRecentFunc) {
+	w.setDeps(func(d *workerDeps) { d.keepRecent = fn })
 }
 
 // SetAutoNamer registers the out-of-band tab auto-naming callback. See

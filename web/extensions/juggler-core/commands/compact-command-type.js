@@ -15,30 +15,37 @@ import { translator } from 'juggler/i18n';
 const t = translator('@juggler/core');
 
 /**
- * Compact command — collapse the entire conversation into a sub-thread.
+ * Compact command — fold older conversation into a summary thread.
  *
  * The fold is performed worker-side (the single Go fold, shared with
- * auto-compaction): every content item is moved into a new bounded-compaction
- * thread that the worker summarises with its folded-compaction summariser. The conversation then
- * contains exactly one thread tile whose `result` is the summary. Standard undo
- * reverses fold + summary as one group.
+ * auto-compaction): the older history is moved into a new bounded-compaction
+ * thread that the worker summarises with its folded-compaction summariser, and
+ * the recent conversation stays verbatim after it — how much is the "Keep recent
+ * conversation" setting, by the rule the automatic fold uses. `/compact all`
+ * folds everything after the standing context instead. Standard undo reverses
+ * fold + summary as one group.
  */
 class CompactCommandType extends CommandType {
   static MANIFEST = {
     id: 'compact',
     name: 'Compact',
     version: '1.0.0',
-    description: 'Compact the entire conversation into a summary thread',
+    description: 'Fold older conversation into a summary thread, keeping recent turns (all: fold everything)',
     icon: 'icon-compact',
+    argsHint: '[all]',
     mutatesConversation: true
   };
 
   /**
    * Execute the compact command
-   * @param {string[]} _args - Command arguments (unused)
+   * @param {string[]} args - Command arguments: `all`, or none
    * @returns {Promise<import('juggler/command-type').CommandResult>} Command result
    */
-  async execute(_args) {
+  async execute(args) {
+    const all = args.length === 1 && args[0]?.toLowerCase() === 'all';
+    if (args.length > 0 && !all) {
+      return { handled: true, message: t('/compact takes no argument, or "all" to fold everything.'), error: true };
+    }
     if (!this.messageThread?.modelConfig) {
       return { handled: true, message: t('Pick a model before compacting.'), error: true };
     }
@@ -52,17 +59,24 @@ class CompactCommandType extends CommandType {
     startCompaction(mt.conversationId);
 
     try {
-      // The fold is worker-side now (the single Go fold): the worker relocates
+      // The fold is worker-side (the single Go fold): the worker relocates
       // conversational history into a bounded-compaction thread, keeps the
       // leading standing context (agents files, memory, system prompt) at the
       // parent, and summarises it. `folded` is false when there was nothing to
-      // fold; `error` carries a worker-side failure reason.
-      const { folded, error } = await compactConversation(mt.conversationId);
+      // fold — with the recent turns kept, also when what is left over is too
+      // small to be worth a summary; `error` carries a worker-side failure reason.
+      const { folded, error } = await compactConversation(mt.conversationId, { keepRecent: !all });
       if (error) {
         return { handled: true, message: t("Couldn't compact: {error}", { error }), error: true };
       }
       if (!folded) {
-        return { handled: true, message: t('Nothing to compact yet.'), error: true };
+        return {
+          handled: true,
+          message: all
+            ? t('Nothing to compact yet.')
+            : t('Nothing to compact yet — only recent turns. /compact all folds them too.'),
+          error: true
+        };
       }
 
       return { handled: true };

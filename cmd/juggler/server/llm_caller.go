@@ -138,6 +138,17 @@ func (s *Server) createRunBudgetResolver() worker.RunBudgetFunc {
 	return tokenLimitResolver("run_budget_tokens", "run budget", worker.DefaultRunBudgetTokens)
 }
 
+// createKeepRecentResolver returns the resolver injected into every worker
+// (worker.KeepRecentFunc): the percentage of the conversation a fold keeps
+// verbatim. Read live like the limits above, so a change applies to the next
+// fold. Blank, unparseable or negative means the default; the worker clamps the
+// top of the range.
+func (s *Server) createKeepRecentResolver() worker.KeepRecentFunc {
+	// Raw credential key mirrors handlers/config.go compactKeepRecentPercentKey.
+	resolve := tokenLimitResolver("compact_keep_recent_percent", "keep-recent setting", worker.DefaultCompactKeepRecentPercent)
+	return func() int { return int(min(resolve(), worker.MaxCompactKeepRecentPercent)) }
+}
+
 // tokenLimitResolver reads a token limit from a raw credentials-store key on
 // every call: blank, unparseable or negative means def, and 0 means no limit.
 func tokenLimitResolver(key, what string, def int64) func() int64 {

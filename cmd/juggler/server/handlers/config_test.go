@@ -111,6 +111,37 @@ func TestAutoCompactDisabledRoundTrip(t *testing.T) {
 	}
 }
 
+// TestCompactKeepRecentPercentRoundTrip pins the keep-recent setting's config
+// round-trip: absent by default (the worker's default applies), a PUT persists,
+// and a blank PUT clears it.
+func TestCompactKeepRecentPercentRoundTrip(t *testing.T) {
+	api := newTestConfigAPI(t)
+	get := func() string {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		api.HandleGetConfig(rec, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+		var payload struct {
+			CompactKeepRecentPercent string `json:"compactKeepRecentPercent"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("decode GET payload: %v", err)
+		}
+		return payload.CompactKeepRecentPercent
+	}
+
+	if got := get(); got != "" {
+		t.Fatalf("default compactKeepRecentPercent = %q, want empty", got)
+	}
+	putConfig(t, api, map[string]any{"compact_keep_recent_percent": " 45 "})
+	if got := get(); got != "45" {
+		t.Fatalf("after PUT, compactKeepRecentPercent = %q, want 45", got)
+	}
+	putConfig(t, api, map[string]any{"compact_keep_recent_percent": ""})
+	if got := get(); got != "" {
+		t.Fatalf("after blank PUT, compactKeepRecentPercent = %q, want empty", got)
+	}
+}
+
 // TestLMStudioHostRoundTrip pins the settings field behind the LM Studio
 // provider's host row: PUT stores the raw credential the provider reads, GET
 // hands it back to the form, and an empty PUT clears it back to the default.

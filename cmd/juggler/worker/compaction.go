@@ -7,6 +7,7 @@ package worker
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"time"
 
@@ -454,7 +455,7 @@ func (r *run) handleCompact(payload json.RawMessage) {
 	// fold targets, and the one the busy gate above asks about.
 	r.dropPoliteStopsCovering("")
 
-	_, folded, err := r.foldConversationForCompaction(msg.HandoffPromote)
+	_, folded, err := r.foldConversationForCompaction(compactFoldOptions{handoffPromote: msg.HandoffPromote, keepRecent: msg.KeepRecent})
 	if err != nil {
 		r.log.Error("[compact] fold failed: %v", err)
 		ack.Result = map[string]any{"folded": false, "error": err.Error()}
@@ -542,6 +543,17 @@ func foldedItemSnapshot(v any) yNode {
 	return n
 }
 
+// compactFoldOptions shapes a /compact or /handoff fold.
+type compactFoldOptions struct {
+	// handoffPromote tags the thread so the browser promotes its summary into
+	// the continued tab's parked first message.
+	handoffPromote bool
+	// keepRecent leaves the recent conversation verbatim after the fold
+	// (chooseTail). Without it everything after the leading standing context
+	// folds.
+	keepRecent bool
+}
+
 // foldConversationForCompaction folds the target conversation's foldable history
 // into an UNSUMMARIZED bounded-compaction thread — the worker-side port of the
 // browser /compact fold. It relocates the
@@ -565,11 +577,10 @@ func foldedItemSnapshot(v any) yNode {
 // (pendingCompactionFold), along with sticky preventUserDeletion items and the
 // thread's most recent invocation message (lastInvocationIndex).
 //
-// handoffPromote tags the thread so the browser promotes its summary into the
-// continued tab's parked first message. Returns the new thread's item id and
-// true when a fold happened, ("", false, nil) when there was nothing foldable,
-// and a BoundedCompactionError when encoding or the fingerprinted commit failed.
-func (r *run) foldConversationForCompaction(handoffPromote bool) (string, bool, error) {
+// Returns the new thread's item id and true when a fold happened, ("", false,
+// nil) when there was nothing foldable, and a BoundedCompactionError when
+// encoding or the fingerprinted commit failed.
+func (r *run) foldConversationForCompaction(opts compactFoldOptions) (string, bool, error) {
 	items := r.getTargetItems()
 
 	// Classify by POSITION, matching the browser /compact fold (not recovery's
@@ -629,6 +640,13 @@ func (r *run) foldConversationForCompaction(handoffPromote bool) (string, bool, 
 		prefixEnd++
 	}
 
+	if opts.keepRecent {
+		prefixEnd = min(prefixEnd, r.manualTailStart(items, prefixStart, pinnedInvocation))
+		if prefixEnd <= prefixStart || estimateItemsWireTokens(items[prefixStart:prefixEnd], items) < minManualFoldTokens {
+			return "", false, nil
+		}
+	}
+
 	// A range holding nothing but already-summarized compaction threads would
 	// only re-summarize existing summaries — nothing new to compact.
 	hasFresh := false
@@ -684,7 +702,7 @@ func (r *run) foldConversationForCompaction(handoffPromote bool) (string, bool, 
 		NeedsStrategyRun:       true,
 		NoAutoSelect:           true,
 		NoContextSeed:          true,
-		HandoffPromote:         handoffPromote,
+		HandoffPromote:         opts.handoffPromote,
 		Items:                  nestedJSON,
 		FoldedRuns:             foldedRunsIn(items[prefixStart:prefixEnd]),
 	}
@@ -693,6 +711,43 @@ func (r *run) foldConversationForCompaction(handoffPromote bool) (string, bool, 
 		return "", false, &BoundedCompactionError{Reason: BoundedCompactionSourceChanged, Message: "conversation changed during compaction; nothing was folded"}
 	}
 	return threadID, true, nil
+}
+
+// manualTailStart is the item index where /compact's verbatim tail begins, by
+// the rule the automatic fold uses (chooseTail). The pins are /compact's own:
+// sticky items, an in-flight fold and the thread's latest invocation message.
+//
+// /compact has no rejected request to read the envelope (system prompt and
+// tools) from, so B here is the window less the output reserve and summary
+// floor. That overstates B by the envelope, which matters only at the top of
+// the setting's range on a conversation already near the window. With no known
+// window there is no headroom bound and the share alone decides.
+func (r *run) manualTailStart(items []ConversationItem, foldStart, pinnedInvocation int) int {
+	units := recoveryAtomicUnits(items)
+	lo := 0
+	for lo < len(units) && units[lo].start < foldStart {
+		lo++
+	}
+	bounds := tailBounds{keepFraction: r.keepRecentFraction(), headroom: math.MaxInt64, newestBudget: math.MaxInt64}
+	if info := r.resolveContextWindow(); info.WindowTokens > 0 {
+		fullBudget := int64(info.WindowTokens-info.ReserveTokens) - recoverySummaryFloorTokens
+		bounds.headroom = int64(float64(fullBudget) * compactionHeadroomFraction)
+		bounds.newestBudget = fullBudget
+	}
+	cut := chooseTail(items, units, lo, func(u recoveryUnit) tailRole {
+		it := items[u.start]
+		switch {
+		case it.PreventUserDeletion || pendingCompactionFold(it) || u.start == pinnedInvocation:
+			return tailPinned
+		case !isConversationalItemType(it.Type):
+			return tailStanding
+		}
+		return tailFoldable
+	}, bounds)
+	if cut.k >= len(units) {
+		return len(items)
+	}
+	return units[cut.k].start
 }
 
 // foldPrefixIntoSummaryTracked commits a recovery fold as a single, atomically

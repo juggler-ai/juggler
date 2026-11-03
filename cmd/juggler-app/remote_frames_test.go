@@ -28,7 +28,7 @@ func TestARemoteWindowShowingASessionReopensWhereItWasLeft(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	spec := windowSpec{url: srv.URL, connected: true, remoteProject: "/p"}
-	e := &winEntry{id: "w1", role: roleMain, spec: spec, serverURL: srv.URL + "/s/abc123"}
+	e := &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: srv.URL + "/s/abc123"}}
 	registerWindow(a, e)
 	left := core.WindowState{X: 300, Y: 200, Width: 1500, Height: 1000, HasPos: true}
 	a.storeFrame(context.Background(), e, left)

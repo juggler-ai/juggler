@@ -497,8 +497,8 @@ class JugglerApp {
         wsService: wsService
       }
     });
-    // A desktop window onto a server by URL stops reconnecting after a minute
-    // and asks the app for its "can't reach the server" stand-in instead.
+    // After a minute of reconnecting, a desktop window asks the app whether
+    // its session has gone for good, and so whether to show its stand-in.
     watchForLostServer();
 
     // Initialize UI event manager with callbacks. UI elements are per-tab, so

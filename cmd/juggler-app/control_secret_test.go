@@ -28,7 +28,7 @@ func controlSecretOf(a *appState, id string) string {
 	secret := "no-window-holds-this"
 	a.reg(func(st *regState) {
 		if e := st.windows[id]; e != nil {
-			secret = e.ctlSecret
+			secret = e.view.secret
 		}
 	})
 	return secret
@@ -37,8 +37,8 @@ func controlSecretOf(a *appState, id string) string {
 // withSecret gives e a secret of its own, as building a window does, and
 // returns it.
 func withSecret(e *winEntry) *winEntry {
-	if e.ctlSecret == "" {
-		e.ctlSecret = mintControlSecret()
+	if e.view.secret == "" {
+		e.view.secret = mintControlSecret()
 	}
 	return e
 }
@@ -55,8 +55,8 @@ func controlAs(a *appState, holder, id, action string) *httptest.ResponseRecorde
 // cannot name another window in the path and act on it.
 func TestAWindowsSecretActsOnlyOnThatWindow(t *testing.T) {
 	a := newTestAppState(t)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/p"}})
-	registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{project: "/q"}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}}})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/q"}}})
 
 	if rec := controlAs(a, "w1", "w1", "drafts-flushed?token=x"); rec.Code != http.StatusNoContent {
 		t.Fatalf("w1's secret on w1 = %d, want 204", rec.Code)
@@ -79,7 +79,7 @@ func TestANavigatedWindowsOldSecretOpensNothing(t *testing.T) {
 	e := registerWindow(a, &winEntry{id: "w1", role: roleMain})
 	old := controlSecretOf(a, "w1")
 
-	page := a.navigateWindow(e, windowSpec{project: "/p"}, "http://127.0.0.1:3939/s/abc")
+	page := a.showView(e, showing(a.viewOf(e)), windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/s/abc"}, windowOpts{})
 
 	if strings.Contains(page, old) {
 		t.Fatalf("the new page %s carries the old secret", page)
@@ -111,7 +111,7 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 	a := newTestAppState(t)
 	a.workspace = newWorkspaceStoreAt(workspacePath(t))
 	const server = "http://devbox:3939"
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: server, connected: true}, serverURL: server + "/s/abc"})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: server, connected: true}, serverURL: server + "/s/abc"}})
 
 	for _, action := range []string{
 		"connect?url=http%3A%2F%2Felsewhere%3A1",
@@ -179,7 +179,7 @@ func TestARemoteWindowOpensWindowsOnlyOntoItsOwnServer(t *testing.T) {
 
 	a := newTestAppState(t)
 	remote := windowSpec{url: "http://devbox:3939", connected: true}
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: remote, serverURL: remote.url + "/s/abc"})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: remote, serverURL: remote.url + "/s/abc"}})
 
 	for _, action := range []string{
 		"new",
@@ -220,8 +220,8 @@ func TestARemoteWindowsSaveTellsItOnlyWhetherItSaved(t *testing.T) {
 
 	a := newTestAppState(t)
 	a.ctlPort = 1
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: "http://devbox:3939", connected: true}, serverURL: "http://devbox:3939"})
-	registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{project: "/p"}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: "http://devbox:3939", connected: true}, serverURL: "http://devbox:3939"}})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}}})
 
 	save := func(id string) (int, string) {
 		rec := httptest.NewRecorder()
@@ -264,7 +264,7 @@ func TestARemoteWindowsSaveTellsItOnlyWhetherItSaved(t *testing.T) {
 // has; from any other window it is refused.
 func TestAWindowThatTakesNoDropsIsToldOfNone(t *testing.T) {
 	a := newTestAppState(t)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/p"}})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}}})
 	registerWindow(a, &winEntry{id: "w2", role: roleMain})
 
 	if rec := controlAs(a, "w1", "w1", "folder-dropped?path=%2Fno%2Fsuch%2Fplace"); rec.Code != http.StatusConflict {

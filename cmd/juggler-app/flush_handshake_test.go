@@ -28,6 +28,10 @@ func newTestAppState(t *testing.T) *appState {
 	// With no server to find, until a test starts one (newStubMachineServer).
 	a.connectOpts = machineserver.ConnectOptions{ConfigDir: t.TempDir()}
 	a.startConn()
+	// Every window that moves records the workspace set, so there is one to
+	// record it in, written out before its directory goes.
+	a.workspace = newWorkspaceStoreAt(workspacePath(t))
+	t.Cleanup(func() { a.workspace.flush(nil) })
 	return a
 }
 

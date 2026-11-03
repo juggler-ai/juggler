@@ -33,7 +33,7 @@ func TestAWindowOnAnExternalServerCannotOpenAProjectInANewWindow(t *testing.T) {
 
 	a := newTestAppState(t)
 	remote := windowSpec{url: "http://remote:8080"}
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: remote, serverURL: "http://remote:8080"})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: remote, serverURL: "http://remote:8080"}})
 
 	rec := controlRequest(a, http.MethodPost, "/win/w1/new?project=%2Fhome%2Fremote%2Fproj")
 

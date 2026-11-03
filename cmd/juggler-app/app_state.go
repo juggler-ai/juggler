@@ -100,48 +100,47 @@ func linuxGpuPolicy(enabled bool) application.WebviewGpuPolicy {
 	return application.WebviewGpuPolicyNever
 }
 
-// winEntry tracks one open window and the server URL it views. Geometry is NOT
-// stored here — it lives server-side in the session (see window_state_client.go);
-// this only carries the window's workspace identity (spec) and the live frame
-// state the save loop needs.
+// windowView is what a window shows: what it is filed as, the page it loads,
+// and the secret that page holds. A window's view changes as it goes — an empty
+// window opens a session, a window that loses its server shows its stand-in and
+// then the session again — and the fields change together, so they are kept
+// together, owned by the registry goroutine (viewOf).
+type windowView struct {
+	// spec is what the window views (project or URL): its workspace identity.
+	spec windowSpec
+	// serverURL is where its page is served from, which it posts and reads its
+	// geometry to: a session's /s/<id> on this machine's server, that server's
+	// root for an empty window, or a server by URL. Empty for a stand-in.
+	serverURL string
+	// server is the process of this machine's server the page is served by,
+	// zero for a server by URL or a stand-in: an address alone does not tell a
+	// server from the one started after it at the same port.
+	server serverProc
+	// standIn is set when the window stands in for spec, which it cannot show
+	// (stand_in.go): its page is then a static one the app serves.
+	standIn *standIn
+	// secret is the control endpoint's secret for the page, in its ?nativeCtl=
+	// (control.go): it authorises requests for this window and no other.
+	// Minted for every page load, so it never outlives the page given it.
+	secret string
+}
+
+// remotePage is whether v's page is served by a server by URL — another
+// machine's, as far as the app can know — rather than by this machine's server
+// or by the app itself (a stand-in).
+func (v windowView) remotePage() bool {
+	return v.standIn == nil && v.spec.isURL()
+}
+
+// winEntry tracks one open window and what it shows. Geometry is NOT stored
+// here — it lives server-side in the session (see window_state_client.go); this
+// only carries the window's view and the live frame state the save loop needs.
 type winEntry struct {
 	id  string
 	win *application.WebviewWindow
 
-	// ctlSecret is the control endpoint's secret for the page this window
-	// shows, in its ?nativeCtl= (control.go): it authorises requests for this
-	// window and no other. Minted with the window and again at every in-place
-	// navigation (navigateWindow). Owned by the registry goroutine.
-	ctlSecret string
-	// spec is what this window views (project or URL) — its workspace identity
-	// — and serverURL where its page is served from, which it posts and reads
-	// its geometry to: a session's /s/<id> on this machine's server, that
-	// server's root for an empty window, or a server by URL. Both change when
-	// an empty window opens a session in place (controlAttach), so both are
-	// owned by the registry goroutine (serverURLOf).
-	spec      windowSpec
-	serverURL string
-	// server is the process of this machine's server the window's page is
-	// served by, zero for a server by URL: an address alone does not tell a
-	// server from the one started after it at the same port. It stays with the
-	// window when it opens a session in place, on the same server. Immutable.
-	server serverProc
-	// replacing is set once the window has been claimed for replacement by
-	// its stand-in (claimReplacement), so that the app's attachment ending and
-	// the page's own report do not both replace it. Owned by the registry
-	// goroutine.
-	replacing bool
-
-	// standIn is set when this window stands in for spec, which it cannot show
-	// (stand_in.go): its page is then a static one, and serverURL is empty.
-	// Immutable.
-	standIn *standIn
-	// keepsFrame is set on a stand-in opened at the frame of the window whose
-	// place it took (inheritsFrame) — one the user put there — so the window
-	// that answers it opens there too. A stand-in a launch opened, with no
-	// window to take the place of, is at a frame nobody chose. Immutable.
-	keepsFrame bool
-
+	// view is what the window shows now. Owned by the registry goroutine.
+	view windowView
 	// fileDrop is whether native file drop is currently on for this window —
 	// true while it shows no project. Tracked so a repeated report of the same
 	// state does not keep adding and removing the macOS drag overlay.
@@ -499,18 +498,18 @@ func (a *appState) run(specs []windowSpec) error {
 	}
 	plan := a.planWindow(specs[0], windowOpts{})
 	rest := specs[1:]
-	if plan.standIn != nil && plan.standIn.kind == standInMismatch {
-		held := *plan.standIn
+	if si := plan.view.standIn; si != nil && si.kind == standInMismatch {
+		held := *si
 		held.held = rest
-		plan.standIn, rest = &held, nil
+		plan.view.standIn, rest = &held, nil
 	}
 	initial := a.buildPlanned(plan)
 
 	// Take up the settings' UI language from the first window's session, ahead
 	// of its page, which reports the same thing once it loads (controlLocale).
 	// A stand-in's static page has no server and leaves this to the next window.
-	if plan.serverURL != "" {
-		go a.adoptLocale(plan.serverURL, startupLocale())
+	if plan.view.serverURL != "" {
+		go a.adoptLocale(plan.view.serverURL, startupLocale())
 	}
 
 	// Crash loudly if the initial window never becomes visible (e.g. the webview
@@ -669,7 +668,7 @@ func (a *appState) focusWindowBySpec(spec windowSpec) bool {
 			if isBoardRole(w.role) {
 				continue
 			}
-			if w.spec.sameView(spec) {
+			if w.view.spec.sameView(spec) {
 				match = w
 				break
 			}
@@ -693,16 +692,14 @@ func focusEntry(e *winEntry) bool {
 	return true
 }
 
-// windowPlan is a window resolved and ready to build: what it is filed as, the
-// page it loads and the frame it opens at — or the stand-in it opens as.
+// windowPlan is a window resolved and ready to show: the view it shows (with
+// no secret yet — one is minted for each page load) and, for a window built
+// for it, the frame it opens at.
 type windowPlan struct {
-	spec      windowSpec
-	opts      windowOpts
-	serverURL string
-	server    serverProc
-	saved     core.WindowState
-	hasSaved  bool
-	standIn   *standIn
+	view     windowView
+	opts     windowOpts
+	saved    core.WindowState
+	hasSaved bool
 }
 
 // planWindow resolves spec (resolveWindow) and reads the frame its window opens
@@ -712,46 +709,53 @@ type windowPlan struct {
 // running (opts.noStart) that finds none plans the stand-in for a server run
 // elsewhere, still not running. Blocking, so never on the main thread.
 func (a *appState) planWindow(spec windowSpec, opts windowOpts) windowPlan {
-	p := windowPlan{spec: spec, opts: opts}
+	p := windowPlan{view: windowView{spec: spec}, opts: opts}
 	serverURL, server, err := a.resolveWindow(spec, !opts.noStart)
 	var failed *openFailedError
 	switch {
 	case errors.As(err, &failed):
 		logf("window for %+v: %v; showing the server's page", spec.entry(), err)
-		p.spec = windowSpec{}
+		p.view.spec = windowSpec{}
 		p.opts.notice = failed.notice(a)
 		serverURL, server = failed.serverURL, failed.server
 	case err != nil && opts.noStart && errors.Is(err, machineserver.ErrNoServer):
 		logf("window for %+v: %v; starting none", spec.entry(), err)
-		p.standIn = lostElsewhereStandIn(true)
-		return p
+		return planStandIn(p, lostElsewhereStandIn(true))
 	case err != nil:
 		logf("window for %+v: %v", spec.entry(), err)
-		p.standIn = standInFor(err)
-		return p
+		return planStandIn(p, standInFor(err))
 	}
 	// The server records a project in the recents when it starts its session;
 	// one found already running is recorded here, so a folder opened in its
 	// own window always reaches the picker's recents.
-	if p.spec.project != "" {
-		a.rememberRecentProject(p.spec.project)
+	if p.view.spec.project != "" {
+		a.rememberRecentProject(p.view.spec.project)
 	}
-	saved, hasSaved, reached := a.openingState(p.spec, serverURL, opts.role())
+	saved, hasSaved, reached := a.openingState(p.view.spec, serverURL, opts.role())
 	if !reached {
-		p.standIn = unreachableStandIn(spec.url)
+		// Opened where a window onto that server was last left, as the window it
+		// stands in for would have been.
+		p = planStandIn(p, unreachableStandIn(spec.url))
+		p.saved, p.hasSaved = a.remoteFrames.get(remoteFrameServer(spec), roleMain)
 		return p
 	}
-	p.serverURL, p.server, p.saved, p.hasSaved = serverURL, server, saved, hasSaved
+	p.view.serverURL, p.view.server, p.saved, p.hasSaved = serverURL, server, saved, hasSaved
+	return p
+}
+
+// planStandIn plans si in place of the window p was for. A stand-in is a main
+// window whatever it stands in for, so it carries only the opener's appearance:
+// what its Try again opens is a window onto the spec it is filed under.
+func planStandIn(p windowPlan, si *standIn) windowPlan {
+	p.view.standIn = si
+	p.opts = windowOpts{theme: p.opts.theme, mode: p.opts.mode, zoom: p.opts.zoom}
 	return p
 }
 
 // buildPlanned builds the window p plans, without showing it. Safe before
 // app.Run() (the initial window) or, on the main thread, after it.
 func (a *appState) buildPlanned(p windowPlan) *winEntry {
-	if p.standIn != nil {
-		return a.buildStandInWindow(p.spec, p.standIn, p.opts)
-	}
-	return a.buildWindow(p.spec, p.serverURL, p.server, p.saved, p.hasSaved, p.opts)
+	return a.buildWindow(p.view, p.saved, p.hasSaved, p.opts)
 }
 
 // openWindow opens a new window onto spec: it resolves it and reads its frame
@@ -763,34 +767,16 @@ func (a *appState) openWindow(spec windowSpec, opts windowOpts) {
 	go func() {
 		p := a.planWindow(spec, opts)
 		why := "opened dynamically"
-		if p.standIn != nil {
-			why = "opened " + p.standIn.kind + " stand-in"
+		if si := p.view.standIn; si != nil {
+			why = "opened " + si.kind + " stand-in"
 		}
 		application.InvokeAsync(func() {
-			a.showOpened(a.buildPlanned(p), p.opts, why)
+			e := a.buildPlanned(p)
+			a.showWindow(e)
+			// Don't let a dynamically-opened window fail to appear silently.
+			go a.warnIfWindowNeverVisible(e, why)
 		})
 	}()
-}
-
-// showOpened reveals a window built after launch, and closes the one it was
-// opened in place of. Must run on the main thread.
-func (a *appState) showOpened(e *winEntry, opts windowOpts, why string) {
-	a.showWindow(e)
-	a.closeReplaced(opts.replaces)
-	// Don't let a dynamically-opened window fail to appear silently.
-	go a.warnIfWindowNeverVisible(e, why)
-}
-
-// closeReplaced closes the window a new one was opened in place of, if it is
-// still open. Must run on the main thread, after the new window is registered,
-// so the app never passes through having no window at all.
-func (a *appState) closeReplaced(id string) {
-	if id == "" {
-		return
-	}
-	if old := a.window(id); old != nil && old.win != nil {
-		old.win.Close()
-	}
 }
 
 // openWindowForProject opens a window onto a project. Used by "New Window" and
@@ -846,7 +832,7 @@ func (a *appState) emptyMainWindow() *winEntry {
 	a.reg(func(st *regState) {
 		best := -1
 		for _, w := range st.windows {
-			if isBoardRole(w.role) || w.standIn != nil || w.spec.isURL() || w.spec.project != "" {
+			if v := w.view; isBoardRole(w.role) || v.standIn != nil || v.spec.isURL() || v.spec.project != "" {
 				continue
 			}
 			if n := winNum(w.id); n > best {
@@ -1038,21 +1024,22 @@ func (a *appState) openWindowOrigins() map[[2]int]bool {
 	return origins
 }
 
-// takesFolderDrops is whether a window for spec has native folder drop on:
+// takesFolderDrops is whether a window showing v has native folder drop on:
 // only one showing this machine's server's page, where a dropped folder opens
 // its project. A project's window leaves drops to its composer; a window on a
-// server by URL is on another machine, where this machine's paths mean nothing.
-func takesFolderDrops(spec windowSpec) bool {
-	return !spec.isURL() && strings.TrimSpace(spec.project) == ""
+// server by URL is on another machine, where this machine's paths mean nothing;
+// a stand-in's page opens nothing.
+func takesFolderDrops(v windowView) bool {
+	return v.standIn == nil && !v.spec.isURL() && strings.TrimSpace(v.spec.project) == ""
 }
 
-// syncFileDrop keeps native file drop as takesFolderDrops says for the
-// window's spec, deduped against what the window was last told.
-func (a *appState) syncFileDrop(e *winEntry, spec windowSpec) {
+// syncFileDrop keeps native file drop as takesFolderDrops says for v, what the
+// window shows, deduped against what the window was last told.
+func (a *appState) syncFileDrop(e *winEntry, v windowView) {
 	if e == nil || e.win == nil {
 		return
 	}
-	want := takesFolderDrops(spec)
+	want := takesFolderDrops(v)
 	changed := false
 	a.reg(func(st *regState) {
 		if e.fileDrop == want {
@@ -1123,15 +1110,24 @@ func (a *appState) rememberRecentProject(project string) {
 	_ = store.Add(abs)
 }
 
-// buildWindow constructs a WebviewWindow viewing serverURL, on server (zero for
-// a server by URL), and registers it, without showing it. Safe to call before
-// app.Run() (initial window) or, on the main thread, after it (dynamic
-// windows). Show it with showWindow once the app
-// has launched.
-func (a *appState) buildWindow(spec windowSpec, serverURL string, server serverProc, saved core.WindowState, hasSaved bool, opts windowOpts) *winEntry {
+// pageOf is the page window id loads to show v, and the title the window
+// wears until that page reports its own: a stand-in's page, which the control
+// endpoint serves, or the page v's server serves, told what opts say.
+func (a *appState) pageOf(id string, v windowView, opts windowOpts) (pageURL, title string) {
+	if v.standIn != nil {
+		return a.standInPageURL(id, v.secret), a.tr(v.standIn.windowTitle)
+	}
+	opts.external = v.spec.isURL()
+	return windowPageURL(v.serverURL, a.controlBase(id, v.secret), opts), a.tr(appWindowTitle)
+}
+
+// buildWindow constructs a WebviewWindow showing view, and registers it,
+// without showing it. Safe to call before app.Run() (initial window) or, on the
+// main thread, after it (dynamic windows). Show it with showWindow once the app
+// has launched. What it shows changes in place from then on (showView).
+func (a *appState) buildWindow(view windowView, saved core.WindowState, hasSaved bool, opts windowOpts) *winEntry {
 	id := <-a.ids
-	secret := mintControlSecret()
-	nativeCtl := a.controlBase(id, secret)
+	view.secret = mintControlSecret()
 
 	// Resolve the startup appearance before building the URL/options, from what
 	// this window inherits (see startupPrefs).
@@ -1142,9 +1138,7 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, server serverP
 
 	resolved := opts
 	resolved.theme, resolved.mode, resolved.zoom = startupTheme, startupMode, startupZoom
-	resolved.external = spec.isURL()
-	fullURL := windowPageURL(serverURL, nativeCtl, resolved)
-	title := a.tr(appWindowTitle)
+	fullURL, title := a.pageOf(id, view, resolved)
 
 	// Resolve the native background colour to paint before the page's first
 	// frame. On Windows the window is created visible (platformWindowHidden is
@@ -1169,16 +1163,8 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, server serverP
 	// judge it — neither for reachability nor for size. fitWindowToScreens
 	// re-checks the live frame once the app is up, before the window is
 	// revealed; this log line is what says which of the two decided the outcome.
-	//
-	// A window answering a stand-in the user's window became opens where that
-	// stand-in is instead (inheritsFrame): the window never moved for losing its
-	// server, and does not for getting it back.
 	screens := a.app.Screen.GetAll()
 	frame := openingFrame(saved, hasSaved, opts, a.openerFrame(opts.openedBy), screens)
-	inherited, inherits := a.inheritedFrame(opts, false)
-	if inherits {
-		frame = inherited
-	}
 	place := windowgeom.PlaceVisible(frame, screens)
 	logf("placing window %s: saved=%s screens=%s → %s", id, describeFrame(frame), describeScreens(screens), describePlacement(place))
 	width, height := place.Width, place.Height
@@ -1186,10 +1172,8 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, server serverP
 	initialPos, startState := place.Position, place.State
 	// Don't stack a new window exactly on top of an open one (e.g. a second
 	// window for the same project, which shares the session's geometry): nudge it
-	// down-right until its top-left no longer coincides with another window. The
-	// stand-in a window inherits its frame from is that window's own place,
-	// and closes once it is up.
-	if initialPos == application.WindowXY && !inherits {
+	// down-right until its top-left no longer coincides with another window.
+	if initialPos == application.WindowXY {
 		posX, posY = a.cascadeFrom(posX, posY)
 		place.X, place.Y = posX, posY
 	}
@@ -1239,7 +1223,7 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, server serverP
 		// side hands the paths to window._wails.handlePlatformFileDrop, which the
 		// server's page (web/machine/sessions-page.js) implements and reports to
 		// the "folder-dropped" window-control action.
-		EnableFileDrop: takesFolderDrops(spec),
+		EnableFileDrop: takesFolderDrops(view),
 		Mac: application.MacWindow{
 			TitleBar: application.MacTitleBar{
 				AppearsTransparent:   true,
@@ -1292,14 +1276,11 @@ func (a *appState) buildWindow(spec windowSpec, serverURL string, server serverP
 	e := &winEntry{
 		id:            id,
 		win:           win,
-		ctlSecret:     secret,
-		spec:          spec,
-		serverURL:     serverURL,
-		server:        server,
+		view:          view,
 		role:          opts.role(),
 		board:         opts.board,
 		openedBy:      opts.openedBy,
-		fileDrop:      takesFolderDrops(spec), // matches EnableFileDrop in the options above
+		fileDrop:      takesFolderDrops(view), // matches EnableFileDrop in the options above
 		sizeDefaulted: frame.Width <= 0 || frame.Height <= 0,
 		geom:          windowgeom.NewTracker(windowgeom.Seed(place), a.app.Screen.GetAll),
 		saves:         windowgeom.NewDebouncer(),
@@ -1452,9 +1433,8 @@ func (a *appState) saveAllWindowGeometry() {
 	var wins []*winEntry
 	a.reg(func(st *regState) {
 		for _, e := range st.windows {
-			// Only a frame with somewhere to go (storeFrame): a window's
-			// session or a server by URL's place on this machine.
-			if keeps := e.serverURL != "" && e.spec != (windowSpec{}); keeps || (e.standIn != nil && e.spec.isURL()) {
+			// Only a frame with somewhere to go.
+			if frameHomeOf(e.view) != frameKeptNowhere {
 				wins = append(wins, e)
 			}
 		}
@@ -1551,9 +1531,10 @@ func (a *appState) handleWindowClosed(e *winEntry) {
 	// the session is written before anything below can take the process down. A
 	// board onto a server by URL has its frame on this machine, so it goes here.
 	if a.boardFinishedWith(e) {
-		forgetBoard(a.serverURLOf(e), e.board)
-		if spec, _ := a.standInOf(e); spec.isURL() {
-			a.remoteFrames.forget(remoteFrameServer(spec), e.role)
+		v := a.viewOf(e)
+		forgetBoard(v.serverURL, e.board)
+		if v.spec.isURL() {
+			a.remoteFrames.forget(remoteFrameServer(v.spec), e.role)
 		}
 	}
 	close(e.stopSave)
@@ -1733,12 +1714,12 @@ func (a *appState) persistWorkspaceSync() { a.persistWorkspaceTo(true) }
 func restorableSpecs(st *regState) []windowSpec {
 	var specs []windowSpec
 	for _, w := range sortedWindows(st) {
-		if isBoardRole(w.role) || !w.spec.restorable() {
+		if isBoardRole(w.role) || !w.view.spec.restorable() {
 			continue
 		}
-		specs = append(specs, w.spec)
-		if w.standIn != nil {
-			specs = append(specs, w.standIn.held...)
+		specs = append(specs, w.view.spec)
+		if w.view.standIn != nil {
+			specs = append(specs, w.view.standIn.held...)
 		}
 	}
 	return specs
@@ -1783,9 +1764,9 @@ func winNum(id string) int {
 	return n
 }
 
-// serverURLOf is where window e's page is served from now (see winEntry).
-func (a *appState) serverURLOf(e *winEntry) string {
-	var u string
-	a.reg(func(*regState) { u = e.serverURL })
-	return u
+// viewOf is what window e shows now (windowView).
+func (a *appState) viewOf(e *winEntry) windowView {
+	var v windowView
+	a.reg(func(*regState) { v = e.view })
+	return v
 }

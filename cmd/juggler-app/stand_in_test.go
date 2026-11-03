@@ -22,10 +22,10 @@ import (
 	"juggler/internal/userpaths/userpathstest"
 )
 
-// A stand-in window, as buildStandInWindow registers one: filed under the spec
-// it stands in for, with a static page and no server.
+// A window showing a stand-in: filed under the spec it stands in for, with a
+// static page and no server.
 func registerStandIn(a *appState, id string, spec windowSpec, si *standIn) *winEntry {
-	e := withSecret(&winEntry{id: id, role: roleMain, spec: spec, standIn: si})
+	e := withSecret(&winEntry{id: id, role: roleMain, view: windowView{spec: spec, standIn: si}})
 	a.reg(func(st *regState) { st.windows[id] = e })
 	return e
 }
@@ -57,31 +57,34 @@ func replaced(t *testing.T, rec *httptest.ResponseRecorder) bool {
 	return *body.Replaced
 }
 
-// TestAWindowOnAServerByURLThatIsLostBecomesItsStandIn: a window onto a server
-// by URL whose page has given up reconnecting is replaced by the stand-in it
-// would have opened as — but only once the app has found the server still
-// silent itself. A stand-in already is one, and a board goes with its window.
-func TestAWindowOnAServerByURLThatIsLostBecomesItsStandIn(t *testing.T) {
+// TestAWindowOnAServerByURLIsLeftToReconnect: a window onto a server by URL
+// whose page has been reconnecting for a while is left to that reconnect,
+// whether the server answers the app or not. One that does not answer may yet
+// — a network that comes back brings it back — and the page, still trying,
+// comes back with it, where a stand-in would wait for a click. Only the user's
+// Stop trying shows the stand-in (TestAWindowWhoseUserStopsReconnecting…). A
+// stand-in already is one, and a board goes with its window.
+func TestAWindowOnAServerByURLIsLeftToReconnect(t *testing.T) {
 	a := newTestAppState(t)
 	got := lostWindows(t)
 
 	down := addressWithNoServer(t)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: down, connected: true}, serverURL: down})
-	if !replaced(t, controlRequest(a, http.MethodPost, "/win/w1/server-lost")) || <-got != "w1" {
-		t.Fatal("a window onto a server still down was not replaced")
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: down, connected: true}, serverURL: down}})
+	if replaced(t, controlRequest(a, http.MethodPost, "/win/w1/server-lost")) {
+		t.Fatal("a window onto a server that does not answer was given up on")
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	t.Cleanup(srv.Close)
-	registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{url: srv.URL, connected: true}, serverURL: srv.URL})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{url: srv.URL, connected: true}, serverURL: srv.URL}})
 	if replaced(t, controlRequest(a, http.MethodPost, "/win/w2/server-lost")) {
 		t.Fatal("a window onto a server that answers was replaced")
 	}
 
 	registerStandIn(a, "w4", windowSpec{url: down, connected: true}, unreachableStandIn(down))
-	registerWindow(a, &winEntry{id: "w5", role: rolePinboard, spec: windowSpec{url: down, connected: true}, serverURL: down})
+	registerWindow(a, &winEntry{id: "w5", role: rolePinboard, view: windowView{spec: windowSpec{url: down, connected: true}, serverURL: down}})
 	for _, id := range []string{"w4", "w5"} {
 		if rec := controlRequest(a, http.MethodPost, "/win/"+id+"/server-lost"); rec.Code != http.StatusConflict {
 			t.Fatalf("%s: status = %d, want 409", id, rec.Code)
@@ -121,24 +124,24 @@ func TestAWindowOnAServerByURLWhoseSessionHasGoneReopensItsProject(t *testing.T)
 	spec := windowSpec{url: srv.URL, connected: true, remoteProject: "/home/me/proj"}
 
 	for _, id := range []string{"live", "starting"} {
-		e := registerWindow(a, &winEntry{id: "w-" + id, role: roleMain, spec: spec, serverURL: srv.URL + "/s/" + id})
+		e := registerWindow(a, &winEntry{id: "w-" + id, role: roleMain, view: windowView{spec: spec, serverURL: srv.URL + "/s/" + id}})
 		if replaced(t, controlRequest(a, http.MethodPost, "/win/w-"+id+"/server-lost")) {
 			t.Fatalf("a window whose session %q the server still knows of was replaced", id)
 		}
 		var url string
-		a.reg(func(*regState) { url = e.serverURL })
+		a.reg(func(*regState) { url = e.view.serverURL })
 		if url != srv.URL+"/s/"+id {
 			t.Fatalf("a window whose session %q the server still knows of was moved to %s", id, url)
 		}
 	}
 
-	gone := registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: spec, serverURL: srv.URL + "/s/gone"})
+	gone := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: srv.URL + "/s/gone"}})
 	if !replaced(t, controlRequest(a, http.MethodPost, "/win/w1/server-lost")) {
 		t.Fatal("a window whose session the server no longer knows of was left reconnecting to it")
 	}
 	var url string
 	var now windowSpec
-	a.reg(func(*regState) { url, now = gone.serverURL, gone.spec })
+	a.reg(func(*regState) { url, now = gone.view.serverURL, gone.view.spec })
 	if url != srv.URL || now != spec {
 		t.Fatalf("the window is %+v on %s; want %+v on the server's page %s", now, url, spec, srv.URL)
 	}
@@ -165,9 +168,9 @@ func TestALocalWindowWhoseSessionIsLostBecomesItsStandIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	on := procOf(c)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: on})
-	registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{project: "/q"}, serverURL: base + "/s/s2", server: on})
-	registerWindow(a, &winEntry{id: "w3", role: roleMain, serverURL: base, server: on})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: on}})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/q"}, serverURL: base + "/s/s2", server: on}})
+	registerWindow(a, &winEntry{id: "w3", role: roleMain, view: windowView{serverURL: base, server: on}})
 
 	if replaced(t, controlRequest(a, http.MethodPost, "/win/w1/server-lost")) {
 		t.Fatal("a window whose session is running was replaced")
@@ -180,7 +183,7 @@ func TestALocalWindowWhoseSessionIsLostBecomesItsStandIn(t *testing.T) {
 	}
 	// Opened on a server process that has gone since: the session of that id
 	// running on the server there now is not its own.
-	registerWindow(a, &winEntry{id: "w4", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: serverProc{addr: on.addr, pid: on.pid + 1}})
+	registerWindow(a, &winEntry{id: "w4", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: serverProc{addr: on.addr, pid: on.pid + 1}}})
 	if !replaced(t, controlRequest(a, http.MethodPost, "/win/w4/server-lost")) || <-got != "w4" {
 		t.Fatal("a window on a server process that has gone was not replaced")
 	}
@@ -198,11 +201,9 @@ func TestAWindowWhoseUserStopsReconnectingBecomesItsStandIn(t *testing.T) {
 		title string
 	}
 	got := make(chan opened, 4)
-	orig := openLostServerStandIn
-	openLostServerStandIn = func(_ *appState, _ windowSpec, si *standIn, opts windowOpts) {
-		got <- opened{opts.replaces, si.title.Key}
-	}
-	t.Cleanup(func() { openLostServerStandIn = orig })
+	orig := viewShown
+	viewShown = func(e *winEntry, v windowView) { got <- opened{e.id, v.standIn.title.Key} }
+	t.Cleanup(func() { viewShown = orig })
 	expect := func(id string, title msg.Message) {
 		t.Helper()
 		if !replaced(t, controlRequest(a, http.MethodPost, "/win/"+id+"/server-lost?now=1")) {
@@ -217,7 +218,7 @@ func TestAWindowWhoseUserStopsReconnectingBecomesItsStandIn(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	t.Cleanup(answering.Close)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: answering.URL, connected: true}, serverURL: answering.URL})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: answering.URL, connected: true}, serverURL: answering.URL}})
 	expect("w1", unreachablePageTitle)
 
 	srv := newStubMachineServer(t, a, core.Version)
@@ -228,12 +229,12 @@ func TestAWindowWhoseUserStopsReconnectingBecomesItsStandIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	on := procOf(c)
-	registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: on})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: base + "/s/s1", server: on}})
 	expect("w2", disconnectedPageTitle)
-	registerWindow(a, &winEntry{id: "w3", role: roleMain, spec: windowSpec{project: "/q"}, serverURL: base + "/s/s2", server: on})
+	registerWindow(a, &winEntry{id: "w3", role: roleMain, view: windowView{spec: windowSpec{project: "/q"}, serverURL: base + "/s/s2", server: on}})
 	expect("w3", sessionLostTitle)
 
-	registerWindow(a, &winEntry{id: "w4", role: rolePinboard, spec: windowSpec{url: answering.URL, connected: true}, serverURL: answering.URL})
+	registerWindow(a, &winEntry{id: "w4", role: rolePinboard, view: windowView{spec: windowSpec{url: answering.URL, connected: true}, serverURL: answering.URL}})
 	if rec := controlRequest(a, http.MethodPost, "/win/w4/server-lost?now=1"); rec.Code != http.StatusConflict {
 		t.Fatalf("a board: status = %d, want 409", rec.Code)
 	}
@@ -244,7 +245,7 @@ func TestAWindowWhoseUserStopsReconnectingBecomesItsStandIn(t *testing.T) {
 // only the stand-in for a server run elsewhere starts one in its place.
 func TestStandInActionsBelongToStandIns(t *testing.T) {
 	a := newTestAppState(t)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:1/s/s1"})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:1/s/s1"}})
 	registerStandIn(a, "w2", windowSpec{project: "/p"}, lostServerStandIn())
 	for _, c := range []struct{ id, action string }{
 		{"w1", "retry-server"}, {"w1", "open-local"}, {"w1", "restart-server"}, {"w2", "restart-server"},
@@ -301,36 +302,6 @@ func TestAStandInHoldsThePlacesOfTheWindowsItKeeps(t *testing.T) {
 	}
 }
 
-// TestAWindowThatLosesItsServerStaysWhereItIs: a stand-in opens where the
-// window it takes the place of was, so a window whose server goes neither
-// moves nor lands on the others, and the window that answers it opens where
-// the stand-in is. A stand-in nobody placed — one a launch opened, with no
-// window to take the place of — hands on no frame, and its answer opens where
-// its own frame was saved, as does any other window opened in another's place.
-func TestAWindowThatLosesItsServerStaysWhereItIs(t *testing.T) {
-	window := &winEntry{id: "w1"}
-	placed := &winEntry{id: "w2", standIn: lostServerStandIn(), keepsFrame: true}
-	unplaced := &winEntry{id: "w3", standIn: failedStandIn(errors.New("no server"))}
-	for _, c := range []struct {
-		name     string
-		replaced *winEntry
-		standIn  bool
-		want     bool
-	}{
-		{"a stand-in for a window", window, true, true},
-		{"a stand-in for a placed stand-in", placed, true, true},
-		{"a stand-in for an unplaced stand-in", unplaced, true, false},
-		{"the answer to a placed stand-in", placed, false, true},
-		{"the answer to an unplaced stand-in", unplaced, false, false},
-		{"a window for a window", window, false, false},
-		{"nothing replaced", nil, true, false},
-	} {
-		if got := inheritsFrame(c.replaced, c.standIn); got != c.want {
-			t.Errorf("%s: inheritsFrame = %v, want %v", c.name, got, c.want)
-		}
-	}
-}
-
 // A stand-in's frame is kept where the window it stands in for keeps its own:
 // on this machine for a server by URL, and nowhere for a local window, whose
 // session is not there to keep it.
@@ -352,7 +323,7 @@ func TestAStandInsFrameIsKeptForTheWindowItStandsFor(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	local := registerStandIn(a, "w2", windowSpec{project: t.TempDir()}, lostServerStandIn())
-	a.reg(func(*regState) { local.serverURL = srv.URL })
+	a.reg(func(*regState) { local.view.serverURL = srv.URL })
 	a.storeFrame(context.Background(), local, frame)
 	if served.Load() {
 		t.Fatal("a local window's stand-in wrote its frame to a server")

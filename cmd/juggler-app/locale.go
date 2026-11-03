@@ -132,7 +132,7 @@ func (a *appState) controlLocale(w http.ResponseWriter, r *http.Request, e *winE
 	var serverURL string
 	a.reg(func(st *regState) {
 		if win := st.windows[e.id]; win != nil {
-			serverURL = win.serverURL
+			serverURL = win.view.serverURL
 		}
 	})
 	go a.adoptLocale(serverURL, r.URL.Query().Get("locale"))

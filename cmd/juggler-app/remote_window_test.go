@@ -33,7 +33,7 @@ func TestAttachInAWindowOnAServerByURLShowsTheSessionThere(t *testing.T) {
 	path := workspacePath(t)
 	a.workspace = newWorkspaceStoreAt(path)
 	const server = "http://devbox:3939"
-	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: server, connected: true}, serverURL: server})
+	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: server, connected: true}, serverURL: server}})
 
 	post := func(session string) int {
 		rec := httptest.NewRecorder()
@@ -50,7 +50,7 @@ func TestAttachInAWindowOnAServerByURLShowsTheSessionThere(t *testing.T) {
 	}
 	var spec windowSpec
 	var url string
-	a.reg(func(*regState) { spec, url = remote.spec, remote.serverURL })
+	a.reg(func(*regState) { spec, url = remote.view.spec, remote.view.serverURL })
 	want := windowSpec{url: server, connected: true, remoteProject: "/home/me/proj"}
 	if spec != want || url != server+"/s/abc123" {
 		t.Fatalf("after attach the window is %+v on %s; want %+v, on %s/s/abc123", spec, url, want, server)
@@ -75,8 +75,8 @@ func TestAWindowOnAServerByURLReopensItsProjectOnce(t *testing.T) {
 	a := newTestAppState(t)
 	a.workspace = newWorkspaceStoreAt(workspacePath(t))
 	const server = "http://devbox:3939"
-	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: server, connected: true, remoteProject: "/home/me/proj"}, serverURL: server})
-	local := registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/s/x"})
+	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: server, connected: true, remoteProject: "/home/me/proj"}, serverURL: server}})
+	local := registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/s/x"}})
 
 	post := func(e *winEntry) (int, string) {
 		rec := httptest.NewRecorder()
@@ -94,7 +94,7 @@ func TestAWindowOnAServerByURLReopensItsProjectOnce(t *testing.T) {
 		t.Fatalf("reopen: %d %q, want 200 /home/me/proj", code, project)
 	}
 	var spec windowSpec
-	a.reg(func(*regState) { spec = remote.spec })
+	a.reg(func(*regState) { spec = remote.view.spec })
 	if spec != (windowSpec{url: server, connected: true}) {
 		t.Fatalf("after reopen the window is filed as %+v, want the server's page", spec)
 	}
@@ -111,12 +111,12 @@ func TestAWindowOnAServerByURLStaysMarkedExternal(t *testing.T) {
 	userpathstest.Isolate(t)
 	a := newTestAppState(t)
 	a.workspace = newWorkspaceStoreAt(workspacePath(t))
-	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: "http://devbox:3939", connected: true}})
+	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: "http://devbox:3939", connected: true}}})
 	local := registerWindow(a, &winEntry{id: "w2", role: roleMain})
-	if page := a.navigateWindow(remote, remote.spec, "http://devbox:3939/s/abc"); !strings.Contains(page, "&external=1") {
+	if page := a.showView(remote, showing(a.viewOf(remote)), windowView{spec: a.viewOf(remote).spec, serverURL: "http://devbox:3939/s/abc"}, windowOpts{}); !strings.Contains(page, "&external=1") {
 		t.Errorf("a window on a server by URL navigated to %s, without external=1", page)
 	}
-	if page := a.navigateWindow(local, windowSpec{project: "/p"}, "http://127.0.0.1:3939/s/abc"); strings.Contains(page, "external=1") {
+	if page := a.showView(local, showing(a.viewOf(local)), windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/s/abc"}, windowOpts{}); strings.Contains(page, "external=1") {
 		t.Errorf("a window on this machine's server navigated to %s, marked external", page)
 	}
 	a.workspace.flush(nil)
@@ -131,8 +131,8 @@ func TestServerPageReturnsAWindowOnAServerByURLToItsPage(t *testing.T) {
 	a := newTestAppState(t)
 	a.workspace = newWorkspaceStoreAt(workspacePath(t))
 	const server = "http://devbox:3939"
-	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{url: server, connected: true, remoteProject: "/home/me/proj"}, serverURL: server + "/s/abc"})
-	local := registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/s/x"})
+	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: server, connected: true, remoteProject: "/home/me/proj"}, serverURL: server + "/s/abc"}})
+	local := registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/s/x"}})
 
 	post := func(e *winEntry) int {
 		rec := httptest.NewRecorder()
@@ -147,7 +147,7 @@ func TestServerPageReturnsAWindowOnAServerByURLToItsPage(t *testing.T) {
 	}
 	var url string
 	var spec windowSpec
-	a.reg(func(*regState) { url, spec = remote.serverURL, remote.spec })
+	a.reg(func(*regState) { url, spec = remote.view.serverURL, remote.view.spec })
 	if url != server {
 		t.Fatalf("after server-page the window is on %s, want %s", url, server)
 	}
@@ -170,7 +170,7 @@ func TestOnlyAnEmptyLocalWindowTakesDroppedFolders(t *testing.T) {
 		{windowSpec{project: "/p"}, false},
 		{windowSpec{url: "http://devbox:3939", connected: true}, false},
 	} {
-		if got := takesFolderDrops(c.spec); got != c.want {
+		if got := takesFolderDrops(windowView{spec: c.spec}); got != c.want {
 			t.Errorf("takesFolderDrops(%+v) = %v, want %v", c.spec, got, c.want)
 		}
 	}

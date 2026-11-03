@@ -33,12 +33,13 @@ import (
 //
 // A quit is exempt: confirmThenQuit notifies every window together before
 // quitting, so gating each window again would only repeat it. So is a window no
-// longer in the registry, which has nothing left to settle.
+// longer in the registry, which has nothing left to settle, and one showing a
+// stand-in, whose static page has no drafts and would never answer.
 func (a *appState) closeReady(e *winEntry) bool {
 	ready := false
 	a.reg(func(st *regState) {
 		w := st.windows[e.id]
-		ready = st.quitting || w == nil || w.settled
+		ready = st.quitting || w == nil || w.settled || w.view.standIn != nil
 	})
 	return ready
 }

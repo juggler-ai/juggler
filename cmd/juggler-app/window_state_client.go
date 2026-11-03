@@ -141,24 +141,43 @@ func (a *appState) openingState(spec windowSpec, serverURL, role string) (ws cor
 	return ws, hasState, true
 }
 
-// storeFrame records a window's frame where it belongs: in the session of a
-// server this app runs, or on this machine for a window onto a server by URL.
-// Gives up on a session write when ctx does.
+// Where a window's frame is kept (frameHomeOf).
+const (
+	frameKeptNowhere = iota
+	frameKeptInSession
+	frameKeptHere
+)
+
+// frameHomeOf is where the frame of a window showing v is kept: in the session
+// of a server this app runs, or on this machine for a window onto a server by
+// URL, or nowhere.
 //
-// A window onto a server by URL, and a stand-in for one, keep it on this
-// machine under that server (remoteFrameServer), whichever of its pages the
-// window shows; a stand-in's goes there so the window it stands in for comes
-// back where the stand-in was. A local window's session is not there to keep
-// one, so its stand-in keeps none; nor does an empty window, which has no
-// session.
-func (a *appState) storeFrame(ctx context.Context, e *winEntry, ws core.WindowState) {
-	spec, si := a.standInOf(e)
+// A window onto a server by URL keeps it on this machine under that server
+// (remoteFrameServer), whichever of its pages it shows, a stand-in included —
+// so a window that opens on that server's stand-in at launch opens where the
+// window was last left. A local window's stand-in keeps none, as its session
+// is not there to keep it; nor does an empty window, which has no session,
+// nor a page served from nowhere.
+func frameHomeOf(v windowView) int {
 	switch {
-	case spec.isURL():
-		a.remoteFrames.put(remoteFrameServer(spec), e.role, ws)
-	case si != nil, spec == (windowSpec{}):
+	case v.spec.isURL():
+		return frameKeptHere
+	case v.standIn != nil, v.spec == (windowSpec{}), v.serverURL == "":
+		return frameKeptNowhere
 	default:
-		putWindowStateCtx(ctx, a.serverURLOf(e), e.role, ws)
+		return frameKeptInSession
+	}
+}
+
+// storeFrame records a window's frame where it is kept (frameHomeOf), giving
+// up on a session write when ctx does.
+func (a *appState) storeFrame(ctx context.Context, e *winEntry, ws core.WindowState) {
+	v := a.viewOf(e)
+	switch frameHomeOf(v) {
+	case frameKeptHere:
+		a.remoteFrames.put(remoteFrameServer(v.spec), e.role, ws)
+	case frameKeptInSession:
+		putWindowStateCtx(ctx, v.serverURL, e.role, ws)
 	}
 }
 

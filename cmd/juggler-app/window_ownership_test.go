@@ -23,7 +23,7 @@ import (
 // registerBoard adds a detached-board entry viewing a server, with a board of its
 // own and no owner.
 func registerBoard(a *appState, id, serverURL string) *winEntry {
-	e := &winEntry{id: id, role: rolePinboardFor("board_" + id), board: "board_" + id, serverURL: serverURL}
+	e := &winEntry{id: id, role: rolePinboardFor("board_" + id), board: "board_" + id, view: windowView{serverURL: serverURL}}
 	a.reg(func(st *regState) { st.windows[id] = e })
 	return e
 }
@@ -37,7 +37,7 @@ func registerBoardOf(a *appState, id, serverURL, openedBy string) *winEntry {
 
 // registerWindowOn adds an ordinary window viewing a server.
 func registerWindowOn(a *appState, id, serverURL string) *winEntry {
-	e := &winEntry{id: id, role: roleMain, serverURL: serverURL}
+	e := &winEntry{id: id, role: roleMain, view: windowView{serverURL: serverURL}}
 	a.reg(func(st *regState) { st.windows[id] = e })
 	return e
 }
@@ -78,13 +78,13 @@ func TestOnlyOneCloserTearsAWindowDown(t *testing.T) {
 func TestABoardIsNeverPartOfTheRestoredWorkspace(t *testing.T) {
 	a := newTestAppState(t)
 	a.reg(func(st *regState) {
-		st.windows["w1"] = &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/tmp/one"}}
+		st.windows["w1"] = &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/tmp/one"}}}
 		st.windows["w2"] = &winEntry{
 			id: "w2", role: rolePinboardFor("board_one"), board: "board_one",
-			spec: windowSpec{project: "/tmp/one"},
+			view: windowView{spec: windowSpec{project: "/tmp/one"}},
 		}
-		st.windows["w3"] = &winEntry{id: "w3", role: roleMain, spec: windowSpec{url: "http://elsewhere"}}
-		st.windows["w4"] = &winEntry{id: "w4", role: roleMain, spec: windowSpec{project: "/tmp/two"}}
+		st.windows["w3"] = &winEntry{id: "w3", role: roleMain, view: windowView{spec: windowSpec{url: "http://elsewhere"}}}
+		st.windows["w4"] = &winEntry{id: "w4", role: roleMain, view: windowView{spec: windowSpec{project: "/tmp/two"}}}
 	})
 
 	var specs []windowSpec

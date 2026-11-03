@@ -13,21 +13,15 @@ import (
 	"net/url"
 	"strings"
 
-	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/machineserver"
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/webui"
 	"juggler/internal/logpaths"
-	"juggler/internal/windowgeom"
 	"juggler/web"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-// A window that cannot show what it is for opens as a stand-in for it: a
-// static page saying why, with buttons that post to this window's control
-// endpoint. There is no server to serve it from — that is usually what is
+// A window that cannot show what it is for shows a stand-in for it: a static
+// page saying why, with buttons that post to this window's control endpoint. There is no server to serve it from — that is usually what is
 // wrong — so the control endpoint serves it itself (serveStandIn), under the
 // same window shell as the sessions page (web/shell/), whose header bar is
 // what a frameless window is dragged, resized and closed by. The cases:
@@ -44,11 +38,14 @@ import (
 //     would stop (machineserver.Occupancy) is listed (mismatch): Restart
 //     server, or quit.
 //
-// A stand-in is filed under the spec it stands in for, so it keeps that
-// window's place in the workspace set. It opens at that window's frame, and
-// the window answering it at the stand-in's (inheritsFrame), so a window that
-// loses its server stays where it is. Its frame is kept where that window's
-// would be: on this machine for a server by URL, and nowhere for a local
+// A stand-in is a view (windowView), not a window. A window opened onto
+// something that cannot be shown is built showing its stand-in; a window that
+// loses what it shows shows its stand-in in place (showView), and its answer —
+// Try again, Start a server, Restart server, Open a local window — shows what
+// comes of it in that same window (retarget): the window keeps its id, its
+// frame and its place in the workspace set throughout, filed under the spec
+// it stands in for. Its frame is kept where that window's would be
+// (frameHomeOf): on this machine for a server by URL, and nowhere for a local
 // window, whose session is not there to keep it.
 
 // The kinds of stand-in.
@@ -89,8 +86,9 @@ type standInButton struct {
 }
 
 // standIn is what a stand-in window says in place of the window it stands in
-// for. Immutable: a change replaces the winEntry's pointer, on the registry
-// goroutine.
+// for. Immutable: a window that says something else shows another view
+// (showView), and the pointer is what tells one stand-in from the next
+// (standingIn).
 type standIn struct {
 	kind        string
 	windowTitle msg.Message
@@ -262,23 +260,14 @@ func (a *appState) trParagraphs(ms []msg.Message) []string {
 	return parts
 }
 
-// standInOf reports the spec window e stands in for and what it says, or a nil
-// standIn when e is an ordinary window. Read on the registry goroutine.
-func (a *appState) standInOf(e *winEntry) (windowSpec, *standIn) {
-	var spec windowSpec
-	var si *standIn
-	a.reg(func(*regState) { spec, si = e.spec, e.standIn })
-	return spec, si
-}
-
 // pageSpecOf reports what the page in window id actually shows. A stand-in's
 // page shows nothing it may act for — not the server by URL or the project it
 // is filed under — so it is the zero spec with ok false. What a page may ask
 // for is decided by this, not by the registry entry's spec.
 func (a *appState) pageSpecOf(id string) (spec windowSpec, ok bool) {
 	a.reg(func(st *regState) {
-		if e := st.windows[id]; e != nil && e.standIn == nil {
-			spec, ok = e.spec, true
+		if e := st.windows[id]; e != nil && e.view.standIn == nil {
+			spec, ok = e.view.spec, true
 		}
 	})
 	return spec, ok
@@ -361,7 +350,7 @@ func (a *appState) serveStandInPage(w http.ResponseWriter, r *http.Request, e *w
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	base := controlPath(e.id, e.ctlSecret)
+	base := controlPath(e.id, a.viewOf(e).secret)
 	// The secret is random hex, which makes a nonce as good as any.
 	nonce := mintControlSecret()
 	data := standInPageData{
@@ -398,138 +387,55 @@ func (a *appState) serveStandInPage(w http.ResponseWriter, r *http.Request, e *w
 	}
 }
 
-// buildStandInWindow opens a native window onto si's page, registered under
-// spec as a stand-in, so it keeps its place in the workspace set for as long as
-// it is open. Must run on the main thread. It opens where the window it takes
-// the place of (opts.replaces) is (inheritsFrame); with none, a window onto a
-// server by URL opens where that window was last left.
-func (a *appState) buildStandInWindow(spec windowSpec, si *standIn, opts windowOpts) *winEntry {
-	logf("stand-in (%s) for %+v", si.kind, spec.entry())
-	id := <-a.ids
-	secret := mintControlSecret()
-	startupTheme := normaliseTheme(opts.theme)
-	if startupTheme == "" {
-		a.reg(func(st *regState) { startupTheme = st.lastTheme })
-	}
-	bgTheme := startupTheme
-	if bgTheme == "" {
-		bgTheme = "dark"
-	}
-	saved, keepsFrame := a.inheritedFrame(opts, true)
-	if !keepsFrame && spec.isURL() {
-		saved, _ = a.remoteFrames.get(remoteFrameServer(spec), roleMain)
-	}
-	place := windowgeom.PlaceVisible(saved, a.app.Screen.GetAll())
-	win := a.app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            a.tr(si.windowTitle),
-		URL:              a.standInPageURL(id, secret),
-		Width:            place.Width,
-		Height:           place.Height,
-		MinWidth:         minWindowWidth,
-		MinHeight:        minWindowHeight,
-		X:                place.X,
-		Y:                place.Y,
-		InitialPosition:  place.Position,
-		Screen:           place.Screen,
-		StartState:       place.State,
-		Hidden:           platformWindowHidden,
-		Frameless:        platformFrameless,
-		BackgroundColour: themeColours[bgTheme],
-		Mac:              application.MacWindow{TitleBar: application.MacTitleBar{AppearsTransparent: true, HideTitle: true, HideToolbarSeparator: true, FullSizeContent: true}},
-		Linux:            application.LinuxWindow{WebviewGpuPolicy: a.gpuPolicy},
-		Windows:          application.WindowsWindow{DisableFramelessWindowDecorations: false},
-	})
-	if win == nil {
-		fatalf("Window.NewWithOptions returned nil for stand-in window %s (%+v)", id, spec.entry())
-	}
-	e := &winEntry{id: id, win: win, ctlSecret: secret, spec: spec, standIn: si, keepsFrame: keepsFrame, role: roleMain, currentTheme: startupTheme,
-		geom: windowgeom.NewTracker(windowgeom.Seed(place), a.app.Screen.GetAll), saves: windowgeom.NewDebouncer(), stopSave: make(chan struct{})}
-	a.reg(func(st *regState) { st.windows[id] = e })
-	a.persistWorkspace()
-	go a.saveLoop(e)
-	win.OnWindowEvent(events.Common.WindowDidMove, func(_ *application.WindowEvent) { e.triggerSave() })
-	win.OnWindowEvent(events.Common.WindowDidResize, func(_ *application.WindowEvent) { e.triggerSave() })
-	win.OnWindowEvent(events.Common.WindowClosing, func(_ *application.WindowEvent) { a.handleWindowClosed(e) })
-	return e
+// standInView is the view of a window standing in for spec with si.
+func standInView(spec windowSpec, si *standIn) windowView {
+	return windowView{spec: spec, standIn: si}
 }
 
-// inheritsFrame reports whether a window opened in replaced's place opens at
-// replaced's live frame; standIn is whether the new window is a stand-in. A
-// stand-in takes the frame of the window it stands in for, so a window whose
-// server goes neither moves nor lands on the others. The window that answers a
-// stand-in opens where the stand-in is, if the stand-in's frame was the user's
-// (winEntry.keepsFrame). Any other window opens at its own saved frame.
-func inheritsFrame(replaced *winEntry, standIn bool) bool {
-	switch {
-	case replaced == nil:
-		return false
-	case replaced.standIn == nil:
-		return standIn
-	default:
-		return replaced.keepsFrame
-	}
-}
-
-// inheritedFrame is the live frame of the window opts.replaces names, when a
-// window opened in its place inherits it (inheritsFrame); standIn is whether
-// that window is a stand-in. None when there is no such window, or its frame
-// is not worth taking (windowgeom.Tracker.Capture). Must run on the main
-// thread, which reads native window state.
-func (a *appState) inheritedFrame(opts windowOpts, standIn bool) (core.WindowState, bool) {
-	if opts.replaces == "" {
-		return core.WindowState{}, false
-	}
-	old := a.window(opts.replaces)
-	if old == nil || old.win == nil || old.geom == nil || !inheritsFrame(old, standIn) {
-		return core.WindowState{}, false
-	}
-	return old.geom.Capture(old.win)
-}
-
-// openStandIn opens a stand-in for spec, which cannot be shown, in the place of
-// opts.replaces when it names a window.
-func (a *appState) openStandIn(spec windowSpec, si *standIn, opts windowOpts, why string) {
-	application.InvokeAsync(func() {
-		a.showOpened(a.buildStandInWindow(spec, si, opts), opts, why)
-	})
+// standingIn is the showView guard for a stand-in's answer: the window still
+// shows si, the stand-in that was answered.
+func standingIn(si *standIn) func(windowView) bool {
+	return func(now windowView) bool { return now.standIn == si }
 }
 
 // controlRetryServer is a stand-in's "Try again": another attempt at the window
-// it stands in for, which takes its place — another stand-in if it still
-// cannot be shown. For a server this app did not start, the attempt only looks
-// for it. The page posts a form, which any reply with a body would replace, so
-// it is answered 204.
+// it stands in for, shown in its place — another stand-in if it still cannot
+// be shown. For a server this app did not start, the attempt only looks for
+// it. The page posts a form, which any reply with a body would replace, so it
+// is answered 204.
 func (a *appState) controlRetryServer(w http.ResponseWriter, _ *http.Request, e *winEntry) {
-	spec, si := a.standInOf(e)
-	if si == nil {
+	v := a.viewOf(e)
+	if v.standIn == nil {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
-	a.openWindow(spec, windowOpts{theme: a.windowTheme(e), replaces: e.id, noStart: si.startedElsewhere})
+	a.retarget(e, standingIn(v.standIn), v.spec, windowOpts{noStart: v.standIn.startedElsewhere})
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // controlStartServer is "Start a server" on the stand-in for a server this app
-// did not start: the window opens in its place on whatever server is running,
-// or on one this app starts. Answered 204, as Try again is.
+// did not start: the window shows its session in the stand-in's place, on
+// whatever server is running or on one this app starts. Answered 204, as Try
+// again is.
 func (a *appState) controlStartServer(w http.ResponseWriter, _ *http.Request, e *winEntry) {
-	spec, si := a.standInOf(e)
-	if si == nil || !si.startedElsewhere {
+	v := a.viewOf(e)
+	if v.standIn == nil || !v.standIn.startedElsewhere {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
-	a.openWindow(spec, windowOpts{theme: a.windowTheme(e), replaces: e.id})
+	a.retarget(e, standingIn(v.standIn), v.spec, windowOpts{})
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // controlRestartServer is a version mismatch's "Restart server": the server of
-// the other version is stopped, every session with it, and the window opens in
-// the stand-in's place on the server this app starts — with the rest of the
-// windows the stand-in held the place of. A server that has come to hold more
-// than the page said it would stop is left running, and the page is drawn
-// again saying what it holds now.
+// the other version is stopped, every session with it, and the window shows
+// its session in the stand-in's place, on the server this app starts — and the
+// rest of the windows the stand-in held the place of open. A server that has
+// come to hold more than the page said it would stop is left running, and the
+// page is drawn again saying what it holds now.
 func (a *appState) controlRestartServer(w http.ResponseWriter, _ *http.Request, e *winEntry) {
-	spec, si := a.standInOf(e)
+	v := a.viewOf(e)
+	si := v.standIn
 	if si == nil || si.kind != standInMismatch || si.mismatch == nil {
 		w.WriteHeader(http.StatusConflict)
 		return
@@ -540,13 +446,13 @@ func (a *appState) controlRestartServer(w http.ResponseWriter, _ *http.Request, 
 		if now, ok := asVersionMismatch(err); ok {
 			again := mismatchStandIn(now)
 			again.held = si.held
-			a.openStandIn(spec, again, windowOpts{theme: theme, replaces: e.id}, "server in use")
+			a.showView(e, standingIn(si), standInView(v.spec, again), windowOpts{})
 			return
 		}
 		if err != nil {
 			logf("restart server: %v", err)
 		}
-		a.openWindow(spec, windowOpts{theme: theme, replaces: e.id})
+		a.retarget(e, standingIn(si), v.spec, windowOpts{})
 		for _, h := range si.held {
 			a.openWindow(h, windowOpts{theme: theme})
 		}
@@ -554,105 +460,93 @@ func (a *appState) controlRestartServer(w http.ResponseWriter, _ *http.Request, 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// openLostServerStandIn opens the stand-in for a window whose server or
-// session has gone, in that window's place. A variable so a test can see it
-// asked for without a native window.
-var openLostServerStandIn = func(a *appState, spec windowSpec, si *standIn, opts windowOpts) {
-	a.openStandIn(spec, si, opts, "server lost")
-}
-
 // controlServerLost is a window's page saying it has been reconnecting for
 // long enough to stop (see web/js/services/server-lost.js). The page's word is
-// not taken for it, and the window is replaced by its stand-in only if what it
-// shows has really gone:
+// not taken for it, and the window moves on only when what it shows has
+// certainly gone:
 //
-//   - onto a server by URL, the server gets remoteReachBudget to answer the
-//     app, as it would when the window opens. One that answers but has
-//     forgotten the window's session (remoteSessionGone) — retired, as one
-//     left with no viewer is — is not lost, but nothing the page reconnects
-//     to will bring the session back: the window is returned to the server's
-//     page instead, still filed with the session's project, which that page
-//     opens there again (controlReopen), as a launch would;
+//   - onto a server by URL, only when the server answers, within
+//     remoteReachBudget, that it has forgotten the window's session
+//     (remoteSessionGone) — retired, as one left with no viewer is. Nothing
+//     the page reconnects to will bring the session back, so the window shows
+//     the server's page instead, still filed with the session's project,
+//     which that page opens there again (controlReopen), as a launch would. A
+//     server that does not answer is never given up on: it may yet, and the
+//     page, still reconnecting, comes back with it;
 //   - onto this machine's server, the session must be missing from the list of
-//     the server process the window was opened on (winEntry.server), or that
-//     process gone: no server there, one on its way out, or another in its
-//     place. A server that is there but does not answer has not gone.
+//     the server process the window's page is served by (windowView.server),
+//     or that process gone: no server there, one on its way out, or another in
+//     its place. A server that is there but does not answer has not gone.
 //
 // With ?now, it is the user stopping the reconnect (the overlay's Stop
-// trying), and the window is replaced whatever the check finds: a server that
-// answers the app is no use to a page it does not answer. What the stand-in
-// says is still what the app found, where it found anything. A remote page
-// can ask this too, which replaces only its own window.
+// trying), and the window shows its stand-in whatever the check finds: a
+// server that answers the app is no use to a page it does not answer. What the
+// stand-in says is still what the app found, where it found anything. A remote
+// page can ask this too, which moves only its own window.
 //
 // Answered {replaced}: false leaves the page to its own reconnect. A stand-in
-// already is one, a window already being replaced (claimReplacement) is as
-// good as one, and a board goes with the window that opened it; those are
-// answered 409.
+// already is one, a page the window no longer shows has been moved on already,
+// and a board goes with the window that opened it; those are answered 409.
 func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *winEntry) {
-	var spec windowSpec
-	var standing bool
-	a.reg(func(*regState) { spec, standing = e.spec, e.standIn != nil || e.replacing })
-	if standing || e.role != roleMain {
+	v := a.viewOf(e)
+	spec := v.spec
+	if v.standIn != nil || e.role != roleMain {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
 	now := r.URL.Query().Has("now")
-	theme := a.windowTheme(e)
 	var lost *standIn
 	if spec.isURL() {
 		if !now {
 			ctx, cancel := context.WithTimeout(r.Context(), remoteReachBudget)
 			defer cancel()
-			if _, _, reached := readWindowState(ctx, normalizeURL(spec.url), roleMain); reached {
-				if remoteSessionGone(ctx, a.serverURLOf(e)) {
-					logf("window %s: %s has gone from its server; showing the server's page", e.id, a.serverURLOf(e))
-					a.navigateWindow(e, spec, spec.url)
-					writeJSON(w, http.StatusOK, map[string]bool{"replaced": true})
-					return
-				}
-				writeJSON(w, http.StatusOK, map[string]bool{"replaced": false})
+			if remoteSessionGone(ctx, v.serverURL) {
+				logf("window %s: %s has gone from its server; showing the server's page", e.id, v.serverURL)
+				replaced := a.showView(e, showing(v), windowView{spec: spec, serverURL: spec.url}, windowOpts{}) != ""
+				writeJSON(w, http.StatusOK, map[string]bool{"replaced": replaced})
 				return
 			}
+			writeJSON(w, http.StatusOK, map[string]bool{"replaced": false})
+			return
 		}
 		lost = unreachableStandIn(spec.url)
 	} else {
-		lost = lostServerStandInFor(e.server)
-		c, gone := a.serverOfWindow(e)
+		lost = lostServerStandInFor(v.server)
+		c, gone := a.serverOfWindow(v.server)
 		if !gone {
-			running, answered := a.sessionRunning(c, a.serverURLOf(e))
+			running, answered := a.sessionRunning(c, v.serverURL)
 			switch {
 			case answered && !running:
-				lost = lostSessionStandIn(spec.project, !e.server.appStarted)
+				lost = lostSessionStandIn(spec.project, !v.server.appStarted)
 			case !now:
 				writeJSON(w, http.StatusOK, map[string]bool{"replaced": false})
 				return
 			default:
-				lost = disconnectedStandIn(!e.server.appStarted)
+				lost = disconnectedStandIn(!v.server.appStarted)
 			}
 		}
 	}
-	if !a.claimReplacement(e) {
+	logf("window %s: %s lost; showing its stand-in", e.id, v.serverURL)
+	if a.showView(e, showing(v), standInView(spec, lost), windowOpts{}) == "" {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
-	logf("window %s: %s lost; opening its stand-in", e.id, a.serverURLOf(e))
-	openLostServerStandIn(a, spec, lost, windowOpts{theme: theme, replaces: e.id})
 	writeJSON(w, http.StatusOK, map[string]bool{"replaced": true})
 }
 
-// serverOfWindow finds the server process local window e was opened on: a
-// client of it, or gone true when it has gone — no server there, one on its
+// serverOfWindow finds proc, the server process a local window's page is
+// served by: a client of it, or gone true when it has gone — no server there, one on its
 // way out, or another process in its place. A server that cannot be told
 // either way (it was reached but did not answer) is reported there, with a
 // nil client whose sessions sessionRunning cannot read.
-func (a *appState) serverOfWindow(e *winEntry) (c *machineserver.Client, gone bool) {
-	if c := a.attachedClient(); c != nil && procOf(c) == e.server {
+func (a *appState) serverOfWindow(proc serverProc) (c *machineserver.Client, gone bool) {
+	if c := a.attachedClient(); c != nil && procOf(c) == proc {
 		return c, false
 	}
 	found, err := machineserver.Connect(machineserver.ConnectOptions{ConfigDir: a.connectOpts.ConfigDir})
 	switch {
 	case err == nil:
-		if procOf(found) == e.server {
+		if procOf(found) == proc {
 			return found, false
 		}
 		return nil, true
@@ -697,15 +591,15 @@ func sessionIDOf(serverURL string) (string, bool) {
 	return id, id != "" && !strings.Contains(id, "/")
 }
 
-// controlOpenLocal is an unreachable server's way out: an empty local window
-// in the stand-in's place. That is what drops the server it stood in for from
-// the workspace set, which a plain close of the last window would not (an
-// empty set is never written, so the app would reopen it next launch).
+// controlOpenLocal is an unreachable server's way out: the window shows this
+// machine's server's page in the stand-in's place, and is filed as that from
+// then on rather than as the server it stood in for.
 func (a *appState) controlOpenLocal(w http.ResponseWriter, _ *http.Request, e *winEntry) {
-	if _, si := a.standInOf(e); si == nil {
+	v := a.viewOf(e)
+	if v.standIn == nil {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
-	a.openWindow(windowSpec{}, windowOpts{theme: a.windowTheme(e), replaces: e.id})
+	a.retarget(e, standingIn(v.standIn), windowSpec{}, windowOpts{})
 	w.WriteHeader(http.StatusNoContent)
 }

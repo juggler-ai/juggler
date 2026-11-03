@@ -106,12 +106,6 @@ type windowOpts struct {
 	// belong to its machine, not this one.
 	external bool
 
-	// replaces is the id of a window this one takes the place of: it is closed
-	// once this one is up, never before, so the app is not left with no window
-	// (which quits it). Set by the control endpoint, never off the wire — the
-	// empty window a server was connected from, or a stand-in being answered.
-	replaces string
-
 	// notice is what the server's page says as it opens in a window: why the
 	// window shows it rather than the session it was opened for (see
 	// openFailedError). Set by planWindow, never off the wire.

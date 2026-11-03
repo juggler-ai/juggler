@@ -33,7 +33,7 @@ import (
 // Loopback is not a boundary on its own: any web page in any browser on this
 // machine can POST to 127.0.0.1, and window ids are a counter. The secret is
 // what authorises a request, and what it authorises is one window: each
-// window's page is given a secret of its own (winEntry.ctlSecret), and a
+// window's page is given a secret of its own (windowView.secret), and a
 // request acts only on the window whose secret it holds — the id in its path
 // must name that same window. The secret is checked before anything else —
 // method, routing, CORS — so a request without one learns nothing and is
@@ -60,7 +60,7 @@ func (a *appState) serveControl(ln net.Listener) {
 
 // mintControlSecret returns a random secret for one page load of one window:
 // minted as the window is built, and again each time it is navigated in place
-// (navigateWindow), so a secret never outlives the page it was given to.
+// (showView), so a secret never outlives the page it was given to.
 func mintControlSecret() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -89,19 +89,12 @@ func controlPath(id, secret string) string {
 func (a *appState) windowBySecret(secret string) (e *winEntry, remote bool) {
 	a.reg(func(st *regState) {
 		for _, w := range st.windows {
-			if w.ctlSecret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(w.ctlSecret)) == 1 {
-				e, remote = w, w.remotePage()
+			if w.view.secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(w.view.secret)) == 1 {
+				e, remote = w, w.view.remotePage()
 			}
 		}
 	})
 	return e, remote
-}
-
-// remotePage is whether e's page was served by a server by URL — another
-// machine's, as far as the app can know — rather than by this machine's server
-// or by the app itself (a stand-in). Read on the registry goroutine.
-func (e *winEntry) remotePage() bool {
-	return e.standIn == nil && e.spec.isURL()
 }
 
 // handleControl admits a request only when its path opens with an open
@@ -127,7 +120,7 @@ func (a *appState) handleControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		if _, si := a.standInOf(e); si != nil {
+		if si := a.viewOf(e).standIn; si != nil {
 			id, sub, ok := strings.Cut(strings.TrimPrefix(rest, "win/"), "/")
 			if !ok || !strings.HasPrefix(rest, "win/") || id != e.id {
 				w.WriteHeader(http.StatusNotFound)
@@ -350,17 +343,17 @@ var openNewWindow = (*appState).openWindow
 // A window on a server by URL (another machine's) shows the session on that
 // server and stays the server's window (attachRemote).
 func (a *appState) controlAttach(w http.ResponseWriter, r *http.Request, e *winEntry) {
-	page, ok := a.pageSpecOf(e.id)
-	if ok && page.isURL() && e.role == roleMain {
-		a.attachRemote(w, r, e, page)
+	v := a.viewOf(e)
+	if v.standIn == nil && v.spec.isURL() && e.role == roleMain {
+		a.attachRemote(w, r, e, v)
 		return
 	}
-	if !ok || page != (windowSpec{}) || e.role != roleMain {
+	if v.standIn != nil || v.spec != (windowSpec{}) || e.role != roleMain {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
 	c := a.attachedClient()
-	if c == nil || a.serverURLOf(e) != "http://"+c.Addr() {
+	if c == nil || v.serverURL != "http://"+c.Addr() {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": attachNoServer.English(), "message": attachNoServer})
 		return
 	}
@@ -372,7 +365,7 @@ func (a *appState) controlAttach(w http.ResponseWriter, r *http.Request, e *winE
 	}
 	for _, s := range list {
 		if s.ID == id && s.State == machineserver.SessionRunning {
-			a.navigateWindow(e, windowSpec{project: s.Project}, strings.TrimSuffix(c.SessionURL(id), "/"))
+			a.showView(e, showing(v), windowView{spec: windowSpec{project: s.Project}, serverURL: strings.TrimSuffix(c.SessionURL(id), "/"), server: v.server}, windowOpts{})
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -387,14 +380,15 @@ func (a *appState) controlAttach(w http.ResponseWriter, r *http.Request, e *winE
 // send the window nowhere but a session of its own server. The window stays
 // that server's, filed with the session's ?project= (windowSpec.remoteProject)
 // so a next launch can open that project's session there again.
-func (a *appState) attachRemote(w http.ResponseWriter, r *http.Request, e *winEntry, spec windowSpec) {
+func (a *appState) attachRemote(w http.ResponseWriter, r *http.Request, e *winEntry, v windowView) {
 	id := normaliseID(r.URL.Query().Get("session"))
 	if id == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": attachNotRunning.English(), "message": attachNotRunning})
 		return
 	}
+	spec := v.spec
 	spec.remoteProject = strings.TrimSpace(r.URL.Query().Get("project"))
-	a.navigateWindow(e, spec, strings.TrimRight(spec.url, "/")+"/s/"+id)
+	a.showView(e, showing(v), windowView{spec: spec, serverURL: strings.TrimRight(spec.url, "/") + "/s/" + id}, windowOpts{})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -403,13 +397,12 @@ func (a *appState) attachRemote(w http.ResponseWriter, r *http.Request, e *winEn
 // another session of that server. A window on this machine's server opens a
 // new window for that instead (409 here).
 func (a *appState) controlServerPage(w http.ResponseWriter, _ *http.Request, e *winEntry) {
-	page, ok := a.pageSpecOf(e.id)
-	if !ok || !page.isURL() || e.role != roleMain {
+	v := a.viewOf(e)
+	if !v.remotePage() || e.role != roleMain {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
-	page.remoteProject = ""
-	a.navigateWindow(e, page, page.url)
+	a.showServerPage(e, v)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -432,8 +425,8 @@ func (a *appState) controlReopen(w http.ResponseWriter, _ *http.Request, e *winE
 	}
 	project := ""
 	a.reg(func(*regState) {
-		project = e.spec.remoteProject
-		e.spec.remoteProject = ""
+		project = e.view.spec.remoteProject
+		e.view.spec.remoteProject = ""
 	})
 	if project != "" {
 		a.persistWorkspace()
@@ -446,28 +439,87 @@ var (
 	attachNotRunning = msg.New("That session is not running.")
 )
 
-// navigateWindow makes e the window for spec, showing serverURL, in place, and
-// returns the page it loads. A window on a server by URL stays marked external.
-// The page it loads holds a new secret, and the one the page it replaces held
-// opens nothing any more.
-func (a *appState) navigateWindow(e *winEntry, spec windowSpec, serverURL string) string {
-	var opts windowOpts
-	var secret string
+// showServerPage shows v's server by URL's own sessions page in e, in place of
+// whichever of its sessions e showed, provided e still shows v.
+func (a *appState) showServerPage(e *winEntry, v windowView) {
+	spec := v.spec
+	spec.remoteProject = ""
+	a.showView(e, showing(v), windowView{spec: spec, serverURL: spec.url}, windowOpts{})
+}
+
+// showView makes e show next, in place, provided what it shows now is what
+// the caller decided on (from): the same webview, under the same id and at the
+// same frame, wherever it is going — a session, its server's page, a stand-in,
+// or back. It returns the page loaded, or "" when from said no, which is how
+// two causes racing to move one window settle on one of them. opts says how
+// the page opens beyond the window's own theme and the app's zoom: its notice.
+//
+// The page loaded holds a new secret, so the one the page it replaces held
+// opens nothing any more. The boards the window opened are put away with the
+// page that opened them: kept (retainBoard), so the session's page, when the
+// window shows it again, opens them again (restoreBoards), as a relaunch does.
+//
+// Nothing is flushed first (close_gate.go flushes for a close). A page whose
+// server has gone has nowhere to flush drafts to; a page leaving a live
+// session keeps the drafts it persisted when the user last stopped typing.
+func (a *appState) showView(e *winEntry, from func(windowView) bool, next windowView, opts windowOpts) string {
+	next.secret = mintControlSecret()
+	shown := false
+	var boards []*winEntry
 	a.reg(func(st *regState) {
-		e.spec, e.serverURL = spec, serverURL
-		e.ctlSecret = mintControlSecret()
-		secret = e.ctlSecret
-		opts = windowOpts{theme: e.currentTheme, zoom: st.lastZoom, external: spec.isURL()}
+		if st.windows[e.id] != e || !from(e.view) {
+			return
+		}
+		e.view, shown = next, true
+		boards = markBoardsClosingWith(st, e)
+		opts = windowOpts{theme: e.currentTheme, zoom: st.lastZoom, notice: opts.notice}
 	})
-	logf("window %s: now %+v at %s", e.id, spec.entry(), serverURL)
-	a.persistWorkspace()
-	a.rememberRecentProject(spec.project)
-	a.syncFileDrop(e, spec)
-	page := windowPageURL(serverURL, a.controlBase(e.id, secret), opts)
-	if e.win != nil {
-		application.InvokeAsync(func() { e.win.SetURL(page) })
+	if !shown {
+		return ""
 	}
+	if next.standIn != nil {
+		logf("window %s: now the %s stand-in for %+v", e.id, next.standIn.kind, next.spec.entry())
+	} else {
+		logf("window %s: now %+v at %s", e.id, next.spec.entry(), next.serverURL)
+		a.rememberRecentProject(next.spec.project)
+	}
+	a.persistWorkspace()
+	a.syncFileDrop(e, next)
+	page, title := a.pageOf(e.id, next, opts)
+	if win := e.win; win != nil {
+		application.InvokeAsync(func() {
+			win.SetTitle(title)
+			win.SetURL(page)
+		})
+	}
+	for _, b := range boards {
+		if win := b.win; win != nil {
+			application.InvokeAsync(func() { win.Close() })
+		}
+	}
+	viewShown(e, next)
 	return page
+}
+
+// viewShown is told each view showView shows. A variable so a test can see a
+// window move without a native one.
+var viewShown = func(*winEntry, windowView) {}
+
+// showing is the showView guard for a view decided on from v, read from the
+// window: the window still shows that page.
+func showing(v windowView) func(windowView) bool {
+	return func(now windowView) bool { return now.secret == v.secret }
+}
+
+// retarget shows spec in e, in place, provided e still shows what from
+// accepts. It plans spec off the caller's goroutine (planWindow), as opening a
+// window onto it would, and shows what was planned: spec's page, or the
+// stand-in for it when it still cannot be shown.
+func (a *appState) retarget(e *winEntry, from func(windowView) bool, spec windowSpec, opts windowOpts) {
+	go func() {
+		p := a.planWindow(spec, opts)
+		a.showView(e, from, p.view, p.opts)
+	}()
 }
 
 // controlOpenURL hands a URL to the system browser. WebKit only auto-routes
@@ -553,7 +605,7 @@ func (a *appState) controlTitle(w http.ResponseWriter, r *http.Request, e *winEn
 // filling the window needs the other windows. Only a window with that overlay
 // (takesFolderDrops) can have had a drop to report; any other is answered 409.
 func (a *appState) controlFolderDropped(w http.ResponseWriter, r *http.Request, e *winEntry) {
-	if spec, ok := a.pageSpecOf(e.id); !ok || !takesFolderDrops(spec) {
+	if spec, ok := a.pageSpecOf(e.id); !ok || !takesFolderDrops(windowView{spec: spec}) {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
@@ -735,7 +787,7 @@ func (a *appState) controlSaveFile(w http.ResponseWriter, r *http.Request, e *wi
 	// a download would tell it, and not where on this machine: it is answered
 	// with the name it suggested.
 	var remote bool
-	a.reg(func(*regState) { remote = e.remotePage() })
+	a.reg(func(*regState) { remote = e.view.remotePage() })
 	if remote {
 		path = name
 	}
@@ -853,8 +905,8 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 	switch r.URL.Query().Get("op") {
 	case "state":
 		snap := updaterSnapshot()
-		var managed bool
-		a.reg(func(*regState) { managed = e.standIn == nil && !e.spec.isURL() })
+		v := a.viewOf(e)
+		managed := v.standIn == nil && !v.spec.isURL()
 		writeJSON(w, http.StatusOK, updaterStateResponse{UpdaterSnapshot: snap, AppManagedServer: managed})
 	case "install":
 		// Fire-and-forget; the overlay guards against a double-start itself. The

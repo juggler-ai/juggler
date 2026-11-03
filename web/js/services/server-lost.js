@@ -5,15 +5,18 @@
 /**
  * Giving up on a server or a session. The socket retries for ever
  * (websocket.js), which is right while what it reconnects to can come back —
- * a session that restarts after a crash does. When it cannot — another
- * machine's server is down, or this machine's session has stopped — nothing in
- * the page can bring it back, so after a minute of trying a desktop window asks
- * the app to put its stand-in in its place, with Try again on offer
- * (cmd/juggler-app/stand_in.go, controlServerLost). The app checks first, and
- * leaves the window alone if the server answers or the session still runs —
- * unless the user asked, with the overlay's Stop trying ({@link giveUpOnServer}).
- * The app replaces its local windows itself, at once, when this machine's
- * server goes.
+ * a session that restarts after a crash does, and so does a server on another
+ * machine once the network between them returns. When it cannot — this
+ * machine's session has stopped, or another machine's server has forgotten
+ * the session — nothing in the page can bring it back, so after a minute of
+ * trying a desktop window asks the app whether that is so
+ * (cmd/juggler-app/stand_in.go, controlServerLost). The app checks for itself
+ * and moves the window on, in place, only when the session has certainly gone:
+ * to its stand-in, with Try again on offer, or to the server's page. A server
+ * that does not answer is left to this page's reconnect — unless the user
+ * asked, with the overlay's Stop trying ({@link giveUpOnServer}). The app
+ * moves its local windows to their stand-ins itself, at once, when this
+ * machine's server goes.
  * @module services/server-lost
  */
 

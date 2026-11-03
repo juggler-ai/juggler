@@ -116,15 +116,15 @@ func (a *appState) controlConnect(w http.ResponseWriter, r *http.Request, e *win
 // A window already open on that server is raised instead, and remembered from
 // now on if it was a --url one: connecting to it is saying it should come back.
 // A stand-in for it is not open on it, so connecting is another attempt. An
-// empty window asking is replaced by the new one rather than left behind beside
-// it, as a dropped folder fills the window it is dropped on.
+// empty window asking shows the server itself rather than being left behind
+// beside a new one, as a dropped folder fills the window it is dropped on.
 func (a *appState) connectServer(from *winEntry, fromSpec windowSpec, serverURL string, opts windowOpts) {
 	spec := windowSpec{url: serverURL, connected: true}
 	var open *winEntry
 	a.reg(func(st *regState) {
 		for _, w := range st.windows {
-			if !isBoardRole(w.role) && w.standIn == nil && w.spec.sameView(spec) {
-				w.spec.connected = true
+			if !isBoardRole(w.role) && w.view.standIn == nil && w.view.spec.sameView(spec) {
+				w.view.spec.connected = true
 				open = w
 				break
 			}
@@ -135,9 +135,10 @@ func (a *appState) connectServer(from *winEntry, fromSpec windowSpec, serverURL 
 		focusEntry(open)
 		return
 	}
-	if fromSpec == (windowSpec{}) && !isBoardRole(from.role) {
-		opts.replaces = from.id
-	}
 	logf("connect: opening %s", serverURL)
+	if fromSpec == (windowSpec{}) && !isBoardRole(from.role) {
+		a.retarget(from, func(now windowView) bool { return now.standIn == nil && now.spec == (windowSpec{}) }, spec, opts)
+		return
+	}
 	a.openWindow(spec, opts)
 }

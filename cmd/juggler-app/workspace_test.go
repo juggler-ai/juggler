@@ -60,8 +60,8 @@ func TestQuittingKeepsTheWholeWindowSet(t *testing.T) {
 	a := newTestAppState(t)
 	a.workspace = newWorkspaceStoreAt(path)
 	a.reg(func(st *regState) {
-		st.windows["w1"] = &winEntry{id: "w1", spec: windowSpec{project: "/a"}}
-		st.windows["w2"] = &winEntry{id: "w2", spec: windowSpec{project: "/b"}}
+		st.windows["w1"] = &winEntry{id: "w1", view: windowView{spec: windowSpec{project: "/a"}}}
+		st.windows["w2"] = &winEntry{id: "w2", view: windowView{spec: windowSpec{project: "/b"}}}
 	})
 	a.onShutdown()
 	a.reg(func(st *regState) { delete(st.windows, "w1") })

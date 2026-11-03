@@ -40,9 +40,9 @@ import (
 // this app's beats and could not see this app's process alive, which a server
 // that keeps a silent but live client never does to a running app — and is
 // still there, so the app attaches again and its windows carry on; or the
-// server has gone, and every
-// local window becomes its stand-in at once, whose Try again finds or starts
-// a server and reopens the window's session. A server the app did not start —
+// server has gone, and every local window shows its stand-in at once, in place
+// (showView), whose Try again finds or starts a server and shows the window's
+// session in that same window again. A server the app did not start —
 // run in a terminal — is only looked for again: the app starts its own only
 // when the user asks (serverClient).
 //
@@ -298,8 +298,8 @@ func (a *appState) attachmentEnded(att *machineserver.Attachment) {
 
 // serverProc is one process of this machine's server: its address and its
 // process ID. The address alone is not enough — a server started after
-// another has gone takes the same port — so a window records the process it
-// was opened on (winEntry.server).
+// another has gone takes the same port — so a window records the process its
+// page is served by (windowView.server).
 type serverProc struct {
 	addr string
 	pid  int
@@ -320,7 +320,7 @@ func procOf(c *machineserver.Client) serverProc {
 // which dropped the attachment — is attached to again, and that attachment
 // returned. A server that has gone, or is on its way out
 // (machineserver.ServerGoing), takes its sessions with it, so every window
-// onto it becomes its stand-in. One that is still there but did not take the
+// onto it shows its stand-in. One that is still there but did not take the
 // attachment again keeps its windows, whose pages go on reaching it; the next
 // serverClient tries again. Either way settle returns none.
 func (a *appState) settle(c *machineserver.Client) (*machineserver.Client, *machineserver.Attachment) {
@@ -425,14 +425,13 @@ func (a *appState) sessionsAQuitStops() int {
 	return n
 }
 
-// serverLost replaces every main window onto proc, a server process that has
-// gone, with its stand-in. A window opened on a later server at the same
-// address is not proc's, and stays. A board goes with the window that opened
-// it.
+// serverLost has every main window onto proc, a server process that has gone,
+// show its stand-in. A window opened on a later server at the same address is
+// not proc's, and stays. A board goes with the window that opened it.
 func (a *appState) serverLost(proc serverProc) {
 	type lostWindow struct {
-		id, theme string
-		spec      windowSpec
+		e    *winEntry
+		spec windowSpec
 	}
 	var lost []lostWindow
 	a.reg(func(st *regState) {
@@ -440,33 +439,24 @@ func (a *appState) serverLost(proc serverProc) {
 			return
 		}
 		for _, w := range sortedWindows(st) {
-			if w.server == proc && !isBoardRole(w.role) && !w.spec.isURL() && claimReplacementLocked(st, w) {
-				lost = append(lost, lostWindow{id: w.id, theme: w.currentTheme, spec: w.spec})
+			if !isBoardRole(w.role) && servedBy(proc)(w.view) {
+				lost = append(lost, lostWindow{w, w.view.spec})
 			}
 		}
 	})
+	si := lostServerStandInFor(proc)
 	for _, w := range lost {
-		logf("window %s: its server %s (pid %d) has gone; opening its stand-in", w.id, proc.addr, proc.pid)
-		openLostServerStandIn(a, w.spec, lostServerStandInFor(proc), windowOpts{theme: w.theme, replaces: w.id})
+		logf("window %s: its server %s (pid %d) has gone; showing its stand-in", w.e.id, proc.addr, proc.pid)
+		a.showView(w.e, servedBy(proc), standInView(w.spec, si), windowOpts{})
 	}
 }
 
-// claimReplacement claims e to be replaced by its stand-in, and reports
-// whether the caller has it: false for a window already a stand-in, already
-// claimed, or no longer open. Whoever has it opens the one stand-in.
-func (a *appState) claimReplacement(e *winEntry) bool {
-	claimed := false
-	a.reg(func(st *regState) { claimed = claimReplacementLocked(st, e) })
-	return claimed
-}
-
-// claimReplacementLocked is claimReplacement on the registry goroutine.
-func claimReplacementLocked(st *regState, e *winEntry) bool {
-	if st.windows[e.id] != e || e.standIn != nil || e.replacing {
-		return false
+// servedBy is the showView guard for a server process that has gone: the
+// window shows a page proc serves.
+func servedBy(proc serverProc) func(windowView) bool {
+	return func(now windowView) bool {
+		return now.standIn == nil && !now.spec.isURL() && now.server == proc
 	}
-	e.replacing = true
-	return true
 }
 
 // isDone reports whether ch has been closed.

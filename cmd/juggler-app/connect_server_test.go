@@ -24,9 +24,9 @@ import (
 func TestAConnectedServerIsPartOfTheRestoredWorkspace(t *testing.T) {
 	a := newTestAppState(t)
 	a.reg(func(st *regState) {
-		st.windows["w1"] = &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/tmp/one"}}
-		st.windows["w2"] = &winEntry{id: "w2", role: roleMain, spec: windowSpec{url: "http://127.0.0.1:52011"}}
-		st.windows["w3"] = &winEntry{id: "w3", role: roleMain, spec: windowSpec{url: "http://devbox:8080", connected: true}}
+		st.windows["w1"] = &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/tmp/one"}}}
+		st.windows["w2"] = &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{url: "http://127.0.0.1:52011"}}}
+		st.windows["w3"] = &winEntry{id: "w3", role: roleMain, view: windowView{spec: windowSpec{url: "http://devbox:8080", connected: true}}}
 	})
 
 	var specs []windowSpec
@@ -114,7 +114,7 @@ func TestNormaliseServerURL(t *testing.T) {
 func TestAWindowOnAServerByURLCannotConnectToAnother(t *testing.T) {
 	for _, spec := range []windowSpec{{url: "http://devbox:8080"}, {url: "http://devbox:8080", connected: true}} {
 		a := newTestAppState(t)
-		registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: spec, serverURL: spec.url})
+		registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: spec.url}})
 
 		rec := controlRequest(a, http.MethodPost, "/win/w1/connect?url=http%3A%2F%2Felsewhere%3A1")
 
@@ -132,7 +132,7 @@ func TestAWindowOnAServerByURLCannotConnectToAnother(t *testing.T) {
 
 func TestConnectRefusesAnAddressThatIsNotAServer(t *testing.T) {
 	a := newTestAppState(t)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{}, serverURL: "http://127.0.0.1:4000"})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{}, serverURL: "http://127.0.0.1:4000"}})
 
 	rec := controlRequest(a, http.MethodPost, "/win/w1/connect?url=file%3A%2F%2F%2Fetc")
 
@@ -151,7 +151,7 @@ func TestConnectRefusesAnAddressThatIsNotAServer(t *testing.T) {
 // working window cannot be made to replace itself.
 func TestOnlyAnUnreachableServerWindowTakesItsRecoveryActions(t *testing.T) {
 	a := newTestAppState(t)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:4000/s/x"})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:4000/s/x"}})
 
 	for _, action := range []string{"retry-server", "open-local"} {
 		rec := controlRequest(a, http.MethodPost, "/win/w1/"+action)

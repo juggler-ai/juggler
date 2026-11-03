@@ -144,8 +144,8 @@ func TestWindowControlQuitStartsTheAppQuitOnce(t *testing.T) {
 // is app-wide (windowActions), and its page shows no updater.
 func TestWindowControlUpdaterStateIsJSON(t *testing.T) {
 	a := newTestAppState(t)
-	registerWindow(a, &winEntry{id: "w1", role: roleMain, spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:1/s/s1"})
-	registerWindow(a, &winEntry{id: "w2", role: roleMain, spec: windowSpec{url: "http://devbox:8080", connected: true}, serverURL: "http://devbox:8080"})
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:1/s/s1"}})
+	registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{url: "http://devbox:8080", connected: true}, serverURL: "http://devbox:8080"}})
 
 	if rec := controlRequest(a, http.MethodPost, "/win/w2/updater?op=state"); rec.Code != http.StatusForbidden {
 		t.Fatalf("w2: status = %d, want 403", rec.Code)

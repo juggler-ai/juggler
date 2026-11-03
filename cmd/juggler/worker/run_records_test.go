@@ -7,9 +7,12 @@ package worker
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	ycrdt "github.com/skyterra/y-crdt"
 )
 
 // TestResolveRunOutcome pins the whole outcome table. Every ending resolves to
@@ -159,8 +162,54 @@ func TestThreadRunSettledReadsTheRunNotTheSummary(t *testing.T) {
 	if settled := threadRunSettled(legacy); !settled {
 		t.Errorf("a thread with no run record must fall back to its result")
 	}
-	if settled := threadRunSettled(ConversationItem{Type: ItemTypeThread, ItemID: "empty"}); settled {
-		t.Errorf("a thread with neither a run record nor a result is not finished")
+}
+
+// runSettledFixture is the case table shared with the JS half
+// (unit:run-records), so the two implementations of the rule cannot drift.
+const runSettledFixture = "../../../web/js-tests/fixtures/thread-run-settled.json"
+
+// TestThreadRunSettledFixture asks every case of the shared table of both Go
+// readings of the rule: the serialised item (threadRunSettled) and the live
+// CRDT (threadRunSettledLocked).
+func TestThreadRunSettledFixture(t *testing.T) {
+	data, err := os.ReadFile(runSettledFixture)
+	if err != nil {
+		t.Fatalf("read %s: %v", runSettledFixture, err)
+	}
+	var fixture struct {
+		Cases []struct {
+			Name    string          `json:"name"`
+			Thread  json.RawMessage `json:"thread"`
+			Settled bool            `json:"settled"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatalf("parse %s: %v", runSettledFixture, err)
+	}
+	if len(fixture.Cases) == 0 {
+		t.Fatalf("%s holds no cases", runSettledFixture)
+	}
+	for _, c := range fixture.Cases {
+		t.Run(c.Name, func(t *testing.T) {
+			var item ConversationItem
+			if err := json.Unmarshal(c.Thread, &item); err != nil {
+				t.Fatalf("decode thread: %v", err)
+			}
+			if got := threadRunSettled(item); got != c.Settled {
+				t.Errorf("threadRunSettled = %v, want %v", got, c.Settled)
+			}
+
+			w := NewConversationWorker("test-run-settled-fixture", "user:test")
+			w.doc.doc.Transact(func(_ *ycrdt.Transaction) {
+				w.doc.ensureItems().Push(ycrdt.ArrayAny{conversationItemToYMap(item)})
+			}, w.doc.authorID)
+			ycrdtMu.Lock()
+			got := threadRunSettledLocked(findThreadYMap(w.doc.getItems(), item.ItemID))
+			ycrdtMu.Unlock()
+			if got != c.Settled {
+				t.Errorf("threadRunSettledLocked = %v, want %v", got, c.Settled)
+			}
+		})
 	}
 }
 

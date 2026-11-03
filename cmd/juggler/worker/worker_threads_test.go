@@ -132,15 +132,11 @@ func TestThreadBreadthCap(t *testing.T) {
 	w.currentRun().storeState(StateProcessing)
 
 	// Fill the document with maxLiveThreads in-flight llmCreated siblings at
-	// root (no result). These count toward liveThreadCount.
+	// root (a started run, no result). These count toward liveThreadCount.
 	root := w.doc.ensureItems()
 	ids := make([]string, 0, maxLiveThreads)
 	for i := 0; i < maxLiveThreads; i++ {
-		w.doc.InsertThreadIntoArray(root, w.doc.GetItemsLengthFromArray(root), fmt.Sprintf("T%d", i))
-		items := w.doc.GetItemsFromArray(root)
-		id := items[len(items)-1].ItemID
-		w.doc.SetThreadField(id, "llmCreated", true)
-		ids = append(ids, id)
+		ids = append(ids, insertThreadWithOpts(w, threadOpts{goal: fmt.Sprintf("T%d", i), llmCreated: true, userMessage: "go"}))
 	}
 	if got := w.doc.liveThreadCount(); got != maxLiveThreads {
 		t.Fatalf("liveThreadCount = %d, want %d", got, maxLiveThreads)

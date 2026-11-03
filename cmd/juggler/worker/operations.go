@@ -437,7 +437,7 @@ func (t *OperationTracker) AppendRunStarterToThread(threadItemID string, starter
 	if arr == nil {
 		return false
 	}
-	if settled, hasRuns := runSettlementLocked(arr); hasRuns && !settled {
+	if s := runSettlementLocked(arr); s.hasRuns && !s.settled {
 		return false
 	}
 	t.appendMessageIntoArrayLocked(arr, starter)

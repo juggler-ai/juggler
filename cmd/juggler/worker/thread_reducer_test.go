@@ -67,7 +67,9 @@ func refusedToolAction(id string) ConversationItem {
 }
 
 // threadMsg returns a thread item. If result is non-empty, the thread
-// is considered complete (hasThreadResult returns true).
+// is considered complete (hasThreadResult returns true); otherwise it holds the
+// message its run started on and no outcome, which is a run in flight — an
+// empty transcript is a thread no run has started.
 func threadMsg(itemID, result string) ConversationItem {
 	item := ConversationItem{
 		Type:   ItemTypeThread,
@@ -76,7 +78,9 @@ func threadMsg(itemID, result string) ConversationItem {
 	}
 	if result != "" {
 		item.Result = json.RawMessage(`"` + result + `"`)
+		return item
 	}
+	item.Items = json.RawMessage(`[{"type":"user","itemId":"` + itemID + `-start","content":"go"}]`)
 	return item
 }
 

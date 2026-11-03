@@ -1,0 +1,113 @@
+{
+  "description": "Whether a thread's latest run has settled. Read by both halves of the rule: TestThreadRunSettledFixture (worker/run_records_test.go, against threadRunSettled and threadRunSettledLocked) and unit:run-records (web/js-tests/unit-tests/run-records-test.js, against threadRunSettled in web/js/model/run-records.js). Each thread is a document item exactly as stored.",
+  "cases": [
+    {
+      "name": "an empty thread has never started a run",
+      "thread": { "type": "thread", "itemId": "t", "items": [] },
+      "settled": true
+    },
+    {
+      "name": "seeded context alone has never started a run",
+      "thread": { "type": "thread", "itemId": "t", "items": [
+        { "type": "system-prompt", "itemId": "s" },
+        { "type": "rule", "itemId": "r", "content": "a standing rule" }
+      ] },
+      "settled": true
+    },
+    {
+      "name": "a nested thread's run selector is not this thread's run",
+      "thread": { "type": "thread", "itemId": "t", "items": [
+        { "type": "thread", "itemId": "child", "runToolUseId": "tu-child" }
+      ] },
+      "settled": true
+    },
+    {
+      "name": "a first message with no reply yet is a run in flight",
+      "thread": { "type": "thread", "itemId": "t", "items": [
+        { "type": "user", "itemId": "u", "content": "do it" }
+      ] },
+      "settled": false
+    },
+    {
+      "name": "a run with no record answers from its summary",
+      "thread": { "type": "thread", "itemId": "t", "result": "The summary.", "items": [
+        { "type": "user", "itemId": "u", "content": "do it" },
+        { "type": "assistant", "itemId": "a", "content": "Done." }
+      ] },
+      "settled": true
+    },
+    {
+      "name": "a document from before run records answers from its result",
+      "thread": { "type": "thread", "itemId": "t", "result": "Legacy result." },
+      "settled": true
+    },
+    {
+      "name": "an invocation with no outcome is running",
+      "thread": { "type": "thread", "itemId": "t", "items": [
+        { "type": "user", "itemId": "u", "content": "do it", "runToolUseId": "tu-1" }
+      ] },
+      "settled": false
+    },
+    {
+      "name": "a stamped invocation is settled",
+      "thread": { "type": "thread", "itemId": "t", "items": [
+        { "type": "user", "itemId": "u", "content": "do it", "runToolUseId": "tu-1", "runStatus": "rest" },
+        { "type": "assistant", "itemId": "a", "content": "Done." }
+      ] },
+      "settled": true
+    },
+    {
+      "name": "a summary from an earlier run does not settle the next one",
+      "thread": { "type": "thread", "itemId": "t", "result": "An older summary.", "items": [
+        { "type": "user", "itemId": "u1", "content": "first", "runStatus": "rest" },
+        { "type": "assistant", "itemId": "a", "content": "Done." },
+        { "type": "user", "itemId": "u2", "content": "again" }
+      ] },
+      "settled": false
+    },
+    {
+      "name": "a message absorbed into an open run leaves it open",
+      "thread": { "type": "thread", "itemId": "t", "items": [
+        { "type": "user", "itemId": "inv", "content": "find the bug", "runToolUseId": "tu-1" },
+        { "type": "assistant", "itemId": "a", "content": "Looking." },
+        { "type": "user", "itemId": "human", "content": "check the tests too" }
+      ] },
+      "settled": false
+    },
+    {
+      "name": "a continuation marker with no outcome is a run in flight",
+      "thread": { "type": "thread", "itemId": "t", "items": [
+        { "type": "user", "itemId": "m", "continuation": true }
+      ] },
+      "settled": false
+    },
+    {
+      "name": "a Continue after a settled run opens a new one",
+      "thread": { "type": "thread", "itemId": "t", "items": [
+        { "type": "user", "itemId": "u", "content": "do it", "runStatus": "error" },
+        { "type": "error", "itemId": "e", "content": "boom" },
+        { "type": "user", "itemId": "m", "continuation": true }
+      ] },
+      "settled": false
+    },
+    {
+      "name": "an unsummarised fold is unfinished whatever it swallowed",
+      "thread": { "type": "thread", "itemId": "t", "boundedCompaction": true, "items": [
+        { "type": "user", "itemId": "inv", "content": "do it", "runToolUseId": "tu-1", "runStatus": "rest" }
+      ] },
+      "settled": false
+    },
+    {
+      "name": "an empty fold is owed its summary",
+      "thread": { "type": "thread", "itemId": "t", "boundedCompaction": true, "items": [] },
+      "settled": false
+    },
+    {
+      "name": "a summarised fold is finished",
+      "thread": { "type": "thread", "itemId": "t", "boundedCompaction": true, "result": "The fold summary.", "items": [
+        { "type": "user", "itemId": "p", "content": "summarise" }
+      ] },
+      "settled": true
+    }
+  ]
+}

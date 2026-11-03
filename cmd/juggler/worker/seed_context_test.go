@@ -204,9 +204,10 @@ func TestCreateThreadContinuationDoesNotSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawnThread: %v", err)
 	}
-	childArr := w.doc.GetThreadItemsArray(threadID)
-	if got := w.doc.GetItemsLengthFromArray(childArr); got != 0 {
-		t.Fatalf("continuation must not seed; got %d items", got)
+	// The only item is the marker its run starts on: no seeded context.
+	items := w.doc.GetItemsFromArray(w.doc.GetThreadItemsArray(threadID))
+	if len(items) != 1 || items[0].Type != ItemTypeUser || !items[0].Continuation {
+		t.Fatalf("continuation must not seed; got %+v", items)
 	}
 }
 

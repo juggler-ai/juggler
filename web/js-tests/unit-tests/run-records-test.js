@@ -448,5 +448,43 @@ export async function runTests() {
     passed++;
   } catch (e) { failed++; errors.push(`Result block appears only where the summary is not: ${msg(e)}`); }
 
+  // --- 5: the shared settle table ---
+  // The same cases TestThreadRunSettledFixture asks of the worker, so the two
+  // implementations of "is this child finished?" cannot drift apart.
+  try {
+    const res = await fetch(new URL('../fixtures/thread-run-settled.json', import.meta.url));
+    if (!res.ok) throw new Error(`fixture fetch failed: ${res.status}`);
+    const { cases } = await res.json();
+    assert(Array.isArray(cases) && cases.length > 0, 'the fixture holds no cases');
+    /**
+     * @param {Record<string, any>} fields - A document item as stored.
+     * @returns {any} its Y.Map, nested items as a Y.Array of Y.Maps
+     */
+    const toYMap = (fields) => {
+      const m = new Y.Map();
+      for (const [k, v] of Object.entries(fields)) {
+        if (k === 'items') {
+          const arr = new Y.Array();
+          arr.insert(0, v.map(toYMap));
+          m.set(k, arr);
+        } else {
+          m.set(k, v);
+        }
+      }
+      return m;
+    };
+    /** @type {string[]} */
+    const wrong = [];
+    for (const c of cases) {
+      const doc = new Y.Doc();
+      const m = toYMap(c.thread);
+      doc.getArray('items').insert(0, [m]);
+      const got = threadRunSettled(m);
+      if (got !== c.settled) wrong.push(`${c.name}: got ${got}, want ${c.settled}`);
+    }
+    assert(wrong.length === 0, wrong.join('; '));
+    passed++;
+  } catch (e) { failed++; errors.push(`shared settle table: ${msg(e)}`); }
+
   return { passed, failed, errors };
 }

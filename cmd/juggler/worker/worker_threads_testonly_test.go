@@ -360,17 +360,17 @@ func TestBrowserCreateThreadUsesRequestedParentThread(t *testing.T) {
 	if childArr == nil {
 		t.Fatal("expected nested child thread items array")
 	}
+	// The run starts on a continuation marker, which carries its record and
+	// says nothing; the first thing said is the assistant's output.
 	childNestedItems := w.doc.GetItemsFromArray(childArr)
-	if len(childNestedItems) == 0 {
-		t.Fatal("expected continuation child thread to contain assistant output")
+	if len(childNestedItems) != 2 || !childNestedItems[0].Continuation {
+		t.Fatalf("expected the continuation marker then assistant output, got %+v", childNestedItems)
 	}
-	if childNestedItems[0].Type != ItemTypeAssistant || childNestedItems[0].Content != "Child completed." {
-		t.Fatalf("expected child thread to start with assistant continuation output, got %+v", childNestedItems[0])
+	if childNestedItems[0].RunStatus != runStatusRest {
+		t.Fatalf("the marker must record the run that settled on it, got runStatus %q", childNestedItems[0].RunStatus)
 	}
-	for _, item := range childNestedItems {
-		if item.Type == ItemTypeUser {
-			t.Fatalf("did not expect continuation child thread to contain a synthetic user message: %+v", item)
-		}
+	if childNestedItems[1].Type != ItemTypeAssistant || childNestedItems[1].Content != "Child completed." {
+		t.Fatalf("expected assistant continuation output after the marker, got %+v", childNestedItems[1])
 	}
 
 	w.doc.Destroy()

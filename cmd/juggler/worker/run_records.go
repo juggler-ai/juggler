@@ -274,9 +274,27 @@ func threadNestedItems(item ConversationItem) []ConversationItem {
 }
 
 // threadRunSettled reports whether a thread's most recent run has settled — the
-// single "is this child finished?" question every decider asks.
+// single "is this child finished?" question every decider asks. The rule itself
+// is runVerdict; this asks it of a serialised item, threadRunSettledLocked of
+// the live CRDT.
+func threadRunSettled(item ConversationItem) bool {
+	nested := threadNestedItems(item)
+	return runVerdict(item.BoundedCompaction, func() runScan {
+		return scanRunStarters(len(nested), func(i int) (string, string, string, bool) {
+			it := nested[i]
+			return it.Type, it.RunStatus, it.RunToolUseID, true
+		})
+	}, hasThreadResult(item))
+}
+
+// runVerdict is the rule threadRunSettled and threadRunSettledLocked share.
 //
-// A thread whose transcript carries no run record at all answers from `result`
+// A thread with no user item at all has never started a run: every run begins
+// on one (insertThread appends a starter at creation, a send its message, a
+// Continue its marker), so an empty transcript — a /thread nobody has written
+// into yet — is at rest, not working.
+//
+// A thread whose transcript carries no run record answers from `result`
 // instead: a user-created thread summarised from the footer, and every document
 // written before run records existed, record completion only there. The run
 // record is consulted FIRST so that a thread which is invoked again after
@@ -287,13 +305,21 @@ func threadNestedItems(item ConversationItem) []ConversationItem {
 // directly (pendingCompactionFold asks it the same way). A fold routinely holds
 // swallowed invocation messages, and reading its contents as runs would take
 // one of those for the fold's own — leaving it a child that never finishes.
-func threadRunSettled(item ConversationItem) bool {
-	if !item.BoundedCompaction {
-		if settled, hasRuns := runSettlement(threadNestedItems(item)); hasRuns {
-			return settled
+//
+// scan is only called for a thread that is not a fold. The JS twin is
+// threadRunSettled in web/js/model/run-records.js; the cases both must agree on
+// are web/js-tests/fixtures/thread-run-settled.json.
+func runVerdict(boundedCompaction bool, scan func() runScan, hasResult bool) bool {
+	if !boundedCompaction {
+		s := scan()
+		if s.hasRuns {
+			return s.settled
+		}
+		if !s.started {
+			return true
 		}
 	}
-	return hasThreadResult(item)
+	return hasResult
 }
 
 // resolveAliasTarget returns the canonical thread item an alias names, from the
@@ -534,10 +560,8 @@ func runByToolUseID(canonical ConversationItem, toolUseID string) (threadRun, in
 //
 // A selector that resolves to nothing — the canonical deleted, or the run's
 // record edited away — is settled: the wire answers such a call with an error
-// rather than a placeholder, so there is nothing left to wait for. The one
-// exception is a canonical whose transcript records no run at all, which is a
-// thread mid-creation; that falls through to threadRunSettled, which reads it as
-// still working.
+// rather than a placeholder, so there is nothing left to wait for. A canonical
+// whose transcript records no run at all falls through to threadRunSettled.
 //
 // An item with no selector (a user- or strategy-created thread, a fold, every
 // document written before aliases) falls back to threadRunSettled, which asks
@@ -562,29 +586,57 @@ func itemRunSettled(siblings []ConversationItem, item ConversationItem) bool {
 	return threadRunSettled(item)
 }
 
-// runSettlement reports whether the trailing run in items has settled, and
-// whether items records any run at all. A run is settled when the message that
-// started it — the trailing user item — carries a runStatus.
+// runScan is what a transcript says about its runs: whether it holds any user
+// item at all (started), whether any of them records a run (hasRuns), and
+// whether the trailing one has settled.
+type runScan struct {
+	settled, hasRuns, started bool
+}
+
+// scanRunStarters reads a transcript of n items, newest last, through at, which
+// yields an item's type, runStatus and runToolUseId (ok false skips an entry
+// that is not an item). A run is settled when the message that started it — the
+// trailing user item — carries a runStatus.
 //
 // Only user items count as run records here: a nested thread item may carry the
-// same coordinates as its own run selector, and counting one would answer this
-// thread's liveness with a question about a child's.
-func runSettlement(items []ConversationItem) (settled, hasRuns bool) {
-	seenStarter := false
-	for i := len(items) - 1; i >= 0; i-- {
-		it := items[i]
-		if it.Type == ItemTypeUser && (it.RunStatus != "" || it.RunToolUseID != "") {
-			hasRuns = true
+// same coordinates as its own run selector (ConversationItem.AliasOf), and
+// counting one would answer this thread's liveness with a question about a
+// child's.
+func scanRunStarters(n int, at func(i int) (itemType, status, coordinates string, ok bool)) runScan {
+	var s runScan
+	for i := n - 1; i >= 0; i-- {
+		itemType, status, coordinates, ok := at(i)
+		if !ok || itemType != ItemTypeUser {
+			continue
 		}
-		if !seenStarter && it.Type == ItemTypeUser {
-			seenStarter = true
-			settled = it.RunStatus != ""
+		if status != "" || coordinates != "" {
+			s.hasRuns = true
 		}
-		if hasRuns && seenStarter {
+		if !s.started {
+			s.started = true
+			s.settled = status != ""
+		}
+		if s.hasRuns {
 			break
 		}
 	}
-	return settled, hasRuns
+	return s
+}
+
+// runSettlementLocked scans a live nested array (scanRunStarters), reading only
+// the fields it needs. A nil array is an empty transcript. Caller MUST hold
+// ycrdtMu.
+func runSettlementLocked(nested *ycrdt.YArray) runScan {
+	if nested == nil {
+		return runScan{}
+	}
+	return scanRunStarters(int(nested.GetLength()), func(i int) (string, string, string, bool) {
+		m, ok := nested.Get(ycrdt.Number(i)).(*ycrdt.YMap)
+		if !ok {
+			return "", "", "", false
+		}
+		return yMapString(m, keyType), yMapString(m, keyRunStatus), yMapString(m, keyRunToolUseID), true
+	})
 }
 
 // threadRunSettledLocked is threadRunSettled against the live CRDT, for the
@@ -594,48 +646,10 @@ func threadRunSettledLocked(threadYMap *ycrdt.YMap) bool {
 	if threadYMap == nil {
 		return false
 	}
-	if bounded := yMapBool(threadYMap, keyBoundedCompaction); !bounded {
+	return runVerdict(yMapBool(threadYMap, keyBoundedCompaction), func() runScan {
 		nested, _ := yMapArray(threadYMap, keyItems)
-		if settled, hasRuns := runSettlementLocked(nested); hasRuns {
-			return settled
-		}
-	}
-	result := yMapString(threadYMap, keyResult)
-	return result != ""
-}
-
-// runSettlementLocked is runSettlement against the live CRDT. Caller MUST hold
-// ycrdtMu.
-func runSettlementLocked(nested *ycrdt.YArray) (settled, hasRuns bool) {
-	if nested == nil {
-		return false, false
-	}
-	seenStarter := false
-	for i := int(nested.GetLength()) - 1; i >= 0; i-- {
-		m, ok := nested.Get(ycrdt.Number(i)).(*ycrdt.YMap)
-		if !ok {
-			continue
-		}
-		itemType := yMapString(m, keyType)
-		status := yMapString(m, keyRunStatus)
-		// Only user items carry run records; a nested thread item's identical
-		// coordinates are its own run selector (ConversationItem.AliasOf).
-		if itemType == ItemTypeUser {
-			if status != "" {
-				hasRuns = true
-			} else if coordinates := yMapString(m, keyRunToolUseID); coordinates != "" {
-				hasRuns = true
-			}
-		}
-		if !seenStarter && itemType == ItemTypeUser {
-			seenStarter = true
-			settled = status != ""
-		}
-		if hasRuns && seenStarter {
-			break
-		}
-	}
-	return settled, hasRuns
+		return runSettlementLocked(nested)
+	}, yMapString(threadYMap, keyResult) != "")
 }
 
 // latestRunOutcomeLocked returns the status and result stored on the thread's
@@ -1066,15 +1080,15 @@ func (w *ConversationWorker) settleThreadRun(threadItemID string, cancelled bool
 		}
 		status, result, fullChars = resolveRunOutcome(items, cancelled, resultLimit)
 		open := openRunMessagesLocked(nested)
-		_, recordsRun := runSettlementLocked(nested)
+		recordsRun := runSettlementLocked(nested).hasRuns
 
 		// A run with no message to stamp reports through `result` or not at all: a
-		// creation that appended no invocation message (a continuation creation, or a
-		// call that supplied no prompt) records a run nowhere else, so a caller parked
-		// on this child would be waiting on a run that can never report. That case
-		// writes whatever the run came to; every other ending keeps failure out of
-		// the summary. A human's Continue is not one of them — it appends a marker to
-		// be recorded on (openThreadContinuationRun).
+		// thread from a document written before every creation appended a starter
+		// (insertThread) records a run nowhere else, so a caller parked on this
+		// child would be waiting on a run that can never report. That case writes
+		// whatever the run came to; every other ending keeps failure out of the
+		// summary. A human's Continue is not one of them — it appends a marker to be
+		// recorded on (openThreadContinuationRun).
 		orphanRun := len(open) == 0 && !recordsRun
 		summarises := status == runStatusRest || orphanRun
 

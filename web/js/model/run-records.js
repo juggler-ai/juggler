@@ -85,14 +85,21 @@ function openRunMessages(threadYMap) {
 /**
  * Whether a thread's most recent run has settled — the "is this child
  * finished?" question, asked of the run rather than of `result`, which is the
- * thread's summary and outlives the run that wrote it. A thread whose
- * transcript records no run at all answers from `result` instead: a thread
- * summarised from the footer, and every document written before run records
- * existed, record completion only there.
+ * thread's summary and outlives the run that wrote it.
+ *
+ * A thread with no user item at all has never started a run: every run begins
+ * on one (the worker appends a starter when it creates a thread, a send its
+ * message, a Continue its marker), so an empty transcript — a /thread nobody
+ * has written into yet — is at rest, not working.
+ *
+ * A thread whose transcript records no run answers from `result` instead: a
+ * thread summarised from the footer, and every document written before run
+ * records existed, record completion only there.
  *
  * A compaction fold answers from `result` too: it is not a run but a container
  * of folded transcript, so run records found inside one belong to whatever it
- * swallowed, not to it. Mirrors threadRunSettled in worker/run_records.go.
+ * swallowed, not to it. Mirrors runVerdict in worker/run_records.go; the cases
+ * both must agree on are js-tests/fixtures/thread-run-settled.json.
  * @param {unknown} threadYMap - The thread Y.Map.
  * @returns {boolean} True when the thread's latest run is over.
  */
@@ -102,22 +109,23 @@ export function threadRunSettled(threadYMap) {
     const arr = arrayItems(threadYMap.get('items'));
     let settled = false;
     let hasRuns = false;
-    let seenStarter = false;
+    let started = false;
     for (let i = arr.length - 1; i >= 0; i--) {
       const item = arr[i];
-      if (!isItemView(item)) continue;
-      const status = item.get('runStatus');
       // Only user items carry run records. A nested thread item carries the same
       // coordinates to name its own run (model/thread-alias.js), and counting
       // one would answer this thread's liveness with a question about a child's.
-      if (item.get('type') === 'user' && (status || item.get('runToolUseId'))) hasRuns = true;
-      if (!seenStarter && item.get('type') === 'user') {
-        seenStarter = true;
+      if (!isItemView(item) || item.get('type') !== 'user') continue;
+      const status = item.get('runStatus');
+      if (status || item.get('runToolUseId')) hasRuns = true;
+      if (!started) {
+        started = true;
         settled = !!status;
       }
-      if (hasRuns && seenStarter) break;
+      if (hasRuns) break;
     }
     if (hasRuns) return settled;
+    if (!started) return true;
   }
   const result = threadYMap.get('result');
   return typeof result === 'string' && result.length > 0;

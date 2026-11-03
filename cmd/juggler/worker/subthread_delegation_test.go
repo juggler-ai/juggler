@@ -114,12 +114,13 @@ func countThreads(w *ConversationWorker) int {
 	return n
 }
 
-// fillLiveThreads inserts n in-flight llmCreated threads at root — the shape
-// liveThreadCount counts, and the only input the breadth cap has.
+// fillLiveThreads inserts n in-flight llmCreated threads at root — each holding
+// the message its run started on and no outcome, the shape liveThreadCount
+// counts and the only input the breadth cap has.
 func fillLiveThreads(t *testing.T, w *ConversationWorker, n int) {
 	t.Helper()
 	for i := 0; i < n; i++ {
-		insertThreadWithOpts(w, threadOpts{goal: fmt.Sprintf("T%d", i), llmCreated: true})
+		insertThreadWithOpts(w, threadOpts{goal: fmt.Sprintf("T%d", i), llmCreated: true, userMessage: "go"})
 	}
 	if got := w.doc.liveThreadCount(); got != n {
 		t.Fatalf("liveThreadCount = %d, want %d", got, n)

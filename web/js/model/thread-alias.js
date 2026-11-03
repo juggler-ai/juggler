@@ -398,8 +398,8 @@ export function itemRunRecord(itemYMap, siblingArray) {
  * An item carrying a run selector answers for its own run, so a caller waits on
  * the call it made rather than on whatever the thread most recently did. A
  * selector that resolves to nothing is over: the thread was deleted, or the run's
- * record was edited away, and there is nothing left to wait for. The exception is
- * a thread recording no run at all, which is one mid-creation.
+ * record was edited away, and there is nothing left to wait for. A thread
+ * recording no run at all answers the thread question instead.
  *
  * An item with no selector — a user-, strategy- or orchestrator-created thread, a
  * fold, every document written before aliases — answers from the thread itself.

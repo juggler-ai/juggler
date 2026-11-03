@@ -65,13 +65,10 @@ type threadSpec struct {
 // spec: the call it answers, and what that call said about it.
 type toolSpawn struct {
 	// Tool-use coordinates: when set, these are stamped as a run record on the
-	// invocation message this creation appends, so the parent's buildMessages can
+	// starter message this creation appends, so the parent's buildMessages can
 	// reconstruct the tool_use/tool_result pair the LLM expects to see. Holding
 	// them per-message rather than on the thread is what lets the thread be
 	// invoked more than once — each call appends its own stamped message.
-	// A creation with no invocation message (a continuation, or an empty prompt)
-	// falls back to stamping the thread Y.Map, the scalar shape every document
-	// written before run records existed uses.
 	ToolUseID string
 	ToolName  string
 	ToolInput json.RawMessage
@@ -206,13 +203,20 @@ func (r *run) insertThread(spec threadSpec, call toolSpawn, parent threadContext
 		spec.Goal = "Thread"
 	}
 
-	// Whether this creation appends an invocation message to carry the run
-	// record. It normally does — every tool-driven creation supplies a prompt —
-	// and then the tool-use coordinates live there, one set per run, so the
-	// thread can be invoked again later. A continuation or an empty prompt has no
-	// message to stamp, so those fall back to the scalar thread-level fields and
-	// describe the single invocation they always did.
-	stampsInvocation := !spec.IsContinuation && spec.Prompt != ""
+	// Every creation appends the message its first run starts on, so a thread
+	// with no user item is one no run has ever started — the shape threadRunSettled
+	// reads as at rest. A prompt is that message; a continuation or an empty prompt
+	// has nothing to say, so it starts on a continuation marker, which the wire
+	// skips. Either way the tool-use coordinates ride on it, one set per run, so
+	// the thread can be invoked again later.
+	starter := invocationMessage(spec, call)
+	if spec.IsContinuation || spec.Prompt == "" {
+		starter = continuationMarker()
+		starter.RunToolUseID = call.ToolUseID
+		starter.RunToolName = call.ToolName
+		starter.RunToolInput = call.ToolInput
+		starter.RunGoal = call.RunGoal
+	}
 
 	creation := threadCreation{
 		ParentThreadID: parent.itemID,
@@ -248,46 +252,33 @@ func (r *run) insertThread(spec threadSpec, call toolSpawn, parent threadContext
 			if call.ToolUseID == "" {
 				return
 			}
-			if stampsInvocation {
-				// The run selector: this item is the parent's view of the run
-				// the invocation message starts. A later call into the same
-				// session appends its own alias item carrying its own selector,
-				// so each parent item answers for one run and the wire emits
-				// each call's pair where the call was made.
-				m.Set(keyRunToolUseID, call.ToolUseID)
-				m.Set(keyRunToolName, call.ToolName)
-				if call.RunGoal != "" {
-					m.Set(keyRunGoal, call.RunGoal)
-				}
-				if input := structuredToolInput(call.ToolInput); input != nil {
-					m.Set(keyRunToolInput, input)
-				}
-				return
+			// The run selector: this item is the parent's view of the run the
+			// starter message begins. A later call into the same session appends
+			// its own alias item carrying its own selector, so each parent item
+			// answers for one run and the wire emits each call's pair where the
+			// call was made.
+			m.Set(keyRunToolUseID, call.ToolUseID)
+			m.Set(keyRunToolName, call.ToolName)
+			if call.RunGoal != "" {
+				m.Set(keyRunGoal, call.RunGoal)
 			}
-			// No invocation message to select: the coordinates live on the
-			// thread itself and describe the single invocation they always did.
-			m.Set(keyToolUseID, call.ToolUseID)
-			m.Set(keyToolName, call.ToolName)
 			if input := structuredToolInput(call.ToolInput); input != nil {
-				m.Set(keyToolInput, input)
+				m.Set(keyRunToolInput, input)
 			}
 		},
-	}
-
-	// The invocation message goes into the child AFTER the seeds, so the starting
-	// context reads top-to-bottom and stays the leading run at this depth. When a
-	// resultSpec is set, it is appended as an explicit return contract at the
-	// point of action (the child's own first message): the run's last message is
-	// what the caller receives, so the contract is a contract on that message.
-	//
-	// The tool-use coordinates ride on THIS message rather than the thread Y.Map,
-	// so the pairing belongs to the run this message starts rather than to the
-	// thread for all time — which is what lets the thread be invoked again later,
-	// each invocation appending its own stamped message (resumeSession appends
-	// the identical shape).
-	if stampsInvocation {
-		invocation := invocationMessage(spec, call)
-		creation.Invocation = &invocation
+		// The starter goes into the child AFTER the seeds, so the starting context
+		// reads top-to-bottom and stays the leading run at this depth. When a
+		// resultSpec is set, it is appended as an explicit return contract at the
+		// point of action (the child's own first message): the run's last message
+		// is what the caller receives, so the contract is a contract on that
+		// message.
+		//
+		// The tool-use coordinates ride on THIS message rather than the thread
+		// Y.Map, so the pairing belongs to the run this message starts rather than
+		// to the thread for all time — which is what lets the thread be invoked
+		// again later, each invocation appending its own stamped message
+		// (resumeSession appends the identical shape).
+		Invocation: &starter,
 	}
 
 	return r.tracker.CreateThread(creation)

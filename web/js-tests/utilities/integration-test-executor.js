@@ -291,6 +291,7 @@ import { runTests as runTurnActiveStatusTests } from '../unit-tests/turn-active-
 import { runTests as runConversationErrorTests } from '../unit-tests/conversation-error-test.js';
 import { runTests as runWindowResizeCursorTests } from '../unit-tests/window-resize-cursor-test.js';
 import { runTests as runWindowEdgeResizeTests } from '../unit-tests/window-edge-resize-test.js';
+import { runTests as runWindowHistoryButtonsTests } from '../unit-tests/window-history-buttons-test.js';
 import { runTests as runScheduledSendTests } from '../unit-tests/scheduled-send-test.js';
 import { runTests as runQueuedActionsTests } from '../unit-tests/queued-actions-test.js';
 import { runTests as runSidebarDrawerTests } from '../unit-tests/sidebar-drawer-test.js';
@@ -750,6 +751,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:conversation-error', run: runConversationErrorTests },
   { name: 'unit:window-resize-cursor', run: runWindowResizeCursorTests },
   { name: 'unit:window-edge-resize', run: runWindowEdgeResizeTests },
+  { name: 'unit:window-history-buttons', run: runWindowHistoryButtonsTests },
   { name: 'unit:scheduled-send', run: runScheduledSendTests },
   { name: 'unit:queued-actions', run: runQueuedActionsTests },
   { name: 'unit:sidebar-drawer', run: runSidebarDrawerTests },

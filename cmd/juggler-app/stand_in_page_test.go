@@ -64,6 +64,7 @@ func TestAStandInWearsTheWindowShell(t *testing.T) {
 		`<header class="app-header">`, `class="window-resize-strip"`,
 		"<window-caption-controls>", "/js/components/window-caption-controls.js",
 		"/js/utils/window-fullscreen.js", "/js/utils/window-edge-resize.js",
+		"/js/utils/window-history-buttons.js",
 		"dataset.windowMode", "dataset.windowPlatform", "--logo-with-name-url",
 		"/wails/runtime.js",
 		// The page's own words, escaped.

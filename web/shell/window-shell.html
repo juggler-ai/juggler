@@ -76,8 +76,10 @@
     <div class="window-resize-strip" aria-hidden="true"></div>
 
     <!-- The frameless window's own chrome: going fullscreen, resizing by its
-         edges, and the caption buttons at the end of the header. -->
+         edges, the mouse's back and forward buttons doing nothing, and the
+         caption buttons at the end of the header. -->
     <script type="module" src="{{.AssetBase}}/js/utils/window-fullscreen.js"></script>
     <script type="module" src="{{.AssetBase}}/js/utils/window-edge-resize.js"></script>
+    <script type="module" src="{{.AssetBase}}/js/utils/window-history-buttons.js"></script>
     <script type="module" src="{{.AssetBase}}/js/components/window-caption-controls.js"></script>
 {{end}}

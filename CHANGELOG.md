@@ -27,6 +27,7 @@ the current release). The project follows semantic versioning.
 - Clicking Juggler's Dock icon no longer opens a blank window whose Quit ends a session
 - Logging out of macOS waits for Juggler to shut down instead of being cancelled
 - On Linux without a session D-Bus, Juggler starts instead of exiting
+- Mouse back/forward buttons no longer navigate desktop windows off their page
 
 ## [0.7.9] - 2026-10-28
 

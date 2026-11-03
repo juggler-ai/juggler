@@ -163,6 +163,7 @@ func TestSessionsPageWearsTheAppsWindowChrome(t *testing.T) {
 			"/css/components/about-modal.css", "<about-modal>",
 			"<window-caption-controls>", "/js/components/window-caption-controls.js",
 			"/js/utils/window-fullscreen.js", "/js/utils/window-edge-resize.js",
+			"/js/utils/window-history-buttons.js",
 			"dataset.windowMode", "dataset.windowPlatform", "--logo-with-name-url",
 			// A window onto another computer's server (native-host.js).
 			"dataset.externalServer",

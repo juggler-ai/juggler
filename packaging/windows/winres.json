@@ -1,0 +1,27 @@
+{
+  "RT_GROUP_ICON": {
+    "#3": {
+      "0000": "../../assets/icons/juggler-icon.png"
+    }
+  },
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": {
+        "dpi-awareness": "per monitor v2",
+        "use-common-controls-v6": true
+      }
+    }
+  },
+  "RT_VERSION": {
+    "#1": {
+      "0000": {
+        "info": {
+          "0409": {
+            "FileDescription": "Juggler",
+            "ProductName": "Juggler"
+          }
+        }
+      }
+    }
+  }
+}

@@ -29,6 +29,7 @@ the current release). The project follows semantic versioning.
 - Logging out of macOS waits for Juggler to shut down instead of being cancelled
 - On Linux without a session D-Bus, Juggler starts instead of exiting
 - Mouse back/forward buttons no longer navigate desktop windows off their page
+- Juggler's windows on Windows show the Juggler icon in Alt-Tab and the taskbar
 
 ## [0.7.9] - 2026-10-28
 

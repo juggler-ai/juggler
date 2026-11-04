@@ -78,6 +78,9 @@ APP_ICON_EMBED=cmd/juggler/app/icon.png
 # target architecture needs its own resource file. We ship amd64 and arm64
 # (plus legacy 386); a missing arch silently links with no icon.
 WIN_SYSO_ARCHES=arm64,amd64,386
+# go-winres resource spec (icon, manifest, version info); its paths are
+# relative to its own directory, and its icon is $(APP_ICON_PNG).
+WIN_RES_JSON=packaging/windows/winres.json
 
 # Go parameters
 GOCMD=go
@@ -506,11 +509,16 @@ wails-runtime-build:
 ## can't be installed (e.g. no network); the binaries still build, just without
 ## an icon resource.
 ##
-## --manifest gui embeds an application manifest declaring the Common-Controls
-## v6 side-by-side assembly (and PerMonitor-v2 DPI awareness, which the app also
-## sets at runtime, so that part is a no-op). The v6 dependency is what lets the
-## desktop app show themed TaskDialog message boxes instead of the classic
-## Win32 MessageBox; without it the dialog code falls back to the legacy look.
+## The resources are declared in $(WIN_RES_JSON):
+##  - The icon group is resource #3, the ID Wails loads for each window's
+##    WM_SETICON (and for dialog icons). Under any other ID Explorer still shows
+##    the icon, but every window — Alt-Tab, taskbar, title bar — gets the
+##    generic one.
+##  - The manifest declares the Common-Controls v6 side-by-side assembly (and
+##    PerMonitor-v2 DPI awareness, which the app also sets at runtime, so that
+##    part is a no-op). The v6 dependency is what lets the desktop app show
+##    themed TaskDialog message boxes instead of the classic Win32 MessageBox;
+##    without it the dialog code falls back to the legacy look.
 #
 # On the Windows runner `go env GOPATH` returns a backslash path
 # (C:\Users\...\go); the msys `sh` that Make spawns eats the backslashes,
@@ -525,12 +533,9 @@ win-icon:
 			echo "warning: could not install go-winres; skipping Windows icon"; exit 0; }; \
 	fi
 	@for pkg in juggler juggler-app; do \
-		"$(GO_WINRES)" simply \
+		"$(GO_WINRES)" make \
+			--in $(WIN_RES_JSON) \
 			--arch $(WIN_SYSO_ARCHES) \
-			--icon "$(APP_ICON_PNG)" \
-			--manifest gui \
-			--product-name Juggler \
-			--file-description Juggler \
 			--out cmd/$$pkg/rsrc >/dev/null || { \
 				echo "warning: go-winres failed for cmd/$$pkg; skipping Windows icon"; exit 0; }; \
 	done; \

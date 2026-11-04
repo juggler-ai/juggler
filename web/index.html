@@ -136,16 +136,6 @@
                 : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
             document.documentElement.setAttribute('data-theme', theme);
             document.documentElement.style.background = theme === 'light' ? '#fff' : '#0d1117';
-            // TEMPORARY (Windows-only): mark the OS pre-paint so base/elements.css can
-            // swap in SVG mouse cursors. Windows/WebView2 draws the native
-            // i-beam and resize cursors solid white (invisible on the light
-            // theme) — a DirectComposition/overlay compositor bug. Set here (not
-            // only in window-mode) because it also affects Windows browser tabs.
-            // Remove with the workaround block in base/elements.css once the platform
-            // bug is fixed.
-            if (/Windows/.test(navigator.userAgent)) {
-                document.documentElement.dataset.os = 'windows';
-            }
             // UI zoom (root font-size). Apply synchronously so the whole UI
             // paints at the right scale — a font-size change reflows everything,
             // so a late correction is a visible jump. Resolved exactly as the
@@ -160,26 +150,6 @@
             var zoom = starting(machineZoom, [seedZoom, owner ? projectZoom : null],
                 cachedMachinePref('juggler-zoom'), isZoom, 110);
             document.documentElement.style.fontSize = Math.max(60, Math.min(160, zoom)) + '%';
-            // Mark window-mode when loaded inside a native desktop window.
-            if (isWindow) {
-                document.documentElement.dataset.windowMode = '1';
-                // A window on a server by URL (another computer's) opens that
-                // server's other projects in place, through its sessions page:
-                // its paths may be on another machine, so the app cannot open
-                // one in a window of its own.
-                if (params.get('external') === '1') {
-                    document.documentElement.dataset.externalServer = '1';
-                }
-                // Record the host OS synchronously (pre-paint) so window-chrome
-                // CSS — the macOS traffic-light gutter, the Windows caption
-                // controls — applies on first paint with no flash. The WebView's
-                // UA reliably names the OS; this attribute is only consulted in
-                // window-mode (a native desktop window), never remote tabs.
-                var ua = navigator.userAgent;
-                document.documentElement.dataset.windowPlatform =
-                    /Windows/.test(ua) ? 'windows' :
-                    /Macintosh|Mac OS X/.test(ua) ? 'mac' : 'linux';
-            }
             // A pinboard view shows one thing and none of the conversation
             // shell around it. Recorded synchronously so the reduced layout
             // applies on first paint rather than after the board mounts; the
@@ -190,6 +160,9 @@
             }
         })();
     </script>
+    <!-- The desktop window's markers, as every page a window shows sets them
+         (web/shell/window-shell.html). -->
+    {{template "window-shell-boot" .}}
 
     <!-- Styles. The sheet list and its order are web/css/manifest.json;
          lint-css-arch checks this list against it. The order is the layer
@@ -307,15 +280,9 @@
     <script src="{{.BasePath}}/v{{.StaticVersion}}/js/vendor/prism-diff.js"></script>
 </head>
 <body>
-    {{if .IsWindowMode}}<script type="module" src="{{.BasePath}}/wails/runtime.js"></script>{{end}}
-    <!-- Thin no-drag strip pinned to the top edge of the window. Without it,
-         the draggable .app-header extends to y=0 and overlaps the macOS
-         top-edge resize zone, so dragging the top border to resize fights a
-         simultaneous window-drag gesture. The strip carries
-         --wails-draggable: no-drag so AppKit handles the top few pixels as
-         a clean resize zone. Inert in remote browsers (no drag region to
-         conflict with). -->
-    <div class="window-resize-strip" aria-hidden="true"></div>
+    <!-- The desktop window's runtime, resize strip and chrome modules, as every
+         page a window shows wears them (web/shell/window-shell.html). -->
+    {{template "window-shell-body" .}}
 
     <!-- Asset prefix injected by server -->
     <script nonce="{{.CSPNonce}}">
@@ -359,12 +326,6 @@
         // native WKWebView debug context menu (reload / Inspect Element) — see
         // services/context-menu-service.js. Absent (falsy) in normal sessions.
         {{if .IsDevMode}}window.JUGGLER_DEV_MODE = true;{{end}}
-        document.documentElement.style.setProperty('--logo-with-name-url', "url('{{.BasePath}}/v{{.StaticVersion}}/resources/juggler-logo-with-name.svg')");
-        // Mirror the window-mode marker (set synchronously in <head>) onto
-        // <body> so CSS rules keyed on .window-mode keep working unchanged.
-        if (document.documentElement.dataset.windowMode === '1') {
-            document.body.classList.add('window-mode');
-        }
     </script>
 
     <app-container>
@@ -609,10 +570,6 @@
     <!-- Load utilities first -->
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/sdk/lib/html.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/utils/theme-manager.js"></script>
-    <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/utils/window-fullscreen.js"></script>
-    <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/utils/window-resize-cursor.js"></script>
-    <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/utils/window-edge-resize.js"></script>
-    <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/utils/window-history-buttons.js"></script>
 
     <!-- Load services -->
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/services/api.js"></script>
@@ -641,7 +598,6 @@
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/action-confirmation.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/juggler-spinner.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/reveal-button.js"></script>
-    <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/window-caption-controls.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/token-display.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/model-selector.js"></script>
     <script type="module" src="{{.BasePath}}/v{{.StaticVersion}}/js/components/strategy-selector.js"></script>

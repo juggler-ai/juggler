@@ -160,7 +160,9 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 		// (WailsBase).
 		IsWindow  bool
 		WailsBase string
-		// Theme is empty: the page follows the system's.
+		// ThemeMode is the one the user chose, or empty to follow the
+		// system's; Theme, a colour for a page with no mode, is never set.
+		ThemeMode string
 		Theme     string
 		CSPNonce  string
 		HTMLLang  string
@@ -170,6 +172,7 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 	}{
 		AssetBase: "/v" + assetVersion,
 		IsWindow:  r.URL.Query().Has("window"),
+		ThemeMode: s.pageThemeMode(),
 		CSPNonce:  nonce,
 		HTMLLang:  lang,
 		UILocale:  locale,
@@ -222,4 +225,28 @@ func settingsUILocale() string {
 		jlog.Error("[machineserver] reading settings for the UI language: %v", err)
 	}
 	return core.NormalizeUILocale(gs.UILocale)
+}
+
+// settingsThemeMode is the theme mode the user chose for this machine, or ""
+// for none. Read on every page load, as the UI language is.
+func settingsThemeMode() string {
+	gs, err := core.LoadGlobalSettings()
+	if err != nil {
+		jlog.Error("[machineserver] reading settings for the theme: %v", err)
+	}
+	return gs.UIThemeMode()
+}
+
+// pageThemeMode is the theme mode the sessions page paints before its first
+// frame when its viewer hands it none (web/shell/window-shell.html): the one
+// the user chose for this machine, or "" for none.
+func (s *Server) pageThemeMode() string {
+	if s.themeMode == nil {
+		return ""
+	}
+	switch mode := s.themeMode(); mode {
+	case "system", "light", "dark":
+		return mode
+	}
+	return ""
 }

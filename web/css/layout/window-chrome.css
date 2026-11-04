@@ -20,8 +20,7 @@
    left of the logo, so the rule drops out and the header falls back to its
    ordinary padding. The flag is set by utils/window-fullscreen.js. */
 :root[data-window-platform="mac"]:not([data-window-fullscreen="1"]) .window-mode .app-header {
-    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
-    padding-left: 80px; /* clear macOS traffic lights */
+    padding-left: var(--window-traffic-light-gutter);
 }
 
 /* Opt interactive regions out of drag — custom property inherits into their children too */
@@ -54,7 +53,9 @@
    inside the draggable .app-header, so dragging-to-resize from the top
    fights a simultaneous window-drag. AppKit gets a clean resize zone here;
    the macOS traffic lights are drawn above the WebKit layer and still
-   receive clicks. Sibling of <app-container>, see web/index.html. */
+   receive clicks. Sibling of <app-container>, see web/shell/window-shell.html.
+   Its height is read by the fallback bar over a page that is not Juggler's
+   too (cmd/juggler-app/window_chrome_tokens.go). */
 .window-resize-strip {
     position: fixed;
     top: 0;

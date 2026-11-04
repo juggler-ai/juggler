@@ -385,8 +385,14 @@ func TestAWindowThatLosesItsServerStaysTheSameWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	proc := procOf(c)
-	spec := windowSpec{project: "/p"}
-	e := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: c.SessionURL(machineserver.Session{Link: stubLink("/p")}), server: proc}})
+	// The project as the app opens one: absolute on this host ("C:\p" on
+	// Windows).
+	project, err := filepath.Abs("/p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := windowSpec{project: project}
+	e := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: c.SessionURL(machineserver.Session{Link: stubLink(project)}), server: proc}})
 	before := controlSecretOf(a, "w1")
 
 	a.serverLost(proc)
@@ -412,11 +418,11 @@ func TestAWindowThatLosesItsServerStaysTheSameWindow(t *testing.T) {
 	if s := <-shown; s.id != "w1" || s.view.standIn != nil {
 		t.Fatalf("Try again showed %+v in %s; want the session in w1", s.view, s.id)
 	}
-	if project := <-srv.opened; project != "/p" {
-		t.Fatalf("Try again opened %q, want /p", project)
+	if opened := <-srv.opened; opened != project {
+		t.Fatalf("Try again opened %q, want %q", opened, project)
 	}
 	a.reg(func(st *regState) { now, n, same = e.view, len(st.windows), st.windows["w1"] == e })
-	if !same || n != 1 || now.spec != spec || now.server != proc || now.serverURL != strings.TrimSuffix(c.SessionURL(machineserver.Session{Link: stubLink("/p")}), "/") {
+	if !same || n != 1 || now.spec != spec || now.server != proc || now.serverURL != strings.TrimSuffix(c.SessionURL(machineserver.Session{Link: stubLink(project)}), "/") {
 		t.Fatalf("after Try again: w1 the same window %v of %d, showing %+v; want the session again, on %+v", same, n, now, proc)
 	}
 }

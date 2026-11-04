@@ -33,28 +33,7 @@ import { fetchJson } from '../services/http.js';
 import JugglerElement from './juggler-element.js';
 import { t } from '../../sdk/lib/i18n.js';
 import { escapeHtml } from '../../sdk/lib/html.js';
-
-// Caption glyphs, drawn as 1px strokes on a 10×10 grid so they stay crisp and
-// match the thin-line Windows convention. currentColor lets them inherit the
-// button's theme colour (and the white-on-red close hover).
-const GLYPH = {
-  minimise: '<path d="M1 5 h8"/>',
-  maximise: '<rect x="1" y="1" width="8" height="8"/>',
-  // Two offset squares: a back square peeking out top-right behind the front.
-  restore: '<path d="M3 3 V1.5 A0.5 0.5 0 0 1 3.5 1 H8.5 A0.5 0.5 0 0 1 9 1.5 V6.5 A0.5 0.5 0 0 1 8.5 7 H7"/>'
-        + '<rect x="1" y="3" width="6" height="6"/>',
-  close: '<path d="M1 1 L9 9 M9 1 L1 9"/>',
-};
-
-/**
- * Wrap glyph path markup in a themed 10×10 SVG.
- * @param {string} inner - SVG path/rect markup for the glyph.
- * @returns {string} the full `<svg>` element markup.
- */
-function glyphSvg(inner) {
-  return `<svg viewBox="0 0 10 10" aria-hidden="true" focusable="false"`
-        + ` fill="none" stroke="currentColor" stroke-width="1">${inner}</svg>`;
-}
+import { glyphSvg } from './window-caption-glyphs.js';
 
 class WindowCaptionControls extends JugglerElement {
   connectedCallback() {
@@ -77,11 +56,11 @@ class WindowCaptionControls extends JugglerElement {
       const closeHtml = escapeHtml(t('Close'));
       this.innerHTML = `
                 <button type="button" class="window-caption-btn" data-action="minimise"
-                        aria-label="${minimiseHtml}" title="${minimiseHtml}">${glyphSvg(GLYPH.minimise)}</button>
+                        aria-label="${minimiseHtml}" title="${minimiseHtml}">${glyphSvg('minimise')}</button>
                 <button type="button" class="window-caption-btn" data-action="maximise"
-                        aria-label="${maximiseHtml}" title="${maximiseHtml}">${glyphSvg(GLYPH.maximise)}</button>
+                        aria-label="${maximiseHtml}" title="${maximiseHtml}">${glyphSvg('maximise')}</button>
                 <button type="button" class="window-caption-btn window-caption-btn--close" data-action="close"
-                        aria-label="${closeHtml}" title="${closeHtml}">${glyphSvg(GLYPH.close)}</button>
+                        aria-label="${closeHtml}" title="${closeHtml}">${glyphSvg('close')}</button>
             `;
     }
 
@@ -127,7 +106,7 @@ class WindowCaptionControls extends JugglerElement {
   /** @param {boolean} maximised */
   _renderMaxGlyph(maximised) {
     if (!this._maxBtn) return;
-    this._maxBtn.innerHTML = glyphSvg(maximised ? GLYPH.restore : GLYPH.maximise);
+    this._maxBtn.innerHTML = glyphSvg(maximised ? 'restore' : 'maximise');
     const label = maximised ? t('Restore') : t('Maximise');
     this._maxBtn.setAttribute('aria-label', label);
     this._maxBtn.setAttribute('title', label);

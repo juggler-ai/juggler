@@ -1333,7 +1333,9 @@ function buildMarkupModel({ repoRoot, espree, eslintScope }) {
     for (const match of source.matchAll(/\bextends\s+([A-Za-z_$][\w$]*)/g)) extended.add(match[1]);
   }
   for (const [file, source] of sources) harvestJS(source, file, espree, eslintScope, model, extended);
-  for (const name of ['index.html', 'engine.html', 'sandbox.html']) {
+  // shell/window-shell.html: the blocks index.html wears from it — the resize
+  // strip among them — are its markup too.
+  for (const name of ['index.html', 'shell/window-shell.html', 'engine.html', 'sandbox.html']) {
     let html;
     try { html = fs.readFileSync(path.join(repoRoot, 'web', name), 'utf8'); } catch { continue; }
     parseFragment(html, (element) => model.add(element));

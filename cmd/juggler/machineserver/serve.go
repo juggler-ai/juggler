@@ -281,6 +281,7 @@ func Serve(opts ServeOptions) error {
 		recents:             recents,
 		assets:              opts.Assets,
 		uiLocale:            settingsUILocale,
+		themeMode:           settingsThemeMode,
 		lock:                lock,
 		childBin:            bin,
 		startedAt:           time.Now(),

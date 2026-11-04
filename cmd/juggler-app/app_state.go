@@ -77,13 +77,6 @@ func resizeHandleFlags() map[string]any {
 // make the app feel hung on Cmd+Q.
 const closeFlushTimeout = 4 * time.Second
 
-// themeColours maps the page theme name to the NSWindow background. Keep in
-// sync with --bg-primary in web/css/tokens/theme-dark.css and theme-light.css.
-var themeColours = map[string]application.RGBA{
-	"dark":  {Red: 13, Green: 17, Blue: 23, Alpha: 255},
-	"light": {Red: 255, Green: 255, Blue: 255, Alpha: 255},
-}
-
 // linuxGpuPolicy maps the resolved webviewenv GPU decision (see
 // webviewenv.LinuxWebviewGpuAcceleration) to the Wails policy for the *visible*
 // viewer windows: WebviewGpuPolicyAlways when there is positive evidence a
@@ -199,6 +192,11 @@ type winEntry struct {
 	// mistaken for a settled one. Owned by the registry goroutine.
 	settling bool
 	settled  bool
+
+	// foreignToken is what the fallback bar offered to the window's latest
+	// page load holds (foreign_page.go): the only bar whose buttons the app
+	// answers. Owned by the registry goroutine.
+	foreignToken string
 
 	// retainBoard is set (via the registry goroutine) when this board window is
 	// being taken down with the window that opened it, rather than closed on its
@@ -441,7 +439,10 @@ func (a *appState) initApplication() {
 		OnShutdown: a.onShutdown,
 		// Widen the frameless window's edge-resize band (see resizeHandleFlags).
 		Flags: resizeHandleFlags(),
-		Linux: application.LinuxOptions{ProgramName: "Juggler"},
+		// A foreign page's fallback bar presses its buttons through the bridge
+		// (foreign_page.go).
+		RawMessageHandler: a.handleRawMessage,
+		Linux:             application.LinuxOptions{ProgramName: "Juggler"},
 		Windows: application.WindowsOptions{
 			AdditionalBrowserArgs: []string{"--disable-logging"},
 			// Signing out or shutting down quits through the same shutdown as
@@ -1297,6 +1298,12 @@ func (a *appState) buildWindow(view windowView, saved core.WindowState, hasSaved
 	go a.saveLoop(e)
 	win.OnWindowEvent(events.Common.WindowDidMove, func(_ *application.WindowEvent) { e.triggerSave() })
 	win.OnWindowEvent(events.Common.WindowDidResize, func(_ *application.WindowEvent) { e.triggerSave() })
+
+	// A page that is not Juggler's gets a bar to move the window by, and on
+	// Windows and Linux to close it by (foreign_page.go).
+	if loaded, ok := pageLoadedEvent(); ok {
+		win.OnWindowEvent(loaded, func(_ *application.WindowEvent) { a.offerForeignPageBar(e) })
+	}
 
 	// Settle the close before the window can be torn down: flushing the page's
 	// drafts needs a live webview, and this hook is the last point in the close

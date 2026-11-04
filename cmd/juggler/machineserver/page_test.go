@@ -50,6 +50,22 @@ func decodePageConfig(t *testing.T, body string) map[string]any {
 	return cfg
 }
 
+// TestSessionsPagePaintsTheMachinesTheme: the sessions page is handed the theme
+// mode the user chose in Settings, as a session's page is, for when its viewer
+// hands it none — and nothing for a mode that is not one.
+func TestSessionsPagePaintsTheMachinesTheme(t *testing.T) {
+	for mode, want := range map[string]string{"light": "light", "dark": "dark", "system": "system", "": "", "mauve": ""} {
+		s := &Server{reg: newRegistry(), assets: web.Files, token: testToken,
+			uiLocale: func() string { return "" }, themeMode: func() string { return mode }}
+		front := httptest.NewServer(s.routes())
+		_, _, body := fetch(t, front.URL+"/?window=1")
+		front.Close()
+		if !strings.Contains(body, `isMode("`+want+`") ? "`+want+`"`) {
+			t.Errorf("with %q chosen, the page is not handed the mode %q", mode, want)
+		}
+	}
+}
+
 // TestSessionsPageCarriesTheControlToken: GET / is the sessions page, and it
 // hands its script the control-API token — the page is behind the Host guard
 // and the LAN gate like everything else here, so whoever may load it may hold
@@ -163,8 +179,8 @@ func TestSessionsPageWearsTheAppsWindowChrome(t *testing.T) {
 			"/css/components/about-modal.css", "<about-modal>",
 			"<window-caption-controls>", "/js/components/window-caption-controls.js",
 			"/js/utils/window-fullscreen.js", "/js/utils/window-edge-resize.js",
-			"/js/utils/window-history-buttons.js",
-			"dataset.windowMode", "dataset.windowPlatform", "--logo-with-name-url",
+			"/js/utils/window-history-buttons.js", "/js/utils/window-resize-cursor.js", "/js/utils/window-shell-theme.js",
+			"dataset.windowMode", "dataset.windowPlatform", "dataset.os", "--logo-with-name-url",
 			// A window onto another computer's server (native-host.js).
 			"dataset.externalServer",
 			// The app's spinner, shown while the first list loads.

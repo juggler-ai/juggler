@@ -44,9 +44,28 @@ type GlobalSettings struct {
 	// a project or a window — the tips they have seen, what Escape does,
 	// whether the bell rings. Stored verbatim and opaquely, like the other UI
 	// realms (see ui_prefs.go): the client owns the keys and their shapes, and
-	// nothing in Go reads one. Putting them here rather than in a project's
-	// session is what stops every new project re-teaching every tip.
+	// Go reads only the few a page paints before its scripts run, such as the
+	// theme (UIThemeMode). Putting them here rather than in a project's session
+	// is what stops every new project re-teaching every tip.
 	UI map[string]json.RawMessage `json:"ui,omitempty"`
+}
+
+// UIThemePref is the UI preference the theme mode is stored under, as the
+// machine's (web/js/utils/theme-manager.js, services/prefs.js).
+const UIThemePref = "juggler-theme"
+
+// UIThemeMode is the theme mode the user stored for this machine — "system",
+// "light" or "dark" — or "" when none is stored or what is stored is none of
+// them.
+func (gs GlobalSettings) UIThemeMode() string {
+	var mode string
+	if raw, ok := gs.UI[UIThemePref]; ok && json.Unmarshal(raw, &mode) == nil {
+		switch mode {
+		case "system", "light", "dark":
+			return mode
+		}
+	}
+	return ""
 }
 
 // ModelSettings holds preferences about which models the user wants to see.

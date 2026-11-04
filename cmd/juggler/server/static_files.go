@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/webui"
 	"juggler/internal/jlog"
 	"juggler/internal/srcroot"
@@ -200,35 +201,38 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// indexTemplateFiles are the session page's template and the desktop window's
+// shell it wears (web/shell/window-shell.html), parsed together.
+var indexTemplateFiles = []string{"index.html", "shell/window-shell.html"}
+
 // loadIndexTemplate loads the index.html template for cache busting
 func (s *Server) loadIndexTemplate() error {
-	var tmplContent string
-
-	if s.assetsFromDisk {
-		// Assets-from-disk: load from disk
-		staticDir, err := s.findStaticDir()
-		if err != nil {
-			return fmt.Errorf("failed to find static dir: %w", err)
+	tmpl := template.New("index")
+	for _, name := range indexTemplateFiles {
+		var content []byte
+		var err error
+		if s.assetsFromDisk {
+			// Assets-from-disk: load from disk
+			staticDir, derr := s.findStaticDir()
+			if derr != nil {
+				return fmt.Errorf("failed to find static dir: %w", derr)
+			}
+			content, err = os.ReadFile(filepath.Join(staticDir, filepath.FromSlash(name)))
+		} else {
+			// In production, load from embedded files
+			content, err = web.Files.ReadFile(name)
 		}
-		indexPath := filepath.Join(staticDir, "index.html")
-		content, err := os.ReadFile(indexPath)
 		if err != nil {
-			return fmt.Errorf("failed to read index.html: %w", err)
+			return fmt.Errorf("failed to read %s: %w", name, err)
 		}
-		tmplContent = string(content)
-	} else {
-		// In production, load from embedded files
-		content, err := web.Files.ReadFile("index.html")
-		if err != nil {
-			return fmt.Errorf("failed to read embedded index.html: %w", err)
+		// index.html is the template executed; the shell only defines blocks.
+		t := tmpl
+		if name != indexTemplateFiles[0] {
+			t = tmpl.New(name)
 		}
-		tmplContent = string(content)
-	}
-
-	// Parse template
-	tmpl, err := template.New("index").Parse(tmplContent)
-	if err != nil {
-		return fmt.Errorf("failed to parse template: %w", err)
+		if _, err := t.Parse(string(content)); err != nil {
+			return fmt.Errorf("failed to parse %s: %w", name, err)
+		}
 	}
 
 	s.indexTemplate = tmpl
@@ -367,7 +371,7 @@ func projectStorageKey(projectPath string) string {
 // zoom-manager.js). The page applies both before its first paint, so this
 // server reads them to inject them; nothing else in Go does.
 const (
-	machineThemePref = "juggler-theme"
+	machineThemePref = core.UIThemePref
 	machineZoomPref  = "juggler-zoom"
 )
 
@@ -379,14 +383,9 @@ func (s *Server) machineAppearance() (themeMode string, zoom int) {
 	if s.settings == nil {
 		return "", 0
 	}
-	ui := s.settings.get().UI
-	if raw, ok := ui[machineThemePref]; ok {
-		var mode string
-		if json.Unmarshal(raw, &mode) == nil && (mode == "system" || mode == "light" || mode == "dark") {
-			themeMode = mode
-		}
-	}
-	if raw, ok := ui[machineZoomPref]; ok {
+	gs := s.settings.get()
+	themeMode = gs.UIThemeMode()
+	if raw, ok := gs.UI[machineZoomPref]; ok {
 		var z int
 		if json.Unmarshal(raw, &z) == nil && z > 0 {
 			zoom = z
@@ -457,7 +456,9 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		StaticVersion    string
 		HarnessPage      bool
 		IsDevMode        bool
-		IsWindowMode     bool
+		IsWindow         bool
+		AssetBase        string
+		WailsBase        string
 		RemoteViewer     bool
 		CSPNonce         string
 		APIToken         string
@@ -492,9 +493,14 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 		// the project it was set in, whichever origin the viewer arrived on.
 		ProjectKey: projectStorageKey(s.ProjectPath()),
 		// The desktop app opens the page with ?window=1; remote browsers never
-		// have it. Mirrors the client-side check in index.html and gates the
-		// Wails runtime <script>, which only does anything in a native window.
-		IsWindowMode: r.URL.Query().Has("window"),
+		// have it. Mirrors the client-side check in the window shell
+		// (web/shell/window-shell.html) and gates the Wails runtime <script>,
+		// which only does anything in a native window.
+		IsWindow: r.URL.Query().Has("window"),
+		// What the window shell's blocks address the asset tree and the Wails
+		// runtime by.
+		AssetBase: requestBasePath(r) + "/v" + s.staticVersion,
+		WailsBase: requestBasePath(r),
 		// Whether the page is viewing this server from another machine. A native
 		// window can be (the desktop app's Connect to Server), and then the UI
 		// preferences it changes are its own, not this machine's. Decided by the

@@ -68,6 +68,10 @@ type Server struct {
 	// uiLocale returns the UI language the sessions page is written in ("" for
 	// the source language; nil is the same). serve reads it from settings.
 	uiLocale func() string
+	// themeMode returns the theme mode the user chose for this machine
+	// ("system", "light", "dark", or "" for none; nil is the same), which the
+	// sessions page paints. serve reads it from settings.
+	themeMode func() string
 	// restart governs respawning crashed children (zero: the defaults).
 	restart restartPolicy
 	// life is the server's root context (see lifetime), and endLife its cancel.

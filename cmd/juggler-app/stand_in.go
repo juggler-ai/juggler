@@ -285,7 +285,11 @@ type standInPageData struct {
 	Buttons            []standInPageButton
 
 	AssetBase, WailsBase, CSPNonce, Theme string
-	IsWindow                              bool
+	// ThemeMode is always empty: a stand-in paints its window's current
+	// colour (Theme), and reports no mode to the window, whose own mode it
+	// does not know.
+	ThemeMode string
+	IsWindow  bool
 }
 
 // standInPageButton is one of the page's buttons: a form posting to Action,

@@ -182,7 +182,9 @@ func (r *registry) do(fn func(map[string]*sessionEntry)) {
 	<-done
 }
 
-// snapshot returns a copy of every session, oldest first.
+// snapshot returns a copy of every session, oldest first. Sessions started
+// within one tick of the clock — coarse on Windows — are ordered by id, so
+// the order is the same from one snapshot to the next.
 func (r *registry) snapshot() []Session {
 	out := make([]Session, 0)
 	r.do(func(m map[string]*sessionEntry) {
@@ -190,7 +192,12 @@ func (r *registry) snapshot() []Session {
 			out = append(out, e.Session)
 		}
 	})
-	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.Before(out[j].StartedAt) })
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].StartedAt.Equal(out[j].StartedAt) {
+			return out[i].StartedAt.Before(out[j].StartedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out
 }
 

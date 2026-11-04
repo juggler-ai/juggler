@@ -1,55 +1,93 @@
 {{/*
-    The desktop window's shell, shared by the pages that are not a session's:
-    the machine server's sessions page (web/machine/index.html) and the
-    desktop app's own stand-in pages (web/shell/stand-in.html). Each page puts
-    its own <header class="app-header"> between the two blocks, ending in
-    <window-caption-controls>.
+    The desktop window's shell: what every page a desktop window shows wears
+    around its own <header class="app-header">, which ends in
+    <window-caption-controls>. The machine server's sessions page
+    (web/machine/index.html) and the desktop app's own stand-in pages
+    (web/shell/stand-in.html) wear all of it; a session's page (web/index.html)
+    paints its own theme and links its own stylesheets (css/manifest.json), and
+    wears the boot and body blocks.
 
-    The data both blocks read:
+    The data the blocks read:
       .AssetBase     where the asset tree is served, with no trailing slash
       .CSPNonce      the nonce the page's inline scripts carry
-      .Theme         "light" or "dark" to paint, or "" to follow the system's
+      .ThemeMode     the server's theme mode, "system", "light" or "dark", or ""
+                     for none (window-shell-head only)
+      .Theme         "light" or "dark" to paint when there is no mode, or "" to
+                     follow the system's (window-shell-head only)
       .WailsBase     what the Wails runtime's /wails/runtime.js is served under
                      ("" for the server root), loaded only when .IsWindow
       .IsWindow      whether a desktop window shows the page (?window=1)
 */}}
-{{define "window-shell-head"}}
-    <link rel="icon" type="image/svg+xml" href="{{.AssetBase}}/resources/juggler-logo.svg">
 
-    <!-- Before the first paint: the page's theme, and a desktop window's page
-         marks itself as one and names its platform, exactly as web/index.html
-         does, so the window chrome (layout/window-chrome.css — the macOS
-         traffic-light gutter, the Windows and Linux caption buttons) applies
-         with no flash. -->
+{{define "window-shell-boot"}}
+    <!-- Before the first paint: a desktop window's page marks itself as one and
+         names its platform, so the window chrome (layout/window-chrome.css —
+         the macOS traffic-light gutter, the Windows and Linux caption buttons)
+         applies with no flash. Only window mode consults these; remote tabs
+         never have ?window=1. -->
     <script nonce="{{.CSPNonce}}">
         (function () {
             var root = document.documentElement;
-            var theme = "{{.Theme}}";
-            if (theme === 'light' || theme === 'dark') {
-                root.dataset.theme = theme;
-            } else {
-                var light = window.matchMedia('(prefers-color-scheme: light)');
-                var apply = function () {
-                    root.dataset.theme = light.matches ? 'light' : 'dark';
-                };
-                apply();
-                light.addEventListener('change', apply);
-            }
             var query = new URLSearchParams(window.location.search);
+            var ua = navigator.userAgent;
             if (query.has('window')) {
                 root.dataset.windowMode = '1';
-                // A window onto another computer's server (web/machine/native-host.js).
+                // A window onto another computer's server, which opens that
+                // server's other projects in place through its sessions page
+                // (web/machine/native-host.js): its paths may be on another
+                // machine, so the app cannot open one in a window of its own.
                 if (query.get('external') === '1') root.dataset.externalServer = '1';
-                var ua = navigator.userAgent;
                 root.dataset.windowPlatform =
                     /Windows/.test(ua) ? 'windows' :
                     /Macintosh|Mac OS X/.test(ua) ? 'mac' : 'linux';
             }
+            // TEMPORARY (Windows-only): base/elements.css swaps in SVG mouse
+            // cursors on Windows, where WebView2 draws the native i-beam and
+            // resize cursors solid white (invisible on the light theme) — a
+            // DirectComposition/overlay compositor bug. Set in a browser tab too,
+            // which has it as well. Remove with that workaround block once the
+            // platform bug is fixed.
+            if (/Windows/.test(ua)) root.dataset.os = 'windows';
             root.style.setProperty('--logo-with-name-url',
                 "url('{{.AssetBase}}/resources/juggler-logo-with-name.svg')");
         })();
     </script>
+{{end}}
 
+{{define "window-shell-head"}}
+    <link rel="icon" type="image/svg+xml" href="{{.AssetBase}}/resources/juggler-logo.svg">
+
+    <!-- Before the first paint: the page's theme. A desktop window hands its
+         page the window's theme mode (?mode=) and, for a window following the
+         system, the colour it shows now (?theme=), as it hands a session's
+         page them (cmd/juggler-app, windowPageURL) — the viewer's, which win
+         over the server's .ThemeMode and .Theme, the fallback for a page opened
+         with neither. What is left follows the system. The mode, when known, is
+         what utils/window-shell-theme.js reports to the window, and
+         data-theme-system marks a paint that follows the system's changes. -->
+    <script nonce="{{.CSPNonce}}">
+        (function () {
+            var root = document.documentElement;
+            var query = new URLSearchParams(window.location.search);
+            var isMode = function (m) { return m === 'system' || m === 'light' || m === 'dark'; };
+            var isColour = function (c) { return c === 'light' || c === 'dark'; };
+            var mode = isMode(query.get('mode')) ? query.get('mode')
+                : isMode("{{.ThemeMode}}") ? "{{.ThemeMode}}" : '';
+            var seed = query.get('theme');
+            var theme = isColour(mode) ? mode
+                : isColour(seed) ? seed
+                : !mode && isColour("{{.Theme}}") ? "{{.Theme}}" : '';
+            if (mode) root.dataset.themeMode = mode;
+            if (mode === 'system' || !theme) root.dataset.themeSystem = '1';
+            root.dataset.theme = theme ||
+                (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        })();
+    </script>
+    {{template "window-shell-boot" .}}
+    <script type="module" src="{{.AssetBase}}/js/utils/window-shell-theme.js"></script>
+
+    <!-- A subset of a session's page's sheets, in its order (css/manifest.json);
+         TestWindowShellSheetsFollowTheSessionPage holds the two together. -->
     <link rel="stylesheet" href="{{.AssetBase}}/css/base/fonts.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/tokens/scale.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/tokens/theme-dark.css">
@@ -57,7 +95,7 @@
     <link rel="stylesheet" href="{{.AssetBase}}/css/base/reset.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/base/elements.css">
     <!-- The app's shell: the header bar, its pattern and wordmark, and the
-         desktop window's chrome, shared with a session's page. -->
+         desktop window's chrome. -->
     <link rel="stylesheet" href="{{.AssetBase}}/css/layout/app-shell.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/layout/window-chrome.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/layout/app-header.css">
@@ -71,14 +109,17 @@
             document.body.classList.add('window-mode');
         }
     </script>
-    <!-- The no-drag strip along the window's top edge, which keeps the OS's
-         resize zone out of the header's drag region (layout/window-chrome.css). -->
+    <!-- The no-drag strip along the window's top edge. Without it the draggable
+         header reaches y=0 and overlaps the OS's top-edge resize zone, so
+         dragging the top border fights a window drag (layout/window-chrome.css).
+         Inert in a browser tab, which has no drag region. -->
     <div class="window-resize-strip" aria-hidden="true"></div>
 
     <!-- The frameless window's own chrome: going fullscreen, resizing by its
-         edges, the mouse's back and forward buttons doing nothing, and the
-         caption buttons at the end of the header. -->
+         edges and the cursor that says so, the mouse's back and forward buttons
+         doing nothing, and the caption buttons at the end of the header. -->
     <script type="module" src="{{.AssetBase}}/js/utils/window-fullscreen.js"></script>
+    <script type="module" src="{{.AssetBase}}/js/utils/window-resize-cursor.js"></script>
     <script type="module" src="{{.AssetBase}}/js/utils/window-edge-resize.js"></script>
     <script type="module" src="{{.AssetBase}}/js/utils/window-history-buttons.js"></script>
     <script type="module" src="{{.AssetBase}}/js/components/window-caption-controls.js"></script>

@@ -34,8 +34,8 @@ var builtin embed.FS
 //go:embed css/layout/app-shell.css css/layout/window-chrome.css css/layout/app-header.css
 //go:embed machine/sessions.css
 //go:embed resources/fonts/* resources/juggler-logo.svg resources/juggler-logo-with-name.svg resources/chrome-pattern.svg
-//go:embed js/components/window-caption-controls.js js/components/juggler-element.js
-//go:embed js/utils/window-edge-resize.js js/utils/window-fullscreen.js js/utils/window-history-buttons.js js/utils/fault-report.js
+//go:embed js/components/window-caption-controls.js js/components/window-caption-glyphs.js js/components/juggler-element.js
+//go:embed js/utils/window-edge-resize.js js/utils/window-fullscreen.js js/utils/window-history-buttons.js js/utils/window-resize-cursor.js js/utils/window-shell-theme.js js/utils/fault-report.js
 //go:embed js/services/http.js
 //go:embed sdk/lib/window-control.js sdk/lib/i18n.js sdk/lib/html.js sdk/lib/error-utils.js
 var Shell embed.FS

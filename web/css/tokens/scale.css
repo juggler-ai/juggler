@@ -146,6 +146,13 @@
     --window-close-hover-bg: #e81123;
     --window-close-active-bg: #f1707a;
 
+    /* The room the macOS traffic lights take at the top left of a window, in
+       pixels, which the UI zoom does not scale (layout/window-chrome.css). The
+       fallback bar over a page that is not Juggler's reads it too
+       (cmd/juggler-app/foreign_page.go). */
+    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
+    --window-traffic-light-gutter: 80px;
+
     /* Spacing scale */
     --spacing-xs: 0.375rem;   /* 6px */
     --spacing-sm: 0.5rem;     /* 8px */

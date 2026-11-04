@@ -31,6 +31,7 @@ the current release). The project follows semantic versioning.
 - A bash command killed by its timeout always reports the timeout, never a clean finish
 - On Linux without a session D-Bus, Juggler starts instead of exiting
 - Mouse back/forward buttons no longer navigate desktop windows off their page
+- A window showing a non-Juggler page gets a bar to move it and return to Juggler
 - Juggler's windows on Windows show the Juggler icon in Alt-Tab and the taskbar
 - Editing an MCP server's config restarts it; the agent can restart servers too
 

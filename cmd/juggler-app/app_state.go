@@ -117,13 +117,26 @@ type windowView struct {
 	// (control.go): it authorises requests for this window and no other.
 	// Minted for every page load, so it never outlives the page given it.
 	secret string
+	// framed is set when the window is on a server by URL and shows that
+	// server's sessions page framed in this machine's server's own sessions
+	// page: it is that server's origin, which the page frames at ?embed=1
+	// (framedPageView). serverURL and server are then this machine's server's,
+	// since that is what serves the page the window loads.
+	framed string
+	// frameSecret is the secret the framed page holds, handed to it through
+	// the outer page's ?frameCtl= — never the window's own secret, which only
+	// the outer page holds. A request holding it is judged as one from a
+	// server by URL (windowBySecret). Minted with secret, for the same page
+	// load.
+	frameSecret string
 }
 
 // remotePage is whether v's page is served by a server by URL — another
 // machine's, as far as the app can know — rather than by this machine's server
-// or by the app itself (a stand-in).
+// or by the app itself (a stand-in). A framed view's page is this machine's;
+// the page framed in it is the server by URL's, and holds the frame secret.
 func (v windowView) remotePage() bool {
-	return v.standIn == nil && v.spec.isURL()
+	return v.standIn == nil && v.spec.isURL() && v.framed == ""
 }
 
 // winEntry tracks one open window and what it shows. Geometry is NOT stored
@@ -742,10 +755,15 @@ func (a *appState) planWindow(spec windowSpec, opts windowOpts) windowPlan {
 		// Opened where a window onto that server was last left, as the window it
 		// stands in for would have been.
 		p = planStandIn(p, unreachableStandIn(spec.url))
-		p.saved, p.hasSaved = a.remoteFrames.get(remoteFrameServer(spec), roleMain)
+		p.saved, p.hasSaved = a.remoteFrame(spec, roleMain)
 		return p
 	}
 	p.view.serverURL, p.view.server, p.saved, p.hasSaved = serverURL, server, saved, hasSaved
+	// A main window on a server by URL shows its sessions page framed in this
+	// machine's, where it can be; a board shows that server's own page.
+	if spec.isURL() && p.opts.role() == roleMain {
+		p.view = a.framedPageView(spec, serverURL, !opts.noStart)
+	}
 	return p
 }
 
@@ -1032,7 +1050,7 @@ func (a *appState) openWindowOrigins() map[[2]int]bool {
 
 // takesFolderDrops is whether a window showing v has native folder drop on:
 // only one showing this machine's server's page, where a dropped folder opens
-// its project. A project's window leaves drops to its composer; a window on a
+// its project — not one framing another server's, whose projects are there. A project's window leaves drops to its composer; a window on a
 // server by URL is on another machine, where this machine's paths mean nothing;
 // a stand-in's page opens nothing.
 func takesFolderDrops(v windowView) bool {
@@ -1123,7 +1141,10 @@ func (a *appState) pageOf(id string, v windowView, opts windowOpts) (pageURL, ti
 	if v.standIn != nil {
 		return a.standInPageURL(id, v.secret), a.tr(v.standIn.windowTitle)
 	}
-	opts.external = v.spec.isURL()
+	opts.external = v.remotePage()
+	if v.framed != "" {
+		opts.server, opts.frameCtl = v.framed, a.controlBase(id, v.frameSecret)
+	}
 	return windowPageURL(v.serverURL, a.controlBase(id, v.secret), opts), a.tr(appWindowTitle)
 }
 
@@ -1134,6 +1155,9 @@ func (a *appState) pageOf(id string, v windowView, opts windowOpts) (pageURL, ti
 func (a *appState) buildWindow(view windowView, saved core.WindowState, hasSaved bool, opts windowOpts) *winEntry {
 	id := <-a.ids
 	view.secret = mintControlSecret()
+	if view.framed != "" {
+		view.frameSecret = mintControlSecret()
+	}
 
 	// Resolve the startup appearance before building the URL/options, from what
 	// this window inherits (see startupPrefs).
@@ -1546,7 +1570,7 @@ func (a *appState) handleWindowClosed(e *winEntry) {
 		v := a.viewOf(e)
 		forgetBoard(v.serverURL, e.board)
 		if v.spec.isURL() {
-			a.remoteFrames.forget(remoteFrameServer(v.spec), e.role)
+			a.remoteFrames.forget(remoteFrameSlot(v.spec), e.role)
 		}
 	}
 	close(e.stopSave)

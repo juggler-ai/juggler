@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -86,17 +87,22 @@ func controlPath(id, secret string) string {
 }
 
 // windowBySecret is the open window whose page holds secret, or nil, and
-// whether that page is served by a server by URL (remotePage). Every window's
-// secret is compared, in constant time, whichever matches.
-func (a *appState) windowBySecret(secret string) (e *winEntry, remote bool) {
+// whether that page is served by a server by URL: its own page on one
+// (remotePage), or the page framed in it, which holds the window's frame
+// secret (frame). Every window's secrets are compared, in constant time,
+// whichever matches.
+func (a *appState) windowBySecret(secret string) (e *winEntry, remote, frame bool) {
 	a.reg(func(st *regState) {
 		for _, w := range st.windows {
 			if w.view.secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(w.view.secret)) == 1 {
-				e, remote = w, w.view.remotePage()
+				e, remote, frame = w, w.view.remotePage(), false
+			}
+			if w.view.frameSecret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(w.view.frameSecret)) == 1 {
+				e, remote, frame = w, true, true
 			}
 		}
 	})
-	return e, remote
+	return e, remote, frame
 }
 
 // handleControl admits a request only when its path opens with an open
@@ -116,7 +122,7 @@ func (a *appState) handleControl(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	e, remote := a.windowBySecret(secret)
+	e, remote, frame := a.windowBySecret(secret)
 	if e == nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -161,7 +167,7 @@ func (a *appState) handleControl(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": refusal.English(), "message": refusal})
 		return
 	}
-	act.handle(a, w, r, e)
+	act.handle(a, w, r.WithContext(context.WithValue(r.Context(), callerKey{}, caller{remote: remote, frame: frame})), e)
 }
 
 // remoteWindowRefusal is why a window on a server by URL is refused an action
@@ -220,8 +226,10 @@ type remoteGrant func(r *http.Request) bool
 func anyRequest(*http.Request) bool { return true }
 
 // windowActions is every action a page may post, by the name it posts, and
-// what a window on a server by URL may ask of it: the one place that is
-// decided.
+// what a page a server by URL sent may ask of it: the one place that is
+// decided. That is a window's own page on such a server, or the page framed
+// in a window's sessions page, which holds its frame secret; the outer page
+// is this machine's server's, and may ask for any.
 //
 // What a remote window keeps, and why each is its own window's business or the
 // user's own choice:
@@ -252,7 +260,7 @@ func anyRequest(*http.Request) bool { return true }
 // Refused it, as app-wide or on this machine's files: locale (the app's
 // language and menus), zoom (the next window's zoom), folder-dropped,
 // pick-directory and pick-file (they answer with a local path), updater,
-// connect and discover (choosing another server to connect to), and the
+// switch-server and discover (choosing another server to show), and the
 // stand-in actions retry-server, start-server,
 // restart-server and open-local, which no page of another server shows.
 var windowActions = map[string]controlAction{
@@ -278,7 +286,7 @@ var windowActions = map[string]controlAction{
 		a.controlPickPath(w, r, e, "pick-file")
 	}},
 	"updater":        {handle: (*appState).handleUpdaterControl},
-	"connect":        {handle: (*appState).controlConnect, refusal: &connectFromURLWindowRefusal},
+	"switch-server":  {handle: (*appState).controlSwitchServer, refusal: &connectFromURLWindowRefusal},
 	"discover":       {handle: (*appState).controlDiscover, refusal: &connectFromURLWindowRefusal},
 	"quit":           {handle: (*appState).controlQuit, remote: anyRequest},
 	"retry-server":   {handle: (*appState).controlRetryServer},
@@ -345,7 +353,9 @@ var openNewWindow = (*appState).openWindow
 // a session the server is running (404 otherwise).
 //
 // A window on a server by URL (another machine's) shows the session on that
-// server and stays the server's window (attachRemote).
+// server and stays the server's window (attachRemote) — a framed one too,
+// whichever of its pages asks: the outer page attaches nothing of this
+// machine's server.
 func (a *appState) controlAttach(w http.ResponseWriter, r *http.Request, e *winEntry) {
 	v := a.viewOf(e)
 	if v.standIn == nil && v.spec.isURL() && e.role == roleMain {
@@ -425,7 +435,7 @@ func remoteSessionPath(q url.Values) (string, bool) {
 // new window for that instead (409 here).
 func (a *appState) controlServerPage(w http.ResponseWriter, _ *http.Request, e *winEntry) {
 	v := a.viewOf(e)
-	if !v.remotePage() || e.role != roleMain {
+	if v.standIn != nil || !v.spec.isURL() || e.role != roleMain {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
@@ -466,12 +476,13 @@ var (
 	attachNotRunning = msg.New("That session is not running.")
 )
 
-// showServerPage shows v's server by URL's own sessions page in e, in place of
-// whichever of its sessions e showed, provided e still shows v.
+// showServerPage shows v's server by URL's sessions page in e — framed where
+// it can be (framedPageView) — in place of whichever of its sessions e
+// showed, provided e still shows v. Blocking.
 func (a *appState) showServerPage(e *winEntry, v windowView) {
 	spec := v.spec
 	spec.remoteProject = ""
-	a.showView(e, showing(v), windowView{spec: spec, serverURL: spec.url}, windowOpts{})
+	a.showView(e, showing(v), a.framedPageView(spec, spec.url, true), windowOpts{})
 }
 
 // showView makes e show next, in place, provided what it shows now is what
@@ -481,8 +492,8 @@ func (a *appState) showServerPage(e *winEntry, v windowView) {
 // two causes racing to move one window settle on one of them. opts says how
 // the page opens beyond the window's own theme and the app's zoom: its notice.
 //
-// The page loaded holds a new secret, so the one the page it replaces held
-// opens nothing any more. The boards the window opened are put away with the
+// The page loaded holds a new secret, and a framed one a new frame secret, so
+// the ones the page it replaces held open nothing any more. The boards the window opened are put away with the
 // page that opened them: kept (retainBoard), so the session's page, when the
 // window shows it again, opens them again (restoreBoards), as a relaunch does.
 //
@@ -490,7 +501,10 @@ func (a *appState) showServerPage(e *winEntry, v windowView) {
 // server has gone has nowhere to flush drafts to; a page leaving a live
 // session keeps the drafts it persisted when the user last stopped typing.
 func (a *appState) showView(e *winEntry, from func(windowView) bool, next windowView, opts windowOpts) string {
-	next.secret = mintControlSecret()
+	next.secret, next.frameSecret = mintControlSecret(), ""
+	if next.framed != "" {
+		next.frameSecret = mintControlSecret()
+	}
 	shown := false
 	var boards []*winEntry
 	a.reg(func(st *regState) {
@@ -813,8 +827,8 @@ func (a *appState) controlSaveFile(w http.ResponseWriter, r *http.Request, e *wi
 	// A page another machine's server sent learns that the file was saved, as
 	// a download would tell it, and not where on this machine: it is answered
 	// with the name it suggested.
-	var remote bool
-	a.reg(func(*regState) { remote = e.view.remotePage() })
+	remote := callerOf(r).remote
+	a.reg(func(*regState) { remote = remote || e.view.remotePage() })
 	if remote {
 		path = name
 	}
@@ -933,7 +947,7 @@ func (a *appState) handleUpdaterControl(w http.ResponseWriter, r *http.Request, 
 	case "state":
 		snap := updaterSnapshot()
 		v := a.viewOf(e)
-		managed := v.standIn == nil && !v.spec.isURL()
+		managed := v.standIn == nil && (!v.spec.isURL() || v.framed != "")
 		writeJSON(w, http.StatusOK, updaterStateResponse{UpdaterSnapshot: snap, AppManagedServer: managed})
 	case "install":
 		// Fire-and-forget; the overlay guards against a double-start itself. The

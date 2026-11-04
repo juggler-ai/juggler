@@ -111,6 +111,14 @@ type windowOpts struct {
 	// openFailedError). Set by planWindow, never off the wire.
 	notice string
 
+	// server and frameCtl are, for a sessions page framing a server by URL,
+	// that server's origin and the control base the page it frames holds
+	// (windowView.framed, frameSecret). The page builds the frame's URL from
+	// them: server + "/?embed=1&external=1&nativeCtl=" + frameCtl. Set by
+	// pageOf, never off the wire.
+	server   string
+	frameCtl string
+
 	// noStart opens a local window only on a server already running: none
 	// found is the stand-in for a server run elsewhere again, never one this
 	// app starts. The Try again of that stand-in (standIn.startedElsewhere).
@@ -329,6 +337,9 @@ func windowPageURL(serverURL, nativeCtl string, opts windowOpts) string {
 	}
 	if opts.notice != "" {
 		u += "&notice=" + url.QueryEscape(opts.notice)
+	}
+	if opts.server != "" {
+		u += "&server=" + url.QueryEscape(opts.server) + "&frameCtl=" + url.QueryEscape(opts.frameCtl)
 	}
 	if opts.view != "" {
 		u += "&view=" + url.QueryEscape(opts.view)

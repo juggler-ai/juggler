@@ -18,16 +18,16 @@ import (
 	"juggler/internal/lanfind"
 )
 
-// Finding servers on the network: the sessions page's "Connect to another
-// computer" lists the Juggler servers other computers announce while their LAN
-// access is on (lanfind), each to connect to with a click. The page asks with
+// Finding servers on the network: the sessions page's server chooser lists the
+// Juggler servers other computers announce while their LAN access is on
+// (lanfind), each to switch to with a click. The page asks with
 // the discover action while it shows; the app browses only while some page has
 // asked lately, and answers with what it has found.
 //
 // An announcement proves nothing — anyone on the network can send one — and
 // the mDNS layer never says a server has gone. So a server is listed only
 // while it answers GET /api/version at the address it announced, and what it
-// is connected to is that address, shown on its row: never a name the
+// is switched to is that address, shown on its row: never a name the
 // announcement chose. A server on one of this machine's own addresses is this
 // machine's (there is one per machine) and is not listed.
 
@@ -246,9 +246,9 @@ func localAddrs() map[netip.Addr]bool {
 // (no multicast here, the OS refusing it) answers with none, as a network with
 // no servers on it would: the page offers the address field either way.
 //
-// Refused to a window on a server by URL (windowActions), as connect is: the
-// list is for choosing a server to connect to, which only this machine's
-// server's windows may do.
+// Refused to a page a server by URL sent (windowActions), as switch-server
+// is: the list is for choosing a server to switch to, which only this
+// machine's server's pages may do.
 func (a *appState) controlDiscover(w http.ResponseWriter, r *http.Request, _ *winEntry) {
 	servers, err := a.finder.servers(r.Context())
 	if err != nil {

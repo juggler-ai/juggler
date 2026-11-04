@@ -71,11 +71,13 @@ manage it from another terminal on the same machine.
 ## Connecting from the desktop app
 
 On the machine you work at, choose **Session ▸ Open or connect to a new
-session…** (or open a new window), use **Connect to another computer** on the
-sessions page it shows: pick the server from the ones found on your network,
-or enter its address, such as `http://devbox:3939`. The window becomes
-one onto that server's sessions page; open a session there and it shows in the
-same window. Like a project window, it reopens each time the app starts, on the
+session…** (or open a new window), and on the sessions page it shows, choose
+**Change server…** in its header: pick the server from the ones found on your
+network, or enter its address, such as `http://devbox:3939`. The window
+switches to that server's sessions page, below the same header, where **This
+computer** switches it back; open a session there and it shows in the same
+window. Open another window and switch it too for another session on that
+server. Like a project window, it reopens each time the app starts, on the
 server's page — so a normal launch goes straight to the headless server.
 
 If the server isn't answering when the app starts, the window says so and

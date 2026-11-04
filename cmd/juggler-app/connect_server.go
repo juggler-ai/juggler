@@ -5,7 +5,6 @@
 package main
 
 import (
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -13,15 +12,16 @@ import (
 	"juggler/cmd/juggler/msg"
 )
 
-// Connecting to a server by its address: "Connect to another computer" on the
-// sessions page an empty window shows posts here the address typed there, or
-// that of a server it lists as found on the network (discover.go). The window
-// that opens is a connected one (see windowSpec), so it is part of the
-// workspace set and reopens at every launch until it is closed.
+// A server by its address: the sessions page's server chooser switches its
+// window to the address typed there, or to that of a server it lists as found
+// on the network (discover.go), through switch-server (framed_view.go). The
+// window is then a connected one (see windowSpec), so it is part of the
+// workspace set and reopens at every launch until it is closed or switched
+// back.
 //
 // A server by address can be down when the app starts, and a window onto it
 // would then be a blank page with nothing in it to act on. So a window whose
-// server does not answer opens as a stand-in for it instead (stand_in.go),
+// server does not answer shows a stand-in for it instead (stand_in.go),
 // saying so, with a way to try again and a way out to a local window — which is
 // also how a connected server that is gone for good stops being reopened.
 
@@ -32,8 +32,8 @@ var (
 	unreachableTrying      = msg.New("Trying…")
 	unreachableOpenLocal   = msg.New("Open a local window instead")
 
-	// connectFromURLWindowRefusal is why a window on a server by URL cannot
-	// connect to another (controlConnect).
+	// connectFromURLWindowRefusal is why a page a server by URL sent cannot
+	// switch its window to another server, or list them (windowActions).
 	connectFromURLWindowRefusal = msg.New("This window shows a server on another computer, so it cannot connect to a different one. Open a new window and connect from there.")
 	connectBadAddress           = msg.New("That is not a server address. Enter one like http://devbox:3939.")
 )
@@ -52,7 +52,7 @@ func unreachableMessage(serverURL string) msg.Message {
 // from its root, so a path or query typed with it names nothing extra. Anything
 // but http(s), a missing host, a port that is not one, and credentials in the
 // address are all refused — the address becomes a window's URL, and the
-// control endpoint's secret goes with it.
+// control endpoint's frame secret goes with it.
 func normaliseServerURL(raw string) (string, bool) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -77,68 +77,4 @@ func normaliseServerURL(raw string) (string, bool) {
 		}
 	}
 	return u.Scheme + "://" + strings.ToLower(u.Host), true
-}
-
-// controlConnect opens a window onto the server the page names, in reply to its
-// Connect to another computer.
-//
-// Only a window on this machine's server — a project's session or an empty
-// window — may ask. A window on a server by URL is showing a page that server
-// sent, and if it could name another host, any server ever connected to could
-// put windows onto anywhere it liked, with a place in the workspace set; it is
-// refused before it gets here, with connectFromURLWindowRefusal
-// (windowActions). A stand-in's page is the app's own, and asks for nothing of
-// the kind (pageSpecOf).
-func (a *appState) controlConnect(w http.ResponseWriter, r *http.Request, e *winEntry) {
-	from, ok := a.pageSpecOf(e.id)
-	if !ok {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	serverURL, ok := normaliseServerURL(r.URL.Query().Get("url"))
-	if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error":   connectBadAddress.English(),
-			"message": connectBadAddress,
-		})
-		return
-	}
-	// The appearance hand-off, and nothing else the query could say: this is a
-	// main window onto another server, not a board of the one asking.
-	q := windowOptsFromQuery(r.URL.Query())
-	a.connectServer(e, from, serverURL, windowOpts{theme: q.theme, mode: q.mode, zoom: q.zoom})
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// connectServer opens a connected window onto serverURL, asked for from the
-// window from (whose spec is fromSpec).
-//
-// A window already open on that server is raised instead, and remembered from
-// now on if it was a --url one: connecting to it is saying it should come back.
-// A stand-in for it is not open on it, so connecting is another attempt. An
-// empty window asking shows the server itself rather than being left behind
-// beside a new one, as a dropped folder fills the window it is dropped on.
-func (a *appState) connectServer(from *winEntry, fromSpec windowSpec, serverURL string, opts windowOpts) {
-	spec := windowSpec{url: serverURL, connected: true}
-	var open *winEntry
-	a.reg(func(st *regState) {
-		for _, w := range st.windows {
-			if !isBoardRole(w.role) && w.view.standIn == nil && w.view.spec.sameView(spec) {
-				w.view.spec.connected = true
-				open = w
-				break
-			}
-		}
-	})
-	if open != nil {
-		a.persistWorkspace()
-		focusEntry(open)
-		return
-	}
-	logf("connect: opening %s", serverURL)
-	if fromSpec == (windowSpec{}) && !isBoardRole(from.role) {
-		a.retarget(from, func(now windowView) bool { return now.standIn == nil && now.spec == (windowSpec{}) }, spec, opts)
-		return
-	}
-	a.openWindow(spec, opts)
 }

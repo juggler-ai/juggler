@@ -70,13 +70,31 @@ func newRemoteFramesAt(path string) *remoteFrames {
 	return r
 }
 
-// remoteFrameServer is the server a window onto spec keeps its frame under: the
-// address it is opened on. Never the URL it shows now (winEntry.serverURL),
-// which is one of that server's sessions for most of the window's life and
-// when the app quits — but a next launch opens it on the server's address,
-// before its page reopens the session.
-func remoteFrameServer(spec windowSpec) string {
-	return normalizeURL(spec.url)
+// remoteFrameSlot is what a window onto spec keeps its frame under: the
+// address it is opened on, and the project it shows there (remoteProject), so
+// several windows on one server, each on a project of its own, each come back
+// where they were left. Never the URL it shows now (winEntry.serverURL), which
+// is one of that server's sessions for most of the window's life and when the
+// app quits — but a next launch opens it on the server's address, before its
+// page reopens the session. A window on the server's sessions page keeps its
+// frame under the address alone.
+func remoteFrameSlot(spec windowSpec) string {
+	server := normalizeURL(spec.url)
+	if spec.remoteProject == "" {
+		return server
+	}
+	// A normalised address holds no "|", so no project's slot is another
+	// address's.
+	return server + "|" + spec.remoteProject
+}
+
+// remoteFrame is the frame a window onto spec opens at, of role: its own
+// slot's (remoteFrameSlot), else its server's.
+func (a *appState) remoteFrame(spec windowSpec, role string) (core.WindowState, bool) {
+	if ws, ok := a.remoteFrames.get(remoteFrameSlot(spec), role); ok || spec.remoteProject == "" {
+		return ws, ok
+	}
+	return a.remoteFrames.get(normalizeURL(spec.url), role)
 }
 
 // remoteFrameKey files a frame under the server it views and the window's role.

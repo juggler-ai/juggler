@@ -22,6 +22,14 @@
  * A window on another computer's server, restored at launch, opens again the
  * project whose session it showed when the app last quit (`host.reopen`).
  *
+ * On this machine's server the window's header has a server chooser: the
+ * servers the app finds on the network, this computer, and a typed address,
+ * any of which the app then shows in the window (`host.switchServer`). The
+ * app shows another computer's server as this page with that server's page
+ * framed in it (`framed`): the header, naming that server, stays this page's,
+ * and the body is the frame alone, to which the app's menu commands the page
+ * acts on are passed on (`relayFramerEvents`, on the framed side).
+ *
  * A running session's whole row opens it, as its Open link does; the link stays
  * the keyboard's way in, so the row adds no second control around the others.
  *
@@ -49,11 +57,12 @@
  */
 
 import { t, formatRelativeTime } from '../sdk/lib/i18n.js';
-import { OPEN_IN_NEW_SVG } from '../js/utils/icons.js';
+import { DROPDOWN_ARROW_SVG, OPEN_IN_NEW_SVG } from '../js/utils/icons.js';
 import { extractErrorMessage, errorText } from '../sdk/lib/error-utils.js';
 import { ControlApiError } from './control-api.js';
 import { pageURL } from '../js/utils/page-url.js';
 import { ExposureView } from '../js/components/connectivity/exposure-view.js';
+import { presentPopup, POPUP_REVEALED_EVENT } from '../js/utils/popup-surface.js';
 
 /** How many recent projects the page offers. */
 const RECENTS_SHOWN = 8;
@@ -80,23 +89,31 @@ const RECENTS_SHOWN = 8;
  *   answerClose: (token: string) => Promise<void>,
  *   pickDirectory?: () => Promise<string|null>,
  *   takesDroppedFolders?: boolean,
- *   connect?: (address: string) => Promise<void>,
+ *   switchServer?: (address: string) => Promise<void>,
  *   discover?: () => Promise<FoundServer[]>,
  *   openURL?: (url: string) => void,
  *   reopen?: () => Promise<string>,
  * }} NativeHost
+ *   The desktop app (native-host.js). attach is told the session's project too,
+ *   which the app keeps for the window. The folder chooser, dropped folders and
+ *   switchServer — with discover, the servers the app has found on the network
+ *   to switch to — are there only on this machine's server's page; reopen only
+ *   on a server by URL's, answering the project whose session the window
+ *   showed when the app last quit ('' for none), which the page opens again.
+ *   switchServer has the app show, in this window, the sessions page of the
+ *   server at an address ('' for this machine's), and rejects with why it will
+ *   not. openURL opens an address in the system browser, which a click on a
+ *   link to it in the window's WebView would not.
  * @typedef {{name: string, url: string, version?: string}} FoundServer
  *   A server another computer announces on the network, as the app found it:
  *   the name it announced, and the address it answered at, which is what
- *   Connect hands the app.
- *   The desktop app (native-host.js). attach is told the session's project too,
- *   which the app keeps for the window. The folder chooser, dropped folders and
- *   Connect — with discover, the servers the app has found on the network to
- *   connect to — are there only in a window on this machine's server; reopen only in
- *   a window on a server by URL, answering the project whose session the window
- *   showed when the app last quit ('' for none), which the page opens again.
- *   openURL opens an address in the system browser, which a click on a link to
- *   it in the window's WebView would not.
+ *   choosing it hands the app.
+ * @typedef {{server: string, frameCtl: string, theme?: string, mode?: string}} FramedServer
+ *   Another computer's server, which a desktop window on it shows framed in
+ *   this machine's page: its address (an http(s) origin), the control address
+ *   the app made for the page framed (frameCtl, which reaches only what a
+ *   window on a server by URL may ask), and the theme and mode this page was
+ *   opened with, which the framed page is handed too.
  */
 
 /**
@@ -292,18 +309,116 @@ function exposureButton(text, kind) {
 }
 
 /**
- * Which server this page is, for the header bar beside the wordmark: the
- * page's title, the machine it runs on and the server's version.
+ * The host a server's address names, for its title.
+ * @param {string} server - The server's address.
+ * @returns {string} Its host name, or the address itself if it names none.
+ */
+function hostOf(server) {
+  try {
+    return new URL(server).hostname || server;
+  } catch {
+    return server;
+  }
+}
+
+/**
+ * Whether two addresses are one server's: the same origin.
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean} True when both parse to the same origin.
+ */
+function sameServer(a, b) {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The framed server's sessions page, as the frame loads it: embedded, with the
+ * control address meant for it, and this page's theme.
+ * @param {FramedServer} framed - The server framed.
+ * @returns {string} Its address.
+ */
+function framedPageURL({ server, frameCtl, theme = '', mode = '' }) {
+  let url = `${new URL(server).origin}/?embed=1&external=1&nativeCtl=${encodeURIComponent(frameCtl)}`;
+  if (theme) url += `&theme=${encodeURIComponent(theme)}`;
+  if (mode) url += `&mode=${encodeURIComponent(mode)}`;
+  return url;
+}
+
+/**
+ * The app's menu commands the sessions page acts on, which a framed window
+ * passes on to the page it frames: Open, which goes to the page's field for
+ * opening a project.
+ */
+const PAGE_COMMANDS = ['juggler:open-project'];
+
+/**
+ * Take the app's menu commands that the page framing this one passes on
+ * (postMessage `{type, detail}`) as the app's own: each is dispatched on win
+ * as the event the app dispatches. Only the framer is heard, and only the
+ * commands the page acts on (PAGE_COMMANDS).
+ * @param {Window} win - This page's window.
+ * @param {Window} framer - The window framing it.
+ * @returns {() => void} Stops listening.
+ */
+export function relayFramerEvents(win, framer) {
+  const onMessage = (/** @type {MessageEvent} */ event) => {
+    if (event.source !== framer || framer === win) return;
+    const data = /** @type {{type?: unknown, detail?: unknown}|null} */ (event.data);
+    const type = data && typeof data === 'object' ? data.type : null;
+    if (typeof type !== 'string' || !PAGE_COMMANDS.includes(type)) return;
+    win.dispatchEvent(new CustomEvent(type, { detail: data?.detail ?? null }));
+  };
+  win.addEventListener('message', onMessage);
+  return () => win.removeEventListener('message', onMessage);
+}
+
+/**
+ * The window's title: the page, and the server it shows.
  * @param {PageConfig} config - What the server handed the page.
+ * @param {FramedServer|null} [framed] - The server framed, if any.
+ * @returns {string} The title.
+ */
+export function pageTitle(config, framed = null) {
+  const host = framed ? hostOf(framed.server) : config.host;
+  return host ? t('Sessions on {host} · Juggler', { host }) : t('Sessions · Juggler');
+}
+
+/**
+ * Where the page is: the machine its server runs on, or, for a page framing
+ * another computer's server, that server's host — by its name alone, after
+ * the page's title — or this computer, for a server that names no machine.
+ * @param {PageConfig} config - What the server handed the page.
+ * @param {string} [server] - The address of the server framed, if any.
+ * @returns {string} Its name, as the header bar shows it.
+ */
+export function serverLocation(config, server = '') {
+  const host = server ? hostOf(server) : config.host;
+  return host || t('This computer');
+}
+
+/**
+ * Which server this page is, for the header bar beside the wordmark: the
+ * page's title, then where it is (serverLocation) — as the server chooser's
+ * own button, when the window has one, else as text — and the server's
+ * version, which a page framing another computer's server has none of its own
+ * to show.
+ * @param {PageConfig} config - What the server handed the page.
+ * @param {{server?: string, chooser?: HTMLElement|null}} [options] - The
+ *   address of the server framed, and the chooser's button, which names
+ *   where the page is itself.
  * @returns {HTMLElement} The title block.
  */
-export function serverTitle(config) {
+export function serverTitle(config, { server = '', chooser = null } = {}) {
   return el('div', { className: 'ms-header' }, [
     el('div', { className: 'ms-title' }, [
       el('h1', { text: t('Sessions') }),
-      el('p', { className: 'ms-subtitle', text: config.host ? t('Juggler on {host}', { host: config.host }) : t('Juggler on this machine') }),
+      chooser || el('p', { className: 'ms-subtitle', text: serverLocation(config, server) }),
     ]),
-    config.version ? el('span', { className: 'ms-version', text: config.version }) : null,
+    !server && config.version ? el('span', { className: 'ms-version', text: config.version }) : null,
   ]);
 }
 
@@ -323,6 +438,15 @@ export function serverTitle(config) {
  *   the page: a session opens in this window through it. Null in a browser.
  * @param {string} [options.notice] - Something to tell the user as the page
  *   opens: why the window shows this page rather than what it was opened for.
+ * @param {HTMLElement|null} [options.header] - The header bar's slot for which
+ *   server this is, which the page fills (serverTitle) with the server chooser
+ *   beside it when the host can switch servers. None for a page with no header.
+ * @param {FramedServer|null} [options.framed] - Another computer's server,
+ *   which the page shows framed in its body in place of its own: its own
+ *   server is then asked nothing but the window's servers are still chosen
+ *   here. Only for a page the host may switch, on this machine's server.
+ * @param {(message: {type: string, detail: unknown}, origin: string) => void} [options.postToFrame]
+ *   Hands a menu command to the framed page at origin, the framed server's.
  * @returns {{refresh: () => Promise<void>, dispose: () => void, readonly pending: Promise<void>}} The page:
  *   refresh it now, take it down, or wait for the last switch of a way in to be shown.
  */
@@ -337,6 +461,9 @@ export function mountSessionsPage(root, {
   pollMs = 2000,
   host = null,
   notice = '',
+  header = null,
+  framed = null,
+  postToFrame,
 }) {
   /** @type {Session[]} */
   let sessions = [];
@@ -438,8 +565,12 @@ export function mountSessionsPage(root, {
     sessionsList,
   ]);
 
-  // Connect to another computer: a desktop window on this machine's server
-  // becomes a window onto another computer's.
+  // The server chooser, in the header bar beside the server's name: the
+  // servers the app has found on the network, this computer, and a typed
+  // address, any of which the app then shows in this window. It is built once
+  // and presented (presentPopup) while open, so the servers found are kept
+  // current while it is closed too.
+  const canSwitch = !!(header && host?.switchServer);
   const connectInput = /** @type {HTMLInputElement} */ (el('input', {
     className: 'ms-launch-input ms-connect-input',
     attrs: {
@@ -457,24 +588,56 @@ export function mountSessionsPage(root, {
     connectInput,
     el('button', { className: 'ms-button ms-button-primary', text: t('Connect'), attrs: { type: 'submit' } }),
   ]));
-  // The servers the app has found on the network, above the address field;
-  // hidden while there are none.
-  const foundList = host?.connect && host.discover
-    ? el('ul', { className: 'ms-found', attrs: { 'aria-label': t('Found on this network') } })
-    : null;
-  if (foundList) foundList.hidden = true;
-  const connectSection = host?.connect
-    ? el('section', { className: 'ms-section' }, [
-      el('h2', { text: t('Connect to another computer') }),
-      el('p', {
-        className: 'ms-lan-note',
-        text: t('Juggler on another computer on this network, with LAN access turned on there. This window becomes a window onto it.'),
-      }),
-      foundList,
+  // This computer, and the server framed when it is none the app has found;
+  // then the servers the app has found on the network, hidden while there
+  // are none.
+  const hereList = el('ul', { className: 'ms-chooser-list ms-chooser-here' });
+  const foundLabel = el('p', { className: 'ms-chooser-label', text: t('Found on this network') });
+  const foundList = el('ul', { className: 'ms-chooser-list ms-found', attrs: { 'aria-label': t('Found on this network') } });
+  // How a computer comes to be listed, said only while none is.
+  const foundHint = el('p', { className: 'ms-lan-note ms-found-hint', text: t('Other computers appear here when their LAN access is on.') });
+  foundLabel.hidden = true;
+  foundList.hidden = true;
+  foundHint.hidden = true;
+  const chooserId = 'ms-server-chooser';
+  const chooser = canSwitch
+    ? el('div', {
+      className: 'dropdown-menu show ms-chooser',
+      attrs: { id: chooserId, role: 'dialog', 'aria-label': t('Choose a server') },
+    }, [
+      hereList,
+      host?.discover ? foundLabel : null,
+      host?.discover ? foundList : null,
+      host?.discover ? foundHint : null,
       connectForm,
       connectError,
     ])
     : null;
+  // Where the window is, as the button that changes it: its name, and the
+  // arrow the app's other dropdowns open by.
+  const switchButton = canSwitch
+    ? /** @type {HTMLButtonElement} */ (el('button', {
+      className: 'ms-button ms-button-quiet ms-server-switch',
+      attrs: { type: 'button', title: t('Change server…') },
+    }, [
+      el('span', { className: 'ms-server-label', text: serverLocation(config, framed?.server) }),
+      icon(DROPDOWN_ARROW_SVG),
+    ]))
+    : null;
+  if (switchButton) {
+    switchButton.addEventListener('click', () => {
+      if (releaseChooser) closeChooser();
+      else openChooser();
+    });
+    switchButton.setAttribute('aria-haspopup', 'dialog');
+    switchButton.setAttribute('aria-expanded', 'false');
+    switchButton.setAttribute('aria-controls', chooserId);
+  }
+  header?.replaceChildren(serverTitle(config, { server: framed?.server, chooser: switchButton }));
+  /** @type {(() => void)|null} - Takes the open chooser down; null while it is closed. */
+  let releaseChooser = null;
+  /** @type {FoundServer[]} */
+  let found = [];
 
   // The machine's ways in, for a viewer on this machine: the two sections are
   // wrappers the layout looks through, so their rows are spaced alike.
@@ -485,7 +648,7 @@ export function mountSessionsPage(root, {
   serverBox.hidden = true;
   lanBox.hidden = true;
   tunnelBox.hidden = true;
-  const exposure = config.local && api.getLAN
+  const exposure = config.local && api.getLAN && !framed
     ? new ExposureView({
       serverSection: api.getStatus ? serverBox : undefined,
       lanSection: lanBox,
@@ -504,16 +667,31 @@ export function mountSessionsPage(root, {
     ])
     : null;
 
-  // Two columns, which a wide window sets side by side (sessions.css): the
-  // sessions and every way of opening one — a project, a new folder, another
-  // computer, a recent project — and the machine's ways in. With no ways in,
-  // there is one.
-  root.append(banner, el('div', { className: 'ms-column ms-main' },
-    [opening, sessionsSection, launchSection, folderSection, connectSection, recentsSection]));
-  if (exposureSection) root.append(el('div', { className: 'ms-column ms-side' }, [exposureSection]));
+  /** @type {HTMLIFrameElement|null} */
+  let frame = null;
+  const frameOrigin = framed ? new URL(framed.server).origin : '';
+  if (framed) {
+    // The framed server's page is the body, and nothing of this server's.
+    const where = hostOf(framed.server);
+    frame = /** @type {HTMLIFrameElement} */ (el('iframe', {
+      className: 'ms-frame',
+      attrs: { src: framedPageURL(framed), title: t('Sessions on {host}', { host: where }) },
+    }));
+    if (notice) root.append(el('p', { className: 'ms-launch-error ms-frame-notice', attrs: { role: 'alert' }, text: notice }));
+    root.append(frame);
+  } else {
+    // Two columns, which a wide window sets side by side (sessions.css): the
+    // sessions and every way of opening one — a project, a new folder, a
+    // recent project — and the machine's ways in. With no ways in, there is
+    // one.
+    root.append(banner, el('div', { className: 'ms-column ms-main' },
+      [opening, sessionsSection, launchSection, folderSection, recentsSection]));
+    if (exposureSection) root.append(el('div', { className: 'ms-column ms-side' }, [exposureSection]));
+  }
+  const toFrame = postToFrame || ((message, origin) => { frame?.contentWindow?.postMessage(message, origin); });
 
   /**
-   * Show why the app would not connect, or clear it.
+   * Show why the app would not switch servers, or clear it.
    * @param {string} message - The reason ('' clears it).
    */
   function showConnectError(message) {
@@ -523,19 +701,22 @@ export function mountSessionsPage(root, {
   showConnectError('');
 
   /**
-   * Ask the app to make this window one onto the server at address, saying
-   * why if it will not.
+   * Ask the app to show, in this window, the server at address ('' for this
+   * computer's), saying why if it will not. The app reloads the window once
+   * it has; until then the chooser is taken down.
    * @param {string} address - The server's address, as typed or as found.
    * @returns {Promise<void>} Resolves once the app has answered.
    */
-  async function connectTo(address) {
-    if (!host?.connect) return;
+  async function switchTo(address) {
+    if (!host?.switchServer) return;
     showConnectError('');
     try {
-      await host.connect(address);
+      await host.switchServer(address);
     } catch (err) {
       showConnectError(err instanceof Error ? errorText(err) : t('Could not connect to that server.'));
+      return;
     }
+    closeChooser();
   }
 
   connectForm.addEventListener('submit', (event) => {
@@ -545,8 +726,92 @@ export function mountSessionsPage(root, {
       connectInput.focus();
       return;
     }
-    void connectTo(address);
+    void switchTo(address);
   });
+
+  /**
+   * One server the chooser offers: its whole row is the choice, which hands
+   * the app the server's address. The server the window shows is marked as
+   * current, and is no choice.
+   * @param {string} className - The row's class.
+   * @param {string} url - The server's address ('' for this computer).
+   * @param {string} name - What the server is called.
+   * @param {string} where - Under its name: where it is.
+   * @param {boolean} current - Whether the window shows it.
+   * @returns {HTMLElement} Its list item.
+   */
+  function choiceRow(className, url, name, where, current) {
+    const choice = /** @type {HTMLButtonElement} */ (el('button', { className: 'ms-chooser-choice', attrs: { type: 'button' } }, [
+      el('span', { className: 'ms-recent-main' }, [
+        el('span', { className: 'ms-recent-name', text: name }),
+        where ? el('span', { className: 'ms-found-address', text: where }) : null,
+      ]),
+      current ? el('span', { className: 'ms-chooser-mark', text: t('Current') }) : null,
+    ]));
+    if (current) {
+      choice.disabled = true;
+      choice.setAttribute('aria-current', 'true');
+    } else {
+      choice.addEventListener('click', () => { void switchTo(url); });
+    }
+    return el('li', { className, attrs: { 'data-url': url } }, [choice]);
+  }
+
+  /** Redraw the chooser's servers from the last the app found. */
+  function renderChooser() {
+    const shown = framed ? framed.server : '';
+    const listed = !!shown && found.some((s) => sameServer(s.url, shown));
+    hereList.replaceChildren(...[
+      choiceRow('ms-chooser-local', '', t('This computer'), config.host || '', !framed),
+      shown && !listed ? choiceRow('ms-chooser-shown', shown, hostOf(shown), shown, true) : null,
+    ].filter((x) => x !== null));
+    foundList.replaceChildren(...found.map((s) => choiceRow('ms-found-server', s.url, s.name,
+      s.version ? `${s.url} · ${s.version}` : s.url, !!shown && sameServer(s.url, shown))));
+    foundList.hidden = found.length === 0;
+    foundLabel.hidden = found.length === 0;
+    foundHint.hidden = found.length > 0;
+  }
+
+  /**
+   * Escape takes the open chooser down.
+   * @param {KeyboardEvent} event
+   */
+  const onChooserKey = (event) => {
+    if (event.key === 'Escape' && releaseChooser) {
+      event.preventDefault();
+      closeChooser();
+    }
+  };
+
+  /** Open the server chooser under its button, and ask the app what it finds. */
+  function openChooser() {
+    if (!chooser || !switchButton || releaseChooser || disposed) return;
+    showConnectError('');
+    renderChooser();
+    releaseChooser = presentPopup({
+      surface: chooser,
+      anchor: switchButton,
+      id: chooserId,
+      onClose: closeChooser,
+      align: 'right',
+      insideSelectors: ['.ms-chooser', '.ms-server-switch'],
+    });
+    switchButton.setAttribute('aria-expanded', 'true');
+    document.addEventListener('keydown', onChooserKey);
+    void refreshFound();
+  }
+
+  /** Take the server chooser down, if it is open. */
+  function closeChooser() {
+    const release = releaseChooser;
+    if (!release) return;
+    releaseChooser = null;
+    document.removeEventListener('keydown', onChooserKey);
+    switchButton?.setAttribute('aria-expanded', 'false');
+    release();
+  }
+  // Once it is on screen, the address box takes the keyboard.
+  chooser?.addEventListener(POPUP_REVEALED_EVENT, () => { connectInput.focus(); });
 
   /**
    * Show why a launch failed, or clear it.
@@ -885,23 +1150,6 @@ export function mountSessionsPage(root, {
     return item;
   }
 
-  /**
-   * One server found on the network, and its Connect: the address it answered
-   * at, which the row shows, is what the app is asked to connect to.
-   * @param {FoundServer} server - The server.
-   * @returns {HTMLElement} Its list item.
-   */
-  function foundRow(server) {
-    const where = server.version ? `${server.url} · ${server.version}` : server.url;
-    return el('li', { className: 'ms-found-server', attrs: { 'data-url': server.url } }, [
-      el('div', { className: 'ms-recent-main' }, [
-        el('div', { className: 'ms-recent-name', text: server.name }),
-        el('div', { className: 'ms-found-address', text: where }),
-      ]),
-      button(t('Connect'), 'ms-button-quiet ms-found-connect', () => { void connectTo(server.url); }),
-    ]);
-  }
-
   // Asks of the app overlap when one takes longer than a poll (it asks each
   // server it found whether it still answers), so each is numbered, and an
   // answer older than the one shown is dropped.
@@ -910,12 +1158,12 @@ export function mountSessionsPage(root, {
 
   /**
    * Ask the app which servers it has found on the network, and redraw the
-   * list. One it cannot answer leaves the list as last shown: the address
-   * field is there either way.
+   * chooser's list. One it cannot answer leaves the list as last shown: the
+   * address field is there either way.
    * @returns {Promise<void>} Resolves once redrawn.
    */
   async function refreshFound() {
-    if (!foundList || !host?.discover) return;
+    if (!chooser || !host?.discover) return;
     const asked = ++foundAsked;
     /** @type {FoundServer[]} */
     let servers;
@@ -926,9 +1174,8 @@ export function mountSessionsPage(root, {
     }
     if (disposed || asked < foundShown) return;
     foundShown = asked;
-    const valid = (servers || []).filter((x) => x && typeof x.url === 'string' && typeof x.name === 'string');
-    foundList.replaceChildren(...valid.map(foundRow));
-    foundList.hidden = valid.length === 0;
+    found = (servers || []).filter((x) => x && typeof x.url === 'string' && typeof x.name === 'string');
+    renderChooser();
   }
 
   /**
@@ -1018,11 +1265,13 @@ export function mountSessionsPage(root, {
    * them as last shown, since the sessions list says when the server cannot
    * be reached — and redraw. The app is asked for the servers it has found
    * too, but not waited for: that can take it seconds, and the list of them
-   * is drawn whenever it answers.
+   * is drawn whenever it answers. A page framing another computer's server
+   * shows nothing of this one's, and asks it for nothing.
    * @returns {Promise<void>} Resolves once the sessions and ways in are redrawn.
    */
   async function refresh() {
     void refreshFound();
+    if (framed) return;
     await Promise.all([refreshSessions(), exposure ? exposure.refresh() : null]);
   }
 
@@ -1072,14 +1321,36 @@ export function mountSessionsPage(root, {
     const token = /** @type {CustomEvent} */ (e).detail?.ackToken;
     if (host && typeof token === 'string') void host.answerClose(token);
   };
+  // The app's menu commands the page acts on (PAGE_COMMANDS): Open goes to
+  // the field for opening a project — the framed page's, in a page framing
+  // one, which is handed the command at its server's origin alone.
+  const onPageCommand = (/** @type {Event} */ e) => {
+    if (framed) {
+      try {
+        toFrame({ type: e.type, detail: /** @type {CustomEvent} */ (e).detail ?? null }, frameOrigin);
+      } catch {
+        // A detail that cannot be posted is a command the framed page is not
+        // handed.
+      }
+      return;
+    }
+    if (e.type === 'juggler:open-project') {
+      input.focus();
+      input.select();
+    }
+  };
+  for (const type of PAGE_COMMANDS) window.addEventListener(type, onPageCommand);
   if (host) window.addEventListener('juggler:window-close-requested', onCloseRequested);
-  if (host?.takesDroppedFolders) window.addEventListener('juggler:folder-dropped', onFolderDropped);
-  render();
+  // A folder dropped is this machine's, and means nothing to a server framed.
+  if (host?.takesDroppedFolders && !framed) window.addEventListener('juggler:folder-dropped', onFolderDropped);
+  if (!framed) render();
   void refresh();
   schedule();
-  if (host?.reopen) void reopenLast(host.reopen);
-  if (config.open && config.confirm) offerLinked(config.open);
-  else if (config.open) void openLinked(config.open);
+  if (!framed) {
+    if (host?.reopen) void reopenLast(host.reopen);
+    if (config.open && config.confirm) offerLinked(config.open);
+    else if (config.open) void openLinked(config.open);
+  }
 
   return {
     refresh,
@@ -1092,6 +1363,8 @@ export function mountSessionsPage(root, {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('juggler:folder-dropped', onFolderDropped);
       window.removeEventListener('juggler:window-close-requested', onCloseRequested);
+      for (const type of PAGE_COMMANDS) window.removeEventListener(type, onPageCommand);
+      closeChooser();
     },
   };
 }

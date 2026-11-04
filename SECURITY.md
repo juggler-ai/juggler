@@ -103,24 +103,31 @@ any specific WAN mode are documented by the distribution that ships it.
 
 ### Connecting the desktop app to another server
 
-Connect to another computer, on the sessions page a new window shows, points a
-desktop window at another machine's
-server by URL. That server then supplies everything the window shows and sees
-everything you do in it, and its commands run on that machine, not yours. What
-its pages may ask of the desktop app is limited to their own window: its
-title, colour and window controls, moving between that server's sessions and
-its sessions page, opening a board window on the same server, opening http and
-https links in your browser, and offering a download through the Save dialog.
-They are refused the app's language and zoom, file and folder pickers and
-dropped folders (which would reveal local paths), the updater, connecting
-elsewhere, quitting, and restarting this machine's server. Connect only to
-servers you trust.
+Change server, in the header of the sessions page a desktop window shows,
+points that window at another machine's server by URL. That server then
+supplies everything the window shows and sees everything you do in it, and its
+commands run on that machine, not yours. What its pages may ask of the desktop
+app is limited to their own window: its title, colour and window controls,
+moving between that server's sessions and its sessions page, opening a board
+window on the same server, opening http and https links in your browser,
+offering a download through the Save dialog, and quitting. They are refused the
+app's language and zoom, file and folder pickers and dropped folders (which
+would reveal local paths), the updater, finding or switching servers, and
+restarting this machine's server. Connect only to servers you trust.
 
-The servers that page lists as found on your network are the ones announcing
-themselves there (a server does while its LAN access is on), and anyone on the
-network can make such an announcement. So the app lists a server only while it
-answers at the address it announced, shows that address beside its name, and
-connects to it only when you choose it.
+The window's sessions page stays this machine's own, with the other server's
+sessions page framed below its header: only this machine's page offers Change
+server. The framed page gets a credential of its own, with exactly the powers
+above, and never the one this machine's page holds. A server lets its sessions
+page be framed only by a page on the viewer's own loopback, and this machine's
+page frames only the server the window is on. A server too old to be framed is
+shown in the whole window instead, with the same limits.
+
+The servers Change server lists as found on your network are the ones
+announcing themselves there (a server does while its LAN access is on), and
+anyone on the network can make such an announcement. So the app lists a server
+only while it answers at the address it announced, shows that address beside
+its name, and connects to it only when you choose it.
 
 ### Sessions share one origin (by design)
 

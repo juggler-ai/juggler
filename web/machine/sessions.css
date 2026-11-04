@@ -56,8 +56,9 @@ body {
 }
 
 /* Which server this is, in the header bar after the wordmark
-   (sessions-view.js, serverTitle): the title and the machine stacked, set off
-   from the wordmark by a hairline, and the version at the far end. */
+   (sessions-view.js, serverTitle): the title, then where the window is — the
+   server chooser's button, where the window can switch — set off from the
+   wordmark by a hairline, and the version at the far end. */
 
 .ms-header-slot {
     flex: 1;
@@ -81,12 +82,13 @@ body {
     flex: 1;
     min-width: 0;
     display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
+    align-items: center;
+    gap: var(--spacing-md);
     line-height: var(--leading-tight);
 }
 
 .ms-title h1 {
+    flex: none;
     font-size: var(--font-size-md);
     font-weight: var(--font-weight-medium);
 }
@@ -99,8 +101,9 @@ body {
 }
 
 .ms-subtitle {
+    min-width: 0;
     color: var(--text-secondary);
-    font-size: var(--font-size-xs);
+    font-size: var(--font-size-sm);
 }
 
 .ms-version {
@@ -111,6 +114,123 @@ body {
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-pill);
     padding: 0.125rem var(--spacing-sm);
+}
+
+/* The server chooser (sessions-view.js): the button naming where the window
+   is, after the page's title, opens it as the app's dropdowns open
+   (utils/popup-surface.js, css/patterns/menus.css) — or a sheet, on a narrow
+   window. The button gives way before the title does, its name cut short. In
+   the chooser, a row per server, the whole row its choice, the one the window
+   shows marked so; then the address box. */
+
+.ms-server-switch {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.ms-server-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ms-server-switch .ms-icon {
+    flex: none;
+}
+
+:where(.window-mode) .ms-server-switch {
+    --wails-draggable: no-drag;
+}
+
+.ms-chooser {
+    width: 22rem;
+    padding: var(--spacing-sm);
+}
+
+.ms-chooser > * + * {
+    margin-top: var(--spacing-sm);
+}
+
+.ms-chooser > [hidden] {
+    display: none;
+}
+
+.ms-chooser-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+}
+
+.ms-chooser-label {
+    padding: 0 var(--spacing-sm);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--text-secondary);
+}
+
+.ms-chooser-choice {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    width: 100%;
+    padding: var(--spacing-sm);
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+
+.ms-chooser-choice:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--bg-secondary) 88%, var(--text-primary));
+}
+
+.ms-chooser-choice:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: calc(-1 * var(--focus-ring-offset));
+}
+
+.ms-chooser-choice:disabled {
+    cursor: default;
+}
+
+.ms-chooser-mark {
+    flex: none;
+    font-size: var(--font-size-xs);
+    color: var(--text-tertiary);
+}
+
+.ms-chooser .ms-lan-note {
+    padding: 0 var(--spacing-sm);
+}
+
+/* A window on another computer's server: that server's page, framed, is the
+   whole of the page under the header (sessions-view.js, framed). */
+
+.ms-scroll:has(> .ms-page > .ms-frame) {
+    overflow: hidden;
+}
+
+.ms-page:has(> .ms-frame) {
+    max-width: none;
+    height: 100%;
+    padding: 0;
+    gap: 0;
+}
+
+.ms-frame {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    border: 0;
+    display: block;
+}
+
+.ms-frame-notice {
+    padding: var(--spacing-sm) var(--spacing-lg);
 }
 
 /* Sections */
@@ -142,8 +262,7 @@ body {
 /* Lists */
 
 .ms-sessions,
-.ms-recents,
-.ms-found {
+.ms-recents {
     list-style: none;
     display: flex;
     flex-direction: column;
@@ -154,8 +273,7 @@ body {
 }
 
 .ms-session,
-.ms-recent,
-.ms-found-server {
+.ms-recent {
     display: flex;
     align-items: center;
     gap: var(--spacing-md);
@@ -163,8 +281,7 @@ body {
 }
 
 .ms-session + .ms-session,
-.ms-recent + .ms-recent,
-.ms-found-server + .ms-found-server {
+.ms-recent + .ms-recent {
     border-top: 1px solid var(--border-divider);
 }
 
@@ -522,8 +639,7 @@ body {
     }
 
     .ms-session,
-    .ms-recent,
-    .ms-found-server {
+    .ms-recent {
         flex-wrap: wrap;
         padding: var(--spacing-md);
     }

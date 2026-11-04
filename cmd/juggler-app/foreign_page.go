@@ -350,7 +350,7 @@ func (a *appState) foreignPageBack(e *winEntry, v windowView, pageURL string) {
 	case v.spec.isURL():
 		spec := v.spec
 		spec.remoteProject = ""
-		a.showView(e, showing(v), windowView{spec: spec, serverURL: originOf(spec.url)}, windowOpts{})
+		a.showView(e, showing(v), a.framedPageView(spec, originOf(spec.url), true), windowOpts{})
 	default:
 		a.retarget(e, showing(v), v.spec, windowOpts{})
 	}

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -148,9 +149,18 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 	if ctl := nativeControlOrigin(r); ctl != "" {
 		connectSrc += " " + ctl
 	}
+	frameSrc := "frame-src 'none'"
+	if framed := framedServerOrigin(r); framed != "" {
+		frameSrc = "frame-src " + framed
+	}
+	embed := r.URL.Query().Get("embed") == "1"
+	frameAncestors := "frame-ancestors 'none'"
+	if embed {
+		frameAncestors = embedFrameAncestors
+	}
 	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'nonce-"+nonce+"'; "+
 		"style-src 'self'; img-src 'self' data:; font-src 'self'; "+connectSrc+"; "+
-		"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+		"object-src 'none'; base-uri 'none'; form-action 'self'; "+frameSrc+"; "+frameAncestors)
 
 	data := struct {
 		AssetBase string
@@ -160,6 +170,11 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 		// (WailsBase).
 		IsWindow  bool
 		WailsBase string
+		// Embed is set when the page is framed under a desktop window's own
+		// header on another computer (?embed=1, embedFrameAncestors): it is
+		// then its body alone, with no header bar and none of a top-level
+		// window's chrome, which that window wears.
+		Embed bool
 		// ThemeMode is the one the user chose, or empty to follow the
 		// system's; Theme, a colour for a page with no mode, is never set.
 		ThemeMode string
@@ -171,7 +186,8 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 		Config    pageConfig
 	}{
 		AssetBase: "/v" + assetVersion,
-		IsWindow:  r.URL.Query().Has("window"),
+		IsWindow:  r.URL.Query().Has("window") && !embed,
+		Embed:     embed,
 		ThemeMode: s.pageThemeMode(),
 		CSPNonce:  nonce,
 		HTMLLang:  lang,
@@ -184,6 +200,39 @@ func (s *Server) servePage(w http.ResponseWriter, r *http.Request, status int, c
 	if err := tmpl.Execute(w, data); err != nil {
 		jlog.Error("[machineserver] sessions page: %v", err)
 	}
+}
+
+// embedVersion is the embedded sessions page this server serves (?embed=1),
+// reported by GET /api/version: a desktop app on another computer frames the
+// page of a server that reports the version it frames, and shows any other
+// full-window.
+const embedVersion = 1
+
+// embedFrameAncestors is who may frame the embedded sessions page: a page on
+// the viewer's own loopback, which is where a desktop app's sessions page is
+// served from. The page is the sessions list a whole window would show, so
+// framing it adds no power over this server to anyone who may load it.
+const embedFrameAncestors = "frame-ancestors http://127.0.0.1:* http://localhost:* http://[::1]:*"
+
+// framedHostPattern is what a server address's host may hold to be admitted
+// into a CSP: names, IPv4 and bracketed IPv6 literals, and a port — nothing
+// that could end the directive or start another.
+var framedHostPattern = regexp.MustCompile(`^[A-Za-z0-9.\-]+(:[0-9]+)?$|^\[[0-9A-Fa-f:.]+\](:[0-9]+)?$`)
+
+// framedServerOrigin is the scheme://host:port of the request's ?server=, when
+// it names an http(s) server, else "". A desktop window on another computer's
+// server loads this page with that server there and frames its embedded page
+// (?embed=1), so the CSP admits that one origin as a frame, and no other.
+func framedServerOrigin(r *http.Request) string {
+	raw := r.URL.Query().Get("server")
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") || !framedHostPattern.MatchString(u.Host) {
+		return ""
+	}
+	return u.Scheme + "://" + strings.ToLower(u.Host)
 }
 
 // nativeControlOrigin is the scheme://host:port of the request's ?nativeCtl=

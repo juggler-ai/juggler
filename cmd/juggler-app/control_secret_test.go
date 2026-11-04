@@ -114,7 +114,7 @@ func TestARemoteWindowsSecretReachesOnlyItsOwnWindow(t *testing.T) {
 	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: server, connected: true}, serverURL: server + "/p/proj-0123abcd"}})
 
 	for _, action := range []string{
-		"connect?url=http%3A%2F%2Felsewhere%3A1",
+		"switch-server?url=http%3A%2F%2Felsewhere%3A1",
 		"discover",
 		"updater?op=restart&force=1",
 		"updater?op=state",

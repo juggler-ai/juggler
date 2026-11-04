@@ -43,7 +43,7 @@ func TestWindowControlRouting(t *testing.T) {
 		{"drafts-flushed always answers 204", "/win/w1/drafts-flushed?token=stale", http.StatusNoContent},
 		{"updater rejects an unknown op", "/win/w1/updater?op=frobnicate", http.StatusBadRequest},
 		{"save-file refuses an empty body", "/win/w1/save-file?name=a.html", http.StatusBadRequest},
-		{"connect refuses an address with no host", "/win/w1/connect?url=http%3A%2F%2F", http.StatusBadRequest},
+		{"switch-server refuses a window showing no sessions page", "/win/w1/switch-server?url=http%3A%2F%2Fdevbox%3A1", http.StatusConflict},
 		{"retry-server refuses a window that is not the unreachable page", "/win/w1/retry-server", http.StatusConflict},
 		{"server-lost refuses a window that is not a main window", "/win/w1/server-lost", http.StatusConflict},
 		{"server-page refuses a window not on a server by URL", "/win/w1/server-page", http.StatusConflict},
@@ -69,7 +69,7 @@ func TestWindowControlActionTable(t *testing.T) {
 		"drafts-flushed": true, "attach": true, "server-page": true, "reopen": true, "server-lost": true,
 		"open": true, "new": true, "save-file": true, "quit": true,
 		"locale": false, "zoom": false, "folder-dropped": false, "pick-directory": false,
-		"pick-file": false, "updater": false, "connect": false, "discover": false,
+		"pick-file": false, "updater": false, "switch-server": false, "discover": false,
 		"retry-server": false, "start-server": false, "restart-server": false, "open-local": false,
 	}
 	if len(windowActions) != len(want) {

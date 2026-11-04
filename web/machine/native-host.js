@@ -7,11 +7,13 @@
  * the page: what it can ask the app to do for that window.
  *
  * On this machine's server the app shows a session in the window, has the
- * folder chooser, takes dropped folders and connects to another computer's
- * server, listing those it finds on the network. In a window on a server by URL (another computer's: `external`) the
- * page's folders are not this machine's and the window may not be pointed at a
- * third server, so the app only shows a session there, answers a close, and
- * says which project's session the window showed when it last quit.
+ * folder chooser, takes dropped folders and switches the window to another
+ * server's sessions page, listing those it finds on the network. On a server
+ * by URL (another computer's: `external`) — a window's own page there, or
+ * that server's page framed in this machine's — the page's folders are not
+ * this machine's and the window may not be pointed at a third server, so the
+ * app only shows a session there, answers a close, and says which project's
+ * session the window showed when it last quit.
  * @module machine/native-host
  */
 
@@ -78,7 +80,7 @@ export function desktopHost({ external }) {
     ...host,
     pickDirectory,
     takesDroppedFolders: true,
-    connect: (address) => post('connect', `?url=${encodeURIComponent(address)}`),
+    switchServer: (address) => post('switch-server', `?url=${encodeURIComponent(address)}`),
     discover,
   };
 }

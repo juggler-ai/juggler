@@ -9,11 +9,10 @@
  * @module machine/sessions-page
  */
 
-import { t } from '../sdk/lib/i18n.js';
 import { hasNativeHost, reportFolderDropped } from '../sdk/lib/window-control.js';
 import { createControlApi, readPageConfig } from './control-api.js';
 import { desktopHost } from './native-host.js';
-import { mountSessionsPage, serverTitle } from './sessions-view.js';
+import { mountSessionsPage, pageTitle, relayFramerEvents } from './sessions-view.js';
 
 /**
  * Take over the hooks the native side calls with the paths of a folder dropped
@@ -38,21 +37,54 @@ function installFolderDrop() {
   });
 }
 
+/**
+ * The other computer's server a desktop window shows framed in this page, as
+ * the app names it: ?server=, an http(s) address, and ?frameCtl=, the control
+ * address for the page framed; with this page's own ?theme= and ?mode=.
+ * @param {URLSearchParams} query - The page's query.
+ * @returns {import('./sessions-view.js').FramedServer|null} The server, or
+ *   null for a page framing none.
+ */
+function readFramed(query) {
+  const server = query.get('server') || '';
+  const frameCtl = query.get('frameCtl') || '';
+  if (!server || !frameCtl) return null;
+  try {
+    const { protocol } = new URL(server);
+    if (protocol !== 'http:' && protocol !== 'https:') return null;
+  } catch {
+    return null;
+  }
+  return { server, frameCtl, theme: query.get('theme') || '', mode: query.get('mode') || '' };
+}
+
 /** Title the page and its header bar, and mount it. */
 function start() {
   const config = readPageConfig();
-  document.title = config.host ? t('Sessions on {host} · Juggler', { host: config.host }) : t('Sessions · Juggler');
+  const query = new URL(window.location.href).searchParams;
   // A desktop window on another computer's server is marked before the first
-  // paint (index.html), as the app loads it with ?external=1.
+  // paint (index.html), as the app loads it with ?window=1&external=1. That
+  // server's page framed in this machine's (?embed=1) is another computer's
+  // too, and is loaded with no ?window.
+  const embedded = query.get('embed') === '1';
   const host = hasNativeHost()
-    ? desktopHost({ external: document.documentElement.dataset.externalServer === '1' })
+    ? desktopHost({ external: embedded || document.documentElement.dataset.externalServer === '1' })
     : null;
-  if (host?.takesDroppedFolders) installFolderDrop();
-  const notice = new URL(window.location.href).searchParams.get('notice') || '';
-  document.getElementById('sessions-title')?.replaceChildren(serverTitle(config));
+  // Only the app frames a server here, and only in a window it may switch.
+  const framed = host?.switchServer ? readFramed(query) : null;
+  if (host?.takesDroppedFolders && !framed) installFolderDrop();
+  if (embedded && window.parent !== window) relayFramerEvents(window, window.parent);
+  document.title = pageTitle(config, framed);
   const root = document.getElementById('sessions-root');
   if (root) {
-    mountSessionsPage(root, { api: createControlApi({ token: config.token }), config, host, notice });
+    mountSessionsPage(root, {
+      api: createControlApi({ token: config.token }),
+      config,
+      host,
+      notice: query.get('notice') || '',
+      header: document.getElementById('sessions-title'),
+      framed,
+    });
   }
 }
 

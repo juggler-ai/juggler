@@ -51,7 +51,7 @@ func windowStateURL(serverURL, role string) string {
 // machine's server, --url, or one the user typed into Connect to Server. A
 // control request reaches here by naming a project folder, or — from a window
 // on this machine's server, and only after normaliseServerURL — the address the
-// user typed (controlConnect).
+// user typed (controlSwitchServer).
 func fetchWindowState(serverURL, role string) (core.WindowState, bool) {
 	ws, ok, _ := readWindowState(context.Background(), serverURL, role)
 	return ws, ok
@@ -137,7 +137,7 @@ func (a *appState) openingState(spec windowSpec, serverURL, role string) (ws cor
 	if _, _, reached = readWindowState(ctx, serverURL, role); !reached {
 		return core.WindowState{}, false, false
 	}
-	ws, hasState = a.remoteFrames.get(remoteFrameServer(spec), role)
+	ws, hasState = a.remoteFrame(spec, role)
 	return ws, hasState, true
 }
 
@@ -153,7 +153,7 @@ const (
 // URL, or nowhere.
 //
 // A window onto a server by URL keeps it on this machine under that server
-// (remoteFrameServer), whichever of its pages it shows, a stand-in included —
+// (remoteFrameSlot), whichever of its pages it shows, a stand-in included —
 // so a window that opens on that server's stand-in at launch opens where the
 // window was last left. A local window's stand-in keeps none, as its session
 // is not there to keep it; nor does an empty window, which has no session,
@@ -175,7 +175,7 @@ func (a *appState) storeFrame(ctx context.Context, e *winEntry, ws core.WindowSt
 	v := a.viewOf(e)
 	switch frameHomeOf(v) {
 	case frameKeptHere:
-		a.remoteFrames.put(remoteFrameServer(v.spec), e.role, ws)
+		a.remoteFrames.put(remoteFrameSlot(v.spec), e.role, ws)
 	case frameKeptInSession:
 		putWindowStateCtx(ctx, v.serverURL, e.role, ws)
 	}

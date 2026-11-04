@@ -486,7 +486,7 @@ export class ExposureView {
         // would not let it.
         const announced = document.createElement('div');
         announced.className = 'connectivity-note';
-        announced.textContent = t('This computer also announces itself on the network, so Juggler on other computers can find it under Connect to another computer.');
+        announced.textContent = t('This computer also announces itself on the network, so Juggler on other computers can find it under Change server.');
         addresses.appendChild(announced);
       }
       row.appendChild(addresses);

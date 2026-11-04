@@ -38,7 +38,7 @@ import (
 // window's geometry key and its workspace entry.
 //
 // A URL comes from one of two places, and connected says which. A server the
-// user connected to (Connect to another computer, on the sessions page) is
+// user switched a window to (Change server, on the sessions page) is
 // one they mean to come back to, so it is restored like a project. A --url
 // launch is a one-shot connection to an address someone else supplied — a
 // script or a shortcut, naming a server that may be up for that run only — so

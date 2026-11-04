@@ -501,13 +501,15 @@ func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *
 	}
 	now := r.URL.Query().Has("now")
 	var lost *standIn
-	if spec.isURL() {
+	// A framed view's outer page is this machine's server's; the page framed
+	// in it is the server by URL's, and asks on the frame secret.
+	if spec.isURL() && (v.framed == "" || callerOf(r).frame) {
 		if !now {
 			ctx, cancel := context.WithTimeout(r.Context(), remoteReachBudget)
 			defer cancel()
-			if remoteSessionGone(ctx, v.serverURL) {
+			if v.framed == "" && remoteSessionGone(ctx, v.serverURL) {
 				logf("window %s: %s has gone from its server; showing the server's page", e.id, v.serverURL)
-				replaced := a.showView(e, showing(v), windowView{spec: spec, serverURL: spec.url}, windowOpts{}) != ""
+				replaced := a.showView(e, showing(v), a.framedPageView(spec, spec.url, true), windowOpts{}) != ""
 				writeJSON(w, http.StatusOK, map[string]bool{"replaced": replaced})
 				return
 			}

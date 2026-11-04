@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"juggler/cmd/juggler/core"
 )
 
 // A server the user connected to by typing its address comes back next launch,
@@ -81,6 +83,49 @@ func TestAConnectedWindowIsTheSameViewAsAURLWindowOnTheSameServer(t *testing.T) 
 	}
 }
 
+// Windows on one server showing different projects there keep a frame each,
+// so a next launch puts each back where it was rather than all where the last
+// one moved to.
+func TestWindowsOnOneServerKeepTheirOwnFrames(t *testing.T) {
+	const server = "http://devbox:8080"
+	a := newTestAppState(t)
+	a.remoteFrames = newRemoteFramesAt(filepath.Join(t.TempDir(), "remote-frames.json"))
+	specA := windowSpec{url: server, connected: true, remoteProject: "/home/me/a"}
+	specB := windowSpec{url: server, connected: true, remoteProject: "/home/me/b"}
+	wa := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: specA, serverURL: server + "/p/a-0123abcd"}})
+	wb := registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: specB, serverURL: server + "/p/b-0123abcd"}})
+
+	a.storeFrame(context.Background(), wa, core.WindowState{X: 10, Y: 10, Width: 800, Height: 600, HasPos: true})
+	a.storeFrame(context.Background(), wb, core.WindowState{X: 500, Y: 300, Width: 900, Height: 700, HasPos: true})
+
+	if got, ok := a.remoteFrames.get(remoteFrameSlot(specA), roleMain); !ok || got.X != 10 || got.Width != 800 {
+		t.Errorf("project a's window reopens at %+v (%v), want its own frame", got, ok)
+	}
+	if got, ok := a.remoteFrames.get(remoteFrameSlot(specB), roleMain); !ok || got.X != 500 || got.Width != 900 {
+		t.Errorf("project b's window reopens at %+v (%v), want its own frame", got, ok)
+	}
+}
+
+// A window on a project of a server with no frame of its own yet — its first
+// launch there, or a frame kept under the server alone — opens at the
+// server's, rather than at the default frame.
+func TestARemoteProjectsWindowFallsBackToItsServersFrame(t *testing.T) {
+	const server = "http://devbox:8080"
+	a := newTestAppState(t)
+	a.remoteFrames = newRemoteFramesAt(filepath.Join(t.TempDir(), "remote-frames.json"))
+	a.remoteFrames.put(server, roleMain, core.WindowState{X: 40, Y: 50, Width: 1000, Height: 800, HasPos: true})
+
+	got, ok := a.remoteFrame(windowSpec{url: server, connected: true, remoteProject: "/home/me/a"}, roleMain)
+	if !ok || got.X != 40 || got.Width != 1000 {
+		t.Errorf("a project with no frame of its own opens at %+v (%v), want the server's", got, ok)
+	}
+	a.remoteFrames.put(remoteFrameSlot(windowSpec{url: server, remoteProject: "/home/me/a"}), roleMain,
+		core.WindowState{X: 7, Y: 8, Width: 700, Height: 500, HasPos: true})
+	if got, _ := a.remoteFrame(windowSpec{url: server, connected: true, remoteProject: "/home/me/a"}, roleMain); got.X != 7 {
+		t.Errorf("a project with a frame of its own opens at %+v, want its own", got)
+	}
+}
+
 func TestNormaliseServerURL(t *testing.T) {
 	cases := []struct {
 		in, want string
@@ -107,16 +152,16 @@ func TestNormaliseServerURL(t *testing.T) {
 	}
 }
 
-// What a page can ask the app to connect to is bounded by which page asks. A
-// window on a server by URL is showing a page that server sent; if it could
-// name another host, every server ever connected to could put windows onto
-// anywhere, with a place in the workspace set.
-func TestAWindowOnAServerByURLCannotConnectToAnother(t *testing.T) {
+// What a page can ask the app to switch its window to is bounded by which page
+// asks. A window on a server by URL is showing a page that server sent; if it
+// could name another host, every server ever connected to could put windows
+// onto anywhere, with a place in the workspace set.
+func TestAWindowOnAServerByURLCannotSwitchToAnother(t *testing.T) {
 	for _, spec := range []windowSpec{{url: "http://devbox:8080"}, {url: "http://devbox:8080", connected: true}} {
 		a := newTestAppState(t)
 		registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: spec.url}})
 
-		rec := controlRequest(a, http.MethodPost, "/win/w1/connect?url=http%3A%2F%2Felsewhere%3A1")
+		rec := controlRequest(a, http.MethodPost, "/win/w1/switch-server?url=http%3A%2F%2Felsewhere%3A1")
 
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("%+v: status = %d, want %d", spec, rec.Code, http.StatusForbidden)
@@ -130,11 +175,11 @@ func TestAWindowOnAServerByURLCannotConnectToAnother(t *testing.T) {
 	}
 }
 
-func TestConnectRefusesAnAddressThatIsNotAServer(t *testing.T) {
+func TestSwitchServerRefusesAnAddressThatIsNotAServer(t *testing.T) {
 	a := newTestAppState(t)
 	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{}, serverURL: "http://127.0.0.1:4000"}})
 
-	rec := controlRequest(a, http.MethodPost, "/win/w1/connect?url=file%3A%2F%2F%2Fetc")
+	rec := controlRequest(a, http.MethodPost, "/win/w1/switch-server?url=file%3A%2F%2F%2Fetc")
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)

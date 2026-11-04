@@ -14,7 +14,7 @@
  */
 
 import { assert, nextTask, waitFor } from '../utilities/test-helpers.js';
-import { mountSessionsPage, serverTitle } from '../../machine/sessions-view.js';
+import { mountSessionsPage, pageTitle, relayFramerEvents, serverTitle } from '../../machine/sessions-view.js';
 import { createControlApi, readPageConfig, ControlApiError, TOKEN_HEADER } from '../../machine/control-api.js';
 import { desktopHost } from '../../machine/native-host.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
@@ -150,24 +150,43 @@ function stubNavigate() {
  * Mount the page into a fresh element.
  * @param {any} api
  * @param {object} [extra]
- * @returns {Promise<{root: HTMLElement, page: any, dispose: () => void}>} The mounted page.
+ * @returns {Promise<{root: HTMLElement, header: HTMLElement, page: any, dispose: () => void}>} The mounted
+ *   page, and the header bar's slot it fills.
  */
 async function mount(api, extra = {}) {
   const root = document.createElement('div');
-  document.body.appendChild(root);
+  const header = document.createElement('div');
+  document.body.append(header, root);
   const page = mountSessionsPage(root, {
     api,
     config: { token: 't', version: 'v1.2.3', host: 'studio' },
     now: () => NOW,
     pollMs: 0,
+    header,
     ...extra,
   });
   await page.refresh();
   return {
     root,
+    header,
     page,
-    dispose() { page.dispose(); root.remove(); },
+    dispose() { page.dispose(); root.remove(); header.remove(); },
   };
+}
+
+/**
+ * Open the header's server chooser.
+ * @param {{header: HTMLElement}} m - From mount.
+ * @returns {Promise<HTMLElement>} The chooser.
+ */
+async function openChooser(m) {
+  const toggle = /** @type {HTMLButtonElement|null} */ (m.header.querySelector('button.ms-server-switch'));
+  assert(!!toggle, 'the header has no Change server');
+  if (toggle?.getAttribute('aria-expanded') !== 'true') toggle?.click();
+  await nextTask();
+  const pop = /** @type {HTMLElement|null} */ (document.querySelector('.ms-chooser'));
+  assert(!!pop, 'Change server opened nothing');
+  return /** @type {HTMLElement} */ (pop);
 }
 
 /**
@@ -1004,7 +1023,7 @@ export async function runTests() {
       openURL: (url) => { opened.push(url); },
       takesDroppedFolders: true,
       /** @type {((address: string) => Promise<void>)|undefined} */
-      connect: undefined,
+      switchServer: undefined,
       /** @type {(() => Promise<Array<{name: string, url: string, version?: string}>>)|undefined} */
       discover: undefined,
       pickDirectory: async () => picked,
@@ -1131,53 +1150,65 @@ export async function runTests() {
     assert(!api.calls.some((c) => c[1] === '/after/dispose'), 'a page taken down still opened a dropped folder');
   });
 
-  // Connect to another computer, from the server's page in a desktop window:
-  // the address goes to the app, which replaces this window with one onto
-  // that server's page.
-  await test('in a desktop window the page connects to another computer\'s server', async () => {
+  // The server a desktop window shows is chosen in its header, by the
+  // server's name itself: after the page's title, where the window is is a
+  // button, drawn as one that opens a menu, and it opens the chooser. There is
+  // no other button for it, and the body offers no other way to go to another
+  // computer. Where the window cannot switch (a browser tab), the name is
+  // plain text.
+  await test('the header\'s Change server chooses the server; the body has no Connect to another computer', async () => {
     const host = stubHost();
-    /** @type {string[]} */
-    const asked = [];
-    host.connect = async (/** @type {string} */ address) => {
-      asked.push(address);
-      if (address === 'ftp://x') throw new Error('That is not a server address. Enter one like http://devbox:3939.');
-    };
-    const m = await mount(stubApi([]), { host });
+    host.switchServer = async () => {};
+    host.discover = async () => [];
+    const m = await mount(withExposure(stubApi(sessions)), { host, config: { token: 't', version: 'v1.2.3', host: 'studio', local: true } });
     try {
-      const form = /** @type {HTMLFormElement|null} */ (m.root.querySelector('form.ms-connect'));
-      assert(!!form, 'no Connect to a server form in a desktop window');
-      const input = /** @type {HTMLInputElement} */ (form?.querySelector('input.ms-connect-input'));
-      input.value = 'ftp://x';
-      /** @type {HTMLFormElement} */ (form).requestSubmit();
-      await waitFor(() => (m.root.querySelector('.ms-connect-error')?.textContent || '') !== '', { description: 'the refusal' });
-      assert((m.root.querySelector('.ms-connect-error')?.textContent || '').includes('not a server address'), 'the refusal is not shown');
-      assert(input.value === 'ftp://x', 'the refused address was cleared');
-
-      input.value = '  devbox:3939 ';
-      /** @type {HTMLFormElement} */ (form).requestSubmit();
-      await nextTask();
-      assert(JSON.stringify(asked) === '["ftp://x","devbox:3939"]', `asked the app for ${JSON.stringify(asked)}`);
+      const headings = [...m.root.querySelectorAll('h2')].map((h) => h.firstChild?.textContent || '');
+      assert(!headings.includes('Connect to another computer'), `the body still has ${JSON.stringify(headings)}`);
+      assert(!m.root.querySelector('form.ms-connect, .ms-found'), 'the body still offers another computer\'s server');
+      const toggle = /** @type {HTMLButtonElement|null} */ (m.header.querySelector('button.ms-server-switch'));
+      assert(!!toggle, `the header has no Change server: ${m.header.innerHTML}`);
+      assert(m.header.querySelectorAll('button').length === 1, `the header has more than the server's own button: ${m.header.innerHTML}`);
+      assert((toggle?.textContent || '').trim() === 'studio', `the button does not name where the window is: ${JSON.stringify(toggle?.textContent)}`);
+      assert(!!toggle?.querySelector('.ms-icon svg'), 'the button is not drawn as one that opens a menu');
+      assert(toggle?.title === 'Change server…', `the button does not say what it does: ${JSON.stringify(toggle?.title)}`);
+      const title = m.header.querySelector('h1');
+      assert(title?.textContent === 'Sessions' && !!title && !!(title.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING),
+        'the server does not follow the page\'s title');
+      assert(!m.header.querySelector('.ms-subtitle'), 'the server is named twice: as text, and on its button');
+      assert(toggle?.getAttribute('aria-expanded') === 'false', 'Change server does not say it is closed');
+      const pop = await openChooser(m);
+      assert(toggle?.getAttribute('aria-expanded') === 'true', 'Change server does not say it is open');
+      assert(pop.getAttribute('role') === 'dialog' && !!pop.getAttribute('aria-label'), 'the chooser is not a labelled dialog');
+      assert(toggle?.getAttribute('aria-controls') === pop.id, 'Change server does not name the chooser it opens');
+      pop.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      assert(!pop.isConnected && toggle?.getAttribute('aria-expanded') === 'false', 'Escape left the chooser open');
+      await openChooser(m);
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      assert(!document.querySelector('.ms-chooser'), 'a click outside left the chooser open');
     } finally {
       m.dispose();
     }
     const plain = await mount(stubApi([]));
     try {
-      assert(!plain.root.querySelector('form.ms-connect'), 'a browser tab offers to connect a desktop window');
+      assert(!plain.header.querySelector('.ms-server-switch, button'), 'a browser tab offers to switch a desktop window');
+      assert((plain.header.querySelector('.ms-subtitle')?.textContent || '') === 'studio', 'a browser tab does not say which server it shows');
     } finally {
       plain.dispose();
     }
   });
 
   // The servers other computers announce on the network, which the app finds:
-  // each is listed under Connect with the address it would connect to, and its
-  // Connect hands the app that address — never one the page made up. The list
-  // follows what the app finds on each refresh, and is not there when nothing
-  // is found or the window cannot connect anywhere.
-  await test('in a desktop window the page lists the servers found on the network to connect to', async () => {
+  // each is listed in the chooser with the address it answered at, and
+  // choosing it hands the app that address — never one the page made up. The
+  // list follows what the app finds on each refresh. On this computer's own
+  // page, this computer is the server shown, so it is marked so and is no
+  // choice.
+  await test('Change server lists the servers found on the network, and switches to the one chosen', async () => {
     const host = stubHost();
     /** @type {string[]} */
     const asked = [];
-    host.connect = async (/** @type {string} */ address) => {
+    host.switchServer = async (/** @type {string} */ address) => {
       asked.push(address);
       if (address === 'http://192.168.1.10:3939') throw new Error('Could not reach it.');
     };
@@ -1189,50 +1220,73 @@ export async function runTests() {
     host.discover = async () => found;
     const m = await mount(stubApi([]), { host });
     try {
-      const list = /** @type {HTMLElement|null} */ (m.root.querySelector('form.ms-connect')?.closest('section')?.querySelector('.ms-found') ?? null);
-      assert(!!list && !list.hidden, 'the servers found are not listed under Connect');
+      const pop = await openChooser(m);
+      const list = /** @type {HTMLElement|null} */ (pop.querySelector('.ms-found'));
+      await waitFor(() => !!list && !list.hidden, { description: 'the servers found, in the chooser' });
       const rows = [...(list?.querySelectorAll('.ms-found-server') || [])];
       assert(JSON.stringify(rows.map((r) => r.getAttribute('data-url'))) === '["http://192.168.1.9:3939","http://192.168.1.10:3939"]',
         `listed ${JSON.stringify(rows.map((r) => r.getAttribute('data-url')))}`);
       assert((rows[0].textContent || '').includes('devbox') && (rows[0].textContent || '').includes('http://192.168.1.9:3939'),
         `a row does not say which server and where: ${JSON.stringify(rows[0].textContent)}`);
       assert((rows[0].textContent || '').includes('v1.0.0'), 'a row does not say the version it answered with');
+      assert(!!pop.querySelector('form.ms-connect input.ms-connect-input'), 'the chooser has no address box');
+      assert(!(pop.textContent || '').includes('This window becomes a window onto it'), 'the chooser still explains itself at length');
+      const hint = /** @type {HTMLElement|null} */ (pop.querySelector('.ms-found-hint'));
+      assert(!!hint && hint.hidden, 'with servers listed, the chooser still says how to find them');
+      const here = /** @type {HTMLButtonElement|null} */ (pop.querySelector('.ms-chooser-local button'));
+      assert(!!here && here.disabled && here.getAttribute('aria-current') === 'true',
+        'on this computer\'s page, This computer is not marked as the server shown, or is offered as a choice');
+      assert(!pop.querySelector('.ms-found [aria-current]'), 'a found server is marked as the one shown');
 
       /** @type {HTMLButtonElement} */ (rows[0].querySelector('button')).click();
       await nextTask();
       assert(JSON.stringify(asked) === '["http://192.168.1.9:3939"]', `asked the app for ${JSON.stringify(asked)}`);
-      /** @type {HTMLButtonElement} */ (rows[1].querySelector('button')).click();
-      await waitFor(() => (m.root.querySelector('.ms-connect-error')?.textContent || '') !== '', { description: 'the refusal' });
-      assert((m.root.querySelector('.ms-connect-error')?.textContent || '').includes('Could not reach it.'), 'a refused connect is not shown');
+      const again = await openChooser(m);
+      /** @type {HTMLButtonElement} */ (again.querySelector('.ms-found-server[data-url="http://192.168.1.10:3939"] button')).click();
+      await waitFor(() => (again.querySelector('.ms-connect-error')?.textContent || '') !== '', { description: 'the refusal' });
+      assert((again.querySelector('.ms-connect-error')?.textContent || '').includes('Could not reach it.'), 'a refused switch is not shown');
+      assert(again.isConnected, 'a refused switch closed the chooser, and its reason with it');
 
       found = [];
       await m.page.refresh();
-      await waitFor(() => !!list?.hidden, { description: 'the list to go once nothing is found' });
+      await waitFor(() => !!again.querySelector('.ms-found')?.hidden, { description: 'the list to go once nothing is found' });
+      const none = /** @type {HTMLElement|null} */ (again.querySelector('.ms-found-hint'));
+      assert(!!none && !none.hidden && (none.textContent || '') === 'Other computers appear here when their LAN access is on.',
+        `with nothing found, the chooser does not say how a computer is found: ${JSON.stringify(none?.textContent)}`);
     } finally {
       m.dispose();
     }
+    assert(!document.querySelector('.ms-chooser'), 'a page taken down left its chooser open');
+  });
 
-    const remote = stubHost();
-    const plain = await mount(stubApi([]), { host: remote });
+  await test('Change server switches to a typed address, trimmed, and says why one is refused', async () => {
+    const host = stubHost();
+    /** @type {string[]} */
+    const asked = [];
+    host.switchServer = async (/** @type {string} */ address) => {
+      asked.push(address);
+      if (address === 'ftp://x') throw new ControlApiError(400, 'That is not a server address. Enter one like http://devbox:3939.');
+    };
+    host.discover = async () => [];
+    const m = await mount(stubApi([]), { host });
     try {
-      assert(!plain.root.querySelector('.ms-found'), 'a window that cannot ask what is on the network lists servers');
-    } finally {
-      plain.dispose();
-    }
+      const pop = await openChooser(m);
+      const form = /** @type {HTMLFormElement} */ (pop.querySelector('form.ms-connect'));
+      const input = /** @type {HTMLInputElement} */ (form.querySelector('input.ms-connect-input'));
+      input.value = 'ftp://x';
+      form.requestSubmit();
+      await waitFor(() => (pop.querySelector('.ms-connect-error')?.textContent || '') !== '', { description: 'the refusal' });
+      assert((pop.querySelector('.ms-connect-error')?.textContent || '').includes('not a server address'), 'the refusal is not shown');
+      assert(input.value === 'ftp://x', 'the refused address was cleared');
 
-    await underPseudoLocale('machine-sessions-found', async () => {
-      const h = stubHost();
-      h.connect = async () => {};
-      h.discover = async () => [{ name: 'devbox', url: 'http://192.168.1.9:3939' }];
-      const p = await mount(stubApi([]), { host: h });
-      try {
-        const label = p.root.querySelector('.ms-found')?.getAttribute('aria-label') || '';
-        const connect = p.root.querySelector('.ms-found-server button')?.textContent || '';
-        assert(isPseudoLocalized(label) && isPseudoLocalized(connect), `the list was not translated: ${JSON.stringify([label, connect])}`);
-      } finally {
-        p.dispose();
-      }
-    });
+      input.value = '  devbox:3939 ';
+      form.requestSubmit();
+      await nextTask();
+      assert(JSON.stringify(asked) === '["ftp://x","devbox:3939"]', `asked the app for ${JSON.stringify(asked)}`);
+      assert(!(pop.querySelector('.ms-connect-error')?.textContent), 'a refusal outlived the next try');
+    } finally {
+      m.dispose();
+    }
   });
 
   // Looking for servers on the network can take the app seconds (each found
@@ -1241,14 +1295,15 @@ export async function runTests() {
   // found are listed whenever the app answers.
   await test('the sessions page does not wait for the servers found on the network', async () => {
     const host = stubHost();
-    host.connect = async () => {};
+    host.switchServer = async () => {};
     /** @type {(servers: Array<{name: string, url: string}>) => void} */
     let answer = () => {};
     host.discover = () => new Promise((resolve) => { answer = resolve; });
     const m = await mount(stubApi([]), { host });
     try {
       await m.page.refresh();
-      const list = /** @type {HTMLElement|null} */ (m.root.querySelector('.ms-found'));
+      const pop = await openChooser(m);
+      const list = /** @type {HTMLElement|null} */ (pop.querySelector('.ms-found'));
       assert(!!list?.hidden, 'servers are listed before the app has found any');
       answer([{ name: 'devbox', url: 'http://192.168.1.9:3939' }]);
       await waitFor(() => !list?.hidden, { description: 'the servers found, once the app answers' });
@@ -1257,14 +1312,183 @@ export async function runTests() {
     }
   });
 
-  // Connecting to another computer is a way of opening something, so it sits
-  // with opening a project and making a folder, in the sessions' column; the
-  // machine's ways in are a column of their own.
-  await test('Connect sits with opening a project, and the ways in are a column of their own', async () => {
+  // A window on another computer's server shows this computer's page with
+  // that server's page framed in it: the header is this page's, naming that
+  // server, and the body is the frame alone. The frame is handed the control
+  // address meant for it, never this page's own.
+  await test('a framed page shows the other server in a frame, and This computer to switch back to', async () => {
+    const api = withExposure(stubApi(sessions, ['/work/epsilon']));
     const host = stubHost();
-    host.connect = async () => {};
-    const m = await mount(withExposure(stubApi(sessions, ['/work/epsilon'])), {
+    /** @type {string[]} */
+    const asked = [];
+    host.switchServer = async (/** @type {string} */ address) => { asked.push(address); };
+    host.discover = async () => [
+      { name: 'Studio', url: 'http://192.168.1.10:3939' },
+      { name: 'devbox', url: 'http://devbox.invalid:3939', version: 'v1.0.0' },
+    ];
+    const framed = { server: 'http://devbox.invalid:3939', frameCtl: 'http://127.0.0.1:5555/fr4me/win/w1', theme: 'dark' };
+    const config = { token: 't', version: 'v1.2.3', host: 'studio', local: true };
+    const m = await mount(api, { host, config, framed });
+    try {
+      const frames = m.root.querySelectorAll('iframe');
+      assert(frames.length === 1, `${frames.length} frames, want 1`);
+      const src = new URL(frames[0].src);
+      assert(frames[0].src === `http://devbox.invalid:3939/?embed=1&external=1&nativeCtl=${encodeURIComponent(framed.frameCtl)}&theme=dark`,
+        `the frame shows ${frames[0].src}`);
+      assert(JSON.stringify(src.searchParams.getAll('nativeCtl')) === JSON.stringify([framed.frameCtl]),
+        `the frame is handed ${JSON.stringify(src.searchParams.getAll('nativeCtl'))}`);
+      assert(!!frames[0].title, 'the frame has no title');
+      assert(!m.root.querySelector('.ms-sessions, .ms-launch, .ms-new-folder, .ms-recents, .ms-exposure, .ms-side'),
+        `the body shows this computer's page too: ${m.root.innerHTML}`);
+      await m.page.refresh();
+      assert(!api.calls.some((c) => ['list', 'recents', 'getLAN', 'getTunnel', 'getStatus'].includes(c[0])),
+        `this computer's server was asked ${JSON.stringify(api.calls)}`);
+      assert(m.header.querySelector('h1')?.textContent === 'Sessions', 'the header has no title');
+      assert((m.header.querySelector('.ms-server-label')?.textContent || '') === 'devbox.invalid', `the header reads ${m.header.textContent}`);
+      assert(!(m.header.textContent || '').includes('studio') && !m.header.querySelector('.ms-version'),
+        'the header names this computer\'s server too');
+      assert(pageTitle(config, framed) === 'Sessions on devbox.invalid · Juggler', `the window is titled ${pageTitle(config, framed)}`);
+
+      const pop = await openChooser(m);
+      await waitFor(() => pop.querySelectorAll('.ms-found-server').length === 2, { description: 'the servers found' });
+      const current = /** @type {HTMLButtonElement|null} */ (pop.querySelector('.ms-found-server[data-url="http://devbox.invalid:3939"] button'));
+      assert(!!current?.disabled && current?.getAttribute('aria-current') === 'true', 'the server shown is not marked as current');
+      assert(pop.querySelectorAll('[aria-current]').length === 1, 'more than one server is marked as current');
+      const here = /** @type {HTMLButtonElement|null} */ (pop.querySelector('.ms-chooser-local button'));
+      assert(!!here && !here.disabled && !here.getAttribute('aria-current'), 'This computer is not offered to switch back to');
+      assert((here?.textContent || '').includes('This computer'), `the local choice reads ${here?.textContent}`);
+      here?.click();
+      await nextTask();
+      assert(JSON.stringify(asked) === '[""]', `asked the app for ${JSON.stringify(asked)}`);
+
+      // The window's close is still answered, with nothing to save first;
+      // a folder dropped is this machine's and opens nothing on the other.
+      window.dispatchEvent(new CustomEvent('juggler:window-close-requested', { detail: { ackToken: 'tok-framed' } }));
+      window.dispatchEvent(new CustomEvent('juggler:folder-dropped', { detail: { path: '/dropped/framed' } }));
+      await nextTask();
+      assert(JSON.stringify(host.closeAnswers) === '["tok-framed"]', `answered ${JSON.stringify(host.closeAnswers)}`);
+      assert(!api.calls.some((c) => c[1] === '/dropped/framed'), 'a dropped folder was opened in a framed window');
+    } finally {
+      m.dispose();
+    }
+
+    // A server shown that the app has not found is marked current under the
+    // address the window is on.
+    const typed = stubHost();
+    typed.switchServer = async () => {};
+    typed.discover = async () => [];
+    const t2 = await mount(stubApi([]), { host: typed, framed: { server: 'http://10.1.2.3:3939', frameCtl: 'http://127.0.0.1:5555/x/win/w2' } });
+    try {
+      const pop = await openChooser(t2);
+      const current = pop.querySelector('[aria-current="true"]');
+      assert(!!current && (current.textContent || '').includes('http://10.1.2.3:3939'), `the current server reads ${current?.textContent}`);
+      assert((t2.header.querySelector('.ms-server-label')?.textContent || '') === '10.1.2.3', `the header reads ${t2.header.textContent}`);
+    } finally {
+      t2.dispose();
+    }
+  });
+
+  // The app's menu commands land in the window's top page. A framed window
+  // passes on the ones the sessions page acts on to the framed page, at that
+  // server's origin only; the framed page takes those alone, and only from
+  // the page that frames it.
+  await test('menu commands reach the framed page, and the framed page takes only those, only from its framer', async () => {
+    const host = stubHost();
+    host.switchServer = async () => {};
+    /** @type {Array<[any, string]>} */
+    const posted = [];
+    const m = await mount(stubApi([]), {
       host,
+      framed: { server: 'http://devbox.invalid:3939', frameCtl: 'http://127.0.0.1:5555/fr4me/win/w1' },
+      postToFrame: (/** @type {any} */ message, /** @type {string} */ origin) => { posted.push([message, origin]); },
+    });
+    try {
+      window.dispatchEvent(new CustomEvent('juggler:open-project'));
+      window.dispatchEvent(new CustomEvent('juggler:new-window'));
+      window.dispatchEvent(new CustomEvent('juggler:open-about'));
+      assert(JSON.stringify(posted) === JSON.stringify([[{ type: 'juggler:open-project', detail: null }, 'http://devbox.invalid:3939']]),
+        `posted ${JSON.stringify(posted)}`);
+    } finally {
+      m.dispose();
+    }
+    window.dispatchEvent(new CustomEvent('juggler:open-project'));
+    assert(posted.length === 1, 'a page taken down still passed a command on');
+
+    const framer = document.createElement('iframe');
+    document.body.appendChild(framer);
+    const framerWin = /** @type {Window} */ (framer.contentWindow);
+    /** @type {string[]} */
+    const seen = [];
+    const onOpen = () => { seen.push('open-project'); };
+    const onClose = () => { seen.push('close'); };
+    window.addEventListener('juggler:open-project', onOpen);
+    window.addEventListener('juggler:window-close-requested', onClose);
+    const stop = relayFramerEvents(window, framerWin);
+    try {
+      window.dispatchEvent(new MessageEvent('message', { data: { type: 'juggler:open-project', detail: null }, source: framerWin }));
+      window.dispatchEvent(new MessageEvent('message', { data: { type: 'juggler:open-project' }, source: window }));
+      window.dispatchEvent(new MessageEvent('message', { data: { type: 'juggler:window-close-requested', detail: { ackToken: 'x' } }, source: framerWin }));
+      window.dispatchEvent(new MessageEvent('message', { data: 'juggler:open-project', source: framerWin }));
+      assert(JSON.stringify(seen) === '["open-project"]', `the framed page took ${JSON.stringify(seen)}`);
+      stop();
+      window.dispatchEvent(new MessageEvent('message', { data: { type: 'juggler:open-project' }, source: framerWin }));
+      assert(seen.length === 1, 'a stopped relay still passed a command on');
+    } finally {
+      stop();
+      window.removeEventListener('juggler:open-project', onOpen);
+      window.removeEventListener('juggler:window-close-requested', onClose);
+      framer.remove();
+    }
+  });
+
+  // The menu's Open (open-project) on the sessions page goes to the page's
+  // own way of opening a project.
+  await test('the menu\'s Open puts the cursor in Open a project', async () => {
+    const m = await mount(stubApi([]), { host: stubHost() });
+    try {
+      window.dispatchEvent(new CustomEvent('juggler:open-project'));
+      const input = m.root.querySelector('form.ms-launch input[name="project"]');
+      assert(!!input && document.activeElement === input, `focus is on ${document.activeElement?.outerHTML}`);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  await test('under en-XA the server chooser and the frame speak the pseudo-locale', async () => {
+    await underPseudoLocale('machine-sessions-chooser', async () => {
+      const h = stubHost();
+      h.switchServer = async () => {};
+      h.discover = async () => [{ name: 'devbox', url: 'http://192.168.1.9:3939' }];
+      const p = await mount(stubApi([]), { host: h, framed: { server: 'http://devbox.invalid:3939', frameCtl: 'http://127.0.0.1:5555/x/win/w1' } });
+      try {
+        const pop = await openChooser(p);
+        await waitFor(() => !!pop.querySelector('.ms-found-server'), { description: 'the servers found' });
+        const input = /** @type {HTMLInputElement|null} */ (pop.querySelector('input.ms-connect-input'));
+        // The button names the server by its host alone, which no locale
+        // translates; what it does is its title, below.
+        const texts = [
+          pop.getAttribute('aria-label') || '',
+          pop.querySelector('.ms-found')?.getAttribute('aria-label') || '',
+          pop.querySelector('.ms-chooser-local .ms-recent-name')?.textContent || '',
+          input?.placeholder || '',
+          input?.getAttribute('aria-label') || '',
+          pop.querySelector('form.ms-connect button')?.textContent || '',
+          p.root.querySelector('iframe')?.title || '',
+          p.header.querySelector('button.ms-server-switch')?.title || '',
+        ];
+        // The host is the server's own name, which no locale translates.
+        assert(texts.every((x) => isPseudoLocalized(x.replace('devbox.invalid', ''))), `not translated: ${JSON.stringify(texts)}`);
+      } finally {
+        p.dispose();
+      }
+    });
+  });
+
+  // Opening a project and making a folder sit in the sessions' column; the
+  // machine's ways in are a column of their own.
+  await test('the ways of opening a project sit with the sessions, and the ways in are a column of their own', async () => {
+    const m = await mount(withExposure(stubApi(sessions, ['/work/epsilon'])), {
+      host: stubHost(),
       config: { token: 't', version: 'v1.2.3', host: 'studio', local: true },
     });
     try {
@@ -1273,13 +1497,12 @@ export async function runTests() {
       assert(!!main && !!side, 'the page is not split into the sessions\' column and the ways in');
       const headings = [...(main?.querySelectorAll(':scope > .ms-section > h2') || [])]
         .map((h) => h.firstChild?.textContent || '');
-      assert(JSON.stringify(headings) === JSON.stringify(['Running', 'Open a project', 'New folder', 'Connect to another computer', 'Recent']),
+      assert(JSON.stringify(headings) === JSON.stringify(['Running', 'Open a project', 'New folder', 'Recent']),
         `the sessions' column reads ${JSON.stringify(headings)}`);
       const recent = /** @type {HTMLElement|null} */ (main?.querySelector(':scope > .ms-section:last-child'));
       assert(!!recent?.querySelector('.ms-recents [data-project="/work/epsilon"]') && !recent?.hidden,
         'the recent projects are not under Recent, at the bottom');
-      assert(!!side?.querySelector('.ms-exposure') && !side?.querySelector('form.ms-connect'),
-        'the ways in are not on their own, apart from Connect');
+      assert(!!side?.querySelector('.ms-exposure'), 'the ways in are not in a column of their own');
     } finally {
       m.dispose();
     }
@@ -1297,10 +1520,10 @@ export async function runTests() {
   await test('the header bar names the server and its version', () => {
     const titled = serverTitle({ token: 't', version: 'v1.2.3', host: 'studio', local: false });
     assert(titled.querySelector('h1')?.textContent === 'Sessions', `the title reads ${titled.querySelector('h1')?.textContent}`);
-    assert((titled.textContent || '').includes('Juggler on studio'), `no host in ${titled.textContent}`);
+    assert(titled.querySelector('.ms-subtitle')?.textContent === 'studio', `the server is not named by its machine alone: ${titled.textContent}`);
     assert(titled.querySelector('.ms-version')?.textContent === 'v1.2.3', 'no version');
     const here = serverTitle({ token: 't', version: '', host: '', local: true });
-    assert((here.textContent || '').includes('Juggler on this machine') && !here.querySelector('.ms-version'),
+    assert(here.querySelector('.ms-subtitle')?.textContent === 'This computer' && !here.querySelector('.ms-version'),
       `this machine's title reads ${here.textContent}`);
   });
 
@@ -1363,7 +1586,8 @@ export async function runTests() {
     const m = await mount(api, { host: remoteHost });
     try {
       assert(!m.root.querySelector('button.ms-launch-browse, button.ms-folder-browse'), 'Browse offers this machine\'s folders');
-      assert(!m.root.querySelector('form.ms-connect'), 'a window on a server by URL offers to connect elsewhere');
+      assert(!m.root.querySelector('form.ms-connect') && !m.header.querySelector('.ms-server-switch'),
+        'a window on a server by URL offers to switch to another server');
       window.dispatchEvent(new CustomEvent('juggler:folder-dropped', { detail: { path: '/dropped/here' } }));
       await nextTask();
       assert(!api.calls.some((c) => c[1] === '/dropped/here'), 'a folder dropped from this machine was opened there');
@@ -1424,13 +1648,16 @@ export async function runTests() {
     }
   });
 
-  await test('the desktop host offers this machine\'s folders and Connect only on this machine\'s server', () => {
-    const local = desktopHost({ external: false });
-    const remote = desktopHost({ external: true });
-    assert(typeof local.pickDirectory === 'function' && typeof local.connect === 'function' && local.takesDroppedFolders,
-      'a window on this machine\'s server lacks the folder chooser, Connect or folder drop');
-    assert(!remote.pickDirectory && !remote.connect && !remote.takesDroppedFolders,
-      'a window on a server by URL offers this machine\'s folders or Connect');
+  await test('the desktop host offers this machine\'s folders and Change server only on this machine\'s server', () => {
+    const local = /** @type {any} */ (desktopHost({ external: false }));
+    const remote = /** @type {any} */ (desktopHost({ external: true }));
+    const offers = typeof local.pickDirectory === 'function' && typeof local.switchServer === 'function'
+      && typeof local.discover === 'function' && local.takesDroppedFolders;
+    assert(offers,
+      'a window on this machine\'s server lacks the folder chooser, Change server or folder drop');
+    assert(!('connect' in local), 'the host offers connect, an action the app does not have');
+    assert(!remote.pickDirectory && !remote.switchServer && !remote.discover && !remote.takesDroppedFolders,
+      'a window on a server by URL offers this machine\'s folders or Change server');
     assert(typeof remote.attach === 'function' && typeof remote.answerClose === 'function', 'a window on a server by URL cannot open a session');
     assert(typeof remote.reopen === 'function' && !local.reopen,
       'only a window on a server by URL asks the app which session to reopen (this machine\'s windows are reopened by the app)');

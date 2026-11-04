@@ -211,6 +211,96 @@ func TestSessionsPageWearsTheAppsWindowChrome(t *testing.T) {
 	}
 }
 
+// TestSessionsPageEmbedsUnderAnotherMachinesHeader: ?embed=1 is the sessions
+// page as a desktop window on another computer frames it, below that window's
+// own header (which names this server and switches between servers): its body
+// alone, with no header bar and none of the chrome a top-level window wears,
+// and framable by a page on the viewer's own loopback only. The page itself
+// still refuses every frame, and /api/version says which embedded page this
+// server serves, so the app frames only a server that has one.
+func TestSessionsPageEmbedsUnderAnotherMachinesHeader(t *testing.T) {
+	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "" }}
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+
+	frameAncestors := func(hdr http.Header) string {
+		for _, d := range strings.Split(hdr.Get("Content-Security-Policy"), ";") {
+			if d = strings.TrimSpace(d); strings.HasPrefix(d, "frame-ancestors ") {
+				return d
+			}
+		}
+		return ""
+	}
+	ctl := url.QueryEscape("http://127.0.0.1:5555/s3cret/win/w1")
+	_, hdr, body := fetch(t, front.URL+"/?embed=1&external=1&nativeCtl="+ctl)
+	if got, want := frameAncestors(hdr), "frame-ancestors http://127.0.0.1:* http://localhost:* http://[::1]:*"; got != want {
+		t.Errorf("embedded: %q, want %q", got, want)
+	}
+	for _, absent := range []string{`<header class="app-header">`, "<window-caption-controls>", "/wails/runtime.js",
+		"/js/utils/window-edge-resize.js", `class="window-resize-strip"`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("embedded: the page has %s, which belongs to the window framing it", absent)
+		}
+	}
+	for _, want := range []string{`id="sessions-root"`, "/machine/sessions-page.js", "/css/tokens/scale.css", "dataset.externalServer"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("embedded: the page has no %s", want)
+		}
+	}
+	if decodePageConfig(t, body)["token"] != testToken {
+		t.Error("embedded: the page is not handed the control token")
+	}
+	for _, d := range strings.Split(hdr.Get("Content-Security-Policy"), ";") {
+		if d = strings.TrimSpace(d); strings.HasPrefix(d, "connect-src ") && d != "connect-src 'self' http://127.0.0.1:5555" {
+			t.Errorf("embedded: %q, want its window's control endpoint admitted", d)
+		}
+	}
+
+	for _, page := range []string{"/", "/?window=1"} {
+		if _, hdr, _ := fetch(t, front.URL+page); frameAncestors(hdr) != "frame-ancestors 'none'" {
+			t.Errorf("%s: %q, want no frame at all", page, frameAncestors(hdr))
+		}
+	}
+	_, _, version := fetch(t, front.URL+"/api/version")
+	if !strings.Contains(version, `"embedVersion":1`) {
+		t.Errorf("GET /api/version = %s, want embedVersion 1", version)
+	}
+}
+
+// TestSessionsPageFramesOnlyTheServerItIsAskedFor: a desktop window on another
+// computer's server loads this page with ?server=<that server>, and frames that
+// server's embedded page, so the CSP admits exactly that origin as a frame.
+// Anything that is not an http(s) server address frames nothing, and a page
+// without ?server= frames nothing at all.
+func TestSessionsPageFramesOnlyTheServerItIsAskedFor(t *testing.T) {
+	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "" }}
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+
+	frameSrc := func(query string) string {
+		t.Helper()
+		_, hdr, _ := fetch(t, front.URL+"/?window=1"+query)
+		for _, d := range strings.Split(hdr.Get("Content-Security-Policy"), ";") {
+			if d = strings.TrimSpace(d); strings.HasPrefix(d, "frame-src ") {
+				return d
+			}
+		}
+		return ""
+	}
+	for query, want := range map[string]string{
+		"&server=" + url.QueryEscape("http://devbox:3939"):          "frame-src http://devbox:3939",
+		"&server=" + url.QueryEscape("https://box.example.com/x?y"): "frame-src https://box.example.com",
+		"&server=" + url.QueryEscape("http://[fd00::9]:3939"):       "frame-src http://[fd00::9]:3939",
+		"&server=" + url.QueryEscape("javascript:alert(1)"):         "frame-src 'none'",
+		"&server=" + url.QueryEscape("http://a b;script-src *"):     "frame-src 'none'",
+		"": "frame-src 'none'",
+	} {
+		if got := frameSrc(query); got != want {
+			t.Errorf("%q: %q, want %q", query, got, want)
+		}
+	}
+}
+
 // moduleImportPattern finds a module's static imports, `import … from '…'`,
 // `export … from '…'` and `import '…'`, each at the start of a line, so the
 // import() types in JSDoc comments are not taken for one.

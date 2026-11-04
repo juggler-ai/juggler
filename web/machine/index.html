@@ -22,6 +22,11 @@
     <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/popup-surface.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/overlay-chrome.css">
     <link rel="stylesheet" href="{{.AssetBase}}/css/components/about-modal.css">
+    <!-- The server chooser the header's Change server opens, presented as the
+         app's dropdowns are (sessions-view.js): their container, and the
+         bottom sheet it is on a narrow window. -->
+    <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/menus.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/components/popup-sheet.css">
     <link rel="stylesheet" href="{{.AssetBase}}/machine/sessions.css">
 
     <!-- What the page's script needs from the server (control-api.js,
@@ -30,16 +35,20 @@
     <script type="module" src="{{.AssetBase}}/machine/sessions-page.js"></script>
 </head>
 <body>
-    {{template "window-shell-body" .}}
+    {{if not .Embed}}{{template "window-shell-body" .}}{{end}}
 
     <app-container>
+        {{if not .Embed}}
         <!-- The header bar a desktop window is dragged by: the wordmark, and
-             which server this is (sessions-view.js, serverTitle). -->
+             which server this is (sessions-view.js, serverTitle). Framed under
+             another computer's window (?embed=1), the page has none: that
+             window's own header names this server. -->
         <header class="app-header">
             <app-wordmark class="logo"></app-wordmark>
             <div id="sessions-title" class="ms-header-slot"></div>
             <window-caption-controls></window-caption-controls>
         </header>
+        {{end}}
         <div class="ms-scroll">
             <main id="sessions-root" class="ms-page"></main>
         </div>

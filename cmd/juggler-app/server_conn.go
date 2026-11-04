@@ -452,10 +452,10 @@ func (a *appState) serverLost(proc serverProc) {
 }
 
 // servedBy is the showView guard for a server process that has gone: the
-// window shows a page proc serves.
+// window shows a page proc serves — a framed view's outer page among them.
 func servedBy(proc serverProc) func(windowView) bool {
 	return func(now windowView) bool {
-		return now.standIn == nil && !now.spec.isURL() && now.server == proc
+		return now.standIn == nil && (!now.spec.isURL() || now.framed != "") && now.server == proc
 	}
 }
 

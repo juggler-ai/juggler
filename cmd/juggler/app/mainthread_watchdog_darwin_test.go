@@ -142,19 +142,26 @@ func TestMainThreadSilenceDetectsBlockedMainThread(t *testing.T) {
 // a real clock, and every answer the test grants bumps the pong count. The loop
 // owns all of it — its ping, clock and pong reads all run on the loop's
 // goroutine — so it needs no locking.
+//
+// The fake main thread answers exactly one ping, the launchPings-th: the one
+// its run loop drains when the app has finished launching. After that it is
+// silent unless the test grants an answer.
 type fakeMainThread struct {
-	clock    time.Time
-	pong     uint64
-	ticks    chan time.Time
-	captured *stallSample
-	wedged   chan *stallSample
+	clock       time.Time
+	pong        uint64
+	pings       int
+	launchPings int
+	ticks       chan time.Time
+	captured    *stallSample
+	wedged      chan *stallSample
 }
 
 func newWatchdogUnderTest(answerWhileSampled bool) (*fakeMainThread, *watchdogLoop) {
 	f := &fakeMainThread{
-		clock:  time.Unix(1_000_000, 0),
-		ticks:  make(chan time.Time),
-		wedged: make(chan *stallSample, 1),
+		clock:       time.Unix(1_000_000, 0),
+		launchPings: 1,
+		ticks:       make(chan time.Time),
+		wedged:      make(chan *stallSample, 1),
 	}
 	w := &watchdogLoop{
 		tick:   watchdogPingInterval,
@@ -162,8 +169,14 @@ func newWatchdogUnderTest(answerWhileSampled bool) (*fakeMainThread, *watchdogLo
 		ticks:  f.ticks,
 		wake:   func() <-chan struct{} { return nil },
 		now:    func() time.Time { return f.clock },
-		ping:   func() { f.clock = f.clock.Add(watchdogPingInterval) },
-		pongs:  func() uint64 { return f.pong },
+		ping: func() {
+			f.clock = f.clock.Add(watchdogPingInterval)
+			f.pings++
+			if f.pings == f.launchPings {
+				f.pong++
+			}
+		},
+		pongs: func() uint64 { return f.pong },
 		capture: func(time.Time) *stallSample {
 			f.captured = &stallSample{path: "/logs/mainthread-stall-1.sample.log"}
 			return f.captured
@@ -223,6 +236,36 @@ func TestWatchdogActsOnAWedgeThatOutlastsItsSample(t *testing.T) {
 		}
 	}
 	t.Fatal("a main thread silent through its own sample was never acted on")
+}
+
+// TestWatchdogWaitsForTheAppToFinishLaunching: the watchdog is armed before
+// AppKit's finishLaunching, which makes synchronous XPC calls to system daemons
+// (HIServices, cfprefsd) and drains nothing from the main queue until they
+// answer. A pool server on a busy machine was killed 11s after launch with its
+// main thread waiting in NSDictationManager, read as the DisplayLink wedge.
+// Silence counts only once the main thread has answered a first ping; after
+// that, a wedge is still a wedge.
+func TestWatchdogWaitsForTheAppToFinishLaunching(t *testing.T) {
+	f, w := newWatchdogUnderTest(false)
+	f.launchPings = int(3 * watchdogHangThreshold / watchdogPingInterval)
+	go w.run()
+	for range f.launchPings {
+		select {
+		case f.ticks <- time.Time{}:
+		case s := <-f.wedged:
+			t.Fatalf("acted on a wedge (sample %v) before the main thread had ever answered: a launch still waiting on system daemons is not wedged", s)
+		}
+	}
+	// The launch's answer lands on the last of those pings; from there on the
+	// main thread is silent, which is a wedge.
+	for range 2 * watchdogHangThreshold / watchdogPingInterval {
+		select {
+		case f.ticks <- time.Time{}:
+		case <-f.wedged:
+			return
+		}
+	}
+	t.Fatal("a main thread silent after it had finished launching was never acted on")
 }
 
 // --- crash-loop guard (pure) ---

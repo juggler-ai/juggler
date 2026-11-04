@@ -35,6 +35,11 @@ type ShellOperations struct {
 	// without waiting multiple real seconds.
 	killGrace time.Duration // after SIGTERM, wait this long before SIGKILL of the process group
 	reapGrace time.Duration // then wait at most this long for the process to exit before force-closing the pipe
+
+	// beforeOutcome, set by tests, runs just before ExecuteStreaming and execute
+	// read how a command ended, with the command's context and a channel that
+	// closes once its exit is waiting to be read. Nil in production.
+	beforeOutcome func(ctx context.Context, exited <-chan struct{})
 }
 
 // NewShellOperations creates a new shell operations handler

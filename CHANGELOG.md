@@ -28,6 +28,7 @@ the current release). The project follows semantic versioning.
 - Each in-app update logs its steps to `update-helper.log`, beside `app.log`
 - Clicking Juggler's Dock icon no longer opens a blank window whose Quit ends a session
 - Logging out of macOS waits for Juggler to shut down instead of being cancelled
+- A bash command killed by its timeout always reports the timeout, never a clean finish
 - On Linux without a session D-Bus, Juggler starts instead of exiting
 - Mouse back/forward buttons no longer navigate desktop windows off their page
 - Juggler's windows on Windows show the Juggler icon in Alt-Tab and the taskbar

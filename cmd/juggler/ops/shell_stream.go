@@ -136,11 +136,13 @@ func (ops *ShellOperations) ExecuteStreamingFor(
 	// moment the process is reaped and its pid stops naming it (see stoppingTask).
 	cmdDone := make(chan error, 1)
 	reaped := make(chan struct{})
+	exited := make(chan struct{}) // closes once cmdDone holds the exit
 	go func() {
 		waitErr := cmd.Wait()
 		releaseContainment(cmd)
 		close(reaped)
 		cmdDone <- waitErr
+		close(exited)
 		pipeWriter.Close()
 	}()
 
@@ -278,10 +280,48 @@ func (ops *ShellOperations) ExecuteStreamingFor(
 		}
 	})
 
-	// Wait for completion or cancellation
+	if ops.beforeOutcome != nil {
+		ops.beforeOutcome(ctx, exited)
+	}
+
+	// Wait for completion or cancellation. The command is built with ctx, so
+	// os/exec kills it the moment ctx ends, and its exit is often ready by the
+	// time ctx's end is read: which arm the select takes is then chance. An
+	// exit that failed while ctx was over is ctx's doing (on Windows the wait
+	// error is ctx.Err() itself, a tree closed with its job exiting 0), and is
+	// reported as the timeout or cancel it was.
+	var waitErr error
+	exitedFirst := false
 	select {
 	case <-ctx.Done():
+	case waitErr = <-cmdDone:
+		exitedFirst = true
+	}
+	if exitedFirst && (waitErr == nil || ctx.Err() == nil) {
 		stopWatchdog()
+		readerWG.Wait() // Wait for reader to exit before closing pipeReader
+		pipeReader.Close()
+		fwd.closeSpill() // flush the spill before suffix() names it in the marker
+		exitCode := 0
+		if waitErr != nil {
+			if code, ok := exitCodeOf(waitErr); ok {
+				exitCode = code
+			}
+		}
+		output <- ShellStreamChunk{
+			ShellID:     shellID,
+			Data:        fwd.suffix(),
+			Done:        true,
+			ExitCode:    exitCode,
+			OutputFile:  fwd.spillPath(),
+			OutputBytes: fwd.spillBytes(),
+			Truncated:   fwd.spilled(),
+		}
+		return
+	}
+
+	stopWatchdog()
+	if !exitedFirst {
 		// Context cancelled or timeout - send SIGTERM for graceful shutdown
 		if cmd.Process != nil {
 			_ = cmd.Process.Signal(syscall.SIGTERM)
@@ -304,46 +344,24 @@ func (ops *ShellOperations) ExecuteStreamingFor(
 		case <-cmdDone:
 		case <-time.After(ops.reapGraceOrDefault()):
 		}
-		pipeReader.Close() // unblock the reader even if the pipe's writer is still open
-		readerWG.Wait()    // bounded: the reader returns once the pipe is closed
-		fwd.closeSpill()   // flush the spill before suffix() names it in the marker
+	}
+	pipeReader.Close() // unblock the reader even if the pipe's writer is still open
+	readerWG.Wait()    // bounded: the reader returns once the pipe is closed
+	fwd.closeSpill()   // flush the spill before suffix() names it in the marker
 
-		errMsg := "command cancelled"
-		if stopper.requested() {
-			errMsg = killedByUser
-		} else if ctx.Err() == context.DeadlineExceeded {
-			errMsg = fmt.Sprintf("command timeout (exceeded %v)", timeout)
-		}
-		output <- ShellStreamChunk{
-			ShellID:     shellID,
-			Data:        fwd.suffix(),
-			Done:        true,
-			Error:       errMsg,
-			OutputFile:  fwd.spillPath(),
-			OutputBytes: fwd.spillBytes(),
-			Truncated:   fwd.spilled(),
-		}
-		return
-
-	case err := <-cmdDone:
-		stopWatchdog()
-		readerWG.Wait() // Wait for reader to exit before closing pipeReader
-		pipeReader.Close()
-		fwd.closeSpill() // flush the spill before suffix() names it in the marker
-		exitCode := 0
-		if err != nil {
-			if code, ok := exitCodeOf(err); ok {
-				exitCode = code
-			}
-		}
-		output <- ShellStreamChunk{
-			ShellID:     shellID,
-			Data:        fwd.suffix(),
-			Done:        true,
-			ExitCode:    exitCode,
-			OutputFile:  fwd.spillPath(),
-			OutputBytes: fwd.spillBytes(),
-			Truncated:   fwd.spilled(),
-		}
+	errMsg := "command cancelled"
+	if stopper.requested() {
+		errMsg = killedByUser
+	} else if ctx.Err() == context.DeadlineExceeded {
+		errMsg = fmt.Sprintf("command timeout (exceeded %v)", timeout)
+	}
+	output <- ShellStreamChunk{
+		ShellID:     shellID,
+		Data:        fwd.suffix(),
+		Done:        true,
+		Error:       errMsg,
+		OutputFile:  fwd.spillPath(),
+		OutputBytes: fwd.spillBytes(),
+		Truncated:   fwd.spilled(),
 	}
 }

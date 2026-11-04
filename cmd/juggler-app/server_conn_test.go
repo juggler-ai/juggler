@@ -128,12 +128,30 @@ func (s *stubMachineServer) publish() {
 	}
 }
 
-// gone stops the stand-in and removes server.json, as a server that exits does.
+// recordedAddr is the address server.json in dir names, or "" for none.
+func recordedAddr(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, "server.json"))
+	if err != nil {
+		return ""
+	}
+	var info machineserver.ServerInfo
+	if json.Unmarshal(data, &info) != nil {
+		return ""
+	}
+	return info.Addr
+}
+
+// gone stops the stand-in and removes server.json if it still names the
+// stand-in, as a server that exits does. The record goes before the listener:
+// once the stand-in stops answering, the app may start a successor, whose
+// record this must never take with it.
 func (s *stubMachineServer) gone() {
 	s.stopOnce.Do(func() {
 		close(s.stopped)
+		if recordedAddr(s.dir) == s.addr() {
+			_ = os.Remove(filepath.Join(s.dir, "server.json"))
+		}
 		s.srv.Close()
-		_ = os.Remove(filepath.Join(s.dir, "server.json"))
 	})
 }
 
@@ -560,6 +578,23 @@ func TestARebuiltServerIsAnotherVersion(t *testing.T) {
 	}
 	if fresh == nil || c.Addr() != fresh.addr() || fresh.attaches.Load() != 1 {
 		t.Fatalf("attached to %s; want the server the app started", c.Addr())
+	}
+}
+
+// TestAStandInGoingLeavesItsSuccessorsRecord pins the stand-in's exit to a
+// server's: a server removes server.json only while it is still its own. The
+// app starts a successor as soon as the stand-in it shut down stops answering,
+// so a stand-in that went on to remove server.json unconditionally could take
+// the successor's record with it — and Connect then waits for ever on a
+// server it started that records itself nowhere (twice under test-all, in
+// TestARebuiltServerIsAnotherVersion).
+func TestAStandInGoingLeavesItsSuccessorsRecord(t *testing.T) {
+	a := newTestAppState(t)
+	old := newStubMachineServer(t, a, core.Version)
+	successor := newStubMachineServer(t, a, core.Version)
+	old.gone()
+	if addr := recordedAddr(a.connectOpts.ConfigDir); addr != successor.addr() {
+		t.Fatalf("after the old stand-in went, server.json names %q; want the successor's record (%s)", addr, successor.addr())
 	}
 }
 

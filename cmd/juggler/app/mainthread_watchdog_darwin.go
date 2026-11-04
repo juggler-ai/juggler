@@ -96,8 +96,8 @@ func jugglerOnDidWake() {
 // main thread every pingInterval and recovers if no ping round-trips for
 // hangThreshold of served time — time in which the watchdog itself was run, so
 // a process that was stopped or starved is not condemned for the gap (see
-// mainThreadSilence). This
-// catches the WebKit DisplayLink lock-ordering deadlock that happens
+// mainThreadSilence), and only once the main thread has answered a first ping
+// (the app has finished launching; see watchdogLoop.run). This catches the WebKit DisplayLink lock-ordering deadlock that happens
 // across sleep/wake (see mainthread_watchdog_darwin.m for the full story).
 //
 // On a wedge the watchdog re-execs a fresh server image IN PLACE
@@ -231,6 +231,14 @@ func (w *watchdogLoop) run() {
 	// The sample started by the current stall, if any. Only ever touched from
 	// this goroutine, so it needs no synchronisation of its own.
 	var sample *stallSample
+	// Whether the main thread has answered any ping yet. It is armed before
+	// AppKit's finishLaunching, which waits on synchronous XPC to system
+	// daemons (HIServices, cfprefsd) and drains nothing from the main queue
+	// until they answer — a wait as long as those daemons are slow, not the
+	// DisplayLink wedge this watches for. Silence counts only from the first
+	// answer, when the run loop is up; a launch that never gets there is not
+	// something a re-exec would fix.
+	launched := false
 
 	for {
 		// Wait one tick, but break out early on a wake nudge so we can reset
@@ -255,6 +263,11 @@ func (w *watchdogLoop) run() {
 		cur := w.pongs()
 		answered := cur != lastPongSeen
 		lastPongSeen = cur
+		if !launched {
+			launched = answered
+			silence.reset(now)
+			continue
+		}
 		r := silence.observe(now, answered, now.Before(postWakeIgnoreUntil))
 		if r.recovered {
 			jlog.Info("Main thread recovered.")

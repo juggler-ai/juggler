@@ -7,6 +7,7 @@ package ops
 import (
 	"context"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,6 +84,64 @@ func TestExecuteStreaming_TimeoutReturnsDespiteEscapedChild(t *testing.T) {
 	}
 	if done.Error == "" {
 		t.Fatalf("timed-out command must report an error, got clean completion: %+v", done)
+	}
+}
+
+// outcomeRaceRuns is how many times the deadline-race tests run their command.
+// Each run leaves both of the code's select arms ready, so the code picks one at
+// random; a wrong arm escapes every run with probability 2^-outcomeRaceRuns.
+const outcomeRaceRuns = 16
+
+// holdOutcomeUntilBothReady is a beforeOutcome that returns only once the
+// command's deadline has passed and the kill it caused has been reaped, so the
+// deadline and the exit are both waiting when the outcome is read.
+func holdOutcomeUntilBothReady(ctx context.Context, exited <-chan struct{}) {
+	<-ctx.Done()
+	<-exited
+}
+
+// TestExecuteStreaming_DeadlineThatKilledTheCommandIsReported: the command is
+// built with its context, so os/exec kills it the moment the deadline passes,
+// and its exit is often ready by the time the deadline is read — on a busy
+// machine, nearly always. Which of the two the code sees first is a coin toss,
+// and the outcome must not depend on it: a command the deadline killed timed
+// out. (On Windows, where the kill is a job close that exits 0, the wrong arm
+// reported "clean completion" under test-all.)
+func TestExecuteStreaming_DeadlineThatKilledTheCommandIsReported(t *testing.T) {
+	requirePOSIXShell(t)
+	shellOps := NewShellOperations(NewPathScope(t.TempDir(), nil))
+	shellOps.killGrace = 50 * time.Millisecond
+	shellOps.reapGrace = 300 * time.Millisecond
+	shellOps.beforeOutcome = holdOutcomeUntilBothReady
+	for run := range outcomeRaceRuns {
+		out := make(chan ShellStreamChunk, 64)
+		go shellOps.ExecuteStreaming(context.Background(), "shell-race", "", "exec sleep 5", "", 200, out)
+		var done ShellStreamChunk
+		for c := range out {
+			if c.Done {
+				done = c
+			}
+		}
+		if !done.Done || !strings.Contains(done.Error, "timeout") {
+			t.Fatalf("run %d: a command its deadline killed ended %+v; want a timeout error", run, done)
+		}
+	}
+}
+
+// TestExecute_DeadlineThatKilledTheCommandIsReported is the foreground twin.
+func TestExecute_DeadlineThatKilledTheCommandIsReported(t *testing.T) {
+	requirePOSIXShell(t)
+	shellOps := NewShellOperations(NewPathScope(t.TempDir(), nil))
+	shellOps.reapGrace = 300 * time.Millisecond
+	shellOps.beforeOutcome = holdOutcomeUntilBothReady
+	for run := range outcomeRaceRuns {
+		res, err := shellOps.execute(context.Background(), map[string]any{
+			"command": "exec sleep 5",
+			"timeout": float64(200),
+		})
+		if err == nil || !strings.Contains(err.Error(), "timeout") {
+			t.Fatalf("run %d: a command its deadline killed returned %v, %v; want a timeout error", run, res, err)
+		}
 	}
 }
 

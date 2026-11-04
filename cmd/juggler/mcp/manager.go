@@ -91,11 +91,15 @@ type ServerStatus struct {
 // is the one exception: once assigned it is safe for concurrent use (the SDK
 // session is goroutine-safe), so callTool can use it off-goroutine.
 type serverState struct {
-	name     string
-	cfg      ServerConfig
-	status   string
-	lastErr  string
-	tools    []ToolInfo
+	name    string
+	cfg     ServerConfig
+	status  string
+	lastErr string
+	tools   []ToolInfo
+	// rawTools is the server's own tool list before cfg's filter and fixed
+	// arguments shape it into tools, kept so an edit to either reshapes the
+	// list without respawning the server.
+	rawTools []ToolInfo
 	srvName  string
 	srvVer   string
 	session  *mcp.ClientSession
@@ -129,6 +133,7 @@ const (
 	reqSnapshotSettled
 	reqListTools
 	reqEnsure
+	reqAwait
 	reqControl
 	reqGetLog
 	reqSetHook
@@ -238,6 +243,15 @@ func (m *Manager) run() {
 		case reqEnsure:
 			m.handleEnsure(servers, req)
 
+		case reqAwait:
+			// Parked with the callTool callers, which are woken at the same
+			// terminal outcomes; the result itself is unused.
+			if s := servers[req.server]; s != nil && s.status == statusStarting {
+				s.waiters = append(s.waiters, forward(req.resp))
+			} else {
+				req.resp <- mcpResp{}
+			}
+
 		case reqControl:
 			req.resp <- mcpResp{err: m.handleControl(servers, req.server, req.action, activeProject)}
 
@@ -275,6 +289,7 @@ func (m *Manager) run() {
 
 		case evSetTools:
 			if s := servers[req.server]; s != nil && s.generation == req.generation {
+				s.rawTools = req.tools
 				s.tools = applyServerConfig(s.cfg, req.tools)
 				m.notifyChange()
 			}
@@ -347,6 +362,11 @@ func discoveryComplete(servers map[string]*serverState) bool {
 
 // reconcile diffs the desired config against running servers: it stops servers
 // that were removed or disabled, updates configs, and starts newly-enabled ones.
+//
+// A server whose spawn config (spawnKey) changed is spawned again, because its
+// process is the old command with the old environment; a failed one gets a fresh
+// set of attempts, since the edit is likely its fix. An edit that changes only
+// how its tools are shaped reshapes the list it already has.
 func (m *Manager) reconcile(servers map[string]*serverState, project string) {
 	desired, err := loadMergedConfig(project)
 	if err != nil {
@@ -382,6 +402,15 @@ func (m *Manager) reconcile(servers map[string]*serverState, project string) {
 			changed = true
 		}
 		wasUntrusted := s.status == statusUntrusted
+		if dc.IsEnabled() && s.status != statusStopped && !wasUntrusted && spawnKey(s.cfg) != spawnKey(dc) {
+			jlog.Info("[mcp] config of server %q changed; restarting it", name)
+			m.stopServer(s)
+			s.attempts = 0
+			changed = true
+		} else if s.rawTools != nil && toolShapeKey(s.cfg) != toolShapeKey(dc) {
+			s.tools = applyServerConfig(dc, s.rawTools)
+			changed = true
+		}
 		s.cfg = dc
 		if dc.IsEnabled() && (s.status == statusStopped || (wasUntrusted && !dc.untrusted)) {
 			m.startServer(s)
@@ -458,6 +487,7 @@ func (m *Manager) stopServer(s *serverState) {
 	}
 	s.status = statusStopped
 	s.tools = nil
+	s.rawTools = nil
 	// Fail any parked callers.
 	m.drainWaiters(s, ensureResult{err: fmt.Errorf("mcp server %q stopped", s.name)})
 }
@@ -597,6 +627,7 @@ func (m *Manager) handleConnected(servers map[string]*serverState, req mcpReq) {
 		return
 	}
 	s.session = req.session
+	s.rawTools = req.tools
 	s.tools = applyServerConfig(s.cfg, req.tools)
 	s.srvName = req.srvName
 	s.srvVer = req.srvVer
@@ -624,6 +655,7 @@ func (m *Manager) handleCrashed(servers map[string]*serverState, req mcpReq) {
 	}
 	s.session = nil
 	s.tools = nil
+	s.rawTools = nil
 	errMsg := "server exited"
 	if req.err != nil {
 		errMsg = req.err.Error()

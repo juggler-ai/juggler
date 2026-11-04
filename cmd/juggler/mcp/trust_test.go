@@ -145,6 +145,33 @@ func TestTrustIsPerCommand(t *testing.T) {
 	}
 }
 
+// An edit to a trusted project server's env is a command the user has not
+// trusted, so the running process stops and waits for trust instead of carrying
+// on as the old command.
+func TestEditedProjectServerStopsUntilTrusted(t *testing.T) {
+	writeGlobalConfig(t, map[string]ServerConfig{})
+	project := t.TempDir()
+	writeProjectConfig(t, project, map[string]ServerConfig{"repo": fakeServerConfig("serve")})
+	if err := trustProjectServer(project, "repo"); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager()
+	m.Start()
+	m.Reconcile(project)
+	if !waitFor(t, 15*time.Second, func() bool { return statusOf(m, "repo").Status == statusRunning }) {
+		t.Fatalf("trusted server never ran: %+v", statusOf(m, "repo"))
+	}
+
+	edited := fakeServerConfig("serve")
+	edited.Env["EXTRA"] = "1"
+	writeProjectConfig(t, project, map[string]ServerConfig{"repo": edited})
+	m.Reconcile(project)
+	if got := statusOf(m, "repo"); got.Status != statusUntrusted {
+		t.Fatalf("an edited project server kept running as %+v, want untrusted", got)
+	}
+}
+
 // mcp.json can hold bearer tokens in headers and secrets in env.
 func TestConfigFileIsPrivate(t *testing.T) {
 	if runtime.GOOS == "windows" {

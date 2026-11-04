@@ -107,6 +107,32 @@ func (c ServerConfig) transportKind() string {
 	return c.Transport
 }
 
+// spawnKey identifies what a server's process is: the fields that decide what is
+// spawned or connected to. Two configs with the same key are the same process,
+// so the manager respawns a running server exactly when its key changes. JSON
+// encoding sorts map keys, so equal configs always give equal keys.
+func spawnKey(c ServerConfig) string {
+	data, _ := json.Marshal(struct {
+		Transport string            `json:"transport"`
+		Command   string            `json:"command,omitempty"`
+		Args      []string          `json:"args,omitempty"`
+		Env       map[string]string `json:"env,omitempty"`
+		URL       string            `json:"url,omitempty"`
+		Headers   map[string]string `json:"headers,omitempty"`
+	}{c.transportKind(), c.Command, c.Args, c.Env, c.URL, c.Headers})
+	return string(data)
+}
+
+// toolShapeKey identifies how a server's discovered tools are shaped for the
+// model (applyServerConfig): its visibility filter and fixed arguments.
+func toolShapeKey(c ServerConfig) string {
+	data, _ := json.Marshal(struct {
+		Tools            *ToolFilter    `json:"tools,omitempty"`
+		DefaultArguments map[string]any `json:"defaultArguments,omitempty"`
+	}{c.Tools, c.DefaultArguments})
+	return string(data)
+}
+
 // Config is the parsed mcp.json document.
 type Config struct {
 	Servers map[string]ServerConfig `json:"mcpServers"`

@@ -99,6 +99,26 @@ Juggler stores it under `transport` next time it writes the file.
 | `defaultArguments` | all | Fixed arguments merged into every call — see below. |
 | `autoApprove` | all | `true` runs the server's tools without asking. Global file only — see below. |
 
+### When an edit takes effect
+
+There's nothing to restart by hand, Juggler least of all. An edit to either
+file — in Settings, in an editor, or by the agent — is read at the next MCP
+call. A running server whose `command`, `args`, `env`, `transport`, `url` or
+`headers` changed is restarted then. A change to `tools` or `defaultArguments`
+applies to the server already running. A local server in a project's file is a
+command the repository supplied, so once edited it stops and waits for you to
+trust it again in Settings → MCP servers.
+
+A local server's environment is Juggler's own, as it was when Juggler started,
+plus its `env`. A variable you set since then, system-wide or in a shell
+profile, never reaches it, and `.juggler/env.json` is for shell commands only
+([Project environment](./project-env.md)). Put what a server needs in its `env`.
+
+To restart a server by hand — say it reads a config file of its own — use the
+Restart button, `/mcp restart <name>`, or ask the agent: it has a
+`McpRestartServer` tool whenever a server is configured, which asks you first
+and reports back whether the server came up and, if not, its error and output.
+
 ## Authentication
 
 Juggler sends the static `headers` you configure and nothing else. There is **no
@@ -216,7 +236,9 @@ the token count in the conversation footer. That opens the round-trip's record,
 whose tools row lists every tool definition the model received.
 
 A server has 30 seconds to connect. A local server that dies is restarted up to
-three times, and the tail of its stderr is attached to the error.
+three times, and the tail of its stderr is attached to the error. A server that
+fails on a variable it can't see wants it in its `env` — see
+[When an edit takes effect](#when-an-edit-takes-effect).
 
 | What you see | What it means |
 |---|---|

@@ -201,6 +201,34 @@ function refreshOnce() {
 // at top level: a slow/failed fetch must never wedge registry init.
 refreshOnce();
 
+/**
+ * Callbacks this extension's other modules hang on the same triggers that
+ * refresh the snapshot, so the one websocket subscription below serves them.
+ * @type {Set<() => void>}
+ */
+const mcpChangeListeners = new Set();
+
+/**
+ * Run `fn` whenever the MCP server set may have changed: the manager's
+ * `plugin-changed` broadcast, and a (re)connect.
+ * @param {() => void} fn - Callback
+ * @returns {void}
+ */
+export function onMcpChange(fn) {
+  mcpChangeListeners.add(fn);
+}
+
+/** @returns {void} Runs every listener, each isolated from the others' failures */
+function notifyMcpChange() {
+  for (const fn of mcpChangeListeners) {
+    try {
+      fn();
+    } catch (err) {
+      console.debug('[MCP] A change listener failed:', err);
+    }
+  }
+}
+
 // Refresh whenever the tool set changes. The Go manager broadcasts
 // `plugin-changed` (via the server) on every snapshot change — a server became
 // ready, crashed, or sent tools/list_changed — which the engine also uses to
@@ -209,8 +237,8 @@ refreshOnce();
 // listener, so our refresh is registered first and runs ahead of the rebuild.
 // We also refresh on (re)connect, by which point the API token is installed.
 try {
-  wsService.on('plugin-changed', () => { void refreshSnapshot(); });
-  wsService.on('open', () => { void refreshSnapshot(); });
+  wsService.on('plugin-changed', () => { void refreshSnapshot(); notifyMcpChange(); });
+  wsService.on('open', () => { void refreshSnapshot(); notifyMcpChange(); });
 } catch {
   // No wsService in this context (e.g. a bare unit harness) — the initial
   // refresh above still applies.

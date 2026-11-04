@@ -102,6 +102,11 @@ func (o *operations) Execute(ctx context.Context, operation string, params map[s
 		if err := manager.Control(server, action); err != nil {
 			return nil, err
 		}
+		// A caller that must act on the outcome (the agent's restart tool) asks
+		// to be answered once the server has settled rather than while starting.
+		if wait, _ := params["wait"].(bool); wait {
+			manager.AwaitSettled(ctx, server)
+		}
 		return map[string]any{"servers": manager.ListServers()}, nil
 
 	case "getLog":
@@ -320,6 +325,21 @@ func (m *Manager) Snapshot(ctx context.Context) ([]ToolInfo, bool) {
 		m.reqCh <- mcpReq{kind: reqSnapshot, resp: unsettled}
 		r := <-unsettled
 		return r.tools, r.complete
+	}
+}
+
+// AwaitSettled returns once server is no longer starting: it is running, or it
+// has given up (failed, untrusted, stopped), its crash restarts included. It
+// starts nothing, so a server that is not starting returns at once. The wait is
+// bounded by the server's own progress and by ctx, never by a span of its own.
+func (m *Manager) AwaitSettled(ctx context.Context, server string) {
+	resp := make(chan mcpResp, 1)
+	m.reqCh <- mcpReq{kind: reqAwait, server: server, resp: resp}
+	select {
+	case <-resp:
+	case <-ctx.Done():
+		// The parked waiter's channel is buffered, so the manager's later
+		// send lands harmlessly.
 	}
 }
 

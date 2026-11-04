@@ -132,7 +132,9 @@ may withhold some. Juggler Core provides:
 
 Other built-in extensions add **AboutJuggler** (this manual),
 **ReadJugglerSource** (the app's SDK and example-extension source), MCP server
-tools, and **exa_search** (Exa web search; needs an Exa API key in its settings).
+tools plus **McpRestartServer** (restart one MCP server, offered once a server is
+configured), and **exa_search** (Exa web search; needs an Exa API key in its
+settings).
 
 ## Strategies
 
@@ -176,7 +178,8 @@ Defaults → Keep recent conversation says; **/compact all** folds everything),
 conversation to continue), **/thread** (new sub-conversation thread),
 **/export** (save as an HTML page to share), **/commands** (manage custom
 commands), **/init** (have the agent survey the project and draft an
-AGENTS.md), **/shell** (run a shell command yourself). Juggler MCP adds **/mcp**.
+AGENTS.md), **/shell** (run a shell command yourself). Juggler MCP adds **/mcp**
+(list servers; /mcp restart <name> restarts one).
 
 **Running a command yourself**: start a message with "!" ("! npm run lint" is
 the same as "/shell npm run lint"). The command is posted to the conversation
@@ -308,6 +311,14 @@ three JSON files of names to values, merged in this order, later winning:
 Values are not expanded, and an edit applies to the next command. MCP servers,
 and providers that run commands with their own shell such as the Claude Code
 CLI, do not get them.
+
+**MCP servers** are configured in mcp.json (the global one, or
+<project>/.juggler/mcp.json; Settings → MCP servers writes either). A local
+server's environment is Juggler's own from when Juggler started, plus the "env"
+block of its entry; variables set since then never reach it. An edit to an
+entry is applied at the next MCP call: a server whose command, args, env,
+transport, url or headers changed is restarted then, with no Juggler restart.
+An edited server from a project's file waits to be trusted again.
 
 ## Extensions
 

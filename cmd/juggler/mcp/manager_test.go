@@ -51,9 +51,14 @@ func TestMain(m *testing.M) {
 }
 
 // runFakeServer serves a tiny MCP server over stdio: an echo tool (write) and a
-// peek tool annotated read-only.
+// peek tool annotated read-only. It reports MCP_FAKE_VERSION as its version when
+// set, so a test can tell which spawn of a server it is talking to.
 func runFakeServer() {
-	srv := mcp.NewServer(&mcp.Implementation{Name: "fake", Version: "9.9.9"}, nil)
+	version := os.Getenv("MCP_FAKE_VERSION")
+	if version == "" {
+		version = "9.9.9"
+	}
+	srv := mcp.NewServer(&mcp.Implementation{Name: "fake", Version: version}, nil)
 	objSchema := map[string]any{
 		"type":       "object",
 		"properties": map[string]any{"msg": map[string]any{"type": "string"}},
@@ -321,6 +326,92 @@ func TestManagerToolFilterAndDefaultArgs(t *testing.T) {
 	}
 	if strings.Contains(text, `"msg":"model"`) {
 		t.Errorf("model value should have been overridden, got %q", text)
+	}
+}
+
+// An edit to a running server's env, command or args is a different process, so
+// the next reconcile must spawn it again rather than keep the old one running
+// with the old environment until someone restarts it by hand.
+func TestReconcileRestartsOnSpawnConfigChange(t *testing.T) {
+	cfg := fakeServerConfig("serve")
+	cfg.Env["MCP_FAKE_VERSION"] = "1.0.0"
+	writeGlobalConfig(t, map[string]ServerConfig{"fake": cfg})
+
+	m := NewManager()
+	m.Start()
+	m.Reconcile("")
+	if !waitFor(t, 15*time.Second, func() bool {
+		s := statusOf(m, "fake")
+		return s.Status == statusRunning && s.ServerVer == "1.0.0"
+	}) {
+		t.Fatalf("fake server never reached running: %+v", statusOf(m, "fake"))
+	}
+
+	edited := fakeServerConfig("serve")
+	edited.Env["MCP_FAKE_VERSION"] = "2.0.0"
+	writeGlobalConfig(t, map[string]ServerConfig{"fake": edited})
+	m.Reconcile("")
+	if !waitFor(t, 15*time.Second, func() bool {
+		s := statusOf(m, "fake")
+		return s.Status == statusRunning && s.ServerVer == "2.0.0"
+	}) {
+		t.Fatalf("an env edit did not respawn the server: %+v", statusOf(m, "fake"))
+	}
+}
+
+// What a server is allowed to show and the arguments fixed for it are read per
+// call, so editing them must leave the running process alone.
+func TestReconcileKeepsServerOnFilterOnlyChange(t *testing.T) {
+	writeGlobalConfig(t, map[string]ServerConfig{"fake": fakeServerConfig("serve")})
+
+	m := NewManager()
+	m.Start()
+	m.Reconcile("")
+	if !waitFor(t, 15*time.Second, func() bool { return statusOf(m, "fake").Status == statusRunning }) {
+		t.Fatalf("fake server never reached running: %+v", statusOf(m, "fake"))
+	}
+
+	edited := fakeServerConfig("serve")
+	edited.Tools = &ToolFilter{Allow: []string{"echo"}}
+	edited.DefaultArguments = map[string]any{"msg": "fixed"}
+	writeGlobalConfig(t, map[string]ServerConfig{"fake": edited})
+	m.Reconcile("")
+	// Reconcile has been processed by now, and a restart leaves the server
+	// starting, so a running status here means it was kept.
+	if s := statusOf(m, "fake"); s.Status != statusRunning {
+		t.Fatalf("a filter-only edit restarted the server: %+v", s)
+	}
+	if tools := m.ListTools("fake"); len(tools) != 1 || tools[0].Name != "echo" {
+		t.Fatalf("the new filter was not applied to the running server: %+v", tools)
+	}
+}
+
+// A restart's caller needs its outcome, not "starting": AwaitSettled returns
+// once the server is running or has given up, with the reason it gave up.
+func TestAwaitSettledReportsRestartOutcome(t *testing.T) {
+	old := restartBackoff
+	restartBackoff = 10 * time.Millisecond
+	t.Cleanup(func() { restartBackoff = old })
+
+	writeGlobalConfig(t, map[string]ServerConfig{
+		"fake": fakeServerConfig("serve"),
+		"boom": fakeServerConfig("crash"),
+	})
+	m := NewManager()
+	m.Start()
+	m.Reconcile("")
+
+	for name, want := range map[string]string{"fake": statusRunning, "boom": statusFailed} {
+		if err := m.Control(name, "restart"); err != nil {
+			t.Fatalf("restart %s: %v", name, err)
+		}
+		m.AwaitSettled(t.Context(), name)
+		if got := statusOf(m, name); got.Status != want {
+			t.Errorf("%s settled as %+v, want %s", name, got, want)
+		}
+	}
+	if s := statusOf(m, "boom"); !strings.Contains(s.Error, "boom") {
+		t.Errorf("a failed restart should carry the server's stderr, got %q", s.Error)
 	}
 }
 

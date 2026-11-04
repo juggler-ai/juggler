@@ -1781,8 +1781,9 @@ export async function mcpCallTool(params, signal) {
 }
 
 /**
- * Control a server's lifecycle.
- * @param {{server: string, action: 'start'|'stop'|'restart'|'reload'}} params
+ * Control a server's lifecycle. With `wait`, a start or restart answers once
+ * the server is running or has given up, rather than while it is starting.
+ * @param {{server: string, action: 'start'|'stop'|'restart'|'reload', wait?: boolean}} params
  * @param {AbortSignal} [signal]
  * @returns {Promise<{servers: McpServerStatus[]}>} Updated server list
  */

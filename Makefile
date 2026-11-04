@@ -548,9 +548,11 @@ win-icon:
 ## standard sizes to iconutil. If anything in that pipeline fails we fall
 ## back to assets/icons/juggler-logo.png; if that's missing too we leave the bundle
 ## iconless rather than failing the build.
-## Its translatable text (NSMicrophoneUsageDescription), CFBundleLocalizations
-## and the .lproj localizations are added by scripts/i18n-bundle, from
-## packaging/messages.json and the UI catalogues in web/i18n.
+## Its translatable text (NSMicrophoneUsageDescription,
+## NSLocalNetworkUsageDescription), CFBundleLocalizations
+## and the .lproj localizations are added, to the app and to the server's own
+## bundle, by scripts/i18n-bundle, from packaging/messages.json and the UI
+## catalogues in web/i18n.
 mac-app-meta:
 ifeq ($(UNAME_S),Darwin)
 	@printf '%s\n' \
@@ -579,6 +581,8 @@ ifeq ($(UNAME_S),Darwin)
 		'    <key>LSHandlerRank</key><string>Alternate</string>' \
 		'    <key>LSItemContentTypes</key><array><string>public.folder</string></array>' \
 		'  </dict></array>' \
+		'  <!-- The Juggler servers announce each other under (internal/lanfind). -->' \
+		'  <key>NSBonjourServices</key><array><string>_juggler._tcp</string></array>' \
 		'</dict></plist>' \
 		> $(MAC_APP_PLIST)
 	@# The server's own bundle (see MAC_SERVER_APP): its own identifier, so
@@ -601,12 +605,18 @@ ifeq ($(UNAME_S),Darwin)
 		'  <key>CFBundleVersion</key><string>$(VERSION)</string>' \
 		'  <key>LSMinimumSystemVersion</key><string>14.0</string>' \
 		'  <key>LSUIElement</key><true/>' \
+		'  <key>NSBonjourServices</key><array><string>_juggler._tcp</string></array>' \
 		'</dict></plist>' \
 		> $(MAC_SERVER_PLIST)
 	@ln -sfn JugglerServer.app/Contents/MacOS/$(BINARY_NAME) $(MAC_APP_CLI_LINK)
 	@# NSMicrophoneUsageDescription is there because TCC attributes a tool
-	@# subprocess's request to its responsible app.
+	@# subprocess's request to its responsible app; NSLocalNetworkUsageDescription
+	@# covers the app's browsing and connecting and, while the app started it,
+	@# the server's announcing itself. A server started any other way (juggler
+	@# serve from a terminal) is its own responsible process, so its bundle
+	@# carries the same text and its own NSBonjourServices.
 	@node scripts/i18n-bundle mac $(MAC_APP_DIR)/Contents
+	@node scripts/i18n-bundle mac $(MAC_SERVER_APP)/Contents
 	@tmp=$$(mktemp -d); \
 	base=$$(basename "$(MAC_ICON_SRC)" .icon); \
 	if [ -d "$(MAC_ICON_SRC)" ] && xcrun actool "$(MAC_ICON_SRC)" \

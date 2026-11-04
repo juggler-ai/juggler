@@ -142,7 +142,8 @@ body {
 /* Lists */
 
 .ms-sessions,
-.ms-recents {
+.ms-recents,
+.ms-found {
     list-style: none;
     display: flex;
     flex-direction: column;
@@ -153,7 +154,8 @@ body {
 }
 
 .ms-session,
-.ms-recent {
+.ms-recent,
+.ms-found-server {
     display: flex;
     align-items: center;
     gap: var(--spacing-md);
@@ -161,7 +163,8 @@ body {
 }
 
 .ms-session + .ms-session,
-.ms-recent + .ms-recent {
+.ms-recent + .ms-recent,
+.ms-found-server + .ms-found-server {
     border-top: 1px solid var(--border-divider);
 }
 
@@ -204,6 +207,17 @@ body {
     white-space: nowrap;
     direction: rtl;
     text-align: left;
+}
+
+/* A found server's address and version: an address reads from its start, so
+   unlike a path it is cut at its end. */
+.ms-found-address {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--text-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .ms-session-status {
@@ -508,7 +522,8 @@ body {
     }
 
     .ms-session,
-    .ms-recent {
+    .ms-recent,
+    .ms-found-server {
         flex-wrap: wrap;
         padding: var(--spacing-md);
     }

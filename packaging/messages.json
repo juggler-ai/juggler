@@ -1,6 +1,7 @@
 {
   "infoPlist": {
-    "NSMicrophoneUsageDescription": "A program you ran from Juggler asked to use the microphone."
+    "NSMicrophoneUsageDescription": "A program you ran from Juggler asked to use the microphone.",
+    "NSLocalNetworkUsageDescription": "Juggler connects to Juggler on other computers on your network, lists the ones it finds there, and lets them find this one while LAN access is on."
   },
   "inno": {
     "AddToPath": "Add Juggler to PATH (run 'juggler' from any terminal)",

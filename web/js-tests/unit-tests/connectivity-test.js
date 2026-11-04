@@ -296,6 +296,25 @@ export async function runTests(_ctx) {
     });
   });
 
+  // The note that other computers can find this one is there only while the
+  // server says its announcement is running: one that failed to start, or a
+  // server that announces nothing, gets no such claim.
+  await run('LAN access says the machine is findable only while it is announced', async () => {
+    const urls = [{ url: 'http://192.168.1.4:3939/', interface: 'en0', qr: QR }];
+    const says = 'announces itself on the network';
+    for (const [announced, want] of /** @type {[boolean|undefined, boolean][]} */ ([[true, true], [false, false], [undefined, false]])) {
+      await withRoutes({ exposure: true, lan: { enabled: true, urls, announced }, tunnel: { modes: [], running: null } }, async () => {
+        const { el } = await mountWith({ clientCount: 1, clients: [], exposure: true });
+        try {
+          const text = el.querySelector('#connectivity-lan-section')?.textContent || '';
+          assert(text.includes(says) === want, `announced ${announced}: the section ${want ? 'does not say' : 'says'} it is announced: ${text}`);
+        } finally {
+          el.remove();
+        }
+      });
+    }
+  });
+
   await run('LAN access on with no address says so', async () => {
     await withRoutes({ exposure: true, lan: { enabled: true, urls: [] }, tunnel: { modes: [], running: null } }, async () => {
       const { el } = await mountWith({ clientCount: 1, clients: [], exposure: true });

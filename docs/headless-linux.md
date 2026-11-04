@@ -61,7 +61,9 @@ Without it the server accepts connections from this machine only. LAN access is
 off whenever the server starts, unless `--lan` or the saved
 `connectivity.lanOnLaunch` in `~/.juggler/settings.json` turns it on, and
 `juggler server lan on|off` switches it while it runs. There is no password: anyone who can reach the address can use
-the server, so turn it on only on networks you trust.
+the server, so turn it on only on networks you trust. While LAN access is on,
+the server also announces itself on the network (as `_juggler._tcp`, under this
+machine's name), so the desktop app on another computer lists it to connect to.
 
 `juggler server status`, `juggler server sessions` and `juggler server stop`
 manage it from another terminal on the same machine.
@@ -70,8 +72,8 @@ manage it from another terminal on the same machine.
 
 On the machine you work at, choose **Session ▸ Open or connect to a new
 session…** (or open a new window), use **Connect to another computer** on the
-sessions page it shows, and
-enter the server's address, such as `http://devbox:3939`. The window becomes
+sessions page it shows: pick the server from the ones found on your network,
+or enter its address, such as `http://devbox:3939`. The window becomes
 one onto that server's sessions page; open a session there and it shows in the
 same window. Like a project window, it reopens each time the app starts, on the
 server's page — so a normal launch goes straight to the headless server.

@@ -51,6 +51,7 @@ import { createCopyButton } from '../../../sdk/lib/copy-button.js';
  * @typedef {object} LANState
  * @property {boolean} enabled - Whether devices on this network may come in
  * @property {ExposureURL[]} urls - This machine's addresses on its networks, while enabled
+ * @property {boolean} [announced] - Whether the server is announcing itself on the network, so other computers' apps list it
  */
 
 /**
@@ -478,6 +479,15 @@ export class ExposureView {
         addresses.appendChild(addressCard(u, [u.session
           ? t('Scan with a phone on the same network to open this session, or open either address on another device.')
           : t('Scan with a phone on the same network, or open the address on another device.')], this._openAddress));
+      }
+      if (lan.urls.length > 0 && lan.announced) {
+        // The server announces itself on the network while LAN access is on
+        // (machineserver startAdvertising), unless the network or the OS
+        // would not let it.
+        const announced = document.createElement('div');
+        announced.className = 'connectivity-note';
+        announced.textContent = t('This computer also announces itself on the network, so Juggler on other computers can find it under Connect to another computer.');
+        addresses.appendChild(announced);
       }
       row.appendChild(addresses);
     }

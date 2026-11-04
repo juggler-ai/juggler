@@ -8,10 +8,14 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 
+	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/msg"
 	"juggler/internal/jlog"
+	"juggler/internal/lanfind"
 	"juggler/internal/qrsvg"
 )
 
@@ -20,7 +24,10 @@ import (
 // it on only if serve --lan or the saved connectivity.lanOnLaunch says to
 // (launchExposure); switching it while running is never remembered. Only a
 // caller on this machine may switch it or read its addresses (localOnly):
-// exposure is the machine owner's decision, never a viewer's.
+// exposure is the machine owner's decision, never a viewer's. While it is on,
+// the server also announces itself on the network (startAdvertising), which is
+// how another computer's desktop app lists it under "Connect to another
+// computer".
 
 // lanAddress is a reachable LAN address (IPv4 or IPv6) and the network
 // interface it belongs to, so each can be told apart when several exist.
@@ -113,10 +120,13 @@ func (s *Server) askedSession(r *http.Request) string {
 }
 
 // lanResponse is the GET/PUT /api/server/lan payload: whether LAN access is
-// on and, while it is, where to connect from.
+// on and, while it is, where to connect from and whether the server is
+// announcing itself on the network there (startAdvertising), so the page claims
+// other computers can find it only while they can.
 type lanResponse struct {
-	Enabled bool     `json:"enabled"`
-	URLs    []lanURL `json:"urls"`
+	Enabled   bool     `json:"enabled"`
+	URLs      []lanURL `json:"urls"`
+	Announced bool     `json:"announced"`
 }
 
 // lanState is LAN access as it stands, with the URLs while it is on and,
@@ -126,6 +136,7 @@ func (s *Server) lanState(sessionPath string) lanResponse {
 	if !resp.Enabled {
 		return resp
 	}
+	resp.Announced = s.advert.Load() != nil
 	_, port, err := net.SplitHostPort(s.addr)
 	if err != nil {
 		return resp
@@ -141,18 +152,68 @@ func (s *Server) lanState(sessionPath string) lanResponse {
 	return resp
 }
 
-// setLAN switches LAN access, saying where to connect from once it is on.
+// setLAN switches LAN access, saying where to connect from once it is on, and
+// announces the server on the network for exactly as long as it is.
 func (s *Server) setLAN(on bool) {
 	if s.lan.Swap(on) == on {
 		return
 	}
 	if !on {
+		s.stopAdvertising()
 		jlog.Info("🔒 LAN access off: this server accepts connections from this machine only")
 		return
 	}
 	jlog.Info("📡 LAN access on — no password: anyone on this network can use this server")
 	for _, u := range s.lanState("").URLs {
 		jlog.Info("   %s (%s)", u.URL, u.Interface)
+	}
+	s.startAdvertising()
+}
+
+// advertiseLAN is what Serve announces a server with (Server.advertise). A
+// seam: the package's tests announce nothing on a real network.
+var advertiseLAN = lanfind.Advertise
+
+// startAdvertising announces this server on the network under this machine's
+// name, so the desktop app on another computer lists it to connect to. A
+// failure (no multicast on this network, the OS refusing it) is logged and
+// changes nothing else: the server is reachable by its address all the same.
+//
+// LAN access switched off while the announcement starts is caught by the
+// check after it is published: whichever of the two runs second stops it.
+func (s *Server) startAdvertising() {
+	if s.advertise == nil {
+		return
+	}
+	_, portStr, err := net.SplitHostPort(s.addr)
+	if err != nil {
+		return
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return
+	}
+	host, _ := os.Hostname()
+	name := lanfind.InstanceName(host)
+	stop, err := s.advertise(name, port, core.Version)
+	if err != nil {
+		jlog.Info("   not announced on this network (other computers can still use the addresses above): %v", err)
+		return
+	}
+	if prev := s.advert.Swap(&stop); prev != nil {
+		(*prev)()
+	}
+	if !s.lan.Load() {
+		s.stopAdvertising()
+		return
+	}
+	jlog.Info("   announced on this network as %q", name)
+}
+
+// stopAdvertising ends the server's announcement, if one is running.
+func (s *Server) stopAdvertising() {
+	if stop := s.advert.Swap(nil); stop != nil {
+		(*stop)()
 	}
 }
 

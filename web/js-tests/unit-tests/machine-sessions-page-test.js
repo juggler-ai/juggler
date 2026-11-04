@@ -1005,6 +1005,8 @@ export async function runTests() {
       takesDroppedFolders: true,
       /** @type {((address: string) => Promise<void>)|undefined} */
       connect: undefined,
+      /** @type {(() => Promise<Array<{name: string, url: string, version?: string}>>)|undefined} */
+      discover: undefined,
       pickDirectory: async () => picked,
       /** @type {(token: string) => Promise<void>} */
       answerClose: async (token) => { closeAnswers.push(token); },
@@ -1163,6 +1165,95 @@ export async function runTests() {
       assert(!plain.root.querySelector('form.ms-connect'), 'a browser tab offers to connect a desktop window');
     } finally {
       plain.dispose();
+    }
+  });
+
+  // The servers other computers announce on the network, which the app finds:
+  // each is listed under Connect with the address it would connect to, and its
+  // Connect hands the app that address — never one the page made up. The list
+  // follows what the app finds on each refresh, and is not there when nothing
+  // is found or the window cannot connect anywhere.
+  await test('in a desktop window the page lists the servers found on the network to connect to', async () => {
+    const host = stubHost();
+    /** @type {string[]} */
+    const asked = [];
+    host.connect = async (/** @type {string} */ address) => {
+      asked.push(address);
+      if (address === 'http://192.168.1.10:3939') throw new Error('Could not reach it.');
+    };
+    /** @type {Array<{name: string, url: string, version?: string}>} */
+    let found = [
+      { name: 'devbox', url: 'http://192.168.1.9:3939', version: 'v1.0.0' },
+      { name: 'Studio', url: 'http://192.168.1.10:3939' },
+    ];
+    host.discover = async () => found;
+    const m = await mount(stubApi([]), { host });
+    try {
+      const list = /** @type {HTMLElement|null} */ (m.root.querySelector('form.ms-connect')?.closest('section')?.querySelector('.ms-found') ?? null);
+      assert(!!list && !list.hidden, 'the servers found are not listed under Connect');
+      const rows = [...(list?.querySelectorAll('.ms-found-server') || [])];
+      assert(JSON.stringify(rows.map((r) => r.getAttribute('data-url'))) === '["http://192.168.1.9:3939","http://192.168.1.10:3939"]',
+        `listed ${JSON.stringify(rows.map((r) => r.getAttribute('data-url')))}`);
+      assert((rows[0].textContent || '').includes('devbox') && (rows[0].textContent || '').includes('http://192.168.1.9:3939'),
+        `a row does not say which server and where: ${JSON.stringify(rows[0].textContent)}`);
+      assert((rows[0].textContent || '').includes('v1.0.0'), 'a row does not say the version it answered with');
+
+      /** @type {HTMLButtonElement} */ (rows[0].querySelector('button')).click();
+      await nextTask();
+      assert(JSON.stringify(asked) === '["http://192.168.1.9:3939"]', `asked the app for ${JSON.stringify(asked)}`);
+      /** @type {HTMLButtonElement} */ (rows[1].querySelector('button')).click();
+      await waitFor(() => (m.root.querySelector('.ms-connect-error')?.textContent || '') !== '', { description: 'the refusal' });
+      assert((m.root.querySelector('.ms-connect-error')?.textContent || '').includes('Could not reach it.'), 'a refused connect is not shown');
+
+      found = [];
+      await m.page.refresh();
+      await waitFor(() => !!list?.hidden, { description: 'the list to go once nothing is found' });
+    } finally {
+      m.dispose();
+    }
+
+    const remote = stubHost();
+    const plain = await mount(stubApi([]), { host: remote });
+    try {
+      assert(!plain.root.querySelector('.ms-found'), 'a window that cannot ask what is on the network lists servers');
+    } finally {
+      plain.dispose();
+    }
+
+    await underPseudoLocale('machine-sessions-found', async () => {
+      const h = stubHost();
+      h.connect = async () => {};
+      h.discover = async () => [{ name: 'devbox', url: 'http://192.168.1.9:3939' }];
+      const p = await mount(stubApi([]), { host: h });
+      try {
+        const label = p.root.querySelector('.ms-found')?.getAttribute('aria-label') || '';
+        const connect = p.root.querySelector('.ms-found-server button')?.textContent || '';
+        assert(isPseudoLocalized(label) && isPseudoLocalized(connect), `the list was not translated: ${JSON.stringify([label, connect])}`);
+      } finally {
+        p.dispose();
+      }
+    });
+  });
+
+  // Looking for servers on the network can take the app seconds (each found
+  // server is asked whether it still answers), and the sessions list never
+  // waits for it: a refresh is done once the sessions are, and the servers
+  // found are listed whenever the app answers.
+  await test('the sessions page does not wait for the servers found on the network', async () => {
+    const host = stubHost();
+    host.connect = async () => {};
+    /** @type {(servers: Array<{name: string, url: string}>) => void} */
+    let answer = () => {};
+    host.discover = () => new Promise((resolve) => { answer = resolve; });
+    const m = await mount(stubApi([]), { host });
+    try {
+      await m.page.refresh();
+      const list = /** @type {HTMLElement|null} */ (m.root.querySelector('.ms-found'));
+      assert(!!list?.hidden, 'servers are listed before the app has found any');
+      answer([{ name: 'devbox', url: 'http://192.168.1.9:3939' }]);
+      await waitFor(() => !list?.hidden, { description: 'the servers found, once the app answers' });
+    } finally {
+      m.dispose();
     }
   });
 

@@ -8,7 +8,7 @@
  *
  * On this machine's server the app shows a session in the window, has the
  * folder chooser, takes dropped folders and connects to another computer's
- * server. In a window on a server by URL (another computer's: `external`) the
+ * server, listing those it finds on the network. In a window on a server by URL (another computer's: `external`) the
  * page's folders are not this machine's and the window may not be pointed at a
  * third server, so the app only shows a session there, answers a close, and
  * says which project's session the window showed when it last quit.
@@ -79,5 +79,19 @@ export function desktopHost({ external }) {
     pickDirectory,
     takesDroppedFolders: true,
     connect: (address) => post('connect', `?url=${encodeURIComponent(address)}`),
+    discover,
   };
+}
+
+/**
+ * The servers other computers announce on this network that the app has
+ * found, each as it answered: none when the app cannot look there. An app
+ * that refuses the question throws, as any refused action does.
+ * @returns {Promise<import('./sessions-view.js').FoundServer[]>} The servers.
+ */
+async function discover() {
+  const resp = await request('discover', '');
+  /** @type {{servers?: unknown}|null} */
+  const body = resp ? await resp.json().catch(() => null) : null;
+  return Array.isArray(body?.servers) ? body.servers : [];
 }

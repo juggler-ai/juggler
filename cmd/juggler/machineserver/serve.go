@@ -327,6 +327,11 @@ func Serve(opts ServeOptions) error {
 	if names := allowed.Names(); len(names) > 0 {
 		jlog.Info("🔀 Also serving under %s (reverse proxy on this machine; its callers count as remote)", strings.Join(names, ", "))
 	}
+	if !opts.TestChildren {
+		// The test harness's servers stay off the network's lists.
+		s.advertise = advertiseLAN
+	}
+	defer s.stopAdvertising()
 	lan, openMode := launchExposure(opts)
 	s.setLAN(lan)
 

@@ -116,6 +116,12 @@ dropped folders (which would reveal local paths), the updater, connecting
 elsewhere, quitting, and restarting this machine's server. Connect only to
 servers you trust.
 
+The servers that page lists as found on your network are the ones announcing
+themselves there (a server does while its LAN access is on), and anyone on the
+network can make such an announcement. So the app lists a server only while it
+answers at the address it announced, shows that address beside its name, and
+connects to it only when you choose it.
+
 ### Sessions share one origin (by design)
 
 Every session's UI is served from the server's own address, under its

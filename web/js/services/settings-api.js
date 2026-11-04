@@ -246,6 +246,7 @@ export function getConnectivity(policy = {}) {
  * @typedef {object} LANState
  * @property {boolean} enabled - Whether devices on this network may come in
  * @property {ExposureURL[]} urls - This machine's addresses on its networks, while enabled
+ * @property {boolean} [announced] - Whether the server is announcing itself on the network, so other computers' apps list it
  */
 
 /**

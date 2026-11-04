@@ -252,7 +252,8 @@ func anyRequest(*http.Request) bool { return true }
 // Refused it, as app-wide or on this machine's files: locale (the app's
 // language and menus), zoom (the next window's zoom), folder-dropped,
 // pick-directory and pick-file (they answer with a local path), updater,
-// connect, and the stand-in actions retry-server, start-server,
+// connect and discover (choosing another server to connect to), and the
+// stand-in actions retry-server, start-server,
 // restart-server and open-local, which no page of another server shows.
 var windowActions = map[string]controlAction{
 	"theme":          {handle: (*appState).controlTheme, remote: anyRequest},
@@ -278,6 +279,7 @@ var windowActions = map[string]controlAction{
 	}},
 	"updater":        {handle: (*appState).handleUpdaterControl},
 	"connect":        {handle: (*appState).controlConnect, refusal: &connectFromURLWindowRefusal},
+	"discover":       {handle: (*appState).controlDiscover, refusal: &connectFromURLWindowRefusal},
 	"quit":           {handle: (*appState).controlQuit, remote: anyRequest},
 	"retry-server":   {handle: (*appState).controlRetryServer},
 	"start-server":   {handle: (*appState).controlStartServer},

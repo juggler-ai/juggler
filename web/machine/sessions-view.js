@@ -81,12 +81,18 @@ const RECENTS_SHOWN = 8;
  *   pickDirectory?: () => Promise<string|null>,
  *   takesDroppedFolders?: boolean,
  *   connect?: (address: string) => Promise<void>,
+ *   discover?: () => Promise<FoundServer[]>,
  *   openURL?: (url: string) => void,
  *   reopen?: () => Promise<string>,
  * }} NativeHost
+ * @typedef {{name: string, url: string, version?: string}} FoundServer
+ *   A server another computer announces on the network, as the app found it:
+ *   the name it announced, and the address it answered at, which is what
+ *   Connect hands the app.
  *   The desktop app (native-host.js). attach is told the session's project too,
  *   which the app keeps for the window. The folder chooser, dropped folders and
- *   Connect are there only in a window on this machine's server; reopen only in
+ *   Connect — with discover, the servers the app has found on the network to
+ *   connect to — are there only in a window on this machine's server; reopen only in
  *   a window on a server by URL, answering the project whose session the window
  *   showed when the app last quit ('' for none), which the page opens again.
  *   openURL opens an address in the system browser, which a click on a link to
@@ -451,6 +457,12 @@ export function mountSessionsPage(root, {
     connectInput,
     el('button', { className: 'ms-button ms-button-primary', text: t('Connect'), attrs: { type: 'submit' } }),
   ]));
+  // The servers the app has found on the network, above the address field;
+  // hidden while there are none.
+  const foundList = host?.connect && host.discover
+    ? el('ul', { className: 'ms-found', attrs: { 'aria-label': t('Found on this network') } })
+    : null;
+  if (foundList) foundList.hidden = true;
   const connectSection = host?.connect
     ? el('section', { className: 'ms-section' }, [
       el('h2', { text: t('Connect to another computer') }),
@@ -458,6 +470,7 @@ export function mountSessionsPage(root, {
         className: 'ms-lan-note',
         text: t('Juggler on another computer on this network, with LAN access turned on there. This window becomes a window onto it.'),
       }),
+      foundList,
       connectForm,
       connectError,
     ])
@@ -509,19 +522,30 @@ export function mountSessionsPage(root, {
   }
   showConnectError('');
 
-  connectForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const address = connectInput.value.trim();
-    if (!address || !host?.connect) {
-      connectInput.focus();
-      return;
-    }
+  /**
+   * Ask the app to make this window one onto the server at address, saying
+   * why if it will not.
+   * @param {string} address - The server's address, as typed or as found.
+   * @returns {Promise<void>} Resolves once the app has answered.
+   */
+  async function connectTo(address) {
+    if (!host?.connect) return;
     showConnectError('');
     try {
       await host.connect(address);
     } catch (err) {
       showConnectError(err instanceof Error ? errorText(err) : t('Could not connect to that server.'));
     }
+  }
+
+  connectForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const address = connectInput.value.trim();
+    if (!address) {
+      connectInput.focus();
+      return;
+    }
+    void connectTo(address);
   });
 
   /**
@@ -862,6 +886,52 @@ export function mountSessionsPage(root, {
   }
 
   /**
+   * One server found on the network, and its Connect: the address it answered
+   * at, which the row shows, is what the app is asked to connect to.
+   * @param {FoundServer} server - The server.
+   * @returns {HTMLElement} Its list item.
+   */
+  function foundRow(server) {
+    const where = server.version ? `${server.url} · ${server.version}` : server.url;
+    return el('li', { className: 'ms-found-server', attrs: { 'data-url': server.url } }, [
+      el('div', { className: 'ms-recent-main' }, [
+        el('div', { className: 'ms-recent-name', text: server.name }),
+        el('div', { className: 'ms-found-address', text: where }),
+      ]),
+      button(t('Connect'), 'ms-button-quiet ms-found-connect', () => { void connectTo(server.url); }),
+    ]);
+  }
+
+  // Asks of the app overlap when one takes longer than a poll (it asks each
+  // server it found whether it still answers), so each is numbered, and an
+  // answer older than the one shown is dropped.
+  let foundAsked = 0;
+  let foundShown = 0;
+
+  /**
+   * Ask the app which servers it has found on the network, and redraw the
+   * list. One it cannot answer leaves the list as last shown: the address
+   * field is there either way.
+   * @returns {Promise<void>} Resolves once redrawn.
+   */
+  async function refreshFound() {
+    if (!foundList || !host?.discover) return;
+    const asked = ++foundAsked;
+    /** @type {FoundServer[]} */
+    let servers;
+    try {
+      servers = await host.discover();
+    } catch {
+      return;
+    }
+    if (disposed || asked < foundShown) return;
+    foundShown = asked;
+    const valid = (servers || []).filter((x) => x && typeof x.url === 'string' && typeof x.name === 'string');
+    foundList.replaceChildren(...valid.map(foundRow));
+    foundList.hidden = valid.length === 0;
+  }
+
+  /**
    * One recent project's row, and its Open: a link to the project's link when
    * the server named one, which a plain click opens here as the button would.
    * @param {string} project - The folder.
@@ -946,10 +1016,13 @@ export function mountSessionsPage(root, {
    * Ask the server for everything the page shows — the sessions, and the
    * machine's ways in with what opens at start, a failure of which leaves
    * them as last shown, since the sessions list says when the server cannot
-   * be reached — and redraw.
-   * @returns {Promise<void>} Resolves once redrawn.
+   * be reached — and redraw. The app is asked for the servers it has found
+   * too, but not waited for: that can take it seconds, and the list of them
+   * is drawn whenever it answers.
+   * @returns {Promise<void>} Resolves once the sessions and ways in are redrawn.
    */
   async function refresh() {
+    void refreshFound();
     await Promise.all([refreshSessions(), exposure ? exposure.refresh() : null]);
   }
 

@@ -59,6 +59,11 @@ type Server struct {
 	// lan is LAN access: off unless serve --lan or this machine turns it on
 	// (lan.go), and while off every caller off loopback is refused (lanGate).
 	lan atomic.Bool
+	// advertise announces this server on the network while LAN access is on
+	// (lanfind.Advertise; see advertiseLAN); nil announces nothing. advert is
+	// the running announcement's stop.
+	advertise func(name string, port int, version string) (stop func(), err error)
+	advert    atomic.Pointer[func()]
 	// assets is the web tree the sessions page and its assets are served from
 	// (ServeOptions.Assets); nil serves no page.
 	assets fs.FS

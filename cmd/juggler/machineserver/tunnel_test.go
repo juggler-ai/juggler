@@ -45,6 +45,9 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// No test announces a server on a real network; TestLANAccessIsAdvertisedWhileOn
+	// watches the announcement through Server.advertise.
+	advertiseLAN = func(string, int, string) (func(), error) { return func() {}, nil }
 	tunnel.RegisterMode(tunnel.ModeSpec{
 		Mode:        fwdMode,
 		Title:       msg.New("Fake relay"),

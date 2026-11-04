@@ -13,11 +13,11 @@ import (
 	"juggler/cmd/juggler/msg"
 )
 
-// Connecting to a server by its address: Session ▸ Connect to Server…, which
-// puts up a panel in a session's page, or "Connect to another computer" on the
-// sessions page an empty window shows; both post the typed address here. The window that opens is a connected one (see
-// windowSpec), so it is part of the workspace set and reopens at every launch
-// until it is closed.
+// Connecting to a server by its address: "Connect to another computer" on the
+// sessions page an empty window shows posts here the address typed there, or
+// that of a server it lists as found on the network (discover.go). The window
+// that opens is a connected one (see windowSpec), so it is part of the
+// workspace set and reopens at every launch until it is closed.
 //
 // A server by address can be down when the app starts, and a window onto it
 // would then be a blank page with nothing in it to act on. So a window whose
@@ -80,7 +80,7 @@ func normaliseServerURL(raw string) (string, bool) {
 }
 
 // controlConnect opens a window onto the server the page names, in reply to its
-// Connect to Server panel.
+// Connect to another computer.
 //
 // Only a window on this machine's server — a project's session or an empty
 // window — may ask. A window on a server by URL is showing a page that server

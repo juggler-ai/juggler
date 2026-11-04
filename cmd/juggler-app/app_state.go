@@ -308,6 +308,9 @@ type appState struct {
 	// launched is set once the app has started, before which there is no main
 	// thread to relabel the menus on (relabelMenus).
 	launched atomic.Bool
+
+	// finder finds the servers other computers announce (discover.go).
+	finder *lanFinder
 }
 
 func newAppState(devMode int) *appState {
@@ -322,6 +325,7 @@ func newAppState(devMode int) *appState {
 		ids:          make(chan string),
 		connectOpts:  machineserver.ConnectOptions{Start: startServer},
 		serverBuild:  bundledServerBuild(),
+		finder:       newLANFinder(),
 	}
 	a.startConn()
 	go func() {

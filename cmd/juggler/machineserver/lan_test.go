@@ -6,15 +6,22 @@ package machineserver
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"juggler/cmd/juggler/core"
+	"juggler/internal/lanfind"
 	"juggler/internal/userpaths/userpathstest"
 )
 
@@ -110,6 +117,61 @@ func TestLANAccessListsTheAddressesToUse(t *testing.T) {
 		if u.URL != want || !strings.HasPrefix(u.QR, "<svg") || !strings.Contains(u.QR, "currentColor") {
 			t.Errorf("URL %d: %q with QR %.40q; want %q with an SVG QR", i, u.URL, u.QR, want)
 		}
+	}
+}
+
+// fakeAdverts records a Server's advertisements: one entry per start, and how
+// many of them were stopped.
+type fakeAdverts struct {
+	started []string
+	stopped atomic.Int32
+	fail    error
+}
+
+func (f *fakeAdverts) advertise(name string, port int, version string) (func(), error) {
+	if f.fail != nil {
+		return nil, f.fail
+	}
+	f.started = append(f.started, fmt.Sprintf("%s:%d %s", name, port, version))
+	return func() { f.stopped.Add(1) }, nil
+}
+
+// TestLANAccessIsAdvertisedWhileOn: a server announces itself on the network
+// (lanfind) exactly while LAN access is on — under this machine's name, at its
+// own port — stops when it is switched off or the server stops, and a second
+// "on" announces nothing twice. An announcement that fails leaves LAN access on.
+func TestLANAccessIsAdvertisedWhileOn(t *testing.T) {
+	ads := &fakeAdverts{}
+	s := &Server{reg: newRegistry(), addr: "127.0.0.1:3941", advertise: ads.advertise}
+	host, _ := os.Hostname()
+	want := fmt.Sprintf("%s:3941 %s", lanfind.InstanceName(host), core.Version)
+
+	s.setLAN(true)
+	s.setLAN(true)
+	if !reflect.DeepEqual(ads.started, []string{want}) || ads.stopped.Load() != 0 {
+		t.Fatalf("LAN on twice: started %q, stopped %d; want one %q, none stopped", ads.started, ads.stopped.Load(), want)
+	}
+	if !s.lanState("").Announced {
+		t.Error("LAN state does not say the server is announced while it is")
+	}
+	s.setLAN(false)
+	if ads.stopped.Load() != 1 {
+		t.Errorf("LAN off: %d advertisements stopped, want 1", ads.stopped.Load())
+	}
+	s.setLAN(true)
+	s.stopAdvertising()
+	s.stopAdvertising()
+	if len(ads.started) != 2 || ads.stopped.Load() != 2 {
+		t.Errorf("on again, then the server stopping: started %d, stopped %d; want 2, 2", len(ads.started), ads.stopped.Load())
+	}
+
+	failing := &Server{reg: newRegistry(), addr: "127.0.0.1:3941", advertise: (&fakeAdverts{fail: errors.New("no multicast here")}).advertise}
+	failing.setLAN(true)
+	if !failing.lan.Load() {
+		t.Error("a failed announcement switched LAN access off")
+	}
+	if failing.lanState("").Announced {
+		t.Error("LAN state says the server is announced when its announcement failed")
 	}
 }
 

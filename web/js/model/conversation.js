@@ -1935,12 +1935,11 @@ class Conversation {
     const consumeComposer = options.consumeComposer !== false;
     const schedule = options.schedule;
     let interpretCommands = options.interpretCommands !== false;
-    // What goes to the worker. `userMessage` stays what was typed, which is
-    // what up-arrow history keeps.
+    // What goes to the worker.
     let outgoingMessage = userMessage;
     // `! cmd` is how `/shell cmd` is typed: from here on it is that command, so
     // both spellings run, schedule and report alike. `typed` is still what the
-    // box holds.
+    // box holds, and is what up-arrow history keeps.
     const typed = userMessage;
     if (interpretCommands) {
       const shellCommand = shellShortcutCommand(userMessage);
@@ -1992,6 +1991,12 @@ class Conversation {
       await this.ensureInitialised();
       const result = await slashCommandHandler.execute(userMessage, messageThread);
       if (result.handled) {
+        // A shell command is recalled with up-arrow as typed, like a message.
+        // The bash call it sends runs without the composer, so this is the only
+        // point that knows the user typed it.
+        if (consumeComposer && !result.error && /^\/shell\s/.test(userMessage)) {
+          this._session.addMessageToHistory({ content: typed, attachments: [] });
+        }
         if (result.message) {
           this.showWarning(result.message, 3000);
         }
@@ -2145,8 +2150,8 @@ class Conversation {
     // send has empty text — don't push a blank entry into up-arrow history.
     // History is the box's own: it is what has been typed into it, and pressing
     // up must not walk back into text that was generated elsewhere.
-    if (consumeComposer && userMessage) {
-      this._session.addMessageToHistory({ content: userMessage, attachments: options.attachments || [] });
+    if (consumeComposer && typed) {
+      this._session.addMessageToHistory({ content: typed, attachments: options.attachments || [] });
     }
 
     // Auto-recents: a send is a genuine local user action, so float this

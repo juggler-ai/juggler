@@ -127,6 +127,22 @@ export async function runTests() {
     assert(!conversation.isTurnActive(), 'no turn may start for a shell command');
   });
 
+  await run('a typed shell command is recalled by up-arrow history as typed', async () => {
+    const session = await createTestSession();
+    const conversation = await createTestConversation(session);
+    const root = conversation.rootMessageThread;
+    const history = () => session.messageHistory.map((/** @type {any} */ e) => e.content);
+
+    for (const typed of ['! env echo shell-history', '/shell env echo shell-history-2']) {
+      const reason = await conversation.sendMessage(typed, null, root);
+      assert(reason === null, `the send was dropped: ${reason}`);
+      assert(history().at(-1) === typed, `history should end with ${JSON.stringify(typed)}: ${JSON.stringify(history())}`);
+    }
+    await waitFor(() => bashCalls(root).length === 2 && bashCalls(root).every((/** @type {any} */ c) => c.get('state') === 'completed'),
+      () => `the commands never completed: ${JSON.stringify(bashCalls(root).map((/** @type {any} */ c) => c.get('state')))}`);
+    assert(!history().some((/** @type {string} */ h) => h === ''), `the bash send added a blank entry: ${JSON.stringify(history())}`);
+  });
+
   await run('a running bash call can be stopped from its properties panel', async () => {
     const session = await createTestSession();
     const conversation = await createTestConversation(session);

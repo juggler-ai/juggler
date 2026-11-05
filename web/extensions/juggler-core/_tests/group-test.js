@@ -156,10 +156,12 @@ export async function runTests() {
         `the "New…" row would read ${JSON.stringify(provider.getSetupLabel())}`);
 
       const endings = provider.finishOptions(/** @type {Workspace} */ ({}));
-      assert(JSON.stringify(endings.map((/** @type {any} */ e) => e.id)) === '["ungroup","delete"]',
+      assert(JSON.stringify(endings.map((/** @type {any} */ e) => e.id)) === '["return","delete"]',
         `a group ends by being ungrouped or deleted, in that order, got ${JSON.stringify(endings)}`);
       assert(!endings[0]?.danger && endings[1]?.danger === true,
         `and only deleting destroys anything, got ${JSON.stringify(endings)}`);
+      assert(endings.every((/** @type {any} */ e) => e.offerOnBox === true),
+        `and both are offered on the group's box, got ${JSON.stringify(endings)}`);
     });
 
     await run('a group heads the list of kinds, and is the one the dialog opens on', async () => {
@@ -274,7 +276,7 @@ export async function runTests() {
         assert(one.workspaceId === workspaceId && two.workspaceId === workspaceId,
           'precondition: both conversations are in the group');
 
-        const finished = await finishWorkspace({ session, workspace: outcome.workspace, actionId: 'ungroup' });
+        const finished = await finishWorkspace({ session, workspace: outcome.workspace, actionId: 'return' });
         assert(finished.done === true, `ungrouping goes through, got ${JSON.stringify(finished)}`);
 
         assert(session.conversations.has(one.id) && session.conversations.has(two.id),

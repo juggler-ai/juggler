@@ -34,6 +34,7 @@ the current release). The project follows semantic versioning.
 - A window showing a non-Juggler page gets a bar to move it and return to Juggler
 - Juggler's windows on Windows show the Juggler icon in Alt-Tab and the taskbar
 - Editing an MCP server's config restarts it; the agent can restart servers too
+- Subfolder workspaces can be closed from their right-click menu or panel
 
 ## [0.7.9] - 2026-10-28
 

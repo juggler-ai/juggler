@@ -131,6 +131,12 @@ import { t } from './lib/i18n.js';
  *   this, and is shown apart from the endings. Such an action must return
  *   `done: false`, which is what actually keeps the workspace open; this only
  *   says where the row belongs
+ * @property {boolean} [offerOnBox] - Whether it may also be offered from the
+ *   workspace's box in the tab strip, beside its panel. For an ending that
+ *   touches nothing on disk — only what becomes of the row and its
+ *   conversations — so there is no tree state the panel would have to show
+ *   before it is chosen. The default is false: an ending that acts on the tree
+ *   is chosen where that tree can be read
  * @property {string} [description] - What it will do, in a sentence. Read twice:
  *   under the label in the menu, and again in the dialog where the decision is
  *   actually made. Write it to stand on its own in both

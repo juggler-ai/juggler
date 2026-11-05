@@ -7,10 +7,11 @@
  * The project-folder provider: the one that builds nothing.
  *
  * Every case here is about a thing NOT happening. The folder exists before the
- * provision and after the undo; the provision runs no command; the endings are
- * empty on purpose. A provider like that is easy to write and easy to get
- * subtly wrong in one direction — by removing something it never made — so the
- * folder is checked for after every path that could have taken it away.
+ * provision, after the undo and after either ending; the provision runs no
+ * command; the endings dispose of the row and nothing else. A provider like that
+ * is easy to write and easy to get subtly wrong in one direction — by removing
+ * something it never made — so the folder is checked for after every path that
+ * could have taken it away.
  *
  * The other half is the boundary. A path that leaves the project is refused
  * before a row is registered, and the conversation bound to a folder reads that
@@ -29,11 +30,12 @@ import {
 } from '../../../js-tests/utilities/test-helpers.js';
 import { fetchJson } from '../../../js/services/http.js';
 import { createBoundOps } from '../../../sdk/ops.js';
-import { listWorkspaces } from '../../../js/services/workspaces.js';
+import { listWorkspaces, unregisterWorkspace } from '../../../js/services/workspaces.js';
 import {
   provisionWorkspace,
   workspaceStatus,
-  workspaceFinishOptions
+  workspaceFinishOptions,
+  finishWorkspace
 } from '../../../js/services/workspace-provisioning.js';
 import { rebindConversation } from '../../../js/services/workspace-rebinding.js';
 import { getExtensionCapabilities } from '../../../js/services/extensions.js';
@@ -50,7 +52,9 @@ const CORE_TEXT = [
   "Couldn't use that folder: the session has no project.", "Couldn't use that folder: none was named.",
   'That is the project itself, which the panel offers above.', 'That is outside the project.',
   "Couldn't use {dir}: there is no such folder.", "Couldn't use {dir}: that is a file, not a folder.",
-  'The folder is missing.'
+  'The folder is missing.',
+  'Close the workspace', 'Its conversations go back into the project, working from its root. The folder is untouched.',
+  'Close the workspace and bin its conversations', 'Its conversations go to the bin, which they can be restored from. The folder is untouched.'
 ];
 
 /**
@@ -254,8 +258,13 @@ export async function runTests() {
       if (!provider) throw new Error('the provider is not in the registry under its own id');
       assert(provider.getSetupLabel() === 'A subfolder of this project',
         `the "New…" row would read ${JSON.stringify(provider.getSetupLabel())}`);
-      assert(provider.finishOptions(workspaceAt('')).length === 0,
-        'a folder has no endings: nothing was made, so nothing can be disposed of');
+      const endings = provider.finishOptions(workspaceAt(''));
+      assert(JSON.stringify(endings.map((/** @type {any} */ e) => e.id)) === '["return","delete"]',
+        `a folder is closed by handing its conversations back or binning them, in that order, got ${JSON.stringify(endings)}`);
+      assert(!endings[0]?.danger && endings[1]?.danger === true,
+        `and only binning them is marked as dangerous, got ${JSON.stringify(endings)}`);
+      assert(endings.every((/** @type {any} */ e) => e.offerOnBox === true),
+        `and both are offered on the box, since neither touches the folder, got ${JSON.stringify(endings)}`);
     });
 
     await run('the field completes folders of the project, and nothing outside it', async () => {
@@ -457,10 +466,72 @@ export async function runTests() {
           `a folder that has gone says so rather than reporting on it, got ${JSON.stringify(missing)}`);
 
         const { options, unavailableReason } = workspaceFinishOptions(session, outcome.workspace);
-        assert(options.length === 0 && !unavailableReason,
-          `and offers no endings, without pretending the provider is missing, got ${JSON.stringify({ options, unavailableReason })}`);
+        assert(options.length === 2 && !unavailableReason,
+          `and offers both its endings, got ${JSON.stringify({ options, unavailableReason })}`);
       } finally {
         if (outcome) await outcome.undo();
+        await ops.shell({ command: `rm -rf ${folder}` }).catch(() => {});
+      }
+    });
+
+    await run('closing a folder puts its conversations back in the project, and leaves the folder', async () => {
+      const tag = uniqueTag();
+      const folder = `pf-${tag}`;
+      await ops.writeFile({ path: `${folder}/keep.txt`, content: 'kept' });
+      const saved = session.workspaces;
+      /** @type {string} */
+      let workspaceId = '';
+      try {
+        const outcome = await provisionWorkspace({ session, providerId: PROVIDER_ID, values: { folder } });
+        workspaceId = outcome.workspace.id;
+        session.workspaces = [...saved, outcome.workspace];
+        const inside = await makeConversation(session, `closing-${tag}`, { workspaceId });
+        release(inside);
+        assert(inside.workspaceId === workspaceId, 'precondition: the conversation is in the folder');
+
+        const finished = await finishWorkspace({ session, workspace: outcome.workspace, actionId: 'return' });
+        assert(finished.done === true, `closing goes through, got ${JSON.stringify(finished)}`);
+        assert(session.conversations.has(inside.id), 'the conversation did not go to the bin');
+        assert((inside.workspaceId || '') === '',
+          `it is back in the project, got ${JSON.stringify(inside.workspaceId)}`);
+
+        const row = (await listWorkspaces()).find((/** @type {any} */ w) => w.id === workspaceId);
+        assert(row?.state === 'closed', `the workspace is closed, got ${JSON.stringify(row?.state)}`);
+        assert((await ops.stat({ path: `${folder}/keep.txt` })).exists,
+          'and the folder is exactly where it was');
+      } finally {
+        session.workspaces = saved;
+        if (workspaceId) await unregisterWorkspace(workspaceId).catch(() => {});
+        await ops.shell({ command: `rm -rf ${folder}` }).catch(() => {});
+      }
+    });
+
+    await run('closing a folder and binning its conversations still leaves the folder', async () => {
+      const tag = uniqueTag();
+      const folder = `pf-${tag}`;
+      await ops.writeFile({ path: `${folder}/keep.txt`, content: 'kept' });
+      const saved = session.workspaces;
+      /** @type {string} */
+      let workspaceId = '';
+      /** @type {any} */
+      let inside = null;
+      try {
+        const outcome = await provisionWorkspace({ session, providerId: PROVIDER_ID, values: { folder } });
+        workspaceId = outcome.workspace.id;
+        session.workspaces = [...saved, outcome.workspace];
+        inside = await makeConversation(session, `binned-${tag}`, { workspaceId });
+
+        const finished = await finishWorkspace({ session, workspace: outcome.workspace, actionId: 'delete' });
+        assert(finished.done === true, `closing goes through, got ${JSON.stringify(finished)}`);
+        const binned = (await session.bin.list()).map((/** @type {any} */ entry) => entry.id);
+        assert(!session.conversations.has(inside.id) && binned.includes(inside.id),
+          `the conversation is in the bin, got ${JSON.stringify(binned)}`);
+        assert((await ops.stat({ path: `${folder}/keep.txt` })).exists,
+          'and the folder is exactly where it was');
+      } finally {
+        session.workspaces = saved;
+        if (inside?.id) await session.bin.deletePermanently(inside.id).catch(() => {});
+        if (workspaceId) await unregisterWorkspace(workspaceId).catch(() => {});
         await ops.shell({ command: `rm -rf ${folder}` }).catch(() => {});
       }
     });
@@ -574,6 +645,11 @@ export async function runTests() {
         shown['provision file'] = await thrown(() => provider.provision({ folder: '2' }, ctx));
 
         shown['missing status'] = String((await provider.status({ available: false }, {}))?.detail);
+
+        for (const option of provider.finishOptions({})) {
+          shown[`${option.id} label`] = String(option.label);
+          shown[`${option.id} description`] = String(option.description);
+        }
       }, { '@juggler/core': CORE_TEXT });
 
       const english = Object.entries(shown).filter(([, text]) => !isPseudoLocalized(text));

@@ -22,10 +22,12 @@
  * the tree. Ungrouping hands them back to the project, which is where they were
  * working all along; deleting sends them to the bin, as ending any other
  * workspace does. Either way the row is closed and the project is untouched.
+ * Both, and what they leave behind, are the base class's; a group only names
+ * them.
  * @module workspaces/group-workspace-provider
  */
 
-import WorkspaceProvider from 'juggler/workspace-provider';
+import UnbuiltWorkspaceProvider from '../lib/unbuilt-workspace-provider.js';
 import { translator } from 'juggler/i18n';
 import { field, nextFormSequence, showNote } from '../lib/setup-fields.js';
 
@@ -34,7 +36,7 @@ const t = translator('@juggler/core');
 /**
  * A group of conversations, working in the project.
  */
-class GroupWorkspaceProvider extends WorkspaceProvider {
+class GroupWorkspaceProvider extends UnbuiltWorkspaceProvider {
   /**
    * @param {{session?: any}} [context] - What is known before any hook runs.
    */
@@ -135,50 +137,19 @@ class GroupWorkspaceProvider extends WorkspaceProvider {
 
   /**
    * Ungroup, or delete.
-   * @param {any} workspace - The row being finished with.
-   * @returns {any[]} The two endings.
+   * @returns {import('../lib/unbuilt-workspace-provider.js').UnbuiltEndingWords} The two endings, as a group says them.
    */
-  finishOptions(workspace) {
-    void workspace;
-    return [
-      {
-        id: 'ungroup',
+  endingWords() {
+    return {
+      return: {
         label: t('Ungroup'),
         description: t('Its conversations go back into the project, and the group is removed.')
       },
-      {
-        id: 'delete',
+      delete: {
         label: t('Delete group'),
-        danger: true,
         description: t('Its conversations go to the bin, and the group is removed. Nothing in the project changes.')
       }
-    ];
-  }
-
-  /**
-   * There is nothing to take down; what becomes of the conversations is the
-   * host's to carry out, and this says which.
-   * @param {any} workspace - The row being finished with.
-   * @param {string} actionId - Which ending.
-   * @param {any} ctx - The hook's context.
-   * @returns {Promise<any>} Finished, and where its conversations go.
-   */
-  async finish(workspace, actionId, ctx) {
-    if (actionId === 'ungroup') return { done: true, conversations: 'return' };
-    if (actionId === 'delete') return { done: true, conversations: 'bin' };
-    return super.finish(workspace, actionId, ctx);
-  }
-
-  /**
-   * Nothing was built, so nothing is left.
-   * @param {any} workspace - The half-built row.
-   * @param {any} ctx - Unused.
-   * @returns {Promise<any>} Nothing was left.
-   */
-  async cleanupPartial(workspace, ctx) {
-    void workspace;
-    void ctx;
-    return { removed: true };
+    };
   }
 }
 

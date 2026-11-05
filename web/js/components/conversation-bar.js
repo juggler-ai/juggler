@@ -141,9 +141,6 @@ const TOUCH_HOLD_MS = 300;
 /** How far a held finger may stray before the press is taken for a scroll. */
 const TOUCH_HOLD_TOLERANCE_PX = 8;
 
-/** The workspace provider whose boxes are tab groups (juggler-core's `group`). */
-const GROUP_PROVIDER_ID = 'group';
-
 /**
  * The currently-connected ConversationBar instance. Tracked at module scope so
  * the single context-menu provider (registered once below) can reach the live
@@ -2569,38 +2566,41 @@ class ConversationBar extends JugglerElement {
   }
 
   /**
-   * The endings a group's box offers from its right-click menu: Ungroup and
-   * Delete group, as its provider names them. Only a group's, because a group is
-   * a box and nothing else — every other workspace has a tree whose state is
-   * worth reading before it is ended, and <workspace-panel> is where there is
-   * room to show it. None while a turn is running in it, the way a busy tab's
-   * menu drops Move to Bin rather than offering something it would refuse.
+   * The endings a box offers from its right-click menu: those its provider
+   * declares `offerOnBox`, in its own words — a group's Ungroup and Delete
+   * group, a subfolder's two ways of closing. Only those, because an ending
+   * that acts on a tree is worth reading that tree for first, and
+   * <workspace-panel> is where there is room to show it. None while a turn is
+   * running in it, the way a busy tab's menu drops Move to Bin rather than
+   * offering something it would refuse.
    * @param {string} workspaceId - The box right-clicked.
    * @returns {import('../services/context-menu-service.js').ContextMenuItem[]} The rows, or none.
    * @private
    */
-  _groupEndingItems(workspaceId) {
+  _boxEndingItems(workspaceId) {
     const session = this._session;
     const workspace = session?.getWorkspace(workspaceId);
-    if (!session || workspace?.providerId !== GROUP_PROVIDER_ID) return [];
-    if (workspaceFinishWarning(session, workspace).refusal) return [];
-    return workspaceFinishOptions(session, workspace).options.map((option) => ({
+    if (!session || !workspace) return [];
+    const options = workspaceFinishOptions(session, workspace).options.filter((option) => option.offerOnBox === true);
+    if (!options.length || workspaceFinishWarning(session, workspace).refusal) return [];
+    return options.map((option) => ({
       label: option.label,
       danger: option.danger === true,
-      onClick: () => this._finishGroup(workspaceId, option),
+      onClick: () => this._finishFromBox(workspaceId, option),
     }));
   }
 
   /**
-   * Carry out one of a group's endings, asked first in the same words
-   * <workspace-panel> asks in. A group holds no work of its own, so there is no
-   * tree to read before asking and nothing to add to the provider's sentence.
-   * @param {string} workspaceId - The group.
+   * Carry out one of the endings a box offers, asked first in the same words
+   * <workspace-panel> asks in. Such an ending touches nothing on disk, so there
+   * is no tree to read before asking and nothing to add to the provider's
+   * sentence.
+   * @param {string} workspaceId - The workspace.
    * @param {import('../../sdk/workspace-provider.js').FinishOption} option - The ending chosen.
    * @returns {Promise<void>} When it has run, or been called off.
    * @private
    */
-  async _finishGroup(workspaceId, option) {
+  async _finishFromBox(workspaceId, option) {
     const session = this._session;
     const workspace = session?.getWorkspace(workspaceId);
     if (!session || !workspace) return;
@@ -2998,10 +2998,10 @@ registerContextMenuProvider({
   },
 });
 
-// Right-click menu for the workspace boxes. Rename, and for a group its two
-// endings (see _groupEndingItems). Everything else a workspace can be asked —
-// where it is, how it is doing, the ways of finishing with one that has a tree —
-// is <workspace-panel>'s, where there is room to read it.
+// Right-click menu for the workspace boxes. Rename, and the endings its provider
+// offers on the box (see _boxEndingItems). Everything else a workspace can be
+// asked — where it is, how it is doing, the endings that act on its tree — is
+// <workspace-panel>'s, where there is room to read it.
 //
 // A tab inside a box is still a tab, and claimed here first so it cannot be:
 // the menus resolve in registration order, and a right-click that renamed the
@@ -3017,7 +3017,7 @@ registerContextMenuProvider({
     if (!bar || !workspaceId) return null;
     /** @type {import('../services/context-menu-service.js').ContextMenuItem[]} */
     const items = [{ label: t('Rename'), onClick: () => bar._enterWorkspaceRenameMode(workspaceId) }];
-    const endings = bar._groupEndingItems(workspaceId);
+    const endings = bar._boxEndingItems(workspaceId);
     if (endings.length) items.push({ separator: true }, ...endings);
     return items;
   },

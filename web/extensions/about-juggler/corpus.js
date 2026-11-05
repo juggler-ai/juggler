@@ -235,7 +235,7 @@ file tools are relative to. Every project is one already. Built-in providers:
   .gitignore excludes. Applying back copies whole files and refuses any the
   project has changed since.
 - **Subfolder** — work in one folder of a monorepo; the rest stays readable.
-  Nothing is created or removed.
+  Nothing is created or removed. Closing it returns or bins its conversations.
 
 Create one with "New workspace or group". Several conversations can share one,
 and it can outlive them. Its conversations sit in a box in the tab strip, with a

@@ -42,7 +42,7 @@ class GroupStandIn extends WorkspaceProvider {
 
   /** @returns {any[]} One ending. */
   finishOptions() {
-    return [{ id: 'ungroup', label: pseudoLocalize('Ungroup'), description: pseudoLocalize('Takes them out.') }];
+    return [{ id: 'return', label: pseudoLocalize('Ungroup'), description: pseudoLocalize('Takes them out.'), offerOnBox: true }];
   }
 }
 
@@ -306,7 +306,7 @@ export async function runTests() {
       shown.push(...tabRows, ...boxRows);
 
       // The finish confirm, with the stand-in's ending; declined.
-      await xbar._finishGroup('ws_5', new GroupStandIn(/** @type {any} */ ({ session })).finishOptions()[0]);
+      await xbar._finishFromBox('ws_5', new GroupStandIn(/** @type {any} */ ({ session })).finishOptions()[0]);
 
       // Restore failure, copy success and failure, export failure.
       xbar._binUndoId = 'c_a';

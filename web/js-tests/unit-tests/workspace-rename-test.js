@@ -20,6 +20,21 @@ import ConversationRegistry from '../../js/model/conversation-registry.js';
 import { resolveMenu } from '../../js/services/context-menu-service.js';
 import workspaceProviderRegistry from '../../js/registries/workspace-provider-registry.js';
 import GroupWorkspaceProvider from '../../extensions/juggler-core/workspaces/group-workspace-provider.js';
+import ProjectFolderWorkspaceProvider from '../../extensions/juggler-core/workspaces/project-folder-workspace-provider.js';
+import WorkspaceProvider from '../../sdk/workspace-provider.js';
+
+/**
+ * A workspace with a tree of its own, whose endings act on it and so are not
+ * offered on its box.
+ */
+class TreeStandIn extends WorkspaceProvider {
+  static MANIFEST = { id: 'rename-test-tree', name: 'Tree', version: '1.0.0', description: 'Stands in for a provider with a tree' };
+
+  /** @returns {any[]} One ending, which does not declare itself for the box. */
+  finishOptions() {
+    return [{ id: 'discard', label: 'Delete the tree', danger: true, description: 'Removes the tree.' }];
+  }
+}
 import '../../js/components/conversation-bar.js';
 
 /**
@@ -287,11 +302,13 @@ export async function runTests() {
     }
   });
 
-  // A group is a box and nothing else, so its two endings belong on the box's own
-  // menu: there is no tree behind it for the workspace panel to explain first.
-  // Registered here if a sibling test reset the registry out from under it.
-  if (!workspaceProviderRegistry.get('group')) {
-    workspaceProviderRegistry.registerClass(GroupWorkspaceProvider, { extensionId: 'test', modulePath: '(test)' });
+  // An ending that touches nothing on disk declares itself for the box's own
+  // menu: there is no tree for the workspace panel to explain first. Registered
+  // here if a sibling test reset the registry out from under them.
+  for (const Provider of [GroupWorkspaceProvider, ProjectFolderWorkspaceProvider, TreeStandIn]) {
+    if (!workspaceProviderRegistry.get(Provider.MANIFEST.id)) {
+      workspaceProviderRegistry.registerClass(Provider, { extensionId: 'test', modulePath: '(test)' });
+    }
   }
 
   await check('a group\'s right-click menu offers to ungroup it or delete it', () => {
@@ -310,8 +327,24 @@ export async function runTests() {
     }
   });
 
-  await check('a box that is not a group offers no endings from its menu', () => {
-    const session = makeSession([workspace('ws_a', 'Tunnels')], [['c1', 'ws_a']]);
+  await check('a subfolder\'s right-click menu offers to close it', () => {
+    const session = makeSession([{ ...workspace('ws_f', 'packages/ui'), providerId: 'project-folder' }], [['c1', 'ws_f']]);
+    const { bar, teardown } = mountBar(session);
+    try {
+      const menu = resolveMenu(/** @type {Element} */ (boxFor(bar, 'ws_f').querySelector('.conversation-box-label')));
+      const labels = (menu?.items ?? []).map((item) => (item.separator ? '—' : item.label));
+      assert(JSON.stringify(labels) === JSON.stringify(
+        ['Rename', '—', 'Close the workspace', 'Close the workspace and bin its conversations']),
+      `a subfolder offers Rename, then its endings, got ${JSON.stringify(labels)}`);
+      const binning = menu?.items.find((item) => item.label === 'Close the workspace and bin its conversations');
+      assert(binning?.danger === true, 'and binning its conversations is marked as the dangerous one');
+    } finally {
+      teardown();
+    }
+  });
+
+  await check('a box whose endings act on its tree offers none of them from its menu', () => {
+    const session = makeSession([{ ...workspace('ws_a', 'Tunnels'), providerId: TreeStandIn.MANIFEST.id }], [['c1', 'ws_a']]);
     const { bar, teardown } = mountBar(session);
     try {
       const menu = resolveMenu(/** @type {Element} */ (boxFor(bar, 'ws_a').querySelector('.conversation-box-label')));

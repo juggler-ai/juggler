@@ -9,11 +9,13 @@
  *
  * ## Nothing is built, and that is the whole provider
  *
- * The other two providers make a place and can take it away again. This one
+ * The worktree and the copy make a place and can take it away again. This one
  * names a place that was already there, so `provision` runs no command, pushes
- * no compensation, and writes no checkpoint, and there are no endings to offer:
- * a folder cannot be finished with, only worked in or left. A conversation
- * leaves it by being moved, exactly as it moves anywhere else.
+ * no compensation, and writes no checkpoint, and its endings dispose of the row
+ * and nothing else: closing hands its conversations back to the project, or
+ * sends them to the bin, and the folder stays exactly as it was. Those endings
+ * are the base class's, shared with the group, which is the same kind of place
+ * under a different name.
  *
  * ## Focus, not isolation — and the difference is not decoration
  *
@@ -31,7 +33,7 @@
  * @module workspaces/project-folder-workspace-provider
  */
 
-import WorkspaceProvider from 'juggler/workspace-provider';
+import UnbuiltWorkspaceProvider from '../lib/unbuilt-workspace-provider.js';
 import { extractErrorMessage } from 'juggler/ui';
 import { translator } from 'juggler/i18n';
 import { join, relativePath } from '../lib/workspace-paths.js';
@@ -51,7 +53,7 @@ const FOLDER_CHECK_DELAY_MS = 200;
 /**
  * A folder of the project, as the place a conversation works.
  */
-class ProjectFolderWorkspaceProvider extends WorkspaceProvider {
+class ProjectFolderWorkspaceProvider extends UnbuiltWorkspaceProvider {
   /**
    * @param {{session?: any}} [context] - What is known before any hook runs.
    */
@@ -308,33 +310,22 @@ class ProjectFolderWorkspaceProvider extends WorkspaceProvider {
   }
 
   /**
-   * Nothing, deliberately.
-   *
-   * Every ending the other providers offer disposes of something they made.
-   * Nothing was made here: the folder is the user's, it was there first, and it
-   * stays. A conversation that is done with it moves somewhere else, which is
-   * the picker's job rather than an ending's.
-   * @param {any} workspace - The row being finished with.
-   * @returns {any[]} None.
+   * Closing, in two ways that differ only in where the conversations go. Each
+   * says the folder is untouched, because the word "close" next to a folder is
+   * the one place a reader might fear for it.
+   * @returns {import('../lib/unbuilt-workspace-provider.js').UnbuiltEndingWords} The two endings, as a folder says them.
    */
-  finishOptions(workspace) {
-    void workspace;
-    return [];
-  }
-
-  /**
-   * A row of this provider's that a restart caught mid-provision has nothing
-   * behind it to remove — the provision is one `stat` — so the honest answer is
-   * that there is nothing left, which lets the host clear the row rather than
-   * leaving a half-built folder nobody can account for.
-   * @param {any} workspace - The half-built row.
-   * @param {any} ctx - Operations rooted at the project, and a signal.
-   * @returns {Promise<any>} Nothing was left.
-   */
-  async cleanupPartial(workspace, ctx) {
-    void workspace;
-    void ctx;
-    return { removed: true };
+  endingWords() {
+    return {
+      return: {
+        label: t('Close the workspace'),
+        description: t('Its conversations go back into the project, working from its root. The folder is untouched.')
+      },
+      delete: {
+        label: t('Close the workspace and bin its conversations'),
+        description: t('Its conversations go to the bin, which they can be restored from. The folder is untouched.')
+      }
+    };
   }
 }
 

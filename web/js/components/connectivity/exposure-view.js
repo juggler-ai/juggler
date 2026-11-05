@@ -29,6 +29,7 @@
 
 import { t, serverText } from '../../../sdk/lib/i18n.js';
 import { createCopyButton } from '../../../sdk/lib/copy-button.js';
+import { hasNativeHost, openExternalURL } from '../../../sdk/lib/window-control.js';
 
 /**
  * One page of the server at one address, with its QR drawing.
@@ -47,12 +48,29 @@ import { createCopyButton } from '../../../sdk/lib/copy-button.js';
  */
 
 /**
+ * Why a server with LAN access on is not announced (machineserver lanNotAnnounced).
+ * @typedef {object} NotAnnounced
+ * @property {'local-network-denied'|'failed'} reason - macOS refusing it the local network, or another failure
+ * @property {string} [error] - What failed, for 'failed'
+ * @property {string} [app] - The app macOS asks to allow onto the local network, when it can be told
+ * @property {boolean} [removable] - Whether System Settings can remove that app from its Local Network list, so macOS asks again
+ */
+
+/**
  * LAN access, as the machine server reports it.
  * @typedef {object} LANState
  * @property {boolean} enabled - Whether devices on this network may come in
  * @property {ExposureURL[]} urls - This machine's addresses on its networks, while enabled
- * @property {boolean} [announced] - Whether the server is announcing itself on the network, so other computers' apps list it
+ * @property {boolean} [announced] - Whether the server's announcements are leaving the machine, so other computers' apps list it
+ * @property {NotAnnounced} [notAnnounced] - Why not, while LAN access is on and they are not
  */
+
+/**
+ * macOS's System Settings at Privacy & Security. Its Privacy_LocalNetwork
+ * anchor goes no further: the pane has no anchor for Local Network, so the
+ * page says to click it there.
+ */
+const LOCAL_NETWORK_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork';
 
 /**
  * One tunnel mode a build registered. Each text field is English, with its
@@ -290,10 +308,15 @@ export class ExposureView {
    * @param {(url: string) => void} [options.openAddress] - Opens an address
    *   card's link, for a page whose WebView would drop it (a desktop window);
    *   without it a link opens in a new tab.
+   * @param {((url: string) => void)|null} [options.openSettings] - Opens a
+   *   system settings URL. By default, the desktop app does, when the page
+   *   is in one of its windows; null, as for a plain browser, which cannot.
    */
-  constructor({ serverSection, lanSection, tunnelSection, api, chrome, launch = { lanOnLaunch: false, wanOnLaunch: '' }, openAddress }) {
+  constructor({ serverSection, lanSection, tunnelSection, api, chrome, launch = { lanOnLaunch: false, wanOnLaunch: '' }, openAddress, openSettings }) {
     /** @private */
     this._openAddress = openAddress || null;
+    /** @private */
+    this._openSettings = openSettings === undefined ? (hasNativeHost() ? openExternalURL : null) : openSettings;
     /** @private */
     this._serverSection = serverSection || null;
     /** @type {string} @private - What the server section last drew. */
@@ -482,16 +505,65 @@ export class ExposureView {
       }
       if (lan.urls.length > 0 && lan.announced) {
         // The server announces itself on the network while LAN access is on
-        // (machineserver startAdvertising), unless the network or the OS
-        // would not let it.
+        // (machineserver startAdvertising), once an announcement has left the
+        // machine.
         const announced = document.createElement('div');
         announced.className = 'connectivity-note';
         announced.textContent = t('This computer also announces itself on the network, so Juggler on other computers can find it under Change server.');
         addresses.appendChild(announced);
+      } else if (lan.urls.length > 0 && lan.notAnnounced) {
+        addresses.appendChild(this._notAnnouncedNote(lan.notAnnounced));
       }
       row.appendChild(addresses);
     }
     section.replaceChildren(row);
+  }
+
+  /**
+   * Why other computers will not find this one, and what to do about it. One
+   * macOS keeps off the local network names the app to allow there and links
+   * to Privacy & Security, one click from the setting, where the page can open
+   * it (the desktop app), or else says where the setting is.
+   * @private
+   * @param {NotAnnounced} why
+   * @returns {HTMLElement} The note.
+   */
+  _notAnnouncedNote(why) {
+    const note = document.createElement('div');
+    note.className = 'connectivity-note connectivity-not-announced';
+    const line = (/** @type {string} */ text) => {
+      const p = document.createElement('div');
+      p.textContent = text;
+      note.appendChild(p);
+      return p;
+    };
+    if (why.reason !== 'local-network-denied') {
+      line(t('This computer is not announcing itself on the network ({error}), so other computers won’t find it automatically (they can still use the addresses above).', { error: why.error || '' }));
+      return note;
+    }
+    const app = { named: why.app ? 'yes' : 'no', app: why.app || '' };
+    line(t('macOS is blocking {named, select, yes {{app}} other {the app that started this server}} from the local network, so other computers won’t find this one automatically (they can still use the addresses above).', app));
+    // An app already switched on that is still blocked has a choice macOS is
+    // not applying to it (one recorded for another copy of it, say). Removing
+    // it from the list (macOS 27.2 and later) resets that choice, and the next
+    // start asks afresh; before then, switching it is all the list offers.
+    const advice = { ...app, removable: why.removable ? 'yes' : 'no' };
+    const open = this._openSettings;
+    if (!open) {
+      line(t('To allow it, {named, select, yes {turn on {app}} other {turn on the app that started this server}} in System Settings → Privacy & Security → Local Network. {removable, select, yes {If it is on already, remove it from that list with the − button, then stop and start LAN access here so macOS asks again.} other {If it is on already, turn it off and on again.}}', advice));
+      return note;
+    }
+    const link = document.createElement('a');
+    link.className = 'connectivity-settings-link';
+    link.href = LOCAL_NETWORK_SETTINGS_URL;
+    link.textContent = t('Open Privacy & Security settings');
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      open(LOCAL_NETWORK_SETTINGS_URL);
+    });
+    note.appendChild(link);
+    line(t('{named, select, yes {Click Local Network there, then turn on {app}.} other {Click Local Network there, then turn on the app that started this server.}} {removable, select, yes {If it is on already, remove it from that list with the − button, then stop and start LAN access here so macOS asks again.} other {If it is on already, turn it off and on again.}}', advice));
+    return note;
   }
 
   /**

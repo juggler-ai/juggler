@@ -24,11 +24,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/pion/logging"
 	"github.com/pion/mdns/v2"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
@@ -72,14 +72,15 @@ type transport interface {
 }
 
 // openTransport opens the responder; hostName is the name its SRV records
-// point at, "" for a browser that answers nothing of its own.
+// point at, "" for a browser that answers nothing of its own, and logs is
+// where its warnings go (responderLogs).
 var openTransport = openMulticast
 
 // openMulticast opens an mDNS responder on every interface. The sockets bind
 // the multicast group addresses, which is what makes Go set SO_REUSEADDR (and
 // SO_REUSEPORT where there is one), so they share port 5353 with the system's
 // own responder (mDNSResponder, avahi). Either family alone is enough.
-func openMulticast(hostName string) (transport, error) {
+func openMulticast(hostName string, logs logging.LoggerFactory) (transport, error) {
 	var v4 *ipv4.PacketConn
 	var v6 *ipv6.PacketConn
 	var firstErr error
@@ -100,7 +101,7 @@ func openMulticast(hostName string) (transport, error) {
 	if v4 == nil && v6 == nil {
 		return nil, firstErr
 	}
-	var opts []mdns.ServerOption
+	opts := []mdns.ServerOption{mdns.WithLoggerFactory(logs)}
 	if hostName != "" {
 		opts = append(opts, mdns.WithLocalNames(hostName))
 	}
@@ -164,11 +165,13 @@ func hostLabel(instance string) string {
 	return "juggler-" + label + ".local"
 }
 
-// Advertise announces a Juggler server called name, at port, on every
-// interface until stop is called.
-func Advertise(name string, port int, version string) (stop func(), err error) {
+// Advertise answers for a Juggler server called name, at port, on every
+// interface until the advertisement is stopped: whoever asks the network for
+// Juggler servers is told of it. It sends nothing unasked; Announce does.
+func Advertise(name string, port int, version string) (*Advertisement, error) {
 	host := hostLabel(name)
-	conn, err := openTransport(host)
+	ad := &Advertisement{}
+	conn, err := openTransport(host, responderLogs{ad})
 	if err != nil {
 		return nil, err
 	}
@@ -176,18 +179,19 @@ func Advertise(name string, port int, version string) (stop func(), err error) {
 	if version != "" {
 		text = append(text, mdns.NewTXTString(txtVersion, version))
 	}
-	if err := conn.Register(mdns.ServiceInstance{
+	ad.conn = conn
+	ad.svc = mdns.ServiceInstance{
 		Instance: name,
 		Service:  ServiceType,
 		Host:     host + ".",
 		Port:     uint16(port), //nolint:gosec // a listening TCP port
 		Text:     text,
-	}); err != nil {
+	}
+	if err := conn.Register(ad.svc); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
-	var once sync.Once
-	return func() { once.Do(func() { _ = conn.Close() }) }, nil
+	return ad, nil
 }
 
 // Browser keeps the Juggler servers it has seen on the network, from Browse
@@ -204,7 +208,7 @@ type Browser struct {
 
 // Browse starts looking for Juggler servers.
 func Browse() (*Browser, error) {
-	conn, err := openTransport("")
+	conn, err := openTransport("", responderLogs{})
 	if err != nil {
 		return nil, err
 	}

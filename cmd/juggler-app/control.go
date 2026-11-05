@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -245,7 +246,8 @@ func anyRequest(*http.Request) bool { return true }
 //     — unless the user stopped it, with ?now — and replaces only this
 //     window, with a stand-in of its own.
 //   - open: a link followed to the system browser, as a browser tab would;
-//     http and https only (isBrowserURL).
+//     http and https only, and on macOS its Privacy & Security settings
+//     (isOpenableURL).
 //   - new: another window onto the same server — its page, or a board of one
 //     of its conversations — whatever project the query names
 //     (controlNewWindow).
@@ -567,10 +569,11 @@ func (a *appState) retarget(e *winEntry, from func(windowView) bool, spec window
 // target="_blank" links to the default browser for external https URLs; a
 // plain http://<lan-ip> link (a server's LAN address, say) is
 // treated as an in-app popup request, which this windowless-popup app
-// declines — so the page routes such clicks here instead.
+// declines — so the page routes such clicks here instead. On macOS it opens
+// the Privacy & Security settings too, which no WebView link can.
 func controlOpenURL(_ *appState, w http.ResponseWriter, r *http.Request, _ *winEntry) {
 	target := r.URL.Query().Get("url")
-	if !isBrowserURL(target) {
+	if !isOpenableURL(target, runtime.GOOS) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}

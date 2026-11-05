@@ -57,6 +57,30 @@ func TestWindowControlRouting(t *testing.T) {
 	}
 }
 
+// TestOpenTakesTheLocalNetworkSettingsOnMacOS: beside web URLs, the open
+// action takes exactly one other — macOS's Local Network privacy settings,
+// where the Connectivity section sends someone whose server macOS keeps off
+// the network — and only on macOS. Any other scheme, or another settings pane,
+// is still refused.
+func TestOpenTakesTheLocalNetworkSettingsOnMacOS(t *testing.T) {
+	const pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork"
+	for _, c := range []struct {
+		url, goos string
+		want      bool
+	}{
+		{"https://juggler.studio/", "darwin", true},
+		{"http://192.168.1.4:3939/", "windows", true},
+		{pane, "darwin", true},
+		{pane, "linux", false},
+		{"x-apple.systempreferences:com.apple.preference.security?Privacy_Camera", "darwin", false},
+		{"file:///etc/passwd", "darwin", false},
+	} {
+		if got := isOpenableURL(c.url, c.goos); got != c.want {
+			t.Errorf("isOpenableURL(%q, %s) = %v, want %v", c.url, c.goos, got, c.want)
+		}
+	}
+}
+
 // The names the page posts, and which of them a window on a server by URL may
 // post. A name dropped from the table answers 404, and these are
 // fire-and-forget posts from the page's side, so this is where it shows; a name

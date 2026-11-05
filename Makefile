@@ -587,9 +587,11 @@ ifeq ($(UNAME_S),Darwin)
 		> $(MAC_APP_PLIST)
 	@# The server's own bundle (see MAC_SERVER_APP): its own identifier, so
 	@# LaunchServices never files it as Juggler, and LSUIElement, so it is a
-	@# background app from launch, with no Dock icon or menu bar. Privacy
-	@# permissions are unaffected: TCC still attributes the server, and every
-	@# tool subprocess it runs, to Juggler.app, the app that started it.
+	@# background app from launch, with no Dock icon or menu bar. Launched
+	@# through LaunchServices, as the app launches it, it is its own
+	@# responsible process: privacy prompts and System Settings name it,
+	@# "Juggler Server", for the server and every tool subprocess it runs, and
+	@# what the user allows Juggler does not cover it.
 	@printf '%s\n' \
 		'<?xml version="1.0" encoding="UTF-8"?>' \
 		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
@@ -610,11 +612,12 @@ ifeq ($(UNAME_S),Darwin)
 		> $(MAC_SERVER_PLIST)
 	@ln -sfn JugglerServer.app/Contents/MacOS/$(BINARY_NAME) $(MAC_APP_CLI_LINK)
 	@# NSMicrophoneUsageDescription is there because TCC attributes a tool
-	@# subprocess's request to its responsible app; NSLocalNetworkUsageDescription
-	@# covers the app's browsing and connecting and, while the app started it,
-	@# the server's announcing itself. A server started any other way (juggler
-	@# serve from a terminal) is its own responsible process, so its bundle
-	@# carries the same text and its own NSBonjourServices.
+	@# subprocess's request to its responsible app — Juggler Server, for the
+	@# server the app launches; NSLocalNetworkUsageDescription covers the app's
+	@# browsing and connecting and the server's announcing itself, each asked
+	@# for in its own bundle's name. A server run from a terminal (juggler
+	@# serve) is the terminal's responsibility, so the terminal's own entry in
+	@# those settings decides for it.
 	@node scripts/i18n-bundle mac $(MAC_APP_DIR)/Contents
 	@node scripts/i18n-bundle mac $(MAC_SERVER_APP)/Contents
 	@tmp=$$(mktemp -d); \

@@ -395,7 +395,7 @@ export function pageTitle(config, framed = null) {
  * @param {string} [server] - The address of the server framed, if any.
  * @returns {string} Its name, as the header bar shows it.
  */
-export function serverLocation(config, server = '') {
+function serverLocation(config, server = '') {
   const host = server ? hostOf(server) : config.host;
   return host || t('This computer');
 }

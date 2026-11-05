@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -137,6 +138,45 @@ func TestDiscoverDoesNotWaitOnADeadAddress(t *testing.T) {
 	case <-calledOff:
 	case <-time.After(10 * time.Second):
 		t.Error("the ask of the dead address was not called off once the live one answered")
+	}
+}
+
+// TestDiscoverAsksALinkLocalAddressOnItsInterface: a link-local IPv6 address
+// is usable only with the interface it is on, so it is asked with its zone,
+// escaped as a URL carries one ("%25"): a probe URL that does not parse would
+// never be asked at all. One without a zone is not asked.
+func TestDiscoverAsksALinkLocalAddressOnItsInterface(t *testing.T) {
+	asked := make(chan string, 4)
+	f := &lanFinder{
+		browse: func() (serverSource, error) {
+			return &fakeSource{found: []lanfind.Found{
+				{Name: "Near", Addrs: addrs("fe80::9%en0", "fe80::10"), Port: 3939},
+			}}, nil
+		},
+		probe: func(_ context.Context, u string) (string, bool) {
+			asked <- u
+			return "v1.0.0", true
+		},
+		localAddrs: func() map[netip.Addr]bool { return nil },
+	}
+	got, err := f.servers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(asked)
+	var urls []string
+	for u := range asked {
+		urls = append(urls, u)
+	}
+	if !reflect.DeepEqual(urls, []string{"http://[fe80::9%25en0]:3939"}) {
+		t.Fatalf("asked %q, want only the zoned address, escaped", urls)
+	}
+	u, err := url.Parse(urls[0] + "/api/version")
+	if err != nil || u.Hostname() != "fe80::9%en0" || u.Port() != "3939" {
+		t.Errorf("the probe URL %q parses to host %q port %q (%v), want fe80::9%%en0 and 3939", urls[0], u.Hostname(), u.Port(), err)
+	}
+	if len(got) != 1 || got[0].URL != urls[0] {
+		t.Errorf("listed %+v, want Near at %s", got, urls[0])
 	}
 }
 

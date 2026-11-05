@@ -21,6 +21,7 @@ import { assert } from '../utilities/test-helpers.js';
 import wsService from '../../js/services/websocket.js';
 import { underPseudoLocale, assertPseudoLocalized } from '../utilities/pseudo-locale.js';
 import '../../js/components/settings-panel.js';
+import { ExposureView } from '../../js/components/connectivity/exposure-view.js';
 
 /**
  * @typedef {object} TestResult
@@ -183,18 +184,19 @@ export async function runTests(_ctx) {
     }
   };
 
-  const self = wsService.clientId || 'self-client';
   const now = Date.now();
   /**
    * What the API reports: this client and three others, one of them a tunnel's
-   * caller its transport named.
+   * caller its transport named. This client is named as the tab will read it
+   * when drawn from what this answers: the socket's id, which it may be given
+   * at any point in the run, or none yet.
    * @returns {object} The connectivity state.
    */
   const withClients = () => ({
     clientCount: 4,
     exposure: false,
     clients: [
-      { id: self, origin: 'local', detail: '', userAgent: '', connectedAt: now - 60_000 },
+      { id: wsService.clientId || 'self-client', origin: 'local', detail: '', userAgent: '', connectedAt: now - 60_000 },
       { id: 'c-lan', origin: 'lan', detail: '192.168.1.9', userAgent: 'Mozilla/5.0 (iPhone) Safari/604.1', connectedAt: now - 30_000 },
       { id: 'c-remote', origin: 'remote', detail: 'Direct P2P', userAgent: '', connectedAt: now - 10_000 },
       { id: 'c-named', origin: 'remote', detail: 'Direct P2P', name: 'Alice', userAgent: '', connectedAt: now - 5_000 },
@@ -313,6 +315,138 @@ export async function runTests(_ctx) {
         }
       });
     }
+  });
+
+  // A server whose announcements do not leave the machine says why. One macOS
+  // keeps off the local network names the app to allow and, in a plain
+  // browser — which cannot open System Settings — where that setting is; one
+  // that failed any other way says what failed. Neither claims to be findable.
+  // An app already switched on that macOS still blocks is one whose choice
+  // must be reset: where the list can remove it (removable), by removing it so
+  // macOS asks again; before that, only by switching it.
+  await run('LAN access not announced says why, and in a browser where to allow it', async () => {
+    const urls = [{ url: 'http://192.168.1.4:3939/', interface: 'en0', qr: QR }];
+    const toggle = 'If it is on already, turn it off and on again.';
+    const remove = 'If it is on already, remove it from that list with the − button, then stop and start LAN access here so macOS asks again.';
+    /** @type {[any, string[], string[]][]} */
+    const cases = [
+      [{ reason: 'local-network-denied', app: 'Juggler Server' }, [
+        'macOS is blocking Juggler Server from the local network, so other computers won’t find this one automatically (they can still use the addresses above).',
+        'turn on Juggler Server in System Settings → Privacy & Security → Local Network',
+        toggle,
+      ], [remove]],
+      [{ reason: 'local-network-denied', app: 'Juggler Server', removable: true }, [
+        'turn on Juggler Server in System Settings → Privacy & Security → Local Network.',
+        remove,
+      ], [toggle]],
+      [{ reason: 'local-network-denied' }, [
+        'macOS is blocking the app that started this server from the local network',
+        'turn on the app that started this server in System Settings → Privacy & Security → Local Network',
+      ], []],
+      [{ reason: 'failed', error: 'address already in use' }, [
+        'This computer is not announcing itself on the network (address already in use)',
+        'they can still use the addresses above',
+      ], [toggle, remove]],
+    ];
+    for (const [why, wants, unwanted] of cases) {
+      await withRoutes({ exposure: true, lan: { enabled: true, urls, announced: false, notAnnounced: why }, tunnel: { modes: [], running: null } }, async () => {
+        const { el } = await mountWith({ clientCount: 1, clients: [], exposure: true });
+        try {
+          const section = el.querySelector('#connectivity-lan-section');
+          const text = section?.textContent || '';
+          for (const want of wants) assert(text.includes(want), `${JSON.stringify(why)}: no "${want}" in: ${text}`);
+          for (const no of unwanted) assert(!text.includes(no), `${JSON.stringify(why)}: says "${no}": ${text}`);
+          assert(!text.includes('announces itself on the network'), `${JSON.stringify(why)}: claims to be announced: ${text}`);
+          assert(!section?.querySelector('a[href^="x-apple"]'), `${JSON.stringify(why)}: a plain browser is offered a link it cannot open`);
+        } finally {
+          el.remove();
+        }
+      });
+    }
+  });
+
+  // In the desktop app, which can open it, the setting is a link: it opens
+  // macOS's Privacy & Security settings, one click from Local Network, through
+  // the app, and the page itself goes nowhere.
+  await run('in the desktop app, LAN access macOS blocks links to the Privacy & Security settings', async () => {
+    const lanSection = document.createElement('div');
+    const tunnelSection = document.createElement('div');
+    document.body.append(lanSection, tunnelSection);
+    /** @type {string[]} */
+    const opened = [];
+    /** @type {boolean[]} */
+    const prevented = [];
+    // Records whether the link's own handler kept the page where it is, then
+    // keeps it there regardless.
+    lanSection.addEventListener('click', (e) => { prevented.push(e.defaultPrevented); e.preventDefault(); });
+    /** @type {any} */
+    let lan = { enabled: true, urls: [{ url: 'http://192.168.1.4:3939/', interface: 'en0', qr: QR }], announced: false, notAnnounced: { reason: 'local-network-denied', app: 'Terminal' } };
+    const view = new ExposureView({
+      lanSection,
+      tunnelSection,
+      api: {
+        getLAN: async () => lan,
+        setLAN: async () => lan,
+        getTunnel: async () => ({ modes: [], running: null }),
+        setTunnel: async () => ({ modes: [], running: null }),
+        getLaunch: async () => ({ lanOnLaunch: false, wanOnLaunch: '' }),
+        saveLaunch: async () => ({}),
+      },
+      chrome: {
+        row: (title, description, controls, warning) => {
+          const row = document.createElement('div');
+          row.append(title, description, ...controls, warning);
+          return row;
+        },
+        button: (text) => {
+          const b = document.createElement('button');
+          b.textContent = text;
+          return b;
+        },
+      },
+      openSettings: (url) => { opened.push(url); },
+    });
+    try {
+      await view.refresh();
+      const link = /** @type {HTMLAnchorElement|null} */ (lanSection.querySelector('a.connectivity-settings-link'));
+      // No URL opens System Settings at Local Network itself (the Privacy &
+      // Security pane has no anchor for it), so the link says where it does go.
+      assert(link?.textContent === 'Open Privacy & Security settings', `no settings link: ${lanSection.textContent}`);
+      assert((lanSection.textContent || '').includes('Click Local Network there, then turn on Terminal. If it is on already, turn it off and on again.'),
+        `does not say what to turn on: ${lanSection.textContent}`);
+      link?.click();
+      assert(JSON.stringify(opened) === JSON.stringify(['x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork']),
+        `opened ${JSON.stringify(opened)}, want the Local Network settings`);
+      assert(JSON.stringify(prevented) === '[true]', `the page followed the link itself: ${JSON.stringify(prevented)}`);
+
+      lan = { ...lan, notAnnounced: { ...lan.notAnnounced, removable: true } };
+      await view.refresh();
+      assert((lanSection.textContent || '').includes('Click Local Network there, then turn on Terminal. If it is on already, remove it from that list with the − button, then stop and start LAN access here so macOS asks again.'),
+        `a removable app is not to be removed: ${lanSection.textContent}`);
+    } finally {
+      lanSection.remove();
+      tunnelSection.remove();
+    }
+  });
+
+  await run('LAN access not announced speaks the UI language', async () => {
+    await underPseudoLocale('connectivity-test', async () => {
+      const urls = [{ url: 'http://192.168.1.4:3939/', interface: 'en0', qr: QR }];
+      // The app's name and the error are data, so they are letter-free here.
+      for (const why of [{ reason: 'local-network-denied', app: '42' }, { reason: 'local-network-denied', app: '42', removable: true }, { reason: 'local-network-denied' }, { reason: 'failed', error: '42' }]) {
+        await withRoutes({ exposure: true, lan: { enabled: true, urls, announced: false, notAnnounced: why }, tunnel: { modes: [], running: null } }, async () => {
+          const { el } = await mountWith({ clientCount: 1, clients: [], exposure: true });
+          try {
+            const note = el.querySelector('#connectivity-lan-section .connectivity-not-announced');
+            assert(!!note, `${JSON.stringify(why)}: no not-announced note`);
+            // A refusal says why and where to allow it; another failure, only why.
+            assertPseudoLocalized(/** @type {Element} */ (note), { atLeast: why.reason === 'failed' ? 1 : 2, where: JSON.stringify(why) });
+          } finally {
+            el.remove();
+          }
+        });
+      }
+    });
   });
 
   await run('LAN access on with no address says so', async () => {

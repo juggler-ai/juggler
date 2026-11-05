@@ -61,9 +61,10 @@ type Server struct {
 	lan atomic.Bool
 	// advertise announces this server on the network while LAN access is on
 	// (lanfind.Advertise; see advertiseLAN); nil announces nothing. advert is
-	// the running announcement's stop.
-	advertise func(name string, port int, version string) (stop func(), err error)
-	advert    atomic.Pointer[func()]
+	// the announcement while LAN access is on, and what is known of it
+	// (lan.go).
+	advertise func(name string, port int, version string) (lanAdvert, error)
+	advert    atomic.Pointer[advertState]
 	// assets is the web tree the sessions page and its assets are served from
 	// (ServeOptions.Assets); nil serves no page.
 	assets fs.FS

@@ -69,7 +69,7 @@ func logf(format string, args ...any) {
 // and never through a shell (see sysopen.Argv).
 func openInBrowser(url string) error {
 	argv := sysopen.Argv(runtime.GOOS, url)
-	return exec.Command(argv[0], argv[1:]...).Start() //nolint:gosec // isBrowserURL-checked, passed as one argument
+	return exec.Command(argv[0], argv[1:]...).Start() //nolint:gosec // isOpenableURL-checked, passed as one argument
 }
 
 // isBrowserURL reports whether s is a plain web URL safe to hand to the system
@@ -82,4 +82,19 @@ func isBrowserURL(s string) bool {
 		return false
 	}
 	return u.Scheme == "http" || u.Scheme == "https"
+}
+
+// localNetworkSettingsURL opens macOS's System Settings at Privacy & Security,
+// one click from Local Network, where an app is let onto the local network.
+// Its Privacy_LocalNetwork anchor goes no further: the pane has no anchor for
+// Local Network.
+const localNetworkSettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork"
+
+// isOpenableURL reports whether the open control action may hand s to the
+// system on goos: a web URL (isBrowserURL), or on macOS the Privacy &
+// Security settings (localNetworkSettingsURL), exactly — the one place outside
+// the web a page sends anyone, when macOS keeps its server off the local
+// network.
+func isOpenableURL(s, goos string) bool {
+	return isBrowserURL(s) || (goos == "darwin" && s == localNetworkSettingsURL)
 }

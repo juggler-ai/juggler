@@ -5,12 +5,17 @@
 package machineserver
 
 import (
+	"cmp"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/msg"
@@ -120,13 +125,186 @@ func (s *Server) askedSession(r *http.Request) string {
 }
 
 // lanResponse is the GET/PUT /api/server/lan payload: whether LAN access is
-// on and, while it is, where to connect from and whether the server is
-// announcing itself on the network there (startAdvertising), so the page claims
-// other computers can find it only while they can.
+// on and, while it is, where to connect from and whether the server's
+// announcements are leaving the machine (announcement), so the page claims
+// other computers can find it only while they can, and says why not when
+// they cannot.
 type lanResponse struct {
-	Enabled   bool     `json:"enabled"`
-	URLs      []lanURL `json:"urls"`
-	Announced bool     `json:"announced"`
+	Enabled      bool             `json:"enabled"`
+	URLs         []lanURL         `json:"urls"`
+	Announced    bool             `json:"announced"`
+	NotAnnounced *lanNotAnnounced `json:"notAnnounced,omitempty"`
+}
+
+// Why a server with LAN access on is not announced (lanNotAnnounced.Reason).
+const (
+	// notAnnouncedDenied is macOS refusing the server the local network
+	// (lanfind.ErrLocalNetworkDenied) until App is allowed onto it.
+	notAnnouncedDenied = "local-network-denied"
+	// notAnnouncedFailed is any other failure, which Error says.
+	notAnnouncedFailed = "failed"
+)
+
+// lanNotAnnounced is why a server with LAN access on is not announced: a
+// Reason, the failure's text for notAnnouncedFailed, and for
+// notAnnouncedDenied the app macOS asks the user to allow (responsibleApp),
+// "" when it cannot be told, and whether System Settings can remove it from
+// its Local Network list (localNetworkListRemovable) — the one way to have
+// macOS ask again once the user has answered.
+type lanNotAnnounced struct {
+	Reason    string `json:"reason"`
+	Error     string `json:"error,omitempty"`
+	App       string `json:"app,omitempty"`
+	Removable bool   `json:"removable,omitempty"`
+}
+
+// lanAdvert is a running announcement (lanfind.Advertisement): Announce sends
+// one and says whether it left the machine, SendFailed says whether an answer
+// sent since has failed, Stop ends it.
+type lanAdvert interface {
+	Announce() error
+	SendFailed() bool
+	Stop()
+}
+
+// advertState is the announcement while LAN access is on: the running one
+// (ad), or none when it could not start, and what was last found of it —
+// whether its last announcement left (a nil err), or why it could not start.
+type advertState struct {
+	name string
+	ad   lanAdvert
+	last atomic.Pointer[announceResult]
+}
+
+// announceResult is what one announcement, or one try to start them, found:
+// nil err for one that left the machine.
+type announceResult struct {
+	err error
+}
+
+func (st *advertState) stop() {
+	if st.ad != nil {
+		st.ad.Stop()
+	}
+}
+
+// responsibleApp is the app macOS asks the user to let onto the local network
+// for this server, as System Settings lists it (responsibleAppName): Juggler
+// Server for one the desktop app launched, the terminal for `juggler serve`
+// run in one; "" when that cannot be told. It never changes while the process
+// runs. A seam for tests.
+var responsibleApp = sync.OnceValue(responsibleAppName)
+
+// localNetworkListRemovable is whether this macOS's Local Network list can
+// remove an app (removableFrom). A seam for tests.
+var localNetworkListRemovable = func() bool { return removableFrom(osProductVersion()) }
+
+// removableFrom is whether macOS version v (such as "27.0.1") can remove an
+// app from its Local Network list, which resets the user's choice so the app's
+// next use of the local network asks again: 27.2 and later can; before it the
+// choice can only be switched.
+func removableFrom(v string) bool {
+	majorStr, rest, _ := strings.Cut(v, ".")
+	minorStr, _, _ := strings.Cut(rest, ".")
+	major, err := strconv.Atoi(majorStr)
+	if err != nil {
+		return false
+	}
+	minor, err := strconv.Atoi(minorStr)
+	if err != nil {
+		minor = 0
+	}
+	return major > 27 || (major == 27 && minor >= 2)
+}
+
+// bundleOf is the app bundle exe is the main executable of — the innermost
+// .app it is in, when it sits in that bundle's Contents/MacOS — or "" for an
+// executable that is no bundle's.
+func bundleOf(exe string) string {
+	dir, file := path.Split(exe)
+	bundle, ok := strings.CutSuffix(dir, "/Contents/MacOS/")
+	if file == "" || !ok {
+		return ""
+	}
+	if name := path.Base(bundle); name == ".app" || !strings.HasSuffix(name, ".app") {
+		return ""
+	}
+	return bundle
+}
+
+// requestLocalNetwork asks macOS to let this server onto the local network
+// (lanfind.RequestLocalNetwork). A seam: the package's tests ask nothing.
+var requestLocalNetwork = lanfind.RequestLocalNetwork
+
+// announcement is whether the server's announcements are leaving the machine
+// and, while they are not, why. It looks again each time it is asked unless
+// the last announcement left and nothing has failed since: an announcement
+// that could not start is tried again, and one refused sent again, so the
+// first read after the OS lets it out (the user allowing it) says so. A read
+// of a server known to be announced sends nothing.
+func (s *Server) announcement() (bool, *lanNotAnnounced) {
+	st := s.advert.Load()
+	if st == nil {
+		return false, nil
+	}
+	if st.ad == nil {
+		s.startAdvertising()
+		if st = s.advert.Load(); st == nil {
+			return false, nil
+		}
+	}
+	r := s.announce(st)
+	if r == nil || r.err == nil {
+		return r != nil, nil
+	}
+	if errors.Is(r.err, lanfind.ErrLocalNetworkDenied) {
+		return false, &lanNotAnnounced{Reason: notAnnouncedDenied, App: responsibleApp(), Removable: localNetworkListRemovable()}
+	}
+	return false, &lanNotAnnounced{Reason: notAnnouncedFailed, Error: r.err.Error()}
+}
+
+// announce sends st's announcement, unless its last one left and nothing has
+// failed since, and answers what was found. Reads that announce at once each
+// find something true; whichever records its finding over the one it read is
+// the one that logs the change.
+func (s *Server) announce(st *advertState) *announceResult {
+	prev := st.last.Load()
+	if st.ad == nil || (prev != nil && prev.err == nil && !st.ad.SendFailed()) {
+		return prev
+	}
+	next := &announceResult{err: st.ad.Announce()}
+	if st.last.CompareAndSwap(prev, next) {
+		s.logAnnouncement(st.name, prev, next)
+	}
+	return next
+}
+
+// logAnnouncement logs what an announcement found, when it differs from what
+// was found before it (nil for nothing yet).
+func (s *Server) logAnnouncement(name string, before, after *announceResult) {
+	if after == nil {
+		return
+	}
+	text := func(r *announceResult) string {
+		if r.err == nil {
+			return ""
+		}
+		return r.err.Error()
+	}
+	if before != nil && text(before) == text(after) {
+		return
+	}
+	switch {
+	case after.err == nil:
+		jlog.Info("   announced on this network as %q", name)
+	case before != nil && before.err == nil:
+		jlog.Info("   no longer announced on this network (other computers can still use the addresses above): %v", after.err)
+	case errors.Is(after.err, lanfind.ErrLocalNetworkDenied):
+		app := cmp.Or(responsibleApp(), "the app that started this server")
+		jlog.Info("   not announced on this network yet: macOS is blocking %s from the local network — allow it in System Settings → Privacy & Security → Local Network (other computers can still use the addresses above)", app)
+	default:
+		jlog.Info("   not announced on this network (other computers can still use the addresses above): %v", after.err)
+	}
 }
 
 // lanState is LAN access as it stands, with the URLs while it is on and,
@@ -136,7 +314,7 @@ func (s *Server) lanState(sessionPath string) lanResponse {
 	if !resp.Enabled {
 		return resp
 	}
-	resp.Announced = s.advert.Load() != nil
+	resp.Announced, resp.NotAnnounced = s.announcement()
 	_, port, err := net.SplitHostPort(s.addr)
 	if err != nil {
 		return resp
@@ -172,12 +350,20 @@ func (s *Server) setLAN(on bool) {
 
 // advertiseLAN is what Serve announces a server with (Server.advertise). A
 // seam: the package's tests announce nothing on a real network.
-var advertiseLAN = lanfind.Advertise
+var advertiseLAN = func(name string, port int, version string) (lanAdvert, error) {
+	ad, err := lanfind.Advertise(name, port, version)
+	if err != nil {
+		return nil, err
+	}
+	return ad, nil
+}
 
 // startAdvertising announces this server on the network under this machine's
-// name, so the desktop app on another computer lists it to connect to. A
-// failure (no multicast on this network, the OS refusing it) is logged and
-// changes nothing else: the server is reachable by its address all the same.
+// name, so the desktop app on another computer lists it to connect to, and
+// logs whether the announcement left the machine. One that could not start or
+// did not leave (no multicast on this network, the OS refusing it) changes
+// nothing else: the server is reachable by its address all the same, and the
+// next read of LAN access tries again (announcement).
 //
 // LAN access switched off while the announcement starts is caught by the
 // check after it is published: whichever of the two runs second stops it.
@@ -194,26 +380,35 @@ func (s *Server) startAdvertising() {
 		return
 	}
 	host, _ := os.Hostname()
-	name := lanfind.InstanceName(host)
-	stop, err := s.advertise(name, port, core.Version)
+	st := &advertState{name: lanfind.InstanceName(host)}
+	st.ad, err = s.advertise(st.name, port, core.Version)
 	if err != nil {
-		jlog.Info("   not announced on this network (other computers can still use the addresses above): %v", err)
-		return
+		st.ad = nil
+		st.last.Store(&announceResult{err: err})
 	}
-	if prev := s.advert.Swap(&stop); prev != nil {
-		(*prev)()
+	prev := s.advert.Swap(st)
+	if prev != nil {
+		prev.stop()
 	}
 	if !s.lan.Load() {
 		s.stopAdvertising()
 		return
 	}
-	jlog.Info("   announced on this network as %q", name)
+	if st.ad == nil {
+		var before *announceResult
+		if prev != nil {
+			before = prev.last.Load()
+		}
+		s.logAnnouncement(st.name, before, st.last.Load())
+		return
+	}
+	s.announce(st)
 }
 
 // stopAdvertising ends the server's announcement, if one is running.
 func (s *Server) stopAdvertising() {
-	if stop := s.advert.Swap(nil); stop != nil {
-		(*stop)()
+	if st := s.advert.Swap(nil); st != nil {
+		st.stop()
 	}
 }
 
@@ -241,7 +436,9 @@ func (s *Server) handleGetLAN(w http.ResponseWriter, r *http.Request) {
 
 // handleSetLAN switches LAN access and answers with the result. PUT
 // /api/server/lan {"enabled": bool}, with ?session= as GET has it; this
-// machine only (localOnly).
+// machine only (localOnly). Switching it on asks macOS for the local network
+// first (requestLocalNetwork), so a prompt the user has yet to answer comes up
+// now, while they are looking, even should the announcement fail to start.
 func (s *Server) handleSetLAN(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Enabled *bool `json:"enabled"`
@@ -249,6 +446,9 @@ func (s *Server) handleSetLAN(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil || req.Enabled == nil {
 		writeMessageError(w, http.StatusBadRequest, msg.New("say whether LAN access is on: enabled, true or false"))
 		return
+	}
+	if *req.Enabled && !s.lan.Load() {
+		requestLocalNetwork()
 	}
 	s.setLAN(*req.Enabled)
 	writeJSON(w, http.StatusOK, s.lanState(s.askedSession(r)))

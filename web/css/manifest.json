@@ -517,6 +517,8 @@
 				"connectivity-address-copy",
 				"connectivity-address-caption",
 				"connectivity-note",
+				"connectivity-not-announced",
+				"connectivity-settings-link",
 				"connectivity-error"
 			]
 		},

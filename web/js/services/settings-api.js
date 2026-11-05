@@ -246,7 +246,12 @@ export function getConnectivity(policy = {}) {
  * @typedef {object} LANState
  * @property {boolean} enabled - Whether devices on this network may come in
  * @property {ExposureURL[]} urls - This machine's addresses on its networks, while enabled
- * @property {boolean} [announced] - Whether the server is announcing itself on the network, so other computers' apps list it
+ * @property {boolean} [announced] - Whether the server's announcements are leaving the machine, so other computers' apps list it
+ * @property {{reason: 'local-network-denied'|'failed', error?: string, app?: string, removable?: boolean}} [notAnnounced] -
+ *   Why not, while LAN access is on and they are not: macOS refusing the
+ *   local network to `app` (when it can be told; `removable` when System
+ *   Settings can remove it from its list so macOS asks again), or another
+ *   failure, `error`
  */
 
 /**

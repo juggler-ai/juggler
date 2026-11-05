@@ -96,3 +96,36 @@ func TestLaunchSettingsAreThisMachines(t *testing.T) {
 		t.Errorf("PUT both off from this machine: %d %s", code, body)
 	}
 }
+
+// TestTickingLANOnLaunchAsksForTheLocalNetwork: saving LAN access to start
+// whenever Juggler starts asks macOS for the local network at once, while the
+// user is there to answer, rather than at some later launch when nobody is.
+// Saving it off, saving it on while it is on, saving only a tunnel mode, and a
+// save that is refused ask nothing.
+func TestTickingLANOnLaunchAsksForTheLocalNetwork(t *testing.T) {
+	userpathstest.Isolate(t)
+	asked := countLocalNetworkRequests(t)
+	s := &Server{reg: newRegistry(), token: testToken, shutdownReq: make(chan struct{}, 1)}
+	local := httptest.NewServer(s.routes())
+	defer local.Close()
+	for _, c := range []struct {
+		body string
+		code int
+		want int32
+	}{
+		{`{"lanOnLaunch":false}`, http.StatusOK, 0},
+		{`{"wanOnLaunch":""}`, http.StatusOK, 0},
+		{`{"lanOnLaunch":true,"wanOnLaunch":"nope"}`, http.StatusBadRequest, 0},
+		{`{"lanOnLaunch":true}`, http.StatusOK, 1},
+		{`{"lanOnLaunch":true}`, http.StatusOK, 1},
+		{`{"lanOnLaunch":false}`, http.StatusOK, 1},
+		{`{"lanOnLaunch":true,"wanOnLaunch":""}`, http.StatusOK, 2},
+	} {
+		if code, body := lanCall(t, "PUT", local.URL+"/api/server/launch", c.body); code != c.code {
+			t.Fatalf("PUT %s: %d %s, want %d", c.body, code, body, c.code)
+		}
+		if n := asked.Load(); n != c.want {
+			t.Errorf("after PUT %s: asked %d times, want %d", c.body, n, c.want)
+		}
+	}
+}

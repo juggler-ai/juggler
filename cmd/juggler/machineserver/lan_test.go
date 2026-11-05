@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -121,19 +122,264 @@ func TestLANAccessListsTheAddressesToUse(t *testing.T) {
 }
 
 // fakeAdverts records a Server's advertisements: one entry per start, and how
-// many of them were stopped.
+// many of them were stopped. Each announces as sends would go: refused while
+// refuse holds an error, left while it holds none.
 type fakeAdverts struct {
-	started []string
-	stopped atomic.Int32
-	fail    error
+	started   []string
+	stopped   atomic.Int32
+	fail      error
+	refuse    atomic.Pointer[error]
+	announces atomic.Int32
+	// sendFailed is the responder having failed a send since the last announcement.
+	sendFailed atomic.Bool
 }
 
-func (f *fakeAdverts) advertise(name string, port int, version string) (func(), error) {
+func (f *fakeAdverts) advertise(name string, port int, version string) (lanAdvert, error) {
 	if f.fail != nil {
 		return nil, f.fail
 	}
 	f.started = append(f.started, fmt.Sprintf("%s:%d %s", name, port, version))
-	return func() { f.stopped.Add(1) }, nil
+	return fakeAdvert{f}, nil
+}
+
+// refuseWith makes every send refused with err from now on; nil lets them leave.
+func (f *fakeAdverts) refuseWith(err error) { f.refuse.Store(&err) }
+
+type fakeAdvert struct{ f *fakeAdverts }
+
+func (a fakeAdvert) Announce() error {
+	a.f.announces.Add(1)
+	a.f.sendFailed.Store(false)
+	if err := a.f.refuse.Load(); err != nil {
+		return *err
+	}
+	return nil
+}
+func (a fakeAdvert) SendFailed() bool { return a.f.sendFailed.Load() }
+func (a fakeAdvert) Stop()            { a.f.stopped.Add(1) }
+
+// errDenied is a refusal as macOS gives one.
+var errDenied = fmt.Errorf("%w: write udp: sendmsg: no route to host", lanfind.ErrLocalNetworkDenied)
+
+// captureLog collects what the server logs while the test runs.
+func captureLog(t *testing.T) *strings.Builder {
+	t.Helper()
+	var b strings.Builder
+	prevOut, prevFlags := log.Writer(), log.Flags()
+	log.SetOutput(&b)
+	log.SetFlags(0)
+	t.Cleanup(func() { log.SetOutput(prevOut); log.SetFlags(prevFlags) })
+	return &b
+}
+
+// useResponsibleApp makes name the app macOS holds responsible for this
+// server, and removable whether its Local Network list can remove an app.
+func useResponsibleApp(t *testing.T, name string, removable bool) {
+	t.Helper()
+	prevApp, prevRemovable := responsibleApp, localNetworkListRemovable
+	responsibleApp = func() string { return name }
+	localNetworkListRemovable = func() bool { return removable }
+	t.Cleanup(func() { responsibleApp, localNetworkListRemovable = prevApp, prevRemovable })
+}
+
+// countLocalNetworkRequests counts the server's asking macOS for the local
+// network (requestLocalNetwork) while the test runs.
+func countLocalNetworkRequests(t *testing.T) *atomic.Int32 {
+	t.Helper()
+	var n atomic.Int32
+	prev := requestLocalNetwork
+	requestLocalNetwork = func() { n.Add(1) }
+	t.Cleanup(func() { requestLocalNetwork = prev })
+	return &n
+}
+
+// TestLANIsAnnouncedOnlyOnceAnAnnouncementLeaves: the server says it is
+// announced (and logs it) only once an announcement has actually left the
+// machine. Until one does, each read of LAN access tries again, so the
+// moment the OS lets it out — the user allowing it — the next read says so.
+// Once announced, a read sends nothing more, until the responder fails a send
+// and the next read looks again.
+func TestLANIsAnnouncedOnlyOnceAnAnnouncementLeaves(t *testing.T) {
+	logged := captureLog(t)
+	useResponsibleApp(t, "Terminal", false)
+	ads := &fakeAdverts{}
+	ads.refuseWith(errDenied)
+	s := &Server{reg: newRegistry(), addr: "127.0.0.1:3941", advertise: ads.advertise}
+	host, _ := os.Hostname()
+	announced := fmt.Sprintf("announced on this network as %q", lanfind.InstanceName(host))
+
+	s.setLAN(true)
+	if strings.Contains(logged.String(), announced) {
+		t.Errorf("logged %q before any announcement left:\n%s", announced, logged)
+	}
+	for range 2 {
+		st := s.lanState("")
+		if st.Announced || st.NotAnnounced == nil || st.NotAnnounced.Reason != "local-network-denied" || st.NotAnnounced.App != "Terminal" {
+			t.Fatalf("refused: announced %v, why %+v; want not, local-network-denied by Terminal", st.Announced, st.NotAnnounced)
+		}
+	}
+	if n := ads.announces.Load(); n != 3 {
+		t.Errorf("announced %d times over the start and two reads, want 3 (one each)", n)
+	}
+
+	ads.refuseWith(nil)
+	if st := s.lanState(""); !st.Announced || st.NotAnnounced != nil {
+		t.Fatalf("once sends leave: announced %v, why %+v; want announced", st.Announced, st.NotAnnounced)
+	}
+	if strings.Count(logged.String(), announced) != 1 {
+		t.Errorf("logged %q %d times once announced, want once:\n%s", announced, strings.Count(logged.String(), announced), logged)
+	}
+	before := ads.announces.Load()
+	s.lanState("")
+	s.lanState("")
+	if n := ads.announces.Load() - before; n != 0 {
+		t.Errorf("reads of an announced server announced %d more times, want none", n)
+	}
+
+	ads.refuseWith(errDenied)
+	ads.sendFailed.Store(true)
+	if st := s.lanState(""); st.Announced || st.NotAnnounced == nil {
+		t.Errorf("after the responder failed a send and announcing is refused: announced %v, why %+v", st.Announced, st.NotAnnounced)
+	}
+	if !strings.Contains(logged.String(), "no longer announced on this network") {
+		t.Errorf("did not log the announcement stopping:\n%s", logged)
+	}
+}
+
+// TestLANNotAnnouncedSaysWhoToAllow: a refusal by macOS names the app that
+// must be allowed onto the local network — the one macOS holds responsible
+// for the server, whoever started it: Juggler Server for one the app
+// launched, the terminal for `juggler serve` — and whether that app can be
+// removed from the Local Network list, which makes macOS ask again. Any other
+// failure says what it was. That is what GET /api/server/lan carries.
+func TestLANNotAnnouncedSaysWhoToAllow(t *testing.T) {
+	captureLog(t)
+	for _, c := range []struct {
+		name        string
+		starter     int
+		responsible string
+		removable   bool
+		refuse      error
+		want        lanNotAnnounced
+	}{
+		{"the app launched it", os.Getpid(), "Juggler Server", false, errDenied, lanNotAnnounced{Reason: "local-network-denied", App: "Juggler Server"}},
+		{"a terminal started it", 0, "iTerm", false, errDenied, lanNotAnnounced{Reason: "local-network-denied", App: "iTerm"}},
+		{"its app can be removed", 0, "iTerm", true, errDenied, lanNotAnnounced{Reason: "local-network-denied", App: "iTerm", Removable: true}},
+		{"no app is responsible", 0, "", false, errDenied, lanNotAnnounced{Reason: "local-network-denied"}},
+		{"another failure", 0, "Terminal", true, errors.New("network is down"), lanNotAnnounced{Reason: "failed", Error: "network is down"}},
+	} {
+		useResponsibleApp(t, c.responsible, c.removable)
+		ads := &fakeAdverts{}
+		ads.refuseWith(c.refuse)
+		s := &Server{reg: newRegistry(), addr: "127.0.0.1:3941", advertise: ads.advertise, starter: c.starter}
+		s.setLAN(true)
+		st := s.lanState("")
+		if st.NotAnnounced == nil || *st.NotAnnounced != c.want {
+			t.Errorf("%s: why not announced = %+v, want %+v", c.name, st.NotAnnounced, c.want)
+		}
+		s.stopAdvertising()
+	}
+
+	ads := &fakeAdverts{}
+	ads.refuseWith(errDenied)
+	useResponsibleApp(t, "Terminal", true)
+	s := &Server{reg: newRegistry(), addr: "127.0.0.1:3941", advertise: ads.advertise}
+	s.setLAN(true)
+	defer s.stopAdvertising()
+	body, err := json.Marshal(s.lanState(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `"announced":false,"notAnnounced":{"reason":"local-network-denied","app":"Terminal","removable":true}`; !strings.Contains(string(body), want) {
+		t.Errorf("GET /api/server/lan = %s, want it to carry %s", body, want)
+	}
+}
+
+// TestLANRetriesAnAnnouncementThatCouldNotStart: an announcement that could
+// not start (no multicast socket to be had, say) is tried again on each read
+// while LAN access is on, and says why until it starts.
+func TestLANRetriesAnAnnouncementThatCouldNotStart(t *testing.T) {
+	captureLog(t)
+	ads := &fakeAdverts{fail: errors.New("address already in use")}
+	s := &Server{reg: newRegistry(), addr: "127.0.0.1:3941", advertise: ads.advertise}
+	s.setLAN(true)
+	defer s.stopAdvertising()
+	if st := s.lanState(""); st.Announced || st.NotAnnounced == nil || st.NotAnnounced.Error != "address already in use" {
+		t.Fatalf("could not start: announced %v, why %+v", st.Announced, st.NotAnnounced)
+	}
+	ads.fail = nil
+	if st := s.lanState(""); !st.Announced {
+		t.Fatalf("a read once it can start: announced %v, why %+v; want announced", st.Announced, st.NotAnnounced)
+	}
+	if len(ads.started) != 1 {
+		t.Errorf("started %d announcements, want 1", len(ads.started))
+	}
+}
+
+// TestBundleOfPath: the bundle a main executable is the main executable of is
+// the innermost .app it is in — JugglerServer.app, launched as an app of its
+// own, not the Juggler.app that holds it — and only when it sits where a
+// bundle's executable does.
+func TestBundleOfPath(t *testing.T) {
+	for _, c := range []struct{ path, want string }{
+		{"/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal", "/System/Applications/Utilities/Terminal.app"},
+		{"/Applications/Juggler.app/Contents/Helpers/JugglerServer.app/Contents/MacOS/juggler", "/Applications/Juggler.app/Contents/Helpers/JugglerServer.app"},
+		{"/Applications/Juggler.app/Contents/MacOS/juggler-app", "/Applications/Juggler.app"},
+		{"/bin/zsh", ""},
+		{"/Users/me/.app/Contents/MacOS/tool", ""},
+		{"/Applications/Tool.app/Contents/Resources/bin/tool", ""},
+	} {
+		if got := bundleOf(c.path); got != c.want {
+			t.Errorf("bundleOf(%q) = %q, want %q", c.path, got, c.want)
+		}
+	}
+}
+
+// TestLocalNetworkListRemovableFrom: macOS 27.2 is the first whose Local
+// Network list can remove an app, resetting what the user chose for it.
+func TestLocalNetworkListRemovableFrom(t *testing.T) {
+	for v, want := range map[string]bool{
+		"27.2": true, "27.2.1": true, "27.10": true, "28.0": true, "30": true,
+		"27.1.4": false, "27.0.1": false, "27": false, "26.4": false, "16.0": false, "": false, "beta": false,
+	} {
+		if got := removableFrom(v); got != want {
+			t.Errorf("removableFrom(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+// TestStartingLANByHandAsksForTheLocalNetwork: LAN access switched on through
+// the control API asks macOS for the local network then, while the user is
+// looking at it, so a first prompt comes up in context. Switching it off, or
+// on again while it is on, asks nothing, and nor does a start that turns it on
+// by itself (serve --lan, connectivity.lanOnLaunch).
+func TestStartingLANByHandAsksForTheLocalNetwork(t *testing.T) {
+	asked := countLocalNetworkRequests(t)
+	s := &Server{reg: newRegistry(), token: testToken, shutdownReq: make(chan struct{}, 1)}
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+
+	s.setLAN(true)
+	s.setLAN(false)
+	if n := asked.Load(); n != 0 {
+		t.Fatalf("switching LAN access other than by hand asked %d times, want none", n)
+	}
+	for _, c := range []struct {
+		body string
+		want int32
+	}{
+		{`{"enabled":true}`, 1},
+		{`{"enabled":true}`, 1},
+		{`{"enabled":false}`, 1},
+		{`{"enabled":true}`, 2},
+	} {
+		if code, body := lanCall(t, "PUT", front.URL+"/api/server/lan", c.body); code != http.StatusOK {
+			t.Fatalf("PUT %s: %d %s", c.body, code, body)
+		}
+		if n := asked.Load(); n != c.want {
+			t.Errorf("after PUT %s: asked %d times, want %d", c.body, n, c.want)
+		}
+	}
 }
 
 // TestLANAccessIsAdvertisedWhileOn: a server announces itself on the network

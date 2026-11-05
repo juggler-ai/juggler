@@ -6,19 +6,27 @@ package lanfind
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/netip"
+	"os"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
+	"github.com/pion/logging"
 	"github.com/pion/mdns/v2"
+	"golang.org/x/net/dns/dnsmessage"
 )
 
 // fakeTransport records what was asked of it and hands its browse handler to
 // the test.
 type fakeTransport struct {
 	host       string
+	logs       logging.LoggerFactory
 	registered []mdns.ServiceInstance
 	browsed    []string
 	handler    func(mdns.ServiceEvent)
@@ -40,9 +48,230 @@ func useFake(t *testing.T) *fakeTransport {
 	t.Helper()
 	f := &fakeTransport{}
 	prev := openTransport
-	openTransport = func(host string) (transport, error) { f.host = host; return f, nil }
+	openTransport = func(host string, logs logging.LoggerFactory) (transport, error) {
+		f.host, f.logs = host, logs
+		return f, nil
+	}
 	t.Cleanup(func() { openTransport = prev })
 	return f
+}
+
+// fakeSends stands in for the network an announcement is sent on: one
+// interface with addrs, whose sends answer errs (one that is taken while errs
+// is empty), recording each packet.
+type fakeSends struct {
+	addrs   []netip.Addr
+	errs    []error
+	packets [][]byte
+}
+
+func useSends(t *testing.T, addrs []netip.Addr, errs ...error) *fakeSends {
+	t.Helper()
+	f := &fakeSends{addrs: addrs, errs: errs}
+	prev := sendAnnouncement
+	sendAnnouncement = func(build func([]netip.Addr) ([]byte, error)) []error {
+		pkt, err := build(f.addrs)
+		if err != nil {
+			return []error{err}
+		}
+		f.packets = append(f.packets, pkt)
+		if len(f.errs) == 0 {
+			return []error{nil}
+		}
+		return f.errs
+	}
+	t.Cleanup(func() { sendAnnouncement = prev })
+	return f
+}
+
+// logged records what reaches the log, with a clock the test moves.
+type logged struct {
+	lines []string
+	at    time.Time
+}
+
+func useLog(t *testing.T) *logged {
+	t.Helper()
+	l := &logged{at: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	prevLog, prevNow := logLine, now
+	logLine = func(format string, args ...any) { l.lines = append(l.lines, fmt.Sprintf(format, args...)) }
+	now = func() time.Time { return l.at }
+	reset := func() { warned.Clear() }
+	reset()
+	t.Cleanup(func() { logLine, now = prevLog, prevNow; reset() })
+	return l
+}
+
+// writeFailed is a failed send as the responder's sockets report one.
+func writeFailed(errno syscall.Errno) error {
+	return &net.OpError{Op: "write", Net: "udp", Err: &os.SyscallError{Syscall: "sendmsg", Err: errno}}
+}
+
+// TestAnnounceSaysWhetherTheAnnouncementLeft: an announcement has left when
+// a send of it on any interface succeeded. When none did, every send refused
+// with "no route to host" is, on macOS, Local Network privacy refusing this
+// process (as it does while its prompt is still unanswered, too); anywhere
+// else, or for any other error, it is the error itself.
+func TestAnnounceSaysWhetherTheAnnouncementLeft(t *testing.T) {
+	unreachable, down := writeFailed(syscall.EHOSTUNREACH), writeFailed(syscall.ENETDOWN)
+	for _, c := range []struct {
+		name   string
+		errs   []error
+		goos   string
+		left   bool
+		denied bool
+	}{
+		{"one interface takes it", []error{unreachable, nil}, "darwin", true, false},
+		{"macOS refuses every send", []error{unreachable, unreachable}, "darwin", false, true},
+		{"no route anywhere else is the network's", []error{unreachable}, "linux", false, false},
+		{"another failure is itself", []error{down}, "darwin", false, false},
+		{"no interface to send on", nil, "darwin", false, false},
+	} {
+		err := outcome(c.errs, c.goos)
+		if (err == nil) != c.left || errors.Is(err, ErrLocalNetworkDenied) != c.denied {
+			t.Errorf("%s: outcome = %v; want left %v, denied %v", c.name, err, c.left, c.denied)
+		}
+		if err != nil && !c.denied && len(c.errs) > 0 && !errors.Is(err, c.errs[0]) {
+			t.Errorf("%s: outcome = %v, want the send's own error", c.name, err)
+		}
+	}
+}
+
+// TestAnnounceSendsTheServersRecords: an announcement is an unasked mDNS
+// response (RFC 6762 §8.3) naming the service, its instance's host, port and
+// version, and the host's addresses on the interface it goes out on, the
+// instance's own records marked as its alone (cache-flush).
+func TestAnnounceSendsTheServersRecords(t *testing.T) {
+	useFake(t)
+	sends := useSends(t, addrs("192.168.1.4", "fe80::4%en0"))
+	ad, err := Advertise("Jules-MBP", 3939, "v1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ad.Stop()
+	if err := ad.Announce(); err != nil {
+		t.Fatalf("Announce = %v with every send taken", err)
+	}
+	if len(sends.packets) != 1 {
+		t.Fatalf("sent %d announcements, want 1", len(sends.packets))
+	}
+	var msg dnsmessage.Message
+	if err := msg.Unpack(sends.packets[0]); err != nil {
+		t.Fatal(err)
+	}
+	if !msg.Response || !msg.Authoritative || len(msg.Questions) != 0 {
+		t.Errorf("header %+v with %d questions, want an authoritative response asking nothing", msg.Header, len(msg.Questions))
+	}
+	var got []string
+	for _, r := range append(msg.Answers, msg.Additionals...) {
+		flush := ""
+		if r.Header.Class&cacheFlush != 0 {
+			flush = " flush"
+		}
+		var body string
+		switch b := r.Body.(type) {
+		case *dnsmessage.PTRResource:
+			body = b.PTR.String()
+		case *dnsmessage.SRVResource:
+			body = fmt.Sprintf("%s:%d", b.Target, b.Port)
+		case *dnsmessage.TXTResource:
+			body = strings.Join(b.TXT, ",")
+		case *dnsmessage.AResource:
+			body = netip.AddrFrom4(b.A).String()
+		case *dnsmessage.AAAAResource:
+			body = netip.AddrFrom16(b.AAAA).String()
+		}
+		got = append(got, fmt.Sprintf("%s %s %d%s %s", r.Header.Name, r.Header.Type, r.Header.TTL, flush, body))
+	}
+	want := []string{
+		"_juggler._tcp.local. TypePTR 120 Jules-MBP._juggler._tcp.local.",
+		"Jules-MBP._juggler._tcp.local. TypeSRV 120 flush juggler-jules-mbp.local.:3939",
+		"Jules-MBP._juggler._tcp.local. TypeTXT 120 flush v=v1.2.3",
+		"juggler-jules-mbp.local. TypeA 120 flush 192.168.1.4",
+		"juggler-jules-mbp.local. TypeAAAA 120 flush fe80::4",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("announced\n %s\nwant\n %s", strings.Join(got, "\n "), strings.Join(want, "\n "))
+	}
+}
+
+// TestAnnounceReportsRefusedSends: Announce answers how its sends went, every
+// time it is asked, so one refused for now is retried and seen to leave once
+// it does.
+func TestAnnounceReportsRefusedSends(t *testing.T) {
+	useFake(t)
+	sends := useSends(t, addrs("192.168.1.4"), writeFailed(syscall.EHOSTUNREACH))
+	prevOS := goos
+	goos = "darwin"
+	t.Cleanup(func() { goos = prevOS })
+	ad, err := Advertise("Jules-MBP", 3939, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ad.Stop()
+	if err := ad.Announce(); !errors.Is(err, ErrLocalNetworkDenied) {
+		t.Fatalf("Announce with every send refused = %v, want ErrLocalNetworkDenied", err)
+	}
+	sends.errs = nil
+	if err := ad.Announce(); err != nil {
+		t.Errorf("Announce once sends are taken = %v, want nil", err)
+	}
+}
+
+// TestResponderLogsWarningsRateLimited: the responder's warnings and errors
+// reach the log, and its chatter below that does not. A warning repeated (a
+// blocked machine fails every answer it sends) is logged once a minute, with
+// how many were left out meanwhile. A failed send by the responder marks the
+// advertisement for a fresh look until it next announces.
+func TestResponderLogsWarningsRateLimited(t *testing.T) {
+	f := useFake(t)
+	useSends(t, addrs("192.168.1.4"))
+	l := useLog(t)
+	ad, err := Advertise("Jules-MBP", 3939, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ad.Stop()
+	if f.logs == nil {
+		t.Fatal("the responder was opened with no logger")
+	}
+	lg := f.logs.NewLogger("mdns")
+	lg.Debugf("writing answer to %s", "224.0.0.251")
+	lg.Infof("info %d", 1)
+	sendFail := "[%s] failed to send mDNS packet on IPv4 interface %d: %v"
+	lg.Warnf(sendFail, "mdns", 14, writeFailed(syscall.EHOSTUNREACH))
+	if !ad.SendFailed() {
+		t.Error("a failed send by the responder did not mark the advertisement")
+	}
+	for range 5 {
+		lg.Warnf(sendFail, "mdns", 14, writeFailed(syscall.EHOSTUNREACH))
+	}
+	lg.Errorf("broken: %v", errors.New("x"))
+	l.at = l.at.Add(time.Minute)
+	lg.Warnf(sendFail, "mdns", 15, writeFailed(syscall.EHOSTUNREACH))
+	want := []string{
+		"mDNS: [mdns] failed to send mDNS packet on IPv4 interface 14: write udp: sendmsg: no route to host",
+		"mDNS: broken: x",
+		"mDNS: [mdns] failed to send mDNS packet on IPv4 interface 15: write udp: sendmsg: no route to host (and 5 more like it)",
+	}
+	if !reflect.DeepEqual(l.lines, want) {
+		t.Errorf("logged\n %s\nwant\n %s", strings.Join(l.lines, "\n "), strings.Join(want, "\n "))
+	}
+	if err := ad.Announce(); err != nil || ad.SendFailed() {
+		t.Errorf("after an announcement that left (%v), the advertisement is still marked", err)
+	}
+	lg.Warnf("[%s] failed to parse mDNS packet %v", "mdns", errors.New("garbage"))
+	if ad.SendFailed() {
+		t.Error("a packet that did not parse marked the advertisement as failing to send")
+	}
+}
+
+func addrs(s ...string) []netip.Addr {
+	out := make([]netip.Addr, len(s))
+	for i, a := range s {
+		out[i] = netip.MustParseAddr(a)
+	}
+	return out
 }
 
 func TestInstanceName(t *testing.T) {
@@ -66,10 +295,11 @@ func TestInstanceName(t *testing.T) {
 
 func TestAdvertiseRegistersTheServerAndStopsOnce(t *testing.T) {
 	f := useFake(t)
-	stop, err := Advertise("Jules's Mac", 3939, "v1.2.3")
+	ad, err := Advertise("Jules's Mac", 3939, "v1.2.3")
 	if err != nil {
 		t.Fatal(err)
 	}
+	stop := ad.Stop
 	if f.host != "juggler-jules-s-mac.local" {
 		t.Errorf("SRV host = %q, want juggler-jules-s-mac.local", f.host)
 	}

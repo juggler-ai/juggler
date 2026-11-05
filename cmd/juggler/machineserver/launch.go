@@ -66,8 +66,10 @@ func (s *Server) handleSetLaunch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var lanTicked bool
 	gs, err := core.UpdateGlobalSettings(func(gs *core.GlobalSettings) bool {
 		if req.LANOnLaunch != nil {
+			lanTicked = *req.LANOnLaunch && !gs.Connectivity.LANOnLaunch
 			gs.Connectivity.LANOnLaunch = *req.LANOnLaunch
 		}
 		if req.WANOnLaunch != nil {
@@ -78,6 +80,13 @@ func (s *Server) handleSetLaunch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
+	}
+	// LAN access saved to start whenever Juggler starts would first touch the
+	// local network at some later launch, so a Local Network prompt the user
+	// has yet to answer would come up then, unasked for. Ask now, while they
+	// are here.
+	if lanTicked {
+		requestLocalNetwork()
 	}
 	writeJSON(w, http.StatusOK, launchOf(gs))
 }

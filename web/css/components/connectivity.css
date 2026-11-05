@@ -132,6 +132,20 @@
     font-size: var(--font-size-sm);
 }
 
+/* Why other computers won't find this machine: something to act on, so it
+   reads a step above a note, its lines and the settings link stacked. */
+.connectivity-not-announced {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    color: var(--text-secondary);
+}
+
+.connectivity-settings-link {
+    color: var(--accent-blue);
+}
+
 .connectivity-error {
     grid-column: 1 / -1;
     color: var(--error-color);

@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -165,7 +166,10 @@ func (f *lanFinder) answering(ctx context.Context, s lanfind.Found, local map[ne
 		if a.Is6() && a.Zone() == "" && a.IsLinkLocalUnicast() {
 			continue // unusable without the interface it is on
 		}
-		urls = append(urls, "http://"+net.JoinHostPort(a.String(), strconv.Itoa(s.Port)))
+		// url.URL escapes a zone's "%" as "%25", which an address written
+		// into the URL bare would leave as an escape that does not parse.
+		u := url.URL{Scheme: "http", Host: net.JoinHostPort(a.String(), strconv.Itoa(s.Port))}
+		urls = append(urls, u.String())
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

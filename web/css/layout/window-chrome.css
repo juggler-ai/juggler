@@ -68,6 +68,27 @@
     --wails-draggable: no-drag;
 }
 
+/* The frameless Linux window's edge. Windows keeps DWM's border and shadow
+   (DisableFramelessWindowDecorations: false) and macOS its native frame, but a
+   GTK window stripped of its decorations ends at the page's last pixel, so a
+   light-themed window runs straight into a light desktop or the window behind
+   it. A hairline drawn over everything, taking no clicks, gives it the edge a
+   decorated Adwaita window has.
+
+   Only while the window has a free edge: a maximised or fullscreen window meets
+   the screen's own edges, where a line would be a stray frame. That is exactly
+   when the edge resize is live (utils/window-edge-resize.js), so its marker is
+   the gate. Drawn by <html>, and weightless, so it is no rival to any
+   component's own ::after. */
+:where(:root[data-window-mode="1"][data-window-platform="linux"][data-window-edge-resize])::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    border: 1px solid var(--border-color);
+    pointer-events: none;
+    z-index: calc(var(--z-above-modal) + 1);
+}
+
 /* A frameless window (Windows + Linux) has no native resize border, so the
    Wails runtime hit-tests the pointer itself and reports a hit by setting the
    cursor on <body>. `cursor` inherits, which makes that report invisible: any

@@ -18,6 +18,8 @@
  *      page load).
  *   3. A host that says "not resizable" stays the ceiling.
  *   4. `data-window-edge-resize` on <html> follows the verdict.
+ *   5. A restored Linux window wears a 1px outline keyed to that marker; a
+ *      maximised one, and a Windows one, do not.
  * @module unit-tests/window-edge-resize-test
  */
 
@@ -109,6 +111,31 @@ export async function runTests() {
     assert(root.dataset.windowEdgeResize === '1', 'live edges must be marked on <html>');
     gate.setMaximised(true);
     assert(root.dataset.windowEdgeResize === undefined, 'a maximised window must clear the marker');
+  });
+
+  run('linux-restored-window-is-outlined', () => {
+    const { windowMode, windowPlatform } = root.dataset;
+    const outline = () => getComputedStyle(root, '::after');
+    try {
+      root.dataset.windowMode = '1';
+      root.dataset.windowPlatform = 'linux';
+      const { runtime } = fakeRuntime();
+      const gate = installEdgeResizeGate(runtime);
+      runtime.setResizable(true);
+      const drawn = outline();
+      assert(drawn.borderTopWidth === '1px' && drawn.borderTopStyle === 'solid',
+        `a restored Linux window must be outlined, got ${drawn.borderTopWidth} ${drawn.borderTopStyle}`);
+      assert(drawn.position === 'fixed' && drawn.pointerEvents === 'none',
+        `the outline must cover the window and take no clicks, got ${drawn.position} / ${drawn.pointerEvents}`);
+      gate.setMaximised(true);
+      assert(outline().borderTopStyle === 'none', 'a maximised window has no edge to outline');
+      gate.setMaximised(false);
+      root.dataset.windowPlatform = 'windows';
+      assert(outline().borderTopStyle === 'none', 'Windows draws its own frame edge');
+    } finally {
+      if (windowMode === undefined) delete root.dataset.windowMode; else root.dataset.windowMode = windowMode;
+      if (windowPlatform === undefined) delete root.dataset.windowPlatform; else root.dataset.windowPlatform = windowPlatform;
+    }
   });
 
   run('no-runtime-is-inert', () => {

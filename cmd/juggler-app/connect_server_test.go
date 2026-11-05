@@ -136,6 +136,8 @@ func TestNormaliseServerURL(t *testing.T) {
 		{"HTTP://DevBox:8080", "http://devbox:8080"},
 		{"192.168.1.20:7000", "http://192.168.1.20:7000"},
 		{"http://[fe80::1]:7000", "http://[fe80::1]:7000"},
+		{"http://[fe80::1%25en0]:7000", ""},
+		{"[fe80::1%en0]:7000", ""},
 		{"", ""},
 		{"   ", ""},
 		{"ftp://devbox", ""},

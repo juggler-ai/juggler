@@ -43,10 +43,10 @@ type warning struct {
 
 // responderLogs is the LoggerFactory the responder is opened with: its
 // warnings and errors go to the log (jlog), rate-limited, and the rest of its
-// chatter nowhere. The advertisement it serves, if any, is told of each send
-// that fails (Advertisement.SendFailed).
+// chatter nowhere. failed, when there is one, is raised by each send that
+// fails: the advertisement's or the browse's it serves (SendFailed).
 type responderLogs struct {
-	ad *Advertisement
+	failed *atomic.Bool
 }
 
 // NewLogger is the logger for one of the responder's scopes; they all log alike.
@@ -68,14 +68,14 @@ func (l responderLogger) Errorf(format string, args ...any) { l.note(format, arg
 
 // note logs one warning, unless one like it (by format) was logged under
 // warnEvery ago; the next that is logged says how many were left out. A
-// failed write among its arguments is a send that did not leave, which the
-// advertisement is told of.
+// failed write among its arguments is a send that did not leave, which raises
+// failed.
 func (l responderLogger) note(format string, args ...any) {
-	if l.ad != nil {
+	if l.failed != nil {
 		for _, a := range args {
 			var op *net.OpError
 			if err, ok := a.(error); ok && errors.As(err, &op) && op.Op == "write" {
-				l.ad.sendFailed.Store(true)
+				l.failed.Store(true)
 			}
 		}
 	}

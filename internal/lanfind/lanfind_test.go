@@ -266,6 +266,29 @@ func TestResponderLogsWarningsRateLimited(t *testing.T) {
 	}
 }
 
+// TestBrowseNotesFailedSends: a query the browse sends that fails marks it,
+// so its owner can open another — one opened while macOS refused this process
+// the local network hears nothing even once it is allowed. Anything else the
+// responder warns of does not.
+func TestBrowseNotesFailedSends(t *testing.T) {
+	f := useFake(t)
+	useLog(t)
+	b, err := Browse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	lg := f.logs.NewLogger("mdns")
+	lg.Warnf("[%s] failed to parse mDNS packet %v", "mdns", errors.New("garbage"))
+	if b.SendFailed() {
+		t.Error("a packet that did not parse marked the browse as failing to send")
+	}
+	lg.Warnf("[%s] failed to send mDNS packet (multicast) on IPv4 interface %d: %v", "mdns", 14, writeFailed(syscall.EHOSTUNREACH))
+	if !b.SendFailed() {
+		t.Error("a failed query did not mark the browse")
+	}
+}
+
 func addrs(s ...string) []netip.Addr {
 	out := make([]netip.Addr, len(s))
 	for i, a := range s {

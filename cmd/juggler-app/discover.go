@@ -43,6 +43,7 @@ type foundServer struct {
 // test's stand-in.
 type serverSource interface {
 	Snapshot() []lanfind.Found
+	SendFailed() bool
 	Close()
 }
 
@@ -89,11 +90,23 @@ func newLANFinder() *lanFinder {
 // source is the running browse, started if none is. Two first asks at once
 // both start one; the loser closes its own and takes the winner's — or, should
 // that have gone idle and stopped in between, starts again.
+//
+// A browse whose queries failed and that has found nothing is replaced: on
+// macOS it was opened while the app was refused the local network — at the
+// first ask, which brings up the prompt, or just after a rebuild — and hears
+// nothing even once the user allows it. One that has found servers is
+// hearing, and is kept.
 func (f *lanFinder) source() (serverSource, error) {
 	f.asked.Store(time.Now().UnixNano())
 	for {
 		if p := f.src.Load(); p != nil {
-			return *p, nil
+			if !(*p).SendFailed() || len((*p).Snapshot()) > 0 {
+				return *p, nil
+			}
+			if f.src.CompareAndSwap(p, nil) {
+				(*p).Close()
+			}
+			continue
 		}
 		src, err := f.browse()
 		if err != nil {
@@ -163,11 +176,13 @@ func (f *lanFinder) answering(ctx context.Context, s lanfind.Found, local map[ne
 		if local[a] {
 			return nil
 		}
-		if a.Is6() && a.Zone() == "" && a.IsLinkLocalUnicast() {
-			continue // unusable without the interface it is on
+		if a.Is6() && a.IsLinkLocalUnicast() {
+			// Unusable without its zone, and a window cannot open a URL with
+			// one: the WHATWG URL a web view parses has no zone syntax, so
+			// WebKit and WebView2 both refuse it. Listed, it would answer the
+			// probe here and then fail as the window's address.
+			continue
 		}
-		// url.URL escapes a zone's "%" as "%25", which an address written
-		// into the URL bare would leave as an escape that does not parse.
 		u := url.URL{Scheme: "http", Host: net.JoinHostPort(a.String(), strconv.Itoa(s.Port))}
 		urls = append(urls, u.String())
 	}

@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"net/url"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -25,10 +24,12 @@ import (
 type fakeSource struct {
 	found  []lanfind.Found
 	closed atomic.Int32
+	failed atomic.Bool
 }
 
 func (f *fakeSource) Snapshot() []lanfind.Found { return f.found }
 func (f *fakeSource) Close()                    { f.closed.Add(1) }
+func (f *fakeSource) SendFailed() bool          { return f.failed.Load() }
 
 func addrs(s ...string) []netip.Addr {
 	out := make([]netip.Addr, len(s))
@@ -141,16 +142,17 @@ func TestDiscoverDoesNotWaitOnADeadAddress(t *testing.T) {
 	}
 }
 
-// TestDiscoverAsksALinkLocalAddressOnItsInterface: a link-local IPv6 address
-// is usable only with the interface it is on, so it is asked with its zone,
-// escaped as a URL carries one ("%25"): a probe URL that does not parse would
-// never be asked at all. One without a zone is not asked.
-func TestDiscoverAsksALinkLocalAddressOnItsInterface(t *testing.T) {
+// TestDiscoverSkipsLinkLocalAddresses: a link-local IPv6 address is usable
+// only with its zone, and a URL cannot carry one that a window's web view will
+// open, so neither a zoned nor a bare one is asked or listed — the server is
+// listed at an address it has that a window can open.
+func TestDiscoverSkipsLinkLocalAddresses(t *testing.T) {
 	asked := make(chan string, 4)
 	f := &lanFinder{
 		browse: func() (serverSource, error) {
 			return &fakeSource{found: []lanfind.Found{
-				{Name: "Near", Addrs: addrs("fe80::9%en0", "fe80::10"), Port: 3939},
+				{Name: "Near", Addrs: addrs("192.168.1.9", "fe80::9%en0", "fe80::10"), Port: 3939},
+				{Name: "OnlyLinkLocal", Addrs: addrs("fe80::11%en0"), Port: 3939},
 			}}, nil
 		},
 		probe: func(_ context.Context, u string) (string, bool) {
@@ -168,15 +170,12 @@ func TestDiscoverAsksALinkLocalAddressOnItsInterface(t *testing.T) {
 	for u := range asked {
 		urls = append(urls, u)
 	}
-	if !reflect.DeepEqual(urls, []string{"http://[fe80::9%25en0]:3939"}) {
-		t.Fatalf("asked %q, want only the zoned address, escaped", urls)
+	if !reflect.DeepEqual(urls, []string{"http://192.168.1.9:3939"}) {
+		t.Fatalf("asked %q, want only the IPv4 address", urls)
 	}
-	u, err := url.Parse(urls[0] + "/api/version")
-	if err != nil || u.Hostname() != "fe80::9%en0" || u.Port() != "3939" {
-		t.Errorf("the probe URL %q parses to host %q port %q (%v), want fe80::9%%en0 and 3939", urls[0], u.Hostname(), u.Port(), err)
-	}
-	if len(got) != 1 || got[0].URL != urls[0] {
-		t.Errorf("listed %+v, want Near at %s", got, urls[0])
+	want := []foundServer{{Name: "Near", URL: "http://192.168.1.9:3939", Version: "v1.0.0"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("listed %+v, want %+v", got, want)
 	}
 }
 
@@ -218,6 +217,51 @@ func TestDiscoverBrowsesOnce(t *testing.T) {
 	}
 	if starts != 1 || src.closed.Load() != 0 {
 		t.Errorf("three asks started %d browses and closed %d, want 1 and 0", starts, src.closed.Load())
+	}
+}
+
+// TestDiscoverReopensABrowseThatCannotSend: a browse whose queries failed and
+// that has found nothing — opened while macOS refused the app the local
+// network, as at the first ask, when its prompt comes up — is closed at the
+// next ask and another opened, so the one opened once the user allows it
+// hears answers. A browse that has found servers is hearing, and is kept
+// whatever its sends did.
+func TestDiscoverReopensABrowseThatCannotSend(t *testing.T) {
+	deaf := &fakeSource{}
+	deaf.failed.Store(true)
+	hearing := &fakeSource{found: []lanfind.Found{{Name: "Box", Addrs: addrs("192.168.1.9"), Port: 3939}}}
+	hearing.failed.Store(true)
+	sources := []*fakeSource{deaf, hearing}
+	starts := 0
+	f := &lanFinder{
+		browse: func() (serverSource, error) {
+			src := sources[min(starts, len(sources)-1)]
+			starts++
+			return src, nil
+		},
+		probe:      func(context.Context, string) (string, bool) { return "v1", true },
+		localAddrs: func() map[netip.Addr]bool { return nil },
+	}
+	if _, err := f.servers(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.servers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if starts != 2 || deaf.closed.Load() != 1 {
+		t.Fatalf("after a browse that found nothing failed to send: %d browses started, the first closed %d times; want 2 and 1", starts, deaf.closed.Load())
+	}
+	if len(got) != 1 || got[0].Name != "Box" {
+		t.Errorf("the reopened browse lists %+v, want Box", got)
+	}
+	for range 3 {
+		if _, err := f.servers(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if starts != 2 || hearing.closed.Load() != 0 {
+		t.Errorf("a browse that has found servers was reopened: %d started, closed %d times", starts, hearing.closed.Load())
 	}
 }
 

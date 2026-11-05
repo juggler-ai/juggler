@@ -25,12 +25,13 @@ body {
     overflow-y: auto;
 }
 
-/* One column, centred: the sessions and the ways of opening one, then the
-   machine's ways in (.ms-main, .ms-side). A wide window sets the two side by
-   side; see the width >= 60rem block below. */
+/* One column, at the window's left: the sessions and the ways of opening one,
+   then the machine's ways in (.ms-main, .ms-side). A wide window sets the two
+   side by side; see the width >= 60rem block below. Whatever the page holds,
+   it starts at the same left edge, so swapping servers never moves it. */
 .ms-page {
     max-width: 48rem;
-    margin: 0 auto;
+    margin: 0;
     padding: var(--spacing-xl) var(--spacing-lg);
     display: flex;
     flex-direction: column;
@@ -594,7 +595,7 @@ body {
 /* A wide window — a desktop window is often wide and shallow — sets the
    sessions and the machine's ways in side by side, top-aligned, filling the
    window, each column scrolling on its own, so the whole page is on screen at
-   once. A page with no ways in keeps its one centred column. */
+   once. A page with no ways in keeps its one column. */
 @media (width >= 60rem) {
     .ms-scroll:has(> .ms-page > .ms-side) {
         overflow: hidden;

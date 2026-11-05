@@ -283,15 +283,34 @@ func (s *Server) announcement() (bool, *lanNotAnnounced) {
 // failed since, and answers what was found. Reads that announce at once each
 // find something true; whichever records its finding over the one it read is
 // the one that logs the change.
+//
+// The first announcement to leave after one that failed reopens the
+// responder (startAdvertising), which answers for what it finds. The
+// responder's sockets joined their multicast groups when it started: joined
+// while macOS refused the server the local network (just after a launch, or
+// after a rebuild, before the grant applies), or before the network was up,
+// they never hear a query, though announcements, sent from sockets of their
+// own, leave. Other computers then find the server only in the moment after
+// an announcement.
 func (s *Server) announce(st *advertState) *announceResult {
 	prev := st.last.Load()
 	if st.ad == nil || (prev != nil && prev.err == nil && !st.ad.SendFailed()) {
 		return prev
 	}
 	next := &announceResult{err: st.ad.Announce()}
-	if st.last.CompareAndSwap(prev, next) {
-		s.logAnnouncement(st.name, prev, next)
+	if !st.last.CompareAndSwap(prev, next) {
+		return next
 	}
+	if next.err == nil && prev != nil && prev.err != nil {
+		s.startAdvertising()
+		if cur := s.advert.Load(); cur != nil {
+			if r := cur.last.Load(); r != nil {
+				return r
+			}
+		}
+		return next
+	}
+	s.logAnnouncement(st.name, prev, next)
 	return next
 }
 

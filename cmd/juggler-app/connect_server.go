@@ -52,7 +52,8 @@ func unreachableMessage(serverURL string) msg.Message {
 // from its root, so a path or query typed with it names nothing extra. Anything
 // but http(s), a missing host, a port that is not one, and credentials in the
 // address are all refused — the address becomes a window's URL, and the
-// control endpoint's frame secret goes with it.
+// control endpoint's frame secret goes with it. So is an IPv6 address with a
+// zone ("%25en0"): a web view's URL has no zone syntax and will not open one.
 func normaliseServerURL(raw string) (string, bool) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -68,7 +69,7 @@ func normaliseServerURL(raw string) (string, bool) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return "", false
 	}
-	if u.User != nil || u.Hostname() == "" {
+	if u.User != nil || u.Hostname() == "" || strings.Contains(u.Hostname(), "%") {
 		return "", false
 	}
 	if p := u.Port(); p != "" {

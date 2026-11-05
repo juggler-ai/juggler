@@ -246,6 +246,53 @@ func TestLANIsAnnouncedOnlyOnceAnAnnouncementLeaves(t *testing.T) {
 	}
 }
 
+// TestLANReopensTheResponderOnceAnnouncementsLeave: a responder opened while
+// its announcements were refused — macOS not yet letting the server onto the
+// local network, as just after a launch or a rebuild — joined its groups then,
+// and hears no query once they are let out, though announcements (on sockets
+// of their own) do leave. So the first announcement that leaves after a
+// refusal reopens it, and the server says it is announced once, of the new
+// one. One that left from the start is never reopened.
+func TestLANReopensTheResponderOnceAnnouncementsLeave(t *testing.T) {
+	logged := captureLog(t)
+	useResponsibleApp(t, "Juggler Server", false)
+	ads := &fakeAdverts{}
+	ads.refuseWith(errDenied)
+	s := &Server{reg: newRegistry(), addr: "127.0.0.1:3941", advertise: ads.advertise}
+	s.setLAN(true)
+	defer s.stopAdvertising()
+	s.lanState("")
+	if len(ads.started) != 1 || ads.stopped.Load() != 0 {
+		t.Fatalf("while refused: started %d, stopped %d; want the one, running", len(ads.started), ads.stopped.Load())
+	}
+
+	ads.refuseWith(nil)
+	if st := s.lanState(""); !st.Announced {
+		t.Fatalf("once sends leave: announced %v, why %+v", st.Announced, st.NotAnnounced)
+	}
+	if len(ads.started) != 2 || ads.stopped.Load() != 1 {
+		t.Errorf("once sends leave: started %d, stopped %d; want the refused one stopped and a second started", len(ads.started), ads.stopped.Load())
+	}
+	if n := strings.Count(logged.String(), "announced on this network as"); n != 1 {
+		t.Errorf("logged being announced %d times, want once:\n%s", n, logged)
+	}
+	for range 3 {
+		s.lanState("")
+	}
+	if len(ads.started) != 2 {
+		t.Errorf("reads of an announced server started %d responders, want no more than 2", len(ads.started))
+	}
+
+	fresh := &fakeAdverts{}
+	s2 := &Server{reg: newRegistry(), addr: "127.0.0.1:3942", advertise: fresh.advertise}
+	s2.setLAN(true)
+	defer s2.stopAdvertising()
+	s2.lanState("")
+	if len(fresh.started) != 1 || fresh.stopped.Load() != 0 {
+		t.Errorf("announced from the start: started %d, stopped %d; want one, never reopened", len(fresh.started), fresh.stopped.Load())
+	}
+}
+
 // TestLANNotAnnouncedSaysWhoToAllow: a refusal by macOS names the app that
 // must be allowed onto the local network — the one macOS holds responsible
 // for the server, whoever started it: Juggler Server for one the app

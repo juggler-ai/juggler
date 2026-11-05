@@ -171,7 +171,7 @@ func hostLabel(instance string) string {
 func Advertise(name string, port int, version string) (*Advertisement, error) {
 	host := hostLabel(name)
 	ad := &Advertisement{}
-	conn, err := openTransport(host, responderLogs{ad})
+	conn, err := openTransport(host, responderLogs{&ad.sendFailed})
 	if err != nil {
 		return nil, err
 	}
@@ -204,17 +204,21 @@ type Browser struct {
 	// once published: seen swaps in a changed copy, so a Snapshot reads one
 	// whole state however the responder's readers interleave.
 	found atomic.Pointer[map[string]Found]
+
+	// sendFailed is a query sent that failed (responderLogs).
+	sendFailed atomic.Bool
 }
 
 // Browse starts looking for Juggler servers.
 func Browse() (*Browser, error) {
-	conn, err := openTransport("", responderLogs{})
+	b := &Browser{}
+	b.found.Store(&map[string]Found{})
+	conn, err := openTransport("", responderLogs{&b.sendFailed})
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	b := &Browser{conn: conn, cancel: cancel}
-	b.found.Store(&map[string]Found{})
+	b.conn, b.cancel = conn, cancel
 	conn.OnServiceDiscovered(b.seen)
 	if err := conn.Browse(ctx, ServiceType); err != nil {
 		cancel()
@@ -287,6 +291,13 @@ func (b *Browser) Snapshot() []Found {
 	})
 	return out
 }
+
+// SendFailed is whether a query the browse sent has failed. One opened while
+// macOS refused this process the local network (before the user answered its
+// prompt, or just after a rebuild) joined its groups then, and hears no answer
+// even once allowed: a browse to replace, unless it has found servers, which
+// proves it hears.
+func (b *Browser) SendFailed() bool { return b.sendFailed.Load() }
 
 // Close stops looking.
 func (b *Browser) Close() {

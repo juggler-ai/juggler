@@ -65,6 +65,18 @@ the server, so turn it on only on networks you trust. While LAN access is on,
 the server also announces itself on the network (as `_juggler._tcp`, under this
 machine's name), so the desktop app on another computer lists it to connect to.
 
+A host firewall can keep other devices out without the server noticing. If
+they cannot connect, or the desktop app does not list this machine, allow the
+server's TCP port and mDNS (UDP 5353):
+
+```bash
+sudo ufw allow 3939/tcp && sudo ufw allow 5353/udp        # ufw
+sudo firewall-cmd --permanent --add-port=3939/tcp --add-service=mdns && sudo firewall-cmd --reload   # firewalld
+```
+
+Use the port the server reports if it is not 3939. The sessions page shows
+these commands with the right port while LAN access is on.
+
 `juggler server status`, `juggler server sessions` and `juggler server stop`
 manage it from another terminal on the same machine.
 

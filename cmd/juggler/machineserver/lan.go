@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -134,7 +135,22 @@ type lanResponse struct {
 	URLs         []lanURL         `json:"urls"`
 	Announced    bool             `json:"announced"`
 	NotAnnounced *lanNotAnnounced `json:"notAnnounced,omitempty"`
+	Firewall     *lanFirewall     `json:"firewall,omitempty"`
 }
+
+// lanFirewall is what a host firewall must let in for LAN access to work,
+// named on a system where one may be dropping it unseen (firewallOS): the
+// server's TCP port, and mDNS, so other computers can find it.
+type lanFirewall struct {
+	Port int `json:"port"`
+}
+
+// firewallOS is the system LAN access is read for: on Linux a host firewall
+// (ufw, firewalld) drops what other devices send without the server seeing
+// anything — its sends still leave, so it is announced all the same — so
+// while LAN access is on it names what to allow. macOS asks the user itself,
+// and its refusals show (lanNotAnnounced). A seam for tests.
+var firewallOS = runtime.GOOS
 
 // Why a server with LAN access on is not announced (lanNotAnnounced.Reason).
 const (
@@ -318,6 +334,9 @@ func (s *Server) lanState(sessionPath string) lanResponse {
 	_, port, err := net.SplitHostPort(s.addr)
 	if err != nil {
 		return resp
+	}
+	if n, err := strconv.Atoi(port); err == nil && firewallOS == "linux" {
+		resp.Firewall = &lanFirewall{Port: n}
 	}
 	for _, a := range lanAddresses() {
 		root := newPageLink("http://" + net.JoinHostPort(a.ip, port) + "/")

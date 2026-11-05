@@ -252,6 +252,8 @@ export function getConnectivity(policy = {}) {
  *   local network to `app` (when it can be told; `removable` when System
  *   Settings can remove it from its list so macOS asks again), or another
  *   failure, `error`
+ * @property {{port: number}} [firewall] - The TCP port a host firewall must
+ *   let in (with mDNS), on a server where one may be dropping it unseen (Linux)
  */
 
 /**

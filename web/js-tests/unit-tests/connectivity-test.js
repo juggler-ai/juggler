@@ -449,6 +449,56 @@ export async function runTests(_ctx) {
     });
   });
 
+  // A Linux server's firewall can keep other devices out without the server
+  // knowing, so while LAN access is on the page says what to allow there —
+  // the server's port and mDNS — with the commands for ufw and firewalld to
+  // copy. A server elsewhere names no firewall, and nothing is said.
+  await run('LAN access on a Linux server says what its firewall must allow', async () => {
+    const urls = [{ url: 'http://192.168.1.4:3941/', interface: 'eth0', qr: QR }];
+    const commands = [
+      'sudo ufw allow 3941/tcp && sudo ufw allow 5353/udp',
+      'sudo firewall-cmd --permanent --add-port=3941/tcp --add-service=mdns && sudo firewall-cmd --reload',
+    ];
+    await withRoutes({ exposure: true, lan: { enabled: true, urls, announced: true, firewall: { port: 3941 } }, tunnel: { modes: [], running: null } }, async () => {
+      const { el } = await mountWith({ clientCount: 1, clients: [], exposure: true });
+      try {
+        const note = el.querySelector('#connectivity-lan-section .connectivity-firewall');
+        const text = note?.textContent || '';
+        assert(text.includes('If other devices can’t connect to this computer or find it, its firewall may be blocking them: allow TCP port 3941, and UDP port 5353 for finding it. With ufw or firewalld, these do that:'),
+          `no firewall advice: ${el.querySelector('#connectivity-lan-section')?.textContent}`);
+        const shown = [...(note?.querySelectorAll('code.connectivity-command') || [])].map((c) => c.textContent);
+        assert(JSON.stringify(shown) === JSON.stringify(commands), `commands ${JSON.stringify(shown)}, want ${JSON.stringify(commands)}`);
+        assert(note?.querySelectorAll('.connectivity-address-copy').length === 2, 'each command has a copy button');
+      } finally {
+        el.remove();
+      }
+    });
+    await withRoutes({ exposure: true, lan: { enabled: true, urls, announced: true }, tunnel: { modes: [], running: null } }, async () => {
+      const { el } = await mountWith({ clientCount: 1, clients: [], exposure: true });
+      try {
+        assert(!el.querySelector('.connectivity-firewall'), `firewall advice for a server that names no firewall: ${el.textContent}`);
+      } finally {
+        el.remove();
+      }
+    });
+  });
+
+  await run('LAN access firewall advice speaks the UI language', async () => {
+    await underPseudoLocale('connectivity-test', async () => {
+      const urls = [{ url: 'http://192.168.1.4:3941/', interface: 'eth0', qr: QR }];
+      await withRoutes({ exposure: true, lan: { enabled: true, urls, announced: true, firewall: { port: 3941 } }, tunnel: { modes: [], running: null } }, async () => {
+        const { el } = await mountWith({ clientCount: 1, clients: [], exposure: true });
+        try {
+          const line = el.querySelector('#connectivity-lan-section .connectivity-firewall > div');
+          assert(!!line, 'no firewall advice');
+          assertPseudoLocalized(/** @type {Element} */ (line), { atLeast: 1, where: 'firewall advice' });
+        } finally {
+          el.remove();
+        }
+      });
+    });
+  });
+
   await run('LAN access on with no address says so', async () => {
     await withRoutes({ exposure: true, lan: { enabled: true, urls: [] }, tunnel: { modes: [], running: null } }, async () => {
       const { el } = await mountWith({ clientCount: 1, clients: [], exposure: true });

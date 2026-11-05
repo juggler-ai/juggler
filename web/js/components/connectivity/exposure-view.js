@@ -63,6 +63,7 @@ import { hasNativeHost, openExternalURL } from '../../../sdk/lib/window-control.
  * @property {ExposureURL[]} urls - This machine's addresses on its networks, while enabled
  * @property {boolean} [announced] - Whether the server's announcements are leaving the machine, so other computers' apps list it
  * @property {NotAnnounced} [notAnnounced] - Why not, while LAN access is on and they are not
+ * @property {{port: number}} [firewall] - What a host firewall must let in, on a server where one may be dropping it unseen (Linux)
  */
 
 /**
@@ -233,6 +234,37 @@ function addressCard(address, notes, open) {
   }
   card.appendChild(details);
   return card;
+}
+
+/**
+ * What a Linux server's firewall must let in for LAN access to work — the
+ * server's TCP port, and mDNS (UDP 5353) for other computers to find it —
+ * and the commands that do it under ufw and firewalld, each to copy. The
+ * server cannot see a firewall drop what others send it, so this is said
+ * whether or not one is.
+ * @param {number} port - The server's TCP port.
+ * @returns {HTMLElement} The note.
+ */
+function firewallNote(port) {
+  const note = document.createElement('div');
+  note.className = 'connectivity-note connectivity-firewall';
+  const line = document.createElement('div');
+  line.textContent = t('If other devices can’t connect to this computer or find it, its firewall may be blocking them: allow TCP port {port}, and UDP port 5353 for finding it. With ufw or firewalld, these do that:', { port: String(port) });
+  note.appendChild(line);
+  for (const command of [
+    `sudo ufw allow ${port}/tcp && sudo ufw allow 5353/udp`,
+    `sudo firewall-cmd --permanent --add-port=${port}/tcp --add-service=mdns && sudo firewall-cmd --reload`,
+  ]) {
+    const row = document.createElement('div');
+    row.className = 'connectivity-address-row';
+    const code = document.createElement('code');
+    code.className = 'connectivity-command';
+    code.textContent = command;
+    row.appendChild(code);
+    row.appendChild(createCopyButton(command, 'connectivity-address-copy', t('Copy command')));
+    note.appendChild(row);
+  }
+  return note;
 }
 
 /**
@@ -514,6 +546,7 @@ export class ExposureView {
       } else if (lan.urls.length > 0 && lan.notAnnounced) {
         addresses.appendChild(this._notAnnouncedNote(lan.notAnnounced));
       }
+      if (lan.urls.length > 0 && lan.firewall) addresses.appendChild(firewallNote(lan.firewall.port));
       row.appendChild(addresses);
     }
     section.replaceChildren(row);

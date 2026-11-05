@@ -519,6 +519,8 @@
 				"connectivity-note",
 				"connectivity-not-announced",
 				"connectivity-settings-link",
+				"connectivity-firewall",
+				"connectivity-command",
 				"connectivity-error"
 			]
 		},

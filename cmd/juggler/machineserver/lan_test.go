@@ -295,6 +295,41 @@ func TestLANNotAnnouncedSaysWhoToAllow(t *testing.T) {
 	}
 }
 
+// TestLANNamesThePortsAFirewallMustAllow: on Linux, where a host firewall
+// can drop what other devices send without the server seeing a thing, LAN
+// access names the port they connect to, for the page to say what to allow.
+// Elsewhere, and with LAN access off, it names none.
+func TestLANNamesThePortsAFirewallMustAllow(t *testing.T) {
+	captureLog(t)
+	prev := firewallOS
+	t.Cleanup(func() { firewallOS = prev })
+	ads := &fakeAdverts{}
+	s := &Server{reg: newRegistry(), addr: "127.0.0.1:3941", advertise: ads.advertise}
+
+	firewallOS = "linux"
+	if st := s.lanState(""); st.Firewall != nil {
+		t.Errorf("LAN access off: firewall %+v, want none", st.Firewall)
+	}
+	s.setLAN(true)
+	defer s.stopAdvertising()
+	if st := s.lanState(""); st.Firewall == nil || *st.Firewall != (lanFirewall{Port: 3941}) {
+		t.Errorf("on linux: firewall %+v, want port 3941", st.Firewall)
+	}
+	body, err := json.Marshal(s.lanState(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `"firewall":{"port":3941}`; !strings.Contains(string(body), want) {
+		t.Errorf("GET /api/server/lan = %s, want it to carry %s", body, want)
+	}
+	for _, goos := range []string{"darwin", "windows"} {
+		firewallOS = goos
+		if st := s.lanState(""); st.Firewall != nil {
+			t.Errorf("on %s: firewall %+v, want none", goos, st.Firewall)
+		}
+	}
+}
+
 // TestLANRetriesAnAnnouncementThatCouldNotStart: an announcement that could
 // not start (no multicast socket to be had, say) is tried again on each read
 // while LAN access is on, and says why until it starts.

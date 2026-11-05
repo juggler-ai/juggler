@@ -146,6 +146,21 @@
     color: var(--accent-blue);
 }
 
+/* What a Linux server's firewall must let in: a line, then each command on
+   its own row with its copy button. */
+.connectivity-firewall {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.connectivity-command {
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    overflow-wrap: anywhere;
+}
+
 .connectivity-error {
     grid-column: 1 / -1;
     color: var(--error-color);

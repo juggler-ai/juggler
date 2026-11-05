@@ -1242,7 +1242,6 @@
   "Sends at {time}": "{time} に送信",
   "Server": "サーバー",
   "Server address": "サーバーのアドレス",
-  "Server address, e.g. http://devbox:3939": "サーバーのアドレス（例: http://devbox:3939）",
   "Server didn't start — Juggler": "サーバーが起動しませんでした — Juggler",
   "Server stopped — Juggler": "サーバーが停止しました — Juggler",
   "Server unreachable — Juggler": "サーバーに接続できません — Juggler",

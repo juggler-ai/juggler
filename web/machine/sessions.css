@@ -120,9 +120,14 @@ body {
 /* The server chooser (sessions-view.js): the button naming where the window
    is, after the page's title, opens it as the app's dropdowns open
    (utils/popup-surface.js, css/patterns/menus.css) — or a sheet, on a narrow
-   window. The button gives way before the title does, its name cut short. In
-   the chooser, a row per server, the whole row its choice, the one the window
-   shows marked so; then the address box. */
+   window. The button gives way before the title does, its name cut short. The
+   chooser is three sections, a hairline between each: this computer; the
+   servers found on the network, under a label; the address box, under its
+   label, on a tinted footer. A row per server, the whole row its choice: an
+   icon tile, the name over where it is, the version as a badge, and a tick on
+   the one the window shows — drawn at full strength, not dimmed as a disabled
+   button otherwise is, since it is where the window is, not an unavailable
+   choice. */
 
 .ms-server-switch {
     flex: 0 1 auto;
@@ -145,29 +150,49 @@ body {
 }
 
 .ms-chooser {
-    width: 22rem;
+    width: 24rem;
+    padding: 0;
+}
+
+.ms-chooser-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
     padding: var(--spacing-sm);
 }
 
-.ms-chooser > * + * {
-    margin-top: var(--spacing-sm);
+.ms-chooser-section + .ms-chooser-section {
+    border-top: 1px solid var(--border-divider);
 }
 
-.ms-chooser > [hidden] {
+.ms-chooser-section > [hidden] {
     display: none;
+}
+
+.ms-chooser-connect {
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    background: color-mix(in srgb, var(--bg-secondary) 96%, var(--text-primary));
 }
 
 .ms-chooser-list {
     list-style: none;
     display: flex;
     flex-direction: column;
+    gap: 0.125rem;
 }
 
 .ms-chooser-label {
-    padding: 0 var(--spacing-sm);
+    padding: var(--spacing-xs) var(--spacing-sm) 0;
     font-size: var(--font-size-xs);
     font-weight: var(--font-weight-medium);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     color: var(--text-secondary);
+}
+
+.ms-chooser-connect .ms-chooser-label {
+    padding: 0;
 }
 
 .ms-chooser-choice {
@@ -183,6 +208,7 @@ body {
     font: inherit;
     text-align: start;
     cursor: pointer;
+    transition: background var(--transition-fast);
 }
 
 .ms-chooser-choice:hover:not(:disabled) {
@@ -196,16 +222,38 @@ body {
 
 .ms-chooser-choice:disabled {
     cursor: default;
+    opacity: 1;
+}
+
+.ms-chooser-icon {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--bg-secondary) 88%, var(--text-primary));
+    color: var(--text-secondary);
+}
+
+.ms-chooser-icon .ms-icon {
+    width: 1.125rem;
+    height: 1.125rem;
+}
+
+.ms-chooser-choice[aria-current] .ms-chooser-icon {
+    background: color-mix(in srgb, var(--accent-blue) 16%, transparent);
+    color: var(--accent-blue);
 }
 
 .ms-chooser-mark {
     flex: none;
-    font-size: var(--font-size-xs);
-    color: var(--text-tertiary);
+    display: inline-flex;
+    color: var(--accent-blue);
 }
 
 .ms-chooser .ms-lan-note {
-    padding: 0 var(--spacing-sm);
+    padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-sm);
 }
 
 /* A window on another computer's server: that server's page, framed, is the

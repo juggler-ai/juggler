@@ -14,7 +14,7 @@
  */
 
 import { assert, nextTask, waitFor } from '../utilities/test-helpers.js';
-import { mountSessionsPage, pageTitle, relayFramerEvents, serverTitle } from '../../machine/sessions-view.js';
+import { mountSessionsPage, pageTitle, paintedTheme, relayFramerEvents, serverTitle } from '../../machine/sessions-view.js';
 import { createControlApi, readPageConfig, ControlApiError, TOKEN_HEADER } from '../../machine/control-api.js';
 import { desktopHost } from '../../machine/native-host.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
@@ -1216,6 +1216,7 @@ export async function runTests() {
     let found = [
       { name: 'devbox', url: 'http://192.168.1.9:3939', version: 'v1.0.0' },
       { name: 'Studio', url: 'http://192.168.1.10:3939' },
+      { name: 'Near', url: 'http://[fe80::9%25en0]:3939' },
     ];
     host.discover = async () => found;
     const m = await mount(stubApi([]), { host });
@@ -1224,11 +1225,18 @@ export async function runTests() {
       const list = /** @type {HTMLElement|null} */ (pop.querySelector('.ms-found'));
       await waitFor(() => !!list && !list.hidden, { description: 'the servers found, in the chooser' });
       const rows = [...(list?.querySelectorAll('.ms-found-server') || [])];
-      assert(JSON.stringify(rows.map((r) => r.getAttribute('data-url'))) === '["http://192.168.1.9:3939","http://192.168.1.10:3939"]',
+      assert(JSON.stringify(rows.map((r) => r.getAttribute('data-url'))) === '["http://192.168.1.9:3939","http://192.168.1.10:3939","http://[fe80::9%25en0]:3939"]',
         `listed ${JSON.stringify(rows.map((r) => r.getAttribute('data-url')))}`);
-      assert((rows[0].textContent || '').includes('devbox') && (rows[0].textContent || '').includes('http://192.168.1.9:3939'),
+      // Where a server is reads as its host and port: the scheme every found
+      // server shares, and a zone's URL escape, are left out of the row and
+      // kept in the address its tooltip gives in full.
+      const where = (/** @type {Element} */ r) => r.querySelector('.ms-found-address');
+      assert((rows[0].textContent || '').includes('devbox') && where(rows[0])?.textContent === '192.168.1.9:3939',
         `a row does not say which server and where: ${JSON.stringify(rows[0].textContent)}`);
-      assert((rows[0].textContent || '').includes('v1.0.0'), 'a row does not say the version it answered with');
+      assert(where(rows[0])?.getAttribute('title') === 'http://192.168.1.9:3939', `the address's tooltip reads ${where(rows[0])?.getAttribute('title')}`);
+      assert(where(rows[2])?.textContent === '[fe80::9%en0]:3939', `a link-local address reads ${JSON.stringify(where(rows[2])?.textContent)}`);
+      assert(rows[0].querySelector('.ms-chooser-version')?.textContent === 'v1.0.0', 'a row does not say the version it answered with');
+      assert(!rows[1].querySelector('.ms-chooser-version'), 'a server that answered with no version is given one');
       assert(!!pop.querySelector('form.ms-connect input.ms-connect-input'), 'the chooser has no address box');
       assert(!(pop.textContent || '').includes('This window becomes a window onto it'), 'the chooser still explains itself at length');
       const hint = /** @type {HTMLElement|null} */ (pop.querySelector('.ms-found-hint'));
@@ -1344,7 +1352,8 @@ export async function runTests() {
       assert(!api.calls.some((c) => ['list', 'recents', 'getLAN', 'getTunnel', 'getStatus'].includes(c[0])),
         `this computer's server was asked ${JSON.stringify(api.calls)}`);
       assert(m.header.querySelector('h1')?.textContent === 'Sessions', 'the header has no title');
-      assert((m.header.querySelector('.ms-server-label')?.textContent || '') === 'devbox.invalid', `the header reads ${m.header.textContent}`);
+      // Named as found, the server's name rather than its address.
+      assert((m.header.querySelector('.ms-server-label')?.textContent || '') === 'devbox', `the header reads ${m.header.textContent}`);
       assert(!(m.header.textContent || '').includes('studio') && !m.header.querySelector('.ms-version'),
         'the header names this computer\'s server too');
       assert(pageTitle(config, framed) === 'Sessions on devbox.invalid · Juggler', `the window is titled ${pageTitle(config, framed)}`);
@@ -1381,10 +1390,59 @@ export async function runTests() {
     try {
       const pop = await openChooser(t2);
       const current = pop.querySelector('[aria-current="true"]');
-      assert(!!current && (current.textContent || '').includes('http://10.1.2.3:3939'), `the current server reads ${current?.textContent}`);
+      const where = current?.querySelector('.ms-found-address');
+      assert(where?.textContent === '10.1.2.3:3939' && where?.getAttribute('title') === 'http://10.1.2.3:3939',
+        `the current server reads ${current?.textContent}, titled ${where?.getAttribute('title')}`);
       assert((t2.header.querySelector('.ms-server-label')?.textContent || '') === '10.1.2.3', `the header reads ${t2.header.textContent}`);
     } finally {
       t2.dispose();
+    }
+  });
+
+  // A server found at more than one address is the server a framed window is
+  // on, whichever of them the window is on, and is listed once. The header
+  // names it as found — the window's address says only where it is — and
+  // keeps that name through an ask that misses it.
+  await test('a framed page names its server as found, at any of its addresses, and lists it once', async () => {
+    const host = stubHost();
+    host.switchServer = async () => {};
+    /** @type {Array<{name: string, url: string, urls?: string[]}>} */
+    let found = [{ name: 'devbox', url: 'http://192.168.1.9:3939', urls: ['http://192.168.1.9:3939', 'http://[fd00::9]:3939'] }];
+    host.discover = async () => found;
+    const m = await mount(stubApi([]), { host, framed: { server: 'http://[fd00::9]:3939', frameCtl: 'http://127.0.0.1:5555/x/win/w1' } });
+    try {
+      const label = () => m.header.querySelector('.ms-server-label')?.textContent || '';
+      await m.page.refresh();
+      await waitFor(() => label() === 'devbox', { description: 'the header naming the server as found' });
+      const pop = await openChooser(m);
+      await waitFor(() => pop.querySelectorAll('.ms-found-server').length === 1, { description: 'the server found' });
+      assert(!pop.querySelector('.ms-chooser-shown'), `the server is listed twice: ${pop.textContent}`);
+      assert(pop.querySelector('.ms-found-server button')?.getAttribute('aria-current') === 'true',
+        'the server found at another of its addresses is not marked as current');
+
+      found = [];
+      await m.page.refresh();
+      await waitFor(() => !!pop.querySelector('.ms-chooser-shown'), { description: 'the server shown, once not found' });
+      const name = pop.querySelector('.ms-chooser-shown .ms-recent-name')?.textContent;
+      assert(name === 'devbox', `the server shown, not found this time, is called ${name}`);
+      assert(label() === 'devbox', `the header reads ${label()} once the server is not found`);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // The framed page wears this page's theme, as painted: a mode always, so
+  // the other computer's own never decides it.
+  await test('the framed page is handed the theme this page painted, and always a mode', async () => {
+    const cases = [
+      [{ theme: 'dark', themeSystem: '1' }, { theme: 'dark', mode: 'system' }],
+      [{ theme: 'light', themeMode: 'system', themeSystem: '1' }, { theme: 'light', mode: 'system' }],
+      [{ theme: 'light' }, { theme: 'light', mode: 'light' }],
+      [{ theme: 'dark', themeMode: 'dark' }, { theme: 'dark', mode: 'dark' }],
+    ];
+    for (const [dataset, want] of cases) {
+      const got = paintedTheme(dataset);
+      assert(JSON.stringify(got) === JSON.stringify(want), `painted ${JSON.stringify(dataset)} hands ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
     }
   });
 
@@ -1476,8 +1534,10 @@ export async function runTests() {
           p.root.querySelector('iframe')?.title || '',
           p.header.querySelector('button.ms-server-switch')?.title || '',
         ];
-        // The host is the server's own name, which no locale translates.
-        assert(texts.every((x) => isPseudoLocalized(x.replace('devbox.invalid', ''))), `not translated: ${JSON.stringify(texts)}`);
+        // The host is the server's own name, and the placeholder's example an
+        // address, which no locale translates.
+        assert(texts.every((x) => isPseudoLocalized(x.replace('devbox.invalid', '').replace('http://devbox:3939', ''))),
+          `not translated: ${JSON.stringify(texts)}`);
       } finally {
         p.dispose();
       }

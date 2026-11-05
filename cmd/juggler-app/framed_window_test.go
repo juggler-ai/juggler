@@ -237,7 +237,6 @@ func TestAFramedWindowsTwoSecretsReachWhatTheirPagesMay(t *testing.T) {
 	for action, want := range map[string]int{
 		"attach?session=": http.StatusBadRequest,
 		"reopen":          http.StatusOK,
-		"theme?theme=x":   http.StatusBadRequest,
 	} {
 		if rec := controlAsFrame(a, "w1", action); rec.Code != want {
 			t.Errorf("the framed page's %s = %d, want %d", action, rec.Code, want)
@@ -258,6 +257,39 @@ func TestAFramedWindowsTwoSecretsReachWhatTheirPagesMay(t *testing.T) {
 	}
 	if got := saveAs(controlSecretOf(a, "w1")); got != filepath.Join(dir, "chosen.html") {
 		t.Errorf("the outer page's save is answered %q; want the path", got)
+	}
+}
+
+// TestAFramedPageDoesNotColourItsWindow: a framed window, header and all, wears
+// this machine's theme, which the outer page reports. The framed page's report
+// is the other computer's theme, so it repaints nothing and seeds no later
+// window; in system mode it is answered with the window's own colour, for the
+// framed page to repaint to.
+func TestAFramedPageDoesNotColourItsWindow(t *testing.T) {
+	userpathstest.Isolate(t)
+	a := newTestAppState(t)
+	e := registerFramed(a, "w1", "http://devbox:3939", "http://127.0.0.1:1", serverProc{})
+	a.reg(func(st *regState) { e.currentTheme, st.lastTheme = "light", "light" })
+	themes := func() (current, last string) {
+		a.reg(func(st *regState) { current, last = e.currentTheme, st.lastTheme })
+		return current, last
+	}
+
+	if rec := controlAsFrame(a, "w1", "theme?theme=dark&mode=dark"); rec.Code != http.StatusNoContent {
+		t.Errorf("the framed page's theme report = %d, want 204", rec.Code)
+	}
+	if current, last := themes(); current != "light" || last != "light" {
+		t.Fatalf("after the framed page reported dark, the window is %q and the next window's seed %q; want both light", current, last)
+	}
+	rec := controlAsFrame(a, "w1", "theme?theme=dark&mode=system")
+	var body struct {
+		Theme string `json:"theme"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); rec.Code != http.StatusOK || err != nil || body.Theme != "light" {
+		t.Errorf("the framed page's system-mode report = %d %s; want 200 with the window's light", rec.Code, rec.Body)
+	}
+	if current, last := themes(); current != "light" || last != "light" {
+		t.Errorf("after the framed page's system-mode report, the window is %q and the seed %q; want both light", current, last)
 	}
 }
 

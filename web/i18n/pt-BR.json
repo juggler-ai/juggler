@@ -1242,7 +1242,6 @@
   "Sends at {time}": "Envio às {time}",
   "Server": "Servidor",
   "Server address": "Endereço do servidor",
-  "Server address, e.g. http://devbox:3939": "Endereço do servidor, ex.: http://devbox:3939",
   "Server didn't start — Juggler": "O servidor não iniciou — Juggler",
   "Server stopped — Juggler": "Servidor parado — Juggler",
   "Server unreachable — Juggler": "Servidor inacessível — Juggler",

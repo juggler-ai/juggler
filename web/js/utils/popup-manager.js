@@ -336,10 +336,36 @@ export function registerOpenPopup({ id, onClose, insideSelectors, nested = false
   document.addEventListener('mousedown', onPressStart, true);
   document.addEventListener('click', onOutsideClick, true);
 
+  // A press inside an iframe goes to the iframe's document, never to this one,
+  // so neither listener above hears it — and a cross-origin frame cannot be
+  // listened to at all. What this document does see is focus moving into the
+  // frame: the window blurs with the <iframe> as its active element. That is a
+  // click outside, unless the frame is inside. A blur with focus anywhere else
+  // (another app, another window) is no click on the page and leaves the popup
+  // open. Some engines make the frame the active element only after the blur
+  // event, so a blur that finds no frame yet looks again on the next task.
+  let released = false;
+  const frameTookFocus = () => {
+    const active = document.activeElement;
+    return active?.localName === 'iframe' && !isInside(active);
+  };
+  const onWindowBlur = () => {
+    if (frameTookFocus()) {
+      onClose();
+      return;
+    }
+    setTimeout(() => {
+      if (!released && frameTookFocus()) onClose();
+    }, 0);
+  };
+  window.addEventListener('blur', onWindowBlur);
+
   return () => {
+    released = true;
     releaseCore();
     document.removeEventListener('mousedown', onPressStart, true);
     document.removeEventListener('click', onOutsideClick, true);
+    window.removeEventListener('blur', onWindowBlur);
   };
 }
 

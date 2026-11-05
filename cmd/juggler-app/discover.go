@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -27,16 +28,27 @@ import (
 //
 // An announcement proves nothing — anyone on the network can send one — and
 // the mDNS layer never says a server has gone. So a server is listed only
-// while it answers GET /api/version at the address it announced, and what it
-// is switched to is that address, shown on its row: never a name the
+// while it answers GET /api/version at an address it announced — or, having
+// answered, through the odd ask it misses (missesForgiven) — and what it is
+// switched to is that address, shown on its row: never a name the
 // announcement chose. A server on one of this machine's own addresses is this
 // machine's (there is one per machine) and is not listed.
 
-// foundServer is one server the discover action lists.
+// foundServer is one server the discover action lists: at URL, the address it
+// answered at, among URLs, every address it was announced at — which a page
+// matches the server its window shows against, whichever address that is.
 type foundServer struct {
-	Name    string `json:"name"`
-	URL     string `json:"url"`
-	Version string `json:"version,omitempty"`
+	Name    string   `json:"name"`
+	URL     string   `json:"url"`
+	URLs    []string `json:"urls,omitempty"`
+	Version string   `json:"version,omitempty"`
+}
+
+// listing is what one server was last listed as, and how many asks in a row it
+// has since failed to answer.
+type listing struct {
+	server foundServer
+	misses int
 }
 
 // serverSource is what the finder browses with: a *lanfind.Browser, or a
@@ -62,6 +74,12 @@ type lanFinder struct {
 	// failing is raised while browses fail, so the log says so once, not on
 	// every ask.
 	failing atomic.Bool
+
+	// listed is what each server found was last listed as, by its name and
+	// port: the address it is listed at again while that answers, and what it
+	// is listed as through a missed answer (missesForgiven). Each ask swaps in
+	// a whole new map; of two asks at once, the later to finish is kept.
+	listed atomic.Pointer[map[string]listing]
 }
 
 // finderIdle is how long the browse runs after the last page asked. A page
@@ -72,6 +90,10 @@ const finderIdle = 2 * time.Minute
 // quickly on the same network is not listed this time round, and is asked
 // again on the page's next ask.
 const probeTimeout = 1500 * time.Millisecond
+
+// missesForgiven is how many asks in a row a server listed before may fail to
+// answer and still be listed, as it last answered.
+const missesForgiven = 2
 
 func newLANFinder() *lanFinder {
 	return &lanFinder{
@@ -142,6 +164,12 @@ func (f *lanFinder) stopWhenIdle(p *serverSource) {
 // servers is every server found that answers, other than this machine's own,
 // in the order the browse lists them (by name). Each found server is asked at
 // once, so one that does not answer costs probeTimeout, not one per server.
+//
+// A server is listed at the address it was listed at before while that
+// answers, whichever of its addresses answers first, so the row a window's
+// server is listed as holds still from one ask to the next; and one listed
+// before that misses an ask is listed as before until it has missed
+// missesForgiven in a row.
 func (f *lanFinder) servers(ctx context.Context) ([]foundServer, error) {
 	src, err := f.source()
 	if err != nil {
@@ -149,33 +177,70 @@ func (f *lanFinder) servers(ctx context.Context) ([]foundServer, error) {
 	}
 	local := f.localAddrs()
 	found := src.Snapshot()
+	keys := make([]string, len(found))
 	answers := make([]chan *foundServer, len(found))
+	before := map[string]listing{}
+	if p := f.listed.Load(); p != nil {
+		before = *p
+	}
+	prefer := make([]string, len(found))
+	for i, s := range found {
+		keys[i] = s.Name + "\x00" + strconv.Itoa(s.Port)
+		prefer[i] = before[keys[i]].server.URL
+	}
 	for i, s := range found {
 		answers[i] = make(chan *foundServer, 1)
 		go func() {
-			answers[i] <- f.answering(ctx, s, local)
+			answers[i] <- f.answering(ctx, s, local, prefer[i])
 		}()
 	}
-	out := []foundServer{}
-	for _, ch := range answers {
-		if s := <-ch; s != nil {
-			out = append(out, *s)
-		}
+	got := make([]*foundServer, len(found))
+	for i, ch := range answers {
+		got[i] = <-ch
 	}
+
+	listed := make(map[string]listing, len(found))
+	out := []foundServer{}
+	for i, s := range got {
+		if s == nil {
+			l, ok := before[keys[i]]
+			if !ok || l.misses >= missesForgiven || isLocal(found[i], local) {
+				continue
+			}
+			l.misses++
+			listed[keys[i]] = l
+			out = append(out, l.server)
+			continue
+		}
+		listed[keys[i]] = listing{server: *s}
+		out = append(out, *s)
+	}
+	f.listed.Store(&listed)
 	return out, nil
 }
 
-// answering is s as listed, at whichever of its addresses first answers as a
-// Juggler server, or nil when s is this machine's or none of them answer. Its
-// addresses are asked at once — one it has since left costs nothing while
-// another answers — and the asks still out are called off once one has, and
-// waited for, so none outlives the discover action that made it.
-func (f *lanFinder) answering(ctx context.Context, s lanfind.Found, local map[netip.Addr]bool) *foundServer {
-	var urls []string
+// isLocal is whether s is on one of this machine's own addresses.
+func isLocal(s lanfind.Found, local map[netip.Addr]bool) bool {
 	for _, a := range s.Addrs {
 		if local[a] {
-			return nil
+			return true
 		}
+	}
+	return false
+}
+
+// answering is s as listed, at prefer — the address it was listed at before —
+// when that answers as a Juggler server, else at whichever of its addresses
+// first does, or nil when s is this machine's or none of them answer. Its
+// addresses are asked at once — one it has since left costs nothing while
+// another answers — and the asks still out are called off once one is chosen,
+// and waited for, so none outlives the discover action that made it.
+func (f *lanFinder) answering(ctx context.Context, s lanfind.Found, local map[netip.Addr]bool, prefer string) *foundServer {
+	if isLocal(s, local) {
+		return nil
+	}
+	var urls []string
+	for _, a := range s.Addrs {
 		if a.Is6() && a.IsLinkLocalUnicast() {
 			// Unusable without its zone, and a window cannot open a URL with
 			// one: the WHATWG URL a web view parses has no zone syntax, so
@@ -188,24 +253,44 @@ func (f *lanFinder) answering(ctx context.Context, s lanfind.Found, local map[ne
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	answers := make(chan *foundServer, len(urls))
+	type answer struct {
+		url     string
+		version string
+		ok      bool
+	}
+	answers := make(chan answer, len(urls))
 	for _, u := range urls {
 		go func() {
-			if version, ok := f.probe(ctx, u); ok {
-				answers <- &foundServer{Name: s.Name, URL: u, Version: version}
-				return
-			}
-			answers <- nil
+			version, ok := f.probe(ctx, u)
+			answers <- answer{u, version, ok}
 		}()
 	}
-	var first *foundServer
+	// chosen is the answer listed, once known: prefer's, or — once prefer has
+	// failed, or with none to wait for — the first other.
+	var chosen, other *answer
+	waiting := slices.Contains(urls, prefer)
 	for range urls {
-		if found := <-answers; found != nil && first == nil {
-			first = found
+		got := <-answers
+		switch {
+		case got.url == prefer:
+			waiting = false
+			if got.ok && chosen == nil {
+				chosen = &got
+			}
+		case got.ok && other == nil:
+			other = &got
+		}
+		if chosen == nil && !waiting {
+			chosen = other
+		}
+		if chosen != nil {
 			cancel()
 		}
 	}
-	return first
+	if chosen == nil {
+		return nil
+	}
+	return &foundServer{Name: s.Name, URL: chosen.url, URLs: urls, Version: chosen.version}
 }
 
 // probeHTTP is the client a probe asks with; its timeout is probeTimeout. It

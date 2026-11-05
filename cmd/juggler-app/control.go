@@ -236,7 +236,8 @@ func anyRequest(*http.Request) bool { return true }
 // user's own choice:
 //   - theme, title, control, attention: its own native window's colour, name,
 //     minimise/maximise/close/raise/fullscreen state and Dock bounce. (theme
-//     also seeds the next window's bare-frame colour, from a fixed set.)
+//     also seeds the next window's bare-frame colour, from a fixed set; a
+//     framed page's theme does neither, controlTheme.)
 //   - drafts-flushed: its reply to a close or quit the app announced to it.
 //   - attach, server-page: moving itself to a session of its own server, or
 //     back to that server's page (attachRemote, controlServerPage).
@@ -317,8 +318,14 @@ var windowActions = map[string]controlAction{
 // The project the query names is not taken — it is a path on another machine,
 // and any new window on this machine's server would be this machine's — so
 // such a window can open windows onto nothing but the server it already shows.
+// Nor are the theme, mode and zoom such a page hands over: they are that
+// machine's, and the new window's header is this machine's sessions page,
+// which wears this machine's own.
 func (a *appState) controlNewWindow(w http.ResponseWriter, r *http.Request, e *winEntry) {
 	opts := windowOptsFromQuery(r.URL.Query())
+	if callerOf(r).remote && !opts.isPinboard() {
+		opts.theme, opts.mode, opts.zoom = "", "", 0
+	}
 	// What the asking page shows (pageSpecOf): a stand-in's shows nothing a
 	// board could be a view of.
 	spec, ok := a.pageSpecOf(e.id)
@@ -586,7 +593,26 @@ func controlOpenURL(_ *appState, w http.ResponseWriter, r *http.Request, _ *winE
 }
 
 // controlTheme repaints the native window to the page's theme.
+//
+// A framed window's colour is its outer page's, this machine's theme: the page
+// framed in it reports the other computer's, so its report repaints nothing
+// and seeds no window. In system mode it is answered with the window's colour,
+// which it repaints to, as the outer page does to the OS's.
 func (a *appState) controlTheme(w http.ResponseWriter, r *http.Request, e *winEntry) {
+	if callerOf(r).frame {
+		if r.URL.Query().Get("mode") != "system" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		var theme string
+		a.reg(func(*regState) { theme = e.currentTheme })
+		if theme == "" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"theme": theme})
+		return
+	}
 	pageTheme := r.URL.Query().Get("theme")
 	colour, ok := a.setWindowTheme(e, pageTheme)
 	if !ok {

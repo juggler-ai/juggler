@@ -82,8 +82,8 @@ func TestDiscoverListsTheServersThatAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []foundServer{
-		{Name: "Alpha", URL: "http://192.168.1.9:3939", Version: "v1.0.0"},
-		{Name: "Beta", URL: "http://[fd00::10]:4000", Version: "v1.1.0"},
+		{Name: "Alpha", URL: "http://192.168.1.9:3939", URLs: []string{"http://192.168.1.9:3939", "http://[fd00::9]:3939"}, Version: "v1.0.0"},
+		{Name: "Beta", URL: "http://[fd00::10]:4000", URLs: []string{"http://192.168.1.10:4000", "http://[fd00::10]:4000"}, Version: "v1.1.0"},
 	}
 	if !reflect.DeepEqual(got.Servers, want) {
 		t.Errorf("discover listed %+v, want %+v", got.Servers, want)
@@ -131,7 +131,7 @@ func TestDiscoverDoesNotWaitOnADeadAddress(t *testing.T) {
 	if heldUp.Load() {
 		t.Error("the dead address was asked before the live one was")
 	}
-	want := []foundServer{{Name: "Moved", URL: live, Version: "v1.0.0"}}
+	want := []foundServer{{Name: "Moved", URL: live, URLs: []string{"http://192.168.1.9:3939", live}, Version: "v1.0.0"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("discover listed %+v, want %+v", got, want)
 	}
@@ -139,6 +139,106 @@ func TestDiscoverDoesNotWaitOnADeadAddress(t *testing.T) {
 	case <-calledOff:
 	case <-time.After(10 * time.Second):
 		t.Error("the ask of the dead address was not called off once the live one answered")
+	}
+}
+
+// TestDiscoverKeepsTheAddressItListed: a server answering at several addresses
+// is listed at the one it was listed at before, whichever answers first, so a
+// window on it stays the server listed as current; and its row names every
+// address it was announced at, the window's among them, whichever that is.
+func TestDiscoverKeepsTheAddressItListed(t *testing.T) {
+	const v4, v6 = "http://192.168.1.9:3939", "http://[fd00::9]:3939"
+	// first is the address that answers first on each ask; the other answers
+	// only once it has.
+	var first atomic.Value
+	first.Store(v4)
+	answered := map[string]chan struct{}{}
+	f := &lanFinder{
+		browse: func() (serverSource, error) {
+			return &fakeSource{found: []lanfind.Found{{Name: "Box", Addrs: addrs("192.168.1.9", "fd00::9"), Port: 3939}}}, nil
+		},
+		probe: func(ctx context.Context, u string) (string, bool) {
+			lead := first.Load().(string)
+			if u != lead {
+				select {
+				case <-answered[lead]:
+				case <-ctx.Done():
+					return "", false
+				}
+			} else {
+				defer close(answered[lead])
+			}
+			return "v1", true
+		},
+		localAddrs: func() map[netip.Addr]bool { return nil },
+	}
+	for i, lead := range []string{v4, v6, v6} {
+		first.Store(lead)
+		answered[lead] = make(chan struct{})
+		got, err := f.servers(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].URL != v4 {
+			t.Fatalf("ask %d, with %s answering first, listed %+v; want Box at %s, as first listed", i+1, lead, got, v4)
+		}
+	}
+
+	a := newTestAppState(t)
+	a.finder = f
+	registerTestWindow(a, "w1")
+	first.Store(v4)
+	answered[v4] = make(chan struct{})
+	var listed struct {
+		Servers []map[string]any `json:"servers"`
+	}
+	if err := json.Unmarshal(controlRequest(a, http.MethodPost, "/win/w1/discover").Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Servers) != 1 || !reflect.DeepEqual(listed.Servers[0]["urls"], []any{v4, v6}) {
+		t.Errorf("discover listed %+v; want Box's row to name both its addresses", listed.Servers)
+	}
+}
+
+// TestDiscoverForgivesAMissedAnswer: a server listed before that misses an
+// ask's probe — busy, or a packet lost — is still listed as it was, until it
+// has missed missesForgiven asks in a row; one that answers again is listed
+// again, and a server never yet listed is not listed for being announced.
+func TestDiscoverForgivesAMissedAnswer(t *testing.T) {
+	var answers atomic.Bool
+	f := &lanFinder{
+		browse: func() (serverSource, error) {
+			return &fakeSource{found: []lanfind.Found{{Name: "Box", Addrs: addrs("192.168.1.9"), Port: 3939}}}, nil
+		},
+		probe:      func(context.Context, string) (string, bool) { return "v1", answers.Load() },
+		localAddrs: func() map[netip.Addr]bool { return nil },
+	}
+	ask := func() int {
+		got, err := f.servers(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(got)
+	}
+	if n := ask(); n != 0 {
+		t.Fatalf("a server that never answered is listed (%d)", n)
+	}
+	answers.Store(true)
+	if n := ask(); n != 1 {
+		t.Fatalf("a server that answers is not listed (%d)", n)
+	}
+	answers.Store(false)
+	for i := range missesForgiven {
+		if n := ask(); n != 1 {
+			t.Fatalf("missed ask %d of %d forgiven dropped the server", i+1, missesForgiven)
+		}
+	}
+	if n := ask(); n != 0 {
+		t.Fatalf("a server that missed %d asks in a row is still listed", missesForgiven+1)
+	}
+	answers.Store(true)
+	if n := ask(); n != 1 {
+		t.Fatalf("a server that answers again is not listed (%d)", n)
 	}
 }
 
@@ -173,7 +273,7 @@ func TestDiscoverSkipsLinkLocalAddresses(t *testing.T) {
 	if !reflect.DeepEqual(urls, []string{"http://192.168.1.9:3939"}) {
 		t.Fatalf("asked %q, want only the IPv4 address", urls)
 	}
-	want := []foundServer{{Name: "Near", URL: "http://192.168.1.9:3939", Version: "v1.0.0"}}
+	want := []foundServer{{Name: "Near", URL: "http://192.168.1.9:3939", URLs: []string{"http://192.168.1.9:3939"}, Version: "v1.0.0"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("listed %+v, want %+v", got, want)
 	}

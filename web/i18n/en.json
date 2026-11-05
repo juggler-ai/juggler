@@ -1242,7 +1242,6 @@
   "Sends at {time}": "Sends at {time}",
   "Server": "Server",
   "Server address": "Server address",
-  "Server address, e.g. http://devbox:3939": "Server address, e.g. http://devbox:3939",
   "Server didn't start — Juggler": "Server didn't start — Juggler",
   "Server stopped — Juggler": "Server stopped — Juggler",
   "Server unreachable — Juggler": "Server unreachable — Juggler",

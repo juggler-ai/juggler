@@ -1242,7 +1242,6 @@
   "Sends at {time}": "{time}에 보냄",
   "Server": "서버",
   "Server address": "서버 주소",
-  "Server address, e.g. http://devbox:3939": "서버 주소(예: http://devbox:3939)",
   "Server didn't start — Juggler": "서버가 시작되지 않음 — Juggler",
   "Server stopped — Juggler": "서버 중지됨 — Juggler",
   "Server unreachable — Juggler": "서버에 연결할 수 없음 — Juggler",

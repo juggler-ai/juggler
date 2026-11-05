@@ -366,6 +366,54 @@ export async function runTests() {
       }
     });
 
+    // A click inside an iframe goes to the iframe's document, never to this
+    // one: all this document sees is its window blurring as focus moves to the
+    // <iframe>. That is a click outside the popup, and closes it — unless the
+    // frame is inside the popup. A blur with focus going nowhere on the page
+    // (to another app) is no click at all, and leaves it open. The blur is
+    // dispatched here because the test window may not hold the OS's focus,
+    // where focusing the frame moves the active element but fires none.
+    await run('a click into an iframe outside the popup closes it', async () => {
+      __resetPopupManagerForTests();
+      const anchor = document.createElement('button');
+      const frame = document.createElement('iframe');
+      const surface = document.createElement('nav');
+      surface.className = 'frame-test-surface';
+      const innerFrame = document.createElement('iframe');
+      surface.append(innerFrame);
+      document.body.append(anchor, frame);
+      let closes = 0;
+      /** @type {(() => void)|null} */
+      let release = null;
+      const onClose = () => { closes++; release?.(); release = null; };
+      /** @param {HTMLElement|null} target - What takes focus as the window blurs ('' for nothing on the page). */
+      const blurTo = async (target) => {
+        if (target) target.focus(); else /** @type {HTMLElement|null} */ (document.activeElement)?.blur();
+        window.dispatchEvent(new Event('blur'));
+        await nextTask();
+        await nextTask();
+      };
+      try {
+        release = presentPopup({ surface, anchor, id: 'frame-outside', onClose, insideSelectors: ['.frame-test-surface'] });
+        await nextTask();
+
+        await blurTo(null);
+        assert(closes === 0, 'the window losing focus to another app closed the popup');
+        await blurTo(innerFrame);
+        assert(closes === 0, 'a click into an iframe inside the popup closed it');
+        anchor.focus();
+        await blurTo(frame);
+        assert(closes === 1, `a click into an iframe outside the popup closed it ${closes} times, want 1`);
+        assert(!surface.isConnected && !isAnyPopupOpen(), 'the popup the frame click closed is still up');
+      } finally {
+        release?.();
+        surface.remove();
+        anchor.remove();
+        frame.remove();
+        __resetPopupManagerForTests();
+      }
+    });
+
     await run('an ordinary open then close leaves nothing behind', async () => {
       __resetPopupManagerForTests();
       const host = mountHost();

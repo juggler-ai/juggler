@@ -57,7 +57,7 @@
  */
 
 import { t, formatRelativeTime } from '../sdk/lib/i18n.js';
-import { DROPDOWN_ARROW_SVG, OPEN_IN_NEW_SVG } from '../js/utils/icons.js';
+import { CHECK_SVG, COMPUTER_SVG, DESKTOP_SVG, DROPDOWN_ARROW_SVG, OPEN_IN_NEW_SVG } from '../js/utils/icons.js';
 import { extractErrorMessage, errorText } from '../sdk/lib/error-utils.js';
 import { ControlApiError } from './control-api.js';
 import { pageURL } from '../js/utils/page-url.js';
@@ -104,10 +104,11 @@ const RECENTS_SHOWN = 8;
  *   server at an address ('' for this machine's), and rejects with why it will
  *   not. openURL opens an address in the system browser, which a click on a
  *   link to it in the window's WebView would not.
- * @typedef {{name: string, url: string, version?: string}} FoundServer
+ * @typedef {{name: string, url: string, urls?: string[], version?: string}} FoundServer
  *   A server another computer announces on the network, as the app found it:
  *   the name it announced, and the address it answered at, which is what
- *   choosing it hands the app.
+ *   choosing it hands the app, among every address it was announced at — any
+ *   of which a window on it may be on.
  * @typedef {{server: string, frameCtl: string, theme?: string, mode?: string}} FramedServer
  *   Another computer's server, which a desktop window on it shows framed in
  *   this machine's page: its address (an http(s) origin), the control address
@@ -322,6 +323,20 @@ function hostOf(server) {
 }
 
 /**
+ * A server's address as its row in the server chooser shows it: host and
+ * port. The scheme is left off when it is plain http, as every server found
+ * is, and a link-local zone's URL escape ("%25") reads as the "%" it stands
+ * for. An address with more than a host to it is shown whole. Parsed by hand,
+ * since URL refuses an IPv6 address with a zone.
+ * @param {string} server - The server's address.
+ * @returns {string} What the row shows.
+ */
+function shownAddress(server) {
+  const bare = /^http:\/\/([^/?#]+)\/?$/i.exec(server);
+  return bare?.[1] ? bare[1].replace(/%25/g, '%') : server;
+}
+
+/**
  * Whether two addresses are one server's: the same origin.
  * @param {string} a
  * @param {string} b
@@ -333,6 +348,31 @@ function sameServer(a, b) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether a server found is the one at address: at any address it was
+ * announced at, not only the one it answered at.
+ * @param {FoundServer} server - The server found.
+ * @param {string} address - The address.
+ * @returns {boolean} True when address is one of the server's.
+ */
+function isServerAt(server, address) {
+  return sameServer(server.url, address) || (server.urls || []).some((u) => sameServer(u, address));
+}
+
+/**
+ * The theme a page painted before its first frame (web/shell/window-shell.html),
+ * to hand the page it frames, which is to wear it: the colour, and the mode —
+ * always one, so the framed page's own server's never decides it. A paint
+ * following the system is in system mode, whatever mode it was handed.
+ * @param {DOMStringMap|Record<string, string|undefined>} dataset - The page's root's dataset.
+ * @returns {{theme: string, mode: string}} The colour painted, and the mode.
+ */
+export function paintedTheme(dataset) {
+  const theme = dataset.theme || '';
+  const mode = dataset.themeMode || (dataset.themeSystem === '1' ? 'system' : theme);
+  return { theme, mode };
 }
 
 /**
@@ -571,15 +611,18 @@ export function mountSessionsPage(root, {
   // and presented (presentPopup) while open, so the servers found are kept
   // current while it is closed too.
   const canSwitch = !!(header && host?.switchServer);
+  const chooserId = 'ms-server-chooser';
+  const connectInputId = `${chooserId}-address`;
   const connectInput = /** @type {HTMLInputElement} */ (el('input', {
     className: 'ms-launch-input ms-connect-input',
     attrs: {
+      id: connectInputId,
       type: 'text',
       name: 'address',
       autocomplete: 'off',
       spellcheck: 'false',
       inputmode: 'url',
-      placeholder: t('Server address, e.g. http://devbox:3939'),
+      placeholder: t('e.g., {example}', { example: 'http://devbox:3939' }),
       'aria-label': t('Server address'),
     },
   }));
@@ -588,29 +631,33 @@ export function mountSessionsPage(root, {
     connectInput,
     el('button', { className: 'ms-button ms-button-primary', text: t('Connect'), attrs: { type: 'submit' } }),
   ]));
-  // This computer, and the server framed when it is none the app has found;
-  // then the servers the app has found on the network, hidden while there
-  // are none.
+  // Three parts, each set off from the next: this computer, and the server
+  // framed when it is none the app has found; the servers the app has found
+  // on the network, or how one comes to be listed while none is; and the
+  // address box, under its label, for any other.
   const hereList = el('ul', { className: 'ms-chooser-list ms-chooser-here' });
-  const foundLabel = el('p', { className: 'ms-chooser-label', text: t('Found on this network') });
   const foundList = el('ul', { className: 'ms-chooser-list ms-found', attrs: { 'aria-label': t('Found on this network') } });
-  // How a computer comes to be listed, said only while none is.
   const foundHint = el('p', { className: 'ms-lan-note ms-found-hint', text: t('Other computers appear here when their LAN access is on.') });
-  foundLabel.hidden = true;
   foundList.hidden = true;
   foundHint.hidden = true;
-  const chooserId = 'ms-server-chooser';
   const chooser = canSwitch
     ? el('div', {
       className: 'dropdown-menu show ms-chooser',
       attrs: { id: chooserId, role: 'dialog', 'aria-label': t('Choose a server') },
     }, [
-      hereList,
-      host?.discover ? foundLabel : null,
-      host?.discover ? foundList : null,
-      host?.discover ? foundHint : null,
-      connectForm,
-      connectError,
+      el('div', { className: 'ms-chooser-section' }, [hereList]),
+      host?.discover
+        ? el('div', { className: 'ms-chooser-section' }, [
+          el('p', { className: 'ms-chooser-label', text: t('Found on this network') }),
+          foundList,
+          foundHint,
+        ])
+        : null,
+      el('div', { className: 'ms-chooser-section ms-chooser-connect' }, [
+        el('label', { className: 'ms-chooser-label', text: t('Server address'), attrs: { for: connectInputId } }),
+        connectForm,
+        connectError,
+      ]),
     ])
     : null;
   // Where the window is, as the button that changes it: its name, and the
@@ -638,6 +685,9 @@ export function mountSessionsPage(root, {
   let releaseChooser = null;
   /** @type {FoundServer[]} */
   let found = [];
+  // The name the server framed was last found under, kept through an ask
+  // that misses it; '' until it is found.
+  let shownName = '';
 
   // The machine's ways in, for a viewer on this machine: the two sections are
   // wrappers the layout looks through, so their rows are spaced alike.
@@ -731,22 +781,28 @@ export function mountSessionsPage(root, {
 
   /**
    * One server the chooser offers: its whole row is the choice, which hands
-   * the app the server's address. The server the window shows is marked as
-   * current, and is no choice.
+   * the app the server's address. A row is the server's icon, its name over
+   * where it is, the version it answered with, and a tick on the server the
+   * window shows, which is no choice.
    * @param {string} className - The row's class.
    * @param {string} url - The server's address ('' for this computer).
-   * @param {string} name - What the server is called.
-   * @param {string} where - Under its name: where it is.
-   * @param {boolean} current - Whether the window shows it.
+   * @param {{name: string, where: string, current: boolean, version?: string}} server -
+   *   What it is called, where it is (shown under the name), whether the
+   *   window shows it, and its version.
    * @returns {HTMLElement} Its list item.
    */
-  function choiceRow(className, url, name, where, current) {
+  function choiceRow(className, url, { name, where, current, version }) {
+    const address = where ? el('span', { className: 'ms-found-address', text: url ? shownAddress(where) : where }) : null;
+    if (address && url) address.title = where;
+    const mark = current ? el('span', { className: 'ms-chooser-mark', attrs: { title: t('Current') } }, [icon(CHECK_SVG)]) : null;
     const choice = /** @type {HTMLButtonElement} */ (el('button', { className: 'ms-chooser-choice', attrs: { type: 'button' } }, [
+      el('span', { className: 'ms-chooser-icon' }, [icon(url ? DESKTOP_SVG : COMPUTER_SVG)]),
       el('span', { className: 'ms-recent-main' }, [
         el('span', { className: 'ms-recent-name', text: name }),
-        where ? el('span', { className: 'ms-found-address', text: where }) : null,
+        address,
       ]),
-      current ? el('span', { className: 'ms-chooser-mark', text: t('Current') }) : null,
+      version ? el('span', { className: 'ms-version ms-chooser-version', text: version }) : null,
+      mark,
     ]));
     if (current) {
       choice.disabled = true;
@@ -757,18 +813,25 @@ export function mountSessionsPage(root, {
     return el('li', { className, attrs: { 'data-url': url } }, [choice]);
   }
 
-  /** Redraw the chooser's servers from the last the app found. */
+  /**
+   * Redraw the chooser's servers from the last the app found, and name the
+   * server framed in the header as it was found: the window's address alone
+   * says only where it is.
+   */
   function renderChooser() {
     const shown = framed ? framed.server : '';
-    const listed = !!shown && found.some((s) => sameServer(s.url, shown));
+    const current = shown ? found.find((s) => isServerAt(s, shown)) : undefined;
+    if (current) shownName = current.name;
+    const label = switchButton?.querySelector('.ms-server-label');
+    if (label && shown) label.textContent = shownName || serverLocation(config, shown);
     hereList.replaceChildren(...[
-      choiceRow('ms-chooser-local', '', t('This computer'), config.host || '', !framed),
-      shown && !listed ? choiceRow('ms-chooser-shown', shown, hostOf(shown), shown, true) : null,
+      choiceRow('ms-chooser-local', '', { name: t('This computer'), where: config.host || '', current: !framed }),
+      shown && !current ? choiceRow('ms-chooser-shown', shown, { name: shownName || hostOf(shown), where: shown, current: true }) : null,
     ].filter((x) => x !== null));
-    foundList.replaceChildren(...found.map((s) => choiceRow('ms-found-server', s.url, s.name,
-      s.version ? `${s.url} · ${s.version}` : s.url, !!shown && sameServer(s.url, shown))));
+    foundList.replaceChildren(...found.map((s) => choiceRow('ms-found-server', s.url, {
+      name: s.name, where: s.url, current: s === current, version: s.version,
+    })));
     foundList.hidden = found.length === 0;
-    foundLabel.hidden = found.length === 0;
     foundHint.hidden = found.length > 0;
   }
 

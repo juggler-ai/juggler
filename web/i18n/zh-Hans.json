@@ -1242,7 +1242,6 @@
   "Sends at {time}": "将于 {time} 发送",
   "Server": "服务器",
   "Server address": "服务器地址",
-  "Server address, e.g. http://devbox:3939": "服务器地址，例如 http://devbox:3939",
   "Server didn't start — Juggler": "服务器未启动 —— Juggler",
   "Server stopped — Juggler": "服务器已停止 —— Juggler",
   "Server unreachable — Juggler": "无法连接服务器 —— Juggler",

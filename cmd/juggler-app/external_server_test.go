@@ -44,3 +44,24 @@ func TestAWindowOnAnExternalServerCannotOpenAProjectInANewWindow(t *testing.T) {
 		t.Fatalf("opened %+v; want one window on %+v — a remote path must not spawn a local server", got, remote)
 	}
 }
+
+// TestANewWindowFromAnotherComputersPageWearsThisMachinesTheme: the theme,
+// mode and zoom a page hands a new window are its server's machine's, so a
+// page another computer's server sent hands none of them on. The new window's
+// header is this machine's sessions page, which wears this machine's own.
+func TestANewWindowFromAnotherComputersPageWearsThisMachinesTheme(t *testing.T) {
+	var got []windowOpts
+	saved := openNewWindow
+	openNewWindow = func(_ *appState, _ windowSpec, opts windowOpts) { got = append(got, opts) }
+	t.Cleanup(func() { openNewWindow = saved })
+
+	a := newTestAppState(t)
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: "http://remote:8080", connected: true}, serverURL: "http://remote:8080"}})
+
+	if rec := controlRequest(a, http.MethodPost, "/win/w1/new?theme=dark&mode=dark&zoom=120"); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if len(got) != 1 || got[0].theme != "" || got[0].mode != "" || got[0].zoom != 0 {
+		t.Fatalf("opened %+v; want one window handed none of the other computer's theme, mode or zoom", got)
+	}
+}

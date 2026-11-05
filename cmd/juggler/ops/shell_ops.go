@@ -414,14 +414,24 @@ func (ops *ShellOperations) listProcesses() (any, error) {
 	return map[string]any{"processes": ListProcesses(ops.scope.ProjectRoot())}, nil
 }
 
-// stopProcess stops one listed process by its inventory id, within the caller's
-// project. A background task is killed exactly as the kill op kills it; a
+// stopProcess stops one process within the caller's project: a listed one by its
+// inventory id, or the one a tool call started by its convId, threadId and
+// toolUseId. A background task is killed exactly as the kill op kills it; a
 // foreground command ends with "Killed by user", which is what its tool action
-// then reports. Unknown and finished ids answer stopped:false.
+// then reports. Unknown and finished ids answer stopped:false. A tool call with
+// nothing listed yet answers pending:true, and its process is stopped as it is
+// listed (StopOwnedProcess).
 func (ops *ShellOperations) stopProcess(params map[string]any) (any, error) {
-	id, _ := params["id"].(string)
-	if id == "" {
-		return nil, fmt.Errorf("missing id parameter")
+	if id, _ := params["id"].(string); id != "" {
+		return map[string]any{"id": id, "stopped": StopProcess(ops.scope.ProjectRoot(), id)}, nil
 	}
-	return map[string]any{"id": id, "stopped": StopProcess(ops.scope.ProjectRoot(), id)}, nil
+	owner := ProcessOwner{}
+	owner.ConvID, _ = params["convId"].(string)
+	owner.ThreadID, _ = params["threadId"].(string)
+	owner.ToolUseID, _ = params["toolUseId"].(string)
+	if owner.ToolUseID == "" {
+		return nil, fmt.Errorf("missing id or toolUseId parameter")
+	}
+	stopped, pending := StopOwnedProcess(ops.scope.ProjectRoot(), owner)
+	return map[string]any{"stopped": stopped, "pending": pending}, nil
 }

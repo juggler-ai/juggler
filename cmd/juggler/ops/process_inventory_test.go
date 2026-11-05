@@ -157,6 +157,63 @@ func TestProcessInventory_ForegroundStreamingListedAndStoppable(t *testing.T) {
 	waitForProcess(t, root, hasNoProcess(p.ID))
 }
 
+// A stop asked for by the tool call, before its command has started, is not
+// lost: the command is stopped the moment it is listed. The call is shown
+// running before its process exists, so this is the order a quick Stop takes.
+func TestProcessInventory_StopByOwnerBeforeStart(t *testing.T) {
+	requirePOSIXShell(t)
+	root := t.TempDir()
+	shellOps := NewShellOperations(NewPathScope(root, nil))
+	owner := ProcessOwner{ConvID: "conv-e", ThreadID: "thread-e", ToolUseID: "usershell_e"}
+
+	res, err := shellOps.Execute(context.Background(), "stopProcess", map[string]any{
+		"convId": owner.ConvID, "threadId": owner.ThreadID, "toolUseId": owner.ToolUseID,
+	})
+	if err != nil {
+		t.Fatalf("stopProcess by tool call: %v", err)
+	}
+	if got := res.(map[string]any); got["stopped"] != false || got["pending"] != true {
+		t.Fatalf("a stop before the start should be held, not done: %+v", got)
+	}
+
+	// Another project's command with the same owner is not the one asked about.
+	otherRoot := t.TempDir()
+	otherOut := make(chan ShellStreamChunk, 64)
+	go NewShellOperations(NewPathScope(otherRoot, nil)).ExecuteStreamingFor(
+		context.Background(), owner, "shell-early-other", "sleep 30", "", 60000, otherOut)
+	waitForProcess(t, otherRoot, hasProcess("shell-early-other"))
+	defer StopProcess(otherRoot, "shell-early-other")
+
+	out := make(chan ShellStreamChunk, 64)
+	go shellOps.ExecuteStreamingFor(context.Background(), owner, "shell-early", "sleep 30", "", 60000, out)
+	var last ShellStreamChunk
+	deadline := time.After(10 * time.Second)
+	for done := false; !done; {
+		select {
+		case chunk, ok := <-out:
+			if !ok {
+				done = true
+				break
+			}
+			last = chunk
+		case <-deadline:
+			t.Fatal("a stop asked for before the start never ended the command")
+		}
+	}
+	if !last.Done || last.Error != "Killed by user" {
+		t.Fatalf("expected a done chunk reading as a user kill, got %+v", last)
+	}
+	if !hasProcess("shell-early-other")(ListProcesses(otherRoot)) {
+		t.Fatal("a held stop reached another project's command")
+	}
+
+	// Held once: the next command for the same call runs.
+	again := make(chan ShellStreamChunk, 64)
+	go shellOps.ExecuteStreamingFor(context.Background(), owner, "shell-again", "sleep 30", "", 60000, again)
+	waitForProcess(t, root, hasProcess("shell-again"))
+	StopProcess(root, "shell-again")
+}
+
 // The one-shot execute op is listed too, and a stop ends the call.
 func TestProcessInventory_ExecuteListedAndStoppable(t *testing.T) {
 	requirePOSIXShell(t)

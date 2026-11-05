@@ -1206,7 +1206,12 @@ class ExecuteContextItem extends ContextItem {
     helpers.addSubsection(wrapper, t('Timeout'), prettyTimeout(ms), 'properties-panel-code');
 
     if (!input.run_in_background) {
-      const stop = ExecuteContextItem._createStopControl(toolAction);
+      // The owner the call's command is started under (see execute above).
+      const thread = ctx.messageThread ?? this.messageThread;
+      const stop = ExecuteContextItem._createStopControl(toolAction, {
+        convId: ctx.conversation?.id ?? this.conversation?.id ?? '',
+        threadId: thread?.threadItemId || ''
+      });
       return stop ? { controls: [stop] } : undefined;
     }
 
@@ -1250,11 +1255,15 @@ class ExecuteContextItem extends ContextItem {
    * once it is not running. Stopping one command is not stopping the turn: the
    * call ends "Killed by user" and a turn it belongs to carries on with that
    * result. The process is found in the session's inventory by the call's
-   * tool-use id, and stopped as the Running tasks pin stops it.
+   * tool-use id, and stopped as the Running tasks pin stops it. The call reads
+   * running before its process is listed, so with nothing listed the stop is
+   * asked for by the call's owner, and the server stops the process as it is
+   * listed.
    * @param {any} toolAction - The tool-action Y.Map.
+   * @param {{convId: string, threadId: string}} owner - The conversation and thread the call runs in.
    * @returns {HTMLButtonElement|null} The control, or null to offer nothing.
    */
-  static _createStopControl(toolAction) {
+  static _createStopControl(toolAction, owner) {
     if (toolAction?.get?.('state') !== 'running') return null;
     const toolUseId = toolAction.get('toolUseId');
     if (!toolUseId) return null;
@@ -1268,6 +1277,7 @@ class ExecuteContextItem extends ContextItem {
         const { processes } = await shellListProcesses();
         const process = processes.find((p) => p.toolUseId === toolUseId);
         if (process) await shellStopProcess({ id: process.id });
+        else await shellStopProcess({ convId: owner.convId, threadId: owner.threadId, toolUseId });
       } catch (err) {
         console.error('[execute] could not stop the command:', err);
         button.disabled = false;

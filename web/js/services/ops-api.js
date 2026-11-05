@@ -1302,13 +1302,18 @@ export async function shellListProcesses() {
 }
 
 /**
- * Stop one listed process by its inventory id. A background task is killed as
- * {@link shellKill} kills it; a foreground command ends "Killed by user".
- * @param {{id: string}} params
- * @returns {Promise<{id: string, stopped: boolean}>} stopped is false for an unknown or finished id
+ * Stop one process: a listed one by its inventory id, or the one a tool call
+ * started by its conversation, thread and tool-use id. A background task is
+ * killed as {@link shellKill} kills it; a foreground command ends "Killed by
+ * user". A tool call is shown running before its process is listed, so a stop
+ * by tool call with nothing listed yet is held, and the process is stopped as
+ * it is listed.
+ * @param {{id: string} | {convId: string, threadId?: string, toolUseId: string}} params
+ * @returns {Promise<{id?: string, stopped: boolean, pending?: boolean}>} stopped is false for an
+ *   unknown or finished id; pending is true when a tool call's stop is held for its process
  */
 export async function shellStopProcess(params) {
-  requireParam(params, 'id');
+  requireParam(params, 'id' in params ? 'id' : 'toolUseId');
   return callOp('shell', 'stopProcess', params);
 }
 

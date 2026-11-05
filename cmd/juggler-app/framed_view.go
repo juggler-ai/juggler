@@ -141,4 +141,7 @@ func (a *appState) controlSwitchServer(w http.ResponseWriter, r *http.Request, e
 	logf("window %s: switching to %+v", e.id, spec.entry())
 	a.retarget(e, showing(v), spec, windowOpts{})
 	w.WriteHeader(http.StatusNoContent)
+	if err := http.NewResponseController(w).Flush(); err != nil {
+		logf("window %s: the page asking to switch was not told it had: %v", e.id, err)
+	}
 }

@@ -462,6 +462,7 @@ import { runTests as runProviderSwitchTests } from '../unit-tests/provider-switc
 import { runTests as runReconnectPolicyTests } from '../unit-tests/reconnect-policy-test.js';
 import { runTests as runResyncOfflineEditTests } from '../unit-tests/resync-offline-edit-test.js';
 import { runTests as runOpenDuringLoadTests } from '../unit-tests/open-during-load-test.js';
+import { runTests as runDisconnectDuringStartupTests } from '../unit-tests/disconnect-during-startup-test.js';
 import { runTests as runSessionLoadFailureTests } from '../unit-tests/session-load-failure-test.js';
 import { runTests as runAppMessagesTests } from '../unit-tests/app-messages-test.js';
 import { runTests as runPopupBackButtonTests } from '../unit-tests/popup-back-button-test.js';
@@ -1075,6 +1076,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:reconnect-policy', run: runReconnectPolicyTests },
   { name: 'unit:resync-offline-edit', run: runResyncOfflineEditTests },
   { name: 'unit:open-during-load', run: runOpenDuringLoadTests },
+  { name: 'unit:disconnect-during-startup', run: runDisconnectDuringStartupTests },
   { name: 'unit:session-load-failure', run: runSessionLoadFailureTests },
   { name: 'unit:app-messages', run: runAppMessagesTests },
   { name: 'unit:popup-back-button', run: runPopupBackButtonTests },

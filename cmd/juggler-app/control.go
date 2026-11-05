@@ -128,14 +128,21 @@ func (a *appState) windowBySecret(secret string) (e *winEntry, remote, frame, re
 	match := func(s string) bool {
 		return s != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(s)) == 1
 	}
+	loaded := ""
 	a.reg(func(st *regState) {
 		for _, w := range st.windows {
 			if match(w.view.secret) {
 				e, remote, frame, replaced = w, w.view.remotePage(), false, false
+				if len(w.replaced) > 0 {
+					loaded = w.id
+				}
 				w.replaced = nil
 			}
 			if match(w.view.frameSecret) {
 				e, remote, frame, replaced = w, true, true, false
+				if len(w.replaced) > 0 {
+					loaded = w.id
+				}
 				w.replaced = nil
 			}
 			for _, r := range w.replaced {
@@ -145,6 +152,9 @@ func (a *appState) windowBySecret(secret string) (e *winEntry, remote, frame, re
 			}
 		}
 	})
+	if loaded != "" {
+		logf("window %s: its new page has loaded; the pages it replaced hold no secret now", loaded)
+	}
 	return e, remote, frame, replaced
 }
 
@@ -168,6 +178,11 @@ func (a *appState) handleControl(w http.ResponseWriter, r *http.Request) {
 	}
 	e, remote, frame, replaced := a.windowBySecret(secret)
 	if e == nil {
+		// A page whose secret was retired — replaced in its window by one that
+		// has since loaded — asking for its window: say so, without the secret.
+		if strings.HasPrefix(rest, "win/") {
+			logf("control: %s %s refused: no open window's page holds its secret", r.Method, rest)
+		}
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}

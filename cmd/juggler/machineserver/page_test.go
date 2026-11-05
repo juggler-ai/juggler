@@ -66,6 +66,27 @@ func TestSessionsPagePaintsTheMachinesTheme(t *testing.T) {
 	}
 }
 
+// TestSessionsPageWearsTheOpenersZoom: a desktop window opened from another
+// hands its page the opener's UI zoom (?zoom=, cmd/juggler-app windowPageURL)
+// beside its theme, and the sessions page applies it before the first paint
+// as the root font size, within the range a session's page allows, as
+// web/index.html does — so a new window opens at the scale of the one it was
+// opened from.
+func TestSessionsPageWearsTheOpenersZoom(t *testing.T) {
+	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "" }}
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+	_, _, body := fetch(t, front.URL+"/?window=1&theme=dark&mode=dark&zoom=130")
+	for _, want := range []string{
+		"parseInt(query.get('zoom'), 10)",
+		"root.style.fontSize = Math.max(60, Math.min(160, zoom)) + '%'",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page does not apply the zoom it is handed: no %s", want)
+		}
+	}
+}
+
 // TestSessionsPageCarriesTheControlToken: GET / is the sessions page, and it
 // hands its script the control-API token — the page is behind the Host guard
 // and the LAN gate like everything else here, so whoever may load it may hold

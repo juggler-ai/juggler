@@ -12,7 +12,7 @@ import { t, markUntranslated } from '../../sdk/lib/i18n.js';
 import { isEngine } from '../../sdk/lib/client-role.js';
 import { followSession } from './git-workspace.js';
 import { reconcileWorkspaces } from './workspace-reconcile.js';
-import { setAppPhase } from './app-phase.js';
+import appPhase, { setAppPhase } from './app-phase.js';
 
 /**
  * @typedef {object} ConnectionManagerOptions
@@ -70,7 +70,7 @@ class ConnectionManager {
     /** @type {(() => void)|null} @private - Stops the git surfaces following this window's visible conversation */
     this._unfollowGit = null;
 
-    /** @type {Array<() => void>} @private - Unsubscribes for the WebSocket listeners setup() registered */
+    /** @type {Array<() => void>} @private - Unsubscribes for the listeners setup() registered: the WebSocket's, and the app phase's */
     this._wsUnsubscribes = [];
 
     /** @type {{show: () => void, hide: () => void, startCountdown: (delayMs: number) => void}|null} @private */
@@ -151,12 +151,10 @@ class ConnectionManager {
     this._wsUnsubscribes.push(wsService.on('open', openCallback));
 
     const closeCallback = /** @type {any} */ (() => {
-      // A refused viewer is not reconnecting, so the overlay would say
-      // something untrue; the refusal notice below says what is.
-      if (this._refusedAsFull) return;
-      if (this._disconnectionOverlay) this._disconnectionOverlay.show();
+      this._handleClose();
     });
     this._wsUnsubscribes.push(wsService.on('close', closeCallback));
+    this._wsUnsubscribes.push(appPhase.subscribe((phase) => this._handlePhase(phase)));
 
     // The server holds as many viewers as it takes, so this one was turned away
     // and the socket will not retry. The notice stays until dismissed: nothing
@@ -191,6 +189,42 @@ class ConnectionManager {
     // delivered. Don't call _initializeSession here — the 'session'/'open'
     // handlers above drive it once the connection is established.
     wsService.connect();
+  }
+
+  /**
+   * Report a lost link with the disconnection overlay — but only once the app
+   * is up. Until then the startup overlay covers the window and already says
+   * "Connecting", and a second spinner over it says nothing more;
+   * {@link ConnectionManager#_handlePhase} takes over if startup ends with the
+   * link still down.
+   * @private
+   */
+  _handleClose() {
+    // A refused viewer is not reconnecting, so the overlay would say
+    // something untrue; the refusal notice says what is.
+    if (this._refusedAsFull) return;
+    if (appPhase.get() !== 'ready') return;
+    if (this._disconnectionOverlay) this._disconnectionOverlay.show();
+  }
+
+  /**
+   * Startup ending with the link down: the startup overlay is going, so the
+   * wait it was covering becomes the disconnection overlay's to report. A load
+   * that failed because the server went away mid-load ends this way.
+   * @param {import('./app-phase.js').AppPhase} phase - The phase the app has reached.
+   * @private
+   */
+  _handlePhase(phase) {
+    if (phase === 'ready' && !this._linkIsUp()) this._handleClose();
+  }
+
+  /**
+   * Whether the socket is connected.
+   * @returns {boolean} True while the link is up.
+   * @private
+   */
+  _linkIsUp() {
+    return wsService.isConnected();
   }
 
   /**

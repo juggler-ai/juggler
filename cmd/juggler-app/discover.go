@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -80,6 +82,40 @@ type lanFinder struct {
 	// is listed as through a missed answer (missesForgiven). Each ask swaps in
 	// a whole new map; of two asks at once, the later to finish is kept.
 	listed atomic.Pointer[map[string]listing]
+
+	// heard is the last account the log gave of an ask (outcome), so it says
+	// what the browse heard and what was listed each time that changes, not on
+	// every ask.
+	heard atomic.Pointer[string]
+}
+
+// outcome logs what an ask heard and listed when it differs from the last
+// one logged: each instance the browse has seen, with its addresses and
+// whether it is this machine's, and the address each server listed answered at.
+func (f *lanFinder) outcome(found []lanfind.Found, local map[netip.Addr]bool, out []foundServer) {
+	var b strings.Builder
+	b.WriteString("heard [")
+	for i, s := range found {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "%s:%d at %v", s.Name, s.Port, s.Addrs)
+		if isLocal(s, local) {
+			b.WriteString(" (this machine)")
+		}
+	}
+	b.WriteString("], listed [")
+	for i, s := range out {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "%s at %s", s.Name, s.URL)
+	}
+	b.WriteString("]")
+	now := b.String()
+	if p := f.heard.Swap(&now); p == nil || *p != now {
+		logf("discover: %s", now)
+	}
 }
 
 // finderIdle is how long the browse runs after the last page asked. A page
@@ -216,6 +252,7 @@ func (f *lanFinder) servers(ctx context.Context) ([]foundServer, error) {
 		out = append(out, *s)
 	}
 	f.listed.Store(&listed)
+	f.outcome(found, local, out)
 	return out, nil
 }
 

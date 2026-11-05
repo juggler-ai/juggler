@@ -1152,10 +1152,11 @@ export async function runTests() {
 
   // The server a desktop window shows is chosen in its header, by the
   // server's name itself: after the page's title, where the window is is a
-  // button, drawn as one that opens a menu, and it opens the chooser. There is
-  // no other button for it, and the body offers no other way to go to another
-  // computer. Where the window cannot switch (a browser tab), the name is
-  // plain text.
+  // button, drawn as one that opens a menu, and it opens the chooser. On this
+  // computer's own page the button reads This computer, as the chooser's own
+  // row does, never the machine's host name. There is no other button for it,
+  // and the body offers no other way to go to another computer. Where the
+  // window cannot switch (a browser tab), the name is plain text.
   await test('the header\'s Change server chooses the server; the body has no Connect to another computer', async () => {
     const host = stubHost();
     host.switchServer = async () => {};
@@ -1168,7 +1169,8 @@ export async function runTests() {
       const toggle = /** @type {HTMLButtonElement|null} */ (m.header.querySelector('button.ms-server-switch'));
       assert(!!toggle, `the header has no Change server: ${m.header.innerHTML}`);
       assert(m.header.querySelectorAll('button').length === 1, `the header has more than the server's own button: ${m.header.innerHTML}`);
-      assert((toggle?.textContent || '').trim() === 'studio', `the button does not name where the window is: ${JSON.stringify(toggle?.textContent)}`);
+      const label = () => toggle?.querySelector('.ms-server-label')?.textContent || '';
+      assert(label() === 'This computer', `this computer's page names itself ${JSON.stringify(label())}, not This computer`);
       assert(!!toggle?.querySelector('.ms-icon svg'), 'the button is not drawn as one that opens a menu');
       assert(toggle?.title === 'Change server…', `the button does not say what it does: ${JSON.stringify(toggle?.title)}`);
       const title = m.header.querySelector('h1');
@@ -1180,6 +1182,8 @@ export async function runTests() {
       assert(toggle?.getAttribute('aria-expanded') === 'true', 'Change server does not say it is open');
       assert(pop.getAttribute('role') === 'dialog' && !!pop.getAttribute('aria-label'), 'the chooser is not a labelled dialog');
       assert(toggle?.getAttribute('aria-controls') === pop.id, 'Change server does not name the chooser it opens');
+      await nextTask();
+      assert(label() === 'This computer', `the chooser drawn, this computer's page names itself ${JSON.stringify(label())}`);
       pop.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       assert(!pop.isConnected && toggle?.getAttribute('aria-expanded') === 'false', 'Escape left the chooser open');
       await openChooser(m);
@@ -1248,7 +1252,12 @@ export async function runTests() {
 
       /** @type {HTMLButtonElement} */ (rows[0].querySelector('button')).click();
       await nextTask();
+      await nextTask();
       assert(JSON.stringify(asked) === '["http://192.168.1.9:3939"]', `asked the app for ${JSON.stringify(asked)}`);
+      // The app is replacing the page: taking the chooser down would retract
+      // its Back entry (history.back()), which cancels the app's navigation.
+      assert(pop.isConnected && m.header.querySelector('.ms-server-switch')?.getAttribute('aria-expanded') === 'true',
+        'a switch the app took closed the chooser under the navigation replacing the page');
       const again = await openChooser(m);
       /** @type {HTMLButtonElement} */ (again.querySelector('.ms-found-server[data-url="http://192.168.1.10:3939"] button')).click();
       await waitFor(() => (again.querySelector('.ms-connect-error')?.textContent || '') !== '', { description: 'the refusal' });
@@ -1378,6 +1387,9 @@ export async function runTests() {
 
       const pop = await openChooser(m);
       await waitFor(() => pop.querySelectorAll('.ms-found-server').length === 2, { description: 'the servers found' });
+      // The server shown heads the network's list, wherever its name sorts.
+      const order = [...pop.querySelectorAll('.ms-found .ms-found-server')].map((r) => r.getAttribute('data-url'));
+      assert(JSON.stringify(order) === '["http://devbox.invalid:3939","http://192.168.1.10:3939"]', `listed ${JSON.stringify(order)}`);
       const current = /** @type {HTMLButtonElement|null} */ (pop.querySelector('.ms-found-server[data-url="http://devbox.invalid:3939"] button'));
       assert(!!current?.disabled && current?.getAttribute('aria-current') === 'true', 'the server shown is not marked as current');
       assert(pop.querySelectorAll('[aria-current]').length === 1, 'more than one server is marked as current');
@@ -1386,7 +1398,9 @@ export async function runTests() {
       assert((here?.textContent || '').includes('This computer'), `the local choice reads ${here?.textContent}`);
       here?.click();
       await nextTask();
+      await nextTask();
       assert(JSON.stringify(asked) === '[""]', `asked the app for ${JSON.stringify(asked)}`);
+      assert(pop.isConnected, 'switching to This computer closed the chooser under the navigation replacing the page');
 
       // The window's close is still answered, with nothing to save first;
       // a folder dropped is this machine's and opens nothing on the other.
@@ -1399,15 +1413,19 @@ export async function runTests() {
       m.dispose();
     }
 
-    // A server shown that the app has not found is marked current under the
-    // address the window is on.
+    // A server shown that the app has not found is listed among the network's
+    // all the same, marked current under the address the window is on; This
+    // computer stands alone above it.
     const typed = stubHost();
     typed.switchServer = async () => {};
     typed.discover = async () => [];
     const t2 = await mount(stubApi([]), { host: typed, framed: { server: 'http://10.1.2.3:3939', frameCtl: 'http://127.0.0.1:5555/x/win/w2' } });
     try {
       const pop = await openChooser(t2);
-      const current = pop.querySelector('[aria-current="true"]');
+      await nextTask();
+      const current = pop.querySelector('.ms-found [aria-current="true"]');
+      assert(pop.querySelectorAll('.ms-chooser-here li').length === 1, `the top section holds ${pop.querySelector('.ms-chooser-here')?.textContent}`);
+      assert(!pop.querySelector('.ms-found')?.hasAttribute('hidden'), 'the network list is hidden while it holds the server shown');
       const where = current?.querySelector('.ms-found-address');
       assert(where?.textContent === '10.1.2.3:3939' && where?.getAttribute('title') === 'http://10.1.2.3:3939',
         `the current server reads ${current?.textContent}, titled ${where?.getAttribute('title')}`);
@@ -1434,14 +1452,20 @@ export async function runTests() {
       await waitFor(() => label() === 'devbox', { description: 'the header naming the server as found' });
       const pop = await openChooser(m);
       await waitFor(() => pop.querySelectorAll('.ms-found-server').length === 1, { description: 'the server found' });
-      assert(!pop.querySelector('.ms-chooser-shown'), `the server is listed twice: ${pop.textContent}`);
-      assert(pop.querySelector('.ms-found-server button')?.getAttribute('aria-current') === 'true',
+      assert(pop.querySelectorAll('[aria-current="true"]').length === 1, `the server is listed twice: ${pop.textContent}`);
+      assert(pop.querySelector('.ms-found .ms-found-server button')?.getAttribute('aria-current') === 'true',
         'the server found at another of its addresses is not marked as current');
+      const row = pop.querySelector('.ms-found .ms-found-server');
 
+      // Not found this time, it stays where it was: the network list's first
+      // row, under the name it was found by, never moved into This computer's.
       found = [];
       await m.page.refresh();
-      await waitFor(() => !!pop.querySelector('.ms-chooser-shown'), { description: 'the server shown, once not found' });
-      const name = pop.querySelector('.ms-chooser-shown .ms-recent-name')?.textContent;
+      await waitFor(() => pop.querySelector('.ms-found .ms-found-server') !== row, { description: 'the list redrawn, once the server is not found' });
+      assert(pop.querySelectorAll('.ms-chooser-here li').length === 1, `the top section holds ${pop.querySelector('.ms-chooser-here')?.textContent}`);
+      const first = pop.querySelector('.ms-found .ms-found-server');
+      assert(first?.querySelector('button')?.getAttribute('aria-current') === 'true', 'the server shown, not found this time, is not listed first as current');
+      const name = first?.querySelector('.ms-recent-name')?.textContent;
       assert(name === 'devbox', `the server shown, not found this time, is called ${name}`);
       assert(label() === 'devbox', `the header reads ${label()} once the server is not found`);
     } finally {

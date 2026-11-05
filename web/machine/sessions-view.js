@@ -631,10 +631,10 @@ export function mountSessionsPage(root, {
     connectInput,
     el('button', { className: 'ms-button ms-button-primary', text: t('Connect'), attrs: { type: 'submit' } }),
   ]));
-  // Three parts, each set off from the next: this computer, and the server
-  // framed when it is none the app has found; the servers the app has found
-  // on the network, or how one comes to be listed while none is; and the
-  // address box, under its label, for any other.
+  // Three parts, each set off from the next: this computer; the servers on
+  // the network — the one framed, found or not, then those the app has found
+  // — and how one comes to be listed while no other is; and the address box,
+  // under its label, for any other.
   const hereList = el('ul', { className: 'ms-chooser-list ms-chooser-here' });
   const foundList = el('ul', { className: 'ms-chooser-list ms-found', attrs: { 'aria-label': t('Found on this network') } });
   const foundHint = el('p', { className: 'ms-lan-note ms-found-hint', text: t('Other computers appear here when their LAN access is on.') });
@@ -661,13 +661,14 @@ export function mountSessionsPage(root, {
     ])
     : null;
   // Where the window is, as the button that changes it: its name, and the
-  // arrow the app's other dropdowns open by.
+  // arrow the app's other dropdowns open by. This computer's own server is
+  // This computer, as the chooser's own row names it, never its host.
   const switchButton = canSwitch
     ? /** @type {HTMLButtonElement} */ (el('button', {
       className: 'ms-button ms-button-quiet ms-server-switch',
       attrs: { type: 'button', title: t('Change server…') },
     }, [
-      el('span', { className: 'ms-server-label', text: serverLocation(config, framed?.server) }),
+      el('span', { className: 'ms-server-label', text: framed ? serverLocation(config, framed.server) : t('This computer') }),
       icon(DROPDOWN_ARROW_SVG),
     ]))
     : null;
@@ -752,8 +753,11 @@ export function mountSessionsPage(root, {
 
   /**
    * Ask the app to show, in this window, the server at address ('' for this
-   * computer's), saying why if it will not. The app reloads the window once
-   * it has; until then the chooser is taken down.
+   * computer's), saying why if it will not. Once the app has taken it, the
+   * window is navigated to that server's page, and the chooser is left open
+   * until it goes with this page: taking it down retracts the entry it pushed
+   * for the Back button (history.back(), popup-manager.js), and a history
+   * traversal cancels the app's navigation still under way.
    * @param {string} address - The server's address, as typed or as found.
    * @returns {Promise<void>} Resolves once the app has answered.
    */
@@ -766,9 +770,7 @@ export function mountSessionsPage(root, {
       // A refusal is the app's to explain; any other failure is the browser's,
       // in words that mean nothing to the user.
       showConnectError(err instanceof ControlApiError ? errorText(err) : t('Could not connect to that server.'));
-      return;
     }
-    closeChooser();
   }
 
   connectForm.addEventListener('submit', (event) => {
@@ -819,6 +821,10 @@ export function mountSessionsPage(root, {
    * Redraw the chooser's servers from the last the app found, and name the
    * server framed in the header as it was found: the window's address alone
    * says only where it is.
+   *
+   * This computer stands alone in the top section. The network's list holds
+   * every other server: first the one framed, if any — found or not, so its
+   * row holds still as asks find and miss it — then the rest found.
    */
   function renderChooser() {
     const shown = framed ? framed.server : '';
@@ -826,15 +832,17 @@ export function mountSessionsPage(root, {
     if (current) shownName = current.name;
     const label = switchButton?.querySelector('.ms-server-label');
     if (label && shown) label.textContent = shownName || serverLocation(config, shown);
-    hereList.replaceChildren(...[
+    hereList.replaceChildren(
       choiceRow('ms-chooser-local', '', { name: t('This computer'), where: config.host || '', current: !framed }),
-      shown && !current ? choiceRow('ms-chooser-shown', shown, { name: shownName || hostOf(shown), where: shown, current: true }) : null,
+    );
+    const others = found.filter((s) => s !== current);
+    foundList.replaceChildren(...[
+      current ? choiceRow('ms-found-server', current.url, { name: current.name, where: current.url, current: true, version: current.version }) : null,
+      shown && !current ? choiceRow('ms-found-server', shown, { name: shownName || hostOf(shown), where: shown, current: true }) : null,
+      ...others.map((s) => choiceRow('ms-found-server', s.url, { name: s.name, where: s.url, current: false, version: s.version })),
     ].filter((x) => x !== null));
-    foundList.replaceChildren(...found.map((s) => choiceRow('ms-found-server', s.url, {
-      name: s.name, where: s.url, current: s === current, version: s.version,
-    })));
-    foundList.hidden = found.length === 0;
-    foundHint.hidden = found.length > 0;
+    foundList.hidden = !shown && found.length === 0;
+    foundHint.hidden = others.length > 0;
   }
 
   /**

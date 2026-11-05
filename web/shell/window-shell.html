@@ -57,7 +57,7 @@
 {{define "window-shell-head"}}
     <link rel="icon" type="image/svg+xml" href="{{.AssetBase}}/resources/juggler-logo.svg">
 
-    <!-- Before the first paint: the page's theme. A desktop window hands its
+    <!-- Before the first paint: the page's theme and zoom. A desktop window hands its
          page the window's theme mode (?mode=) and, for a window following the
          system, the colour it shows now (?theme=), as it hands a session's
          page them (cmd/juggler-app, windowPageURL) — the viewer's, which win
@@ -81,6 +81,12 @@
             if (mode === 'system' || !theme) root.dataset.themeSystem = '1';
             root.dataset.theme = theme ||
                 (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+            // The window's UI zoom (?zoom=, a root font-size percentage), handed
+            // over as the theme is, applied before the first paint within the
+            // range a session's page allows (utils/zoom-manager.js). A page
+            // handed none stays at the browser's own size.
+            var zoom = parseInt(query.get('zoom'), 10);
+            if (zoom > 0) root.style.fontSize = Math.max(60, Math.min(160, zoom)) + '%';
         })();
     </script>
     {{template "window-shell-boot" .}}

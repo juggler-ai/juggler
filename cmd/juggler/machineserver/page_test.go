@@ -194,6 +194,8 @@ func TestSessionsPageWearsTheAppsWindowChrome(t *testing.T) {
 	for name, body := range map[string]string{"window": win, "tab": tab} {
 		for _, want := range []string{
 			"/css/layout/app-shell.css", "/css/layout/window-chrome.css", "/css/layout/app-header.css",
+			// What a drag may select: the header bar is chrome, never text.
+			"/css/base/text-selection.css",
 			`<header class="app-header">`, `<app-wordmark class="logo">`, `class="window-resize-strip"`,
 			// The wordmark opens the About box, as on a session's page.
 			"/js/components/app-wordmark.js", "/js/components/about-modal.js",

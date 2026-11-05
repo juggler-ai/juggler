@@ -598,12 +598,21 @@ export function mountSessionsPage(root, {
     folderError,
   ]);
 
-  const count = el('span', { className: 'ms-sessions-count' });
   const sessionsList = el('ul', { className: 'ms-sessions' });
   const sessionsSection = el('section', { className: 'ms-section' }, [
-    el('h2', {}, [document.createTextNode(t('Running')), count]),
+    el('h2', { text: t('Active sessions') }),
     sessionsList,
   ]);
+
+  // What the page is while a project opens: its spinner, naming the project,
+  // in place of everything else (showLaunching). Starting a session spawns a
+  // server, which takes a second or two.
+  const launchingName = el('p', { className: 'ms-launch-busy-text' });
+  const launchingPanel = el('div', { className: 'ms-launch-busy', attrs: { role: 'status' } }, [
+    el('juggler-spinner', { attrs: { 'aria-hidden': 'true' } }),
+    launchingName,
+  ]);
+  launchingPanel.hidden = true;
 
   // The server chooser, in the header bar beside the server's name: the
   // servers the app has found on the network, this computer, and a typed
@@ -738,7 +747,26 @@ export function mountSessionsPage(root, {
     root.append(banner, el('div', { className: 'ms-column ms-main' },
       [opening, sessionsSection, launchSection, folderSection, recentsSection]));
     if (exposureSection) root.append(el('div', { className: 'ms-column ms-side' }, [exposureSection]));
+    root.append(launchingPanel);
   }
+
+  /**
+   * Show the page as its spinner while project opens, or ('') as itself again.
+   * @param {string} project - The folder opening ('' for none).
+   */
+  function showLaunching(project) {
+    launchingName.textContent = project ? t('Opening {name}…', { name: baseName(project) }) : '';
+    launchingPanel.hidden = !project;
+    for (const child of root.children) {
+      if (child !== launchingPanel) /** @type {HTMLElement} */ (child).hidden = !!project;
+    }
+  }
+  // A page the browser brings back from its cache, as Back does after a
+  // session opened in this tab, is the page again, not a spinner.
+  const onPageShow = (/** @type {PageTransitionEvent} */ e) => {
+    if (e.persisted) showLaunching('');
+  };
+  window.addEventListener('pageshow', onPageShow);
   const toFrame = postToFrame || ((message, origin) => { frame?.contentWindow?.postMessage(message, origin); });
 
   /**
@@ -977,18 +1005,43 @@ export function mountSessionsPage(root, {
     parentChosen = true;
   }
 
+  /** Whether a launch is in flight, while which another is not started. */
+  let launching = false;
+
   /**
-   * Launch (or find) the session for project and take the user to it.
+   * Launch (or find) the session for project and take the user to it. The
+   * page is its spinner from the moment it is asked; one that fails is the
+   * page again, saying why, and one that opens leaves the spinner up while
+   * the window goes to the session.
    * @param {string} project - The folder, as given.
    * @param {LaunchOptions} [options]
    * @returns {Promise<boolean>} Whether it opened.
    */
   async function launch(project, options = {}) {
+    if (launching) return false;
+    launching = true;
     const report = options.report || showLaunchError;
     report('');
-    if (host) return launchHere(project, options);
+    showLaunching(project);
+    let opened = false;
     try {
-      const sess = await api.openSession(options.make ? await options.make() : project);
+      opened = await (host ? launchHere(project, options) : launchInTab(project, options));
+    } finally {
+      launching = false;
+      if (!opened && !disposed) showLaunching('');
+    }
+    return opened;
+  }
+
+  /**
+   * Launch (or find) the session for project and take this tab to it.
+   * @param {string} project - The folder, as given.
+   * @param {LaunchOptions} [options]
+   * @returns {Promise<boolean>} Whether it opened.
+   */
+  async function launchInTab(project, { make, report = showLaunchError } = {}) {
+    try {
+      const sess = await api.openSession(make ? await make() : project);
       navigate(pageURL(sess.link));
       await refresh();
       return true;
@@ -1281,7 +1334,7 @@ export function mountSessionsPage(root, {
   }
 
   /**
-   * The recent projects to offer: those with no session under Running, which
+   * The recent projects to offer: those with no session under Active sessions, which
    * already shows each of those, whatever its state.
    * @returns {string[]} At most RECENTS_SHOWN folders, most recent first.
    */
@@ -1306,8 +1359,6 @@ export function mountSessionsPage(root, {
       banner.replaceChildren();
     }
 
-    count.textContent = sessions.length ? ` ${sessions.length}` : '';
-    count.setAttribute('aria-label', t('{count, plural, one {# session} other {# sessions}}', { count: sessions.length }));
     if (!listed) {
       sessionsList.setAttribute('aria-busy', 'true');
       // Kept across redraws, so a retry does not restart its animation.
@@ -1434,6 +1485,7 @@ export function mountSessionsPage(root, {
       disposed = true;
       if (timer) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('pageshow', onPageShow);
       window.removeEventListener('juggler:folder-dropped', onFolderDropped);
       window.removeEventListener('juggler:window-close-requested', onCloseRequested);
       for (const type of PAGE_COMMANDS) window.removeEventListener(type, onPageCommand);

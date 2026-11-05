@@ -29,7 +29,7 @@ var builtin embed.FS
 // TestStandInPageResolvesFromTheShell in cmd/juggler-app names any it misses.
 //
 //go:embed shell/*
-//go:embed css/base/fonts.css css/base/reset.css css/base/elements.css
+//go:embed css/base/fonts.css css/base/reset.css css/base/elements.css css/base/text-selection.css
 //go:embed css/tokens/scale.css css/tokens/theme-dark.css css/tokens/theme-light.css
 //go:embed css/layout/app-shell.css css/layout/window-chrome.css css/layout/app-header.css
 //go:embed machine/sessions.css

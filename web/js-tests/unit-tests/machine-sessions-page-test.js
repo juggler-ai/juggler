@@ -246,7 +246,6 @@ export async function runTests() {
         `a restarting session should say when it retries and how often it has: ${gamma.textContent}`);
       const delta = row(m.root, 'ddd');
       assert(delta.dataset.state === 'error' && (delta.textContent || '').includes('crashed 6 times'), 'an errored session does not say why');
-      assert((m.root.querySelector('.ms-sessions-count')?.textContent || '').includes('4'), 'the section does not count the sessions');
     } finally {
       m.dispose();
     }
@@ -469,6 +468,44 @@ export async function runTests() {
       assert(!!err && (err.textContent || '').includes('absolute path'), `error shown: ${err?.textContent}`);
       assert(nav.went.length === 0, `a refused open went to ${JSON.stringify(nav.went)}`);
       assert(input.value === 'some/rel', 'the refused path was cleared');
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // Starting a session spawns a server, which takes a second or two: the
+  // page turns to a spinner naming the project the moment it is asked, and
+  // comes back, saying why, if the open fails.
+  for (const where of ['a browser tab', 'a desktop window']) {
+    await test(`in ${where} an open turns the page to a spinner at once, and a failure brings it back`, async () => {
+      const api = stubApi(sessions, ['/work/zeta']);
+      /** @type {(err: Error) => void} */
+      let refuse = () => {};
+      api.onOpen = () => new Promise((_, reject) => { refuse = reject; });
+      const m = await mount(api, where === 'a desktop window' ? { host: stubHost() } : { navigate: stubNavigate().navigate });
+      try {
+        const main = /** @type {HTMLElement} */ (m.root.querySelector('.ms-main'));
+        /** @type {HTMLButtonElement} */ (m.root.querySelector('.ms-recent[data-project="/work/zeta"] .ms-recent-open')).click();
+        const busy = /** @type {HTMLElement|null} */ (m.root.querySelector('.ms-launch-busy'));
+        assert(!!busy && busy.checkVisibility(), 'clicking Open showed no spinner before the server answered');
+        assert(!!busy?.querySelector('juggler-spinner'), 'the opening panel has no spinner');
+        assert((busy?.textContent || '').includes('zeta'), `the opening panel does not name the project: ${JSON.stringify(busy?.textContent)}`);
+        assert(!main.checkVisibility(), 'the page is still shown behind the spinner');
+        refuse(new ControlApiError(500, 'spawn failed: no binary'));
+        await waitFor(() => main.checkVisibility(), { description: 'the page back after the open failed' });
+        assert(!busy?.checkVisibility(), 'the spinner is still shown after the open failed');
+        assert((m.root.querySelector('.ms-launch-error')?.textContent || '').includes('spawn failed'), 'the failure does not say why');
+      } finally {
+        m.dispose();
+      }
+    });
+  }
+
+  await test('the sessions section is headed Active sessions, with no count', async () => {
+    const m = await mount(stubApi(sessions));
+    try {
+      const heading = m.root.querySelector('.ms-main > .ms-section:has(.ms-sessions) > h2');
+      assert(heading?.textContent === 'Active sessions', `the sessions section is headed ${JSON.stringify(heading?.textContent)}`);
     } finally {
       m.dispose();
     }
@@ -1599,7 +1636,7 @@ export async function runTests() {
       assert(!!main && !!side, 'the page is not split into the sessions\' column and the ways in');
       const headings = [...(main?.querySelectorAll(':scope > .ms-section > h2') || [])]
         .map((h) => h.firstChild?.textContent || '');
-      assert(JSON.stringify(headings) === JSON.stringify(['Running', 'Open a project', 'New folder', 'Recent']),
+      assert(JSON.stringify(headings) === JSON.stringify(['Active sessions', 'Open a project', 'New folder', 'Recent']),
         `the sessions' column reads ${JSON.stringify(headings)}`);
       const recent = /** @type {HTMLElement|null} */ (main?.querySelector(':scope > .ms-section:last-child'));
       assert(!!recent?.querySelector('.ms-recents [data-project="/work/epsilon"]') && !recent?.hidden,

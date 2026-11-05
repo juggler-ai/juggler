@@ -308,10 +308,6 @@ body {
     color: var(--text-secondary);
 }
 
-.ms-sessions-count {
-    color: var(--text-tertiary);
-}
-
 /* Lists */
 
 .ms-sessions,
@@ -680,6 +676,34 @@ body {
         overflow-y: auto;
         padding: var(--spacing-xl) var(--spacing-xs);
     }
+}
+
+/* While a project opens, the page is its spinner alone (showLaunching hides
+   the rest), centred in the page: across the wide layout's whole grid, and
+   down most of the window's height. The columns' own display rules would otherwise
+   outrank the hidden attribute. */
+.ms-page > .ms-column[hidden] {
+    display: none;
+}
+
+.ms-launch-busy {
+    grid-area: 1 / 1 / -1 / -1;
+    flex: 1;
+    min-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-md);
+    color: var(--text-secondary);
+}
+
+.ms-launch-busy[hidden] {
+    display: none;
+}
+
+.ms-launch-busy juggler-spinner {
+    --size: 2rem;
 }
 
 @media (width <= 36rem) {

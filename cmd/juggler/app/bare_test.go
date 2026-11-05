@@ -85,3 +85,33 @@ func TestWindowIsRefusedOnABareLaunch(t *testing.T) {
 		}
 	}
 }
+
+// TestArgumentsAfterTheFlagsAreRefused: juggler takes no arguments after its
+// flags, so one is refused, naming it, rather than ignored — a folder given
+// that way opens nothing, and a mistyped subcommand would start a server. The
+// refusal points at --project, which is how a folder is given.
+func TestArgumentsAfterTheFlagsAreRefused(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		flags appFlags
+		want  []string // nil is not refused
+	}{
+		{"no arguments", appFlags{project: "/p", projectSet: true}, nil},
+		{"a folder", appFlags{args: []string{"~/proj"}}, []string{`"~/proj"`, "--project"}},
+		{"a mistyped subcommand", appFlags{args: []string{"sever", "status"}}, []string{`"sever"`}},
+		{"after --project", appFlags{project: "/p", projectSet: true, args: []string{"."}}, []string{`"."`}},
+	} {
+		got := c.flags.refusal()
+		if c.want == nil {
+			if got != "" {
+				t.Errorf("%s: refused with %q, want nothing refused", c.name, got)
+			}
+			continue
+		}
+		for _, w := range c.want {
+			if !strings.Contains(got, w) {
+				t.Errorf("%s: refusal %q, want one containing %s", c.name, got, w)
+			}
+		}
+	}
+}

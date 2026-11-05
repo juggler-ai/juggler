@@ -70,7 +70,7 @@ func TestCLIWithNoServerSaysHowToStartOne(t *testing.T) {
 			t.Errorf("server %v with no server.json: exit %d, stderr %q", args, code, errOut)
 		}
 	}
-	if code, _, errOut := runCLI(t, RunOpenCommand, t.TempDir()); code != 1 || !strings.Contains(errOut, "run `juggler` in the project") {
+	if code, _, errOut := runCLI(t, RunOpenCommand, t.TempDir()); code != 1 || !strings.Contains(errOut, "`juggler --project <folder>`") {
 		t.Errorf("open with no server.json: exit %d, stderr %q", code, errOut)
 	}
 

@@ -25,23 +25,30 @@ func (f appFlags) standaloneLaunch() bool {
 	return f.sessionChild || f.testMode
 }
 
-// refusal is why this launch's flags are refused, or "": --window anywhere but
-// the test harness, which opens its debug lane with it. Bare juggler has no
-// server of its own to open a window on, and a session child's windows are the
-// desktop app's to open.
+// refusal is why this launch's command line is refused, or "".
+//
+// An argument after the flags is refused: juggler takes none, and ignoring one
+// would open nothing for a folder given that way and start a server for a
+// mistyped subcommand. A folder is given with --project.
+//
+// --window is refused anywhere but the test harness, which opens its debug
+// lane with it. Bare juggler has no server of its own to open a window on, and
+// a session child's windows are the desktop app's to open.
 func (f appFlags) refusal() string {
+	if len(f.args) > 0 {
+		return fmt.Sprintf("juggler: unexpected argument %q. To open a session for a folder: juggler --project <folder>", f.args[0])
+	}
 	if f.window && !f.testMode {
 		return "juggler: --window is no longer supported: open the desktop app instead."
 	}
 	return ""
 }
 
-// runBare runs bare juggler — `cd proj && juggler` — on the machine server
-// (machineserver.RunTerminal): it serves in this terminal's foreground when no
-// server is running, and otherwise attaches to the one that is. Its project
-// is resolved as a standalone launch's is: --project, else a terminal's cwd
-// unless that is a home or system folder; with none it opens no session and
-// points at the sessions page.
+// runBare runs bare juggler on the machine server (machineserver.RunTerminal):
+// it serves in this terminal's foreground when no server is running, and
+// otherwise attaches to the one that is. It opens a session only for the
+// folder --project names (resolveStartupProject); with none it opens no
+// session and points at the sessions page.
 func runBare(flags appFlags) int {
 	printBanner()
 	project, err := (&App{flags: flags}).resolveStartupProject()

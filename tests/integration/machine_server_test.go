@@ -389,8 +389,8 @@ func TestOpenNeedsARunningServer(t *testing.T) {
 		t.Cleanup(func() { ms.stopDetached(infoPath, info.PID) })
 		t.Error("juggler open started a machine server")
 	}
-	if code != 1 || out != "" || !strings.Contains(errOut, "run "+"`juggler`"+" in the project") {
-		t.Fatalf("open without a server: exit %d, stdout %q, stderr %q; want refusal pointing at juggler in the project", code, out, errOut)
+	if code != 1 || out != "" || !strings.Contains(errOut, "`juggler --project <folder>`") {
+		t.Fatalf("open without a server: exit %d, stdout %q, stderr %q; want refusal pointing at juggler --project", code, out, errOut)
 	}
 }
 

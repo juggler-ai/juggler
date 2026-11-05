@@ -32,6 +32,7 @@ type appFlags struct {
 	exitWithParent bool     // --exit-with-parent: self-terminate if the parent process dies (set by `juggler run` for the child it spawns)
 	logFile        string   // --log-file: explicit log file path, overriding the centrally-derived one (set by the machine server per child)
 	logFileSet     bool     // true if --log-file was passed
+	args           []string // what follows the flags; juggler takes none (refusal)
 }
 
 // App owns the startup phases, the resources they allocate, and the LIFO

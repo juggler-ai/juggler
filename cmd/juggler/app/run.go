@@ -356,6 +356,7 @@ func parseFlags(hasTerminal bool) (appFlags, bool) {
 		exitWithParent: *exitWithParent,
 		logFile:        *logFile,
 		logFileSet:     logFileSet,
+		args:           flag.Args(),
 	}, *version
 }
 

@@ -126,7 +126,7 @@ func RunOpenCommand(args []string, env CLIEnv) int {
 	c, err := Connect(ConnectOptions{})
 	if err != nil {
 		if errors.Is(err, ErrNoServer) {
-			fmt.Fprintln(env.Stderr, "juggler open: no Juggler server is running; run `juggler` in the project first.")
+			fmt.Fprintln(env.Stderr, "juggler open: no Juggler server is running; start one with `juggler --project <folder>`, which also opens that folder's session.")
 			return 1
 		}
 		return cliFail(env, "open", err)

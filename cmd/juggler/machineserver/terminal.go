@@ -16,11 +16,12 @@ import (
 	"sync"
 )
 
-// Bare juggler — `cd proj && juggler` — is sugar over the machine server.
-// With no server running, this process is the server, in its terminal's
-// foreground (Serve with a Foreground). With one running, it attaches to it
-// and opens its project's session there (attachTo). Either way it prints the
-// session's URL and runs until Ctrl-C.
+// Bare juggler — `juggler`, or `juggler --project <folder>` — is sugar over
+// the machine server. With no server running, this process is the server, in
+// its terminal's foreground (Serve with a Foreground). With one running, it
+// attaches to it and opens its project's session there (attachTo). Either way
+// it prints the session's URL, or the sessions page's with no project, and
+// runs until Ctrl-C.
 
 // TerminalOptions is one run of bare juggler (RunTerminal).
 type TerminalOptions struct {

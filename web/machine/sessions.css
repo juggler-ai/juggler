@@ -256,6 +256,10 @@ body {
     padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-sm);
 }
 
+.ms-chooser .ms-connect-error {
+    padding: 0 var(--spacing-sm);
+}
+
 /* A window on another computer's server: that server's page, framed, is the
    whole of the page under the header (sessions-view.js, framed). */
 

@@ -10,6 +10,25 @@ import (
 	"testing"
 )
 
+// TestBundleOfPath: the bundle a main executable is the main executable of is
+// the innermost .app it is in — JugglerServer.app, launched as an app of its
+// own, not the Juggler.app that holds it — and only when it sits where a
+// bundle's executable does.
+func TestBundleOfPath(t *testing.T) {
+	for _, c := range []struct{ path, want string }{
+		{"/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal", "/System/Applications/Utilities/Terminal.app"},
+		{"/Applications/Juggler.app/Contents/Helpers/JugglerServer.app/Contents/MacOS/juggler", "/Applications/Juggler.app/Contents/Helpers/JugglerServer.app"},
+		{"/Applications/Juggler.app/Contents/MacOS/juggler-app", "/Applications/Juggler.app"},
+		{"/bin/zsh", ""},
+		{"/Users/me/.app/Contents/MacOS/tool", ""},
+		{"/Applications/Tool.app/Contents/Resources/bin/tool", ""},
+	} {
+		if got := bundleOf(c.path); got != c.want {
+			t.Errorf("bundleOf(%q) = %q, want %q", c.path, got, c.want)
+		}
+	}
+}
+
 // TestBundleName: an app is named as System Settings lists it — its display
 // name, else its name, else its bundle's file name.
 func TestBundleName(t *testing.T) {

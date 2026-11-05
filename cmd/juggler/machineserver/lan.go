@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path"
 	"runtime"
 	"strconv"
 	"strings"
@@ -231,21 +230,6 @@ func removableFrom(v string) bool {
 		minor = 0
 	}
 	return major > 27 || (major == 27 && minor >= 2)
-}
-
-// bundleOf is the app bundle exe is the main executable of — the innermost
-// .app it is in, when it sits in that bundle's Contents/MacOS — or "" for an
-// executable that is no bundle's.
-func bundleOf(exe string) string {
-	dir, file := path.Split(exe)
-	bundle, ok := strings.CutSuffix(dir, "/Contents/MacOS/")
-	if file == "" || !ok {
-		return ""
-	}
-	if name := path.Base(bundle); name == ".app" || !strings.HasSuffix(name, ".app") {
-		return ""
-	}
-	return bundle
 }
 
 // requestLocalNetwork asks macOS to let this server onto the local network

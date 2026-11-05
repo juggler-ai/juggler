@@ -69,10 +69,19 @@ func TestAWindowsSecretActsOnlyOnThatWindow(t *testing.T) {
 	}
 }
 
-// TestANavigatedWindowsOldSecretOpensNothing: a page replaced in place takes
-// its secret with it, so whichever server served it holds nothing for the page
-// that follows.
-func TestANavigatedWindowsOldSecretOpensNothing(t *testing.T) {
+// postWithSecret posts action to window id's control path under secret.
+func postWithSecret(a *appState, secret, id, action string) int {
+	rec := httptest.NewRecorder()
+	a.handleControl(rec, httptest.NewRequest(http.MethodPost, "/"+secret+"/win/"+id+"/"+action, nil))
+	return rec.Code
+}
+
+// TestANavigatedWindowsOldSecretLastsUntilTheNewPageSpeaks: a page replaced in
+// place stays on screen, and in use, until the page replacing it has loaded —
+// which may be never, when that load stalls. So its secret is honoured until
+// the new page first uses its own, and from then on opens nothing, whichever
+// server served it.
+func TestANavigatedWindowsOldSecretLastsUntilTheNewPageSpeaks(t *testing.T) {
 	userpathstest.Isolate(t)
 	a := newTestAppState(t)
 	a.workspace = newWorkspaceStoreAt(workspacePath(t))
@@ -87,10 +96,50 @@ func TestANavigatedWindowsOldSecretOpensNothing(t *testing.T) {
 	if !strings.Contains(page, url.QueryEscape(controlSecretOf(a, "w1"))) {
 		t.Fatalf("the new page %s does not carry the window's secret", page)
 	}
-	rec := httptest.NewRecorder()
-	a.handleControl(rec, httptest.NewRequest(http.MethodPost, "/"+old+"/win/w1/drafts-flushed?token=x", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("the replaced page's secret = %d, want 404", rec.Code)
+	for range 2 {
+		if code := postWithSecret(a, old, "w1", "drafts-flushed?token=x"); code != http.StatusNoContent {
+			t.Fatalf("the page still on screen, before its replacement has loaded = %d, want 204", code)
+		}
+	}
+	if code := postWithSecret(a, controlSecretOf(a, "w1"), "w1", "drafts-flushed?token=x"); code != http.StatusNoContent {
+		t.Fatalf("the new page's secret = %d, want 204", code)
+	}
+	if code := postWithSecret(a, old, "w1", "drafts-flushed?token=x"); code != http.StatusNotFound {
+		t.Fatalf("the replaced page's secret, once the new page has spoken = %d, want 404", code)
+	}
+	a.workspace.flush(nil)
+}
+
+// TestAReplacedRemotePageKeepsOnlyItsOwnReach: until its replacement loads, a
+// page another server sent is still judged as that server's, though the window
+// now shows this machine's own page — and so is the page framed in a replaced
+// framed view.
+func TestAReplacedRemotePageKeepsOnlyItsOwnReach(t *testing.T) {
+	userpathstest.Isolate(t)
+	a := newTestAppState(t)
+	a.workspace = newWorkspaceStoreAt(workspacePath(t))
+	const server = "http://devbox:3939"
+	e := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{
+		spec: windowSpec{url: server, connected: true}, serverURL: "http://127.0.0.1:3939", framed: server, frameSecret: mintControlSecret(),
+	}})
+	outer, framed := controlSecretOf(a, "w1"), frameSecretOf(a, "w1")
+	a.showView(e, showing(a.viewOf(e)), windowView{serverURL: "http://127.0.0.1:3939"}, windowOpts{})
+
+	if code := postWithSecret(a, framed, "w1", "folder-dropped?path=%2Fno%2Fsuch%2Fplace"); code != http.StatusForbidden {
+		t.Errorf("the replaced framed page's folder-dropped = %d, want 403", code)
+	}
+	if code := postWithSecret(a, outer, "w1", "folder-dropped?path=%2Fno%2Fsuch%2Fplace"); code != http.StatusNoContent {
+		t.Errorf("the replaced outer page's folder-dropped = %d, want 204", code)
+	}
+
+	e2 := registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{url: server, connected: true}, serverURL: server}})
+	remote := controlSecretOf(a, "w2")
+	a.showView(e2, showing(a.viewOf(e2)), windowView{serverURL: "http://127.0.0.1:3939"}, windowOpts{})
+	if code := postWithSecret(a, remote, "w2", "folder-dropped?path=%2Fno%2Fsuch%2Fplace"); code != http.StatusForbidden {
+		t.Errorf("the replaced remote page's folder-dropped = %d, want 403", code)
+	}
+	if code := postWithSecret(a, remote, "w2", "drafts-flushed?token=x"); code != http.StatusNoContent {
+		t.Errorf("the replaced remote page's drafts-flushed = %d, want 204", code)
 	}
 	a.workspace.flush(nil)
 }

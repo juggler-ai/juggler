@@ -64,7 +64,8 @@ func (a *appState) serveControl(ln net.Listener) {
 
 // mintControlSecret returns a random secret for one page load of one window:
 // minted as the window is built, and again each time it is navigated in place
-// (showView), so a secret never outlives the page it was given to.
+// (showView), so a secret lasts no longer than the page it was given to — and
+// that page lasts until the one replacing it has loaded (windowBySecret).
 func mintControlSecret() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -87,23 +88,64 @@ func controlPath(id, secret string) string {
 	return "/" + secret + "/win/" + id
 }
 
+// replacedSecret is a secret of a page showView has replaced, judged as that
+// page was: whether a server by URL served it, and whether it was the page
+// framed in the window's (windowBySecret).
+type replacedSecret struct {
+	secret        string
+	remote, frame bool
+}
+
+// maxReplacedSecrets bounds a window's replaced secrets when none of the pages
+// after them ever loads. A navigation started before the last has loaded
+// supersedes it, so the page on screen is the first of the run, and once the
+// list is full the pages after it, which never loaded, are not added.
+const maxReplacedSecrets = 4
+
+// replacedSecretsOf are v's secrets, as replacedSecrets judged as v's page.
+func replacedSecretsOf(v windowView) []replacedSecret {
+	var out []replacedSecret
+	if v.secret != "" {
+		out = append(out, replacedSecret{secret: v.secret, remote: v.remotePage()})
+	}
+	if v.frameSecret != "" {
+		out = append(out, replacedSecret{secret: v.frameSecret, remote: true, frame: true})
+	}
+	return out
+}
+
 // windowBySecret is the open window whose page holds secret, or nil, and
 // whether that page is served by a server by URL: its own page on one
 // (remotePage), or the page framed in it, which holds the window's frame
 // secret (frame). Every window's secrets are compared, in constant time,
 // whichever matches.
-func (a *appState) windowBySecret(secret string) (e *winEntry, remote, frame bool) {
+//
+// A page showView has replaced holds a secret of the window's replaced list,
+// and is judged as it was, whatever the window shows now; replaced says so.
+// The current page's first use of its own secret, or its framed page's, is
+// the proof it has loaded, and retires them all.
+func (a *appState) windowBySecret(secret string) (e *winEntry, remote, frame, replaced bool) {
+	match := func(s string) bool {
+		return s != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(s)) == 1
+	}
 	a.reg(func(st *regState) {
 		for _, w := range st.windows {
-			if w.view.secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(w.view.secret)) == 1 {
-				e, remote, frame = w, w.view.remotePage(), false
+			if match(w.view.secret) {
+				e, remote, frame, replaced = w, w.view.remotePage(), false, false
+				w.replaced = nil
 			}
-			if w.view.frameSecret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(w.view.frameSecret)) == 1 {
-				e, remote, frame = w, true, true
+			if match(w.view.frameSecret) {
+				e, remote, frame, replaced = w, true, true, false
+				w.replaced = nil
+			}
+			for _, r := range w.replaced {
+				if match(r.secret) {
+					e, remote, frame, replaced = w, r.remote, r.frame, true
+				}
 			}
 		}
 	})
-	return e, remote, frame
+	return e, remote, frame, replaced
 }
 
 // handleControl admits a request only when its path opens with an open
@@ -116,19 +158,20 @@ func (a *appState) windowBySecret(secret string) (e *winEntry, remote, frame boo
 //
 // The one GET admitted is a stand-in's, under its own window's path, for the
 // page this endpoint serves it and what that page loads (serveStandIn). It is
-// same-origin, so it needs no CORS either.
+// same-origin, so it needs no CORS either. A replaced page's secret is never
+// admitted a GET: the stand-in it would load from is the window's current one.
 func (a *appState) handleControl(w http.ResponseWriter, r *http.Request) {
 	secret, rest, ok := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	e, remote, frame := a.windowBySecret(secret)
+	e, remote, frame, replaced := a.windowBySecret(secret)
 	if e == nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && !replaced {
 		if si := a.viewOf(e).standIn; si != nil {
 			id, sub, ok := strings.Cut(strings.TrimPrefix(rest, "win/"), "/")
 			if !ok || !strings.HasPrefix(rest, "win/") || id != e.id {
@@ -519,6 +562,10 @@ func (a *appState) showView(e *winEntry, from func(windowView) bool, next window
 	a.reg(func(st *regState) {
 		if st.windows[e.id] != e || !from(e.view) {
 			return
+		}
+		// The page being replaced stays on screen until next's has loaded.
+		if len(e.replaced) < maxReplacedSecrets {
+			e.replaced = append(e.replaced, replacedSecretsOf(e.view)...)
 		}
 		e.view, shown = next, true
 		boards = markBoardsClosingWith(st, e)

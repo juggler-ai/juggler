@@ -1210,7 +1210,7 @@ export async function runTests() {
     const asked = [];
     host.switchServer = async (/** @type {string} */ address) => {
       asked.push(address);
-      if (address === 'http://192.168.1.10:3939') throw new Error('Could not reach it.');
+      if (address === 'http://192.168.1.10:3939') throw new ControlApiError(502, 'Could not reach it.');
     };
     /** @type {Array<{name: string, url: string, version?: string}>} */
     let found = [
@@ -1292,6 +1292,24 @@ export async function runTests() {
       await nextTask();
       assert(JSON.stringify(asked) === '["ftp://x","devbox:3939"]', `asked the app for ${JSON.stringify(asked)}`);
       assert(!(pop.querySelector('.ms-connect-error')?.textContent), 'a refusal outlived the next try');
+    } finally {
+      m.dispose();
+    }
+  });
+
+  await test('Change server says it could not connect, not the browser\'s words, when the app cannot be reached', async () => {
+    const host = stubHost();
+    host.switchServer = async () => { throw new TypeError('Failed to fetch'); };
+    host.discover = async () => [];
+    const m = await mount(stubApi([]), { host });
+    try {
+      const pop = await openChooser(m);
+      const form = /** @type {HTMLFormElement} */ (pop.querySelector('form.ms-connect'));
+      /** @type {HTMLInputElement} */ (form.querySelector('input.ms-connect-input')).value = 'devbox:3939';
+      form.requestSubmit();
+      await waitFor(() => (pop.querySelector('.ms-connect-error')?.textContent || '') !== '', { description: 'the failure' });
+      const shown = pop.querySelector('.ms-connect-error')?.textContent || '';
+      assert(shown === 'Could not connect to that server.', `an unreachable app is shown as ${JSON.stringify(shown)}`);
     } finally {
       m.dispose();
     }

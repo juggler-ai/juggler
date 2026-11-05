@@ -53,6 +53,7 @@ static char *infoName(const char *path) {
 import "C"
 
 import (
+	"path"
 	"path/filepath"
 	"strings"
 	"unsafe"
@@ -71,6 +72,21 @@ func responsibleAppName() string {
 		return ""
 	}
 	return bundleName(bundle)
+}
+
+// bundleOf is the app bundle exe is the main executable of — the innermost
+// .app it is in, when it sits in that bundle's Contents/MacOS — or "" for an
+// executable that is no bundle's.
+func bundleOf(exe string) string {
+	dir, file := path.Split(exe)
+	bundle, ok := strings.CutSuffix(dir, "/Contents/MacOS/")
+	if file == "" || !ok {
+		return ""
+	}
+	if name := path.Base(bundle); name == ".app" || !strings.HasSuffix(name, ".app") {
+		return ""
+	}
+	return bundle
 }
 
 // responsibleExecutable is the executable of the process macOS holds

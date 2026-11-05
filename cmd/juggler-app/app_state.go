@@ -206,6 +206,12 @@ type winEntry struct {
 	settling bool
 	settled  bool
 
+	// replaced holds the secrets of the pages showView has replaced in this
+	// window since its current page last used its own (control.go): a replaced
+	// page is still on screen, and in use, until its replacement loads, which a
+	// stalled load may never do. Owned by the registry goroutine.
+	replaced []replacedSecret
+
 	// foreignToken is what the fallback bar offered to the window's latest
 	// page load holds (foreign_page.go): the only bar whose buttons the app
 	// answers. Owned by the registry goroutine.

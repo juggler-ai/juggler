@@ -763,7 +763,9 @@ export function mountSessionsPage(root, {
     try {
       await host.switchServer(address);
     } catch (err) {
-      showConnectError(err instanceof Error ? errorText(err) : t('Could not connect to that server.'));
+      // A refusal is the app's to explain; any other failure is the browser's,
+      // in words that mean nothing to the user.
+      showConnectError(err instanceof ControlApiError ? errorText(err) : t('Could not connect to that server.'));
       return;
     }
     closeChooser();

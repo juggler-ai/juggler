@@ -236,13 +236,14 @@ function extractFileMentions(text) {
  * likelier reading) and a bare word (`@TODO`, `@param`) is dropped.
  * @param {string} text
  * @param {string} [workspaceId] - The tree the mentions will be read from, '' for the project
+ * @param {Parameters<typeof fetchExistingPaths>[2]} [options] - Passed to the existence check
  * @returns {Promise<string[]>} Unique verified paths in order
  */
-export async function extractFileMentionsAsync(text, workspaceId = '') {
+export async function extractFileMentionsAsync(text, workspaceId = '', options = {}) {
   const candidates = extractFileMentions(text);
   if (candidates.length === 0) return [];
 
-  const existing = await fetchExistingPaths(candidates, workspaceId);
+  const existing = await fetchExistingPaths(candidates, workspaceId, options);
   if (existing === null) return candidates.filter(p => p.includes('/'));
   return candidates.filter(p => existing.has(p));
 }

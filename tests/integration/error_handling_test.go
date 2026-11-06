@@ -12,7 +12,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"juggler/cmd/juggler/worker"
 	"juggler/tests/integration/helpers"
@@ -175,19 +174,16 @@ func TestLLMErrorStampsTransaction(t *testing.T) {
 	})
 	ts.Manager.HandleMessage(ts.ConvID, "send-message", sendPayload, nil)
 
-	if err := helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second); err != nil {
-		t.Fatalf("Worker did not return to idle after error: %v", err)
-	}
-
-	if err := helpers.WaitForDocumentCondition(t, ts.Worker, 5*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.Type == "error" {
-				return true
-			}
-		}
-		return false
+	// The turn is awaited by the item it writes before the worker being idle,
+	// which it still is before a queued turn starts.
+	if err := helpers.WaitForItem(t, ts.Worker, "the error item", func(item worker.ConversationItem) bool {
+		return item.Type == "error"
 	}); err != nil {
 		t.Fatalf("Error item did not appear: %v", err)
+	}
+
+	if err := helpers.WaitForState(t, ts.Worker, worker.StateIdle); err != nil {
+		t.Fatalf("Worker did not return to idle after error: %v", err)
 	}
 
 	// Pull the user msg + error item, assert they share a non-empty txn id.

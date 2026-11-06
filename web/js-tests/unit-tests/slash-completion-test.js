@@ -370,6 +370,50 @@ export async function runTests() {
     }
   }
 
+  // The send's existence check waits for as long as the link lives, however
+  // slow the answer: an answer that comes is used, and only the link dropping
+  // ends the wait. A check that gave up on a clock kept "@scope/pkg" mentions of
+  // paths that do not exist whenever the server was merely slow.
+  {
+    const realFetch = window.fetch;
+    /** @type {Array<{resolve: (r: any) => void, signal?: AbortSignal}>} */
+    const held = [];
+    window.fetch = /** @type {any} */ ((/** @type {any} */ _url, /** @type {any} */ init) => new Promise((resolve, reject) => {
+      held.push({ resolve, signal: init?.signal });
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+    }));
+    try {
+      /** @type {(() => void)|null} */
+      let dropLink = null;
+      const whenLinkDrops = (/** @type {() => void} */ cb) => { dropLink = cb; return () => { dropLink = null; }; };
+
+      const answered = extractFileMentionsAsync('see @src/main.go and @types/node', '', { whenLinkDrops });
+      assert(held.length === 1, `the check must ask the server once, asked ${held.length}`);
+      held[0].resolve({ ok: true, status: 200, json: async () => ({ existing: ['src/main.go'] }) });
+      const kept = await answered;
+      assert(JSON.stringify(kept) === '["src/main.go"]', `an answer must decide which mentions stay, kept ${JSON.stringify(kept)}`);
+      assert(dropLink === null, 'the check must stop watching the link once answered');
+
+      held.length = 0;
+      let settled = false;
+      const dropped = extractFileMentionsAsync('see @src/main.go and @types/node', '', { whenLinkDrops })
+        .then((/** @type {string[]} */ v) => { settled = true; return v; });
+      assert(held.length === 1 && typeof dropLink === 'function', 'the second check must be asked and watching the link');
+      /** @type {() => void} */ (/** @type {unknown} */ (dropLink))();
+      const keptOnDrop = await dropped;
+      assert(settled, 'the check must end when the link drops');
+      assert(held[0].signal?.aborted === true, 'the request must be abandoned when the link drops');
+      assert(JSON.stringify(keptOnDrop) === '["src/main.go","types/node"]',
+        `a check the link dropped under keeps the slashed candidates, kept ${JSON.stringify(keptOnDrop)}`);
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push('file-mention-check-follows-the-link: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      window.fetch = realFetch;
+    }
+  }
+
   // ── Test 6: en-XA — the menus and the handler's own messages ─────────────
   // Every row the `/` menu and the button-opened lists draw, the pinned
   // buttons, the "New command" row, a user command's scope badge, and the three

@@ -85,10 +85,10 @@ func TestDuplicateWhileRunning_ClonePersistsParkedMarker(t *testing.T) {
 	wm.HandleMessage(srcID, "send-message", sendPayload, nil)
 	select {
 	case <-llmEntered:
-	case <-time.After(5 * time.Second):
+	case <-time.After(ihelpers.ReadyTimeout):
 		t.Fatal("LLM turn never started")
 	}
-	if err := ihelpers.WaitForWorkerState(t, w, worker.StateProcessing, 2*time.Second); err != nil {
+	if err := ihelpers.WaitForState(t, w, worker.StateProcessing); err != nil {
 		close(release)
 		t.Fatalf("source worker not in StateProcessing: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestDuplicateWhileRunning_ClonePersistsParkedMarker(t *testing.T) {
 
 	// Release the turn and let the source settle for a clean shutdown.
 	close(release)
-	_ = ihelpers.WaitForWorkerState(t, w, worker.StateIdle, 5*time.Second)
+	_ = ihelpers.WaitForState(t, w, worker.StateIdle)
 }
 
 // initRunningWorker boots a worker for convID through the manager and waits for
@@ -162,10 +162,8 @@ func initRunningWorker(t *testing.T, mgr *worker.Manager, projectDir, convID str
 	if !mgr.HandleMessage(convID, "init", initPayload, cb) {
 		t.Fatal("init not handled")
 	}
-	select {
-	case <-ready:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for ready")
+	if err := ihelpers.WaitForReady(t, ready); err != nil {
+		t.Fatal(err)
 	}
 	w := mgr.Get(convID)
 	if w == nil {

@@ -26,13 +26,8 @@ func TestMockRateLimitTriggersRetry(t *testing.T) {
 
 	triggerSendMessage(ts, "Hi")
 
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 5*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.Type == "assistant" && item.Content == "After retry" {
-				return true
-			}
-		}
-		return false
+	err := helpers.WaitForItem(t, ts.Worker, "the reply after the retry", func(item worker.ConversationItem) bool {
+		return item.Type == "assistant" && item.Content == "After retry"
 	})
 	if err != nil {
 		ts.DumpDocument()
@@ -58,13 +53,8 @@ func TestMockTransientErrorTriggersRetry(t *testing.T) {
 
 	triggerSendMessage(ts, "Hi")
 
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 8*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.Type == "assistant" && item.Content == "After retry" {
-				return true
-			}
-		}
-		return false
+	err := helpers.WaitForItem(t, ts.Worker, "the reply after the retry", func(item worker.ConversationItem) bool {
+		return item.Type == "assistant" && item.Content == "After retry"
 	})
 	if err != nil {
 		ts.DumpDocument()
@@ -86,13 +76,8 @@ func TestMockStreamedTextEmitsChunks(t *testing.T) {
 
 	triggerSendMessage(ts, "Hi")
 
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 5*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.Type == "assistant" && item.Content == "Hello, streaming world!" {
-				return true
-			}
-		}
-		return false
+	err := helpers.WaitForItem(t, ts.Worker, "the assembled streamed reply", func(item worker.ConversationItem) bool {
+		return item.Type == "assistant" && item.Content == "Hello, streaming world!"
 	})
 	if err != nil {
 		ts.DumpDocument()
@@ -121,13 +106,8 @@ func TestMockStreamedToolUseDeliversFinalArgs(t *testing.T) {
 	waitForToolAction(t, ts, "tu-1")
 	completeToolAction(t, ts, "tu-1", "ok")
 
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 5*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.Type == "assistant" && item.Content == "done" {
-				return true
-			}
-		}
-		return false
+	err := helpers.WaitForItem(t, ts.Worker, "the reply after the tool", func(item worker.ConversationItem) bool {
+		return item.Type == "assistant" && item.Content == "done"
 	})
 	if err != nil {
 		ts.DumpDocument()
@@ -142,27 +122,29 @@ func TestMockStreamedToolUseDeliversFinalArgs(t *testing.T) {
 func TestMockMidStreamErrorFailsCleanly(t *testing.T) {
 	t.Parallel()
 	ts := strategyPreamble(t)
-	ts.SetMockSequence(helpers.MidStreamError(
+	seq := ts.SetMockSequence(helpers.MidStreamError(
 		errors.New("mock: invalid request rejected mid-stream"),
 		worker.StreamChunk{Type: "text", Content: "partial..."},
 	))
 
 	triggerSendMessage(ts, "Hi")
 
-	if err := helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second); err != nil {
-		t.Fatalf("Worker did not return to idle after mid-stream error: %v", err)
+	// The turn is awaited by what it does — its model call, the error item —
+	// before the worker being idle, which it still is before a queued turn
+	// starts.
+	if err := helpers.WaitUntil(t, "the turn to call the model", func() bool { return seq.CallCount() >= 1 }); err != nil {
+		t.Fatal(err)
 	}
 
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 2*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.Type == "error" {
-				return true
-			}
-		}
-		return false
+	err := helpers.WaitForItem(t, ts.Worker, "the error item", func(item worker.ConversationItem) bool {
+		return item.Type == "error"
 	})
 	if err != nil {
 		ts.DumpDocument()
 		t.Fatalf("Error item did not appear after mid-stream error: %v", err)
+	}
+
+	if err := helpers.WaitForState(t, ts.Worker, worker.StateIdle); err != nil {
+		t.Fatalf("Worker did not return to idle after mid-stream error: %v", err)
 	}
 }

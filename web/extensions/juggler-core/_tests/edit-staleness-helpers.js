@@ -27,6 +27,15 @@ import {
   assert
 } from '../../../js-tests/utilities/test-helpers.js';
 import contextItemRegistry from '../../../js/registries/context-item-registry.js';
+import { budgetFor, noteCaseFinished } from '../../../js-tests/utilities/test-deadline.js';
+import { racePatiently } from '../../../js-tests/utilities/test-patience.js';
+
+/**
+ * One case's nominal bound: a conversation, a file write and a validation,
+ * well over what any of them takes. It sits above the waits inside the case,
+ * and follows the suite's deadline while the suite makes progress.
+ */
+const CASE_BUDGET_MS = 15000;
 
 /** A syntactically valid SHA-256 that matches no real file. */
 export const BOGUS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
@@ -126,17 +135,25 @@ export async function makeGuardHarness() {
 
   /**
    * Run one test case.
+   *
+   * The case is raced as a named wait, so a case parked on something unlisted
+   * is reported by name rather than as the whole suite stopping, and its end
+   * is reported to the runner (`noteCaseFinished`), whose runaway bound then
+   * spans the gap between two cases instead of the whole suite.
    * @param {string} name - Test label for error reporting
    * @param {() => Promise<void>} fn - Test body (throws on failure)
    * @returns {Promise<void>}
    */
   const test = async (name, fn) => {
     try {
-      await fn();
+      const settled = await racePatiently(fn(), budgetFor(CASE_BUDGET_MS), { what: `guard case "${name}"` });
+      if (!settled) throw new Error('did not finish, with the suite no longer moving its deadline');
       passed++;
     } catch (e) {
       failed++;
       errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      noteCaseFinished();
     }
   };
 

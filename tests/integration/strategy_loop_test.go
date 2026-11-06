@@ -8,8 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"testing"
-	"time"
 
 	"juggler/cmd/juggler/worker"
 	"juggler/tests/integration/helpers"
@@ -54,13 +54,8 @@ func completeToolAction(t *testing.T, ts *helpers.TestSession, toolUseID, result
 // waitForToolAction waits for a tool-action with the given toolUseID to appear in the document.
 func waitForToolAction(t *testing.T, ts *helpers.TestSession, toolUseID string) {
 	t.Helper()
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 5*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.ToolUseID == toolUseID {
-				return true
-			}
-		}
-		return false
+	err := helpers.WaitForItem(t, ts.Worker, fmt.Sprintf("tool-action %q", toolUseID), func(item worker.ConversationItem) bool {
+		return item.ToolUseID == toolUseID
 	})
 	if err != nil {
 		t.Fatalf("Tool-action %q did not appear: %v", toolUseID, err)
@@ -76,13 +71,8 @@ func TestStrategyLoopTextResponse(t *testing.T) {
 	triggerSendMessage(ts, "Hi there")
 
 	// Wait for assistant response to appear (proves the full strategy loop ran)
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 5*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.Type == "assistant" && item.Content == "Hello from LLM" {
-				return true
-			}
-		}
-		return false
+	err := helpers.WaitForItem(t, ts.Worker, "the assistant reply", func(item worker.ConversationItem) bool {
+		return item.Type == "assistant" && item.Content == "Hello from LLM"
 	})
 	if err != nil {
 		ts.DumpDocument()
@@ -134,8 +124,8 @@ func TestStrategyLoopToolUseAndBatchComplete(t *testing.T) {
 
 	// Wait for the second LLM call's output to appear. With non-blocking
 	// tool wait the worker goes idle between tool dispatch and the next
-	// LLM call, so WaitForWorkerState(idle) isn't a reliable gate.
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 5*time.Second, func(doc *worker.ConversationDocument) bool {
+	// LLM call, so the worker being idle isn't a reliable gate.
+	err := helpers.WaitForDocument(t, ts.Worker, "the tool result and the second reply", func(doc *worker.ConversationDocument) bool {
 		items := doc.GetItems()
 		hasUser := false
 		hasToolWithResult := false
@@ -181,9 +171,9 @@ func TestStrategyLoopMultipleIterations(t *testing.T) {
 	completeToolAction(t, ts, "iter-tool-2", "/home/user\n")
 
 	// Wait for the final assistant message. With non-blocking tool wait
-	// the worker goes idle between tool dispatches, so WaitForWorkerState
-	// isn't a reliable gate for multi-iteration flows.
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 5*time.Second, func(doc *worker.ConversationDocument) bool {
+	// the worker goes idle between tool dispatches, so its state isn't a
+	// reliable gate for multi-iteration flows.
+	err := helpers.WaitForDocument(t, ts.Worker, "both tool results and the final reply", func(doc *worker.ConversationDocument) bool {
 		items := doc.GetItems()
 		tool1Done := false
 		tool2Done := false
@@ -225,28 +215,26 @@ func TestStrategyLoopLLMError(t *testing.T) {
 
 	triggerSendMessage(ts, "This will fail")
 
-	// Wait for worker to return to idle
-	err := helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second)
-	if err != nil {
-		t.Fatalf("Worker did not return to idle after LLM error: %v", err)
-	}
-
-	// Verify error item appeared
-	err = helpers.WaitForDocumentCondition(t, ts.Worker, 2*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.Type == "error" {
-				return true
-			}
-		}
-		return false
+	// Each turn is awaited by what it does — the item it writes, its model
+	// call — before the worker being idle, which it still is before a queued
+	// turn starts.
+	err := helpers.WaitForItem(t, ts.Worker, "the error item", func(item worker.ConversationItem) bool {
+		return item.Type == "error"
 	})
 	if err != nil {
 		ts.DumpDocument()
 		t.Fatalf("Error item did not appear: %v", err)
 	}
 
+	err = helpers.WaitForState(t, ts.Worker, worker.StateIdle)
+	if err != nil {
+		t.Fatalf("Worker did not return to idle after LLM error: %v", err)
+	}
+
 	// Verify worker is still functional — can process another message
+	var recoveredCalls atomic.Int32
 	ts.Worker.SetLLMCaller(func(ctx context.Context, req json.RawMessage, streamCB func(worker.StreamChunk)) (*worker.LLMResponse, error) {
+		recoveredCalls.Add(1)
 		resp := helpers.TextResponse("Recovered")
 		if streamCB != nil {
 			for _, block := range resp.Blocks {
@@ -260,7 +248,10 @@ func TestStrategyLoopLLMError(t *testing.T) {
 
 	triggerSendMessage(ts, "Try again")
 
-	err = helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second)
+	if err := helpers.WaitUntil(t, "the second turn to call the model", func() bool { return recoveredCalls.Load() >= 1 }); err != nil {
+		t.Fatal(err)
+	}
+	err = helpers.WaitForState(t, ts.Worker, worker.StateIdle)
 	if err != nil {
 		t.Fatalf("Worker did not return to idle on second attempt: %v", err)
 	}
@@ -295,7 +286,7 @@ func TestStrategyLoopCancellation(t *testing.T) {
 	triggerSendMessage(ts, "This will be cancelled")
 
 	// Wait for processing state
-	err := helpers.WaitForWorkerState(t, ts.Worker, worker.StateProcessing, 2*time.Second)
+	err := helpers.WaitForState(t, ts.Worker, worker.StateProcessing)
 	if err != nil {
 		t.Fatalf("Worker did not start processing: %v", err)
 	}
@@ -305,7 +296,7 @@ func TestStrategyLoopCancellation(t *testing.T) {
 	ts.Manager.HandleMessage(ts.ConvID, "cancel", cancelPayload, nil)
 
 	// Worker should return to idle
-	err = helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second)
+	err = helpers.WaitForState(t, ts.Worker, worker.StateIdle)
 	if err != nil {
 		t.Fatalf("Worker did not return to idle after cancel: %v", err)
 	}
@@ -353,7 +344,7 @@ func TestStrategyLoopStateTransitions(t *testing.T) {
 	triggerSendMessage(ts, "Hello")
 
 	// Verify: state transitions to processing
-	err := helpers.WaitForWorkerState(t, ts.Worker, worker.StateProcessing, 2*time.Second)
+	err := helpers.WaitForState(t, ts.Worker, worker.StateProcessing)
 	if err != nil {
 		t.Fatalf("Worker did not transition to processing: %v", err)
 	}
@@ -362,7 +353,7 @@ func TestStrategyLoopStateTransitions(t *testing.T) {
 	close(blockChan)
 
 	// Verify: state transitions back to idle
-	err = helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second)
+	err = helpers.WaitForState(t, ts.Worker, worker.StateIdle)
 	if err != nil {
 		t.Fatalf("Worker did not transition back to idle: %v", err)
 	}
@@ -376,7 +367,7 @@ func TestStrategyLoopStateTransitions(t *testing.T) {
 func TestStrategyLoopRetryToolAction(t *testing.T) {
 	t.Parallel()
 	ts := strategyPreamble(t)
-	ts.SetLLMSequence(
+	seq := ts.SetLLMSequence(
 		helpers.ToolUseResponse("retry-tool-1", "bash", map[string]any{"command": "echo retry"}),
 		helpers.TextResponse("Retried tool finished"),
 	)
@@ -408,7 +399,7 @@ func TestStrategyLoopRetryToolAction(t *testing.T) {
 	// Verify: state was set to 'approved' (rerun = "ready to run". The
 	// frontend reducer atomically claims approved → running before
 	// launching execution; the worker only writes 'approved'.)
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 2*time.Second, func(doc *worker.ConversationDocument) bool {
+	err := helpers.WaitForDocument(t, ts.Worker, "the retried tool-action to be approved", func(doc *worker.ConversationDocument) bool {
 		for _, item := range doc.GetItems() {
 			if item.ToolUseID == "retry-tool-1" {
 				resultIsEmpty := len(item.Result) == 0 || string(item.Result) == "null"
@@ -425,8 +416,13 @@ func TestStrategyLoopRetryToolAction(t *testing.T) {
 	// Simulate frontend completing the retried tool
 	completeToolAction(t, ts, "retry-tool-1", "hello from retry\n")
 
-	// Wait for strategy loop to complete
-	err = helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second)
+	// Wait for strategy loop to complete: the sequence's second response is
+	// taken, then the worker settles. The worker may be idle while a tool is
+	// out, so idle alone says nothing.
+	if err := helpers.WaitUntil(t, "the second model call", func() bool { return seq.CallCount() >= 2 }); err != nil {
+		t.Fatal(err)
+	}
+	err = helpers.WaitForState(t, ts.Worker, worker.StateIdle)
 	if err != nil {
 		t.Fatalf("Worker did not return to idle after retry: %v", err)
 	}
@@ -443,7 +439,7 @@ func TestStrategyLoopToolUseStreaming(t *testing.T) {
 	// Use TextAndToolResponse to have text followed by tool_use.
 	// The mock streams tool_use chunks, which trigger finalizeStreaming()
 	// to flush any accumulated text before the tool_use block.
-	ts.SetLLMSequence(
+	seq := ts.SetLLMSequence(
 		helpers.TextAndToolResponse("Let me run that for you",
 			helpers.ToolUse{ID: "stream-tool-1", Name: "bash", Input: map[string]any{"command": "echo streaming"}}),
 		helpers.TextResponse("Streaming tool finished"),
@@ -455,13 +451,8 @@ func TestStrategyLoopToolUseStreaming(t *testing.T) {
 	waitForToolAction(t, ts, "stream-tool-1")
 
 	// Verify: the text message was finalized (separate from tool-action)
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 2*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.Type == "assistant" && item.Content == "Let me run that for you" {
-				return true
-			}
-		}
-		return false
+	err := helpers.WaitForItem(t, ts.Worker, "the text before the tool_use", func(item worker.ConversationItem) bool {
+		return item.Type == "assistant" && item.Content == "Let me run that for you"
 	})
 	if err != nil {
 		ts.DumpDocument()
@@ -471,8 +462,12 @@ func TestStrategyLoopToolUseStreaming(t *testing.T) {
 	// Complete the tool
 	completeToolAction(t, ts, "stream-tool-1", "streaming output\n")
 
-	// Wait for completion
-	err = helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second)
+	// Wait for completion: the turn after the tool reaches the model, then
+	// settles. The worker may already be idle while the tool is out.
+	if err := helpers.WaitUntil(t, "the turn after the tool to call the model", func() bool { return seq.CallCount() >= 2 }); err != nil {
+		t.Fatal(err)
+	}
+	err = helpers.WaitForState(t, ts.Worker, worker.StateIdle)
 	if err != nil {
 		t.Fatalf("Worker did not return to idle: %v", err)
 	}

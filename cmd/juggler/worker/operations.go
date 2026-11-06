@@ -7,6 +7,7 @@ package worker
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 
 	ycrdt "github.com/skyterra/y-crdt"
@@ -43,6 +44,20 @@ type OperationTracker struct {
 	// tracked edit landed in, so its next edit can be grouped by the client's
 	// clock (ApplyClientEdit). Entries are by identity, like threadGroups.
 	clientGroups map[string]*ycrdt.StackItem
+	// workerGroup is the undo group the worker's latest tracked write (origin
+	// authorID) landed in, so its next one can join it however late it lands
+	// (steerWorkerWriteLocked). By identity, like clientGroups.
+	workerGroup *ycrdt.StackItem
+	// steering is the worker transaction steerWorkerWriteLocked opened the
+	// capture window for, with what it found there, so the cleanup can put the
+	// clock back when the transaction turned out untracked.
+	steering        *ycrdt.Transaction
+	steeringFrom    ycrdt.Number
+	steeringUndoSeq int
+	// steerHooked records that the steering observers are on the document.
+	// They read t.undoManager when they fire, so they outlive a replaced
+	// manager and are registered once.
+	steerHooked bool
 	// stacked holds every StackItem on the undo or redo stack as of the last
 	// releaseDroppedLocked, so the next one can tell which have left since.
 	stacked map[*ycrdt.StackItem]bool
@@ -90,6 +105,9 @@ type undoMergeOutcome struct {
 // The UndoManager measures it on its own clock, when each transaction is
 // applied here on the worker, which for a client's edit is not when the user
 // made it — ApplyClientEdit corrects that from the client's own measurement.
+// The worker's own writes are not grouped by any clock: one joins the group
+// the worker's previous write opened however far apart they land
+// (steerWorkerWriteLocked), so they split only at explicit boundaries.
 // Logical boundaries are explicit: StopCapturing() fires at every turn-idle,
 // slash command, context-item change, and undo/redo (which zeroes LastChange).
 const undoCaptureTimeoutMs = 250
@@ -270,7 +288,10 @@ func (t *OperationTracker) ensureUndoManager() *ycrdt.UndoManager {
 	)
 	t.undoManager = um
 
-	um.On("stack-item-added", ycrdt.NewObserverHandler(func(_ ...interface{}) {
+	um.On("stack-item-added", ycrdt.NewObserverHandler(func(v ...interface{}) {
+		if ev, ok := v[0].(ycrdt.Object); ok && ev["type"] == "undo" && ev["origin"] == t.doc.authorID {
+			t.workerGroup, _ = ev["stackItem"].(*ycrdt.StackItem)
+		}
 		// Prune oldest group when stack grows beyond limit
 		for len(um.UndoStack) > t.maxGroups {
 			um.UndoStack = um.UndoStack[1:]
@@ -280,8 +301,61 @@ func (t *OperationTracker) ensureUndoManager() *ycrdt.UndoManager {
 		t.emitUndoState()
 	}))
 
+	if !t.steerHooked {
+		t.steerHooked = true
+		t.doc.doc.On("beforeObserverCalls", ycrdt.NewObserverHandler(func(v ...interface{}) {
+			if trans, ok := v[0].(*ycrdt.Transaction); ok {
+				t.steerWorkerWriteLocked(trans)
+			}
+		}))
+		t.doc.doc.On("afterTransactionCleanup", ycrdt.NewObserverHandler(func(v ...interface{}) {
+			if trans, ok := v[0].(*ycrdt.Transaction); ok {
+				t.endSteeringLocked(trans)
+			}
+		}))
+	}
+
 	return um
 }
+
+// steerWorkerWriteLocked makes a transaction the worker originated join the
+// group its previous write landed in, however long ago that was. It runs once
+// the transaction's changes are made and before the UndoManager looks at it,
+// and holds the capture window open by moving the manager's last change into
+// the future, which no clock reading can be outside of; the manager sets it to
+// the present itself once it has merged.
+//
+// It acts only while that group is still on top with the window open, as
+// ApplyClientEdit does for a client: an explicit boundary (StopCapturing, an
+// undo), or another writer's group on top, leaves the decision to the
+// UndoManager. Called from the document's observers, under ycrdtMu.
+func (t *OperationTracker) steerWorkerWriteLocked(trans *ycrdt.Transaction) {
+	um := t.undoManager
+	if um == nil || trans.Origin != t.doc.authorID || t.steering != nil ||
+		um.LastChange == 0 || len(um.UndoStack) == 0 || um.UndoStack[len(um.UndoStack)-1] != t.workerGroup {
+		return
+	}
+	t.steering, t.steeringFrom, t.steeringUndoSeq = trans, um.LastChange, t.undoSeq
+	um.LastChange = steeredLastChange
+}
+
+// endSteeringLocked puts the capture clock back after a steered transaction
+// the UndoManager did not track — one outside its scope, such as a metadata
+// write — so a write that was never captured cannot hold the window open for
+// the next one. Every tracked transaction bumps undoSeq (stack-item-added).
+func (t *OperationTracker) endSteeringLocked(trans *ycrdt.Transaction) {
+	if t.steering != trans {
+		return
+	}
+	t.steering = nil
+	if um := t.undoManager; um != nil && t.undoSeq == t.steeringUndoSeq && um.LastChange == steeredLastChange {
+		um.LastChange = t.steeringFrom
+	}
+}
+
+// steeredLastChange is a last-change time later than any clock reading, so
+// every transaction the UndoManager captures under it lands inside the window.
+const steeredLastChange = ycrdt.Number(math.MaxInt64 / 2)
 
 // =============================================================================
 // MUTATIONS (record + apply in one step via UndoManager)

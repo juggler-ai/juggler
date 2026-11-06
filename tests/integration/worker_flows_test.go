@@ -232,7 +232,7 @@ func TestReconnectDuringProcessingIntegration(t *testing.T) {
 	ts.Manager.HandleMessage(ts.ConvID, "send-message", sendPayload, nil)
 
 	// Wait for processing state
-	err := helpers.WaitForWorkerState(t, ts.Worker, worker.StateProcessing, 2*time.Second)
+	err := helpers.WaitForState(t, ts.Worker, worker.StateProcessing)
 	if err != nil {
 		t.Fatalf("Expected StateProcessing: %v", err)
 	}
@@ -254,14 +254,14 @@ func TestReconnectDuringProcessingIntegration(t *testing.T) {
 	ts.Manager.HandleMessageWithClient(ts.ConvID, "new-client", "init", initPayload, func(msg []byte) {})
 
 	// Worker should still be processing — reconnect must NOT cancel
-	if err := helpers.WaitForWorkerState(t, ts.Worker, worker.StateProcessing, 2*time.Second); err != nil {
+	if err := helpers.WaitForState(t, ts.Worker, worker.StateProcessing); err != nil {
 		t.Fatalf("Expected worker to remain in StateProcessing after reconnect: %v", err)
 	}
 
 	// Unblock the LLM call and wait for processing to complete
 	close(blockChan)
 
-	err = helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second)
+	err = helpers.WaitForState(t, ts.Worker, worker.StateIdle)
 	if err != nil {
 		t.Fatalf("Worker did not return to idle after LLM completed: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestMultipleViewerReconnectsDuringProcessing(t *testing.T) {
 	})
 	ts.Manager.HandleMessage(ts.ConvID, "send-message", sendPayload, nil)
 
-	err := helpers.WaitForWorkerState(t, ts.Worker, worker.StateProcessing, 2*time.Second)
+	err := helpers.WaitForState(t, ts.Worker, worker.StateProcessing)
 	if err != nil {
 		t.Fatalf("Expected StateProcessing: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestMultipleViewerReconnectsDuringProcessing(t *testing.T) {
 		ts.Manager.HandleMessageWithClient(ts.ConvID, newClientID, "init", initPayload, func(msg []byte) {})
 
 		// Verify still processing after each reconnect
-		if err := helpers.WaitForWorkerState(t, ts.Worker, worker.StateProcessing, 2*time.Second); err != nil {
+		if err := helpers.WaitForState(t, ts.Worker, worker.StateProcessing); err != nil {
 			t.Fatalf("Reconnect cycle %d: expected StateProcessing: %v", i, err)
 		}
 	}
@@ -355,7 +355,7 @@ func TestMultipleViewerReconnectsDuringProcessing(t *testing.T) {
 	// Unblock and verify completion
 	close(blockChan)
 
-	err = helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second)
+	err = helpers.WaitForState(t, ts.Worker, worker.StateIdle)
 	if err != nil {
 		t.Fatalf("Worker did not return to idle: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestReconnectSeesCurrentProcessingState(t *testing.T) {
 	ts.Manager.HandleMessage(ts.ConvID, "send-message", sendPayload, nil)
 
 	// Wait for processingState to show non-idle in doc
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 2*time.Second, func(doc *worker.ConversationDocument) bool {
+	err := helpers.WaitForDocument(t, ts.Worker, "a non-idle processingState", func(doc *worker.ConversationDocument) bool {
 		ps := doc.GetMetadata("processingState")
 		if ps == nil {
 			return false
@@ -431,7 +431,7 @@ func TestReconnectSeesCurrentProcessingState(t *testing.T) {
 	ts.Manager.HandleMessageWithClient(ts.ConvID, "new-client", "init", initPayload, func(msg []byte) {})
 
 	// After reconnect, processingState in Yjs doc should still be non-idle
-	if err := helpers.WaitForDocumentCondition(t, ts.Worker, 2*time.Second, func(doc *worker.ConversationDocument) bool {
+	if err := helpers.WaitForDocument(t, ts.Worker, "processingState after the reconnect", func(doc *worker.ConversationDocument) bool {
 		return doc.GetMetadata("processingState") != nil
 	}); err != nil {
 		t.Fatalf("processingState missing after reconnect: %v", err)
@@ -450,7 +450,7 @@ func TestReconnectSeesCurrentProcessingState(t *testing.T) {
 
 	// Cleanup
 	close(blockChan)
-	err = helpers.WaitForWorkerState(t, ts.Worker, worker.StateIdle, 5*time.Second)
+	err = helpers.WaitForState(t, ts.Worker, worker.StateIdle)
 	if err != nil {
 		t.Fatalf("Worker did not return to idle: %v", err)
 	}
@@ -485,14 +485,8 @@ func TestReconnectDuringToolExecution(t *testing.T) {
 	ts.Manager.HandleMessage(ts.ConvID, "send-message", sendPayload, nil)
 
 	// Wait for tool-action item to appear in the doc
-	err := helpers.WaitForDocumentCondition(t, ts.Worker, 5*time.Second, func(doc *worker.ConversationDocument) bool {
-		items := doc.GetItems()
-		for _, item := range items {
-			if item.ToolUseID == toolUseID {
-				return true
-			}
-		}
-		return false
+	err := helpers.WaitForItem(t, ts.Worker, "the tool-action", func(item worker.ConversationItem) bool {
+		return item.ToolUseID == toolUseID
 	})
 	if err != nil {
 		t.Fatalf("Tool-action item did not appear: %v", err)
@@ -519,13 +513,8 @@ func TestReconnectDuringToolExecution(t *testing.T) {
 	ts.Manager.HandleMessageWithClient(ts.ConvID, "new-client", "init", initPayload, func(msg []byte) {})
 
 	// Verify tool-action item still exists after reconnect
-	if err := helpers.WaitForDocumentCondition(t, ts.Worker, 2*time.Second, func(doc *worker.ConversationDocument) bool {
-		for _, item := range doc.GetItems() {
-			if item.ToolUseID == toolUseID {
-				return true
-			}
-		}
-		return false
+	if err := helpers.WaitForItem(t, ts.Worker, "the tool-action after the reconnect", func(item worker.ConversationItem) bool {
+		return item.ToolUseID == toolUseID
 	}); err != nil {
 		t.Fatalf("Tool-action item lost after reconnect: %v", err)
 	}

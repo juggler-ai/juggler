@@ -3,8 +3,8 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 import { fetchJson } from './http.js';
-import { SEND_LOOKUP_TIMEOUT_MS } from '../utils/constants.js';
 import { apiUrl } from '../utils/api-url.js';
+import wsService from './websocket.js';
 
 /** @type {AbortController|null} */
 let _currentController = null;
@@ -24,27 +24,55 @@ function workspaceParam(workspaceId) {
 }
 
 /**
+ * Call `onDrop` once the link to the server is dead: at once if it is down
+ * now, else when it closes. The socket's own watchdog declares a silent link
+ * dead (LINK_STALL_MS, websocket.js), so this ends for a link that hangs as
+ * well as one that fails.
+ * @param {() => void} onDrop - Called once, when the link is dead
+ * @returns {() => void} Stops watching
+ */
+function whenLinkDrops(onDrop) {
+  if (!wsService.isConnected()) {
+    onDrop();
+    return () => {};
+  }
+  return wsService.on('close', () => onDrop());
+}
+
+/**
  * Check which of the given paths exist on disk. Resolves relative paths
  * against the workspace's root (the project when none is named); "~" is
  * expanded server-side.
  *
- * Runs on the send path, between the button press and the message going out, so
- * it is time-boxed: a link too slow to answer yields null rather than holding
- * the send open indefinitely, so the caller can tell "none exist" from "could
- * not ask".
+ * Runs on the send path, between the button press and the message going out.
+ * It waits for as long as the link to the server lives, however slow the
+ * answer: a clock would give up on a server that is merely slow and leave the
+ * caller guessing. A link that drops, or a request that fails, yields null, so
+ * the caller can tell "none exist" from "could not ask".
  * @param {string[]} paths - Candidate paths to check
  * @param {string} [workspaceId] - The tree to check in, '' for the project
+ * @param {{whenLinkDrops?: (onDrop: () => void) => () => void}} [options] - What ends the wait (default {@link whenLinkDrops})
  * @returns {Promise<Set<string>|null>} The subset of inputs that exist, or null when the check failed
  */
-export async function fetchExistingPaths(paths, workspaceId = '') {
+export async function fetchExistingPaths(paths, workspaceId = '', options = {}) {
   if (!paths || paths.length === 0) return new Set();
+  const { whenLinkDrops: watchLink = whenLinkDrops } = options;
   const qs = paths.map(p => `paths=${encodeURIComponent(p)}`).join('&');
-  /** @type {{existing: string[]}|null} */
-  const data = await fetchJson(apiUrl(`/completions/exists?${qs}${workspaceParam(workspaceId)}`), {
-    fallback: null,
-    timeoutMs: SEND_LOOKUP_TIMEOUT_MS,
-  });
-  return data ? new Set(data.existing || []) : null;
+  const controller = new AbortController();
+  const stopWatching = watchLink(() => controller.abort());
+  try {
+    /** @type {{existing: string[]}|null} */
+    const data = await fetchJson(apiUrl(`/completions/exists?${qs}${workspaceParam(workspaceId)}`), {
+      fallback: null,
+      signal: controller.signal,
+    });
+    return data ? new Set(data.existing || []) : null;
+  } catch {
+    // The link dropped under it: the abort fetchJson re-throws.
+    return null;
+  } finally {
+    stopWatching();
+  }
 }
 
 /**

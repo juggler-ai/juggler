@@ -78,6 +78,13 @@ if err != nil {
 - `WaitForContextItemExists(t, worker, itemID, timeout)` - Wait for context item to exist
 - `WaitForUndoAvailable(t, worker, available, timeout)` - Wait for undo availability
 - `WaitForDocumentCondition(t, worker, timeout, condition)` - Custom conditions
+- `WaitUntil(t, what, cond)` - Wait for something a worker does once scheduled
+  (a turn reaching its model, the item it writes); bounded by `ReadyTimeout`,
+  which only names a hang
+- `WaitForItem(t, worker, what, match)` / `WaitForDocument(t, worker, what, cond)`
+  / `WaitForState(t, worker, state)` - `WaitUntil` on the document or the
+  worker's state. A queued turn leaves the worker idle until it starts, so wait
+  for something the turn does before waiting for idle
 
 All wait functions use exponential backoff (10ms → 100ms) for efficient polling.
 

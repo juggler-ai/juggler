@@ -59,6 +59,45 @@ func WaitUntil(t *testing.T, what string, cond func() bool) error {
 	return nil
 }
 
+// WaitForItem waits, as WaitUntil does, for the worker's document to hold an
+// item match accepts — the item a turn writes. what names it, for the error.
+func WaitForItem(t *testing.T, w *worker.ConversationWorker, what string, match func(worker.ConversationItem) bool) error {
+	t.Helper()
+
+	return WaitForDocument(t, w, what, func(doc *worker.ConversationDocument) bool {
+		for _, item := range doc.GetItems() {
+			if match(item) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// WaitForDocument waits, as WaitUntil does, for cond to hold of the worker's
+// document. what names what was awaited, for the error.
+func WaitForDocument(t *testing.T, w *worker.ConversationWorker, what string, cond func(*worker.ConversationDocument) bool) error {
+	t.Helper()
+
+	return WaitUntil(t, what, func() bool {
+		doc := w.Document()
+		return doc != nil && cond(doc)
+	})
+}
+
+// WaitForState waits, as WaitUntil does, for the worker to be in state. The
+// worker is idle until a queued turn starts, so a wait for idle proves nothing
+// until something the turn does — its model call, an item it writes, the
+// processing state — has been seen first.
+func WaitForState(t *testing.T, w *worker.ConversationWorker, state worker.WorkerState) error {
+	t.Helper()
+
+	if err := WaitUntil(t, fmt.Sprintf("worker state %q", state), func() bool { return w.State() == state }); err != nil {
+		return fmt.Errorf("%w (current: %q)", err, w.State())
+	}
+	return nil
+}
+
 // WaitForDocumentCondition polls the document until the condition returns true or timeout.
 // Uses exponential backoff (10ms -> 100ms) for efficient polling.
 func WaitForDocumentCondition(
@@ -116,28 +155,4 @@ func WaitForMetadata(
 		}
 		return fmt.Sprintf("%v", actualValue) == fmt.Sprintf("%v", expectedValue)
 	})
-}
-
-// WaitForWorkerState waits for the worker to reach the specified state.
-// Uses exponential backoff (10ms -> 100ms) for efficient polling.
-func WaitForWorkerState(t *testing.T, w *worker.ConversationWorker, state worker.WorkerState, timeout time.Duration) error {
-	t.Helper()
-
-	deadline := time.Now().Add(timeout)
-	backoff := 10 * time.Millisecond
-	maxBackoff := 100 * time.Millisecond
-
-	for time.Now().Before(deadline) {
-		if w.State() == state {
-			return nil
-		}
-
-		time.Sleep(backoff)
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
-		}
-	}
-
-	return fmt.Errorf("timeout waiting for worker state %q (current: %q) after %v", state, w.State(), timeout)
 }

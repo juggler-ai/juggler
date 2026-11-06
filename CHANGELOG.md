@@ -18,7 +18,7 @@ the current release). The project follows semantic versioning.
 - One Undo after compacting a long conversation restores its full history again
 - /compact keeps recent turns verbatim, set in Settings; `/compact all` folds everything
 - /compact in a sub-thread compacts that sub-thread, and long sub-threads offer it
-- Quick successive edits undo as one step even when the machine is busy
+- Quick successive edits, and a reply with its tool calls, undo as one step even when busy
 - Long files are no longer shown cut short in a panel about 100 lines tall
 - Double-clicking Duplicate or Fork makes one copy, and shows "Duplicating…" meanwhile
 - Codex no longer rejects non-JWT access tokens as expired

@@ -394,6 +394,13 @@ footer-processing[data-message-id] {
     margin-left: auto;
 }
 
+/* In a narrow column the status text gives way, not the buttons: CJK may break
+   between any two characters, so a squeezed "暂停" would stand one glyph per line. */
+footer-processing > .message-action-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
 /* Pause pending: the current step is finishing before the worker rests. A
    transient active appearance, cleared the moment the conversation reaches idle. */
 .footer-pause-btn.active {

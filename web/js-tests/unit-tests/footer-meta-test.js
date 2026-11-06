@@ -21,6 +21,8 @@
  *   5–6. Under en-XA, the meter and then the footer around it show no English.
  *   7. While a duplicate of this conversation is in flight, the Duplicate
  *      button is disabled and says so, so a second click has nothing to press.
+ *   8. In a phone-width column, CJK Pause and Stop labels stay on one line and
+ *      the status text beside them wraps instead.
  * @module unit-tests/footer-meta-test
  */
 
@@ -349,6 +351,55 @@ export async function runTests() {
     errors.push(`footer duplicating: ${msg(e)}`);
   } finally {
     dupFooter.remove();
+  }
+
+  // --- 8: Pause and Stop keep their labels whole in a phone-width column ----
+  // CJK text may break between any two characters, so a squeezed flex row gives
+  // a two-character label one character per line. The status beside the buttons
+  // is what should give way. The labels are set by hand: the layout is what is
+  // under test, and it is the same whichever catalogue supplied them.
+  const box = document.createElement('div');
+  box.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:320px;';
+  const cjkFooter = /** @type {any} */ (document.createElement('conversation-footer'));
+  box.appendChild(cjkFooter);
+  document.body.appendChild(box);
+  try {
+    cjkFooter.update({ isProcessing: true, statusMessage: '正在准备请求 · 13分钟41秒' });
+    const pause = /** @type {HTMLElement} */ (cjkFooter.querySelector('.footer-pause-btn'));
+    const stop = /** @type {HTMLElement} */ (cjkFooter.querySelector('.footer-stop-btn'));
+    /** @type {HTMLElement} */ (pause.querySelector('.footer-pause-label')).textContent = '暂停';
+    for (const n of stop.childNodes) {
+      if (n.nodeType === Node.TEXT_NODE && n.textContent?.trim()) n.textContent = '停止';
+    }
+    /**
+     * The number of lines an element's own text is laid out on.
+     * @param {Element} el
+     * @returns {number} Distinct line tops across its text.
+     */
+    const lines = (el) => {
+      const tops = new Set();
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!n.textContent?.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        for (const r of range.getClientRects()) tops.add(Math.round(r.top));
+      }
+      return tops.size;
+    };
+    assert(lines(pause) === 1, `Pause's label is on one line, got ${lines(pause)}`);
+    assert(lines(stop) === 1, `Stop's label is on one line, got ${lines(stop)}`);
+    const status = /** @type {HTMLElement} */ (cjkFooter.querySelector('.llm-busy-text'));
+    assert(status.getBoundingClientRect().right <= pause.getBoundingClientRect().left,
+      'the status wraps beside the buttons rather than running under them');
+    assert(stop.getBoundingClientRect().right <= box.getBoundingClientRect().right + 0.5,
+      'Stop stays inside the column');
+    passed++;
+  } catch (e) {
+    failed++;
+    errors.push(`CJK button labels: ${msg(e)}`);
+  } finally {
+    box.remove();
   }
 
   return { passed, failed, errors };

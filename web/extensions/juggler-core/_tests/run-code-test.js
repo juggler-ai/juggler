@@ -511,8 +511,10 @@ export async function runTests(_ctx) {
     const timer = pausableTimer(150, () => { fired++; });
     timer.pause();
     timer.pause();
+    const countedAtPause = timer.counted();
     await timerFence(400, 'a timer outlasting the paused one to fire');
     assert(fired === 0, 'it does not fire while paused, however long');
+    assert(timer.counted() === countedAtPause, `nor counts the pause: ${countedAtPause} then ${timer.counted()}`);
     timer.resume();
     timer.resume();
     await waitFor(() => fired > 0, 'the resumed timer to fire', 10000);

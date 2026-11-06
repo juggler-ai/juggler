@@ -234,8 +234,9 @@ class RunCodeContextItem extends QueryCodeContextItem {
   /**
    * Run the program.
    *
-   * Returns the program's value with its console output and the files it read
-   * (`filesRead`, for read credit). A program that throws, times out, or is
+   * Returns the program's value with its console output, the files it read
+   * (`filesRead`, for read credit) and the time its clock counted
+   * (`countedMs`). A program that throws, times out, or is
    * refused a call returns a structured failure carrying the same. A cancel
    * stays a bare AbortError, like query_code's. What the program changed is in
    * the call record on the item, whichever way it ended.
@@ -427,6 +428,10 @@ class RunCodeContextItem extends QueryCodeContextItem {
           ?? extractErrorMessage(failure)
       }
       : { result: value === undefined ? null : value };
+    // What the program's clock counted against its timeout: its run, less the
+    // time it waited on the user. Kept on the stored result, never in the
+    // model's text.
+    out.countedMs = clock.counted();
     if (consoleLines.length > 0) out.console = consoleLines;
     if (failure) this._holdAssets([]);
     else this._attachShown(out, images);
@@ -755,34 +760,38 @@ function briefArgs(args) {
  * Holds take turns, so a pause never nests in another.
  * @param {number} ms - How long it runs before it fires
  * @param {() => void} onExpire - Called once, when it fires
- * @returns {{pause: () => void, resume: () => void, stop: () => void}} The timer
+ * @returns {{pause: () => void, resume: () => void, stop: () => void, counted: () => number}} The
+ *   timer; `counted` is the time it has run, in milliseconds
  */
 export function pausableTimer(ms, onExpire) {
-  let remaining = ms;
+  let counted = 0;
   let startedAt = Date.now();
   /** @type {ReturnType<typeof setTimeout>|null} */
-  let timer = setTimeout(onExpire, remaining);
-  let paused = false;
+  let timer = setTimeout(onExpire, ms);
+  let running = true;
   let stopped = false;
+  const halt = () => {
+    if (running) counted += Date.now() - startedAt;
+    running = false;
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
   return {
     pause: () => {
-      if (stopped || paused) return;
-      paused = true;
-      if (timer) clearTimeout(timer);
-      timer = null;
-      remaining -= Date.now() - startedAt;
+      if (stopped) return;
+      halt();
     },
     resume: () => {
-      if (stopped || !paused) return;
-      paused = false;
+      if (stopped || running) return;
+      running = true;
       startedAt = Date.now();
-      timer = setTimeout(onExpire, Math.max(0, remaining));
+      timer = setTimeout(onExpire, Math.max(0, ms - counted));
     },
     stop: () => {
       stopped = true;
-      if (timer) clearTimeout(timer);
-      timer = null;
-    }
+      halt();
+    },
+    counted: () => counted + (running ? Date.now() - startedAt : 0)
   };
 }
 

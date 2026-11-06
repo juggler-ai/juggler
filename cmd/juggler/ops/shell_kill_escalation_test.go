@@ -7,6 +7,7 @@ package ops
 import (
 	"context"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -35,14 +36,34 @@ import (
 // own, where a reap that lost a race by milliseconds says nothing about the
 // code.
 
-// countEscalations installs a hook that counts force-kill escalations and
-// deliberately does not perform them — provoking the defect for real would kill
-// whatever process on this machine now holds the recycled pid. Returns the count
-// so far.
-func countEscalations(t *testing.T) func() int {
+// countEscalations installs a hook that counts the force-kill escalations of
+// commands run in root and deliberately does not perform them — provoking the
+// defect for real would kill whatever process on this machine now holds the
+// recycled pid. Returns the count so far.
+//
+// The hook is package-wide, and an escalation armed by an earlier test (its
+// Cleanup's KillTask, or the stop it asserted on) can land seconds later, inside
+// this one's window. So only commands whose working directory is root — each
+// test's own t.TempDir() — are counted; any other is force-killed as it would be
+// without the hook.
+func countEscalations(t *testing.T, root string) func() int {
 	t.Helper()
+	ours := func(dir string) bool {
+		if dir == root {
+			return true
+		}
+		resolvedRoot, errRoot := filepath.EvalSymlinks(root)
+		resolvedDir, errDir := filepath.EvalSymlinks(dir)
+		return errRoot == nil && errDir == nil && resolvedDir == resolvedRoot
+	}
 	var count atomic.Int64
-	killGroupHook.Store(func(*exec.Cmd) { count.Add(1) })
+	killGroupHook.Store(func(cmd *exec.Cmd) {
+		if !ours(cmd.Dir) {
+			killProcessGroup(cmd)
+			return
+		}
+		count.Add(1)
+	})
 	t.Cleanup(func() { killGroupHook.Store((func(*exec.Cmd))(nil)) })
 	return func() int { return int(count.Load()) }
 }
@@ -81,14 +102,15 @@ func waitForEscalation(t *testing.T, escalations func() int, owed string) {
 func TestStreamingCancelDoesNotForceKillAReapedPid(t *testing.T) {
 	requirePOSIXShell(t)
 
-	shellOps := NewShellOperations(NewPathScope(t.TempDir(), nil))
+	root := t.TempDir()
+	shellOps := NewShellOperations(NewPathScope(root, nil))
 	// The kill grace is what the reap has to beat, so give it seconds rather
 	// than the milliseconds a loaded runner can spend on scheduling alone. The
 	// reap grace is longer still, so the return below is always cmd.Wait and
 	// never the cap that gives up on it.
 	shellOps.killGrace = 2 * time.Second
 	shellOps.reapGrace = stopBudget
-	escalations := countEscalations(t)
+	escalations := countEscalations(t, root)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -131,10 +153,11 @@ func TestStreamingCancelDoesNotForceKillAReapedPid(t *testing.T) {
 func TestStreamingCancelStillForceKillsWhatOutlivesTheGrace(t *testing.T) {
 	requireGracefulStop(t)
 
-	shellOps := NewShellOperations(NewPathScope(t.TempDir(), nil))
+	root := t.TempDir()
+	shellOps := NewShellOperations(NewPathScope(root, nil))
 	shellOps.killGrace = 100 * time.Millisecond
 	shellOps.reapGrace = 300 * time.Millisecond
-	escalations := countEscalations(t)
+	escalations := countEscalations(t, root)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -199,8 +222,9 @@ func startLoneProcessTask(t *testing.T, root, convID string) string {
 func TestKilledBackgroundTaskIsNotForceKilledAfterItIsReaped(t *testing.T) {
 	requirePOSIXShell(t)
 
-	id := startLoneProcessTask(t, t.TempDir(), "conv-kill")
-	escalations := countEscalations(t)
+	root := t.TempDir()
+	id := startLoneProcessTask(t, root, "conv-kill")
+	escalations := countEscalations(t, root)
 	reaped := reapedChan(t, id)
 
 	if !KillTask(id) {
@@ -230,8 +254,9 @@ func TestKilledBackgroundTaskStillForceKillsSurvivors(t *testing.T) {
 
 	// startTestTask returns once its `sleep 30` child exists, so the polite
 	// stop — which signals only the shell — always leaves it behind.
-	id := startTestTask(t, t.TempDir(), "conv-survivor")
-	escalations := countEscalations(t)
+	root := t.TempDir()
+	id := startTestTask(t, root, "conv-survivor")
+	escalations := countEscalations(t, root)
 
 	if !KillTask(id) {
 		t.Fatalf("KillTask did not stop a running task")
@@ -248,7 +273,7 @@ func TestStopBackgroundTasksDoesNotForceKillReapedPids(t *testing.T) {
 
 	root := t.TempDir()
 	id := startLoneProcessTask(t, root, "conv-stop")
-	escalations := countEscalations(t)
+	escalations := countEscalations(t, root)
 	reaped := reapedChan(t, id)
 
 	if stopped := StopBackgroundTasks(root, "Stopped when Juggler quit", time.Second); stopped != 1 {

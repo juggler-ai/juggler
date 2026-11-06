@@ -406,6 +406,19 @@ func (a *appState) openerFrame(id string) core.WindowState {
 // Matches the .app bundle identifier (MAC_BUNDLE_ID in the Makefile).
 const singleInstanceID = "studio.juggler.juggler"
 
+// The Linux names a desktop shell matches a window by. GTK4 shows no icon a
+// program sets itself: a shell finds the window's icon through the .desktop
+// file packaging/linux/install.sh writes, named after linuxApplicationID and
+// matching linuxProgramName (the Wayland app_id and X11 WM_CLASS) by
+// StartupWMClass. The program name also names the directory WebKitGTK keeps
+// the windows' storage in, so it stays "Juggler" rather than taking the id.
+// install.sh and the Makefile's LINUX_APP_ID spell the same values
+// (TestLinuxDesktopNamesAgree).
+const (
+	linuxApplicationID = "studio.juggler.Juggler"
+	linuxProgramName   = "Juggler"
+)
+
 // singleInstanceOptions is the single-instance lock to ask Wails for, or none
 // when the platform cannot provide one (unavailable, from
 // singleInstanceUnavailable). Wails ends the launch on any failure to take the
@@ -465,7 +478,8 @@ func (a *appState) initApplication() {
 		// A foreign page's fallback bar presses its buttons through the bridge
 		// (foreign_page.go).
 		RawMessageHandler: a.handleRawMessage,
-		Linux:             application.LinuxOptions{ProgramName: "Juggler"},
+		// What a shell matches the window's .desktop entry, and so its icon, by.
+		Linux: application.LinuxOptions{ApplicationID: linuxApplicationID, ProgramName: linuxProgramName},
 		Windows: application.WindowsOptions{
 			AdditionalBrowserArgs: []string{"--disable-logging"},
 			// Signing out or shutting down quits through the same shutdown as

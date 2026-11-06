@@ -1,4 +1,4 @@
-.PHONY: build test test-build test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-js-deadcode lint-types lint-css lint-i18n fix fix-files fix-fmt fix-go fix-js fix-css node-deps help models-sync mac-app install-mac app-icon-embed wails-runtime-embed wails-runtime-build test-wails-patches win-icon release-build-mac mac-dmg mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack mac-codesign linux-compat-server
+.PHONY: build test test-build test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-js-deadcode lint-types lint-css lint-i18n fix fix-files fix-fmt fix-go fix-js fix-css node-deps help models-sync mac-app install-mac app-icon-embed wails-runtime-embed wails-runtime-build test-wails-patches win-icon release-build-mac mac-dmg mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack linux-desktop linux-desktop-files mac-codesign linux-compat-server
 
 # Binary name
 BINARY_NAME=juggler
@@ -42,8 +42,9 @@ MAC_APP_APP_BIN=$(MAC_APP_DIR)/Contents/MacOS/juggler-app
 MAC_APP_RES=$(MAC_APP_DIR)/Contents/Resources
 MAC_APP_PLIST=$(MAC_APP_DIR)/Contents/Info.plist
 # Where each macOS binary is built before being moved into the bundle (see
-# go-build for why). Outside the bundle, so a half-finished build never leaves a
-# stray Mach-O for mac-codesign to seal in or for the DMG to ship.
+# go-build for why), and linux-binaries' before being moved into bin/. Outside
+# the bundle, so a half-finished build never leaves a stray Mach-O for
+# mac-codesign to seal in or for the DMG to ship.
 MAC_STAGE=$(BUILD_DIR)/.stage
 MAC_ICON_SRC=assets/icons/juggler.icon
 MAC_BUNDLE_ID=studio.juggler.juggler
@@ -70,10 +71,14 @@ MAC_ENTITLEMENTS=assets/macos/juggler.entitlements
 # signing host.
 CODESIGN_IDENTITY ?=
 
-# Source-of-truth raster icon used for Linux runtime window icon and as the
-# input for the Windows resource (.syso) compilation step.
+# Source-of-truth raster icon: the input for the Windows resource (.syso)
+# compilation step and for the Linux tarball's hicolor icons.
 APP_ICON_PNG=assets/icons/juggler-icon.png
 APP_ICON_EMBED=cmd/juggler/app/icon.png
+# The desktop app's GTK application id, and so the name of the .desktop file
+# and icon packaging/linux/install.sh installs (its APP_ID, and juggler-app's
+# LinuxOptions.ApplicationID).
+LINUX_APP_ID=studio.juggler.Juggler
 # Go's linker matches a .syso to a build by its _GOARCH suffix, so each Windows
 # target architecture needs its own resource file. We ship amd64 and arm64
 # (plus legacy 386); a missing arch silently links with no icon.
@@ -367,17 +372,24 @@ GOARCH ?= $(GOARCH_HOST)
 ## linux-binaries: Build the server (or the prebuilt $(SERVER_BIN)) + the desktop
 ## app into bin/ for $(GOARCH). Native Linux only (the desktop app is cgo
 ## GTK/WebKitGTK). This is the loose-binary layout; `make linux-tarball` packs it.
+## Both are built into $(MAC_STAGE) and moved into bin/, for go-build's reason:
+## a server running from this tree must never find its path missing, and Linux
+## refuses to write over a running executable ("Text file busy"), where a rename
+## leaves the running one's inode intact.
 linux-binaries: app-icon-embed wails-runtime-embed
-	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR) $(MAC_STAGE)
+	@rm -f $(MAC_STAGE)/$(BINARY_NAME) $(MAC_STAGE)/juggler-app
 	@if [ -n "$(SERVER_BIN)" ]; then \
 		echo "  → juggler (from $(SERVER_BIN))"; \
-		cp "$(SERVER_BIN)" "$(BUILD_DIR)/$(BINARY_NAME)"; \
+		cp "$(SERVER_BIN)" "$(MAC_STAGE)/$(BINARY_NAME)"; \
 	else \
 		echo "  → juggler ($(GOARCH))"; \
-		CGO_ENABLED=1 GOOS=linux GOARCH=$(GOARCH) $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS_BASE)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/juggler; \
+		CGO_ENABLED=1 GOOS=linux GOARCH=$(GOARCH) $(GOBUILD_RELEASE) -ldflags "$(LDFLAGS_BASE)" -o $(MAC_STAGE)/$(BINARY_NAME) ./cmd/juggler; \
 	fi
 	@echo "  → juggler-app ($(GOARCH))"
-	@CGO_ENABLED=1 GOOS=linux GOARCH=$(GOARCH) $(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS_BASE)" -o $(BUILD_DIR)/juggler-app ./cmd/juggler-app
+	@CGO_ENABLED=1 GOOS=linux GOARCH=$(GOARCH) $(GOBUILD_RELEASE) $(APP_GOFLAGS) -ldflags "$(LDFLAGS_BASE)" -o $(MAC_STAGE)/juggler-app ./cmd/juggler-app
+	@mv -f $(MAC_STAGE)/$(BINARY_NAME) $(BUILD_DIR)/$(BINARY_NAME)
+	@mv -f $(MAC_STAGE)/juggler-app $(BUILD_DIR)/juggler-app
 
 ## linux-compat-server: Build a linux/amd64 server binary inside Ubuntu 22.04,
 ## for running it on a distribution older than the one a release is built on.
@@ -400,12 +412,42 @@ linux-compat-server: app-icon-embed wails-runtime-embed
 ## tarball. Output: bin/juggler-linux-$(GOARCH).tar.gz.
 linux-tarball: linux-binaries linux-tarball-pack
 
+## linux-desktop-files: Put the desktop integration beside the binaries in
+## bin/, in the tarball's layout: install.sh writes the application-menu entry
+## the shell takes the window's icon from, and icons/ is the hicolor tree it
+## copies into the user's icon theme, rendered from $(APP_ICON_PNG). Each is
+## remade only when its source changes.
+# The 512px icon stands for the whole icons/ tree, which one run writes, and is
+# the last size gen-linux-icons writes, so a run that fails part-way leaves it
+# missing and the next build tries again. The generator runs on this machine
+# whatever GOOS/GOARCH the build targets.
+LINUX_ICONS=$(BUILD_DIR)/icons/hicolor/512x512/apps/$(LINUX_APP_ID).png
+linux-desktop-files: $(LINUX_ICONS) $(BUILD_DIR)/install.sh
+
+$(LINUX_ICONS): $(APP_ICON_PNG) cmd/juggler-app/gen-linux-icons/main.go
+	@rm -rf $(BUILD_DIR)/icons
+	@GOOS= GOARCH= $(GOCMD) run ./cmd/juggler-app/gen-linux-icons -src $(APP_ICON_PNG) -o $(BUILD_DIR)/icons -name $(LINUX_APP_ID)
+
+$(BUILD_DIR)/install.sh: packaging/linux/install.sh
+	@mkdir -p $(BUILD_DIR)
+	@cp $< $@ && chmod 755 $@
+
+## linux-desktop: Register the built bin/juggler-app as this user's Juggler —
+## the application-menu entry and icons, by running bin/install.sh — so the
+## build launches from the desktop with its icon, as the macOS build's
+## Juggler.app does. `make build` runs it on Linux; it repoints the one Juggler
+## entry, a tarball install's included, at this tree.
+linux-desktop: linux-desktop-files
+	@$(BUILD_DIR)/install.sh
+
 ## linux-tarball-pack: Tar the already-built bin/juggler + bin/juggler-app
-## (no rebuild), mirroring mac-dmg-pack / win-installer-pack.
-linux-tarball-pack:
+## (no rebuild), mirroring mac-dmg-pack / win-installer-pack, with the desktop
+## integration (linux-desktop-files) beside them.
+linux-tarball-pack: linux-desktop-files
 	@[ -f "$(BUILD_DIR)/$(BINARY_NAME)" ] || { echo "no $(BUILD_DIR)/$(BINARY_NAME) to package — build the Linux binaries first"; exit 1; }
 	@stage=$$(mktemp -d); \
-	cp $(BUILD_DIR)/$(BINARY_NAME) $(BUILD_DIR)/juggler-app "$$stage/"; \
+	cp $(BUILD_DIR)/$(BINARY_NAME) $(BUILD_DIR)/juggler-app $(BUILD_DIR)/install.sh "$$stage/" && \
+	cp -R $(BUILD_DIR)/icons "$$stage/icons" || { rm -rf "$$stage"; exit 1; }; \
 	printf '%s\n' \
 		"Juggler for Linux ($(GOARCH))" \
 		"" \
@@ -413,16 +455,21 @@ linux-tarball-pack:
 		"  juggler      headless server — run this, then open the printed URL," \
 		"               or launch juggler-app which spawns it as a sibling" \
 		"  juggler-app  GTK desktop app (needs a display: X11 or Wayland)" \
+		"  install.sh   adds Juggler, with its icon, to your application menu" \
 		"" \
 		"Keep both binaries in the SAME directory — juggler-app finds juggler" \
 		"next to itself." \
 		"" \
+		"Put this directory where it will live (e.g. ~/.local/opt/juggler), then" \
+		"run ./install.sh once; run it again after moving or upgrading." \
+		"./install.sh --uninstall removes the menu entry and icons." \
+		"" \
 		"Runtime dependencies (Ubuntu 24.04+ / equivalent):" \
 		"  sudo apt-get install -y libgtk-4-1 libwebkitgtk-6.0-4" \
 		> "$$stage/README.txt"; \
-	( cd "$$stage" && sha256sum juggler juggler-app > checksums.txt && \
+	( cd "$$stage" && sha256sum juggler juggler-app install.sh > checksums.txt && \
 		tar czf "$(abspath $(BUILD_DIR))/juggler-linux-$(GOARCH).tar.gz" \
-			juggler juggler-app checksums.txt README.txt ); \
+			juggler juggler-app install.sh icons checksums.txt README.txt ); \
 	rm -rf "$$stage"
 	@echo "→ $(BUILD_DIR)/juggler-linux-$(GOARCH).tar.gz"
 
@@ -681,8 +728,12 @@ ifeq ($(UNAME_S),Darwin)
 	{ echo "codesign failed (is '$$id' a valid keychain identity?)"; exit 1; }
 endif
 
-## build: Build all binaries (includes linting)
+## build: Build all binaries (includes linting). On Linux it also registers the
+## build with the desktop (linux-desktop), the counterpart of macOS's Juggler.app.
 build: lint go-build
+ifeq ($(UNAME_S),Linux)
+	@$(MAKE) --no-print-directory linux-desktop
+endif
 
 ## test: Run all tests (Go package unit + integration + browser, no API keys
 ## needed). Skips lint for a fast inner loop. Use `make build` (or

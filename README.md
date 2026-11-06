@@ -47,7 +47,7 @@ The desktop app and browser tabs are clients of the same server, so several view
 
 - **macOS** — download the `.dmg`, open it and drag Juggler to Applications. On first launch, if Gatekeeper blocks it, right-click (or Control-click) the app → **Open** → **Open**, or use **System Settings → Privacy & Security → Open Anyway**.
 - **Windows** — download `Juggler-<version>-setup.exe` and run it. The installer keeps the desktop app and matching `juggler.exe` server together, and can add `juggler` to your PATH.
-- **Linux** — download the tarball for your architecture. It contains `juggler`, the terminal server, and `juggler-app`, the GTK desktop client. Run either from a terminal; for machines with no display, see [`docs/headless-linux.md`](docs/headless-linux.md).
+- **Linux** — download the tarball for your architecture. It contains `juggler`, the terminal server, and `juggler-app`, the GTK desktop client. Unpack it where it will live and run `./install.sh` to add Juggler, with its icon, to your application menu (`./install.sh --uninstall` removes it); either binary also runs straight from a terminal. For machines with no display, see [`docs/headless-linux.md`](docs/headless-linux.md).
 
 See [`docs/distribution.md`](docs/distribution.md) for the complete app/server layout.
 
@@ -198,7 +198,7 @@ This creates `bin/juggler` (the server) and `bin/juggler-app` (the desktop app).
 ./bin/juggler-app
 ```
 
-Linux desktop builds must be made natively on Linux. Use `make linux-tarball` to package the binaries in the same archive layout as the official download. For a host with no display, see [`docs/headless-linux.md`](docs/headless-linux.md).
+`make build` (lint, then `go-build`) also adds the built app to your application menu, with its icon; `make linux-desktop` does just that step, and `bin/install.sh --uninstall` removes it. Linux desktop builds must be made natively on Linux. Use `make linux-tarball` to package the binaries in the same archive layout as the official download. For a host with no display, see [`docs/headless-linux.md`](docs/headless-linux.md).
 
 ### Windows
 

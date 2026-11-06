@@ -56,6 +56,14 @@ The tarball for each architecture contains `juggler`, the terminal server, and
 `juggler-app`, the GTK desktop client. Keep them in the same directory so the
 app can find and launch its matching server.
 
+Beside them, `install.sh` adds Juggler to your application menu: it writes
+`studio.juggler.Juggler.desktop` under `~/.local/share/applications`, pointing
+at the `juggler-app` next to it, and copies the icons from `icons/` into
+`~/.local/share/icons/hicolor`. The desktop takes a window's icon from that
+entry, so without it Juggler's windows show a generic icon. Run it again after
+moving the directory; `./install.sh --uninstall` removes both. A distribution
+package should install the same entry and icons system-wide instead.
+
 ### Planned: Homebrew cask / winget
 
 A Homebrew cask (macOS) and a winget package (Windows) are planned. Both will

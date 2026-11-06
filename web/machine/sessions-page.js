@@ -39,9 +39,10 @@ function installFolderDrop() {
 
 /**
  * The other computer's server a desktop window shows framed in this page, as
- * the app names it: ?server=, an http(s) address, and ?frameCtl=, the control
- * address for the page framed; with the theme this page painted, which the
- * framed page wears.
+ * the app names it: ?server=, an http(s) address, ?frameCtl=, the control
+ * address for the page framed, and ?serverName=, the name the server gave its
+ * machine, if any; with the theme this page painted, which the framed page
+ * wears.
  * @param {URLSearchParams} query - The page's query.
  * @returns {import('./sessions-view.js').FramedServer|null} The server, or
  *   null for a page framing none.
@@ -56,7 +57,8 @@ function readFramed(query) {
   } catch {
     return null;
   }
-  return { server, frameCtl, ...paintedTheme(document.documentElement.dataset) };
+  const name = (query.get('serverName') || '').trim();
+  return { server, frameCtl, ...(name ? { name } : {}), ...paintedTheme(document.documentElement.dataset) };
 }
 
 /** Title the page and its header bar, and mount it. */

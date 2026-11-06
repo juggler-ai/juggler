@@ -647,6 +647,7 @@
   "Idle": "Inaktiv",
   "Idle · last active {when}": "Inaktiv · zuletzt aktiv {when}",
   "If Juggler’s been useful to you, I’d really appreciate you mentioning it wherever you talk about coding. A few words about what you use it for would help other developers discover it.": "Wenn Juggler Ihnen nützlich war, würde ich mich sehr freuen, wenn Sie es überall erwähnen, wo Sie über das Programmieren sprechen. Ein paar Worte dazu, wofür Sie es nutzen, würden anderen Entwicklern helfen, es zu entdecken.",
+  "If no other computer appears, this computer’s firewall may be blocking their answers: allow UDP port 5353. With ufw or firewalld, these do that:": "Wenn kein anderer Computer erscheint, blockiert möglicherweise die Firewall dieses Computers deren Antworten: Erlauben Sie UDP-Port 5353. Mit ufw oder firewalld erledigen das diese Befehle:",
   "If other devices can’t connect to this computer or find it, its firewall may be blocking them: allow TCP port {port}, and UDP port 5353 for finding it. With ufw or firewalld, these do that:": "Wenn andere Geräte keine Verbindung zu diesem Computer herstellen oder ihn nicht finden können, blockiert sie möglicherweise seine Firewall: Erlauben Sie TCP-Port {port} und, damit er gefunden wird, UDP-Port 5353. Mit ufw oder firewalld erledigen das diese Befehle:",
   "If you would rather work from a terminal, the {codexCLI} shares the same login:": "Wenn Sie lieber im Terminal arbeiten, nutzt die {codexCLI} dieselbe Anmeldung:",
   "Image": "Bild",

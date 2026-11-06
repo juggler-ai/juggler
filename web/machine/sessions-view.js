@@ -119,12 +119,13 @@ const RECENTS_SHOWN = 8;
  *   What the app has found on the network: the servers, and firewall when the
  *   app has heard no computer but this one on a system (Linux) whose host
  *   firewall may be dropping the others' answers unseen.
- * @typedef {{server: string, frameCtl: string, theme?: string, mode?: string}} FramedServer
+ * @typedef {{server: string, frameCtl: string, name?: string, theme?: string, mode?: string}} FramedServer
  *   Another computer's server, which a desktop window on it shows framed in
  *   this machine's page: its address (an http(s) origin), the control address
  *   the app made for the page framed (frameCtl, which reaches only what a
- *   window on a server by URL may ask), and the theme and mode this page was
- *   opened with, which the framed page is handed too.
+ *   window on a server by URL may ask), the name the server gave its machine
+ *   when the app asked it, which the page shows it by, and the theme and mode
+ *   this page was opened with, which the framed page is handed too.
  */
 
 /**
@@ -454,20 +455,31 @@ export function relayFramerEvents(win, framer) {
  * @returns {string} The title.
  */
 export function pageTitle(config, framed = null) {
-  const host = framed ? hostOf(framed.server) : config.host;
+  const host = framed ? framedName(framed) : config.host;
   return host ? t('Sessions on {host} · Juggler', { host }) : t('Sessions · Juggler');
 }
 
 /**
+ * What a framed server is called: the name it gave its machine, else the host
+ * its address names.
+ * @param {FramedServer} framed - The server framed.
+ * @returns {string} Its name.
+ */
+function framedName(framed) {
+  return framed.name || hostOf(framed.server);
+}
+
+/**
  * Where the page is: the machine its server runs on, or, for a page framing
- * another computer's server, that server's host — by its name alone, after
- * the page's title — or this computer, for a server that names no machine.
+ * another computer's server, that server's name (framedName) — by itself,
+ * after the page's title — or this computer, for a server that names no
+ * machine.
  * @param {PageConfig} config - What the server handed the page.
- * @param {string} [server] - The address of the server framed, if any.
+ * @param {FramedServer|null} [framed] - The server framed, if any.
  * @returns {string} Its name, as the header bar shows it.
  */
-function serverLocation(config, server = '') {
-  const host = server ? hostOf(server) : config.host;
+function serverLocation(config, framed = null) {
+  const host = framed ? framedName(framed) : config.host;
   return host || t('This computer');
 }
 
@@ -478,18 +490,18 @@ function serverLocation(config, server = '') {
  * version, which a page framing another computer's server has none of its own
  * to show.
  * @param {PageConfig} config - What the server handed the page.
- * @param {{server?: string, chooser?: HTMLElement|null}} [options] - The
- *   address of the server framed, and the chooser's button, which names
- *   where the page is itself.
+ * @param {{framed?: FramedServer|null, chooser?: HTMLElement|null}} [options] -
+ *   The server framed, if any, and the chooser's button, which names where
+ *   the page is itself.
  * @returns {HTMLElement} The title block.
  */
-export function serverTitle(config, { server = '', chooser = null } = {}) {
+export function serverTitle(config, { framed = null, chooser = null } = {}) {
   return el('div', { className: 'ms-header' }, [
     el('div', { className: 'ms-title' }, [
       el('h1', { text: t('Sessions') }),
-      chooser || el('p', { className: 'ms-subtitle', text: serverLocation(config, server) }),
+      chooser || el('p', { className: 'ms-subtitle', text: serverLocation(config, framed) }),
     ]),
-    !server && config.version ? el('span', { className: 'ms-version', text: config.version }) : null,
+    !framed && config.version ? el('span', { className: 'ms-version', text: config.version }) : null,
   ]);
 }
 
@@ -733,7 +745,7 @@ export function mountSessionsPage(root, {
       className: 'ms-button ms-button-quiet ms-server-switch',
       attrs: { type: 'button', title: t('Change server…') },
     }, [
-      el('span', { className: 'ms-server-label', text: framed ? serverLocation(config, framed.server) : t('This computer') }),
+      el('span', { className: 'ms-server-label', text: framed ? serverLocation(config, framed) : t('This computer') }),
       icon(DROPDOWN_ARROW_SVG),
     ]))
     : null;
@@ -746,7 +758,7 @@ export function mountSessionsPage(root, {
     switchButton.setAttribute('aria-expanded', 'false');
     switchButton.setAttribute('aria-controls', chooserId);
   }
-  header?.replaceChildren(serverTitle(config, { server: framed?.server, chooser: switchButton }));
+  header?.replaceChildren(serverTitle(config, { framed, chooser: switchButton }));
   /** @type {(() => void)|null} - Takes the open chooser down; null while it is closed. */
   let releaseChooser = null;
   /** @type {FoundServer[]} */
@@ -792,7 +804,7 @@ export function mountSessionsPage(root, {
   const frameOrigin = framed ? new URL(framed.server).origin : '';
   if (framed) {
     // The framed server's page is the body, and nothing of this server's.
-    const where = hostOf(framed.server);
+    const where = framedName(framed);
     frame = /** @type {HTMLIFrameElement} */ (el('iframe', {
       className: 'ms-frame',
       attrs: { src: framedPageURL(framed), title: t('Sessions on {host}', { host: where }) },
@@ -966,7 +978,7 @@ export function mountSessionsPage(root, {
     const current = shown ? found.find((s) => isServerAt(s, shown)) : undefined;
     if (current) shownName = current.name;
     const label = switchButton?.querySelector('.ms-server-label');
-    if (label && shown) label.textContent = shownName || serverLocation(config, shown);
+    if (label && shown) label.textContent = shownName || serverLocation(config, framed);
     const others = found.filter((s) => s !== current);
     const key = JSON.stringify([shown, shownName, found.map((s) => [s.url, s.name, s.version || '', s.urls || []])]);
     if (key !== chooserShown) {
@@ -976,7 +988,7 @@ export function mountSessionsPage(root, {
       );
       foundList.replaceChildren(...[
         current ? choiceRow('ms-found-server', current.url, { name: current.name, where: current.url, current: true, version: current.version }) : null,
-        shown && !current ? choiceRow('ms-found-server', shown, { name: shownName || hostOf(shown), where: shown, current: true }) : null,
+        framed && !current ? choiceRow('ms-found-server', shown, { name: shownName || framedName(framed), where: shown, current: true }) : null,
         ...others.map((s) => choiceRow('ms-found-server', s.url, { name: s.name, where: s.url, current: false, version: s.version })),
       ].filter((x) => x !== null));
     }

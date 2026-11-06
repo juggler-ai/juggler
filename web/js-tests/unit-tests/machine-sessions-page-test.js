@@ -1637,6 +1637,27 @@ export async function runTests() {
     } finally {
       t2.dispose();
     }
+
+    // A server not found that named itself to the app is shown by that name:
+    // in the header, the window's title, the frame's, and its chooser row.
+    const named = stubHost();
+    named.switchServer = async () => {};
+    named.discover = async () => ({ servers: [] });
+    const namedFramed = { server: 'http://10.1.2.4:3939', frameCtl: 'http://127.0.0.1:5555/x/win/w3', name: 'Mac' };
+    const t3 = await mount(stubApi([]), { host: named, framed: namedFramed });
+    try {
+      assert((t3.header.querySelector('.ms-server-label')?.textContent || '') === 'Mac', `the header reads ${t3.header.textContent}`);
+      assert(pageTitle(config, namedFramed) === 'Sessions on Mac · Juggler', `the window is titled ${pageTitle(config, namedFramed)}`);
+      const frame = t3.root.querySelector('iframe');
+      assert(frame?.title === 'Sessions on Mac', `the frame is titled ${frame?.title}`);
+      const pop = await openChooser(t3);
+      await nextTask();
+      const current = pop.querySelector('.ms-found [aria-current="true"]');
+      assert(current?.querySelector('.ms-recent-name')?.textContent === 'Mac', `the current server reads ${current?.textContent}`);
+      assert((t3.header.querySelector('.ms-server-label')?.textContent || '') === 'Mac', `after an ask, the header reads ${t3.header.textContent}`);
+    } finally {
+      t3.dispose();
+    }
   });
 
   // A server found at more than one address is the server a framed window is

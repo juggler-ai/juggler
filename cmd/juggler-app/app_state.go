@@ -123,6 +123,9 @@ type windowView struct {
 	// (framedPageView). serverURL and server are then this machine's server's,
 	// since that is what serves the page the window loads.
 	framed string
+	// framedName is the name the framed server gave its machine, which the
+	// page shows it by (empty for none: the page shows its address).
+	framedName string
 	// frameSecret is the secret the framed page holds, handed to it through
 	// the outer page's ?frameCtl= — never the window's own secret, which only
 	// the outer page holds. A request holding it is judged as one from a
@@ -1163,7 +1166,7 @@ func (a *appState) pageOf(id string, v windowView, opts windowOpts) (pageURL, ti
 	}
 	opts.external = v.remotePage()
 	if v.framed != "" {
-		opts.server, opts.frameCtl = v.framed, a.controlBase(id, v.frameSecret)
+		opts.server, opts.serverName, opts.frameCtl = v.framed, v.framedName, a.controlBase(id, v.frameSecret)
 	}
 	return windowPageURL(v.serverURL, a.controlBase(id, v.secret), opts), a.tr(appWindowTitle)
 }

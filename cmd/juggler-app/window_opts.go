@@ -114,10 +114,12 @@ type windowOpts struct {
 	// server and frameCtl are, for a sessions page framing a server by URL,
 	// that server's origin and the control base the page it frames holds
 	// (windowView.framed, frameSecret). The page builds the frame's URL from
-	// them: server + "/?embed=1&external=1&nativeCtl=" + frameCtl. Set by
-	// pageOf, never off the wire.
-	server   string
-	frameCtl string
+	// them: server + "/?embed=1&external=1&nativeCtl=" + frameCtl. serverName
+	// is the name that server gave its machine (windowView.framedName), which
+	// the page shows it by. Set by pageOf, never off the wire.
+	server     string
+	serverName string
+	frameCtl   string
 
 	// noStart opens a local window only on a server already running: none
 	// found is the stand-in for a server run elsewhere again, never one this
@@ -340,6 +342,9 @@ func windowPageURL(serverURL, nativeCtl string, opts windowOpts) string {
 	}
 	if opts.server != "" {
 		u += "&server=" + url.QueryEscape(opts.server) + "&frameCtl=" + url.QueryEscape(opts.frameCtl)
+		if opts.serverName != "" {
+			u += "&serverName=" + url.QueryEscape(opts.serverName)
+		}
 	}
 	if opts.view != "" {
 		u += "&view=" + url.QueryEscape(opts.view)

@@ -123,7 +123,11 @@ export async function runTests() {
       const gate = installEdgeResizeGate(runtime);
       runtime.setResizable(true);
       const drawn = outline();
-      assert(drawn.borderTopWidth === '1px' && drawn.borderTopStyle === 'solid',
+      // The 1px line as drawn: a WebView reports a border's width floored to
+      // whole device pixels, so at a fractional scale it reads under 1px (one
+      // device pixel at 150% is 0.666667px).
+      const width = parseFloat(drawn.borderTopWidth);
+      assert(width > 0 && width <= 1 && drawn.borderTopStyle === 'solid',
         `a restored Linux window must be outlined, got ${drawn.borderTopWidth} ${drawn.borderTopStyle}`);
       assert(drawn.position === 'fixed' && drawn.pointerEvents === 'none',
         `the outline must cover the window and take no clicks, got ${drawn.position} / ${drawn.pointerEvents}`);

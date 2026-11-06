@@ -6,14 +6,17 @@ package machineserver
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
 
+	"juggler/internal/lanfind"
 	"juggler/web"
 )
 
@@ -287,6 +290,10 @@ func TestSessionsPageEmbedsUnderAnotherMachinesHeader(t *testing.T) {
 	_, _, version := fetch(t, front.URL+"/api/version")
 	if !strings.Contains(version, `"embedVersion":1`) {
 		t.Errorf("GET /api/version = %s, want embedVersion 1", version)
+	}
+	host, _ := os.Hostname()
+	if want := fmt.Sprintf(`"name":%q`, lanfind.InstanceName(host)); !strings.Contains(version, want) {
+		t.Errorf("GET /api/version = %s, want %s, the name it is announced by", version, want)
 	}
 }
 

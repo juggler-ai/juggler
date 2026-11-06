@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"juggler/internal/lanfind"
 )
 
 // A main window on a server by URL shows that server's sessions page framed in
@@ -50,27 +52,36 @@ var embedProbeHTTP = &http.Client{
 
 // embedsSessions reports whether the server at root says, in GET
 // /api/version, that its sessions page can be framed (embedVersion 1 or
-// more). No answer, or one without it, is a server that cannot.
-func embedsSessions(ctx context.Context, root string) bool {
+// more), and the name it gives its machine (empty for none), cut to a name the
+// page can show (lanfind.InstanceName). No answer, or one without
+// embedVersion, is a server that cannot.
+func embedsSessions(ctx context.Context, root string) (name string, ok bool) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, root+"/api/version", nil)
 	if err != nil {
-		return false
+		return "", false
 	}
 	resp, err := embedProbeHTTP.Do(req) //nolint:gosec // app-owned server URL, see fetchWindowState
 	if err != nil {
-		return false
+		return "", false
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return false
+		return "", false
 	}
 	var v struct {
-		EmbedVersion int `json:"embedVersion"`
+		EmbedVersion int    `json:"embedVersion"`
+		Name         string `json:"name"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<12)).Decode(&v); err != nil {
-		return false
+		return "", false
 	}
-	return v.EmbedVersion >= 1
+	if v.EmbedVersion < 1 {
+		return "", false
+	}
+	if strings.TrimSpace(v.Name) != "" {
+		name = lanfind.InstanceName(v.Name)
+	}
+	return name, true
 }
 
 // serverRoot is serverURL's origin when serverURL names a server's root, as
@@ -103,10 +114,11 @@ func (a *appState) framedPageView(spec windowSpec, fullURL string, start bool) w
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), remoteReachBudget)
 	defer cancel()
-	if !embedsSessions(ctx, root) {
+	name, ok := embedsSessions(ctx, root)
+	if !ok {
 		return full
 	}
-	return windowView{spec: spec, serverURL: "http://" + c.Addr(), server: procOf(c), framed: root}
+	return windowView{spec: spec, serverURL: "http://" + c.Addr(), server: procOf(c), framed: root, framedName: name}
 }
 
 // controlSwitchServer is the outer sessions page's server chooser: the window

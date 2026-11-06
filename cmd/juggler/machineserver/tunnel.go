@@ -429,10 +429,13 @@ func (s *Server) handleSetTunnel(w http.ResponseWriter, r *http.Request) {
 }
 
 // versionResponse is GET /api/version: what a rendezvous bootstrap checks
-// before it loads anything over a data channel, and which embedded sessions
-// page the server serves (embedVersion).
+// before it loads anything over a data channel, which embedded sessions page
+// the server serves (embedVersion), and the machine's name, as LAN access
+// announces it (machineName), which a desktop window framing the page shows it
+// by.
 type versionResponse struct {
 	Version         string `json:"version"`
 	ProtocolVersion int    `json:"protocolVersion"`
 	EmbedVersion    int    `json:"embedVersion"`
+	Name            string `json:"name"`
 }

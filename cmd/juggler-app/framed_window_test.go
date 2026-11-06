@@ -27,9 +27,9 @@ import (
 // window's does.
 
 // serverByURL starts a server by URL that answers what the app asks of one:
-// GET /api/version — with embedVersion when embeds, as a server whose sessions
-// page can be framed does — and anything else as also says, else 204, which is
-// the server answering.
+// GET /api/version — with embedVersion and the machine's name (byURLName)
+// when embeds, as a server whose sessions page can be framed does — and
+// anything else as also says, else 204, which is the server answering.
 func serverByURL(t *testing.T, embeds bool, also http.HandlerFunc) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -37,6 +37,7 @@ func serverByURL(t *testing.T, embeds bool, also http.HandlerFunc) string {
 			v := map[string]any{"version": "v1.0.0", "protocolVersion": 1}
 			if embeds {
 				v["embedVersion"] = 1
+				v["name"] = byURLName
 			}
 			writeJSON(w, http.StatusOK, v)
 			return
@@ -50,6 +51,9 @@ func serverByURL(t *testing.T, embeds bool, also http.HandlerFunc) string {
 	t.Cleanup(srv.Close)
 	return srv.URL
 }
+
+// byURLName is the machine's name a server by URL that embeds answers with.
+const byURLName = "Studio"
 
 // localServer starts this machine's server for a and attaches to it, returning
 // its root and the process windows on it are served by.
@@ -104,7 +108,7 @@ func TestAFramedSessionsPageIsThisMachinesPage(t *testing.T) {
 	e := registerFramed(a, "w1", server, local, serverProc{})
 	before := a.viewOf(e)
 
-	page := a.showView(e, showing(before), windowView{spec: before.spec, serverURL: local, framed: server}, windowOpts{theme: "dark"})
+	page := a.showView(e, showing(before), windowView{spec: before.spec, serverURL: local, framed: server, framedName: "devbox"}, windowOpts{theme: "dark"})
 	v := a.viewOf(e)
 
 	u, err := url.Parse(page)
@@ -129,6 +133,9 @@ func TestAFramedSessionsPageIsThisMachinesPage(t *testing.T) {
 	}
 	if got := q.Get("frameCtl"); got != a.controlBase("w1", v.frameSecret) {
 		t.Errorf("frameCtl = %q, want the framed page's control base", got)
+	}
+	if got := q.Get("serverName"); got != "devbox" {
+		t.Errorf("serverName = %q, want the name the framed server answered with", got)
 	}
 	if q.Has("external") {
 		t.Errorf("a framed window's page is this machine's, but is marked external: %s", page)
@@ -167,6 +174,9 @@ func TestAWindowOnAServerByURLIsFramedWhenTheServerEmbeds(t *testing.T) {
 	p := a.planWindow(spec, windowOpts{})
 	if p.view.standIn != nil || p.view.framed != embeds || p.view.serverURL != local || p.view.server != on || p.view.spec != spec {
 		t.Fatalf("a window onto a server that embeds is planned as %+v; want framed %s on %s (%+v), filed as %+v", p.view, embeds, local, on, spec)
+	}
+	if p.view.framedName != byURLName {
+		t.Errorf("a window onto a server that embeds names it %q; want %q, the name it answered with", p.view.framedName, byURLName)
 	}
 	if p := a.planWindow(windowSpec{url: old, connected: true}, windowOpts{}); p.view.standIn != nil || p.view.framed != "" || p.view.serverURL != old {
 		t.Fatalf("a window onto a server that cannot be framed is planned as %+v; want its own page at %s", p.view, old)

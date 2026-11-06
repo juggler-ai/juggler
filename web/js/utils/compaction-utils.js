@@ -159,6 +159,8 @@ export function endCompaction(conversationId) {
  * the fold starts a fresh group.
  * @param {string} conversationId - Conversation whose worker performs the fold
  * @param {object} [opts]
+ * @param {string|null} [opts.threadItemId] - The thread whose history folds
+ *   (/compact typed in a sub-thread); absent, the root's
  * @param {boolean} [opts.handoffPromote] - Tag the fold so the browser promotes
  *   its result into a continued tab's parked first message (/handoff)
  * @param {boolean} [opts.keepRecent] - Leave the recent conversation verbatim
@@ -166,9 +168,9 @@ export function endCompaction(conversationId) {
  * @returns {Promise<{ folded: boolean, error?: string }>} The worker's outcome:
  *   `folded` is false when there was nothing to fold.
  */
-export async function compactConversation(conversationId, { handoffPromote = false, keepRecent = false } = {}) {
+export async function compactConversation(conversationId, { threadItemId = null, handoffPromote = false, keepRecent = false } = {}) {
   const { default: workerManager } = await import('../services/worker-manager.js');
-  return workerManager.compact(conversationId, { handoffPromote, keepRecent });
+  return workerManager.compact(conversationId, { threadItemId, handoffPromote, keepRecent });
 }
 
 /** Guards against a single client double-promoting the same handoff thread. */

@@ -52,7 +52,7 @@ func rootIDs(w *ConversationWorker) []string {
 func TestCompactKeepsRecentShareOfConversation(t *testing.T) {
 	w := tailTestWorker(t, 10, 3000, 30)
 
-	_, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{keepRecent: true})
+	_, folded, err := w.currentRun().foldConversationForCompaction(w.turn.thread, compactFoldOptions{keepRecent: true})
 	if err != nil || !folded {
 		t.Fatalf("fold = (%v, %v), want a fold", folded, err)
 	}
@@ -67,7 +67,7 @@ func TestCompactKeepsRecentShareOfConversation(t *testing.T) {
 func TestCompactWithoutKeepRecentFoldsEverything(t *testing.T) {
 	w := tailTestWorker(t, 10, 3000, 30)
 
-	_, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
+	_, folded, err := w.currentRun().foldConversationForCompaction(w.turn.thread, compactFoldOptions{})
 	if err != nil || !folded {
 		t.Fatalf("fold = (%v, %v), want a fold", folded, err)
 	}
@@ -83,7 +83,7 @@ func TestCompactWithoutKeepRecentFoldsEverything(t *testing.T) {
 func TestCompactKeepsLatestUserTurnAtZero(t *testing.T) {
 	w := tailTestWorker(t, 10, 3000, 0)
 
-	_, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{keepRecent: true})
+	_, folded, err := w.currentRun().foldConversationForCompaction(w.turn.thread, compactFoldOptions{keepRecent: true})
 	if err != nil || !folded {
 		t.Fatalf("fold = (%v, %v), want a fold", folded, err)
 	}
@@ -112,7 +112,7 @@ func TestCompactSnapsTailToUserTurn(t *testing.T) {
 	// 20% of five 4500-token turns is 4500: a5 (1500) fits, u5 (3000) would
 	// reach 4500 plus framing and does not, so the walk alone keeps [a5]. The
 	// snap takes u5 too — within the headroom, which is unbounded here.
-	_, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{keepRecent: true})
+	_, folded, err := w.currentRun().foldConversationForCompaction(w.turn.thread, compactFoldOptions{keepRecent: true})
 	if err != nil || !folded {
 		t.Fatalf("fold = (%v, %v), want a fold", folded, err)
 	}
@@ -128,7 +128,7 @@ func TestCompactDeclinesAFoldTooSmallToSummarize(t *testing.T) {
 	w := tailTestWorker(t, 3, 40, 30)
 	before := strings.Join(rootIDs(w), ",")
 
-	threadID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{keepRecent: true})
+	threadID, folded, err := w.currentRun().foldConversationForCompaction(w.turn.thread, compactFoldOptions{keepRecent: true})
 	if err != nil || folded || threadID != "" {
 		t.Fatalf("fold = (%q, %v, %v), want no fold", threadID, folded, err)
 	}
@@ -137,7 +137,7 @@ func TestCompactDeclinesAFoldTooSmallToSummarize(t *testing.T) {
 	}
 
 	// /compact all still folds it.
-	if _, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{}); err != nil || !folded {
+	if _, folded, err := w.currentRun().foldConversationForCompaction(w.turn.thread, compactFoldOptions{}); err != nil || !folded {
 		t.Fatalf("fold all = (%v, %v), want a fold", folded, err)
 	}
 }

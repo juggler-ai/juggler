@@ -458,7 +458,8 @@ func (r *run) requestReconcile(reason reconcileReason) {
 
 // tryReconcile is one pass of the reducer, and one of the two ways a sub-thread
 // reaches the LLM. Threads stamped needsStrategyRun (compaction and handoff
-// folds, plugin inserts) are picked up by checkForNewThreads below; delegated
+// folds, plugin inserts), at any depth, are picked up by checkForNewThreads
+// below; delegated
 // children — any delegatesToSubthread tool, via tryDelegateTool — set no such
 // flag and are dispatched only by the walk further down this function. The two
 // share no dispatch code, so exercising one proves nothing about the other:

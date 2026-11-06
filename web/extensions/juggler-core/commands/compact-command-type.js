@@ -65,7 +65,9 @@ class CompactCommandType extends CommandType {
       // parent, and summarises it. `folded` is false when there was nothing to
       // fold — with the recent turns kept, also when what is left over is too
       // small to be worth a summary; `error` carries a worker-side failure reason.
-      const { folded, error } = await compactConversation(mt.conversationId, { keepRecent: !all });
+      // The thread folded is the one the command was typed in: a sub-thread's
+      // /compact folds that sub-thread's history, and the root's stays as it is.
+      const { folded, error } = await compactConversation(mt.conversationId, { threadItemId: mt.threadItemId, keepRecent: !all });
       if (error) {
         return { handled: true, message: t("Couldn't compact: {error}", { error }), error: true };
       }

@@ -177,6 +177,71 @@ func TestCompactionSubthread_DrainsRootQueueOnCompletion(t *testing.T) {
 	}
 }
 
+// TestCompactSubthreadFoldsAndSummarizesInPlace holds /compact typed in a
+// sub-thread to folding THAT thread: the fold lands among the sub-thread's own
+// items, the root keeps every item it had, and the nested fold is picked up and
+// summarized like a root one — a fold the pickup never sees sits unsummarized
+// forever while the conversation reports idle.
+func TestCompactSubthreadFoldsAndSummarizesInPlace(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.currentRun().storeState(StateIdle)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+	w.setMockResponses([]MockResponse{
+		{Blocks: []LLMResponseBlock{{Type: "text", Content: "Summary of the sub-thread"}}, StopReason: "end_turn"},
+	})
+
+	stop := make(chan struct{})
+	defer close(stop)
+	ctxResp, _ := json.Marshal(map[string]any{
+		"type": "render-context-items-result", "systemPrompt": "sys", "contexts": []any{},
+	})
+	toolsResp, _ := json.Marshal(map[string]any{"type": "tools-result", "tools": []any{}})
+	go func() {
+		for w.engine.contextReply.inject(stop, ctxResp) {
+		}
+	}()
+	go func() {
+		for w.engine.toolsReply.inject(stop, toolsResp) {
+		}
+	}()
+
+	w.doc.InsertMessage(0,
+		ConversationItem{Type: ItemTypeUser, ItemID: "root-u", Content: "look into it"},
+		ConversationItem{Type: ItemTypeAssistant, ItemID: "root-a", Content: "starting a sub-thread"},
+	)
+	subID := insertThreadWithOpts(w, threadOpts{goal: "Research", userMessage: "dig into the parser"})
+	arr := w.doc.GetThreadItemsArray(subID)
+	w.doc.InsertMessageIntoArray(arr, w.doc.GetItemsLengthFromArray(arr),
+		ConversationItem{Type: ItemTypeAssistant, ItemID: "sub-a", Content: "the parser reads tokens one at a time"},
+	)
+	rootBefore := itemIDs(w.doc.GetItems())
+
+	payload, _ := json.Marshal(CompactMessage{Type: "compact", AckID: "ack-1", ThreadItemID: subID})
+	w.currentRun().handleCompact(payload)
+	w.quiesce(t)
+
+	if got := itemIDs(w.doc.GetItems()); got != rootBefore {
+		t.Fatalf("root items after a sub-thread /compact = %s, want unchanged %s", got, rootBefore)
+	}
+	var fold *ConversationItem
+	for _, it := range w.doc.GetThreadItems(subID) {
+		if it.Type == ItemTypeThread && it.BoundedCompaction {
+			fold = &it
+			break
+		}
+	}
+	if fold == nil {
+		t.Fatalf("no compaction fold among the sub-thread's items: %s", itemIDs(w.doc.GetThreadItems(subID)))
+	}
+	if got, _ := w.doc.GetThreadYMap(fold.ItemID).Get("result").(string); got != "Summary of the sub-thread" {
+		t.Fatalf("nested fold result = %q, want the summary — the pickup never ran it", got)
+	}
+	if w.currentRun().loadState() != StateIdle {
+		t.Errorf("worker state = %v, want StateIdle", w.currentRun().loadState())
+	}
+}
+
 func TestCheckForNewThreads_SkipsCompletedThreads(t *testing.T) {
 	w := NewConversationWorker("test-conv", "user:test")
 	w.currentRun().storeState(StateIdle)

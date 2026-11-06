@@ -17,9 +17,11 @@
  *   catalogue order, and nothing while a turn is running there.
  * - **Dismissal is per scope.** `user` (every project), `project` (this one —
  *   stored in the project realm, so "not for this project" means exactly that),
- *   or `conversation` (this conversation, this page — a hint about the state in
- *   front of you, which is no business of any other window). A `cooldownMs`
- *   makes a dismissal lapse.
+ *   `conversation` (this conversation, this page — a hint about the state in
+ *   front of you, which is no business of any other window), or `thread` (as
+ *   `conversation`, but this one thread of it — a hint about one thread's own
+ *   state says nothing about its siblings'). A `cooldownMs` makes a dismissal
+ *   lapse.
  * - **The teaching budget.** A teaching hint starts at most once per
  *   {@link TEACH_GAP_MS} after another started, and lapses
  *   {@link TEACH_LIFETIME_MS} after it started.
@@ -137,8 +139,23 @@ export function migrateLegacyGuidance(legacyTips) {
  * @returns {NudgeEngine} The engine.
  */
 export function createNudgeEngine({ catalogue, usage: u, user, project, facts = { get: () => undefined }, now = Date.now, onChange = () => {} }) {
-  /** Conversation-scoped dismissals: `${id}\n${conversationId}` → when. Page-lived. */
+  /**
+   * Conversation- and thread-scoped dismissals, keyed by {@link pageKey} → when.
+   * Page-lived.
+   */
   const conversationDismissed = new Map();
+
+  /**
+   * The key a page-lived dismissal is stored under: the conversation, and for
+   * `thread` scope the thread within it (the root is '').
+   * @param {NudgeEntry} entry
+   * @param {NudgeContext} ctx
+   * @returns {string} The key.
+   */
+  const pageKey = (entry, ctx) => {
+    const key = `${entry.id}\n${ctx.conversationId ?? ''}`;
+    return entry.scope === 'thread' ? `${key}\n${ctx.thread?.threadItemId ?? ''}` : key;
+  };
 
   const readUser = () => normaliseUser(user.load());
   /** @returns {{dismissed: Record<string, number>}} The project state. */
@@ -170,7 +187,8 @@ export function createNudgeEngine({ catalogue, usage: u, user, project, facts = 
    */
   const dismissed = (entry, ctx, state) => {
     switch (entry.scope ?? 'user') {
-      case 'conversation': return holds(conversationDismissed.get(`${entry.id}\n${ctx.conversationId ?? ''}`), entry);
+      case 'conversation':
+      case 'thread': return holds(conversationDismissed.get(pageKey(entry, ctx)), entry);
       case 'project': return holds(readProject().dismissed[entry.id], entry);
       default: return holds(state.dismissed[entry.id], entry);
     }
@@ -265,8 +283,8 @@ export function createNudgeEngine({ catalogue, usage: u, user, project, facts = 
         return;
       }
       const scope = entry.scope ?? 'user';
-      if (scope === 'conversation') {
-        conversationDismissed.set(`${id}\n${ctx.conversationId ?? ''}`, now());
+      if (scope === 'conversation' || scope === 'thread') {
+        conversationDismissed.set(pageKey(entry, ctx), now());
         onChange();
         return;
       }

@@ -1480,9 +1480,11 @@ func (r *run) handleItemsChange() {
 	r.scanPendingRequests()
 }
 
-// checkForNewThreads scans root items for threads marked with needsStrategyRun=true
-// that need processing (no result yet). This enables doc-driven thread processing:
-// plugins set needsStrategyRun on the thread, the worker picks it up.
+// checkForNewThreads scans the thread tree, at every depth, for threads marked
+// with needsStrategyRun=true that need processing (no result yet). This enables
+// doc-driven thread processing: plugins set needsStrategyRun on the thread, the
+// worker picks it up. Every depth, because a /compact typed in a sub-thread folds
+// into that sub-thread, and its fold is owed a summary like a root one.
 //
 // Double-dispatch is prevented by the activity claim: claimLLM fails if any
 // operation is already in flight (including a previous call to this function
@@ -1496,33 +1498,41 @@ func (r *run) handleItemsChange() {
 // busy and handed the run to the run() loop — so the reducer can re-evaluate
 // from a clean state rather than continuing a walk-down built on stale data.
 func (r *run) checkForNewThreads() bool {
-	// Read the root's threads straight from the CRDT, once, under one lock. This
-	// runs on every items change and every reducer pass, and only the thread
-	// maps' own flags matter here — converting the root items would copy every
-	// sub-thread's whole transcript to answer that.
-	type rootThread struct {
+	// Read the threads straight from the CRDT, once, under one lock. This runs on
+	// every items change and every reducer pass, and only the thread maps' own
+	// flags matter here — converting the items would copy every sub-thread's
+	// whole transcript to answer that.
+	type pendingThread struct {
 		itemID       string
 		noAutoSelect bool
 	}
-	var candidates []rootThread
+	var candidates []pendingThread
 	withYDoc(func() {
 		if root := r.doc.getItems(); root != nil {
-			for _, raw := range root.ToArray() {
-				threadYMap, ok := raw.(*ycrdt.YMap)
-				if !ok {
-					continue
-				}
-				if itemType := yMapString(threadYMap, keyType); itemType != ItemTypeThread {
-					continue
-				}
+			// A compaction fold's nested items are history it has archived, not
+			// threads of the live conversation: nothing beneath one is run. The walk
+			// is depth-first, so a parent is always seen before its children.
+			archived := map[string]bool{}
+			walkThreads(root, func(threadYMap *ycrdt.YMap, _ *ycrdt.YArray, parentID string) bool {
 				itemID := yMapString(threadYMap, keyItemID)
+				if itemID == "" {
+					return false
+				}
+				if parentID != "" && archived[parentID] {
+					archived[itemID] = true
+					return false
+				}
+				if yMapBool(threadYMap, keyBoundedCompaction) {
+					archived[itemID] = true
+				}
 				needsStrategyRun := yMapBool(threadYMap, keyNeedsStrategyRun)
-				if itemID == "" || !needsStrategyRun || threadRunSettledLocked(threadYMap) {
-					continue
+				if !needsStrategyRun || threadRunSettledLocked(threadYMap) {
+					return false
 				}
 				noAutoSelect := yMapBool(threadYMap, keyNoAutoSelect)
-				candidates = append(candidates, rootThread{itemID: itemID, noAutoSelect: noAutoSelect})
-			}
+				candidates = append(candidates, pendingThread{itemID: itemID, noAutoSelect: noAutoSelect})
+				return false
+			})
 		}
 	})
 

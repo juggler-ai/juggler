@@ -57,7 +57,7 @@ func TestCompactionFoldKeepsDelegatedRunRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	foldID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
+	foldID, folded, err := w.currentRun().foldConversationForCompaction(w.turn.thread, compactFoldOptions{})
 	if err != nil || !folded {
 		t.Fatalf("foldConversationForCompaction = (%q, %v, %v), want a fold", foldID, folded, err)
 	}
@@ -173,7 +173,7 @@ func TestSessionFoldsConvergeToOneSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	foldID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
+	foldID, folded, err := w.currentRun().foldConversationForCompaction(w.turn.thread, compactFoldOptions{})
 	if err != nil || !folded {
 		t.Fatalf("first fold = (%q, %v, %v), want a fold", foldID, folded, err)
 	}
@@ -184,7 +184,7 @@ func TestSessionFoldsConvergeToOneSummary(t *testing.T) {
 		invocationItemForTest("invoc-tu-4", "tu-4", "answer for tu-4"),
 		ConversationItem{Type: ItemTypeAssistant, ItemID: "body-tu-4", Content: "the work behind tu-4"},
 	)
-	secondFoldID, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{})
+	secondFoldID, folded, err := w.currentRun().foldConversationForCompaction(w.turn.thread, compactFoldOptions{})
 	if err != nil || !folded {
 		t.Fatalf("second fold = (%q, %v, %v), want a fold", secondFoldID, folded, err)
 	}
@@ -248,6 +248,33 @@ func TestCompactRefusesWhileLLMClaimHeld(t *testing.T) {
 		if it.Type == ItemTypeThread {
 			t.Fatalf("compaction folded while the LLM claim was held; the fold can never be summarized and the conversation reports %v", w.currentRun().loadState())
 		}
+	}
+}
+
+// TestCompactSubthreadRefusesWhileItsClaimHeld is the busy guard for a /compact
+// typed in a sub-thread: the claim it asks about is that thread's, not root's.
+func TestCompactSubthreadRefusesWhileItsClaimHeld(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.currentRun().storeState(StateIdle)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+	w.doc.InsertMessage(0,
+		ConversationItem{Type: ItemTypeUser, ItemID: "u1", Content: "do some work"},
+		ConversationItem{Type: ItemTypeAssistant, ItemID: "a1", Content: "did some work"},
+	)
+	subID := insertThreadWithOpts(w, threadOpts{goal: "Research", userMessage: "dig in"})
+	arr := w.doc.GetThreadItemsArray(subID)
+	w.doc.InsertMessageIntoArray(arr, w.doc.GetItemsLengthFromArray(arr),
+		ConversationItem{Type: ItemTypeAssistant, ItemID: "sub-a", Content: "dug in"},
+	)
+	w.claimLLM(subID)
+	w.currentRun().storeState(StateIdle)
+
+	payload, _ := json.Marshal(CompactMessage{Type: "compact", AckID: "ack-1", ThreadItemID: subID})
+	w.currentRun().handleCompact(payload)
+
+	if n := boundedFoldsIn(w.doc.GetItems()) + boundedFoldsIn(w.doc.GetThreadItems(subID)); n != 0 {
+		t.Fatalf("compaction folded (%d folds) while the sub-thread's LLM claim was held", n)
 	}
 }
 

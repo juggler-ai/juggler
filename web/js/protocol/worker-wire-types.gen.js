@@ -421,10 +421,13 @@
  * the existing pickup summarize it. HandoffPromote tags the thread so the browser
  * promotes its result into the continued tab's parked first message. KeepRecent
  * leaves the recent conversation verbatim (chooseTail); without it the whole
- * history folds, which is what /compact all and /handoff ask for.
+ * history folds, which is what /compact all and /handoff ask for. ThreadItemID
+ * names the thread whose history folds (empty = root): /compact folds the thread
+ * it was typed in.
  * @typedef {object} CompactMessage
  * @property {'compact'} type
  * @property {string} ackId
+ * @property {string} [threadItemId]
  * @property {boolean} [handoffPromote]
  * @property {boolean} [keepRecent]
  */

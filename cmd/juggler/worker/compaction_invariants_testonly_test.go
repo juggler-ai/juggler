@@ -160,7 +160,7 @@ func TestCompactionDoesNotChangeConversationIdentity(t *testing.T) {
 	}
 
 	world.w.currentRun().storeState(StateIdle)
-	if _, folded, err := world.w.currentRun().foldConversationForCompaction(compactFoldOptions{}); err != nil || !folded {
+	if _, folded, err := world.w.currentRun().foldConversationForCompaction(world.w.turn.thread, compactFoldOptions{}); err != nil || !folded {
 		t.Fatalf("foldConversationForCompaction = (%v, %v), want a fold", folded, err)
 	}
 

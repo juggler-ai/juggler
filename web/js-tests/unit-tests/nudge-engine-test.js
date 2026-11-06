@@ -246,7 +246,7 @@ export async function runTests() {
       'at 450k of a million: long whatever the fraction');
     eq(id(e.nudgeFor('footer', { conversationId: 'c1', thread: root, tokens: { total: 350_000, budget: 1_000_000 } })), null, 'not at 350k of a million');
     eq(id(e.nudgeFor('footer', { conversationId: 'c1', thread: root, tokens: { total: 75_000, budget: 0 } })), null, 'not with no known window');
-    eq(id(e.nudgeFor('footer', { conversationId: 'c1', thread: sub, tokens: { total: 75_000, budget: 100_000 } })), null, 'not on a sub-thread');
+    eq(id(e.nudgeFor('footer', { conversationId: 'c1', thread: sub, tokens: { total: 75_000, budget: 100_000 } })), 'long-subthread', 'its sub-thread twin on a sub-thread');
     eq(id(e.nudgeFor('footer', { conversationId: 'c1', thread: root, turnActive: true, tokens: { total: 75_000, budget: 100_000 } })), null, 'not mid-turn');
     const n = e.nudgeFor('footer', { conversationId: 'c1', thread: root, tokens: { total: 75_000, budget: 100_000 } });
     eq(n?.actions.map((a) => a.command), ['compact', 'handoff'], 'compact and hand off');
@@ -256,6 +256,24 @@ export async function runTests() {
     e.dismiss('long-conversation', { conversationId: 'c1' });
     eq(id(e.nudgeFor('footer', { conversationId: 'c1', thread: root, tokens: { total: 75_000, budget: 100_000 } })), null, 'dismissed for c1');
     eq(id(e.nudgeFor('footer', { conversationId: 'c2', thread: root, tokens: { total: 75_000, budget: 100_000 } })), 'long-conversation', 'not for c2');
+  });
+
+  await run('10b: long-subthread', () => {
+    const e = real();
+    const at75 = { conversationId: 'c1', thread: sub, tokens: { total: 75_000, budget: 100_000 } };
+    const n = e.nudgeFor('footer', at75);
+    eq(id(n), 'long-subthread', 'at 75% of a sub-thread');
+    eq(id(e.nudgeFor('footer', { ...at75, tokens: { total: 50_000, budget: 100_000 } })), null, 'not at 50%');
+    eq(id(e.nudgeFor('footer', { ...at75, tokens: { total: 450_000, budget: 1_000_000 } })), 'long-subthread', 'at 450k of a million');
+    eq(id(e.nudgeFor('footer', { ...at75, thread: root })), 'long-conversation', 'not on the root');
+    eq(n?.actions.map((a) => a.command), ['compact'], 'compact only: a hand-off takes the whole conversation');
+    eq(n?.compact, false, 'with its copy, for someone who has not compacted');
+    eq(real({ counts: { 'slash:compact': 1 } }).nudgeFor('footer', at75)?.compact, true, 'buttons only once they have');
+    eq(real({ counts: { 'slash:handoff': 1 } }).nudgeFor('footer', at75)?.compact, false, 'a hand-off teaches nothing about compacting here');
+    const sibling = { threadItemId: 'msg_2', conversation: { id: 'c1' } };
+    e.dismiss('long-subthread', at75);
+    eq(id(e.nudgeFor('footer', at75)), null, 'dismissed for this sub-thread');
+    eq(id(e.nudgeFor('footer', { ...at75, thread: sibling })), 'long-subthread', 'not for a sibling sub-thread');
   });
 
   await run('11: slash-commands', () => {

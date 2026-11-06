@@ -411,8 +411,8 @@ func (w *ConversationWorker) writeBoundedCompactionResult(threadID string, resul
 	return true
 }
 
-// handleCompact folds the conversation on request from the browser /compact or
-// /handoff command — the single Go fold, which replaced the browser-side JS
+// handleCompact folds the history of one thread — the one /compact was typed in,
+// the root for /handoff — on request from the browser command: the single Go
 // fold. The command framework has already settled
 // the worker to idle and closed the undo capture window (cancelAndSettle +
 // stop-undo-capturing on the same ordered channel), so the fold starts a fresh
@@ -428,20 +428,24 @@ func (r *run) handleCompact(payload json.RawMessage) {
 		return
 	}
 	ack := AckMessage{Type: msgAck, AckID: msg.AckID}
+	dest, found := r.resolveThread(msg.ThreadItemID)
+	if !found {
+		ack.Result = map[string]any{"folded": false, "error": "thread not found"}
+		r.reply(ack)
+		return
+	}
 	// Busy means BOTH the run state and the doc-native LLM claim, matching every
 	// other intake (handleSendMessage, task delivery). State alone is not enough:
 	// a turn can leave state Idle while still holding the claim, and folding then
 	// commits a thread the pickup cannot claim — leaving a fold that never
 	// summarizes while the conversation reports idle. Refusing here says so.
 	//
-	// The fold's target is the root thread, so that is the claim it asks about. A
-	// fold does rewrite the array every live descendant hangs off, so once
-	// siblings can genuinely run in parallel this gate has to widen back out to
-	// them; it is narrow here because root is what /compact folds. The run-state
-	// half is the conversation's for that same reason — this is the one intake
-	// Phase E does NOT narrow to its target thread, because folding under a
-	// descendant's running turn rewrites the array that turn is writing into.
-	if r.threadActivity("") != ActivityNone || r.anyRunState() != StateIdle {
+	// The claim asked about is the folded thread's. The run-state half is the
+	// conversation's — this is the one intake Phase E does NOT narrow to its
+	// target thread, because a fold rewrites the array every live descendant
+	// hangs off, and folding under a running turn rewrites the array that turn is
+	// writing into.
+	if r.threadActivity(dest.itemID) != ActivityNone || r.anyRunState() != StateIdle {
 		ack.Result = map[string]any{"folded": false, "error": "conversation is busy"}
 		r.reply(ack)
 		return
@@ -451,11 +455,10 @@ func (r *run) handleCompact(payload json.RawMessage) {
 	// fold commits whatever the marks say — the gate above passes, since a landed
 	// pause holds no claim — and the summarization it owes runs on a thread the
 	// mark would then cover, leaving a conversation folded into a thread that
-	// never gets its summary and that nothing re-drives. Root is the thread the
-	// fold targets, and the one the busy gate above asks about.
-	r.dropPoliteStopsCovering("")
+	// never gets its summary and that nothing re-drives.
+	r.dropPoliteStopsCovering(dest.itemID)
 
-	_, folded, err := r.foldConversationForCompaction(compactFoldOptions{handoffPromote: msg.HandoffPromote, keepRecent: msg.KeepRecent})
+	_, folded, err := r.foldConversationForCompaction(dest, compactFoldOptions{handoffPromote: msg.HandoffPromote, keepRecent: msg.KeepRecent})
 	if err != nil {
 		r.log.Error("[compact] fold failed: %v", err)
 		ack.Result = map[string]any{"folded": false, "error": err.Error()}
@@ -465,10 +468,11 @@ func (r *run) handleCompact(payload json.RawMessage) {
 	ack.Result = map[string]any{"folded": folded}
 	r.reply(ack)
 	if folded {
-		// Root, beside the fold: the fold thread's own items are the summarizer's
-		// source, and a notice there would be summarized with them.
-		if notice, ok := r.assumedWindowNotice(nil); ok {
-			r.tracker.AppendMessage(notice)
+		// In the folded thread, beside the fold: the fold thread's own items are
+		// the summarizer's source, and a notice there would be summarized with
+		// them. The window it names is that thread's model's.
+		if notice, ok := r.assumedWindowNotice(r.doc.ResolveEffectiveModelConfig(dest.itemID)); ok {
+			r.appendMessageTo(dest, notice)
 		}
 		r.checkForNewThreads()
 	}
@@ -554,9 +558,9 @@ type compactFoldOptions struct {
 	keepRecent bool
 }
 
-// foldConversationForCompaction folds the target conversation's foldable history
-// into an UNSUMMARIZED bounded-compaction thread — the worker-side port of the
-// browser /compact fold. It relocates the
+// foldConversationForCompaction folds dest's foldable history (dest is the root
+// or a sub-thread) into an UNSUMMARIZED bounded-compaction thread spliced into
+// dest — the worker-side port of the browser /compact fold. It relocates the
 // leading contiguous run of foldable items into a new thread carrying the
 // /compact control flags and a summarization prompt, leaving the leading
 // standing-context run (rules, plans, the sticky system prompt) at the parent.
@@ -580,8 +584,8 @@ type compactFoldOptions struct {
 // Returns the new thread's item id and true when a fold happened, ("", false,
 // nil) when there was nothing foldable, and a BoundedCompactionError when
 // encoding or the fingerprinted commit failed.
-func (r *run) foldConversationForCompaction(opts compactFoldOptions) (string, bool, error) {
-	items := r.getTargetItems()
+func (r *run) foldConversationForCompaction(dest threadContext, opts compactFoldOptions) (string, bool, error) {
+	items := r.itemsIn(dest)
 
 	// Classify by POSITION, matching the browser /compact fold (not recovery's
 	// per-item token rule): keep only the LEADING run of standing context — rules,
@@ -641,7 +645,7 @@ func (r *run) foldConversationForCompaction(opts compactFoldOptions) (string, bo
 	}
 
 	if opts.keepRecent {
-		prefixEnd = min(prefixEnd, r.manualTailStart(items, prefixStart, pinnedInvocation))
+		prefixEnd = min(prefixEnd, r.manualTailStart(dest, items, prefixStart, pinnedInvocation))
 		if prefixEnd <= prefixStart || estimateItemsWireTokens(items[prefixStart:prefixEnd], items) < minManualFoldTokens {
 			return "", false, nil
 		}
@@ -707,29 +711,30 @@ func (r *run) foldConversationForCompaction(opts compactFoldOptions) (string, bo
 		FoldedRuns:             foldedRunsIn(items[prefixStart:prefixEnd]),
 	}
 
-	if !r.foldPrefixIntoSummaryTracked(r.t.thread.itemID, prefixStart, prefixEnd-prefixStart, nil, summaryItem, promptID, fingerprint) {
+	if !r.foldPrefixIntoSummaryTracked(dest.itemID, prefixStart, prefixEnd-prefixStart, nil, summaryItem, promptID, fingerprint) {
 		return "", false, &BoundedCompactionError{Reason: BoundedCompactionSourceChanged, Message: "conversation changed during compaction; nothing was folded"}
 	}
 	return threadID, true, nil
 }
 
-// manualTailStart is the item index where /compact's verbatim tail begins, by
-// the rule the automatic fold uses (chooseTail). The pins are /compact's own:
-// sticky items, an in-flight fold and the thread's latest invocation message.
+// manualTailStart is the item index where /compact's verbatim tail begins in
+// dest's items, by the rule the automatic fold uses (chooseTail). The pins are
+// /compact's own: sticky items, an in-flight fold and the thread's latest
+// invocation message. The window is that of dest's effective model.
 //
 // /compact has no rejected request to read the envelope (system prompt and
 // tools) from, so B here is the window less the output reserve and summary
 // floor. That overstates B by the envelope, which matters only at the top of
 // the setting's range on a conversation already near the window. With no known
 // window there is no headroom bound and the share alone decides.
-func (r *run) manualTailStart(items []ConversationItem, foldStart, pinnedInvocation int) int {
+func (r *run) manualTailStart(dest threadContext, items []ConversationItem, foldStart, pinnedInvocation int) int {
 	units := recoveryAtomicUnits(items)
 	lo := 0
 	for lo < len(units) && units[lo].start < foldStart {
 		lo++
 	}
 	bounds := tailBounds{keepFraction: r.keepRecentFraction(), headroom: math.MaxInt64, newestBudget: math.MaxInt64}
-	if info := r.resolveContextWindow(); info.WindowTokens > 0 {
+	if info, _, _ := r.windowInfo(r.doc.ResolveEffectiveModelConfig(dest.itemID)); info.WindowTokens > 0 {
 		fullBudget := int64(info.WindowTokens-info.ReserveTokens) - recoverySummaryFloorTokens
 		bounds.headroom = int64(float64(fullBudget) * compactionHeadroomFraction)
 		bounds.newestBudget = fullBudget

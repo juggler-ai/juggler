@@ -58,6 +58,16 @@ const LONG_CONVERSATION_FRACTION = 0.7;
 const LONG_CONVERSATION_TOKENS = 400_000;
 
 /**
+ * Whether a thread's context meter reads long, by the rule above.
+ * @param {{total: number, budget: number}|undefined} tokens - The meter's reading.
+ * @returns {boolean} True when it is long.
+ */
+function isLong(tokens) {
+  return !!tokens && (tokens.total >= LONG_CONVERSATION_TOKENS
+    || (tokens.budget > 0 && tokens.total / tokens.budget >= LONG_CONVERSATION_FRACTION));
+}
+
+/**
  * What a surface tells the rules about where it is.
  * @typedef {object} NudgeContext
  * @property {string} [conversationId] - The conversation on screen.
@@ -89,7 +99,7 @@ const LONG_CONVERSATION_TOKENS = 400_000;
  * @property {string[]} [retireOn] - Usage events any of which retire it for good (`slash:*`: any command).
  * @property {(ctx: NudgeContext, usage: import('./usage-signals.js').UsageView, facts: import('./facts.js').FactsView) => boolean} [when] - Whether it applies now.
  * @property {(usage: import('./usage-signals.js').UsageView) => boolean} [compactWhen] - Show only the actions.
- * @property {'user'|'project'|'conversation'} [scope] - What a dismissal covers (default `user`).
+ * @property {'user'|'project'|'conversation'|'thread'} [scope] - What a dismissal covers (default `user`).
  * @property {number} [cooldownMs] - A dismissal lapses after this long; absent, it is for good.
  * @property {NudgeAction[]} [actions] - Its buttons, in order.
  */
@@ -149,7 +159,7 @@ export const NUDGES = Object.freeze([
   // well, auto-compaction or not. About this conversation, so its dismissal is
   // too; never retired, because knowing about /compact does not make a
   // conversation short — once they have compacted or handed off, the buttons
-  // stand alone. The root thread only: a hand-off takes the whole conversation.
+  // stand alone. On the root thread; a sub-thread has its own twin below.
   {
     id: 'long-conversation',
     kind: 'situational',
@@ -157,14 +167,27 @@ export const NUDGES = Object.freeze([
     scope: 'conversation',
     title: markForTranslation('This conversation is getting long.'),
     body: markForTranslation('Compact it to fold the older turns into a summary, or hand off, which continues the task in a fresh conversation.'),
-    when: (ctx) => !ctx.thread?.threadItemId && !!ctx.tokens
-      && (ctx.tokens.total >= LONG_CONVERSATION_TOKENS
-        || (ctx.tokens.budget > 0 && ctx.tokens.total / ctx.tokens.budget >= LONG_CONVERSATION_FRACTION)),
+    when: (ctx) => !ctx.thread?.threadItemId && isLong(ctx.tokens),
     compactWhen: (usage) => usage.count('slash:compact') > 0 || usage.count('slash:handoff') > 0,
     actions: [
       { label: markForTranslation('Compact'), command: 'compact' },
       { label: markForTranslation('Hand off'), command: 'handoff' },
     ],
+  },
+
+  // The same, for a sub-thread's own context: /compact typed there folds that
+  // sub-thread's history. No hand-off — it takes the whole conversation, not the
+  // thread on screen. About this one sub-thread, so its dismissal is too.
+  {
+    id: 'long-subthread',
+    kind: 'situational',
+    surface: 'footer',
+    scope: 'thread',
+    title: markForTranslation('This sub-thread is getting long.'),
+    body: markForTranslation('Compact it to fold its older turns into a summary.'),
+    when: (ctx) => !!ctx.thread?.threadItemId && isLong(ctx.tokens),
+    compactWhen: (usage) => usage.count('slash:compact') > 0,
+    actions: [{ label: markForTranslation('Compact'), command: 'compact' }],
   },
 
   // Someone who has been using the app for a while and has never once run a

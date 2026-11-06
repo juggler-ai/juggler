@@ -29,7 +29,7 @@ func TestAutoNameDoesNotFireAfterCompactionFold(t *testing.T) {
 	}
 	pushAssistant(w, "worked on it")
 
-	if _, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{}); err != nil || !folded {
+	if _, folded, err := w.currentRun().foldConversationForCompaction(w.turn.thread, compactFoldOptions{}); err != nil || !folded {
 		t.Fatalf("foldConversationForCompaction = (%v, %v), want a fold", folded, err)
 	}
 	for _, it := range w.doc.GetItems() {
@@ -55,7 +55,7 @@ func TestRequestAutoNameReadsThroughCompactionFold(t *testing.T) {
 
 	sendMsg(t, w, SendMessageMessage{Text: "the original task"})
 	pushAssistant(w, "worked on it")
-	if _, folded, err := w.currentRun().foldConversationForCompaction(compactFoldOptions{}); err != nil || !folded {
+	if _, folded, err := w.currentRun().foldConversationForCompaction(w.turn.thread, compactFoldOptions{}); err != nil || !folded {
 		t.Fatalf("foldConversationForCompaction = (%v, %v), want a fold", folded, err)
 	}
 

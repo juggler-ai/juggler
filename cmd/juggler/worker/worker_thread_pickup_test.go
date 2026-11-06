@@ -111,6 +111,42 @@ func TestCheckForNewThreads_IgnoresWhenBusy(t *testing.T) {
 	}
 }
 
+// TestCheckForNewThreads_IgnoresThreadsArchivedInAFold: the pickup walks every
+// depth, but a compaction fold's nested items are archived history. A thread
+// folded away while still armed must stay as it was archived — running it would
+// spend a turn on history the conversation has already summarized.
+func TestCheckForNewThreads_IgnoresThreadsArchivedInAFold(t *testing.T) {
+	w := NewConversationWorker("test-conv", "user:test")
+	defer w.doc.Destroy()
+	w.currentRun().storeState(StateIdle)
+	w.doc.SetMetadata("defaultModelConfig", map[string]any{"provider": "test", "model": "test"})
+
+	armedID := generateItemID()
+	w.doc.doc.Transact(func(_ *ycrdt.Transaction) {
+		armed := conversationItemToYMap(ConversationItem{Type: ItemTypeThread, ItemID: armedID, Goal: "Owed a run"})
+		armed.Set("needsStrategyRun", true)
+		armedItems := ycrdt.NewYArray()
+		armedItems.Push(ycrdt.ArrayAny{conversationItemToYMap(ConversationItem{Type: ItemTypeUser, ItemID: generateItemID(), Content: "Summarize"})})
+		armed.Set("items", armedItems)
+
+		fold := conversationItemToYMap(ConversationItem{
+			Type: ItemTypeThread, ItemID: generateItemID(), Goal: "Compacted conversation history", BoundedCompaction: true,
+		})
+		fold.Set("result", "the summary")
+		foldItems := ycrdt.NewYArray()
+		foldItems.Push(ycrdt.ArrayAny{armed})
+		fold.Set("items", foldItems)
+		w.doc.ensureItems().Push(ycrdt.ArrayAny{fold})
+	}, w.doc.authorID)
+
+	if w.currentRun().checkForNewThreads() {
+		t.Fatal("checkForNewThreads picked up a thread archived inside a compaction fold")
+	}
+	if got := w.threadActivity(armedID); got != ActivityNone {
+		t.Errorf("archived thread claimed: activity = %q", got)
+	}
+}
+
 func TestHandleItemsChange_CancelsWhenCurrentThreadDeleted(t *testing.T) {
 	w := NewConversationWorker("test-conv", "user:test")
 	w.currentRun().storeState(StateIdle)

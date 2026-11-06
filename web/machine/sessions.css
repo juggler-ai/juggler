@@ -256,6 +256,14 @@ body {
     padding: var(--spacing-xs) var(--spacing-sm) var(--spacing-sm);
 }
 
+/* What the firewall must let in for other computers to be found: a line,
+   then each command on its own row with its copy button (connectivity.css). */
+.ms-found-firewall:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
 .ms-chooser .ms-connect-error {
     padding: 0 var(--spacing-sm);
 }

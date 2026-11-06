@@ -63,6 +63,7 @@ import { ControlApiError } from './control-api.js';
 import { pageURL } from '../js/utils/page-url.js';
 import { ExposureView } from '../js/components/connectivity/exposure-view.js';
 import { presentPopup, POPUP_REVEALED_EVENT } from '../js/utils/popup-surface.js';
+import { createCopyButton } from '../sdk/lib/copy-button.js';
 
 /** How many recent projects the page offers. */
 const RECENTS_SHOWN = 8;
@@ -90,7 +91,7 @@ const RECENTS_SHOWN = 8;
  *   pickDirectory?: () => Promise<string|null>,
  *   takesDroppedFolders?: boolean,
  *   switchServer?: (address: string) => Promise<void>,
- *   discover?: () => Promise<FoundServer[]>,
+ *   discover?: () => Promise<Discovered>,
  *   openURL?: (url: string) => void,
  *   reopen?: () => Promise<string>,
  * }} NativeHost
@@ -109,6 +110,10 @@ const RECENTS_SHOWN = 8;
  *   the name it announced, and the address it answered at, which is what
  *   choosing it hands the app, among every address it was announced at — any
  *   of which a window on it may be on.
+ * @typedef {{servers: FoundServer[], firewall?: boolean}} Discovered
+ *   What the app has found on the network: the servers, and firewall when the
+ *   app has heard no computer but this one on a system (Linux) whose host
+ *   firewall may be dropping the others' answers unseen.
  * @typedef {{server: string, frameCtl: string, theme?: string, mode?: string}} FramedServer
  *   Another computer's server, which a desktop window on it shows framed in
  *   this machine's page: its address (an http(s) origin), the control address
@@ -359,6 +364,27 @@ function sameServer(a, b) {
  */
 function isServerAt(server, address) {
   return sameServer(server.url, address) || (server.urls || []).some((u) => sameServer(u, address));
+}
+
+/**
+ * What the chooser says while the app has heard no computer but this one on
+ * a system whose host firewall may be dropping the others' answers
+ * (Discovered): the port to let in, and the commands that do it under ufw and
+ * firewalld, each to copy — as a Linux server's LAN access says what to let
+ * in for others to reach it.
+ * @returns {HTMLElement} The note.
+ */
+function firewallHint() {
+  return el('div', { className: 'ms-lan-note ms-found-firewall' }, [
+    el('div', { text: t('If no other computer appears, this computer’s firewall may be blocking their answers: allow UDP port 5353. With ufw or firewalld, these do that:') }),
+    ...[
+      'sudo ufw allow 5353/udp',
+      'sudo firewall-cmd --permanent --add-service=mdns && sudo firewall-cmd --reload',
+    ].map((command) => el('div', { className: 'connectivity-address-row' }, [
+      el('code', { className: 'connectivity-command', text: command }),
+      createCopyButton(command, 'connectivity-address-copy', t('Copy command')),
+    ])),
+  ]);
 }
 
 /**
@@ -647,8 +673,10 @@ export function mountSessionsPage(root, {
   const hereList = el('ul', { className: 'ms-chooser-list ms-chooser-here' });
   const foundList = el('ul', { className: 'ms-chooser-list ms-found', attrs: { 'aria-label': t('Found on this network') } });
   const foundHint = el('p', { className: 'ms-lan-note ms-found-hint', text: t('Other computers appear here when their LAN access is on.') });
+  const foundFirewall = firewallHint();
   foundList.hidden = true;
   foundHint.hidden = true;
+  foundFirewall.hidden = true;
   const chooser = canSwitch
     ? el('div', {
       className: 'dropdown-menu show ms-chooser',
@@ -660,6 +688,7 @@ export function mountSessionsPage(root, {
           el('p', { className: 'ms-chooser-label', text: t('Found on this network') }),
           foundList,
           foundHint,
+          foundFirewall,
         ])
         : null,
       el('div', { className: 'ms-chooser-section ms-chooser-connect' }, [
@@ -695,6 +724,8 @@ export function mountSessionsPage(root, {
   let releaseChooser = null;
   /** @type {FoundServer[]} */
   let found = [];
+  // Whether the app's last answer suspected a firewall here (Discovered).
+  let firewalled = false;
   // The name the server framed was last found under, kept through an ask
   // that misses it; '' until it is found.
   let shownName = '';
@@ -871,6 +902,7 @@ export function mountSessionsPage(root, {
     ].filter((x) => x !== null));
     foundList.hidden = !shown && found.length === 0;
     foundHint.hidden = others.length > 0;
+    foundFirewall.hidden = !firewalled || others.length > 0;
   }
 
   /**
@@ -1291,16 +1323,17 @@ export function mountSessionsPage(root, {
   async function refreshFound() {
     if (!chooser || !host?.discover) return;
     const asked = ++foundAsked;
-    /** @type {FoundServer[]} */
-    let servers;
+    /** @type {Discovered} */
+    let answer;
     try {
-      servers = await host.discover();
+      answer = await host.discover();
     } catch {
       return;
     }
     if (disposed || asked < foundShown) return;
     foundShown = asked;
-    found = (servers || []).filter((x) => x && typeof x.url === 'string' && typeof x.name === 'string');
+    found = (answer?.servers || []).filter((x) => x && typeof x.url === 'string' && typeof x.name === 'string');
+    firewalled = answer?.firewall === true;
     renderChooser();
   }
 

@@ -647,6 +647,7 @@
   "Idle": "Idle",
   "Idle · last active {when}": "Idle · last active {when}",
   "If Juggler’s been useful to you, I’d really appreciate you mentioning it wherever you talk about coding. A few words about what you use it for would help other developers discover it.": "If Juggler’s been useful to you, I’d really appreciate you mentioning it wherever you talk about coding. A few words about what you use it for would help other developers discover it.",
+  "If no other computer appears, this computer’s firewall may be blocking their answers: allow UDP port 5353. With ufw or firewalld, these do that:": "If no other computer appears, this computer’s firewall may be blocking their answers: allow UDP port 5353. With ufw or firewalld, these do that:",
   "If other devices can’t connect to this computer or find it, its firewall may be blocking them: allow TCP port {port}, and UDP port 5353 for finding it. With ufw or firewalld, these do that:": "If other devices can’t connect to this computer or find it, its firewall may be blocking them: allow TCP port {port}, and UDP port 5353 for finding it. With ufw or firewalld, these do that:",
   "If you would rather work from a terminal, the {codexCLI} shares the same login:": "If you would rather work from a terminal, the {codexCLI} shares the same login:",
   "Image": "Image",

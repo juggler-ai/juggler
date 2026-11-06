@@ -124,7 +124,7 @@ func TestDiscoverDoesNotWaitOnADeadAddress(t *testing.T) {
 		},
 		localAddrs: func() map[netip.Addr]bool { return nil },
 	}
-	got, err := f.servers(context.Background())
+	got, _, err := f.servers(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestDiscoverKeepsTheAddressItListed(t *testing.T) {
 	for i, lead := range []string{v4, v6, v6} {
 		first.Store(lead)
 		answered[lead] = make(chan struct{})
-		got, err := f.servers(context.Background())
+		got, _, err := f.servers(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -214,7 +214,7 @@ func TestDiscoverForgivesAMissedAnswer(t *testing.T) {
 		localAddrs: func() map[netip.Addr]bool { return nil },
 	}
 	ask := func() int {
-		got, err := f.servers(context.Background())
+		got, _, err := f.servers(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -261,7 +261,7 @@ func TestDiscoverSkipsLinkLocalAddresses(t *testing.T) {
 		},
 		localAddrs: func() map[netip.Addr]bool { return nil },
 	}
-	got, err := f.servers(context.Background())
+	got, _, err := f.servers(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,6 +302,57 @@ func TestDiscoverWithNoBrowseListsNothing(t *testing.T) {
 	}
 }
 
+// TestDiscoverNamesTheFirewallWhenItHearsOnlyItself: on Linux, where a host
+// firewall drops other computers' answers unseen, an ask whose browse has heard
+// no server but this machine's says so (firewall), so the page can say what to
+// let in. One that heard another server — listed or not — says nothing of it,
+// nor does one on another system, nor one whose browse could not start.
+func TestDiscoverNamesTheFirewallWhenItHearsOnlyItself(t *testing.T) {
+	prev := discoverOS
+	t.Cleanup(func() { discoverOS = prev })
+	me := lanfind.Found{Name: "Me", Addrs: addrs("192.168.1.2"), Port: 3939}
+	other := lanfind.Found{Name: "Other", Addrs: addrs("192.168.1.9"), Port: 3939}
+	ask := func(goos string, found []lanfind.Found, browseErr error) string {
+		t.Helper()
+		discoverOS = goos
+		a := newTestAppState(t)
+		a.finder = &lanFinder{
+			browse: func() (serverSource, error) {
+				if browseErr != nil {
+					return nil, browseErr
+				}
+				return &fakeSource{found: found}, nil
+			},
+			probe:      func(context.Context, string) (string, bool) { return "", false },
+			localAddrs: func() map[netip.Addr]bool { return map[netip.Addr]bool{netip.MustParseAddr("192.168.1.2"): true} },
+		}
+		registerTestWindow(a, "w1")
+		rec := controlRequest(a, http.MethodPost, "/win/w1/discover")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("discover = %d %s, want 200", rec.Code, rec.Body)
+		}
+		return strings.TrimSpace(rec.Body.String())
+	}
+	for _, c := range []struct {
+		what  string
+		goos  string
+		found []lanfind.Found
+		err   error
+		want  string
+	}{
+		{"linux, heard only itself", "linux", []lanfind.Found{me}, nil, `{"firewall":true,"servers":[]}`},
+		{"linux, heard nothing", "linux", nil, nil, `{"firewall":true,"servers":[]}`},
+		{"linux, heard another that did not answer", "linux", []lanfind.Found{me, other}, nil, `{"servers":[]}`},
+		{"linux, no browse", "linux", nil, errors.New("no route to host"), `{"servers":[]}`},
+		{"darwin, heard only itself", "darwin", []lanfind.Found{me}, nil, `{"servers":[]}`},
+		{"windows, heard only itself", "windows", []lanfind.Found{me}, nil, `{"servers":[]}`},
+	} {
+		if got := ask(c.goos, c.found, c.err); got != c.want {
+			t.Errorf("%s: discover = %s, want %s", c.what, got, c.want)
+		}
+	}
+}
+
 // TestDiscoverBrowsesOnce: every ask shares one browse.
 func TestDiscoverBrowsesOnce(t *testing.T) {
 	starts := 0
@@ -311,7 +362,7 @@ func TestDiscoverBrowsesOnce(t *testing.T) {
 		localAddrs: func() map[netip.Addr]bool { return nil },
 	}
 	for range 3 {
-		if _, err := f.servers(context.Background()); err != nil {
+		if _, _, err := f.servers(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -342,10 +393,10 @@ func TestDiscoverReopensABrowseThatCannotSend(t *testing.T) {
 		probe:      func(context.Context, string) (string, bool) { return "v1", true },
 		localAddrs: func() map[netip.Addr]bool { return nil },
 	}
-	if _, err := f.servers(context.Background()); err != nil {
+	if _, _, err := f.servers(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	got, err := f.servers(context.Background())
+	got, _, err := f.servers(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +407,7 @@ func TestDiscoverReopensABrowseThatCannotSend(t *testing.T) {
 		t.Errorf("the reopened browse lists %+v, want Box", got)
 	}
 	for range 3 {
-		if _, err := f.servers(context.Background()); err != nil {
+		if _, _, err := f.servers(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	}

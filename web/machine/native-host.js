@@ -87,13 +87,17 @@ export function desktopHost({ external }) {
 
 /**
  * The servers other computers announce on this network that the app has
- * found, each as it answered: none when the app cannot look there. An app
- * that refuses the question throws, as any refused action does.
- * @returns {Promise<import('./sessions-view.js').FoundServer[]>} The servers.
+ * found, each as it answered: none when the app cannot look there; and
+ * whether the app suspects a host firewall here, having heard no computer but
+ * this one. An app that refuses the question throws, as any refused action does.
+ * @returns {Promise<import('./sessions-view.js').Discovered>} What the app found.
  */
 async function discover() {
   const resp = await request('discover', '');
-  /** @type {{servers?: unknown}|null} */
+  /** @type {{servers?: unknown, firewall?: unknown}|null} */
   const body = resp ? await resp.json().catch(() => null) : null;
-  return Array.isArray(body?.servers) ? body.servers : [];
+  return {
+    servers: Array.isArray(body?.servers) ? body.servers : [],
+    firewall: body?.firewall === true,
+  };
 }

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -131,6 +132,12 @@ const probeTimeout = 1500 * time.Millisecond
 // answer and still be listed, as it last answered.
 const missesForgiven = 2
 
+// discoverOS is the system a browse is read for: on Linux a host firewall
+// (ufw, firewalld) drops other computers' answers to this one's queries
+// without the browse seeing it, while theirs still find this one. A test
+// stands in another.
+var discoverOS = runtime.GOOS
+
 func newLANFinder() *lanFinder {
 	return &lanFinder{
 		browse: func() (serverSource, error) {
@@ -198,7 +205,8 @@ func (f *lanFinder) stopWhenIdle(p *serverSource) {
 }
 
 // servers is every server found that answers, other than this machine's own,
-// in the order the browse lists them (by name). Each found server is asked at
+// in the order the browse lists them (by name), and whether the browse has
+// heard any server but this machine's, listed or not. Each found server is asked at
 // once, so one that does not answer costs probeTimeout, not one per server.
 //
 // A server is listed at the address it was listed at before while that
@@ -206,10 +214,10 @@ func (f *lanFinder) stopWhenIdle(p *serverSource) {
 // server is listed as holds still from one ask to the next; and one listed
 // before that misses an ask is listed as before until it has missed
 // missesForgiven in a row.
-func (f *lanFinder) servers(ctx context.Context) ([]foundServer, error) {
+func (f *lanFinder) servers(ctx context.Context) (out []foundServer, heardOther bool, err error) {
 	src, err := f.source()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	local := f.localAddrs()
 	found := src.Snapshot()
@@ -236,8 +244,11 @@ func (f *lanFinder) servers(ctx context.Context) ([]foundServer, error) {
 	}
 
 	listed := make(map[string]listing, len(found))
-	out := []foundServer{}
+	out = []foundServer{}
 	for i, s := range got {
+		if !isLocal(found[i], local) {
+			heardOther = true
+		}
 		if s == nil {
 			l, ok := before[keys[i]]
 			if !ok || l.misses >= missesForgiven || isLocal(found[i], local) {
@@ -253,7 +264,7 @@ func (f *lanFinder) servers(ctx context.Context) ([]foundServer, error) {
 	}
 	f.listed.Store(&listed)
 	f.outcome(found, local, out)
-	return out, nil
+	return out, heardOther, nil
 }
 
 // isLocal is whether s is on one of this machine's own addresses.
@@ -387,13 +398,21 @@ func localAddrs() map[netip.Addr]bool {
 // (no multicast here, the OS refusing it) answers with none, as a network with
 // no servers on it would: the page offers the address field either way.
 //
+// On Linux, a browse that has heard no server but this machine's adds
+// "firewall": true, for the page to say what a host firewall must let in
+// (discoverOS): the answers this machine's queries draw are what one drops.
+//
 // Refused to a page a server by URL sent (windowActions), as switch-server
 // is: the list is for choosing a server to switch to, which only this
 // machine's server's pages may do.
 func (a *appState) controlDiscover(w http.ResponseWriter, r *http.Request, _ *winEntry) {
-	servers, err := a.finder.servers(r.Context())
+	servers, heardOther, err := a.finder.servers(r.Context())
 	if err != nil {
 		servers = []foundServer{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"servers": servers})
+	body := map[string]any{"servers": servers}
+	if err == nil && !heardOther && discoverOS == "linux" {
+		body["firewall"] = true
+	}
+	writeJSON(w, http.StatusOK, body)
 }

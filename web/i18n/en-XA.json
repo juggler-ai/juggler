@@ -647,6 +647,7 @@
   "Idle": "[Îðļé ·]",
   "Idle · last active {when}": "[Îðļé · ļåšţ åçţîṽé {when} ·····]",
   "If Juggler’s been useful to you, I’d really appreciate you mentioning it wherever you talk about coding. A few words about what you use it for would help other developers discover it.": "[Îƒ Ĵûĝĝļéŕ’š ƀééñ ûšéƒûļ ţö ýöû, Î’ð ŕéåļļý åþþŕéçîåţé ýöû ɱéñţîöñîñĝ îţ ŵĥéŕéṽéŕ ýöû ţåļķ åƀöûţ çöðîñĝ. Å ƒéŵ ŵöŕðš åƀöûţ ŵĥåţ ýöû ûšé îţ ƒöŕ ŵöûļð ĥéļþ öţĥéŕ ðéṽéļöþéŕš ðîšçöṽéŕ îţ. ···················································]",
+  "If no other computer appears, this computer’s firewall may be blocking their answers: allow UDP port 5353. With ufw or firewalld, these do that:": "[Îƒ ñö öţĥéŕ çöɱþûţéŕ åþþéåŕš, ţĥîš çöɱþûţéŕ’š ƒîŕéŵåļļ ɱåý ƀé ƀļöçķîñĝ ţĥéîŕ åñšŵéŕš: åļļöŵ ÛÐÞ þöŕţ 5353. Ŵîţĥ ûƒŵ öŕ ƒîŕéŵåļļð, ţĥéšé ðö ţĥåţ: ·······································]",
   "If other devices can’t connect to this computer or find it, its firewall may be blocking them: allow TCP port {port}, and UDP port 5353 for finding it. With ufw or firewalld, these do that:": "[Îƒ öţĥéŕ ðéṽîçéš çåñ’ţ çöññéçţ ţö ţĥîš çöɱþûţéŕ öŕ ƒîñð îţ, îţš ƒîŕéŵåļļ ɱåý ƀé ƀļöçķîñĝ ţĥéɱ: åļļöŵ ŢÇÞ þöŕţ {port}, åñð ÛÐÞ þöŕţ 5353 ƒöŕ ƒîñðîñĝ îţ. Ŵîţĥ ûƒŵ öŕ ƒîŕéŵåļļð, ţĥéšé ðö ţĥåţ: ················································]",
   "If you would rather work from a terminal, the {codexCLI} shares the same login:": "[Îƒ ýöû ŵöûļð ŕåţĥéŕ ŵöŕķ ƒŕöɱ å ţéŕɱîñåļ, ţĥé {codexCLI} šĥåŕéš ţĥé šåɱé ļöĝîñ: ···················]",
   "Image": "[Îɱåĝé ··]",

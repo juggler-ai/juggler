@@ -1197,7 +1197,7 @@ export async function runTests() {
   await test('the header\'s Change server chooses the server; the body has no Connect to another computer', async () => {
     const host = stubHost();
     host.switchServer = async () => {};
-    host.discover = async () => [];
+    host.discover = async () => ({ servers: [] });
     const m = await mount(withExposure(stubApi(sessions)), { host, config: { token: 't', version: 'v1.2.3', host: 'studio', local: true } });
     try {
       const headings = [...m.root.querySelectorAll('h2')].map((h) => h.firstChild?.textContent || '');
@@ -1259,7 +1259,7 @@ export async function runTests() {
       { name: 'Studio', url: 'http://192.168.1.10:3939' },
       { name: 'Near', url: 'http://[fe80::9%25en0]:3939' },
     ];
-    host.discover = async () => found;
+    host.discover = async () => ({ servers: found });
     const m = await mount(stubApi([]), { host });
     try {
       const pop = await openChooser(m);
@@ -1313,6 +1313,46 @@ export async function runTests() {
     assert(!document.querySelector('.ms-chooser'), 'a page taken down left its chooser open');
   });
 
+  // On Linux a host firewall drops other computers' answers to this one's
+  // queries without anything here seeing it, while this computer is still
+  // found from theirs. When the app says it has heard no computer but this one
+  // there, the chooser says which port to let in, with the commands to copy;
+  // once a server is listed, it says nothing of it.
+  await test('Change server says what the firewall must let in when the app hears no other computer', async () => {
+    const host = stubHost();
+    host.switchServer = async () => {};
+    /** @type {{servers: Array<{name: string, url: string}>, firewall?: boolean}} */
+    let answer = { servers: [], firewall: true };
+    host.discover = async () => answer;
+    const m = await mount(stubApi([]), { host });
+    try {
+      const pop = await openChooser(m);
+      const note = () => /** @type {HTMLElement|null} */ (pop.querySelector('.ms-found-firewall'));
+      await waitFor(() => !!note() && !note()?.hidden, { description: 'the firewall advice' });
+      const text = note()?.textContent || '';
+      assert(text.includes('If no other computer appears, this computer’s firewall may be blocking their answers: allow UDP port 5353. With ufw or firewalld, these do that:'),
+        `the firewall advice reads ${JSON.stringify(text)}`);
+      const commands = [...(note()?.querySelectorAll('code') || [])].map((c) => c.textContent);
+      assert(JSON.stringify(commands) === JSON.stringify([
+        'sudo ufw allow 5353/udp',
+        'sudo firewall-cmd --permanent --add-service=mdns && sudo firewall-cmd --reload',
+      ]), `the commands offered: ${JSON.stringify(commands)}`);
+      assert(note()?.querySelectorAll('button').length === 2, 'a command has no copy button');
+
+      answer = { servers: [{ name: 'devbox', url: 'http://192.168.1.9:3939' }] };
+      await m.page.refresh();
+      await waitFor(() => !!pop.querySelector('.ms-found-server'), { description: 'the server found' });
+      assert(!!note()?.hidden, 'with a server listed, the chooser still blames the firewall');
+
+      answer = { servers: [] };
+      await m.page.refresh();
+      await waitFor(() => !pop.querySelector('.ms-found-server'), { description: 'the list to empty' });
+      assert(!!note()?.hidden, 'the chooser blames the firewall where the app did not');
+    } finally {
+      m.dispose();
+    }
+  });
+
   await test('Change server switches to a typed address, trimmed, and says why one is refused', async () => {
     const host = stubHost();
     /** @type {string[]} */
@@ -1321,7 +1361,7 @@ export async function runTests() {
       asked.push(address);
       if (address === 'ftp://x') throw new ControlApiError(400, 'That is not a server address. Enter one like http://devbox:3939.');
     };
-    host.discover = async () => [];
+    host.discover = async () => ({ servers: [] });
     const m = await mount(stubApi([]), { host });
     try {
       const pop = await openChooser(m);
@@ -1346,7 +1386,7 @@ export async function runTests() {
   await test('Change server says it could not connect, not the browser\'s words, when the app cannot be reached', async () => {
     const host = stubHost();
     host.switchServer = async () => { throw new TypeError('Failed to fetch'); };
-    host.discover = async () => [];
+    host.discover = async () => ({ servers: [] });
     const m = await mount(stubApi([]), { host });
     try {
       const pop = await openChooser(m);
@@ -1368,7 +1408,7 @@ export async function runTests() {
   await test('the sessions page does not wait for the servers found on the network', async () => {
     const host = stubHost();
     host.switchServer = async () => {};
-    /** @type {(servers: Array<{name: string, url: string}>) => void} */
+    /** @type {(found: {servers: Array<{name: string, url: string}>}) => void} */
     let answer = () => {};
     host.discover = () => new Promise((resolve) => { answer = resolve; });
     const m = await mount(stubApi([]), { host });
@@ -1377,7 +1417,7 @@ export async function runTests() {
       const pop = await openChooser(m);
       const list = /** @type {HTMLElement|null} */ (pop.querySelector('.ms-found'));
       assert(!!list?.hidden, 'servers are listed before the app has found any');
-      answer([{ name: 'devbox', url: 'http://192.168.1.9:3939' }]);
+      answer({ servers: [{ name: 'devbox', url: 'http://192.168.1.9:3939' }] });
       await waitFor(() => !list?.hidden, { description: 'the servers found, once the app answers' });
     } finally {
       m.dispose();
@@ -1394,10 +1434,12 @@ export async function runTests() {
     /** @type {string[]} */
     const asked = [];
     host.switchServer = async (/** @type {string} */ address) => { asked.push(address); };
-    host.discover = async () => [
-      { name: 'Studio', url: 'http://192.168.1.10:3939' },
-      { name: 'devbox', url: 'http://devbox.invalid:3939', version: 'v1.0.0' },
-    ];
+    host.discover = async () => ({
+      servers: [
+        { name: 'Studio', url: 'http://192.168.1.10:3939' },
+        { name: 'devbox', url: 'http://devbox.invalid:3939', version: 'v1.0.0' },
+      ],
+    });
     const framed = { server: 'http://devbox.invalid:3939', frameCtl: 'http://127.0.0.1:5555/fr4me/win/w1', theme: 'dark' };
     const config = { token: 't', version: 'v1.2.3', host: 'studio', local: true };
     const m = await mount(api, { host, config, framed });
@@ -1455,7 +1497,7 @@ export async function runTests() {
     // computer stands alone above it.
     const typed = stubHost();
     typed.switchServer = async () => {};
-    typed.discover = async () => [];
+    typed.discover = async () => ({ servers: [] });
     const t2 = await mount(stubApi([]), { host: typed, framed: { server: 'http://10.1.2.3:3939', frameCtl: 'http://127.0.0.1:5555/x/win/w2' } });
     try {
       const pop = await openChooser(t2);
@@ -1481,7 +1523,7 @@ export async function runTests() {
     host.switchServer = async () => {};
     /** @type {Array<{name: string, url: string, urls?: string[]}>} */
     let found = [{ name: 'devbox', url: 'http://192.168.1.9:3939', urls: ['http://192.168.1.9:3939', 'http://[fd00::9]:3939'] }];
-    host.discover = async () => found;
+    host.discover = async () => ({ servers: found });
     const m = await mount(stubApi([]), { host, framed: { server: 'http://[fd00::9]:3939', frameCtl: 'http://127.0.0.1:5555/x/win/w1' } });
     try {
       const label = () => m.header.querySelector('.ms-server-label')?.textContent || '';
@@ -1595,7 +1637,7 @@ export async function runTests() {
     await underPseudoLocale('machine-sessions-chooser', async () => {
       const h = stubHost();
       h.switchServer = async () => {};
-      h.discover = async () => [{ name: 'devbox', url: 'http://192.168.1.9:3939' }];
+      h.discover = async () => ({ servers: [{ name: 'devbox', url: 'http://192.168.1.9:3939' }] });
       const p = await mount(stubApi([]), { host: h, framed: { server: 'http://devbox.invalid:3939', frameCtl: 'http://127.0.0.1:5555/x/win/w1' } });
       try {
         const pop = await openChooser(p);
@@ -1619,6 +1661,24 @@ export async function runTests() {
           `not translated: ${JSON.stringify(texts)}`);
       } finally {
         p.dispose();
+      }
+
+      // The firewall advice, and its copy buttons; the commands are commands.
+      const f = stubHost();
+      f.switchServer = async () => {};
+      f.discover = async () => ({ servers: [], firewall: true });
+      const q = await mount(stubApi([]), { host: f });
+      try {
+        const pop = await openChooser(q);
+        const note = () => /** @type {HTMLElement|null} */ (pop.querySelector('.ms-found-firewall'));
+        await waitFor(() => !!note() && !note()?.hidden, { description: 'the firewall advice' });
+        const texts = [
+          note()?.firstElementChild?.textContent || '',
+          ...[...(note()?.querySelectorAll('button') || [])].map((b) => b.getAttribute('aria-label') || ''),
+        ];
+        assert(texts.length === 3 && texts.every((x) => isPseudoLocalized(x)), `not translated: ${JSON.stringify(texts)}`);
+      } finally {
+        q.dispose();
       }
     });
   });

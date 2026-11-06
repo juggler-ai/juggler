@@ -271,7 +271,8 @@ func TestReadWindowStateReportsAnAnsweringServerReached(t *testing.T) {
 
 // A stand-in's page has no server behind it, so its buttons post straight to
 // this app's control endpoint for the window showing it: Try again first, as
-// the page's one primary button, saying it is trying once pressed.
+// the page's one primary button, saying it is trying once pressed, then Cancel,
+// which leaves the server for this machine's own page.
 func TestUnreachableServerPagePostsToItsWindow(t *testing.T) {
 	a := newTestAppState(t)
 	a.ctlPort = 5000
@@ -283,7 +284,7 @@ func TestUnreachableServerPagePostsToItsWindow(t *testing.T) {
 		retry,
 		`<form method="post" action="` + base + `/open-local">`,
 		`class="ms-button ms-button-primary">Try again</button>`,
-		`class="ms-button">Open a local window instead</button>`,
+		`class="ms-button">Cancel</button>`,
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("page is missing %q:\n%s", want, doc)

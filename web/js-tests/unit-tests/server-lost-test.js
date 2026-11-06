@@ -106,21 +106,23 @@ export async function runTests(_ctx) {
   }
 
   /**
-   * A watcher on fakes, counting its reports.
-   * @param {{eligible?: boolean, answers?: boolean[]}} [opts] - Whether the window may be replaced, and what each report resolves to.
-   * @returns {{events: ReturnType<typeof fakeEvents>, clock: ReturnType<typeof fakeClock>, reports: () => number, stop: () => void}} The rig.
+   * A watcher on fakes, counting its reports and its probes.
+   * @param {{eligible?: boolean, answers?: boolean[], forgotten?: boolean[]}} [opts] - Whether the window may be replaced, what each report resolves to, and what each probe of the session finds (forgotten or not).
+   * @returns {{events: ReturnType<typeof fakeEvents>, clock: ReturnType<typeof fakeClock>, reports: () => number, probes: () => number, stop: () => void}} The rig.
    */
-  function rig({ eligible = true, answers = [true] } = {}) {
+  function rig({ eligible = true, answers = [true], forgotten = [false] } = {}) {
     const events = fakeEvents();
     const clock = fakeClock();
     let reports = 0;
+    let probes = 0;
     const stop = watchForLostServer({
       events,
       eligible,
       timers: clock,
       report: async () => answers[Math.min(reports++, answers.length - 1)],
+      probe: async () => forgotten[Math.min(probes++, forgotten.length - 1)],
     });
-    return { events, clock, reports: () => reports, stop };
+    return { events, clock, reports: () => reports, probes: () => probes, stop };
   }
 
   await test('a minute of reconnecting asks for the stand-in, once', async () => {
@@ -180,6 +182,50 @@ export async function runTests(_ctx) {
     r.events.emit('server-full');
     r.clock.advance(2 * GIVE_UP_AFTER_MS);
     assert(r.reports() === 0, 'a viewer turned away as full was sent to the unreachable page');
+    r.stop();
+  });
+
+  // A server restarted under the window answers again with no session for it:
+  // the socket is refused for ever, and waiting out the minute only keeps the
+  // user looking at "Reconnecting…".
+  await test('a failed attempt whose server has forgotten the session asks at once', async () => {
+    const r = rig({ forgotten: [false, true] });
+    r.events.emit('close');
+    await settle();
+    assert(r.reports() === 0, 'asked while the server was still down');
+    r.clock.advance(5_000);
+    r.events.emit('close');
+    await settle();
+    assert(r.reports() === 1, `want a report as soon as the session was found forgotten, got ${r.reports()}`);
+    r.clock.advance(2 * GIVE_UP_AFTER_MS);
+    r.events.emit('close');
+    await settle();
+    assert(r.reports() === 1, 'asked again after the app said it was replacing the window');
+    r.stop();
+  });
+
+  await test('a forgotten session the app will not act on is not asked about at every attempt', async () => {
+    const r = rig({ forgotten: [true], answers: [false, true] });
+    r.events.emit('close');
+    await settle();
+    assert(r.reports() === 1, 'want the first report');
+    for (let i = 0; i < 4; i++) {
+      r.clock.advance(5_000);
+      r.events.emit('close');
+      await settle();
+    }
+    assert(r.reports() === 1, `asked at every attempt: ${r.reports()} reports`);
+    r.clock.advance(GIVE_UP_AFTER_MS);
+    assert(r.reports() === 2, 'the minute no longer runs after an early report');
+    r.stop();
+  });
+
+  await test('a probe still in flight is not started again', async () => {
+    const r = rig();
+    r.events.emit('close');
+    r.events.emit('close');
+    await settle();
+    assert(r.probes() === 1, `want one probe for two closes in one tick, got ${r.probes()}`);
     r.stop();
   });
 

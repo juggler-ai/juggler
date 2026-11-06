@@ -195,6 +195,7 @@
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/patterns/overlay-chrome.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/patterns/icons.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/patterns/spinner.css">
+    <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/patterns/notice.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/patterns/modal-dialog.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/patterns/tooltip.css">
     <link rel="stylesheet" href="{{.BasePath}}/v{{.StaticVersion}}/css/patterns/drag-grip.css">
@@ -558,10 +559,10 @@
              plain blank window. components/startup-overlay.js adopts this
              element and removes it once the session is loaded. -->
         <div class="loading-overlay" data-loading-overlay="startup">
-            <div class="loading-overlay__content">
+            <div class="loading-overlay__content notice">
                 <juggler-spinner style="--size: 3rem"></juggler-spinner>
                 <div class="loading-overlay__info">
-                    <div class="loading-overlay__message"></div>
+                    <div class="loading-overlay__message notice__title"></div>
                 </div>
             </div>
         </div>

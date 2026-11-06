@@ -27,8 +27,9 @@ import (
 // same window shell as the sessions page (web/shell/), whose header bar is
 // what a frameless window is dragged, resized and closed by. The cases:
 //
-//   - a server by URL that does not answer (unreachable): Try again, or open a
-//     local window instead;
+//   - a server by URL that does not answer (unreachable), or that answers but
+//     whose window the user stopped reconnecting: Try again, or Cancel, which
+//     shows this machine's own page instead;
 //   - this machine's server, which could not be reached or started (failed):
 //     Try again, or quit;
 //   - this machine's server, or the window's session on it, gone under a live
@@ -42,7 +43,7 @@ import (
 // A stand-in is a view (windowView), not a window. A window opened onto
 // something that cannot be shown is built showing its stand-in; a window that
 // loses what it shows shows its stand-in in place (showView), and its answer —
-// Try again, Start a server, Restart server, Open a local window — shows what
+// Try again, Start a server, Restart server, Cancel — shows what
 // comes of it in that same window (retarget): the window keeps its id, its
 // frame and its place in the workspace set throughout, filed under the spec
 // it stands in for. Its frame is kept where that window's would be
@@ -113,13 +114,34 @@ func retryButton() standInButton {
 	return standInButton{label: unreachableRetry, action: "retry-server", primary: true, busy: &unreachableTrying}
 }
 
+// cancelButton is a server by URL's stand-in's way out: the window leaves that
+// server for this machine's own page (controlOpenLocal).
+func cancelButton() standInButton {
+	return standInButton{label: cancelLabel, action: "open-local"}
+}
+
 func unreachableStandIn(serverURL string) *standIn {
 	return &standIn{
 		kind:        standInUnreachable,
 		windowTitle: unreachableWindowTitle,
 		title:       unreachablePageTitle,
 		message:     []msg.Message{unreachableMessage(serverURL)},
-		buttons:     []standInButton{retryButton(), {label: unreachableOpenLocal, action: "open-local"}},
+		buttons:     []standInButton{retryButton(), cancelButton()},
+	}
+}
+
+// remoteDisconnectedStandIn stands in for a window on a server by URL whose
+// reconnect the user stopped while that server still answers the app — it is
+// running, and only the window's page lost its way to it — so it says that,
+// not that the server cannot be reached.
+func remoteDisconnectedStandIn(serverURL string) *standIn {
+	return &standIn{
+		kind:        standInLost,
+		windowTitle: disconnectedWindowTitle,
+		title:       disconnectedPageTitle,
+		message: []msg.Message{msg.New("The Juggler server at {url} is running, but this window stopped trying to reconnect to it. Try again reconnects it.",
+			"url", serverURL)},
+		buttons: []standInButton{retryButton(), cancelButton()},
 	}
 }
 
@@ -472,22 +494,25 @@ func (a *appState) controlRestartServer(w http.ResponseWriter, _ *http.Request, 
 //
 //   - onto a server by URL, only when the server answers, within
 //     remoteReachBudget, that it has forgotten the window's session
-//     (remoteSessionGone) — retired, as one left with no viewer is. Nothing
-//     the page reconnects to will bring the session back, so the window shows
-//     the server's page instead, still filed with the session's project,
-//     which that page opens there again (controlReopen), as a launch would. A
-//     server that does not answer is never given up on: it may yet, and the
-//     page, still reconnecting, comes back with it;
+//     (probeRemote) — retired, as one left with no viewer is, or lost with a
+//     server restarted under the window. Nothing the page reconnects to will
+//     bring the session back, so the window shows the server's page instead,
+//     still filed with the session's project, which that page opens there
+//     again (controlReopen), as a launch would. A server that does not answer
+//     is never given up on: it may yet, and the page, still reconnecting,
+//     comes back with it;
 //   - onto this machine's server, the session must be missing from the list of
 //     the server process the window's page is served by (windowView.server),
 //     or that process gone: no server there, one on its way out, or another in
 //     its place. A server that is there but does not answer has not gone.
 //
 // With ?now, it is the user stopping the reconnect (the overlay's Stop
-// trying), and the window shows its stand-in whatever the check finds: a
-// server that answers the app is no use to a page it does not answer. What the
-// stand-in says is still what the app found, where it found anything. A remote
-// page can ask this too, which moves only its own window.
+// trying), and the window shows its stand-in whatever the check finds — a
+// server that answers the app is no use to a page it does not answer — except
+// that a forgotten session on a server by URL still goes back to the server's
+// page, which opens it again. What the stand-in says is what the app found:
+// a server by URL that answers is said to be running, never unreachable. A
+// remote page can ask this too, which moves only its own window.
 //
 // Answered {replaced}: false leaves the page to its own reconnect. A stand-in
 // already is one, a page the window no longer shows has been moved on already,
@@ -504,19 +529,31 @@ func (a *appState) controlServerLost(w http.ResponseWriter, r *http.Request, e *
 	// A framed view's outer page is this machine's server's; the page framed
 	// in it is the server by URL's, and asks on the frame secret.
 	if spec.isURL() && (v.framed == "" || callerOf(r).frame) {
-		if !now {
-			ctx, cancel := context.WithTimeout(r.Context(), remoteReachBudget)
-			defer cancel()
-			if v.framed == "" && remoteSessionGone(ctx, v.serverURL) {
-				logf("window %s: %s has gone from its server; showing the server's page", e.id, v.serverURL)
-				replaced := a.showView(e, showing(v), a.framedPageView(spec, spec.url, true), windowOpts{}) != ""
-				writeJSON(w, http.StatusOK, map[string]bool{"replaced": replaced})
-				return
-			}
+		if !now && v.framed != "" {
 			writeJSON(w, http.StatusOK, map[string]bool{"replaced": false})
 			return
 		}
-		lost = unreachableStandIn(spec.url)
+		page := v.serverURL
+		if v.framed != "" {
+			page = v.framed
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), remoteReachBudget)
+		defer cancel()
+		answer := probeRemote(ctx, page)
+		switch {
+		case answer == remoteForgotten:
+			logf("window %s: %s has gone from its server; showing the server's page", e.id, v.serverURL)
+			replaced := a.showView(e, showing(v), a.framedPageView(spec, spec.url, true), windowOpts{}) != ""
+			writeJSON(w, http.StatusOK, map[string]bool{"replaced": replaced})
+			return
+		case !now:
+			writeJSON(w, http.StatusOK, map[string]bool{"replaced": false})
+			return
+		case answer == remoteAnswered:
+			lost = remoteDisconnectedStandIn(spec.url)
+		default:
+			lost = unreachableStandIn(spec.url)
+		}
 	} else {
 		lost = lostServerStandInFor(v.server)
 		c, gone := a.serverOfWindow(v.server)
@@ -608,7 +645,7 @@ func sessionMountOf(serverURL string) (string, bool) {
 	return strings.TrimSuffix(m, "/"), true
 }
 
-// controlOpenLocal is an unreachable server's way out: the window shows this
+// controlOpenLocal is a server by URL's stand-in's Cancel: the window shows this
 // machine's server's page in the stand-in's place, and is filed as that from
 // then on rather than as the server it stood in for.
 func (a *appState) controlOpenLocal(w http.ResponseWriter, _ *http.Request, e *winEntry) {

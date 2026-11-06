@@ -188,6 +188,13 @@
 			]
 		},
 		{
+			"file": "patterns/notice.css",
+			"layer": "patterns",
+			"owns": [
+				"notice*"
+			]
+		},
+		{
 			"file": "patterns/modal-dialog.css",
 			"layer": "patterns",
 			"owns": [

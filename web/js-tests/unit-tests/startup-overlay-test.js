@@ -212,9 +212,9 @@ export async function runTests(_ctx) {
       painted.className = 'loading-overlay';
       painted.dataset.loadingOverlay = 'startup';
       painted.innerHTML = `
-        <div class="loading-overlay__content">
+        <div class="loading-overlay__content notice">
           <div class="loading-overlay__info">
-            <div class="loading-overlay__message"></div>
+            <div class="loading-overlay__message notice__title"></div>
           </div>
         </div>`;
       document.body.appendChild(painted);

@@ -511,6 +511,76 @@ export async function runTests() {
     }
   });
 
+  // The page is shaped by what there is to show. A desktop window on this
+  // computer with nothing open and nothing recent is a first run: the
+  // wordmark and a welcome head the page, over the same controls as ever —
+  // the path, the new folder and the machine's ways in, all shown at once —
+  // with no empty list of sessions among them.
+  await test('a first run in a desktop window is welcomed, over every way in', async () => {
+    const api = withExposure(stubApi([]));
+    const host = stubHost('/work/picked');
+    const m = await mount(api, { host, config: { token: 't', version: 'v1.2.3', host: 'studio', local: true } });
+    try {
+      const shown = (/** @type {string} */ sel) => !!m.root.querySelector(sel)?.checkVisibility();
+      assert(shown('.ms-welcome'), 'a first run in a desktop window is not welcomed');
+      assert(shown('.ms-welcome-logo'), 'the welcome has no wordmark');
+      assert(!m.root.querySelector('.ms-welcome h2'), 'the welcome has a heading under the wordmark');
+      assert((m.root.querySelector('.ms-welcome p')?.textContent || '').startsWith('Juggler is an AI coding agent'),
+        `the welcome opens ${JSON.stringify(m.root.querySelector('.ms-welcome p')?.textContent)}`);
+      assert(!m.root.querySelector('.ms-welcome button'), 'the welcome has buttons of its own');
+      assert(!shown('.ms-sessions'), 'an empty sessions list is shown on a first run');
+      assert(shown('form.ms-launch:not(.ms-new-folder)'), 'the path field is not shown');
+      assert(shown('form.ms-new-folder'), 'the new folder form is not shown');
+      assert(shown('.ms-exposure'), 'the machine\'s ways in are not shown');
+      assert(shown('.ms-drop-hint'), 'the window does not say a folder can be dropped on it');
+
+      api.onOpen = async () => { throw new ControlApiError(500, 'spawn failed: no binary'); };
+      /** @type {HTMLButtonElement} */ (m.root.querySelector('button.ms-launch-browse')).click();
+      await waitFor(() => shown('.ms-launch-error'), { description: 'why the picked folder did not open' });
+      assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/picked'), `Open a folder opened ${JSON.stringify(api.calls)}`);
+      assert((m.root.querySelector('.ms-launch-error')?.textContent || '').includes('spawn failed'), 'the failure does not say why');
+      assert(shown('.ms-welcome'), 'the welcome did not come back after the open failed');
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // A browser tab is a more knowing visitor's, and has no folder chooser: a
+  // line saying nothing is open yet, then the typed path and the new folder.
+  await test('a first run in a browser tab gets a line of introduction and the path field, not the welcome', async () => {
+    const m = await mount(stubApi([]));
+    try {
+      const shown = (/** @type {string} */ sel) => !!m.root.querySelector(sel)?.checkVisibility();
+      assert(!shown('.ms-welcome'), 'a browser tab is given the desktop welcome');
+      assert(!shown('.ms-drop-hint'), 'a browser tab offers to take a dropped folder');
+      assert(shown('.ms-intro') && (m.root.querySelector('.ms-intro')?.textContent || '').includes('studio'),
+        `no introduction naming the machine: ${JSON.stringify(m.root.querySelector('.ms-intro')?.textContent)}`);
+      assert(shown('form.ms-launch:not(.ms-new-folder)') && shown('form.ms-new-folder'), 'the ways in are not shown');
+      assert(!shown('.ms-sessions'), 'an empty sessions list is shown on a first run');
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // With recent projects but nothing open, the recents lead: the empty list
+  // of sessions is left out, in a window and a tab alike.
+  for (const where of ['a browser tab', 'a desktop window']) {
+    await test(`in ${where} with nothing open the recent projects lead, and the welcome is not shown`, async () => {
+      const m = await mount(stubApi([], ['/work/zeta']), where === 'a desktop window' ? { host: stubHost() } : {});
+      try {
+        const shown = (/** @type {string} */ sel) => !!m.root.querySelector(sel)?.checkVisibility();
+        assert(!shown('.ms-welcome') && !shown('.ms-intro'), 'a returning user is welcomed');
+        assert(!shown('.ms-sessions'), 'an empty sessions list is shown');
+        const headings = [...m.root.querySelectorAll('.ms-main > .ms-section')]
+          .filter((s) => s.checkVisibility()).map((s) => s.querySelector('h2')?.textContent || '');
+        assert(JSON.stringify(headings) === JSON.stringify(['Recent', 'Open a project', 'New folder']),
+          `the page reads ${JSON.stringify(headings)}`);
+      } finally {
+        m.dispose();
+      }
+    });
+  }
+
   await test('a refusal the server sent a message for is read with it', async () => {
     const message = { key: 'project {path}: give an absolute path, or one starting with ~/', params: { path: 'some/rel' } };
     const api = createControlApi({
@@ -592,6 +662,29 @@ export async function runTests() {
       await m.page.refresh();
       const after = [...m.root.querySelectorAll('.ms-recent')].map((r) => /** @type {HTMLElement} */ (r).dataset.project);
       assert(JSON.stringify(after) === '["/work/alpha","/work/zeta"]', `once alpha stopped Recents lists ${JSON.stringify(after)}`);
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // A click fires only when the press and the release land on the same
+  // element, so a redraw that rebuilds an Open between them swallows the
+  // click: each poll, and the refresh when the window comes forward, would
+  // cost a click. A redraw with the same recents keeps their rows.
+  await test('a redraw with the same recents keeps their Open buttons', async () => {
+    const api = stubApi([], ['/work/zeta', '/work/eta'], { '/work/zeta': '/p/zeta-0123abcd/' });
+    const m = await mount(api);
+    try {
+      const opens = () => [...m.root.querySelectorAll('.ms-recent-open')];
+      const before = opens();
+      assert(before.length === 2, `${before.length} Open buttons, want 2`);
+      await m.page.refresh();
+      const after = opens();
+      assert(after.length === 2 && after.every((o, i) => o === before[i]), 'a redraw with nothing changed rebuilt the Open buttons');
+      api.sessions = [{ id: 'zzz', project: '/work/zeta', link: '/p/zzz-0123abcd/', state: 'running', busy: false, startedAt: '' }];
+      await m.page.refresh();
+      const listed = [...m.root.querySelectorAll('.ms-recent')].map((r) => /** @type {HTMLElement} */ (r).dataset.project);
+      assert(JSON.stringify(listed) === '["/work/eta"]', `with zeta running Recents lists ${JSON.stringify(listed)}`);
     } finally {
       m.dispose();
     }
@@ -1348,6 +1441,38 @@ export async function runTests() {
       await m.page.refresh();
       await waitFor(() => !pop.querySelector('.ms-found-server'), { description: 'the list to empty' });
       assert(!!note()?.hidden, 'the chooser blames the firewall where the app did not');
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // The app answers what it found seconds after the chooser opens, and again
+  // on each poll: a click fires only when the press and the release land on
+  // the same element, so an answer that rebuilt the rows between them would
+  // swallow the click. An answer with the same servers keeps their rows.
+  await test('an answer with the same servers keeps the chooser\'s rows', async () => {
+    const host = stubHost();
+    host.switchServer = async () => {};
+    let answers = 0;
+    /** @type {Array<{name: string, url: string, version?: string}>} */
+    let found = [{ name: 'devbox', url: 'http://192.168.1.9:3939', version: 'v1.0.0' }];
+    host.discover = async () => { answers++; return { servers: found }; };
+    const m = await mount(stubApi([]), { host });
+    try {
+      const pop = await openChooser(m);
+      await waitFor(() => !!pop.querySelector('.ms-found-server'), { description: 'the servers found, in the chooser' });
+      const choices = () => [...pop.querySelectorAll('.ms-chooser-choice')];
+      const before = choices();
+      assert(before.length === 2, `${before.length} choices, want This computer and devbox`);
+      const asked = answers;
+      await m.page.refresh();
+      await waitFor(() => answers > asked, { description: 'the app asked again' });
+      await nextTask();
+      const after = choices();
+      assert(after.length === 2 && after.every((c, i) => c === before[i]), 'an answer with nothing changed rebuilt the chooser\'s rows');
+      found = [...found, { name: 'Studio', url: 'http://192.168.1.10:3939' }];
+      await m.page.refresh();
+      await waitFor(() => choices().length === 3, { description: 'a newly found server, in the chooser' });
     } finally {
       m.dispose();
     }

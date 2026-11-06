@@ -9,8 +9,10 @@
     <meta name="color-scheme" content="dark light">
     <title>{{.Title}}</title>
     {{template "window-shell-head" .}}
-    <!-- The sessions page's column, header title and buttons. -->
+    <!-- The sessions page's header and buttons, and the notice every
+         whole-window message is laid out as. -->
     <link rel="stylesheet" href="{{.AssetBase}}/machine/sessions.css">
+    <link rel="stylesheet" href="{{.AssetBase}}/css/patterns/notice.css">
     <link rel="stylesheet" href="{{.AssetBase}}/shell/stand-in.css">
 </head>
 <body>
@@ -24,21 +26,20 @@
     <app-container>
         <header class="app-header">
             <div class="logo si-logo" aria-hidden="true"></div>
-            <div class="ms-header-slot">
-                <div class="ms-title"><h1>{{.Title}}</h1></div>
-            </div>
+            <div class="ms-header-slot"></div>
             <window-caption-controls></window-caption-controls>
         </header>
-        <div class="ms-scroll">
-            <main class="ms-page">
-                <div class="si-message">
+        <div class="ms-scroll si-scroll">
+            <main class="notice si-page">
+                <div class="notice__title" role="heading" aria-level="1">{{.Title}}</div>
+                <div class="notice__text si-message">
                     {{range .Message}}<p>{{.}}</p>
                     {{end}}
                 </div>
                 <!-- Each button is a plain form post to this window's control
                      endpoint, answered 204 so the page stays while the window
                      that answers it is on its way. -->
-                <div class="si-actions">
+                <div class="notice__actions si-actions">
                     {{range .Buttons}}<form method="post" action="{{.Action}}"{{if .Busy}} data-busy="{{.Busy}}"{{end}}>
                         <button type="submit" class="ms-button{{if .Primary}} ms-button-primary{{end}}">{{.Label}}</button>
                     </form>

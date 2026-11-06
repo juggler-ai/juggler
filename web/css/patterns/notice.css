@@ -1,0 +1,39 @@
+/*
+ *     ▄▄ ▄▄ ▄▄  ▄▄▄▄  ▄▄▄▄ ▄▄    ▄▄▄▄▄ ▄▄▄▄
+ *     ██ ██ ██ ██ ▄▄ ██ ▄▄ ██    ██▄▄  ██▄█▄   Copyright (c) 2026 Julian Storer
+ *   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
+ */
+
+/* A notice: what a window says in place of what it shows — a wait it is in,
+   or why it cannot show what it is for — as a title, a few lines and its ways
+   out, one under another and centred. The startup and reconnecting overlay
+   (components/loading-overlay.js) and the desktop app's stand-in page
+   (shell/stand-in.html, which loads this sheet from web.Shell) are both one,
+   so every such message reads alike. Where the notice sits is its container's
+   business: the overlay centres it in the window, as does the stand-in page. */
+.notice {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+    text-align: center;
+    color: var(--text-primary);
+}
+
+.notice__title {
+    font-size: var(--font-size-2xl);
+    font-weight: var(--font-weight-normal);
+    color: var(--text-primary);
+}
+
+.notice__text {
+    color: var(--text-secondary);
+    line-height: var(--leading-normal);
+}
+
+.notice__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+}

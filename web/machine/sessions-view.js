@@ -44,6 +44,11 @@
  * The page asks for the list as it mounts, and shows the app's spinner in its
  * place until the first answer.
  *
+ * What it shows then follows what there is (layout): the sessions open, else
+ * the recent projects, else — a first run — a welcome in a desktop window on
+ * this computer, for a newcomer, and a line of introduction over the typed
+ * path anywhere else, for a visitor who came by address and knows why.
+ *
  * A viewer on this machine (`config.local`) also gets the server itself —
  * whether the desktop app or a terminal started it — and the machine's ways in:
  * LAN access and each tunnel mode, with Start and Stop, the address cards and
@@ -537,6 +542,8 @@ export function mountSessionsPage(root, {
   let recents = [];
   /** @type {Record<string, string>} */
   let recentLinks = {};
+  /** The recents and links the Recent list was last drawn from, as render keys them. */
+  let recentsShown = '';
   /** @type {ControlApiError|null} */
   let unreachable = null;
   /** Whether a list has arrived: until one has, the page cannot say there are none. */
@@ -571,10 +578,12 @@ export function mountSessionsPage(root, {
   const launchError = el('p', { className: 'ms-launch-error', attrs: { role: 'alert' } });
   const form = /** @type {HTMLFormElement} */ (el('form', { className: 'ms-launch' }, [input, launchButton, browseButton]));
   const recentsList = el('ul', { className: 'ms-recents', attrs: { 'aria-label': t('Recent projects') } });
+  // A folder dropped on a desktop window opens it (onFolderDropped), which
+  // nothing on screen would otherwise say.
   const launchSection = el('section', { className: 'ms-section' }, [
     el('h2', { text: t('Open a project') }),
     form,
-    launchError,
+    host?.takesDroppedFolders ? el('p', { className: 'ms-lan-note ms-drop-hint', text: t('You can also drop a folder onto this window.') }) : null,
   ]);
   // The recent projects, under every other way of opening one; hidden while
   // there are none to offer.
@@ -629,6 +638,24 @@ export function mountSessionsPage(root, {
     el('h2', { text: t('Active sessions') }),
     sessionsList,
   ]);
+
+  // A first run in a desktop window on this computer (layout): the wordmark and
+  // a word on what Juggler is head the page, over the same controls as ever.
+  const welcome = el('div', { className: 'ms-welcome' }, [
+    // i18n-ignore: the product name, which the wordmark spells out
+    el('div', { className: 'ms-welcome-logo', attrs: { role: 'img', 'aria-label': 'Juggler' } }),
+    el('p', { text: t('Juggler is an AI coding agent built for transparency, control and fast iteration.') }),
+    el('p', { text: t('To begin, open a project folder below: an existing codebase, or a new folder for something fresh. If you haven’t connected an AI provider yet, Juggler will help you set one up.') }),
+  ]);
+  // A first run anywhere else — a browser tab, or a window on another
+  // computer's server — is a more knowing visitor's: a line saying so, over
+  // the typed path and the new folder.
+  const intro = el('p', {
+    className: 'ms-lan-note ms-intro',
+    text: config.host
+      ? t('Nothing has been opened on {host} yet. Open a project folder by its path, or create a new one.', { host: config.host })
+      : t('Nothing has been opened here yet. Open a project folder by its path, or create a new one.'),
+  });
 
   // What the page is while a project opens: its spinner, naming the project,
   // in place of everything else (showLaunching). Starting a session spawns a
@@ -757,6 +784,8 @@ export function mountSessionsPage(root, {
       tunnelBox,
     ])
     : null;
+  const mainColumn = el('div', { className: 'ms-column ms-main' });
+  const sideColumn = exposureSection ? el('div', { className: 'ms-column ms-side' }, [exposureSection]) : null;
 
   /** @type {HTMLIFrameElement|null} */
   let frame = null;
@@ -774,23 +803,62 @@ export function mountSessionsPage(root, {
     // Two columns, which a wide window sets side by side (sessions.css): the
     // sessions and every way of opening one — a project, a new folder, a
     // recent project — and the machine's ways in. With no ways in, there is
-    // one.
-    root.append(banner, el('div', { className: 'ms-column ms-main' },
-      [opening, sessionsSection, launchSection, folderSection, recentsSection]));
-    if (exposureSection) root.append(el('div', { className: 'ms-column ms-side' }, [exposureSection]));
+    // one. Which parts show, and in what order, is layout's.
+    root.append(banner, mainColumn);
+    if (sideColumn) root.append(sideColumn);
     root.append(launchingPanel);
   }
+
+  /** The project opening, while the page is its spinner ('' for none). */
+  let launchingProject = '';
 
   /**
    * Show the page as its spinner while project opens, or ('') as itself again.
    * @param {string} project - The folder opening ('' for none).
    */
   function showLaunching(project) {
+    launchingProject = project;
     launchingName.textContent = project ? t('Opening {name}…', { name: baseName(project) }) : '';
-    launchingPanel.hidden = !project;
-    for (const child of root.children) {
-      if (child !== launchingPanel) /** @type {HTMLElement} */ (child).hidden = !!project;
-    }
+    layout();
+  }
+
+  /**
+   * Shape the page to what it has to show:
+   * - opening a project: its spinner alone (showLaunching);
+   * - until the first list: that list's spinner, and nothing to act on yet;
+   * - sessions open: them, then every way of opening another, then the recents;
+   * - nothing open, with recent projects: the recents first, and no empty list;
+   * - nothing open and nothing recent, a first run: the ways of opening one
+   *   and the machine's ways in, under the welcome in a desktop window on this
+   *   computer, in one column centred in it, and under a line saying so
+   *   anywhere else.
+   */
+  function layout() {
+    if (framed) return;
+    const offered = recentsToOffer().length > 0;
+    const state = launchingProject ? 'launching'
+      : !listed ? 'loading'
+        : sessions.length ? 'working'
+          : offered ? 'returning' : 'first-run';
+    const welcoming = state === 'first-run' && !!host?.pickDirectory;
+    root.classList.toggle('ms-welcoming', welcoming);
+    launchingPanel.hidden = state !== 'launching';
+    banner.hidden = state === 'launching';
+    mainColumn.hidden = state === 'launching';
+    welcome.hidden = !welcoming;
+    intro.hidden = state !== 'first-run' || welcoming;
+    sessionsSection.hidden = state !== 'working' && state !== 'loading';
+    launchSection.hidden = state === 'loading';
+    folderSection.hidden = state === 'loading';
+    recentsSection.hidden = state === 'loading' || !offered;
+    // The ways in wait for the first list too, unless it is not coming, since
+    // that list decides whether the page is laid out as a first run.
+    if (sideColumn) sideColumn.hidden = state === 'launching' || (state === 'loading' && !unreachable);
+    const order = state === 'returning'
+      ? [welcome, intro, opening, launchError, recentsSection, launchSection, folderSection, sessionsSection]
+      : [welcome, intro, opening, launchError, sessionsSection, launchSection, folderSection, recentsSection];
+    // Moved only when the order changes, since a move takes the keyboard's focus.
+    if (order.some((part, i) => mainColumn.children[i] !== part)) mainColumn.append(...order);
   }
   // A page the browser brings back from its cache, as Back does after a
   // session opened in this tab, is the page again, not a spinner.
@@ -876,6 +944,9 @@ export function mountSessionsPage(root, {
     return el('li', { className, attrs: { 'data-url': url } }, [choice]);
   }
 
+  /** The servers the chooser's rows were last drawn from, as renderChooser keys them. */
+  let chooserShown = '';
+
   /**
    * Redraw the chooser's servers from the last the app found, and name the
    * server framed in the header as it was found: the window's address alone
@@ -884,6 +955,11 @@ export function mountSessionsPage(root, {
    * This computer stands alone in the top section. The network's list holds
    * every other server: first the one framed, if any — found or not, so its
    * row holds still as asks find and miss it — then the rest found.
+   *
+   * The rows are rebuilt only when what they show changes: a click fires only
+   * when the press and the release land on the same element, so a row
+   * replaced between them — by the answer that comes seconds after the
+   * chooser opens, or a poll's — swallows the click.
    */
   function renderChooser() {
     const shown = framed ? framed.server : '';
@@ -891,15 +967,19 @@ export function mountSessionsPage(root, {
     if (current) shownName = current.name;
     const label = switchButton?.querySelector('.ms-server-label');
     if (label && shown) label.textContent = shownName || serverLocation(config, shown);
-    hereList.replaceChildren(
-      choiceRow('ms-chooser-local', '', { name: t('This computer'), where: config.host || '', current: !framed }),
-    );
     const others = found.filter((s) => s !== current);
-    foundList.replaceChildren(...[
-      current ? choiceRow('ms-found-server', current.url, { name: current.name, where: current.url, current: true, version: current.version }) : null,
-      shown && !current ? choiceRow('ms-found-server', shown, { name: shownName || hostOf(shown), where: shown, current: true }) : null,
-      ...others.map((s) => choiceRow('ms-found-server', s.url, { name: s.name, where: s.url, current: false, version: s.version })),
-    ].filter((x) => x !== null));
+    const key = JSON.stringify([shown, shownName, found.map((s) => [s.url, s.name, s.version || '', s.urls || []])]);
+    if (key !== chooserShown) {
+      chooserShown = key;
+      hereList.replaceChildren(
+        choiceRow('ms-chooser-local', '', { name: t('This computer'), where: config.host || '', current: !framed }),
+      );
+      foundList.replaceChildren(...[
+        current ? choiceRow('ms-found-server', current.url, { name: current.name, where: current.url, current: true, version: current.version }) : null,
+        shown && !current ? choiceRow('ms-found-server', shown, { name: shownName || hostOf(shown), where: shown, current: true }) : null,
+        ...others.map((s) => choiceRow('ms-found-server', s.url, { name: s.name, where: s.url, current: false, version: s.version })),
+      ].filter((x) => x !== null));
+    }
     foundList.hidden = !shown && found.length === 0;
     foundHint.hidden = others.length > 0;
     foundFirewall.hidden = !firewalled || others.length > 0;
@@ -1411,9 +1491,17 @@ export function mountSessionsPage(root, {
       }));
     }
 
+    // Rebuilt only when what it shows changes: a click fires only when the
+    // press and the release land on the same element, so an Open replaced
+    // between them — by a poll, or the refresh as the window comes forward —
+    // swallows the click.
     const offered = recentsToOffer();
-    recentsList.replaceChildren(...offered.map(recentRow));
-    recentsSection.hidden = offered.length === 0;
+    const recentsKey = JSON.stringify(offered.map((p) => [p, recentLinks[p] || '']));
+    if (recentsKey !== recentsShown) {
+      recentsShown = recentsKey;
+      recentsList.replaceChildren(...offered.map(recentRow));
+    }
+    layout();
   }
 
   /**

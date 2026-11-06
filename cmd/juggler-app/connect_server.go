@@ -22,15 +22,16 @@ import (
 // A server by address can be down when the app starts, and a window onto it
 // would then be a blank page with nothing in it to act on. So a window whose
 // server does not answer shows a stand-in for it instead (stand_in.go),
-// saying so, with a way to try again and a way out to a local window — which is
-// also how a connected server that is gone for good stops being reopened.
+// saying so, with a way to try again and Cancel, a way out to this machine's
+// own page — which is also how a connected server that is gone for good stops
+// being reopened.
 
 var (
 	unreachableWindowTitle = msg.New("Server unreachable — Juggler")
 	unreachablePageTitle   = msg.New("Can't reach the server")
 	unreachableRetry       = msg.New("Try again")
 	unreachableTrying      = msg.New("Trying…")
-	unreachableOpenLocal   = msg.New("Open a local window instead")
+	cancelLabel            = msg.New("Cancel")
 
 	// connectFromURLWindowRefusal is why a page a server by URL sent cannot
 	// switch its window to another server, or list them (windowActions).

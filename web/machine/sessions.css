@@ -714,6 +714,68 @@ body {
     --size: 2rem;
 }
 
+/* A first run in a desktop window (sessions-view.js, layout): one column,
+   centred in the window whatever its width — the welcome, then the ways of
+   opening a project, then the machine's ways in — every part the same gap
+   from the next, which the wide layout's grid (above) would otherwise set to
+   none between the two columns. */
+.ms-page.ms-welcoming {
+    max-width: 44rem;
+    margin-inline: auto;
+}
+
+@media (width >= 60rem) {
+    .ms-scroll:has(> .ms-page.ms-welcoming) {
+        overflow-y: auto;
+    }
+
+    .ms-page.ms-welcoming {
+        display: flex;
+        gap: var(--spacing-xl);
+        height: auto;
+        max-width: 44rem;
+        padding-block: var(--spacing-xl);
+    }
+
+    .ms-page.ms-welcoming > .ms-column {
+        overflow: visible;
+        padding: 0;
+    }
+}
+
+.ms-welcome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding-block: var(--spacing-xl) var(--spacing-md);
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.ms-welcome[hidden],
+.ms-intro[hidden] {
+    display: none;
+}
+
+.ms-welcome-logo {
+    height: 3rem;
+    aspect-ratio: 79.433 / 31.038;
+    margin-bottom: var(--spacing-md);
+    background-color: var(--text-primary);
+    mask-image: var(--logo-with-name-url);
+    mask-size: contain;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    opacity: 0.85;
+}
+
+.ms-welcome p {
+    max-width: 34rem;
+    font-size: var(--font-size-body-lg);
+    line-height: 1.6;
+}
+
 @media (width <= 36rem) {
     .ms-page {
         padding: var(--spacing-lg) var(--spacing-md);

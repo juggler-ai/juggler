@@ -398,8 +398,9 @@ func TestAWindowOnAServerByURLReturnsToItsFramedSessionsPage(t *testing.T) {
 // TestAFramedWindowsServerLostIsAskedOfTheServerItsPageIsOn: a framed window
 // has two pages and two servers. The outer page giving up is this machine's
 // server lost, and a stand-in for that; the framed page giving up is the other
-// server's, and the unreachable stand-in for it. Either is filed under the
-// server the window is on, so its Try again frames that server again.
+// server's, and a stand-in for it — saying it stopped reconnecting, as that
+// server answers. Either is filed under the server the window is on, so its
+// Try again frames that server again.
 func TestAFramedWindowsServerLostIsAskedOfTheServerItsPageIsOn(t *testing.T) {
 	a := newTestAppState(t)
 	shown := viewsShown(t)
@@ -414,8 +415,8 @@ func TestAFramedWindowsServerLostIsAskedOfTheServerItsPageIsOn(t *testing.T) {
 	if !replaced(t, controlAsFrame(a, "w1", "server-lost?now=1")) {
 		t.Fatal("the framed page's Stop trying did not replace the window")
 	}
-	if s := <-shown; s.view.standIn == nil || s.view.standIn.kind != standInUnreachable || s.view.spec != want {
-		t.Fatalf("the framed page's Stop trying showed %+v; want the unreachable stand-in for %+v", s.view, want)
+	if s := <-shown; s.view.standIn == nil || s.view.standIn.title.Key != disconnectedPageTitle.Key || !strings.Contains(s.view.standIn.message[0].English(), server) || s.view.spec != want {
+		t.Fatalf("the framed page's Stop trying showed %+v; want the stand-in saying %s answers, for %+v", s.view, server, want)
 	}
 
 	registerFramed(a, "w2", server, local, on)

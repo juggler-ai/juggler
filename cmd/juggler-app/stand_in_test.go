@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -226,7 +227,10 @@ func TestAWindowWhoseUserStopsReconnectingBecomesItsStandIn(t *testing.T) {
 	}))
 	t.Cleanup(answering.Close)
 	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: answering.URL, connected: true}, serverURL: answering.URL}})
-	expect("w1", unreachablePageTitle)
+	expect("w1", disconnectedPageTitle)
+	down := addressWithNoServer(t)
+	registerWindow(a, &winEntry{id: "w1b", role: roleMain, view: windowView{spec: windowSpec{url: down, connected: true}, serverURL: down}})
+	expect("w1b", unreachablePageTitle)
 
 	srv := newStubMachineServer(t, a, core.Version)
 	base := "http://" + srv.addr()
@@ -244,6 +248,69 @@ func TestAWindowWhoseUserStopsReconnectingBecomesItsStandIn(t *testing.T) {
 	registerWindow(a, &winEntry{id: "w4", role: rolePinboard, view: windowView{spec: windowSpec{url: answering.URL, connected: true}, serverURL: answering.URL}})
 	if rec := controlRequest(a, http.MethodPost, "/win/w4/server-lost?now=1"); rec.Code != http.StatusConflict {
 		t.Fatalf("a board: status = %d, want 409", rec.Code)
+	}
+}
+
+// TestStopTryingOnAServerByURLSaysWhatTheServerSaid: Stop trying on a window
+// onto a server by URL asks that server before saying anything about it. A
+// server restarted under the window has forgotten its session, so the window
+// returns to the server's page, which reopens the session's project there, as
+// a minute of reconnecting does. A server that answers, but not for the
+// session, is not called unreachable: its stand-in says the window stopped
+// reconnecting, with Cancel beside Try again. Only a server that does not
+// answer, or refuses this computer, is unreachable.
+func TestStopTryingOnAServerByURLSaysWhatTheServerSaid(t *testing.T) {
+	userpathstest.Isolate(t)
+	a := newTestAppState(t)
+	a.workspace = newWorkspaceStoreAt(workspacePath(t))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/p/gone-0123abcd/"):
+			http.Error(w, "this project has no session", http.StatusNotFound)
+		case strings.HasPrefix(r.URL.Path, "/p/starting-0123abcd/"):
+			http.Error(w, "session is not running (state: starting)", http.StatusServiceUnavailable)
+		case strings.HasPrefix(r.URL.Path, "/p/refused-0123abcd/"):
+			http.Error(w, "Forbidden: this Juggler server accepts connections from this machine only", http.StatusForbidden)
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	spec := windowSpec{url: srv.URL, connected: true, remoteProject: "/home/me/proj"}
+
+	gone := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: spec, serverURL: srv.URL + "/p/gone-0123abcd"}})
+	if !replaced(t, controlRequest(a, http.MethodPost, "/win/w1/server-lost?now=1")) {
+		t.Fatal("Stop trying on a session its server has forgotten did not replace the window")
+	}
+	if v := a.viewOf(gone); v.standIn != nil || strings.Contains(v.serverURL, "gone") || v.spec != spec {
+		t.Fatalf("Stop trying on a forgotten session shows %+v; want %s's page, filed with the project to reopen (%+v)", v, srv.URL, spec)
+	}
+
+	down := addressWithNoServer(t)
+	for _, c := range []struct {
+		id, page string
+		kind     string
+		title    msg.Message
+	}{
+		{"w2", srv.URL + "/p/starting-0123abcd", standInLost, disconnectedPageTitle},
+		{"w3", srv.URL + "/p/refused-0123abcd", standInUnreachable, unreachablePageTitle},
+		{"w4", down + "/p/gone-0123abcd", standInUnreachable, unreachablePageTitle},
+	} {
+		e := registerWindow(a, &winEntry{id: c.id, role: roleMain, view: windowView{spec: spec, serverURL: c.page}})
+		if !replaced(t, controlRequest(a, http.MethodPost, "/win/"+c.id+"/server-lost?now=1")) {
+			t.Fatalf("%s: Stop trying did not replace the window", c.id)
+		}
+		v := a.viewOf(e)
+		if v.standIn == nil || v.standIn.kind != c.kind || v.standIn.title.Key != c.title.Key || v.spec != spec {
+			t.Fatalf("%s: Stop trying on %s shows %+v; want the %s stand-in titled %q", c.id, c.page, v, c.kind, c.title.Key)
+		}
+		labels := []string{}
+		for _, b := range v.standIn.buttons {
+			labels = append(labels, b.label.Key)
+		}
+		if want := []string{unreachableRetry.Key, cancelLabel.Key}; !slices.Equal(labels, want) {
+			t.Errorf("%s: buttons %q, want %q", c.id, labels, want)
+		}
 	}
 }
 

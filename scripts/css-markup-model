@@ -1311,7 +1311,7 @@ function walkFiles(dir, test, out = []) {
  * the caller owns the one awkward dependency (tooling/node_modules) and can
  * explain itself when it is missing.
  * @param {{repoRoot: string, espree: typeof import('espree'), eslintScope: typeof import('eslint-scope')}} options - The checkout's root, and the parser and scope analyser.
- * @returns {MarkupModel} The finished model of web/{js,sdk,extensions} and the three HTML documents.
+ * @returns {MarkupModel} The finished model of web/{js,sdk,extensions} and the HTML documents listed below.
  */
 function buildMarkupModel({ repoRoot, espree, eslintScope }) {
   const model = new MarkupModel();
@@ -1334,8 +1334,9 @@ function buildMarkupModel({ repoRoot, espree, eslintScope }) {
   }
   for (const [file, source] of sources) harvestJS(source, file, espree, eslintScope, model, extended);
   // shell/window-shell.html: the blocks index.html wears from it — the resize
-  // strip among them — are its markup too.
-  for (const name of ['index.html', 'shell/window-shell.html', 'engine.html', 'sandbox.html']) {
+  // strip among them — are its markup too. shell/stand-in.html is the desktop
+  // app's own page, which wears the shared notice (patterns/notice.css).
+  for (const name of ['index.html', 'shell/window-shell.html', 'shell/stand-in.html', 'engine.html', 'sandbox.html']) {
     let html;
     try { html = fs.readFileSync(path.join(repoRoot, 'web', name), 'utf8'); } catch { continue; }
     parseFragment(html, (element) => model.add(element));

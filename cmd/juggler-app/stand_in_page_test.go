@@ -61,6 +61,9 @@ func TestAStandInWearsTheWindowShell(t *testing.T) {
 	for _, want := range []string{
 		"/css/layout/app-shell.css", "/css/layout/window-chrome.css", "/css/layout/app-header.css",
 		"/machine/sessions.css",
+		// Laid out as the notice the reconnecting overlay is, title and all.
+		"/css/patterns/notice.css", `<main class="notice si-page">`,
+		`<div class="notice__title" role="heading" aria-level="1">Can&#39;t reach the server</div>`,
 		`<header class="app-header">`, `class="window-resize-strip"`,
 		"<window-caption-controls>", "/js/components/window-caption-controls.js",
 		"/js/utils/window-fullscreen.js", "/js/utils/window-edge-resize.js",

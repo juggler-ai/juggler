@@ -65,26 +65,47 @@ func fetchWindowState(serverURL, role string) (core.WindowState, bool) {
 // with no window on screen.
 const remoteReachBudget = 5 * time.Second
 
-// remoteSessionGone reports whether a server by URL has said it no longer has
-// the session sessionURL shows (sessionMountOf): its proxy answers 404 where it
-// has no session, as once it retires one left with no viewer. Anything else —
-// another status, no answer, a URL showing no session — is not that, since a
-// session the server still holds (restarting, say) comes back and a page
-// reconnecting to it is right to wait.
-func remoteSessionGone(ctx context.Context, sessionURL string) bool {
-	if _, ok := sessionMountOf(sessionURL); !ok {
-		return false
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(sessionURL, "/")+apipaths.Health, nil) //nolint:gosec // app-owned server URL, see fetchWindowState
+// remoteAnswer is what a server by URL says when the app asks it about the
+// page a window shows there (probeRemote).
+type remoteAnswer int
+
+const (
+	// remoteSilent: no answer, or a refusal of this computer (403: LAN access
+	// off, or a Host it does not take) — the server cannot be reached from here.
+	remoteSilent remoteAnswer = iota
+	// remoteAnswered: the server answered, and has not said the session is
+	// gone. One it still holds (restarting, say) comes back, and a page
+	// reconnecting to it is right to wait.
+	remoteAnswered
+	// remoteForgotten: the server has said it no longer has the session the
+	// page shows (sessionMountOf). Its proxy answers 404 where it has no
+	// session: one it retired, left with no viewer, or any at all once the
+	// server has restarted, since a server's sessions die with it.
+	remoteForgotten
+)
+
+// probeRemote asks the server by URL a window's page is on, pageURL, about
+// that page: the health of the session it shows, or for a page showing none,
+// whether the server answers at all.
+func probeRemote(ctx context.Context, pageURL string) remoteAnswer {
+	_, session := sessionMountOf(pageURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(pageURL, "/")+apipaths.Health, nil) //nolint:gosec // app-owned server URL, see fetchWindowState
 	if err != nil {
-		return false
+		return remoteSilent
 	}
 	resp, err := windowStateHTTP.Do(req) //nolint:gosec // app-owned server URL, see fetchWindowState
 	if err != nil {
-		return false
+		return remoteSilent
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusNotFound
+	switch {
+	case resp.StatusCode == http.StatusForbidden:
+		return remoteSilent
+	case session && resp.StatusCode == http.StatusNotFound:
+		return remoteForgotten
+	default:
+		return remoteAnswered
+	}
 }
 
 // readWindowState is fetchWindowState that also says whether the server

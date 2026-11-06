@@ -93,8 +93,8 @@ server. Like a project window, it reopens each time the app starts, on the
 server's page — so a normal launch goes straight to the headless server.
 
 If the server isn't answering when the app starts, the window says so and
-offers **Try again** or **Open a local window instead**; the second one also
-stops the app reopening that server. The server must have LAN access on (see
+offers **Try again** or **Cancel**; Cancel shows this computer's own page
+instead, and stops the app reopening that server. The server must have LAN access on (see
 above), and an address it doesn't recognise as local, such as a public DNS
 name, must be listed under `connectivity.allowedHosts` in its settings.
 

@@ -19,8 +19,9 @@ var builtin embed.FS
 
 // Shell is the desktop window's shell and nothing more: the shared templates
 // in shell/ (the header bar's stylesheets, the pre-paint window-mode script,
-// the caption controls, edge resize and fullscreen), what they load, and the
-// sessions page's stylesheet, whose page column and buttons a stand-in wears.
+// the caption controls, edge resize and fullscreen), what they load, the
+// notice pattern a stand-in's message is laid out by, and the sessions page's
+// stylesheet, whose buttons a stand-in wears.
 // It is what the desktop app links to draw its own pages (cmd/juggler-app,
 // stand_in.go) — a megabyte, where Files is the whole tree. A binary that links
 // both shares the bytes of the files they have in common.
@@ -32,6 +33,7 @@ var builtin embed.FS
 //go:embed css/base/fonts.css css/base/reset.css css/base/elements.css css/base/text-selection.css
 //go:embed css/tokens/scale.css css/tokens/theme-dark.css css/tokens/theme-light.css
 //go:embed css/layout/app-shell.css css/layout/window-chrome.css css/layout/app-header.css
+//go:embed css/patterns/notice.css
 //go:embed machine/sessions.css
 //go:embed resources/fonts/* resources/juggler-logo.svg resources/juggler-logo-with-name.svg resources/chrome-pattern.svg
 //go:embed js/components/window-caption-controls.js js/components/window-caption-glyphs.js js/components/juggler-element.js

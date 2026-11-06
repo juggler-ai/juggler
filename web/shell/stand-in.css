@@ -5,12 +5,26 @@
  */
 
 /* A desktop app's stand-in page (web/shell/stand-in.html). It wears the
-   window's shell and the sessions page's column and buttons
-   (machine/sessions.css); every rule here is the page's own, under si-. */
+   window's shell, the sessions page's buttons (machine/sessions.css), and the
+   notice every whole-window message is laid out as (css/patterns/notice.css);
+   every rule here is the page's own, under si-. */
 
 /* The wordmark is only a picture here: there is no About box to open. */
 .si-logo {
     cursor: inherit;
+}
+
+/* The notice, centred in the window under its header bar. Centred by its
+   auto margins, so a notice taller than the window scrolls from its top
+   rather than losing it above the fold, as centring the content would. */
+.si-scroll {
+    display: flex;
+}
+
+.si-page {
+    margin: auto;
+    max-width: 36rem;
+    padding: var(--spacing-xl) var(--spacing-lg);
 }
 
 /* The explanation, a paragraph per message, each keeping its own line breaks
@@ -19,18 +33,11 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-md);
-    line-height: var(--leading-normal);
 }
 
 .si-message p {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-}
-
-.si-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--spacing-sm);
 }
 
 .si-actions form {

@@ -283,12 +283,14 @@ class LoadingOverlay {
     const host = this._hostLine ? '<div class="loading-overlay__host"></div>' : '';
     // Inside the info block, so the buttons arrive with the wording: a blip
     // that recovers on its own is over before there is anything to press.
-    const actions = this._actions.length > 0 ? '<div class="loading-overlay__actions"></div>' : '';
+    const actions = this._actions.length > 0 ? '<div class="loading-overlay__actions notice__actions"></div>' : '';
+    // Laid out as a notice (css/patterns/notice.css), as the desktop app's
+    // stand-in pages are, so every whole-window message reads alike.
     return `
-            <div class="loading-overlay__content">
+            <div class="loading-overlay__content notice">
                 <juggler-spinner style="--size: ${this._spinnerSize}"></juggler-spinner>
                 <div class="loading-overlay__info">
-                    <div class="loading-overlay__message"></div>
+                    <div class="loading-overlay__message notice__title"></div>
                     ${detail}
                     ${host}
                     ${actions}

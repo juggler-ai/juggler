@@ -309,6 +309,15 @@
 			]
 		},
 		{
+			"file": "components/session-switcher.css",
+			"layer": "components",
+			"owns": [
+				"ss",
+				"ss-*",
+				"ss--*"
+			]
+		},
+		{
 			"file": "components/conversation-bar.css",
 			"layer": "components",
 			"owns": [
@@ -710,6 +719,10 @@
 	],
 	"$jsSetProperties": "Custom properties set from JS rather than declared in CSS, so a bare var() referring to one is not a dangling reference.",
 	"jsSetProperties": [
+		"--ss-left",
+		"--ss-tint",
+		"--ss-top",
+		"--ss-width",
 		"--strategy-color",
 		"--logo-with-name-url",
 		"--workspace-tint",

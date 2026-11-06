@@ -284,6 +284,54 @@ export async function runTests(_ctx) {
     }
   });
 
+  // ── onSettle: a release with no hop leaves the popup up as a picker ─────────
+
+  await run('with onSettle, a release that took no hop settles instead of committing', () => {
+    const { controller, calls } = makeHarness({ onSettle: () => calls.push('settle') });
+    try {
+      pressTrigger();
+      releaseKey('Shift');
+      assert(calls.join(',') === 'start,settle',
+        `a press and release with no re-press must settle — got ${calls.join(',')}`);
+      assert(!document.body.classList.contains('hud-pointer-idle'),
+        'a settled popup answers the pointer again');
+      pressEscape();
+      releaseKey('Shift');
+      assert(calls.join(',') === 'start,settle',
+        `the gesture is over, so Escape and a release are the popup's own — got ${calls.join(',')}`);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  await run('with onSettle, a release after a hop still commits', () => {
+    const { controller, calls } = makeHarness({ onSettle: () => calls.push('settle') });
+    try {
+      pressTrigger();
+      pressTrigger();
+      releaseKey('Shift');
+      pressTrigger();
+      releaseKey('Shift');
+      assert(calls.join(',') === 'start,cycle,commit,start,settle',
+        `a hop makes the release a commit, and the next gesture starts unhopped — got ${calls.join(',')}`);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  await run('with onSettle, a commit() asked for directly commits even with no hop', () => {
+    const { controller, calls } = makeHarness({ onSettle: () => calls.push('settle') });
+    try {
+      pressTrigger();
+      controller.commit();
+      releaseKey('Shift');
+      assert(calls.join(',') === 'start,commit',
+        `a pick made another way commits, and the release after it is inert — got ${calls.join(',')}`);
+    } finally {
+      controller.destroy();
+    }
+  });
+
   // ── Trigger mode: no shortcutId, presses arrive through press() ─────────────
   // The shape of Ctrl+Tab in the desktop app: the native window claims the Tab
   // press and re-raises it as an event, while the Control key's own keydown and
@@ -403,6 +451,18 @@ export async function runTests(_ctx) {
       releaseKey('Control');
       assert(calls.join(',') === 'start:1,commit,start:1,cancel',
         `cancel() ends it without committing, and the release after it is inert — got ${calls.join(',')}`);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  await run('trigger mode: the opening press is a hop, so its release commits even with onSettle', () => {
+    const { controller, calls } = makeTriggerHarness({ onSettle: () => calls.push('settle') });
+    try {
+      holdKey('Control');
+      controller.press(1);
+      releaseKey('Control');
+      assert(calls.join(',') === 'start:1,commit', `got ${calls.join(',')}`);
     } finally {
       controller.destroy();
     }

@@ -111,8 +111,8 @@
     display: none;
 }
 
-/* The chip: the session's project path, read-only — a session stays on its
-   project, so it is a label with no button chrome and no action. */
+/* The chip: the window's project. It is the session switcher's button, which
+   wears the switcher's look (ss-chip, components/session-switcher.css). */
 :where(.app-header) .ppd-chip {
     display: inline-flex;
     align-items: center;

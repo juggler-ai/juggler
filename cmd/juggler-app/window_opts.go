@@ -111,6 +111,13 @@ type windowOpts struct {
 	// openFailedError). Set by planWindow, never off the wire.
 	notice string
 
+	// linkedConversation is the conversation a session's page opens on, sent as
+	// its ?c=: the one an attach named (the sessions page's Needs you rows name
+	// one). The page reads it once and takes it out of its address, and nothing
+	// files it with the window, so a relaunch opens where the user was. Set by
+	// the control endpoint from a normalised id, never otherwise off the wire.
+	linkedConversation string
+
 	// server and frameCtl are, for a sessions page framing a server by URL,
 	// that server's origin and the control base the page it frames holds
 	// (windowView.framed, frameSecret). The page builds the frame's URL from
@@ -339,6 +346,9 @@ func windowPageURL(serverURL, nativeCtl string, opts windowOpts) string {
 	}
 	if opts.notice != "" {
 		u += "&notice=" + url.QueryEscape(opts.notice)
+	}
+	if opts.linkedConversation != "" {
+		u += "&c=" + url.QueryEscape(opts.linkedConversation)
 	}
 	if opts.server != "" {
 		u += "&server=" + url.QueryEscape(opts.server) + "&frameCtl=" + url.QueryEscape(opts.frameCtl)

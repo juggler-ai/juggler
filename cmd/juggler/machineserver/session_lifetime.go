@@ -13,8 +13,9 @@ import (
 // WebSocket is connected. A live turn holds the session beyond this grace.
 const sessionViewerGrace = 10 * time.Second
 
-// holdViewer counts one proxied socket or terminal, not a machine-server client.
-// Its idempotent release starts the grace when the last viewer goes.
+// holdViewer counts one proxied socket or terminal, not a machine-server client,
+// and stamps the session as viewed now (Session.LastViewed). Its idempotent
+// release starts the grace when the last viewer goes.
 func (r *registry) holdViewer(id string) (release func(), ok bool) {
 	var entry *sessionEntry
 	r.do(func(m map[string]*sessionEntry) {
@@ -23,6 +24,9 @@ func (r *registry) holdViewer(id string) (release func(), ok bool) {
 			return
 		}
 		e.viewers++
+		e.Viewers = e.viewers
+		now := time.Now()
+		e.LastViewed = &now
 		entry, ok = e, true
 	})
 	if !ok {
@@ -36,6 +40,7 @@ func (r *registry) holdViewer(id string) (release func(), ok bool) {
 					return
 				}
 				entry.viewers--
+				entry.Viewers = entry.viewers
 				if entry.viewers == 0 {
 					entry.unviewedSince = time.Now()
 				}

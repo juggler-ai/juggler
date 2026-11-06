@@ -214,9 +214,12 @@ func sentFromElsewhere(r *http.Request) bool {
 }
 
 // redirectProjectLink normalizes a bare /p/<key> to /p/<key>/ so the child
-// sees "/" and relative asset URLs resolve under the link. The target is
-// rebuilt from the escaped key — never the raw request path — so it can only
-// ever be a local link. GET /p/{key}.
+// sees "/" and relative asset URLs resolve under the link, keeping the query (a
+// link to a conversation, ?c=). The target is rebuilt — its path from the
+// escaped key, never the raw request path, and its query re-encoded from the
+// parsed one, so it can carry no fragment or second path — and so can only ever
+// be a local link. GET /p/{key}.
 func (s *Server) redirectProjectLink(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/p/"+url.PathEscape(mux.Vars(r)["key"])+"/", http.StatusMovedPermanently)
+	target := url.URL{Path: "/p/" + mux.Vars(r)["key"] + "/", RawQuery: r.URL.Query().Encode()}
+	http.Redirect(w, r, target.String(), http.StatusMovedPermanently)
 }

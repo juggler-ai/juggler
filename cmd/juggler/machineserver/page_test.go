@@ -297,6 +297,34 @@ func TestSessionsPageEmbedsUnderAnotherMachinesHeader(t *testing.T) {
 	}
 }
 
+// TestSessionsPageHasNoProjectWindowEmbed: a project's page frames nothing of
+// this server's — its session switcher is its own — so the page is framed only
+// under another computer's window's header (?embed=1). Any other embed is the
+// page itself, which nothing may frame, and its config says nothing of one.
+func TestSessionsPageHasNoProjectWindowEmbed(t *testing.T) {
+	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "" }}
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+
+	frameAncestors := func(hdr http.Header) string {
+		for _, d := range strings.Split(hdr.Get("Content-Security-Policy"), ";") {
+			if d = strings.TrimSpace(d); strings.HasPrefix(d, "frame-ancestors ") {
+				return d
+			}
+		}
+		return ""
+	}
+	for _, page := range []string{"/?embed=home", "/?embed=0", "/"} {
+		_, hdr, body := fetch(t, front.URL+page)
+		if frameAncestors(hdr) != "frame-ancestors 'none'" {
+			t.Errorf("%s: %q, want no frame at all", page, frameAncestors(hdr))
+		}
+		if _, ok := decodePageConfig(t, body)["home"]; ok {
+			t.Errorf("%s: the page's config names a Home", page)
+		}
+	}
+}
+
 // TestSessionsPageFramesOnlyTheServerItIsAskedFor: a desktop window on another
 // computer's server loads this page with ?server=<that server>, and frames that
 // server's embedded page, so the CSP admits exactly that origin as a frame.

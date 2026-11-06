@@ -40,6 +40,7 @@ the current release). The project follows semantic versioning.
 - Editing an MCP server's config restarts it; the agent can restart servers too
 - Subfolder workspaces can be closed from their right-click menu or panel
 - An agent's pin of a file outside the project offers a Show button
+- Tapping the strategy, model or thinking shortcut leaves its menu open for the arrow keys
 
 ## [0.7.9] - 2026-10-28
 

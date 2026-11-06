@@ -67,6 +67,8 @@ import workerManager from './services/worker-manager.js';
 import { CLOSE_FLUSH_ACK_TIMEOUT_MS } from './utils/constants.js';
 import providersCache from './services/providers-cache.js';
 import { setupHeaderControls } from './components/header-controls.js';
+import { createSessionPopover } from './components/session-popover.js';
+import { bindProjectNavigation, listenForOpenConversation } from './services/project-navigation.js';
 import { registerConversationShortcuts } from './components/shortcut-bindings.js';
 import { recordUsage } from './services/guidance/usage-signals.js';
 import { updateWindowTitle } from './utils/window-title.js';
@@ -223,13 +225,24 @@ class JugglerApp {
    * @private
    */
   async _flushDraftsForClose(token) {
+    await this.flushDraftsToDisk();
+    if (token) await reportDraftsFlushed(token);
+  }
+
+  /**
+   * Rescue every pending draft and force the affected conversations to disk:
+   * what a close, a reload or a move of this window to another session does
+   * before this page goes. Always settles, and promptly: a worker that can't
+   * be reached costs its slice of the budget and nothing more.
+   * @returns {Promise<void>}
+   */
+  async flushDraftsToDisk() {
     const rescued = this.flushComposerDrafts();
-    // Comfortably inside the host's wait: it would rather quit with a draft in
-    // flight than hang on a wedged worker.
+    // Comfortably inside the host's close wait: it would rather quit with a
+    // draft in flight than hang on a wedged worker.
     await Promise.allSettled(
       [...rescued].map((id) => workerManager.flushPersistence(id, CLOSE_FLUSH_ACK_TIMEOUT_MS))
     );
-    if (token) await reportDraftsFlushed(token);
   }
 
   /**
@@ -590,6 +603,18 @@ class JugglerApp {
 
     // Wire global header controls (undo/redo + project path)
     setupHeaderControls(session);
+
+    // The session switcher, from the project chip and ⌘K. A board's window
+    // has no project chip to hold it.
+    if (!isPinboardView()) {
+      // A move of this window to another session puts the drafts on disk
+      // first, as a close does; a pick of this project made in another window
+      // raises this one at the conversation.
+      bindProjectNavigation({ session, flushDrafts: () => this.flushDraftsToDisk() });
+      listenForOpenConversation();
+      const chip = document.getElementById('project-path-chip');
+      if (chip) createSessionPopover(chip);
+    }
 
     // Name the native OS window after the session's project so the macOS
     // "Window" menu and the Windows/Linux taskbar can tell windows apart.

@@ -3,24 +3,33 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * The machine server's sessions page: the sessions this machine runs, and a
- * way to open, stop, retry or dismiss each, plus launching a new one from the
- * machine's recent projects, a typed path, or a new folder it makes.
+ * The machine server's sessions page: the session switcher
+ * (components/session-switcher.js) filling the window, as a project page drops
+ * it under its chip — the sessions this machine runs, each to open, stop,
+ * retry or dismiss, then its recent projects, then Open folder… and New
+ * folder… — with a filter over them that ⌘K (Ctrl+K) reaches from anywhere on
+ * the page.
  *
  * Everything it does goes through the control API it is given, and every
- * page it sends this tab to through the `navigate` it is given, so it runs as
- * well against stand-ins as against the server.
+ * page it sends this tab to through the `navigate` and `openTab` it is given,
+ * so it runs as well against stand-ins as against the server.
  *
- * In a browser, a session opens in this tab, as a link does — a modified click
- * on its Open link still gives it a tab of its own — and a session launched
- * from here takes this tab to it once it runs. The session's header has a
- * button back to this page.
+ * In a browser, a session opens in this tab, and with ⌘ (Ctrl) held in a tab
+ * of its own; a project launched from here takes this tab to its session once
+ * it runs. Open folder… and New folder… are a typed path, which the server
+ * opens, or makes and then opens. The session's header has a button back to
+ * this page.
  *
  * In a desktop app's window the page is that window's empty state, and the app
  * is its `host`: a session opens in the same window, by asking the host to show
- * it there, and the host's folder chooser and dropped folders open projects too.
- * A window on another computer's server, restored at launch, opens again the
- * project whose session it showed when the app last quit (`host.reopen`).
+ * it there, and the host's folder chooser — which can make a folder too — and
+ * dropped folders open projects. A window on another computer's server,
+ * restored at launch, opens again the project whose session it showed when the
+ * app last quit (`host.reopen`).
+ *
+ * The page acts on the switcher's picks (its actions) and decides nothing of
+ * what it lists: it hands the switcher the sessions and recents of each
+ * snapshot, from the events stream or the poll, and has it redraw.
  *
  * On this machine's server the window's header has a server chooser: the
  * servers the app finds on the network, this computer, and a typed address,
@@ -30,24 +39,23 @@
  * and the body is the frame alone, to which the app's menu commands the page
  * acts on are passed on (`relayFramerEvents`, on the framed side).
  *
- * A running session's whole row opens it, as its Open link does; the link stays
- * the keyboard's way in, so the row adds no second control around the others.
- *
  * A session is served at its project's link, /p/<key>/, an address that
- * outlives the session; its id is only the control API's handle. Open carries
- * the link, for copying and bookmarking. While a project has no running
+ * outlives the session; its id is only the control API's handle. A session or
+ * recent project opened in a tab of its own is opened at its link, for copying
+ * and bookmarking. While a project has no running
  * session, the server serves this page at its link instead, told to open the
  * project (`config.open`): the page opens it and reloads the link, which is
  * then the session — or, for a visitor another site sent (`config.confirm`),
  * asks first.
  *
- * The page asks for the list as it mounts, and shows the app's spinner in its
- * place until the first answer.
+ * The page asks for the list as it mounts, and shows the app's spinner in the
+ * switcher's place until the first answer.
  *
- * What it shows then follows what there is (layout): the sessions open, else
- * the recent projects, else — a first run — a welcome in a desktop window on
- * this computer, for a newcomer, and a line of introduction over the typed
- * path anywhere else, for a visitor who came by address and knows why.
+ * What it shows then follows what there is (layout): the switcher, under its
+ * filter, while there are sessions or recent projects; else — a first run — the
+ * switcher's ways of opening a folder alone, with no filter, under a welcome in
+ * a desktop window on this computer, for a newcomer, and under a line of
+ * introduction anywhere else, for a visitor who came by address and knows why.
  *
  * A viewer on this machine (`config.local`) also gets the server itself —
  * whether the desktop app or a terminal started it — and the machine's ways in:
@@ -61,17 +69,18 @@
  * @module machine/sessions-view
  */
 
-import { t, formatRelativeTime } from '../sdk/lib/i18n.js';
-import { CHECK_SVG, COMPUTER_SVG, DESKTOP_SVG, DROPDOWN_ARROW_SVG, OPEN_IN_NEW_SVG } from '../js/utils/icons.js';
+import { t } from '../sdk/lib/i18n.js';
+import { CHECK_SVG, COMPUTER_SVG, DESKTOP_SVG, DROPDOWN_ARROW_SVG } from '../js/utils/icons.js';
 import { extractErrorMessage, errorText } from '../sdk/lib/error-utils.js';
 import { ControlApiError } from './control-api.js';
 import { pageURL } from '../js/utils/page-url.js';
 import { ExposureView } from '../js/components/connectivity/exposure-view.js';
 import { presentPopup, POPUP_REVEALED_EVENT } from '../js/utils/popup-surface.js';
 import { createCopyButton } from '../sdk/lib/copy-button.js';
-
-/** How many recent projects the page offers. */
-const RECENTS_SHOWN = 8;
+import { followSessionsFeed } from '../js/services/sessions-feed.js';
+import { baseName } from '../js/utils/session-attention.js';
+import { SessionSwitcher } from '../js/components/session-switcher.js';
+import { isMac } from '../js/services/key-shortcut-manager.js';
 
 /**
  * @typedef {import('./control-api.js').Session} Session
@@ -89,9 +98,10 @@ const RECENTS_SHOWN = 8;
  *   getLaunch?: () => Promise<import('./control-api.js').LaunchState>,
  *   setLaunch?: (change: Partial<import('./control-api.js').LaunchState>) => Promise<unknown>,
  *   getStatus?: () => Promise<import('../js/components/connectivity/exposure-view.js').ServerStatus>,
+ *   events?: (onSnapshot: (snapshot: import('./control-api.js').Snapshot) => void, signal: AbortSignal) => Promise<void>,
  * }} ControlApi
  * @typedef {{
- *   attach: (id: string, project: string, link: string) => Promise<void>,
+ *   attach: (id: string, project: string, link: string, conversation?: string) => Promise<void>,
  *   answerClose: (token: string) => Promise<void>,
  *   pickDirectory?: () => Promise<string|null>,
  *   takesDroppedFolders?: boolean,
@@ -101,7 +111,8 @@ const RECENTS_SHOWN = 8;
  *   reopen?: () => Promise<string>,
  * }} NativeHost
  *   The desktop app (native-host.js). attach is told the session's project too,
- *   which the app keeps for the window. The folder chooser, dropped folders and
+ *   which the app keeps for the window, and may name one of the session's
+ *   conversations for its page to open on. The folder chooser, dropped folders and
  *   switchServer — with discover, the servers the app has found on the network
  *   to switch to — are there only on this machine's server's page; reopen only
  *   on a server by URL's, answering the project whose session the window
@@ -129,91 +140,16 @@ const RECENTS_SHOWN = 8;
  */
 
 /**
- * Whether a click is the browser's to act on — a modified or non-primary one,
- * which gives a link a tab or window of its own — rather than the page's.
- * @param {MouseEvent} event - The click.
- * @returns {boolean} True for a click the page leaves alone.
+ * Where a new folder at a typed path goes: its parent and its name. A bare
+ * name goes in the home folder, which the server expands.
+ * @param {string} path - The folder's path, as typed.
+ * @returns {{parent: string, name: string}} Where to make it.
  */
-function browsersClick(event) {
-  return event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
-}
-
-/**
- * The last segment of a path, for a project's display name.
- * @param {string} p - A folder path, POSIX or Windows.
- * @returns {string} Its last segment (the path itself if it has none).
- */
-function baseName(p) {
-  return p.split(/[\\/]+/).filter(Boolean).at(-1) ?? p;
-}
-
-/**
- * Where a new folder is offered: beside the most recent project, since the
- * next one is usually its sibling, else the home folder, which the server
- * expands.
- * @param {string[]} recents - Recent projects, most recent first.
- * @returns {string} A parent folder, never empty.
- */
-function defaultParent(recents) {
-  const last = recents[0] || '';
-  const cut = Math.max(last.lastIndexOf('/'), last.lastIndexOf('\\'));
-  return cut > 0 ? last.slice(0, cut) : '~';
-}
-
-/**
- * A distance in time, in the largest unit that keeps it whole enough to read.
- * @param {number} ms - Signed milliseconds from now (negative is past).
- * @returns {string} "5 minutes ago", "in 4 seconds", ….
- */
-function relative(ms) {
-  const s = Math.round(ms / 1000);
-  const abs = Math.abs(s);
-  if (abs < 60) return formatRelativeTime(s, 'second');
-  if (abs < 3600) return formatRelativeTime(Math.round(s / 60), 'minute');
-  if (abs < 86400) return formatRelativeTime(Math.round(s / 3600), 'hour');
-  return formatRelativeTime(Math.round(s / 86400), 'day');
-}
-
-/**
- * What a session is doing, as the page shows it: a running session is busy or
- * idle; any other state is its own.
- * @param {Session} s - The session.
- * @returns {string} busy, idle, starting, stopping, restarting or error.
- */
-function displayState(s) {
-  if (s.state === 'running') return s.busy ? 'busy' : 'idle';
-  return s.state;
-}
-
-/**
- * The line under a session's name saying what it is doing.
- * @param {Session} s - The session.
- * @param {number} now - The time now, in ms.
- * @returns {string} Its status line.
- */
-function statusText(s, now) {
-  switch (displayState(s)) {
-    case 'busy':
-      return t('Working');
-    case 'idle':
-      return s.lastActive
-        ? t('Idle · last active {when}', { when: relative(Date.parse(s.lastActive) - now) })
-        : t('Idle');
-    case 'starting':
-      return t('Starting…');
-    case 'stopping':
-      return t('Stopping…');
-    case 'restarting': {
-      const when = s.nextRestartAt ? relative(Math.max(0, Date.parse(s.nextRestartAt) - now)) : '';
-      const retry = when ? t('Crashed · restarting {when}', { when }) : t('Crashed · restarting');
-      if (!s.restarts) return retry;
-      return `${retry} · ${t('{count, plural, one {restarted # time} other {restarted # times}}', { count: s.restarts })}`;
-    }
-    case 'error':
-      return s.error ? t('Stopped: {reason}', { reason: s.error }) : t('Stopped');
-    default:
-      return s.state;
-  }
+function splitFolder(path) {
+  const bare = path.replace(/[/\\]+$/, '');
+  const cut = Math.max(bare.lastIndexOf('/'), bare.lastIndexOf('\\'));
+  if (cut < 0) return { parent: '~', name: bare };
+  return { parent: cut === 0 ? bare.charAt(0) : bare.slice(0, cut), name: bare.slice(cut + 1) };
 }
 
 /**
@@ -422,8 +358,8 @@ function framedPageURL({ server, frameCtl, theme = '', mode = '' }) {
 
 /**
  * The app's menu commands the sessions page acts on, which a framed window
- * passes on to the page it frames: Open, which goes to the page's field for
- * opening a project.
+ * passes on to the page it frames: Open, which runs the switcher's Open
+ * folder….
  */
 const PAGE_COMMANDS = ['juggler:open-project'];
 
@@ -512,9 +448,9 @@ export function serverTitle(config, { framed = null, chooser = null } = {}) {
  * @param {ControlApi} options.api - The control API.
  * @param {PageConfig} options.config - What the server handed the page.
  * @param {(url: string) => void} [options.navigate] - Sends this tab to a page.
+ * @param {(url: string) => void} [options.openTab] - Opens a page in a tab of its own.
  * @param {() => void} [options.reload] - Loads this page's address again.
  * @param {(ms: number) => Promise<void>} [options.sleep] - Waits ms.
- * @param {(message: string) => boolean} [options.confirm] - Asks the user a yes/no question.
  * @param {() => number} [options.now] - The time now, in ms.
  * @param {number} [options.pollMs] - How often to refresh the list (0: never by itself).
  * @param {NativeHost|null} [options.host] - The desktop app whose window shows
@@ -537,9 +473,9 @@ export function mountSessionsPage(root, {
   api,
   config,
   navigate = (url) => { window.location.assign(url); },
+  openTab = (url) => { window.open(url, '_blank', 'noopener'); },
   reload = () => { window.location.reload(); },
   sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
-  confirm = (message) => window.confirm(message),
   now = () => Date.now(),
   pollMs = 2000,
   host = null,
@@ -550,105 +486,64 @@ export function mountSessionsPage(root, {
 }) {
   /** @type {Session[]} */
   let sessions = [];
-  /** @type {string[]} */
-  let recents = [];
-  /** @type {Record<string, string>} */
-  let recentLinks = {};
-  /** The recents and links the Recent list was last drawn from, as render keys them. */
-  let recentsShown = '';
+  /** @type {import('./control-api.js').Recents} */
+  let recents = { paths: [], links: {}, waiting: {} };
   /** @type {ControlApiError|null} */
   let unreachable = null;
   /** Whether a list has arrived: until one has, the page cannot say there are none. */
   let listed = false;
-  /** IDs with a stop or dismiss in flight, whose actions are held. */
-  const pending = new Set();
   let disposed = false;
   /** @type {ReturnType<typeof setTimeout>|null} */
   let timer = null;
+  /** Whether the events stream is delivering: the poll then leaves the sessions to it. */
+  let streaming = false;
+  /** @type {AbortController|null} Stops following the events stream. */
+  let stream = null;
 
   root.replaceChildren();
   const banner = el('div', { className: 'ms-banner-slot', attrs: { role: 'status' } });
   // What a project's link is opening, while it opens.
   const opening = el('p', { className: 'ms-lan-note ms-opening', attrs: { role: 'status' } });
   opening.hidden = true;
-
-  const input = /** @type {HTMLInputElement} */ (el('input', {
-    className: 'ms-launch-input',
-    attrs: {
-      type: 'text',
-      name: 'project',
-      autocomplete: 'off',
-      spellcheck: 'false',
-      placeholder: t('/path/to/project or ~/project'),
-      'aria-label': t('Project folder'),
-    },
-  }));
-  const launchButton = el('button', { className: 'ms-button ms-button-primary', text: t('Open'), attrs: { type: 'submit' } });
-  const browseButton = host?.pickDirectory
-    ? button(t('Browse…'), 'ms-button-quiet ms-launch-browse', () => { void browse(); })
-    : null;
   const launchError = el('p', { className: 'ms-launch-error', attrs: { role: 'alert' } });
-  const form = /** @type {HTMLFormElement} */ (el('form', { className: 'ms-launch' }, [input, launchButton, browseButton]));
-  const recentsList = el('ul', { className: 'ms-recents', attrs: { 'aria-label': t('Recent projects') } });
-  // A folder dropped on a desktop window opens it (onFolderDropped), which
-  // nothing on screen would otherwise say.
-  const launchSection = el('section', { className: 'ms-section' }, [
-    el('h2', { text: t('Open a project') }),
-    form,
+
+  // The switcher: the sessions, the recent projects and the ways of opening
+  // another, the page's one list. Until the first list arrives, the app's
+  // spinner stands in its place.
+  const switcher = framed ? null : new SessionSwitcher({
+    mode: 'page',
+    source: () => ({ sessions, recents, ownLink: '' }),
+    actions: {
+      goSession: (s, { newWindow }) => openSession(s, newWindow),
+      openRecent: (r, { newWindow }) => {
+        if (!host && newWindow && r.link) {
+          openTab(pageURL(r.link));
+          return undefined;
+        }
+        return launch(r.path);
+      },
+      retry: (s) => launch(s.project),
+      stop: (s) => stop(s),
+      pickFolder: host?.pickDirectory,
+      openPath: (path, { create }) => {
+        if (!create) return launch(path);
+        const { parent, name } = splitFolder(path);
+        return launch(path, { make: () => api.createFolder(parent, name) });
+      },
+    },
+    canPickFolder: !!host?.pickDirectory,
+    inApp: !!host,
+    now,
+  });
+  const loading = el('div', { className: 'ms-sessions-loading', attrs: { 'aria-busy': 'true' } }, [
+    el('juggler-spinner', { attrs: { 'aria-label': t('Loading sessions…') } }),
+  ]);
+  const switcherSection = el('section', { className: 'ms-section ms-switcher' }, [
+    loading,
+    switcher ? switcher.el : null,
+    // A folder dropped on a desktop window opens it (onFolderDropped), which
+    // nothing on screen would otherwise say.
     host?.takesDroppedFolders ? el('p', { className: 'ms-lan-note ms-drop-hint', text: t('You can also drop a folder onto this window.') }) : null,
-  ]);
-  // The recent projects, under every other way of opening one; hidden while
-  // there are none to offer.
-  const recentsSection = el('section', { className: 'ms-section ms-recents-section' }, [
-    el('h2', { text: t('Recent') }),
-    recentsList,
-  ]);
-
-  const folderParent = /** @type {HTMLInputElement} */ (el('input', {
-    className: 'ms-launch-input ms-folder-parent',
-    attrs: {
-      type: 'text',
-      name: 'parent',
-      autocomplete: 'off',
-      spellcheck: 'false',
-      'aria-label': t('Where to create it'),
-    },
-  }));
-  folderParent.value = defaultParent([]);
-  /** Whether the user has chosen the parent, which the recents then leave alone. */
-  let parentChosen = false;
-  folderParent.addEventListener('input', () => { parentChosen = true; });
-  const folderName = /** @type {HTMLInputElement} */ (el('input', {
-    className: 'ms-launch-input ms-folder-name',
-    attrs: {
-      type: 'text',
-      name: 'name',
-      autocomplete: 'off',
-      spellcheck: 'false',
-      placeholder: t('Folder name'),
-      'aria-label': t('Folder name'),
-    },
-  }));
-  const folderBrowse = host?.pickDirectory
-    ? button(t('Browse…'), 'ms-button-quiet ms-folder-browse', () => { void browseParent(); })
-    : null;
-  const folderError = el('p', { className: 'ms-launch-error ms-folder-error', attrs: { role: 'alert' } });
-  const folderForm = /** @type {HTMLFormElement} */ (el('form', { className: 'ms-launch ms-new-folder' }, [
-    folderParent,
-    folderName,
-    folderBrowse,
-    el('button', { className: 'ms-button ms-button-primary', text: t('Create'), attrs: { type: 'submit' } }),
-  ]));
-  const folderSection = el('section', { className: 'ms-section' }, [
-    el('h2', { text: t('New folder') }),
-    folderForm,
-    folderError,
-  ]);
-
-  const sessionsList = el('ul', { className: 'ms-sessions' });
-  const sessionsSection = el('section', { className: 'ms-section' }, [
-    el('h2', { text: t('Active sessions') }),
-    sessionsList,
   ]);
 
   // A first run in a desktop window on this computer (layout): the wordmark and
@@ -813,9 +708,8 @@ export function mountSessionsPage(root, {
     root.append(frame);
   } else {
     // Two columns, which a wide window sets side by side (sessions.css): the
-    // sessions and every way of opening one — a project, a new folder, a
-    // recent project — and the machine's ways in. With no ways in, there is
-    // one. Which parts show, and in what order, is layout's.
+    // switcher — the sessions and every way of opening one — and the machine's
+    // ways in. With no ways in, there is one. Which parts show is layout's.
     root.append(banner, mainColumn);
     if (sideColumn) root.append(sideColumn);
     root.append(launchingPanel);
@@ -838,20 +732,17 @@ export function mountSessionsPage(root, {
    * Shape the page to what it has to show:
    * - opening a project: its spinner alone (showLaunching);
    * - until the first list: that list's spinner, and nothing to act on yet;
-   * - sessions open: them, then every way of opening another, then the recents;
-   * - nothing open, with recent projects: the recents first, and no empty list;
-   * - nothing open and nothing recent, a first run: the ways of opening one
-   *   and the machine's ways in, under the welcome in a desktop window on this
-   *   computer, in one column centred in it, and under a line saying so
-   *   anywhere else.
+   * - sessions open, or recent projects: the switcher, under its filter;
+   * - nothing open and nothing recent, a first run: the switcher's ways of
+   *   opening a folder alone, with no filter, and the machine's ways in, under
+   *   the welcome in a desktop window on this computer, in one column centred
+   *   in it, and under a line saying so anywhere else.
    */
   function layout() {
     if (framed) return;
-    const offered = recentsToOffer().length > 0;
     const state = launchingProject ? 'launching'
       : !listed ? 'loading'
-        : sessions.length ? 'working'
-          : offered ? 'returning' : 'first-run';
+        : sessions.length || recents.paths.length ? 'listing' : 'first-run';
     const welcoming = state === 'first-run' && !!host?.pickDirectory;
     root.classList.toggle('ms-welcoming', welcoming);
     launchingPanel.hidden = state !== 'launching';
@@ -859,16 +750,15 @@ export function mountSessionsPage(root, {
     mainColumn.hidden = state === 'launching';
     welcome.hidden = !welcoming;
     intro.hidden = state !== 'first-run' || welcoming;
-    sessionsSection.hidden = state !== 'working' && state !== 'loading';
-    launchSection.hidden = state === 'loading';
-    folderSection.hidden = state === 'loading';
-    recentsSection.hidden = state === 'loading' || !offered;
+    loading.hidden = state !== 'loading';
+    if (switcher) {
+      switcher.el.hidden = state === 'loading';
+      switcher.showFilter(state !== 'first-run');
+    }
     // The ways in wait for the first list too, unless it is not coming, since
     // that list decides whether the page is laid out as a first run.
     if (sideColumn) sideColumn.hidden = state === 'launching' || (state === 'loading' && !unreachable);
-    const order = state === 'returning'
-      ? [welcome, intro, opening, launchError, recentsSection, launchSection, folderSection, sessionsSection]
-      : [welcome, intro, opening, launchError, sessionsSection, launchSection, folderSection, recentsSection];
+    const order = [welcome, intro, opening, launchError, switcherSection];
     // Moved only when the order changes, since a move takes the keyboard's focus.
     if (order.some((part, i) => mainColumn.children[i] !== part)) mainColumn.append(...order);
   }
@@ -1061,16 +951,6 @@ export function mountSessionsPage(root, {
   }
 
   /**
-   * Show why a new folder could not be made or opened, or clear it.
-   * @param {string} message - The reason ('' clears it).
-   */
-  function showFolderError(message) {
-    folderError.textContent = message;
-    folderError.hidden = !message;
-  }
-  showFolderError('');
-
-  /**
    * Show session id in this window, through the host. A refusal says why.
    * @param {string} id - The session's ID.
    * @param {string} project - Its project.
@@ -1111,22 +991,6 @@ export function mountSessionsPage(root, {
       report(err instanceof Error ? errorText(err) : t('The session could not be started.'));
       return false;
     }
-  }
-
-  /** Open the folder the host's chooser picks, if one is picked. */
-  async function browse() {
-    if (!host?.pickDirectory) return;
-    const picked = await host.pickDirectory();
-    if (picked) await launch(picked);
-  }
-
-  /** Take the folder the host's chooser picks, if one is picked, as the new folder's parent. */
-  async function browseParent() {
-    if (!host?.pickDirectory) return;
-    const picked = await host.pickDirectory();
-    if (!picked) return;
-    folderParent.value = picked;
-    parentChosen = true;
   }
 
   /** Whether a launch is in flight, while which another is not started. */
@@ -1250,95 +1114,34 @@ export function mountSessionsPage(root, {
     opening.hidden = false;
   }
 
-  folderForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const parent = folderParent.value.trim();
-    const name = folderName.value.trim();
-    if (!parent) {
-      folderParent.focus();
-      return;
-    }
-    if (!name) {
-      folderName.focus();
-      return;
-    }
-    const opened = await launch(`${parent}/${name}`, {
-      make: () => api.createFolder(parent, name),
-      report: showFolderError,
-    });
-    if (opened) folderName.value = '';
-  });
-
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const project = input.value.trim();
-    if (!project) {
-      input.focus();
-      return;
-    }
-    if (await launch(project)) input.value = '';
-  });
-
   /**
-   * Stop (or dismiss) a session, asking first when a turn is running in it.
+   * Stop (or dismiss) a session. The switcher asks first, in its row, when a
+   * turn is running in it.
    * @param {Session} s - The session.
-   * @param {boolean} ask - Whether a running turn needs a yes first.
+   * @returns {Promise<void>} Resolves once stopped and the list asked for again.
    */
-  async function stop(s, ask) {
-    if (ask && s.busy && !confirm(t('A turn is running in {name}. Stop the session anyway?', { name: baseName(s.project) }))) {
-      return;
-    }
-    pending.add(s.id);
-    render();
+  async function stop(s) {
     try {
       await api.stopSession(s.id);
     } catch (err) {
       showLaunchError(err instanceof Error ? errorText(err) : t('The session could not be stopped.'));
-    } finally {
-      pending.delete(s.id);
     }
     await refresh();
   }
 
   /**
-   * A link that opens a session.
+   * Open a session: in a desktop window, this window, through the host; in a
+   * browser, this tab — or, asked for (⌘ or Ctrl held), a tab of its own — at
+   * its project's link, which outlives the session.
    * @param {Session} s - The session.
-   * @param {string} className - The link's class.
-   * @returns {HTMLElement} The link.
+   * @param {boolean} newWindow - Whether a tab of its own was asked for.
+   * @returns {Promise<boolean>|undefined} The attach, in a desktop window.
    */
-  function openLink(s, className) {
-    return sessionLink(s, `ms-button ms-button-primary ${className}`,
-      [icon(OPEN_IN_NEW_SVG), el('span', { text: t('Open') })]);
-  }
-
-  /**
-   * Open a session as its link does: in this tab in a browser; in a desktop
-   * window, this window, through the host.
-   * @param {Session} s - The session.
-   */
-  function openSession(s) {
-    if (host) void attach(s.id, s.project, s.link);
+  function openSession(s, newWindow) {
+    if (host) return attach(s.id, s.project, s.link);
+    if (newWindow) openTab(pageURL(s.link));
     else navigate(pageURL(s.link));
-  }
-
-  /**
-   * A link to a session, at its project's link, so one copied or bookmarked
-   * from here outlives the session: this tab in a browser, as a plain link
-   * goes; in a desktop window, this window, through the host.
-   * @param {Session} s - The session.
-   * @param {string} className - The link's classes.
-   * @param {Array<Node>} children - What it shows.
-   * @returns {HTMLElement} The link.
-   */
-  function sessionLink(s, className, children) {
-    const a = el('a', { className, attrs: { href: pageURL(s.link) } }, children);
-    if (host) {
-      a.addEventListener('click', (event) => {
-        event.preventDefault();
-        void attach(s.id, s.project, s.link);
-      });
-    }
-    return a;
+    return undefined;
   }
 
   /**
@@ -1354,50 +1157,6 @@ export function mountSessionsPage(root, {
     b.disabled = disabled;
     b.addEventListener('click', onClick);
     return b;
-  }
-
-  /**
-   * One session's row.
-   * @param {Session} s - The session.
-   * @returns {HTMLElement} Its list item.
-   */
-  function sessionRow(s) {
-    const state = displayState(s);
-    const held = pending.has(s.id);
-    /** @type {Array<HTMLElement>} */
-    const actions = [];
-    if (state === 'busy' || state === 'idle') {
-      actions.push(openLink(s, 'ms-session-open'));
-      actions.push(button(t('Stop'), 'ms-button-quiet ms-session-stop', () => { void stop(s, true); }, held));
-    } else if (state === 'restarting') {
-      actions.push(button(t('Stop'), 'ms-button-quiet ms-session-stop', () => { void stop(s, false); }, held));
-    } else if (state === 'error') {
-      actions.push(button(t('Retry'), 'ms-button-primary ms-session-retry', () => { void launch(s.project); }, held));
-      actions.push(button(t('Dismiss'), 'ms-button-quiet ms-session-dismiss', () => { void stop(s, false); }, held));
-    }
-    const openable = state === 'busy' || state === 'idle';
-    const item = el('li', {
-      className: openable ? 'ms-session ms-session-openable' : 'ms-session',
-      attrs: { 'data-session-id': s.id, 'data-state': state },
-    }, [
-      el('span', { className: 'ms-dot', attrs: { 'aria-hidden': 'true' } }),
-      el('div', { className: 'ms-session-main' }, [
-        el('div', { className: 'ms-session-name', text: baseName(s.project) }),
-        el('div', { className: 'ms-path', text: s.project }),
-        el('div', { className: 'ms-session-status', text: statusText(s, now()) }),
-      ]),
-      el('div', { className: 'ms-actions' }, actions),
-    ]);
-    if (openable) {
-      item.addEventListener('click', (event) => {
-        // The row's own controls do their own thing, and a drag that selected
-        // text (a path to copy) is not a click on the row.
-        if (/** @type {Element} */ (event.target).closest('a, button, input')) return;
-        if (!(window.getSelection()?.isCollapsed ?? true)) return;
-        openSession(s);
-      });
-    }
-    return item;
   }
 
   // Asks of the app overlap when one takes longer than a poll (it asks each
@@ -1429,45 +1188,6 @@ export function mountSessionsPage(root, {
     renderChooser();
   }
 
-  /**
-   * One recent project's row, and its Open: a link to the project's link when
-   * the server named one, which a plain click opens here as the button would.
-   * @param {string} project - The folder.
-   * @returns {HTMLElement} Its list item.
-   */
-  function recentRow(project) {
-    const link = recentLinks[project];
-    /** @type {HTMLElement} */
-    let open;
-    if (link) {
-      open = el('a', { className: 'ms-button ms-button-quiet ms-recent-open', text: t('Open'), attrs: { href: pageURL(link) } });
-      open.addEventListener('click', (event) => {
-        if (!host && browsersClick(event)) return;
-        event.preventDefault();
-        void launch(project);
-      });
-    } else {
-      open = button(t('Open'), 'ms-button-quiet ms-recent-open', () => { void launch(project); });
-    }
-    return el('li', { className: 'ms-recent', attrs: { 'data-project': project } }, [
-      el('div', { className: 'ms-recent-main' }, [
-        el('div', { className: 'ms-recent-name', text: baseName(project) }),
-        el('div', { className: 'ms-path', text: project }),
-      ]),
-      open,
-    ]);
-  }
-
-  /**
-   * The recent projects to offer: those with no session under Active sessions, which
-   * already shows each of those, whatever its state.
-   * @returns {string[]} At most RECENTS_SHOWN folders, most recent first.
-   */
-  function recentsToOffer() {
-    const listed = new Set(sessions.map((s) => s.project));
-    return recents.filter((p) => !listed.has(p)).slice(0, RECENTS_SHOWN);
-  }
-
   /** Redraw the lists and notices from the last answers. */
   function render() {
     if (unreachable) {
@@ -1484,34 +1204,11 @@ export function mountSessionsPage(root, {
       banner.replaceChildren();
     }
 
-    if (!listed) {
-      sessionsList.setAttribute('aria-busy', 'true');
-      // Kept across redraws, so a retry does not restart its animation.
-      if (!sessionsList.querySelector('.ms-sessions-loading')) {
-        sessionsList.replaceChildren(el('li', { className: 'ms-sessions-loading' }, [
-          el('juggler-spinner', { attrs: { 'aria-label': t('Loading sessions…') } }),
-        ]));
-      }
-    } else if (sessions.length) {
-      sessionsList.removeAttribute('aria-busy');
-      sessionsList.replaceChildren(...sessions.map(sessionRow));
-    } else {
-      sessionsList.removeAttribute('aria-busy');
-      sessionsList.replaceChildren(el('li', {
-        className: 'ms-sessions-empty',
-        text: t('No sessions are running. Open a project below to start one.'),
-      }));
-    }
-
-    // Rebuilt only when what it shows changes: a click fires only when the
-    // press and the release land on the same element, so an Open replaced
-    // between them — by a poll, or the refresh as the window comes forward —
-    // swallows the click.
-    const offered = recentsToOffer();
-    const recentsKey = JSON.stringify(offered.map((p) => [p, recentLinks[p] || '']));
-    if (recentsKey !== recentsShown) {
-      recentsShown = recentsKey;
-      recentsList.replaceChildren(...offered.map(recentRow));
+    // The switcher rebuilds only the rows whose content changed, so a click in
+    // flight as a poll or the stream redraws it still lands.
+    if (listed) {
+      loading.remove();
+      switcher?.refresh();
     }
     layout();
   }
@@ -1539,24 +1236,71 @@ export function mountSessionsPage(root, {
   async function refreshSessions() {
     try {
       const [list, known] = await Promise.all([api.listSessions(), api.recents()]);
-      sessions = list || [];
-      recents = known?.paths || [];
-      recentLinks = known?.links || {};
-      listed = true;
-      if (!parentChosen) folderParent.value = defaultParent(recents);
-      unreachable = null;
+      takeSnapshot({ sessions: list, recents: known });
     } catch (err) {
       unreachable = err instanceof ControlApiError ? err : new ControlApiError(0, extractErrorMessage(err));
+      if (!disposed) render();
     }
+  }
+
+  /**
+   * Show the sessions and recents of a snapshot, as asked for or as the
+   * events stream pushed it.
+   * @param {{sessions?: Session[]|null, recents?: Partial<import('./control-api.js').Recents>|null}} snapshot
+   */
+  function takeSnapshot(snapshot) {
+    sessions = snapshot.sessions || [];
+    recents = {
+      paths: snapshot.recents?.paths || [],
+      links: snapshot.recents?.links || {},
+      waiting: snapshot.recents?.waiting || {},
+      used: snapshot.recents?.used || {},
+    };
+    listed = true;
+    unreachable = null;
     if (!disposed) render();
   }
 
-  /** Refresh, then again after pollMs, while the page is shown. */
+  /**
+   * Follow the server's events stream while the page is up, drawing each
+   * snapshot it pushes. One that fails or ends is opened again after a wait
+   * (EVENTS_RETRY_MIN, doubling to EVENTS_RETRY_MAX), and until it is the
+   * poll asks for the sessions as it always has. A page framing another
+   * computer's server follows nothing of this one's.
+   */
+  async function follow() {
+    if (framed || !api.events) return;
+    stream = new AbortController();
+    await followSessionsFeed({
+      open: api.events,
+      onSnapshot: (snapshot) => {
+        streaming = true;
+        takeSnapshot(snapshot);
+      },
+      // The poll covers the sessions until the stream is back.
+      onDown: () => { streaming = false; },
+      signal: stream.signal,
+      sleep,
+    });
+  }
+
+  /**
+   * What the poll asks for: everything refresh does, but the sessions and
+   * recents while the events stream brings them.
+   * @returns {Promise<void>} Resolves once redrawn.
+   */
+  async function poll() {
+    if (!streaming) return refresh();
+    void refreshFound();
+    if (exposure) await exposure.refresh();
+  }
+
+  /** Poll, then again after pollMs, while the page is shown. */
   function schedule() {
     if (disposed || !pollMs) return;
     timer = setTimeout(async () => {
       timer = null;
-      if (!document.hidden) await refresh();
+      if (!document.hidden) await poll();
       schedule();
     }, pollMs);
   }
@@ -1578,9 +1322,10 @@ export function mountSessionsPage(root, {
     const token = /** @type {CustomEvent} */ (e).detail?.ackToken;
     if (host && typeof token === 'string') void host.answerClose(token);
   };
-  // The app's menu commands the page acts on (PAGE_COMMANDS): Open goes to
-  // the field for opening a project — the framed page's, in a page framing
-  // one, which is handed the command at its server's origin alone.
+  // The app's menu commands the page acts on (PAGE_COMMANDS): Open is the
+  // switcher's Open folder… — the folder chooser in a desktop window, its path
+  // field in a browser — or the framed page's, in a page framing one, which is
+  // handed the command at its server's origin alone.
   const onPageCommand = (/** @type {Event} */ e) => {
     if (framed) {
       try {
@@ -1591,11 +1336,24 @@ export function mountSessionsPage(root, {
       }
       return;
     }
-    if (e.type === 'juggler:open-project') {
-      input.focus();
-      input.select();
-    }
+    if (e.type === 'juggler:open-project') switcher?.openFolder();
   };
+  // ⌘K (Ctrl+K) puts the cursor in the switcher's filter from anywhere on the
+  // page, as it brings the switcher up over a project page. With nothing
+  // holding the keyboard — focus on the page itself, as after a click on a row
+  // or none at all — the list's own keys work it, as its footer says.
+  const onSwitcherKey = (/** @type {KeyboardEvent} */ e) => {
+    if (!switcher || switcher.el.hidden || e.defaultPrevented) return;
+    const mod = isMac() ? e.metaKey : e.ctrlKey;
+    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      switcher.focus();
+      return;
+    }
+    const unheld = e.target === document.body || e.target === document.documentElement;
+    if (unheld && !launchingProject && !releaseChooser) switcher.listKey(e);
+  };
+  if (switcher) document.addEventListener('keydown', onSwitcherKey);
   for (const type of PAGE_COMMANDS) window.addEventListener(type, onPageCommand);
   if (host) window.addEventListener('juggler:window-close-requested', onCloseRequested);
   // A folder dropped is this machine's, and means nothing to a server framed.
@@ -1603,6 +1361,7 @@ export function mountSessionsPage(root, {
   if (!framed) render();
   void refresh();
   schedule();
+  void follow();
   if (!framed) {
     if (host?.reopen) void reopenLast(host.reopen);
     if (config.open && config.confirm) offerLinked(config.open);
@@ -1617,7 +1376,10 @@ export function mountSessionsPage(root, {
     dispose() {
       disposed = true;
       if (timer) clearTimeout(timer);
+      stream?.abort();
       document.removeEventListener('visibilitychange', onVisible);
+      document.removeEventListener('keydown', onSwitcherKey);
+      switcher?.destroy();
       window.removeEventListener('pageshow', onPageShow);
       window.removeEventListener('juggler:folder-dropped', onFolderDropped);
       window.removeEventListener('juggler:window-close-requested', onCloseRequested);

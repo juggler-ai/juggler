@@ -574,7 +574,7 @@ func TestTerminalTransfersHoldAndDetachesWithoutStoppingBusySession(t *testing.T
 	sess, _ := s.reg.reserve(proj)
 	child := &child{addr: "127.0.0.1:1", exited: make(chan struct{})}
 	s.reg.setRunning(sess.ID, child, 1)
-	s.reg.setActivity(sess.ID, child, true, time.Now())
+	s.reg.setActivity(sess.ID, child, true, 0, time.Now())
 	named := make(chan string, 1)
 	routes := s.routes()
 	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

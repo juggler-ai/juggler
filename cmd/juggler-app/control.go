@@ -361,7 +361,14 @@ var windowActions = map[string]controlAction{
 // (see windowOpts).
 //
 // An ordinary new window doesn't need the originating one — it is told which
-// project to open. A detached pinboard does, twice over: it is a view of a
+// project to open, and may be told one of its conversations to open on
+// (?conversation=, linkedOpts), as a project's page names it when the user
+// picks a conversation of another project. One project has one window: when
+// another main window already shows that project, it is raised at the
+// conversation instead (raiseProjectWindow), answered {"raised":true}, and no
+// window is opened. An empty window is never raised in place of a new one.
+//
+// A detached pinboard does need the originating window, twice over: it is a view of a
 // conversation in the asking window's project, so it opens on that window's
 // own spec, which is what puts the two on one server; and it is remembered as
 // that window's board, which is what takes it with the window when it closes.
@@ -402,7 +409,16 @@ func (a *appState) controlNewWindow(w http.ResponseWriter, r *http.Request, e *w
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	a.openWindowForProject(r.URL.Query().Get("project"), opts)
+	// A project's window opens on the conversation the page names, as an
+	// attach's does (linkedOpts) — or, when one is open already, is raised at
+	// it.
+	opts.linkedConversation = linkedOpts(r).linkedConversation
+	project := windowSpec{project: r.URL.Query().Get("project")}
+	if a.raiseProjectWindow(e, project, opts.linkedConversation) {
+		writeJSON(w, http.StatusOK, map[string]any{"raised": true})
+		return
+	}
+	openNewWindow(a, project, opts)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -411,30 +427,61 @@ func (a *appState) controlNewWindow(w http.ResponseWriter, r *http.Request, e *w
 // without a native one.
 var openNewWindow = (*appState).openWindow
 
-// controlAttach shows a session in the window that asked, in place of the
-// server's page it was showing: what choosing a folder or a session there
-// does, after the page has opened the session (web/machine/sessions-view.js).
+// raiseWindow raises e, a window already showing the project a page picked,
+// and tells its page to open conversation there when one is named: the
+// project's page lands on it (juggler:open-conversation, app.js) as it would
+// on a deep link. A variable so a test can see which window was raised
+// without a native one.
+var raiseWindow = func(e *winEntry, conversation string) {
+	focusEntry(e)
+	if conversation == "" || e.win == nil {
+		return
+	}
+	application.InvokeAsync(func() {
+		e.win.ExecJS("window.dispatchEvent(new CustomEvent('juggler:open-conversation',{detail:{conversation:" +
+			jsString(conversation) + "}}))")
+	})
+}
+
+// controlAttach shows a session in the window that asked, in place of what it
+// was showing: what choosing a folder or a session on a server's page does,
+// after the page has opened the session (web/machine/sessions-view.js), and
+// what picking one in a project window's Home does
+// (web/js/services/project-navigation.js).
 //
-// On this machine's server the window becomes that project's window. Only a
-// main window showing that server's page may ask (409 otherwise), and only for
-// a session the server is running (404 otherwise).
+// A window belongs to its server and shows the server's page or one of its
+// sessions. On this machine's server a main window — showing the server's page
+// or a project's session — becomes the picked project's window. Only such a
+// window may ask (409 otherwise: a board, a stand-in, or a page another
+// process of the server served), and only for a session the server is running
+// (404 otherwise).
+//
+// One project has one window. When another main window already shows the
+// picked project, that window is raised instead, at the conversation named
+// (raiseWindow), and the asking one stays as it was; the answer is
+// {"raised":true}, so the page knows it was not replaced. A pick of the
+// window's own project moves nothing (204).
 //
 // A window on a server by URL (another machine's) shows the session on that
 // server and stays the server's window (attachRemote) — a framed one too,
 // whichever of its pages asks: the outer page attaches nothing of this
 // machine's server.
+//
+// Either way an attach may name one of the session's conversations,
+// ?conversation=, which the session's page opens on (linkedOpts). An id that is
+// not one is dropped, never a reason to refuse the attach.
 func (a *appState) controlAttach(w http.ResponseWriter, r *http.Request, e *winEntry) {
 	v := a.viewOf(e)
 	if v.standIn == nil && v.spec.isURL() && e.role == roleMain {
 		a.attachRemote(w, r, e, v)
 		return
 	}
-	if v.standIn != nil || v.spec != (windowSpec{}) || e.role != roleMain {
+	if v.standIn != nil || v.spec.isURL() || e.role != roleMain {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
 	c := a.attachedClient()
-	if c == nil || v.serverURL != "http://"+c.Addr() {
+	if c == nil || !onAttachedServer(v, c) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": attachNoServer.English(), "message": attachNoServer})
 		return
 	}
@@ -445,13 +492,60 @@ func (a *appState) controlAttach(w http.ResponseWriter, r *http.Request, e *winE
 		return
 	}
 	for _, s := range list {
-		if s.ID == id && s.State == machineserver.SessionRunning {
-			a.showView(e, showing(v), windowView{spec: windowSpec{project: s.Project}, serverURL: strings.TrimSuffix(c.SessionURL(s), "/"), server: v.server}, windowOpts{})
-			w.WriteHeader(http.StatusNoContent)
-			return
+		if s.ID != id || s.State != machineserver.SessionRunning {
+			continue
 		}
+		spec := windowSpec{project: s.Project}
+		switch {
+		case v.spec.sameView(spec):
+			w.WriteHeader(http.StatusNoContent)
+		case a.raiseProjectWindow(e, spec, linkedOpts(r).linkedConversation):
+			writeJSON(w, http.StatusOK, map[string]any{"raised": true})
+		default:
+			a.showView(e, showing(v), windowView{spec: spec, serverURL: strings.TrimSuffix(c.SessionURL(s), "/"), server: v.server}, linkedOpts(r))
+			w.WriteHeader(http.StatusNoContent)
+		}
+		return
 	}
 	writeJSON(w, http.StatusNotFound, map[string]any{"error": attachNotRunning.English(), "message": attachNotRunning})
+}
+
+// onAttachedServer is whether v's page is served by c's server: its address, and —
+// where the window recorded one — the same process of it, since a server
+// started after another takes the same port (serverProc).
+func onAttachedServer(v windowView, c *machineserver.Client) bool {
+	base := "http://" + c.Addr()
+	if v.serverURL != base && !strings.HasPrefix(v.serverURL, base+"/") {
+		return false
+	}
+	return v.server == (serverProc{}) || v.server.addr == c.Addr() && v.server.pid == c.PID
+}
+
+// raiseProjectWindow raises the main window other than e that shows spec, a
+// local project, at conversation (raiseWindow), and reports whether there was
+// one. A board shares its owner's project but is not that project's window.
+func (a *appState) raiseProjectWindow(e *winEntry, spec windowSpec, conversation string) bool {
+	if spec.project == "" {
+		return false
+	}
+	var match *winEntry
+	a.reg(func(st *regState) {
+		best := -1
+		for _, w := range st.windows {
+			if w == e || w.role != roleMain || !w.view.spec.sameView(spec) {
+				continue
+			}
+			// The oldest, so the same window answers every time.
+			if n := winNum(w.id); match == nil || n < best {
+				best, match = n, w
+			}
+		}
+	})
+	if match == nil {
+		return false
+	}
+	raiseWindow(match, conversation)
+	return true
 }
 
 // attachRemote shows the session the window's server by URL serves at
@@ -469,8 +563,14 @@ func (a *appState) attachRemote(w http.ResponseWriter, r *http.Request, e *winEn
 	}
 	spec := v.spec
 	spec.remoteProject = strings.TrimSpace(r.URL.Query().Get("project"))
-	a.showView(e, showing(v), windowView{spec: spec, serverURL: strings.TrimRight(spec.url, "/") + path}, windowOpts{})
+	a.showView(e, showing(v), windowView{spec: spec, serverURL: strings.TrimRight(spec.url, "/") + path}, linkedOpts(r))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// linkedOpts is how an attach's session page opens: on the conversation the
+// attach names, ?conversation=, when that is an id (normaliseID).
+func linkedOpts(r *http.Request) windowOpts {
+	return windowOpts{linkedConversation: normaliseID(r.URL.Query().Get("conversation"))}
 }
 
 // projectLinkPath is a project's link as a server names it, /p/<key>/
@@ -496,17 +596,34 @@ func remoteSessionPath(q url.Values) (string, bool) {
 	return "", false
 }
 
-// controlServerPage shows the window's server's sessions page in it again:
-// Session ▸ Open… in a window on a server by URL, where another project is
-// another session of that server. A window on this machine's server opens a
-// new window for that instead (409 here).
+// controlServerPage shows the window's server's sessions page in it again, in
+// place of the session it showed: Session ▸ Open… in a window on a server by
+// URL, where another project is another session of that server, and Home's
+// Show server page in any main window. On this machine's server the window is
+// filed as an empty window from then on, and its page's server chooser
+// (controlSwitchServer) can take it to another server.
+//
+// Only a main window showing a session may ask: one on a server by URL, or a
+// local project's whose page the server the app is attached to served (409
+// otherwise).
 func (a *appState) controlServerPage(w http.ResponseWriter, _ *http.Request, e *winEntry) {
 	v := a.viewOf(e)
-	if v.standIn != nil || !v.spec.isURL() || e.role != roleMain {
+	if v.standIn != nil || e.role != roleMain {
 		w.WriteHeader(http.StatusConflict)
 		return
 	}
-	a.showServerPage(e, v)
+	if v.spec.isURL() {
+		a.showServerPage(e, v)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	c := a.attachedClient()
+	if v.spec.project == "" || c == nil || !onAttachedServer(v, c) {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	logf("window %s: leaving %s for the server's page", e.id, v.spec.project)
+	a.showView(e, showing(v), windowView{serverURL: "http://" + c.Addr(), server: procOf(c)}, windowOpts{})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -557,7 +674,8 @@ func (a *appState) showServerPage(e *winEntry, v windowView) {
 // same frame, wherever it is going — a session, its server's page, a stand-in,
 // or back. It returns the page loaded, or "" when from said no, which is how
 // two causes racing to move one window settle on one of them. opts says how
-// the page opens beyond the window's own theme and the app's zoom: its notice.
+// the page opens beyond the window's own theme and the app's zoom: its notice,
+// and the conversation it is linked to.
 //
 // The page loaded holds a new secret, and a framed one a new frame secret, so
 // the ones the page it replaces held open nothing any more. The boards the window opened are put away with the
@@ -584,7 +702,7 @@ func (a *appState) showView(e *winEntry, from func(windowView) bool, next window
 		}
 		e.view, shown = next, true
 		boards = markBoardsClosingWith(st, e)
-		opts = windowOpts{theme: e.currentTheme, zoom: st.lastZoom, notice: opts.notice}
+		opts = windowOpts{theme: e.currentTheme, zoom: st.lastZoom, notice: opts.notice, linkedConversation: opts.linkedConversation}
 	})
 	if !shown {
 		return ""
@@ -609,13 +727,13 @@ func (a *appState) showView(e *winEntry, from func(windowView) bool, next window
 			application.InvokeAsync(func() { win.Close() })
 		}
 	}
-	viewShown(e, next)
+	viewShown(e, next, page)
 	return page
 }
 
-// viewShown is told each view showView shows. A variable so a test can see a
-// window move without a native one.
-var viewShown = func(*winEntry, windowView) {}
+// viewShown is told each view showView shows, and the page it loaded for it. A
+// variable so a test can see a window move without a native one.
+var viewShown = func(*winEntry, windowView, string) {}
 
 // showing is the showView guard for a view decided on from v, read from the
 // window: the window still shows that page.

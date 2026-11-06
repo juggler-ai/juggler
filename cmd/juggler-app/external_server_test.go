@@ -6,6 +6,7 @@ package main
 
 import (
 	"net/http"
+	"net/url"
 	"testing"
 )
 
@@ -42,6 +43,55 @@ func TestAWindowOnAnExternalServerCannotOpenAProjectInANewWindow(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != remote {
 		t.Fatalf("opened %+v; want one window on %+v — a remote path must not spawn a local server", got, remote)
+	}
+}
+
+// TestANewWindowOpensItsProjectAtTheConversationItNames: a project's page may
+// ask for a window onto another project of this machine's server, at one of
+// that project's conversations (a ⌘-click in Home), so the window's page
+// opens on it (?c=) — once: it is the page's to read, never filed with the
+// window. An id that is not one is dropped and the window opened all the same,
+// and a board's conversation is still the board's, never a link.
+func TestANewWindowOpensItsProjectAtTheConversationItNames(t *testing.T) {
+	type opened struct {
+		spec windowSpec
+		opts windowOpts
+	}
+	var got []opened
+	saved := openNewWindow
+	openNewWindow = func(_ *appState, spec windowSpec, opts windowOpts) { got = append(got, opened{spec, opts}) }
+	t.Cleanup(func() { openNewWindow = saved })
+
+	a := newTestAppState(t)
+	registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{project: "/work/beta"}, serverURL: "http://127.0.0.1:3939/p/beta-0123abcd"}})
+
+	for _, tc := range []struct{ query, want string }{
+		{"project=%2Fwork%2Falpha&conversation=conv_abc123", "conv_abc123"},
+		{"project=%2Fwork%2Falpha&conversation=..%2Fevil", ""},
+		{"project=%2Fwork%2Falpha", ""},
+	} {
+		got = nil
+		if rec := controlRequest(a, http.MethodPost, "/win/w1/new?"+tc.query); rec.Code != http.StatusNoContent {
+			t.Fatalf("%s: status %d, want %d", tc.query, rec.Code, http.StatusNoContent)
+		}
+		if len(got) != 1 || got[0].spec != (windowSpec{project: "/work/alpha"}) {
+			t.Fatalf("%s: opened %+v, want one window onto /work/alpha", tc.query, got)
+		}
+		page, err := url.Parse(windowPageURL("http://127.0.0.1:3939/p/alpha-0123abcd", testCtl, got[0].opts))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c := page.Query().Get("c"); c != tc.want || page.Query().Has("c") != (tc.want != "") {
+			t.Errorf("%s: the window's page is %s, want it linked to %q", tc.query, page, tc.want)
+		}
+	}
+
+	got = nil
+	if rec := controlRequest(a, http.MethodPost, "/win/w1/new?view=pinboard&board=b1&owner=v1&conversation=conv_abc123"); rec.Code != http.StatusNoContent {
+		t.Fatalf("board: status %d", rec.Code)
+	}
+	if len(got) != 1 || got[0].opts.conversation != "conv_abc123" || got[0].opts.linkedConversation != "" {
+		t.Errorf("board: opened %+v, want the board's conversation and no link", got)
 	}
 }
 

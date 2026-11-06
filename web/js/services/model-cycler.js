@@ -99,7 +99,8 @@ export const modelGestureShouldHandle = popupAwareShouldHandle(OWN_POPUP_IDS);
  * can never reorder the list it is walking; the first press opens the model menu
  * as a HUD showing the CURRENT pair highlighted (no hop), each further press
  * previews the next `{provider, model, thinking?}` pair; releasing the modifiers
- * commits the landing pair. The first
+ * commits the landing pair — or, with no further press, leaves the menu up as
+ * a click opens it. The first
  * cycle (the first re-press) goes to snapshot index 1 — the previous pair —
  * since index 0 is the current one (or to index 0 when the current config isn't
  * in the snapshot at all). With fewer than two entries there is nothing to
@@ -133,6 +134,9 @@ class ModelCycler {
       onGestureStart: () => { this._startGesture(); this._selector?.open(); },
       onCycle: () => this._cycle(),
       onCommit: () => { this._selector?.close(); this._commit(); },
+      // Let go with no hop: the picker stays up as it opens on a click, its
+      // keys (↑↓, ↵, typing to filter) heard wherever focus is.
+      onSettle: () => this._commit(),
       onCancel: () => { this._selector?.close(); this._cancel(); },
     });
   }
@@ -234,7 +238,8 @@ class ModelCycler {
  * order → wrap. The first press opens the mini thinking popover anchored to the
  * button chip showing the CURRENT level (no hop); each further press previews
  * the next level, refreshing the level displays in place so the HUD visibly
- * tracks; releasing the modifiers commits the landing pair. On a model without
+ * tracks; releasing the modifiers commits the landing pair — or, with no
+ * further press, leaves the popover up on the current level. On a model without
  * thinking levels the gesture is a transparent no-op (the press falls through).
  * @class
  */
@@ -268,6 +273,12 @@ class ThinkingCycler {
       },
       onCycle: () => this._cycle(),
       onCommit: () => { this._selector?.closeThinkingMini(); this._commit(); },
+      // Let go with no hop: the popover stays up, its current level focused.
+      onSettle: () => {
+        const selector = this._selector;
+        this._commit();
+        selector?.focusThinkingMini();
+      },
       onCancel: () => { this._selector?.closeThinkingMini(); this._cancel(); },
     });
   }

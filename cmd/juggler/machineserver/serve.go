@@ -297,6 +297,8 @@ func Serve(opts ServeOptions) error {
 		peer:                opts.Peer,
 	}
 
+	s.rememberLeaving()
+
 	// Listen for stop requests before anything can take long, so a Ctrl-C
 	// while the first session spawns is a stop, not lost.
 	sig := opts.Signals

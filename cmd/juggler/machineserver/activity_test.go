@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"juggler/internal/apipaths"
+	"juggler/internal/attention"
 )
 
 // stubChildToken is the API token a stubChild demands, as a real child demands
@@ -22,24 +23,35 @@ const stubChildToken = "stub-child-token"
 // stubChild stands in for a session child's activity endpoint: it answers
 // /api/health/active from busy, or 500 while failing is set, and counts the
 // polls it has answered. A poll without the child's token is refused and not
-// counted.
+// counted. It serves report at /api/health/attention, counting those fetches,
+// and carries its revision on every activity answer.
 type stubChild struct {
 	srv     *httptest.Server
 	busy    atomic.Bool
 	failing atomic.Bool
 	polls   atomic.Int64
+	report  atomic.Pointer[attention.Report]
+	fetches atomic.Int64
+	// conversations is the count every activity answer carries.
+	conversations atomic.Int64
 }
 
 func newStubChild(t *testing.T) *stubChild {
 	t.Helper()
 	sc := &stubChild{}
+	sc.report.Store(&attention.Report{Conversations: []attention.Conversation{}})
 	sc.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != apipaths.HealthActive {
-			http.NotFound(w, r)
-			return
-		}
 		if r.Header.Get(TokenHeader) != stubChildToken {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path == apipaths.HealthAttention {
+			sc.fetches.Add(1)
+			_ = json.NewEncoder(w).Encode(sc.report.Load())
+			return
+		}
+		if r.URL.Path != apipaths.HealthActive {
+			http.NotFound(w, r)
 			return
 		}
 		defer sc.polls.Add(1)
@@ -51,7 +63,7 @@ func newStubChild(t *testing.T) *stubChild {
 		if sc.busy.Load() {
 			ids = append(ids, "conv-a")
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"active": len(ids) > 0, "conversationIds": ids})
+		_ = json.NewEncoder(w).Encode(map[string]any{"active": len(ids) > 0, "conversationIds": ids, "attentionRev": sc.report.Load().Rev, "conversations": sc.conversations.Load()})
 	}))
 	t.Cleanup(sc.srv.Close)
 	return sc
@@ -136,6 +148,23 @@ func TestActivityPollTracksBusyAndLastActive(t *testing.T) {
 	}
 }
 
+// Each poll records the child's count of its conversations, which the
+// switcher's status line shows.
+func TestThePollRecordsTheConversationCount(t *testing.T) {
+	sc := newStubChild(t)
+	sc.conversations.Store(4)
+	r, id, _ := runningSession(t, sc)
+	sc.waitPolls(t, 2)
+	if s, _ := r.get(id); s.Conversations != 4 {
+		t.Fatalf("conversations = %d, want 4", s.Conversations)
+	}
+	sc.conversations.Store(5)
+	sc.waitPolls(t, 2)
+	if s, _ := r.get(id); s.Conversations != 5 {
+		t.Fatalf("after one more: conversations = %d, want 5", s.Conversations)
+	}
+}
+
 // A poll that fails says nothing about the child, so it changes nothing: a
 // child that stops answering mid-turn stays busy rather than looking idle.
 func TestActivityPollFailureKeepsLastKnownState(t *testing.T) {
@@ -176,18 +205,18 @@ func TestRegistryActivityBelongsToItsChild(t *testing.T) {
 	r.setRunning(s.ID, c, 1)
 
 	at := time.Now()
-	r.setActivity(s.ID, &child{addr: "127.0.0.1:2"}, true, at)
+	r.setActivity(s.ID, &child{addr: "127.0.0.1:2"}, true, 0, at)
 	if cur, _ := r.get(s.ID); cur.Busy || cur.LastActive != nil {
 		t.Fatalf("activity from another child was recorded: %+v", cur)
 	}
 
-	r.setActivity(s.ID, c, true, at)
+	r.setActivity(s.ID, c, true, 0, at)
 	if cur, _ := r.get(s.ID); !cur.Busy || cur.LastActive == nil || !cur.LastActive.Equal(at) {
 		t.Fatalf("activity from the owning child: session = %+v, want busy at %s", cur, at)
 	}
 
 	r.setRestarting(s.ID, c, "crashed", time.Now().Add(time.Second))
-	r.setActivity(s.ID, c, true, at.Add(time.Second))
+	r.setActivity(s.ID, c, true, 0, at.Add(time.Second))
 	cur, _ := r.get(s.ID)
 	if cur.Busy {
 		t.Fatalf("crashed session still busy: %+v", cur)

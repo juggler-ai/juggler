@@ -908,6 +908,14 @@ class ModelSelector extends JugglerElement {
   }
 
   /**
+   * Hand the open mini thinking popover the keyboard, on the current level —
+   * for the thinking shortcut's HUD settling into an ordinary popover.
+   */
+  focusThinkingMini() {
+    this._chip?.focusMini();
+  }
+
+  /**
    * Refresh everything displaying the current thinking level after an
    * out-of-band level change (the hold-to-cycle thinking shortcut). With the
    * mini popover open it is the gesture's HUD: its control and the anchor pill

@@ -318,28 +318,27 @@ export async function runTests() {
       const drag = wide.doc.defaultView?.getComputedStyle(wide.el('#control-undo-button'))
         .getPropertyValue('--wails-draggable').trim();
       assert(drag === 'no-drag', `undo is clickable in a desktop window, not a drag handle (got "${drag}")`);
-      // The project path is a label, so it drags the window like the rest of
-      // the title bar; the new-window button welded to it does not.
+      // The project chip is the session switcher's button, and the new-window
+      // button beside it is a button too: neither drags the window.
       const dragOf = (/** @type {string} */ sel) => wide.doc.defaultView?.getComputedStyle(wide.el(sel))
         .getPropertyValue('--wails-draggable').trim();
-      assert(dragOf('#project-path-chip') !== 'no-drag',
-        `the project path is part of the drag region (got "${dragOf('#project-path-chip')}")`);
-      assert(dragOf('#project-new-window-button') === 'no-drag',
-        `the new-window button is clickable in a desktop window (got "${dragOf('#project-new-window-button')}")`);
+      for (const sel of ['#project-path-chip', '#project-new-window-button']) {
+        assert(dragOf(sel) === 'no-drag', `${sel} is clickable in a desktop window (got "${dragOf(sel)}")`);
+      }
       // The wordmark drags the window like the rest of the title bar; a click
       // on it still opens the About box (components/app-wordmark.js).
       assert(dragOf('.logo') === 'drag',
         `the wordmark is part of the drag region (got "${dragOf('.logo')}")`);
       wide.doc.body.classList.remove('window-mode');
 
-      // A session stays on its project, so its path is read-only: a label with
-      // nothing to click, not a button that leads somewhere.
+      // The chip is the session switcher's button: the project's tile, its
+      // name and the arrow it opens by. No house sits beside it.
       const path = wide.el('#project-path-chip');
-      assert(path.tagName !== 'BUTTON' && !path.classList.contains('btn-ghost') && !path.hasAttribute('aria-haspopup'),
-        `the project path is not a button (got <${path.tagName.toLowerCase()} class="${path.className}">)`);
-      assert(!path.querySelector('.ppd-chevron'), 'the project path carries no chevron');
-      assert(wide.doc.defaultView?.getComputedStyle(path).cursor !== 'pointer',
-        'the project path has no pointer cursor');
+      assert(path.tagName === 'BUTTON' && path.classList.contains('ss-chip'),
+        `the project chip is the switcher's button (got <${path.tagName.toLowerCase()} class="${path.className}">)`);
+      assert(!!path.querySelector('.ss-chip-tile') && !!path.querySelector('.ppd-path') && !!path.querySelector('.ss-chip-caret'),
+        'the chip has its tile, its name and its arrow');
+      assert(!wide.doc.querySelector('#project-home-button, #project-attention-pill'), 'the header has no house and no pill');
 
       // A detached board window keeps none of the opener's conversation controls.
       wide.doc.documentElement.dataset.view = 'pinboard';

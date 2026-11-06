@@ -58,6 +58,7 @@ import { tests as attentionAlertTests } from '../integration-tests/attention-ale
 import { tests as binGuardTests } from '../integration-tests/bin-guard-tests.js';
 import { tests as modelAvailabilityTests } from '../integration-tests/model-availability-tests.js';
 import { tests as appPseudoLocaleWalkTests } from '../integration-tests/app-pseudo-locale-walk-tests.js';
+import { tests as conversationDeepLinkTests } from '../integration-tests/conversation-deep-link-tests.js';
 import { runTests as runContextCacheImpactTests } from '../unit-tests/context-cache-impact-test.js';
 import { runTests as runCacheBaselineAnchorTests } from '../unit-tests/cache-baseline-anchor-test.js';
 import { runTests as codeLinesTests } from '../unit-tests/code-lines-test.js';
@@ -334,6 +335,7 @@ import { runTests as runClickSelectHoldsPlaceTests } from '../unit-tests/click-s
 import { runTests as runUserSendFollowTests } from '../unit-tests/user-send-follow-test.js';
 import { runTests as runThreadColumnLandingTests } from '../unit-tests/thread-column-landing-test.js';
 import { runTests as runJumpToAttentionRevealTests } from '../unit-tests/jump-to-attention-reveal-test.js';
+import { runTests as runConversationDeepLinkRevealTests } from '../unit-tests/conversation-deep-link-reveal-test.js';
 import { runTests as runColumnBuilderTests } from '../unit-tests/column-builder-test.js';
 import { runTests as runEmptyConversationHintTests } from '../unit-tests/empty-conversation-hint-test.js';
 import { runTests as runEmptyHintTipsTests } from '../unit-tests/empty-hint-tips-test.js';
@@ -344,6 +346,9 @@ import { runTests as runGuidanceSurfacesTests } from '../unit-tests/guidance-sur
 import { runTests as runNoConversationsOnboardingTests } from '../unit-tests/no-conversations-onboarding-test.js';
 import { runTests as runProjectFixedTests } from '../unit-tests/project-fixed-test.js';
 import { runTests as runMachineSessionsPageTests } from '../unit-tests/machine-sessions-page-test.js';
+import { runTests as runMachineFeedTests } from '../unit-tests/machine-feed-test.js';
+import { runTests as runProjectNavigationTests } from '../unit-tests/project-navigation-test.js';
+import { runTests as runJumpToAttentionAnywhereTests } from '../unit-tests/jump-to-attention-anywhere-test.js';
 import { runTests as runProjectPickerRecentsTests } from '../unit-tests/project-picker-recents-test.js';
 import { runTests as runStarterPromptsTests } from '../unit-tests/starter-prompts-test.js';
 import { runTests as runColumnFileDropTests } from '../unit-tests/column-file-drop-test.js';
@@ -370,6 +375,9 @@ import { runTests as runChimeVoiceTests } from '../unit-tests/chime-voice-test.j
 import { runTests as runTabBehaviourPrefsTests } from '../unit-tests/tab-behaviour-prefs-test.js';
 import { runTests as runTabCycleSettleTests } from '../unit-tests/tab-cycle-settle-test.js';
 import { runTests as runRecentTabSwitcherTests } from '../unit-tests/recent-tab-switcher-test.js';
+import { runTests as runSessionSwitcherTests } from '../unit-tests/session-switcher-test.js';
+import { runTests as runSessionSwitcherViewTests } from '../unit-tests/session-switcher-view-test.js';
+import { runTests as runSessionPopoverTests } from '../unit-tests/session-popover-test.js';
 import { runTests as runKeyShortcutManagerTests } from '../unit-tests/key-shortcut-manager-test.js';
 import { runTests as runEscapeBehaviourTests } from '../unit-tests/escape-behaviour-test.js';
 import { runTests as runHoldToCycleTests } from '../unit-tests/hold-to-cycle-test.js';
@@ -618,7 +626,8 @@ const ALL_TESTS = [
   ...attentionAlertTests,
   ...binGuardTests,
   ...modelAvailabilityTests,
-  ...appPseudoLocaleWalkTests
+  ...appPseudoLocaleWalkTests,
+  ...conversationDeepLinkTests
 ].map(t => ({ ...t, name: `integration:${t.name}` }));
 
 /**
@@ -964,6 +973,8 @@ const UNIT_TEST_SUITES = [
   // Exclusive for the shared origin: it turns tool grouping on, and a sibling
   // drawing tool rows meanwhile finds them folded into a group.
   { name: 'unit:jump-to-attention-reveal', run: runJumpToAttentionRevealTests, needsExclusiveRun: true },
+  // Exclusive for the same reason: the reveal moves the keyboard to the approval.
+  { name: 'unit:conversation-deep-link-reveal', run: runConversationDeepLinkRevealTests, needsExclusiveRun: true },
   { name: 'unit:column-builder', run: runColumnBuilderTests },
   { name: 'unit:empty-conversation-hint', run: runEmptyConversationHintTests },
   { name: 'unit:empty-hint-tips', run: runEmptyHintTipsTests },
@@ -974,6 +985,9 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:no-conversations-onboarding', run: runNoConversationsOnboardingTests },
   { name: 'unit:project-fixed', run: runProjectFixedTests },
   { name: 'unit:machine-sessions-page', run: runMachineSessionsPageTests },
+  { name: 'unit:machine-feed', run: runMachineFeedTests },
+  { name: 'unit:project-navigation', run: runProjectNavigationTests },
+  { name: 'unit:jump-to-attention-anywhere', run: runJumpToAttentionAnywhereTests },
   { name: 'unit:project-picker-recents', run: runProjectPickerRecentsTests },
   { name: 'unit:starter-prompts', run: runStarterPromptsTests },
   { name: 'unit:column-file-drop', run: runColumnFileDropTests },
@@ -1009,6 +1023,9 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:tab-behaviour-prefs', run: runTabBehaviourPrefsTests, needsExclusiveRun: true },
   { name: 'unit:tab-cycle-settle', run: runTabCycleSettleTests },
   { name: 'unit:recent-tab-switcher', run: runRecentTabSwitcherTests },
+  { name: 'unit:session-switcher', run: runSessionSwitcherTests },
+  { name: 'unit:session-switcher-view', run: runSessionSwitcherViewTests },
+  { name: 'unit:session-popover', run: runSessionPopoverTests },
   { name: 'unit:context-menu', run: runContextMenuTests },
   // Drives the document's one live Selection, which every other suite shares.
   { name: 'unit:composer-selection-quote', run: runComposerSelectionQuoteTests, needsExclusiveRun: true },

@@ -17,7 +17,7 @@
  * @module unit-tests/strategy-menu-refresh-test
  */
 
-import { assert, nextTask } from '../utilities/test-helpers.js';
+import { assert, nextTask, waitFor } from '../utilities/test-helpers.js';
 import { isolateFocus } from '../utilities/isolate-focus.js';
 import { assertMenuShape } from '../utilities/menu-assertions.js';
 import strategyRegistry from '../../js/registries/strategy-registry.js';
@@ -288,6 +288,73 @@ export async function runTests(_ctx) {
       assert(!selector._menu, 'releasing Shift did not close the HUD');
       assert(strayFocus() === '' && document.activeElement === textarea,
         `focus did not stay in the composer (focus() on ${strayFocus() || document.activeElement?.localName})`);
+    } finally {
+      focus.restore();
+      switcher.destroy();
+      selector.closeDropdown();
+      selector.remove();
+      textarea.remove();
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCancelRaf;
+    }
+  });
+
+  await run('a Shift+Tab tap leaves the dropdown open as a menu, the keyboard on the current strategy', async () => {
+    if (!strategyRegistry.isInitialized()) await strategyRegistry.init();
+    const ids = strategyRegistry.getAllManifests().map((m) => m.id);
+    assert(ids.length > 1, 'registry has at least two strategies');
+
+    const realRaf = window.requestAnimationFrame;
+    const realCancelRaf = window.cancelAnimationFrame;
+    window.requestAnimationFrame = (/** @type {FrameRequestCallback} */ cb) =>
+      /** @type {any} */ (setTimeout(() => cb(performance.now()), 0));
+    window.cancelAnimationFrame = (/** @type {number} */ id) => clearTimeout(id);
+
+    const textarea = document.createElement('textarea');
+    const selector = /** @type {any} */ (document.createElement('strategy-selector'));
+    document.body.append(selector, textarea);
+    const switcher = new StrategySwitcher();
+    /** @type {any} */ (switcher)._resolveActiveSelector = () => selector;
+    switcher.init();
+    // Lane-local focus, as in the case above: what is asserted is what focus
+    // the code asked for.
+    const focus = isolateFocus({ activeElement: textarea });
+    /** @type {string[]} */
+    const written = [];
+    /**
+     * @param {string} type - 'keydown' or 'keyup'
+     * @param {KeyboardEventInit} init - The key
+     * @returns {boolean} False when the event was preventDefault-ed
+     */
+    const key = (type, init) => /** @type {Element} */ (document.activeElement)
+      .dispatchEvent(new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }));
+    try {
+      selector.setMessageThread(/** @type {any} */ ({
+        currentStrategyId: ids[1],
+        setStrategy(/** @type {string} */ id) { written.push(id); },
+      }));
+
+      // Pressed and let go before the dropdown is even presented.
+      key('keydown', { key: 'Tab', shiftKey: true });
+      key('keyup', { key: 'Shift' });
+      await waitFor(() => focus.requests.length > 0, { description: 'the settled dropdown asked for focus' });
+      assert(!!selector._menu?.surface, 'letting go with no hop closed the dropdown');
+      const asked = focus.requests[focus.requests.length - 1].element;
+      assert(asked.getAttribute('role') === 'menuitemradio' && asked.getAttribute('aria-checked') === 'true',
+        `the keyboard went to ${asked.outerHTML.slice(0, 120)}, not the current strategy`);
+      assert(written.length === 0, `a tap wrote ${written.join()}`);
+
+      // Each strategy's details item sits beside it, so ↑ may land on one first.
+      for (let i = 0; i < 2; i++) {
+        key('keydown', { key: 'ArrowUp' });
+        if (/** @type {HTMLElement} */ (document.activeElement).getAttribute('role') === 'menuitemradio') break;
+      }
+      const moved = /** @type {HTMLElement} */ (document.activeElement);
+      assert(moved !== asked && moved.getAttribute('role') === 'menuitemradio',
+        `↑ moved to ${moved.outerHTML.slice(0, 120)}, not another strategy`);
+      key('keydown', { key: 'Enter' });
+      assert(written.length === 1 && written[0] !== ids[1], `↵ wrote ${written.join()}`);
+      assert(!selector._menu, '↵ closes the menu');
     } finally {
       focus.restore();
       switcher.destroy();

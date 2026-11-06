@@ -20,6 +20,10 @@ import {
   toggleActiveFileEditing,
 } from '../services/conversation-commands.js';
 import { getModelSelector } from '../services/model-cycler.js';
+import { jumpToAttentionAnywhere } from '../services/attention-anywhere.js';
+import { machineFeed } from '../services/machine-feed.js';
+import { goTo } from '../services/project-navigation.js';
+import { hasNativeHost } from '../../sdk/lib/window-control.js';
 import findBar, { findPanelFor } from './find-bar.js';
 
 /**
@@ -84,6 +88,21 @@ export function registerConversationShortcuts(session) {
   keyShortcutManager.register('select-next-item', () => stepActiveTabSelection('next'));
   keyShortcutManager.register('jump-to-attention', () => jumpToAttentionConversation(session));
   keyShortcutManager.register('toggle-file-editing', () => toggleActiveFileEditing(session));
+  // Going between projects. ⇧⌘J goes to the next wait in any project, and
+  // ⌘1–9 go to the Nth open session — the desktop app's keys, which a browser
+  // tab never delivers. Each moves this window to that project, or raises the
+  // window already on it (services/project-navigation.js). ⌘K, the session
+  // switcher, is its popover's own (session-popover.js).
+  keyShortcutManager.register('jump-to-attention-anywhere', () => jumpToAttentionAnywhere(session));
+  for (let n = 1; n <= 9; n++) {
+    keyShortcutManager.register(`switch-project-${n}`, () => {
+      if (!hasNativeHost()) return false;
+      const target = machineFeed().sessions[n - 1];
+      if (!target) return false;
+      void goTo({ link: target.link, project: target.project, sessionId: target.id, conversation: '', newWindow: false });
+      return true;
+    });
+  }
   // Find opens/refocuses the find bar against the panel the user is in: the
   // nearest find-capable ancestor of whatever holds focus (so a composer means
   // its own column, and a clicked-into properties panel means that panel), else

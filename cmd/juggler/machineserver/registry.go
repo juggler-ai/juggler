@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"sort"
 	"sync"
@@ -56,8 +57,10 @@ type Session struct {
 	// Busy is what the latest successful poll reported: a turn is running,
 	// not merely parked on a tool approval.
 	Busy bool `json:"busy"`
-	// LastActive is the time of the latest poll that found the child busy;
-	// absent when no poll has.
+	// LastActive is the later of the latest poll that found the child busy
+	// and the child's own last change of attention — a turn starting or
+	// ending, a call coming to wait on the user or being answered; absent
+	// when neither has happened.
 	LastActive *time.Time `json:"lastActive,omitempty"`
 	// Restarts counts the times a crashed child has been respawned for this
 	// session since it was opened.
@@ -65,6 +68,19 @@ type Session struct {
 	// NextRestartAt is when a restarting session's next spawn is due; absent
 	// in every other state.
 	NextRestartAt *time.Time `json:"nextRestartAt,omitempty"`
+	// Attention is what the child last reported of its conversations
+	// (attention.go); absent until it first has.
+	Attention *SessionAttention `json:"attention,omitempty"`
+	// Conversations is how many conversations the project has, as the
+	// latest activity poll counted them; absent until one has.
+	Conversations int `json:"conversations,omitempty"`
+	// LastViewed is when a viewer last arrived (holdViewer): the order the
+	// switcher lists open sessions in, most recently used first. Absent until
+	// one has. It is kept in memory alone, as the sessions are.
+	LastViewed *time.Time `json:"lastViewed,omitempty"`
+	// Viewers is how many viewers hold the session now — windows, tabs,
+	// terminals — which marks it open somewhere other than the page asking.
+	Viewers int `json:"viewers,omitempty"`
 }
 
 // sessionEntry pairs the public record with the live child handle.
@@ -82,10 +98,15 @@ type sessionEntry struct {
 	// that state or the registry (see setState) — what an open that waits for a
 	// spawn in flight blocks on.
 	started chan struct{}
-	// viewers belongs to the registry actor; unviewedSince is when the last
-	// viewer left, or an open renewed the session's grace.
+	// viewers belongs to the registry actor (Session.Viewers is its public
+	// copy); unviewedSince is when the last viewer left, or an open renewed
+	// the session's grace.
 	viewers       int
 	unviewedSince time.Time
+	// leave is told the project as the entry leaves the registry (end), on
+	// the actor, so it must neither block nor ask the registry; nil when
+	// nothing listens (registry.left).
+	leave func(project string)
 	// stopped closes only after teardown has finished and the entry leaves.
 	stopped chan struct{}
 	// retiring is open while the child is asked whether to retire, and closes
@@ -144,6 +165,10 @@ var errShuttingDown = errors.New("the machine server is shutting down")
 // end cancels the entry's context, and wakes whatever waits on its spawn, as
 // it leaves the registry.
 func (e *sessionEntry) end() {
+	if e.leave != nil {
+		e.leave(e.Project)
+		e.leave = nil
+	}
 	if e.cancel != nil {
 		e.cancel()
 	}
@@ -159,6 +184,19 @@ func (e *sessionEntry) end() {
 // through the ops channel — no locks. It lives for the process lifetime.
 type registry struct {
 	ops chan func(map[string]*sessionEntry)
+	// watch is the change broadcast changes hands out; nil while nobody
+	// waits on one. Owned by the actor, like the table.
+	watch *registryWatch
+	// left is handed to every entry opened (sessionEntry.leave). Owned by
+	// the actor.
+	left func(project string)
+}
+
+// registryWatch closes ch once the public table differs from seen, its
+// encoding when the watch was handed out.
+type registryWatch struct {
+	ch   chan struct{}
+	seen string
 }
 
 func newRegistry() *registry {
@@ -167,9 +205,75 @@ func newRegistry() *registry {
 		m := make(map[string]*sessionEntry)
 		for fn := range r.ops {
 			fn(m)
+			// What changes a session's record is spread over every op, and
+			// over setState, which has no registry to tell; comparing the
+			// table after each op misses none of them. It costs an encoding
+			// of the few records per op, and only while something watches.
+			if w := r.watch; w != nil && publicTable(m) != w.seen {
+				close(w.ch)
+				r.watch = nil
+			}
 		}
 	}()
 	return r
+}
+
+// orderedSessions returns a copy of every session in m, oldest first. Sessions
+// started within one tick of the clock — coarse on Windows — are ordered by
+// id, so the order is the same from one call to the next. Actor only.
+func orderedSessions(m map[string]*sessionEntry) []Session {
+	out := make([]Session, 0, len(m))
+	for _, e := range m {
+		out = append(out, e.Session)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].StartedAt.Equal(out[j].StartedAt) {
+			return out[i].StartedAt.Before(out[j].StartedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+// publicTable is m's records as the control API serves them, encoded for
+// comparison. Actor only.
+func publicTable(m map[string]*sessionEntry) string {
+	data, err := json.Marshal(orderedSessions(m))
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// changes returns a channel that closes once any session's record has
+// changed from what it is now, or touch is called.
+func (r *registry) changes() <-chan struct{} {
+	var ch chan struct{}
+	r.do(func(m map[string]*sessionEntry) {
+		if r.watch == nil {
+			r.watch = &registryWatch{ch: make(chan struct{}), seen: publicTable(m)}
+		}
+		ch = r.watch.ch
+	})
+	return ch
+}
+
+// onLeave has fn told the project of every session opened from now on, once,
+// as it leaves the registry — stopped, retired, dismissed or replaced. fn runs
+// on the actor: it must neither block nor ask the registry.
+func (r *registry) onLeave(fn func(project string)) {
+	r.do(func(map[string]*sessionEntry) { r.left = fn })
+}
+
+// touch wakes whatever waits on changes, for a change to something served
+// beside the sessions that the registry does not hold (the recents).
+func (r *registry) touch() {
+	r.do(func(map[string]*sessionEntry) {
+		if r.watch != nil {
+			close(r.watch.ch)
+			r.watch = nil
+		}
+	})
 }
 
 // do runs fn inside the actor and returns after it completes.
@@ -182,22 +286,10 @@ func (r *registry) do(fn func(map[string]*sessionEntry)) {
 	<-done
 }
 
-// snapshot returns a copy of every session, oldest first. Sessions started
-// within one tick of the clock — coarse on Windows — are ordered by id, so
-// the order is the same from one snapshot to the next.
+// snapshot returns a copy of every session, oldest first (orderedSessions).
 func (r *registry) snapshot() []Session {
-	out := make([]Session, 0)
-	r.do(func(m map[string]*sessionEntry) {
-		for _, e := range m {
-			out = append(out, e.Session)
-		}
-	})
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].StartedAt.Equal(out[j].StartedAt) {
-			return out[i].StartedAt.Before(out[j].StartedAt)
-		}
-		return out[i].ID < out[j].ID
-	})
+	var out []Session
+	r.do(func(m map[string]*sessionEntry) { out = orderedSessions(m) })
 	return out
 }
 
@@ -285,7 +377,7 @@ func (r *registry) open(parent context.Context, project string, work *sync.WaitG
 			Project:   project,
 			Link:      projectLink(project),
 			StartedAt: time.Now(),
-		}, key: projectKey(project), cancel: cancel, done: make(chan struct{}), unviewedSince: time.Now()}
+		}, key: projectKey(project), cancel: cancel, done: make(chan struct{}), unviewedSince: time.Now(), leave: r.left}
 		e.setState(SessionStarting)
 		m[id] = e
 		work.Add(1)
@@ -386,6 +478,7 @@ func (e *sessionEntry) clearChild() {
 	e.Addr = ""
 	e.PID = 0
 	e.Busy = false
+	e.Attention = e.Attention.durable()
 	e.child = nil
 }
 

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -256,7 +257,7 @@ func viewsShown(t *testing.T) <-chan shownView {
 	t.Helper()
 	got := make(chan shownView, 16)
 	orig := viewShown
-	viewShown = func(e *winEntry, v windowView) { got <- shownView{e.id, v} }
+	viewShown = func(e *winEntry, v windowView, _ string) { got <- shownView{e.id, v} }
 	t.Cleanup(func() { viewShown = orig })
 	return got
 }
@@ -273,7 +274,7 @@ func lostWindows(t *testing.T) <-chan string {
 	t.Helper()
 	got := make(chan string, 16)
 	orig := viewShown
-	viewShown = func(e *winEntry, v windowView) {
+	viewShown = func(e *winEntry, v windowView, _ string) {
 		if v.standIn != nil {
 			got <- e.id
 		}
@@ -444,7 +445,7 @@ func TestALostServerTheAppDidNotStartIsLookedForNotStarted(t *testing.T) {
 	a := newTestAppState(t)
 	got := make(chan *standIn, 16)
 	orig := viewShown
-	viewShown = func(_ *winEntry, v windowView) { got <- v.standIn }
+	viewShown = func(_ *winEntry, v windowView, _ string) { got <- v.standIn }
 	t.Cleanup(func() { viewShown = orig })
 
 	ours := serverProc{addr: "127.0.0.1:3939", pid: 101, appStarted: true}
@@ -739,8 +740,9 @@ func TestAWindowResolvesToItsProjectsSessionOrTheServersPage(t *testing.T) {
 
 // TestAttachShowsAChosenSessionInTheEmptyWindow: a session chosen on the
 // server's page in an empty window opens in that same window, which from then
-// on is that project's window. Only a window showing the server's page may ask,
-// and only for a session the server is running.
+// on is that project's window — only for a session the server is running.
+// (A project window moving in place, and who may not ask:
+// window_switching_test.go.)
 func TestAttachShowsAChosenSessionInTheEmptyWindow(t *testing.T) {
 	userpathstest.Isolate(t)
 	a := newTestAppState(t)
@@ -749,7 +751,6 @@ func TestAttachShowsAChosenSessionInTheEmptyWindow(t *testing.T) {
 	base := "http://" + srv.addr()
 	srv.list.Store(&[]machineserver.Session{{ID: "s7", Project: "/work/alpha", Link: "/p/alpha-0123abcd/", State: machineserver.SessionRunning}})
 	empty := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{serverURL: base}})
-	showing := registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/work/beta"}, serverURL: base + "/p/beta-0123abcd"}})
 	if _, err := a.serverClient(true); err != nil {
 		t.Fatal(err)
 	}
@@ -758,9 +759,6 @@ func TestAttachShowsAChosenSessionInTheEmptyWindow(t *testing.T) {
 		rec := httptest.NewRecorder()
 		a.controlAttach(rec, httptest.NewRequest(http.MethodPost, "/win/"+e.id+"/attach?session="+session, nil), e)
 		return rec.Code
-	}
-	if code := post(showing, "s7"); code != http.StatusConflict {
-		t.Fatalf("attach from a window showing a session: %d, want 409", code)
 	}
 	if code := post(empty, "nope"); code != http.StatusNotFound {
 		t.Fatalf("attach to a session the server is not running: %d, want 404", code)
@@ -775,6 +773,72 @@ func TestAttachShowsAChosenSessionInTheEmptyWindow(t *testing.T) {
 		t.Fatalf("after attach the window is %+v on %s; want /work/alpha at its link on %s", spec, url, base)
 	}
 	// Let the workspace save land before the test's directory goes.
+	a.workspace.flush(nil)
+}
+
+// TestAttachOpensTheSessionAtTheConversationItNames: an attach that names one
+// of the session's conversations (the sessions page's Needs you rows do) loads
+// the session's page linked to it (?c=), in a window on this machine's server
+// and in one on a server by URL alike. The link is the page's to read once, not
+// the window's: what the window shows, and so what a relaunch restores, is the
+// session's own address. A conversation id that is not one is dropped, and the
+// session opened all the same.
+func TestAttachOpensTheSessionAtTheConversationItNames(t *testing.T) {
+	userpathstest.Isolate(t)
+	a := newTestAppState(t)
+	a.workspace = newWorkspaceStoreAt(workspacePath(t))
+	srv := newStubMachineServer(t, a, core.Version)
+	base := "http://" + srv.addr()
+	srv.list.Store(&[]machineserver.Session{{ID: "s7", Project: "/work/alpha", Link: "/p/alpha-0123abcd/", State: machineserver.SessionRunning}})
+	if _, err := a.serverClient(true); err != nil {
+		t.Fatal(err)
+	}
+	const server = "http://devbox:3939"
+
+	var pages []string
+	orig := viewShown
+	viewShown = func(_ *winEntry, _ windowView, page string) { pages = append(pages, page) }
+	t.Cleanup(func() { viewShown = orig })
+
+	for _, tc := range []struct {
+		name, query, want string
+		win               *winEntry
+	}{
+		{"this machine's server", "session=s7&conversation=conv_abc123", "conv_abc123",
+			&winEntry{id: "w1", role: roleMain, view: windowView{serverURL: base}}},
+		{"a server by URL", "session=s7&link=%2Fp%2Falpha-0123abcd%2F&conversation=conv_abc123", "conv_abc123",
+			&winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{url: server, connected: true}, serverURL: server}}},
+		{"a malformed id", "session=s7&conversation=..%2Fevil", "",
+			&winEntry{id: "w3", role: roleMain, view: windowView{serverURL: base}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := registerWindow(a, tc.win)
+			// Gone after, or the next case's attach of the same project would
+			// raise this window rather than move its own (controlAttach).
+			t.Cleanup(func() { a.reg(func(st *regState) { delete(st.windows, e.id) }) })
+			pages = nil
+			rec := httptest.NewRecorder()
+			a.controlAttach(rec, httptest.NewRequest(http.MethodPost, "/win/"+e.id+"/attach?"+tc.query, nil), e)
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("attach: %d, want 204", rec.Code)
+			}
+			if len(pages) != 1 {
+				t.Fatalf("the attach loaded %d pages, want 1: %q", len(pages), pages)
+			}
+			u, err := url.Parse(pages[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := u.Query().Get("c"); got != tc.want || u.Query().Has("c") != (tc.want != "") {
+				t.Errorf("the page loaded is %s; want it linked to %q", pages[0], tc.want)
+			}
+			var shown string
+			a.reg(func(*regState) { shown = e.view.serverURL })
+			if strings.Contains(shown, "?") {
+				t.Errorf("the window shows %s, which keeps the link; want the session's own address", shown)
+			}
+		})
+	}
 	a.workspace.flush(nil)
 }
 

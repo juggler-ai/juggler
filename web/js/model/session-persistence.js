@@ -39,6 +39,7 @@ import { toSandboxRoot } from '../../sdk/lib/sandbox-runner.js';
 import { recordTape } from '../utils/event-tape.js';
 import { setupWorkerCallbacks } from './session-worker-callbacks.js';
 import { normalizeAttachments } from '../utils/attachments.js';
+import { takeDeepLinkConversationId } from '../utils/view-mode.js';
 
 /** @typedef {import('./session.js').default} Session */
 /** @typedef {import('./conversation.js').default} Conversation */
@@ -146,6 +147,27 @@ export default class SessionPersistence {
      * @private
      */
     this._workerManagerInitialized = false;
+
+    /**
+     * The conversation the last load opened on because the page's address
+     * linked to it (`?c=`), until {@link SessionPersistence#takeLinkedConversationId}
+     * hands it over.
+     * @type {string}
+     * @private
+     */
+    this._linkedId = '';
+  }
+
+  /**
+   * The conversation the last load opened on because the page's address linked
+   * to it, handed over once — to the caller that reveals what in it waits on
+   * the user, as ⌘J does.
+   * @returns {string} The conversation id, or '' when the load followed no link.
+   */
+  takeLinkedConversationId() {
+    const id = this._linkedId;
+    this._linkedId = '';
+    return id;
   }
 
   /**
@@ -221,6 +243,10 @@ export default class SessionPersistence {
 
       const data = await host.api().getSession();
       const state = host.state();
+      // A link to a conversation is read by the first load to see it, whether
+      // or not the project still holds that conversation; the engine's address
+      // never carries one.
+      const linked = isEngine() ? '' : takeDeepLinkConversationId();
 
       // Populate session-level state BEFORE initialising the worker manager and
       // registering approval callbacks. Session-scoped permission rules
@@ -311,7 +337,16 @@ export default class SessionPersistence {
             registry.insert(convId, stub, '_doLoad-stub');
           }
 
-          if (data.activeConversationId && registry.has(data.activeConversationId)) {
+          // A link names the conversation the user chose to open, so it wins
+          // over the stored one, and becomes the stored one (the save below),
+          // as choosing its tab makes it. A link to a conversation the project
+          // no longer holds opens the page as an unlinked load does.
+          if (linked && registry.has(linked)) {
+            recordTape('session-mut', linked, { op: 'visible', from: '_doLoad-link' });
+            registry.select({ kind: 'conversation', id: linked });
+            registry.touch(linked);
+            this._linkedId = linked;
+          } else if (data.activeConversationId && registry.has(data.activeConversationId)) {
             recordTape('session-mut', data.activeConversationId, { op: 'visible', from: '_doLoad-active' });
             registry.select({ kind: 'conversation', id: data.activeConversationId });
           } else {
@@ -356,6 +391,7 @@ export default class SessionPersistence {
       this._refreshAllContextItems();
 
       host.notify('session:loaded', host.session());
+      if (this._linkedId && this._linkedId !== data.activeConversationId) this.save();
 
       // Runs after session:loaded so listeners have updated the visible conversation.
       void this._scanAssistantFilesOnce();

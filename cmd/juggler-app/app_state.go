@@ -826,8 +826,12 @@ func (a *appState) openWindow(spec windowSpec, opts windowOpts) {
 	}()
 }
 
-// openWindowForProject opens a window onto a project. Used by "New Window" and
-// the page's "open in new window" (via the loopback control endpoint).
+// openWindowForProject opens a window onto a project: a folder dropped with no
+// window to take it, after openDroppedFolderInWindow has found none open on it
+// to raise. A page's new window opens through the control endpoint
+// (controlNewWindow, openNewWindow), which raises one open on the project the
+// same way; a page's pick of a project in its own window attaches it
+// (controlAttach).
 func (a *appState) openWindowForProject(project string, opts windowOpts) {
 	a.openWindow(windowSpec{project: project}, opts)
 }
@@ -845,9 +849,9 @@ func (a *appState) openDroppedFolder(path string) {
 //
 // Three outcomes, in the order a user would expect:
 //
-//  1. A window is already on that project. Raise it. Opening a second window
-//     onto one project is never what the gesture meant, and the project lock
-//     would refuse it anyway.
+//  1. A window is already on that project. Raise it: one project has one
+//     window, and a second onto the same session is never what the gesture
+//     meant.
 //  2. The window that took the drop is empty. Fill it, by handing the page an
 //     announcement — the server's page opens the folder's session and asks
 //     for it in this window (controlAttach). Leaving a blank window next to a

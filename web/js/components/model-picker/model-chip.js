@@ -27,7 +27,7 @@
  */
 
 import JugglerElement from '../juggler-element.js';
-import { presentPopup } from '../../utils/popup-surface.js';
+import { presentPopup, whenRevealed } from '../../utils/popup-surface.js';
 import { modelLabelFromList } from '../../model/model-display.js';
 import { buildModelConfig } from '../../model/model-config.js';
 import keyShortcutManager from '../../services/key-shortcut-manager.js';
@@ -409,6 +409,20 @@ class ModelChip extends JugglerElement {
     });
     chip.setAttribute('aria-expanded', 'true');
     return true;
+  }
+
+  /**
+   * Focus the open mini popover's current thinking level, once it is on
+   * screen, so its segments take the keyboard. A no-op when it is closed.
+   */
+  focusMini() {
+    const surface = this._miniSurface;
+    if (!surface) return;
+    whenRevealed(surface, () => {
+      const seg = /** @type {HTMLElement|null} */ (surface.querySelector('.thinking-seg[aria-checked="true"]')
+        ?? surface.querySelector('.thinking-seg'));
+      seg?.focus();
+    });
   }
 
   /**

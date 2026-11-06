@@ -27,6 +27,7 @@
 :where(.window-mode) header-actions,
 :where(.window-mode) .header-history,
 :where(.window-mode) .ppd-new-window-button,
+:where(.window-mode) .ppd-chip,
 :where(.window-mode) .sidebar-toggle-button {
     --wails-draggable: no-drag;
 }

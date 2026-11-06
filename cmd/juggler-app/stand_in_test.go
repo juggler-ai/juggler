@@ -210,7 +210,7 @@ func TestAWindowWhoseUserStopsReconnectingBecomesItsStandIn(t *testing.T) {
 	}
 	got := make(chan opened, 4)
 	orig := viewShown
-	viewShown = func(e *winEntry, v windowView) { got <- opened{e.id, v.standIn.title.Key} }
+	viewShown = func(e *winEntry, v windowView, _ string) { got <- opened{e.id, v.standIn.title.Key} }
 	t.Cleanup(func() { viewShown = orig })
 	expect := func(id string, title msg.Message) {
 		t.Helper()

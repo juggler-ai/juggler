@@ -17,7 +17,8 @@ const OWN_POPUP_IDS = ['strategy-selector'];
  * StrategySwitcher - Handles the strategy-switch keyboard shortcut (Shift+Tab by
  * default). Alt-tab UX: the first press opens the dropdown HUD highlighting the
  * CURRENT strategy (no hop); each further Tab (Shift still held) cycles to the
- * next; releasing Shift commits the highlighted strategy.
+ * next; releasing Shift commits the highlighted strategy — or, with no Tab
+ * pressed again, leaves the dropdown open as an ordinary menu.
  *
  * A thin client of the shared {@link HoldToCycleController}, which owns the
  * gesture mechanics (phase machine, capture-phase key listeners) and sources the
@@ -67,6 +68,14 @@ class StrategySwitcher {
         this._activeSelector?.close();
         this._activeSelector?.commitCycle();
         this._activeSelector = null;
+      },
+      // Shift let go with no hop: the dropdown stays up as an ordinary menu on
+      // the current strategy, for ↑↓ and ↵.
+      onSettle: () => {
+        const selector = this._activeSelector;
+        this._activeSelector = null;
+        selector?.commitCycle();
+        selector?.takeKeyboard();
       },
       onCancel: () => {
         this._activeSelector?.close();

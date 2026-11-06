@@ -6,19 +6,22 @@
  * Unit tests: the machine server's sessions page (web/machine/), against a
  * stand-in control API.
  *
- * The page lists the sessions this machine runs — what each is doing, and a
- * way to open, stop, retry or dismiss it — and launches new ones from the
- * machine's recent projects or a typed path. In a browser, opening a session
- * takes this tab to it; the session's way back is its header's server button.
+ * The page is the session switcher (components/session-switcher.js) in page
+ * mode: the sessions this machine runs — what each is doing, and a way to
+ * open, stop, retry or dismiss it — then its recent projects, then a folder
+ * to open or make. In a browser, opening a session takes this tab to it (⌘ a
+ * tab of its own); the session's way back is its header's server button.
  * @module unit-tests/machine-sessions-page-test
  */
 
 import { assert, nextTask, waitFor } from '../utilities/test-helpers.js';
+import { isMac } from '../../js/services/key-shortcut-manager.js';
 import { mountSessionsPage, pageTitle, paintedTheme, relayFramerEvents, serverTitle } from '../../machine/sessions-view.js';
 import { createControlApi, readPageConfig, ControlApiError, TOKEN_HEADER } from '../../machine/control-api.js';
 import { desktopHost } from '../../machine/native-host.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
+import { workspaceTint } from '../../js/utils/workspace-colour.js';
 
 const NOW = Date.parse('2026-10-14T12:00:00Z');
 
@@ -117,33 +120,32 @@ function withExposure(api) {
 }
 
 /**
- * Fill in and submit the New folder form.
- * @param {HTMLElement} root
- * @param {string} parent
- * @param {string} name
- * @returns {Promise<void>} Resolves once the page has acted on it.
+ * Type a path into an action row's path field (Open folder… or New folder…,
+ * in a browser) and press its button.
+ * @param {Element} root
+ * @param {'act:open'|'act:new'} key - The action row.
+ * @param {string} path - As typed.
  */
-async function submitNewFolder(root, parent, name) {
-  const parentInput = /** @type {HTMLInputElement|null} */ (root.querySelector('form.ms-new-folder input.ms-folder-parent'));
-  const nameInput = /** @type {HTMLInputElement|null} */ (root.querySelector('form.ms-new-folder input.ms-folder-name'));
-  assert(!!parentInput && !!nameInput, 'the page has no New folder form');
-  /** @type {HTMLInputElement} */ (parentInput).value = parent;
-  /** @type {HTMLInputElement} */ (nameInput).value = name;
-  /** @type {HTMLFormElement} */ (root.querySelector('form.ms-new-folder')).requestSubmit();
-  await nextTask();
-  await nextTask();
-  await nextTask();
+function typePath(root, key, path) {
+  clickRow(actionRow(root, key));
+  const field = /** @type {HTMLInputElement|null} */ (actionRow(root, key).querySelector('.ss-field input'));
+  assert(!!field, `${key} shows no path field`);
+  /** @type {HTMLInputElement} */ (field).value = path;
+  /** @type {HTMLButtonElement} */ (actionRow(root, key).querySelector('.ss-field [data-field-go]')).click();
 }
 
 /**
- * A stand-in for sending this tab to a page: records each address it is sent
- * to, and goes nowhere.
- * @returns {{went: string[], navigate: (url: string) => void}} The log and the stand-in.
+ * A stand-in for sending this tab to a page, and for opening one in a tab of
+ * its own: records each address, and goes nowhere.
+ * @returns {{went: string[], tabs: string[], navigate: (url: string) => void, openTab: (url: string) => void}}
+ *   The logs and the stand-ins.
  */
 function stubNavigate() {
   /** @type {string[]} */
   const went = [];
-  return { went, navigate: (url) => { went.push(url); } };
+  /** @type {string[]} */
+  const tabs = [];
+  return { went, tabs, navigate: (url) => { went.push(url); }, openTab: (url) => { tabs.push(url); } };
 }
 
 /**
@@ -163,6 +165,7 @@ async function mount(api, extra = {}) {
     now: () => NOW,
     pollMs: 0,
     header,
+    openTab: () => {},
     ...extra,
   });
   await page.refresh();
@@ -195,9 +198,58 @@ async function openChooser(m) {
  * @returns {HTMLElement} The session's row.
  */
 function row(root, id) {
-  const el = /** @type {HTMLElement|null} */ (root.querySelector(`.ms-session[data-session-id="${id}"]`));
+  const el = /** @type {HTMLElement|null} */ (root.querySelector(`.ss-row[data-key="s:${id}"]`));
   assert(!!el, `no row for session ${id}`);
   return /** @type {HTMLElement} */ (el);
+}
+
+/**
+ * @param {Element} root
+ * @param {string} path
+ * @returns {HTMLElement} The recent project's row.
+ */
+function recentRow(root, path) {
+  const el = /** @type {HTMLElement|null} */ (root.querySelector(`.ss-row[data-key="r:${path}"]`));
+  assert(!!el, `no row for recent project ${path}`);
+  return /** @type {HTMLElement} */ (el);
+}
+
+/**
+ * @param {Element} root
+ * @param {string} key - act:open, act:new or act:path.
+ * @returns {HTMLElement} The action's row.
+ */
+function actionRow(root, key) {
+  const el = /** @type {HTMLElement|null} */ (root.querySelector(`.ss-row[data-key="${key}"]`));
+  assert(!!el, `no ${key} row`);
+  return /** @type {HTMLElement} */ (el);
+}
+
+/**
+ * Click a row, on its name, with the modifiers given.
+ * @param {HTMLElement} el - The row.
+ * @param {MouseEventInit} [mods]
+ */
+function clickRow(el, mods = {}) {
+  const target = el.querySelector('.ss-name, .ss-action-name') || el;
+  target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ...mods }));
+}
+
+/**
+ * @param {Element} root
+ * @param {string} prefix - s:, r: or act:.
+ * @returns {string[]} The keys of the rows that start with it, in order.
+ */
+function keys(root, prefix = '') {
+  return [...root.querySelectorAll('.ss-row')].map((r) => /** @type {HTMLElement} */ (r).dataset.key || '').filter((k) => k.startsWith(prefix));
+}
+
+/**
+ * @param {Element} r - A row.
+ * @returns {string[]} The parts of its status line.
+ */
+function parts(r) {
+  return [...(r.querySelector('.ss-sub')?.children || [])].map((c) => c.textContent || '');
 }
 
 /**
@@ -233,21 +285,261 @@ export async function runTests() {
   await test('lists every session with its project and what it is doing', async () => {
     const m = await mount(stubApi(sessions));
     try {
-      const rows = m.root.querySelectorAll('.ms-session');
-      assert(rows.length === 4, `${rows.length} rows, want 4`);
+      const listed = keys(m.root, 's:').sort();
+      assert(JSON.stringify(listed) === '["s:aaa","s:bbb","s:ccc","s:ddd"]', `session rows ${JSON.stringify(listed)}, want all 4`);
       const alpha = row(m.root, 'aaa');
-      assert(alpha.dataset.state === 'idle', `alpha state ${alpha.dataset.state}, want idle`);
-      assert((alpha.textContent || '').includes('alpha') && (alpha.textContent || '').includes('/work/alpha'), 'alpha row lacks its name or path');
-      assert(/5 minutes ago/.test(alpha.textContent || ''), `alpha row does not say when it was last active: ${alpha.textContent}`);
-      assert(row(m.root, 'bbb').dataset.state === 'busy', 'a busy session is not shown working');
-      const gamma = row(m.root, 'ccc');
-      assert(gamma.dataset.state === 'restarting', `gamma state ${gamma.dataset.state}`);
-      assert(/4 seconds/.test(gamma.textContent || '') && /2/.test(gamma.textContent || ''),
-        `a restarting session should say when it retries and how often it has: ${gamma.textContent}`);
-      const delta = row(m.root, 'ddd');
-      assert(delta.dataset.state === 'error' && (delta.textContent || '').includes('crashed 6 times'), 'an errored session does not say why');
+      assert(alpha.querySelector('.ss-name')?.textContent === 'alpha', `alpha is named ${JSON.stringify(alpha.querySelector('.ss-name')?.textContent)}`);
+      assert(JSON.stringify(parts(alpha)) === '["idle"]', `alpha says ${JSON.stringify(parts(alpha))}`);
+      assert(parts(row(m.root, 'bbb')).includes('working'), `a busy session is not shown working: ${JSON.stringify(parts(row(m.root, 'bbb')))}`);
+      const gamma = row(m.root, 'ccc').querySelector('.ss-sub')?.textContent || '';
+      assert(/restarting/.test(gamma) && /restarted 2 times/.test(gamma),
+        `a restarting session should say it restarts and how often it has: ${gamma}`);
+      assert(parts(row(m.root, 'ddd'))[0] === 'session child crashed 6 times in a row',
+        `an errored session does not say why: ${JSON.stringify(parts(row(m.root, 'ddd')))}`);
     } finally {
       m.dispose();
+    }
+  });
+
+  // The app's tab-circle language: a yellow count is conversations waiting on
+  // the user and nothing else, a pulsing green dot is a turn working, a red !
+  // a failed turn or a crashed session, and an idle session has no mark. A
+  // session starting, stopping or restarting shows the spinner, never a colour.
+  const attentive = [
+    { id: 'w', project: '/work/waits-here', link: '/p/waits-here-0123abcd/', state: 'running', busy: true, startedAt: '', lastActive: new Date(NOW - 2 * 60_000).toISOString(),
+      attention: { waiting: 2, working: 1, failed: 0, items: [] } },
+    { id: 'f', project: '/work/failed', link: '/p/failed-0123abcd/', state: 'running', busy: false, startedAt: '', lastActive: new Date(NOW - 2 * 60_000).toISOString(),
+      attention: { waiting: 0, working: 0, failed: 1, items: [] } },
+    { id: 'i', project: '/work/idle', link: '/p/idle-0123abcd/', state: 'running', busy: false, startedAt: '', lastActive: new Date(NOW - 5 * 60_000).toISOString(),
+      attention: { waiting: 0, working: 0, failed: 0, items: [] } },
+    { id: 'b', project: '/work/old-child', link: '/p/old-child-0123abcd/', state: 'running', busy: true, startedAt: '' },
+    { id: 's', project: '/work/starting', link: '/p/starting-0123abcd/', state: 'starting', busy: false, startedAt: '' },
+    { id: 'r', project: '/work/restarting', link: '/p/restarting-0123abcd/', state: 'restarting', busy: false, startedAt: '' },
+    { id: 'e', project: '/work/crashed', link: '/p/crashed-0123abcd/', state: 'error', busy: false, startedAt: '', error: 'crashed' },
+  ];
+
+  await test('a session row wears its project tile and the tab-circle status marks', async () => {
+    const m = await mount(stubApi(attentive));
+    try {
+      /**
+       * @param {string} id
+       * @returns {string[]} The marks on its tile.
+       */
+      const marks = (id) => [...row(m.root, id).querySelectorAll('.ss-tile-wrap .ss-badge')].map((b) => `${b.className.replace('ss-badge ', '')}:${b.textContent}`);
+      const want = {
+        w: ['ss-badge-waiting:2', 'ss-badge-working:'],
+        f: ['ss-badge-failed:!'],
+        i: [],
+        b: ['ss-badge-working:'],
+        s: [], r: [],
+        e: ['ss-badge-failed:!'],
+      };
+      for (const [id, expected] of Object.entries(want)) {
+        assert(JSON.stringify(marks(id)) === JSON.stringify(expected), `${id}: marks ${JSON.stringify(marks(id))}, want ${JSON.stringify(expected)}`);
+      }
+      for (const id of ['s', 'r']) {
+        assert(!!row(m.root, id).querySelector('.ss-tile-wrap juggler-spinner'), `${id}: no spinner on a session in its lifecycle`);
+      }
+      for (const id of ['w', 'f', 'i', 'b', 'e']) {
+        assert(!row(m.root, id).querySelector('juggler-spinner'), `${id}: a spinner on a settled session`);
+      }
+
+      const tile = /** @type {HTMLElement} */ (row(m.root, 'w').querySelector('.ss-tile'));
+      assert(tile.textContent === 'WH', `tile initials ${JSON.stringify(tile.textContent)}, want WH`);
+      assert(tile.style.getPropertyValue('--ss-tint') === workspaceTint('/p/waits-here-0123abcd/'),
+        `tile tint ${tile.style.getPropertyValue('--ss-tint')}, want the link's workspace tint`);
+
+      /** @type {Record<string, string[]>} */
+      const lines = {
+        w: ['2 waiting', 'working'],
+        f: ['1 failed', 'idle'],
+        i: ['idle'],
+        b: ['working'],
+        s: ['Starting…'],
+      };
+      for (const [id, expected] of Object.entries(lines)) {
+        assert(JSON.stringify(parts(row(m.root, id))) === JSON.stringify(expected), `${id} status ${JSON.stringify(parts(row(m.root, id)))}, want ${JSON.stringify(expected)}`);
+      }
+    } finally {
+      m.dispose();
+    }
+
+    await underPseudoLocale('machine-sessions-attention', async () => {
+      const p = await mount(stubApi(attentive));
+      try {
+        const line = row(p.root, 'w').querySelector('.ss-sub')?.textContent || '';
+        assert(isPseudoLocalized(line), `the status line was not translated: ${JSON.stringify(line)}`);
+      } finally {
+        p.dispose();
+      }
+    });
+  });
+
+  // A recent project whose session ended with conversations waiting on the
+  // user says so, in the yellow of waiting; the others are as they were.
+  await test('a recent project says how many conversations were waiting when it closed', async () => {
+    const api = stubApi([], ['/work/left-waiting', '/work/quiet']);
+    api.recents = async () => ({ paths: ['/work/left-waiting', '/work/quiet'], links: {}, waiting: { '/work/left-waiting': 2 } });
+    const m = await mount(api);
+    try {
+      const line = recentRow(m.root, '/work/left-waiting').querySelector('.ss-sub');
+      assert(line?.textContent === '? 2 conversations were waiting on you when it closed', `waiting line ${JSON.stringify(line?.textContent)}`);
+      assert(!!line?.classList.contains('ss-tone-waiting'), 'the waiting line is not in the yellow of waiting');
+      const quiet = recentRow(m.root, '/work/quiet').querySelector('.ss-sub');
+      assert(quiet?.textContent === '/work/quiet' && !quiet.classList.contains('ss-tone-waiting'), `a project with nothing waiting says ${JSON.stringify(quiet?.textContent)}`);
+    } finally {
+      m.dispose();
+    }
+    await underPseudoLocale('machine-sessions-recent-waiting', async () => {
+      const p = await mount(api);
+      try {
+        const text = p.root.querySelector('.ss-sub.ss-tone-waiting')?.textContent || '';
+        assert(isPseudoLocalized(text), `the waiting line was not translated: ${JSON.stringify(text)}`);
+      } finally {
+        p.dispose();
+      }
+    });
+  });
+
+  // The control API reads the server's events stream with the page's token in
+  // a header (an EventSource could carry it only in the address), however the
+  // network cuts it into chunks, and keeps every field of the recents.
+  await test('the control API follows the events stream and keeps what the recents carry', async () => {
+    const snapshot = { sessions: [{ id: 'aaa', project: '/work/alpha', link: '/p/alpha-0123abcd/', state: 'running', busy: false, startedAt: '' }],
+      recents: { paths: ['/work/old'], links: { '/work/old': '/p/old-0123abcd/' }, waiting: { '/work/old': 1 } } };
+    const wire = `: keep-alive\n\nevent: sessions\ndata: ${JSON.stringify(snapshot)}\n\nevent: sessions\ndata: ${JSON.stringify({ ...snapshot, sessions: [] })}\n\n`;
+    const cut = wire.indexOf('"project"');
+    const chunks = [wire.slice(0, 5), wire.slice(5, cut), wire.slice(cut)];
+    /** @type {any} */
+    let asked = null;
+    const api = createControlApi({
+      token: 'tok',
+      fetchImpl: async (input, init) => {
+        asked = { input, init };
+        if (String(input).endsWith('/recents')) {
+          return /** @type {any} */ ({ ok: true, status: 200, text: async () => JSON.stringify(snapshot.recents) });
+        }
+        const body = new window.ReadableStream({
+          start(controller) {
+            for (const c of chunks) controller.enqueue(new TextEncoder().encode(c));
+            controller.close();
+          },
+        });
+        return new window.Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      },
+    });
+    /** @type {any[]} */
+    const got = [];
+    await api.events((snap) => { got.push(snap); }, new AbortController().signal);
+    assert(String(asked?.input) === '/api/server/events', `asked ${asked?.input}`);
+    assert(asked?.init?.headers?.[TOKEN_HEADER] === 'tok', 'the stream was not asked for with the token');
+    assert(got.length === 2, `${got.length} snapshots, want 2`);
+    assert(got[0].sessions[0]?.id === 'aaa' && got[1].sessions.length === 0, `snapshots ${JSON.stringify(got)}`);
+    assert(got[0].recents.waiting['/work/old'] === 1, `the stream's recents lost their waiting counts: ${JSON.stringify(got[0].recents)}`);
+
+    const recents = await api.recents();
+    assert(recents.waiting?.['/work/old'] === 1, `recents() lost the waiting counts: ${JSON.stringify(recents)}`);
+  });
+
+  // With the events stream open, what it pushes is drawn at once, and the
+  // page's poll stops asking for the sessions; while it is down, the poll asks
+  // as it always has, and the page reconnects. Disposing the page closes it.
+  await test('the page follows the events stream, and polls the sessions only while it is down', async () => {
+    const api = withExposure(stubApi(sessions));
+    let failing = true;
+    /** @type {((snap: any) => void)|null} */
+    let push = null;
+    /** @type {AbortSignal|null} */
+    let followed = null;
+    api.events = async (/** @type {(snap: any) => void} */ onSnapshot, /** @type {AbortSignal} */ signal) => {
+      api.calls.push(['events']);
+      if (failing) throw new ControlApiError(0, 'Failed to fetch');
+      push = onSnapshot;
+      followed = signal;
+      await new Promise((resolve) => { signal.addEventListener('abort', resolve); });
+    };
+    /** @type {(() => void)|null} */
+    let wake = null;
+    const sleep = () => new Promise((resolve) => { wake = () => resolve(undefined); });
+    const count = (/** @type {string} */ kind) => api.calls.filter((c) => c[0] === kind).length;
+    // The poll runs only while the page is shown, and a lane's offscreen
+    // document reads as hidden: this one reads as shown while the test runs.
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    const m = await mount(api, { pollMs: 1, sleep, config: { token: 't', version: 'v1.2.3', host: 'studio', local: true } });
+    try {
+      await waitFor(() => count('events') >= 1 && !!wake, { description: 'a first try at the stream, and a wait to retry' });
+      const listed = count('list');
+      await waitFor(() => count('list') >= listed + 2, { description: 'the poll asking for the sessions while the stream is down' });
+
+      failing = false;
+      /** @type {() => void} */ (/** @type {unknown} */ (wake))();
+      await waitFor(() => !!push, { description: 'the page reconnecting to the stream' });
+      /** @type {(snap: any) => void} */ (/** @type {unknown} */ (push))({ sessions: sessions.slice(0, 1), recents: { paths: [], links: {}, waiting: {} } });
+      await waitFor(() => keys(m.root, 's:').length === 1, { description: 'the pushed snapshot drawn' });
+
+      const asked = count('list');
+      const ticks = count('getLAN');
+      await waitFor(() => count('getLAN') >= ticks + 3, { description: 'three more polls' });
+      assert(count('list') === asked, `the poll asked for the sessions ${count('list') - asked} times with the stream open`);
+    } finally {
+      m.dispose();
+      // Back to the Document prototype's own hidden.
+      delete (/** @type {any} */ (document)).hidden;
+    }
+    assert(/** @type {AbortSignal|null} */ (followed)?.aborted === true, 'disposing the page left the stream open');
+  });
+
+  // The marks' colours are the tab circles': yellow, green and red from the
+  // theme's accents, measured on the switcher's own stylesheet in a frame of
+  // its own. A tile's hue is the project's, and a recent project's is dimmed.
+  await test('the tile marks are the tab circles\' yellow, green and red', async () => {
+    const frame = document.createElement('iframe');
+    frame.style.cssText = 'position:absolute;left:-10000px;width:40rem;height:20rem;border:0';
+    document.body.appendChild(frame);
+    try {
+      const doc = /** @type {Document} */ (frame.contentDocument);
+      const win = /** @type {Window & typeof globalThis} */ (/** @type {unknown} */ (frame.contentWindow));
+      const sheets = await Promise.all(['../../css/tokens/scale.css', '../../css/tokens/theme-dark.css', '../../css/components/session-switcher.css'].map(async (rel) => {
+        const resp = await fetch(new URL(rel, import.meta.url));
+        assert(resp.ok, `${rel}: ${resp.status}`);
+        const sheet = new win.CSSStyleSheet();
+        sheet.replaceSync(await resp.text());
+        return sheet;
+      }));
+      doc.adoptedStyleSheets = sheets;
+      doc.documentElement.dataset.theme = 'dark';
+      doc.body.innerHTML = '<div class="ss ss--page"><span class="ss-tile-wrap"><span class="ss-tile live">AB</span>'
+        + '<span class="ss-badge ss-badge-waiting">2</span><span class="ss-badge ss-badge-working"></span>'
+        + '<span class="ss-badge ss-badge-failed">!</span></span>'
+        + '<span class="ss-tile-wrap"><span class="ss-tile ss-tile-dim">CD</span></span></div><span class="probe"></span>';
+      /**
+       * @param {string} token
+       * @returns {string} The token's computed colour.
+       */
+      const colour = (token) => {
+        const probe = /** @type {HTMLElement} */ (doc.querySelector('.probe'));
+        probe.style.color = `var(${token})`;
+        return win.getComputedStyle(probe).color;
+      };
+      /**
+       * @param {string} sel
+       * @returns {CSSStyleDeclaration} The style of the element it selects.
+       */
+      const style = (sel) => win.getComputedStyle(/** @type {Element} */ (doc.querySelector(sel)));
+      assert(style('.ss-badge-waiting').backgroundColor === colour('--accent-yellow'), `waiting badge ${style('.ss-badge-waiting').backgroundColor}, want --accent-yellow`);
+      assert(style('.ss-badge-working').backgroundColor === colour('--accent-green'), `working badge ${style('.ss-badge-working').backgroundColor}, want --accent-green`);
+      assert(style('.ss-badge-failed').backgroundColor === colour('--accent-red'), `failed badge ${style('.ss-badge-failed').backgroundColor}, want --accent-red`);
+      const tile = /** @type {HTMLElement} */ (doc.querySelector('.ss-tile.live'));
+      tile.style.setProperty('--ss-tint', 'var(--workspace-tint-3)');
+      // A wash of its hue.
+      const probe = /** @type {HTMLElement} */ (doc.querySelector('.probe'));
+      probe.style.color = 'color-mix(in srgb, var(--workspace-tint-3) 30%, transparent)';
+      const wash = win.getComputedStyle(probe).color;
+      assert(win.getComputedStyle(tile).backgroundColor === wash, `tile ${win.getComputedStyle(tile).backgroundColor}, want a wash of its tint (${wash})`);
+      assert(parseFloat(style('.ss-tile-dim').opacity) < 1, 'a recent project\'s tile is not dimmed');
+      assert(parseFloat(style('.ss-tile.live').opacity) === 1, 'a session\'s tile is dimmed');
+    } finally {
+      frame.remove();
     }
   });
 
@@ -266,15 +558,15 @@ export async function runTests() {
     // No refresh from here and no polling: only the page itself can ask.
     const page = mountSessionsPage(root, { api, config: { token: 't' }, now: () => NOW, pollMs: 0 });
     try {
-      const list = /** @type {HTMLElement} */ (root.querySelector('.ms-sessions'));
-      assert(!!list.querySelector('juggler-spinner'), `no spinner while the list loads: ${list.innerHTML}`);
-      assert(!root.querySelector('.ms-sessions-empty'), 'said there are no sessions before it knew');
-      assert(list.getAttribute('aria-busy') === 'true', 'the list does not say it is loading');
+      const loading = /** @type {HTMLElement|null} */ (root.querySelector('.ms-sessions-loading'));
+      assert(!!loading?.querySelector('juggler-spinner'), `no spinner while the list loads: ${root.innerHTML}`);
+      assert(loading?.getAttribute('aria-busy') === 'true', 'the list does not say it is loading');
+      assert(!root.querySelector('.ss-row'), 'offered rows before it knew what there is');
       assert(asked === 1, `the page asked for the list ${asked} times as it mounted, want 1`);
       /** @type {() => void} */ (/** @type {unknown} */ (release))();
-      await waitFor(() => root.querySelectorAll('.ms-session').length === 4, { description: 'the first list' });
-      assert(!list.querySelector('juggler-spinner'), 'the spinner outlived the first list');
-      assert(list.getAttribute('aria-busy') !== 'true', 'the list still says it is loading');
+      await waitFor(() => keys(root, 's:').length === 4, { description: 'the first list' });
+      assert(!root.querySelector('.ms-sessions-loading'), 'the loading spinner outlived the first list');
+      assert(!root.querySelector('[aria-busy="true"]'), 'the page still says it is loading');
     } finally {
       page.dispose();
       root.remove();
@@ -286,7 +578,7 @@ export async function runTests() {
     const m = await mount(down);
     try {
       assert(!!m.root.querySelector('.ms-unreachable'), 'no word that the server is unreachable');
-      assert(!!m.root.querySelector('.ms-sessions juggler-spinner') && !m.root.querySelector('.ms-sessions-empty'),
+      assert(!!m.root.querySelector('.ms-sessions-loading juggler-spinner') && !m.root.querySelector('.ss-row'),
         'an unanswered list was shown as empty');
     } finally {
       m.dispose();
@@ -308,39 +600,29 @@ export async function runTests() {
     });
   });
 
-  // A whole running session's row opens it, by the same path as its Open link;
-  // the row's own controls do only their own thing. The Open link stays the
-  // keyboard's way in, so the row adds no second, nested control.
-  await test('clicking a running session\'s row opens it in this tab; its controls do not', async () => {
+  // A running session's row opens it: in this tab in a browser, or with ⌘ (Ctrl)
+  // in a tab of its own. Its × does only its own thing, and a session between
+  // lives opens nothing.
+  await test('clicking a running session\'s row opens it in this tab, ⌘ in a new one; its × does not', async () => {
     const api = stubApi(sessions);
     const nav = stubNavigate();
-    const m = await mount(api, { navigate: nav.navigate, confirm: () => false });
-    // The Open link's own navigation is the browser's; keep it out of the lane.
-    const noNavigate = (/** @type {Event} */ e) => {
-      if (/** @type {Element} */ (e.target).closest('a')) e.preventDefault();
-    };
-    m.root.addEventListener('click', noNavigate);
+    const m = await mount(api, { navigate: nav.navigate, openTab: nav.openTab });
     try {
-      /** @type {HTMLElement} */ (row(m.root, 'aaa').querySelector('.ms-session-name')).click();
+      clickRow(row(m.root, 'aaa'));
       assert(JSON.stringify(nav.went) === '["/p/alpha-0123abcd/"]', `a row click went to ${JSON.stringify(nav.went)}`);
-      assert(row(m.root, 'aaa').classList.contains('ms-session-openable'), 'a running row does not show it can be opened');
 
       nav.went.length = 0;
-      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('button.ms-session-stop')).click();
-      /** @type {HTMLElement} */ (row(m.root, 'bbb').querySelector('a.ms-session-open')).click();
+      clickRow(row(m.root, 'aaa'), { metaKey: true });
+      assert(JSON.stringify(nav.tabs) === '["/p/alpha-0123abcd/"]' && nav.went.length === 0,
+        `a ⌘-click opened ${JSON.stringify(nav.tabs)} in a tab and went to ${JSON.stringify(nav.went)}`);
+
+      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.ss-x')).click();
       await nextTask();
-      assert(nav.went.length === 0, `the row's controls also went to ${JSON.stringify(nav.went)}`);
-
-      /** @type {HTMLElement} */ (row(m.root, 'ddd').querySelector('.ms-session-name')).click();
-      /** @type {HTMLElement} */ (row(m.root, 'ccc').querySelector('.ms-session-name')).click();
-      assert(nav.went.length === 0, 'a session that is not running opened from its row');
-      assert(!row(m.root, 'ddd').classList.contains('ms-session-openable'), 'an errored row shows it can be opened');
-
-      const link = /** @type {HTMLAnchorElement} */ (row(m.root, 'aaa').querySelector('a.ms-session-open'));
-      assert(link.tabIndex >= 0 && !row(m.root, 'aaa').hasAttribute('tabindex') && !row(m.root, 'aaa').hasAttribute('role'),
-        'the keyboard does not reach the session by its Open link alone');
+      clickRow(row(m.root, 'ccc'));
+      await nextTask();
+      assert(nav.went.length === 0 && nav.tabs.length === 1, `the × or a restarting row also went to ${JSON.stringify(nav.went)}`);
+      assert(!api.calls.some((c) => c[0] === 'open'), `a restarting row opened ${JSON.stringify(api.calls)}`);
     } finally {
-      m.root.removeEventListener('click', noNavigate);
       m.dispose();
     }
   });
@@ -348,14 +630,14 @@ export async function runTests() {
   await test('in a desktop window clicking a running session\'s row shows it in that window', async () => {
     const host = stubHost();
     const nav = stubNavigate();
-    const m = await mount(stubApi(sessions), { host, navigate: nav.navigate });
+    const m = await mount(stubApi(sessions), { host, navigate: nav.navigate, openTab: nav.openTab });
     try {
-      /** @type {HTMLElement} */ (row(m.root, 'aaa').querySelector('.ms-path')).click();
-      /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('button.ms-session-stop')).click();
+      clickRow(row(m.root, 'aaa'));
+      /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('.ss-x')).click();
       await nextTask();
       assert(JSON.stringify(host.attached) === '["aaa"]', `attached ${JSON.stringify(host.attached)}`);
       assert(JSON.stringify(host.attachedLinks) === '["/p/alpha-0123abcd/"]', `attached at ${JSON.stringify(host.attachedLinks)}`);
-      assert(nav.went.length === 0, `a desktop window went to ${JSON.stringify(nav.went)}`);
+      assert(nav.went.length === 0 && nav.tabs.length === 0, `a desktop window went to ${JSON.stringify([...nav.went, ...nav.tabs])}`);
     } finally {
       m.dispose();
     }
@@ -366,51 +648,109 @@ export async function runTests() {
     const had = Object.prototype.hasOwnProperty.call(w, '__jugglerStudio');
     const previous = w.__jugglerStudio;
     w.__jugglerStudio = { pageURL: (/** @type {string} */ path) => `/c/abcdefghijklmnop#${path}` };
-    const m = await mount(stubApi(sessions));
+    const nav = stubNavigate();
+    const m = await mount(stubApi(sessions), { navigate: nav.navigate, openTab: nav.openTab });
     try {
-      const open = /** @type {HTMLAnchorElement|null} */ (row(m.root, 'aaa').querySelector('a.ms-session-open'));
-      assert(open?.getAttribute('href') === '/c/abcdefghijklmnop#/p/alpha-0123abcd/', `Open href ${open?.getAttribute('href')}`);
+      clickRow(row(m.root, 'aaa'));
+      clickRow(row(m.root, 'aaa'), { ctrlKey: true });
+      assert(JSON.stringify(nav.went) === '["/c/abcdefghijklmnop#/p/alpha-0123abcd/"]', `went to ${JSON.stringify(nav.went)}`);
+      assert(JSON.stringify(nav.tabs) === '["/c/abcdefghijklmnop#/p/alpha-0123abcd/"]', `opened a tab at ${JSON.stringify(nav.tabs)}`);
     } finally {
       m.dispose();
       if (had) w.__jugglerStudio = previous; else delete w.__jugglerStudio;
     }
   });
 
-  await test('Open goes to the session in this tab', async () => {
-    const m = await mount(stubApi(sessions));
+  // The page's filter narrows the rows as typed; ↵ goes to the lit row, ⌘↵
+  // to it in a tab of its own.
+  await test('the filter finds a session, and ↵ goes to it in this tab, ⌘↵ in a new one', async () => {
+    const nav = stubNavigate();
+    const m = await mount(stubApi(sessions, ['/work/zeta']), { navigate: nav.navigate, openTab: nav.openTab });
     try {
-      const open = /** @type {HTMLAnchorElement|null} */ (row(m.root, 'aaa').querySelector('a.ms-session-open'));
-      assert(!!open, 'a running session has no Open link');
-      assert(open?.getAttribute('href') === '/p/alpha-0123abcd/', `Open href ${open?.getAttribute('href')}`);
-      assert(!open?.target, `Open targets ${open?.target}, want this tab`);
-      assert(!row(m.root, 'ddd').querySelector('a.ms-session-open'), 'an errored session offers Open');
-      assert(!row(m.root, 'ccc').querySelector('a.ms-session-open'), 'a restarting session offers Open');
+      const input = /** @type {HTMLInputElement|null} */ (m.root.querySelector('.ss-input'));
+      assert(!!input && input.checkVisibility(), 'the page has no filter shown');
+      /** @type {HTMLInputElement} */ (input).value = 'alph';
+      input?.dispatchEvent(new Event('input'));
+      assert(JSON.stringify(keys(m.root, 's:').concat(keys(m.root, 'r:'))) === '["s:aaa"]', `the filter left ${JSON.stringify(keys(m.root))}`);
+      input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      assert(JSON.stringify(nav.went) === '["/p/alpha-0123abcd/"]', `↵ went to ${JSON.stringify(nav.went)}`);
+      input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+      assert(JSON.stringify(nav.tabs) === '["/p/alpha-0123abcd/"]', `⌘↵ opened ${JSON.stringify(nav.tabs)}`);
+      /** @type {HTMLInputElement} */ (input).value = 'nothing-like-it';
+      input?.dispatchEvent(new Event('input'));
+      assert((m.root.querySelector('.ss-empty')?.textContent || '').includes('nothing-like-it'), 'a filter that matches nothing does not say so');
     } finally {
       m.dispose();
     }
   });
 
-  await test('stopping a busy session asks first, and a no stops nothing', async () => {
-    const api = stubApi(sessions);
-    /** @type {string[]} */
-    const asked = [];
-    let answer = false;
-    const m = await mount(api, { confirm: (/** @type {string} */ msg) => { asked.push(msg); return answer; } });
+  // The footer's ↵ and ⌘↵ hold wherever focus is on the page, not only in the
+  // filter: a row the pointer lights opens on ↵, and ↑↓ move from it.
+  await test('with the filter unfocused, ↑↓ move and ↵ opens the lit row, ⌘↵ in a new tab', async () => {
+    const nav = stubNavigate();
+    const m = await mount(stubApi(sessions), { navigate: nav.navigate, openTab: nav.openTab });
+    /**
+     * @param {string} key
+     * @param {object} [init]
+     * @returns {KeyboardEvent} The keydown, dispatched at the page's body.
+     */
+    const onBody = (key, init = {}) => {
+      const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
+      document.body.dispatchEvent(e);
+      return e;
+    };
+    const lit = () => /** @type {HTMLElement|null} */ (m.root.querySelector('.ss-row[aria-selected="true"]'))?.dataset.key;
     try {
-      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('button.ms-session-stop')).click();
-      await nextTask();
-      assert(asked.length === 1 && asked[0].includes('beta'), `asked ${JSON.stringify(asked)}`);
-      assert(!api.calls.some((c) => c[0] === 'stop'), 'stopped a busy session the user said no to');
+      /** @type {HTMLElement|null} */ (document.activeElement)?.blur?.();
+      row(m.root, 'aaa').dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+      assert(lit() === 's:aaa', `the pointer lit ${lit()}`);
+      const enter = onBody('Enter');
+      assert(enter.defaultPrevented, '↵ was left to the page');
+      assert(JSON.stringify(nav.went) === '["/p/alpha-0123abcd/"]', `↵ went to ${JSON.stringify(nav.went)}`);
+      onBody('Enter', { metaKey: true });
+      assert(JSON.stringify(nav.tabs) === '["/p/alpha-0123abcd/"]', `⌘↵ opened ${JSON.stringify(nav.tabs)}`);
+      const down = onBody('ArrowDown');
+      assert(down.defaultPrevented && lit() !== 's:aaa', `↓ left ${lit()} lit`);
+      onBody('ArrowUp');
+      assert(lit() === 's:aaa', `↑ came back to ${lit()}`);
 
-      answer = true;
-      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('button.ms-session-stop')).click();
+      const button = document.createElement('button');
+      m.root.append(button);
+      button.focus();
+      const onButton = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      button.dispatchEvent(onButton);
+      assert(!onButton.defaultPrevented && nav.went.length === 1, 'a button with focus keeps its own ↵');
+      button.remove();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  // Stopping a session with a turn running asks first, on its own row, and
+  // Keep stops nothing; an idle one stops at once.
+  await test('stopping a busy session asks first, inline, and Keep stops nothing', async () => {
+    const api = stubApi(sessions);
+    const m = await mount(api);
+    try {
+      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.ss-x')).click();
       await nextTask();
+      const ask = row(m.root, 'bbb').querySelector('.ss-confirm');
+      assert(!!ask && (ask.textContent || '').includes('A turn is running'), `asked ${JSON.stringify(ask?.textContent)}`);
+      assert(!api.calls.some((c) => c[0] === 'stop'), 'stopped a busy session before the user said yes');
+      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('[data-confirm="no"]')).click();
+      await nextTask();
+      assert(!row(m.root, 'bbb').querySelector('.ss-confirm'), 'Keep left the question up');
+      assert(!api.calls.some((c) => c[0] === 'stop'), 'stopped a busy session the user kept');
+
+      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.ss-x')).click();
+      await nextTask();
+      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('[data-confirm="yes"]')).click();
+      await waitFor(() => api.calls.some((c) => c[0] === 'stop' && c[1] === 'bbb'), { description: 'the stop asked for' });
       assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'bbb'), 'did not stop after a yes');
 
-      asked.length = 0;
-      /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('button.ms-session-stop')).click();
-      await nextTask();
-      assert(asked.length === 0, 'asked before stopping an idle session');
+      /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('.ss-x')).click();
+      assert(!row(m.root, 'aaa').querySelector('.ss-confirm'), 'asked before stopping an idle session');
+      await waitFor(() => api.calls.some((c) => c[0] === 'stop' && c[1] === 'aaa'), { description: 'the stop asked for' });
       assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'aaa'), 'did not stop an idle session');
     } finally {
       m.dispose();
@@ -422,32 +762,37 @@ export async function runTests() {
     const nav = stubNavigate();
     const m = await mount(api, { navigate: nav.navigate });
     try {
-      const delta = row(m.root, 'ddd');
-      /** @type {HTMLButtonElement} */ (delta.querySelector('button.ms-session-retry')).click();
-      await nextTask();
-      assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/delta'), 'Retry did not reopen the project');
-      /** @type {HTMLButtonElement} */ (row(m.root, 'ddd').querySelector('button.ms-session-dismiss')).click();
-      await nextTask();
-      assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'ddd'), 'Dismiss did not drop the session');
+      clickRow(row(m.root, 'ddd'));
+      await waitFor(() => api.calls.some((c) => c[0] === 'open' && c[1] === '/work/delta'), { description: 'the retry asked for' });
+      assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/delta'), 'a click did not retry the project');
+      // The row says Starting… while the retry runs, and has its × back after.
+      await waitFor(() => !!row(m.root, 'ddd').querySelector('.ss-x'), { description: 'the retry settled' });
+      /** @type {HTMLButtonElement} */ (row(m.root, 'ddd').querySelector('.ss-x')).click();
+      await waitFor(() => api.calls.some((c) => c[0] === 'stop' && c[1] === 'ddd'), { description: 'the dismiss asked for' });
+      assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'ddd'), '× did not dismiss the session');
     } finally {
       m.dispose();
     }
   });
 
+  // In a browser Open folder… is a path field; a filter that is a path (~ or /)
+  // is a row that opens it too.
   await test('a typed path opens a session and takes this tab to it', async () => {
-    const api = stubApi([]);
+    const api = stubApi([], ['/work/zeta']);
     const nav = stubNavigate();
     const m = await mount(api, { navigate: nav.navigate });
     try {
-      assert(!!m.root.querySelector('.ms-sessions-empty'), 'no empty state with no sessions');
-      const input = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-launch-input'));
-      input.value = '  ~/code/new-thing  ';
-      /** @type {HTMLFormElement} */ (m.root.querySelector('form.ms-launch')).requestSubmit();
-      await nextTask();
-      await nextTask();
+      typePath(m.root, 'act:open', '  ~/code/new-thing  ');
+      await waitFor(() => nav.went.length > 0, { description: 'the typed path opened' });
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '~/code/new-thing'), `opened ${JSON.stringify(api.calls)}`);
       assert(JSON.stringify(nav.went) === '["/p/new1-0123abcd/"]', `the tab went to ${JSON.stringify(nav.went)}`);
-      assert(input.value === '', 'the path field was not cleared after a successful open');
+
+      const input = /** @type {HTMLInputElement} */ (m.root.querySelector('.ss-input'));
+      input.value = '~/code/other';
+      input.dispatchEvent(new Event('input'));
+      clickRow(actionRow(m.root, 'act:path'));
+      await waitFor(() => api.calls.some((c) => c[0] === 'open' && c[1] === '~/code/other'), { description: "the filter's path opened" });
+      assert(api.calls.some((c) => c[0] === 'open' && c[1] === '~/code/other'), `the filter's path opened ${JSON.stringify(api.calls)}`);
     } finally {
       m.dispose();
     }
@@ -459,15 +804,11 @@ export async function runTests() {
     const nav = stubNavigate();
     const m = await mount(api, { navigate: nav.navigate });
     try {
-      const input = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-launch-input'));
-      input.value = 'some/rel';
-      /** @type {HTMLFormElement} */ (m.root.querySelector('form.ms-launch')).requestSubmit();
-      await nextTask();
-      await nextTask();
+      typePath(m.root, 'act:open', 'some/rel');
+      await waitFor(() => !!m.root.querySelector('.ms-launch-error')?.textContent, { description: 'why it did not open' });
       const err = m.root.querySelector('.ms-launch-error');
       assert(!!err && (err.textContent || '').includes('absolute path'), `error shown: ${err?.textContent}`);
       assert(nav.went.length === 0, `a refused open went to ${JSON.stringify(nav.went)}`);
-      assert(input.value === 'some/rel', 'the refused path was cleared');
     } finally {
       m.dispose();
     }
@@ -485,7 +826,7 @@ export async function runTests() {
       const m = await mount(api, where === 'a desktop window' ? { host: stubHost() } : { navigate: stubNavigate().navigate });
       try {
         const main = /** @type {HTMLElement} */ (m.root.querySelector('.ms-main'));
-        /** @type {HTMLButtonElement} */ (m.root.querySelector('.ms-recent[data-project="/work/zeta"] .ms-recent-open')).click();
+        clickRow(recentRow(m.root, '/work/zeta'));
         const busy = /** @type {HTMLElement|null} */ (m.root.querySelector('.ms-launch-busy'));
         assert(!!busy && busy.checkVisibility(), 'clicking Open showed no spinner before the server answered');
         assert(!!busy?.querySelector('juggler-spinner'), 'the opening panel has no spinner');
@@ -501,21 +842,10 @@ export async function runTests() {
     });
   }
 
-  await test('the sessions section is headed Active sessions, with no count', async () => {
-    const m = await mount(stubApi(sessions));
-    try {
-      const heading = m.root.querySelector('.ms-main > .ms-section:has(.ms-sessions) > h2');
-      assert(heading?.textContent === 'Active sessions', `the sessions section is headed ${JSON.stringify(heading?.textContent)}`);
-    } finally {
-      m.dispose();
-    }
-  });
-
   // The page is shaped by what there is to show. A desktop window on this
   // computer with nothing open and nothing recent is a first run: the
-  // wordmark and a welcome head the page, over the same controls as ever —
-  // the path, the new folder and the machine's ways in, all shown at once —
-  // with no empty list of sessions among them.
+  // wordmark and a welcome head the page, over the switcher — with nothing to
+  // filter, only its ways of opening a folder — and the machine's ways in.
   await test('a first run in a desktop window is welcomed, over every way in', async () => {
     const api = withExposure(stubApi([]));
     const host = stubHost('/work/picked');
@@ -528,16 +858,16 @@ export async function runTests() {
       assert((m.root.querySelector('.ms-welcome p')?.textContent || '').startsWith('Juggler is an AI coding agent'),
         `the welcome opens ${JSON.stringify(m.root.querySelector('.ms-welcome p')?.textContent)}`);
       assert(!m.root.querySelector('.ms-welcome button'), 'the welcome has buttons of its own');
-      assert(!shown('.ms-sessions'), 'an empty sessions list is shown on a first run');
-      assert(shown('form.ms-launch:not(.ms-new-folder)'), 'the path field is not shown');
-      assert(shown('form.ms-new-folder'), 'the new folder form is not shown');
+      assert(JSON.stringify(keys(m.root)) === '["act:open","act:new"]', `a first run offers ${JSON.stringify(keys(m.root))}`);
+      assert(shown('.ss-row[data-key="act:open"]'), 'Open folder… is not shown');
+      assert(!shown('.ss-input'), 'a first run shows a filter with nothing to filter');
       assert(shown('.ms-exposure'), 'the machine\'s ways in are not shown');
       assert(shown('.ms-drop-hint'), 'the window does not say a folder can be dropped on it');
 
       api.onOpen = async () => { throw new ControlApiError(500, 'spawn failed: no binary'); };
-      /** @type {HTMLButtonElement} */ (m.root.querySelector('button.ms-launch-browse')).click();
+      clickRow(actionRow(m.root, 'act:open'));
       await waitFor(() => shown('.ms-launch-error'), { description: 'why the picked folder did not open' });
-      assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/picked'), `Open a folder opened ${JSON.stringify(api.calls)}`);
+      assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/picked'), `Open folder… opened ${JSON.stringify(api.calls)}`);
       assert((m.root.querySelector('.ms-launch-error')?.textContent || '').includes('spawn failed'), 'the failure does not say why');
       assert(shown('.ms-welcome'), 'the welcome did not come back after the open failed');
     } finally {
@@ -546,7 +876,7 @@ export async function runTests() {
   });
 
   // A browser tab is a more knowing visitor's, and has no folder chooser: a
-  // line saying nothing is open yet, then the typed path and the new folder.
+  // line saying nothing is open yet, then the ways of opening a folder.
   await test('a first run in a browser tab gets a line of introduction and the path field, not the welcome', async () => {
     const m = await mount(stubApi([]));
     try {
@@ -555,26 +885,27 @@ export async function runTests() {
       assert(!shown('.ms-drop-hint'), 'a browser tab offers to take a dropped folder');
       assert(shown('.ms-intro') && (m.root.querySelector('.ms-intro')?.textContent || '').includes('studio'),
         `no introduction naming the machine: ${JSON.stringify(m.root.querySelector('.ms-intro')?.textContent)}`);
-      assert(shown('form.ms-launch:not(.ms-new-folder)') && shown('form.ms-new-folder'), 'the ways in are not shown');
-      assert(!shown('.ms-sessions'), 'an empty sessions list is shown on a first run');
+      assert(shown('.ss-row[data-key="act:open"]') && shown('.ss-row[data-key="act:new"]'), 'the ways of opening a folder are not shown');
+      assert(!shown('.ss-input'), 'a first run shows a filter with nothing to filter');
+      clickRow(actionRow(m.root, 'act:open'));
+      assert(shown('.ss-row[data-key="act:open"] .ss-field input'), 'Open folder… gives no path field');
     } finally {
       m.dispose();
     }
   });
 
-  // With recent projects but nothing open, the recents lead: the empty list
-  // of sessions is left out, in a window and a tab alike.
+  // With recent projects but nothing open, the recents lead, under the filter,
+  // in a window and a tab alike.
   for (const where of ['a browser tab', 'a desktop window']) {
     await test(`in ${where} with nothing open the recent projects lead, and the welcome is not shown`, async () => {
       const m = await mount(stubApi([], ['/work/zeta']), where === 'a desktop window' ? { host: stubHost() } : {});
       try {
         const shown = (/** @type {string} */ sel) => !!m.root.querySelector(sel)?.checkVisibility();
         assert(!shown('.ms-welcome') && !shown('.ms-intro'), 'a returning user is welcomed');
-        assert(!shown('.ms-sessions'), 'an empty sessions list is shown');
-        const headings = [...m.root.querySelectorAll('.ms-main > .ms-section')]
-          .filter((s) => s.checkVisibility()).map((s) => s.querySelector('h2')?.textContent || '');
-        assert(JSON.stringify(headings) === JSON.stringify(['Recent', 'Open a project', 'New folder']),
-          `the page reads ${JSON.stringify(headings)}`);
+        assert(shown('.ss-input'), 'no filter over the recent projects');
+        const headings = [...m.root.querySelectorAll('.ss-heading')].map((h) => h.textContent || '');
+        assert(JSON.stringify(headings) === '["Recent"]', `the page reads ${JSON.stringify(headings)}`);
+        assert(JSON.stringify(keys(m.root)) === '["r:/work/zeta","act:open","act:new"]', `the rows are ${JSON.stringify(keys(m.root))}`);
       } finally {
         m.dispose();
       }
@@ -617,11 +948,8 @@ export async function runTests() {
       const nav = stubNavigate();
       const m = await mount(api, { navigate: nav.navigate });
       try {
-        const input = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-launch-input'));
-        input.value = '1/2';
-        /** @type {HTMLFormElement} */ (m.root.querySelector('form.ms-launch')).requestSubmit();
-        await nextTask();
-        await nextTask();
+        typePath(m.root, 'act:open', '1/2');
+        await waitFor(() => !!m.root.querySelector('.ms-launch-error')?.textContent, { description: 'why it did not open' });
         const shown = m.root.querySelector('.ms-launch-error')?.textContent || '';
         assert(isPseudoLocalized(shown), `the refusal was not translated: ${JSON.stringify(shown)}`);
         assert(shown.includes('1/2'), `the refusal lost its path: ${JSON.stringify(shown)}`);
@@ -636,94 +964,52 @@ export async function runTests() {
     const nav = stubNavigate();
     const m = await mount(api, { navigate: nav.navigate });
     try {
-      const zeta = m.root.querySelector('.ms-recent[data-project="/work/zeta"]');
-      assert(!!zeta, 'recents not listed');
-      const start = /** @type {HTMLButtonElement|null} */ (zeta ? zeta.querySelector('button.ms-recent-open') : null);
-      assert(!!start, 'a recent project with no session offers no Open');
-      start?.click();
-      await nextTask();
-      await nextTask();
+      clickRow(recentRow(m.root, '/work/zeta'));
+      await waitFor(() => nav.went.length > 0, { description: 'the recent project opened' });
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/zeta'), 'a recent project did not open');
+      assert(JSON.stringify(nav.went) === '["/p/new1-0123abcd/"]', `the tab went to ${JSON.stringify(nav.went)}`);
     } finally {
       m.dispose();
     }
   });
 
-  // Every session the page lists is under Running — running, restarting or
+  // Every session the page lists is under Open — running, restarting or
   // failed — so a recent project with one is not offered twice. It comes back
-  // to Recents once its session is gone.
-  await test('a project listed under Running is left out of Recents until its session goes', async () => {
+  // to Recent once its session is gone.
+  await test('a project listed under Open is left out of Recent until its session goes', async () => {
     const api = stubApi(sessions, ['/work/alpha', '/work/gamma', '/work/delta', '/work/zeta', '/work/beta']);
     const m = await mount(api);
     try {
-      const listed = [...m.root.querySelectorAll('.ms-recent')].map((r) => /** @type {HTMLElement} */ (r).dataset.project);
-      assert(JSON.stringify(listed) === '["/work/zeta"]', `Recents lists ${JSON.stringify(listed)}, want only /work/zeta`);
+      const listed = keys(m.root, 'r:');
+      assert(JSON.stringify(listed) === '["r:/work/zeta"]', `Recent lists ${JSON.stringify(listed)}, want only /work/zeta`);
       api.sessions = sessions.filter((s) => s.id !== 'aaa');
       await m.page.refresh();
-      const after = [...m.root.querySelectorAll('.ms-recent')].map((r) => /** @type {HTMLElement} */ (r).dataset.project);
-      assert(JSON.stringify(after) === '["/work/alpha","/work/zeta"]', `once alpha stopped Recents lists ${JSON.stringify(after)}`);
+      const after = keys(m.root, 'r:');
+      assert(JSON.stringify(after) === '["r:/work/alpha","r:/work/zeta"]', `once alpha stopped Recent lists ${JSON.stringify(after)}`);
     } finally {
       m.dispose();
     }
   });
 
   // A click fires only when the press and the release land on the same
-  // element, so a redraw that rebuilds an Open between them swallows the
+  // element, so a redraw that rebuilds a row between them swallows the
   // click: each poll, and the refresh when the window comes forward, would
-  // cost a click. A redraw with the same recents keeps their rows.
-  await test('a redraw with the same recents keeps their Open buttons', async () => {
-    const api = stubApi([], ['/work/zeta', '/work/eta'], { '/work/zeta': '/p/zeta-0123abcd/' });
+  // cost a click. A redraw with the same sessions and recents keeps their rows.
+  await test('a redraw with the same recents keeps their rows', async () => {
+    const api = stubApi(sessions.slice(0, 1), ['/work/zeta', '/work/eta'], { '/work/zeta': '/p/zeta-0123abcd/' });
     const m = await mount(api);
     try {
-      const opens = () => [...m.root.querySelectorAll('.ms-recent-open')];
-      const before = opens();
-      assert(before.length === 2, `${before.length} Open buttons, want 2`);
+      const rows = () => [...m.root.querySelectorAll('.ss-row')];
+      const before = rows();
+      assert(before.length === 5, `${before.length} rows, want 5`);
       await m.page.refresh();
-      const after = opens();
-      assert(after.length === 2 && after.every((o, i) => o === before[i]), 'a redraw with nothing changed rebuilt the Open buttons');
+      const after = rows();
+      assert(after.length === 5 && after.every((o, i) => o === before[i]), 'a redraw with nothing changed rebuilt the rows');
       api.sessions = [{ id: 'zzz', project: '/work/zeta', link: '/p/zzz-0123abcd/', state: 'running', busy: false, startedAt: '' }];
       await m.page.refresh();
-      const listed = [...m.root.querySelectorAll('.ms-recent')].map((r) => /** @type {HTMLElement} */ (r).dataset.project);
-      assert(JSON.stringify(listed) === '["/work/eta"]', `with zeta running Recents lists ${JSON.stringify(listed)}`);
+      assert(JSON.stringify(keys(m.root, 'r:')) === '["r:/work/eta"]', `with zeta running Recent lists ${JSON.stringify(keys(m.root, 'r:'))}`);
     } finally {
       m.dispose();
-    }
-  });
-
-  // A row's lines — name, path, status — are separate lines of text with room
-  // between them, at the line height the app's list rows use, not stacked
-  // flush at the browser's default. Measured on the page's own stylesheet, in
-  // a frame of its own so its rules never reach another lane.
-  await test('a session row\'s lines are spaced like the app\'s list rows', async () => {
-    const frame = document.createElement('iframe');
-    frame.style.cssText = 'position:absolute;left:-10000px;width:40rem;height:20rem;border:0';
-    document.body.appendChild(frame);
-    try {
-      const doc = /** @type {Document} */ (frame.contentDocument);
-      const win = /** @type {Window & typeof globalThis} */ (/** @type {unknown} */ (frame.contentWindow));
-      const sheets = await Promise.all(['../../css/tokens/scale.css', '../../machine/sessions.css'].map(async (rel) => {
-        const resp = await fetch(new URL(rel, import.meta.url));
-        assert(resp.ok, `${rel}: ${resp.status}`);
-        const sheet = new win.CSSStyleSheet();
-        sheet.replaceSync(await resp.text());
-        return sheet;
-      }));
-      doc.adoptedStyleSheets = sheets;
-      doc.body.innerHTML = '<ul class="ms-sessions"><li class="ms-session" data-state="idle"><span class="ms-dot"></span>'
-        + '<div class="ms-session-main"><div class="ms-session-name">juggler-pro</div><div class="ms-path">/Users/jules/code/juggler-pro</div>'
-        + '<div class="ms-session-status">Idle · last active 4 seconds ago</div></div></li></ul>';
-      const main = /** @type {HTMLElement} */ (doc.querySelector('.ms-session-main'));
-      const rem = parseFloat(win.getComputedStyle(doc.documentElement).fontSize);
-      const gap = parseFloat(win.getComputedStyle(main).rowGap) || 0;
-      assert(gap >= 0.25 * rem, `the lines are ${gap}px apart, want at least 0.25rem (${0.25 * rem}px)`);
-      for (const cls of ['ms-session-name', 'ms-path', 'ms-session-status']) {
-        const line = /** @type {HTMLElement} */ (doc.querySelector(`.${cls}`));
-        const style = win.getComputedStyle(line);
-        const ratio = parseFloat(style.lineHeight) / parseFloat(style.fontSize);
-        assert(ratio >= 1.35, `.${cls} has line-height ${style.lineHeight} on ${style.fontSize} text, want the app's list-row leading (1.4)`);
-      }
-    } finally {
-      frame.remove();
     }
   });
 
@@ -824,20 +1110,32 @@ export async function runTests() {
     }
   });
 
+  // In a browser New folder… is a path field: the folder is made at that path,
+  // a bare name in the home folder, then opened.
   await test('a new folder is made, then opened in this tab', async () => {
     const api = stubApi([]);
     const nav = stubNavigate();
     const m = await mount(api, { navigate: nav.navigate });
     try {
-      await submitNewFolder(m.root, ' /work ', ' fresh ');
+      typePath(m.root, 'act:new', ' /work/fresh ');
+      await waitFor(() => nav.went.length > 0, { description: 'the new folder opened' });
       const asked = api.calls.filter((c) => c[0] === 'folder' || c[0] === 'open');
       assert(JSON.stringify(asked) === JSON.stringify([['folder', '/work', 'fresh'], ['open', '/work/fresh']]),
         `calls ${JSON.stringify(asked)}`);
       assert(JSON.stringify(nav.went) === '["/p/new1-0123abcd/"]', `the tab went to ${JSON.stringify(nav.went)}`);
-      const nameInput = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-folder-name'));
-      assert(nameInput.value === '', 'the name was not cleared after the folder opened');
     } finally {
       m.dispose();
+    }
+    const home = stubApi([]);
+    const n = await mount(home, { navigate: stubNavigate().navigate });
+    try {
+      typePath(n.root, 'act:new', 'scratch');
+      await waitFor(() => home.calls.some((c) => c[0] === 'open'), { description: 'the bare name opened' });
+      const bare = home.calls.filter((c) => c[0] === 'folder' || c[0] === 'open');
+      assert(JSON.stringify(bare) === JSON.stringify([['folder', '~', 'scratch'], ['open', '~/scratch']]),
+        `a bare name made ${JSON.stringify(bare)}`);
+    } finally {
+      n.dispose();
     }
   });
 
@@ -847,54 +1145,34 @@ export async function runTests() {
     const nav = stubNavigate();
     const m = await mount(api, { navigate: nav.navigate });
     try {
-      await submitNewFolder(m.root, '/work', 'fresh');
-      const err = m.root.querySelector('.ms-folder-error');
+      typePath(m.root, 'act:new', '/work/fresh');
+      await waitFor(() => !!m.root.querySelector('.ms-launch-error')?.textContent, { description: 'why it did not open' });
+      const err = m.root.querySelector('.ms-launch-error');
       assert(!!err && !(/** @type {HTMLElement} */ (err)).hidden && (err.textContent || '').includes('already something called fresh'),
         `error shown: ${err?.textContent}`);
       assert(!api.calls.some((c) => c[0] === 'open'), 'a folder that was not made was opened');
       assert(nav.went.length === 0, `a refused folder went to ${JSON.stringify(nav.went)}`);
-      const nameInput = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-folder-name'));
-      assert(nameInput.value === 'fresh', 'the refused name was cleared');
     } finally {
       m.dispose();
     }
   });
 
-  await test('in a desktop window a new folder opens in that window', async () => {
+  // The desktop app's folder chooser can make a folder itself, so New folder…
+  // is the chooser, and what it picks opens in the window.
+  await test('in a desktop window New folder… is the folder chooser, and opens in that window', async () => {
     const api = stubApi([]);
     const nav = stubNavigate();
-    const host = stubHost('/picked');
+    const host = stubHost('/picked/fresh');
     const m = await mount(api, { navigate: nav.navigate, host });
     try {
-      const browse = /** @type {HTMLButtonElement|null} */ (m.root.querySelector('form.ms-new-folder button.ms-folder-browse'));
-      assert(!!browse, 'no Browse for the parent in a desktop window');
-      browse?.click();
-      await nextTask();
-      const parentInput = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-folder-parent'));
-      assert(parentInput.value === '/picked', `Browse set the parent to ${parentInput.value}`);
-      await submitNewFolder(m.root, '/picked', 'fresh');
+      clickRow(actionRow(m.root, 'act:new'));
+      await waitFor(() => host.attached.length > 0, { description: 'the picked folder shown in the window' });
+      assert(!m.root.querySelector('.ss-field'), 'a desktop window asks for a typed path');
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/picked/fresh'), `calls ${JSON.stringify(api.calls)}`);
       assert(host.attached.length === 1 && host.attached[0] === 'new1', `attached ${JSON.stringify(host.attached)}`);
       assert(nav.went.length === 0, `a desktop window went to ${JSON.stringify(nav.went)}`);
     } finally {
       m.dispose();
-    }
-  });
-
-  await test('a new folder goes beside the last project, or in home', async () => {
-    const m = await mount(stubApi([], ['/work/alpha', '/elsewhere/beta']));
-    try {
-      const parentInput = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-folder-parent'));
-      assert(parentInput.value === '/work', `parent offered ${parentInput.value}`);
-    } finally {
-      m.dispose();
-    }
-    const none = await mount(stubApi([]));
-    try {
-      const parentInput = /** @type {HTMLInputElement} */ (none.root.querySelector('input.ms-folder-parent'));
-      assert(parentInput.value === '~', `parent offered ${parentInput.value} with no recents`);
-    } finally {
-      none.dispose();
     }
   });
 
@@ -905,7 +1183,7 @@ export async function runTests() {
       api.listSessions = async () => { throw new ControlApiError(0, 'Failed to fetch'); };
       await m.page.refresh();
       assert(!!m.root.querySelector('.ms-unreachable'), 'no word that the server is unreachable');
-      assert(m.root.querySelectorAll('.ms-session').length === 4, 'the last known list was dropped');
+      assert(keys(m.root, 's:').length === 4, 'the last known list was dropped');
       api.listSessions = async () => sessions;
       await m.page.refresh();
       assert(!m.root.querySelector('.ms-unreachable'), 'the unreachable notice stayed after the server answered');
@@ -1139,16 +1417,23 @@ export async function runTests() {
     /** @type {string[]} */
     const attachedLinks = [];
     /** @type {string[]} */
+    const attachedConversations = [];
+    /** @type {string[]} */
     const closeAnswers = [];
     /** @type {string[]} */
     const opened = [];
     return {
       attached,
       attachedLinks,
+      attachedConversations,
       closeAnswers,
       opened,
-      /** @type {(id: string, project: string, link: string) => Promise<void>} */
-      attach: async (id, _project, link) => { attached.push(id); attachedLinks.push(link); },
+      /** @type {(id: string, project: string, link: string, conversation?: string) => Promise<void>} */
+      attach: async (id, _project, link, conversation) => {
+        attached.push(id);
+        attachedLinks.push(link);
+        if (conversation) attachedConversations.push(conversation);
+      },
       /** @type {(url: string) => void} */
       openURL: (url) => { opened.push(url); },
       takesDroppedFolders: true,
@@ -1180,16 +1465,13 @@ export async function runTests() {
   });
 
   await test('in a desktop window a launched session opens in that window, not a tab', async () => {
-    const api = stubApi([]);
+    const api = stubApi([], ['/work/new']);
     const nav = stubNavigate();
     const host = stubHost();
     const m = await mount(api, { navigate: nav.navigate, host });
     try {
-      const input = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-launch-input'));
-      input.value = '/work/new';
-      /** @type {HTMLFormElement} */ (m.root.querySelector('form.ms-launch')).requestSubmit();
-      await nextTask();
-      await nextTask();
+      clickRow(recentRow(m.root, '/work/new'));
+      await waitFor(() => host.attached.length > 0, { description: 'the recent project shown in the window' });
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/new'), `opened ${JSON.stringify(api.calls)}`);
       assert(host.attached.length === 1 && host.attached[0] === 'new1', `attached ${JSON.stringify(host.attached)}`);
       assert(nav.went.length === 0, `a desktop window went to ${JSON.stringify(nav.went)}`);
@@ -1225,30 +1507,29 @@ export async function runTests() {
     }
   });
 
-  await test('in a desktop window Open shows the session in that window', async () => {
+  await test('in a desktop window a session row shows the session in that window, ⌘-click too', async () => {
     const host = stubHost();
-    const m = await mount(stubApi(sessions), { host });
+    const nav = stubNavigate();
+    const m = await mount(stubApi(sessions), { host, navigate: nav.navigate, openTab: nav.openTab });
     try {
-      const open = /** @type {HTMLAnchorElement} */ (row(m.root, 'bbb').querySelector('a.ms-session-open'));
-      assert(!open.target, `Open targets ${open.target} in a desktop window`);
-      open.click();
+      clickRow(row(m.root, 'bbb'));
+      clickRow(row(m.root, 'aaa'), { metaKey: true });
       await nextTask();
-      assert(JSON.stringify(host.attached) === '["bbb"]', `attached ${JSON.stringify(host.attached)}`);
+      assert(JSON.stringify(host.attached) === '["bbb","aaa"]', `attached ${JSON.stringify(host.attached)}`);
+      assert(nav.tabs.length === 0 && nav.went.length === 0, `a desktop window opened ${JSON.stringify([...nav.went, ...nav.tabs])}`);
     } finally {
       m.dispose();
     }
   });
 
-  await test('in a desktop window Browse opens the folder the native chooser picked', async () => {
+  await test('in a desktop window Open folder… opens the folder the native chooser picked', async () => {
     const api = stubApi([]);
     const host = stubHost('/picked/folder');
     const m = await mount(api, { host });
     try {
-      const browse = /** @type {HTMLButtonElement|null} */ (m.root.querySelector('button.ms-launch-browse'));
-      assert(!!browse, 'no Browse button in a desktop window');
-      browse?.click();
-      await nextTask();
-      await nextTask();
+      clickRow(actionRow(m.root, 'act:open'));
+      await waitFor(() => host.attached.length > 0, { description: 'the picked folder shown in the window' });
+      assert(!m.root.querySelector('.ss-field'), 'a desktop window asks for a typed path');
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/picked/folder'), `opened ${JSON.stringify(api.calls)}`);
       assert(host.attached[0] === 'new1', `attached ${JSON.stringify(host.attached)}`);
     } finally {
@@ -1256,7 +1537,8 @@ export async function runTests() {
     }
     const plain = await mount(stubApi([]));
     try {
-      assert(!plain.root.querySelector('button.ms-launch-browse'), 'a browser tab offers the native chooser');
+      clickRow(actionRow(plain.root, 'act:open'));
+      assert(!!plain.root.querySelector('.ss-row[data-key="act:open"] .ss-field input'), 'a browser tab offers no path field');
     } finally {
       plain.dispose();
     }
@@ -1577,7 +1859,7 @@ export async function runTests() {
       assert(JSON.stringify(src.searchParams.getAll('nativeCtl')) === JSON.stringify([framed.frameCtl]),
         `the frame is handed ${JSON.stringify(src.searchParams.getAll('nativeCtl'))}`);
       assert(!!frames[0].title, 'the frame has no title');
-      assert(!m.root.querySelector('.ms-sessions, .ms-launch, .ms-new-folder, .ms-recents, .ms-exposure, .ms-side'),
+      assert(!m.root.querySelector('.ss, .ms-switcher, .ms-sessions-loading, .ms-exposure, .ms-side'),
         `the body shows this computer's page too: ${m.root.innerHTML}`);
       await m.page.refresh();
       assert(!api.calls.some((c) => ['list', 'recents', 'getLAN', 'getTunnel', 'getStatus'].includes(c[0])),
@@ -1766,16 +2048,25 @@ export async function runTests() {
     }
   });
 
-  // The menu's Open (open-project) on the sessions page goes to the page's
-  // own way of opening a project.
-  await test('the menu\'s Open puts the cursor in Open a project', async () => {
-    const m = await mount(stubApi([]), { host: stubHost() });
+  // The menu's Open (open-project) on the sessions page runs Open folder…:
+  // the folder chooser in the app, the path field in a browser.
+  await test('the menu\'s Open runs Open folder…', async () => {
+    const m = await mount(stubApi([]));
     try {
       window.dispatchEvent(new CustomEvent('juggler:open-project'));
-      const input = m.root.querySelector('form.ms-launch input[name="project"]');
-      assert(!!input && document.activeElement === input, `focus is on ${document.activeElement?.outerHTML}`);
+      const input = m.root.querySelector('.ss-row[data-key="act:open"] .ss-field input');
+      assert(!!input && document.activeElement === input, `focus is on ${document.activeElement?.tagName}.${document.activeElement?.className}`);
     } finally {
       m.dispose();
+    }
+    const api = stubApi([]);
+    const d = await mount(api, { host: stubHost('/picked/by-menu') });
+    try {
+      window.dispatchEvent(new CustomEvent('juggler:open-project'));
+      await waitFor(() => api.calls.some((c) => c[0] === 'open' && c[1] === '/picked/by-menu'), { description: "the menu's pick opened" });
+      assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/picked/by-menu'), `the menu's Open opened ${JSON.stringify(api.calls)}`);
+    } finally {
+      d.dispose();
     }
   });
 
@@ -1829,9 +2120,9 @@ export async function runTests() {
     });
   });
 
-  // Opening a project and making a folder sit in the sessions' column; the
+  // The switcher sits in the main column, after the welcome and notices; the
   // machine's ways in are a column of their own.
-  await test('the ways of opening a project sit with the sessions, and the ways in are a column of their own', async () => {
+  await test('the switcher sits in the main column, and the ways in are a column of their own', async () => {
     const m = await mount(withExposure(stubApi(sessions, ['/work/epsilon'])), {
       host: stubHost(),
       config: { token: 't', version: 'v1.2.3', host: 'studio', local: true },
@@ -1840,14 +2131,11 @@ export async function runTests() {
       const main = m.root.querySelector(':scope > .ms-main');
       const side = m.root.querySelector(':scope > .ms-side');
       assert(!!main && !!side, 'the page is not split into the sessions\' column and the ways in');
-      const headings = [...(main?.querySelectorAll(':scope > .ms-section > h2') || [])]
-        .map((h) => h.firstChild?.textContent || '');
-      assert(JSON.stringify(headings) === JSON.stringify(['Active sessions', 'Open a project', 'New folder', 'Recent']),
-        `the sessions' column reads ${JSON.stringify(headings)}`);
-      const recent = /** @type {HTMLElement|null} */ (main?.querySelector(':scope > .ms-section:last-child'));
-      assert(!!recent?.querySelector('.ms-recents [data-project="/work/epsilon"]') && !recent?.hidden,
-        'the recent projects are not under Recent, at the bottom');
-      assert(!!side?.querySelector('.ms-exposure'), 'the ways in are not in a column of their own');
+      const sw = main?.querySelector(':scope > .ms-switcher > .ss.ss--page');
+      assert(!!sw, 'the main column holds no switcher in page mode');
+      assert(!!sw?.querySelector('.ss-row[data-key="s:aaa"]') && !!sw?.querySelector('.ss-row[data-key="r:/work/epsilon"]'),
+        'the switcher does not list the sessions and the recent projects');
+      assert(!!side?.querySelector('.ms-exposure') && !side?.querySelector('.ss'), 'the ways in are not in a column of their own');
     } finally {
       m.dispose();
     }
@@ -1896,10 +2184,10 @@ export async function runTests() {
         doc.body.innerHTML = '<div style="display:flex;flex-direction:column;position:fixed;inset:0"><div class="ms-scroll">'
           + `<main class="ms-page"><div class="ms-banner-slot"></div><div class="ms-column ms-main">${tall}</div>`
           + `<div class="ms-column ms-side">${tall}</div></main></div></div>`
-          + '<section class="ms-section ms-recents-section" hidden><h2>Recent</h2></section>';
-        // A section with nothing to show (Recent, with no recent projects)
-        // takes no room, whatever display the section's own rule gives it.
-        const hiddenSection = /** @type {HTMLElement} */ (doc.querySelector('.ms-recents-section'));
+          + '<section class="ms-section ms-switcher" hidden></section>';
+        // A section hidden (the switcher, while a project opens) takes no
+        // room, whatever display the section's own rule gives it.
+        const hiddenSection = /** @type {HTMLElement} */ (doc.querySelector('.ms-switcher'));
         assert(win.getComputedStyle(hiddenSection).display === 'none',
           `a hidden section is drawn (display ${win.getComputedStyle(hiddenSection).display})`);
         const main = /** @type {HTMLElement} */ (doc.querySelector('.ms-main'));
@@ -1930,13 +2218,14 @@ export async function runTests() {
     const remoteHost = { attach: host.attach, answerClose: host.answerClose };
     const m = await mount(api, { host: remoteHost });
     try {
-      assert(!m.root.querySelector('button.ms-launch-browse, button.ms-folder-browse'), 'Browse offers this machine\'s folders');
+      clickRow(actionRow(m.root, 'act:open'));
+      assert(!!m.root.querySelector('.ss-row[data-key="act:open"] .ss-field input'), 'Open folder… offers this machine\'s folders');
       assert(!m.root.querySelector('form.ms-connect') && !m.header.querySelector('.ms-server-switch'),
         'a window on a server by URL offers to switch to another server');
       window.dispatchEvent(new CustomEvent('juggler:folder-dropped', { detail: { path: '/dropped/here' } }));
       await nextTask();
       assert(!api.calls.some((c) => c[1] === '/dropped/here'), 'a folder dropped from this machine was opened there');
-      /** @type {HTMLElement} */ (row(m.root, 'aaa').querySelector('.ms-session-name')).click();
+      clickRow(row(m.root, 'aaa'));
       assert(JSON.stringify(host.attached) === '["aaa"]', `attached ${JSON.stringify(host.attached)}`);
       assert(JSON.stringify(host.attachedLinks) === '["/p/alpha-0123abcd/"]', `attached at ${JSON.stringify(host.attachedLinks)}`);
     } finally {
@@ -1973,7 +2262,7 @@ export async function runTests() {
       // A session opened from the list names its project to the app too.
       api.sessions = sessions;
       await m.page.refresh();
-      /** @type {HTMLElement} */ (row(m.root, 'aaa').querySelector('.ms-session-name')).click();
+      clickRow(row(m.root, 'aaa'));
       await nextTask();
       assert(attachedProjects[1] === '/work/alpha', `the session opened from the list was attached for ${attachedProjects[1]}`);
     } finally {
@@ -2009,15 +2298,12 @@ export async function runTests() {
   });
 
   await test('in a desktop window a refused attach says why', async () => {
-    const host = stubHost();
+    const host = stubHost('/work/new');
     host.attach = async () => { throw new Error('That session has stopped.'); };
     const m = await mount(stubApi([]), { host });
     try {
-      const input = /** @type {HTMLInputElement} */ (m.root.querySelector('input.ms-launch-input'));
-      input.value = '/work/new';
-      /** @type {HTMLFormElement} */ (m.root.querySelector('form.ms-launch')).requestSubmit();
-      await nextTask();
-      await nextTask();
+      clickRow(actionRow(m.root, 'act:open'));
+      await waitFor(() => !!m.root.querySelector('.ms-launch-error')?.textContent, { description: 'why it did not open' });
       const err = m.root.querySelector('.ms-launch-error');
       assert(!!err && (err.textContent || '').includes('That session has stopped.'), `error shown: ${err?.textContent}`);
     } finally {
@@ -2243,41 +2529,49 @@ export async function runTests() {
     });
   });
 
-  // A session's and a recent project's Open carry the project's link, so a
-  // link copied or bookmarked from here still works tomorrow. A session's is a
-  // plain link; a recent's plain click opens the project here, then goes to
-  // its link, and a modified click is the browser's, for a tab of its own.
-  await test('Open carries the project\'s link', async () => {
+  // A ⌘-click (Ctrl elsewhere) opens a session's link, or a recent project's,
+  // in a tab of its own, so a link copied or bookmarked from there outlives
+  // the session; a plain click on a recent opens the project here, then goes
+  // to it.
+  await test('a ⌘-click opens a session\'s or a recent project\'s link in a new tab', async () => {
     const api = stubApi(sessions, ['/work/zeta'], { '/work/zeta': '/p/zeta-89abcdef/' });
     const nav = stubNavigate();
-    const m = await mount(api, { navigate: nav.navigate });
-    /** @type {boolean[]} */
-    const prevented = [];
-    const after = (/** @type {Event} */ e) => {
-      if (!(/** @type {Element} */ (e.target).closest('a'))) return;
-      prevented.push(e.defaultPrevented);
-      e.preventDefault();
-    };
-    m.root.addEventListener('click', after);
+    const m = await mount(api, { navigate: nav.navigate, openTab: nav.openTab });
     try {
-      const open = /** @type {HTMLAnchorElement} */ (row(m.root, 'aaa').querySelector('a.ms-session-open'));
-      assert(open.getAttribute('href') === '/p/alpha-0123abcd/', `session Open href ${open.getAttribute('href')}`);
-      open.click();
-      assert(nav.went.length === 0 && prevented[0] === false, `a session's Open was taken from the browser: ${JSON.stringify(nav.went)}`);
-
-      const recent = /** @type {HTMLAnchorElement|null} */ (m.root.querySelector('.ms-recent[data-project="/work/zeta"] a.ms-recent-open'));
-      assert(recent?.getAttribute('href') === '/p/zeta-89abcdef/', `recent Open href ${recent?.getAttribute('href')}`);
-      recent?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }));
-      assert(prevented[1] === false && !api.calls.some((c) => c[0] === 'open'), 'a modified click on a recent was taken from the browser');
-      recent?.click();
+      clickRow(row(m.root, 'aaa'), { metaKey: true });
+      clickRow(recentRow(m.root, '/work/zeta'), { metaKey: true });
+      await nextTask();
+      assert(JSON.stringify(nav.tabs) === '["/p/alpha-0123abcd/","/p/zeta-89abcdef/"]', `opened tabs at ${JSON.stringify(nav.tabs)}`);
+      assert(!api.calls.some((c) => c[0] === 'open') && nav.went.length === 0, 'a ⌘-click on a recent opened it here');
+      clickRow(recentRow(m.root, '/work/zeta'));
       await waitFor(() => nav.went.length > 0, { description: 'the recent project opened' });
-      assert(prevented[2] === true, 'a plain click on a recent followed its link instead of opening it here');
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/zeta'), `opened ${JSON.stringify(api.calls)}`);
       assert(JSON.stringify(nav.went) === '["/p/new1-0123abcd/"]', `went to ${JSON.stringify(nav.went)}`);
     } finally {
-      m.root.removeEventListener('click', after);
       m.dispose();
     }
+  });
+
+  // ⌘K (Ctrl+K elsewhere) anywhere on the page puts the cursor in the filter.
+  await test('⌘K anywhere on the page puts the cursor in the filter', async () => {
+    const m = await mount(stubApi(sessions));
+    const mod = isMac() ? { metaKey: true } : { ctrlKey: true };
+    try {
+      const input = m.root.querySelector('.ss-input');
+      /** @type {HTMLElement|null} */ (document.activeElement)?.blur?.();
+      const shifted = new KeyboardEvent('keydown', { key: 'k', shiftKey: true, bubbles: true, cancelable: true, ...mod });
+      document.body.dispatchEvent(shifted);
+      assert(document.activeElement !== input && !shifted.defaultPrevented, 'a shifted ⌘K went to the filter');
+      const press = new KeyboardEvent('keydown', { key: 'k', bubbles: true, cancelable: true, ...mod });
+      document.body.dispatchEvent(press);
+      assert(!!input && document.activeElement === input, `focus is on ${document.activeElement?.tagName}.${document.activeElement?.className}`);
+      assert(press.defaultPrevented, '⌘K was left to the browser too');
+    } finally {
+      m.dispose();
+    }
+    const late = new KeyboardEvent('keydown', { key: 'k', bubbles: true, cancelable: true, ...mod });
+    document.body.dispatchEvent(late);
+    assert(!late.defaultPrevented, 'a page taken down still takes ⌘K');
   });
 
   return { passed, failed, errors };

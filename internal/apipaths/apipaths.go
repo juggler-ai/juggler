@@ -39,6 +39,12 @@ const (
 	// viewer reads it too, with its page's.
 	HealthActive = Prefix + "/health/active"
 
+	// HealthAttention reports which conversations wait on the user, are
+	// working, or failed (juggler/internal/attention): a read, asking no worker
+	// anything. Fetched by the machine server when HealthActive's attentionRev
+	// has moved.
+	HealthAttention = Prefix + "/health/attention"
+
 	// HealthRetire conditionally quiesces an idle child and closes work admission.
 	// The supervising process calls it with the child's API token.
 	HealthRetire = Prefix + "/health/retire"

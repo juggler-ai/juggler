@@ -52,7 +52,7 @@ function buildHeaderDom() {
   root.innerHTML = `
 		<button id="control-undo-button"></button>
 		<button id="control-redo-button"></button>
-		<div id="project-path-display"><span class="ppd-path"></span></div>
+		<div id="project-path-display"><span class="ppd-path" style="display: block; overflow: hidden; white-space: nowrap"></span></div>
 		<span id="project-path-chip"></span>
 		<button id="project-new-window-button"></button>
 	`;
@@ -211,6 +211,30 @@ export async function runTests() {
     }
     passed++;
 
+    // --- The chip shows the whole path where it fits, else the name --------
+    // Following the header's width as it changes, both ways.
+    {
+      const savedPath = session.projectPath;
+      try {
+        session.projectPath = '/a/rather/long/parent/folder/leaf-project';
+        /** @type {any} */ (headerListener)({ type: 'session:loaded' });
+        root.style.width = '1200px';
+        await waitFor(() => pathLabel.textContent === session.projectPath,
+          { description: `the whole path in a wide header (shows "${pathLabel.textContent}")` });
+        root.style.width = '60px';
+        await waitFor(() => pathLabel.textContent === 'leaf-project',
+          { description: `the folder's name in a narrow header (shows "${pathLabel.textContent}")` });
+        root.style.width = '1200px';
+        await waitFor(() => pathLabel.textContent === session.projectPath,
+          { description: `the whole path again once there is room (shows "${pathLabel.textContent}")` });
+      } finally {
+        root.style.width = '';
+        session.projectPath = savedPath;
+        /** @type {any} */ (headerListener)({ type: 'session:loaded' });
+      }
+    }
+    passed++;
+
     // --- In a browser the new-window button opens the server's page --------
     // A tab has no app to open a window, so the button is the way back to the
     // server's page from a session: in its own named tab, found again by a
@@ -254,8 +278,10 @@ export async function runTests() {
         // A path of digits, so the data cannot read as English.
         session.projectPath = '/1/2';
         /** @type {any} */ (headerListener)({ type: 'session:loaded' });
-        assert(pathLabel.textContent === '/1/2', `the chip shows the path as given, got "${pathLabel.textContent}"`);
-        shown.push(...pathChip.title.split('\n'));
+        assert(pathLabel.textContent === '/1/2', `the chip shows the project's whole path, with room for it, got "${pathLabel.textContent}"`);
+        assert(pathChip.title.includes('/1/2'), `the chip's title gives the whole path, got "${pathChip.title}"`);
+        // The switcher's key is no word: it is left out of what is judged.
+        shown.push(...pathChip.title.split('\n').map((line) => line.replace(/⌘K|Ctrl\+K/, '')));
         // Named once, as the header is set up: the browser's name was asked
         // for in English then, so it is checked as a message here.
         shown.push(t('Open the server page'));

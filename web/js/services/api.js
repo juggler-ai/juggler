@@ -575,30 +575,109 @@ class APIService {
   }
 
   /**
-   * Open a new desktop window on the server's page, where a project is chosen.
-   * Only works in the native desktop app, which handles it via its loopback
-   * nativeCtl endpoint by opening another in-process window; a plain browser
-   * tab has no native host, so this is a no-op there.
-   * @returns {Promise<void>} Resolves once the launch was requested.
+   * Open a new desktop window: on the server's page, where a project is
+   * chosen, or onto a project of this machine's server, at one of its
+   * conversations — unless a window already shows that project, which the app
+   * raises at the conversation instead. Only works in the native desktop app,
+   * which handles it via its loopback nativeCtl endpoint by opening another
+   * in-process window; a plain browser tab has no native host, so this is a
+   * no-op there.
+   * @param {{project?: string, conversation?: string}} [target] - The project
+   *   to open, and the conversation its page opens on; none for the server's page.
+   * @returns {Promise<boolean>} True when the app raised the project's window
+   *   rather than opening one.
    */
-  async newWindow() {
+  async newWindow({ project = '', conversation = '' } = {}) {
     const params = newWindowParams();
+    if (project) params.set('project', project);
+    if (project && conversation) params.set('conversation', conversation);
     const url = windowControlURL('new', `?${params.toString()}`);
-    if (!url) return; // no native host (browser tab) — nothing to open
-    await fetchJson(url, { method: 'POST', errorPrefix: t('Could not open a new window') });
+    if (!url) return false; // no native host (browser tab) — nothing to open
+    const body = await fetchJson(url, { method: 'POST', errorPrefix: t('Could not open a new window') });
+    return body?.raised === true;
   }
 
   /**
-   * Show this window's server's sessions page in it again: Session ▸ Open… in
-   * a desktop window on a server by URL. The app refuses it from a window on
-   * this machine's server, which opens a new window for that instead
-   * ({@link APIService#newWindow}).
+   * Show another session of this window's server in this desktop window, in
+   * place of this page, as the sessions page's own picks do
+   * (web/machine/native-host.js). One project has one window: when another
+   * window already shows the project, the app raises that one, at the
+   * conversation, and this window stays as it is. A no-op in a browser tab.
+   * @param {{sessionId: string, project: string, link: string, conversation?: string}} target - The
+   *   session, its project and link (which a window on a server by URL goes
+   *   to and is filed with), and the conversation it opens on.
+   * @returns {Promise<boolean>} True when the app raised another window; false
+   *   when this page is being replaced.
+   * @throws {import('./http.js').HttpError} When the app refuses, saying why.
+   */
+  async attachWindow({ sessionId, project, link, conversation = '' }) {
+    const params = new URLSearchParams({ session: sessionId, project, link });
+    if (conversation) params.set('conversation', conversation);
+    const url = windowControlURL('attach', `?${params.toString()}`);
+    if (!url) return false;
+    const body = await fetchJson(url, { method: 'POST', errorPrefix: t('Could not open that project') });
+    return body?.raised === true;
+  }
+
+  /**
+   * Show this window's server's sessions page in it, in place of the session
+   * it shows: Session ▸ Open… in a desktop window on a server by URL, and
+   * where a window goes once the session it showed is stopped from its
+   * switcher — the page whose server chooser reaches other servers. A no-op
+   * in a browser tab.
    * @returns {Promise<void>} Resolves once the app has taken it.
    */
   async showServerPage() {
     const url = windowControlURL('server-page');
     if (!url) return;
-    await fetchJson(url, { method: 'POST' });
+    await fetchJson(url, { method: 'POST', errorPrefix: t('Could not show the server page') });
+  }
+
+  /**
+   * Open (or find) the session of a project on this page's machine, through
+   * this session, which passes it on to the machine server: what the
+   * switcher's Recent rows, a retry and Open folder… ask for.
+   * @param {string} project - The folder, absolute or under ~.
+   * @param {{wait?: boolean}} [options] - wait: answer once it runs, or failed.
+   * @returns {Promise<import('./sessions-feed.js').Session>} The session.
+   * @throws {import('./http.js').HttpError} When the machine refuses, saying why.
+   */
+  async openMachineSession(project, { wait = false } = {}) {
+    return await fetchJson(apiUrl('/machine/sessions'), {
+      method: 'POST',
+      body: wait ? { project, wait } : { project },
+      errorPrefix: t('The session could not be started.'),
+    });
+  }
+
+  /**
+   * Stop a session of this page's machine, or dismiss a failed one, through
+   * this session. A stop of this page's own session is answered at once, and
+   * carried out after.
+   * @param {string} id - The session's id.
+   * @returns {Promise<void>} Resolves once the machine has taken it.
+   */
+  async stopMachineSession(id) {
+    await fetchJson(apiUrl(`/machine/sessions/${encodeURIComponent(id)}`), {
+      method: 'DELETE',
+      errorPrefix: t('The session could not be stopped.'),
+    });
+  }
+
+  /**
+   * Make a folder on this page's machine, through this session; it opens
+   * nothing.
+   * @param {string} parent - Where, absolute or under ~.
+   * @param {string} name - The new folder's name.
+   * @returns {Promise<string>} Its absolute path.
+   */
+  async createMachineFolder(parent, name) {
+    const body = await fetchJson(apiUrl('/machine/folders'), {
+      method: 'POST',
+      body: { parent, name },
+      errorPrefix: t('The folder could not be created.'),
+    });
+    return /** @type {{path: string}} */ (body).path;
   }
 
   /**

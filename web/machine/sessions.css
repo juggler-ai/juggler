@@ -316,45 +316,9 @@ body {
     color: var(--text-secondary);
 }
 
-/* Lists */
-
-.ms-sessions,
-.ms-recents {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    background: var(--bg-secondary);
-    overflow: hidden;
-}
-
-.ms-session,
-.ms-recent {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-    padding: var(--spacing-md) var(--spacing-lg);
-}
-
-.ms-session + .ms-session,
-.ms-recent + .ms-recent {
-    border-top: 1px solid var(--border-divider);
-}
-
-/* A running session's whole row opens it, as its Open link does. */
-.ms-session-openable {
-    cursor: pointer;
-    transition: background var(--transition-fast);
-}
-
-.ms-session-openable:hover {
-    background: color-mix(in srgb, var(--bg-secondary) 94%, var(--text-primary));
-}
-
-/* A row's lines — name, path, status — at the leading and spacing of the
-   app's other list rows (settings' provider rows). */
-.ms-session-main,
+/* A row's two lines — the name (a session's with its folder beside it), then
+   its status, or a recent project's folder — at the leading and spacing of
+   the app's other list rows (settings' provider rows). */
 .ms-recent-main {
     flex: 1;
     min-width: 0;
@@ -364,23 +328,12 @@ body {
     line-height: var(--leading-tight);
 }
 
-.ms-session-name,
 .ms-recent-name {
-    font-weight: var(--font-weight-medium);
+    flex: none;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.ms-path {
-    font-family: var(--font-mono);
-    font-size: var(--font-size-xs);
-    color: var(--text-tertiary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    direction: rtl;
-    text-align: left;
 }
 
 /* A found server's address and version: an address reads from its start, so
@@ -394,21 +347,6 @@ body {
     white-space: nowrap;
 }
 
-.ms-session-status {
-    font-size: var(--font-size-sm);
-    color: var(--text-secondary);
-}
-
-.ms-session[data-state="error"] .ms-session-status {
-    color: var(--error-color);
-}
-
-.ms-sessions-empty {
-    padding: var(--spacing-xl) var(--spacing-lg);
-    color: var(--text-secondary);
-    text-align: center;
-}
-
 /* Until the first list arrives: the app's spinner (css/patterns/spinner.css). */
 .ms-sessions-loading {
     display: flex;
@@ -419,55 +357,6 @@ body {
 
 .ms-sessions-loading juggler-spinner {
     --size: 2rem;
-}
-
-/* Status dot: what a session is doing at a glance. */
-
-.ms-dot {
-    flex: none;
-    width: 0.625rem;
-    height: 0.625rem;
-    border-radius: 50%;
-    background: var(--text-tertiary);
-}
-
-.ms-session[data-state="idle"] .ms-dot {
-    background: var(--accent-green);
-}
-
-.ms-session[data-state="busy"] .ms-dot {
-    background: var(--accent-blue);
-    box-shadow: 0 0 0 0.1875rem color-mix(in srgb, var(--accent-blue) 25%, transparent);
-    animation: ms-pulse 1.6s ease-in-out infinite;
-}
-
-.ms-session[data-state="starting"] .ms-dot,
-.ms-session[data-state="restarting"] .ms-dot {
-    background: var(--accent-yellow);
-}
-
-.ms-session[data-state="error"] .ms-dot {
-    background: var(--accent-red);
-}
-
-@keyframes ms-pulse {
-    50% {
-        opacity: 0.45;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .ms-session[data-state="busy"] .ms-dot {
-        animation: none;
-    }
-}
-
-/* Actions */
-
-.ms-actions {
-    flex: none;
-    display: flex;
-    gap: var(--spacing-sm);
 }
 
 .ms-button {
@@ -548,10 +437,6 @@ body {
 
 .ms-launch .ms-button {
     padding-inline: var(--spacing-lg);
-}
-
-.ms-launch .ms-folder-name {
-    flex: 0 1 12rem;
 }
 
 .ms-launch-error {
@@ -783,17 +668,6 @@ body {
 
     .ms-header-slot {
         padding-left: var(--spacing-md);
-    }
-
-    .ms-session,
-    .ms-recent {
-        flex-wrap: wrap;
-        padding: var(--spacing-md);
-    }
-
-    .ms-actions {
-        width: 100%;
-        justify-content: flex-end;
     }
 
     .ms-exposure-row {

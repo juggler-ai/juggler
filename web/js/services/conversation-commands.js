@@ -137,19 +137,47 @@ export function jumpToAttentionConversation(session) {
     nextConversationMatching(session, (id) => conversationIsRunning(session, id));
   if (!targetId) return false;
 
-  const root = session.conversations.get(targetId)?.rootMessageThread;
-  const selectApproval = !!root && hasPendingApprovalInTree(root.items);
-
   session.switchConversation(targetId);
+  revealAttentionOnScreen(session, targetId);
+  return true;
+}
 
-  // The tab activates synchronously on switch, but its first render can be
-  // deferred; reveal on the next frame and let the tab retry until its columns
-  // are ready.
+/**
+ * Show what in the conversation on screen waits on the user: its first pending
+ * approval, selected and given the keyboard, or else the end of its thread —
+ * where ⌘J lands. Nothing happens unless `id` is the conversation on screen.
+ *
+ * The tab activates synchronously on a switch, but its first render can be
+ * deferred; the reveal runs on the next frame, in the tab holding `id`, which
+ * retries until its columns are ready.
+ * @param {import('../model/session.js').default} session
+ * @param {string} id - The conversation on screen.
+ * @returns {void}
+ */
+function revealAttentionOnScreen(session, id) {
+  if (session.visibleConversationId !== id) return;
+  const root = session.conversations.get(id)?.rootMessageThread;
+  const selectApproval = !!root && hasPendingApprovalInTree(root.items);
   const reveal = () => {
-    const tab = /** @type {any} */ (document.querySelector('conversation-tab.active'));
+    if (session.visibleConversationId !== id) return;
+    const tab = /** @type {any} */ ([...document.querySelectorAll('conversation-tab.active')]
+      .find((el) => /** @type {any} */ (el).getConversation?.()?.id === id));
     if (tab && typeof tab.revealAttention === 'function') tab.revealAttention(selectApproval);
   };
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(reveal);
   else reveal();
-  return true;
+}
+
+/**
+ * Land a page opened at a link to a conversation (`?c=`) where ⌘J would, once
+ * the conversation has hydrated: the load put it on screen as a stub, and
+ * whether it holds a pending approval is known only from its document. A user
+ * who has gone to another conversation by then is left there.
+ * @param {import('../model/session.js').default} session
+ * @param {string} id - The linked conversation, which the load put on screen.
+ * @returns {Promise<void>} Resolves once the reveal is scheduled, or declined.
+ */
+export async function revealLinkedConversation(session, id) {
+  await session.ensureConversationLoaded(id);
+  revealAttentionOnScreen(session, id);
 }

@@ -52,7 +52,7 @@ const SETTINGS_TABS = [
  * - `option[lang]`: a Language menu entry naming a language in itself
  *   ("简体中文"), which stays in that language whatever the UI language.
  */
-const DATA = '.ppd-path, .user-message-text, .markdown, .model-name, .info-card__usage-sub, '
+const DATA = '.ppd-path, .ss-chip-tile, .user-message-text, .markdown, .model-name, .info-card__usage-sub, '
   + '#auto-name-instruction-input, .plugin-version, .plugin-author, .properties-panel-filepath, '
   + 'code, pre, option[lang]';
 

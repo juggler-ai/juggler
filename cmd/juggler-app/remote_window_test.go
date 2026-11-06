@@ -152,23 +152,19 @@ func TestAWindowOnAServerByURLStaysMarkedExternal(t *testing.T) {
 
 // TestServerPageReturnsAWindowOnAServerByURLToItsPage: Session ▸ Open… in a
 // window on a server by URL shows that server's sessions page in the same
-// window, since another project there is another of its sessions. A window
-// on this machine's server opens a new window instead, so it is refused here.
+// window, since another project there is another of its sessions. (A local
+// project window's: window_switching_test.go.)
 func TestServerPageReturnsAWindowOnAServerByURLToItsPage(t *testing.T) {
 	userpathstest.Isolate(t)
 	a := newTestAppState(t)
 	a.workspace = newWorkspaceStoreAt(workspacePath(t))
 	const server = "http://devbox:3939"
 	remote := registerWindow(a, &winEntry{id: "w1", role: roleMain, view: windowView{spec: windowSpec{url: server, connected: true, remoteProject: "/home/me/proj"}, serverURL: server + "/p/proj-0123abcd"}})
-	local := registerWindow(a, &winEntry{id: "w2", role: roleMain, view: windowView{spec: windowSpec{project: "/p"}, serverURL: "http://127.0.0.1:3939/p/p-0123abcd"}})
 
 	post := func(e *winEntry) int {
 		rec := httptest.NewRecorder()
 		a.controlServerPage(rec, httptest.NewRequest(http.MethodPost, "/win/"+e.id+"/server-page", nil), e)
 		return rec.Code
-	}
-	if code := post(local); code != http.StatusConflict {
-		t.Errorf("server-page from a window on this machine's server: %d, want 409", code)
 	}
 	if code := post(remote); code != http.StatusNoContent {
 		t.Fatalf("server-page: %d, want 204", code)

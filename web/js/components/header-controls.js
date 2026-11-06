@@ -20,6 +20,9 @@ import {
   externalServerHost, projectsOpenInNewWindow, sessionsPageUrl, SESSIONS_PAGE_TARGET,
 } from '../utils/project-open-mode.js';
 import { busyState } from '../model/processing-status.js';
+import { baseName, initials } from '../utils/session-attention.js';
+import { workspaceTint } from '../utils/workspace-colour.js';
+import { ownProjectLink } from '../services/project-navigation.js';
 import { t, markForTranslation, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
 
 /**
@@ -194,7 +197,6 @@ function localizeHeaderMarkup(root = document) {
   /** @type {Array<[string, string|null, string|null]>} id, title, aria-label */
   const names = [
     ['sidebar-toggle-button', t('Toggle conversations'), t('Toggle conversation sidebar')],
-    ['project-path-display', t('Project directory'), null],
     hasNativeHost()
       ? ['project-new-window-button', t('Open a new window'), t('Open a new window')]
       : ['project-new-window-button', t('Open the server page'), t('Open the server page')],
@@ -285,12 +287,40 @@ export function setupHeaderControls(session) {
     updateButtons();
   };
 
+  // The chip is the session switcher's button (session-popover.js): the
+  // project's tile on its hue, as the switcher's rows draw it, and its whole
+  // path — or, where the header has no room for that, its folder's name. The
+  // title gives the whole path and the switcher's key.
+  const pathTile = /** @type {HTMLElement|null} */ (pathChip?.querySelector('.ss-chip-tile') ?? null);
+  let shownPath = '';
+  // Tried whole first, and measured in the same frame, so a narrowed label
+  // never paints the cut path before its name replaces it.
+  const fitPathLabel = () => {
+    if (!pathLabel) return;
+    pathLabel.textContent = shownPath;
+    if (pathLabel.scrollWidth > pathLabel.clientWidth) pathLabel.textContent = baseName(shownPath);
+  };
+  // The header's width is what the chip gets to share: watched rather than
+  // the chip's, whose width follows the label this sets.
+  const pathRoom = pathDisplay?.closest('.app-header') ?? pathDisplay?.parentElement;
+  if (pathRoom && pathLabel) new ResizeObserver(fitPathLabel).observe(pathRoom);
+  // A web font arriving changes the path's width, not the header's.
+  void document.fonts?.ready.then(fitPathLabel);
   const updateProjectPath = (/** @type {string} */ projectPath) => {
     if (!pathDisplay || !pathLabel) return;
-    pathLabel.textContent = projectPath;
-    // Read-only: a session stays on its project. The title shows a path the
-    // header has truncated.
-    if (pathChip) pathChip.title = t('Current project folder: {path}', { path: projectPath });
+    const name = baseName(projectPath);
+    shownPath = projectPath;
+    fitPathLabel();
+    if (pathTile) {
+      pathTile.textContent = name ? initials(name) : '';
+      pathTile.style.setProperty('--ss-tint', workspaceTint(ownProjectLink()));
+    }
+    const key = keyShortcutManager.formatBindings('switch-session')[0] || '';
+    if (pathChip) {
+      pathChip.title = key
+        ? t('{path} — switch session ({key})', { path: projectPath, key })
+        : t('{path} — switch session', { path: projectPath });
+    }
   };
 
   if (undoBtn) {

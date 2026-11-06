@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"juggler/internal/userpaths/userpathstest"
 )
@@ -112,4 +113,48 @@ func TestPruneKeepsAllLiveFolders(t *testing.T) {
 		t.Fatalf("Prune: %v", err)
 	}
 	assertRecents(t, got, []string{b, a})
+}
+
+// TestRecentsTouchMovesToFrontAndStamps: a touch puts its path first and
+// records when, which the sessions page shows as the project's age; Prune
+// keeps the times of the folders it keeps.
+func TestRecentsTouchMovesToFrontAndStamps(t *testing.T) {
+	s := newTestRecentsStore(t)
+	base := t.TempDir()
+	a, b := filepath.Join(base, "a"), filepath.Join(base, "b")
+	for _, p := range []string{a, b} {
+		if err := os.Mkdir(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t1 := time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
+	t2 := t1.Add(time.Hour)
+	for _, step := range []struct {
+		path string
+		at   time.Time
+	}{{a, t1}, {b, t1}, {a, t2}} {
+		if err := s.Touch(step.path, step.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := s.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRecents(t, paths, []string{a, b})
+	check := func(when string) {
+		t.Helper()
+		used, err := s.Used()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !used[a].Equal(t2) || !used[b].Equal(t1) || len(used) != 2 {
+			t.Fatalf("%s: used = %v, want %s at %s and %s at %s", when, used, a, t2, b, t1)
+		}
+	}
+	check("touched")
+	if _, err := s.Prune(); err != nil {
+		t.Fatal(err)
+	}
+	check("pruned")
 }

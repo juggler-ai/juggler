@@ -36,6 +36,7 @@ import (
 	"juggler/cmd/juggler/msg"
 	"juggler/cmd/juggler/tunnel"
 	"juggler/cmd/juggler/webui"
+	"juggler/internal/attention"
 	"juggler/internal/hostcheck"
 	"juggler/internal/ingress"
 	"juggler/internal/jlog"
@@ -87,6 +88,9 @@ type Server struct {
 	// work counts the claims on sessions (registry.open) not yet released:
 	// every spawn in flight and every supervisor. Shutdown waits for it.
 	work sync.WaitGroup
+	// leaving counts the recents writes for sessions that have left the
+	// registry (rememberLeaving). Shutdown waits for it.
+	leaving sync.WaitGroup
 	// testChildren (serve --test) spawns every child as a test server whose
 	// test window loads its session through this server's proxy. Test
 	// binaries only: a production-tagged child panics on --test.
@@ -196,6 +200,7 @@ func (s *Server) routes() http.Handler {
 	api.HandleFunc("/sessions", s.handleOpenSession).Methods("POST")
 	api.HandleFunc("/sessions/{id}", s.handleStopSession).Methods("DELETE")
 	api.HandleFunc("/recents", s.handleRecents).Methods("GET")
+	api.HandleFunc("/events", s.handleEvents).Methods("GET")
 	api.HandleFunc("/folders", s.handleCreateFolder).Methods("POST")
 	api.HandleFunc("/shutdown", s.localOnly(s.handleShutdown)).Methods("POST")
 	// Reading the ways in is this machine's alone, as switching them is: a
@@ -526,8 +531,9 @@ func (s *Server) awaitStarted(caller context.Context, id string) openResult {
 	}
 }
 
-// rememberRecent puts project at the front of the machine's recents. A failure
-// costs only a missing entry on the sessions page, so it is logged, not served.
+// rememberRecent puts project at the front of the machine's recents, and tells
+// the events streams. A failure costs only a missing entry on the sessions
+// page, so it is logged, not served.
 func (s *Server) rememberRecent(project string) {
 	if s.recents == nil {
 		return
@@ -535,6 +541,21 @@ func (s *Server) rememberRecent(project string) {
 	if err := s.recents.Add(project); err != nil {
 		jlog.Error("[machineserver] recording %s in recents: %v", project, err)
 	}
+	s.reg.touch()
+}
+
+// rememberLeaving has every session that leaves the registry put its project
+// at the front of the recents (rememberRecent), so Recent is in order of use
+// and a project just left heads it. The write goes off the registry's actor,
+// counted in leaving, which the server's shutdown waits for.
+func (s *Server) rememberLeaving() {
+	s.reg.onLeave(func(project string) {
+		s.leaving.Add(1)
+		go func() {
+			defer s.leaving.Done()
+			s.rememberRecent(project)
+		}()
+	})
 }
 
 // recentsResponse is the GET /api/server/recents payload.
@@ -542,18 +563,49 @@ type recentsResponse struct {
 	Paths []string `json:"paths"`
 	// Links maps each of Paths to its project's link (projectlink.go).
 	Links map[string]string `json:"links"`
+	// Waiting maps each of Paths whose saved attention summary has
+	// conversations waiting on the user to how many (attention.Read).
+	Waiting map[string]int `json:"waiting"`
+	// Used maps each of Paths to when it was last opened or left, where
+	// known (RecentsStore.Touch).
+	Used map[string]time.Time `json:"used"`
 }
 
 // handleRecents serves the machine's recent projects, most recent first, with
-// folders that no longer exist dropped (RecentsStore.Prune).
+// folders that no longer exist dropped (RecentsStore.Prune), and how many of
+// each one's conversations its saved attention summary has waiting.
 // GET /api/server/recents.
 func (s *Server) handleRecents(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.recentsNow())
+}
+
+// recentsNow is the recents as handleRecents serves them. A summary that
+// cannot be read counts as none waiting.
+func (s *Server) recentsNow() recentsResponse {
 	paths := append([]string{}, s.knownRecents()...)
-	links := make(map[string]string, len(paths))
-	for _, p := range paths {
-		links[p] = projectLink(p)
+	out := recentsResponse{Paths: paths, Links: make(map[string]string, len(paths)), Waiting: map[string]int{}, Used: map[string]time.Time{}}
+	if s.recents != nil {
+		used, err := s.recents.Used()
+		if err != nil {
+			jlog.Error("[machineserver] reading recents: %v", err)
+		}
+		for _, p := range paths {
+			if at, ok := used[p]; ok {
+				out.Used[p] = at
+			}
+		}
 	}
-	writeJSON(w, http.StatusOK, recentsResponse{Paths: paths, Links: links})
+	for _, p := range paths {
+		out.Links[p] = projectLink(p)
+		saved, err := attention.Read(p)
+		if err != nil {
+			jlog.Error("[machineserver] reading %s: %v", attention.Path(p), err)
+		}
+		if n := attention.CountWaiting(saved); n > 0 {
+			out.Waiting[p] = n
+		}
+	}
+	return out
 }
 
 // handleStopSession stops a session child and drops its registry entry. A
@@ -716,6 +768,7 @@ func (s *Server) stopAllChildren() {
 		<-done
 	}
 	s.work.Wait()
+	s.leaving.Wait()
 }
 
 // resolveProject validates a control-API project path: absolute, or under ~

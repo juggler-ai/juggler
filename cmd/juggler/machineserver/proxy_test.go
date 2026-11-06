@@ -64,6 +64,28 @@ func TestSessionProxyRoutesAndStripsPrefix(t *testing.T) {
 	}
 }
 
+// TestSessionProxyKeepsALinksQuery checks a project link's query reaches the
+// child — a link to one of its conversations (?c=) is one — whether the link
+// ends in its slash or is the bare /p/<key> the server redirects.
+func TestSessionProxyKeepsALinksQuery(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, r.URL.Path+"?"+r.URL.RawQuery)
+	}))
+	defer backend.Close()
+
+	s := &Server{reg: newRegistry()}
+	sess, _ := s.reg.reserve("/p")
+	s.reg.setRunning(sess.ID, &child{addr: strings.TrimPrefix(backend.URL, "http://")}, 1)
+	front := httptest.NewServer(s.routes())
+	defer front.Close()
+
+	for _, link := range []string{sess.Link, strings.TrimSuffix(sess.Link, "/")} {
+		if code, body := get(t, front.URL+link+"?c=conv_abc123"); code != http.StatusOK || body != "/?c=conv_abc123" {
+			t.Errorf("GET %s?c=conv_abc123: code=%d, the child saw %q", link, code, body)
+		}
+	}
+}
+
 // TestSessionProxyForwardsPrefix checks the child is told the prefix it is
 // being served under, and that a client cannot choose it: a forged
 // X-Forwarded-Prefix is replaced, not passed on.

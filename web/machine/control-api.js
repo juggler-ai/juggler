@@ -13,6 +13,7 @@
  */
 
 import { extractErrorMessage } from '../sdk/lib/error-utils.js';
+import { asRecents, readSessionsStream } from '../js/services/sessions-feed.js';
 
 /** The header the control API reads its credential from (machineserver.TokenHeader). */
 export const TOKEN_HEADER = 'X-Juggler-Token';
@@ -34,34 +35,17 @@ export const TOKEN_HEADER = 'X-Juggler-Token';
  */
 
 /**
- * The machine's recent projects, as the control API serves them.
- * @typedef {object} Recents
- * @property {string[]} paths - The folders, most recent first.
- * @property {Record<string, string>} links - Each folder's project link,
- *   /p/<key>/ (absent for a folder the server named none for).
+ * The machine server's sessions and recents, and its events stream's
+ * snapshots of them (services/sessions-feed.js).
+ * @typedef {import('../js/services/sessions-feed.js').Recents} Recents
+ * @typedef {import('../js/services/sessions-feed.js').Snapshot} Snapshot
+ * @typedef {import('../js/services/sessions-feed.js').Session} Session
  */
 
 /**
  * @typedef {import('../js/components/connectivity/exposure-view.js').LANState} LANState
  * @typedef {import('../js/components/connectivity/exposure-view.js').TunnelState} TunnelState
  * @typedef {import('../js/components/connectivity/exposure-view.js').LaunchState} LaunchState
- */
-
-/**
- * A session as the control API lists it (machineserver.Session).
- * @typedef {object} Session
- * @property {string} id - Its handle in the control API (stop, attach). It is
- *   minted at every open, so it is no address.
- * @property {string} project - The project folder it runs.
- * @property {string} link - Where it is served: its project's link, /p/<key>/,
- *   which outlives it and serves the project's next session.
- * @property {'starting'|'running'|'stopping'|'restarting'|'error'} state - Where its child is in its life.
- * @property {string} [error] - Why it failed, or how its child last ended.
- * @property {string} startedAt - When it was opened.
- * @property {boolean} busy - A turn is running in it.
- * @property {string} [lastActive] - When it was last seen running a turn.
- * @property {number} [restarts] - How often a crashed child has been respawned.
- * @property {string} [nextRestartAt] - When a restarting session next tries.
  */
 
 /**
@@ -119,6 +103,7 @@ export class ControlApiError extends Error {
  *   getLaunch: () => Promise<LaunchState>,
  *   setLaunch: (change: Partial<LaunchState>) => Promise<LaunchState>,
  *   getStatus: () => Promise<import('../js/components/connectivity/exposure-view.js').ServerStatus>,
+ *   events: (onSnapshot: (snapshot: Snapshot) => void, signal: AbortSignal) => Promise<void>,
  * }} The calls the sessions page makes.
  */
 export function createControlApi({ token, fetchImpl = (input, init) => fetch(input, init) }) {
@@ -171,10 +156,7 @@ export function createControlApi({ token, fetchImpl = (input, init) => fetch(inp
     openSession: async (project, { wait = false } = {}) => /** @type {Session} */ (
       await request('POST', '/sessions', wait ? { project, wait } : { project })),
     stopSession: async (id) => { await request('DELETE', `/sessions/${encodeURIComponent(id)}`); },
-    recents: async () => {
-      const body = /** @type {{paths?: string[], links?: Record<string, string>}|null} */ (await request('GET', '/recents')) || {};
-      return { paths: body.paths || [], links: body.links || {} };
-    },
+    recents: async () => asRecents(await request('GET', '/recents')),
     // Makes the folder `name` directly inside `parent` and answers its absolute
     // path; it opens nothing.
     createFolder: async (parent, name) => (/** @type {{path: string}} */ (await request('POST', '/folders', { parent, name }))).path,
@@ -191,5 +173,32 @@ export function createControlApi({ token, fetchImpl = (input, init) => fetch(inp
     // The server's own status: its process, and whether the desktop app
     // started it.
     getStatus: async () => /** @type {import('../js/components/connectivity/exposure-view.js').ServerStatus} */ (await request('GET', '/status')),
+    // Follows the server's events stream, handing onSnapshot each snapshot
+    // of the sessions and recents it sends, until the stream ends — which
+    // resolves — or signal aborts it. One that cannot be opened, or that
+    // breaks, rejects with a ControlApiError. Read with fetch rather than an
+    // EventSource, which could carry the token only in the address.
+    events: async (onSnapshot, signal) => {
+      let resp;
+      try {
+        resp = await fetchImpl('/api/server/events', {
+          method: 'GET',
+          headers: { [TOKEN_HEADER]: token, Accept: 'text/event-stream' },
+          credentials: 'omit',
+          cache: 'no-store',
+          signal,
+        });
+      } catch (err) {
+        if (signal.aborted) return;
+        throw new ControlApiError(0, extractErrorMessage(err));
+      }
+      if (!resp.ok || !resp.body) throw new ControlApiError(resp.status, resp.statusText);
+      try {
+        await readSessionsStream(resp.body, onSnapshot);
+      } catch (err) {
+        if (signal.aborted) return;
+        throw new ControlApiError(0, extractErrorMessage(err));
+      }
+    },
   };
 }

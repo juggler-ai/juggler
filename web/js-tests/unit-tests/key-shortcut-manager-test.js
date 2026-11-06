@@ -338,6 +338,48 @@ export async function runTests(_ctx) {
     assert(!idsIn(shortcutModule.shortcutTableForPlatform(true)).includes('quit'), 'nor the macOS key table');
   });
 
+  // Going between projects: ⌘K the session switcher's hold-to-cycle gesture,
+  // ⇧⌘J the next wait in any project (⌘J's twin, so ⌘J does not answer a
+  // Shifted J), and ⌘1–9 the Nth open session, which every browser keeps for
+  // its own tabs — so only a desktop window has them. The switcher is the one
+  // list of sessions: ⌘K is its key and nothing else's, and the controller
+  // that drives the gesture dispatches it, so the manager never does.
+  await run('the project keys: ⌘K the switcher\'s alone, ⇧⌘J beside ⌘J, ⌘1–9 on the desktop only', () => {
+    const one = (/** @type {string} */ id, mac = isMac(), host = false) => keyShortcutManager.getBindings(id, mac, host)[0];
+    const modK = evt({ ...modProp, key: 'k' });
+    for (const host of [false, true]) {
+      const onK = keyShortcutManager.all().filter((d) => keyShortcutManager.getBindings(d.id, isMac(), host)
+        .some((b) => eventMatchesBinding(b, modK)));
+      assert(onK.map((d) => d.id).join() === 'switch-session',
+        `Mod+K in a ${host ? 'desktop window' : 'browser tab'} is bound to [${onK.map((d) => d.id).join(', ')}], want switch-session alone`);
+    }
+    const sw = keyShortcutManager.all().find((d) => d.id === 'switch-session');
+    assert(sw?.external === true, 'switch-session is dispatched by its gesture controller, not the manager');
+    assert(!eventMatchesBinding(/** @type {any} */ (one('switch-session')), evt({ ...modProp, shiftKey: true, key: 'K' })),
+      'Mod+Shift+K is not the switcher');
+    assert(!keyShortcutManager.all().some((d) => d.id === 'open-home'), 'the Home overlay\'s key is gone');
+
+    const jump = one('jump-to-attention');
+    const anywhere = one('jump-to-attention-anywhere');
+    assert(!!jump && !!anywhere, 'a jump key is missing');
+    const shiftJ = evt({ ...modProp, shiftKey: true, key: 'J' });
+    assert(eventMatchesBinding(/** @type {any} */ (anywhere), shiftJ), 'Mod+Shift+J does not jump anywhere');
+    assert(!eventMatchesBinding(/** @type {any} */ (jump), shiftJ), 'Mod+Shift+J still jumps within the project');
+    assert(eventMatchesBinding(/** @type {any} */ (jump), evt({ ...modProp, key: 'j' })), 'Mod+J no longer jumps within the project');
+    assert(!eventMatchesBinding(/** @type {any} */ (anywhere), evt({ ...modProp, key: 'j' })), 'Mod+J jumps anywhere');
+    assert(keyShortcutManager.all().find((d) => d.id === 'jump-to-attention-anywhere')?.allowInInput === true, 'jump-anywhere does not fire while typing');
+
+    for (let n = 1; n <= 9; n++) {
+      const id = `switch-project-${n}`;
+      for (const mac of [true, false]) {
+        assert(keyShortcutManager.getBindings(id, mac, false).length === 0, `${id} is bound in a ${mac ? 'Mac' : 'Windows/Linux'} browser tab`);
+        const desk = keyShortcutManager.getBindings(id, mac, true)[0];
+        assert(!!desk && desk.mod === true && desk.key === String(n) && !desk.shift && !desk.alt,
+          `${id} in a ${mac ? 'Mac' : 'Windows/Linux'} window is ${JSON.stringify(desk)}`);
+      }
+    }
+  });
+
   // This suite runs in a browser tab, which on every platform leaves the chord
   // alone: the handler is never reached and the press is not taken.
   await run('Ctrl+Shift+Q reaches no handler in a browser tab', () => {

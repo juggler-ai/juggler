@@ -13,6 +13,7 @@ import { isEngine } from '../../sdk/lib/client-role.js';
 import { followSession } from './git-workspace.js';
 import { reconcileWorkspaces } from './workspace-reconcile.js';
 import appPhase, { setAppPhase } from './app-phase.js';
+import { revealLinkedConversation } from './conversation-commands.js';
 
 /**
  * @typedef {object} ConnectionManagerOptions
@@ -375,6 +376,11 @@ class ConnectionManager {
     // project picker wired in just now is the recovery, and it is no use behind
     // a spinner.
     setAppPhase('ready');
+
+    // A page opened at a link to a conversation lands where ⌘J would, once the
+    // tab the load put on screen holds its document.
+    const linked = this._session.persistence.takeLinkedConversationId();
+    if (linked) void revealLinkedConversation(this._session, linked);
 
     if (loadError) {
       // Surface the failure now that the picker overlay (wired above) is

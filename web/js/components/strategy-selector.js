@@ -6,7 +6,7 @@ import JugglerElement from './juggler-element.js';
 import strategyRegistry from '../registries/strategy-registry.js';
 import { REGISTRIES_RELOADED } from '../registries/reload-registries.js';
 import { presentInlineMenu } from '../utils/popup-surface.js';
-import { attachMenuKeyboard } from '../utils/menu-roles.js';
+import { attachMenuKeyboard, focusMenuChoice } from '../utils/menu-roles.js';
 import { INFO_SVG } from '../utils/icons.js';
 import CycleBuffer from '../services/cycle-buffer.js';
 import { findLastRoundTripTxnId } from '../utils/transaction-anchor.js';
@@ -71,6 +71,12 @@ class StrategySelector extends JugglerElement {
      * @type {import('../utils/popup-surface.js').InlineMenu|null} @private
      */
     this._menu = null;
+    /**
+     * Whether the dropdown is to take the keyboard, on its checked strategy,
+     * once presented — asked for (takeKeyboard) before it was.
+     * @type {boolean} @private
+     */
+    this._keyboardOnPresent = false;
     /**
      * Metadata observer on the bound thread's conversation, so a REMOTE strategy
      * switch repaints the button on its own — without waiting for a
@@ -622,13 +628,30 @@ class StrategySelector extends JugglerElement {
       // stays in the composer the user is typing in.
       onPresent: (surface) => {
         const menu = /** @type {HTMLElement|null} */ (surface.querySelector('[role="menu"]'));
-        if (menu) attachMenuKeyboard(menu, { close: () => this.closeDropdown(), autoFocus: !this._cycle.buffering });
+        if (!menu) return;
+        const takeKeyboard = this._keyboardOnPresent;
+        this._keyboardOnPresent = false;
+        attachMenuKeyboard(menu, { close: () => this.closeDropdown(), autoFocus: !this._cycle.buffering && !takeKeyboard });
+        if (takeKeyboard) focusMenuChoice(menu);
       },
     });
   }
 
+  /**
+   * Hand the open dropdown the keyboard, on the checked strategy — for a
+   * hold-to-cycle HUD, which leaves focus where the user was typing, settling
+   * into an ordinary menu. A dropdown not yet presented takes it once it is.
+   */
+  takeKeyboard() {
+    if (!this._dropdownOpen) return;
+    const menu = /** @type {HTMLElement|null} */ (this._menu?.surface?.querySelector('[role="menu"]') ?? null);
+    if (menu) focusMenuChoice(menu);
+    else this._keyboardOnPresent = true;
+  }
+
   /** @private */
   closeDropdown() {
+    this._keyboardOnPresent = false;
     if (this._dropdownOpen) {
       this._dropdownOpen = false;
       // Close cancels a pending relocation, then tears down the surface, scrim,

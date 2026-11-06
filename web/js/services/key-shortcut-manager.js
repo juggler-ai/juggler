@@ -292,6 +292,10 @@ export function formatBindingLabel(binding, mac) {
   return composeBinding(binding, mac, uiKeyName);
 }
 
+/** What each ⌘1–⌘9 does, said once for the nine. */
+const PROJECT_KEY_DESCRIPTION = markForTranslation('Go to that open session, counting in the order they '
+  + 'were opened. Desktop app only.');
+
 /**
  * The central shortcut table. Add a customisable command here and nowhere else.
  * @type {ShortcutDef[]}
@@ -303,7 +307,117 @@ const SHORTCUT_DEFS = [
     description: markForTranslation('Switch to the next conversation waiting on you; select its first '
       + 'pending approval, or scroll to the end if it just needs a look.'),
     category: markForTranslation('Conversations'),
-    defaultBinding: { mod: true, key: 'j' },
+    // shift:false is load-bearing: an omitted shift is *tolerant* (see
+    // eventMatchesBinding), and ⇧⌘J is jump-to-attention-anywhere.
+    defaultBinding: { mod: true, shift: false, key: 'j' },
+    allowInInput: true,
+  },
+  {
+    id: 'jump-to-attention-anywhere',
+    label: markForTranslation('Jump to conversation needing attention, any project'),
+    description: markForTranslation('Go to the next conversation waiting on you in any project on this '
+      + 'computer, opening its project if it is not this one.'),
+    category: markForTranslation('Projects'),
+    // ⌘J's Shift-ed twin: the same jump, across every project.
+    defaultBinding: { mod: true, shift: true, key: 'j' },
+    allowInInput: true,
+  },
+  {
+    id: 'switch-session',
+    label: markForTranslation('Switch session'),
+    description: markForTranslation('Open the list of sessions at this one, to pick with the arrow keys and Return. '
+      + 'Keep the modifier held and press K again to walk on through the open sessions, then the recent projects; '
+      + 'let go to switch, or press Escape to stay.'),
+    category: markForTranslation('Projects'),
+    // shift:false, so ⇧⌘K stays free (an omitted shift is tolerant).
+    defaultBinding: { mod: true, shift: false, key: 'k' },
+    allowInInput: true,
+    // Dispatched by the session popover's hold-to-cycle controller
+    // (components/session-popover.js), which reads this binding live.
+    external: true,
+  },
+  // ⌘1–⌘9: the Nth open session, in the server's order. Every browser keeps these for
+  // its own tabs, on every platform, so only the desktop app has them — the
+  // browserClaims pair, one binding per platform family, says exactly that.
+  {
+    id: 'switch-project-1',
+    label: markForTranslation('Go to active session 1'),
+    description: PROJECT_KEY_DESCRIPTION,
+    category: markForTranslation('Projects'),
+    defaultBinding: { mod: true, key: '1', platform: 'mac', browserClaims: 'mac' },
+    aliasBindings: [{ mod: true, key: '1', platform: 'other', browserClaims: 'other' }],
+    allowInInput: true,
+  },
+  {
+    id: 'switch-project-2',
+    label: markForTranslation('Go to active session 2'),
+    description: PROJECT_KEY_DESCRIPTION,
+    category: markForTranslation('Projects'),
+    defaultBinding: { mod: true, key: '2', platform: 'mac', browserClaims: 'mac' },
+    aliasBindings: [{ mod: true, key: '2', platform: 'other', browserClaims: 'other' }],
+    allowInInput: true,
+  },
+  {
+    id: 'switch-project-3',
+    label: markForTranslation('Go to active session 3'),
+    description: PROJECT_KEY_DESCRIPTION,
+    category: markForTranslation('Projects'),
+    defaultBinding: { mod: true, key: '3', platform: 'mac', browserClaims: 'mac' },
+    aliasBindings: [{ mod: true, key: '3', platform: 'other', browserClaims: 'other' }],
+    allowInInput: true,
+  },
+  {
+    id: 'switch-project-4',
+    label: markForTranslation('Go to active session 4'),
+    description: PROJECT_KEY_DESCRIPTION,
+    category: markForTranslation('Projects'),
+    defaultBinding: { mod: true, key: '4', platform: 'mac', browserClaims: 'mac' },
+    aliasBindings: [{ mod: true, key: '4', platform: 'other', browserClaims: 'other' }],
+    allowInInput: true,
+  },
+  {
+    id: 'switch-project-5',
+    label: markForTranslation('Go to active session 5'),
+    description: PROJECT_KEY_DESCRIPTION,
+    category: markForTranslation('Projects'),
+    defaultBinding: { mod: true, key: '5', platform: 'mac', browserClaims: 'mac' },
+    aliasBindings: [{ mod: true, key: '5', platform: 'other', browserClaims: 'other' }],
+    allowInInput: true,
+  },
+  {
+    id: 'switch-project-6',
+    label: markForTranslation('Go to active session 6'),
+    description: PROJECT_KEY_DESCRIPTION,
+    category: markForTranslation('Projects'),
+    defaultBinding: { mod: true, key: '6', platform: 'mac', browserClaims: 'mac' },
+    aliasBindings: [{ mod: true, key: '6', platform: 'other', browserClaims: 'other' }],
+    allowInInput: true,
+  },
+  {
+    id: 'switch-project-7',
+    label: markForTranslation('Go to active session 7'),
+    description: PROJECT_KEY_DESCRIPTION,
+    category: markForTranslation('Projects'),
+    defaultBinding: { mod: true, key: '7', platform: 'mac', browserClaims: 'mac' },
+    aliasBindings: [{ mod: true, key: '7', platform: 'other', browserClaims: 'other' }],
+    allowInInput: true,
+  },
+  {
+    id: 'switch-project-8',
+    label: markForTranslation('Go to active session 8'),
+    description: PROJECT_KEY_DESCRIPTION,
+    category: markForTranslation('Projects'),
+    defaultBinding: { mod: true, key: '8', platform: 'mac', browserClaims: 'mac' },
+    aliasBindings: [{ mod: true, key: '8', platform: 'other', browserClaims: 'other' }],
+    allowInInput: true,
+  },
+  {
+    id: 'switch-project-9',
+    label: markForTranslation('Go to active session 9'),
+    description: PROJECT_KEY_DESCRIPTION,
+    category: markForTranslation('Projects'),
+    defaultBinding: { mod: true, key: '9', platform: 'mac', browserClaims: 'mac' },
+    aliasBindings: [{ mod: true, key: '9', platform: 'other', browserClaims: 'other' }],
     allowInInput: true,
   },
   {

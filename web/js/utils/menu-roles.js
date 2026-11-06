@@ -13,7 +13,7 @@
  * @module utils/menu-roles
  */
 
-import { POPUP_REVEALED_EVENT } from './popup-surface.js';
+import { whenRevealed } from './popup-surface.js';
 
 /**
  * Give a fully built menu its ARIA. The element is a named `menu`; each
@@ -162,23 +162,23 @@ export function attachMenuKeyboard(menu, { close, autoFocus = true }) {
   });
 
   if (!autoFocus || !lastInputWasKey) return;
-  const focusFirst = () => {
+  whenRevealed(menu, () => {
     const first = focusableItems(menu)[0];
     if (first) focusMenuItem(menu, first);
-  };
-  if (menu.isConnected && getComputedStyle(menu).visibility !== 'hidden') {
-    focusFirst();
-    return;
-  }
-  /** @param {Event} e */
-  const onReveal = (e) => {
-    if (!menu.isConnected) {
-      document.removeEventListener(POPUP_REVEALED_EVENT, onReveal);
-      return;
-    }
-    if (!(e.target instanceof Node) || !e.target.contains(menu)) return;
-    document.removeEventListener(POPUP_REVEALED_EVENT, onReveal);
-    focusFirst();
-  };
-  document.addEventListener(POPUP_REVEALED_EVENT, onReveal);
+  });
+}
+
+/**
+ * Give an open menu the keyboard on its checked item — the value it holds —
+ * or else its first, as soon as it is on screen: for a menu shown without
+ * focus that becomes an ordinary one (a hold-to-cycle HUD left up when the
+ * gesture took no hop).
+ * @param {HTMLElement} menu - The `role="menu"` element, keyboard attached.
+ */
+export function focusMenuChoice(menu) {
+  whenRevealed(menu, () => {
+    const items = focusableItems(menu);
+    const item = items.find((i) => i.getAttribute('aria-checked') === 'true') ?? items[0];
+    if (item) focusMenuItem(menu, item);
+  });
 }

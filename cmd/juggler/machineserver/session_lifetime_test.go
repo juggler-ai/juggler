@@ -303,3 +303,40 @@ func TestSessionLifetimeUnavailable(t *testing.T) {
 		})
 	}
 }
+
+// A viewer arriving at a session stamps when it was last viewed — the order
+// the switcher lists open sessions in, most recently used first — and the
+// record says how many viewers it has, which marks it open in another window.
+// A viewer leaving moves the stamp nowhere.
+func TestAViewerArrivingStampsLastViewed(t *testing.T) {
+	r := newRegistry()
+	first, _ := r.reserve("/first")
+	second, _ := r.reserve("/second")
+	for _, id := range []string{first.ID, second.ID} {
+		if !r.setRunning(id, &child{addr: "127.0.0.1:1"}, 1) {
+			t.Fatal("setRunning refused")
+		}
+		t.Cleanup(func() { r.remove(id) })
+	}
+	if s, _ := r.get(first.ID); s.LastViewed != nil || s.Viewers != 0 {
+		t.Fatalf("unviewed: %+v", s)
+	}
+	releaseFirst, ok := r.holdViewer(first.ID)
+	if !ok {
+		t.Fatal("holdViewer refused")
+	}
+	a, _ := r.get(first.ID)
+	if a.LastViewed == nil || a.Viewers != 1 {
+		t.Fatalf("viewed once: %+v", a)
+	}
+	releaseSecond, _ := r.holdViewer(second.ID)
+	b, _ := r.get(second.ID)
+	if b.LastViewed == nil || b.LastViewed.Before(*a.LastViewed) {
+		t.Fatalf("second viewed after first: %v, first %v", b.LastViewed, a.LastViewed)
+	}
+	releaseFirst()
+	releaseSecond()
+	if s, _ := r.get(first.ID); s.Viewers != 0 || s.LastViewed == nil || !s.LastViewed.Equal(*a.LastViewed) {
+		t.Fatalf("after its viewer left: %+v, want no viewers and the stamp kept at %v", s, a.LastViewed)
+	}
+}

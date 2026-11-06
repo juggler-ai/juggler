@@ -68,6 +68,15 @@ let pin = '';
 let conversation = '';
 /** @type {string} */
 let board = '';
+/** @type {string} */
+let deepLink = '';
+
+/**
+ * The query parameter naming the conversation a link to the Juggler shell
+ * opens on: `/p/<key>/?c=<conversationId>`, as ⇧⌘J and the desktop app's
+ * raise of a window at a conversation name one.
+ */
+const DEEP_LINK_PARAM = 'c';
 
 /**
  * Read the mode out of a query string.
@@ -85,6 +94,8 @@ function readFrom(search) {
   conversation = ID_PATTERN.test(rawConversation) ? rawConversation : '';
   const rawBoard = params.get('board') || '';
   board = ID_PATTERN.test(rawBoard) ? rawBoard : '';
+  const rawDeepLink = params.get(DEEP_LINK_PARAM) || '';
+  deepLink = mode === VIEW_MAIN && ID_PATTERN.test(rawDeepLink) ? rawDeepLink : '';
 }
 
 readFrom(globalThis.location?.search || '');
@@ -158,6 +169,31 @@ export function boardId() {
 export function windowRole() {
   if (mode !== VIEW_PINBOARD) return WINDOW_ROLE_MAIN;
   return board ? `${WINDOW_ROLE_PINBOARD}:${board}` : WINDOW_ROLE_PINBOARD;
+}
+
+/**
+ * The conversation the Juggler shell's address links to (`?c=`), answered once:
+ * the link is taken out of this module and out of the address as it is read,
+ * so a reload, a desktop window restoring its page, or a later load of the
+ * session opens where the user is rather than where the link pointed. Every
+ * other parameter of the address, and its fragment, are left as they are.
+ * @returns {string} The conversation id, or '' when the address named none
+ *   usable — and always '' in a pinboard view, whose conversation is its own.
+ */
+export function takeDeepLinkConversationId() {
+  const id = deepLink;
+  deepLink = '';
+  const loc = globalThis.location;
+  const history = globalThis.history;
+  if (mode === VIEW_MAIN && loc && history?.replaceState) {
+    const params = new URLSearchParams(loc.search || '');
+    if (params.has(DEEP_LINK_PARAM)) {
+      params.delete(DEEP_LINK_PARAM);
+      const search = params.toString();
+      history.replaceState(history.state, '', `${loc.pathname}${search ? `?${search}` : ''}${loc.hash}`);
+    }
+  }
+  return id;
 }
 
 /**

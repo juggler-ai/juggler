@@ -57,6 +57,31 @@ export const COARSE_POINTER_QUERY = '(hover: none) and (pointer: coarse)';
 export const POPUP_REVEALED_EVENT = 'popup-revealed';
 
 /**
+ * Run `fn` once `el` can take focus: now, when it is on screen already, else
+ * when the surface presenting it is revealed. Nothing runs for an element
+ * taken out of the page before then.
+ * @param {HTMLElement} el - A presented surface, or something inside one.
+ * @param {() => void} fn - What to do then.
+ */
+export function whenRevealed(el, fn) {
+  if (el.isConnected && getComputedStyle(el).visibility !== 'hidden') {
+    fn();
+    return;
+  }
+  /** @param {Event} e */
+  const onReveal = (e) => {
+    if (!el.isConnected) {
+      document.removeEventListener(POPUP_REVEALED_EVENT, onReveal);
+      return;
+    }
+    if (!(e.target instanceof Node) || !e.target.contains(el)) return;
+    document.removeEventListener(POPUP_REVEALED_EVENT, onReveal);
+    fn();
+  };
+  document.addEventListener(POPUP_REVEALED_EVENT, onReveal);
+}
+
+/**
  * Present an already-built popup surface and wire everything it needs.
  *
  * Call when the popup OPENS; run the returned `release` exactly once when it

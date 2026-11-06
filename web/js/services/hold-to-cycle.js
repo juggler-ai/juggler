@@ -12,15 +12,18 @@ import { isForeignPopupOpen } from '../utils/popup-manager.js';
  *
  *   idle → (trigger keydown: open the popup at the CURRENT value) → active
  *        → (trigger re-press while held: apply the next hop)
- *        → (modifier release: commit) | (Escape: cancel) → idle
+ *        → (modifier release: commit, or settle if no hop was taken)
+ *        | (Escape: cancel) → idle
  *
  * The popup is the surface the whole time: it opens on the very first press
  * showing the current selection highlighted, then each re-press previews the
  * next value — so there is no press-vs-hold distinction and no open delay. The
- * first press applies no hop, so a press-and-release with no re-press is a pure
- * peek. Nothing is persisted until the modifiers are released — every hop only
- * previews (the client buffers its doc write), and the landing value is
- * committed on release (or discarded on Escape).
+ * first press applies no hop, so a press-and-release with no re-press changes
+ * nothing: a client with `onSettle` leaves its popup up as an ordinary picker
+ * (↑↓, ↵, Escape), and one without closes it. Nothing is persisted until the
+ * modifiers are released — every hop only previews (the client buffers its doc
+ * write), and the landing value is committed on release (or discarded on
+ * Escape).
  *
  * The trigger binding is looked up live from the KeyShortcutManager by
  * `shortcutId` (the definition is marked `external` there), so a future user
@@ -64,7 +67,13 @@ import { isForeignPopupOpen } from '../utils/popup-manager.js';
  *   popup at the current value. Buffers rather than persists — see onCommit.
  * @property {() => void} onCommit - Gesture ended by modifier release: close the
  *   popup and persist the landing selection (flush the buffered write, record to
- *   recents). Not called on Escape.
+ *   recents). Not called on Escape, nor on a release that settles.
+ * @property {() => void} [onSettle] - Gesture ended by modifier release with no
+ *   hop taken, so the selection is still the current one: leave the popup up as
+ *   an ordinary picker that answers its own keys, ending the deferred-write mode
+ *   with nothing to write. Without it such a release commits, as any other. A
+ *   {@link HoldToCycleController#press} gesture never settles: its opening press
+ *   is itself a hop.
  * @property {() => void} [onCancel] - Gesture ended by Escape: close the popup
  *   and discard the preview, restoring what was committed before the gesture.
  *   Optional; never runs on a modifier-release commit.
@@ -86,6 +95,12 @@ class HoldToCycleController {
      * @type {Set<string>} @private
      */
     this._held = new Set();
+    /**
+     * Whether the active gesture has moved off the value it opened at — what
+     * makes a release a commit rather than a settle.
+     * @type {boolean} @private
+     */
+    this._hopped = false;
 
     // Bind handlers to preserve 'this' context
     this._handleKeyDown = this._handleKeyDown.bind(this);
@@ -124,6 +139,7 @@ class HoldToCycleController {
    */
   press(step = 1) {
     if (this._phase === 'active') {
+      this._hopped = true;
       this._config.onCycle(step);
       return true;
     }
@@ -137,6 +153,7 @@ class HoldToCycleController {
       return true;
     }
     this._phase = 'active';
+    this._hopped = true;
     this._beginPointerIdle();
     return true;
   }
@@ -205,6 +222,7 @@ class HoldToCycleController {
       recordUsage(`shortcut:${shortcutId}`);
 
       this._phase = 'active';
+      this._hopped = false;
       this._beginPointerIdle();
       return;
     }
@@ -222,6 +240,7 @@ class HoldToCycleController {
     if (eventMatchesBinding(binding, e)) {
       e.preventDefault();
       e.stopPropagation();
+      this._hopped = true;
       this._config.onCycle(1);
     }
   }
@@ -238,15 +257,23 @@ class HoldToCycleController {
   }
 
   /**
-   * Handle keyup events — releasing any configured modifier commits the gesture:
-   * close the popup, then persist the landing selection.
+   * Handle keyup events — releasing any configured modifier ends the gesture:
+   * a settle when no hop was taken and the client keeps its popup up, else a
+   * commit (close the popup, then persist the landing selection).
    * @param {KeyboardEvent} e
    * @private
    */
   _handleKeyUp(e) {
     if (!this._config.modifierKeys.includes(e.key)) return;
     this._held.delete(e.key);
-    this.commit();
+    const settle = this._config.onSettle;
+    if (this._phase !== 'active' || this._hopped || !settle) {
+      this.commit();
+      return;
+    }
+    this._phase = 'idle';
+    this._endPointerIdle();
+    settle();
   }
 
   /**

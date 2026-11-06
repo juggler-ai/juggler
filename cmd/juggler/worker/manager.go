@@ -146,6 +146,9 @@ type Manager struct {
 	// held is every project's held-send index (held_send_index.go), shared
 	// with the workers that publish to it.
 	held *heldSendIndex
+	// attention is every project's attention summary (attention.go), shared
+	// with the workers that publish to it.
+	attention *attentionIndex
 	// prepareWorker, when set, is handed each new worker before it starts.
 	// Fixed at construction: the test seam that gives a worker the Manager
 	// builds its clock and its scripted replies.
@@ -167,6 +170,7 @@ func newManager(prepare func(*ConversationWorker)) *Manager {
 		ctx:           ctx,
 		cancel:        cancel,
 		held:          newHeldSendIndex(),
+		attention:     newAttentionIndex(),
 		prepareWorker: prepare,
 	}
 	go m.run()
@@ -264,6 +268,7 @@ func (m *Manager) run() {
 			w.SetEngineReadyFunc(engineReadyFn)
 		}
 		w.heldIndex = m.held
+		w.attentionIndex = m.attention
 		if m.prepareWorker != nil {
 			m.prepareWorker(w)
 		}
@@ -446,6 +451,7 @@ func (m *Manager) run() {
 			// by createWorker when that call unblocks.
 			removedConvs[op.conversationID] = true
 			m.held.drop(op.conversationID)
+			m.attention.drop(op.conversationID)
 			w, ok := workers[op.conversationID]
 			if ok {
 				// Mark deleting before acknowledging the caller. The HTTP handler
@@ -473,6 +479,7 @@ func (m *Manager) run() {
 		case mgrConversationRestored:
 			delete(removedConvs, op.conversationID)
 			m.held.restore(op.conversationID)
+			m.attention.restore(op.conversationID)
 			if op.done != nil {
 				op.done <- struct{}{}
 			}

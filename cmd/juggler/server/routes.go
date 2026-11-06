@@ -341,6 +341,7 @@ func (s *Server) setupBootstrapRoutes() {
 	api.HandleFunc(apiRoute(apipaths.WebSocket), s.handleWebSocket).Methods("GET")
 	api.HandleFunc(apiRoute(apipaths.Health), handlers.HandleHealth).Methods("GET")
 	api.HandleFunc(apiRoute(apipaths.HealthActive), s.handleHealthActive).Methods("GET")
+	api.HandleFunc(apiRoute(apipaths.HealthAttention), s.handleHealthAttention).Methods("GET")
 	api.HandleFunc(apiRoute(apipaths.HealthRetire), s.handleHealthRetire).Methods("POST")
 	api.HandleFunc(apiRoute(apipaths.HealthInstance), s.handleHealthInstance).Methods("GET")
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"juggler/internal/atomicio"
 	"juggler/internal/userpaths"
@@ -23,9 +24,11 @@ type RecentsStore struct {
 	filePath string
 }
 
-// recentsFile is the on-disk schema.
+// recentsFile is the on-disk schema. Used holds when each path was last
+// touched (Touch); a path recorded before that was kept has none.
 type recentsFile struct {
-	Paths []string `json:"paths"`
+	Paths []string             `json:"paths"`
+	Used  map[string]time.Time `json:"used,omitempty"`
 }
 
 // NewRecentsStore returns a store backed by ~/.juggler/cache/recents.json. The
@@ -39,36 +42,57 @@ func NewRecentsStore() (*RecentsStore, error) {
 // Load returns the current recents list (most-recent first). Missing file
 // yields an empty slice without error.
 func (s *RecentsStore) Load() ([]string, error) {
-	data, err := os.ReadFile(s.filePath)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to read recents file: %w", err)
-	}
-	if len(data) == 0 {
-		return nil, nil
-	}
-	var f recentsFile
-	if err := json.Unmarshal(data, &f); err != nil {
-		return nil, fmt.Errorf("failed to parse recents file: %w", err)
-	}
-	return f.Paths, nil
+	f, err := s.read()
+	return f.Paths, err
 }
 
-// Add moves path to the front of the list, dedups, and caps at RecentsCap.
-// path should already be absolute.
+// Used returns when each recent path was last touched. A path with no time
+// recorded is absent.
+func (s *RecentsStore) Used() (map[string]time.Time, error) {
+	f, err := s.read()
+	if f.Used == nil {
+		f.Used = map[string]time.Time{}
+	}
+	return f.Used, err
+}
+
+// read loads the whole file. Missing file yields an empty one without error.
+func (s *RecentsStore) read() (recentsFile, error) {
+	var f recentsFile
+	data, err := os.ReadFile(s.filePath)
+	if os.IsNotExist(err) {
+		return f, nil
+	}
+	if err != nil {
+		return f, fmt.Errorf("failed to read recents file: %w", err)
+	}
+	if len(data) == 0 {
+		return f, nil
+	}
+	if err := json.Unmarshal(data, &f); err != nil {
+		return recentsFile{}, fmt.Errorf("failed to parse recents file: %w", err)
+	}
+	return f, nil
+}
+
+// Add touches path now (Touch).
 func (s *RecentsStore) Add(path string) error {
+	return s.Touch(path, time.Now())
+}
+
+// Touch moves path to the front of the list, records at as when it was last
+// used, dedups, and caps at RecentsCap. path should already be absolute.
+func (s *RecentsStore) Touch(path string, at time.Time) error {
 	if path == "" {
 		return nil
 	}
-	paths, err := s.Load()
+	f, err := s.read()
 	if err != nil {
 		return err
 	}
-	out := make([]string, 0, len(paths)+1)
+	out := make([]string, 0, len(f.Paths)+1)
 	out = append(out, path)
-	for _, p := range paths {
+	for _, p := range f.Paths {
 		if p == path {
 			continue
 		}
@@ -77,7 +101,13 @@ func (s *RecentsStore) Add(path string) error {
 			break
 		}
 	}
-	return s.save(out)
+	used := map[string]time.Time{path: at}
+	for _, p := range out[1:] {
+		if t, ok := f.Used[p]; ok {
+			used[p] = t
+		}
+	}
+	return s.save(recentsFile{Paths: out, Used: used})
 }
 
 // Prune drops entries whose folder no longer exists (or is no longer a
@@ -87,13 +117,13 @@ func (s *RecentsStore) Add(path string) error {
 // permission error — is kept, so a temporarily-unreachable project isn't
 // forgotten; only definitively-absent folders are dropped.
 func (s *RecentsStore) Prune() ([]string, error) {
-	paths, err := s.Load()
+	f, err := s.read()
 	if err != nil {
 		return nil, err
 	}
-	out := make([]string, 0, len(paths))
+	out := make([]string, 0, len(f.Paths))
 	changed := false
-	for _, p := range paths {
+	for _, p := range f.Paths {
 		info, statErr := os.Stat(p)
 		if statErr != nil {
 			if os.IsNotExist(statErr) {
@@ -110,19 +140,25 @@ func (s *RecentsStore) Prune() ([]string, error) {
 		out = append(out, p)
 	}
 	if changed {
-		if err := s.save(out); err != nil {
+		used := map[string]time.Time{}
+		for _, p := range out {
+			if t, ok := f.Used[p]; ok {
+				used[p] = t
+			}
+		}
+		if err := s.save(recentsFile{Paths: out, Used: used}); err != nil {
 			return out, err
 		}
 	}
 	return out, nil
 }
 
-func (s *RecentsStore) save(paths []string) error {
+func (s *RecentsStore) save(f recentsFile) error {
 	dir := filepath.Dir(s.filePath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create recents directory: %w", err)
 	}
-	data, err := json.MarshalIndent(recentsFile{Paths: paths}, "", "  ")
+	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal recents: %w", err)
 	}

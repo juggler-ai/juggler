@@ -391,11 +391,11 @@ func TestAPIAuthGatesHealthForRemoteCallers(t *testing.T) {
 		*reached = true
 		w.WriteHeader(http.StatusOK)
 	}
-	for _, p := range []string{apipaths.HealthActive, apipaths.HealthInstance} {
+	for _, p := range []string{apipaths.HealthActive, apipaths.HealthAttention, apipaths.HealthInstance} {
 		s.router.HandleFunc(p, hit).Methods("GET")
 	}
 
-	for _, path := range []string{apipaths.Health, apipaths.HealthActive, apipaths.HealthInstance} {
+	for _, path := range []string{apipaths.Health, apipaths.HealthActive, apipaths.HealthAttention, apipaths.HealthInstance} {
 		for _, remote := range []bool{false, true} {
 			*reached = false
 			req := httptest.NewRequest(http.MethodGet, path, nil)

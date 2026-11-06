@@ -192,6 +192,12 @@ type ConversationWorker struct {
 	heldIndex *heldSendIndex
 	// heldPublished is the entry last published to heldIndex. Actor only.
 	heldPublished heldPublication
+	// attentionIndex is the Manager's attention index this worker publishes
+	// its entry to (attention.go), set before Start; nil for a worker built
+	// without a Manager.
+	attentionIndex *attentionIndex
+	// attentionPublished is what was last published to attentionIndex.
+	attentionPublished attentionPublication
 
 	done    chan struct{}
 	stopped chan struct{}
@@ -795,6 +801,9 @@ func (r *run) run(ctx context.Context) {
 		// waited is how long the handled message sat in the inbox; zero for
 		// events that do not come through it.
 		var waited time.Duration
+		// tick is set for a liveness tick, the one event that changes nothing
+		// attention reads (refreshAttention).
+		var tick bool
 		select {
 		case <-ctx.Done():
 			return
@@ -845,6 +854,7 @@ func (r *run) run(ctx context.Context) {
 			r.finishRetiredTurn(t)
 		case <-r.liveness.ticks():
 			event, started = "liveness tick", time.Now()
+			tick = true
 			r.detectFrozenGap()
 			liveThreads := r.sched.liveThreads()
 			// Periodic recovery remains actor-owned and skips only the subtrees whose
@@ -865,6 +875,7 @@ func (r *run) run(ctx context.Context) {
 		// Last, so the timer is armed against what this event and its passes
 		// left in the queues.
 		r.rearmHeldTimer()
+		r.refreshAttention(tick)
 		r.reportSlowIteration(slowIteration{
 			event: event, handled: handled, reconcile: time.Since(reconcileStarted), passes: passes,
 			waited: waited, depth: r.inbox.depth(),

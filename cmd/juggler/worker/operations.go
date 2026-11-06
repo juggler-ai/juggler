@@ -921,6 +921,32 @@ func (t *OperationTracker) StopCapturing() {
 func (t *OperationTracker) ApplyClientEdit(origin string, update []byte, sinceEditMs *int) {
 	ycrdtMu.Lock()
 	defer ycrdtMu.Unlock()
+	t.applyClientEditLocked(origin, update, sinceEditMs)
+}
+
+// ApplyEngineEdit applies a yjs-sync frame from the attached engine. What the
+// engine writes — a tool's claim, its result — completes the worker's own tool
+// calls, so while the worker's group is on top with the capture window open
+// the edit joins it however late it lands, exactly as the worker's next write
+// would (steerWorkerWriteLocked); the engine's clock, which measures from its
+// own previous edit, says nothing about that. Otherwise it is any client's edit.
+func (t *OperationTracker) ApplyEngineEdit(origin string, update []byte, sinceEditMs *int) {
+	ycrdtMu.Lock()
+	defer ycrdtMu.Unlock()
+	um := t.undoManager
+	if um == nil || um.LastChange == 0 || len(um.UndoStack) == 0 || um.UndoStack[len(um.UndoStack)-1] != t.workerGroup {
+		t.applyClientEditLocked(origin, update, sinceEditMs)
+		return
+	}
+	lastChange, seq := um.LastChange, t.undoSeq
+	um.LastChange = steeredLastChange
+	t.doc.applySyncUpdateLocked(update, nil)
+	if t.undoSeq == seq && um.LastChange == steeredLastChange {
+		um.LastChange = lastChange
+	}
+}
+
+func (t *OperationTracker) applyClientEditLocked(origin string, update []byte, sinceEditMs *int) {
 	um := t.undoManager
 	ownGroupOnTop := um != nil && origin != "" && um.LastChange != 0 &&
 		len(um.UndoStack) > 0 && um.UndoStack[len(um.UndoStack)-1] == t.clientGroups[origin]

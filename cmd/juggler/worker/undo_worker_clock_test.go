@@ -41,6 +41,45 @@ func TestWorkerTurnWritesAreOneUndoStepAtAnySpacing(t *testing.T) {
 	}
 }
 
+// A tool's result is written by the engine, in its own doc, and reaches the
+// worker as that client's yjs-sync whenever the tool finishes — seconds after
+// the tool call it completes. It belongs to the turn that made the call, as do
+// the worker's writes on either side of it, so one undo takes back all three.
+func TestEngineToolResultsJoinTheTurnAtAnySpacing(t *testing.T) {
+	w, engine := clientEditWorker(t)
+	w.SetEngineClientID(clientA)
+	height := w.tracker.UndoStackLen()
+
+	w.tracker.AppendMessage(ConversationItem{Type: ItemTypeAssistant, ItemID: "reply", Content: "Reading it."})
+	w.tracker.AppendMessage(ConversationItem{Type: ItemTypeToolAction, ItemID: "ta-1", ToolUseID: "tu-1", ToolName: "read_file", State: StateApproved})
+	if err := engine.ApplySyncUpdate(w.Document().GetStateUpdate(engine.GetStateVector())); err != nil {
+		t.Fatalf("bringing the engine up to date failed: %v", err)
+	}
+	arriveLate()
+
+	before := engine.GetStateVector()
+	if err := engine.UpdateItemByToolUseID("tu-1", "state", StateCompleted); err != nil {
+		t.Fatalf("engine completing the tool failed: %v", err)
+	}
+	if err := engine.UpdateItemByToolUseID("tu-1", "result", map[string]any{"content": "contents", "isError": false}); err != nil {
+		t.Fatalf("engine writing the result failed: %v", err)
+	}
+	// The engine's own clock says its previous edit was long ago, as it is when
+	// its last write was the previous tool's result.
+	payload, err := json.Marshal(YjsSyncMessage{Type: msgYjsSync, Bytes: engine.GetStateUpdate(before), SinceEditMs: ms(5000)})
+	if err != nil {
+		t.Fatalf("marshalling yjs-sync: %v", err)
+	}
+	w.SendFromClient(clientA, "yjs-sync", payload)
+	barrier(t, w)
+	arriveLate()
+	w.tracker.AppendMessage(ConversationItem{Type: ItemTypeToolAction, ItemID: "ta-2", ToolUseID: "tu-2", ToolName: "read_file", State: StateApproved})
+
+	if got := w.tracker.UndoStackLen() - height; got != 1 {
+		t.Fatalf("a reply, its tool call, the engine's result and the next call, each past the window, made %d undo steps, want 1", got)
+	}
+}
+
 // Spacing is ignored only for the worker's own group, and only until a
 // boundary: everything that separated the worker's writes still does.
 func TestWorkerTurnWritesKeepEveryOtherBoundary(t *testing.T) {
@@ -94,6 +133,23 @@ func TestWorkerTurnWritesKeepEveryOtherBoundary(t *testing.T) {
 
 		if got := w.tracker.UndoStackLen() - height; got != 3 {
 			t.Fatalf("worker append, client delete, worker append, each past the window, gave %d undo steps, want 3", got)
+		}
+	})
+
+	t.Run("an engine edit after turn idle", func(t *testing.T) {
+		w, engine := clientEditWorker(t)
+		w.SetEngineClientID(clientA)
+		w.tracker.AppendMessage(ConversationItem{Type: ItemTypeAssistant, ItemID: "reply", Content: "Done."})
+		if err := engine.ApplySyncUpdate(w.Document().GetStateUpdate(engine.GetStateVector())); err != nil {
+			t.Fatalf("bringing the engine up to date failed: %v", err)
+		}
+		w.tracker.StopCapturing()
+		height := w.tracker.UndoStackLen()
+
+		deleteLastFromClient(t, w, engine, ms(0))
+
+		if got := w.tracker.UndoStackLen() - height; got != 1 {
+			t.Fatalf("an engine edit after an explicit boundary gave %d new undo steps, want 1 of its own", got)
 		}
 	})
 

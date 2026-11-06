@@ -872,6 +872,8 @@ func (r *run) handleYjsSync(payload json.RawMessage) {
 	var applyErr error
 	if msg.EngineDerived {
 		applyErr = r.doc.ApplyEngineDerivedSyncUpdate(msg.Bytes)
+	} else if origin := r.inbox.origin(); origin != "" && origin == r.callbacks.engineClientID() {
+		r.tracker.ApplyEngineEdit(origin, msg.Bytes, msg.SinceEditMs)
 	} else {
 		r.tracker.ApplyClientEdit(r.inbox.origin(), msg.Bytes, msg.SinceEditMs)
 	}

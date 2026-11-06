@@ -300,22 +300,24 @@ func (a *App) initServer() error {
 // the wait happens in the background while the Wails event loop is starting
 // up.
 func (a *App) initEngineWatcher() error {
-	go func() {
-		// Waits as long as startEngineHost does, so this never calls a startup
-		// failed that the host is still recovering from.
-		if !a.server.WaitForEngineConnected(engineStartupTimeout) {
-			// The engine WebView failed to come up. No external browser can stand
-			// in for it (the engine WS role is loopback-only), so the server is
-			// permanently unable to run tools — startEngine is concurrently tearing
-			// the process down for exactly this reason. Just stop here; don't start
-			// watchers or the banner on a server that's on its way out.
-			jlog.Error("Engine did not connect within %v — server is shutting down", engineStartupTimeout)
-			return
-		}
+	go startOnceEngineConnects(a.server, func() {
 		a.server.PrintSessionInfo()
 		a.server.StartBackgroundServices()
-	}()
+	})
 	return nil
+}
+
+// startOnceEngineConnects runs start once the engine has connected, however long
+// that takes. It keeps no budget of its own: startEngineHost alone decides an
+// engine is not coming, and quits the process when it does. A second clock here
+// starts earlier than the host's — before the native app is up — so it would
+// give up on an engine the host still accepts, leaving a live server without
+// its watchers or engine supervisor.
+func startOnceEngineConnects(srv interface{ WaitForEngineConnected(time.Duration) bool }, start func()) {
+	for !srv.WaitForEngineConnected(engineStartupTimeout) {
+		jlog.Info("[engine] still waiting for the engine to connect before starting background services")
+	}
+	start()
 }
 
 // serve spawns the HTTP server's Serve goroutine. Errors are routed to

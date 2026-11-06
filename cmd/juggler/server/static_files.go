@@ -279,6 +279,7 @@ func (s *Server) serveEngine(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Engine page not found", http.StatusNotFound)
 		return
 	}
+	s.noteEnginePage()
 
 	nonce := generateCSPNonce()
 	serveTemplatedHTML(w, string(content), map[string]string{

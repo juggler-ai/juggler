@@ -13,10 +13,19 @@ import (
 	"juggler/cmd/juggler/server"
 )
 
-// fakeEngineServer is a server whose engine connects when the test says so.
+// fakeEngineServer is a server whose engine connects when the test says so,
+// and which reports boot progress at every ask while progressing is set.
 type fakeEngineServer struct {
-	connected chan struct{}
-	once      sync.Once
+	connected   chan struct{}
+	once        sync.Once
+	progressing atomic.Bool
+}
+
+func (f *fakeEngineServer) EngineBootProgressAt() time.Time {
+	if f.progressing.Load() {
+		return time.Now()
+	}
+	return time.Time{}
 }
 
 func newFakeEngineServer() *fakeEngineServer {
@@ -107,6 +116,56 @@ func TestAnEngineThatHasNotConnectedIsReloadedBeforeItIsGivenUpOn(t *testing.T) 
 	expectNoQuit(t, quit, "an engine whose reload connected")
 	if n := host.recovered.Load(); n != 1 {
 		t.Errorf("reloaded %d times, want once", n)
+	}
+}
+
+// How long an engine takes to boot is how fast the machine is: on a starved
+// core a healthy engine can still be fetching its modules when any span of
+// wall time runs out. One that keeps getting further is neither reloaded,
+// which would restart the boot it is part-way through, nor given up on — until
+// it stops getting anywhere.
+func TestAnEngineStillMakingProgressIsNotGivenUpOn(t *testing.T) {
+	shortEngineStartup(t)
+	srv := newFakeEngineServer()
+	srv.progressing.Store(true)
+	host := &fakeEngineHost{}
+	quit := startWatched(host, srv)
+
+	select {
+	case <-quit:
+		t.Fatal("the server gave up on an engine that was still making progress")
+	case <-time.After(2 * engineStartupTimeout):
+	}
+	if n := host.recovered.Load(); n != 0 {
+		t.Errorf("an engine still making progress was reloaded %d times, want none", n)
+	}
+
+	srv.progressing.Store(false)
+	select {
+	case <-quit:
+	case <-time.After(engineReloadAfter + engineStartupTimeout + 10*time.Second):
+		t.Fatal("the server never gave up on an engine that stopped making progress")
+	}
+	if n := host.recovered.Load(); n != 1 {
+		t.Errorf("reloaded %d times before giving up, want once", n)
+	}
+}
+
+// The server's background services wait for the engine, and only the host's
+// startup decides that an engine is not coming. Its clock starts when the native
+// app does, later than the server's phases, so an engine it accepts can connect
+// after any budget counted from the phases — and must still get its services.
+func TestBackgroundServicesStartForAnEngineTheHostStillAccepts(t *testing.T) {
+	shortEngineStartup(t)
+	srv := newFakeEngineServer()
+	started := make(chan struct{})
+	go startOnceEngineConnects(srv, func() { close(started) })
+	time.AfterFunc(engineStartupTimeout+300*time.Millisecond, srv.connect)
+
+	select {
+	case <-started:
+	case <-time.After(engineStartupTimeout + 10*time.Second):
+		t.Fatal("an engine that connected after the startup budget, counted from before the host started, never got its background services")
 	}
 }
 

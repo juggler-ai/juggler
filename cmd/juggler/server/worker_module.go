@@ -59,6 +59,8 @@ func (s *Server) serveWorkerModule(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	// Only an engine realm imports through this route (web/js/utils/asset-url.js).
+	s.noteEngineFetch(rawURL)
 
 	source := s.rewriteWorkerModuleImports(rawURL, string(content))
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")

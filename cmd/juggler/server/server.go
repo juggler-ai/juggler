@@ -175,6 +175,9 @@ type wsFleet struct {
 	// engineLivenessWindowNs overrides engineLivenessWindow when non-zero.
 	// Test-only seam, so a test need not wait out the production window.
 	engineLivenessWindowNs atomic.Int64
+	// engineBoot records how far the engine has got towards connecting, so its
+	// startup is given up on for a lack of progress rather than of time.
+	engineBoot engineBootProgress
 	// engineSilenceReported latches the log line for a live→silent transition, so
 	// a wedged engine costs one line rather than one per poll. Reset on connect.
 	engineSilenceReported atomic.Bool

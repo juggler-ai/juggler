@@ -31,6 +31,7 @@ the current release). The project follows semantic versioning.
 - Logging out of macOS waits for Juggler to shut down instead of being cancelled
 - A bash command killed by its timeout always reports the timeout, never a clean finish
 - On Linux without a session D-Bus, Juggler starts instead of exiting
+- On a very busy machine, Juggler waits for its engine to load instead of quitting
 - Mouse back/forward buttons no longer navigate desktop windows off their page
 - A window showing a non-Juggler page gets a bar to move it and return to Juggler
 - Juggler's windows on Windows show the Juggler icon in Alt-Tab and the taskbar

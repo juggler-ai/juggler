@@ -574,7 +574,7 @@ func (api *SessionAPI) HandleCreateConversation(w http.ResponseWriter, r *http.R
 		status := http.StatusInternalServerError
 		if errors.Is(err, core.ErrInvalidConvID) {
 			status = http.StatusBadRequest
-		} else if errors.Is(err, core.ErrConvIDExists) {
+		} else if errors.Is(err, core.ErrConvIDExists) || errors.Is(err, core.ErrTooManyConversations) {
 			status = http.StatusConflict
 		}
 		WriteErr(w, r, status, err)

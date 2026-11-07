@@ -19,6 +19,8 @@
 
 import systemPromptContribution from '../system-prompt-contribution.js';
 import QueryCodeContextItem from '../context-items/query-code-context-item.js';
+import ThreadContextItem from '../context-items/thread-context-item.js';
+import NewConversationContextItem from '../context-items/new-conversation-context-item.js';
 import { buildExtensionSystemPromptContributions } from '../../../js/services/extensions.js';
 import {
   initializeRegistries,
@@ -42,6 +44,8 @@ const EXPLORE_MARKER = '**`query_code`** — use it instead of';
 const QUERY_CODE_PLUGIN_ID = 'explore-code';
 const THREAD_MARKER = '→ `create_thread`';
 const NEW_CONV_MARKER = 'use new_conversation';
+const THREAD_USER_MARKER = 'The user can open a thread and work in it';
+const NEW_CONV_NOT_FOR_INTERACTION = 'is no reason to choose new_conversation';
 const ECONOMY_HEADING = '### Keeping intermediate work out of context';
 const ECONOMY_RULE = 'Prefer `query_code` over a sub-agent';
 
@@ -170,6 +174,27 @@ export async function runTests(_ctx) {
     const out = systemPromptContribution({ enabledPluginIds: ['thread'] });
     assert(out.includes('`resultSpec`') && out.includes('`goal`') && out.includes('one task'),
       'create_thread still needs its goal/prompt/resultSpec and one-task rules');
+  });
+
+  // A model told only that a thread "runs in isolation and only its final
+  // summary returns" concludes the user cannot take part in one, and answers
+  // "handle these in subthreads I'll approve" with a fan of peer tabs that
+  // never report back. Both the tool and the prompt must say a user can work
+  // inside a thread, and the new_conversation guidance must not claim that
+  // ground for itself.
+  await test('the model is told the user can work inside a thread', () => {
+    const threadTool = ThreadContextItem.getToolDefinitions()[0]?.description ?? '';
+    assert(threadTool.includes(THREAD_USER_MARKER),
+      `create_thread's description must say the user can work in the thread; got: ${threadTool}`);
+    const threadLine = systemPromptContribution({ enabledPluginIds: ['thread'] });
+    assert(threadLine.includes(THREAD_USER_MARKER),
+      'the create_thread prompt line must say the user can work in the thread');
+    const both = systemPromptContribution({ enabledPluginIds: ['thread', 'new-conversation'] });
+    assert(both.includes(NEW_CONV_NOT_FOR_INTERACTION),
+      'the new_conversation section must say wanting to interact is no reason to pick it over a thread');
+    const newConvTool = NewConversationContextItem.getToolDefinitions()[0]?.description ?? '';
+    assert(newConvTool.includes(NEW_CONV_NOT_FOR_INTERACTION),
+      `new_conversation's description must say the same; got: ${newConvTool}`);
   });
 
   await test('general working-style guidance is NOT extension-generated (moved to presets)', () => {

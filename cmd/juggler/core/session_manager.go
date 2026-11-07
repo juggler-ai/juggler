@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"juggler/cmd/juggler/msg"
 	"juggler/internal/jlog"
 )
 
@@ -411,6 +412,32 @@ func (p ConversationPlacement) indexIn(order []string) int {
 	}
 }
 
+// MaxConversations is the most conversations a session holds open at once: the
+// length ConversationOrder may reach by a create. A binned conversation has left
+// the order and does not count. Every create is held to it here, whoever asks.
+// A viewer checks first only to show its own alert. The engine, which runs the
+// new_conversation tool, loads only the conversations it drives and cannot count
+// the tabs at all. MAX_CONVERSATIONS in web/js/model/session.js is the same
+// number (TestMaxConversationsMatchesTheViewer).
+const MaxConversations = 100
+
+// ErrTooManyConversations is a create refused because the session already holds
+// MaxConversations. Its English is the viewer's own alert, so the user reads
+// one message for the cap whichever path met it, and a model that asked reads
+// the same.
+var ErrTooManyConversations = msg.NewError(
+	"You can have at most {max} conversations open at once. Bin some tabs to make room for new ones.",
+	"max", MaxConversations)
+
+// roomForAnother reports ErrTooManyConversations when the session already
+// holds MaxConversations open, and nil while a create still fits.
+func (s *Session) roomForAnother() error {
+	if len(s.ConversationOrder) >= MaxConversations {
+		return ErrTooManyConversations
+	}
+	return nil
+}
+
 // CreateConversationAt is CreateConversation with a say in where the new id
 // lands in ConversationOrder.
 //
@@ -432,13 +459,17 @@ func (m *SessionManager) CreateConversationAt(name, requestedID string, place Co
 // doc.yjs starts a worker on an empty document that never reads the copy.
 //
 // fill runs outside the session actor: it may flush a worker, whose save goes
-// through it. When fill fails the id is not added, and the folder is left for
-// the next load's reconcile, as a crash between the two would leave it.
+// through it. When fill fails, or the session reached MaxConversations while it
+// ran, the id is not added, and the folder is left for the next load's
+// reconcile, as a crash between the two would leave it.
 func (m *SessionManager) CreateConversationFilled(name, requestedID string, place ConversationPlacement, fill func(id string) error) (string, string, error) {
 	if fill == nil {
 		return m.createConversationOrdered(name, requestedID, place)
 	}
 	created, err := runWrite(m, func(s *sessionState) (pair[string, string], error) {
+		if err := s.session.roomForAnother(); err != nil {
+			return pair[string, string]{}, err
+		}
 		id, finalName, _, err := s.store.CreateConversationFolder(name, requestedID)
 		return pair[string, string]{id, finalName}, err
 	})
@@ -454,6 +485,11 @@ func (m *SessionManager) CreateConversationFilled(name, requestedID string, plac
 			return struct{}{}, fmt.Errorf("conversation %s left the session while it was filled", id)
 		}
 		if !slices.Contains(s.session.ConversationOrder, id) {
+			// Checked again: another create may have filled the last place while
+			// this one was copying.
+			if err := s.session.roomForAnother(); err != nil {
+				return struct{}{}, err
+			}
 			at := place.indexIn(s.session.ConversationOrder)
 			s.session.ConversationOrder = slices.Insert(s.session.ConversationOrder, at, id)
 		}
@@ -469,6 +505,9 @@ func (m *SessionManager) CreateConversationFilled(name, requestedID string, plac
 // ConversationOrder in one actor step.
 func (m *SessionManager) createConversationOrdered(name, requestedID string, place ConversationPlacement) (string, string, error) {
 	r, err := runWrite(m, func(s *sessionState) (pair[string, string], error) {
+		if err := s.session.roomForAnother(); err != nil {
+			return pair[string, string]{}, err
+		}
 		id, finalName, _, err := s.store.CreateConversationFolder(name, requestedID)
 		if err != nil {
 			return pair[string, string]{}, err

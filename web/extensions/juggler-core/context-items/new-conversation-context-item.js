@@ -84,7 +84,7 @@ class NewConversationContextItem extends ContextItem {
       {
         name: 'new_conversation',
         category: 'write',
-        description: markUntranslated('Open a new, independent conversation ("new tab" / "new chat") seeded with an initial message. Unlike create_thread it is a peer, not a sub-task: it works on its own in its own tab and never reports back — you receive only a creation confirmation. It cannot see this conversation, so the message must carry every fact it needs. The user is taken to the new tab unless they have started typing or moved on; either way it opens and waits.'),
+        description: markUntranslated('Open a new, independent conversation ("new tab" / "new chat") seeded with an initial message. Unlike create_thread it is a peer, not a sub-task: it works on its own in its own tab and never reports back — you receive only a creation confirmation. It cannot see this conversation, so the message must carry every fact it needs. The user can work inside a create_thread thread too, so wanting to interact with the work is no reason to choose new_conversation over it. The user is taken to the new tab unless they have started typing or moved on; either way it opens and waits.'),
         input_schema: {
           type: 'object',
           properties: {

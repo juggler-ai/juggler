@@ -47,7 +47,7 @@ class ThreadContextItem extends ContextItem {
       {
         name: 'create_thread',
         category: 'write',
-        description: markUntranslated('Run one focused sub-task in an isolated sub-conversation; only its last message returns. The child cannot see this conversation, so `prompt` must be self-contained. `resultSpec` says what the final message must contain; `goal` is only the UI label. Every result opens with the thread\'s session name — pass it back as `session` to continue that thread. One task per thread, never a task list, and never tell it to spawn threads of its own.'),
+        description: markUntranslated('Run one focused sub-task in an isolated sub-conversation; only its last message returns. The child cannot see this conversation, so `prompt` must be self-contained. The user can open a thread and work in it: talk to it, approve its plan or tool calls, answer its questions, carry it on after it finishes — and what it does later also reports back here. So a task the user wants to steer themselves belongs in a thread too. `resultSpec` says what the final message must contain; `goal` is only the UI label. Every result opens with the thread\'s session name — pass it back as `session` to continue that thread. One task per thread, never a task list, and never tell it to spawn threads of its own.'),
         input_schema: {
           type: 'object',
           properties: {

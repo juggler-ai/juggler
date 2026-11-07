@@ -106,7 +106,9 @@ export default function systemPromptContribution({ enabledPluginIds }) {
   if (has('thread')) {
     economyLines.push(
       '- **A self-contained sub-task → `create_thread`.** It runs in isolation and only its final summary ' +
-      'returns. Give `goal` only a very short user-facing label. Put the complete self-contained task and ' +
+      'returns. The user can open a thread and work in it — approve its plan, answer its questions, carry it ' +
+      'on — and what it does later reports back here too, so a task the user wants to steer belongs in a ' +
+      'thread as well. Give `goal` only a very short user-facing label. Put the complete self-contained task and ' +
       'context in `prompt`, and the required contents and shape of the final answer in `resultSpec`. Give each ' +
       'thread one task — never a task list, and never tell it to spawn further threads; run multiple tasks as ' +
       'separate threads yourself.'
@@ -130,7 +132,9 @@ export default function systemPromptContribution({ enabledPluginIds }) {
 				'`new_conversation` with the initial `message`. It opens a separate top-level conversation in its own ' +
 				'tab, taking the user there if they are still watching this one and have not begun typing. This is NOT ' +
 				'create_thread: it is a peer conversation, not a sub-task ' +
-				'— it works on its own and never reports back to you, so the message must be self-contained. Leave ' +
+				'— it works on its own and never reports back to you, so the message must be self-contained. The user ' +
+				'can work inside a thread too, so wanting to talk to the work, approve its plan or steer it is no ' +
+				'reason to choose new_conversation over create_thread. Leave ' +
 				'`autostart` at its default to have it begin immediately; set it false to hand the user a ready-to-send ' +
 				'message they can review first.'
     );

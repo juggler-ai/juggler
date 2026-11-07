@@ -62,7 +62,10 @@ clients can attach at once.
   context items; attached clients stay in sync.
 - **Threads** — sub-conversations branched off a point in the tree, for a
   tangent, a delegated sub-task or a competing approach; a child works in
-  isolation and returns its result to the parent.
+  isolation and returns its result to the parent. Each opens as its own column,
+  where you can message it, approve its plan or tool calls, answer its
+  questions and carry it on after it finishes; what it does later reaches the
+  parent too.
 - **Context items** — the typed units of context (files, tool calls, memory, the
   system prompt, dropped files). Each is a plugin with its own UI, and every
   tool the model can call is backed by one.
@@ -120,7 +123,8 @@ may withhold some. Juggler Core provides:
 - **WebSearch** — web search returning titles, URLs and descriptions.
 - **Explore** / **Research** — sub-agents that investigate the codebase
   (read-only) or the web and return only their findings.
-- **create_thread** — a self-contained sub-task in an isolated thread.
+- **create_thread** — a self-contained sub-task in an isolated thread, which
+  the user can open and steer.
 - **new_conversation** — an independent peer conversation in its own tab.
 - **todo** — a lightweight checklist; **plan** — an approval-gated plan whose
   steps are then tracked.

@@ -2431,8 +2431,8 @@ class ConversationBar extends JugglerElement {
     this._lastCreateAt = now;
 
     // Cap reached: don't create — point the user at archiving instead. The
-    // model enforces the same limit (so duplicate/other paths can't exceed it);
-    // pre-checking here keeps the "+" UX side-effect-free (no rename popover).
+    // server refuses any create past the same limit; pre-checking here keeps the
+    // "+" UX side-effect-free (no rename popover) and shows the alert.
     if (this._session.conversations.size >= MAX_CONVERSATIONS) {
       await showConversationLimitAlert();
       return;

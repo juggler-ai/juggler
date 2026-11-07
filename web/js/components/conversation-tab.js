@@ -25,6 +25,8 @@ import JugglerElement from './juggler-element.js';
 import { handleEscapeKey } from '../services/escape-behaviour.js';
 import { ColumnBuilder, asArea, asPanel } from './column-builder.js';
 import { THREAD_FOCUS_CHANGED } from '../services/nearest-context-item.js';
+import { MAX_CONVERSATIONS } from '../model/session.js';
+import { showConversationLimitAlert } from '../services/app-notices.js';
 
 // Dispatched from here, defined beside the other questions about the reader's
 // thread so a surface can follow it without importing this component.
@@ -1797,6 +1799,12 @@ class ConversationTab extends JugglerElement {
   _onPromoteThreadRequested(e) {
     const { threadItemId } = e.detail || {};
     if (!threadItemId || !this._conversation) return;
+    // The server would refuse the create at the cap; checking first shows the
+    // user why instead.
+    if (this._conversation.session.conversations.size >= MAX_CONVERSATIONS) {
+      void showConversationLimitAlert();
+      return;
+    }
     void this._conversation.promoteThreadToNewTab(threadItemId, { activate: true });
   }
 

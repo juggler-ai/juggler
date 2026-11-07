@@ -42,6 +42,8 @@ the current release). The project follows semantic versioning.
 - Subfolder workspaces can be closed from their right-click menu or panel
 - An agent's pin of a file outside the project offers a Show button
 - Tapping the strategy, model or thinking shortcut leaves its menu open for the arrow keys
+- Asked for threads you'll steer yourself, the agent creates threads, not new tabs
+- Conversations the agent opens can no longer exceed the 100-open-tab limit
 
 ## [0.7.9] - 2026-10-28
 

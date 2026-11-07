@@ -137,10 +137,14 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  */
 
 /**
- * Hard upper bound on simultaneously-active (non-binned) conversations.
- * Enforced at every creation path (new + duplicate) so the cap is a real
- * invariant, not a button-disable that other paths can sneak past. Hitting it
- * surfaces a "bin some tabs to make room" message at the UI entry point.
+ * Hard upper bound on simultaneously-active (non-binned) conversations. The
+ * server enforces it on every create (`core.MaxConversations`, which must equal
+ * this): a create past it fails with the {@link CONVERSATION_LIMIT_MESSAGE}
+ * text, whichever client asked. A viewer's entry points check first against
+ * their own map, which holds every open tab, so they can show the "bin some
+ * tabs" alert instead of failing. The engine's map holds only the
+ * conversations it drives, so it never checks and leaves the refusal to the
+ * server.
  * @type {number}
  */
 export const MAX_CONVERSATIONS = 100;

@@ -244,11 +244,7 @@ type queueGates struct {
 // queueGatesLocked reads what the sends in queue wait for at now. Caller MUST
 // hold ycrdtMu.
 func queueGatesLocked(queue *ycrdt.YArray, now time.Time) queueGates {
-	raw := queue.ToArray()
-	entries := make([]pendingEntry, len(raw))
-	for i, v := range raw {
-		entries[i] = readPendingEntry(v)
-	}
+	entries := readPendingEntriesLocked(queue)
 	var g queueGates
 	for _, grp := range pendingGroups(entries) {
 		h := groupHold(entries[grp[0]:grp[1]])

@@ -81,7 +81,7 @@ func (cd *ConversationDocument) dropHeldSends() bool {
 		if !ok {
 			return
 		}
-		held := heldIndicesLocked(queue)
+		held := groupIndicesLocked(queue, entryHold.stamped)
 		if len(held) == 0 {
 			return
 		}
@@ -97,24 +97,4 @@ func (cd *ConversationDocument) dropHeldSends() bool {
 		walkThreadContainersLocked(arr, visit)
 	}
 	return dropped
-}
-
-// heldIndicesLocked returns the queue positions of every member of each send
-// that carries a hold, ascending. Caller MUST hold ycrdtMu.
-func heldIndicesLocked(queue *ycrdt.YArray) []int {
-	raw := queue.ToArray()
-	entries := make([]pendingEntry, len(raw))
-	for i, v := range raw {
-		entries[i] = readPendingEntry(v)
-	}
-	var out []int
-	for _, g := range pendingGroups(entries) {
-		if !groupHold(entries[g[0]:g[1]]).stamped() {
-			continue
-		}
-		for i := g[0]; i < g[1]; i++ {
-			out = append(out, i)
-		}
-	}
-	return out
 }

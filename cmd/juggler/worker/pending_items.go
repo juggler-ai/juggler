@@ -67,13 +67,14 @@ func (cd *ConversationDocument) ensurePendingArrayLocked(threadItemID string) *y
 	return arr
 }
 
-// appendPendingItemsLocked appends items, in order, to a pending queue in one
-// untracked transaction, and marks the held-send timer stale so the held-send
-// index learns the queue holds something. Caller MUST hold ycrdtMu.
-func (w *ConversationWorker) appendPendingItemsLocked(arr *ycrdt.YArray, items ...ConversationItem) {
+// appendPendingItemsLocked appends items, in order and each carrying stamp's
+// keys (pendingHold.stamp; nil for none), to a pending queue in one untracked
+// transaction, and marks the held-send timer stale so the held-send index learns
+// the queue holds something. Caller MUST hold ycrdtMu.
+func (w *ConversationWorker) appendPendingItemsLocked(arr *ycrdt.YArray, stamp map[string]any, items ...ConversationItem) {
 	w.doc.doc.Transact(func(_ *ycrdt.Transaction) {
 		for _, item := range items {
-			arr.Insert(arr.GetLength(), ycrdt.ArrayAny{conversationItemToYMap(item)})
+			arr.Insert(arr.GetLength(), ycrdt.ArrayAny{stampedItemYMap(item, stamp)})
 		}
 	}, w.doc.txOrigin())
 	w.markHeldStale()
@@ -81,9 +82,9 @@ func (w *ConversationWorker) appendPendingItemsLocked(arr *ycrdt.YArray, items .
 
 // queueIfBusy is the intake gate and the enqueue in one hold: it reports whether
 // threadItemID is busy (threadBusy) and, when it is, appends what build returns
-// to its pending queue. build runs only for a busy thread, under ycrdtMu, so it
-// must not take the lock. queued is false when build returned nothing or the
-// thread is gone.
+// to its pending queue as one send, under a fresh send id. build runs only for a
+// busy thread, under ycrdtMu, so it must not take the lock. queued is false when
+// build returned nothing or the thread is gone.
 //
 // One hold because the turn that makes the thread busy can end between a
 // separate check and the append. It decides to stop with its queue empty, then
@@ -106,7 +107,7 @@ func (w *ConversationWorker) queueIfBusy(threadItemID string, build func() []Con
 	if arr == nil {
 		return true, false
 	}
-	w.appendPendingItemsLocked(arr, items...)
+	w.appendPendingItemsLocked(arr, pendingHold{}.stamp(generateSendID()), items...)
 	return true, true
 }
 

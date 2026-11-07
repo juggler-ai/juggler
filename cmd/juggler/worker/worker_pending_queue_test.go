@@ -35,7 +35,7 @@ func (w *ConversationWorker) appendPendingItem(threadItemID string, item Convers
 	if arr == nil {
 		return false
 	}
-	w.appendPendingItemsLocked(arr, item)
+	w.appendPendingItemsLocked(arr, nil, item)
 	return true
 }
 

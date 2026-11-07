@@ -55,6 +55,7 @@ import { openWorkspaceReconnect } from './workspace-reconnect-dialog.js';
 import { t } from '../../sdk/lib/i18n.js';
 import { displayConversationName } from '../model/conversation-naming.js';
 import { formatClockTime } from './composer-schedule.js';
+import { userShellCommandOf } from '../services/shell-shortcut.js';
 
 /** @typedef {import('../../sdk/lib/message.js').Message} Message */
 
@@ -117,15 +118,15 @@ export function ensurePendingMessages(area, messageList) {
 
   let zone = /** @type {HTMLElement|null} */ (messageList.querySelector(`.${PENDING_ZONE_CLASS}`));
 
-  // The queue can also hold @-mention / dropped-file reads enqueued alongside a
-  // message typed while busy (see MessageThread.enqueuePendingItem). Those are
-  // not user messages and have no queued bubble of their own — they surface in
-  // the main list when the worker promotes the group. Only user messages get a
-  // queued bubble here, so the zone is driven purely by the queued user messages
-  // (a queue holding only not-yet-joined reads shows nothing).
-  const pendingUsers = (pending || []).filter((/** @type {any} */ it) => isUserMessage(it));
+  // One bubble per queued send, for what the user typed: its message, or its
+  // `! cmd`. The rest of a send — the @-mention / dropped-file reads and skill
+  // loads queued ahead of its message (see MessageThread.enqueuePendingItem) —
+  // has no bubble; it surfaces in the main list when the worker promotes the
+  // send, so a queue holding only not-yet-joined reads shows nothing.
+  const queuedSends = (pending || []).filter((/** @type {any} */ it) =>
+    isUserMessage(it) || userShellCommandOf(it) !== null);
 
-  if (pendingUsers.length === 0) {
+  if (queuedSends.length === 0) {
     if (zone) zone.remove();
     return;
   }
@@ -144,16 +145,16 @@ export function ensurePendingMessages(area, messageList) {
   }
 
   // Diff bubbles by message-id; drop any whose pending item is gone.
-  const wantedIds = new Set(pendingUsers.map((/** @type {any} */ it) => it.get('itemId')));
+  const wantedIds = new Set(queuedSends.map((/** @type {any} */ it) => it.get('itemId')));
   for (const child of Array.from(zone.querySelectorAll('[message-id]'))) {
     if (!wantedIds.has(child.getAttribute('message-id'))) child.remove();
   }
   // Create/reposition bubbles in queue order (re-append keeps the label first).
-  for (const item of pendingUsers) {
+  for (const item of queuedSends) {
     const id = item.get('itemId');
     let el = /** @type {HTMLElement|null} */ (zone.querySelector(`[message-id="${id}"]`));
     if (!el) {
-      el = createUserBubble(item);
+      el = createQueuedBubble(item);
       if (el) el.classList.add('queued-message');
     }
     if (el) {
@@ -161,6 +162,18 @@ export function ensurePendingMessages(area, messageList) {
       ensureQueuedControls(area, el, item);
     }
   }
+}
+
+/**
+ * A queued send's bubble: its user message, or its `! cmd` as typed.
+ * @param {any} item - The queued user message or user shell command
+ * @returns {HTMLElement|null} Created element, or null.
+ */
+function createQueuedBubble(item) {
+  const command = userShellCommandOf(item);
+  return command === null
+    ? createUserBubble(item)
+    : createMessageElement('user-message', { itemId: item.get('itemId'), attributes: { content: `! ${command}` } });
 }
 
 /**

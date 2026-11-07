@@ -35,7 +35,9 @@ const userShellTimeoutMs = 1200000
 const userShellDescription = "Run by the user"
 
 // userShellToolUseIDPrefix starts the tool-use id of every user shell command.
-// The id is the call's mark: isUserShellAction reads it.
+// The id is the call's mark: isUserShellAction reads it, and so does the
+// browser (USER_SHELL_TOOL_USE_ID_PREFIX in web/js/services/shell-shortcut.js),
+// to show a queued command in the queued zone.
 const userShellToolUseIDPrefix = "usershell_"
 
 // generateShellToolUseID mints a unique tool-use id for a user's shell command,
@@ -49,7 +51,12 @@ func generateShellToolUseID() string {
 // asks for no turn: it is news to the model, read on the next turn something
 // else asks for, never work to answer (decideNextAction, promotePendingItems).
 func isUserShellAction(item ConversationItem) bool {
-	return item.Type == ItemTypeToolAction && strings.HasPrefix(item.ToolUseID, userShellToolUseIDPrefix)
+	return isUserShellToolAction(item.Type, item.ToolUseID)
+}
+
+// isUserShellToolAction is isUserShellAction on an item's type and tool-use id.
+func isUserShellToolAction(itemType, toolUseID string) bool {
+	return itemType == ItemTypeToolAction && strings.HasPrefix(toolUseID, userShellToolUseIDPrefix)
 }
 
 // allUserShellActions reports whether batch is non-empty and holds only the

@@ -223,6 +223,47 @@ func TestShellCommandQueuedWhileBusyRunsWithoutATurn(t *testing.T) {
 	}
 }
 
+// TestQueuedShellCommandIsASendOfItsOwn: a `! cmd` and a message typed after
+// it during the same turn are two sends, though the command queues no message
+// of its own. Remove on either takes that one alone.
+func TestQueuedShellCommandIsASendOfItsOwn(t *testing.T) {
+	w := NewConversationWorker("conv-shell-own-send", "user:test")
+	defer w.doc.Destroy()
+	r := w.currentRun()
+	r.storeState(StateIdle)
+	w.tracker.EnsureInitialized()
+
+	if !r.claimLLM("") {
+		t.Fatal("could not claim the root")
+	}
+	tr := r.beginTurn("")
+	tr.storeState(StateProcessing)
+	r.runTurn(tr, func(tr *run) {
+		send := func(msg SendMessageMessage) {
+			payload, _ := json.Marshal(msg)
+			tr.handleSendMessage(payload)
+		}
+		remove := func(itemID string) {
+			payload, _ := json.Marshal(QueuedEntryMessage{Type: msgRemoveQueued, ItemID: itemID})
+			tr.handleRemoveQueued(payload)
+		}
+		send(SendMessageMessage{ShellCommand: "echo hi"})
+		send(SendMessageMessage{Text: "after"})
+		queued := queuedLabels(t, w, "")
+		if len(queued) != 2 || queued[1] != "after" {
+			t.Fatalf("queue = %q, want the shell command then the message", queued)
+		}
+		shellID := queued[0]
+
+		remove(queuedUserID(t, w, "", "after"))
+		requireLabels(t, "queue after removing the message", queuedLabels(t, w, ""), []string{shellID})
+		remove(shellID)
+		requireLabels(t, "queue after removing the shell command", queuedLabels(t, w, ""), nil)
+		tr.finishStrategyRun()
+	})
+	w.quiesce(t)
+}
+
 // TestPromotePendingKeepsReadGroupedWithMessage verifies the guarantee the
 // "queue reads with the message" fix depends on: when a mid-turn @-mention
 // enqueues a file-content read onto pendingItems ahead of the queued user

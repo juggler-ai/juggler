@@ -61,8 +61,8 @@ func TestReleaseQueuedOnABusyThreadJoinsTheNextDrain(t *testing.T) {
 	requireNoHoldKeys(t, w)
 }
 
-// TestQueuedActionsIgnoreWhatTheyCannotFind: an item id naming no queued user
-// message — gone already, or a context item — changes nothing.
+// TestQueuedActionsIgnoreWhatTheyCannotFind: an item id naming no queued send
+// — gone already, or a context item riding with one — changes nothing.
 func TestQueuedActionsIgnoreWhatTheyCannotFind(t *testing.T) {
 	fc := newFakeClock()
 	w := heldSendWorker(t, "conv-queued-unknown", fc)

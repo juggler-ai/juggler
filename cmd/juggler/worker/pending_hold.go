@@ -93,7 +93,6 @@ func (w *ConversationWorker) enqueueHeldSend(threadItemID string, input UserMess
 	if !w.appendStampedPending(threadItemID, entries, stamp) {
 		return "", "", false
 	}
-	w.markHeldStale()
 	w.recordPendingEnqueue(threadItemID, user.ItemID)
 	return sendID, user.ItemID, true
 }
@@ -129,7 +128,7 @@ func (r *run) acceptHeldSend(threadItemID string, input UserMessageInput, skills
 }
 
 // appendStampedPending appends entries, in order and each with stamp's keys, to
-// the thread's pending queue in one untracked transaction. Reports false (and
+// the thread's pending queue (appendPendingItemsLocked). Reports false (and
 // writes nothing) when the thread is gone.
 func (w *ConversationWorker) appendStampedPending(threadItemID string, entries []ConversationItem, stamp map[string]any) bool {
 	ycrdtMu.Lock()
@@ -138,11 +137,7 @@ func (w *ConversationWorker) appendStampedPending(threadItemID string, entries [
 	if arr == nil {
 		return false
 	}
-	w.doc.doc.Transact(func(_ *ycrdt.Transaction) {
-		for _, item := range entries {
-			arr.Insert(arr.GetLength(), ycrdt.ArrayAny{stampedItemYMap(item, stamp)})
-		}
-	}, w.doc.txOrigin())
+	w.appendPendingItemsLocked(arr, stamp, entries...)
 	return true
 }
 
@@ -169,41 +164,54 @@ func (h entryHold) lifted(pc promoteCtx) bool {
 
 // pendingEntry is one queue entry as grouping reads it.
 type pendingEntry struct {
+	// nameID is the item id the queued zone names the entry's send by — a user
+	// message's or a user shell command's — or "" for an entry that rides with
+	// one (a context item, a skill load).
+	nameID string
 	isUser bool
 	sendID string
 	hold   entryHold
 }
 
-// readPendingEntry reads one queue element. Anything but a Y.Map is an
-// unstamped non-user entry. Caller MUST hold ycrdtMu.
-func readPendingEntry(v any) pendingEntry {
-	m, ok := v.(*ycrdt.YMap)
-	if !ok {
-		return pendingEntry{}
+// readPendingEntriesLocked reads every element of queue as grouping does.
+// Anything but a Y.Map is an unstamped non-user entry. Caller MUST hold ycrdtMu.
+func readPendingEntriesLocked(queue *ycrdt.YArray) []pendingEntry {
+	raw := queue.ToArray()
+	entries := make([]pendingEntry, len(raw))
+	for i, v := range raw {
+		m, ok := v.(*ycrdt.YMap)
+		if !ok {
+			continue
+		}
+		e := &entries[i]
+		itemType := yMapString(m, keyType)
+		e.isUser = itemType == ItemTypeUser
+		if e.isUser || isUserShellToolAction(itemType, yMapString(m, keyToolUseID)) {
+			e.nameID = yMapString(m, keyItemID)
+		}
+		e.sendID = yMapString(m, keySendID)
+		e.hold.notBefore, e.hold.hasNotBefore = yMapInt64(m, keyNotBefore)
+		e.hold.hold = yMapString(m, keyHold)
 	}
-	e := pendingEntry{isUser: yMapString(m, keyType) == ItemTypeUser, sendID: yMapString(m, keySendID)}
-	e.hold.notBefore, e.hold.hasNotBefore = yMapInt64(m, keyNotBefore)
-	e.hold.hold = yMapString(m, keyHold)
-	return e
+	return entries
 }
 
 // pendingGroups splits the queue into the sends it holds, each returned as
 // [start, end) positions, in queue order. A send is promoted or held whole.
 //
-// A group ends at a user message and takes in the entries queued before it
-// since the previous group: the context items the browser queues ahead of a
-// message (an @-mention's read, a dropped file) and the skill loads the worker
-// queues ahead of it. Those entries are tied to their message only by
-// adjacency — the browser's carry no send id — so adjacency is the rule.
-// Send ids refine it: two neighbours stamped with different send ids belong to
-// different sends, so a send that queued no user message (a context item, a
-// skills-only send) is not swept into the held send behind it. Entries after the
-// last user message form a final group of their own.
+// Every entry the worker queues for a send carries that send's id (queueIfBusy,
+// enqueueHeldSend), and they come last in it: the context items the browser
+// queues for a message (an @-mention's read, a dropped file) carry no send id
+// and are queued before the message is sent. So a send ends after its last
+// stamped entry, and a stamped entry followed by anything not of its send ends
+// one — whether or not the send holds a user message (a `! cmd`, a skills-only
+// send). A user message also ends a send, for entries queued with no send id.
+// Entries after the last send form a final group of their own.
 func pendingGroups(entries []pendingEntry) [][2]int {
 	var groups [][2]int
 	start := 0
 	for i, e := range entries {
-		if i > start && e.sendID != "" && entries[i-1].sendID != "" && e.sendID != entries[i-1].sendID {
+		if i > start && entries[i-1].sendID != "" && e.sendID != entries[i-1].sendID {
 			groups = append(groups, [2]int{start, i})
 			start = i
 		}
@@ -240,14 +248,16 @@ func groupHold(members []pendingEntry) entryHold {
 // group keeps its place and does not stop the groups behind it. Caller MUST
 // hold ycrdtMu.
 func promotableIndicesLocked(queue *ycrdt.YArray, pc promoteCtx) []int {
-	raw := queue.ToArray()
-	entries := make([]pendingEntry, len(raw))
-	for i, v := range raw {
-		entries[i] = readPendingEntry(v)
-	}
+	return groupIndicesLocked(queue, func(h entryHold) bool { return h.lifted(pc) })
+}
+
+// groupIndicesLocked returns the queue positions of every member of each group
+// whose hold keep accepts, ascending. Caller MUST hold ycrdtMu.
+func groupIndicesLocked(queue *ycrdt.YArray, keep func(entryHold) bool) []int {
+	entries := readPendingEntriesLocked(queue)
 	var out []int
 	for _, g := range pendingGroups(entries) {
-		if !groupHold(entries[g[0]:g[1]]).lifted(pc) {
+		if !keep(groupHold(entries[g[0]:g[1]])) {
 			continue
 		}
 		for i := g[0]; i < g[1]; i++ {
@@ -257,25 +267,19 @@ func promotableIndicesLocked(queue *ycrdt.YArray, pc promoteCtx) []int {
 	return out
 }
 
-// queuedGroupLocked finds the send a queued user message belongs to: the
+// queuedGroupLocked finds the send itemID names (pendingEntry.nameID): the
 // [start, end) positions of its group in queue (pendingGroups). ok is false
-// when no user entry in queue has itemID. Caller MUST hold ycrdtMu.
+// when no queued send is named itemID. Caller MUST hold ycrdtMu.
 func queuedGroupLocked(queue *ycrdt.YArray, itemID string) (start, end int, ok bool) {
-	raw := queue.ToArray()
-	entries := make([]pendingEntry, len(raw))
-	at := -1
-	for i, v := range raw {
-		entries[i] = readPendingEntry(v)
-		if m, isMap := v.(*ycrdt.YMap); isMap && entries[i].isUser && yMapString(m, keyItemID) == itemID {
-			at = i
-		}
-	}
-	if at < 0 || itemID == "" {
+	if itemID == "" {
 		return 0, 0, false
 	}
+	entries := readPendingEntriesLocked(queue)
 	for _, g := range pendingGroups(entries) {
-		if at >= g[0] && at < g[1] {
-			return g[0], g[1], true
+		for i := g[0]; i < g[1]; i++ {
+			if entries[i].nameID == itemID {
+				return g[0], g[1], true
+			}
 		}
 	}
 	return 0, 0, false
@@ -334,7 +338,7 @@ func (r *run) handleReleaseQueued(payload json.RawMessage) {
 	r.fireHeldSend(msg.ThreadItemID, restDrain(r.clock.Now()))
 }
 
-// handleRemoveQueued is Remove on a queued message: its whole send leaves the
+// handleRemoveQueued is Remove on a queued send: the whole send leaves the
 // queue in one untracked transaction, the context items and skill loads queued
 // for it included, which would otherwise be promoted on their own at the next
 // drain. Actor only.

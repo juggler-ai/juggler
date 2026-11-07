@@ -343,11 +343,12 @@ type CancelMessage struct {
 	Reason string      `json:"reason,omitempty"`
 }
 
-// QueuedEntryMessage is an action on one queued user message, from the queued
-// zone. release-queued (Send now) drops the hold its send carries; remove-queued
-// takes the send off the queue. Either acts on the message's whole send — the
-// context items and skill loads queued ahead of it ride with it (pendingGroups).
-// An ItemID that names no queued user message is ignored.
+// QueuedEntryMessage is an action on one queued send, from the queued zone,
+// naming it by its message or its `! cmd` bash call. release-queued (Send now)
+// drops the hold the send carries; remove-queued takes the send off the queue.
+// Either acts on the whole send — the context items and skill loads queued
+// ahead of its message ride with it (pendingGroups). An ItemID that names no
+// queued send is ignored.
 type QueuedEntryMessage struct {
 	Type         wireMsgType `json:"type"` // "release-queued" or "remove-queued"
 	ThreadItemID string      `json:"threadItemId,omitempty"`

@@ -674,6 +674,53 @@ const queuedItemPropertiesPanelTest = {
   }
 };
 
+// ============================================================================
+// TEST 9: `! cmd` typed during a live turn is queued — shown, then run
+// ============================================================================
+
+/**
+ * A shell command typed as `! cmd` while a turn is live is queued like any
+ * message: its bash call waits on the thread's pending queue, the queued zone
+ * shows it (the box it was typed into has already cleared, so the zone is the
+ * only sign it was taken), and when the turn reaches its boundary it lands in
+ * the transcript and runs.
+ * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
+ */
+const queuedShellCommandTest = {
+  name: 'queued-shell-command-shown-then-runs',
+  description: 'A `! cmd` sent mid-turn shows in the queued zone, then lands and runs',
+  fixture: 'unit-test-fixture',
+
+  llmResponses: [
+    toolUseResponse('call_1', 'read', { file_path: 'README.md' }, 'Reading.', { pauseBeforeReturn: true }),
+    textResponse('On it.')
+  ],
+
+  operations: [
+    { type: 'send-message-no-wait', message: 'first message' },
+    { type: 'wait-for-mock-paused' },
+    { type: 'send-message-no-wait', message: '! env echo queued-shell' },
+    // The box has cleared; the queued zone is the only sign the command was taken.
+    { type: 'assert-dom', selector: '.pending-messages user-message.queued-message[content="! env echo queued-shell"]' },
+    { type: 'assert-dom', selector: '.pending-messages .queued-message-delete-btn' },
+    { type: 'release-mock' }
+  ],
+
+  customAssertions: async (conversation) => {
+    await waitFor(() => pendingItemsOf(conversation).length === 0,
+      { timeoutMs: 10000, intervalMs: 20, description: 'the queued shell command to leave the queue' });
+    const thread = conversation.rootMessageThread;
+    const isShell = (/** @type {any} */ it) => it.get?.('type') === 'tool-action' && it.get?.('toolName') === 'bash';
+    const ran = await waitFor(() => thread.items.find((/** @type {any} */ it) => isShell(it) && it.get('state') === 'completed'),
+      { timeoutMs: 10000, intervalMs: 20, description: 'the queued shell command to run' });
+    const result = ran.get('result');
+    const content = result?.toJSON ? result.toJSON().content : result?.content;
+    if (!String(content).includes('queued-shell')) {
+      throw new Error(`the queued shell command printed ${JSON.stringify(content)}`);
+    }
+  }
+};
+
 // Export all tests
 export const tests = [
   queueDrainsAtTurnBoundaryTest,
@@ -685,5 +732,6 @@ export const tests = [
   clearWipesPendingTest,
   queuedItemSelectableAndDeletableTest,
   queueDrainsIntoSubThreadTest,
-  queuedItemPropertiesPanelTest
+  queuedItemPropertiesPanelTest,
+  queuedShellCommandTest
 ];

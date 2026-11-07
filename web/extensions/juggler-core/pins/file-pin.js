@@ -27,6 +27,24 @@ injectStylesOnce('file-pin-styles', `
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);
 }
+
+.file-pin__outside {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  color: var(--text-secondary);
+  text-align: center;
+  text-wrap: balance;
+}
+
+.file-pin__outside-error {
+  color: var(--accent-red);
+  font-size: var(--font-size-sm);
+}
 `);
 
 /**
@@ -65,8 +83,8 @@ const ARRIVAL_CHECK_MS = [250, 500, 1000, 2000, 5000];
  * (`agentRequested`) is not: the agent pins without asking, and reading past
  * the project for it would put any file on the machine in front of whoever can
  * see the board, remote viewers included, on nobody's say-so. So it is held to
- * the project, and one outside it says so instead of reading. The user pinning
- * the same path is how to see it.
+ * the project, and one outside it says so instead of reading, with a button
+ * that is the user's say-so: it rewrites the pin as one they made.
  * @class
  * @augments PinboardItemType
  */
@@ -327,8 +345,7 @@ class FilePin extends PinboardItemType {
       body.toggleAttribute('data-code-ref-absolute', !relative);
       const userInitiated = userMade(context.pin.config);
       if (!userInitiated && !insideProject(relative)) {
-        body.replaceChildren(createElement('div', 'file-content-not-found',
-          t('The agent pinned {path}, which is outside this project. A pin the agent makes shows only files inside the project — pin it yourself to see it here.', { path })));
+        body.replaceChildren(outsideNotice(context));
         return;
       }
       body.replaceChildren(createElement('div', 'file-content-loading', t('Loading…')));
@@ -408,6 +425,43 @@ function projectRelative(path, project) {
  */
 function userMade(config) {
   return config?.agentRequested !== true;
+}
+
+/**
+ * What an agent pin outside the project shows instead of the file: what it is,
+ * and a button to show it anyway. The path is already in the toolbar above, so
+ * it is not repeated here.
+ *
+ * Clicking writes the pin's config back without `agentRequested`. The board
+ * mounts a pin afresh when its config changes, and the new mount reads as the
+ * user's own.
+ * @param {import('juggler/pinboard-item-type').PinContext} context - The pin and its context.
+ * @returns {HTMLElement} The element to put in the pin's body.
+ */
+function outsideNotice(context) {
+  const kind = context.pin.config.isDirectory === true ? 'folder' : 'file';
+  const notice = createElement('div', 'file-pin__outside');
+  notice.appendChild(createElement('div', 'file-pin__outside-text', t(
+    '{kind, select, folder {The agent pinned a folder from outside this project.} other {The agent pinned a file from outside this project.}}',
+    { kind },
+  )));
+  const show = /** @type {HTMLButtonElement} */ (createElement('button', 'file-pin__show btn-primary',
+    t('{kind, select, folder {Show folder} other {Show file}}', { kind })));
+  show.type = 'button';
+  show.addEventListener('click', async () => {
+    show.disabled = true;
+    notice.querySelector('.file-pin__outside-error')?.remove();
+    const mine = { ...context.pin.config };
+    delete mine.agentRequested;
+    try {
+      await context.updateConfig(mine);
+    } catch (/** @type {any} */ e) {
+      show.disabled = false;
+      notice.appendChild(createElement('div', 'file-pin__outside-error', String(e?.message || e)));
+    }
+  });
+  notice.appendChild(show);
+  return notice;
 }
 
 /**

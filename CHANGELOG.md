@@ -39,6 +39,7 @@ the current release). The project follows semantic versioning.
 - The Linux tarball's `install.sh` adds Juggler, with its icon, to the application menu
 - Editing an MCP server's config restarts it; the agent can restart servers too
 - Subfolder workspaces can be closed from their right-click menu or panel
+- An agent's pin of a file outside the project offers a Show button
 
 ## [0.7.9] - 2026-10-28
 

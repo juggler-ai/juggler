@@ -33,6 +33,8 @@ import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 /** juggler-core's English for this pin, standing in for its catalogue. */
 const CORE_TEXT = [
   'No project', 'File', 'Add a file to view', 'File or folder path…', 'Add', 'Loading…', 'Refresh',
+  '{kind, select, folder {The agent pinned a folder from outside this project.} other {The agent pinned a file from outside this project.}}',
+  '{kind, select, folder {Show folder} other {Show file}}',
   '{shown, plural, one {First line of {total}.} other {First {shown} lines of {total}.}}',
 ];
 
@@ -97,7 +99,7 @@ export async function runTests(ctx) {
   /**
    * Mount the pin against a config, with a file-change service the test drives.
    * @param {Record<string, any>} config - The pin's config.
-   * @param {{conversationId?: string}} [options] - Active-context details.
+   * @param {{conversationId?: string, updateConfig?: (next: Record<string, unknown>) => Promise<void>}} [options] - Active-context details, and what the pin's config writes reach.
    * @returns {MountedPin} The mounted pin and its levers.
    */
   function mount(config, options = {}) {
@@ -129,7 +131,7 @@ export async function runTests(ctx) {
         },
       }),
       signal: abort.signal,
-      updateConfig: async () => {},
+      updateConfig: options.updateConfig || (async () => {}),
     }));
 
     return {
@@ -897,6 +899,31 @@ export async function runTests(ctx) {
     }
   });
 
+  await test('a refused agent pin offers to show the file, and showing it makes the pin the user\'s', async () => {
+    // What the user almost always wants on seeing the refusal is the file. The
+    // button is their say-so: it rewrites the pin as one they made, which the
+    // board then mounts afresh and reads.
+    const outside = ctx.fixtureDir.replace(/[\\/][^\\/]+$/, '');
+    /** @type {Record<string, unknown>[]} */
+    const writes = [];
+    const mounted = mount({ path: outside, isDirectory: true, agentRequested: true }, {
+      updateConfig: async (next) => { writes.push(next); },
+    });
+    try {
+      await settled(mounted.body);
+      const show = /** @type {HTMLButtonElement|null} */ (mounted.body.querySelector('.file-pin__outside button'));
+      assert(!!show, `the refusal has a button, got "${mounted.body.innerHTML}"`);
+      assert(!mounted.body.querySelector('.file-content-not-found'), 'and is not drawn as an error');
+      assert(show?.textContent === 'Show folder', `a folder's button says so, got "${show?.textContent}"`);
+      show?.click();
+      await waitFor(() => writes.length, () => 'the click to write the config');
+      assert(JSON.stringify(writes) === JSON.stringify([{ path: outside, isDirectory: true }]),
+        `the pin is rewritten as the user's own, got ${JSON.stringify(writes)}`);
+    } finally {
+      mounted.teardown();
+    }
+  });
+
   await test('a pin the agent made reads inside the project', async () => {
     const path = await writeFixture('agent-pinned.txt', 'the agent may show this');
     const mounted = mount({ path, agentRequested: true });
@@ -1026,7 +1053,7 @@ export async function runTests(ctx) {
   // en-XA
   // ========================================================================
 
-  await test('en-XA: the add reason, tab, dialog, loading state, cut-short note and Refresh are translated', async () => {
+  await test('en-XA: the add reason, tab, dialog, outside notice, loading state, cut-short note and Refresh are translated', async () => {
     await underPseudoLocale('file-pin-test', async () => {
       /** @type {Record<string, string>} */
       const shown = {};
@@ -1042,6 +1069,15 @@ export async function runTests(ctx) {
       } finally {
         abort.abort();
         await answer;
+      }
+
+      // An agent pin outside the project reads nothing, so it needs no answers.
+      const refused = mount({ path: '/1/2.txt', agentRequested: true });
+      try {
+        shown['outside notice'] = String(refused.body.querySelector('.file-pin__outside-text')?.textContent);
+        shown['show button'] = String(refused.body.querySelector('.file-pin__outside button')?.textContent);
+      } finally {
+        refused.teardown();
       }
 
       // Every read is answered here, and cut short, so the note has to speak.

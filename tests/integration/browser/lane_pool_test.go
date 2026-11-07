@@ -114,6 +114,18 @@ func (p *lanePool) acquire() testServerEntry { return p.call(poolReq{op: opAcqui
 // release returns a lane taken by acquire.
 func (p *lanePool) release(e testServerEntry) { p.call(poolReq{op: opRelease, entry: e}) }
 
+// releaseAfter returns a lane taken by acquire once suiteEnded returns, for a
+// test the harness gave up on: its lane may still be running the suite, and
+// until it stops the lane is not free — a test put on it would queue behind
+// the suite, and a drain that counted it would reset the fixture under it.
+// It does not block.
+func (p *lanePool) releaseAfter(e testServerEntry, suiteEnded func()) {
+	go func() {
+		suiteEnded()
+		p.release(e)
+	}()
+}
+
 // acquireServer blocks until it holds every lane of one subprocess. In a pool
 // with solo windows that is the first solo window free. Otherwise it reserves
 // the ordinary subprocess with the most lanes free — the one that drains
@@ -125,6 +137,14 @@ func (p *lanePool) acquireServer() testServerEntry {
 // releaseServer returns a subprocess taken by acquireServer or acquireAll.
 func (p *lanePool) releaseServer(e testServerEntry) {
 	p.call(poolReq{op: opReleaseServer, entry: e})
+}
+
+// releaseServerAfter is releaseAfter for a subprocess taken by acquireServer.
+func (p *lanePool) releaseServerAfter(e testServerEntry, suiteEnded func()) {
+	go func() {
+		suiteEnded()
+		p.releaseServer(e)
+	}()
 }
 
 // expectExclusive tells the pool how many exclusive tests this run will put

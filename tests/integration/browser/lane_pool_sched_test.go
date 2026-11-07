@@ -200,3 +200,55 @@ func TestLanePoolExclusivesTakeDistinctServers(t *testing.T) {
 		t.Fatalf("third acquireServer got %q, want the released %q", e.addr, second.addr)
 	}
 }
+
+// A lane the harness gave up on may still be running its suite: it stays taken
+// until that suite has ended, so no test is put on it and no exclusive test or
+// fixture reset counts its server drained in the meantime.
+func TestLanePoolAbandonedLaneStaysTakenUntilItsSuiteEnds(t *testing.T) {
+	p := twoServerPool()
+	for range 6 {
+		within(t, "acquire", p.acquire)
+	}
+	suiteEnded := make(chan struct{})
+	p.releaseAfter(testServerEntry{addr: "a"}, func() { <-suiteEnded })
+
+	next := make(chan testServerEntry, 1)
+	go func() { next <- p.acquire() }()
+	stillBlocked(t, "acquire while the abandoned suite runs", next)
+
+	close(suiteEnded)
+	select {
+	case e := <-next:
+		if e.addr != "a" {
+			t.Fatalf("acquire got %q once the abandoned suite ended, want its lane on \"a\"", e.addr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the abandoned lane did not come back once its suite ended")
+	}
+}
+
+// The same for an exclusive test's server: it is handed back whole only once
+// the suite it gave up on has ended.
+func TestLanePoolAbandonedServerStaysHeldUntilItsSuiteEnds(t *testing.T) {
+	p := twoServerPool()
+	excl := within(t, "acquireServer", p.acquireServer)
+	suiteEnded := make(chan struct{})
+	p.releaseServerAfter(excl, func() { <-suiteEnded })
+
+	all := make(chan []testServerEntry, 1)
+	go func() { all <- p.acquireAll() }()
+	select {
+	case es := <-all:
+		t.Fatalf("acquireAll returned %d windows while an abandoned suite was running", len(es))
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(suiteEnded)
+	select {
+	case es := <-all:
+		if len(es) != 2 {
+			t.Fatalf("acquireAll returned %d windows, want 2", len(es))
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the abandoned server did not come back once its suite ended")
+	}
+}

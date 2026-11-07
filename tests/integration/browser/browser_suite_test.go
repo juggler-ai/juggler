@@ -140,17 +140,43 @@ func TestBrowser(t *testing.T) {
 			t.Parallel()
 
 			pool := poolFor(name)
+			// abandoned is set when the harness gave up on the result: the
+			// lane may still be running the suite, so its lane (or server)
+			// goes back to the pool, and an exclusive test's fixture is reset,
+			// only once that suite has ended.
+			abandoned := false
 			if !exclusive {
 				srv := pool.acquire()
-				defer pool.release(srv)
-				runOneBrowserTest(t, srv)
+				defer func() {
+					if abandoned {
+						pool.releaseAfter(srv, func() { awaitAbandonedSuite(srv, name) })
+						return
+					}
+					pool.release(srv)
+				}()
+				abandoned = runOneBrowserTest(t, srv)
 				return
 			}
 			srv := pool.acquireServer()
-			defer pool.releaseServer(srv)
+			defer func() {
+				if abandoned {
+					pool.releaseServerAfter(srv, func() {
+						awaitAbandonedSuite(srv, name)
+						if err := resetFixtureErr(srv); err != nil {
+							fmt.Fprintf(os.Stderr, "after abandoned %s: %v\n", name, err)
+						}
+					})
+					return
+				}
+				pool.releaseServer(srv)
+			}()
 			resetFixture(t, srv)
-			defer resetFixture(t, srv)
-			runOneBrowserTest(t, srv)
+			defer func() {
+				if !abandoned {
+					resetFixture(t, srv)
+				}
+			}()
+			abandoned = runOneBrowserTest(t, srv)
 		})
 	}
 
@@ -186,19 +212,40 @@ func resetAllFixtures(t *testing.T) {
 // of that subprocess.
 func resetFixture(t *testing.T, s testServerEntry) {
 	t.Helper()
+	if err := resetFixtureErr(s); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// resetFixtureErr is resetFixture, reporting its failure as an error.
+func resetFixtureErr(s testServerEntry) error {
 	url := fmt.Sprintf("/api/test/reset-fixture?fixture=unit-test-fixture&dir=%s",
 		neturlEscape(s.fixture))
 	client := &http.Client{Timeout: harnessHTTPTimeout}
 	resp, err := client.Post("http://"+s.addr+url, "application/json", nil)
 	if err != nil {
-		t.Fatalf("reset-fixture failed for %s: %v", s.addr, err)
+		return fmt.Errorf("reset-fixture failed for %s: %w", s.addr, err)
 	}
 	// The handler's error body names the entry and the OS error; without it a
 	// failed reset says only that something in the fixture could not be cleared.
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		t.Fatalf("reset-fixture %s returned %d: %s", s.addr, resp.StatusCode, strings.TrimSpace(string(body)))
+		return fmt.Errorf("reset-fixture %s returned %d: %s", s.addr, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// awaitAbandonedSuite returns once a suite the harness gave up on has ended —
+// its lane posted the result, which this takes so a later run of the same name
+// cannot read it — or its subprocess has died. A lane that never posts keeps
+// this waiting, and its lane stays out of the pool: it is not free.
+func awaitAbandonedSuite(srv testServerEntry, name string) {
+	var late json.RawMessage
+	for pollServer(srv, "/api/test/result?name="+name, resultSilenceWindow, &late) != nil {
+		if srv.proc.dead() {
+			return
+		}
 	}
 }
 
@@ -393,8 +440,10 @@ func progressAgo(ms int64) string {
 	return agoString(ms) + " ago"
 }
 
-// runOneBrowserTest triggers one named test via the HTTP API and polls for its result.
-func runOneBrowserTest(t *testing.T, srv testServerEntry) {
+// runOneBrowserTest triggers one named test via the HTTP API and polls for its
+// result. It returns true when it gave up with no result while the subprocess
+// lives: the lane may still be running the suite.
+func runOneBrowserTest(t *testing.T, srv testServerEntry) (abandoned bool) {
 	name := t.Name()[len("TestBrowser/"):]
 
 	// Outer watchdog: dumps goroutines if the inner polling deadline somehow
@@ -429,8 +478,9 @@ func runOneBrowserTest(t *testing.T, srv testServerEntry) {
 		}
 		// The machine reading is ours to take here: no result came back, so the
 		// lane never assembled a failure block to carry one of its own.
-		t.Fatalf("waiting for test result: %v\n%s%s\n%s", err,
+		t.Errorf("waiting for test result: %v\n%s%s\n%s", err,
 			queueAudit(srv.addr, name), projectSize(srv.addr), machineload.Line())
+		return true
 	}
 
 	if !result.Passed {
@@ -441,9 +491,10 @@ func runOneBrowserTest(t *testing.T, srv testServerEntry) {
 		} else {
 			t.Error(result.Details)
 		}
-		return
+		return false
 	}
 	recordSuiteBudget(t, result.BudgetWarning)
+	return false
 }
 
 // suiteBudgetLogEnv names a file each passing unit suite that crossed its split

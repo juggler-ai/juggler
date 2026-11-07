@@ -24,10 +24,9 @@ import { recordTape } from '../../js/utils/event-tape.js';
  */
 export async function pingWorker(conversationId) {
   // Patient timeout: the barrier legitimately takes as long as the worker's
-  // inbound queue is deep — under the 9-lane test pool a heavy undo storm
-  // can push a full drain past the default 5s. The per-test hard timeout
-  // remains the fail-fast bound for a genuinely wedged worker.
-  await workerManager.sendWithAck(conversationId, { type: 'ping' }, 30000);
+  // inbound queue is deep. The per-test hard timeout remains the fail-fast
+  // bound for a genuinely wedged worker. A drain is safe to ask for twice.
+  await workerManager.sendWithAck(conversationId, { type: 'ping' }, 30000, { idempotent: true });
   await Promise.resolve();
 }
 
@@ -42,11 +41,13 @@ export async function pingWorker(conversationId) {
 export async function setMockResponses(conversationId, responses) {
   recordTape('mock-llm', conversationId, { action: 'set', count: responses.length });
   // The ack's default bound is the worker's silence (sendWithAck), which is
-  // the honest one here: the worker answers as soon as it reaches this.
+  // the honest one here: the worker answers as soon as it reaches this. The
+  // set replaces the whole script, and nothing has drawn on it until this
+  // resolves, so a reconnect may send it again.
   await workerManager.sendWithAck(conversationId, {
     type: 'set-mock-responses',
     responses
-  });
+  }, undefined, { idempotent: true });
 }
 
 /**

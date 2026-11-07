@@ -67,7 +67,7 @@ export async function runTests(_ctx) {
    * The worker manager is a module singleton shared with the rest of the page,
    * so the two catch-up calls are stood in for — counted here, and kept off
    * whatever workers other suites left behind.
-   * @returns {{cm: any, refreshes: () => number, resyncs: () => number, reinits: () => number, restore: () => void}} The manager and what it reached for.
+   * @returns {{cm: any, refreshes: () => number, resyncs: () => number, reinits: () => number, relinks: () => number, restore: () => void}} The manager and what it reached for.
    */
   const manager = () => {
     const cm = /** @type {any} */ (new ConnectionManager({
@@ -78,11 +78,14 @@ export async function runTests(_ctx) {
     let refreshes = 0;
     let resyncs = 0;
     let reinits = 0;
+    let relinks = 0;
     const wm = /** @type {any} */ (workerManager);
     const origResync = wm.resyncReadyConversations;
     const origReinit = wm.reinitPendingConversations;
+    const origRelink = wm.relinkPendingAcks;
     wm.resyncReadyConversations = () => { resyncs++; };
     wm.reinitPendingConversations = () => { reinits++; };
+    wm.relinkPendingAcks = () => { relinks++; };
     cm._refreshes = () => refreshes;
     cm._fakeSession = { persistence: { refreshFromServer: async () => { refreshes++; } } };
     return {
@@ -90,9 +93,11 @@ export async function runTests(_ctx) {
       refreshes: () => refreshes,
       resyncs: () => resyncs,
       reinits: () => reinits,
+      relinks: () => relinks,
       restore: () => {
         wm.resyncReadyConversations = origResync;
         wm.reinitPendingConversations = origReinit;
+        wm.relinkPendingAcks = origRelink;
       }
     };
   };
@@ -144,7 +149,7 @@ export async function runTests(_ctx) {
   });
 
   await run('an open once the session is loaded is a reconnect and catches up', async () => {
-    const { cm, refreshes, resyncs, reinits, restore } = manager();
+    const { cm, refreshes, resyncs, reinits, relinks, restore } = manager();
     try {
       let loads = 0;
       cm._initializeSession = async () => { loads++; };
@@ -154,6 +159,7 @@ export async function runTests(_ctx) {
       await cm._handleOpen();
 
       assert(resyncs() === 1, `a recovered link must resync the documents it missed; got ${resyncs()}`);
+      assert(relinks() === 1, `and settle the ack'd requests the dropped link carried; got ${relinks()}`);
       assert(reinits() === 1, `and re-send the inits the transport discarded; got ${reinits()}`);
       assert(refreshes() === 1, `and re-read the manifest nothing replayed; got ${refreshes()}`);
       assert(loads === 0, 'a reconnect does not re-run the session load');

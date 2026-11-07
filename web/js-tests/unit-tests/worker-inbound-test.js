@@ -523,6 +523,51 @@ export async function runTests(_ctx) {
     }
   });
 
+  // The worker answers an ack'd request on the link the request came in on,
+  // and a reconnect is a new link: an ack still owed on the dropped one can
+  // never arrive. A request that is safe to repeat goes again, under the same
+  // id; any other fails now and says so, rather than as an ack timeout. One
+  // not yet handed over goes out on the new link as it is.
+  await run('a reconnect re-sends what is safe to repeat, fails the rest, and leaves unsent requests alone', async () => {
+    const conv = 'conv_inbound_ack_relink';
+    const wm = managerWithEntry(conv);
+    /** @type {any[]} */
+    const sent = [];
+    /** @type {(sent: boolean) => void} */
+    let releaseHeld = () => {};
+    wm.sendToWorker = (/** @type {string} */ _id, /** @type {any} */ msg) => {
+      sent.push(msg);
+      if (msg.type === 'held') return new Promise((resolve) => { releaseHeld = resolve; });
+      return Promise.resolve(true);
+    };
+
+    const repeatable = wm.sendWithAck(conv, { type: 'ping' }, 30_000, { idempotent: true });
+    const oneShot = wm.sendWithAck(conv, { type: 'undo' }, 30_000).then(() => null, (/** @type {Error} */ e) => e);
+    const held = wm.sendWithAck(conv, { type: 'held' }, 30_000);
+    await nextTask();
+    const [ping, undo, heldMsg] = sent;
+
+    wm.relinkPendingAcks();
+
+    const undoErr = await soon(oneShot, 'the one-shot request owed on the dropped link');
+    assert(undoErr instanceof Error && undoErr.message.includes('undo') && undoErr.message.includes('connection dropped'),
+      `a request that cannot be repeated fails at the reconnect, saying why; got ${undoErr && undoErr.message}`);
+    const resent = sent.slice(3);
+    assert(resent.length === 1 && resent[0].type === 'ping' && resent[0].ackId === ping.ackId,
+      `only the repeatable request goes again, under its own id; got ${JSON.stringify(resent)}`);
+
+    routeWorkerMessage(wm, conv, /** @type {any} */ ({ type: 'ack', ackId: ping.ackId, result: 'pong' }));
+    assert(await soon(repeatable, 'the re-sent request') === 'pong', 'the ack to the re-sent request settles it');
+
+    releaseHeld(true);
+    await nextTask();
+    routeWorkerMessage(wm, conv, /** @type {any} */ ({ type: 'ack', ackId: heldMsg.ackId, result: 'late' }));
+    assert(await soon(held, 'the request handed over after the reconnect') === 'late',
+      'a request not yet handed over when the link came back is answered on the new one');
+    assert(wm._pendingAcks.size === 0, `nothing is left pending; got ${wm._pendingAcks.size}`);
+    assert(undo.type === 'undo', 'the one-shot was sent once, on the dropped link');
+  });
+
   // A starting worker's ready is queued behind its sync on this client's link,
   // so on a slow link the wait for it is as long as the transfer. Its bound is
   // the link's silence: chunk frames of a split message, on either transport,

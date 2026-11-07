@@ -65,6 +65,18 @@ function undoFlag(undoState, key) {
  * @property {string} projectPath - Project path
  */
 
+/**
+ * One {@link WorkerManager#sendWithAck} request awaiting its ack.
+ * @typedef {object} PendingAck
+ * @property {string} conversationId - Conversation whose worker answers it
+ * @property {{type: string, ackId: string, [key: string]: unknown}} message - The request as sent
+ * @property {boolean} idempotent - Whether sending it twice does what sending it once does
+ * @property {number|null} sentOnLink - The link it was handed to, or null while not yet handed over
+ * @property {(result: unknown) => void} resolve - Settle it with the worker's result
+ * @property {(err: Error) => void} reject - Fail it
+ * @property {() => void} rewatch - Restart its silence watch, for a request sent again
+ */
+
 // ============================================================================
 // Worker Manager
 // ============================================================================
@@ -178,11 +190,23 @@ export class WorkerManager {
     this._pendingThreadRequests = new Map();
 
     /**
-     * Pending command acknowledgments (ackId -> {resolve, reject})
-     * @type {Map<string, {resolve: Function, reject: Function}>}
+     * Pending command acknowledgments, by ackId: the request, whether it is
+     * safe to send twice, the link it went out on ({@link WorkerManager#_link},
+     * null until handed over), and how to settle it or restart its silence
+     * watch.
+     * @type {Map<string, PendingAck>}
      * @private
      */
     this._pendingAcks = new Map();
+
+    /**
+     * Which link this page is on: advanced by each reconnect
+     * ({@link WorkerManager#relinkPendingAcks}). An ack is answered on the
+     * link its request came in on, so one owed on an earlier link never comes.
+     * @type {number}
+     * @private
+     */
+    this._link = 0;
 
     /**
      * Counter for generating unique ack IDs
@@ -811,12 +835,17 @@ export class WorkerManager {
    * for an action that then happens. A frame of a split message still
    * arriving on the link counts the same way. Only silence for the whole window, or
    * {@link ACK_CEILING_MS} with no answer however chatty the worker, rejects.
+   *
+   * The worker answers on the link the request came in on, so a reconnect
+   * strands the ack of a request already sent: {@link WorkerManager#relinkPendingAcks}
+   * sends an `idempotent` one again and fails any other.
    * @param {string} conversationId - Conversation ID
    * @param {{type: string, [key: string]: unknown}} message - Message to send (will have ackId added)
    * @param {number} [timeout=30000] - How long the worker may be silent, in ms; the default is the engine's liveness window, a worker busy with one heavy message on a slow core saying nothing for a while
+   * @param {{idempotent?: boolean}} [opts] - `idempotent`: sending the request twice does what sending it once does, so a reconnect may send it again
    * @returns {Promise<*>} Resolves with result from worker (if any)
    */
-  sendWithAck(conversationId, message, timeout = 30000) {
+  sendWithAck(conversationId, message, timeout = 30000, { idempotent = false } = {}) {
     return new Promise((resolve, reject) => {
       // Salt the ackId with this instance id. The worker broadcasts its ack to
       // ALL registered clients (callbacks.broadcast), and settleAck matches
@@ -831,41 +860,88 @@ export class WorkerManager {
       // long split frame for another one: a frame still arriving is the link
       // working through what is ahead of it, as for a starting worker's ready.
       const progress = wsService.receiveProgress;
-      const stopWatching = this.watchSilence(conversationId, timeout, (expiry) => {
+      const watch = () => this.watchSilence(conversationId, timeout, (expiry) => {
         this._pendingAcks.delete(ackId);
         reject(new Error(`[WorkerManager] Ack timeout for ${message.type} (${ackId}): ${expiry.describe()}`));
       }, ACK_CEILING_MS, () => progress.chunkAt);
+      let stopWatching = watch();
 
-      this._pendingAcks.set(ackId, {
-        resolve: (/** @type {*} */ result) => {
+      /** @type {PendingAck} */
+      const pending = {
+        conversationId,
+        message: { ...message, ackId },
+        idempotent,
+        sentOnLink: null,
+        resolve: (result) => {
           stopWatching();
           resolve(result);
         },
-        reject: (/** @type {Error} */ err) => {
+        reject: (err) => {
           stopWatching();
           reject(err);
-        }
-      });
-
-      // A message that never left cannot be answered, so the request fails
-      // now and says so, instead of waiting out the timeout to report an
-      // "Ack timeout" that reads as a worker that never replied.
-      const fail = (/** @type {string} */ why) => {
-        const pending = this._pendingAcks.get(ackId);
-        if (!pending) return;
-        this._pendingAcks.delete(ackId);
-        pending.reject(new Error(`[WorkerManager] ${message.type} (${ackId}) was not sent: ${why}`));
-      };
-      this.sendToWorker(conversationId, { ...message, ackId }).then(
-        (sent) => {
-          if (sent !== false) return;
-          fail(this._workers.has(conversationId)
-            ? 'the connection to the server is down'
-            : `there is no worker for ${conversationId}`);
         },
-        (/** @type {unknown} */ err) => fail(extractErrorMessage(err))
-      );
+        rewatch: () => {
+          stopWatching();
+          stopWatching = watch();
+        }
+      };
+      this._pendingAcks.set(ackId, pending);
+      this._handOverAck(ackId, pending);
     });
+  }
+
+  /**
+   * Hand an ack'd request to the transport and note the link it went out on.
+   * A message that never left cannot be answered, so the request fails now
+   * and says so, instead of waiting out the timeout to report an "Ack
+   * timeout" that reads as a worker that never replied.
+   * @param {string} ackId - The request's ack id
+   * @param {PendingAck} pending - The request
+   * @returns {void}
+   * @private
+   */
+  _handOverAck(ackId, pending) {
+    const { conversationId, message } = pending;
+    const fail = (/** @type {string} */ why) => {
+      if (this._pendingAcks.get(ackId) !== pending) return;
+      this._pendingAcks.delete(ackId);
+      pending.reject(new Error(`[WorkerManager] ${message.type} (${ackId}) was not sent: ${why}`));
+    };
+    this.sendToWorker(conversationId, message).then(
+      (sent) => {
+        if (sent !== false) {
+          pending.sentOnLink = this._link;
+          return;
+        }
+        fail(this._workers.has(conversationId)
+          ? 'the connection to the server is down'
+          : `there is no worker for ${conversationId}`);
+      },
+      (/** @type {unknown} */ err) => fail(extractErrorMessage(err))
+    );
+  }
+
+  /**
+   * On a reconnect, settle every ack'd request the dropped link carried. Its
+   * ack can never arrive: the worker answers the link a request came in on,
+   * and a reconnect is a new one. An idempotent request goes again under the
+   * same id; any other fails now, since whether the worker acted on it is
+   * unknown. A request not yet handed over goes out on the new link as it is.
+   * @returns {void}
+   */
+  relinkPendingAcks() {
+    const dropped = this._link++;
+    for (const [ackId, pending] of [...this._pendingAcks]) {
+      if (pending.sentOnLink === null || pending.sentOnLink > dropped) continue;
+      if (pending.idempotent) {
+        pending.sentOnLink = null;
+        pending.rewatch();
+        this._handOverAck(ackId, pending);
+        continue;
+      }
+      this._pendingAcks.delete(ackId);
+      pending.reject(new Error(`[WorkerManager] ${pending.message.type} (${ackId}): the connection dropped before the worker answered, so whether it acted is unknown`));
+    }
   }
 
 
@@ -1187,9 +1263,9 @@ export class WorkerManager {
    * @returns {Promise<boolean>} True when complete
    */
   async clearUndoStacks(conversationId) {
-    // Patient: a loaded pool can hold the worker's inbound queue past the
-    // default 5s without anything being wrong.
-    return await this.sendWithAck(conversationId, { type: 'clear-undo-stacks' }, 15000);
+    // Patient: a loaded pool can hold the worker's inbound queue a while
+    // without anything being wrong. Clearing twice clears once.
+    return await this.sendWithAck(conversationId, { type: 'clear-undo-stacks' }, 15000, { idempotent: true });
   }
 
   /**
@@ -1219,7 +1295,7 @@ export class WorkerManager {
     const result = await this.sendWithAck(conversationId, {
       type: 'get-transaction',
       transactionId
-    });
+    }, undefined, { idempotent: true });
     return result ?? null;
   }
 
@@ -1289,7 +1365,7 @@ export class WorkerManager {
    * @returns {Promise<void>}
    */
   async flushPersistence(conversationId, timeoutMs = 30000) {
-    await this.sendWithAck(conversationId, { type: 'flush-persistence' }, timeoutMs);
+    await this.sendWithAck(conversationId, { type: 'flush-persistence' }, timeoutMs, { idempotent: true });
   }
 
   /**

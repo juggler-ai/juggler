@@ -260,6 +260,9 @@ class ConnectionManager {
     //   - the session manifest, whose conversation list, names, order and
     //     metadata are maintained only by broadcasts that were delivered to
     //     a closed socket.
+    // And the acks owed on the dropped link, which the worker addressed to
+    // it and so can never arrive.
+    workerManager.relinkPendingAcks();
     workerManager.resyncReadyConversations();
     // Viewer-only. The engine holds no session manifest worth refreshing (it
     // renders no tab bar and auto-loads a conversation the moment a sync for

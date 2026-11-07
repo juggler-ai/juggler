@@ -104,64 +104,6 @@
 }
 
 /* ==========================================================================
-   Circular Control Buttons (.btn-circular-control)
-   Used for: inspector, commands, undo, redo buttons
-   ========================================================================== */
-
-.btn-circular-control {
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
-    border-radius: 50%;
-    border: 0.0625rem solid var(--overlay-light-20);
-    background: var(--overlay-dark-50);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base), transform var(--transition-base);
-    flex-shrink: 0;
-    position: relative;
-    color: var(--text-secondary);
-}
-
-/* The glyph's size is a container's to set (--btn-circular-icon-size). */
-.btn-circular-control svg {
-    display: block;
-    width: var(--btn-circular-icon-size, 1rem);
-    height: var(--btn-circular-icon-size, 1rem);
-    flex-shrink: 0;
-    fill: currentcolor;
-    transition: fill var(--transition-base);
-}
-
-.btn-circular-control:hover:not(:disabled) {
-    background: var(--overlay-dark-70);
-    border-color: var(--overlay-light-30);
-    transform: scale(1.05);
-    color: var(--text-primary);
-}
-
-.btn-circular-control:active:not(:disabled) {
-    transform: scale(0.95);
-}
-
-.btn-circular-control:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-}
-
-:root[data-theme="light"] .btn-circular-control {
-    background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
-    border-color: var(--border-color);
-}
-
-:root[data-theme="light"] .btn-circular-control:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--bg-secondary) 95%, transparent);
-    border-color: var(--text-tertiary);
-}
-
-/* ==========================================================================
    Ghost Buttons (.btn-ghost) — the house style
    Transparent at rest; on hover/press a subtle fill, a hairline border and
    primary-colour text/icon appear, and the button dips to 0.95 on press. This
@@ -170,7 +112,7 @@
    (composer-box .input-ctrl-btn) take the same chrome from composer.css.
    The transparent resting border reserves its space so nothing shifts on hover.
    Placed after the size co-classes above so it wins by source order where a
-   header button carries both (e.g. .btn-ghost.btn-circular-control).
+   header button carries both (e.g. .btn-ghost.btn-icon-header).
    ========================================================================== */
 .btn-ghost,
 .close-button {

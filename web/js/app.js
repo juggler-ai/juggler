@@ -601,7 +601,7 @@ class JugglerApp {
       void startWordOfMouth();
     }
 
-    // Wire global header controls (undo/redo + project path)
+    // Wire global header controls (project path, undo/redo shortcuts)
     setupHeaderControls(session);
 
     // The session switcher, from the project chip and ⌘K. A board's window

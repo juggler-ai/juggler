@@ -2002,6 +2002,9 @@ class ConversationArea extends JugglerElement {
       showSpinner,
       nextSteps: this._nextSteps,
       showDuplicateTab,
+      // Undo and redo step through the whole document, so only the root
+      // thread's footer offers them.
+      showHistory: isRootThread,
       duplicating: showDuplicateTab && !!this._conversation?.session?.isDuplicating?.(this._conversation.id),
       busyItemMessageId: itemBusy?.messageId,
       // Asked of THIS column. A pause covers a thread and everything below it,

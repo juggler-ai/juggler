@@ -3,10 +3,10 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * Header controls: undo/redo buttons, project-path-display, and the network
- * button's connected-clients count.
- * The buttons live once in .app-header and operate on the currently visible
- * conversation.
+ * Header controls: project-path-display, the network button's
+ * connected-clients count, and the window's keyboard undo/redo, which act on
+ * the currently visible conversation. (Its Undo/Redo buttons are in the
+ * conversation's footer, components/conversation-footer.js.)
  * @module components/header-controls
  */
 
@@ -19,15 +19,14 @@ import { apiUrl } from '../utils/api-url.js';
 import {
   externalServerHost, projectsOpenInNewWindow, sessionsPageUrl, SESSIONS_PAGE_TARGET,
 } from '../utils/project-open-mode.js';
-import { busyState } from '../model/processing-status.js';
+import { historyState } from '../utils/conversation-history.js';
 import { baseName, initials } from '../utils/session-attention.js';
 import { workspaceTint } from '../utils/workspace-colour.js';
 import { ownProjectLink } from '../services/project-navigation.js';
-import { t, markForTranslation, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
+import { t, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
 
 /**
  * @typedef {import('../model/session.js').default} Session
- * @typedef {import('../model/conversation.js').default} Conversation
  */
 
 /**
@@ -188,7 +187,7 @@ export function bindNetworkClients(button, { events = wsService, seed = fetchCli
  * Name the header's buttons in the user's language. index.html carries their
  * names in English, which is what shows before this script runs; each is
  * replaced here, once, with its translation. A control whose name follows its
- * state (theme, undo/redo, the network count, the pinboard toggle) is named by
+ * state (theme, the network count, the pinboard toggle) is named by
  * whatever keeps that state, and is not listed.
  * @param {ParentNode} [root] - Where the header is.
  * @returns {void}
@@ -200,8 +199,6 @@ function localizeHeaderMarkup(root = document) {
     hasNativeHost()
       ? ['project-new-window-button', t('Open a new window'), t('Open a new window')]
       : ['project-new-window-button', t('Open the server page'), t('Open the server page')],
-    ['control-undo-button', null, t('Undo last operation')],
-    ['control-redo-button', null, t('Redo last undone operation')],
     ['tool-grouping-button', t('Group consecutive tool uses'), t('Group consecutive tool uses')],
     ['header-zoom', null, t('Font size')],
     ['zoom-out-button', t('Decrease font size'), t('Decrease font size')],
@@ -220,73 +217,16 @@ function localizeHeaderMarkup(root = document) {
 }
 
 /**
- * Wire up header controls (undo/redo, project path, network clients count).
+ * Wire up header controls (project path, network clients count) and the
+ * window's undo/redo shortcuts.
  * @param {Session} session
  */
 export function setupHeaderControls(session) {
-  const undoBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('control-undo-button'));
-  const redoBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('control-redo-button'));
   const pathDisplay = /** @type {HTMLElement|null} */ (document.getElementById('project-path-display'));
   const pathChip = /** @type {HTMLElement|null} */ (document.getElementById('project-path-chip'));
   const pathLabel = /** @type {HTMLElement|null} */ (pathDisplay?.querySelector('.ppd-path') ?? null);
   const newWindowBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('project-new-window-button'));
   localizeHeaderMarkup();
-
-  /** @type {Conversation|null} */
-  let currentConversation = null;
-  /** @type {((event: any) => void) | null} */
-  let metadataObserver = null;
-
-  // The conversation is running whenever the worker's authoritative
-  // processingState.status is a turn phase rather than a resting status
-  // (model/processing-status.js) — the top-level
-  // projection reports a running status while ANY of its threads holds a claim,
-  // for the whole busy span (LLM call, tool execution, approval waits). That is
-  // the right scope here: undo/redo roll the WHOLE document back, so one live
-  // run anywhere in it is reason enough to lock them out. Reading the doc
-  // metadata (not the local llmState projection) means viewers that didn't
-  // initiate the turn lock out too.
-  const isBusy = () => !!currentConversation && busyState(currentConversation).turn;
-
-  // A button disabled by a running turn says so; one disabled because there is
-  // nothing to step through needs no explanation and keeps its plain name.
-  const BUSY_TITLE = markForTranslation('Unavailable while the agent is running');
-  const updateButtons = () => {
-    const busy = isBusy();
-    const canUndo = !busy && !!currentConversation?.canUndo();
-    const canRedo = !busy && !!currentConversation?.canRedo();
-    if (undoBtn) {
-      undoBtn.disabled = !canUndo;
-      undoBtn.title = busy ? t(BUSY_TITLE) : t('Undo');
-    }
-    if (redoBtn) {
-      redoBtn.disabled = !canRedo;
-      redoBtn.title = busy ? t(BUSY_TITLE) : t('Redo');
-    }
-  };
-
-  const bindToVisible = () => {
-    const visible = session.getVisibleConversation();
-    if (visible === currentConversation) {
-      updateButtons();
-      return;
-    }
-    // Detach old observer
-    if (metadataObserver && currentConversation) {
-      currentConversation.unobserveMetadata(metadataObserver);
-      metadataObserver = null;
-    }
-    currentConversation = visible;
-    if (currentConversation) {
-      metadataObserver = (event) => {
-        if (event.keysChanged?.has?.('undoState') || event.keysChanged?.has?.('processingState')) {
-          updateButtons();
-        }
-      };
-      currentConversation.observeMetadata(metadataObserver);
-    }
-    updateButtons();
-  };
 
   // The chip is the session switcher's button (session-popover.js): the
   // project's tile on its hue, as the switcher's rows draw it, and its whole
@@ -337,22 +277,6 @@ export function setupHeaderControls(session) {
     }
   };
 
-  if (undoBtn) {
-    undoBtn.addEventListener('click', async () => {
-      if (currentConversation) {
-        await currentConversation.undo();
-        updateButtons();
-      }
-    });
-  }
-  if (redoBtn) {
-    redoBtn.addEventListener('click', async () => {
-      if (currentConversation) {
-        await currentConversation.redo();
-        updateButtons();
-      }
-    });
-  }
   // A new window, on the server's page, where the user picks a folder: what
   // the inline button, ⇧⌘N and the native menu ask a desktop window for.
   const openNewWindow = async () => {
@@ -400,39 +324,30 @@ export function setupHeaderControls(session) {
   // chooseProject via this event, since the Go side can't import the JS module.
   window.addEventListener('juggler:open-project', () => { void chooseProject(); });
 
-  // Keyboard shortcuts (undo / redo) — bindings and platform handling live in the
-  // KeyShortcutManager; here we only supply the behaviour. Each returns truthy
-  // only when it actually acts, so the manager preventDefaults exactly then (and
-  // a no-op — busy, or nothing to undo — falls through untouched). The manager's
-  // own input-field guard keeps ⌘Z out of the composer, which has native undo.
+  // Keyboard shortcuts (undo / redo), on the visible conversation — bindings and
+  // platform handling live in the KeyShortcutManager; here we only supply the
+  // behaviour. Each returns truthy only when it actually acts, so the manager
+  // preventDefaults exactly then (and a no-op — busy, or nothing to undo — falls
+  // through untouched). The manager's own input-field guard keeps ⌘Z out of the
+  // composer, which has native undo.
   keyShortcutManager.register('undo', () => {
-    if (!currentConversation || isBusy() || !currentConversation.canUndo()) return false;
-    void currentConversation.undo().then(updateButtons);
+    const conversation = session.getVisibleConversation();
+    if (!historyState(conversation).canUndo) return false;
+    void conversation?.undo();
     return true;
   });
   keyShortcutManager.register('redo', () => {
-    if (!currentConversation || isBusy() || !currentConversation.canRedo()) return false;
-    void currentConversation.redo().then(updateButtons);
+    const conversation = session.getVisibleConversation();
+    if (!historyState(conversation).canRedo) return false;
+    void conversation?.redo();
     return true;
   });
 
-  // Subscribe to session events to keep buttons + path display fresh
+  // Keep the path display fresh.
   session.subscribe((event) => {
-    switch (event.type) {
-      case 'session:loaded':
-        updateProjectPath(session.projectPath || '');
-        bindToVisible();
-        break;
-      case 'conversation:changed':
-      case 'conversation:switched':
-      case 'conversation:created':
-      case 'conversation:deleted':
-        bindToVisible();
-        break;
-    }
+    if (event.type === 'session:loaded') updateProjectPath(session.projectPath || '');
   });
 
   // Initial state
   updateProjectPath(session.projectPath || '');
-  bindToVisible();
 }

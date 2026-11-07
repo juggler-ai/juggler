@@ -12,6 +12,7 @@ the current release). The project follows semantic versioning.
 - Running bash calls have a Stop command button in their properties panel
 - New Slash commands settings page lists built-in and custom commands, with editing
 - Improvements to UI layout of the composer box, column handling and mobile layouts
+- Undo and Redo buttons move from the header to the conversation's footer
 - File paths in your messages, thread summaries and bash commands are now clickable
 - Reasoning from Mistral-hosted models shows as thinking instead of raw JSON
 - Anthropic model lists include every model, not just the API's first page

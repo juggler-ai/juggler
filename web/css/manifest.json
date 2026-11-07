@@ -101,7 +101,6 @@
 			"file": "patterns/buttons.css",
 			"layer": "patterns",
 			"owns": [
-				"btn-circular-control",
 				"btn-danger",
 				"btn-ghost",
 				"btn-icon-header",

@@ -488,6 +488,18 @@ footer-idle {
     margin-left: auto; /* right-align even when the left group is empty */
 }
 
+/* The conversation's Undo and Redo: a pair of glyphs, held closer to each
+   other than to the labelled buttons beside them, so they read as one control.
+   Square, since they carry no label to pad. */
+.footer-history {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.footer-history-btn {
+    padding-inline: 0.375rem;
+}
+
 /* Readings row: the token meter and the thread's last-updated time. Neither is
    a control, so they share a line above the buttons. */
 .footer-meta {

@@ -352,34 +352,10 @@
                  that knows either. -->
             <div class="app-header__board-title" id="board-title"></div>
 
-            <!-- The window's title: the project chip, centred on the window as a
-                 browser centres its address bar (app-header.css,
-                 .app-header--titled), with undo/redo before it and the
-                 new-window button after. -->
+            <!-- The window's title: the project chip and its new-window button,
+                 centred in the space between the wordmark and the app's
+                 controls (app-header.css, .app-header--titled). -->
             <div class="app-header__centre">
-                <!-- Undo / Redo. They roll back the visible conversation's document,
-                     not anything app-wide, so they lead the project chip as a
-                     browser's back and forward lead its address bar. On a phone
-                     they lead the button row. -->
-                <div class="header-history">
-                    <button class="btn-ghost btn-circular-control control-undo-button" id="control-undo-button"
-                            aria-label="Undo last operation"
-                            title="Undo" data-shortcut-id="undo"
-                            disabled>
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
-                            <path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z"/>
-                        </svg>
-                    </button>
-                    <button class="btn-ghost btn-circular-control control-redo-button" id="control-redo-button"
-                            aria-label="Redo last undone operation"
-                            title="Redo" data-shortcut-id="redo"
-                            disabled>
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
-                            <path d="M396-200q-97 0-166.5-63T160-420q0-94 69.5-157T396-640h252L544-744l56-56 200 200-200 200-56-56 104-104H396q-63 0-109.5 40T240-420q0 60 46.5 100T396-280h284v80H396Z"/>
-                        </svg>
-                    </button>
-                </div>
-
                 <!-- Project: the session's folder, as the session switcher's button
                      (components/session-popover.js): its tinted tile, its name and
                      the arrow it opens by — ⌘K is the switcher's key, named in the

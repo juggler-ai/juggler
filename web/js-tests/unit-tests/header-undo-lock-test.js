@@ -3,15 +3,21 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * Header undo/redo must be locked out while the visible conversation's LLM
- * loop is running.
+ * Undo/redo must be locked out while the conversation's LLM loop is running.
  *
- * `header-controls.js` gates the buttons (and the Cmd/Ctrl+Z shortcuts) on the
- * worker's authoritative `processingState.status`: anything other than `idle`
- * means a turn is in flight (LLM call, tool execution, or an approval wait) and
- * the worker is actively mutating the same Yjs doc that undo/redo would rewind.
- * Letting the user undo into that write would tear the doc, so both the buttons
- * and the keyboard path must refuse until the worker idles.
+ * The footer's Undo/Redo buttons (conversation-footer.js) and the Cmd/Ctrl+Z
+ * shortcuts (header-controls.js) are both gated on the worker's authoritative
+ * `processingState.status`: anything other than `idle` means a turn is in
+ * flight (LLM call, tool execution, or an approval wait) and the worker is
+ * actively mutating the same Yjs doc that undo/redo would rewind. Letting the
+ * user undo into that write would tear the doc, so both the buttons and the
+ * keyboard path must refuse until the worker idles.
+ *
+ * The buttons sit on the root thread's footer only, and only once there is
+ * something to step through.
+ *
+ * The rest of the header controls are covered here too: the project chip and
+ * the new-window button.
  * @module unit-tests/header-undo-lock-test
  */
 
@@ -26,6 +32,7 @@ import { pingWorker } from '../utilities/worker-test-hooks.js';
 import { underPseudoLocale } from '../utilities/pseudo-locale.js';
 import { isPseudoLocalized, t } from '../../sdk/lib/i18n.js';
 import { setupHeaderControls } from '../../js/components/header-controls.js';
+import '../../js/components/conversation-footer.js';
 import { sessionsPageUrl, SESSIONS_PAGE_TARGET } from '../../js/utils/project-open-mode.js';
 
 /**
@@ -45,23 +52,17 @@ async function syncUndoState(conversation) {
 
 /**
  * Build the minimal .app-header DOM that setupHeaderControls() queries by id.
- * @returns {{ root: HTMLElement, undoBtn: HTMLButtonElement, redoBtn: HTMLButtonElement }} The header root and its undo/redo buttons.
+ * @returns {{ root: HTMLElement }} The header root.
  */
 function buildHeaderDom() {
   const root = document.createElement('div');
   root.innerHTML = `
-		<button id="control-undo-button"></button>
-		<button id="control-redo-button"></button>
 		<div id="project-path-display"><span class="ppd-path" style="display: block; overflow: hidden; white-space: nowrap"></span></div>
 		<span id="project-path-chip"></span>
 		<button id="project-new-window-button"></button>
 	`;
   document.body.appendChild(root);
-  return {
-    root,
-    undoBtn: /** @type {HTMLButtonElement} */ (root.querySelector('#control-undo-button')),
-    redoBtn: /** @type {HTMLButtonElement} */ (root.querySelector('#control-redo-button'))
-  };
+  return { root };
 }
 
 /**
@@ -93,7 +94,13 @@ export async function runTests() {
   /** @type {string[]} */
   const errors = [];
 
-  const { root, undoBtn, redoBtn } = buildHeaderDom();
+  const { root } = buildHeaderDom();
+  const footer = /** @type {any} */ (document.createElement('conversation-footer'));
+  document.body.appendChild(footer);
+  const undoBtn = /** @type {HTMLButtonElement} */ (footer.querySelector('.footer-history-undo'));
+  const redoBtn = /** @type {HTMLButtonElement} */ (footer.querySelector('.footer-history-redo'));
+  const history = /** @type {HTMLElement} */ (footer.querySelector('.footer-history'));
+  const shownHistory = () => !!history && !history.classList.contains('hidden');
 
   try {
     const session = await createTestSession();
@@ -114,6 +121,22 @@ export async function runTests() {
       session.subscribe = realSubscribe;
     }
 
+    // The root thread's footer, at rest. With nothing to step through, the
+    // pair is still there — disabled, under its plain names — so it stays
+    // where the eye learnt to find it and nothing beside it shifts.
+    assert(!!undoBtn && !!redoBtn, 'the footer has undo and redo buttons');
+    // Creation clears the undo stack it built, and that clear's undoState
+    // frame may still be in flight when the conversation is handed back.
+    await syncUndoState(conversation);
+    footer.setMessageThread(conversation.rootMessageThread);
+    footer.update({ isProcessing: false, canContinue: true, showHistory: true });
+    assert(!conversation.canUndo() && !conversation.canRedo(),
+      `precondition: a new conversation has nothing to undo or redo (canUndo=${conversation.canUndo()}, canRedo=${conversation.canRedo()})`);
+    assert(shownHistory(), 'a footer with no history to step through still shows undo/redo');
+    assert(undoBtn.disabled && redoBtn.disabled && undoBtn.title === 'Undo' && redoBtn.title === 'Redo',
+      `with nothing to step through both are disabled under their plain names, got disabled=${undoBtn.disabled}/${redoBtn.disabled} "${undoBtn.title}"/"${redoBtn.title}"`);
+    passed++;
+
     // Create a real undo group so canUndo() is true — otherwise "disabled"
     // would prove nothing (the button is disabled when there's nothing to
     // undo regardless of processing state).
@@ -121,6 +144,13 @@ export async function runTests() {
     await syncUndoState(conversation);
 
     assert(conversation.canUndo(), 'precondition: conversation should have undo history');
+    assert(!undoBtn.disabled, 'once there is history, Undo is enabled');
+    // A sub-thread's footer does not: undo steps through the whole document,
+    // and one pair of buttons per window is the honest number.
+    footer.update({ isProcessing: false, canContinue: true, showHistory: false });
+    assert(!shownHistory(), 'a footer not asked to show history shows none');
+    footer.update({ isProcessing: false, canContinue: true, showHistory: true });
+    passed++;
 
     // --- Idle: button enabled, shortcut performs undo --------------------
     conversation._doc.setMetadata('processingState', { status: 'idle', turnCounter: 1 });
@@ -135,6 +165,8 @@ export async function runTests() {
 
     dispatchUndoShortcut();
     assert(undoCalls === 1, 'Cmd/Ctrl+Z while idle must invoke undo');
+    undoBtn.click();
+    assert(undoCalls === 2, "the footer's Undo button invokes undo");
     passed++;
 
     // --- Busy: button disabled, shortcut ignored -------------------------
@@ -142,6 +174,7 @@ export async function runTests() {
     // claim across the whole busy span (streaming + tool execution).
     conversation._doc.setMetadata('processingState', { status: 'streaming', turnCounter: 1 });
     assert(undoBtn.disabled, 'undo button must be disabled while the LLM loop is running');
+    assert(shownHistory(), 'a busy lock disables the buttons; it does not hide them');
     assert(redoBtn.disabled, 'redo button must be disabled while the LLM loop is running');
     // A disabled button says why, when the reason is something other than an
     // empty history — otherwise it looks broken.
@@ -309,6 +342,7 @@ export async function runTests() {
     errors.push(e instanceof Error ? `${e.message}\n${e.stack}` : String(e));
   } finally {
     root.remove();
+    footer.remove();
   }
 
   return { passed, failed, errors };

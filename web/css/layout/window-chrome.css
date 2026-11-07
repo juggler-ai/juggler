@@ -25,10 +25,9 @@
 
 /* Opt interactive regions out of drag — custom property inherits into their children too.
    The project chip stays in the drag region, as the wordmark does: it is most
-   of the title bar's left half, and the click that ends a drag by it opens
+   of the title bar's middle, and the click that ends a drag by it opens
    nothing (session-popover.js). */
 :where(.window-mode) header-actions,
-:where(.window-mode) .header-history,
 :where(.window-mode) .ppd-new-window-button,
 :where(.window-mode) .sidebar-toggle-button {
     --wails-draggable: no-drag;

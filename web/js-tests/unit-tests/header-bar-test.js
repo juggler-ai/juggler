@@ -16,9 +16,9 @@
  *        tint or a dimmed icon that only the pressed state gets.
  *   3. The network button carries the count of other connected clients, in
  *      its badge and its accessible name; the project chip carries none.
- *   4. Undo/redo act on the conversation, so they sit beside the project chip,
- *      and join the button row on a phone. The chip is a read-only label: no
- *      button, no chevron, and part of a desktop window's drag region.
+ *   4. The header has no undo/redo: they act on one conversation, so they are
+ *      in its footer. The chip is the session switcher's button, and part of
+ *      a desktop window's drag region; the new-window button beside it is not.
  *   5. The app-wide controls come in groups (network, view, app, panel) whose
  *      spacing grows with the header; with room, the network count is a label.
  *   6. Below 900px, help and zoom fold into a "…" menu that offers them back,
@@ -290,41 +290,27 @@ export async function runTests() {
     passed++;
   } catch (e) { failed++; errors.push(`network clients: ${msg(e)}`); }
 
-  // --- 4: undo/redo lead the project chip, as back/forward lead an address bar ---
+  // --- 4: the chip and its new-window button; no undo/redo in the header ---
   try {
-    const history = served.querySelector('.header-history');
-    assert(!!history, 'the header has a .header-history group');
-    assert(history?.nextElementSibling?.tagName === 'PROJECT-PATH-DISPLAY',
-      'it leads the project chip directly');
-    assert(!!history?.querySelector('#control-undo-button') && !!history?.querySelector('#control-redo-button'),
-      'it holds undo and redo');
-    assert(!served.querySelector('header-actions #control-undo-button, header-actions #control-redo-button'),
-      'and the app-wide cluster no longer does');
+    // Undo and redo step through one conversation's document, so they are that
+    // conversation's controls (conversation-footer.js), not the window's.
+    assert(!served.querySelector('#control-undo-button, #control-redo-button, .header-history'),
+      'the header holds no undo/redo');
 
-    // Wide: undo/redo hug the chip's left, the new-window button its right, and
-    // the open space lies either side of the three.
+    // Wide: the new-window button hugs the chip's right.
     const wide = await framedHeader(served, 1400);
     try {
       const chip = wide.box('#project-path-chip');
-      const redo = wide.box('#control-redo-button');
-      const undo = wide.box('#control-undo-button');
       const opener = wide.box('#project-new-window-button');
-      assert(redo.right <= chip.left && chip.left - redo.right < 40,
-        `redo sits just before the chip (${Math.round(chip.left - redo.right)}px away)`);
       assert(opener.left >= chip.right && opener.left - chip.right < 40,
         `the new-window button sits just after the chip (${Math.round(opener.left - chip.right)}px away)`);
-      assert(undo.left - wide.box('.logo').right > 200 && wide.box('header-actions').left - opener.right > 200,
-        `the open space lies either side of them (${Math.round(undo.left - wide.box('.logo').right)}px and ${Math.round(wide.box('header-actions').left - opener.right)}px)`);
 
-      // Window mode: the header is a drag region, and the group must opt out.
+      // Window mode: the header is a drag region. The new-window button beside
+      // the project chip is a button: it never drags the window. The chip
+      // itself is most of the title bar's middle, so it drags the window like
+      // the wordmark; a click on it still opens the switcher
+      // (session-popover.js).
       wide.doc.body.classList.add('window-mode');
-      const drag = wide.doc.defaultView?.getComputedStyle(wide.el('#control-undo-button'))
-        .getPropertyValue('--wails-draggable').trim();
-      assert(drag === 'no-drag', `undo is clickable in a desktop window, not a drag handle (got "${drag}")`);
-      // The new-window button beside the project chip is a button: it never
-      // drags the window. The chip itself is most of the title bar's left half,
-      // so it drags the window like the wordmark; a click on it still opens the
-      // switcher (session-popover.js).
       const dragOf = (/** @type {string} */ sel) => wide.doc.defaultView?.getComputedStyle(wide.el(sel))
         .getPropertyValue('--wails-draggable').trim();
       assert(dragOf('#project-new-window-button') === 'no-drag',
@@ -356,38 +342,31 @@ export async function runTests() {
       assert(!!path.querySelector('.ss-chip-tile') && !!path.querySelector('.ppd-path') && !!path.querySelector('.ss-chip-caret'),
         'the chip has its tile, its name and its arrow');
       assert(!wide.doc.querySelector('#project-home-button, #project-attention-pill'), 'the header has no house and no pill');
-
-      // A detached board window keeps none of the opener's conversation controls.
-      wide.doc.documentElement.dataset.view = 'pinboard';
-      assert(wide.doc.defaultView?.getComputedStyle(wide.el('.header-history')).display === 'none',
-        'a detached board window has no undo/redo');
     } finally {
       wide.frame.remove();
     }
 
-    // Phone: the chip keeps row 1; undo/redo join the button row beneath it.
+    // Phone: the chip keeps row 1, above the button row.
     const phone = await framedHeader(served, 400);
     try {
       const chip = phone.box('project-path-display');
-      const undo = phone.box('#control-undo-button');
       const settings = phone.box('#settings-button');
-      const middle = (/** @type {DOMRect} */ r) => r.top + r.height / 2;
-      assert(undo.top >= chip.bottom - 1,
-        `undo drops below the chip on a phone (undo top ${Math.round(undo.top)}, chip bottom ${Math.round(chip.bottom)})`);
-      assert(Math.abs(middle(undo) - middle(settings)) < 2,
-        `undo shares the button row with settings (${Math.round(middle(undo))} vs ${Math.round(middle(settings))})`);
-      assert(undo.right <= 400 && settings.right <= 400, 'nothing spills off the right edge');
+      assert(settings.top >= chip.bottom - 1,
+        `the buttons drop below the chip on a phone (settings top ${Math.round(settings.top)}, chip bottom ${Math.round(chip.bottom)})`);
+      assert(settings.right <= 400, 'nothing spills off the right edge');
     } finally {
       phone.frame.remove();
     }
     passed++;
-  } catch (e) { failed++; errors.push(`history group: ${msg(e)}`); }
+  } catch (e) { failed++; errors.push(`project chip: ${msg(e)}`); }
 
-  // --- 4b: the project chip is the window's title, centred on the window ---
-  // As a browser centres its address bar and VS Code its command centre: on the
-  // window, not the space left over, so the traffic-light gutter of a Mac
-  // window does not pull it right. Where there is no room for that, it gives
-  // way toward the side with more space and never overlaps either end.
+  // --- 4b: the project chip stands in the middle of the space it is given ---
+  // Centred between the wordmark and the app's controls, not on the window:
+  // the controls outweigh the wordmark several times over, and a chip on the
+  // window's centre leaves it closer to them than to the wordmark. The chip and
+  // its new-window button are one group, with as much room before it as after
+  // — at any width, with a Mac window's traffic lights, and with a long path.
+  // Where there is no room for that, nothing overlaps either end.
   try {
     /**
      * @param {number} width - The frame's width.
@@ -406,29 +385,31 @@ export async function runTests() {
         f.el('.ss-chip-tile').textContent = 'PR';
         f.el('.ppd-path').innerHTML = `<span class="ppd-dir">${path.slice(0, cut)}</span><span class="ppd-name">${path.slice(cut)}</span>`;
         return Object.fromEntries(/** @type {const} */ ([
-          ['logo', '.logo'], ['undo', '#control-undo-button'], ['chip', '#project-path-chip'],
+          ['logo', '.logo'], ['chip', '#project-path-chip'],
           ['opener', '#project-new-window-button'], ['actions', 'header-actions'],
         ]).map(([k, sel]) => [k, f.box(sel)]));
       } finally {
         f.frame.remove();
       }
     };
-    const centre = (/** @type {DOMRect} */ r) => r.left + r.width / 2;
     for (const [width, mac, path] of /** @type {const} */ ([
       [1400, false, undefined], [2000, false, undefined], [1400, true, undefined],
       [1400, false, '/a/much/longer/path/to/a/project/somewhere/deep'],
     ])) {
       const b = await layoutAt(width, { mac, path });
       const where = `${width}px${mac ? ', Mac window' : ''}${path ? ', long path' : ''}`;
-      assert(Math.abs(centre(b.chip) - width / 2) < 1,
-        `${where}: the chip is centred on the window (its centre at ${Math.round(centre(b.chip))}, the window's at ${width / 2})`);
+      const before = b.chip.left - b.logo.right;
+      const after = b.actions.left - b.opener.right;
+      assert(Math.abs(before - after) < 1,
+        `${where}: as much room before the chip as after its new-window button (${Math.round(before)}px vs ${Math.round(after)}px)`);
+      assert(before > 100, `${where}: with room to spare (${Math.round(before)}px either side)`);
     }
     for (const width of [1000, 800, 640]) {
       for (const path of [undefined, '/a/much/longer/path/to/a/project/somewhere/deep']) {
         const b = await layoutAt(width, { path });
         const where = `${width}px${path ? ', long path' : ''}`;
-        assert(b.logo.right <= b.undo.left && b.opener.right <= b.actions.left,
-          `${where}: nothing overlaps (wordmark ends ${Math.round(b.logo.right)}, undo starts ${Math.round(b.undo.left)}; new-window ends ${Math.round(b.opener.right)}, controls start ${Math.round(b.actions.left)})`);
+        assert(b.logo.right <= b.chip.left && b.opener.right <= b.actions.left,
+          `${where}: nothing overlaps (wordmark ends ${Math.round(b.logo.right)}, chip starts ${Math.round(b.chip.left)}; new-window ends ${Math.round(b.opener.right)}, controls start ${Math.round(b.actions.left)})`);
       }
     }
     passed++;
@@ -1021,7 +1002,6 @@ export async function runTests() {
           'network glyph': parseFloat(view.getComputedStyle(f.el('#network-button'), '::before').width),
           'client badge': f.box('.network-button__clients').height,
           'gap within a group': f.box('#bell-button').left - f.box('#theme-button').right,
-          'undo button': f.box('#control-undo-button').height,
           'update pill': f.box('.update-btn').height,
         };
       } finally {

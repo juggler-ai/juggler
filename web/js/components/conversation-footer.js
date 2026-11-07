@@ -10,6 +10,7 @@
  * @property {boolean} [showSpinner] - Whether to show the spinner animation (default true)
  * @property {string} [nextSteps] - Optional next steps guidance
  * @property {boolean} [showDuplicateTab] - Whether to show the duplicate tab button (root thread only)
+ * @property {boolean} [showHistory] - Whether this footer offers the conversation's Undo/Redo (root thread only)
  * @property {boolean} [duplicating] - A duplicate of this conversation is in flight: the duplicate button is disabled and reads "Duplicating…"
  * @property {string} [busyItemMessageId] - message-id of the busy thread item, enables clicking footer to select it
  * @property {boolean} [politePending] - A polite stop (Pause) covering this column is still winding its work down: render the Pause button active
@@ -46,7 +47,8 @@ import { findRoundTripTxnIds, findLastRoundTripItemId } from '../utils/transacti
 import { formatRelativeDateTime } from '../utils/format.js';
 import providersCache from '../services/providers-cache.js';
 import { openSettings } from '../services/settings-launcher.js';
-import { FORK_SVG, UNDO_SVG } from '../utils/icons.js';
+import { FORK_SVG, UNDO_SVG, REDO_SVG } from '../utils/icons.js';
+import { historyState, HISTORY_BUSY_TITLE } from '../utils/conversation-history.js';
 import { createCopyButton } from '../../sdk/lib/copy-button.js';
 import { conversationToMarkdown } from '../utils/conversation-markdown.js';
 import { t } from '../../sdk/lib/i18n.js';
@@ -248,6 +250,23 @@ class ConversationFooter extends JugglerElement {
   _undoOfferSeq = null;
 
   /**
+   * Whether the owner asked this footer to offer Undo/Redo (`showHistory`).
+   * @type {boolean}
+   * @private
+   */
+  _showHistory = false;
+
+  /**
+   * Metadata observer keeping the Undo/Redo buttons current: `undoState` says
+   * what there is to step through, `processingState` whether a turn has them
+   * locked. Attached only while this footer, in the document, offers them —
+   * one footer per conversation does — and detached with its listeners.
+   * @type {((event: any) => void)|null}
+   * @private
+   */
+  _historyObserver = null;
+
+  /**
    * Whether the last `update` saw a running turn, so the start of a turn can be
    * told apart from the many ticks that follow it. Only the rising edge offers
    * the spinner its once-per-turn fumble; every tick after that must not.
@@ -312,6 +331,7 @@ class ConversationFooter extends JugglerElement {
     if (this.isConnected) this._listen();
     this._updateTokenDisplay();
     this._syncNudge();
+    this._syncHistory();
   }
 
   /** @private */
@@ -320,6 +340,18 @@ class ConversationFooter extends JugglerElement {
     this._unsubscribe = null;
     this._statusUnsubscribe?.();
     this._statusUnsubscribe = null;
+    this._unobserveHistory();
+  }
+
+  /**
+   * Stop keeping the Undo/Redo buttons current. Safe to call when not
+   * observing; `_historyObserver` is non-null exactly while observing.
+   * @private
+   */
+  _unobserveHistory() {
+    if (!this._historyObserver) return;
+    this._messageThread?.conversation?.unobserveMetadata(this._historyObserver);
+    this._historyObserver = null;
   }
 
   /**
@@ -382,6 +414,7 @@ class ConversationFooter extends JugglerElement {
     this._applyStatusOnly();
     if (!on) this._updateTokenDisplay();
     this._syncNudge();
+    this._syncHistory();
   }
 
   /**
@@ -482,6 +515,53 @@ class ConversationFooter extends JugglerElement {
     if (this._undoObserver) {
       this._messageThread?.conversation?.unobserveMetadata(this._undoObserver);
       this._undoObserver = null;
+    }
+  }
+
+  /**
+   * Show the conversation's Undo/Redo where they belong, and as they stand.
+   *
+   * They step through the whole conversation's document, so they are offered
+   * once — on the root thread's footer — and always there, disabled when there
+   * is nothing to step through, so the pair stays where the eye learnt to find
+   * it and the buttons beside it never shift. A running turn anywhere in the
+   * document disables them too, and says so; the shortcuts
+   * (header-controls.js) obey the same lock.
+   * @private
+   */
+  _syncHistory() {
+    const group = this.querySelector('.footer-history');
+    if (!group) return;
+    const conversation = this._messageThread?.conversation;
+    const offered = this._showHistory && !this._statusOnly && !!conversation;
+    group.classList.toggle('hidden', !offered);
+    if (!offered) {
+      this._unobserveHistory();
+      return;
+    }
+    // Watched only while offered and in the document: disconnectedCallback
+    // detaches it, and connectedCallback syncs (so re-attaches) again.
+    if (!this._historyObserver && this.isConnected) {
+      this._historyObserver = (/** @type {any} */ event) => {
+        if (event.keysChanged?.has?.('undoState') || event.keysChanged?.has?.('processingState')) {
+          this._syncHistory();
+        }
+      };
+      conversation.observeMetadata(this._historyObserver);
+    }
+    const { busy, canUndo, canRedo } = historyState(conversation);
+    // Written only on a change, so a resting button stays a stable click
+    // target between the many metadata frames of a running turn (see setText
+    // in update()).
+    for (const [button, can, name] of /** @type {const} */ ([
+      [group.querySelector('.footer-history-undo'), canUndo, t('Undo')],
+      [group.querySelector('.footer-history-redo'), canRedo, t('Redo')],
+    ])) {
+      const el = /** @type {HTMLButtonElement|null} */ (button);
+      if (!el) continue;
+      if (el.disabled !== !can) el.disabled = !can;
+      const title = busy ? t(HISTORY_BUSY_TITLE) : name;
+      if (el.title !== title) el.title = title;
     }
   }
 
@@ -821,6 +901,7 @@ class ConversationFooter extends JugglerElement {
     this._applyStatusOnly();
     this._listen();
     if (this._messageThread) this._updateTokenDisplay();
+    this._syncHistory();
   }
 
   /**
@@ -874,6 +955,12 @@ class ConversationFooter extends JugglerElement {
                         </button>
                     </div>
                     <div class="footer-idle-right">
+                        <div class="footer-history hidden">
+                            <button class="message-action-btn footer-history-btn footer-history-undo" type="button" data-shortcut-id="undo"
+                                    title="${escapeHtml(t('Undo'))}" aria-label="${escapeHtml(t('Undo last operation'))}" disabled>${UNDO_SVG}</button>
+                            <button class="message-action-btn footer-history-btn footer-history-redo" type="button" data-shortcut-id="redo"
+                                    title="${escapeHtml(t('Redo'))}" aria-label="${escapeHtml(t('Redo last undone operation'))}" disabled>${REDO_SVG}</button>
+                        </div>
                         <button class="message-action-btn duplicate-to-tab-btn hidden">
                             ${FORK_SVG}
                             <span class="duplicate-to-tab-label">${escapeHtml(t('Duplicate as new conversation'))}</span>
@@ -956,6 +1043,21 @@ class ConversationFooter extends JugglerElement {
           composed: true,
           detail: { button: addCIBtn, threadItemId: this._messageThread?.threadItemId ?? null }
         }));
+      });
+    }
+
+    // The conversation's Undo/Redo, as ⌘Z and ⇧⌘Z do them. Checked again on
+    // the press: a frame that locked them may still be on its way to the
+    // button.
+    for (const [selector, step] of /** @type {const} */ ([
+      ['.footer-history-undo', 'undo'], ['.footer-history-redo', 'redo'],
+    ])) {
+      this.querySelector(selector)?.addEventListener('click', async () => {
+        const conversation = this._messageThread?.conversation;
+        const state = historyState(conversation);
+        if (!conversation || !(step === 'undo' ? state.canUndo : state.canRedo)) return;
+        await (step === 'undo' ? conversation.undo() : conversation.redo());
+        this._syncHistory();
       });
     }
 
@@ -1082,6 +1184,11 @@ class ConversationFooter extends JugglerElement {
     if (this._nudgeBusy !== state.isProcessing) {
       this._nudgeBusy = state.isProcessing;
       this._syncNudge();
+    }
+
+    if (this._showHistory !== !!state.showHistory) {
+      this._showHistory = !!state.showHistory;
+      this._syncHistory();
     }
 
     if (this._statusOnly) {

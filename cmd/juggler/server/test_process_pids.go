@@ -62,16 +62,17 @@ func (s *Server) SetTestProcessPIDs(fn ProcessPIDs) {
 }
 
 // LaneWait reports whether n distinct lanes of a test pool have asked for work
-// within timeout.
-type LaneWait func(n int, timeout time.Duration) bool
+// before the pool went quiet for the whole of quiet.
+type LaneWait func(n int, quiet time.Duration) bool
 
 // WaitForTestLanes reports whether n distinct lanes of this server's test pool
-// have asked for work within timeout. The app layer's pool window waits on it
-// to tell a first load that hung from one that is running. A server with no
-// test routes has no lanes to wait for and reports true.
-func (s *Server) WaitForTestLanes(n int, timeout time.Duration) bool {
+// have asked for work before the pool went quiet — no page served, no lane
+// polling — for the whole of quiet. The app layer's pool window waits on it to
+// tell a first load that hung from one that is running, however slowly. A
+// server with no test routes has no lanes to wait for and reports true.
+func (s *Server) WaitForTestLanes(n int, quiet time.Duration) bool {
 	if fn := s.testPool.laneWait.Load(); fn != nil {
-		return (*fn)(n, timeout)
+		return (*fn)(n, quiet)
 	}
 	return true
 }

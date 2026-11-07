@@ -61,3 +61,28 @@ func TestATestMessageReachingItsHandlerIsOnTheTape(t *testing.T) {
 		t.Errorf("test-msg-handled inboxMs = %v, want at least 1500", handled[0].Summary["inboxMs"])
 	}
 }
+
+// Every test message that acks puts its ack on the tape, so a late setup ack
+// has both halves: the message reaching its handler, and the answer leaving.
+func TestATestMessagesAckIsOnTheTape(t *testing.T) {
+	for _, typ := range []string{"set-mock-responses", "queue-mocks-for-name", "ping", "get-yjs-state"} {
+		t.Run(typ, func(t *testing.T) {
+			enableEventTape(t)
+			w := NewConversationWorker("test-conv", "user:test")
+			defer w.doc.Destroy()
+
+			w.handleTestMessage(workerMessage{
+				Type:    typ,
+				Payload: json.RawMessage(`{"responses":[],"name":"n","ackId":"wm_test_ack_3"}`),
+			})
+
+			sent := tapeEventsOfKind(w.tape.DumpAll(), "ack-sent")
+			if len(sent) != 1 {
+				t.Fatalf("the tape holds %d ack-sent events, want 1", len(sent))
+			}
+			if got := sent[0].Summary["ackId"]; got != "wm_test_ack_3" {
+				t.Errorf("ack-sent names ackId %v, want wm_test_ack_3", got)
+			}
+		})
+	}
+}

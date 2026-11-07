@@ -458,6 +458,36 @@ export async function runTests(_ctx) {
     assert(wm._pendingAcks.size === 0, 'and leaves no pending ack behind');
   });
 
+  // One link carries every conversation, so an ack can sit behind a long split
+  // frame for another one. Frames still arriving are the link at work on what
+  // is queued ahead of the ack, as they are for a starting worker's ready.
+  await run('an ack waits out a slow transfer on the link, frame by frame, past its silence window', async () => {
+    const conv = 'conv_inbound_ack_slow_link';
+    const wm = managerWithEntry(conv);
+    /** @type {any[]} */
+    const sent = [];
+    wm.sendToWorker = (/** @type {string} */ _id, /** @type {any} */ msg) => { sent.push(msg); return Promise.resolve(); };
+    const clock = fakeClock();
+    /** @type {unknown} */
+    let outcome = 'pending';
+    const pending = clock.run(() => wm.sendWithAck(conv, { type: 'set-mock-responses' }, 30_000));
+    pending.then(() => { outcome = 'resolved'; }, (/** @type {unknown} */ e) => { outcome = e; });
+    const ws = wsChunkFrames(3, IGNORED_MESSAGE, 3);
+    // Each gap is under the window; the whole wait is twice it.
+    for (const [at, frame] of /** @type {Array<[number, ArrayBuffer]>} */ ([[20_000, ws[0]], [45_000, ws[1]]])) {
+      clock.advanceTo(at);
+      await nextTask();
+      assert(outcome === 'pending', `the ack must still be awaited at ${at / 1000}s, with a frame arriving at every step; got ${outcome}`);
+      clock.run(() => wsService._handleBinaryMessage(frame));
+    }
+    clock.advanceTo(60_000);
+    await nextTask();
+    assert(outcome === 'pending', `the ack must still be awaited 15s after the last frame; got ${outcome}`);
+    wsService._handleBinaryMessage(ws[2]);
+    routeWorkerMessage(wm, conv, /** @type {any} */ ({ type: 'ack', ackId: sent[0].ackId, result: true }));
+    await soon(pending, 'the ack that arrived after the transfer');
+  });
+
   await run('an ack\'d request that never left fails at once with why, not as an ack timeout', async () => {
     // Left to the ack timeout, each of these would report "Ack timeout" —
     // which reads as a worker that never answered, when the worker was never

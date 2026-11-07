@@ -39,6 +39,54 @@ func TestWaitForTestLanesWaitsForEveryLaneToPoll(t *testing.T) {
 	}
 }
 
+// TestWaitForTestLanesIsBoundedByQuietNotByAge: the pool window reloads a first
+// load that has stopped, not one that is slow. So the wait gives up only once
+// the pool has gone its whole span with no page served and no lane polling; a
+// page served late in the span starts the span again. The clock and timers are
+// the test's, so the steps are exact.
+func TestWaitForTestLanesIsBoundedByQuietNotByAge(t *testing.T) {
+	lt := newLaneTrace()
+	now := time.Unix(1000, 0)
+	lt.now = func() time.Time { return now }
+	type armed struct {
+		d    time.Duration
+		fire chan time.Time
+	}
+	timers := make(chan armed)
+	lt.after = func(d time.Duration) <-chan time.Time {
+		a := armed{d: d, fire: make(chan time.Time, 1)}
+		timers <- a
+		return a.fire
+	}
+	const span = 30 * time.Second
+
+	done := make(chan bool, 1)
+	go func() { done <- lt.waitPolling(2, span) }()
+
+	first := <-timers
+	if first.d != span {
+		t.Fatalf("first timer armed for %v, want the whole span %v", first.d, span)
+	}
+	now = now.Add(20 * time.Second)
+	lt.servedLanePage("0")
+	now = now.Add(10 * time.Second)
+	first.fire <- now
+
+	select {
+	case got := <-done:
+		t.Fatalf("the wait returned %v %v after it began, though a lane's page was served 10s before", got, span)
+	case second := <-timers:
+		if want := 20 * time.Second; second.d != want {
+			t.Fatalf("re-armed for %v, want the %v left of the span since the page was served", second.d, want)
+		}
+		now = now.Add(20 * time.Second)
+		second.fire <- now
+	}
+	if <-done {
+		t.Fatal("the wait returned true with no lane polling after a quiet span")
+	}
+}
+
 // TestLaneTraceReportsHowFarEachLaneGot: the pool page, each lane's page and
 // each lane's polls are counted as a test server serves them, and
 // GET /api/test/lanes reports them per lane — with a lane whose page was

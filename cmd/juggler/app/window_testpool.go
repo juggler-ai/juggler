@@ -77,16 +77,18 @@ type windowApp struct {
 }
 
 // reloadStalledPool loads the test window again, once, if its lanes have
-// not all asked for work by engineReloadAfter — the engine's own startup
-// policy (startEngineHost), for the same failure. On Windows a web view's first
-// load occasionally hangs with nothing reported, its pages served and none of
-// their script ever running, and a reload clears it. One that is still stalled
-// after the reload is left for the harness, whose lane report then shows it.
+// not all asked for work and the pool has got no further for engineReloadAfter
+// — the engine's own startup policy (startEngineHost), for the same failure.
+// On Windows a web view's first load occasionally hangs with nothing reported,
+// its pages served and none of their script ever running, and a reload clears
+// it. A load that is slow but still getting further is left to finish, since a
+// reload would only restart it. One that is still stalled after the reload is
+// left for the harness, whose lane report then shows it.
 func (a *windowApp) reloadStalledPool() {
 	if a.srv.WaitForTestLanes(a.poolLanes, engineReloadAfter) {
 		return
 	}
-	jlog.Info("[test-pool] lanes not all polling after %v; loading the pool window again", engineReloadAfter)
+	jlog.Info("[test-pool] lanes not all polling, and no progress for %v; loading the pool window again", engineReloadAfter)
 	a.win.SetURL(a.poolURL)
 }
 

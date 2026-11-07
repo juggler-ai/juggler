@@ -25,18 +25,21 @@ import (
 // helpers.HarnessHTTPTimeout for why it must.
 const harnessHTTPTimeout = helpers.HarnessHTTPTimeout
 
-// listDiscoveryTimeout bounds the wait for the harness to enumerate its tests
-// and POST them back to /api/test/names after the __list__ trigger. Unlike a
-// per-test run — where the harness iframes are already loaded and connected —
-// discovery is the FIRST thing the suite does, so it races a cold engine boot:
-// the pool hands out a lane the instant the subprocess prints JUGGLER_ADDR=
-// (HTTP listener up), which is well before the WebView2/WebKit host has loaded
-// the test-pool page, brought up every iframe, and connected their sockets. On
-// a loaded CI runner under `-race` that warm-up is slow (Windows especially),
-// and a budget shorter than the boot budget makes discovery time out before the
-// harness is ever ready — failing the whole suite. Match the 60s subprocess-boot
-// and per-test budgets so discovery gets the same slack as everything else.
-const listDiscoveryTimeout = 60 * time.Second
+// Discovery is the first thing the suite does, so the __list__ it queues waits
+// on the pool window's cold boot: the test-pool page, every lane's page, and a
+// lane's poll loop, any of which is slow on a starved core — and a first load
+// that hung costs the window's own reload (reloadStalledPool) on top. So the
+// wait is bounded by the pool getting further, not by the clock: it gives up
+// only after listQuietWindow with no names and no new mark of progress — a
+// page served, or __list__ taken by a lane — or at listCeiling regardless.
+const (
+	// listQuietWindow sits clear of the pool window's own reload span
+	// (engineReloadAfter, 30s of no progress), so a hung first load is
+	// reloaded and given its second boot before the harness gives up on it.
+	listQuietWindow = 60 * time.Second
+	// listCeiling is the backstop for a pool that keeps reloading pages.
+	listCeiling = 5 * time.Minute
+)
 
 // TestBrowser runs all browser-side tests in parallel. Each JS test becomes a
 // subtest addressable via -run, e.g. go test -run 'TestBrowser/integration:glob-go-files'.
@@ -280,10 +283,50 @@ func listBrowserTests(srv testServerEntry) (names, exclusive []string, err error
 		Names     []string `json:"names"`
 		Exclusive []string `json:"exclusive"`
 	}
-	if err := pollServer(srv, "/api/test/names", listDiscoveryTimeout, &payload); err != nil {
-		return nil, nil, fmt.Errorf("waiting for test names: %w%s", err, poolStall(srv, "__list__"))
+	started := time.Now()
+	for {
+		err := pollServer(srv, "/api/test/names", listQuietWindow, &payload)
+		if err == nil {
+			return payload.Names, payload.Exclusive, nil
+		}
+		age, ok := listProgressAge(srv.addr)
+		switch {
+		case srv.proc.dead() || !ok || age >= listQuietWindow:
+			return nil, nil, fmt.Errorf("waiting for test names: %w — the pool got no further for %v%s",
+				err, listQuietWindow, poolStall(srv, "__list__"))
+		case time.Since(started) >= listCeiling:
+			return nil, nil, fmt.Errorf("waiting for test names: %w — the pool was still getting further after %v, the ceiling%s",
+				err, listCeiling, poolStall(srv, "__list__"))
+		}
 	}
-	return payload.Names, payload.Exclusive, nil
+}
+
+// listProgressAge is how long ago the pool behind addr last got further
+// towards answering __list__: its page or a lane's page served, or a lane
+// taking __list__. A lane's polls are not progress — the first one takes
+// __list__, and every later one is a lane idling. ok is false when the server
+// could not say.
+func listProgressAge(addr string) (age time.Duration, ok bool) {
+	trace, err := fetchLaneTrace(addr)
+	if err != nil {
+		return 0, false
+	}
+	youngest := trace.PoolServed.AgoMs
+	consider := func(ms int64) {
+		if ms >= 0 && (youngest < 0 || ms < youngest) {
+			youngest = ms
+		}
+	}
+	for _, l := range trace.Lanes {
+		consider(l.PageServed.AgoMs)
+	}
+	if a, err := fetchAudit(addr, "__list__"); err == nil {
+		consider(a.DispatchedAgeMs)
+	}
+	if youngest < 0 {
+		return 0, false
+	}
+	return time.Duration(youngest) * time.Millisecond, true
 }
 
 // poolStall is the evidence for a wait on srv that gave up with no lane having
@@ -671,36 +714,51 @@ func queueAudit(addr, testName string) string {
 	return b.String()
 }
 
+// laneMark is one count in the server's lane trace: how many came and how
+// long ago the last did, -1 when none ever did.
+type laneMark struct {
+	Count int   `json:"count"`
+	AgoMs int64 `json:"agoMs"`
+}
+
+// laneTrace is GET /api/test/lanes: how far the pool window and each lane got.
+type laneTrace struct {
+	UptimeMs   int64    `json:"uptimeMs"`
+	PoolServed laneMark `json:"poolServed"`
+	Lanes      []struct {
+		Lane       string   `json:"lane"`
+		PageServed laneMark `json:"pageServed"`
+		Polled     laneMark `json:"polled"`
+	} `json:"lanes"`
+}
+
+// fetchLaneTrace reads the lane trace of the server behind addr.
+func fetchLaneTrace(addr string) (laneTrace, error) {
+	var rep laneTrace
+	client := &http.Client{Timeout: harnessHTTPTimeout}
+	resp, err := client.Get("http://" + addr + "/api/test/lanes")
+	if err != nil {
+		return rep, fmt.Errorf("unavailable (%v)", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return rep, fmt.Errorf("endpoint returned %d", resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&rep); err != nil {
+		return rep, fmt.Errorf("undecodable (%v)", err)
+	}
+	return rep, nil
+}
+
 // laneReport says how far each lane of the server behind addr got: whether the
 // pool window loaded its page, whether each lane's page was served, and when
 // each lane last asked for work. It is for a wait that gave up on the pool as a
 // whole — the listing, or a test no lane ever took — where the queue audit can
 // only say the work was never taken, not why. Best-effort, like projectSize.
 func laneReport(addr string) string {
-	client := &http.Client{Timeout: harnessHTTPTimeout}
-	resp, err := client.Get("http://" + addr + "/api/test/lanes")
+	rep, err := fetchLaneTrace(addr)
 	if err != nil {
-		return fmt.Sprintf("LANES: unavailable (%v)", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Sprintf("LANES: endpoint returned %d", resp.StatusCode)
-	}
-	type mark struct {
-		Count int   `json:"count"`
-		AgoMs int64 `json:"agoMs"`
-	}
-	var rep struct {
-		UptimeMs   int64 `json:"uptimeMs"`
-		PoolServed mark  `json:"poolServed"`
-		Lanes      []struct {
-			Lane       string `json:"lane"`
-			PageServed mark   `json:"pageServed"`
-			Polled     mark   `json:"polled"`
-		} `json:"lanes"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&rep); err != nil {
-		return fmt.Sprintf("LANES: undecodable (%v)", err)
+		return fmt.Sprintf("LANES: %v", err)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "LANES (server up %s): pool page served %d time(s), last %s\n",

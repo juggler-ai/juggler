@@ -30,6 +30,9 @@ import (
 type laneTrace struct {
 	started time.Time
 	state   chan *laneTraceState
+	// now and after are the clock and timers; a test supplies its own.
+	now   func() time.Time
+	after func(time.Duration) <-chan time.Time
 }
 
 type laneTraceState struct {
@@ -95,7 +98,7 @@ type laneMarks struct {
 }
 
 func newLaneTrace() *laneTrace {
-	lt := &laneTrace{started: time.Now(), state: make(chan *laneTraceState, 1)}
+	lt := &laneTrace{started: time.Now(), state: make(chan *laneTraceState, 1), now: time.Now, after: time.After}
 	lt.state <- &laneTraceState{lanes: map[string]*laneMarks{}}
 	return lt
 }
@@ -115,37 +118,64 @@ func (s *laneTraceState) lane(id string) *laneMarks {
 }
 
 func (lt *laneTrace) servedPool() {
-	lt.with(func(s *laneTraceState) { s.poolPage.hit(time.Now()) })
+	lt.with(func(s *laneTraceState) { s.poolPage.hit(lt.now()) })
 }
 
 func (lt *laneTrace) servedLanePage(id string) {
-	lt.with(func(s *laneTraceState) { s.lane(id).page.hit(time.Now()) })
+	lt.with(func(s *laneTraceState) { s.lane(id).page.hit(lt.now()) })
 }
 
 func (lt *laneTrace) polled(id string) {
 	lt.with(func(s *laneTraceState) {
 		m := s.lane(id)
-		m.poll.hit(time.Now())
+		m.poll.hit(lt.now())
 		if m.poll.count == 1 {
 			s.release()
 		}
 	})
 }
 
-// waitPolling reports whether n distinct lanes have asked for work within
-// timeout, returning as soon as they have.
-func (lt *laneTrace) waitPolling(n int, timeout time.Duration) bool {
+// lastMark is when the pool last got any further: its page or a lane's served,
+// or a lane asking for work.
+func (s *laneTraceState) lastMark() time.Time {
+	last := s.poolPage.last
+	for _, m := range s.lanes {
+		for _, t := range []time.Time{m.page.last, m.poll.last} {
+			if t.After(last) {
+				last = t
+			}
+		}
+	}
+	return last
+}
+
+// waitPolling reports whether n distinct lanes have asked for work before the
+// pool went quiet for the whole of quiet, returning as soon as they have.
+// Quiet is counted from the call or the pool's last mark, whichever is later,
+// so a load that is slow but getting further is waited for and only one that
+// has stopped is given up on.
+func (lt *laneTrace) waitPolling(n int, quiet time.Duration) bool {
 	w := laneWaiter{n: n, ch: make(chan struct{})}
 	lt.with(func(s *laneTraceState) {
 		s.waiters = append(s.waiters, w)
 		s.release()
 	})
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case <-w.ch:
-		return true
-	case <-timer.C:
+	since := lt.now()
+	for {
+		lt.with(func(s *laneTraceState) {
+			if last := s.lastMark(); last.After(since) {
+				since = last
+			}
+		})
+		left := quiet - lt.now().Sub(since)
+		if left <= 0 {
+			break
+		}
+		select {
+		case <-w.ch:
+			return true
+		case <-lt.after(left):
+		}
 	}
 	released := false
 	lt.with(func(s *laneTraceState) {
@@ -200,7 +230,7 @@ func (m traceMark) wire(now time.Time) LaneMark {
 func (lt *laneTrace) report() LaneTraceReport {
 	var out LaneTraceReport
 	lt.with(func(s *laneTraceState) {
-		now := time.Now()
+		now := lt.now()
 		out = LaneTraceReport{
 			UptimeMs:   now.Sub(lt.started).Milliseconds(),
 			PoolServed: s.poolPage.wire(now),

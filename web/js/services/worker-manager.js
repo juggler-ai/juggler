@@ -808,7 +808,8 @@ export class WorkerManager {
    * statuses, other acks — it is working through the queue in front of this
    * request, and an undo the worker is about to perform must not be rejected
    * because the core it runs on is slow: the caller would report a failure
-   * for an action that then happens. Only silence for the whole window, or
+   * for an action that then happens. A frame of a split message still
+   * arriving on the link counts the same way. Only silence for the whole window, or
    * {@link ACK_CEILING_MS} with no answer however chatty the worker, rejects.
    * @param {string} conversationId - Conversation ID
    * @param {{type: string, [key: string]: unknown}} message - Message to send (will have ackId added)
@@ -826,10 +827,14 @@ export class WorkerManager {
       // globally unique, so a broadcast ack for another client's request is
       // simply absent from this client's _pendingAcks.
       const ackId = `${this._instanceId}_ack_${++this._ackCounter}`;
+      // One link carries every conversation, so the ack can be queued behind a
+      // long split frame for another one: a frame still arriving is the link
+      // working through what is ahead of it, as for a starting worker's ready.
+      const progress = wsService.receiveProgress;
       const stopWatching = this.watchSilence(conversationId, timeout, (expiry) => {
         this._pendingAcks.delete(ackId);
         reject(new Error(`[WorkerManager] Ack timeout for ${message.type} (${ackId}): ${expiry.describe()}`));
-      });
+      }, ACK_CEILING_MS, () => progress.chunkAt);
 
       this._pendingAcks.set(ackId, {
         resolve: (/** @type {*} */ result) => {

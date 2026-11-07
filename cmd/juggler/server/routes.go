@@ -244,9 +244,10 @@ func (s *Server) setupSessionRoutes(sessionAPI *handlers.SessionAPI) {
 	// Raw file bytes for the file viewers. Unlike the immutable asset store
 	// above, these serve a live file that can change on disk. The GET route is
 	// the streaming one (its token may ride in the query string, so it is
-	// contained to the project root); the POST route is header-authenticated and
-	// carries the read op's escape hatches in its body, which is what lets a
-	// viewer render a user-initiated file outside the project. See
+	// contained to the project root and the folders /allow added); the POST
+	// route is header-authenticated and carries the read op's escape hatches in
+	// its body, which is what lets a viewer render a user-initiated file outside
+	// the project. See
 	// handlers.FilesAPI for the full rationale.
 	filesAPI := handlers.NewFilesAPI(s.ProjectPath)
 	api.HandleFunc("/session/files/content", filesAPI.HandleGetFileContent).Methods("GET")
@@ -254,6 +255,9 @@ func (s *Server) setupSessionRoutes(sessionAPI *handlers.SessionAPI) {
 	// resolve beside it (see handlers.FilesAPI.HandleGetFileTree).
 	api.PathPrefix("/session/files/tree/").HandlerFunc(filesAPI.HandleGetFileTree).Methods("GET")
 	api.HandleFunc("/session/files/bytes", filesAPI.HandlePostFileBytes).Methods("POST")
+	// Lets the GET routes serve the folder of an out-of-project file the user
+	// chose to view, so its HTML preview can frame it.
+	api.HandleFunc("/session/files/allow", filesAPI.HandlePostFileAllow).Methods("POST")
 }
 
 // setupLogsRoutes registers the read-only /api/logs endpoints that back the

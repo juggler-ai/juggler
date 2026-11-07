@@ -195,7 +195,7 @@ func isAssetGetRequest(r *http.Request) bool {
 // as its first path segment, or "" for any other request. That route frames an
 // HTML page whose relative links must resolve beside it, and a relative URL
 // drops the query string — so the token rides in the path, where every link the
-// page makes inherits it. It is the same read-only, project-contained surface as
+// page makes inherits it. It is the same read-only, contained surface as
 // the ?token= file route, reached by a different spelling.
 func fileTreeToken(r *http.Request) string {
 	if r.Method != http.MethodGet {

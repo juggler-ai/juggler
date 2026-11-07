@@ -17,7 +17,7 @@
 
 import fileViewerRegistry from '../../js/registries/file-viewer-registry.js';
 import { fetchJson } from '../../js/services/http.js';
-import { writeFile } from '../../js/services/ops-api.js';
+import { shell, writeFile } from '../../js/services/ops-api.js';
 import { apiUrl } from '../../js/utils/api-url.js';
 import { createBoundOps } from '../../sdk/ops.js';
 import { createFileSource, fileSourceFromText, toDescriptor } from '../../sdk/file-source.js';
@@ -281,6 +281,55 @@ export async function runTests() {
     }
   } finally {
     await project.copyTree({ to: '.', delete: [dir] });
+  }
+
+  // A page outside the project that the user chose to open renders like one
+  // inside it, and loads what sits in its folder. Approving it approves that
+  // folder and nothing above it, so the ../ image stays refused. Without the
+  // approval the server refuses the page and it is shown as source.
+  const outside = `html-view-out-${stamp}`;
+  let outsideRoot = '';
+  try {
+    const root = String((await fetchJson(apiUrl('/session')))?.projectPath || '').replace(/[\\/]+$/, '');
+    outsideRoot = `${root.replace(/[\\/][^\\/]+$/, '')}/${outside}`;
+    const approved = /** @type {any} */ ({ outOfRootApproved: true });
+    await writeFile({ path: `${outsideRoot}/above.svg`, content: SVG, ...approved });
+    await writeFile({ path: `${outsideRoot}/page/beside.svg`, content: SVG, ...approved });
+    await writeFile({ path: `${outsideRoot}/page/index.html`, content: ASSET_PAGE, ...approved });
+    const absPath = `${outsideRoot}/page/index.html`;
+    /**
+     * @param {Record<string, any>} [access] - Why the path is readable
+     * @returns {import('juggler/file-source').FileSource} The page as a source
+     */
+    const outsideSource = (access) => {
+      return createFileSource({ path: absPath, absPath, size: ASSET_PAGE.length, text: ASSET_PAGE, exists: true, access });
+    };
+
+    const unapproved = await render(outsideSource());
+    try {
+      tally(check(!unapproved.host.querySelector('iframe'),
+        'an unapproved page outside the project must fall back to source', errors));
+    } finally {
+      dispose(unapproved);
+    }
+
+    const host = document.createElement('div');
+    document.body.append(host);
+    const report = imageReport(host, 8000);
+    const teardown = await new HtmlFileViewer().render(outsideSource({ userInitiated: true }), host,
+      { signal: new AbortController().signal });
+    try {
+      tally(check(!!host.querySelector('iframe'),
+        `an approved page outside the project should preview, got ${JSON.stringify(host.textContent?.slice(0, 120))}`, errors));
+      const widths = await report;
+      tally(check(JSON.stringify(widths) === '[4,0]',
+        `the approved page's sibling image should load and its ../ image should not, got ${JSON.stringify(widths)}`, errors));
+    } finally {
+      if (typeof teardown === 'function') teardown();
+      host.remove();
+    }
+  } finally {
+    if (outsideRoot) await shell({ command: `rm -rf '${outsideRoot}'` }).catch(() => {});
   }
 
   // What the model reads is exactly what the text viewer would have given it.

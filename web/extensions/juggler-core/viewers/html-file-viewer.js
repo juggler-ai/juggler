@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import FileViewer from 'juggler/file-viewer';
-import { extensionOf } from 'juggler/file-source';
+import { allowFileOutsideProject, extensionOf } from 'juggler/file-source';
 import { createFileContentBlock, formatFileContentForLLM } from 'juggler/item-utils';
 import { injectStylesOnce } from 'juggler/ui';
 import { translator } from 'juggler/i18n';
@@ -127,7 +127,8 @@ async function probe(url, signal) {
  * scripts, styles, the files it links relatively and any libraries it pulls
  * from a CDN load as they would opened from its folder in a browser tab. It is shown as source instead wherever a preview would be
  * untrue or cannot load: a partial read, a source with no server URL, or a path
- * the server will not serve.
+ * the server will not serve. A file outside the project is served once the
+ * user has chosen to view it, so it previews too.
  * @augments FileViewer
  */
 class HtmlFileViewer extends FileViewer {
@@ -218,7 +219,13 @@ class HtmlFileViewer extends FileViewer {
     };
 
     const target = previewTarget(source);
-    const refusal = 'url' in target ? await probe(target.url, ctx.signal) : target.reason;
+    let refusal = 'url' in target ? await probe(target.url, ctx.signal) : target.reason;
+    // A file outside the project that the user chose to view is refused until
+    // the server is told so; then it serves the file and its folder.
+    if (refusal && 'url' in target && (source.access?.userInitiated || source.access?.outOfRootApproved)
+      && await allowFileOutsideProject(source.absPath, source.access, ctx.signal)) {
+      refusal = await probe(target.url, ctx.signal);
+    }
     if (refusal || !('url' in target)) {
       await showSource(refusal);
     } else {

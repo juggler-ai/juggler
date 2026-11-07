@@ -111,8 +111,9 @@ export function fileContentURL(absPath) {
  * page framed from it resolves its relative links (`img.png`, `../style.css`)
  * to the files beside it, still under the route and still carrying the token —
  * which is why the token is a path segment rather than a query parameter a
- * relative URL would drop. The server holds it to the project root exactly as
- * it does the query route.
+ * relative URL would drop. The server holds it to the project root, and the
+ * folders {@link allowFileOutsideProject} added, exactly as it does the query
+ * route.
  * @param {string} absPath - Absolute file path (POSIX, or Windows with a drive letter)
  * @returns {string} Token-bearing tree URL, or '' when the path is not absolute
  */
@@ -185,6 +186,35 @@ export async function fetchFileBytes(absPath, signal, access = {}) {
     throw new Error(`Failed to read ${absPath} (HTTP ${response.status})`);
   }
   return new Uint8Array(await response.arrayBuffer());
+}
+
+/**
+ * Let the GET routes serve a file outside the project, and the rest of its
+ * folder, so a page framed from {@link fileTreeURL} loads with the images and
+ * styles beside it. Like {@link fetchFileBytes} it carries the token in a header
+ * and the access in the body, and the server allows exactly what that read
+ * would return.
+ * @param {string} absPath - Absolute file path
+ * @param {FileAccess} access - Why the out-of-project path is readable
+ * @param {AbortSignal} [signal] - Abort signal
+ * @returns {Promise<boolean>} True when the server now serves it
+ */
+export async function allowFileOutsideProject(absPath, access, signal) {
+  /** @type {Record<string, string>} */
+  const headers = { 'Content-Type': 'application/json' };
+  const token = apiToken();
+  if (token) headers['X-Juggler-Token'] = token;
+  try {
+    const response = await fetch(apiUrl('/session/files/allow'), {
+      method: 'POST',
+      headers,
+      signal,
+      body: JSON.stringify({ path: absPath, ...access }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 /**

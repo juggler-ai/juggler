@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"juggler/cmd/juggler/ops"
 )
@@ -25,12 +27,44 @@ const MaxFileContentBytes = 100 << 20
 // provider func.
 type FilesAPI struct {
 	pathProvider func() string
+
+	// allowed are the folders outside the project the GET routes also serve,
+	// one per file the user chose to view (see HandlePostFileAllow). They last
+	// as long as the server. The slice is replaced whole, never appended to in
+	// place, so a reader's copy never changes under it.
+	allowed atomic.Pointer[[]string]
 }
 
 // NewFilesAPI creates the file-content handler. pathProvider must return the
 // current project path on each call.
 func NewFilesAPI(pathProvider func() string) *FilesAPI {
 	return &FilesAPI{pathProvider: pathProvider}
+}
+
+// allowedRoots returns the folders the GET routes serve beside the project.
+func (api *FilesAPI) allowedRoots() []string {
+	if roots := api.allowed.Load(); roots != nil {
+		return *roots
+	}
+	return nil
+}
+
+// allow adds dir to the folders the GET routes serve.
+func (api *FilesAPI) allow(dir string) {
+	for {
+		old := api.allowed.Load()
+		var roots []string
+		if old != nil {
+			roots = *old
+		}
+		if slices.Contains(roots, dir) {
+			return
+		}
+		next := append(slices.Clip(roots), dir)
+		if api.allowed.CompareAndSwap(old, &next) {
+			return
+		}
+	}
 }
 
 // HandleGetFileContent streams a file's raw bytes so a file viewer can render it
@@ -45,12 +79,12 @@ func NewFilesAPI(pathProvider func() string) *FilesAPI {
 //   - The path is resolved through the SAME helper the read op uses
 //     (ops.PathScope), never a bare filepath.Join, so traversal and symlink
 //     escapes are rejected by the shared, tested implementation.
-//   - Containment is to the project root ONLY. The read op's escape hatches
+//   - Containment is to the project root, plus the folder of each file the user
+//     chose to view (HandlePostFileAllow). The read op's escape hatches
 //     (userInitiated, outOfRootApproved) are NOT honoured here: they would have
 //     to arrive as query parameters, where anything holding the token could
-//     forge them and turn this into an arbitrary-file read. A viewer that needs
-//     an out-of-project file uses the conversation asset store instead, which is
-//     content-addressed and already scoped to what the user approved.
+//     forge them and turn this into an arbitrary-file read. They are honoured
+//     only by the header-authenticated POST that adds a folder.
 //   - Directories are refused, and the response is served with an explicit
 //     Content-Type plus nosniff so the browser cannot be talked into treating a
 //     file as script.
@@ -125,9 +159,9 @@ func (api *FilesAPI) serveProjectFile(w http.ResponseWriter, r *http.Request, re
 		return
 	}
 
-	// Resolve (not ResolveRead): containment to the project root is the policy
-	// boundary for this route — see the SECURITY note above.
-	scope := ops.NewPathScope(projectPath, nil)
+	// Resolve (not ResolveRead): containment to the project root and the allowed
+	// folders is the policy boundary for this route — see the SECURITY note above.
+	scope := ops.NewPathScope(projectPath, api.allowedRoots())
 	result, err := scope.Resolve(requested)
 	if err != nil || result == nil || !result.IsValid {
 		http.Error(w, "path is outside the project", http.StatusForbidden)
@@ -185,6 +219,44 @@ type FileBytesRequest struct {
 	UserInitiated     bool     `json:"userInitiated,omitempty"`
 	OutOfRootApproved bool     `json:"outOfRootApproved,omitempty"`
 	AllowedPaths      []string `json:"allowedPaths,omitempty"`
+}
+
+// HandlePostFileAllow lets the GET routes serve a file outside the project that
+// the user chose to view, together with the rest of its folder — so a page
+// framed from the tree route loads the images, styles and scripts beside it.
+// The body is a FileBytesRequest and is held to exactly what HandlePostFileBytes
+// would serve, under the same header-only authentication, so it grants nothing
+// that route does not: it moves an approval the user already gave onto the URL
+// a frame can load.
+func (api *FilesAPI) HandlePostFileAllow(w http.ResponseWriter, r *http.Request) {
+	var req FileBytesRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Path == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	projectPath := api.pathProvider()
+	if projectPath == "" {
+		http.Error(w, "no project loaded", http.StatusConflict)
+		return
+	}
+	absPath, err := ops.NewPathScope(projectPath, req.AllowedPaths).
+		ResolveRead(req.Path, req.UserInitiated, req.OutOfRootApproved)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	info, err := os.Stat(absPath)
+	if err != nil || info.IsDir() {
+		http.Error(w, "not a file", http.StatusBadRequest)
+		return
+	}
+
+	api.allow(filepath.Dir(absPath))
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // HandlePostFileBytes returns a file's raw bytes to a viewer that the streaming

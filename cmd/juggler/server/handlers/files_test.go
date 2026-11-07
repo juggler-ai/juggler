@@ -328,6 +328,48 @@ func TestFileBytesHonoursEscapeHatches(t *testing.T) {
 	}
 }
 
+// TestFileAllowServesTheFolderOnly: a file outside the project the user chose to
+// view is served by the GET routes together with its folder, and nothing above
+// it; without an escape hatch nothing is allowed at all.
+func TestFileAllowServesTheFolderOnly(t *testing.T) {
+	api, _, secret := newFilesTestAPI(t)
+	dir := filepath.Join(filepath.Dir(secret), "pages")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	page := filepath.Join(dir, "index.html")
+	sibling := filepath.Join(dir, "img.svg")
+	for _, p := range []string{page, sibling} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	allow := func(req FileBytesRequest) int {
+		encoded, _ := json.Marshal(req)
+		rec := httptest.NewRecorder()
+		api.HandlePostFileAllow(rec, httptest.NewRequest(http.MethodPost, "/api/session/files/allow", bytes.NewReader(encoded)))
+		return rec.Code
+	}
+
+	if code := allow(FileBytesRequest{Path: page}); code != http.StatusForbidden {
+		t.Fatalf("allow without an escape hatch: status %d, want 403", code)
+	}
+	if rec := serveFileTree(api, page); rec.Code == http.StatusOK {
+		t.Fatalf("a refused allow still served the page")
+	}
+	if code := allow(FileBytesRequest{Path: page, UserInitiated: true}); code != http.StatusNoContent {
+		t.Fatalf("allow: status %d, want 204", code)
+	}
+	for _, p := range []string{page, sibling} {
+		if rec := serveFileTree(api, p); rec.Code != http.StatusOK {
+			t.Errorf("%s: status %d, want 200 once allowed", p, rec.Code)
+		}
+	}
+	if rec := serveFileTree(api, secret); rec.Code == http.StatusOK || strings.Contains(rec.Body.String(), "TOP SECRET") {
+		t.Errorf("the folder above the allowed one streamed (status %d)", rec.Code)
+	}
+}
+
 // TestFileBytesFailureModes: each refusal keeps its own status so a viewer can
 // tell "not found" from "refused" from "no project".
 func TestFileBytesFailureModes(t *testing.T) {

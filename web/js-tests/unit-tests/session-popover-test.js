@@ -343,6 +343,36 @@ export async function runTests() {
     }
   });
 
+  // The chip is in the window's drag region: a window dragged by it ends in a
+  // click on it, which is no press; a press that stays put, or the keyboard's,
+  // still is.
+  await test('a click that ends a window drag by the chip opens nothing', () => {
+    const { chip, done } = mount();
+    /**
+     * Press the chip at one screen point and let go at another, then click.
+     * @param {number} x - Where it is let go.
+     */
+    const pressAndRelease = (x) => {
+      chip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, screenX: 200, screenY: 40 }));
+      document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, screenX: x, screenY: 40 }));
+      document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, screenX: x, screenY: 40 }));
+      chip.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    };
+    try {
+      pressAndRelease(420);
+      assert(!popover(), 'a window dragged by the chip opened the list');
+      pressAndRelease(201);
+      assert(!!popover(), 'a press that stayed put did not open the list');
+      pressAndRelease(201);
+      assert(!popover(), 'a second press did not close it');
+      pressAndRelease(420);
+      chip.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 }));
+      assert(!!popover(), 'a click from the keyboard after a drag did not open the list');
+    } finally {
+      done();
+    }
+  });
+
   await test('↵ on this window stays put; on another moves the window there, and ⌘↵ asks for a new window', async () => {
     const { calls, chip, done } = mount();
     try {

@@ -290,40 +290,57 @@ export async function runTests() {
     passed++;
   } catch (e) { failed++; errors.push(`network clients: ${msg(e)}`); }
 
-  // --- 4: undo/redo sit with the project, not with the app-wide controls ---
+  // --- 4: undo/redo lead the project chip, as back/forward lead an address bar ---
   try {
     const history = served.querySelector('.header-history');
     assert(!!history, 'the header has a .header-history group');
-    assert(history?.previousElementSibling?.tagName === 'PROJECT-PATH-DISPLAY',
-      'it follows the project chip directly');
+    assert(history?.nextElementSibling?.tagName === 'PROJECT-PATH-DISPLAY',
+      'it leads the project chip directly');
     assert(!!history?.querySelector('#control-undo-button') && !!history?.querySelector('#control-redo-button'),
       'it holds undo and redo');
     assert(!served.querySelector('header-actions #control-undo-button, header-actions #control-redo-button'),
       'and the app-wide cluster no longer does');
 
-    // Wide: the free space opens AFTER undo/redo, so they hug the chip.
+    // Wide: undo/redo hug the chip's left, the new-window button its right, and
+    // the open space lies either side of the three.
     const wide = await framedHeader(served, 1400);
     try {
-      const chip = wide.box('project-path-display');
-      const undo = wide.box('#control-undo-button');
+      const chip = wide.box('#project-path-chip');
       const redo = wide.box('#control-redo-button');
-      const actions = wide.box('header-actions');
-      assert(undo.left - chip.right < 40,
-        `undo sits beside the chip (${Math.round(undo.left - chip.right)}px away)`);
-      assert(actions.left - redo.right > 200,
-        `the open space is between redo and the app-wide controls (${Math.round(actions.left - redo.right)}px)`);
+      const undo = wide.box('#control-undo-button');
+      const opener = wide.box('#project-new-window-button');
+      assert(redo.right <= chip.left && chip.left - redo.right < 40,
+        `redo sits just before the chip (${Math.round(chip.left - redo.right)}px away)`);
+      assert(opener.left >= chip.right && opener.left - chip.right < 40,
+        `the new-window button sits just after the chip (${Math.round(opener.left - chip.right)}px away)`);
+      assert(undo.left - wide.box('.logo').right > 200 && wide.box('header-actions').left - opener.right > 200,
+        `the open space lies either side of them (${Math.round(undo.left - wide.box('.logo').right)}px and ${Math.round(wide.box('header-actions').left - opener.right)}px)`);
 
       // Window mode: the header is a drag region, and the group must opt out.
       wide.doc.body.classList.add('window-mode');
       const drag = wide.doc.defaultView?.getComputedStyle(wide.el('#control-undo-button'))
         .getPropertyValue('--wails-draggable').trim();
       assert(drag === 'no-drag', `undo is clickable in a desktop window, not a drag handle (got "${drag}")`);
-      // The project chip is the session switcher's button, and the new-window
-      // button beside it is a button too: neither drags the window.
+      // The new-window button beside the project chip is a button: it never
+      // drags the window. The chip itself is most of the title bar's left half,
+      // so it drags the window like the wordmark; a click on it still opens the
+      // switcher (session-popover.js).
       const dragOf = (/** @type {string} */ sel) => wide.doc.defaultView?.getComputedStyle(wide.el(sel))
         .getPropertyValue('--wails-draggable').trim();
-      for (const sel of ['#project-path-chip', '#project-new-window-button']) {
-        assert(dragOf(sel) === 'no-drag', `${sel} is clickable in a desktop window (got "${dragOf(sel)}")`);
+      assert(dragOf('#project-new-window-button') === 'no-drag',
+        `the new-window button is clickable in a desktop window (got "${dragOf('#project-new-window-button')}")`);
+      assert(dragOf('#project-path-chip') === 'drag',
+        `the project chip is part of the drag region (got "${dragOf('#project-path-chip')}")`);
+      // The runtime drags only from a press inside its target's client box,
+      // which an inline span's is not, so a press on the path's text must land
+      // on the chip itself.
+      const pathText = wide.el('#project-path-chip .ppd-path');
+      pathText.innerHTML = '<span class="ppd-dir">/a/parent/</span><span class="ppd-name">project</span>';
+      for (const part of ['.ppd-dir', '.ppd-name']) {
+        const r = wide.el(`#project-path-chip ${part}`).getBoundingClientRect();
+        const hit = wide.doc.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        assert(hit === wide.el('#project-path-chip'),
+          `a press on the path's ${part} lands on the chip, not <${hit?.localName} class="${hit?.className}">`);
       }
       // The wordmark drags the window like the rest of the title bar; a click
       // on it still opens the About box (components/app-wordmark.js).
@@ -365,6 +382,57 @@ export async function runTests() {
     }
     passed++;
   } catch (e) { failed++; errors.push(`history group: ${msg(e)}`); }
+
+  // --- 4b: the project chip is the window's title, centred on the window ---
+  // As a browser centres its address bar and VS Code its command centre: on the
+  // window, not the space left over, so the traffic-light gutter of a Mac
+  // window does not pull it right. Where there is no room for that, it gives
+  // way toward the side with more space and never overlaps either end.
+  try {
+    /**
+     * @param {number} width - The frame's width.
+     * @param {{mac?: boolean, path?: string}} [o] - A Mac desktop window; the path shown.
+     * @returns {Promise<Record<string, DOMRect>>} The boxes that matter.
+     */
+    const layoutAt = async (width, { mac = false, path = '/Users/someone/code/project' } = {}) => {
+      const f = await framedHeader(served, width);
+      try {
+        if (mac) {
+          f.doc.documentElement.dataset.windowPlatform = 'mac';
+          f.doc.documentElement.dataset.windowMode = '1';
+          f.doc.body.classList.add('window-mode');
+        }
+        const cut = path.lastIndexOf('/') + 1;
+        f.el('.ss-chip-tile').textContent = 'PR';
+        f.el('.ppd-path').innerHTML = `<span class="ppd-dir">${path.slice(0, cut)}</span><span class="ppd-name">${path.slice(cut)}</span>`;
+        return Object.fromEntries(/** @type {const} */ ([
+          ['logo', '.logo'], ['undo', '#control-undo-button'], ['chip', '#project-path-chip'],
+          ['opener', '#project-new-window-button'], ['actions', 'header-actions'],
+        ]).map(([k, sel]) => [k, f.box(sel)]));
+      } finally {
+        f.frame.remove();
+      }
+    };
+    const centre = (/** @type {DOMRect} */ r) => r.left + r.width / 2;
+    for (const [width, mac, path] of /** @type {const} */ ([
+      [1400, false, undefined], [2000, false, undefined], [1400, true, undefined],
+      [1400, false, '/a/much/longer/path/to/a/project/somewhere/deep'],
+    ])) {
+      const b = await layoutAt(width, { mac, path });
+      const where = `${width}px${mac ? ', Mac window' : ''}${path ? ', long path' : ''}`;
+      assert(Math.abs(centre(b.chip) - width / 2) < 1,
+        `${where}: the chip is centred on the window (its centre at ${Math.round(centre(b.chip))}, the window's at ${width / 2})`);
+    }
+    for (const width of [1000, 800, 640]) {
+      for (const path of [undefined, '/a/much/longer/path/to/a/project/somewhere/deep']) {
+        const b = await layoutAt(width, { path });
+        const where = `${width}px${path ? ', long path' : ''}`;
+        assert(b.logo.right <= b.undo.left && b.opener.right <= b.actions.left,
+          `${where}: nothing overlaps (wordmark ends ${Math.round(b.logo.right)}, undo starts ${Math.round(b.undo.left)}; new-window ends ${Math.round(b.opener.right)}, controls start ${Math.round(b.actions.left)})`);
+      }
+    }
+    passed++;
+  } catch (e) { failed++; errors.push(`centred chip: ${msg(e)}`); }
 
   // --- 5: the app-wide controls are grouped, and the groups spread with room ---
   try {

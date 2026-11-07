@@ -125,10 +125,11 @@
     color: var(--text-secondary);
 }
 
+/* The glyph's size is a container's to set (--btn-circular-icon-size). */
 .btn-circular-control svg {
     display: block;
-    width: 1rem;
-    height: 1rem;
+    width: var(--btn-circular-icon-size, 1rem);
+    height: var(--btn-circular-icon-size, 1rem);
     flex-shrink: 0;
     fill: currentcolor;
     transition: fill var(--transition-base);
@@ -181,11 +182,14 @@
     transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base), transform var(--transition-base);
 }
 
+/* A container that draws its own box around ghost buttons (the header's zoom
+   stepper) sets --btn-ghost-hover-bg and --btn-ghost-hover-border, so a hovered
+   button shades within that box rather than standing out of it. */
 .btn-ghost:hover:not(:disabled),
 .btn-ghost:active:not(:disabled),
 .close-button:hover:not(:disabled) {
-    background: var(--overlay-dark-70);
-    border-color: var(--overlay-light-30);
+    background: var(--btn-ghost-hover-bg, var(--overlay-dark-70));
+    border-color: var(--btn-ghost-hover-border, var(--overlay-light-30));
     color: var(--text-primary);
     transform: none;
 }
@@ -221,8 +225,8 @@
 :root[data-theme="light"] .btn-ghost:hover:not(:disabled),
 :root[data-theme="light"] .btn-ghost:active:not(:disabled),
 :root[data-theme="light"] .close-button:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--bg-secondary) 95%, transparent);
-    border-color: var(--text-tertiary);
+    background: var(--btn-ghost-hover-bg, color-mix(in srgb, var(--bg-secondary) 95%, transparent));
+    border-color: var(--btn-ghost-hover-border, var(--text-tertiary));
 }
 
 /* ==========================================================================

@@ -92,6 +92,8 @@
 			"layer": "layout",
 			"owns": [
 				"app-header",
+				"app-header--titled",
+				"app-header__centre",
 				"header-*"
 			]
 		},

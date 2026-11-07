@@ -20,7 +20,9 @@
  *
  * **A click on the chip opens the same list to stay**, lit on this window: the
  * filter has the keyboard, and Escape or a click outside leaves the window
- * exactly where it was. Nothing navigates until something is picked — the
+ * exactly where it was. The chip is part of the window's drag region too, and
+ * the click that ends a window drag by it opens nothing (drag-guard.js).
+ * Nothing navigates until something is picked — the
  * machine server retires an idle session about 10 s after its last viewer
  * leaves, so a switcher that moved the window to look would end the project it
  * came from.
@@ -39,6 +41,7 @@
 import HoldToCycleController, { popupAwareShouldHandle } from '../services/hold-to-cycle.js';
 import { isMac } from '../services/key-shortcut-manager.js';
 import { registerOpenPopup } from '../utils/popup-manager.js';
+import { dragGuard } from '../utils/drag-guard.js';
 import { machineFeed } from '../services/machine-feed.js';
 import {
   goTo, moveToServerPage, navigationSurface, ownProjectLink, flushBoundDrafts,
@@ -112,7 +115,10 @@ export class SessionPopover {
       onSettle: () => this._open(false),
       onCancel: () => this.close(),
     });
-    this._onChip = () => {
+    this._chipDrag = dragGuard();
+    this._onChip = (/** @type {MouseEvent} */ e) => {
+      // A click from the keyboard (detail 0) follows no press to measure.
+      if (e.detail > 0 && this._chipDrag.dragged()) return;
       if (this._sw) this.close();
       else this._open(false);
     };
@@ -139,6 +145,7 @@ export class SessionPopover {
     const { chip } = this._deps;
     chip.setAttribute('aria-haspopup', 'dialog');
     chip.setAttribute('aria-expanded', 'false');
+    chip.addEventListener('pointerdown', this._chipDrag.watch);
     chip.addEventListener('click', this._onChip);
     this._controller.init();
   }
@@ -147,6 +154,7 @@ export class SessionPopover {
   destroy() {
     this.close();
     this._controller.destroy();
+    this._deps.chip.removeEventListener('pointerdown', this._chipDrag.watch);
     this._deps.chip.removeEventListener('click', this._onChip);
   }
 

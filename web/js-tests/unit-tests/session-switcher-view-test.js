@@ -147,7 +147,27 @@ export async function runTests() {
     }
   };
 
-  await test('rows carry the tile and its marks, their tags and status, and no buttons at rest but ×', () => {
+  // Stopping a session is the page's to offer, by a button that says so; the
+  // popover is for switching, and a stray click in it never ends a session.
+  await test('the page\'s session rows have a Stop button; the popover\'s have none', () => {
+    const page = mount({ mode: 'page' });
+    try {
+      const stop = rowOf(page.sw, 's:beta').querySelector('button.ss-stop');
+      assert(stop?.textContent === 'Stop', `the page's row ends in ${stop ? `"${stop.textContent}"` : 'no button'}`);
+      assert(stop?.getAttribute('aria-label') === 'Stop beta', `it names what it stops — got ${stop?.getAttribute('aria-label')}`);
+    } finally {
+      page.done();
+    }
+    const pop = mount();
+    try {
+      const buttons = [...pop.sw.el.querySelectorAll('.ss-row button')].map((b) => b.className);
+      assert(buttons.length === 0, `the popover's rows have buttons: ${buttons.join()}`);
+    } finally {
+      pop.done();
+    }
+  });
+
+  await test('rows carry the tile and its marks, their tags and status, and no buttons at rest', () => {
     const { sw, done } = mount({
       tweak: (m) => {
         m.sessions[3].attention = { waiting: 2, working: 0, failed: 0, items: [] };
@@ -168,10 +188,9 @@ export async function runTests() {
       assert(rowOf(sw, 's:here').querySelector('.ss-tag-here')?.textContent === 'this window', 'this window is tagged');
       assert(rowOf(sw, 's:gamma').querySelector('.ss-tag-other')?.textContent?.trim() === 'other window', 'another window is tagged');
       for (const row of sw.el.querySelectorAll('.ss-row')) {
-        const buttons = [...row.querySelectorAll('button')].filter((b) => !b.classList.contains('ss-x'));
+        const buttons = [...row.querySelectorAll('button')];
         assert(buttons.length === 0, `${/** @type {HTMLElement} */ (row).dataset.key} has buttons at rest`);
       }
-      assert(!!beta.querySelector('.ss-x'), 'a session row has its ×');
       const betaPath = beta.querySelector('.ss-top .ss-path')?.textContent;
       assert(betaPath === '/code/beta', `a session row shows its project's path beside its name — got ${betaPath}`);
       const recent = rowOf(sw, 'r:/code/old1');
@@ -203,6 +222,43 @@ export async function runTests() {
       assert(calls.at(-1) === 'recent:/code/old2:new', calls.join());
     } finally {
       done();
+    }
+  });
+
+  // The popover is a menu: the lit row follows a pointer that moves, but not
+  // the mousemove a still pointer gets when the list scrolls or opens under it.
+  // The page is a page: the pointer never takes the keys' row.
+  await test('the pointer lights a row in the popover only when it moves, and never on the page', () => {
+    /**
+     * @param {SessionSwitcher} sw
+     * @param {string} key
+     * @param {number} x
+     */
+    const move = (sw, key, x) => {
+      rowOf(sw, key).dispatchEvent(new MouseEvent('mousemove', { bubbles: true, screenX: x, screenY: 50 }));
+    };
+    const pop = mount();
+    try {
+      move(pop.sw, 's:gamma', 10);
+      assert(lit(pop.sw) === 's:here', `a pointer that has not moved yet lit ${lit(pop.sw)}`);
+      move(pop.sw, 's:gamma', 12);
+      assert(lit(pop.sw) === 's:gamma', `a moving pointer lit ${lit(pop.sw)}`);
+      press(pop.sw, 'ArrowDown');
+      const keyed = lit(pop.sw);
+      move(pop.sw, 's:gamma', 12);
+      assert(lit(pop.sw) === keyed, `a still pointer took ${keyed}'s light for ${lit(pop.sw)}`);
+    } finally {
+      pop.done();
+    }
+    const page = mount({ mode: 'page' });
+    try {
+      const before = lit(page.sw);
+      move(page.sw, 's:gamma', 10);
+      move(page.sw, 's:gamma', 40);
+      move(page.sw, 's:beta', 80);
+      assert(lit(page.sw) === before, `the pointer moved the page's lit row from ${before} to ${lit(page.sw)}`);
+    } finally {
+      page.done();
     }
   });
 
@@ -264,10 +320,10 @@ export async function runTests() {
     }
   });
 
-  await test('the × stops, asking first only when a turn runs; [Stop] in the confirm stops', async () => {
-    const { sw, calls, done } = mount({ tweak: (m) => { m.sessions[1].busy = true; } });
+  await test('the page\'s Stop stops, asking first only when a turn runs; [Stop] in the confirm stops', async () => {
+    const { sw, calls, done } = mount({ mode: 'page', tweak: (m) => { m.sessions[1].busy = true; } });
     try {
-      /** @type {HTMLElement} */ (rowOf(sw, 's:gamma').querySelector('.ss-x')).click();
+      /** @type {HTMLElement} */ (rowOf(sw, 's:gamma').querySelector('.ss-stop')).click();
       assert(calls.length === 0, 'a busy session asks first');
       /** @type {HTMLElement} */ (rowOf(sw, 's:gamma').querySelector('[data-confirm="yes"]')).click();
       await settle();
@@ -277,18 +333,26 @@ export async function runTests() {
     }
   });
 
-  await test('a failed session retries on ↵ and is dismissed by ×', async () => {
-    const { sw, calls, done } = mount({ tweak: (m) => { m.sessions.push(session('broken', { state: 'error', error: 'boom', lastViewed: ago(5) })); } });
+  await test('a failed session retries on ↵ and is dismissed by the page\'s Dismiss', async () => {
+    const broken = (/** @type {any} */ m) => { m.sessions.push(session('broken', { state: 'error', error: 'boom', lastViewed: ago(5) })); };
+    const { sw, calls, done } = mount({ tweak: broken });
     try {
       press(sw, 'ArrowDown');
       assert(lit(sw) === 's:broken', `the failed session, used just before this one, is next — got ${lit(sw)}`);
       press(sw, 'Enter');
       assert(calls.join() === 'retry:broken', calls.join());
-      /** @type {HTMLElement} */ (rowOf(sw, 's:broken').querySelector('.ss-x')).click();
-      await settle();
-      assert(calls.join() === 'retry:broken,stop:broken', calls.join());
     } finally {
       done();
+    }
+    const page = mount({ mode: 'page', tweak: broken });
+    try {
+      const dismiss = /** @type {HTMLElement} */ (rowOf(page.sw, 's:broken').querySelector('.ss-stop'));
+      assert(dismiss.textContent === 'Dismiss', `a failed session's button says ${dismiss.textContent}`);
+      dismiss.click();
+      await settle();
+      assert(page.calls.join() === 'stop:broken', page.calls.join());
+    } finally {
+      page.done();
     }
   });
 

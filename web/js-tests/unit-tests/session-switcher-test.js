@@ -214,7 +214,7 @@ export async function runTests() {
     assert(line(statusParts(session('a', { state: 'stopping' }))) === 'Stopping…', 'stopping');
     const parts = statusParts(session('a', { state: 'error', error: 'port 4412 is in use' }));
     assert(parts[0].text === 'port 4412 is in use' && parts[0].tone === 'failed', JSON.stringify(parts));
-    assert(parts.some((p) => p.only === 'desk' && p.text === '↵ retry · × dismiss'), JSON.stringify(parts));
+    assert(parts.some((p) => p.only === 'desk' && p.text === '↵ to retry'), JSON.stringify(parts));
     assert(parts.some((p) => p.only === 'touch' && p.text === 'tap to retry'), JSON.stringify(parts));
   });
 

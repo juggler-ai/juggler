@@ -20,14 +20,16 @@
    left of the logo, so the rule drops out and the header falls back to its
    ordinary padding. The flag is set by utils/window-fullscreen.js. */
 :root[data-window-platform="mac"]:not([data-window-fullscreen="1"]) .window-mode .app-header {
-    padding-left: var(--window-traffic-light-gutter);
+    --app-header-pad-start: var(--window-traffic-light-gutter);
 }
 
-/* Opt interactive regions out of drag — custom property inherits into their children too */
+/* Opt interactive regions out of drag — custom property inherits into their children too.
+   The project chip stays in the drag region, as the wordmark does: it is most
+   of the title bar's left half, and the click that ends a drag by it opens
+   nothing (session-popover.js). */
 :where(.window-mode) header-actions,
 :where(.window-mode) .header-history,
 :where(.window-mode) .ppd-new-window-button,
-:where(.window-mode) .ppd-chip,
 :where(.window-mode) .sidebar-toggle-button {
     --wails-draggable: no-drag;
 }

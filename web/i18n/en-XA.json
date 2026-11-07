@@ -605,6 +605,7 @@
   "Folded {count} earlier items into a summary thread. Nothing was discarded.": "[Ƒöļðéð {count} éåŕļîéŕ îţéɱš îñţö å šûɱɱåŕý ţĥŕéåð. Ñöţĥîñĝ ŵåš ðîšçåŕðéð. ···················]",
   "Folder’s path": "[Ƒöļðéŕ’š þåţĥ ····]",
   "Follow the system setting, or hold this app to light or dark. The header button flips between light and dark without coming here.": "[Ƒöļļöŵ ţĥé šýšţéɱ šéţţîñĝ, öŕ ĥöļð ţĥîš åþþ ţö ļîĝĥţ öŕ ðåŕķ. Ţĥé ĥéåðéŕ ƀûţţöñ ƒļîþš ƀéţŵééñ ļîĝĥţ åñð ðåŕķ ŵîţĥöûţ çöɱîñĝ ĥéŕé. ····································]",
+  "Font size": "[Ƒöñţ šîžé ···]",
   "Force Reload": "[Ƒöŕçé Ŕéļöåð ····]",
   "Fork a new conversation after this reply": "[Ƒöŕķ å ñéŵ çöñṽéŕšåţîöñ åƒţéŕ ţĥîš ŕéþļý ············]",
   "Fork a new conversation from here": "[Ƒöŕķ å ñéŵ çöñṽéŕšåţîöñ ƒŕöɱ ĥéŕé ··········]",
@@ -1354,7 +1355,6 @@
   "Stop conversations and apply extension change?": "[Šţöþ çöñṽéŕšåţîöñš åñð åþþļý éẋţéñšîöñ çĥåñĝé? ··············]",
   "Stop immediately": "[Šţöþ îɱɱéðîåţéļý ·····]",
   "Stop monitor": "[Šţöþ ɱöñîţöŕ ····]",
-  "Stop session": "[Šţöþ šéššîöñ ····]",
   "Stop the current turn?": "[Šţöþ ţĥé çûŕŕéñţ ţûŕñ? ······]",
   "Stop this thread": "[Šţöþ ţĥîš ţĥŕéåð ·····]",
   "Stop this window’s session? A turn is running.": "[Šţöþ ţĥîš ŵîñðöŵ’š šéššîöñ? Å ţûŕñ îš ŕûññîñĝ. ·············]",
@@ -2072,6 +2072,6 @@
   "“{name}” is already used by another conversation.": "[“{name}” îš åļŕéåðý ûšéð ƀý åñöţĥéŕ çöñṽéŕšåţîöñ. ············]",
   "“{title}” has gone.": "[“{title}” ĥåš ĝöñé. ··]",
   "← Back": "[← Ɓåçķ ·]",
-  "↵ retry · × dismiss": "[↵ ŕéţŕý · × ðîšɱîšš ····]",
+  "↵ to retry": "[↵ ţö ŕéţŕý ··]",
   "✓ Copied!": "[✓ Çöþîéð! ··]"
 }

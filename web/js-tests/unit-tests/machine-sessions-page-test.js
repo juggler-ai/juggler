@@ -616,7 +616,7 @@ export async function runTests() {
       assert(JSON.stringify(nav.tabs) === '["/p/alpha-0123abcd/"]' && nav.went.length === 0,
         `a ⌘-click opened ${JSON.stringify(nav.tabs)} in a tab and went to ${JSON.stringify(nav.went)}`);
 
-      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.ss-x')).click();
+      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.ss-stop')).click();
       await nextTask();
       clickRow(row(m.root, 'ccc'));
       await nextTask();
@@ -633,7 +633,7 @@ export async function runTests() {
     const m = await mount(stubApi(sessions), { host, navigate: nav.navigate, openTab: nav.openTab });
     try {
       clickRow(row(m.root, 'aaa'));
-      /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('.ss-x')).click();
+      /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('.ss-stop')).click();
       await nextTask();
       assert(JSON.stringify(host.attached) === '["aaa"]', `attached ${JSON.stringify(host.attached)}`);
       assert(JSON.stringify(host.attachedLinks) === '["/p/alpha-0123abcd/"]', `attached at ${JSON.stringify(host.attachedLinks)}`);
@@ -685,7 +685,8 @@ export async function runTests() {
   });
 
   // The footer's ↵ and ⌘↵ hold wherever focus is on the page, not only in the
-  // filter: a row the pointer lights opens on ↵, and ↑↓ move from it.
+  // filter: the lit row — the keys', which a passing pointer leaves alone —
+  // opens on ↵, and ↑↓ move from it.
   await test('with the filter unfocused, ↑↓ move and ↵ opens the lit row, ⌘↵ in a new tab', async () => {
     const nav = stubNavigate();
     const m = await mount(stubApi(sessions), { navigate: nav.navigate, openTab: nav.openTab });
@@ -702,8 +703,11 @@ export async function runTests() {
     const lit = () => /** @type {HTMLElement|null} */ (m.root.querySelector('.ss-row[aria-selected="true"]'))?.dataset.key;
     try {
       /** @type {HTMLElement|null} */ (document.activeElement)?.blur?.();
-      row(m.root, 'aaa').dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
-      assert(lit() === 's:aaa', `the pointer lit ${lit()}`);
+      assert(lit() === 's:aaa', `the page opened with ${lit()} lit`);
+      for (const x of [10, 40]) {
+        row(m.root, 'bbb').dispatchEvent(new MouseEvent('mousemove', { bubbles: true, screenX: x, screenY: 50 }));
+      }
+      assert(lit() === 's:aaa', `a passing pointer lit ${lit()}`);
       const enter = onBody('Enter');
       assert(enter.defaultPrevented, '↵ was left to the page');
       assert(JSON.stringify(nav.went) === '["/p/alpha-0123abcd/"]', `↵ went to ${JSON.stringify(nav.went)}`);
@@ -732,7 +736,7 @@ export async function runTests() {
     const api = stubApi(sessions);
     const m = await mount(api);
     try {
-      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.ss-x')).click();
+      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.ss-stop')).click();
       await nextTask();
       const ask = row(m.root, 'bbb').querySelector('.ss-confirm');
       assert(!!ask && (ask.textContent || '').includes('A turn is running'), `asked ${JSON.stringify(ask?.textContent)}`);
@@ -742,13 +746,13 @@ export async function runTests() {
       assert(!row(m.root, 'bbb').querySelector('.ss-confirm'), 'Keep left the question up');
       assert(!api.calls.some((c) => c[0] === 'stop'), 'stopped a busy session the user kept');
 
-      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.ss-x')).click();
+      /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('.ss-stop')).click();
       await nextTask();
       /** @type {HTMLButtonElement} */ (row(m.root, 'bbb').querySelector('[data-confirm="yes"]')).click();
       await waitFor(() => api.calls.some((c) => c[0] === 'stop' && c[1] === 'bbb'), { description: 'the stop asked for' });
       assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'bbb'), 'did not stop after a yes');
 
-      /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('.ss-x')).click();
+      /** @type {HTMLButtonElement} */ (row(m.root, 'aaa').querySelector('.ss-stop')).click();
       assert(!row(m.root, 'aaa').querySelector('.ss-confirm'), 'asked before stopping an idle session');
       await waitFor(() => api.calls.some((c) => c[0] === 'stop' && c[1] === 'aaa'), { description: 'the stop asked for' });
       assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'aaa'), 'did not stop an idle session');
@@ -766,8 +770,8 @@ export async function runTests() {
       await waitFor(() => api.calls.some((c) => c[0] === 'open' && c[1] === '/work/delta'), { description: 'the retry asked for' });
       assert(api.calls.some((c) => c[0] === 'open' && c[1] === '/work/delta'), 'a click did not retry the project');
       // The row says Starting… while the retry runs, and has its × back after.
-      await waitFor(() => !!row(m.root, 'ddd').querySelector('.ss-x'), { description: 'the retry settled' });
-      /** @type {HTMLButtonElement} */ (row(m.root, 'ddd').querySelector('.ss-x')).click();
+      await waitFor(() => !!row(m.root, 'ddd').querySelector('.ss-stop'), { description: 'the retry settled' });
+      /** @type {HTMLButtonElement} */ (row(m.root, 'ddd').querySelector('.ss-stop')).click();
       await waitFor(() => api.calls.some((c) => c[0] === 'stop' && c[1] === 'ddd'), { description: 'the dismiss asked for' });
       assert(api.calls.some((c) => c[0] === 'stop' && c[1] === 'ddd'), '× did not dismiss the session');
     } finally {

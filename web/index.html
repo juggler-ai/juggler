@@ -332,7 +332,7 @@
 
     <app-container>
         <!-- Header -->
-        <header class="app-header">
+        <header class="app-header app-header--titled">
             <!-- Sidebar drawer toggle (hamburger). Hidden by CSS except on
                  narrow viewports, where the conversation sidebar becomes an
                  off-canvas drawer. Toggles body.sidebar-open. -->
@@ -352,50 +352,56 @@
                  that knows either. -->
             <div class="app-header__board-title" id="board-title"></div>
 
-            <!-- Project: the session's folder, as the session switcher's button
-                 (components/session-popover.js): its tinted tile, its name and
-                 the arrow it opens by — ⌘K is the switcher's key, named in the
-                 tooltip, not printed. Then an inline "open new window" button.
-                 In a browser tab, which has no app to open a window, that
-                 button opens the server's page in a tab instead
-                 (header-controls.js). -->
-            <project-path-display id="project-path-display">
-                <button class="ppd-chip ss-chip" id="project-path-chip" type="button">
-                    <span class="ss-chip-tile" aria-hidden="true"></span>
-                    <span class="ppd-path"></span>
-                    <svg class="ss-chip-caret" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true">
-                        <path d="M480-360 280-560h400L480-360Z"/>
-                    </svg>
-                </button>
-                <button class="btn-ghost ppd-new-window-button" id="project-new-window-button" type="button"
-                        title="Open a new window" aria-label="Open a new window">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true">
-                        <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h240v80H200v560h560v-240h80v240q0 33-23.5 56.5T760-120H200Zm440-400v-120H520v-80h120v-120h80v120h120v80H720v120h-80Z"/>
-                    </svg>
-                </button>
-            </project-path-display>
+            <!-- The window's title: the project chip, centred on the window as a
+                 browser centres its address bar (app-header.css,
+                 .app-header--titled), with undo/redo before it and the
+                 new-window button after. -->
+            <div class="app-header__centre">
+                <!-- Undo / Redo. They roll back the visible conversation's document,
+                     not anything app-wide, so they lead the project chip as a
+                     browser's back and forward lead its address bar. On a phone
+                     they lead the button row. -->
+                <div class="header-history">
+                    <button class="btn-ghost btn-circular-control control-undo-button" id="control-undo-button"
+                            aria-label="Undo last operation"
+                            title="Undo" data-shortcut-id="undo"
+                            disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
+                            <path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z"/>
+                        </svg>
+                    </button>
+                    <button class="btn-ghost btn-circular-control control-redo-button" id="control-redo-button"
+                            aria-label="Redo last undone operation"
+                            title="Redo" data-shortcut-id="redo"
+                            disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
+                            <path d="M396-200q-97 0-166.5-63T160-420q0-94 69.5-157T396-640h252L544-744l56-56 200 200-200 200-56-56 104-104H396q-63 0-109.5 40T240-420q0 60 46.5 100T396-280h284v80H396Z"/>
+                        </svg>
+                    </button>
+                </div>
 
-            <!-- Undo / Redo. They roll back the visible conversation's document,
-                 not anything app-wide, so they sit with the project rather than
-                 with the window's controls; the header's free space opens after
-                 them. On a phone they lead the button row. -->
-            <div class="header-history">
-                <button class="btn-ghost btn-circular-control control-undo-button" id="control-undo-button"
-                        aria-label="Undo last operation"
-                        title="Undo" data-shortcut-id="undo"
-                        disabled>
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
-                        <path d="M280-200v-80h284q63 0 109.5-40T720-420q0-60-46.5-100T564-560H312l104 104-56 56-200-200 200-200 56 56-104 104h252q97 0 166.5 63T800-420q0 94-69.5 157T564-200H280Z"/>
-                    </svg>
-                </button>
-                <button class="btn-ghost btn-circular-control control-redo-button" id="control-redo-button"
-                        aria-label="Redo last undone operation"
-                        title="Redo" data-shortcut-id="redo"
-                        disabled>
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
-                        <path d="M396-200q-97 0-166.5-63T160-420q0-94 69.5-157T396-640h252L544-744l56-56 200 200-200 200-56-56 104-104H396q-63 0-109.5 40T240-420q0 60 46.5 100T396-280h284v80H396Z"/>
-                    </svg>
-                </button>
+                <!-- Project: the session's folder, as the session switcher's button
+                     (components/session-popover.js): its tinted tile, its name and
+                     the arrow it opens by — ⌘K is the switcher's key, named in the
+                     tooltip, not printed. Then an inline "open new window" button.
+                     In a browser tab, which has no app to open a window, that
+                     button opens the server's page in a tab instead
+                     (header-controls.js). -->
+                <project-path-display id="project-path-display">
+                    <button class="ppd-chip ss-chip" id="project-path-chip" type="button">
+                        <span class="ss-chip-tile" aria-hidden="true"></span>
+                        <span class="ppd-path"></span>
+                        <svg class="ss-chip-caret" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true">
+                            <path d="M480-360 280-560h400L480-360Z"/>
+                        </svg>
+                    </button>
+                    <button class="btn-ghost ppd-new-window-button" id="project-new-window-button" type="button"
+                            title="Open a new window" aria-label="Open a new window">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true">
+                            <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h240v80H200v560h560v-240h80v240q0 33-23.5 56.5T760-120H200Zm440-400v-120H520v-80h120v-120h80v120h120v80H720v120h-80Z"/>
+                        </svg>
+                    </button>
+                </project-path-display>
             </div>
 
             <!-- Header Actions (the window's and app's controls) -->
@@ -431,22 +437,27 @@
                      tool-use rows into a single group tile that opens in the
                      next column. Display-only: the conversation is unchanged.
                      Both glyphs ship in the markup and CSS shows the one for
-                     the current state — folded while grouping is on, unfolded
-                     while it is off. -->
+                     the current state, drawn as the transcript then looks:
+                     the rows stacked into one card while grouping is on,
+                     three rows standing apart while it is off. -->
                 <button class="btn-ghost btn-icon-header tool-grouping-button" id="tool-grouping-button"
                         title="Group consecutive tool uses" aria-label="Group consecutive tool uses"
                         data-shortcut-id="toggle-tool-grouping" aria-pressed="false">
-                    <svg class="tool-grouping-fold" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true">
-                        <path d="M356-160 300-216l180-180 180 180-56 56-124-124-124 124Zm124-404L300-744l56-56 124 124 124-124 56 56-180 180Z"/>
+                    <svg class="tool-grouping-fold" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M8.75 3h6.5a0.75 0.75 0 0 1 0.75 0.75v0a0.75 0.75 0 0 1 -0.75 0.75h-6.5a0.75 0.75 0 0 1 -0.75 -0.75v0a0.75 0.75 0 0 1 0.75 -0.75ZM6.75 6.25h10.5a0.75 0.75 0 0 1 0.75 0.75v0a0.75 0.75 0 0 1 -0.75 0.75h-10.5a0.75 0.75 0 0 1 -0.75 -0.75v0a0.75 0.75 0 0 1 0.75 -0.75ZM5 9.5h14a2 2 0 0 1 2 2v7.5a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-7.5a2 2 0 0 1 2 -2ZM5 11h14a0.5 0.5 0 0 1 0.5 0.5v7.5a0.5 0.5 0 0 1 -0.5 0.5h-14a0.5 0.5 0 0 1 -0.5 -0.5v-7.5a0.5 0.5 0 0 1 0.5 -0.5Z"/>
                     </svg>
-                    <svg class="tool-grouping-unfold" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" aria-hidden="true">
-                        <path d="M480-80 300-260l56-56 124 124 124-124 56 56L480-80ZM356-644l-56-56 180-180 180 180-56 56-124-124-124 124Z"/>
+                    <svg class="tool-grouping-unfold" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M4.75 3h14.5a1.75 1.75 0 0 1 1.75 1.75v1.25a1.75 1.75 0 0 1 -1.75 1.75h-14.5a1.75 1.75 0 0 1 -1.75 -1.75v-1.25a1.75 1.75 0 0 1 1.75 -1.75ZM4.75 4.5h14.5a0.25 0.25 0 0 1 0.25 0.25v1.25a0.25 0.25 0 0 1 -0.25 0.25h-14.5a0.25 0.25 0 0 1 -0.25 -0.25v-1.25a0.25 0.25 0 0 1 0.25 -0.25ZM4.75 9.625h14.5a1.75 1.75 0 0 1 1.75 1.75v1.25a1.75 1.75 0 0 1 -1.75 1.75h-14.5a1.75 1.75 0 0 1 -1.75 -1.75v-1.25a1.75 1.75 0 0 1 1.75 -1.75ZM4.75 11.125h14.5a0.25 0.25 0 0 1 0.25 0.25v1.25a0.25 0.25 0 0 1 -0.25 0.25h-14.5a0.25 0.25 0 0 1 -0.25 -0.25v-1.25a0.25 0.25 0 0 1 0.25 -0.25ZM4.75 16.25h14.5a1.75 1.75 0 0 1 1.75 1.75v1.25a1.75 1.75 0 0 1 -1.75 1.75h-14.5a1.75 1.75 0 0 1 -1.75 -1.75v-1.25a1.75 1.75 0 0 1 1.75 -1.75ZM4.75 17.75h14.5a0.25 0.25 0 0 1 0.25 0.25v1.25a0.25 0.25 0 0 1 -0.25 0.25h-14.5a0.25 0.25 0 0 1 -0.25 -0.25v-1.25a0.25 0.25 0 0 1 0.25 -0.25Z"/>
                     </svg>
                 </button>
-                <!-- Zoom Controls — folded into the "…" menu on a narrow header -->
+                <!-- Zoom Controls — one stepper, so − and + read as a pair (a
+                     new user's cue that the text size changes). Folded into the
+                     "…" menu on a narrow header. -->
                 <div class="header-foldable">
+                <div class="header-zoom" id="header-zoom" role="group" aria-label="Font size">
                 <button class="btn-ghost btn-icon-header zoom-out-button" id="zoom-out-button" title="Decrease font size" data-shortcut-id="zoom-out" aria-label="Decrease font size"></button>
                 <button class="btn-ghost btn-icon-header zoom-in-button" id="zoom-in-button" title="Increase font size" data-shortcut-id="zoom-in" aria-label="Increase font size"></button>
+                </div>
                 </div>
 
                 <!-- Theme Button — flips between light and dark. The icon and
@@ -475,7 +486,7 @@
                 <button class="btn-ghost btn-icon-header help-button" id="help-button" title="Tips &amp; keyboard shortcuts" aria-label="Tips and keyboard shortcuts"
                         data-shortcut-id="show-shortcuts">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
-                        <path d="M478-240q21 0 35.5-14.5T528-290q0-21-14.5-35.5T478-340q-21 0-35.5 14.5T428-290q0 21 14.5 35.5T478-240Zm-36-154h74q0-33 7.5-52t42.5-52q26-26 41-49.5t15-56.5q0-56-41-86t-97-30q-57 0-92.5 30T342-618l66 26q5-18 22.5-39t53.5-21q32 0 48 17.5t16 38.5q0 20-12 37.5T506-526q-44 39-54 59t-10 73Zm38 314q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Z"/>
+                        <path d="M478-240q21 0 35.5-14.5T528-290q0-21-14.5-35.5T478-340q-21 0-35.5 14.5T428-290q0 21 14.5 35.5T478-240Zm-36-154h74q0-33 7.5-52t42.5-52q26-26 41-49.5t15-56.5q0-56-41-86t-97-30q-57 0-92.5 30T342-618l66 26q5-18 22.5-39t53.5-21q32 0 48 17.5t16 38.5q0 20-12 37.5T506-526q-44 39-54 59t-10 73Zm38 314q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z"/>
                     </svg>
                 </button>
                 </div>

@@ -605,6 +605,7 @@
   "Folded {count} earlier items into a summary thread. Nothing was discarded.": "已将 {count} 个较早的条目折叠进一个摘要线程。没有丢弃任何内容。",
   "Folder’s path": "文件夹路径",
   "Follow the system setting, or hold this app to light or dark. The header button flips between light and dark without coming here.": "跟随系统设置，或将此应用固定为浅色或深色。标题栏按钮可直接在浅色与深色之间切换，无需来这里。",
+  "Font size": "字体大小",
   "Force Reload": "强制重新加载",
   "Fork a new conversation after this reply": "在此回复之后派生新对话",
   "Fork a new conversation from here": "从此处派生新对话",
@@ -1354,7 +1355,6 @@
   "Stop conversations and apply extension change?": "停止对话并应用扩展更改？",
   "Stop immediately": "立即停止",
   "Stop monitor": "停止监视器",
-  "Stop session": "停止会话",
   "Stop the current turn?": "停止当前回合？",
   "Stop this thread": "停止此线程",
   "Stop this window’s session? A turn is running.": "停止此窗口的会话？有一轮正在运行。",
@@ -2072,6 +2072,6 @@
   "“{name}” is already used by another conversation.": "“{name}”已被另一个对话使用。",
   "“{title}” has gone.": "“{title}”已不存在。",
   "← Back": "← 返回",
-  "↵ retry · × dismiss": "↵ 重试 · × 忽略",
+  "↵ to retry": "↵ 重试",
   "✓ Copied!": "✓ 已复制！"
 }

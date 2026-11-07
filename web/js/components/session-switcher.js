@@ -179,7 +179,8 @@ export function cycleOrder(items) {
  * A session's status line, in parts: a running one's waits and failures in
  * their colours, whether it works (on what, where known) or idles, and how many
  * conversations it has; one between lives says which; a failed one says how,
- * and what ↵ and × do to it (a touch is told to tap).
+ * and that ↵ retries it (a touch is told to tap). Dismissing it is the
+ * footer's ⌘⌫, or on the server page the row's own button.
  * @param {Session} s - The session.
  * @returns {StatusPart[]} The parts, in order.
  */
@@ -187,7 +188,7 @@ export function statusParts(s) {
   if (s.state === 'error') {
     return [
       { text: s.error || t('Stopped'), tone: 'failed' },
-      { text: t('↵ retry · × dismiss'), only: 'desk' },
+      { text: t('↵ to retry'), only: 'desk' },
       { text: t('tap to retry'), only: 'touch' },
     ];
   }
@@ -225,7 +226,6 @@ function statusSpan(p) {
 /* Material Symbols paths, on the 0 -960 960 960 view box. */
 const ICON_PATHS = {
   search: 'M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T220-580q0 75 52.5 127.5T380-400Z',
-  close: 'm256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z',
   folder: 'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640H447l-80-80H160v480l96-320h684L837-217q-8 26-29.5 41.5T760-160H160Zm84-80h516l72-240H316l-72 240Zm0 0 72-240-72 240Zm-84-400v-80 80Z',
   newFolder: 'M560-320h80v-80h80v-80h-80v-80h-80v80h-80v80h80v80ZM160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h240l80 80h320q33 0 56.5 23.5T880-640v400q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H447l-80-80H160v480Zm0 0v-480 480Z',
   window: 'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H160v400Z',
@@ -369,7 +369,18 @@ export class SessionSwitcher {
       // The filter keeps the keyboard while the pointer works the list.
       if (!(/** @type {Element} */ (e.target)).closest('input, button')) e.preventDefault();
     };
+    // In the popover the lit row follows the pointer, as in a menu. Only a
+    // pointer that has moved counts: the mousemove a browser sends when the
+    // list scrolls or opens under a still pointer would take the row the
+    // keys or the default chose. On the page the lit row is the keys' alone
+    // and the pointer only shows where a click would land (.ss-row:hover).
+    /** @type {{x: number, y: number}|null} */
+    this._pointer = null;
     this._onMouseMove = (/** @type {MouseEvent} */ e) => {
+      if (this._mode !== 'popover') return;
+      const was = this._pointer;
+      this._pointer = { x: e.screenX, y: e.screenY };
+      if (!was || (was.x === e.screenX && was.y === e.screenY)) return;
       const row = /** @type {HTMLElement|null} */ ((/** @type {Element} */ (e.target)).closest('.ss-row'));
       const i = row ? Number(row.dataset.index) : -1;
       if (i >= 0 && i !== this._sel) this.select(i, false);
@@ -411,6 +422,7 @@ export class SessionSwitcher {
     this._confirmKey = null;
     this._fieldKey = null;
     this._shown = '';
+    this._pointer = null;
     this.setGesture(gesture);
     this._render(true);
     this._list.scrollTop = 0;
@@ -580,7 +592,8 @@ export class SessionSwitcher {
 
   /**
    * An open session's row: its tile and marks, its name, path and tag, its
-   * status line (or the confirm a stop asks), and its × at the end.
+   * status line (or the confirm a stop asks), and — on the page — its Stop
+   * button at the end.
    * @param {SessionItem} it
    * @returns {HTMLElement} The row.
    * @private
@@ -630,18 +643,20 @@ export class SessionSwitcher {
       for (const p of statusParts(s)) sub.append(statusSpan(p));
     }
     const meta = el('span', 'ss-meta');
+    // Stopping is the page's to offer, as a button that says so: a × reads as
+    // hiding the row, not ending the session. The popover is for switching, so
+    // a stray click there never ends one (⌘⌫ still does, said in its footer).
     /** @type {HTMLElement|null} */
-    let x = null;
-    if (s.state !== 'stopping' && !pending) {
+    let stop = null;
+    if (this._mode === 'page' && s.state !== 'stopping' && !pending) {
       const failed = s.state === 'error';
-      x = el('button', 'ss-x', [icon('close')], {
+      stop = el('button', 'ss-mini ss-stop', failed ? t('Dismiss') : t('Stop'), {
         type: 'button',
         tabindex: '-1',
-        title: failed ? t('Dismiss') : t('Stop session'),
         'aria-label': failed ? t('Dismiss {name}', { name }) : t('Stop {name}', { name }),
       });
     }
-    return this._row(wrap, top, sub, [meta, x]);
+    return this._row(wrap, top, sub, [meta, stop]);
   }
 
   /**
@@ -807,8 +822,7 @@ export class SessionSwitcher {
   /**
    * The list's own keys — ↑↓, ↵ and ⌘↵, ⌘⌫ — pressed outside the filter. The
    * server page passes on those pressed with nothing else holding the
-   * keyboard, so the footer's hints hold wherever focus is, as on a row the
-   * pointer lit.
+   * keyboard, so the footer's hints hold wherever focus is.
    * @param {KeyboardEvent} e
    * @returns {boolean} Whether it was one of them, and is taken.
    */
@@ -832,7 +846,7 @@ export class SessionSwitcher {
   }
 
   /**
-   * A click in the list: a confirm's buttons, a ×, or a row.
+   * A click in the list: a confirm's buttons, a Stop, or a row.
    * @param {MouseEvent} e
    * @private
    */
@@ -851,7 +865,7 @@ export class SessionSwitcher {
       }
       return;
     }
-    if (target.closest('.ss-x') && it.kind === 'session') {
+    if (target.closest('.ss-stop') && it.kind === 'session') {
       this._remove(it);
       return;
     }
@@ -902,7 +916,7 @@ export class SessionSwitcher {
   }
 
   /**
-   * The × or ⌘⌫: dismiss a failed session; stop any other, asking first only
+   * Stop or ⌘⌫: dismiss a failed session; stop any other, asking first only
    * when a turn is running in it.
    * @param {SessionItem} it
    * @private

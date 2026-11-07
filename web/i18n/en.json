@@ -605,6 +605,7 @@
   "Folded {count} earlier items into a summary thread. Nothing was discarded.": "Folded {count} earlier items into a summary thread. Nothing was discarded.",
   "Folder’s path": "Folder’s path",
   "Follow the system setting, or hold this app to light or dark. The header button flips between light and dark without coming here.": "Follow the system setting, or hold this app to light or dark. The header button flips between light and dark without coming here.",
+  "Font size": "Font size",
   "Force Reload": "Force Reload",
   "Fork a new conversation after this reply": "Fork a new conversation after this reply",
   "Fork a new conversation from here": "Fork a new conversation from here",
@@ -1354,7 +1355,6 @@
   "Stop conversations and apply extension change?": "Stop conversations and apply extension change?",
   "Stop immediately": "Stop immediately",
   "Stop monitor": "Stop monitor",
-  "Stop session": "Stop session",
   "Stop the current turn?": "Stop the current turn?",
   "Stop this thread": "Stop this thread",
   "Stop this window’s session? A turn is running.": "Stop this window’s session? A turn is running.",
@@ -2072,6 +2072,6 @@
   "“{name}” is already used by another conversation.": "“{name}” is already used by another conversation.",
   "“{title}” has gone.": "“{title}” has gone.",
   "← Back": "← Back",
-  "↵ retry · × dismiss": "↵ retry · × dismiss",
+  "↵ to retry": "↵ to retry",
   "✓ Copied!": "✓ Copied!"
 }

@@ -605,6 +605,7 @@
   "Folded {count} earlier items into a summary thread. Nothing was discarded.": "{count} itens anteriores foram agrupados numa thread de resumo. Nada foi descartado.",
   "Folder’s path": "Caminho da pasta",
   "Follow the system setting, or hold this app to light or dark. The header button flips between light and dark without coming here.": "Seguir a configuração do sistema, ou manter este app claro ou escuro. O botão do cabeçalho alterna entre claro e escuro sem precisar vir aqui.",
+  "Font size": "Tamanho da fonte",
   "Force Reload": "Forçar Recarregamento",
   "Fork a new conversation after this reply": "Ramificar uma nova conversa após esta resposta",
   "Fork a new conversation from here": "Ramificar uma nova conversa a partir daqui",
@@ -1354,7 +1355,6 @@
   "Stop conversations and apply extension change?": "Parar as conversas e aplicar a alteração da extensão?",
   "Stop immediately": "Parar imediatamente",
   "Stop monitor": "Parar monitor",
-  "Stop session": "Parar a sessão",
   "Stop the current turn?": "Parar o turno atual?",
   "Stop this thread": "Parar esta thread",
   "Stop this window’s session? A turn is running.": "Parar a sessão desta janela? Um turno está em andamento.",
@@ -2072,6 +2072,6 @@
   "“{name}” is already used by another conversation.": "“{name}” já está sendo usado por outra conversa.",
   "“{title}” has gone.": "“{title}” não existe mais.",
   "← Back": "← Voltar",
-  "↵ retry · × dismiss": "↵ tentar novamente · × dispensar",
+  "↵ to retry": "↵ tentar novamente",
   "✓ Copied!": "✓ Copiado!"
 }

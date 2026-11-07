@@ -605,6 +605,7 @@
   "Folded {count} earlier items into a summary thread. Nothing was discarded.": "それ以前の {count} 項目を要約スレッドにまとめました。破棄されたものはありません。",
   "Folder’s path": "フォルダのパス",
   "Follow the system setting, or hold this app to light or dark. The header button flips between light and dark without coming here.": "システム設定に従うか、このアプリをライトまたはダークに固定します。ヘッダーのボタンでも、ここに来ずにライトとダークを切り替えられます。",
+  "Font size": "フォントサイズ",
   "Force Reload": "強制再読み込み",
   "Fork a new conversation after this reply": "この返信の後から新しい会話を分岐",
   "Fork a new conversation from here": "ここから新しい会話を分岐",
@@ -1354,7 +1355,6 @@
   "Stop conversations and apply extension change?": "会話を停止して拡張機能の変更を適用しますか？",
   "Stop immediately": "すぐに停止",
   "Stop monitor": "モニターを停止",
-  "Stop session": "セッションを停止",
   "Stop the current turn?": "現在のターンを停止しますか？",
   "Stop this thread": "このスレッドを停止",
   "Stop this window’s session? A turn is running.": "このウインドウのセッションを停止しますか？ターンを実行中です。",
@@ -2072,6 +2072,6 @@
   "“{name}” is already used by another conversation.": "「{name}」はすでに別の会話で使用されています。",
   "“{title}” has gone.": "「{title}」はなくなりました。",
   "← Back": "← 戻る",
-  "↵ retry · × dismiss": "↵ 再試行 · × 閉じる",
+  "↵ to retry": "↵ 再試行",
   "✓ Copied!": "✓ コピーしました！"
 }

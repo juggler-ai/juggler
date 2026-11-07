@@ -203,6 +203,7 @@ function localizeHeaderMarkup(root = document) {
     ['control-undo-button', null, t('Undo last operation')],
     ['control-redo-button', null, t('Redo last undone operation')],
     ['tool-grouping-button', t('Group consecutive tool uses'), t('Group consecutive tool uses')],
+    ['header-zoom', null, t('Font size')],
     ['zoom-out-button', t('Decrease font size'), t('Decrease font size')],
     ['zoom-in-button', t('Increase font size'), t('Increase font size')],
     ['bell-button', t('Toggle notification sounds'), t('Toggle notification sounds')],
@@ -289,16 +290,29 @@ export function setupHeaderControls(session) {
 
   // The chip is the session switcher's button (session-popover.js): the
   // project's tile on its hue, as the switcher's rows draw it, and its whole
-  // path — or, where the header has no room for that, its folder's name. The
-  // title gives the whole path and the switcher's key.
+  // path — the parent folders muted (.ppd-dir) before the folder's name
+  // (.ppd-name) — or, where the header has no room for that, the name alone.
+  // The title gives the whole path and the switcher's key.
   const pathTile = /** @type {HTMLElement|null} */ (pathChip?.querySelector('.ss-chip-tile') ?? null);
   let shownPath = '';
   // Tried whole first, and measured in the same frame, so a narrowed label
   // never paints the cut path before its name replaces it.
   const fitPathLabel = () => {
     if (!pathLabel) return;
-    pathLabel.textContent = shownPath;
-    if (pathLabel.scrollWidth > pathLabel.clientWidth) pathLabel.textContent = baseName(shownPath);
+    const name = baseName(shownPath);
+    const dir = name && shownPath.endsWith(name) ? shownPath.slice(0, -name.length) : '';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'ppd-name';
+    nameEl.textContent = dir ? name : shownPath;
+    if (!dir) {
+      pathLabel.replaceChildren(nameEl);
+      return;
+    }
+    const dirEl = document.createElement('span');
+    dirEl.className = 'ppd-dir';
+    dirEl.textContent = dir;
+    pathLabel.replaceChildren(dirEl, nameEl);
+    if (pathLabel.scrollWidth > pathLabel.clientWidth) dirEl.remove();
   };
   // The header's width is what the chip gets to share: watched rather than
   // the chip's, whose width follows the label this sets.

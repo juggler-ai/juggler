@@ -605,6 +605,7 @@
   "Folded {count} earlier items into a summary thread. Nothing was discarded.": "이전 항목 {count}개를 요약 스레드로 접었습니다. 폐기된 것은 없습니다.",
   "Folder’s path": "폴더 경로",
   "Follow the system setting, or hold this app to light or dark. The header button flips between light and dark without coming here.": "시스템 설정을 따르거나, 이 앱을 밝게 또는 어둡게 고정합니다. 헤더 버튼으로 여기에 오지 않고도 밝게와 어둡게를 전환할 수 있습니다.",
+  "Font size": "글꼴 크기",
   "Force Reload": "강제 새로 고침",
   "Fork a new conversation after this reply": "이 응답 이후로 새 대화 분기",
   "Fork a new conversation from here": "여기서 새 대화 분기",
@@ -1354,7 +1355,6 @@
   "Stop conversations and apply extension change?": "대화를 중지하고 확장 변경 사항을 적용하시겠습니까?",
   "Stop immediately": "즉시 중지",
   "Stop monitor": "모니터 중지",
-  "Stop session": "세션 중지",
   "Stop the current turn?": "현재 턴을 중지하시겠습니까?",
   "Stop this thread": "이 스레드 중지",
   "Stop this window’s session? A turn is running.": "이 창의 세션을 중지할까요? 턴이 실행 중입니다.",
@@ -2072,6 +2072,6 @@
   "“{name}” is already used by another conversation.": "“{name}”은(는) 이미 다른 대화에서 사용 중입니다.",
   "“{title}” has gone.": "“{title}”이(가) 사라졌습니다.",
   "← Back": "← 뒤로",
-  "↵ retry · × dismiss": "↵ 다시 시도 · × 닫기",
+  "↵ to retry": "↵ 다시 시도",
   "✓ Copied!": "✓ 복사됨!"
 }

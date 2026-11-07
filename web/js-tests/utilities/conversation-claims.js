@@ -32,7 +32,7 @@ import { apiUrl } from '../../js/utils/api-url.js';
  * the same id. Test-only.
  * @returns {string} This lane's id
  */
-function laneId() {
+export function laneId() {
   /** @type {any} */ const g = globalThis;
   if (!g.__laneId) {
     g.__laneId = 'lane_' + Math.random().toString(36).slice(2, 10) +

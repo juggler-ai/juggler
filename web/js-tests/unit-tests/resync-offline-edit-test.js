@@ -22,6 +22,7 @@ import {
   createTestSession,
   createTestConversation,
   waitFor,
+  withTimeout,
   assert
 } from '../utilities/test-helpers.js';
 import workerManager from '../../js/services/worker-manager.js';
@@ -88,14 +89,14 @@ export async function runTests(_ctx) {
 
     // The link drops, and the user keeps working. The update this produces is
     // discarded by the transport — nothing queues it.
-    await wsService.__simulateDisconnectForTests();
+    await withTimeout(wsService.__simulateDisconnectForTests(), 10000, 'the dropped socket to close');
     appendLocalItem(conversation, OFFLINE_MARKER);
 
     // Come back as a genuine drop rather than a clean teardown: a reconnect is
     // the path gated on the server's boot id, and an unchanged one must leave a
     // link the resync below can actually run over.
     wsService._reconnectAttempts = 1;
-    await wsService.__reconnectForTests();
+    await withTimeout(wsService.__reconnectForTests(), 10000, 'the socket to reconnect and the server to release it');
 
     // Reconnecting alone recovers nothing: the frame is long gone.
     assert(!viewerHas(viewer, OFFLINE_MARKER),

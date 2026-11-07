@@ -28,6 +28,18 @@ import { waitForTurnComplete, observeUntil, findItemRecursive, hasIncompleteAppr
 // register every conversation they create so both hold.
 import { registerOwnConversation as _registerOwnConversation } from './conversation-claims.js';
 import { budgetFor, deadlineFor, deadlineTimer } from './test-deadline.js';
+import { racePatiently } from './test-patience.js';
+
+/**
+ * Wait on one step of a simulated outage, patiently and by name, so a link that
+ * never comes back fails here saying which step rather than parking the suite.
+ * @param {Promise<void>} step - The disconnect or reconnect in progress.
+ * @param {string} what - What it waits for.
+ * @returns {Promise<void>}
+ */
+async function linkWait(step, what) {
+  if (!await racePatiently(step, 10000, { what })) throw new Error(`Timeout: ${what}`);
+}
 
 
 /**
@@ -1358,7 +1370,7 @@ export class IntegrationTestHarness {
       throw new Error('Conversation not initialized');
     }
 
-    await wsService.__simulateDisconnectForTests();
+    await linkWait(wsService.__simulateDisconnectForTests(), 'the dropped socket to close');
 
     // Wait before allowing reconnection
     if (reconnectMs > 0) {
@@ -1367,7 +1379,7 @@ export class IntegrationTestHarness {
     }
 
     // Trigger reconnection
-    await wsService.__reconnectForTests();
+    await linkWait(wsService.__reconnectForTests(), 'the socket to reconnect and the server to release it');
   }
 
   /**

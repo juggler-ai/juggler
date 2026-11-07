@@ -22,7 +22,7 @@ import {
 import { ITEM_TYPE_TO_TAG } from './test-assertions.js';
 import logger from './test-logger.js';
 import { __dumpTapeForTests, __clearTapeForTests, __lastTapeTsForTests } from '../../js/utils/event-tape.js';
-import { snapshotOwnConversationIds, deleteOwnConversationsCreatedSince, setCurrentTestName } from './conversation-claims.js';
+import { snapshotOwnConversationIds, deleteOwnConversationsCreatedSince, setCurrentTestName, laneId } from './conversation-claims.js';
 import { setTestDeadline, clearTestDeadline, moveTestDeadline, progressMark } from './test-deadline.js';
 import { racePatiently, waitsInFlightReport } from './test-patience.js';
 import { waitFor } from './test-helpers.js';
@@ -752,7 +752,7 @@ async function runIntegrationTest(testDef, ctx) {
   // per-test would delete other tests' in-flight files. In single-window
   // mode this is unchanged.
   if (!window.parent || window.parent === window) {
-    const resetUrl = apiUrl(`/test/reset-fixture?fixture=${encodeURIComponent(testDef.fixture)}&dir=${encodeURIComponent(ctx.fixtureDir)}`);
+    const resetUrl = apiUrl(`/test/reset-fixture?fixture=${encodeURIComponent(testDef.fixture)}&dir=${encodeURIComponent(ctx.fixtureDir)}&lane=${encodeURIComponent(laneId())}`);
     logger.info(`Resetting fixture for ${testDef.name}`);
     const resetResp = await fetch(resetUrl, { method: 'POST' });
     if (!resetResp.ok) {
@@ -956,7 +956,7 @@ async function runIntegrationTest(testDef, ctx) {
     // guarded by /api/test/delete-file (uses os.RemoveAll). This is the
     // catch-all for tests using the testDir convention.
     if (ctx.fixtureDir) {
-      const url = apiUrl(`/test/delete-file?dir=${encodeURIComponent(ctx.fixtureDir)}&path=${encodeURIComponent(testDir)}`);
+      const url = apiUrl(`/test/delete-file?dir=${encodeURIComponent(ctx.fixtureDir)}&path=${encodeURIComponent(testDir)}&lane=${encodeURIComponent(laneId())}`);
       await _withDeadline(
         fetch(url, { method: 'POST' }),
         3000,
@@ -975,7 +975,7 @@ async function runIntegrationTest(testDef, ctx) {
       await _withDeadline(
         Promise.allSettled(
           Object.keys(testDef.setupFiles).map((/** @type {string} */ path) => {
-            const url = apiUrl(`/test/delete-file?dir=${encodeURIComponent(ctx.fixtureDir)}&path=${encodeURIComponent(path)}`);
+            const url = apiUrl(`/test/delete-file?dir=${encodeURIComponent(ctx.fixtureDir)}&path=${encodeURIComponent(path)}&lane=${encodeURIComponent(laneId())}`);
             return fetch(url, { method: 'POST' });
           })
         ),

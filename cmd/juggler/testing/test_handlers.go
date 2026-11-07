@@ -18,7 +18,16 @@ import (
 	"juggler/cmd/juggler/extmanifest"
 	"juggler/cmd/juggler/server/handlers"
 	"juggler/internal/atomicio"
+	"juggler/internal/jlog"
 )
+
+// logFixtureRemoval puts a removal under a fixture in the server log: the path,
+// and the lane that asked (?lane=, which the test runner sends), so a file a
+// sibling lane finds gone can be traced to whoever removed it. The harness's
+// own resets send no lane; they hold every lane of the server while they run.
+func logFixtureRemoval(r *http.Request, route, path string) {
+	jlog.Info("[test-fixture] %s removing %s lane=%q", route, path, r.URL.Query().Get("lane"))
+}
 
 // SessionResetter is the minimum SessionManager surface the test API needs
 // to wipe stale conversations between tests. *core.SessionManager satisfies
@@ -272,6 +281,7 @@ func (api *TestAPI) HandleResetFixture(w http.ResponseWriter, r *http.Request) {
 			continue // Skip runtime state directory
 		}
 		entryPath := filepath.Join(fixtureDir, entry.Name())
+		logFixtureRemoval(r, "reset-fixture", entryPath)
 		// The previous test's watchers and child processes can still hold a
 		// file here for a moment on Windows; that is not the fixture's fault.
 		if err := atomicio.RobustRemoveAll(entryPath); err != nil {
@@ -346,6 +356,7 @@ func (api *TestAPI) HandleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	logFixtureRemoval(r, "delete-file", absTarget)
 	if err := os.RemoveAll(absTarget); err != nil {
 		http.Error(w, "RemoveAll failed: "+err.Error(), http.StatusInternalServerError)
 		return

@@ -1599,53 +1599,63 @@ class WebSocketService {
 
   /**
    * Simulate WebSocket disconnection for testing.
-   * Closes the connection without triggering auto-reconnect.
+   * Closes the connection without triggering auto-reconnect, and resolves once
+   * the transport's death has been handled. Waiting for that event rather than
+   * for a span of time matters: a close handled after the next
+   * {@link WebSocketService#__reconnectForTests} has begun reads as a drop of
+   * the NEW link — it clears the reconnect it is parked on, so 'open' is never
+   * released, and arms a second, competing reconnect.
    * @returns {Promise<void>}
    */
   async __simulateDisconnectForTests() {
     this._intentionalDisconnect = true;
-    if (this._transport) {
-      this._transport.close();
+    const transport = /** @type {any} */ (this._transport);
+    /** @type {Promise<void>} */
+    let closed = Promise.resolve();
+    if (transport && !transport.__jugglerDeathHandled && typeof transport.addEventListener === 'function' &&
+        transport.readyState !== WebSocket.CLOSED) {
+      // Registered after the transport's own onclose, so _onTransportClosed has
+      // run by the time this listener does.
+      closed = new Promise((resolve) => transport.addEventListener('close', () => resolve(), { once: true }));
     }
+    transport?.close();
     this.connected = false;
-    // Wait for close to complete
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await closed;
   }
 
   /**
    * Reconnect WebSocket for testing (after __simulateDisconnectForTests).
-   * Re-establishes connection.
+   * Resolves when 'open' is released, and rejects if the attempt errors or dies
+   * first. It has no clock of its own: the caller bounds the wait (a test wraps
+   * it in a patient wait), and the link watchdog drops an attempt that stops
+   * getting anywhere, which arrives here as a close.
    * @returns {Promise<void>}
    */
   async __reconnectForTests() {
-    // Reset intentional disconnect flag
-    this._intentionalDisconnect = false;
-
-    // Reconnect
-    this.connect();
-
-    // Wait for connection to establish
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Reconnect timeout'));
-      }, 5000);
-
-      const onOpen = () => {
-        clearTimeout(timeout);
+      const settle = () => {
         this.off('open', onOpen);
         this.off('error', onError);
+        this.off('close', onClose);
+      };
+      const onOpen = () => {
+        settle();
         resolve();
       };
-
       const onError = (/** @type {unknown} */ err) => {
-        clearTimeout(timeout);
-        this.off('open', onOpen);
-        this.off('error', onError);
-        reject(err);
+        settle();
+        reject(err instanceof Error ? err : new Error(`the reconnect's transport errored (${String(/** @type {any} */ (err)?.type ?? err)})`));
       };
-
+      const onClose = () => {
+        settle();
+        reject(new Error('the reconnect\'s transport closed before the link was released'));
+      };
       this.on('open', onOpen);
       this.on('error', onError);
+      this.on('close', onClose);
+
+      this._intentionalDisconnect = false;
+      this.connect();
     });
   }
 }

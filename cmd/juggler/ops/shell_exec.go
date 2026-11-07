@@ -200,7 +200,12 @@ func (ops *ShellOperations) startBackground(params map[string]any) (any, error) 
 		if startErr := startContained(cmd); startErr != nil {
 			pipeWriter.Close()
 			pipeReader.Close()
-			updateShellStatus(shellID, "failed", "", -1, fmt.Sprintf("command start failed: %v", startErr), "", 0, false)
+			errMsg := fmt.Sprintf("command start failed: %v", startErr)
+			if ctx.Err() == context.DeadlineExceeded {
+				// The deadline ran out while the process was still starting.
+				errMsg = fmt.Sprintf("command timeout (exceeded %v)", timeout)
+			}
+			updateShellStatus(shellID, "failed", "", -1, errMsg, "", 0, false)
 			time.AfterFunc(1*time.Hour, func() { removeBackgroundShell(shellID) })
 			return
 		}
@@ -409,6 +414,12 @@ func (ops *ShellOperations) execute(ctx context.Context, params map[string]any) 
 
 	// Start the command
 	if err := startContained(cmd); err != nil {
+		// Starting counts against the deadline, and a start slow enough to
+		// outlast it (a loaded Windows machine) ends with Start refusing the
+		// expired context: the command timed out, not failed to start.
+		if execCtx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("command execution timeout (exceeded %v)", timeout)
+		}
 		return nil, fmt.Errorf("command start failed: %w", err)
 	}
 

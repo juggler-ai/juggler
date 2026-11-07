@@ -23,6 +23,7 @@ import { budgetFor, deadlineTimer } from './test-deadline.js';
 import { whyGivingUp } from './test-patience.js';
 import { apiUrl } from '../../js/utils/api-url.js';
 import { pingWorker } from './worker-test-hooks.js';
+import { laneId } from './conversation-claims.js';
 import workerManager from '../../js/services/worker-manager.js';
 import { setPluginEnabled } from './plugin-config.js';
 import { nextTask, waitFor } from './test-helpers.js';
@@ -753,7 +754,7 @@ export async function executeUIOperation(harness, op) {
       if (!op.path) throw new Error('delete-fixture-file requires path');
       const fixtureDir = harness.innerHarness.fixtureDir;
       if (!fixtureDir) throw new Error('delete-fixture-file: no fixtureDir on harness');
-      const url = apiUrl(`/test/delete-file?dir=${encodeURIComponent(fixtureDir)}&path=${encodeURIComponent(op.path)}`);
+      const url = apiUrl(`/test/delete-file?dir=${encodeURIComponent(fixtureDir)}&path=${encodeURIComponent(op.path)}&lane=${encodeURIComponent(laneId())}`);
       await fetch(url, { method: 'POST' });
       break;
     }

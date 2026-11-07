@@ -12,6 +12,7 @@ package worker
 import (
 	"encoding/json"
 	"sync"
+	"time"
 
 	"juggler/cmd/juggler/providers/provider"
 	"juggler/internal/jlog"
@@ -29,6 +30,17 @@ var pendingMocks sync.Map
 // message was consumed so the caller can skip the normal switch.
 // The production stub always returns false — this code is absent from release binaries.
 func (w *ConversationWorker) handleTestMessage(msg workerMessage) bool {
+	switch msg.Type {
+	case "get-yjs-state", "ping", "set-mock-responses", "release-mock", "queue-mocks-for-name":
+		// The worker's half of a test's setup wait: with the viewer's send and
+		// this worker's ack-sent, it places a late ack in the inbox queue
+		// (inboxMs), in the handler, or before the message ever arrived.
+		summary := map[string]any{"type": msg.Type}
+		if !msg.EnqueuedAt.IsZero() {
+			summary["inboxMs"] = time.Since(msg.EnqueuedAt).Milliseconds()
+		}
+		w.tape.Record("test-msg-handled", summary)
+	}
 	switch msg.Type {
 	case "get-yjs-state":
 		w.handleGetYjsState(msg.Payload)

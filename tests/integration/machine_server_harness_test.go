@@ -424,12 +424,14 @@ func (ms *machineServer) pollLaneResult(prefix, name string, out any) error {
 // whereTheLaneStopped says how far a browser test queued in the session at
 // prefix got, for a wait on its result that ran out: the child's queue audit
 // (never dispatched means its window never asked for work — not loaded, or not
-// running), the machine's load as the child reads it, and the tail of each
-// session child's logs. Without them a timeout says only that nothing came back.
+// running), its lane trace (no lane at all means the window's script never ran;
+// a lane whose polls stopped means it ran and then stalled), the machine's load
+// as the child reads it, and the tail of each session child's logs. Without
+// them a timeout says only that nothing came back.
 func (ms *machineServer) whereTheLaneStopped(prefix, name string) string {
 	var b strings.Builder
 	client := &http.Client{Timeout: 5 * time.Second}
-	for _, path := range []string{prefix + "/api/test/audit?name=" + name, prefix + "/api/test/machine"} {
+	for _, path := range []string{prefix + "/api/test/audit?name=" + name, prefix + "/api/test/lanes", prefix + "/api/test/machine"} {
 		resp, err := client.Get("http://" + ms.Addr + path)
 		if err != nil {
 			fmt.Fprintf(&b, "GET %s: %v\n", path, err)

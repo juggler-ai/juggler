@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"juggler/internal/gitignore"
+	"juggler/internal/jlog"
 )
 
 // Copying and comparing whole trees, for anything that needs a second copy of a
@@ -311,6 +312,9 @@ const taskStopGrace = 250 * time.Millisecond
 // own error names one directory and not the file in it that identifies whoever
 // kept writing.
 func removeTree(ctx context.Context, abs, rel string) error {
+	// A whole tree going is worth one line: when a file vanishes from under
+	// something else, this is how its removal is found.
+	jlog.Info("[tree-copy] removing %s", abs)
 	stopBackgroundTasksWithin(abs, fmt.Sprintf("Stopped when %s was removed", rel), taskStopGrace)
 
 	err := os.RemoveAll(abs)

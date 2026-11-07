@@ -69,13 +69,14 @@ type windowApp struct {
 	// takes when the engine never comes up (startEngineHost).
 	requestQuit func()
 
-	// poolURL and poolLanes are the test-pool page this window loads and how
-	// many lanes it tiles; empty and zero for any other window.
+	// poolURL and poolLanes are the test page this window loads — the tiled
+	// pool, or a lone test window — and how many lanes must poll for work for
+	// it to count as loaded; empty and zero for any other window.
 	poolURL   string
 	poolLanes int
 }
 
-// reloadStalledPool loads the test-pool window again, once, if its lanes have
+// reloadStalledPool loads the test window again, once, if its lanes have
 // not all asked for work by engineReloadAfter — the engine's own startup
 // policy (startEngineHost), for the same failure. On Windows a web view's first
 // load occasionally hangs with nothing reported, its pages served and none of
@@ -459,10 +460,14 @@ func runTestPoolWindowApp(srv *server.Server, devMode bool, headless bool, testI
 	mainURL := "http://" + srv.GetAddr() + "/?window=1"
 	if headless && testMode && testIframes > 0 {
 		mainURL = fmt.Sprintf("http://%s/test-pool?n=%d", srv.GetAddr(), testIframes)
-		wa.poolURL, wa.poolLanes = mainURL, testIframes
 	}
 	if testWindowURL != "" {
 		mainURL = testWindowURL
+	}
+	if headless && testMode {
+		// The lone test window polls as one unlabelled lane (app-test-mode.js),
+		// and its first load can hang exactly as the pool's does.
+		wa.poolURL, wa.poolLanes = mainURL, max(testIframes, 1)
 	}
 	// Every one of those but production runs test pages in a window nobody
 	// sees — the pool host, and equally the lone test window a session behind

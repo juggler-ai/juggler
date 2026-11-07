@@ -117,10 +117,15 @@ func (ops *ShellOperations) ExecuteStreamingFor(
 
 	// Start command
 	if err := startContained(cmd); err != nil {
+		errMsg := fmt.Sprintf("command start failed: %v", err)
+		if ctx.Err() == context.DeadlineExceeded {
+			// Starting counts against the deadline; one that outlasted it timed out.
+			errMsg = fmt.Sprintf("command timeout (exceeded %v)", timeout)
+		}
 		output <- ShellStreamChunk{
 			ShellID: shellID,
 			Done:    true,
-			Error:   fmt.Sprintf("command start failed: %v", err),
+			Error:   errMsg,
 		}
 		return
 	}

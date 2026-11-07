@@ -35,7 +35,7 @@
  * @module unit-tests/reconnect-policy-test
  */
 
-import { assert, waitFor } from '../utilities/test-helpers.js';
+import { assert, waitFor, withTimeout } from '../utilities/test-helpers.js';
 import wsService, { WebSocketService } from '../../js/services/websocket.js';
 
 /**
@@ -798,11 +798,11 @@ export async function runTests(_ctx) {
       );
       const bootIdBefore = wsService.serverBootId;
 
-      await wsService.__simulateDisconnectForTests();
+      await withTimeout(wsService.__simulateDisconnectForTests(), 10000, 'the dropped socket to close');
       // __simulateDisconnectForTests is a clean teardown, so it leaves the attempt counter
       // at zero. A real drop does not — set it, so this reconnects as one.
       wsService._reconnectAttempts = 1;
-      await wsService.__reconnectForTests();
+      await withTimeout(wsService.__reconnectForTests(), 10000, 'the socket to reconnect and the server to release it');
 
       assert(reloaded === 0, `an unchanged boot id must not reload; got ${reloaded}`);
       assert(wsService.serverBootId === bootIdBefore, 'still talking to the same server');

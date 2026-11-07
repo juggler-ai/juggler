@@ -177,6 +177,7 @@ import { runTests as runUndoRedoDeletionTests } from '../unit-tests/undo-redo-de
 import { runTests as runUndoRedoDeletionEdgesTests } from '../unit-tests/undo-redo-deletion-edges-test.js';
 import { runTests as runHeaderUndoLockTests } from '../unit-tests/header-undo-lock-test.js';
 import { runTests as runHeaderBarTests } from '../unit-tests/header-bar-test.js';
+import { runTests as runPressFeedbackTests } from '../unit-tests/press-feedback-test.js';
 import { runTests as runFooterMetaTests } from '../unit-tests/footer-meta-test.js';
 import { runTests as runConversationMarkdownTests } from '../unit-tests/conversation-markdown-test.js';
 import { runTests as runConversationHtmlTests } from '../unit-tests/conversation-html-test.js';
@@ -825,6 +826,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:undo-redo-deletion-edges', run: runUndoRedoDeletionEdgesTests },
   { name: 'unit:header-undo-lock', run: runHeaderUndoLockTests },
   { name: 'unit:header-bar', run: runHeaderBarTests },
+  { name: 'unit:press-feedback', run: runPressFeedbackTests },
   { name: 'unit:footer-meta', run: runFooterMetaTests },
   { name: 'unit:conversation-markdown', run: runConversationMarkdownTests },
   { name: 'unit:conversation-html', run: runConversationHtmlTests },

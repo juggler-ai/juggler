@@ -175,6 +175,11 @@ app-container {
     flex-direction: column;
     align-items: flex-start;
     padding: 0 0.5rem 0 1.875rem;
+
+    /* It holds a value (the host), so it wears the header's resting fill, as
+       the chip does (layout/app-header.css). */
+    --btn-ghost-bg: var(--overlay-light-5);
+    --btn-ghost-hover-bg: var(--overlay-light-10);
 }
 
 /* The glyph sits a touch left of the inset's middle, so the badge has room
@@ -185,7 +190,7 @@ app-container {
 
 .network-button__host {
     color: var(--text-secondary);
-    font-size: var(--font-size-2xs);
+    font-size: var(--font-size-xs);
     line-height: 0.8125rem;
     white-space: nowrap;
 }
@@ -206,6 +211,11 @@ app-container {
     .network-button.has-clients {
         width: auto;
         padding: 0 0.625rem 0 2rem;
+
+        /* Spelled out, the count is a value the button holds (see
+           .network-button.is-remote). */
+        --btn-ghost-bg: var(--overlay-light-5);
+        --btn-ghost-hover-bg: var(--overlay-light-10);
     }
 
     .network-button.has-clients::before {
@@ -221,7 +231,7 @@ app-container {
         padding: 0;
         background-color: transparent;
         color: var(--text-secondary);
-        font-size: var(--font-size-2xs);
+        font-size: var(--font-size-xs);
         line-height: 0.8125rem;
     }
 

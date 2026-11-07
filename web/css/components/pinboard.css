@@ -218,10 +218,6 @@ pinboard-tabbar {
     background: var(--accent-green-bright);
 }
 
-.pinboard-tabbar__add:active {
-    transform: scale(0.95);
-}
-
 /* Pills, on the pattern of the conversation sidebar's tabs — the board's tabs
    wrap into rows rather than sitting on one edge, so there is no edge for a
    folder tab to be attached to. */

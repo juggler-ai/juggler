@@ -286,6 +286,10 @@ export async function runTests(_ctx) {
       // The burst opened a full ceiling ago, so its render is due at once.
       footer._tokenUpdateBurstStartedAt = Date.now() - TOKEN_UPDATE_MAX_WAIT_MS;
       footer._scheduleTokenDisplayUpdate();
+      // Due now, not at the debounce the burst's first event armed: the wait
+      // below is for a render that is already owed, never a race with a timer.
+      assert(footer._tokenUpdateDueAt <= Date.now(),
+        `the render past the ceiling is due at once, not ${footer._tokenUpdateDueAt - Date.now()}ms from now`);
       const owed = footer._tokenUpdateTimer;
       footer._scheduleTokenDisplayUpdate();
       assert(owed !== undefined && footer._tokenUpdateTimer === owed,

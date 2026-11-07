@@ -76,6 +76,7 @@ import { initAttention } from './utils/attention-manager.js';
 import { watchTurnsForEscape, provideEscapeApp } from './services/escape-behaviour.js';
 import { provideAppSession } from './utils/app-session.js';
 import { initViewportFit } from './utils/viewport-fit.js';
+import { installPressFeedback } from './utils/press-feedback.js';
 import { reportDraftsFlushed, hasNativeHost, closeThisWindow } from '../sdk/lib/window-control.js';
 import { installLinkGuard } from './services/link-guard.js';
 import { installFileRefLinks } from './services/file-ref-links.js';
@@ -386,6 +387,9 @@ class JugglerApp {
     // on-screen keyboard opens by fitting <app-container> to the visual viewport
     // instead of letting the browser scroll the whole page up.
     initViewportFit();
+
+    // Every button presses the same way: a dip, then a spring back.
+    installPressFeedback();
 
     // Pause CSS animations when this window is hidden, so its always-running
     // indicators don't burn CPU re-rasterising frames nobody can see.

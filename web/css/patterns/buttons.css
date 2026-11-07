@@ -105,28 +105,31 @@
 
 /* ==========================================================================
    Ghost Buttons (.btn-ghost) — the house style
-   Transparent at rest; on hover/press a subtle fill, a hairline border and
-   primary-colour text/icon appear, and the button dips to 0.95 on press. This
-   is the shared chrome for the header-bar controls (.btn-ghost) and the
-   panel/modal close buttons (.close-button); the composer's own controls
+   Transparent at rest; on hover a subtle fill, a hairline border and
+   primary-colour text/icon appear. (A press springs, as every button's does:
+   utils/press-feedback.js, never a rule here.) This is the shared chrome for the header-bar controls (.btn-ghost) and the panel/modal
+   close buttons (.close-button); the composer's own controls
    (composer-box .input-ctrl-btn) take the same chrome from composer.css.
    The transparent resting border reserves its space so nothing shifts on hover.
    Placed after the size co-classes above so it wins by source order where a
    header button carries both (e.g. .btn-ghost.btn-icon-header).
+
+   A surface with a look of its own sets these rather than out-ranking the
+   rules: --btn-ghost-radius (the corner), --btn-ghost-bg (a resting fill, for
+   a button that holds a value), and --btn-ghost-hover-bg /
+   --btn-ghost-hover-border (the hover). The header bar sets all four
+   (layout/app-header.css).
    ========================================================================== */
 .btn-ghost,
 .close-button {
     border: 0.0625rem solid transparent;
-    border-radius: var(--radius-2xl);
-    background: transparent;
+    border-radius: var(--btn-ghost-radius, var(--radius-2xl));
+    background: var(--btn-ghost-bg, transparent);
     color: var(--text-secondary);
     cursor: pointer;
-    transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base), transform var(--transition-base);
+    transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base);
 }
 
-/* A container that draws its own box around ghost buttons (the header's zoom
-   stepper) sets --btn-ghost-hover-bg and --btn-ghost-hover-border, so a hovered
-   button shades within that box rather than standing out of it. */
 .btn-ghost:hover:not(:disabled),
 .btn-ghost:active:not(:disabled),
 .close-button:hover:not(:disabled) {
@@ -134,11 +137,6 @@
     border-color: var(--btn-ghost-hover-border, var(--overlay-light-30));
     color: var(--text-primary);
     transform: none;
-}
-
-.btn-ghost:active:not(:disabled),
-.close-button:active:not(:disabled) {
-    transform: scale(0.95);
 }
 
 /* The close button's box, the one part of it that is not the ghost chrome
@@ -160,7 +158,7 @@
    resting reset matches the (0,3,0) specificity of the size co-classes'
    light-theme fills so header buttons stay transparent at rest. */
 :root[data-theme="light"] .btn-ghost {
-    background: transparent;
+    background: var(--btn-ghost-bg, transparent);
     border-color: transparent;
 }
 

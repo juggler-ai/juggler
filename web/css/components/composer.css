@@ -202,18 +202,15 @@ composer-box .input-ctrl-btn {
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
-    transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base), transform var(--transition-base);
+    transition: background var(--transition-base), border-color var(--transition-base), color var(--transition-base);
 }
 
+/* A press springs, as every button's does (utils/press-feedback.js). */
 composer-box .input-ctrl-btn:hover:not(:disabled) {
     background: var(--overlay-dark-70);
     border-color: var(--overlay-light-30);
     color: var(--text-primary);
     transform: none;
-}
-
-composer-box .input-ctrl-btn:active {
-    transform: scale(0.95);
 }
 
 /* A disabled control button (e.g. the schedule button over an empty box) reads
@@ -963,8 +960,8 @@ composer-box.touch-composer composer-status-line button.input-ctrl-btn {
 
 /* Touch has no true hover, but a tap leaves a sticky :hover behind it, which
    would paint the pointer's wash over a control until the next tap elsewhere.
-   Pin hover to each control's resting look; :active still dips through the
-   shared .input-ctrl-btn press scale. */
+   Pin hover to each control's resting look; a press still springs, as every
+   button's does (utils/press-feedback.js). */
 composer-box.touch-composer input-controls-actions .input-ctrl-btn:hover:not(:disabled),
 composer-box.touch-composer composer-status-line .input-ctrl-btn:hover:not(:disabled, .open),
 :root[data-theme="light"] composer-box.touch-composer input-controls-actions .input-ctrl-btn:hover:not(:disabled),

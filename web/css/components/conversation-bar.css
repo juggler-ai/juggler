@@ -1080,10 +1080,6 @@ conversation-bar .conversation-bin-undo:hover {
     background: color-mix(in srgb, var(--accent-blue) 28%, transparent);
 }
 
-conversation-bar .conversation-bin-undo:active {
-    transform: scale(0.97);
-}
-
 conversation-bar .conversation-bin-undo svg {
     width: 1rem;
     height: 1rem;
@@ -1127,10 +1123,6 @@ conversation-bar .conversation-bin-undo svg {
 @media (prefers-reduced-motion: reduce) {
     conversation-bar .conversation-bin-undo {
         animation: bin-undo-flash 480ms ease-in-out 2;
-    }
-
-    conversation-bar .conversation-bin-undo:active {
-        transform: none;
     }
 }
 

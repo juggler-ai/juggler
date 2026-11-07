@@ -616,11 +616,13 @@ class ConversationFooter extends JugglerElement {
     // coalescing and the meter is owed a number.
     const dueAt = Math.min(now + TOKEN_UPDATE_DEBOUNCE_MS,
       (this._tokenUpdateBurstStartedAt ?? now) + TOKEN_UPDATE_MAX_WAIT_MS);
-    // An event that cannot push the render any later leaves the pending one
-    // where it is. Cancelling and re-arming it for the same moment would let a
-    // stream of events that keeps landing first — as they do whenever this page's
-    // timers run late and come due together — postpone it past the ceiling.
-    if (this._tokenUpdateTimer !== undefined && dueAt <= this._tokenUpdateDueAt) return;
+    // An event asking for the moment already pending leaves that render where it
+    // is. Cancelling and re-arming it for the same moment would let a stream of
+    // events that keeps landing first — as they do whenever this page's timers
+    // run late and come due together — postpone it past the ceiling. An earlier
+    // moment (a burst whose ceiling has come) re-arms, so the render is never
+    // later than its burst's ceiling.
+    if (this._tokenUpdateTimer !== undefined && dueAt === this._tokenUpdateDueAt) return;
     this._cancelDeferredTokenDisplayUpdate();
     this._tokenUpdateDueAt = dueAt;
     const delay = Math.max(0, dueAt - now);

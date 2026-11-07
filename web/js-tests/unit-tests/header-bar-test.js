@@ -34,6 +34,8 @@
  *      as far from the left edge as the full-width header does.
  *  12. The +/- zoom scales the whole header as one — its height, padding,
  *      buttons, glyphs, badge and gaps — so nothing in it shifts against the rest.
+ *  13. Every control in the bar shares one corner and one borderless hover,
+ *      and only a control that holds a value wears a fill — not − and +.
  * @module unit-tests/header-bar-test
  */
 
@@ -1015,6 +1017,41 @@ export async function runTests() {
     assert(off.length === 0, `at 125% zoom every header measure grows by 125%, but: ${off.join(', ')}`);
     passed++;
   } catch (e) { failed++; errors.push(`zoomed header: ${msg(e)}`); }
+
+  // --- 13: one look for every control in the bar ---
+  try {
+    const f = await framedHeader(served, 1600);
+    try {
+      const view = /** @type {Window} */ (f.doc.defaultView);
+      const style = (/** @type {string} */ sel) => view.getComputedStyle(f.el(sel));
+
+      // One corner: the chip and the icon buttons.
+      const corners = ['#project-path-chip', '#project-new-window-button', '#theme-button', '#settings-button', '#zoom-in-button']
+        .map((sel) => [sel, style(sel).borderTopLeftRadius]);
+      assert(new Set(corners.map(([, r]) => r)).size === 1,
+        `every control in the bar has one corner radius, got ${corners.map(([s, r]) => `${s} ${r}`).join(', ')}`);
+
+      // One hover: a fill with no border, never a box standing out of the bar.
+      for (const sel of ['#theme-button', '#project-new-window-button', '#zoom-in-button']) {
+        const border = style(sel).getPropertyValue('--btn-ghost-hover-border').trim();
+        assert(border === 'transparent', `${sel} hovers without a border, got --btn-ghost-hover-border "${border}"`);
+      }
+
+      // A fill marks a control that holds a value; − and + hold none, so they
+      // are bare like their neighbours, the same distance apart.
+      const stepper = [...f.el('#header-zoom').querySelectorAll('button')].map((b) => b.id);
+      assert(stepper.join() === 'zoom-out-button,zoom-in-button', `the stepper is − and +, got ${stepper.join(', ')}`);
+      const fill = style('#header-zoom').backgroundColor;
+      assert(fill === 'rgba(0, 0, 0, 0)' || fill === 'transparent', `the zoom pair wears no fill, got ${fill}`);
+      const pairGap = f.box('#zoom-in-button').left - f.box('#zoom-out-button').right;
+      const groupGap = f.box('#bell-button').left - f.box('#theme-button').right;
+      assert(Math.round(pairGap) === Math.round(groupGap),
+        `− and + sit as far apart as the rest of their group (${groupGap}px), got ${pairGap}px`);
+    } finally {
+      f.frame.remove();
+    }
+    passed++;
+  } catch (e) { failed++; errors.push(`one look: ${msg(e)}`); }
 
   return { passed, failed, errors };
 }

@@ -29,6 +29,15 @@
     flex-shrink: 0;
     gap: 1.5rem;
 
+    /* One look for every button in the bar (patterns/buttons.css): the
+       project chip's corner, and a hover that fills in place, with no border
+       and nothing standing out of the bar. Bare at rest; only a control that
+       holds a value (the chip, the network count or host) wears a
+       fill, --overlay-light-5, and a hover inside it is a step darker. */
+    --btn-ghost-radius: var(--radius-xl);
+    --btn-ghost-hover-bg: var(--overlay-light-8);
+    --btn-ghost-hover-border: transparent;
+
     /* Positioned and a stacking context of its own, so the pattern below can
        fill it at z-index: -1 — above the page background, beneath every
        control. */
@@ -280,23 +289,13 @@ header-actions .btn-icon-header::before {
     display: none;
 }
 
-/* Zoom's − and + as one stepper: the faint fill the project chip wears at
-   rest says "one control" here too, and sets the pair apart from the toggles
-   beside it. */
+/* Zoom's − and +: a group to assistive technology, and to the eye no more
+   than two of the group's buttons — they hold no value, so no fill (see
+   .app-header) — spaced as the group spaces them. */
 .header-zoom {
     display: flex;
     align-items: center;
-
-    /* The group's 0.25rem gap is for bare icons; a filled box needs as much
-       again to stand clear of them. */
-    margin-inline: 0.25rem;
-    border-radius: var(--radius-lg);
-    background: var(--overlay-light-5);
-
-    /* A hovered half darkens inside the box, as the chip does, rather than
-       standing out of it as a lone button's raised hover would. */
-    --btn-ghost-hover-bg: var(--overlay-light-10);
-    --btn-ghost-hover-border: transparent;
+    gap: 0.25rem;
 }
 
 /* A Windows or Linux desktop window has no menu bar, so there the "…" menu is

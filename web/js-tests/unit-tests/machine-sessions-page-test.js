@@ -2213,6 +2213,48 @@ export async function runTests() {
     }
   });
 
+  // While a project opens the page is its spinner alone, centred in the window
+  // under the header — whatever the width, and whether or not the page has the
+  // machine's ways in (a window on another computer's server has none, so its
+  // page is the one column a max-width holds at the window's left).
+  await test('the spinner while a project opens is centred in the window, with or without the ways in', async () => {
+    for (const [width, withSide] of /** @type {Array<[string, boolean]>} */ ([
+      ['80rem', true], ['80rem', false], ['40rem', true], ['40rem', false],
+    ])) {
+      const frame = document.createElement('iframe');
+      frame.style.cssText = `position:absolute;left:-10000px;width:${width};height:30rem;border:0`;
+      document.body.appendChild(frame);
+      try {
+        const doc = /** @type {Document} */ (frame.contentDocument);
+        const win = /** @type {Window & typeof globalThis} */ (/** @type {unknown} */ (frame.contentWindow));
+        const sheets = await Promise.all(['../../css/tokens/scale.css', '../../machine/sessions.css'].map(async (rel) => {
+          const resp = await fetch(new URL(rel, import.meta.url));
+          assert(resp.ok, `${rel}: ${resp.status}`);
+          const sheet = new win.CSSStyleSheet();
+          sheet.replaceSync(await resp.text());
+          return sheet;
+        }));
+        doc.adoptedStyleSheets = sheets;
+        const side = withSide ? '<div class="ms-column ms-side" hidden></div>' : '';
+        doc.body.innerHTML = '<div style="display:flex;flex-direction:column;position:fixed;inset:0">'
+          + '<header style="height:3rem;flex:none"></header><div class="ms-scroll">'
+          + '<main class="ms-page"><div class="ms-banner-slot" hidden></div><div class="ms-column ms-main" hidden></div>'
+          + `${side}<div class="ms-launch-busy" role="status"><juggler-spinner style="display:block;width:2rem;height:2rem"></juggler-spinner>`
+          + '<p class="ms-launch-busy-text">Opening juggler-pro…</p></div></main></div></div>';
+        const scroll = /** @type {HTMLElement} */ (doc.querySelector('.ms-scroll')).getBoundingClientRect();
+        const spinner = /** @type {HTMLElement} */ (doc.querySelector('juggler-spinner')).getBoundingClientRect();
+        const what = `at ${width} ${withSide ? 'with' : 'without'} the ways in`;
+        const dx = (spinner.left + spinner.right) / 2 - (scroll.left + scroll.right) / 2;
+        assert(Math.abs(dx) < 2, `${what} the spinner is ${Math.round(dx)}px off the window's centre across`);
+        const busy = /** @type {HTMLElement} */ (doc.querySelector('.ms-launch-busy')).getBoundingClientRect();
+        const dy = (busy.top + busy.bottom) / 2 - (scroll.top + scroll.bottom) / 2;
+        assert(Math.abs(dy) < 2, `${what} the spinner and its line are ${Math.round(dy)}px off the window's centre down`);
+      } finally {
+        frame.remove();
+      }
+    }
+  });
+
   // A window on another computer's server: its folders are not this machine's,
   // so nothing here offers this machine's folders, and it cannot be pointed at
   // a third server; a session still opens in the window.

@@ -123,3 +123,29 @@ func ExpandHome(path string) string {
 	}
 	return home + path[1:]
 }
+
+// ShortenHome is ExpandHome's inverse, for showing a path to a person: the
+// current user's home directory, or a path under it, written with a leading
+// "~". Any other path is returned unchanged, as is every path on Windows,
+// where "~" is not how anyone writes a home directory, and every path when the
+// home directory can't be resolved.
+func ShortenHome(path string) string {
+	home, _ := os.UserHomeDir()
+	return shortenHome(runtime.GOOS, home, path)
+}
+
+// shortenHome is ShortenHome with its inputs injected, so every branch is
+// testable from any host.
+func shortenHome(goos, home, path string) string {
+	if goos == "windows" || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	// The separator is part of the prefix: /Users/u2 is not under /Users/u.
+	if rest, ok := strings.CutPrefix(path, strings.TrimSuffix(home, "/")+"/"); ok {
+		return "~/" + rest
+	}
+	return path
+}

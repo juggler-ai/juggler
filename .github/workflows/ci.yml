@@ -95,6 +95,20 @@ jobs:
           # Module/build caching is on by default and always wanted here: every
           # runner is an ephemeral hosted VM whose caches vanish with it.
 
+      # The bare `go test -race` / `go build` steps below run outside make, so
+      # they miss the macOS deployment target mk/build-flags.mk exports to every
+      # make recipe. -race forces cgo, and without it each test binary's link
+      # warns "object file was built for newer 'macOS' version (26.0) than being
+      # linked (11.0)". Read from the Makefile so the two cannot drift.
+      - name: Pin the macOS deployment target for bare go commands
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in MACOSX_DEPLOYMENT_TARGET CGO_CFLAGS CGO_LDFLAGS; do
+            echo "$v=$(make -s "print-$v")" >> "$GITHUB_ENV"
+          done
+
       # Windows only, and before anything writes to those caches. Every file this
       # job touches is one Defender has to scan: the module cache, the build
       # cache, the linked test binaries, and — the expensive one — the thousands

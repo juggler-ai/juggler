@@ -313,6 +313,36 @@ export async function runTests() {
     }
   });
 
+  await checkAsync('a redraw that changes nothing about a button keeps that button', async () => {
+    const session = makeSession([workspace('ws_a')]);
+    const { panel, teardown } = mountPanel(session);
+    FixtureProvider.reported = { detail: 'branch feat/x · clean' };
+    try {
+      session.selection = { kind: 'workspace', id: 'ws_a' };
+      panel._refresh();
+      const buttons = /** @type {HTMLElement[]} */ (
+        Array.from(panel.querySelectorAll('.workspace-panel-action')));
+      assert(buttons.length >= 2, `the fixture offers buttons to hold on to, got ${buttons.length}`);
+
+      // The status read lands about a second after the panel opens, which is
+      // when a pointer is on its way to one of these; a workspace-table event
+      // from anywhere in the session redraws it too.
+      await panel.refreshStatus();
+      panel._refresh();
+
+      assert(panel.textContent?.includes('branch feat/x · clean'),
+        'the answer arrived, so this is measuring the redraw that matters');
+      const replaced = buttons.filter((button) => !button.isConnected)
+        .map((button) => button.dataset.action ?? 'create');
+      assert(replaced.length === 0,
+        'a button swapped for an identical one between press and release swallows the click, and loses '
+        + `focus and hover, so a redraw keeps every button it would draw the same, got replaced: ${replaced.join(',')}`);
+    } finally {
+      FixtureProvider.reported = null;
+      teardown();
+    }
+  });
+
   check('the panel does not list the conversations the tab strip is drawing', () => {
     const session = makeSession([workspace('ws_a')]);
     session.conversations = new Map([

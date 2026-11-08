@@ -367,7 +367,8 @@ conversation-empty-hint.no-room-for-tips .empty-hint-nudge {
    Clipped sideways only, so a long row cannot widen the column. Vertically it
    stays open: the copy button's "Copied" bubble rises out of the footer's top
    edge over the transcript, and a vertical clip cuts it off there. `clip`
-   rather than `hidden` because only `clip` leaves the other axis visible. */
+   rather than `hidden` because only `clip` leaves the other axis visible. A
+   size container, so its button row can fit itself to the column's width. */
 conversation-footer {
     display: flex;
     flex-direction: column;
@@ -375,6 +376,7 @@ conversation-footer {
     padding: 0.75rem 0.5rem;
     min-width: 0;
     overflow: clip visible;
+    container: conversation-footer / inline-size;
 }
 
 footer-processing {
@@ -482,10 +484,36 @@ footer-idle {
     gap: 0.75rem;
 }
 
+/* Wraps by whole buttons, right-aligned, so a narrow column moves Continue to
+   a line of its own rather than squeezing every label onto two lines and
+   pushing Continue past the column's edge. */
 .footer-idle-right {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 0.75rem;
     margin-left: auto; /* right-align even when the left group is empty */
+}
+
+.footer-idle-right > .message-action-btn {
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+/* The one long label: in a column too narrow even for it alone, it ends in an
+   ellipsis inside its button instead of spilling out of the column. */
+conversation-footer .duplicate-to-tab-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Too narrow for Undo/Redo, Duplicate and Continue on one line: Duplicate
+   drops its words and keeps its fork glyph, the words still in its tooltip,
+   so the row stays one line instead of stacking three. */
+@container conversation-footer (width < 30rem) {
+    conversation-footer .duplicate-to-tab-label {
+        display: none;
+    }
 }
 
 /* The conversation's Undo and Redo: a pair of glyphs, held closer to each

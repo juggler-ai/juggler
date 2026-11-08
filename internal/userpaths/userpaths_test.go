@@ -167,3 +167,27 @@ func TestExpandHome(t *testing.T) {
 		}
 	}
 }
+
+func TestShortenHome(t *testing.T) {
+	const home = "/Users/u"
+	cases := []struct {
+		name, goos, home, in, want string
+	}{
+		{"under home", "darwin", home, "/Users/u/.juggler/extensions", "~/.juggler/extensions"},
+		{"home itself", "linux", home, "/Users/u", "~"},
+		{"a sibling sharing the prefix is not under home", "darwin", home, "/Users/u2/x", "/Users/u2/x"},
+		{"outside home", "darwin", home, "/opt/juggler", "/opt/juggler"},
+		{"homeless", "darwin", "", "/Users/u/x", "/Users/u/x"},
+		{"Windows has no ~ convention", "windows", home, "/Users/u/x", "/Users/u/x"},
+	}
+	for _, c := range cases {
+		if got := shortenHome(c.goos, c.home, c.in); got != c.want {
+			t.Errorf("%s: shortenHome(%q, %q, %q) = %q, want %q", c.name, c.goos, c.home, c.in, got, c.want)
+		}
+	}
+	// And the inverse of ExpandHome for the current user.
+	under := filepath.Join(withHome(t), "a")
+	if got := ExpandHome(ShortenHome(under)); got != under {
+		t.Errorf("ExpandHome(ShortenHome(home/a)) = %q, want it back", got)
+	}
+}

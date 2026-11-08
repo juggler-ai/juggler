@@ -963,7 +963,8 @@ class ConversationFooter extends JugglerElement {
                             <button class="message-action-btn footer-history-btn footer-history-redo" type="button" data-shortcut-id="redo"
                                     title="${escapeHtml(t('Redo'))}" aria-label="${escapeHtml(t('Redo last undone operation'))}" disabled>${REDO_SVG}</button>
                         </div>
-                        <button class="message-action-btn duplicate-to-tab-btn hidden">
+                        <button class="message-action-btn duplicate-to-tab-btn hidden" type="button"
+                                title="${escapeHtml(t('Duplicate as new conversation'))}" aria-label="${escapeHtml(t('Duplicate as new conversation'))}">
                             ${FORK_SVG}
                             <span class="duplicate-to-tab-label">${escapeHtml(t('Duplicate as new conversation'))}</span>
                         </button>
@@ -1328,8 +1329,12 @@ class ConversationFooter extends JugglerElement {
       if (duplicateTabBtn) {
         const duplicating = !!state.duplicating;
         if (duplicateTabBtn.disabled !== duplicating) duplicateTabBtn.disabled = duplicating;
-        setText(duplicateTabBtn.querySelector('.duplicate-to-tab-label'),
-          duplicating ? t('Duplicating…') : t('Duplicate as new conversation'));
+        // The label is hidden in a narrow column, so the button's tooltip and
+        // accessible name carry the same words.
+        const label = duplicating ? t('Duplicating…') : t('Duplicate as new conversation');
+        setText(duplicateTabBtn.querySelector('.duplicate-to-tab-label'), label);
+        if (duplicateTabBtn.title !== label) duplicateTabBtn.title = label;
+        if (duplicateTabBtn.getAttribute('aria-label') !== label) duplicateTabBtn.setAttribute('aria-label', label);
       }
 
       show(addCIBtn);

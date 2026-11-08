@@ -70,6 +70,15 @@ class WorkspacePanel extends JugglerElement {
 
     /** @type {string} The ending being carried out, while one is. */
     this._running = '';
+
+    /**
+     * The provider's options as of the last draw, by id. A button kept from an
+     * earlier draw finds its option here when pressed, so it carries out what
+     * the provider offers now rather than what it offered when the button was
+     * made.
+     * @type {Map<string, any>}
+     */
+    this._options = new Map();
   }
 
   connectedCallback() {
@@ -235,6 +244,7 @@ class WorkspacePanel extends JugglerElement {
     body.appendChild(this._starting());
 
     const { options, unavailableReason } = workspaceFinishOptions(this._session, workspace);
+    this._options = new Map(options.map((/** @type {any} */ option) => [option.id, option]));
 
     const keeps = unavailableReason ? [] : options.filter(option => option.keepsWorkspace);
     if (keeps.length || unavailableReason) {
@@ -244,7 +254,38 @@ class WorkspacePanel extends JugglerElement {
     const endings = unavailableReason ? [] : options.filter(option => !option.keepsWorkspace);
     if (endings.length) body.appendChild(this._endings(endings));
 
-    this.replaceChildren(body, this._columnHandle());
+    this._settle(body);
+  }
+
+  /**
+   * Put a fresh draw on screen, keeping every section of the last one that it
+   * would draw the same.
+   *
+   * The panel redraws on the status read landing, about a second after it
+   * opens, and on workspace-table events from anywhere in the session — and
+   * most of those change nothing about the buttons. A button swapped for its
+   * identical twin under a pointer swallows the click whose press landed on
+   * the old one, and takes focus and hover with it. So only a section that
+   * differs is replaced; the rest stay the nodes they were.
+   * @param {HTMLElement} body - The fresh draw.
+   * @returns {void}
+   * @private
+   */
+  _settle(body) {
+    const current = /** @type {HTMLElement|null} */ (this.querySelector(':scope > .workspace-panel-body'));
+    if (!current) {
+      this.replaceChildren(body, this._columnHandle());
+      return;
+    }
+    // Taken before the loop: each replaceWith moves a fresh section out of
+    // `body`, which would otherwise shift the ones after it.
+    const fresh = Array.from(body.children);
+    fresh.forEach((section, i) => {
+      const was = current.children[i];
+      if (!was) current.appendChild(section);
+      else if (!was.isEqualNode(section)) was.replaceWith(section);
+    });
+    while (current.children.length > fresh.length) current.lastElementChild?.remove();
   }
 
   /**
@@ -567,7 +608,7 @@ class WorkspacePanel extends JugglerElement {
       option.prompt ? `${option.label}…` : option.label,
       option.description,
       option.keepsWorkspace ? '' : 'icon-trashcan'));
-    button.addEventListener('click', () => { void this._finish(option); });
+    button.addEventListener('click', () => { void this._finish(this._options.get(option.id) ?? option); });
     return button;
   }
 

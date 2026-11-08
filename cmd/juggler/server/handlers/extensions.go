@@ -18,6 +18,7 @@ import (
 	"juggler/cmd/juggler/extmanifest"
 	"juggler/cmd/juggler/msg"
 	"juggler/internal/jlog"
+	"juggler/internal/userpaths"
 )
 
 // extensionManifestFile is the well-known manifest filename at an extension root.
@@ -171,7 +172,9 @@ func (api *ExtensionsAPI) HandleReload(w http.ResponseWriter, r *http.Request) {
 
 // ExtensionLocations reports the on-disk directories Juggler scans for
 // extensions, so the catalog can show a developer exactly where to install new
-// ones. Empty fields are omitted by the UI.
+// ones. Empty fields are omitted by the UI. Each is for reading, not for
+// opening: a directory under the home directory is written "~/…", the way the
+// catalog's header names it.
 type ExtensionLocations struct {
 	UserExtensions string `json:"userExtensions"`
 }
@@ -179,7 +182,7 @@ type ExtensionLocations struct {
 // HandleListLocations returns the extension install directories.
 func (api *ExtensionsAPI) HandleListLocations(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, r, 0, ExtensionLocations{
-		UserExtensions: api.userExtensionDir,
+		UserExtensions: userpaths.ShortenHome(api.userExtensionDir),
 	})
 }
 

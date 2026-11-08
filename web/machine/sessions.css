@@ -290,6 +290,20 @@ body {
     display: block;
 }
 
+/* A frameless window's edge resize is the Wails runtime's own hit-test, run on
+   this page's mouse events in an 8px band (resizeHandleEdgePx in
+   cmd/juggler-app/app_state.go). The frame's page is another origin's, so a
+   pointer over it never reaches that hit-test: flush to the edges, it leaves
+   the window resizable only along the header. Keep it clear of the band on the
+   three sides it would touch — only while the band is live
+   (utils/window-edge-resize.js): a maximised or fullscreen window has no
+   resize edge, and the gap would be a dead strip. */
+:where(:root[data-window-edge-resize] .window-mode) .ms-frame {
+    width: auto;
+    /* stylelint-disable-next-line rem-over-px/rem-over-px, unit-disallowed-list */
+    margin: 0 8px 8px;
+}
+
 .ms-frame-notice {
     padding: var(--spacing-sm) var(--spacing-lg);
 }

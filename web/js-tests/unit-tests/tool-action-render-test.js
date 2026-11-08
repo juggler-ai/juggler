@@ -33,6 +33,7 @@ import {
 import contextItemRegistry from '../../js/registries/context-item-registry.js';
 import { isPseudoLocalized } from '../../sdk/lib/i18n.js';
 import { formatDuration } from '../../js/utils/format.js';
+import { createSummaryWithSubtitle } from '../../sdk/lib/html.js';
 import { assert } from '../utilities/test-helpers.js';
 import { underPseudoLocale, shownStrings } from '../utilities/pseudo-locale.js';
 import '../../js/components/tool-action-message.js'; // registers the custom element
@@ -102,6 +103,25 @@ export async function runTests() {
       throw new Error(`expected the wire-name fallback, got ${JSON.stringify(bare)}`);
     passed++;
   } catch (e) { failed++; errors.push(`getBusyState card label: ${e.message}`); }
+  finally { contextItemRegistry.getByToolName = realGetByToolName; }
+
+  // A2b — a two-line card summary (command + description subtitle) gives the
+  // footer its main line only: the subtitle is the card's second line, not
+  // part of the one-line label.
+  try {
+    class SubtitledTool {
+      getStatusUI() { return { typeName: 'Bash', summary: createSummaryWithSubtitle('ls -la', 'Run by the user'), status: 'running' }; }
+    }
+    contextItemRegistry.getByToolName = (name) => (name === 'bash' ? SubtitledTool : undefined);
+    const busyEl = /** @type {any} */ (document.createElement('tool-action-message'));
+    busyEl._getConversation = () => ({ session: {} });
+    busyEl._getMessageThread = () => ({});
+    busyEl._getItem = () => fakeItem({ state: TOOL_STATES.RUNNING, toolName: 'bash', toolInput: {} });
+    const busy = busyEl.getBusyState();
+    if (busy?.message !== 'Bash: ls -la')
+      throw new Error(`expected the main line only, got ${JSON.stringify(busy)}`);
+    passed++;
+  } catch (e) { failed++; errors.push(`getBusyState subtitled summary: ${e.message}`); }
   finally { contextItemRegistry.getByToolName = realGetByToolName; }
 
   // A3 — an item with no tool name looks nothing up in the registry: a

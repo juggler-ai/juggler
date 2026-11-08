@@ -399,7 +399,12 @@ class ToolActionMessage extends JugglerElement {
         { conversation, messageThread: this._getMessageThread(), session: conversation?.session, toolUseId: item.get('toolUseId') }
       );
       if (!config) return '';
-      const summary = (typeof config.summary === 'string' ? config.summary : config.summary?.textContent || '').trim();
+      // A two-line summary (createSummaryWithSubtitle) gives its main line
+      // only: the subtitle is the card's second line, and its text would
+      // otherwise run straight on from the main line's.
+      const summaryEl = typeof config.summary === 'string' ? null : config.summary;
+      const mainLine = summaryEl?.querySelector?.('.summary-with-subtitle-main') || summaryEl;
+      const summary = (typeof config.summary === 'string' ? config.summary : mainLine?.textContent || '').trim();
       const name = ActionClass.MANIFEST?.name;
       const typeName = config.typeName || (name ? capabilityLabel(name, ActionClass.MANIFEST?.id) : toolName);
       return summary ? t('{type}: {summary}', { type: typeName, summary }) : typeName;

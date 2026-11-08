@@ -36,6 +36,13 @@ func appUnder(t *testing.T, dir string) *App {
 	return a
 }
 
+// holderLetsGoAfter is how long the holder keeps the lock while acquireInstance
+// has not returned. It is not a bound on how long a refusal may take: a
+// refusal returns while the lock is still held, however slow the core, and
+// once the holder lets go the outcome says which it was — a refusal that was
+// merely slow, or an acquire that waited and then took the lock.
+const holderLetsGoAfter = 2 * time.Second
+
 // TestAcquireInstanceRefusesAHeldLockAtOnce: a project's lock is held only by
 // a session child, or by the test harness, and whoever spawns one has already
 // arbitrated who owns the project — the machine server keys sessions by
@@ -45,21 +52,21 @@ func appUnder(t *testing.T, dir string) *App {
 func TestAcquireInstanceRefusesAHeldLockAtOnce(t *testing.T) {
 	for _, child := range []bool{false, true} {
 		dir, holder := lockedProject(t)
-		go func() {
-			time.Sleep(300 * time.Millisecond)
-			_ = holder.Release()
-		}()
 
 		a := appUnder(t, dir)
 		a.flags.sessionChild = child
-		start := time.Now()
-		err := a.acquireInstance()
+		result := make(chan error, 1)
+		go func() { result <- a.acquireInstance() }()
+		var err error
+		select {
+		case err = <-result:
+		case <-time.After(holderLetsGoAfter):
+			_ = holder.Release()
+			err = <-result
+		}
 		var locked *core.ProjectLockedError
 		if !errors.As(err, &locked) || locked.Project != dir {
-			t.Fatalf("session child %v: acquireInstance = %v, want a ProjectLockedError for %s", child, err, dir)
-		}
-		if took := time.Since(start); took >= 300*time.Millisecond {
-			t.Errorf("session child %v: refusing a held lock took %v; it waited for the holder", child, took)
+			t.Fatalf("session child %v: acquireInstance = %v, want a ProjectLockedError for %s; a nil error is an acquire that waited for the holder to let go", child, err, dir)
 		}
 	}
 }

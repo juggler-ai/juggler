@@ -20,7 +20,7 @@
 
 import { assert, waitFor } from '../utilities/test-helpers.js';
 import { budgetFor, deadlineTimer, testDeadlineMs, setTestDeadline, pinTestDeadline } from '../utilities/test-deadline.js';
-import { watchForStall } from '../utilities/stall-watch.js';
+import { watchForStall, trackedFetch } from '../utilities/stall-watch.js';
 import { trackWait, waitsInFlightReport } from '../utilities/test-patience.js';
 import UIDriver from '../utilities/ui-driver.js';
 import { UITestHarness } from '../utilities/ui-test-harness.js';
@@ -520,6 +520,45 @@ export async function runTests(_ctx) {
       errors.push(`a fetch stub never sees the progress report: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       window.fetch = realFetch;
+    }
+  }
+
+  // A response's headers are not the server's answer: the caller is still
+  // waiting on the server until the body it is reading has arrived, and a busy
+  // lane's body can arrive seconds after its headers. A read begun as the
+  // headers land keeps the request counted until it settles; a response nobody
+  // reads stops counting at once, so it cannot hold a wedged test alive.
+  {
+    /** @type {Map<number, number>} */
+    const inFlight = new Map();
+    /** @type {ReadableStreamDefaultController<Uint8Array>|null} */
+    let body = null;
+    const held = new window.ReadableStream({ start: (c) => { body = c; } });
+    const fetchUnread = trackedFetch(/** @type {any} */ (async () => new window.Response('{}')), inFlight);
+    // The tracker settles an unread response one task after its headers land;
+    // a zero-delay timer queued after that runs after it, so this is the turn
+    // the decision is made in, not a guess at how long anything takes.
+    // eslint-disable-next-line juggler/no-private-test-wait -- one task turn is the subject
+    const nextTask = () => new Promise((r) => setTimeout(r, 0));
+    try {
+      const response = await trackedFetch(/** @type {any} */ (async () => new window.Response(held)), inFlight)('/held');
+      const reading = response.json();
+      await nextTask();
+      assert(inFlight.size === 1,
+        'a request whose body was still being read stopped counting as awaiting the server when its headers arrived');
+      const ctl = /** @type {ReadableStreamDefaultController<Uint8Array>} */ (/** @type {unknown} */ (body));
+      ctl.enqueue(new TextEncoder().encode('{"ok":true}'));
+      ctl.close();
+      const parsed = await reading;
+      assert(parsed.ok === true, `the body read through the tracker came back as ${JSON.stringify(parsed)}`);
+      assert(inFlight.size === 0, 'a request whose body had been read still counted as awaiting the server');
+      await fetchUnread('/unread');
+      await nextTask();
+      assert(inFlight.size === 0, 'a response nobody read kept counting as awaiting the server');
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`a fetch counts until its body is read: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

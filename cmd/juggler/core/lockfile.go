@@ -118,9 +118,11 @@ func (l *InstanceLock) UpdateAddr(host string, port int) error {
 	return l.writeInstanceInfo()
 }
 
-// Release releases the lock and cleans up instance info
+// Release releases the lock and cleans up instance info. A lock TryAcquire
+// was refused is not this process's, and neither is the instance.json beside
+// it: that is the live holder's, so releasing a refused lock touches nothing.
 func (l *InstanceLock) Release() error {
-	if l.flock == nil {
+	if l.flock == nil || !l.flock.Locked() {
 		return nil
 	}
 

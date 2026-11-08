@@ -30,6 +30,7 @@ import { ConversationLoader } from '../../js/services/conversation-loader.js';
 import { INBOUND_HANDLERS, routeWorkerMessage } from '../../js/services/worker-manager-inbound.js';
 import wsService from '../../js/services/websocket.js';
 import { WS_CHUNK_HEADER_SIZE } from '../../js/utils/ws-chunk.js';
+import { connectTestWebSocket } from '../utilities/ws-connect.js';
 
 /**
  * @typedef {object} TestResult
@@ -566,6 +567,37 @@ export async function runTests(_ctx) {
       'a request not yet handed over when the link came back is answered on the new one');
     assert(wm._pendingAcks.size === 0, `nothing is left pending; got ${wm._pendingAcks.size}`);
     assert(undo.type === 'undo', 'the one-shot was sent once, on the dropped link');
+  });
+
+  // A lane's link reconnects like the app's, and must catch up like it
+  // (`ConnectionManager._handleOpen`): an ack owed on the dropped link can never
+  // arrive, so a lane that skips the relink waits out an "Ack timeout" for a
+  // request the worker answered. The first open is the connection itself, not a
+  // reconnect. A socket service and manager of the test's own, so no sibling
+  // lane's link is touched.
+  await run('a lane catches up on a reconnect as the app does', async () => {
+    /** @type {Record<string, Array<(e?: unknown) => void>>} */
+    const listeners = { open: [], error: [] };
+    let connected = false;
+    const emitOpen = () => { connected = true; for (const cb of [...listeners.open]) cb(); };
+    const ws = {
+      on: (/** @type {string} */ ev, /** @type {(e?: unknown) => void} */ cb) => { listeners[ev].push(cb); },
+      off: (/** @type {string} */ ev, /** @type {(e?: unknown) => void} */ cb) => { listeners[ev] = listeners[ev].filter((c) => c !== cb); },
+      isConnected: () => connected,
+      connect: () => { queueMicrotask(emitOpen); },
+    };
+    /** @type {string[]} */
+    const calls = [];
+    const wm = {
+      relinkPendingAcks: () => { calls.push('relink'); },
+      resyncReadyConversations: () => { calls.push('resync'); },
+    };
+    await soon(connectTestWebSocket(ws, wm), 'the first connection');
+    assert(calls.length === 0, `the first open is not a reconnect; got ${calls.join(',')}`);
+    connected = false;
+    emitOpen();
+    assert(calls.join(',') === 'relink,resync',
+      `a reconnect relinks owed acks and resyncs the documents; got ${calls.join(',') || 'nothing'}`);
   });
 
   // A starting worker's ready is queued behind its sync on this client's link,

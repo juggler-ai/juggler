@@ -9,6 +9,7 @@
 
 import { trackWait } from './test-patience.js';
 import { deadlineTimer } from './test-deadline.js';
+import workerManager from '../../js/services/worker-manager.js';
 
 /**
  * How long a connect may take before it is reported as a wedge.
@@ -23,12 +24,41 @@ import { deadlineTimer } from './test-deadline.js';
  */
 const CONNECT_WEDGE_MS = 60_000;
 
+/** The socket services already catching up on their reconnects. */
+const catchingUp = new WeakSet();
+
+/**
+ * Catch up after each reconnect of `wsService` as the app does
+ * (`ConnectionManager._handleOpen`): the acks owed on the dropped link, which
+ * the worker addressed to it and so can never arrive, and each ready
+ * conversation's document. The page has no ConnectionManager, so without this
+ * a reconnected lane waits out an ack timeout for a request the worker
+ * answered. Once per socket service; the lanes of a window share one.
+ * @param {any} wsService - The WebSocket service.
+ * @param {{relinkPendingAcks: () => void, resyncReadyConversations: () => void}} manager - Whose acks and documents catch up.
+ */
+function catchUpOnReconnect(wsService, manager) {
+  if (catchingUp.has(wsService)) return;
+  catchingUp.add(wsService);
+  let opened = wsService.isConnected();
+  wsService.on('open', () => {
+    if (!opened) {
+      opened = true;
+      return;
+    }
+    manager.relinkPendingAcks();
+    manager.resyncReadyConversations();
+  });
+}
+
 /**
  * Connect the lane's WebSocket service and wait for it to open.
  * @param {any} wsService - The WebSocket service.
+ * @param {{relinkPendingAcks: () => void, resyncReadyConversations: () => void}} [manager] - Whose acks and documents catch up on a reconnect; the page's worker manager by default.
  * @returns {Promise<void>} Resolves once open; rejects on the socket's error, or if neither comes.
  */
-export function connectTestWebSocket(wsService) {
+export function connectTestWebSocket(wsService, manager = workerManager) {
+  catchUpOnReconnect(wsService, manager);
   const close = trackWait('the lane\'s WebSocket to open');
   return new Promise((resolve, reject) => {
     const done = (/** @type {'satisfied'|'threw'} */ outcome) => {

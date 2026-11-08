@@ -211,11 +211,52 @@ let fetchTrackingInstalled = false;
 export function installFetchTracking() {
   if (fetchTrackingInstalled || typeof window === 'undefined' || typeof window.fetch !== 'function') return;
   fetchTrackingInstalled = true;
-  const real = window.fetch.bind(window);
-  window.fetch = /** @type {typeof window.fetch} */ ((...args) => {
+  window.fetch = trackedFetch(window.fetch.bind(window));
+}
+
+/** The body readers a caller waits on after a response's headers have arrived. */
+const BODY_READERS = /** @type {const} */ (['json', 'text', 'arrayBuffer', 'blob', 'formData', 'bytes']);
+
+/**
+ * A fetch that records each request in `inFlight` while it is outstanding.
+ *
+ * Outstanding means until the caller has the answer, which is the body, not
+ * the headers: `fetch` resolves on the headers, and a busy lane's body can land
+ * seconds later while the caller sits in `response.json()` with nothing else
+ * in the lane able to move. So a body read the caller begins in the same turn
+ * the headers resolve keeps the request counted until that read settles. A
+ * response nobody starts reading by the next task is done, as it was at its
+ * headers, so a response left unread never holds a wedged test alive.
+ * @param {typeof window.fetch} real - The fetch to wrap.
+ * @param {Map<number, number>} [inFlight] - Where outstanding requests are kept, by sequence number, with their start time; the lane's own by default.
+ * @returns {typeof window.fetch} The wrapped fetch.
+ */
+export function trackedFetch(real, inFlight = laneFetches) {
+  return /** @type {typeof window.fetch} */ ((...args) => {
     const id = ++fetchSeq;
-    laneFetches.set(id, Date.now());
-    return real(...args).finally(() => { laneFetches.delete(id); });
+    inFlight.set(id, Date.now());
+    const done = () => { inFlight.delete(id); };
+    return real(...args).then((response) => {
+      let reading = false;
+      for (const name of BODY_READERS) {
+        const read = /** @type {any} */ (response)[name];
+        if (typeof read !== 'function') continue;
+        Object.defineProperty(response, name, {
+          configurable: true,
+          value: (/** @type {unknown[]} */ ...readArgs) => {
+            reading = true;
+            const result = read.apply(response, readArgs);
+            Promise.resolve(result).then(done, done);
+            return result;
+          },
+        });
+      }
+      setTimeout(() => { if (!reading) done(); }, 0);
+      return response;
+    }, (err) => {
+      done();
+      throw err;
+    });
   });
 }
 

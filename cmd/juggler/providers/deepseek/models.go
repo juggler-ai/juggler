@@ -35,6 +35,8 @@ func modelFilter() openaibase.ModelFilterFunc {
 var ModelContextWindows = map[string]int{
 	"deepseek-v4-flash": 1000000,
 	"deepseek-v4-pro":   1000000,
+	// The undated alias of the latest Flash snapshot (V4.1 Flash 1017).
+	"deepseek-flash": 1000000,
 	// Ships images, and reaches users: the provider's model filter drops ids
 	// ending in "-vision", and this one ends "-exp".
 	"deepseek-v4-flash-vision-exp": 1000000,
@@ -64,6 +66,7 @@ const DefaultMaxOutputTokens = 32768
 var ModelMaxOutputTokens = map[string]int{
 	"deepseek-v4-flash":            384000,
 	"deepseek-v4-pro":              384000,
+	"deepseek-flash":               384000,
 	"deepseek-v4-flash-vision-exp": 384000,
 }
 

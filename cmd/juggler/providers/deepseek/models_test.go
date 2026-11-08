@@ -13,6 +13,7 @@ import "testing"
 var currentModels = []string{
 	"deepseek-v4-flash",
 	"deepseek-v4-pro",
+	"deepseek-flash",
 	"deepseek-v4-flash-vision-exp",
 }
 

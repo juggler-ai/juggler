@@ -21,10 +21,15 @@ import (
 // tokens). Source: developers.openai.com model pages.
 var ModelContextWindows = map[string]int{
 	// GPT-6 Series (1.05M total: 922K input + 128K output)
-	"gpt-6-astra": 1050000,
-	"gpt-6.1-sol": 1050000,
-	"gpt-6-sol":   1050000,
-	"gpt-6-luna":  1050000,
+	"gpt-6-astra":   1050000,
+	"gpt-6.1-sol":   1050000,
+	"gpt-6.1-terra": 1050000,
+	"gpt-6-sol":     1050000,
+	"gpt-6-luna":    1050000,
+
+	// Daybreak aliases: Blue has the GPT-6 window, Red the 400K one.
+	"gpt-daybreak-blue-latest": 1050000,
+	"gpt-daybreak-red-latest":  400000,
 
 	// GPT-5.6 Series (1.05M total: 922K input + 128K output). The bare
 	// "gpt-5.6" is an alias that routes to Sol.
@@ -42,12 +47,13 @@ var ModelContextWindows = map[string]int{
 	"gpt-5.4-mini": 400000,
 	"gpt-5.4-nano": 400000,
 
-	// GPT-5.1 / 5.2 / 5.3 Series
-	"gpt-5.3-codex": 400000,
-	"gpt-5.2":       400000,
-	"gpt-5.2-pro":   400000,
-	"gpt-5.2-codex": 400000,
-	"gpt-5.1":       400000,
+	// GPT-5.1 / 5.2 / 5.3 Series. Codex Spark is the small, fast one: 128K.
+	"gpt-5.3-codex":       400000,
+	"gpt-5.3-codex-spark": 128000,
+	"gpt-5.2":             400000,
+	"gpt-5.2-pro":         400000,
+	"gpt-5.2-codex":       400000,
+	"gpt-5.1":             400000,
 
 	// GPT-5 Series (272K input + 128K output)
 	"gpt-5":      400000,
@@ -99,6 +105,7 @@ var ModelContextWindows = map[string]int{
 	// o-Series reasoning models
 	"o4-mini": 200000,
 	"o3":      200000,
+	"o3-pro":  200000,
 	"o3-mini": 200000,
 	"o1":      200000,
 	"o1-pro":  200000,
@@ -111,27 +118,34 @@ var ModelMaxOutputTokens = map[string]int{
 	// The whole modern line shares a 128000 output ceiling.
 	"gpt-6-astra":   128000,
 	"gpt-6.1-sol":   128000,
+	"gpt-6.1-terra": 128000,
 	"gpt-6-sol":     128000,
 	"gpt-6-luna":    128000,
-	"gpt-5.6":       128000,
-	"gpt-5.6-sol":   128000,
-	"gpt-5.6-terra": 128000,
-	"gpt-5.6-luna":  128000,
-	"gpt-5.6-cyber": 128000,
-	"gpt-5.5":       128000,
-	"gpt-5.5-pro":   128000,
-	"gpt-5.4":       128000,
-	"gpt-5.4-pro":   128000,
-	"gpt-5.4-mini":  128000,
-	"gpt-5.4-nano":  128000,
-	"gpt-5.3-codex": 128000,
-	"gpt-5.2":       128000,
-	"gpt-5.2-pro":   128000,
-	"gpt-5.2-codex": 128000,
-	"gpt-5.1":       128000,
-	"gpt-5":         128000,
-	"gpt-5-mini":    128000,
-	"gpt-5-nano":    128000,
+
+	"gpt-daybreak-blue-latest": 128000,
+	"gpt-daybreak-red-latest":  128000,
+	"gpt-5.6":                  128000,
+	"gpt-5.6-sol":              128000,
+	"gpt-5.6-terra":            128000,
+	"gpt-5.6-luna":             128000,
+	"gpt-5.6-cyber":            128000,
+	"gpt-5.5":                  128000,
+	"gpt-5.5-pro":              128000,
+	"gpt-5.4":                  128000,
+	"gpt-5.4-pro":              128000,
+	"gpt-5.4-mini":             128000,
+	"gpt-5.4-nano":             128000,
+	"gpt-5.3-codex":            128000,
+	"gpt-5.2":                  128000,
+	"gpt-5.2-pro":              128000,
+	"gpt-5.2-codex":            128000,
+	"gpt-5.1":                  128000,
+
+	// Codex Spark's ceiling is a quarter of its window, below the line's.
+	"gpt-5.3-codex-spark": 32000,
+	"gpt-5":               128000,
+	"gpt-5-mini":          128000,
+	"gpt-5-nano":          128000,
 
 	"gpt-5-codex":        128000,
 	"gpt-5.1-codex":      128000,
@@ -175,6 +189,7 @@ var ModelMaxOutputTokens = map[string]int{
 	// o-Series reasoning models
 	"o4-mini": 100000,
 	"o3":      100000,
+	"o3-pro":  100000,
 	"o3-mini": 100000,
 	"o1":      100000,
 	"o1-pro":  100000,

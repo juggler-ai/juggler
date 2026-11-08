@@ -663,6 +663,7 @@ pinboard-content:focus {
    so a board themes exactly as Juggler does. */
 [data-view="pinboard"] .sidebar-toggle-button,
 [data-view="pinboard"] project-path-display,
+[data-view="pinboard"] .network-button,
 [data-view="pinboard"] header-actions > :not(.header-actions-controls),
 [data-view="pinboard"] .header-actions-controls button:not(.theme-button) {
     display: none;

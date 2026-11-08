@@ -66,8 +66,8 @@
 .btn-icon-header {
     background: transparent;
     border: none;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: var(--btn-icon-header-size, 2.5rem);
+    height: var(--btn-icon-header-size, 2.5rem);
     border-radius: var(--radius-lg);
     cursor: pointer;
     position: relative;
@@ -85,11 +85,13 @@
     background: var(--border-color);
 }
 
-/* Icon styling for header buttons */
+/* Icon styling for header buttons. A surface that sizes its buttons sets
+   --btn-icon-header-size and --btn-icon-header-glyph rather than out-ranking
+   these rules. */
 .btn-icon-header svg,
 .btn-icon-header::before {
-    width: 1.5rem;
-    height: 1.5rem;
+    width: var(--btn-icon-header-glyph, 1.5rem);
+    height: var(--btn-icon-header-glyph, 1.5rem);
     flex-shrink: 0;
     transition: fill var(--transition-base), background-color var(--transition-base), transform var(--transition-base);
 }

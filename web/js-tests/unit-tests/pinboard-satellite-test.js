@@ -769,7 +769,10 @@ export async function runTests() {
           + '<button class="app-header__board-conversation">Short</button>'
           + '<span class="app-header__board-kind">Pinboard</span>'
           + '</div>'
+          + '<div class="app-header__centre">'
           + '<project-path-display></project-path-display>'
+          + '<button class="network-button"></button>'
+          + '</div>'
           + '<header-actions><update-button></update-button>'
           + '<div class="header-actions-controls">'
           // Grouped as index.html groups them, so hiding a control can never
@@ -795,6 +798,8 @@ export async function runTests() {
           'nor a toggle for a sidebar that is not there');
         assert(styleOf('project-path-display').display === 'none',
           'nor a project chip, since a board window navigates nothing');
+        assert(styleOf('.network-button').display === 'none',
+          'nor the network button after it, which belongs to the window that opened it');
         assert(styleOf('.settings-button').display === 'none'
           && styleOf('.zoom-in-button').display === 'none',
         'nor controls belonging to the window that opened it — even one grouped with the theme button');

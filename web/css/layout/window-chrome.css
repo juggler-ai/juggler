@@ -28,6 +28,7 @@
    of the title bar's middle, and the click that ends a drag by it opens
    nothing (session-popover.js). */
 :where(.window-mode) header-actions,
+:where(.window-mode) .network-button,
 :where(.window-mode) .ppd-new-window-button,
 :where(.window-mode) .sidebar-toggle-button {
     --wails-draggable: no-drag;

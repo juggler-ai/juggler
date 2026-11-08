@@ -110,7 +110,13 @@ app-container {
     background-color: var(--text-primary);
 }
 
-/* Network Button - mask icon (Material Symbols "lan") */
+/* Network Button — in the header's title (layout/app-header.css), where no
+   container clears the base button's padding for it. Its icon is a mask
+   (Material Symbols "lan"). */
+.network-button {
+    padding: 0;
+}
+
 .network-button::before {
     content: "";
     display: block;
@@ -131,8 +137,9 @@ app-container {
 
 /* The count of OTHER connected clients, as a small neutral badge pinned over
    the icon's top-right corner — positioned absolutely so it never widens the
-   button (on a phone the header row has no width to spare). The " connected"
-   suffix is only shown where the header has room for the count as a label.
+   button, so a client joining never moves the project chip beside it. The
+   " connected" suffix is the translated sentence's words around the count,
+   and stays hidden.
    One class of specificity, so nothing here outranks a later layer's rule, and
    no `display` of its own, so the [hidden] attribute keeps hiding it. Sized
    and set on the button's outer corner to fit the glyph's bare top-right,
@@ -166,10 +173,8 @@ app-container {
 /* A window on a server the app did not start names it: the host as small print
    after the icon, and the button grows to hold it. `.is-remote` is set with
    the host by header-controls.js. The host never truncates — a clipped name
-   could read as another machine's. The button stacks its text: where a wide
-   header spells out "N connected" (below), that is a second line under the
-   host, so the button is only ever as wide as its longer line. The count badge
-   stays pinned over the icon's corner rather than the end of the wider button. */
+   could read as another machine's. The count badge stays pinned over the
+   icon's corner rather than the end of the wider button. */
 .network-button.is-remote {
     width: auto;
     flex-direction: column;
@@ -202,57 +207,6 @@ app-container {
 :where(.network-button.is-remote) .network-button__clients {
     right: auto;
     left: 1.125rem;
-}
-
-/* A wide header has room to say it: the badge becomes a "2 connected" label
-   beside the icon, and the button grows to hold it. `.has-clients` is set with
-   the count by header-controls.js. */
-@container app-header (width >= 90rem) {
-    .network-button.has-clients {
-        width: auto;
-        padding: 0 0.625rem 0 2rem;
-
-        /* Spelled out, the count is a value the button holds (see
-           .network-button.is-remote). */
-        --btn-ghost-bg: var(--overlay-light-5);
-        --btn-ghost-hover-bg: var(--overlay-light-10);
-    }
-
-    .network-button.has-clients::before {
-        left: 1rem;
-    }
-
-    /* One class of specificity, like the badge rules above that these follow
-       and override. */
-    :where(.network-button.has-clients) .network-button__clients {
-        position: static;
-        min-width: 0;
-        height: auto;
-        padding: 0;
-        background-color: transparent;
-        color: var(--text-secondary);
-        font-size: var(--font-size-xs);
-        line-height: 0.8125rem;
-    }
-
-    :where(.network-button.has-clients:hover) .network-button__clients {
-        background-color: transparent;
-        color: var(--text-primary);
-    }
-
-    :where(.network-button.has-clients) .network-button__suffix {
-        display: inline;
-    }
-
-    /* On a remote window the label is the host's second line. After the rules
-       above so the stacked layout's geometry wins. */
-    .network-button.is-remote.has-clients {
-        padding: 0 0.5rem 0 1.875rem;
-    }
-
-    .network-button.is-remote.has-clients::before {
-        left: 0.875rem;
-    }
 }
 
 /* Notification Sounds (bell) Button — inline SVG bell (inherits the shared

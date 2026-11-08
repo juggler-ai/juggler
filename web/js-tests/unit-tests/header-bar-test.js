@@ -17,17 +17,20 @@
  *   3. The network button carries the count of other connected clients, in
  *      its badge and its accessible name; the project chip carries none.
  *   4. The header has no undo/redo: they act on one conversation, so they are
- *      in its footer. The chip is the session switcher's button, and part of
- *      a desktop window's drag region; the new-window button beside it is not.
- *   5. The app-wide controls come in groups (network, view, app, panel) whose
- *      spacing grows with the header; with room, the network count is a label.
+ *      in its footer. The window's title is the chip, its new-window button,
+ *      then the network button — in that order of weight, with room between. The chip is the
+ *      session switcher's button, and part of a desktop window's drag region;
+ *      the buttons either side of it are not.
+ *   5. The app-wide controls come in groups (view, app, panel) whose spacing
+ *      grows with the header. The network button in the title stays compact:
+ *      its count is a badge at every width.
  *   6. Below 900px, help and zoom fold into a "…" menu that offers them back,
  *      with their shortcuts. A Windows or Linux desktop window shows "…" at any
  *      width: there it is the app menu, ending in Exit (Windows) or Quit (Linux).
  *   7. Tooltips name shortcuts, and never restore a title that changed under them.
  *   8. Under en-XA the network button's title and accessible name are translated.
  *   9. A window on a server the app did not start names that server's host
- *      inside the network button, which leads the button row.
+ *      inside the network button, which ends the window's title.
  *  10. A frameless Windows or Linux window's caption buttons stay inside it at
  *      every header width — on Windows flush to the top-right corner.
  *  11. The condensed header shrinks the wordmark only a little, and keeps it
@@ -263,7 +266,6 @@ export async function runTests() {
         `the title names the count, got "${button.title}"`);
       assert(button.getAttribute('aria-label') === button.title, 'the accessible name says the same');
       assert(clients?.textContent === '3 connected', `the label reads "3 connected", got "${clients?.textContent}"`);
-      assert(button.classList.contains('has-clients'), 'the button is marked as carrying a count');
       assert(button.getBoundingClientRect().width === aloneWidth,
         `the badge sits over the icon, never widening the button (${aloneWidth} → ${button.getBoundingClientRect().width})`);
 
@@ -272,7 +274,7 @@ export async function runTests() {
         `one other client reads in the singular, got "${button.title}"`);
 
       clientsChanged(1);
-      assert(!shown() && button.title === 'Network settings' && !button.classList.contains('has-clients'),
+      assert(!shown() && button.title === 'Network settings',
         'the count goes away when the others leave');
 
       // A detached pinboard is this window's own, not somebody else sharing it.
@@ -299,13 +301,25 @@ export async function runTests() {
     assert(!served.querySelector('#control-undo-button, #control-redo-button, .header-history'),
       'the header holds no undo/redo');
 
-    // Wide: the new-window button hugs the chip's right.
+    // Wide: the title leads with what matters most — the chip, then its
+    // new-window button, then the network button — each with room to read as
+    // a control of its own, and the network button a little further off, as
+    // the least of the three.
     const wide = await framedHeader(served, 1400);
     try {
       const chip = wide.box('#project-path-chip');
       const opener = wide.box('#project-new-window-button');
-      assert(opener.left >= chip.right && opener.left - chip.right < 40,
-        `the new-window button sits just after the chip (${Math.round(opener.left - chip.right)}px away)`);
+      const network = wide.box('#network-button');
+      const toOpener = opener.left - chip.right;
+      const toNetwork = network.left - opener.right;
+      assert(toOpener >= 8 && toOpener < 40,
+        `the new-window button sits just after the chip, with room between (${Math.round(toOpener)}px)`);
+      assert(toNetwork >= 12 && toNetwork < 40 && toNetwork > toOpener,
+        `the network button ends the title, set a little further off (${Math.round(toNetwork)}px after the new-window button, which is ${Math.round(toOpener)}px after the chip)`);
+      assert(Math.abs((network.top + network.bottom) - (chip.top + chip.bottom)) < 1,
+        'the network button and the chip share a centre line');
+      assert(wide.el('#network-button').closest('.app-header__centre') !== null,
+        'the network button is part of the window\'s title, not the app\'s controls');
 
       // Window mode: the header is a drag region. The new-window button beside
       // the project chip is a button: it never drags the window. The chip
@@ -317,6 +331,8 @@ export async function runTests() {
         .getPropertyValue('--wails-draggable').trim();
       assert(dragOf('#project-new-window-button') === 'no-drag',
         `the new-window button is clickable in a desktop window (got "${dragOf('#project-new-window-button')}")`);
+      assert(dragOf('#network-button') === 'no-drag',
+        `the network button is clickable in a desktop window (got "${dragOf('#network-button')}")`);
       assert(dragOf('#project-path-chip') === 'drag',
         `the project chip is part of the drag region (got "${dragOf('#project-path-chip')}")`);
       // The runtime drags only from a press inside its target's client box,
@@ -356,6 +372,11 @@ export async function runTests() {
       assert(settings.top >= chip.bottom - 1,
         `the buttons drop below the chip on a phone (settings top ${Math.round(settings.top)}, chip bottom ${Math.round(chip.bottom)})`);
       assert(settings.right <= 400, 'nothing spills off the right edge');
+      // Row 1 has no room for it beside the chip, so on a phone the network
+      // button leads the button row, as the rest of the bar's controls do.
+      const network = phone.box('#network-button');
+      assert(network.top >= chip.bottom - 1 && network.right <= phone.box('#tool-grouping-button').left,
+        `the network button leads the button row on a phone (top ${Math.round(network.top)}, chip bottom ${Math.round(chip.bottom)})`);
     } finally {
       phone.frame.remove();
     }
@@ -365,8 +386,9 @@ export async function runTests() {
   // --- 4b: the project chip stands in the middle of the space it is given ---
   // Centred between the wordmark and the app's controls, not on the window:
   // the controls outweigh the wordmark several times over, and a chip on the
-  // window's centre leaves it closer to them than to the wordmark. The chip and
-  // its new-window button are one group, with as much room before it as after
+  // window's centre leaves it closer to them than to the wordmark. The chip,
+  // its new-window button and the network button are one group, with as much
+  // room before it as after
   // — at any width, with a Mac window's traffic lights, and with a long path.
   // Where there is no room for that, nothing overlaps either end.
   try {
@@ -387,7 +409,7 @@ export async function runTests() {
         f.el('.ss-chip-tile').textContent = 'PR';
         f.el('.ppd-path').innerHTML = `<span class="ppd-dir">${path.slice(0, cut)}</span><span class="ppd-name">${path.slice(cut)}</span>`;
         return Object.fromEntries(/** @type {const} */ ([
-          ['logo', '.logo'], ['chip', '#project-path-chip'],
+          ['logo', '.logo'], ['network', '#network-button'], ['chip', '#project-path-chip'],
           ['opener', '#project-new-window-button'], ['actions', 'header-actions'],
         ]).map(([k, sel]) => [k, f.box(sel)]));
       } finally {
@@ -401,17 +423,17 @@ export async function runTests() {
       const b = await layoutAt(width, { mac, path });
       const where = `${width}px${mac ? ', Mac window' : ''}${path ? ', long path' : ''}`;
       const before = b.chip.left - b.logo.right;
-      const after = b.actions.left - b.opener.right;
+      const after = b.actions.left - b.network.right;
       assert(Math.abs(before - after) < 1,
-        `${where}: as much room before the chip as after its new-window button (${Math.round(before)}px vs ${Math.round(after)}px)`);
+        `${where}: as much room before the chip as after the network button (${Math.round(before)}px vs ${Math.round(after)}px)`);
       assert(before > 100, `${where}: with room to spare (${Math.round(before)}px either side)`);
     }
     for (const width of [1000, 800, 640]) {
       for (const path of [undefined, '/a/much/longer/path/to/a/project/somewhere/deep']) {
         const b = await layoutAt(width, { path });
         const where = `${width}px${path ? ', long path' : ''}`;
-        assert(b.logo.right <= b.chip.left && b.opener.right <= b.actions.left,
-          `${where}: nothing overlaps (wordmark ends ${Math.round(b.logo.right)}, chip starts ${Math.round(b.chip.left)}; new-window ends ${Math.round(b.opener.right)}, controls start ${Math.round(b.actions.left)})`);
+        assert(b.logo.right <= b.chip.left && b.opener.right <= b.network.left && b.network.right <= b.actions.left,
+          `${where}: nothing overlaps (wordmark ends ${Math.round(b.logo.right)}, chip starts ${Math.round(b.chip.left)}; new-window ends ${Math.round(b.opener.right)}, network ${Math.round(b.network.left)}–${Math.round(b.network.right)}, controls start ${Math.round(b.actions.left)})`);
       }
     }
     passed++;
@@ -421,14 +443,13 @@ export async function runTests() {
   try {
     /** @type {Record<string, string[]>} */
     const expected = {
-      network: ['network-button'],
       view: ['tool-grouping-button', 'zoom-out-button', 'zoom-in-button', 'theme-button', 'bell-button'],
       app: ['help-button', 'settings-button'],
       panel: ['pinboard-header-button'],
     };
     const groups = [...served.querySelectorAll('.header-actions-controls > .header-group')];
     assert(groups.map((g) => g.className).join() === Object.keys(expected).map((k) => `header-group header-group--${k}`).join(),
-      `the controls are grouped network, view, app, panel — got ${groups.map((g) => g.className).join(' | ')}`);
+      `the controls are grouped view, app, panel — got ${groups.map((g) => g.className).join(' | ')}`);
     for (const [name, ids] of Object.entries(expected)) {
       const got = [...served.querySelectorAll(`.header-group--${name} button`)].map((b) => b.id);
       assert(got.filter((id) => ids.includes(id)).join() === ids.join(),
@@ -460,26 +481,20 @@ export async function runTests() {
     assert(roomy.between > narrow.between + 6,
       `the gap between groups grows with the header (${narrow.between}px at 1000 → ${roomy.between}px at 2000)`);
 
-    // With room to spare the network count reads as a label, not a badge.
-    for (const [width, label] of /** @type {const} */ ([[2000, true], [1000, false]])) {
+    // In the title the network button stays compact: its count is a badge on
+    // the icon however wide the header, so a client joining never moves the
+    // chip.
+    for (const width of [2000, 1000]) {
       const f = await framedHeader(served, width);
       try {
         const button = f.el('#network-button');
         f.el('.network-button__clients').hidden = false;
         f.el('.network-button__count').textContent = '2';
-        button.classList.add('has-clients');
         const view = /** @type {Window} */ (f.doc.defaultView);
         const suffixShown = view.getComputedStyle(f.el('.network-button__suffix')).display !== 'none';
-        assert(suffixShown === label,
-          `${width}px: "connected" ${label ? 'is' : 'is not'} spelled out (shown=${suffixShown})`);
-        if (label) {
-          // The same small print as a remote window's host, one line or two.
-          const size = parseFloat(view.getComputedStyle(f.el('.network-button__clients')).fontSize);
-          assert(size < 12, `${width}px: the label is small print, got ${size}px`);
-        }
+        assert(!suffixShown, `${width}px: "connected" is not spelled out (shown=${suffixShown})`);
         const w = button.getBoundingClientRect().width;
-        assert(label ? w > 60 : Math.round(w) === 32,
-          `${width}px: the button is ${label ? 'widened to hold the label' : 'icon-sized'}, got ${w}px`);
+        assert(Math.round(w) === 32, `${width}px: the button is icon-sized, got ${w}px`);
       } finally {
         f.frame.remove();
       }
@@ -829,8 +844,8 @@ export async function runTests() {
             `${width}px: the host sits inside the button (${Math.round(h.left)}–${Math.round(h.right)} in ${Math.round(b.left)}–${Math.round(b.right)})`);
           assert(button.title.includes('devbox:8080') && button.getAttribute('aria-label') === button.title,
             `${width}px: the title and accessible name name the server, got "${button.title}"`);
-          assert(b.right <= f.box('#tool-grouping-button').left,
-            `${width}px: the network button leads the button row`);
+          assert(b.left >= f.box('#project-new-window-button').right && b.right <= f.box('header-actions').left,
+            `${width}px: the network button ends the title, before the app's controls`);
           // Small print, so a long host does not make the button a slab.
           const hostSize = parseFloat(view.getComputedStyle(host).fontSize);
           assert(hostSize < 12, `${width}px: the host is small print, under 12px, got ${hostSize}px`);
@@ -841,35 +856,19 @@ export async function runTests() {
           const count = f.el('.network-button__count');
           assert(view.getComputedStyle(f.el('.network-button__clients')).display !== 'none' && count.textContent === '2',
             `${width}px: the count still shows beside the host`);
-          // Measured afresh: the row is right-aligned, so a button that grows
-          // to hold a label moves its left edge.
+          // Measured afresh: the title is centred, so a button that grows
+          // moves its left edge.
           const c = count.getBoundingClientRect();
           const at = button.getBoundingClientRect();
-          if (width === 1000) {
-            // Narrow, the count is the badge, and it stays on the icon rather
-            // than drifting to the end of a now-wider button.
-            assert(c.left < at.left + 32,
-              `${width}px: the badge sits over the icon (badge at ${Math.round(c.left - at.left)}px into the button)`);
-            assertBadgeClearsGlyph(`${width}px, remote`);
-            const badge = f.el('.network-button__clients').getBoundingClientRect();
-            assert(badge.right <= host.getBoundingClientRect().left + 0.5,
-              `${width}px, remote: the badge stops short of the host (badge right ${Math.round(badge.right - at.left)}px, host left ${Math.round(host.getBoundingClientRect().left - at.left)}px)`);
-          } else {
-            // Wide, the "N connected" label is a second line under the host
-            // rather than a second run of text beside it, so the button only
-            // ever grows to its longer line, and the two lines fit the
-            // header's 32px row.
-            const now = host.getBoundingClientRect();
-            const label = f.el('.network-button__clients').getBoundingClientRect();
-            assert(label.top >= now.bottom - 0.5,
-              `${width}px: the label sits under the host (label top ${Math.round(label.top - at.top)}px, host bottom ${Math.round(now.bottom - at.top)}px)`);
-            assert(Math.abs(label.left - now.left) < 1,
-              `${width}px: the two lines share a left edge (${Math.round(label.left - at.left)} vs ${Math.round(now.left - at.left)}px)`);
-            assert(now.top >= at.top - 0.5 && label.bottom <= at.bottom + 0.5 && Math.round(at.height) === 32,
-              `${width}px: both lines fit a 32px button (button ${Math.round(at.height)}px, lines ${Math.round(now.top - at.top)}–${Math.round(label.bottom - at.top)}px)`);
-            assert(parseFloat(view.getComputedStyle(f.el('.network-button__clients')).fontSize) === hostSize,
-              `${width}px: both lines are set at one size`);
-          }
+          // The count is the badge, and it stays on the icon rather than
+          // drifting to the end of a now-wider button.
+          assert(c.left < at.left + 32,
+            `${width}px: the badge sits over the icon (badge at ${Math.round(c.left - at.left)}px into the button)`);
+          assertBadgeClearsGlyph(`${width}px, remote`);
+          const badge = f.el('.network-button__clients').getBoundingClientRect();
+          assert(badge.right <= host.getBoundingClientRect().left + 0.5,
+            `${width}px, remote: the badge stops short of the host (badge right ${Math.round(badge.right - at.left)}px, host left ${Math.round(host.getBoundingClientRect().left - at.left)}px)`);
+          assert(Math.round(at.height) === 32, `${width}px: the host fits the header's 32px row, got ${at.height}px`);
         } finally {
           remote.dispose();
         }
@@ -1026,7 +1025,7 @@ export async function runTests() {
       const style = (/** @type {string} */ sel) => view.getComputedStyle(f.el(sel));
 
       // One corner: the chip and the icon buttons.
-      const corners = ['#project-path-chip', '#project-new-window-button', '#theme-button', '#settings-button', '#zoom-in-button']
+      const corners = ['#project-path-chip', '#project-new-window-button', '#network-button', '#theme-button', '#settings-button', '#zoom-in-button']
         .map((sel) => [sel, style(sel).borderTopLeftRadius]);
       assert(new Set(corners.map(([, r]) => r)).size === 1,
         `every control in the bar has one corner radius, got ${corners.map(([s, r]) => `${s} ${r}`).join(', ')}`);

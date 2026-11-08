@@ -126,9 +126,8 @@ async function fetchClientCount() {
  * that server's host beside the icon: nothing else on screen tells a window
  * onto another computer from one onto this one, and what the agent runs, it
  * runs there. The server's count includes this one, so one is subtracted;
- * alone, the button carries no count. The count is a badge over the icon (or,
- * where the header has room, a "N connected" label) and is also spoken in the
- * button's title and accessible name.
+ * alone, the button carries no count. The count is a badge over the icon and
+ * is also spoken in the button's title and accessible name.
  * @param {HTMLElement} button - The header's #network-button.
  * @param {{events?: ClientsEventSource, seed?: () => Promise<number|null>, host?: string}} [options]
  *   Where joins and leaves are heard (the session socket by default), how the
@@ -158,7 +157,7 @@ export function bindNetworkClients(button, { events = wsService, seed = fetchCli
     button.setAttribute('aria-label', label);
     if (clients) {
       // One sentence with the count in it. The count is the badge; the words
-      // around it are the suffix, shown only where the header has room.
+      // around it are the suffix, which CSS keeps hidden.
       const markup = { number: `<span class="network-button__count">${others}</span>` };
       clients.innerHTML = withHtml(t('{count, plural, other {{number} connected}}', htmlSlots(markup, { count: others })), markup);
       for (const node of Array.from(clients.childNodes)) {
@@ -170,8 +169,6 @@ export function bindNetworkClients(button, { events = wsService, seed = fetchCli
       }
       clients.hidden = others === 0;
     }
-    // Lets a wide header turn the badge into a "N connected" label.
-    button.classList.toggle('has-clients', others > 0);
   };
 
   // Alone until the server says otherwise; this also names the button in the

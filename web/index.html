@@ -352,9 +352,10 @@
                  that knows either. -->
             <div class="app-header__board-title" id="board-title"></div>
 
-            <!-- The window's title: the project chip and its new-window button,
-                 centred in the space between the wordmark and the app's
-                 controls (app-header.css, .app-header--titled). -->
+            <!-- The window's title: the project chip, its new-window button
+                 and the network button, centred in the space between the
+                 wordmark and the app's controls (app-header.css,
+                 .app-header--titled). -->
             <div class="app-header__centre">
                 <!-- Project: the session's folder, as the session switcher's button
                      (components/session-popover.js): its tinted tile, its name and
@@ -378,6 +379,17 @@
                         </svg>
                     </button>
                 </project-path-display>
+                <!-- Network Button — opens Settings › Connectivity. Last in the
+                     title, the least of its three. It says where this window's
+                     server is: a window on a server the app did not start
+                     (Connect to Server, --url) names that server's host beside
+                     the icon, and while OTHER clients share this session a badge
+                     over the icon shows how many. The host, the count and the
+                     title are kept by header-controls.js. -->
+                <button class="btn-ghost btn-icon-header network-button" id="network-button" title="Network settings" aria-label="Network settings">
+                    <span class="network-button__host" aria-hidden="true" hidden></span>
+                    <span class="network-button__clients" aria-hidden="true" hidden><span class="network-button__count"></span><span class="network-button__suffix"> connected</span></span>
+                </button>
             </div>
 
             <!-- Header Actions (the window's and app's controls) -->
@@ -386,28 +398,14 @@
                      server version notice with the in-app auto-updater (when
                      present) and opens the update dialog on click. -->
                 <update-button id="update-button" hidden></update-button>
-                <!-- Regular controls, in four groups: where the server is
-                     (network), how the window looks and sounds (view), the app's
-                     own surfaces (app), and the board's edge (panel). The groups are
+                <!-- Regular controls, in three groups: how the window looks and
+                     sounds (view), the app's own surfaces (app), and the board's
+                     edge (panel). The groups are
                      spaced further apart the wider the header is; on a phone
                      they dissolve into one squeezed, non-wrapping row, while the
                      update pill (a sibling, outside this element) takes a row of
                      its own. -->
                 <div class="header-actions-controls">
-                <div class="header-group header-group--network">
-                <!-- Network Button — opens Settings › Connectivity. First in the
-                     row: it says where this window's server is. A window on a
-                     server the app did not start (Connect to Server, --url) names
-                     that server's host beside the icon, and while OTHER clients
-                     share this session it also shows how many: a badge over the
-                     icon, or "N connected" where the header has room. The host,
-                     the count and the title are kept by header-controls.js. -->
-                <button class="btn-ghost btn-icon-header network-button" id="network-button" title="Network settings" aria-label="Network settings">
-                    <span class="network-button__host" aria-hidden="true" hidden></span>
-                    <span class="network-button__clients" aria-hidden="true" hidden><span class="network-button__count"></span><span class="network-button__suffix"> connected</span></span>
-                </button>
-                </div>
-
                 <div class="header-group header-group--view">
                 <!-- Group Tool Runs Button — collapses a run of adjacent
                      tool-use rows into a single group tile that opens in the

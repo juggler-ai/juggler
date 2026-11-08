@@ -95,18 +95,24 @@
 :where(.app-header) project-path-display {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.625rem;
     flex: 0 1 auto;
     min-width: 0;
     max-width: 60%;
 }
 
-/* The window's title — the project chip and the new-window button — as one
-   group. Where the header does not lay it out as a title (a phone's rows, a
+/* The window's title — the project chip, the new-window button and the
+   network button, in that order of weight — as one group. Where the header does not lay it out as a title (a phone's rows, a
    board window), the group is no box of its own and its parts are the
    header's. */
 .app-header__centre {
     display: contents;
+
+    /* Its network button is one of the bar's icon buttons, sized as
+       header-actions' are, through the pattern's own settings
+       (patterns/buttons.css). */
+    --btn-icon-header-size: 2rem;
+    --btn-icon-header-glyph: 1.25rem;
 }
 
 /* A session's header (.app-header--titled) puts the project chip in the
@@ -116,7 +122,8 @@
    on the window's centre sits visibly nearer them.
 
    Columns of their own for the wordmark, the controls and (in a Windows or
-   Linux window) the caption buttons; the title takes the column between,
+   Linux window) the caption buttons; the title (chip, new-window button,
+   network button) takes the column between,
    which is all that is left, and stands at its middle. Its margins keep it
    clear of both ends, and it is never wider than that column: when there is
    not room for the whole path, the chip shortens it (header-controls.js)
@@ -143,15 +150,20 @@
         grid-area: 1 / 4;
     }
 
-    /* Its floor is what it cannot do without — the chip's tile and arrow and
-       the new-window button — so it may shrink below its path, which the chip
-       then shortens, but never below its buttons. */
+    /* Its floor is what it cannot do without — the chip's tile and arrow,
+       the new-window button and the network button — so it may shrink
+       below its path, which the chip then shortens, but never below its
+       buttons. */
     :where(:root:not([data-view="pinboard"]) .app-header--titled) > .app-header__centre {
         display: flex;
         grid-area: 1 / 2;
         justify-self: center;
         align-items: center;
-        min-width: calc(4.25rem + 0.375rem + 2rem);
+
+        /* The network button a little further off than the new-window button
+           is from the chip: it is the least of the three. */
+        gap: 0.875rem;
+        min-width: calc(4.25rem + 0.625rem + 2rem + 0.875rem + 2rem);
         max-width: calc(100% - 3rem);
         margin-inline: 1.5rem;
     }
@@ -277,7 +289,8 @@ header-actions .btn-icon-header::before {
    out of it and the "…" button (utils/header-overflow-menu.js) offers them
    instead. In rems, so a zoomed row folds when its larger buttons run out of
    room rather than at a fixed pixel width. The controls
-   that show state (theme, sound, network) and Settings always stay. What
+   that show state (theme, sound) and Settings always stay; the network
+   button is in the title and never folds. What
    folds is the wrapper, never the button, so nothing here contends with the
    button pattern's own display; shown, a wrapper is `contents` and its buttons
    sit in their group as if it were not there. */
@@ -328,6 +341,10 @@ header-actions .btn-icon-header::before {
         height: 2.75rem;
     }
 
+    .app-header__centre {
+        --btn-icon-header-size: 2.75rem;
+    }
+
     .app-header .sidebar-toggle-button svg {
         width: 1.5rem;
         height: 1.5rem;
@@ -362,10 +379,10 @@ header-actions .btn-icon-header::before {
 /* ==========================================================================
    Narrow viewports (phones)
    header-actions is a fixed-width, non-shrinking cluster, so on a narrow
-   screen its rightmost buttons (network, settings) run off the right edge.
+   screen its rightmost buttons (settings, the board) run off the right edge.
    Let the header wrap and drop the WHOLE action cluster onto its own
    full-width second row. Row 1 keeps the hamburger, logo, and project path;
-   row 2 is the buttons. Pill labels collapse to icon-only.
+   row 2 is the buttons, led by the title's network button. Pill labels collapse to icon-only.
 
    The regular icon buttons are kept on ONE non-wrapping row that fills the
    rest of row 2: they're spread edge-to-edge (space-between) so no leftover
@@ -432,6 +449,15 @@ header-actions .btn-icon-header::before {
     :where(header-actions .header-group) button {
         flex: 0 1 auto;
         min-width: 0;
+    }
+
+    /* The title's network button has no room on row 1 beside the chip (and a
+       Windows or Linux window's caption buttons), so it leads the button row:
+       ordered with header-actions, before it, and level with its buttons
+       rather than the update pill above them. */
+    .app-header .network-button {
+        order: 2;
+        align-self: flex-end;
     }
 
     /* The update pill gets its own full-width row, above the icon buttons. */

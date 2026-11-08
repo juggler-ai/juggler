@@ -118,6 +118,7 @@ func (a *appState) framedPageView(spec windowSpec, fullURL string, start bool) w
 	if !ok {
 		return full
 	}
+	a.finder.remember(root, name)
 	return windowView{spec: spec, serverURL: "http://" + c.Addr(), server: procOf(c), framed: root, framedName: name}
 }
 

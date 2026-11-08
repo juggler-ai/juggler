@@ -36,6 +36,13 @@ import (
 // switched to is that address, shown on its row: never a name the
 // announcement chose. A server on one of this machine's own addresses is this
 // machine's (there is one per machine) and is not listed.
+//
+// A server a window has been on this run (remember) is listed the same way,
+// while it answers at that address, whether or not the network announces it:
+// announcements can fail to arrive — a sender's firewall or privacy setting, a
+// router that drops multicast — while the server answers at its address, and
+// a window switched away from it must still be able to switch back. They are
+// kept in memory only, for the run.
 
 // foundServer is one server the discover action lists: at URL, the address it
 // answered at, among URLs, every address it was announced at — which a page
@@ -52,6 +59,12 @@ type foundServer struct {
 type listing struct {
 	server foundServer
 	misses int
+}
+
+// visit is a server a window has been on this run: its address, and the name
+// it last answered with ("" for none yet).
+type visit struct {
+	url, name string
 }
 
 // serverSource is what the finder browses with: a *lanfind.Browser, or a
@@ -83,6 +96,10 @@ type lanFinder struct {
 	// is listed as through a missed answer (missesForgiven). Each ask swaps in
 	// a whole new map; of two asks at once, the later to finish is kept.
 	listed atomic.Pointer[map[string]listing]
+
+	// visited is every server a window has been on this run (remember), in the
+	// order first visited. Each change swaps in a whole new slice.
+	visited atomic.Pointer[[]visit]
 
 	// heard is the last account the log gave of an ask (outcome), so it says
 	// what the browse heard and what was listed each time that changes, not on
@@ -204,10 +221,50 @@ func (f *lanFinder) stopWhenIdle(p *serverSource) {
 	}
 }
 
+// remember notes that a window is on the server at serverURL, answering as
+// name ("" when it has not said), so the discover action lists it from then on
+// while it answers (servers, visitedAnswering). An address that is not a server's root is
+// ignored, as is a name of "" for a server already named. A nil finder (a
+// test's app) remembers nothing.
+func (f *lanFinder) remember(serverURL, name string) {
+	root, ok := serverRoot(serverURL)
+	if f == nil || !ok {
+		return
+	}
+	for {
+		p := f.visited.Load()
+		var cur []visit
+		if p != nil {
+			cur = *p
+		}
+		i := slices.IndexFunc(cur, func(v visit) bool { return v.url == root })
+		if i >= 0 && (name == "" || cur[i].name == name) {
+			return
+		}
+		next := slices.Clone(cur)
+		if i >= 0 {
+			next[i].name = name
+		} else {
+			next = append(next, visit{url: root, name: name})
+		}
+		if f.visited.CompareAndSwap(p, &next) {
+			return
+		}
+	}
+}
+
 // servers is every server found that answers, other than this machine's own,
-// in the order the browse lists them (by name), and whether the browse has
-// heard any server but this machine's, listed or not. Each found server is asked at
-// once, so one that does not answer costs probeTimeout, not one per server.
+// in the order the browse lists them (by name), then every server a window
+// has been on that answers and was not announced, in the order visited; and
+// whether the browse has heard any server but this machine's, listed or not.
+// A server is one row however many addresses it was reached at: one visited
+// at an address it did not announce, but answering with the name and port of
+// one listed, is that one's row, the address among its URLs — which is what
+// the page matches the server its window shows against.
+// Each server is asked at once, so one that does not answer costs
+// probeTimeout, not one per server.
+//
+// A browse that cannot start is err, and the servers visited are still listed.
 //
 // A server is listed at the address it was listed at before while that
 // answers, whichever of its addresses answers first, so the row a window's
@@ -215,56 +272,145 @@ func (f *lanFinder) stopWhenIdle(p *serverSource) {
 // before that misses an ask is listed as before until it has missed
 // missesForgiven in a row.
 func (f *lanFinder) servers(ctx context.Context) (out []foundServer, heardOther bool, err error) {
+	var found []lanfind.Found
 	src, err := f.source()
-	if err != nil {
-		return nil, false, err
+	if err == nil {
+		found = src.Snapshot()
 	}
 	local := f.localAddrs()
-	found := src.Snapshot()
-	keys := make([]string, len(found))
-	answers := make([]chan *foundServer, len(found))
 	before := map[string]listing{}
 	if p := f.listed.Load(); p != nil {
 		before = *p
 	}
-	prefer := make([]string, len(found))
-	for i, s := range found {
-		keys[i] = s.Name + "\x00" + strconv.Itoa(s.Port)
-		prefer[i] = before[keys[i]].server.URL
+
+	// Each server to ask: those the browse found, then those visited that it
+	// did not announce, at an address that is not this machine's. same is who
+	// a server is, whatever address it is reached at — the name it gives its
+	// machine and its port — or "" when it has not said.
+	type candidate struct {
+		key, same string
+		local     bool
+		ask       func() *foundServer
 	}
-	for i, s := range found {
-		answers[i] = make(chan *foundServer, 1)
-		go func() {
-			answers[i] <- f.answering(ctx, s, local, prefer[i])
-		}()
+	var cands []candidate
+	announced := map[string]bool{}
+	for _, s := range found {
+		key := s.Name + "\x00" + strconv.Itoa(s.Port)
+		for _, u := range announcedURLs(s) {
+			announced[u] = true
+		}
+		prefer := before[key].server.URL
+		cands = append(cands, candidate{key: key, same: key, local: isLocal(s, local), ask: func() *foundServer {
+			return f.answering(ctx, s, local, prefer)
+		}})
 	}
-	got := make([]*foundServer, len(found))
-	for i, ch := range answers {
-		got[i] = <-ch
+	if p := f.visited.Load(); p != nil {
+		for _, v := range *p {
+			if announced[v.url] || isLocalURL(v.url, local) {
+				continue
+			}
+			same := ""
+			if v.name != "" {
+				same = v.name + "\x00" + strconv.Itoa(urlPort(v.url))
+			}
+			cands = append(cands, candidate{key: "\x01" + v.url, same: same, ask: func() *foundServer {
+				return f.visitedAnswering(ctx, v)
+			}})
+		}
 	}
 
-	listed := make(map[string]listing, len(found))
+	answers := make([]chan *foundServer, len(cands))
+	for i, c := range cands {
+		answers[i] = make(chan *foundServer, 1)
+		go func() { answers[i] <- c.ask() }()
+	}
+	listed := make(map[string]listing, len(cands))
 	out = []foundServer{}
-	for i, s := range got {
-		if !isLocal(found[i], local) {
+	// at is where in out each server is listed, by who it is (candidate.same):
+	// a server visited at another address is that row, with the address added,
+	// never a row of its own.
+	at := map[string]int{}
+	for i, c := range cands {
+		s := <-answers[i]
+		announcedHere := i < len(found)
+		if announcedHere && !c.local {
 			heardOther = true
 		}
 		if s == nil {
-			l, ok := before[keys[i]]
-			if !ok || l.misses >= missesForgiven || isLocal(found[i], local) {
+			l, ok := before[c.key]
+			if !ok || l.misses >= missesForgiven || c.local {
 				continue
 			}
 			l.misses++
-			listed[keys[i]] = l
-			out = append(out, l.server)
-			continue
+			listed[c.key] = l
+			s = &l.server
+		} else {
+			listed[c.key] = listing{server: *s}
 		}
-		listed[keys[i]] = listing{server: *s}
+		if c.same != "" {
+			if j, ok := at[c.same]; ok {
+				if !slices.Contains(out[j].URLs, s.URL) {
+					out[j].URLs = append(slices.Clone(out[j].URLs), s.URL)
+				}
+				continue
+			}
+			at[c.same] = len(out)
+		}
 		out = append(out, *s)
 	}
 	f.listed.Store(&listed)
-	f.outcome(found, local, out)
-	return out, heardOther, nil
+	if err == nil {
+		f.outcome(found, local, out)
+	}
+	return out, heardOther, err
+}
+
+// visitedAnswering is v as listed, when it answers at its address as a
+// Juggler server, else nil. It is named as it last answered a window, or by its
+// address when it has not said.
+func (f *lanFinder) visitedAnswering(ctx context.Context, v visit) *foundServer {
+	version, ok := f.probe(ctx, v.url)
+	if !ok {
+		return nil
+	}
+	name := v.name
+	if name == "" {
+		if u, err := url.Parse(v.url); err == nil {
+			name = u.Host
+		}
+	}
+	return &foundServer{Name: name, URL: v.url, URLs: []string{v.url}, Version: version}
+}
+
+// urlPort is the port serverURL is reached at: the one it names, else its
+// scheme's.
+func urlPort(serverURL string) int {
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return 0
+	}
+	if p, err := strconv.Atoi(u.Port()); err == nil {
+		return p
+	}
+	if u.Scheme == "https" {
+		return 443
+	}
+	return 80
+}
+
+// isLocalURL is whether serverURL's host is one of this machine's own
+// addresses, or names this machine.
+func isLocalURL(serverURL string, local map[netip.Addr]bool) bool {
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	a, err := netip.ParseAddr(host)
+	return err == nil && local[a.Unmap()]
 }
 
 // isLocal is whether s is on one of this machine's own addresses.
@@ -287,18 +433,7 @@ func (f *lanFinder) answering(ctx context.Context, s lanfind.Found, local map[ne
 	if isLocal(s, local) {
 		return nil
 	}
-	var urls []string
-	for _, a := range s.Addrs {
-		if a.Is6() && a.IsLinkLocalUnicast() {
-			// Unusable without its zone, and a window cannot open a URL with
-			// one: the WHATWG URL a web view parses has no zone syntax, so
-			// WebKit and WebView2 both refuse it. Listed, it would answer the
-			// probe here and then fail as the window's address.
-			continue
-		}
-		u := url.URL{Scheme: "http", Host: net.JoinHostPort(a.String(), strconv.Itoa(s.Port))}
-		urls = append(urls, u.String())
-	}
+	urls := announcedURLs(s)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	type answer struct {
@@ -339,6 +474,24 @@ func (f *lanFinder) answering(ctx context.Context, s lanfind.Found, local map[ne
 		return nil
 	}
 	return &foundServer{Name: s.Name, URL: chosen.url, URLs: urls, Version: chosen.version}
+}
+
+// announcedURLs is the address of the server s at each of the addresses it
+// was announced at that a window can open.
+func announcedURLs(s lanfind.Found) []string {
+	var urls []string
+	for _, a := range s.Addrs {
+		if a.Is6() && a.IsLinkLocalUnicast() {
+			// Unusable without its zone, and a window cannot open a URL with
+			// one: the WHATWG URL a web view parses has no zone syntax, so
+			// WebKit and WebView2 both refuse it. Listed, it would answer the
+			// probe here and then fail as the window's address.
+			continue
+		}
+		u := url.URL{Scheme: "http", Host: net.JoinHostPort(a.String(), strconv.Itoa(s.Port))}
+		urls = append(urls, u.String())
+	}
+	return urls
 }
 
 // probeHTTP is the client a probe asks with; its timeout is probeTimeout. It
@@ -395,8 +548,9 @@ func localAddrs() map[netip.Addr]bool {
 
 // controlDiscover answers a sessions page asking which servers are on the
 // network: {"servers": [{name, url, version}]}. A browse that cannot start
-// (no multicast here, the OS refusing it) answers with none, as a network with
-// no servers on it would: the page offers the address field either way.
+// (no multicast here, the OS refusing it) answers with only the servers
+// windows have been on, as a network with no others on it would: the page
+// offers the address field either way.
 //
 // On Linux, a browse that has heard no server but this machine's adds
 // "firewall": true, for the page to say what a host firewall must let in
@@ -407,9 +561,6 @@ func localAddrs() map[netip.Addr]bool {
 // machine's server's pages may do.
 func (a *appState) controlDiscover(w http.ResponseWriter, r *http.Request, _ *winEntry) {
 	servers, heardOther, err := a.finder.servers(r.Context())
-	if err != nil {
-		servers = []foundServer{}
-	}
 	body := map[string]any{"servers": servers}
 	if err == nil && !heardOther && discoverOS == "linux" {
 		body["firewall"] = true

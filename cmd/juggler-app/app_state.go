@@ -782,6 +782,11 @@ func (a *appState) planWindow(spec windowSpec, opts windowOpts) windowPlan {
 		return p
 	}
 	p.view.serverURL, p.view.server, p.saved, p.hasSaved = serverURL, server, saved, hasSaved
+	// A server by URL that answered is one the server chooser lists from now
+	// on (lanFinder.remember); one that never has would cost every ask a probe.
+	if spec.isURL() {
+		a.finder.remember(spec.url, "")
+	}
 	// A main window on a server by URL shows its sessions page framed in this
 	// machine's, where it can be; a board shows that server's own page.
 	if spec.isURL() && p.opts.role() == roleMain {

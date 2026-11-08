@@ -8,10 +8,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -276,6 +279,127 @@ func TestDiscoverSkipsLinkLocalAddresses(t *testing.T) {
 	want := []foundServer{{Name: "Near", URL: "http://192.168.1.9:3939", URLs: []string{"http://192.168.1.9:3939"}, Version: "v1.0.0"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("listed %+v, want %+v", got, want)
+	}
+}
+
+// TestDiscoverListsTheServersWindowsWereOn: a server a window has been on this
+// run is listed while it answers, as the name it answered with, whether or not
+// the network announces it — so one whose announcements never arrive can be
+// switched back to — and even when no browse can start. One also announced is
+// listed once, as announced; one that does not answer is not listed.
+func TestDiscoverListsTheServersWindowsWereOn(t *testing.T) {
+	announced := serverByURL(t, true, nil)
+	byURL := serverByURL(t, true, nil)
+	down := addressWithNoServer(t)
+	host, port, err := net.SplitHostPort(strings.TrimPrefix(announced, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var browseFails atomic.Bool
+	a := newTestAppState(t)
+	a.finder = &lanFinder{
+		browse: func() (serverSource, error) {
+			if browseFails.Load() {
+				return nil, errors.New("no route to host")
+			}
+			return &fakeSource{found: []lanfind.Found{{Name: "Announced", Addrs: addrs(host), Port: portNum}}}, nil
+		},
+		probe:      probeVersion,
+		localAddrs: func() map[netip.Addr]bool { return nil },
+	}
+	localServer(t, a)
+	for _, u := range []string{announced, byURL, down} {
+		a.planWindow(windowSpec{url: u, connected: true}, windowOpts{})
+	}
+	// A window onto a server that never answered leaves nothing to ask after:
+	// every ask would wait out its probe.
+	if p := a.finder.visited.Load(); p == nil || slices.ContainsFunc(*p, func(v visit) bool { return v.url == down }) {
+		t.Errorf("remembered %+v; want the servers that answered, and not %s", p, down)
+	}
+	registerTestWindow(a, "w1")
+	discover := func() []foundServer {
+		t.Helper()
+		rec := controlRequest(a, http.MethodPost, "/win/w1/discover")
+		var got struct{ Servers []foundServer }
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil {
+			t.Fatalf("discover = %d %s, want 200", rec.Code, rec.Body)
+		}
+		return got.Servers
+	}
+
+	browseFails.Store(true)
+	want := []foundServer{
+		{Name: byURLName, URL: announced, URLs: []string{announced}, Version: "v1.0.0"},
+		{Name: byURLName, URL: byURL, URLs: []string{byURL}, Version: "v1.0.0"},
+	}
+	if got := discover(); !reflect.DeepEqual(got, want) {
+		t.Errorf("with no browse, discover listed %+v, want %+v", got, want)
+	}
+
+	browseFails.Store(false)
+	want = []foundServer{
+		{Name: "Announced", URL: announced, URLs: []string{announced}, Version: "v1.0.0"},
+		{Name: byURLName, URL: byURL, URLs: []string{byURL}, Version: "v1.0.0"},
+	}
+	if got := discover(); !reflect.DeepEqual(got, want) {
+		t.Errorf("discover listed %+v, want %+v", got, want)
+	}
+}
+
+// TestDiscoverListsAServerVisitedAtAnotherAddressOnce: a server a window was on
+// at an address it does not announce — its hostname, say — is the server the
+// network announces under the name and port it answered with, so it is listed
+// once, as announced, with the window's address among its addresses for the
+// page to match the window against. Another server of that name, on another
+// port, is another server; and one announced but not answering at what it
+// announced is listed at the address the window reached it at.
+func TestDiscoverListsAServerVisitedAtAnotherAddressOnce(t *testing.T) {
+	const (
+		ip       = "http://192.168.1.9:3939"
+		hostname = "http://box.lan:3939"
+		other    = "http://box.lan:4000"
+	)
+	var announcedAnswers atomic.Bool
+	announcedAnswers.Store(true)
+	f := &lanFinder{
+		browse: func() (serverSource, error) {
+			return &fakeSource{found: []lanfind.Found{{Name: "Box", Addrs: addrs("192.168.1.9"), Port: 3939}}}, nil
+		},
+		probe: func(_ context.Context, u string) (string, bool) {
+			return "v1", u != ip || announcedAnswers.Load()
+		},
+		localAddrs: func() map[netip.Addr]bool { return nil },
+	}
+	f.remember(hostname, "Box")
+	f.remember(other, "Box")
+	got, _, err := f.servers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []foundServer{
+		{Name: "Box", URL: ip, URLs: []string{ip, hostname}, Version: "v1"},
+		{Name: "Box", URL: other, URLs: []string{other}, Version: "v1"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("listed %+v, want %+v", got, want)
+	}
+
+	announcedAnswers.Store(false)
+	for range missesForgiven + 1 {
+		if got, _, err = f.servers(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want = []foundServer{
+		{Name: "Box", URL: hostname, URLs: []string{hostname}, Version: "v1"},
+		{Name: "Box", URL: other, URLs: []string{other}, Version: "v1"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("with the announced address silent, listed %+v, want %+v", got, want)
 	}
 }
 

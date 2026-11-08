@@ -533,19 +533,17 @@ wails-runtime-embed:
 	else rm -f "$(WAILS_RUNTIME_EMBED).tmp"; fi
 
 ## wails-runtime-build: Rebuild the Wails fork's bundled runtime (runtime.js and
-## runtime.debug.js) from its TypeScript source, with the exact esbuild commands
-## of the fork's `task runtime:build:assets` (internal/runtime/Taskfile.yaml) —
-## the output upstream CI requires every PR's committed bundle to match. Needs
-## Node; `npm ci` installs the runtime's lockfile-pinned esbuild. Commit the
-## result in the fork; wails-runtime-embed then copies it into the server.
-WAILS_ESBUILD=desktop/@wailsio/runtime/node_modules/.bin/esbuild
-WAILS_ESBUILD_ARGS=desktop/@wailsio/runtime/src/index.ts --inject:desktop/compiled/main.js --format=esm \
-	--target=safari11 --bundle --ignore-annotations --tree-shaking=true
+## runtime.debug.js) from its TypeScript source, with the exact commands of the
+## fork's `task runtime:build:assets` (internal/runtime/Taskfile.yaml) — the
+## output upstream CI requires every PR's committed bundle to match. Needs Node;
+## `npm ci` installs the runtime's lockfile-pinned vite. Commit the result in
+## the fork; wails-runtime-embed then copies it into the server.
+WAILS_BUILD_EMBEDDED=desktop/@wailsio/runtime/scripts/build-embedded.mjs
 wails-runtime-build:
 	@cd "$(WAILS_V3)/internal/runtime/desktop/@wailsio/runtime" && npm ci --no-audit --no-fund --ignore-scripts
 	@cd "$(WAILS_V3)/internal/runtime" && \
-		$(WAILS_ESBUILD) $(WAILS_ESBUILD_ARGS) --sourcemap=inline --outfile=../assetserver/bundledassets/runtime.debug.js --define:DEBUG=true && \
-		$(WAILS_ESBUILD) $(WAILS_ESBUILD_ARGS) --minify --outfile=../assetserver/bundledassets/runtime.js --define:DEBUG=false --drop:console
+		node $(WAILS_BUILD_EMBEDDED) debug && \
+		node $(WAILS_BUILD_EMBEDDED) production
 	@git -C "$(WAILS_V3)" status --short -- internal/assetserver/bundledassets
 
 ## win-icon: Compile $(APP_ICON_PNG) into a Windows .syso resource for BOTH the

@@ -35,6 +35,7 @@ version of it lands with a different API.
 | 13 | `test(v3): wait for the stream handler's send instead of sleeping` | `TestStreamOpenAckPrecedesHandlerOutput` gave the handler's `Send` 50ms to land before draining, and failed with only the ack queued when the machine was loaded. It now waits for `Send` to return, which is once the frame is queued; `open` queues the ack before it starts the handler, so the ordering it asserts is unchanged | `pkg/application/stream_test.go` | [PR #6543](https://github.com/wailsapp/wails/pull/6543), open; fixes a test from upstream's [#5942](https://github.com/wailsapp/wails/pull/5942) | `make test-wails-patches`, which runs it beside the rest of the suite | Yes |
 | 14 | `feat(v3): add Options.ShouldQuitLater` | An application decides a request to quit asynchronously. On macOS the request is held open meanwhile (`NSTerminateLater`), so a quit the system sends at log out, restart or shut down waits for the decision, where `ShouldQuit` returning false cancels the log out. While it is held open a further request joins it, and `App.Quit` decides it yes. On Windows and Linux a granted decision runs the same quit `destroy` would | `pkg/application/quit_decision.go` (+test), `application.go`, `application_options.go`, `application_darwin.go`, `application_darwin_delegate.m`, `application_darwin_purego.go`, `application_windows.go`, `application_linux_shared.go`; at the fork root, `docs/mpress/content/concepts/lifecycle.md` | Not yet offered. The proposal is on the fork's `wep/should-quit-later` and the implementation on `feat/should-quit-later`, both on upstream `69fc9aca7` (2026-11-02); no PR opened yet. Unlike patches 6 and 8, it has its purego half, and builds with `-tags purego` on macOS on that branch | `cmd/juggler/app/window.go` (`serverShouldQuitLater`), `cmd/juggler-app/busy_guard.go` (`shouldQuitLater`) | Yes. Adapt the call sites if the merged API differs |
 | 15 | `test(v3): bound the signal handler test's child by the test deadline` | `TestDefaultSignalHandler` gave its child test process a fixed 10s, and the child gave `App.Quit` a fixed 5s; a `-race` child starting on a loaded machine was killed at 10s. The child now gets most of the test binary's remaining deadline as its `-test.timeout`, and the parent's context fires a little later. The assertions are unchanged | `pkg/application/signal_handler_desktop_test.go` | [PR #6552](https://github.com/wailsapp/wails/pull/6552), open; fixes a test from upstream's [#6098](https://github.com/wailsapp/wails/pull/6098) | `make test-wails-patches`, which runs it beside the rest of the suite | Yes |
+| 16 | `fix(v3/runtime): arm window drag only from a mousedown in that window` | A draggable region starts a window drag only from a real `mousedown` in that window, as edge resize already did. Otherwise the runtime reads a held primary button on `mousemove` as a fresh press, so the pointer crossing a window mid-gesture (resizing an overlapping window, say) drags it. On macOS the drag that follows replays the window's last retained mouse-down, which a previous drag's tracking loop leaves uncleared, so the stray drag really moves the window | `internal/runtime/desktop/@wailsio/runtime/src/drag.ts`, `drag.test.js`; `internal/assetserver/bundledassets/runtime{,.debug}.js` | Not yet offered | Every desktop window's `--wails-draggable` regions (`web/css/layout/window-chrome.css`) | Yes |
 
 Upstream's `v3/UNRELEASED_CHANGELOG.md` is generated from each PR after it
 merges, and its `AGENTS.md` forbids contribution PRs from editing it. The
@@ -94,9 +95,13 @@ the build** when it can show that it has:
 - the bundle is missing (the submodule isn't checked out).
 
 To fix it, run **`make wails-runtime-build`**. It runs `npm ci` and then the
-same esbuild commands as the fork's `task runtime:build:assets`. Commit the
-regenerated bundle in the fork. None of the current patches touch the runtime
-source.
+same `scripts/build-embedded.mjs` commands as the fork's
+`task runtime:build:assets`. Commit the regenerated bundle in the fork.
+Patch 16 touches the runtime source, and carries its rebuilt bundle.
+
+The runtime's TypeScript has its own vitest suite, which
+`make test-wails-patches` does not run: after changing the runtime source, run
+`npx vitest run` in `internal/runtime/desktop/@wailsio/runtime`.
 
 ## Rebasing onto upstream
 

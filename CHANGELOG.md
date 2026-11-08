@@ -35,6 +35,7 @@ the current release). The project follows semantic versioning.
 - On a very busy machine, Juggler waits for its engine to load instead of quitting
 - Mouse back/forward buttons no longer navigate desktop windows off their page
 - A window showing a non-Juggler page gets a bar to move it and return to Juggler
+- Resizing a window no longer drags the window beneath it as the pointer crosses it
 - Juggler's windows on Windows show the Juggler icon in Alt-Tab and the taskbar
 - Juggler's windows on Linux have a thin border, so light themes don't merge into the desktop
 - The Linux tarball's `install.sh` adds Juggler, with its icon, to the application menu

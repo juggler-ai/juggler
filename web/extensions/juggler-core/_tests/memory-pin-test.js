@@ -23,6 +23,7 @@
 import MemoryPin from '../pins/memory-pin.js';
 import { writeFile } from '../../../js/services/ops-api.js';
 import { assert, waitFor } from '../../../js-tests/utilities/test-helpers.js';
+import { awaitingServer } from '../../../js-tests/utilities/stall-watch.js';
 import { underPseudoLocale, shownStrings } from '../../../js-tests/utilities/pseudo-locale.js';
 import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 
@@ -241,6 +242,13 @@ export async function runTests(ctx) {
   /** Comfortably longer than the pin's settling period, so a nudge becomes a read. */
   const NUDGE_INTERVAL_MS = 600;
 
+  /** The burst case's nudge, well inside the pin's 150ms settling period so every nudge restarts it. */
+  const BURST_NUDGE_MS = 20;
+  /** Nudges in the pin's 1000ms burst ceiling, counted at their shortest spacing. */
+  const BURST_PER_CEILING = 1000 / BURST_NUDGE_MS;
+  /** How many counted nudges the burst case allows a read to land in: a few ceilings. */
+  const BURST_TICKS = 3 * BURST_PER_CEILING;
+
   // --- the manifest and its gates ------------------------------------------
 
   await test('the memory pin is a singleton', () => {
@@ -368,9 +376,30 @@ export async function runTests(ctx) {
     // rather than late. A busy conversation looks exactly like this from here,
     // and so does anything that writes context items in a loop — which is why
     // this case signals continuously instead of in a tidy burst.
-    const nudging = setInterval(m.fireChange, 20);
+    //
+    // The bound is the nudger's own ticks, not a span of time. A tick cannot
+    // come sooner than BURST_NUDGE_MS after the last, so once BURST_TICKS have
+    // run the pin's ceiling has passed on any clock, and its timer, due before
+    // the tick that counted, has run. A lane the browser stopped running moves
+    // neither, and a read the server is still answering is not the pin's to
+    // hurry, so neither counts against it.
+    let ticks = 0;
+    const nudging = setInterval(() => {
+      if (!awaitingServer()) ticks++;
+      m.fireChange();
+    }, BURST_NUDGE_MS);
     try {
-      await until(m.body, (t) => t.includes('After the burst'), 4000, undefined, m.sawSoFar);
+      const got = await waitFor(() => {
+        const text = m.body.textContent || '';
+        if (text.includes('After the burst')) return { drawn: true };
+        return ticks >= BURST_TICKS ? { drawn: false } : null;
+      }, {
+        // Only a nudger that never runs reaches this: the ticks decide first.
+        timeoutMs: 60_000,
+        description: () => `the nudger to tick (${ticks} of ${BURST_TICKS}); ${m.sawSoFar()}`,
+      });
+      assert(got?.drawn === true, `a continuous burst held the read off for ${ticks} nudges, ` +
+        `${BURST_TICKS / BURST_PER_CEILING}× the ceiling (showed "${m.body.textContent || ''}"); ${m.sawSoFar()}`);
     } finally {
       clearInterval(nudging);
       m.teardown();

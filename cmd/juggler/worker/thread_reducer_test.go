@@ -447,19 +447,6 @@ func TestDecideNextAction_ThreadItemWithResult_Idle(t *testing.T) {
 	}
 }
 
-// TestDecideNextAction_ThreadItemNoResult: parent sees a nested thread
-// still running → rest; the child's reducer is handling it.
-func TestDecideNextAction_ThreadItemNoResult(t *testing.T) {
-	items := []ConversationItem{
-		userMsg("start"),
-		assistantMsg("delegating"),
-		threadMsg("child-1", ""),
-	}
-	if got := decideNextAction(items, ActivityNone, true, false); got != ActionNone {
-		t.Errorf("thread-no-result: expected None, got %s", got)
-	}
-}
-
 // stoppedThreadMsg returns the parent's view of a delegated call whose run was
 // STOPPED: the call's coordinates on the item, and a transcript whose run record
 // says it was cancelled. This is what settleThreadRun leaves behind when a

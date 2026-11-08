@@ -40,7 +40,6 @@ web/js-tests/
     ├── compaction-tests.js      # /compact command tests
     ├── error-recovery-tests.js  # Error handling tests
     ├── execute-tests.js         # Shell execution tests
-    ├── glob-tests.js            # File pattern matching tests
     ├── multi-conversation-tests.js # Multi-conversation tests
     ├── read-file-tests.js       # File reading tests
     ├── write-file-basic.js      # Basic file writing

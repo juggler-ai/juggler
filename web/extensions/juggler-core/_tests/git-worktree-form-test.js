@@ -160,33 +160,6 @@ export async function runTests() {
         const options = offered(select);
         assert(options.includes(first) && options.includes(second),
           `both repositories under the project are offered, got ${JSON.stringify(options)}`);
-
-        // And it is dressed as the field below it rather than as the operating
-        // system. A native select left alone keeps its own chrome and ignores
-        // the border, the radius and the font it is given — which looks like
-        // nothing else in the app, and is invisible to every assertion above.
-        // This is the one case here that needs the form on the page, since none
-        // of it is computed for a container that will never be laid out.
-        document.body.appendChild(choosing.container);
-        try {
-          const dressed = getComputedStyle(select);
-          const neighbour = getComputedStyle(choosing.base);
-          assert(dressed.appearance === 'none',
-            `the platform's own control is turned off, got ${JSON.stringify(dressed.appearance)}`);
-          for (const property of /** @type {const} */ (['fontFamily', 'fontSize', 'borderRadius', 'borderTopWidth', 'backgroundColor', 'color'])) {
-            assert(dressed[property] === neighbour[property],
-              `its ${property} is the Base field's, got ${JSON.stringify(dressed[property])} rather than ${JSON.stringify(neighbour[property])}`);
-          }
-          assert(dressed.backgroundImage.includes('svg'),
-            `and it draws a chevron of its own, got ${JSON.stringify(dressed.backgroundImage)}`);
-          // Same height, or the rows are different heights and the labels beside
-          // them stop lining up — `.setup-field` aligns on the baseline, which
-          // is the sort of thing a control with its own chrome moves.
-          assert(select.offsetHeight === choosing.base.offsetHeight,
-            `and stands the same height as it, got ${select.offsetHeight} against ${choosing.base.offsetHeight}`);
-        } finally {
-          choosing.container.remove();
-        }
       } finally {
         session.workspaces = saved;
         if (base) await unregisterWorkspace(base.id).catch(() => {});

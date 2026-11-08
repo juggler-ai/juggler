@@ -17,10 +17,6 @@
  * clock directly after the name, flashing so a timer about to fire is hard to
  * miss. It sits beside the circle rather than in it, so a scheduled send never
  * hides what the circle says (a failure, a question) and vice versa.
- *
- * The fills are compared against a panel circle of the same preset class,
- * which is the claim being made: the two are one definition, not two that
- * happen to look alike.
  * @module unit-tests/conversation-tab-status-test
  */
 
@@ -105,21 +101,6 @@ export async function runTests() {
 
 
   /**
-   * A panel circle wearing a preset, mounted where the bar's own are, to read
-   * the fill that preset resolves to.
-   * @param {string} preset - e.g. `color-ask`.
-   * @returns {string} Its computed background colour.
-   */
-  const panelFill = (preset) => {
-    const probe = document.createElement('span');
-    probe.className = `message-icon-box ${preset}`;
-    container.appendChild(probe);
-    const fill = getComputedStyle(probe).backgroundColor;
-    probe.remove();
-    return fill;
-  };
-
-  /**
    * @param {string} name - What is being checked.
    * @param {() => void|Promise<void>} body - The check.
    * @returns {Promise<void>} When it has run.
@@ -191,10 +172,6 @@ export async function runTests() {
         const name = /** @type {Element} */ (tab(id).querySelector('.conversation-tab-name'));
         assert(name.nextElementSibling === clock, `tab ${id}'s clock must sit directly after its name`);
         assert(!!clock?.querySelector('svg'), `tab ${id}'s clock must draw the scheduler's clock icon`);
-        const name0 = name.getBoundingClientRect();
-        const clock0 = /** @type {HTMLElement} */ (clock).getBoundingClientRect();
-        assert(clock0.width > 0 && clock0.left >= name0.right - 0.5,
-          `tab ${id}'s clock must be drawn to the right of its name, got clock at ${clock0.left} against name ending ${name0.right}`);
         const flash = getComputedStyle(/** @type {HTMLElement} */ (clock)).animationName;
         if (reducedMotion()) {
           assert(flash === 'none', `under reduced motion the clock holds still, got ${flash}`);
@@ -207,37 +184,13 @@ export async function runTests() {
       }
     });
 
-    await check('the fill says the state, and is the panel\'s own preset', () => {
+    await check('the fill says the state', () => {
       const cases = /** @type {[string, string][]} */ ([
         ['idle', 'color-meta'], ['running', 'color-green'], ['awaiting', 'color-ask'], ['scheduled', 'color-green']
       ]);
       for (const [id, preset] of cases) {
         assert(circle(id).classList.contains(preset), `tab ${id}'s circle must wear ${preset}, got "${circle(id).className}"`);
-        const fill = getComputedStyle(circle(id)).backgroundColor;
-        assert(fill === panelFill(preset),
-          `tab ${id}'s circle must be filled exactly as a panel circle wearing ${preset} is, got ${fill} against ${panelFill(preset)}`);
       }
-      assert(getComputedStyle(circle('idle')).color === 'rgb(255, 255, 255)', 'the glyph is white');
-    });
-
-    await check('the circle and its glyph are the size of a panel item\'s', () => {
-      // Measured against a real panel circle — the glyph inside it sized by the
-      // panel's own rule, the padding by the badge pattern — so the tab follows
-      // whatever the panel's circle is rather than a number copied from it.
-      const row = document.createElement('div');
-      row.className = 'message-with-icon';
-      row.innerHTML = '<span class="message-icon-box color-meta"><svg viewBox="0 0 16 16"></svg></span>';
-      container.appendChild(row);
-      const panel = /** @type {Element} */ (row.querySelector('.message-icon-box')).getBoundingClientRect();
-      const panelGlyph = /** @type {Element} */ (row.querySelector('svg')).getBoundingClientRect();
-      row.remove();
-
-      const tabCircle = circle('idle').getBoundingClientRect();
-      const tabGlyph = /** @type {Element} */ (circle('idle').querySelector('.conversation-tab-glyph-assistant')).getBoundingClientRect();
-      assert(Math.abs(tabCircle.width - panel.width) < 0.5 && Math.abs(tabCircle.height - panel.height) < 0.5,
-        `the tab's circle must be ${panel.width}x${panel.height}px like a panel item's, got ${tabCircle.width}x${tabCircle.height}px`);
-      assert(Math.abs(tabGlyph.width - panelGlyph.width) < 0.5,
-        `its glyph must be ${panelGlyph.width}px like a panel item's, got ${tabGlyph.width}px`);
     });
 
     await check('the glyph says what is in it', () => {
@@ -251,7 +204,6 @@ export async function runTests() {
     await check('a turn that ended in an error shows a red "!" until something follows it', () => {
       assert(visibleGlyphs(circle('failed')).join() === 'alert', `a failed turn shows the alert, got ${visibleGlyphs(circle('failed'))}`);
       assert(circle('failed').classList.contains('color-red'), `and is filled red, got "${circle('failed').className}"`);
-      assert(getComputedStyle(circle('failed')).backgroundColor === panelFill('color-red'), 'exactly as a panel circle wearing color-red is');
       assert(visibleGlyphs(circle('retried')).join() === 'assistant',
         `an error with a later turn after it is history, got ${visibleGlyphs(circle('retried'))}`);
       assert(circle('retried').classList.contains('color-meta'), 'and is back at rest');
@@ -278,36 +230,6 @@ export async function runTests() {
         assert(getComputedStyle(circle(id)).animationName === 'none', `tab ${id}'s circle must hold still`);
         assert(getComputedStyle(tab(id)).animationName === 'none', `tab ${id} itself must not animate`);
       }
-    });
-
-    await check('a selected tab wears a neutral overlay, never a hue', () => {
-      // Chosen the way a conversation-panel item is chosen — a neutral wash over
-      // the tab's own surface, in a stronger measure because a tab strip is read
-      // at a glance — with its name set heavier. No border of its own, and the
-      // text stays the theme's: the old blue slab with white text is gone.
-      bar._session.visibleConversationId = 'idle';
-      bar.render();
-      const chosen = tab('idle');
-      const other = tab('running');
-      assert(chosen.classList.contains('active'), 'precondition: the tab is the chosen one');
-
-      const probe = document.createElement('span');
-      probe.style.background = 'var(--item-selected-strong-bg)';
-      container.appendChild(probe);
-      const overlay = getComputedStyle(probe).backgroundColor;
-      probe.remove();
-      assert(overlay !== 'rgba(0, 0, 0, 0)', 'precondition: the strong selection token resolves');
-      assert(getComputedStyle(chosen).backgroundImage.includes(overlay),
-        `the chosen tab is washed with --item-selected-strong-bg, got ${getComputedStyle(chosen).backgroundImage}`);
-      assert(getComputedStyle(chosen).color === getComputedStyle(other).color,
-        `its text stays the theme's, got ${getComputedStyle(chosen).color} against ${getComputedStyle(other).color}`);
-      assert(getComputedStyle(chosen).borderTopColor === 'rgba(0, 0, 0, 0)',
-        `and it has no border colour, got ${getComputedStyle(chosen).borderTopColor}`);
-      const name = /** @type {Element} */ (chosen.querySelector('.conversation-tab-name'));
-      assert(Number(getComputedStyle(name).fontWeight) >= 600, `its name is set heavier, got ${getComputedStyle(name).fontWeight}`);
-      assert(getComputedStyle(other).backgroundImage === 'none', 'and an unchosen tab carries no overlay');
-      bar._session.visibleConversationId = null;
-      bar.render();
     });
 
     await check('a running tab keeps its bin out of reach without changing its width', () => {

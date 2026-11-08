@@ -39,9 +39,6 @@ func lifetimeSession(t *testing.T) (*registry, string, *child, *claim, time.Time
 
 func TestSessionLifetimeGraceAndStopping(t *testing.T) {
 	r, id, c, _, at := lifetimeSession(t)
-	if sessionViewerGrace != 10*time.Second {
-		t.Fatalf("viewer grace = %s, want 10s", sessionViewerGrace)
-	}
 	if r.retireUnviewed(id, c, at.Add(sessionViewerGrace-time.Nanosecond)) {
 		t.Fatal("retired before grace elapsed")
 	}

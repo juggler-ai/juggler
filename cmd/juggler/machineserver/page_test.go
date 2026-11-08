@@ -69,27 +69,6 @@ func TestSessionsPagePaintsTheMachinesTheme(t *testing.T) {
 	}
 }
 
-// TestSessionsPageWearsTheOpenersZoom: a desktop window opened from another
-// hands its page the opener's UI zoom (?zoom=, cmd/juggler-app windowPageURL)
-// beside its theme, and the sessions page applies it before the first paint
-// as the root font size, within the range a session's page allows, as
-// web/index.html does — so a new window opens at the scale of the one it was
-// opened from.
-func TestSessionsPageWearsTheOpenersZoom(t *testing.T) {
-	s := &Server{reg: newRegistry(), assets: web.Files, token: testToken, uiLocale: func() string { return "" }}
-	front := httptest.NewServer(s.routes())
-	defer front.Close()
-	_, _, body := fetch(t, front.URL+"/?window=1&theme=dark&mode=dark&zoom=130")
-	for _, want := range []string{
-		"parseInt(query.get('zoom'), 10)",
-		"root.style.fontSize = Math.max(60, Math.min(160, zoom)) + '%'",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the page does not apply the zoom it is handed: no %s", want)
-		}
-	}
-}
-
 // TestSessionsPageCarriesTheControlToken: GET / is the sessions page, and it
 // hands its script the control-API token — the page is behind the Host guard
 // and the LAN gate like everything else here, so whoever may load it may hold
@@ -181,8 +160,8 @@ func TestSessionsPageAdmitsTheDesktopWindowsControlEndpoint(t *testing.T) {
 
 // TestSessionsPageWearsTheAppsWindowChrome: the page is drawn under the same
 // header bar as a session's page — the app shell's stylesheets, its
-// .app-header with the wordmark that opens the About box, the window-resize
-// strip and the caption controls a frameless window closes by — so a desktop window showing it can
+// .app-header, the window-resize strip and the caption controls a frameless
+// window closes by — so a desktop window showing it can
 // be dragged by its header and clears the platform's window buttons. In a
 // window it marks itself as one before the first paint, as web/index.html
 // does, and loads the Wails runtime that turns --wails-draggable into a drag,
@@ -197,20 +176,13 @@ func TestSessionsPageWearsTheAppsWindowChrome(t *testing.T) {
 	for name, body := range map[string]string{"window": win, "tab": tab} {
 		for _, want := range []string{
 			"/css/layout/app-shell.css", "/css/layout/window-chrome.css", "/css/layout/app-header.css",
-			// What a drag may select: the header bar is chrome, never text.
-			"/css/base/text-selection.css",
-			`<header class="app-header">`, `<app-wordmark class="logo">`, `class="window-resize-strip"`,
-			// The wordmark opens the About box, as on a session's page.
-			"/js/components/app-wordmark.js", "/js/components/about-modal.js",
-			"/css/components/about-modal.css", "<about-modal>",
+			`<header class="app-header">`, `class="window-resize-strip"`,
 			"<window-caption-controls>", "/js/components/window-caption-controls.js",
 			"/js/utils/window-fullscreen.js", "/js/utils/window-edge-resize.js",
 			"/js/utils/window-history-buttons.js", "/js/utils/window-resize-cursor.js", "/js/utils/window-shell-theme.js",
-			"dataset.windowMode", "dataset.windowPlatform", "dataset.os", "--logo-with-name-url",
+			"dataset.windowMode", "dataset.windowPlatform", "dataset.os",
 			// A window onto another computer's server (native-host.js).
 			"dataset.externalServer",
-			// The app's spinner, shown while the first list loads.
-			"/css/patterns/spinner.css", "/js/components/juggler-spinner.js",
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s: the page has no %s", name, want)

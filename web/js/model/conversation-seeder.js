@@ -130,7 +130,7 @@ function seedDefaultStrategy(session, conversation) {
  * AI assistant files to auto-detect
  * @type {string[]}
  */
-export const AI_ASSISTANT_FILES = [
+const AI_ASSISTANT_FILES = [
   'CLAUDE.md',
   '.claude.md',
   '.cursorrules',
@@ -148,7 +148,7 @@ export const AI_ASSISTANT_FILES = [
  * @param {{workspaceId?: string}} [options] - Which tree to probe; defaults to the conversation's own binding
  * @returns {Promise<number>} Number of files added
  */
-export async function addAIAssistantFiles(session, conversation, messageThread = null, options = {}) {
+async function addAIAssistantFiles(session, conversation, messageThread = null, options = {}) {
   // This is a best-effort optional operation - log and continue if prerequisites aren't met
   if (!conversation) {
     console.debug('[ConversationSeeder] Skipping AI assistant file detection: conversation not ready');

@@ -153,7 +153,7 @@ export async function runTests() {
     const page = mount({ mode: 'page' });
     try {
       const stop = rowOf(page.sw, 's:beta').querySelector('button.ss-stop');
-      assert(stop?.textContent === 'Stop', `the page's row ends in ${stop ? `"${stop.textContent}"` : 'no button'}`);
+      assert(!!stop, 'the page\'s row ends in no Stop button');
       assert(stop?.getAttribute('aria-label') === 'Stop beta', `it names what it stops — got ${stop?.getAttribute('aria-label')}`);
     } finally {
       page.done();

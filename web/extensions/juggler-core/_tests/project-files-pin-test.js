@@ -284,9 +284,8 @@ export async function runTests(ctx) {
   // What it draws, without touching the disk
   // ========================================================================
 
-  await test('the tab is named for the pin and the toolbar for the root', () => {
+  await test('the toolbar is handed the root', () => {
     const described = pin.describe({}, /** @type {any} */ ({ project: { path: '/proj' } }));
-    assert(described.title === 'Project files', `the tab says the pin, got "${described.title}"`);
     // Handing the host the path is what buys the open/copy/reveal controls on
     // the root folder, so this is the whole reason the pin offers none itself.
     assert(described.path === '/proj', `the toolbar is handed the root, got "${described.path}"`);

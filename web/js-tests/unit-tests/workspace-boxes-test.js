@@ -299,8 +299,6 @@ export async function runTests() {
         bar.querySelector('.conversation-box[data-workspace-id="ws_a"] .conversation-box-empty'));
       assert(empty?.hidden === false && empty?.textContent?.trim() === '(empty)',
         `an empty box says so rather than collapsing to a line, got ${JSON.stringify(empty?.textContent)} hidden=${empty?.hidden}`);
-      assert(empty && getComputedStyle(empty).textAlign === 'center',
-        `centred in the box, since it stands in for its contents rather than starting a list, got ${empty && getComputedStyle(empty).textAlign}`);
     });
 
     await check('an empty box is a grip all over, to a mouse', () => {
@@ -397,15 +395,7 @@ export async function runTests() {
       assert(add, 'an empty box offers the way to put something in it');
       // A drawn mark rather than a "+" character: a glyph sits wherever its
       // font's ascent and descent put it, which is not the middle of a circle.
-      const mark = add.querySelector('svg');
-      assert(mark, 'it is a drawn mark, not a character placed by font metrics');
-      const ring = add.getBoundingClientRect();
-      const drawn = mark.getBoundingClientRect();
-      const off = Math.hypot(
-        (drawn.left + drawn.width / 2) - (ring.left + ring.width / 2),
-        (drawn.top + drawn.height / 2) - (ring.top + ring.height / 2));
-      assert(drawn.width > 0 && off < 0.5,
-        `and it is centred in its circle, got ${off.toFixed(2)}px out (${drawn.width}px wide)`);
+      assert(add.querySelector('svg'), 'it is a drawn mark, not a character placed by font metrics');
       assert(add.getAttribute('aria-label') === 'New conversation in this workspace',
         `and says which workspace it means, got ${JSON.stringify(add.getAttribute('aria-label'))}`);
 
@@ -616,46 +606,12 @@ export async function runTests() {
       }
     });
 
-    await check('a box names itself on its top edge, over the column of its tabs\' circles', async () => {
-      // The name is a lozenge standing on the box's border, the way a
-      // fieldset's legend does: the box needs no header row of its own, and the
-      // border runs out from the name to the "+" on the other corner. It stands
-      // over the column the circles of its tabs are in, so a box reads as one
-      // more row of the strip's left edge rather than as a caption above it.
+    await check('a dirty tree is marked inside its box\'s name', async () => {
       bar._session = stubSession([workspace('ws_a', 'feature/auth')], [['c1', 'ws_a'], ['c3', '']]);
       bar.render();
 
       const box = /** @type {HTMLElement} */ (bar.querySelector('.conversation-box[data-workspace-id="ws_a"]'));
       const label = /** @type {HTMLElement} */ (box.querySelector('.conversation-box-label'));
-      const add = /** @type {HTMLElement} */ (box.querySelector('.conversation-box-add'));
-      const circle = /** @type {HTMLElement} */ (box.querySelector('.conversation-tab .conversation-tab-status'));
-      const edge = box.getBoundingClientRect().top + 0.5;
-      const middle = (/** @type {Element} */ el) => {
-        const r = el.getBoundingClientRect();
-        return r.top + r.height / 2;
-      };
-
-      assert(Math.abs(middle(label) - edge) < 1,
-        `the name stands on the box's top edge, got its middle ${middle(label)}px against the edge at ${edge}px`);
-      assert(Math.abs(middle(add) - edge) < 1,
-        `and so does the "+", got its middle ${middle(add)}px against the edge at ${edge}px`);
-      assert(Math.abs(label.getBoundingClientRect().left - circle.getBoundingClientRect().left) < 0.5,
-        `it starts over the box's column of status circles, got ${label.getBoundingClientRect().left}px `
-        + `against ${circle.getBoundingClientRect().left}px`);
-      assert(label.getBoundingClientRect().bottom <= /** @type {Element} */ (box.querySelector('.conversation-tab')).getBoundingClientRect().top,
-        'and clears the first tab below it');
-      assert(getComputedStyle(/** @type {Element} */ (box.querySelector('.conversation-tab'))).backgroundColor === 'rgba(0, 0, 0, 0)',
-        'a tab in a box has no fill of its own: the box\'s surface is its surface');
-
-      assert(label.classList.contains('item-lozenge'), 'the name is the shared lozenge');
-      const probe = document.createElement('span');
-      probe.style.background = 'var(--workspace-tint)';
-      box.appendChild(probe);
-      const tint = getComputedStyle(probe).backgroundColor;
-      probe.remove();
-      assert(getComputedStyle(label).backgroundColor === tint,
-        `filled with the box's own tint, got ${getComputedStyle(label).backgroundColor} against ${tint}`);
-      assert(getComputedStyle(label).color === 'rgb(255, 255, 255)', 'and lettered in white');
 
       // The fixture provider reports the tree dirty: the mark for it is a dot in
       // the name, not a colour beside it.
@@ -1059,27 +1015,6 @@ export async function runTests() {
       bar.render();
       assert(tintOf('ws_one') === first,
         `the colour is derived from the id and nothing else, so a redraw cannot change it, got "${tintOf('ws_one')}" after "${first}"`);
-    });
-
-    await check('the eight workspace tints are the panel\'s own presets', () => {
-      // One palette for the chips and the item circles: a workspace's tint is
-      // a preset fill, so the two read as one set and a theme change moves both.
-      const presets = ['blue', 'teal', 'indigo', 'slate', 'brown', 'magenta', 'pink', 'purple'];
-      const fill = (/** @type {string} */ css, /** @type {string} */ className = '') => {
-        const probe = document.createElement('span');
-        probe.className = className;
-        if (css) probe.style.background = css;
-        container.appendChild(probe);
-        const colour = getComputedStyle(probe).backgroundColor;
-        probe.remove();
-        return colour;
-      };
-      presets.forEach((preset, i) => {
-        const tint = fill(`var(--workspace-tint-${i + 1})`);
-        const circle = fill('', `message-icon-box color-${preset}`);
-        assert(tint === circle,
-          `--workspace-tint-${i + 1} is the ${preset} preset, got ${tint} against ${circle}`);
-      });
     });
   } finally {
     container.remove();

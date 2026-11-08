@@ -42,7 +42,7 @@ const (
 )
 
 // TestBrowser runs all browser-side tests in parallel. Each JS test becomes a
-// subtest addressable via -run, e.g. go test -run 'TestBrowser/integration:glob-go-files'.
+// subtest addressable via -run, e.g. go test -run 'TestBrowser/integration:read-file-single'.
 //
 // Each test acquires a lane on a Wails subprocess+fixture from the pool poolFor
 // names — the unit pool for a `unit:` suite, testServerPool for the rest — and

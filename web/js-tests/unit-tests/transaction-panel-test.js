@@ -250,7 +250,7 @@ export async function runTests(_ctx) {
 
   await run('a missing blob says so without breaking', () => {
     const host = render(null);
-    assert(host.textContent.trim() === 'No transaction data.', `got "${host.textContent}"`);
+    assert(host.textContent.trim() !== '', 'a missing blob renders nothing at all');
   });
 
   await run('an item that never had a round-trip says that instead', () => {

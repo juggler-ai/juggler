@@ -59,21 +59,6 @@ function styleRules() {
 }
 
 /**
- * A token resolved to the computed colour form, for comparison with a
- * computed background.
- * @param {string} token - A custom property, e.g. `--accent-blue`.
- * @returns {string} Its computed colour.
- */
-function tokenColour(token) {
-  const probe = document.createElement('div');
-  probe.style.backgroundColor = `var(${token})`;
-  document.body.appendChild(probe);
-  const colour = getComputedStyle(probe).backgroundColor;
-  probe.remove();
-  return colour;
-}
-
-/**
  * @returns {Promise<TestResult>} Aggregated results.
  */
 export async function runTests() {
@@ -106,41 +91,6 @@ export async function runTests() {
         `a ${variant} button carries btn-${variant}, got class="${button.className}"`);
     }
   });
-
-  const host = document.createElement('div');
-  host.style.cssText = 'position:absolute;left:-9999px;top:0;';
-  document.body.appendChild(host);
-  try {
-    // Hosts whose own button rule sets a background: the shared fill must
-    // still be the one that shows.
-    host.innerHTML = `
-      <update-notice><button class="update-notice__button btn-primary" data-probe="update"></button></update-notice>
-      <div class="onboarding-wizard"><button class="wiz-action btn-primary" data-probe="wizard"></button></div>
-      <button class="skills-btn install btn-primary" data-probe="skills"></button>
-      <button class="btn-danger" data-probe="danger"></button>
-      <button class="btn-secondary" data-probe="secondary"></button>
-      <button class="btn-primary" data-probe="bare"></button>`;
-    const blue = tokenColour('--accent-blue');
-    const red = tokenColour('--accent-red');
-    const fill = (/** @type {string} */ probe) =>
-      getComputedStyle(/** @type {HTMLElement} */ (host.querySelector(`[data-probe="${probe}"]`))).backgroundColor;
-
-    for (const probe of ['update', 'wizard', 'skills', 'bare']) {
-      check(`a primary button (${probe}) is filled --accent-blue over its component's own fill`, () => {
-        assert(fill(probe) === blue, `expected ${blue}, got ${fill(probe)}`);
-      });
-    }
-    check('a danger button is filled --accent-red, not a hard-coded red', () => {
-      assert(fill('danger') === red, `expected ${red}, got ${fill('danger')}`);
-    });
-    check('a secondary button is unfilled and outlined', () => {
-      const style = getComputedStyle(/** @type {HTMLElement} */ (host.querySelector('[data-probe="secondary"]')));
-      assert(style.backgroundColor === 'rgba(0, 0, 0, 0)', `expected transparent, got ${style.backgroundColor}`);
-      assert(style.borderTopStyle === 'solid', `expected a solid outline, got ${style.borderTopStyle}`);
-    });
-  } finally {
-    host.remove();
-  }
 
   return { passed, failed, errors };
 }

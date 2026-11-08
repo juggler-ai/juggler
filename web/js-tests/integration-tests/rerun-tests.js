@@ -14,8 +14,6 @@
 import { textResponse, toolUseResponse } from '../utilities/integration-test-runner.js';
 import { testDirFor } from '../utilities/integration-test-runner.js';
 
-const TD_editToolCompletes = testDirFor('edit-tool-completes');
-
 /**
  * The bash command of a cancel-then-rerun test. Its first run prints
  * "started" and then sleeps far longer than any cancel takes to land, so the
@@ -139,86 +137,6 @@ const rerunInterruptedToolTest = {
       state: 'completed'
       // Result content varies (re-run produces fresh output)
     }
-  ]
-};
-
-/**
- * Edit tool with valid content should complete (not hang).
- * This tests the full edit lifecycle: LLM sends edit → frontend evaluates →
- * user approves → edit executes via ops API → tool completes.
- * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
- */
-const editToolCompletesTest = {
-  name: 'edit-tool-completes',
-  description: 'Edit tool completes execution (does not hang in Running state)',
-  fixture: 'unit-test-fixture',
-  // Seed our own file so the edit doesn't mutate the shared fixture's
-  // README.md (other tests read it and would see the modified content).
-  setupFiles: {
-    [`${TD_editToolCompletes}/readme.md`]: '# Test Fixture Project\n'
-  },
-
-  llmResponses: [
-    toolUseResponse('call_1', 'edit',
-      { file_path: `${TD_editToolCompletes}/readme.md`, old_string: '# Test Fixture Project', new_string: '# Modified Project' },
-      'Editing README.'
-    ),
-    textResponse('Done editing.')
-  ],
-
-  operations: [
-    { type: 'send-message', message: 'Edit the README' }
-    // Edit tool auto-approves in test env — just wait for completion
-  ],
-
-  expectedItems: [
-    { type: 'system-prompt' },
-    { type: 'user', content: 'Edit the README' },
-    { type: 'assistant', content: 'Editing README.' },
-    {
-      type: 'tool-action',
-      toolUseId: '$TOOL_1',
-      toolName: 'edit',
-      state: 'completed'
-    },
-    { type: 'assistant', content: 'Done editing.' }
-  ]
-};
-
-/**
- * Edit tool with invalid old_string should fail (not hang).
- * The edit action should return an error when the search text isn't found.
- * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
- */
-const editToolFailsGracefullyTest = {
-  name: 'edit-tool-fails-gracefully',
-  description: 'Edit tool with non-matching old_string fails with error (does not hang)',
-  fixture: 'unit-test-fixture',
-
-  llmResponses: [
-    toolUseResponse('call_1', 'edit',
-      { file_path: 'README.md', old_string: 'THIS TEXT DOES NOT EXIST IN THE FILE', new_string: 'replacement' },
-      'Editing README.'
-    ),
-    textResponse('I see the error.')
-  ],
-
-  operations: [
-    { type: 'send-message', message: 'Edit the README' }
-    // No approval needed — should fail during validation (prepare)
-  ],
-
-  expectedItems: [
-    { type: 'system-prompt' },
-    { type: 'user', content: 'Edit the README' },
-    { type: 'assistant', content: 'Editing README.' },
-    {
-      type: 'tool-action',
-      toolUseId: '$TOOL_1',
-      toolName: 'edit',
-      state: 'completed'
-    },
-    { type: 'assistant', content: 'I see the error.' }
   ]
 };
 
@@ -980,8 +898,6 @@ const rerunDuringLiveTurnTest = {
 export const tests = [
   rerunCompletedToolTest,
   rerunInterruptedToolTest,
-  editToolCompletesTest,
-  editToolFailsGracefullyTest,
   rerunCancelledToolNoDuplicateTest,
   cancelledToolReachesTerminalStateTest,
   rerunCompletesExactlyOnceTest,

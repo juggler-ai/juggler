@@ -21,8 +21,6 @@ func TestReasoningReplay(t *testing.T) {
 		{"moonshotai/kimi-k3", openaibase.ReasoningReplay{Field: "reasoning", Required: true, Placeholder: " "}},
 		{"deepseek/deepseek-v4-pro", openaibase.ReasoningReplay{Field: "reasoning", Required: true, Placeholder: ""}},
 		{"anthropic/claude-sonnet-4.5", openaibase.ReasoningReplay{Field: "", Required: false, Placeholder: ""}},
-		{"google/gemini-3-pro", openaibase.ReasoningReplay{Field: "", Required: false, Placeholder: ""}},
-		{"openai/gpt-5", openaibase.ReasoningReplay{Field: "", Required: false, Placeholder: ""}},
 	} {
 		if got := reasoningReplay(tc.model); got != tc.want {
 			t.Errorf("reasoningReplay(%q) = %+v, want %+v", tc.model, got, tc.want)

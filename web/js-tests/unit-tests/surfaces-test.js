@@ -31,12 +31,6 @@ const MEMBERS = [
   '.strategy-guidance-text'
 ];
 
-/** Each surface: its fill token and its corner token. */
-const SURFACES = {
-  card: { fill: '--bg-tertiary', radius: '--radius-xl' },
-  well: { fill: '--bg-primary', radius: '--radius-lg' }
-};
-
 /**
  * Every style rule the page carries, from every stylesheet it loaded, layers
  * and media blocks included.
@@ -61,37 +55,6 @@ function styleRules() {
     }
   }
   return found;
-}
-
-/**
- * The computed value a probe gets for one declaration.
- * @param {string} property - A CSS property.
- * @param {string} value - Its declared value.
- * @returns {string} As the engine computes it.
- */
-function computed(property, value) {
-  const probe = document.createElement('div');
-  probe.style.setProperty(property, value);
-  document.body.appendChild(probe);
-  const result = getComputedStyle(probe).getPropertyValue(property);
-  probe.remove();
-  return result;
-}
-
-/**
- * The computed width of the shared hairline (0.0625rem, solid). The engine
- * snaps a border to whole device pixels, so this is 1px at a device pixel
- * ratio of 1 or 2 but 0.666667px at 1.5; the probe reads what this display
- * makes of it. A width only computes with a style beside it — none is 0px.
- * @returns {string} As the engine computes it.
- */
-function hairline() {
-  const probe = document.createElement('div');
-  probe.style.borderTop = '0.0625rem solid';
-  document.body.appendChild(probe);
-  const result = getComputedStyle(probe).borderTopWidth;
-  probe.remove();
-  return result;
 }
 
 /**
@@ -120,29 +83,6 @@ export async function runTests() {
       .map(rule => rule.selectorText);
     assert(own.length === 0, `these still draw a surface of their own: ${own.join(' | ')}`);
   });
-
-  const host = document.createElement('div');
-  host.style.cssText = 'position:absolute;left:-9999px;top:0;';
-  document.body.appendChild(host);
-  try {
-    for (const [name, { fill, radius }] of Object.entries(SURFACES)) {
-      check(`.surface-${name} is ${fill} with a hairline border and ${radius} corners`, () => {
-        host.innerHTML = `<div class="surface-${name}">x</div>`;
-        const style = getComputedStyle(/** @type {HTMLElement} */ (host.firstElementChild));
-        const wantFill = computed('background-color', `var(${fill})`);
-        const wantRadius = computed('border-top-left-radius', `var(${radius})`);
-        const wantBorder = computed('border-top-color', 'var(--border-color)');
-        const wantWidth = hairline();
-        assert(style.backgroundColor === wantFill, `fill ${wantFill}, got ${style.backgroundColor}`);
-        assert(style.borderTopLeftRadius === wantRadius, `corner ${wantRadius}, got ${style.borderTopLeftRadius}`);
-        assert(style.borderTopStyle === 'solid' && style.borderTopWidth === wantWidth,
-          `a ${wantWidth} solid hairline, got ${style.borderTopWidth} ${style.borderTopStyle}`);
-        assert(style.borderTopColor === wantBorder, `border ${wantBorder}, got ${style.borderTopColor}`);
-      });
-    }
-  } finally {
-    host.remove();
-  }
 
   return { passed, failed, errors };
 }

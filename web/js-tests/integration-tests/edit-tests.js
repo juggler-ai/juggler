@@ -103,8 +103,9 @@ const editMultilineTest = {
   // Write the file through the tool (turn 1) before editing it (turn 2). The
   // write records the read-before-edit staleness baseline so the edit isn't
   // refused as never-read. A `.txt` target (not `.go`) is deliberate: it keeps
-  // this test from racing sibling glob-go-files, which globs **/*.go across the
-  // shared fixture root and would see a stray .go file created here.
+  // this test from racing the sibling tests that glob **/*.go across the shared
+  // fixture root (compaction, footer-cache), which would see a stray .go file
+  // created here.
   llmResponses: [
     toolUseResponse(
       'call_1',

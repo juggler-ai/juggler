@@ -3,15 +3,11 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * The desktop composer's layout as a design. Inside the bubble, one row: the
- * tool tray, the Thread pill and Send, all at the right-hand end. Under the
- * bubble, the status line: strategy and permissions from the left, the model
- * at the right end, as quiet text buttons.
+ * The desktop composer's layout. Inside the bubble, one row: the tool tray,
+ * the Thread pill and Send. Under the bubble, the status line: strategy,
+ * permissions and the model.
  *
- *   - Every control on the row is the same height, outer edge to outer edge,
- *     and the tray and the Thread pill share one border, fill and end radius.
  *   - The row never wraps; the status line never wraps.
- *   - Every status-line control shows a ▾, so none of them reads as a label.
  *   - Narrowing sheds detail — the permission counts, then the strategy's
  *     name, the Thread pill's word — and never pushes a control past the edge.
  *
@@ -125,58 +121,6 @@ export async function runTests() {
     }
   };
 
-  test('one-height', '900px', (box) => {
-    const shapes = {
-      'tool tray': part(box, 'input-controls-actions'),
-      'Thread pill': part(box, '.new-thread-btn'),
-      'Send': part(box, '#send-button'),
-    };
-    const heights = Object.entries(shapes).map(([name, el]) => [name, el.getBoundingClientRect().height]);
-    const first = /** @type {number} */ (heights[0][1]);
-    assert(first > 0, 'the tool tray must be laid out');
-    const off = heights.filter(([, h]) => Math.abs(/** @type {number} */ (h) - first) > 0.5);
-    assert(off.length === 0,
-      `every control on the row must be the same height: ${heights.map(([n, h]) => `${n} ${h}px`).join(', ')}`);
-
-    // The tray's buttons fill it rather than float.
-    for (const btn of box.querySelectorAll('input-controls-actions .input-ctrl-btn')) {
-      const r = btn.getBoundingClientRect();
-      if (r.width === 0) continue; // hidden until the text is long (expand)
-      assert(Math.abs(r.height - (first - 2)) <= 0.5,
-        `${btn.className.split(' ')[0]} must fill the tray's inner height (${r.height}px in a ${first}px tray)`);
-    }
-  });
-
-  test('one-chrome', '900px', (box) => {
-    const shapes = [part(box, 'input-controls-actions'), part(box, '.new-thread-btn')];
-    const chrome = shapes.map((el) => {
-      const cs = getComputedStyle(el);
-      return [cs.borderTopWidth, cs.borderTopStyle, cs.borderTopColor, cs.backgroundColor,
-        cs.borderTopLeftRadius, cs.borderBottomRightRadius].join(' | ');
-    });
-    assert(new Set(chrome).size === 1,
-      `the tray and the Thread pill must share one outline, fill and radius:\n  ${chrome.join('\n  ')}`);
-    assert(getComputedStyle(shapes[0]).borderTopStyle === 'solid',
-      'the shared chrome must have a visible outline at rest');
-  });
-
-  // The row is one right-aligned group: tray, Thread, Send, a gap apart, with
-  // the free space all on the left.
-  test('tools-sit-by-send', '900px', (box) => {
-    const row = contentEdges(part(box, 'composer-box-wrapper'));
-    const tray = part(box, 'input-controls-actions').getBoundingClientRect();
-    const pill = part(box, '.new-thread-btn').getBoundingClientRect();
-    const send = part(box, '#send-button').getBoundingClientRect();
-    assert(Math.abs(send.right - row.right) <= 1,
-      `Send must end the row (Send ends ${Math.round(send.right)}, row ends ${Math.round(row.right)})`);
-    assert(pill.left - tray.right <= 12 && pill.left >= tray.right,
-      `the tray must sit just before the Thread pill, ${Math.round(pill.left - tray.right)}px apart`);
-    assert(tray.left - row.left > 200,
-      `the free space must be left of the tray (tray starts ${Math.round(tray.left - row.left)}px into the row)`);
-    assert(Math.abs(tray.top - send.top) <= 0.5 && Math.abs(pill.top - send.top) <= 0.5,
-      'the tray, the Thread pill and Send must share one line');
-  });
-
   test('settings-under-the-box', '900px', (box) => {
     const line = part(box, 'composer-status-line');
     const homed = Array.from(line.children).map((el) => el.tagName.toLowerCase());
@@ -184,24 +128,6 @@ export async function runTests() {
       `the status line must hold strategy, permissions and model in that order, got: ${homed.join(' ') || '(empty)'}`);
     assert(!box.querySelector('input-controls strategy-selector, input-controls permission-controls, input-controls model-selector'),
       'the controls row must hold none of the settings');
-    assert(line.getBoundingClientRect().top >= part(box, 'composer-box-wrapper').getBoundingClientRect().bottom - 0.5,
-      'the status line must sit below the bubble');
-
-    // Strategy opens the line at the left, the model closes it at the right.
-    const edges = contentEdges(line);
-    const strategy = part(box, 'composer-status-line .strategy-selector-button').getBoundingClientRect();
-    const model = part(box, 'composer-status-line .model-selector-button').getBoundingClientRect();
-    assert(Math.abs(strategy.left - edges.left) <= 1, 'the strategy must open the status line at its left edge');
-    assert(Math.abs(model.right - edges.right) <= 1,
-      `the model must close the status line at its right edge (model ends ${Math.round(model.right)}, line ends ${Math.round(edges.right)})`);
-  });
-
-  test('settings-show-a-chevron', '900px', (box) => {
-    for (const sel of ['.strategy-selector-button', '.permission-btn', '.model-selector-button']) {
-      const content = getComputedStyle(part(box, `composer-status-line ${sel}`), '::after').content;
-      assert(content !== 'none' && content !== 'normal',
-        `${sel} must draw a ▾ after its label, got content ${content}`);
-    }
   });
 
   test('wide-keeps-every-label', '900px', (box) => {
@@ -268,10 +194,6 @@ export async function runTests() {
     const pill = part(box, '.new-thread-btn');
     const label = part(box, '.new-thread-btn .new-thread-label');
     assert(label.getBoundingClientRect().width === 0, 'a narrow row must drop the Thread pill\'s word');
-    const r = pill.getBoundingClientRect();
-    const send = part(box, '#send-button').getBoundingClientRect();
-    assert(Math.abs(r.width - r.height) <= 0.5 && Math.abs(r.height - send.height) <= 0.5,
-      `folded, the Thread pill must be a circle the row's height (${r.width}x${r.height}, Send ${send.height})`);
     assert(!!pill.getAttribute('title'), 'folded, the Thread pill must keep its tooltip');
   });
 

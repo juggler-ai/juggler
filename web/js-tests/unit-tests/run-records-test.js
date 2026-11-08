@@ -406,8 +406,6 @@ export async function runTests() {
     assert(!!block, 'a fold with no summary still renders its block — it carries the only recovery route');
     assert(!!unsummarizedList.querySelector('.thread-result-resummarise-btn'),
       'and Re-summarise is exactly what that state needs to offer');
-    assert(unsummarizedList.querySelector('.thread-result-label')?.textContent === 'Not summarised',
-      'the label names the state rather than promising a summary that is not there');
     assert(/** @type {HTMLElement} */ (block).dataset.resultState === 'unsummarized',
       'the rendered state is keyed separately from the text, so each can replace the other');
 

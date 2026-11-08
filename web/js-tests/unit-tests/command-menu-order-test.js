@@ -3,8 +3,8 @@
 //   ▄▄█▀ ▀███▀ ▀███▀ ▀███▀ ██▄▄▄ ██▄▄▄ ██ ██   AGPL-3.0-or-later - see LICENSE
 
 /**
- * The order and row shape of the composer's button-opened command list (the
- * `/` dropdown), which `command-manager-entry.js` owns.
+ * The order and rows of the composer's button-opened command list (the `/`
+ * dropdown), which `command-manager-entry.js` owns.
  * @module unit-tests/command-menu-order-test
  */
 
@@ -51,19 +51,12 @@ export async function runTests(_ctx) {
     assert(input[0].name === 'zeta', 'the caller\'s list must not be reordered in place');
   });
 
-  await run('a row carries the command, its label, and the surface\'s classes', () => {
+  await run('a row carries the command and its label', () => {
     const row = buildCommandRow({ name: 'clear', danger: true }, { extraClass: 'surface-item', labelClass: 'surface-label' });
-    assert(row.className === 'menu-item surface-item danger', `className was ${row.className}`);
     assert(row.dataset.command === 'clear', `data-command was ${row.dataset.command}`);
     assert(row.querySelector('code')?.textContent === '/clear', 'the row must lead with /clear');
     const label = row.querySelector('.surface-label');
     assert(label?.textContent === 'Clear', `a label-less command shows its capitalised name, got ${label?.textContent}`);
-  });
-
-  await run('the dropdown row defaults to menu-item-desc and prefers the label', () => {
-    const row = buildCommandRow({ name: 'new', label: 'New conversation' });
-    assert(row.className === 'menu-item', `className was ${row.className}`);
-    assert(row.querySelector('.menu-item-desc')?.textContent === 'New conversation', 'the label must be shown');
   });
 
   return { passed, failed, errors };

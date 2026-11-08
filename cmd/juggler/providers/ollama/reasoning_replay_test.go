@@ -18,7 +18,6 @@ func TestReasoningReplay(t *testing.T) {
 		want  openaibase.ReasoningReplay
 	}{
 		{"qwen3:1.7b", openaibase.ReasoningReplay{Field: "reasoning", Required: false, Placeholder: ""}},
-		{"gemma3:1b", openaibase.ReasoningReplay{Field: "reasoning", Required: false, Placeholder: ""}},
 	} {
 		if got := reasoningReplay(tc.model); got != tc.want {
 			t.Errorf("reasoningReplay(%q) = %+v, want %+v", tc.model, got, tc.want)

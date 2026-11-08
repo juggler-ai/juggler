@@ -15,6 +15,11 @@
  * What matters most is attribution. The plan draws no transcript card, so this
  * pin is the only place a standing plan is visible; a plan shown without saying
  * it belongs to a parent thread is the one failure that would actively mislead.
+ *
+ * The plan and todo pins are one mount (`lib/task-list-pin.js`) with different
+ * items, rendering and empty text. What they share — attribution, reveal,
+ * teardown, being read-only, following the reader — is asserted once, in
+ * `unit:todo-pin`; this file keeps what is the plan's own.
  * @module _tests/plan-pin-test
  */
 
@@ -75,11 +80,9 @@ export async function runTests(_ctx) {
   /**
    * Mount the pin against a canned lookup result.
    * @param {any} found - What `contextItems.find` should return.
-   * @param {object} [options] - How this pin is read.
-   * @param {string|null} [options.focused] - The thread the reader is in.
    * @returns {any} The body, controller and the levers a test needs.
    */
-  function mount(found, { focused = null } = {}) {
+  function mount(found) {
     const body = document.createElement('div');
     document.body.appendChild(body);
     const abort = new AbortController();
@@ -87,22 +90,13 @@ export async function runTests(_ctx) {
     const listeners = [];
     /** @type {{threadId: string|null, itemId: string|null}[]} */
     const revealed = [];
-    /** @type {{type: string, from: any}[]} */
-    const finds = [];
     let current = found;
 
     const services = {
       files: { onChange: () => () => {} },
       contextItems: {
-        /**
-         * @param {string} type - The context-item type wanted.
-         * @param {string|null} [from] - Where the walk should start.
-         * @returns {any} The canned result.
-         */
-        find: (type, from) => {
-          finds.push({ type, from });
-          return current;
-        },
+        /** @returns {any} The canned result. */
+        find: () => current,
         /**
          * @param {() => void} listener - Called on a change.
          * @returns {() => void} Unsubscribe.
@@ -128,7 +122,7 @@ export async function runTests(_ctx) {
       active: {
         project: { path: '/p', displayName: 'p' },
         conversation: { id: 'c1', title: 'Conv' },
-        thread: { id: focused },
+        thread: { id: null },
       },
       services,
       signal: abort.signal,
@@ -140,8 +134,6 @@ export async function runTests(_ctx) {
       controller,
       services,
       revealed,
-      finds,
-      watchers: () => listeners.length,
       /** @param {any} next - The new lookup result. */
       setFound: (next) => { current = next; },
       fireChange: () => { for (const listener of [...listeners]) listener(); },
@@ -177,10 +169,6 @@ export async function runTests(_ctx) {
 
   // --- the manifest and its gates ------------------------------------------
 
-  await test('the plan pin is a singleton', () => {
-    assert(!pin.allowsMultiple, 'a second plan pin would show the same plan twice');
-  });
-
   await test('a plan pin needs a conversation, and says so', () => {
     const reason = pin.canAdd(/** @type {any} */ ({ project: { path: '/p' }, conversation: null }));
     assert(reason === 'No active conversation', `expected the reason, got ${JSON.stringify(reason)}`);
@@ -192,7 +180,6 @@ export async function runTests(_ctx) {
 
   await test('describe reads nothing, because layout calls it', () => {
     const described = pin.describe({}, { project: { path: '', displayName: '' }, conversation: null, thread: null });
-    assert(described.title === 'Plan', `expected 'Plan', got ${described.title}`);
     assert(!described.badge, 'a badge would need the model, which describe may not touch');
   });
 
@@ -216,35 +203,19 @@ export async function runTests(_ctx) {
 
   await test('no plan anywhere says so, briefly', () => {
     const m = mount(null);
-    assert((m.body.textContent || '').trim() === 'If the conversation contains a plan, this shows its current state',
+    assert(m.body.querySelector('.pin-empty') && !m.body.querySelector('.task-list-item'),
       `expected the plan empty state, got ${JSON.stringify(m.body.textContent)}`);
     m.teardown();
   });
 
   await test('a plan with no steps is no plan', () => {
     const m = mount(planFound([]));
-    assert((m.body.textContent || '').trim() === 'If the conversation contains a plan, this shows its current state',
+    assert(m.body.querySelector('.pin-empty') && !m.body.querySelector('.task-list-item'),
       `an empty step list is not a plan: ${JSON.stringify(m.body.textContent)}`);
     m.teardown();
   });
 
   // --- attribution ----------------------------------------------------------
-
-  await test('the thread you are reading is not named', () => {
-    const m = mount(planFound(twoSteps, { threadId: 't1', label: 'Wire the parser', inherited: false }));
-    assert(!m.body.querySelector('.task-list-pin__source'),
-      `naming the thread you are already in is noise:\n${m.body.innerHTML}`);
-    m.teardown();
-  });
-
-  await test('an inherited plan says whose it is', () => {
-    const m = mount(planFound(twoSteps, { threadId: 't1', label: 'Wire the parser', inherited: true }));
-    const source = m.body.querySelector('.task-list-pin__source');
-    assert(source, `an inherited plan must be attributed:\n${m.body.innerHTML}`);
-    assert((source.textContent || '') === 'From Wire the parser',
-      `expected the thread's name, got ${JSON.stringify(source.textContent)}`);
-    m.teardown();
-  });
 
   await test('an inherited plan from an unnamed thread still says it is inherited', () => {
     const m = mount(planFound(twoSteps, { threadId: 't1', label: '', inherited: true }));
@@ -256,43 +227,11 @@ export async function runTests(_ctx) {
 
   // --- reveal ---------------------------------------------------------------
 
-  await test('reveal is offered but dimmed when there is no plan', () => {
-    const m = mount(null);
-    const actions = m.controller.getActions();
-    assert(actions[0].id === 'reveal',
-      `reveal stays the primary action, whatever else is offered beside it: ${actions.map((/** @type {any} */ a) => a.id).join(', ')}`);
-    assert(actions[0].primary === true, 'reveal is the primary action, not an overflow entry');
-    assert(actions[0].disabled === true, 'nothing to reveal, so it is dim rather than absent');
-    m.teardown();
-  });
-
-  await test('reveal points at the thread that owns the plan, not the one being read', () => {
-    const m = mount(planFound(twoSteps, { threadId: 't_owner', label: 'Owner', inherited: true }));
-    const actions = m.controller.getActions();
-    assert(actions[0].disabled !== true, 'there is a plan, so reveal works');
-    actions[0].run();
-    assert(m.revealed.length === 1 && m.revealed[0].threadId === 't_owner',
-      `expected the owning thread, got ${JSON.stringify(m.revealed)}`);
-    m.teardown();
-  });
-
   await test('a plan on the root thread reveals the root', () => {
     const m = mount(planFound(twoSteps, { threadId: null, inherited: true }));
     m.controller.getActions()[0].run();
     assert(m.revealed.length === 1 && m.revealed[0].threadId === null,
       `expected null for the root, got ${JSON.stringify(m.revealed)}`);
-    m.teardown();
-  });
-
-  await test('reveal prefers the row that wrote the plan', () => {
-    // A plan draws no tile of its own, so the thread alone is no movement at all
-    // for a reader already in it — which, for a root-thread plan, is everyone.
-    const m = mount(planFound(twoSteps, { threadId: null, itemId: 'ITEM_plan_row' }));
-    m.controller.getActions()[0].run();
-    assert(m.revealed.length === 1 && m.revealed[0].itemId === 'ITEM_plan_row',
-      `expected the writing row, got ${JSON.stringify(m.revealed)}`);
-    assert(m.revealed[0].threadId === null,
-      'and the thread is still passed, as the fallback for a plan with no row');
     m.teardown();
   });
 
@@ -311,7 +250,7 @@ export async function runTests(_ctx) {
 
   await test('a plan appearing where there was none replaces the empty state', () => {
     const m = mount(null);
-    assert((m.body.textContent || '').trim() === 'If the conversation contains a plan, this shows its current state', 'expected the empty state first');
+    assert(m.body.querySelector('.pin-empty') && !m.body.querySelector('.task-list-item'), 'expected the empty state first');
     m.setFound(planFound(twoSteps));
     m.fireChange();
     assert((m.body.textContent || '').includes('First step'), 'the new plan did not appear');
@@ -322,7 +261,7 @@ export async function runTests(_ctx) {
     const m = mount(planFound(twoSteps));
     m.setFound(null);
     m.fireChange();
-    assert((m.body.textContent || '').trim() === 'If the conversation contains a plan, this shows its current state',
+    assert(m.body.querySelector('.pin-empty') && !m.body.querySelector('.task-list-item'),
       `expected the empty state back, got ${JSON.stringify(m.body.textContent)}`);
     m.teardown();
   });
@@ -347,49 +286,9 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
-  await test('teardown stops listening', () => {
-    const m = mount(planFound(twoSteps));
-    assert(m.watchers() === 1, `expected one listener, got ${m.watchers()}`);
-    m.teardown();
-    assert(m.watchers() === 0, `the pin kept listening after teardown: ${m.watchers()}`);
-  });
-
   // --- it is a view, and only a view ----------------------------------------
 
-  await test('the pin writes nothing back', () => {
-    const found = planFound(twoSteps);
-    const before = JSON.stringify(found.data);
-    const m = mount(found);
-    m.controller.getActions();
-    m.fireChange();
-    assert(JSON.stringify(found.data) === before,
-      'the pin mutated the snapshot it was handed, which a read-only view must not');
-    m.teardown();
-  });
-
-  await test('the pin offers no way to change a step', () => {
-    const m = mount(planFound(twoSteps));
-    assert(!m.body.querySelector('input[type=checkbox]:not([disabled])'),
-      `a live checkbox would be a second, quieter way to change an approved plan:\n${m.body.innerHTML}`);
-    m.teardown();
-  });
-
   // --- it follows the reader, and only the reader ---------------------------
-
-  await test('the pin always starts its walk at the thread being read', () => {
-    const m = mount(planFound(twoSteps), { focused: 't_reader' });
-    assert(m.finds[0].from === undefined,
-      `the pin names no starting thread of its own, got ${JSON.stringify(m.finds[0].from)}`);
-    m.teardown();
-  });
-
-  await test('reveal is the only action, so the tab draws no overflow', () => {
-    const m = mount(planFound(twoSteps));
-    const ids = m.controller.getActions().map((/** @type {any} */ a) => a.id);
-    assert(ids.length === 1 && ids[0] === 'reveal',
-      `one action, and it is the primary one: ${ids.join(', ')}`);
-    m.teardown();
-  });
 
   // --- the affordance that puts it there ------------------------------------
   //
@@ -413,12 +312,6 @@ export async function runTests(_ctx) {
     pinboardItemRegistry.registerClass(PlanPin, { extensionId: 'test' });
     const button = control();
     assert(!!button, 'with the Plan pin enabled, the panel offers to put the plan on the board');
-    assert(button?.getAttribute('aria-label') === 'Pin to Pinboard',
-      'and says what it does without being clicked');
-    assert(button?.className === 'properties-panel-btn',
-      `it belongs with Re-run and Delete, not in the body: ${button?.className}`);
-    assert((button?.textContent || '').includes('Pin to Pinboard'),
-      `a control in that block is labelled, not a bare icon: ${button?.textContent}`);
   });
 
   // --- en-XA ----------------------------------------------------------------

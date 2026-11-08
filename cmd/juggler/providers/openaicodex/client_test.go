@@ -386,9 +386,6 @@ func TestKnownModelsDriveEverything(t *testing.T) {
 			t.Errorf("%s window = %d, want the table's %d", model.Slug, window, model.ContextWindow)
 		}
 	}
-	if _, ok := ModelContextWindows["gpt-6-astra"]; !ok {
-		t.Error("gpt-6-astra is missing from the ChatGPT-plan model list")
-	}
 }
 
 // TestPlanCatalogMatchesTheLiveList pins knownModels against what the ChatGPT

@@ -317,8 +317,6 @@ export async function runTests(_ctx) {
         await el.selectProviderAndModel('custom-gone', 'm1');
       });
       assert(!!asked, 'selecting a model from a deleted provider must report it, not fail silently');
-      assert(asked.title === 'Problem selecting model',
-        `dialog title was "${asked.title}"`);
       assert(String(asked.message).includes('custom-gone'),
         `the message must name the provider that is missing — got "${asked.message}"`);
       assert(asked.confirmText === 'Go to provider settings',

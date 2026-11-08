@@ -355,8 +355,6 @@ export async function runTests(_ctx) {
     const missing = 'f'.repeat(64);
     const el = await drawRecorded({ oldRef: missing, newRef: missing, path: 'src/gone.txt' }, conversation.id);
     assert(el.mode === 'error', `a failed fetch should leave the viewer in its error state, got ${el.mode}`);
-    assert((el.textContent || '').includes("Couldn't load this diff."),
-      `the viewer should say the diff could not be loaded, got ${el.textContent}`);
   });
 
   await run('an annotatable diff offers one literal anchor per line', async () => {

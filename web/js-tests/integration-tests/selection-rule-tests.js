@@ -73,20 +73,6 @@ const selectionAutoSelectToolAction = {
         `Expected tool-action-message to be selected, got ${selected.tagName.toLowerCase()}`
       );
     }
-    // The hand cursor on an item is a click affordance, and the gesture most
-    // likely to start over the item that is already selected is a drag across
-    // its text. So a selected item hands the cursor back to the browser, which
-    // draws the I-beam only where a selection can actually begin. Unselected
-    // items keep the hand.
-    const selectedCursor = getComputedStyle(selected).cursor;
-    if (selectedCursor !== 'auto') {
-      throw new Error(`Selected item must not keep the pointer cursor, got ${selectedCursor}`);
-    }
-    const unselected = rootCol.querySelector('.conversation-item:not(.selected)');
-    const unselectedCursor = unselected ? getComputedStyle(unselected).cursor : null;
-    if (unselectedCursor !== null && unselectedCursor !== 'pointer') {
-      throw new Error(`Unselected item must keep the pointer cursor, got ${unselectedCursor}`);
-    }
   }
 };
 

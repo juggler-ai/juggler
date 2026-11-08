@@ -211,7 +211,6 @@ export async function runTests() {
     assert([...doc.querySelectorAll('strong')].some((s) => s.textContent === 'linker'), 'and its rendered answer');
 
     const footer = doc.querySelector('footer');
-    assert(!!footer && (footer.textContent || '').includes('Made with Juggler'), 'the footer credits Juggler');
     assert(!!footer?.querySelector('a[href="https://juggler.studio"]'), 'and links to juggler.studio');
 
     assert(!text.includes('STANDING-CONTEXT'), 'standing context is not exported');

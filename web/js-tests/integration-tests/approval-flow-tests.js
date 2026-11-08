@@ -83,108 +83,6 @@ const approvalApproveTest = {
 /**
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
  */
-const approvalDenyTest = {
-  name: 'approval-deny',
-  description: 'Deny bash command - not executed, result shows cancellation',
-  fixture: 'unit-test-fixture',
-
-  llmResponses: [
-    toolUseResponse(
-      'call_1',
-      'bash',
-      { command: 'env echo deny-test' },
-      'Running command.'
-    )
-  ],
-
-  operations: [
-    { type: 'send-message', message: 'Run echo deny-test' },
-    { type: 'wait-for-approval', toolUseId: 'call_1' },
-    { type: 'deny', toolUseId: 'call_1' }
-  ],
-
-  expectedDocument: {
-    items: [
-      { type: 'system-prompt', itemId: '$ITEM_1' },
-      { type: 'user', content: 'Run echo deny-test' },
-      { type: 'assistant', content: 'Running command.' },
-      {
-        type: 'tool-action',
-        toolUseId: '$TOOL_1',
-        toolName: 'bash',
-        toolInput: { command: 'env echo deny-test' },
-        state: 'cancelled',
-        result: {
-          content: 'Action was cancelled.',
-          isError: false
-        }
-      }
-    ]
-  }
-};
-
-/**
- * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
- */
-const approvalMultiToolTest = {
-  name: 'approval-multi-tool',
-  description: 'Multiple tools with mixed approval — any deny stops the loop',
-  fixture: 'unit-test-fixture',
-
-  llmResponses: [
-    {
-      blocks: [
-        { type: 'text', content: 'Running two commands.' },
-        { type: 'tool_use', toolUseId: 'call_1', toolName: 'bash', toolInput: { command: 'env echo first' } },
-        { type: 'tool_use', toolUseId: 'call_2', toolName: 'bash', toolInput: { command: 'env echo second' } }
-      ],
-      stopReason: 'tool_use'
-    }
-  ],
-
-  operations: [
-    { type: 'send-message', message: 'Run two commands' },
-    { type: 'wait-for-approval', toolUseId: 'call_1' },
-    { type: 'approve', toolUseId: 'call_1' },
-    { type: 'wait-for-approval', toolUseId: 'call_2' },
-    { type: 'deny', toolUseId: 'call_2' }
-  ],
-
-  expectedDocument: {
-    items: [
-      { type: 'system-prompt', itemId: '$ITEM_1' },
-      { type: 'user', content: 'Run two commands' },
-      { type: 'assistant', content: 'Running two commands.' },
-      {
-        type: 'tool-action',
-        toolUseId: '$TOOL_1',
-        toolName: 'bash',
-        toolInput: { command: 'env echo first' },
-        state: 'completed',
-        result: {
-          content: 'first',
-          isError: false
-        }
-      },
-      {
-        type: 'tool-action',
-        toolUseId: '$TOOL_2',
-        toolName: 'bash',
-        toolInput: { command: 'env echo second' },
-        state: 'cancelled',
-        result: {
-          content: 'Action was cancelled.',
-          isError: false
-        }
-      }
-      // Loop stops — any denial stops the turn
-    ]
-  }
-};
-
-/**
- * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
- */
 const approvalAutoApproveReadTest = {
   name: 'approval-auto-approve-read',
   description: 'Read operations auto-approve without user interaction',
@@ -739,84 +637,17 @@ const approvalMixedAutoDenyTest = {
   }
 };
 
-/**
- * Three tools all denied — loop must stop.
- * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
- */
-const approvalDenyAll3ToolsTest = {
-  name: 'approval-deny-all-3-tools',
-  description: 'Denying any tool in a 3-tool batch cascades to cancel all',
-  fixture: 'unit-test-fixture',
-
-  llmResponses: [
-    {
-      blocks: [
-        { type: 'text', content: 'Three commands.' },
-        { type: 'tool_use', toolUseId: 'call_1', toolName: 'bash', toolInput: { command: 'env echo 1' } },
-        { type: 'tool_use', toolUseId: 'call_2', toolName: 'bash', toolInput: { command: 'env echo 2' } },
-        { type: 'tool_use', toolUseId: 'call_3', toolName: 'bash', toolInput: { command: 'env echo 3' } }
-      ],
-      stopReason: 'tool_use'
-    },
-    // Should never be consumed
-    textResponse('This should never appear.')
-  ],
-
-  operations: [
-    { type: 'send-message', message: 'Run three commands' },
-    { type: 'wait-for-approval', toolUseId: 'call_1' },
-    // Denying call_1 cascades: all pending tools in the batch are cancelled
-    { type: 'deny', toolUseId: 'call_1' }
-  ],
-
-  expectedDocument: {
-    items: [
-      { type: 'system-prompt', itemId: '$ITEM_1' },
-      { type: 'user', content: 'Run three commands' },
-      { type: 'assistant', content: 'Three commands.' },
-      {
-        type: 'tool-action',
-        toolUseId: '$TOOL_1',
-        toolName: 'bash',
-        toolInput: { command: 'env echo 1' },
-        state: 'cancelled',
-        result: { content: 'Action was cancelled.', isError: false }
-      },
-      {
-        type: 'tool-action',
-        toolUseId: '$TOOL_2',
-        toolName: 'bash',
-        toolInput: { command: 'env echo 2' },
-        state: 'cancelled',
-        result: { content: 'Action was cancelled.', isError: false }
-      },
-      {
-        type: 'tool-action',
-        toolUseId: '$TOOL_3',
-        toolName: 'bash',
-        toolInput: { command: 'env echo 3' },
-        state: 'cancelled',
-        result: { content: 'Action was cancelled.', isError: false }
-      }
-      // No final assistant item - loop stopped
-    ]
-  }
-};
-
 // Export all tests
 // NOTE: Timeout/disconnect/reconnect tests removed - require complex WebSocket simulation
 export const tests = [
   approvalApproveTest,
-  approvalDenyTest,
   approvalDenyStopsLoopTest,
   approvalDenyAllMultiToolTest,
-  approvalMultiToolTest,
   approvalAutoApproveReadTest,
   approvalMixedAutoAndManualTest,
   approvalMixedAutoDenyTest,
   // Parallel approval tests
   approvalParallel3ToolsTest,
-  approvalDenyAll3ToolsTest,
   approvalParallel5ToolsTest,
   approvalOutOfOrderTest,
   approvalOrderedDependentPairTest

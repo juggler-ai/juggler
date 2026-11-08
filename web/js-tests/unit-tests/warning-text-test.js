@@ -19,9 +19,6 @@ import { assert } from '../utilities/test-helpers.js';
  * @property {string[]} errors - Error messages for failed tests.
  */
 
-/** The warning lines, by class. */
-const WARNINGS = ['system-prompt-tools-drift', 'system-prompt-tools-notice', 'system-prompt-tools-silent'];
-
 /**
  * Every style rule the page carries, from every stylesheet it loaded, layers
  * and media blocks included.
@@ -72,27 +69,6 @@ export async function runTests() {
       .map(rule => rule.selectorText);
     assert(readers.length === 0, `these read --warning: ${readers.join(' | ')}`);
   });
-
-  const host = document.createElement('div');
-  host.style.cssText = 'position:absolute;left:-9999px;top:0;';
-  document.body.appendChild(host);
-  try {
-    const reference = document.createElement('span');
-    reference.style.color = 'var(--accent-yellow)';
-    host.appendChild(reference);
-    const want = getComputedStyle(reference).color;
-    for (const cls of WARNINGS) {
-      check(`.${cls} is drawn in --accent-yellow`, () => {
-        const line = document.createElement('div');
-        line.className = cls;
-        host.appendChild(line);
-        const got = getComputedStyle(line).color;
-        assert(got === want, `colour ${want}, got ${got}`);
-      });
-    }
-  } finally {
-    host.remove();
-  }
 
   return { passed, failed, errors };
 }

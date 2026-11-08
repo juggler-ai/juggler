@@ -23,7 +23,6 @@ import { ProvidersTab } from '../../js/components/settings/providers-tab.js';
 import { DefaultsTab } from '../../js/components/settings/defaults-tab.js';
 import { LogsTab } from '../../js/components/settings/logs-tab.js';
 import { SkillsTab } from '../../js/components/settings/skills-tab.js';
-import { ProxySettings } from '../../js/components/settings/proxy-settings.js';
 import '../../js/components/settings-panel.js';
 
 /**
@@ -126,10 +125,6 @@ export async function runTests(_ctx) {
     } finally {
       panel.remove();
     }
-  });
-
-  await run('the proxy box carries dispose() like the tab that owns it', async () => {
-    assert(typeof ProxySettings.prototype.dispose === 'function', 'ProxySettings has no dispose()');
   });
 
   await run('the Logs tab’s dispose stops its tail poll', async () => {

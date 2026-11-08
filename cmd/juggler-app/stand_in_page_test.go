@@ -61,17 +61,16 @@ func TestAStandInWearsTheWindowShell(t *testing.T) {
 	for _, want := range []string{
 		"/css/layout/app-shell.css", "/css/layout/window-chrome.css", "/css/layout/app-header.css",
 		"/machine/sessions.css",
-		// Laid out as the notice the reconnecting overlay is, title and all.
+		// Laid out as the notice the reconnecting overlay is.
 		"/css/patterns/notice.css", `<main class="notice si-page">`,
-		`<div class="notice__title" role="heading" aria-level="1">Can&#39;t reach the server</div>`,
 		`<header class="app-header">`, `class="window-resize-strip"`,
 		"<window-caption-controls>", "/js/components/window-caption-controls.js",
 		"/js/utils/window-fullscreen.js", "/js/utils/window-edge-resize.js",
 		"/js/utils/window-history-buttons.js", "/js/utils/window-resize-cursor.js", "/js/utils/window-shell-theme.js",
 		"dataset.windowMode", "dataset.windowPlatform", "dataset.os", "--logo-with-name-url",
 		"/wails/runtime.js",
-		// The page's own words, escaped.
-		"Can&#39;t reach the server", "dev&lt;box&gt;:8080",
+		// The address it could not reach, escaped.
+		"dev&lt;box&gt;:8080",
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the stand-in's page has no %s", want)

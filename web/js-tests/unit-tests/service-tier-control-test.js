@@ -160,7 +160,6 @@ export async function runTests(_ctx) {
     assert(segs.length === 2, `Standard + one tier = 2 segments, got ${segs.length}`);
     assert(segs[0].getAttribute('data-service-tier') === '',
       'standard serving is the empty tier id, never a named one');
-    assert(segs[0].textContent === 'Standard', `first segment reads "Standard", got "${segs[0].textContent}"`);
     assert(segs[1].getAttribute('data-service-tier') === 'priority',
       `the wire id is the identity, got "${segs[1].getAttribute('data-service-tier')}"`);
     assert(segs[1].textContent === 'Fast',

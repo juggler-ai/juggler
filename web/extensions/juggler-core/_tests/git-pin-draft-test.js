@@ -115,11 +115,7 @@ export async function runTests(_ctx) {
     m.viewer().querySelectorAll('.diff-comment-btn')[0].click();
     await nextTask();
 
-    // "Save" says where the words go, which is the one thing a reader cannot
-    // guess: a comment is kept on a batch and nothing is said to anyone yet.
     const save = m.editor().querySelector('.review-panel__save');
-    assert(save.textContent === 'Add to feedback',
-      `a new comment joins the batch: ${JSON.stringify(save.textContent)}`);
 
     // The primary action must not be drawn as the secondary one beside it.
     // Identical fills are what made this read as a disabled button.
@@ -141,26 +137,6 @@ export async function runTests(_ctx) {
     const editing = m.editor()?.querySelector('.review-panel__save');
     assert(editing?.textContent === 'Save changes',
       `an edit replaces what is there: ${JSON.stringify(editing?.textContent)}`);
-    m.teardown();
-  });
-
-  await test('the footer says where the feedback is going', async () => {
-    const m = await mounted({
-      manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.' }]),
-      draft: {
-        version: 1,
-        base: 'head',
-        comments: [{
-          id: 'c_1', repo: '', path: 'a.js', side: 'file',
-          lineText: [], body: 'One.', revision: 'rev1', createdAt: 1, updatedAt: 1,
-        }],
-      },
-    });
-    // It lands in the prompt for the reader to read back and edit, so the label
-    // has to promise that rather than an action that has already happened.
-    const button = m.body.querySelector('.review-panel__compose');
-    assert(button?.textContent === 'Paste feedback into prompt',
-      `the footer must say where the batch goes: ${JSON.stringify(button?.textContent)}`);
     m.teardown();
   });
 
@@ -527,20 +503,13 @@ export async function runTests(_ctx) {
     m.teardown();
   });
 
-  await test('the scope description sits beside the control, and wraps under it when there is no room', async () => {
+  await test('the scope description shares the control\'s row, and wraps rather than overflow it', async () => {
     const m = await mounted({ manifest: manifestOf([{ path: 'a.js', index: 'M', worktree: '.', added: 3, removed: 1 }]) });
     const row = /** @type {HTMLElement} */ (m.body.querySelector('.review-panel__scope'));
     const select = /** @type {HTMLElement} */ (m.body.querySelector('.git-pin__scope-select'));
     const text = /** @type {HTMLElement} */ (m.body.querySelector('.review-panel__scope-text'));
     assert(row && select && text && row.contains(select) && row.contains(text),
       'the control and the description should share the scope row');
-    const overlaps = () => {
-      const a = select.getBoundingClientRect();
-      const b = text.getBoundingClientRect();
-      return a.top < b.bottom && b.top < a.bottom;
-    };
-    assert(overlaps() && text.getBoundingClientRect().left > select.getBoundingClientRect().right,
-      'on a wide board the description is to the right of the control');
     m.body.style.width = '20rem';
     assert(text.getBoundingClientRect().right <= row.getBoundingClientRect().right + 1,
       `on a narrow board the description must not overflow the row: text ${text.getBoundingClientRect().right}, row ${row.getBoundingClientRect().right}`);

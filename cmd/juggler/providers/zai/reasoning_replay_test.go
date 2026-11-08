@@ -18,7 +18,6 @@ func TestReasoningReplay(t *testing.T) {
 		want  openaibase.ReasoningReplay
 	}{
 		{"glm-5.3", openaibase.ReasoningReplay{Field: "reasoning_content", Required: false, Placeholder: ""}},
-		{"glm-4.5-air", openaibase.ReasoningReplay{Field: "reasoning_content", Required: false, Placeholder: ""}},
 	} {
 		if got := reasoningReplay(tc.model); got != tc.want {
 			t.Errorf("reasoningReplay(%q) = %+v, want %+v", tc.model, got, tc.want)

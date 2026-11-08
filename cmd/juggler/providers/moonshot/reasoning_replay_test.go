@@ -18,7 +18,6 @@ func TestReasoningReplay(t *testing.T) {
 		want  openaibase.ReasoningReplay
 	}{
 		{"kimi-k3", openaibase.ReasoningReplay{Field: "reasoning_content", Required: true, Placeholder: " "}},
-		{"kimi-k2.6", openaibase.ReasoningReplay{Field: "reasoning_content", Required: true, Placeholder: " "}},
 		{"moonshot-v1-8k", openaibase.ReasoningReplay{Field: "", Required: false, Placeholder: ""}},
 	} {
 		if got := reasoningReplay(tc.model); got != tc.want {

@@ -251,10 +251,6 @@ export async function runTests(ctx) {
 
   // --- the manifest and its gates ------------------------------------------
 
-  await test('the memory pin is a singleton', () => {
-    assert(!pin.allowsMultiple, 'there is one memory file, so there is one pin');
-  });
-
   await test('a memory pin needs a project, and says so', () => {
     const reason = pin.canAdd(/** @type {any} */ ({ project: { path: '' }, conversation: null }));
     assert(reason === 'No project', `expected the reason, got ${JSON.stringify(reason)}`);

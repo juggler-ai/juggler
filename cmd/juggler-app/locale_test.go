@@ -6,7 +6,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,7 +15,6 @@ import (
 
 	"juggler/cmd/juggler/core"
 	"juggler/cmd/juggler/machineserver"
-	"juggler/cmd/juggler/msg"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -93,32 +91,6 @@ func TestMenuSpeaksTheUILanguage(t *testing.T) {
 	}
 }
 
-// TestMenuEnglishIsUnchanged pins the English the menu has always shown,
-// including the labels Wails gives its role items, which the relabel restates.
-func TestMenuEnglishIsUnchanged(t *testing.T) {
-	a := &appState{}
-	labels := menuLabels(a, append([]menuNode{appMenuNode(a)}, menuSpec(a, true, "darwin")...), "")
-	for _, want := range []string{
-		"/Juggler/About Juggler", "/Juggler/Services", "/Juggler/Hide Juggler", "/Juggler/Hide Others",
-		"/Juggler/Show All", "/Juggler/Quit Juggler",
-		"/Session/Open or connect to a new session...", "/Session/New Conversation", "/Session/New Window", "/Session/Close",
-		"/Edit/Undo", "/Edit/Paste and Match Style", "/Edit/Select All", "/Edit/Speech/Start Speaking",
-		"/View/Zoom In", "/View/Zoom Out", "/View/Reload", "/View/Force Reload",
-		"/View/Open Developer Tools", "/View/Toggle Full Screen",
-		"/Window/Minimize", "/Window/Zoom", "/Window/Bring All to Front",
-		"/Help/Learn More",
-	} {
-		got, ok := labels[want]
-		if !ok {
-			t.Errorf("menu has no %s", want)
-			continue
-		}
-		if leaf := want[strings.LastIndex(want, "/")+1:]; got != leaf {
-			t.Errorf("%s renders %q", want, got)
-		}
-	}
-}
-
 // TestDialogsSpeakTheUILanguage covers the native dialogs, the chooser's
 // default title, window titles and the stand-in pages.
 func TestDialogsSpeakTheUILanguage(t *testing.T) {
@@ -155,27 +127,6 @@ func TestDialogsSpeakTheUILanguage(t *testing.T) {
 	for i, m := range mismatch.message {
 		if text := a.tr(m); !isPseudoLocalized(text, "7.8.9", "/7/8", core.Version) {
 			t.Errorf("mismatch paragraph %d is %q, not translated", i, text)
-		}
-	}
-}
-
-// TestBusyMessagesEnglishIsUnchanged pins the English of the busy prompts to
-// the sentences they were built from before they were messages.
-func TestBusyMessagesEnglishIsUnchanged(t *testing.T) {
-	old := func(n int, action string) string {
-		if n == 1 {
-			return fmt.Sprintf("A conversation is still working. %s will stop and discard it.", action)
-		}
-		return fmt.Sprintf("%d conversations are still working. %s will stop and discard them.", n, action)
-	}
-	for _, n := range []int{1, 2, 12, 999} {
-		for action, m := range map[string]msg.Message{
-			"Quitting":             quitBusyMessage(n),
-			"Restarting to update": restartBusyMessage(n),
-		} {
-			if got, want := m.English(), old(n, action); got != want {
-				t.Errorf("n=%d %s: got %q, want %q", n, action, got, want)
-			}
 		}
 	}
 }

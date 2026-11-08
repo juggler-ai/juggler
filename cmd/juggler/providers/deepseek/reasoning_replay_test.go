@@ -18,7 +18,6 @@ func TestReasoningReplay(t *testing.T) {
 		want  openaibase.ReasoningReplay
 	}{
 		{"deepseek-v4-flash", openaibase.ReasoningReplay{Field: "reasoning_content", Required: true, Placeholder: ""}},
-		{"deepseek-flash", openaibase.ReasoningReplay{Field: "reasoning_content", Required: true, Placeholder: ""}},
 	} {
 		if got := reasoningReplay(tc.model); got != tc.want {
 			t.Errorf("reasoningReplay(%q) = %+v, want %+v", tc.model, got, tc.want)

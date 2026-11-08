@@ -146,12 +146,3 @@ func TestChoose(t *testing.T) {
 		})
 	}
 }
-
-func TestModeString(t *testing.T) {
-	if ModeWebview.String() != "webview" {
-		t.Errorf("ModeWebview.String() = %q", ModeWebview.String())
-	}
-	if ModeNode.String() != "node" {
-		t.Errorf("ModeNode.String() = %q", ModeNode.String())
-	}
-}

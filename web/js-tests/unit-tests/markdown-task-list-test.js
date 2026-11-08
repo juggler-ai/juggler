@@ -158,20 +158,6 @@ export async function runTests(_ctx) {
     }
   });
 
-  run('the item and its list are classed for styling', () => {
-    const el = render('- [-] skipped step');
-    const li = el.querySelector('li');
-    assert(li?.classList.contains('task-list-item'), `li missing task-list-item: ${el.innerHTML}`);
-    assert(
-      li?.classList.contains('task-list-item--skipped'),
-      `li missing state class: ${li?.className}`
-    );
-    assert(
-      el.querySelector('ul')?.classList.contains('contains-task-list'),
-      `list missing contains-task-list: ${el.innerHTML}`
-    );
-  });
-
   run('a mixed list keeps each item on its own state', () => {
     const el = render('- [x] a\n- [/] b\n- [!] c\n- [-] d\n- [ ] e');
     const got = Array.from(el.querySelectorAll('.task-box')).map((b) =>

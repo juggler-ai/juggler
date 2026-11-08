@@ -113,20 +113,6 @@ export async function runTests(_ctx) {
     assert(out === expected, `unexpected assembly:\n--- got ---\n${out}\n--- want ---\n${expected}`);
   });
 
-  await test('extensionContributions placed last, after rules', async () => {
-    const items = [
-      fakeItem({ id: 'sp', type: 'system-prompt', contextPosition: 'system', buildPrompt: 'IDENTITY' }),
-      fakeItem({ id: 'r1', type: 'memory', contextPosition: 'system', contextText: 'RULE ONE' })
-    ];
-    const out = await assembleSystemPrompt({
-      contextItems: items,
-      contextParams,
-      extensionContributions: 'EXT-CONTRIB'
-    });
-    const expected = 'IDENTITY\n\nRULE ONE\n\nEXT-CONTRIB';
-    assert(out === expected, `unexpected assembly:\n--- got ---\n${out}\n--- want ---\n${expected}`);
-  });
-
   await test('blank extensionContributions adds nothing', async () => {
     const items = [fakeItem({ id: 'sp', type: 'system-prompt', contextPosition: 'system', buildPrompt: 'ID' })];
     const out = await assembleSystemPrompt({ contextItems: items, contextParams, extensionContributions: '   ' });

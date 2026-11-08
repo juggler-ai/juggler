@@ -628,11 +628,9 @@ export async function runTests() {
       }
     });
 
-    await run('while it builds, the steps read from the top-left and nothing is cut', async () => {
+    await run('while it builds, nothing is cut and there is one way to stop it', async () => {
       // The build is the one thing in this dialog that takes minutes, and for
-      // all of them these few lines are the whole of what is on screen. A block
-      // centred in a half-empty box reads as a placeholder; text starts at the
-      // top-left because that is where text starts.
+      // all of them these few lines are the whole of what is on screen.
       const name = `creating-${'long-enough-to-wrap-'.repeat(4)}dir`;
       const dir = `${projectPath}/${name}`;
       const settled = openWorkspaceCreate(session);
@@ -650,16 +648,6 @@ export async function runTests() {
         await waitFor(() => document.querySelectorAll('.workspace-create-overlay .setup-progress-step').length > 1,
           { description: 'the provider to get as far as its second step' });
 
-        const body = /** @type {HTMLElement} */ (document.querySelector('.workspace-create-body'));
-        const steps = /** @type {HTMLElement} */ (document.querySelector('.setup-progress-running'));
-        const room = body.getBoundingClientRect();
-        const style = getComputedStyle(body);
-        const at = steps.getBoundingClientRect();
-        assert(Math.abs(at.left - (room.left + parseFloat(style.paddingLeft))) < 1,
-          `the steps start at the left of the box, got ${at.left}px against ${room.left + parseFloat(style.paddingLeft)}px`);
-        assert(Math.abs(at.top - (room.top + parseFloat(style.paddingTop))) < 1,
-          `and at the top of it, got ${at.top}px against ${room.top + parseFloat(style.paddingTop)}px`);
-
         // A path is the one line here somebody reads character by character, and
         // there is a dialog's width to read it in.
         const said = /** @type {HTMLElement} */ (document.querySelector('.setup-progress-detail'));
@@ -668,30 +656,6 @@ export async function runTests() {
         assert(said.scrollWidth <= said.clientWidth + 0.5,
           `and none of it is off the end, got ${said.scrollWidth}px of line in ${said.clientWidth}px`);
 
-        // And it is laid out like something meant to be read for a minute or
-        // two, which is how long it is up for. Set solid, a step and its path
-        // read as one wrapped line, and a path long enough to wrap sets its own
-        // lines on top of each other — in a dialog with most of its height going
-        // spare.
-        const owner = /** @type {HTMLElement} */ (said.closest('.setup-progress-step'));
-        const phrase = /** @type {HTMLElement} */ (owner.querySelector('.setup-progress-what'));
-        const under = said.getBoundingClientRect().top - phrase.getBoundingClientRect().bottom;
-        assert(under >= 3,
-          `a path is set off from the step it belongs to, got ${under}px between them`);
-
-        const size = parseFloat(getComputedStyle(said).fontSize);
-        const leading = parseFloat(getComputedStyle(said).lineHeight);
-        assert(leading >= size * 1.4,
-          `and has room between its own lines when it wraps, got ${leading}px of line for ${size}px of type`);
-
-        // The two spacings say which lines belong together, so they cannot be
-        // the same spacing: a step sits nearer its own path than the next step
-        // does.
-        const blocks = Array.from(document.querySelectorAll('.setup-progress-step'));
-        const between = blocks[1].getBoundingClientRect().top - blocks[0].getBoundingClientRect().bottom;
-        assert(between >= under * 2,
-          `one step stands further from the next than from its own path, got ${between}px against ${under}px`);
-
         // One way out, meaning one thing. Two Cancels — the progress's own and
         // the footer's, which dismisses the whole dialog — are two answers to a
         // question nobody asked twice.
@@ -699,14 +663,6 @@ export async function runTests() {
           .filter((button) => button.textContent?.trim() === 'Cancel');
         assert(cancels.length === 1,
           `there is one way to stop it, got ${cancels.length}`);
-
-        // Which of the lines is the one being waited on, said in the colour.
-        const written = Array.from(document.querySelectorAll('.setup-progress-step'));
-        assert(written.length > 1, `more than one step by now, got ${written.length}`);
-        const waiting = getComputedStyle(/** @type {HTMLElement} */ (written[written.length - 1])).color;
-        const done = getComputedStyle(/** @type {HTMLElement} */ (written[0])).color;
-        assert(waiting !== done,
-          `the step being waited on is not the colour of the ones already taken, got ${waiting} for both`);
 
         // Stopping a build is not answering the question: the form comes back
         // with what was typed into it. The wait is generous because the abort

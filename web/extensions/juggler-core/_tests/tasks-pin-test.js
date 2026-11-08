@@ -196,10 +196,6 @@ export async function runTests(_ctx) {
 
   // --- the manifest and its gates ------------------------------------------
 
-  await test('the tasks pin is a singleton', () => {
-    assert(!pin.allowsMultiple, 'a second copy would list the same tasks twice');
-  });
-
   await test('the list is the project\'s, so it is addable with or without a conversation', () => {
     assert(hosted.canAdd(/** @type {any} */ ({ project: { path: '/p' }, conversation: null })) === true,
       'a project with no conversation open can still have things running');
@@ -207,9 +203,8 @@ export async function runTests(_ctx) {
       'and so can one with');
   });
 
-  await test('the tab says what the pin is, and leaves conversations to the groups', () => {
+  await test('the tab leaves conversations to the groups', () => {
     const described = hosted.describe({}, /** @type {any} */ ({ conversation: { id: 'c1', title: 'Fix the parser' } }));
-    assert(described.title === 'Running tasks', `expected 'Running tasks', got ${described.title}`);
     assert(!described.badge && !described.subtitle,
       `each group names its own conversation, got ${JSON.stringify(described)}`);
   });

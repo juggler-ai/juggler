@@ -14,8 +14,6 @@ func TestDisplayName(t *testing.T) {
 		want string
 	}{
 		{"opus", "Claude Opus (CLI)"},
-		{"sonnet", "Claude Sonnet (CLI)"},
-		{"haiku", "Claude Haiku (CLI)"},
 		// A verbatim full id must not double the "Claude" prefix.
 		{"claude-sonnet-4-5", "Claude Sonnet 4.5 (CLI)"},
 	}

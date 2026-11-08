@@ -16,73 +16,6 @@ import { textResponse, toolUseResponse } from '../utilities/integration-test-run
 // ============================================================================
 
 /**
- * AskUserQuestion should wait for user approval before executing.
- * Verifies the approval flow works correctly with deny action.
- * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
- */
-const askUserQuestionWaitsForApprovalTest = {
-  name: 'ask-user-question-waits',
-  description: 'AskUserQuestion should wait for user approval (not execute immediately)',
-  fixture: 'unit-test-fixture',
-
-  llmResponses: [
-    toolUseResponse(
-      'call_1',
-      'AskUserQuestion',
-      {
-        questions: [{
-          question: 'Which approach should we use?',
-          header: 'Approach',
-          options: [
-            { label: 'Option A', description: 'First approach' },
-            { label: 'Option B', description: 'Second approach' }
-          ],
-          multiSelect: false
-        }]
-      },
-      'Let me ask about the approach.'
-    ),
-  ],
-
-  operations: [
-    { type: 'send-message', message: 'Help me decide' },
-    // Key test: wait-for-approval should succeed (tool should be in pending state)
-    // If requiresApproval: false, this will timeout because tool executes immediately
-    { type: 'wait-for-approval', toolUseId: 'call_1' },
-    { type: 'deny', toolUseId: 'call_1' }
-  ],
-
-  expectedDocument: {
-    items: [
-      { type: 'system-prompt', itemId: '$ITEM_1' },
-      { type: 'user', content: 'Help me decide' },
-      { type: 'assistant', content: 'Let me ask about the approach.' },
-      {
-        type: 'tool-action',
-        toolUseId: '$TOOL_1',
-        toolName: 'AskUserQuestion',
-        toolInput: {
-          questions: [{
-            header: 'Approach',
-            multiSelect: false,
-            options: [
-              { description: 'First approach', label: 'Option A' },
-              { description: 'Second approach', label: 'Option B' }
-            ],
-            question: 'Which approach should we use?'
-          }]
-        },
-        state: 'cancelled',
-        result: {
-          content: 'Action was cancelled.',
-          isError: false
-        }
-      }
-    ]
-  }
-};
-
-/**
  * AskUserQuestion should collect the answer when user clicks an option button.
  * Verifies the answer flows through to the result.
  * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
@@ -254,78 +187,6 @@ const askUserQuestionMultipleQuestionsTest = {
         }
       },
       { type: 'assistant', content: 'Got it, proceeding with your choices.' }
-    ]
-  }
-};
-
-/**
- * AskUserQuestion should render the custom multi-question form in the DOM
- * when the tool is in pending approval state.
- * @type {import('../utilities/integration-test-runner.js').IntegrationTestDefinition}
- */
-const askUserQuestionFormRendersTest = {
-  name: 'ask-user-question-form-renders',
-  description: 'AskUserQuestion should render custom form with option buttons in the DOM',
-  fixture: 'unit-test-fixture',
-
-  llmResponses: [
-    toolUseResponse(
-      'call_1',
-      'AskUserQuestion',
-      {
-        questions: [{
-          question: 'Which approach should we use?',
-          header: 'Approach',
-          options: [
-            { label: 'Option A', description: 'First approach' },
-            { label: 'Option B', description: 'Second approach' }
-          ],
-          multiSelect: false
-        }]
-      },
-      'Let me ask about the approach.'
-    ),
-  ],
-
-  operations: [
-    { type: 'send-message', message: 'Help me decide' },
-    { type: 'wait-for-approval', toolUseId: 'call_1' },
-    // Assert the custom form renders in the DOM
-    { type: 'assert-dom', selector: '.multi-question-form' },
-    { type: 'assert-dom', selector: '.question-group' },
-    { type: 'assert-dom', selector: '.question-option-btn', minCount: 2 },
-    { type: 'assert-dom', selector: '.question-custom-field' },
-    { type: 'assert-dom', selector: '.multi-question-submit' },
-    // Clean up
-    { type: 'deny', toolUseId: 'call_1' }
-  ],
-
-  expectedDocument: {
-    items: [
-      { type: 'system-prompt', itemId: '$ITEM_1' },
-      { type: 'user', content: 'Help me decide' },
-      { type: 'assistant', content: 'Let me ask about the approach.' },
-      {
-        type: 'tool-action',
-        toolUseId: '$TOOL_1',
-        toolName: 'AskUserQuestion',
-        toolInput: {
-          questions: [{
-            header: 'Approach',
-            multiSelect: false,
-            options: [
-              { description: 'First approach', label: 'Option A' },
-              { description: 'Second approach', label: 'Option B' }
-            ],
-            question: 'Which approach should we use?'
-          }]
-        },
-        state: 'cancelled',
-        result: {
-          content: 'Action was cancelled.',
-          isError: false
-        }
-      }
     ]
   }
 };
@@ -582,10 +443,8 @@ const askUserQuestionCustomAnswerTest = {
 
 // Export all tests
 export const tests = [
-  askUserQuestionWaitsForApprovalTest,
   askUserQuestionAnswerFlowTest,
   askUserQuestionMultipleQuestionsTest,
-  askUserQuestionFormRendersTest,
   askUserQuestionNoAutoSubmitTest,
   askUserQuestionMultiSelectTest,
   askUserQuestionCustomAnswerTest

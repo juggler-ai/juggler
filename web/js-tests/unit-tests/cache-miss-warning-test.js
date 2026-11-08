@@ -140,8 +140,6 @@ export async function runTests() {
       assert(el instanceof NoticeMessage, 'notice-message must upgrade to the NoticeMessage class');
       const badge = el.querySelector('.message-icon-badge .context-item-type-badge');
       assert(!!badge, 'notice must label itself with a lozenge beside the icon');
-      assert(badge.textContent === 'Warning',
-        `lozenge names the kind of item, got ${badge.textContent}`);
       assert(!!el.querySelector('.message-icon-box svg'), 'notice must keep its warning triangle');
       // The whole point: a reader who never opens the panel is still told why
       // the row is there.

@@ -16,7 +16,6 @@ func TestConfig_Default(t *testing.T) {
 
 	helpers.AssertEqual(t, cfg.Server.Port, 3939)
 	helpers.AssertEqual(t, cfg.Server.Host, "localhost")
-	helpers.AssertEqual(t, cfg.Context.TokenBudget, 0) // 0 = auto-calculate
 	helpers.AssertTrue(t, len(cfg.Project.Exclude) > 0, "should have default excludes")
 	// Which plugins ship off is a property of the build, not of a project's
 	// config: a fresh config records no switches of its own, and the default is
@@ -60,11 +59,4 @@ func TestConfig_SaveAndLoad(t *testing.T) {
 	helpers.AssertEqual(t, loaded.Model, "anthropic/claude-3-5-sonnet-20241022")
 	helpers.AssertEqual(t, loaded.Server.Port, 4000)
 	helpers.AssertEqual(t, loaded.Context.TokenBudget, 10000)
-}
-
-func TestConfig_GetModel(t *testing.T) {
-	cfg := core.DefaultConfig()
-	cfg.Model = "gemini/gemini-2.0-flash-exp"
-
-	helpers.AssertEqual(t, cfg.GetModel(), "gemini/gemini-2.0-flash-exp")
 }

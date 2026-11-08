@@ -168,10 +168,6 @@ export async function runTests(_ctx) {
 
   // --- the manifest and its gates ------------------------------------------
 
-  await test('the todo pin is a singleton', () => {
-    assert(!pin.allowsMultiple, 'a second todo pin would show the same list twice');
-  });
-
   await test('a todo pin needs a conversation, and says so', () => {
     const reason = pin.canAdd(/** @type {any} */ ({ project: { path: '/p' }, conversation: null }));
     assert(reason === 'No active conversation', `expected the reason, got ${JSON.stringify(reason)}`);
@@ -179,7 +175,6 @@ export async function runTests(_ctx) {
 
   await test('describe reads nothing, because layout calls it', () => {
     const described = pin.describe({}, { project: { path: '', displayName: '' }, conversation: null, thread: null });
-    assert(described.title === 'Todos', `expected 'Todos', got ${described.title}`);
     assert(!described.badge, 'a badge would need the model, which describe may not touch');
   });
 
@@ -204,14 +199,14 @@ export async function runTests(_ctx) {
 
   await test('no list anywhere says so, briefly', () => {
     const m = mount(null);
-    assert((m.body.textContent || '').trim() === 'If the conversation contains a TODO list, this shows its current state',
-      `expected the todo empty state, got ${JSON.stringify(m.body.textContent)}`);
+    assert(m.body.querySelector('.pin-empty') && !m.body.querySelector('.task-list-item'),
+      `expected the empty state, got ${JSON.stringify(m.body.textContent)}`);
     m.teardown();
   });
 
   await test('an emptied list is no list', () => {
     const m = mount(todoFound([]));
-    assert((m.body.textContent || '').trim() === 'If the conversation contains a TODO list, this shows its current state',
+    assert(m.body.querySelector('.pin-empty') && !m.body.querySelector('.task-list-item'),
       `an empty list is nothing to show: ${JSON.stringify(m.body.textContent)}`);
     m.teardown();
   });
@@ -240,6 +235,7 @@ export async function runTests(_ctx) {
     const actions = m.controller.getActions();
     assert(actions[0].id === 'reveal',
       `reveal stays the primary action, whatever else is offered beside it: ${actions.map((/** @type {any} */ a) => a.id).join(', ')}`);
+    assert(actions[0].primary === true, 'reveal is the primary action, not an overflow entry');
     assert(actions[0].disabled === true, 'nothing to reveal, so it is dim rather than absent');
     m.teardown();
   });
@@ -259,6 +255,8 @@ export async function runTests(_ctx) {
     m.controller.getActions()[0].run();
     assert(m.revealed.length === 1 && m.revealed[0].itemId === 'ITEM_todo_row',
       `expected the writing row, got ${JSON.stringify(m.revealed)}`);
+    assert(m.revealed[0].threadId === null,
+      'and the thread is still passed, as the fallback for a list with no row');
     m.teardown();
   });
 
@@ -281,7 +279,7 @@ export async function runTests(_ctx) {
     const m = mount(todoFound(twoTodos));
     m.setFound(null);
     m.fireChange();
-    assert((m.body.textContent || '').trim() === 'If the conversation contains a TODO list, this shows its current state',
+    assert(m.body.querySelector('.pin-empty') && !m.body.querySelector('.task-list-item'),
       `expected the empty state back, got ${JSON.stringify(m.body.textContent)}`);
     m.teardown();
   });
@@ -352,12 +350,6 @@ export async function runTests(_ctx) {
     pinboardItemRegistry.registerClass(TodoPin, { extensionId: 'test' });
     const button = control();
     assert(!!button, 'with the Todo pin enabled, the panel offers to put the list on the board');
-    assert(button?.getAttribute('aria-label') === 'Pin to Pinboard',
-      'and says what it does without being clicked');
-    assert(button?.className === 'properties-panel-btn',
-      `it belongs with Re-run and Delete, not in the body: ${button?.className}`);
-    assert((button?.textContent || '').includes('Pin to Pinboard'),
-      `a control in that block is labelled, not a bare icon: ${button?.textContent}`);
   });
 
   await test('the panel puts it in the controls block, not in the body', () => {

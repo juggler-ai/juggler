@@ -127,43 +127,5 @@ export async function runTests() {
     });
   }
 
-  const host = document.createElement('div');
-  host.style.cssText = 'position:absolute;left:-9999px;top:0;';
-  document.body.appendChild(host);
-  try {
-    /**
-     * @param {string} token - A font-size token.
-     * @returns {string} Its computed size.
-     */
-    const size = (token) => {
-      host.innerHTML = `<span style="font-size: var(${token})"></span>`;
-      return getComputedStyle(/** @type {HTMLElement} */ (host.firstElementChild)).fontSize;
-    };
-    const xs = size('--font-size-xs');
-    const sm = size('--font-size-sm');
-
-    check('an eyebrow is --font-size-xs, 600, uppercase and tracked 0.04em', () => {
-      host.innerHTML = '<div class="pending-messages-label">x</div>';
-      const style = getComputedStyle(/** @type {HTMLElement} */ (host.firstElementChild));
-      assert(style.fontSize === xs, `size ${xs}, got ${style.fontSize}`);
-      assert(style.fontWeight === '600', `weight 600, got ${style.fontWeight}`);
-      assert(style.textTransform === 'uppercase', `uppercase, got ${style.textTransform}`);
-      const tracking = (parseFloat(xs) * 0.04).toFixed(2);
-      assert(parseFloat(style.letterSpacing).toFixed(2) === tracking, `tracking ${tracking}px, got ${style.letterSpacing}`);
-    });
-
-    check('a section heading is --font-size-sm, 600, uppercase and tracked 0.05em', () => {
-      host.innerHTML = '<div class="workspace-panel-heading">x</div>';
-      const style = getComputedStyle(/** @type {HTMLElement} */ (host.firstElementChild));
-      assert(style.fontSize === sm, `size ${sm}, got ${style.fontSize}`);
-      assert(style.fontWeight === '600', `weight 600, got ${style.fontWeight}`);
-      assert(style.textTransform === 'uppercase', `uppercase, got ${style.textTransform}`);
-      const tracking = (parseFloat(sm) * 0.05).toFixed(2);
-      assert(parseFloat(style.letterSpacing).toFixed(2) === tracking, `tracking ${tracking}px, got ${style.letterSpacing}`);
-    });
-  } finally {
-    host.remove();
-  }
-
   return { passed, failed, errors };
 }

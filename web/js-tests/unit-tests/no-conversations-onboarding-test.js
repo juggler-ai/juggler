@@ -13,10 +13,9 @@
  *      conversation is open. It hides the tab column (via
  *      `body.no-conversations`) but NOT the sidebar, which holds the button
  *      it points at.
- *   2. The conversation bar's "+" always carries its name, is emphasised
- *      only while the list is empty, and is laid out as a row of the list —
- *      as is "New workspace or group", and both shorten rather than wrap in a
- *      narrow strip.
+ *   2. The conversation bar's "+" always carries its name and is emphasised
+ *      only while the list is empty; it and "New workspace or group" shorten
+ *      rather than wrap in a narrow strip.
  *
  * Both sessions are stubs: this pins the two components' own show/hide rules,
  * not the bin round-trip that arrives at the state.
@@ -163,41 +162,6 @@ export async function runTests() {
       'the empty-list emphasis outlived the empty list');
     passed++;
 
-    // --- 7: both "+" rows are drawn as rows of the list they add to --------
-    // "New conversation" and "New workspace or group" are laid out as tabs: no
-    // outline of their own, the mark standing in the status circle's column and
-    // the words starting where the names do, at a tab's height and type.
-    // Measured against a real tab, so a rule that drifts on either side fails
-    // here rather than on screen.
-    const tab = /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-tab'));
-    const circle = /** @type {HTMLElement|null} */ (tab?.querySelector('.conversation-tab-status') ?? null);
-    const tabName = /** @type {HTMLElement|null} */ (tab?.querySelector('.conversation-tab-name') ?? null);
-    assert(!!tab && !!circle && !!tabName, 'no rendered tab to line the buttons up against');
-    const circleRect = /** @type {HTMLElement} */ (circle).getBoundingClientRect();
-    const nameLeft = /** @type {HTMLElement} */ (tabName).getBoundingClientRect().left;
-    const tabHeight = /** @type {HTMLElement} */ (tab).getBoundingClientRect().height;
-    const near = (/** @type {number} */ x, /** @type {number} */ y) => Math.abs(x - y) < 0.5;
-    const newWs = /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-box-new-button'));
-    assert(!!newWs, 'no "New workspace or group" button in the rendered bar');
-    for (const [what, button] of /** @type {Array<[string, HTMLElement]>} */ (
-      [['New conversation', addAfter], ['New workspace or group', newWs]])) {
-      const mark = /** @type {SVGElement|null} */ (button.querySelector('svg'));
-      const label = /** @type {HTMLElement|null} */ (button.querySelector('.conversation-box-new-label'));
-      assert(!!mark && !!label, `${what}: no "+" mark and label`);
-      const markRect = /** @type {SVGElement} */ (mark).getBoundingClientRect();
-      assert(near(markRect.left + markRect.width / 2, circleRect.left + circleRect.width / 2),
-        `${what}: the "+" is not centred on the status circle's column: ${markRect.left}+${markRect.width}/2 vs ${circleRect.left}+${circleRect.width}/2`);
-      const labelLeft = /** @type {HTMLElement} */ (label).getBoundingClientRect().left;
-      assert(near(labelLeft, nameLeft), `${what}: the words do not start where tab names do: ${labelLeft} vs ${nameLeft}`);
-      const height = button.getBoundingClientRect().height;
-      assert(near(height, tabHeight), `${what}: the row is not a tab's height: ${height} vs ${tabHeight}`);
-      const outline = getComputedStyle(button, '::before').maskImage;
-      assert(!outline || outline === 'none', `${what}: still draws a dashed outline: "${outline}"`);
-      assert(getComputedStyle(button).fontSize === getComputedStyle(/** @type {HTMLElement} */ (tabName)).fontSize,
-        `${what}: the words are not set in the tab names' size`);
-    }
-    passed++;
-
     // --- 8: a narrow strip shortens the words, and never wraps them --------
     // Each row says the whole of what it makes while that fits on one line,
     // then the short form ("Conversation", "Workspace/Group"), and below even
@@ -205,6 +169,11 @@ export async function runTests() {
     // across every width the panel can be dragged through, and measured
     // against the words' own width, so the switch can neither come too late
     // (full words cut off) nor much too early (short words with room to spare).
+    const tab = /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-tab'));
+    const newWs = /** @type {HTMLElement|null} */ (bar.querySelector('.conversation-box-new-button'));
+    assert(!!tab && !!newWs, 'no rendered tab and "New workspace or group" button to measure against');
+    const tabHeight = /** @type {HTMLElement} */ (tab).getBoundingClientRect().height;
+    const near = (/** @type {number} */ x, /** @type {number} */ y) => Math.abs(x - y) < 0.5;
     const rows = /** @type {Array<[string, string, HTMLElement]>} */ (
       [['New conversation', 'Conversation', addAfter], ['New workspace or group', 'Workspace/Group', newWs]]);
     const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;

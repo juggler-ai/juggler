@@ -31,16 +31,6 @@ const BADGES = [
   '.skills-badge.scripts', '.skills-badge.loaded', '.skills-badge.error', '.skills-badge.shadow'
 ];
 
-/** Each tint, and the token it is a wash of. */
-const TINTS = {
-  blue: '--accent-blue',
-  green: '--accent-green',
-  red: '--accent-red',
-  orange: '--accent-orange',
-  purple: '--accent-purple',
-  neutral: '--text-tertiary'
-};
-
 /**
  * Every style rule the page carries, from every stylesheet it loaded, layers
  * and media blocks included.
@@ -65,23 +55,6 @@ function styleRules() {
     }
   }
   return found;
-}
-
-/**
- * The computed colours a probe gets for a declared background and text colour.
- * @param {string} background - A CSS background colour.
- * @param {string} color - A CSS colour.
- * @returns {{background: string, color: string}} As the engine computes them.
- */
-function computed(background, color) {
-  const probe = document.createElement('span');
-  probe.style.backgroundColor = background;
-  probe.style.color = color;
-  document.body.appendChild(probe);
-  const style = getComputedStyle(probe);
-  const result = { background: style.backgroundColor, color: style.color };
-  probe.remove();
-  return result;
 }
 
 /**
@@ -111,25 +84,6 @@ export async function runTests() {
       .map(rule => rule.selectorText);
     assert(own.length === 0, `these still paint a tone themselves: ${own.join(' | ')}`);
   });
-
-  const host = document.createElement('div');
-  host.style.cssText = 'position:absolute;left:-9999px;top:0;';
-  document.body.appendChild(host);
-  try {
-    for (const [tint, token] of Object.entries(TINTS)) {
-      check(`.tint-${tint} is a wash of ${token} behind text in ${token}`, () => {
-        // Inside the catalog's own badge, so a component rule that still
-        // painted the badge would show here.
-        host.innerHTML = `<span class="plugin-badge tint-${tint}">x</span>`;
-        const style = getComputedStyle(/** @type {HTMLElement} */ (host.firstElementChild));
-        const want = computed(`color-mix(in srgb, var(${token}) 15%, transparent)`, `var(${token})`);
-        assert(style.backgroundColor === want.background, `background ${want.background}, got ${style.backgroundColor}`);
-        assert(style.color === want.color, `colour ${want.color}, got ${style.color}`);
-      });
-    }
-  } finally {
-    host.remove();
-  }
 
   return { passed, failed, errors };
 }

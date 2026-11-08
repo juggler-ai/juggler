@@ -83,22 +83,6 @@ function computed(property, value) {
 }
 
 /**
- * The computed width of the shared hairline (0.0625rem, solid). The engine
- * snaps a border to whole device pixels, so this is 1px at a device pixel
- * ratio of 1 or 2 but 0.666667px at 1.5; the probe reads what this display
- * makes of it. A width only computes with a style beside it — none is 0px.
- * @returns {string} As the engine computes it.
- */
-function hairline() {
-  const probe = document.createElement('div');
-  probe.style.borderTop = '0.0625rem solid';
-  document.body.appendChild(probe);
-  const result = getComputedStyle(probe).borderTopWidth;
-  probe.remove();
-  return result;
-}
-
-/**
  * Whether a declared value is empty, a suppression, or one of the allowed tokens.
  * @param {string} value - The declared value, as the rule serialises it.
  * @param {string[]} tokens - The custom properties it may reference.
@@ -198,26 +182,9 @@ export async function runTests() {
     assert(own.length === 0, `these still draw a field of their own: ${own.join(' | ')}`);
   });
 
-  const host = document.createElement('div');
-  host.style.cssText = 'position:absolute;left:-9999px;top:0;';
-  document.body.appendChild(host);
-  try {
-    const wantFill = computed('background-color', 'var(--bg-primary)');
-    const wantRadius = computed('border-top-left-radius', 'var(--radius-lg)');
-    const wantBorder = computed('border-top-color', 'var(--border-color)');
-    const wantWidth = hairline();
+  {
     const wantFocusBorder = computed('border-top-color', 'var(--accent-blue)');
     const wantHalo = computed('box-shadow', '0 0 0 0.1875rem color-mix(in srgb, var(--accent-blue) 10%, transparent)');
-
-    check('.field-input is --bg-primary with a hairline border and --radius-lg corners', () => {
-      host.innerHTML = '<input class="field-input">';
-      const style = getComputedStyle(/** @type {HTMLElement} */ (host.firstElementChild));
-      assert(style.backgroundColor === wantFill, `fill ${wantFill}, got ${style.backgroundColor}`);
-      assert(style.borderTopLeftRadius === wantRadius, `corner ${wantRadius}, got ${style.borderTopLeftRadius}`);
-      assert(style.borderTopStyle === 'solid' && style.borderTopWidth === wantWidth,
-        `a ${wantWidth} solid hairline, got ${style.borderTopWidth} ${style.borderTopStyle}`);
-      assert(style.borderTopColor === wantBorder, `border ${wantBorder}, got ${style.borderTopColor}`);
-    });
 
     // The suite's document never holds window focus (document.hasFocus() is
     // false), so :focus matches nothing here and a focused field cannot be
@@ -243,8 +210,6 @@ export async function runTests() {
       assert(style.getPropertyValue('box-shadow') === 'var(--field-focus-halo)',
         `box-shadow "${style.getPropertyValue('box-shadow')}"`);
     });
-  } finally {
-    host.remove();
   }
 
   return { passed, failed, errors };

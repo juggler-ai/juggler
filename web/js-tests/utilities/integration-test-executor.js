@@ -18,7 +18,6 @@ import { tests as writeFileTests } from '../integration-tests/write-file-tests.j
 import { tests as approvalFlowTests } from '../integration-tests/approval-flow-tests.js';
 import { tests as approvalWaitTests } from '../integration-tests/approval-wait-tests.js';
 import { tests as executeTests } from '../integration-tests/execute-tests.js';
-import { tests as globTests } from '../integration-tests/glob-tests.js';
 import { tests as compactionTests } from '../integration-tests/compaction-tests.js';
 import { tests as multiConversationTests } from '../integration-tests/multi-conversation-tests.js';
 import { tests as errorRecoveryTests } from '../integration-tests/error-recovery-tests.js';
@@ -583,7 +582,6 @@ function takeContextMenusLeftToPlatform() {
  * Each test runs in its own isolated fixture directory, so order does not matter.
  */
 const ALL_TESTS = [
-  ...globTests,
   ...readFileTests,
   ...queryCodeTests,
   ...writeFileTests,

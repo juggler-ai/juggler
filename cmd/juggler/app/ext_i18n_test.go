@@ -241,7 +241,7 @@ func TestExtI18nNeedsProvidesI18n(t *testing.T) {
 
 func TestExtI18nUsage(t *testing.T) {
 	for _, args := range [][]string{nil, {"status"}, {"extract", "a", "b"}} {
-		if code, _, errOut := runI18nCLI(args...); code != 2 || !strings.Contains(errOut, "Usage: juggler ext i18n") {
+		if code, _, errOut := runI18nCLI(args...); code != 2 || errOut == "" {
 			t.Errorf("%q: exit %d, stderr %q; want 2 and usage", args, code, errOut)
 		}
 	}

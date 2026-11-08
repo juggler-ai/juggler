@@ -20,13 +20,6 @@
 
 import { assert, trackTestSession } from '../utilities/test-helpers.js';
 import Session from '../../js/model/session.js';
-import {
-  AI_ASSISTANT_FILES,
-  addAIAssistantFiles,
-  seedAutoContextItems,
-  seedConversationAutoItems,
-  seedCreationDefaults
-} from '../../js/model/conversation-seeder.js';
 
 /**
  * @typedef {object} TestResult
@@ -70,14 +63,6 @@ export async function runTests(_ctx) {
     ].filter((name) => name in proto);
     assert(strays.length === 0, `seeding methods on Session: ${strays.join(', ')}`);
     assert(!('AI_ASSISTANT_FILES' in Session), 'Session.AI_ASSISTANT_FILES is a second list of assistant file names');
-  });
-
-  await run('the seeder exports the whole policy', () => {
-    for (const [name, fn] of Object.entries({ addAIAssistantFiles, seedAutoContextItems, seedConversationAutoItems, seedCreationDefaults })) {
-      assert(typeof fn === 'function', `${name} is not exported`);
-    }
-    assert(Array.isArray(AI_ASSISTANT_FILES) && AI_ASSISTANT_FILES.includes('CLAUDE.md') && AI_ASSISTANT_FILES.includes('AGENTS.md'),
-      `AI_ASSISTANT_FILES = ${JSON.stringify(AI_ASSISTANT_FILES)}`);
   });
 
   await run('Session#seedConversationAutoItems is the door, and answers with both counts', async () => {

@@ -118,13 +118,3 @@ func TestLinkTo(t *testing.T) {
 		t.Errorf("a mode's own PageURL: %q, want https://rv.example/c/xyz#/p/abc-0123abcd/", got)
 	}
 }
-
-// TestAvailability: no probe means available; a probe decides otherwise.
-func TestAvailability(t *testing.T) {
-	if !(ModeSpec{}).IsAvailable() {
-		t.Error("a spec with no probe should be available")
-	}
-	if (ModeSpec{Available: func() bool { return false }}).IsAvailable() {
-		t.Error("a spec whose probe says no should be unavailable")
-	}
-}

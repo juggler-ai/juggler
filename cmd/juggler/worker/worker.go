@@ -316,6 +316,13 @@ type ConversationWorker struct {
 	// linger until the retention sweep. Set-once before teardown; read on the
 	// worker's own goroutine in onShutdown.
 	purgeLogs atomic.Bool
+
+	// workingEvery is how long after the worker last broadcast anything that
+	// handling a client's message is announced to every client as `working`
+	// (noteWorking). Set before Start; tests shorten it.
+	workingEvery time.Duration
+	// lastBroadcastAt is when sendWS last broadcast, as UnixNano.
+	lastBroadcastAt atomic.Int64
 }
 
 // workerMessage wraps an incoming message. OriginClient is the ID of the client
@@ -332,6 +339,10 @@ type workerMessage struct {
 	// the time it waited there can be told from the time it took to handle.
 	EnqueuedAt time.Time
 }
+
+// workingNoticeInterval is the default workingEvery: well inside the shortest
+// silence a client allows a worker, and rare enough to cost nothing on a link.
+const workingNoticeInterval = time.Second
 
 // NewConversationWorker creates a new conversation worker.
 func NewConversationWorker(conversationID, authorID string) *ConversationWorker {
@@ -355,7 +366,8 @@ func NewConversationWorker(conversationID, authorID string) *ConversationWorker 
 		saver:          newDocSaver(),
 		// Unbounded, order-preserving intake, its pump's lifetime tied to the
 		// worker's; Send enqueues here so it never drops.
-		inbox: newWorkerInbox(done),
+		inbox:        newWorkerInbox(done),
+		workingEvery: workingNoticeInterval,
 
 		strategyHookTimeout:   defaultStrategyHookTimeout,
 		retryBackoffLimit:     defaultRetryBackoffLimit,
@@ -820,6 +832,7 @@ func (r *run) run(ctx context.Context) {
 			event, started = "message "+msg.Type, time.Now()
 			waited = started.Sub(msg.EnqueuedAt)
 			r.handleMessage(msg)
+			r.noteWorking(msg.OriginClient)
 		case <-r.doc.UpdateSignal():
 			event, started = "doc update signal", time.Now()
 			r.batcher.Schedule()
@@ -1089,7 +1102,24 @@ func (w *ConversationWorker) send(msg any) {
 }
 
 func (w *ConversationWorker) sendWS(data []byte) {
+	w.lastBroadcastAt.Store(time.Now().UnixNano())
 	w.callbacks.broadcast(data)
+}
+
+// noteWorking tells every client the worker is working through its queue, once
+// it has handled a client's message and broadcast nothing for workingEvery. A
+// reply goes to its requester alone, so without this a client whose request
+// waits behind another client's sees a busy worker as a silent one, and its
+// silence watch (WorkerManager.watchSilence) gives up on a request the worker
+// is about to answer.
+func (w *ConversationWorker) noteWorking(origin string) {
+	if origin == "" {
+		return
+	}
+	if time.Since(time.Unix(0, w.lastBroadcastAt.Load())) < w.workingEvery {
+		return
+	}
+	w.send(bareMessage{Type: msgWorking})
 }
 
 // reply sends a request-scoped response (an ack) to only the client that

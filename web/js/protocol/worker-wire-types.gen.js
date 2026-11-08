@@ -263,6 +263,12 @@
  */
 
 /**
+ * The same struct as CancelStrategyExecutionMessage.
+ * @typedef {object} WorkingMessage
+ * @property {'working'} type
+ */
+
+/**
  * InitMessage bootstraps the worker with conversation data
  * @typedef {object} InitMessage
  * @property {'init'} type

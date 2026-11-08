@@ -71,6 +71,7 @@ import { setBootstrapSummarizationPrompt } from '../utils/compaction-utils.js';
  */
 
 /** @typedef {import('../protocol/worker-wire-types.gen.js').AckMessage} AckMessage */
+/** @typedef {import('../protocol/worker-wire-types.gen.js').WorkingMessage} WorkingMessage */
 
 /**
  * Any message a worker sends a client, told apart by `type`.
@@ -79,7 +80,7 @@ import { setBootstrapSummarizationPrompt } from '../utils/compaction-utils.js';
  *   |RunStrategyHookMessage|RunContextHookMessage
  *   |EvaluateToolMessage|ExecuteToolMessage|CancelToolMessage
  *   |CancelStrategyExecutionMessage|CreateThreadResponseMessage|ErrorMessage
- *   |StatusMessage|AckMessage} WorkerMessage
+ *   |StatusMessage|AckMessage|WorkingMessage} WorkerMessage
  */
 
 /**
@@ -278,6 +279,14 @@ function onAck(wm, _conversationId, data) {
 }
 
 /**
+ * The worker is working through a queue this client's requests may wait in,
+ * answering someone else. Hearing it is the whole of it: the manager counts
+ * every message as the worker's progress (`WorkerManager#watchSilence`).
+ * @type {HandlerFor<'working'>}
+ */
+function onWorking() {}
+
+/**
  * Every message type a worker sends, and what this client does with it.
  *
  * The engine-only entries (`render-context-items-request`,
@@ -305,6 +314,7 @@ export const INBOUND_HANDLERS = new Map([
   entry('error', onError),
   entry('status', onStatus),
   entry('ack', onAck),
+  entry('working', onWorking),
 ]);
 
 /**

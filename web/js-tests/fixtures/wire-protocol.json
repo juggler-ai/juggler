@@ -39,6 +39,7 @@
       { "type": "ack", "goEmits": true, "jsHandler": true },
       { "type": "pong", "goEmits": true, "jsHandler": false,
         "note": "Test-only (worker_test_support.go); handled by js-tests/utilities/worker-test-hooks.js." },
+      { "type": "working", "goEmits": true, "jsHandler": true },
       { "type": "validation-error", "goEmits": false, "jsHandler": false,
         "note": "Only ever a processingState status, inside a `status` message. Listed so the Go scan fails if a message of this type is ever sent: the viewer has no handler for one." }
     ],

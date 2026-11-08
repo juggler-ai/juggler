@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -119,6 +120,11 @@ func allPools() []*lanePool {
 // the user's real application-log directory. Created in TestMain, removed on
 // pool shutdown. Empty when unset (e.g. the -short path).
 var testLogDir string
+
+// keepTestLogs is set when a lane went silent with a suite in hand: the
+// subprocesses' logs are then the only record of what the lane was doing, so
+// shutdown leaves testLogDir in place and names it.
+var keepTestLogs atomic.Bool
 
 // testConfigDir is a throwaway per-user config root inherited by every pool
 // subprocess. It isolates cache-backed convenience state such as recent models,
@@ -527,7 +533,11 @@ func (p *poolHandle) shutdown() {
 			os.RemoveAll(e.fixture)
 		}
 		if testLogDir != "" {
-			os.RemoveAll(testLogDir)
+			if keepTestLogs.Load() {
+				fmt.Fprintf(os.Stderr, "a lane went silent: the pool's logs are kept in %s\n", testLogDir)
+			} else {
+				os.RemoveAll(testLogDir)
+			}
 		}
 		if testConfigDir != "" {
 			os.RemoveAll(testConfigDir)

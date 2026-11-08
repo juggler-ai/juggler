@@ -57,9 +57,11 @@ func (s *RecentsStore) Used() (map[string]time.Time, error) {
 }
 
 // read loads the whole file. Missing file yields an empty one without error.
+// Every session and the machine server share the file, and save replaces it by
+// rename, which Windows refuses a reader for its duration — hence the robust read.
 func (s *RecentsStore) read() (recentsFile, error) {
 	var f recentsFile
-	data, err := os.ReadFile(s.filePath)
+	data, err := atomicio.RobustReadFile(s.filePath)
 	if os.IsNotExist(err) {
 		return f, nil
 	}

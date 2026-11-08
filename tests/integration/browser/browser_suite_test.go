@@ -488,8 +488,9 @@ func runOneBrowserTest(t *testing.T, srv testServerEntry) (abandoned bool) {
 		}
 		// The machine reading is ours to take here: no result came back, so the
 		// lane never assembled a failure block to carry one of its own.
-		t.Errorf("waiting for test result: %v\n%s%s\n%s", err,
-			queueAudit(srv.addr, name), projectSize(srv.addr), machineload.Line())
+		keepTestLogs.Store(true)
+		t.Errorf("waiting for test result: %v\n%s%s\n%s%s", err,
+			queueAudit(srv.addr, name), projectSize(srv.addr), laneReport(srv.addr), machineload.Line())
 		return true
 	}
 

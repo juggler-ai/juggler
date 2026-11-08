@@ -78,6 +78,7 @@ const (
 	msgStatus                    wireMsgType = "status"
 	msgAck                       wireMsgType = "ack"
 	msgPong                      wireMsgType = "pong"
+	msgWorking                   wireMsgType = "working"
 )
 
 // allWorkerInbound is every message type the worker dispatches.
@@ -97,7 +98,7 @@ var allWorkerOutbound = []wireMsgType{
 	msgReady, msgYjsSync, msgResyncOffer, msgResyncResponse, msgRenderContextItemsRequest,
 	msgRequestTools, msgBuildSubthreadSpec, msgRunStrategyHook, msgRunContextHook, msgEvaluateTool,
 	msgExecuteTool, msgCancelTool, msgCancelStrategyExecution, msgCreateThreadResponse, msgError,
-	msgStatus, msgAck, msgPong,
+	msgStatus, msgAck, msgPong, msgWorking,
 }
 
 // processingStatus is processingState.status: what the spinner says a run is

@@ -41,6 +41,7 @@ var workerOutboundTypedefs = []wireschema.Entry{
 	{Name: "MockPausedStatusMessage", Value: mockPausedStatus{}, Types: wireTypes(msgStatus)},
 	{Value: AckMessage{}, Types: wireTypes(msgAck)},
 	{Name: "PongMessage", Value: bareMessage{}, Types: wireTypes(msgPong)},
+	{Name: "WorkingMessage", Value: bareMessage{}, Types: wireTypes(msgWorking)},
 }
 
 // TestWireTypedefs holds web/js/protocol/worker-wire-types.gen.js to the

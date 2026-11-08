@@ -259,44 +259,54 @@ func reportLeakedConversations(t *testing.T) {
 	t.Helper()
 	for _, pool := range allPools() {
 		for _, s := range pool.entries() {
-			client := &http.Client{Timeout: harnessHTTPTimeout}
-			resp, err := client.Get("http://" + s.addr + "/api/test/conversation-owners")
-			if err != nil {
-				t.Errorf("conversation-owners check failed for %s: %v", s.addr, err)
-			} else {
-				// A non-200 means the ownership endpoint is unwired — which
-				// also means the cross-lane delete guard is unwired. Fail
-				// loudly rather than letting the leak check pass vacuously
-				// (that exact silent unwiring has happened: the sessionAPI
-				// field was zeroed by a wholesale struct reassignment).
-				if resp.StatusCode != http.StatusOK {
-					t.Errorf("conversation-owners returned %d on %s — the ownership "+
-						"guard/leak check is not wired; see RegisterTestRoutes", resp.StatusCode, s.addr)
-				}
-				var body struct {
-					Owners map[string]struct {
-						Lane   string `json:"lane"`
-						Reason string `json:"reason"`
-					} `json:"owners"`
-				}
-				if err := json.NewDecoder(resp.Body).Decode(&body); err == nil && len(body.Owners) > 0 {
-					lines := make([]string, 0, len(body.Owners))
-					for id, o := range body.Owners {
-						reason := o.Reason
-						if reason == "" {
-							reason = "unknown test"
-						}
-						lines = append(lines, fmt.Sprintf("%s (created by %s, lane %s)", id, reason, o.Lane))
-					}
-					sort.Strings(lines)
-					t.Errorf("LEAKED CONVERSATIONS on %s (created by a test, never deleted): %s — "+
-						"these accumulate in the shared session toward the MAX_CONVERSATIONS cap; "+
-						"the creating test must delete what it creates", s.addr, strings.Join(lines, "; "))
-				}
-				resp.Body.Close()
+			for _, problem := range conversationOwnerProblems(s) {
+				t.Error(problem)
 			}
 		}
 	}
+}
+
+// conversationOwnerProblems is reportLeakedConversations for one pool server:
+// each failure it finds there, as a message. A server that died after its last
+// suite finished is noticed here and nowhere else, so an unreachable one gets
+// the post-mortem a failing subtest would have written.
+func conversationOwnerProblems(s testServerEntry) []string {
+	client := &http.Client{Timeout: harnessHTTPTimeout}
+	resp, err := client.Get("http://" + s.addr + "/api/test/conversation-owners")
+	if err != nil {
+		return []string{fmt.Sprintf("conversation-owners check failed for %s: %v%s", s.addr, err, prefixedPoolDeath(s))}
+	}
+	defer resp.Body.Close()
+	var problems []string
+	// A non-200 means the ownership endpoint is unwired — which also means the
+	// cross-lane delete guard is unwired. Fail loudly rather than letting the
+	// leak check pass vacuously (that exact silent unwiring has happened: the
+	// sessionAPI field was zeroed by a wholesale struct reassignment).
+	if resp.StatusCode != http.StatusOK {
+		problems = append(problems, fmt.Sprintf("conversation-owners returned %d on %s — the ownership "+
+			"guard/leak check is not wired; see RegisterTestRoutes", resp.StatusCode, s.addr))
+	}
+	var body struct {
+		Owners map[string]struct {
+			Lane   string `json:"lane"`
+			Reason string `json:"reason"`
+		} `json:"owners"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err == nil && len(body.Owners) > 0 {
+		lines := make([]string, 0, len(body.Owners))
+		for id, o := range body.Owners {
+			reason := o.Reason
+			if reason == "" {
+				reason = "unknown test"
+			}
+			lines = append(lines, fmt.Sprintf("%s (created by %s, lane %s)", id, reason, o.Lane))
+		}
+		sort.Strings(lines)
+		problems = append(problems, fmt.Sprintf("LEAKED CONVERSATIONS on %s (created by a test, never deleted): %s — "+
+			"these accumulate in the shared session toward the MAX_CONVERSATIONS cap; "+
+			"the creating test must delete what it creates", s.addr, strings.Join(lines, "; ")))
+	}
+	return problems
 }
 
 // neturlEscape is a tiny inline url.QueryEscape stand-in to avoid pulling

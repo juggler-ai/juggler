@@ -341,25 +341,28 @@ export async function runTests(_ctx) {
        * spinning — a synchronous post, so the loop is running once it arrives —
        * and spins.
        * @param {number} timeoutMs - The script's budget
-       * @returns {{port: MessagePort, started: Promise<void>, spinning: Promise<void>, result: Promise<any>}} The run
+       * @returns {{port: MessagePort, firstWord: Promise<any>, spinning: Promise<void>, result: Promise<any>}}
+       *   The run. `firstWord` is 'started' once the script reports in, or the
+       *   frame's result if that comes first — a worker that failed to boot, or a
+       *   budget that ran out while the Worker was still starting.
        */
       const startSpinner = (timeoutMs) => {
         const channel = new MessageChannel();
         const port = channel.port1;
-        /** @type {() => void} */
-        let markStarted = () => {};
-        const started = new Promise((resolve) => { markStarted = () => resolve(undefined); });
+        /** @type {(word: any) => void} */
+        let markFirstWord = () => {};
+        const firstWord = new Promise((resolve) => { markFirstWord = resolve; });
         /** @type {() => void} */
         let markSpinning = () => {};
         const spinning = new Promise((resolve) => { markSpinning = () => resolve(undefined); });
         const result = new Promise((resolve) => {
           port.onmessage = (e) => {
             const m = e.data || {};
-            if (m.kind === 'result') { resolve(m); return; }
+            if (m.kind === 'result') { markFirstWord(m); resolve(m); return; }
             if (m.kind === 'console') { markSpinning(); return; }
             if (m.kind === 'started') {
               port.postMessage({ kind: 'reply', id: m.id, ok: true, value: null });
-              markStarted();
+              markFirstWord('started');
             }
           };
         });
@@ -369,11 +372,13 @@ export async function runTests(_ctx) {
           timeoutMs,
           capabilities: [{ name: 'started', callable: true }]
         }, '*', [channel.port2]);
-        return { port, started, spinning, result };
+        return { port, firstWord, spinning, result };
       };
 
       const escape = startSpinner(60000);
-      await withTimeout(escape.started, 15000, 'the spinning script never got going');
+      const escapeWord = await withTimeout(escape.firstWord, 15000, 'the spinning script never got going');
+      assert(escapeWord === 'started',
+        `the script to be cancelled ended before it reported in: ${JSON.stringify(escapeWord)}`);
       await withTimeout(escape.spinning, 15000, 'the script never reached its loop');
       escape.port.postMessage({ kind: 'abort' });
       const cancelled = await withTimeout(escape.result, 4000,
@@ -381,14 +386,30 @@ export async function runTests(_ctx) {
       assert(cancelled.ok === false && cancelled.error === 'Script was cancelled',
         `an abort must end the spinning script, got ${JSON.stringify(cancelled)}`);
 
-      const timeout = startSpinner(1000);
-      await withTimeout(timeout.started, 15000, 'the spinning script never got going');
-      const timedOut = await withTimeout(timeout.result, 6000,
-        'the frame never ended a spinning script at its timeout');
-      assert(timedOut.ok === false && /timed out after 1000ms/.test(timedOut.error),
-        `a spinning script must end at its timeout, got ${JSON.stringify(timedOut)}`);
       escape.port.close();
-      timeout.port.close();
+
+      // The frame's clock starts when it takes the request, before the Worker
+      // boots, so on a slow core a short budget can run out before the script
+      // reports in. The frame is right to end it then, but that run never
+      // spun: double the budget until one outlasts this machine's startup.
+      let budget = 1000;
+      for (;;) {
+        const timeout = startSpinner(budget);
+        const word = await withTimeout(timeout.firstWord, budget + 15000, 'the spinning script never got going');
+        if (word !== 'started') {
+          timeout.port.close();
+          assert(word.ok === false && word.error === `Script timed out after ${budget}ms`,
+            `the spinning script ended before it reported in: ${JSON.stringify(word)}`);
+          budget *= 2;
+          continue;
+        }
+        const timedOut = await withTimeout(timeout.result, budget + 5000,
+          'the frame never ended a spinning script at its timeout');
+        timeout.port.close();
+        assert(timedOut.ok === false && timedOut.error === `Script timed out after ${budget}ms`,
+          `a spinning script must end at its timeout, got ${JSON.stringify(timedOut)}`);
+        break;
+      }
 
       passed++;
     } catch (e) {

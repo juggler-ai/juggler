@@ -132,6 +132,38 @@ func TestPoolDeathQuotesTheMainThreadSample(t *testing.T) {
 	}
 }
 
+// TestLeakCheckReportsAPoolDeath guards the death no subtest sees: a pool
+// server that dies after its last suite has finished is noticed only by the
+// leak check that runs once every subtest is done. Its failure must carry the
+// post-mortem as any test's would, since the sample is copied out of the
+// throwaway log dir only when the post-mortem is written.
+func TestLeakCheckReportsAPoolDeath(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+
+	samplePath := filepath.Join(t.TempDir(), "mainthread-stall-20261108-111027.sample.log")
+	if err := os.WriteFile(samplePath, []byte(stallSampleFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stderr := stallSampleStderrPrefix + samplePath + "\n" +
+		"\nFATAL: main thread wedged — force-exiting so the next launch can recover.\n"
+	p := deadProc(t, stderr, errors.New("exit status 1"))
+
+	report := strings.Join(conversationOwnerProblems(testServerEntry{addr: addr, proc: p}), "\n")
+	for _, want := range []string{"conversation-owners check failed", "POOL SERVER DIED", "FATAL: main thread wedged", "-[WKWebView _wedgedHere]"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the leak check's failure omits %q:\n%s", want, report)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(p.stderrPath), "juggler-stall-sample-4242.log")); err != nil {
+		t.Errorf("the leak check did not keep the sample beside the stderr logs: %v", err)
+	}
+}
+
 // TestPoolDeathIsSilentWhileTheServerLives keeps the report out of ordinary
 // failures: a test that fails with its server running must not be told the pool
 // died.

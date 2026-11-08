@@ -281,6 +281,75 @@ export async function runTests(_ctx) {
       }
     });
 
+    /**
+     * Dispatch a mouse pointer event, as the browser would deliver it to `target`.
+     * @param {EventTarget} target
+     * @param {string} type
+     * @param {number} x
+     */
+    const pointerAt = (target, type, x) => {
+      target.dispatchEvent(new PointerEvent(type, {
+        pointerId: 1, pointerType: 'mouse', clientX: x, clientY: 10, bubbles: true, cancelable: true,
+      }));
+    };
+
+    // A browser can fail to capture the pointer without saying so — Chrome does,
+    // in a document whose tree was swapped out from under the pointer — and then
+    // delivers the drag's moves and its release to whatever is under the pointer
+    // instead of the handle. The drag must still follow the pointer and end.
+    await run('a drag follows the pointer and ends when its events reach other elements', () => {
+      __resetPrefsForTests();
+      realm = {};
+      const column = makeColumn();
+      const elsewhere = document.createElement('div');
+      document.body.appendChild(elsewhere);
+      try {
+        setupColumnResize(column, uniqueName(), 12.5, 30);
+        const handle = /** @type {HTMLElement} */ (column.querySelector('col-resize-handle'));
+        pointerAt(handle, 'pointerdown', 100);
+        pointerAt(elsewhere, 'pointermove', 180);
+        if (column.style.width === '30rem') {
+          throw new Error('a move delivered to another element did not resize the column');
+        }
+        pointerAt(elsewhere, 'pointerup', 180);
+        if (handle.classList.contains('dragging')) {
+          throw new Error('a release delivered to another element left the handle dragging');
+        }
+        const ended = column.style.width;
+        pointerAt(elsewhere, 'pointermove', 300);
+        if (column.style.width !== ended) {
+          throw new Error(`the column kept following the pointer after the release (${ended} -> ${column.style.width})`);
+        }
+      } finally {
+        column.remove();
+        elsewhere.remove();
+      }
+    });
+
+    // The same document never tells the handle the pointer has left it, while it
+    // still says where the pointer went: pointerover keeps arriving.
+    await run('the hover clears when the pointer is over something else, leave or no leave', () => {
+      __resetPrefsForTests();
+      realm = {};
+      const column = makeColumn();
+      const elsewhere = document.createElement('div');
+      document.body.appendChild(elsewhere);
+      try {
+        setupColumnResize(column, uniqueName(), 12.5, 30);
+        const handle = /** @type {HTMLElement} */ (column.querySelector('col-resize-handle'));
+        pointerAt(handle, 'pointerover', 100);
+        pointerAt(handle, 'pointerenter', 100);
+        if (!handle.classList.contains('hovered')) throw new Error('hovering the handle did not highlight it');
+        pointerAt(elsewhere, 'pointerover', 300);
+        if (handle.classList.contains('hovered')) {
+          throw new Error('the handle stayed highlighted with the pointer over another element');
+        }
+      } finally {
+        column.remove();
+        elsewhere.remove();
+      }
+    });
+
     await run('a single stored width is every depth\'s, as a window that stored one before has', () => {
       __resetPrefsForTests();
       realm = {};

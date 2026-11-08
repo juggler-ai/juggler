@@ -313,17 +313,38 @@ export function setupColumnResize(
   // click handler, which would change active column and scroll into view.
   handle.addEventListener('click', (e) => e.stopPropagation());
 
-  // Only highlight on mouse hover — touch devices don't get a hover state.
+  // Only highlight on mouse hover — touch devices don't get a hover state. The
+  // highlight also clears when the pointer is seen over anything else
+  // (_clearStaleHover), for a document that never sends the leave.
   handle.addEventListener('pointerenter', (e) => {
-    if (/** @type {PointerEvent} */ (e).pointerType === 'mouse') handle.classList.add('hovered');
+    if (/** @type {PointerEvent} */ (e).pointerType !== 'mouse') return;
+    handle.classList.add('hovered');
+    _watchHoverEnds();
   });
   handle.addEventListener('pointerleave', () => handle.classList.remove('hovered'));
+
+  // The drag's moves and its release are heard on the window, not the handle.
+  // With the pointer captured they reach the handle and bubble there anyway,
+  // including from outside the browser window. A browser can fail to capture
+  // without saying so — Chrome does, in a document whose whole tree was
+  // replaced while the pointer was over it — and then delivers them to whatever
+  // is under the pointer, which only the window is sure to hear.
+  /** @type {(() => void)|null} */
+  let endDrag = null;
 
   handle.addEventListener('pointerdown', (/** @type {Event} */ e) => {
     const pointerEvent = /** @type {PointerEvent} */ (e);
     pointerEvent.preventDefault();
-    /** @type {HTMLElement} */ (handle).setPointerCapture(pointerEvent.pointerId);
+    // A drag whose release went unheard (outside the window, uncaptured) ends
+    // here rather than running alongside this one.
+    endDrag?.();
+    try {
+      /** @type {HTMLElement} */ (handle).setPointerCapture(pointerEvent.pointerId);
+    } catch {
+      // No active pointer of that id: the window listeners still carry the drag.
+    }
 
+    const pointerId = pointerEvent.pointerId;
     const startX = pointerEvent.clientX;
     const startWidth = element.getBoundingClientRect().width;
     const remPx = rootFontSizePx();
@@ -332,25 +353,61 @@ export function setupColumnResize(
 
     const onMove = (/** @type {Event} */ e) => {
       const moveEvent = /** @type {PointerEvent} */ (e);
+      if (moveEvent.pointerId !== pointerId) return;
       const deltaX = moveEvent.clientX - startX;
       // Through the one setter, so the fit floor follows the pointer and a
       // widening the fit would squeeze back is shown as it will be kept.
       styleColumnWidth(element, (startWidth + deltaX) / remPx, minWidthRem);
     };
 
-    const onUp = () => {
+    const finish = () => {
+      endDrag = null;
       handle.classList.remove('dragging');
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
       const finalPx = element.getBoundingClientRect().width;
       applyColumnWidthPx(element, prefName, finalPx, minWidthRem);
-      handle.removeEventListener('pointermove', onMove);
-      handle.removeEventListener('pointerup', onUp);
-      handle.removeEventListener('pointercancel', onUp);
     };
 
-    handle.addEventListener('pointermove', onMove);
-    handle.addEventListener('pointerup', onUp);
-    handle.addEventListener('pointercancel', onUp);
+    const onUp = (/** @type {Event} */ e) => {
+      if (/** @type {PointerEvent} */ (e).pointerId === pointerId) finish();
+    };
+
+    endDrag = finish;
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   });
+}
+
+/** Whether `_clearStaleHover` is listening. */
+let _watchingHover = false;
+
+/**
+ * Start clearing highlights the pointer has left, once a handle has one. One
+ * listener serves every handle, and it stays: hovering is the common case.
+ * @private
+ */
+function _watchHoverEnds() {
+  if (_watchingHover) return;
+  _watchingHover = true;
+  document.addEventListener('pointerover', _clearStaleHover, true);
+}
+
+/**
+ * Clear the highlight from every handle the pointer is not over. pointerover
+ * names where the pointer went even in a document that has stopped sending
+ * pointerleave (Chrome, after the tree under the pointer was replaced), so it
+ * is what keeps a highlight from outliving the hover there.
+ * @param {Event} e - The pointerover.
+ * @private
+ */
+function _clearStaleHover(e) {
+  const over = /** @type {Node|null} */ (e.target);
+  for (const handle of Array.from(document.querySelectorAll('col-resize-handle.hovered'))) {
+    if (!over || !handle.contains(over)) handle.classList.remove('hovered');
+  }
 }
 
 /**

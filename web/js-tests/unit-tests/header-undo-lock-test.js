@@ -246,21 +246,29 @@ export async function runTests() {
     passed++;
 
     // --- The chip shows the whole path where it fits, else the name --------
-    // Following the header's width as it changes, both ways.
+    // At each width, both ways. Each fit is driven by a redraw, which measures
+    // in place, never by waiting on the chip's ResizeObserver: the hidden test
+    // page defers the "update the rendering" step that delivers it
+    // indefinitely under load.
     {
       const savedPath = session.projectPath;
+      /**
+       * @param {string} width - The header's width.
+       * @returns {string|null} The path the chip shows at it.
+       */
+      const fitAt = (width) => {
+        root.style.width = width;
+        /** @type {any} */ (headerListener)({ type: 'session:loaded' });
+        return pathLabel.textContent;
+      };
       try {
         session.projectPath = '/a/rather/long/parent/folder/leaf-project';
-        /** @type {any} */ (headerListener)({ type: 'session:loaded' });
-        root.style.width = '1200px';
-        await waitFor(() => pathLabel.textContent === session.projectPath,
-          { description: `the whole path in a wide header (shows "${pathLabel.textContent}")` });
-        root.style.width = '60px';
-        await waitFor(() => pathLabel.textContent === 'leaf-project',
-          { description: `the folder's name in a narrow header (shows "${pathLabel.textContent}")` });
-        root.style.width = '1200px';
-        await waitFor(() => pathLabel.textContent === session.projectPath,
-          { description: `the whole path again once there is room (shows "${pathLabel.textContent}")` });
+        let shown = fitAt('1200px');
+        assert(shown === session.projectPath, `the whole path in a wide header, shows "${shown}"`);
+        shown = fitAt('60px');
+        assert(shown === 'leaf-project', `the folder's name in a narrow header, shows "${shown}"`);
+        shown = fitAt('1200px');
+        assert(shown === session.projectPath, `the whole path again once there is room, shows "${shown}"`);
       } finally {
         root.style.width = '';
         session.projectPath = savedPath;

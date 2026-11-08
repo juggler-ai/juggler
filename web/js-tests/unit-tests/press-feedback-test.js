@@ -12,11 +12,13 @@
  *   3. A disabled button, a non-button, and anything under data-press="none"
  *      do not move.
  *   4. A key press dips a focused button as a pointer press does.
- *   5. No stylesheet gives a button a press of its own, which would double the
+ *   5. Under prefers-reduced-motion nothing moves.
+ *   6. No stylesheet gives a button a press of its own, which would double the
  *      dip or fight the spring.
  *
  * The animations are read from `getAnimations()`, which holds them whether or
- * not the lane paints.
+ * not the lane paints. Each case says what `prefers-reduced-motion` answers,
+ * whatever the machine is set to — CI desktops commonly ask for reduced motion.
  * @module unit-tests/press-feedback-test
  */
 
@@ -63,11 +65,16 @@ export async function runTests() {
   /**
    * @param {string} name
    * @param {(host: HTMLElement) => Promise<void>} fn
+   * @param {{reduceMotion?: boolean}} [options] - What `prefers-reduced-motion` answers; no by default.
    */
-  const run = async (name, fn) => {
+  const run = async (name, fn, { reduceMotion = false } = {}) => {
     const host = document.createElement('div');
     host.style.cssText = 'position:absolute;left:-9999px;top:0;';
     document.body.appendChild(host);
+    const realMatchMedia = window.matchMedia;
+    /** @type {any} */ (window).matchMedia = (/** @type {string} */ q) => (q === '(prefers-reduced-motion: reduce)'
+      ? { matches: reduceMotion, media: q, addEventListener() {}, removeEventListener() {} }
+      : realMatchMedia.call(window, q));
     const dispose = installPressFeedback();
     try {
       await fn(host);
@@ -77,6 +84,7 @@ export async function runTests() {
       errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       dispose();
+      window.matchMedia = realMatchMedia;
       host.remove();
     }
   };
@@ -143,6 +151,17 @@ export async function runTests() {
     button.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
     await waitFor(() => animationOf(button, RELEASE_ANIMATION_ID) ?? null, 'the release to start', budgetFor(2000));
   });
+
+  await run('under reduced motion a press does not move', async (/** @type {HTMLElement} */ host) => {
+    const button = make(host, '<button style="width:32px;height:32px;padding:0"></button>');
+    point(button, 'pointerdown');
+    assert(!animationOf(button, PRESS_ANIMATION_ID), 'a pointer press should not dip');
+    point(button, 'pointerup');
+    button.focus();
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    assert(!animationOf(button, PRESS_ANIMATION_ID), 'a key press should not dip');
+    button.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
+  }, { reduceMotion: true });
 
   await run('no stylesheet gives a button a press of its own', async () => {
     /** @type {string[]} */

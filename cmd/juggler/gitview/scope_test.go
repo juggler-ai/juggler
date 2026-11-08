@@ -132,6 +132,7 @@ func branchedProject(t *testing.T) (p *gitProject, mainID, forkID, featureID str
 // Each scope resolves to the ids git would have diffed for it, in the repository
 // it is resolved against.
 func TestResolveScopeFindsTheCommitsEitherSide(t *testing.T) {
+	t.Parallel()
 	p, mainID, forkID, featureID := branchedProject(t)
 
 	for _, tc := range []struct {
@@ -169,6 +170,7 @@ func TestResolveScopeFindsTheCommitsEitherSide(t *testing.T) {
 // A revision the repository does not have is the asker's mistake and says which
 // revision it was.
 func TestResolveScopeNamesARevisionItCannotFind(t *testing.T) {
+	t.Parallel()
 	p, _, _, _ := branchedProject(t)
 	for _, input := range []string{"nosuch", "nosuch..HEAD", "--merge-base nosuch", "HEAD...nosuch"} {
 		s, err := ParseScope(input)
@@ -185,6 +187,7 @@ func TestResolveScopeNamesARevisionItCannotFind(t *testing.T) {
 // A repository with no default branch under any of the usual names cannot be
 // reviewed as a branch, and says so rather than picking something.
 func TestResolveScopeBranchNeedsADefaultBranch(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("a.txt", "a\n")
 	p.commit("init")
@@ -197,6 +200,7 @@ func TestResolveScopeBranchNeedsADefaultBranch(t *testing.T) {
 
 // The last commit of a repository with only one is everything, against nothing.
 func TestResolveScopeLastCommitOfARootCommitIsAgainstTheEmptyTree(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("a.txt", "a\n")
 	p.commit("init")
@@ -214,6 +218,7 @@ func TestResolveScopeLastCommitOfARootCommitIsAgainstTheEmptyTree(t *testing.T) 
 // A repository whose first commit has not been made has no HEAD to resolve, but
 // still has a working tree to compare with the tree of nothing.
 func TestResolveScopeUnbornRepositoryStillHasADefault(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("a.txt", "a\n")
 	for _, input := range []string{"", "@staged"} {

@@ -58,6 +58,7 @@ func fileCodes(repo gitReviewRepo) string {
 // Each scope lists exactly the files its comparison covers, lettered on the
 // side of the two-letter code that comparison changes.
 func TestGitReviewListsWhatTheScopeCompares(t *testing.T) {
+	t.Parallel()
 	p := scopedProject(t)
 	for _, tc := range []struct{ scope, want string }{
 		{"", "base.txt:M. feature.txt:.M new.txt:.?"},
@@ -92,6 +93,7 @@ func TestGitReviewListsWhatTheScopeCompares(t *testing.T) {
 // The manifest says what it compared, and in what: the scope as asked, and the
 // commits it came to in the repository.
 func TestGitReviewReportsTheScopeItResolved(t *testing.T) {
+	t.Parallel()
 	p := scopedProject(t)
 	fork := strings.TrimSpace(p.git("merge-base", "main", "HEAD"))
 	head := strings.TrimSpace(p.git("rev-parse", "HEAD"))
@@ -116,6 +118,7 @@ func TestGitReviewReportsTheScopeItResolved(t *testing.T) {
 // A revision one repository does not have leaves that repository listed,
 // unreviewed and saying why, and the review incomplete.
 func TestGitReviewNamesARepositoryTheScopeCannotResolveIn(t *testing.T) {
+	t.Parallel()
 	p := scopedProject(t)
 	resp := p.scopeReview("nosuch...HEAD")
 	repo := resp.repo(t, "")
@@ -126,6 +129,7 @@ func TestGitReviewNamesARepositoryTheScopeCannotResolveIn(t *testing.T) {
 
 // A file's diff is taken from the same comparison its row was listed from.
 func TestGitDiffFollowsTheScope(t *testing.T) {
+	t.Parallel()
 	p := scopedProject(t)
 	for _, tc := range []struct {
 		scope, file, status string
@@ -162,6 +166,7 @@ func TestGitDiffFollowsTheScope(t *testing.T) {
 // A scope that cannot be read, or that names what the repository does not
 // have, is the asker's mistake.
 func TestGitDiffRefusesAScopeItCannotUse(t *testing.T) {
+	t.Parallel()
 	p := scopedProject(t)
 	for _, scope := range []string{"--output=/tmp/x", "nosuch", "nosuch..HEAD"} {
 		_, err := Diff(t.Context(), p.root, DiffRequest{Path: "base.txt", Scope: scope})
@@ -174,6 +179,7 @@ func TestGitDiffRefusesAScopeItCannotUse(t *testing.T) {
 // Looking at a review in any scope is as much a read as looking at the default
 // one.
 func TestGitScopedReadsChangeNothingOnDisk(t *testing.T) {
+	t.Parallel()
 	p := scopedProject(t)
 	before := p.snapshot()
 	for _, scope := range []string{"@staged", "@unstaged", "@branch", "main...HEAD", "@last", "--cached main"} {
@@ -197,6 +203,7 @@ func TestGitScopedReadsChangeNothingOnDisk(t *testing.T) {
 // A path is a path. Read as a pathspec, a file asked for as `*.txt` would be
 // every text file's diff at once.
 func TestGitDiffReadsAPathLiterally(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("a.txt", "a\n")
 	p.write("b.txt", "b\n")

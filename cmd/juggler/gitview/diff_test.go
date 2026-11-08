@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"juggler/cmd/juggler/gitview/gitviewtest"
 	"juggler/cmd/juggler/gitview/internal/clocks"
 )
 
@@ -31,20 +32,61 @@ type gitProject struct {
 	rel  string // this repository's path relative to the project root
 }
 
-// newGitProject creates a project whose root is itself a repository. git reads
-// the machine's and the user's own configuration unless it is told not to, and
-// either can carry anything from core.autocrlf to a template directory of hooks;
-// these tests describe git's behaviour, so they run it with no settings but the
-// ones they set themselves.
+// TestMain sets up what every test here shares, once for the package, so that
+// the tests that build repositories can run in parallel: a spawn is the
+// expensive unit in this package (on Windows a CreateProcess and an image scan
+// apiece), and run one test at a time those spawns are the package's whole run.
+//
+// git reads the machine's and the user's own configuration unless it is told
+// not to, and either can carry anything from core.autocrlf to a template
+// directory of hooks; these tests describe git's behaviour, so git runs with no
+// settings but the ones they set themselves, from a HOME of the package's own.
+//
+// Every git clock — the review's, the diff's and the card's — is lent enough
+// time that none of them can be the thing a test measures. The fixtures are a
+// handful of files, so every git command over them is the work of
+// milliseconds; a loaded CI runner can still lose one to the shipped seconds,
+// and the test then reports a missing file, or an unreadable diff, rather than
+// a slow machine. That has happened to the card's three seconds, the review's
+// ten and the diff's ten. The shipped values keep their own tests, which read
+// them from shipped.
+//
+// A test that changes package state (gitDiffMaxBytes) does not call t.Parallel:
+// the parallel tests wait until every sequential one has finished, so it has
+// the package to itself while it runs.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "gitview-home-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	for k, v := range map[string]string{"GIT_CONFIG_NOSYSTEM": "1", "HOME": home, "XDG_CONFIG_HOME": filepath.Join(home, ".config")} {
+		if err := os.Setenv(k, v); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	shipped = shippedClocks{status: clocks.Status, review: clocks.Review, diff: clocks.Diff}
+	restore := gitviewtest.LendClocks(time.Minute, 5*time.Minute)
+	code := m.Run()
+	restore()
+	_ = os.RemoveAll(home)
+	os.Exit(code)
+}
+
+// shippedClocks are the git clocks as the package ships them, read before
+// TestMain lends every test more time.
+type shippedClocks struct{ status, review, diff clocks.Clock }
+
+var shipped shippedClocks
+
+// newGitProject creates a project whose root is itself a repository, under
+// the settings TestMain gives every test.
 func newGitProject(t *testing.T) *gitProject {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git is not installed here: %v", err)
 	}
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	unhurried(t)
 
 	root := t.TempDir()
 	p := &gitProject{t: t, root: root, dir: root}
@@ -212,6 +254,7 @@ func lineText(resp FileDiff) string {
 // is the one a user does over and over: a click per file, each of them a chance
 // to rewrite the index under the git client they have open in another window.
 func TestGitDiffChangesNothingOnDisk(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("kept.txt", "one\ntwo\n")
 	p.write("edited.txt", "one\n")
@@ -250,6 +293,7 @@ func TestGitDiffChangesNothingOnDisk(t *testing.T) {
 // file. A change half-staged must therefore read as one diff against HEAD,
 // whichever half it is.
 func TestGitDiffFoldsTheIndexAndWorktreeIntoOneAnswer(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("staged.txt", "one\ntwo\n")
 	p.write("unstaged.txt", "one\ntwo\n")
@@ -290,6 +334,7 @@ func TestGitDiffFoldsTheIndexAndWorktreeIntoOneAnswer(t *testing.T) {
 // go wrong — nothing to add, bytes nobody can read as lines, and a name that
 // points somewhere else entirely.
 func TestGitDiffReadsUntrackedFilesItself(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("committed.txt", "x\n")
 	p.commit("init")
@@ -356,6 +401,7 @@ func TestGitDiffReadsUntrackedFilesItself(t *testing.T) {
 
 // What happened to a file is not always something that happened inside it.
 func TestGitDiffReportsWhatHappenedToTheFile(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("kept.txt", "one\ntwo\n")
 	p.write("gone.txt", "delete me\n")
@@ -407,6 +453,7 @@ func TestGitDiffReportsWhatHappenedToTheFile(t *testing.T) {
 // two paths by how alike they are, so the patch has to be asked for under both
 // of them or the pairing it already made cannot be reproduced.
 func TestGitDiffReportsARenameThatAlsoChanged(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	var before strings.Builder
 	for i := range 40 {
@@ -436,6 +483,7 @@ func TestGitDiffReportsARenameThatAlsoChanged(t *testing.T) {
 // Git does not write a text patch for bytes that are not text, and neither does
 // this: the file is reported as changed, and nothing is invented about how.
 func TestGitDiffTrackedBinaryFileSaysItChangedAndNoMore(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	if err := os.WriteFile(filepath.Join(p.dir, "image.bin"), []byte{0x0, 0x1, 0x2, 0x0}, 0o600); err != nil {
 		t.Fatal(err)
@@ -487,11 +535,11 @@ func TestGitDeadlineErrorNamesTheClockThatRanOut(t *testing.T) {
 // Serving it on the poll's clock is what refuses a large diff that was perfectly
 // readable, and the whole-request budget has to hold more than one such command.
 func TestGitDiffIsNotHeldToTheStatusCardsClock(t *testing.T) {
-	if clocks.Diff.PerCmd <= clocks.Status.PerCmd {
-		t.Errorf("clocks.Diff.PerCmd = %s, want longer than the card's %s", clocks.Diff.PerCmd, clocks.Status.PerCmd)
+	if shipped.diff.PerCmd <= shipped.status.PerCmd {
+		t.Errorf("clocks.Diff.PerCmd = %s, want longer than the card's %s", shipped.diff.PerCmd, shipped.status.PerCmd)
 	}
-	if clocks.Diff.Budget < 2*clocks.Diff.PerCmd {
-		t.Errorf("clocks.Diff.Budget = %s, want room for more than one %s command", clocks.Diff.Budget, clocks.Diff.PerCmd)
+	if shipped.diff.Budget < 2*shipped.diff.PerCmd {
+		t.Errorf("clocks.Diff.Budget = %s, want room for more than one %s command", shipped.diff.Budget, shipped.diff.PerCmd)
 	}
 }
 
@@ -499,6 +547,7 @@ func TestGitDiffIsNotHeldToTheStatusCardsClock(t *testing.T) {
 // that is an empty diff, which reads as "nothing happened" — so the modes are
 // part of the answer.
 func TestGitDiffReportsAModeChange(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("script.sh", "#!/bin/sh\necho hello\n")
 	p.commit("init")
@@ -532,6 +581,7 @@ func TestGitDiffReportsAModeChange(t *testing.T) {
 // git says so with a deletion and a creation in the same patch. Reading the last
 // header and stopping would call the whole thing an addition.
 func TestGitDiffReportsATypeChange(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("target.txt", "elsewhere\n")
 	p.write("swapped.txt", "was a file\n")
@@ -558,6 +608,7 @@ func TestGitDiffReportsATypeChange(t *testing.T) {
 // them. Shown as an ordinary two-way diff it looks like the user wrote those
 // markers, so the state is reported rather than implied.
 func TestGitDiffReportsAConflictAsItsOwnState(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("shared.txt", "first\nsecond\n")
 	p.commit("init")
@@ -592,6 +643,7 @@ func TestGitDiffReportsAConflictAsItsOwnState(t *testing.T) {
 // because the comparison failed would be the one thing a diff must never say
 // wrongly.
 func TestGitDiffUnbornRepositoryComparesAgainstTheEmptyTree(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("staged.txt", "one\ntwo\n")
 	p.git("add", "staged.txt")
@@ -619,6 +671,7 @@ func TestGitDiffUnbornRepositoryComparesAgainstTheEmptyTree(t *testing.T) {
 // a file in a nested repository is answered from that repository, not from the
 // one that contains it.
 func TestGitDiffAnswersFromTheNestedRepository(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("shared.txt", "root version\n")
 	p.commit("init")
@@ -643,6 +696,7 @@ func TestGitDiffAnswersFromTheNestedRepository(t *testing.T) {
 // Where this endpoint may be pointed is the whole of its security. The unit
 // tests cover the shapes of a path; these cover what Diff does with one.
 func TestGitDiffRefusesToLeaveTheProject(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("inside.txt", "x\n")
 	p.commit("init")
@@ -705,6 +759,7 @@ func TestGitDiffRefusesToLeaveTheProject(t *testing.T) {
 // consent to execute it, so neither is ever run — and with each configured to a
 // command that does not exist, a diff that came out normally is the proof.
 func TestGitDiffRunsNoExternalDiffOrTextconv(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("f.txt", "one\ntwo\n")
 	p.write(".gitattributes", "*.txt diff=marked\n")
@@ -727,6 +782,7 @@ func TestGitDiffRunsNoExternalDiffOrTextconv(t *testing.T) {
 // "is this the same file I commented on" — a question HEAD cannot answer, since
 // almost every edit under review happens without HEAD moving at all.
 func TestGitDiffRevisionFollowsContentNotHead(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("f.txt", "one\ntwo\n")
 	p.commit("init")
@@ -769,8 +825,8 @@ func TestGitDiffTruncatesTheTextButNotTheTruth(t *testing.T) {
 	// test is the behaviour either side of it, and that does not know how high it
 	// is. Crossing the shipped one means a quarter of a million lines through git
 	// and the parser, which on a loaded runner outruns the diff's own 10s
-	// per-command clock and fails the test on the clock instead. Every test in
-	// this package runs sequentially, so lowering it for one is safe.
+	// per-command clock and fails the test on the clock instead. This test is
+	// not parallel, so no other test is running while it is lowered (TestMain).
 	restore := gitDiffMaxBytes
 	gitDiffMaxBytes = 64 << 10
 	t.Cleanup(func() { gitDiffMaxBytes = restore })
@@ -816,8 +872,8 @@ func TestGitDiffGiantSingleLineIsNotReturnedInHalves(t *testing.T) {
 	// Lowered for the same reason as in TestGitDiffTruncatesTheTextButNotTheTruth,
 	// and doubly so here: a single line past the shipped ceiling is eight megabytes
 	// with no newline in it for git or the parser to work with. What is under test
-	// is a line longer than the ceiling, whatever the ceiling is. Every test in
-	// this package runs sequentially, so lowering it for one is safe.
+	// is a line longer than the ceiling, whatever the ceiling is. This test is
+	// not parallel, so no other test is running while it is lowered (TestMain).
 	restore := gitDiffMaxBytes
 	gitDiffMaxBytes = 64 << 10
 	t.Cleanup(func() { gitDiffMaxBytes = restore })
@@ -844,6 +900,7 @@ func TestGitDiffGiantSingleLineIsNotReturnedInHalves(t *testing.T) {
 // change. Reading the first as the second turns a diff that could not be taken
 // into the claim that there was nothing to take.
 func TestGitDiffReportsCancellationRatherThanAnEmptyDiff(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("f.txt", "one\n")
 	p.commit("init")
@@ -866,6 +923,7 @@ func TestGitDiffReportsCancellationRatherThanAnEmptyDiff(t *testing.T) {
 // answer says which width it was produced at, because a client that narrows a
 // patch it already holds has to know whether it holds enough to do it.
 func TestGitDiffReturnsTheContextWidthAskedFor(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	var before []string
 	for i := 1; i <= 40; i++ {
@@ -906,6 +964,7 @@ func TestGitDiffReturnsTheContextWidthAskedFor(t *testing.T) {
 // asked. Refusing the whole diff over it would lose the reader their patch for a
 // query string they never typed, so the shipped default is used instead.
 func TestGitDiffIgnoresAContextWidthItCannotUse(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("f.txt", "one\ntwo\nthree\nfour\nfive\n")
 	p.commit("init")
@@ -922,6 +981,7 @@ func TestGitDiffIgnoresAContextWidthItCannotUse(t *testing.T) {
 // "The whole file" has to mean the whole file however long it is, so it travels
 // as -1 rather than as a number someone once thought was big enough.
 func TestGitDiffWholeFileContextReturnsEveryLine(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	var before []string
 	for i := 1; i <= 60; i++ {

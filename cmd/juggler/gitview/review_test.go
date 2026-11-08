@@ -17,33 +17,12 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"juggler/cmd/juggler/gitview/gitviewtest"
-	"juggler/cmd/juggler/gitview/internal/clocks"
 )
 
 // The manifest's whole claim is that it is the complete working tree, so these
 // are tests over real repositories for the same reason the diff's are: only git
 // can be asked whether what it reports is what the review returned. They reuse
 // the gitProject harness in diff_test.go.
-
-// unhurried lends every git clock — the review's, the diff's and the card's —
-// enough time that none of them can be the thing a test measures. The fixtures
-// in this package are a handful of files, so every git command over them is the
-// work of milliseconds; a loaded CI runner can still lose one to the shipped
-// seconds, and the test then reports a missing file, or an unreadable diff,
-// rather than a slow machine. That has happened to the card's three seconds, the
-// review's ten and the diff's ten, so all three are lent time from one place
-// (gitviewtest.LendClocks): newGitProject calls this, which covers every real-repository test
-// here and any later one.
-//
-// The shipped values keep their own tests — TestGitReviewIsNotHeldToTheStatusCardsClock
-// and TestGitDiffIsNotHeldToTheStatusCardsClock — which build no repository and
-// so go on reading them.
-func unhurried(t *testing.T) {
-	t.Helper()
-	t.Cleanup(gitviewtest.LendClocks(time.Minute, 5*time.Minute))
-}
 
 // review reads the project's manifest.
 func (p *gitProject) review() Manifest {
@@ -91,6 +70,7 @@ func (repo gitReviewRepo) filePaths() []string {
 // file missing from it is a change that never gets reviewed. Every repository
 // under the project, and every file in each of them.
 func TestGitReviewListsEveryRepositoryAndItsFiles(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("kept.txt", "one\ntwo\n")
 	p.write("gone.txt", "delete me\n")
@@ -160,11 +140,11 @@ func TestGitReviewListsEveryRepositoryAndItsFiles(t *testing.T) {
 // was merely busy into a project full of unreadable repositories — the review
 // reads the same repositories, so the only thing keeping the two apart is this.
 func TestGitReviewIsNotHeldToTheStatusCardsClock(t *testing.T) {
-	if clocks.Review.PerCmd <= clocks.Status.PerCmd {
-		t.Errorf("clocks.Review.PerCmd = %s, want longer than the card's %s", clocks.Review.PerCmd, clocks.Status.PerCmd)
+	if shipped.review.PerCmd <= shipped.status.PerCmd {
+		t.Errorf("clocks.Review.PerCmd = %s, want longer than the card's %s", shipped.review.PerCmd, shipped.status.PerCmd)
 	}
-	if clocks.Review.Budget < 2*clocks.Review.PerCmd {
-		t.Errorf("clocks.Review.Budget = %s, want room for more than one %s command", clocks.Review.Budget, clocks.Review.PerCmd)
+	if shipped.review.Budget < 2*shipped.review.PerCmd {
+		t.Errorf("clocks.Review.Budget = %s, want room for more than one %s command", shipped.review.Budget, shipped.review.PerCmd)
 	}
 }
 
@@ -187,6 +167,7 @@ func TestGitReviewIsNotHeldToTheStatusCardsClock(t *testing.T) {
 const spentClock = -time.Second
 
 func TestGitStatusReadsRunOnTheirCallersClock(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("file.txt", "one\n")
 	p.commit("init")
@@ -215,6 +196,7 @@ func TestGitStatusReadsRunOnTheirCallersClock(t *testing.T) {
 // claiming to review the tree. What the review lists, the diff must also answer
 // for — a file the user can see and cannot open is worse than one never listed.
 func TestGitReviewFindsARepositoryTheCardSkips(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("root.txt", "root\n")
 	p.commit("init")
@@ -250,6 +232,7 @@ func TestGitReviewFindsARepositoryTheCardSkips(t *testing.T) {
 // it turns "I could not read this" into "there is nothing here". An uninitialised
 // submodule is the everyday way to meet one.
 func TestGitReviewReportsARepositoryItCouldNotRead(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("root.txt", "root\n")
 	p.commit("init")
@@ -289,6 +272,7 @@ func TestGitReviewReportsARepositoryItCouldNotRead(t *testing.T) {
 // Ceilings are mandatory and silence about them is not: what is on screen stays
 // on screen, and the response says how much of the tree it is.
 func TestGitReviewBoundsTheFileListAndSaysSo(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("committed.txt", "x\n")
 	p.commit("init")
@@ -338,6 +322,7 @@ func TestGitReviewBoundsTheFileListAndSaysSo(t *testing.T) {
 // A search that stopped early is the other way a review comes back partial, and
 // it says which ceiling it met rather than leaving the shortfall to be noticed.
 func TestGitReviewSearchSaysWhereItStopped(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.nested("a")
 	p.nested("b/c")
@@ -383,6 +368,7 @@ func TestGitReviewSearchSaysWhereItStopped(t *testing.T) {
 // on disk holds both sides and the markers between them, which read as ordinary
 // text somebody wrote.
 func TestGitReviewReportsConflicts(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("shared.txt", "first\n")
 	p.commit("init")
@@ -414,6 +400,7 @@ func TestGitReviewReportsConflicts(t *testing.T) {
 // A comment is attached to a row the user found by looking, so the row has to
 // still be where they left it after the next refresh.
 func TestGitReviewOrdersEverythingTheSameWayTwice(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	for _, name := range []string{"zeta.txt", "alpha.txt", "middle.txt"} {
 		p.write(name, "one\n")
@@ -448,6 +435,7 @@ func TestGitReviewOrdersEverythingTheSameWayTwice(t *testing.T) {
 // and a review that refreshed the index behind them would contend with the git
 // client they have open in another window.
 func TestGitReviewChangesNothingOnDisk(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("kept.txt", "one\ntwo\n")
 	p.write("edited.txt", "one\n")
@@ -525,6 +513,7 @@ func (p *gitProject) snapshot() map[string]string {
 // known. (A project nobody opened is the API's to refuse: see
 // handlers.TestGitReviewWithNoProject.)
 func TestGitReviewWithNothingToReport(t *testing.T) {
+	t.Parallel()
 	t.Run("no repository", func(t *testing.T) {
 		// A project directory of its own, under one that is a repository, so that a
 		// search reaching upward would be caught rather than quietly succeed.

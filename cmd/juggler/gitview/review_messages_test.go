@@ -66,6 +66,7 @@ func TestScopeInfoCarriesALabelMessage(t *testing.T) {
 // Every warning a review makes reaches the client as a message too, in step
 // with the English, with what git said and the repository's path as data.
 func TestGitReviewWarningsCarryMessages(t *testing.T) {
+	t.Parallel()
 	p := newGitProject(t)
 	p.write("root.txt", "root\n")
 	p.commit("init")

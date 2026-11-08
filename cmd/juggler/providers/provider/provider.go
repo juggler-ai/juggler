@@ -14,6 +14,12 @@ import (
 	"juggler/cmd/juggler/msg"
 )
 
+// UserShellToolUseIDPrefix starts the tool-use id of every shell command the
+// user ran themselves (`! cmd`). The worker posts such a command as an ordinary
+// bash tool call; the id is what tells a provider the call is the user's, not
+// one the model made.
+const UserShellToolUseIDPrefix = "usershell_"
+
 // Message represents a unified conversation message using discriminated union via Type field.
 // This matches the frontend Message type exactly - the frontend sends these directly to Go providers.
 type Message struct {

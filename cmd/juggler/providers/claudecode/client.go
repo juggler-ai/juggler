@@ -393,6 +393,9 @@ func (c *Client) streamMessage(ctx context.Context, req provider.MessageRequest,
 	// spawn arguments, tools/list and the session's resume hashes all see the
 	// same request.
 	req = foldLongToolDescriptions(req)
+	// Likewise the user's own shell commands become their text (see
+	// userShellCallsAsText), so every path sees the same messages.
+	req = userShellCallsAsText(req)
 
 	res, err := c.dispatchTurnWithRetry(turnCtx, req, callback)
 

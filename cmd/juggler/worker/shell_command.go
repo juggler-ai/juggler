@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"juggler/cmd/juggler/providers/provider"
 )
 
 // Shell commands the user types as `! cmd` (or `/shell cmd`).
@@ -37,8 +39,9 @@ const userShellDescription = "Run by the user"
 // userShellToolUseIDPrefix starts the tool-use id of every user shell command.
 // The id is the call's mark: isUserShellAction reads it, and so does the
 // browser (USER_SHELL_TOOL_USE_ID_PREFIX in web/js/services/shell-shortcut.js),
-// to show a queued command in the queued zone.
-const userShellToolUseIDPrefix = "usershell_"
+// to show a queued command in the queued zone, and the claudecode provider, to
+// send the command as the user's text rather than as a call the model made.
+const userShellToolUseIDPrefix = provider.UserShellToolUseIDPrefix
 
 // generateShellToolUseID mints a unique tool-use id for a user's shell command,
 // distinguishable in logs/tape from a model-issued call.

@@ -21,6 +21,8 @@ import { assert, nextTask } from '../utilities/test-helpers.js';
 import { isMac } from '../../js/services/key-shortcut-manager.js';
 import { markPopupOpen } from '../../js/utils/popup-manager.js';
 import { SessionPopover, placePopover } from '../../js/components/session-popover.js';
+import { openProjectCommand } from '../../js/components/header-controls.js';
+import { isolateFocus } from '../utilities/isolate-focus.js';
 
 const MOD = isMac() ? 'Meta' : 'Control';
 const modFlag = isMac() ? { metaKey: true } : { ctrlKey: true };
@@ -160,13 +162,18 @@ export async function runTests() {
     }
   };
 
+  // Focus is lane-local in the cases that assert on it: a sibling lane's
+  // focus() takes this frame's away, so each steals it after the action, and
+  // the assertion reads where the code asked focus to go (isolateFocus).
   await test('a ⌘K tap opens the list to stay, lit on this window, and moves nothing', async () => {
+    const focus = isolateFocus();
     const { calls, chip, done } = mount();
     try {
       hold();
       const e = pressK();
       assert(e.defaultPrevented, 'the press is taken');
       release();
+      focus.steal();
       await nextTask();
       assert(calls.length === 0, `nothing moved — got ${calls.join()}`);
       const pop = popover();
@@ -184,6 +191,7 @@ export async function runTests() {
       assert(calls.join() === 'go:/p/beta-0000/' && !popover(), `↵ goes there — got ${calls.join()}`);
     } finally {
       done();
+      focus.restore();
     }
   });
 
@@ -318,9 +326,11 @@ export async function runTests() {
   });
 
   await test('a chip click opens the list to stay, lit on this window; Escape leaves everything as it was', async () => {
+    const focus = isolateFocus();
     const { calls, chip, done } = mount();
     try {
       chip.click();
+      focus.steal();
       const pop = popover();
       assert(!!pop && !pop.classList.contains('ss--gesture'), 'the popover is up, with its filter');
       assert(document.activeElement === pop?.querySelector('.ss-input'), 'the filter has the keyboard');
@@ -340,6 +350,7 @@ export async function runTests() {
       assert(calls.length === 0, `and nothing moved — got ${calls.join()}`);
     } finally {
       done();
+      focus.restore();
     }
   });
 
@@ -477,16 +488,22 @@ export async function runTests() {
   });
 
   await test('the app\'s Open… (⌘O) while the popover is up is its Open folder…', async () => {
-    const { calls, chip, done } = mount();
+    // The window's own Open…, registered as the page does: at boot, before the
+    // popover ever opens — so ahead of it at the window, in an engine that runs
+    // a target's listeners in the order they were added.
     let heardElsewhere = false;
-    const elsewhere = () => { heardElsewhere = true; };
+    const elsewhere = openProjectCommand(() => { heardElsewhere = true; });
     window.addEventListener('juggler:open-project', elsewhere);
+    const { calls, chip, done } = mount();
     try {
       chip.click();
       window.dispatchEvent(new CustomEvent('juggler:open-project'));
       await nextTask();
       assert(calls.join() === 'pick', `got ${calls.join()}`);
       assert(!heardElsewhere, 'the window\'s own Open… does not run as well');
+      done();
+      window.dispatchEvent(new CustomEvent('juggler:open-project'));
+      assert(heardElsewhere, 'with the popover down, Open… is the window\'s again');
     } finally {
       window.removeEventListener('juggler:open-project', elsewhere);
       done();

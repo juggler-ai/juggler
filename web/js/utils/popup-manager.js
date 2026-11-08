@@ -106,6 +106,15 @@ export function isForeignPopupOpen(ownIds = []) {
 }
 
 /**
+ * Whether the popup registered under `id` ({@link registerOpenPopup}) is open.
+ * @param {string} id - Its id.
+ * @returns {boolean} True while it is.
+ */
+export function isPopupOpenById(id) {
+  return openPopupsById.has(id);
+}
+
+/**
  * TEST-ONLY: force the popup registry back to empty. The multi-iframe test pool
  * reuses one JS realm across the sequence of tests a lane runs, so a prior test
  * that leaked an open-popup registration would otherwise poison this module

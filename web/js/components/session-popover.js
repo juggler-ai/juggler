@@ -52,7 +52,7 @@ import { t } from '../../sdk/lib/i18n.js';
 import { SessionSwitcher } from './session-switcher.js';
 
 /** The popup id the popover registers under, and its gesture allows. */
-const POPUP_ID = 'session-switcher';
+export const SESSION_SWITCHER_POPUP_ID = 'session-switcher';
 
 /** Room kept between the popover and the window's edges, in px. */
 const EDGE = 16;
@@ -108,7 +108,7 @@ export class SessionPopover {
       shortcutId: 'switch-session',
       modifierKeys: [isMac() ? 'Meta' : 'Control'],
       // Window-wide, standing down for any overlay but its own.
-      shouldHandle: popupAwareShouldHandle([POPUP_ID]),
+      shouldHandle: popupAwareShouldHandle([SESSION_SWITCHER_POPUP_ID]),
       onGestureStart: () => this._open(true),
       onCycle: () => { this._sw?.step(); },
       onCommit: () => this._commitGesture(),
@@ -214,7 +214,7 @@ export class SessionPopover {
       this._place();
       this._unsubscribe = feed.subscribe(() => { this._sw?.refresh(); });
       this._release = registerOpenPopup({
-        id: POPUP_ID,
+        id: SESSION_SWITCHER_POPUP_ID,
         onClose: () => this.close(),
         insideSelectors: ['.ss--popover', `#${chip.id}`],
       });

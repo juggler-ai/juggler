@@ -23,6 +23,8 @@ import { historyState } from '../utils/conversation-history.js';
 import { baseName, initials } from '../utils/session-attention.js';
 import { workspaceTint } from '../utils/workspace-colour.js';
 import { ownProjectLink } from '../services/project-navigation.js';
+import { isPopupOpenById } from '../utils/popup-manager.js';
+import { SESSION_SWITCHER_POPUP_ID } from './session-popover.js';
 import { t, htmlSlots, withHtml } from '../../sdk/lib/i18n.js';
 
 /**
@@ -78,6 +80,22 @@ export async function chooseProject(open = (url, target) => { window.open(url, t
     return;
   }
   open(sessionsPageUrl(), SESSIONS_PAGE_TARGET);
+}
+
+/**
+ * The window's own answer to Session ▸ Open… (`juggler:open-project`). While
+ * the session switcher is up, Open… is its Open folder… and this stands down:
+ * it is added at boot, ahead of the switcher's listener, and an engine that
+ * runs a target's listeners in the order they were added (WebView2) runs it
+ * first whatever the switcher does with the event.
+ * @param {() => unknown} [choose] - What it does; chooseProject by default.
+ * @returns {() => void} The listener.
+ */
+export function openProjectCommand(choose = () => chooseProject()) {
+  return () => {
+    if (isPopupOpenById(SESSION_SWITCHER_POPUP_ID)) return;
+    void choose();
+  };
 }
 
 /**
@@ -322,7 +340,7 @@ export function setupHeaderControls(session) {
 
   // Session ▸ Open… (native menu, ⌘O, the overflow menu) bridges to
   // chooseProject via this event, since the Go side can't import the JS module.
-  window.addEventListener('juggler:open-project', () => { void chooseProject(); });
+  window.addEventListener('juggler:open-project', openProjectCommand());
 
   // Keyboard shortcuts (undo / redo), on the visible conversation — bindings and
   // platform handling live in the KeyShortcutManager; here we only supply the

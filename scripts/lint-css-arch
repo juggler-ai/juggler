@@ -4,7 +4,8 @@
  *
  * Eight checks, all but the last driven by web/css/manifest.json:
  *
- *   ownership       a selector lives in the file that owns its root
+ *   ownership       a selector lives in the file that owns its root, and no
+ *                   name is claimed by two sheets
  *   dead-selector   a class in any production sheet (web/css's, an extension's,
  *                   the machine page's) is referenced by no JS, HTML or extension
  *   token-parity    every var() resolves; theme colour tokens exist in both themes;
@@ -1026,7 +1027,7 @@ function ownsScope(sheet, selectorPart) {
  * @param {Manifest} manifest - The parsed manifest.
  * @param {Sheet[]} sheets - The sheets to check.
  * @param {Map<string, string>} sources - Each sheet's text, by manifest path.
- * @returns {Failure[]} Misfiled and unowned roots, and bad `owns` entries, one per item.
+ * @returns {Failure[]} Misfiled and unowned roots, bad `owns` entries, and names two sheets claim, one per item.
  */
 function checkOwnership(manifest, sheets, sources) {
   const failures = [];
@@ -1045,6 +1046,22 @@ function checkOwnership(manifest, sheets, sources) {
       } else {
         owners.push({ pattern, re: globToRegExp(pattern), file: sheet.file });
       }
+    }
+  }
+  // Every root has exactly one owner, so two sheets' claims may not cover the
+  // same name. A claim's own text stands in for the names it covers: `notice*`
+  // takes `notice-message` and `notice-row*` alike. Without this the lookup
+  // below takes whichever claim comes first, and two groups style one class.
+  for (let i = 0; i < owners.length; i++) {
+    for (let j = i + 1; j < owners.length; j++) {
+      const [a, b] = [owners[i], owners[j]];
+      if (a.file === b.file) continue;
+      const [wide, narrow] = a.re.test(b.pattern) ? [a, b] : b.re.test(a.pattern) ? [b, a] : [];
+      if (!wide || !narrow) continue;
+      failures.push({
+        item: `${narrow.file}:${narrow.pattern}`,
+        message: `${narrow.file} owns "${narrow.pattern}", which ${wide.file}'s "${wide.pattern}" also covers — a root has one owner`,
+      });
     }
   }
   for (const sheet of sheets) {

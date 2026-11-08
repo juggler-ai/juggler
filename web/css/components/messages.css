@@ -819,7 +819,7 @@ error-message article.error {
    shared .message-with-icon rules. Nothing has failed, so the measured detail
    waits in the properties panel; the only action a notice carries is a link to
    a setting that corrects its cause, when it names one. */
-notice-message article.notice {
+notice-message article.notice-message-row {
     max-width: 100%;
     overflow: hidden;
 }

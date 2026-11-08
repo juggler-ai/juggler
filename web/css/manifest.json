@@ -192,7 +192,8 @@
 			"file": "patterns/notice.css",
 			"layer": "patterns",
 			"owns": [
-				"notice*"
+				"notice",
+				"notice__*"
 			]
 		},
 		{
@@ -426,7 +427,7 @@
 				"model-*",
 				"provider-view-toggle",
 				"pulse",
-				"recent-*",
+				"recent-model*",
 				"thinking-mini",
 				"thinking-seg",
 				"thinking-segmented",

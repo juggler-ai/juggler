@@ -153,6 +153,31 @@ export async function runTests() {
     }
   });
 
+  // The row is a transcript row like any other: its triangle sits at the
+  // column's left edge, whatever any whole-window message's stylesheet does
+  // with a class of a similar name.
+  test('a notice row starts at the left edge of its column', () => {
+    const container = document.createElement('div');
+    container.style.width = '40rem';
+    document.body.appendChild(container);
+    try {
+      const el = /** @type {any} */ (document.createElement('notice-message'));
+      el.setAttribute('message-id', 'NOTICE_LEFT');
+      el.setAttribute('notice-text', 'Claude Code re-read the whole conversation');
+      container.appendChild(el);
+
+      const icon = /** @type {HTMLElement|null} */ (el.querySelector('.message-icon-box'));
+      assert(!!icon, 'notice must draw its icon');
+      // Measured from the row's article, inside the gutter every row shares.
+      const article = /** @type {HTMLElement} */ (el.querySelector('article'));
+      const offset = icon.getBoundingClientRect().left - article.getBoundingClientRect().left;
+      assert(Math.abs(offset) < 1,
+        `the triangle must sit at the row's left edge, but is ${offset}px in from it`);
+    } finally {
+      container.remove();
+    }
+  });
+
   // A notice about an assumed context window names the one field that fixes
   // it, so it carries one action: the deep link to that field. Nothing else
   // grows a button — the case above still stands for every other notice.

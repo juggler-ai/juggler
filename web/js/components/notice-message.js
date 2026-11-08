@@ -78,7 +78,7 @@ class NoticeMessage extends BaseMessage {
    */
   render() {
     const article = document.createElement('article');
-    article.className = 'notice';
+    article.className = 'notice-message-row';
 
     // A fixed lozenge and the explanation beside it, in the type-name/summary
     // shape every other one-line item uses — so the row is the same height as

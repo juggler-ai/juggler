@@ -258,6 +258,11 @@ try {
     { file: 'components/star.css', layer: 'components', owns: ['*'] },
     { file: 'components/enum-own.css', layer: 'components', enumerates: true, owns: ['foo'] },
     { file: 'components/dup-scope.css', layer: 'components', owns: ["[data-view = 'board']"] },
+    // A name another sheet's glob already covers: two owners for one root.
+    { file: 'components/menu-bar.css', layer: 'components', owns: ['menu-bar'] },
+    // Two globs that cover each other's names: one failure, not two.
+    { file: 'patterns/tip.css', layer: 'patterns', owns: ['tip*'] },
+    { file: 'components/tip-row.css', layer: 'components', owns: ['tip-row*'] },
   ];
   const ownSources = new Map([
     ['components/menu.css', [
@@ -283,6 +288,7 @@ try {
     'components/menu.css:popup', 'components/menu.css:orphan', 'components/popup.css:menu',
     'components/policy.css:unclaimed', 'components/star.css:*', 'components/enum-own.css:foo',
     'components/dup-scope.css:[data-view=board]',
+    'components/menu-bar.css:menu-bar', 'components/tip-row.css:tip-row*',
   ]);
 
   // -------------------------------------------------------------------------

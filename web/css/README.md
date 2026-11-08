@@ -106,7 +106,9 @@ Three corollaries, and they are the whole discipline:
 `lint-css-arch` enforces ownership against `manifest.json`, with no
 exceptions: a misfiled rule is moved, not excused. A sheet may also claim a
 document mode as a scope — `"[data-view=\"pinboard\"]"` in its `owns` — and then
-owns every rule scoped by it.
+owns every rule scoped by it. No name has two owners: a glob like `notice*` may
+not cover a name another sheet claims, because a class two groups style is a
+collision waiting for markup to find it.
 
 ## Tokens
 
@@ -216,7 +218,7 @@ colour outside `tokens/` (see [Tokens](#tokens)) — and then
 
 | Check | What fails it |
 |---|---|
-| ownership | A selector in a file that owns neither its root nor its subject. |
+| ownership | A selector in a file that owns neither its root nor its subject; a name two sheets' `owns` both cover. |
 | dead selectors | A class or id, in any production sheet — these, an extension's, `web/machine/`'s — that no production string puts on an element (tests, comments, `t()` text and extension CSS are not evidence), matching no `dynamicClasses` pattern. |
 | token parity | A colour token defined for one theme only without the fallback idiom; a `var()` that resolves to nothing; a fallback on a token that is always defined; a fallback on a property nothing defines and JS does not set. |
 | link parity | `index.html` and `headless-test.html` disagreeing on the sheet list. |

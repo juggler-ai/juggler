@@ -1,4 +1,4 @@
-.PHONY: build test test-build test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-js-deadcode lint-types lint-css lint-i18n fix fix-files fix-fmt fix-go fix-js fix-css node-deps help models-sync mac-app install-mac app-icon-embed wails-runtime-embed wails-runtime-build test-wails-patches win-icon release-build-mac mac-dmg mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack linux-desktop linux-desktop-files mac-codesign linux-compat-server
+.PHONY: build test test-build test-go test-full benchmark dev clean fmt lint lint-files lint-go lint-deadcode lint-js lint-js-rules lint-js-app lint-js-tests lint-js-deadcode lint-types lint-css lint-i18n fix fix-files fix-fmt fix-go fix-js fix-css node-deps help models-sync mac-app install-mac app-icon-embed wails-runtime-embed wails-runtime-build test-wails-patches win-icon release-build-mac mac-dmg mac-dmg-pack win-installer win-installer-pack linux-binaries linux-tarball linux-tarball-pack linux-desktop linux-desktop-files mac-codesign linux-compat-server
 
 # Binary name
 BINARY_NAME=juggler
@@ -980,9 +980,11 @@ lint-go: app-icon-embed wails-runtime-embed
 	@$(subst \,/,$(shell go env GOPATH))/bin/golangci-lint run --timeout=5m $(GO_PACKAGES)
 
 ## lint-deadcode: Find Go functions that no program reaches. Three passes of
-## deadcode run concurrently, each answering a different question, and any
-## function any of them reports fails the target. Nothing is filtered out of
-## their output except DEADCODE_SEAMS below.
+## deadcode run one after another, each answering a different question, and
+## any function any of them reports fails the target. Nothing is filtered out of
+## their output except DEADCODE_SEAMS below. One at a time, because each holds
+## the whole program in memory (~3 GB); three at once is ~9 GB beside whatever
+## else the machine is running, which under `make test-all` is the test suites.
 ##
 ##   test     deadcode -test over GO_PACKAGES, tests included: code nothing
 ##            at all calls, not even a test — in test helpers and _test.go
@@ -1039,12 +1041,13 @@ lint-deadcode: app-icon-embed wails-runtime-embed
 	@dc="$(subst \,/,$(shell go env GOPATH))/bin/deadcode$(BIN_EXT)"; \
 	tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
 	mains=$$($(GOCMD) list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' $(GO_PACKAGES)) || exit 1; \
-	"$$dc" -test $(GO_PACKAGES) >"$$tmp/test" 2>"$$tmp/test.err" & test_pid=$$!; \
-	"$$dc" $$mains >"$$tmp/mains" 2>"$$tmp/mains.err" & mains_pid=$$!; \
-	"$$dc" -tags production $(DEADCODE_RELEASE_MAINS) >"$$tmp/release" 2>"$$tmp/release.err" & release_pid=$$!; \
+	test_rc=0; mains_rc=0; release_rc=0; \
+	"$$dc" -test $(GO_PACKAGES) >"$$tmp/test" 2>"$$tmp/test.err" || test_rc=$$?; \
+	"$$dc" $$mains >"$$tmp/mains" 2>"$$tmp/mains.err" || mains_rc=$$?; \
+	"$$dc" -tags production $(DEADCODE_RELEASE_MAINS) >"$$tmp/release" 2>"$$tmp/release.err" || release_rc=$$?; \
 	fail=0; \
-	for pass in test:$$test_pid mains:$$mains_pid release:$$release_pid; do \
-		if ! wait "$${pass#*:}"; then \
+	for pass in test:$$test_rc mains:$$mains_rc release:$$release_rc; do \
+		if [ "$${pass#*:}" -ne 0 ]; then \
 			echo "deadcode: the $${pass%%:*} pass could not analyse the program:"; \
 			tr '\134' '/' <"$$tmp/$${pass%%:*}.err"; \
 			fail=1; \
@@ -1120,14 +1123,45 @@ lint-types: node-deps
 ## are linted, and under which rules, is said once, by tooling/eslint.config.js
 ## (its `files` and global `ignores`); lint-files hands it the same config and
 ## so reaches the same verdict for any file.
-lint-js: node-deps
+##
+## The tree is linted in two halves that together are exactly `eslint .`:
+##   lint-js-app    everything outside the tests, through ESLint's cache. A
+##                  file's cached verdict depends only on its own content, so
+##                  the cache is keyed (its file name) on everything else the
+##                  verdict depends on: the config, the repo's own rules, the
+##                  boundary declarations and the pinned toolchain. A change to
+##                  any of them starts a fresh cache.
+##   lint-js-tests  the test files, never cached: juggler/no-private-test-wait
+##                  reads the helpers a test imports, so a test's verdict can
+##                  change when a file other than it does, which the cache
+##                  cannot see.
+## lint-js-tests names the test scope by its .js files, and fails when the scope
+## holds a .mjs or .cjs, which those patterns would leave unlinted.
+ESLINT_TEST_SCOPE := 'web/js-tests/**' 'web/extensions/**/_tests/**'
+ESLINT_TEST_FILES := 'web/js-tests/**/*.js' 'web/extensions/**/_tests/**/*.js'
+ESLINT_CACHE_DIR := $(BUILD_DIR)/eslint-cache
+lint-js: lint-js-app lint-js-tests
+
+lint-js-rules: node-deps
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/no-raw-ui-string.test.js
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/test-hooks-in-tests-only.test.js
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/sdk-boundary.test.js
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/escape-html-interpolation.test.js
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/no-private-test-wait.test.js
 	@NODE_NO_WARNINGS=1 node tooling/eslint-rules/no-literal-svg-colour.test.js
-	@NODE_NO_WARNINGS=1 $(NPM_BIN)/eslint --config tooling/eslint.config.js --max-warnings 0 .
+
+lint-js-app: lint-js-rules
+	@key=$$(cat tooling/eslint.config.js tooling/eslint-rules/*.js tooling/sdk-boundary.json tooling/package-lock.json | git hash-object --stdin) || exit 1; \
+	mkdir -p "$(ESLINT_CACHE_DIR)" && find "$(ESLINT_CACHE_DIR)" -type f ! -name "$$key" -delete; \
+	NODE_NO_WARNINGS=1 $(NPM_BIN)/eslint --config tooling/eslint.config.js --max-warnings 0 \
+		--cache --cache-strategy content --cache-location "$(ESLINT_CACHE_DIR)/$$key" \
+		$(foreach p,$(ESLINT_TEST_SCOPE),--ignore-pattern $(p)) .
+
+lint-js-tests: lint-js-rules
+	@other=$$(git ls-files -- 'web/js-tests/*.[mc]js' 'web/extensions/*/_tests/*.[mc]js'); \
+	if [ -n "$$other" ]; then echo "lint-js-tests: ESLINT_TEST_FILES names only .js files; add these to it:"; printf '  %s\n' $$other; exit 1; fi
+	@NODE_NO_WARNINGS=1 $(NPM_BIN)/eslint --config tooling/eslint.config.js --max-warnings 0 \
+		$(ESLINT_TEST_FILES)
 
 ## lint-js-deadcode: lint-deadcode for the JavaScript (tooling/js-deadcode.js),
 ## after its fixture cases (tooling/js-deadcode.test.js). Roots: the HTML

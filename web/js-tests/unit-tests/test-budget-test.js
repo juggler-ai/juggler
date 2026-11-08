@@ -206,6 +206,29 @@ export async function runTests(_ctx) {
     }
   }
 
+  // A realm that is not run past a wait's nominal wakes with the wait's poll and
+  // the work it waits on both overdue, and the poll, armed first, runs first. A
+  // wait that gives up there gives up on work that is already due, so it must
+  // let what is due run and look once more before it does.
+  {
+    const unpin = pinTestDeadline(Date.now() + NEVER_MS, { shared: true });
+    try {
+      let due = false;
+      const waiting = waitFor(() => due, { timeoutMs: 100, description: 'a timer that fell due while the realm was held' });
+      setTimeout(() => { due = true; }, 50);
+      const holdUntil = Date.now() + 300;
+      // eslint-disable-next-line juggler/no-private-test-wait -- holding this realm's main thread is the subject
+      while (Date.now() < holdUntil) { /* the realm is not run */ }
+      await waiting;
+      passed++;
+    } catch (e) {
+      failed++;
+      errors.push(`a wait looks again once what fell due has run: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      unpin();
+    }
+  }
+
   // A cap expressed only as a multiple of a wait's own nominal stops binding
   // as soon as that multiple exceeds the budget it is drawn from: at six times
   // a 10s nominal it does not bind inside a 45s suite at all, so the first

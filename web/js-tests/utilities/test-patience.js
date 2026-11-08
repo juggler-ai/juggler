@@ -74,6 +74,7 @@ export async function pollPatiently(probe, { nominalMs, intervalMs = 10, what })
     const started = Date.now();
     const moved = deadlineMoves();
     let allowanceMs = nominalMs;
+    let lookedAgain = false;
     for (;;) {
       const got = probe();
       if (got) {
@@ -88,8 +89,19 @@ export async function pollPatiently(probe, { nominalMs, intervalMs = 10, what })
         // Owed first: the runner moved the deadline because the test made
         // progress since this wait began (deadlineMoves, test-deadline.js).
         const by = moved();
-        if (by <= 0) return null;
-        allowanceMs += by;
+        if (by > 0) {
+          allowanceMs += by;
+          lookedAgain = false;
+          continue;
+        }
+        if (lookedAgain) return null;
+        // A realm that was not run for longer than the allowance wakes with
+        // this poll and the work it waits on both overdue, and this poll's
+        // timer, armed before that work's, runs first. A zero-delay timer
+        // armed now falls due after everything already overdue, so one hop
+        // lets that work run before the last look.
+        lookedAgain = true;
+        await new Promise((resolve) => { setTimeout(resolve, 0); });
         continue;
       }
       await new Promise((resolve) => { setTimeout(resolve, intervalMs); });

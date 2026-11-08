@@ -6,8 +6,10 @@ package integration_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -177,6 +179,32 @@ func TestGetTreeRespectsGitignore(t *testing.T) {
 	}
 }
 
+// Naming an ignored directory is asking to see it: everything inside it is
+// ignored by git's excluded-parent rule, so filtering against the project root
+// would list nothing — a pinned output folder shown as "(empty)".
+func TestGetTreeListsAnIgnoredDirectoryItWasAskedFor(t *testing.T) {
+	root := buildGitignoreFixture(t)
+	if err := os.MkdirAll(filepath.Join(root, "build", "pages"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "build", "pages", "index.html"), []byte("<p>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"build", filepath.Join(root, "build")} {
+		got := getTreeContent(t, root, map[string]any{"path": path})
+		if !strings.Contains(got, "gen.go") || !strings.Contains(got, "index.html") {
+			t.Errorf("getTree of ignored %q should list its contents, got %q", path, got)
+		}
+	}
+
+	// A directory that is not itself ignored still filters what is inside it.
+	sub := getTreeContent(t, root, map[string]any{"path": "sub"})
+	if !strings.Contains(sub, "visible.txt") || strings.Contains(sub, "secret.txt") {
+		t.Errorf("getTree of sub should list visible.txt and hide secret.txt, got %q", sub)
+	}
+}
+
 func findSymbolCount(t *testing.T, root string, params map[string]any) int {
 	t.Helper()
 	searchOps := ops.NewSearchOperations(ops.NewPathScope(root, nil))
@@ -216,6 +244,112 @@ func TestExpandDirectoryUnfiltered(t *testing.T) {
 	for _, n := range []string{"keep.log", "build", "node_modules", "app.go"} {
 		if !names[n] {
 			t.Errorf("expandDirectory should list %q (unfiltered), got %v", n, names)
+		}
+	}
+}
+
+// expandDirectoryDetail lists dir with detail, by name.
+func expandDirectoryDetail(t *testing.T, root, dir string) map[string]map[string]any {
+	t.Helper()
+	treeOps := ops.NewTreeOperations(ops.NewPathScope(root, nil))
+	res, err := treeOps.Execute(context.Background(), "expandDirectory", map[string]any{"path": dir, "detail": true})
+	if err != nil {
+		t.Fatalf("expandDirectory %q failed: %v", dir, err)
+	}
+	byName := map[string]map[string]any{}
+	for _, it := range res.(map[string]any)["items"].([]map[string]any) {
+		byName[it["name"].(string)] = it
+	}
+	return byName
+}
+
+// What the file browser draws beside each name. Each of these is silent when
+// wrong — a folder's count off by one, a link described as its target, an
+// ignored file shown at full strength — so each is asserted.
+func TestExpandDirectoryDetail(t *testing.T) {
+	root := buildGitignoreFixture(t)
+	if err := os.WriteFile(filepath.Join(root, "run.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	many := filepath.Join(root, "many")
+	if err := os.MkdirAll(many, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 1003 {
+		if err := os.WriteFile(filepath.Join(many, fmt.Sprintf("f%d", i)), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	linked := os.Symlink("src", filepath.Join(root, "link")) == nil
+
+	items := expandDirectoryDetail(t, root, ".")
+
+	app := items["app.go"]
+	if app["kind"] != "file" || app["size"] != int64(len("package app\n// NEEDLE marker\nfunc VisibleSym() {}\n")) {
+		t.Errorf("app.go: want kind file with its byte size, got %v", app)
+	}
+	if ms, _ := app["modified"].(int64); ms <= 0 {
+		t.Errorf("app.go: want a modified time in ms, got %v", app["modified"])
+	}
+	if app["hidden"] != false || app["ignored"] != false {
+		t.Errorf("app.go is neither hidden nor ignored, got hidden=%v ignored=%v", app["hidden"], app["ignored"])
+	}
+	if runtime.GOOS != "windows" {
+		if app["mode"] != "rw-r--r--" || app["executable"] != false {
+			t.Errorf("app.go: want mode rw-r--r--, not executable, got %v %v", app["mode"], app["executable"])
+		}
+		if items["run.sh"]["executable"] != true {
+			t.Errorf("run.sh is executable, got %v", items["run.sh"])
+		}
+	}
+	if items[".gitignore"]["hidden"] != true {
+		t.Errorf(".gitignore is a dot-file, got %v", items[".gitignore"])
+	}
+	if items["keep.log"]["ignored"] != true || items["build"]["ignored"] != true {
+		t.Errorf("keep.log and build/ are gitignored, got %v / %v", items["keep.log"], items["build"])
+	}
+
+	src := items["src"]
+	if src["kind"] != "dir" || src["entries"] != 1 || src["entriesTruncated"] != nil {
+		t.Errorf("src: want a dir of 1 entry, got %v", src)
+	}
+	if _, has := src["size"]; has {
+		t.Errorf("a directory has no size of its own to show, got %v", src["size"])
+	}
+	if m := items["many"]; m["entries"] != 1000 || m["entriesTruncated"] != true {
+		t.Errorf("many: want the count capped at 1000 and marked truncated, got %v", m)
+	}
+
+	if linked {
+		link := items["link"]
+		if link["kind"] != "symlink" || link["target"] != "src" || link["linkDir"] != true || link["isDir"] != false {
+			t.Errorf("link: want a symlink to the src dir, described as a link, got %v", link)
+		}
+	}
+
+	// Inside an ignored directory everything is ignored, as git sees it.
+	if gen := expandDirectoryDetail(t, root, "build")["gen.go"]; gen["ignored"] != true {
+		t.Errorf("build/gen.go is inside an ignored dir, got %v", gen)
+	}
+	// A nested .gitignore applies to its own directory.
+	sub := expandDirectoryDetail(t, root, "sub")
+	if sub["secret.txt"]["ignored"] != true || sub["visible.txt"]["ignored"] != false {
+		t.Errorf("sub: want secret.txt ignored and visible.txt not, got %v / %v", sub["secret.txt"], sub["visible.txt"])
+	}
+}
+
+// Without detail the listing is names alone, as the callers that only want
+// names have always had it.
+func TestExpandDirectoryWithoutDetailIsNamesOnly(t *testing.T) {
+	root := buildGitignoreFixture(t)
+	treeOps := ops.NewTreeOperations(ops.NewPathScope(root, nil))
+	res, err := treeOps.Execute(context.Background(), "expandDirectory", map[string]any{"path": "."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range res.(map[string]any)["items"].([]map[string]any) {
+		if len(it) != 3 {
+			t.Fatalf("want name, isDir and path only, got %v", it)
 		}
 	}
 }

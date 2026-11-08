@@ -365,6 +365,19 @@ function cloneData(data) {
   }
 }
 
+/**
+ * A config as a string that two equal configs share whatever order their keys
+ * were written in. The server marshals config in an order of its own, so a pin's
+ * write and the store's echo of it are the same config spelled differently.
+ * @param {unknown} value - A config, or any value inside one.
+ * @returns {string} Its canonical JSON.
+ */
+function canonicalConfig(value) {
+  return JSON.stringify(value, (_key, inner) => (inner && typeof inner === 'object' && !Array.isArray(inner)
+    ? Object.fromEntries(Object.keys(inner).sort().map((key) => [key, inner[key]]))
+    : inner));
+}
+
 class PinboardContent extends JugglerElement {
   constructor() {
     super();
@@ -424,6 +437,22 @@ class PinboardContent extends JugglerElement {
      * @type {Map<string, number>} @private
      */
     this._scrollTops = new Map();
+    /**
+     * What each pin handed back from `saveViewState()` the last time it was torn
+     * down, by pin id, to give back as `viewState` when it is next mounted. Like
+     * {@link _scrollTops}, viewer-local and kept for the life of this element;
+     * forgotten when the pin leaves the board.
+     * @type {Map<string, unknown>} @private
+     */
+    this._viewStates = new Map();
+    /**
+     * The configs the mounted pin has written `inPlace` and whose echo from the
+     * store has not come back yet, oldest first, each in {@link canonicalConfig}
+     * form. An echo of one of these is the pin's own state coming home, and must
+     * not rebuild the pin that is already showing it.
+     * @type {Map<string, string[]>} @private
+     */
+    this._inPlaceWrites = new Map();
     /** @type {Set<() => void>} @private Watchers of the running-task list. */
     this._taskListeners = new Set();
     /** @type {(() => void)|null} @private Stops listening to the socket, while anyone watches tasks. */
@@ -541,9 +570,12 @@ class PinboardContent extends JugglerElement {
    */
   setPin(pin, active) {
     this._active = active;
-    if (pin && this._pin && pin.id === this._pin.id
-      && JSON.stringify(pin.config) === JSON.stringify(this._pin.config)) {
-      this._pin = pin;
+    const ownEcho = !!(pin && this._pin && pin.id === this._pin.id && this._takeOwnEcho(pin));
+    if (ownEcho || (pin && this._pin && pin.id === this._pin.id
+      && JSON.stringify(pin.config) === JSON.stringify(this._pin.config))) {
+      // An echo may be of an earlier write than the pin's latest, so the config
+      // the pin is showing stays the one it last wrote.
+      this._pin = ownEcho && this._pin ? { ...pin, config: this._pin.config } : pin;
       this._renderToolbar();
       this._renderActions();
       return false;
@@ -1359,8 +1391,12 @@ class PinboardContent extends JugglerElement {
    * @returns {void}
    */
   syncPins(pins) {
-    if (!this._retained.size) return;
     const live = new Set(pins.map((pin) => pin.id));
+    // A pin pinned again is a new pin, and opens at the top rather than where
+    // one that happened to share its id was left.
+    for (const pinId of [...this._viewStates.keys()]) {
+      if (!live.has(pinId)) this._viewStates.delete(pinId);
+    }
     for (const pinId of [...this._retained.keys()]) {
       if (!live.has(pinId)) this._dropSlot(pinId);
     }
@@ -1435,10 +1471,67 @@ class PinboardContent extends JugglerElement {
         },
       },
       signal,
-      updateConfig: async (nextConfig) => {
+      viewState: this._viewStates.get(pin.id),
+      updateConfig: async (nextConfig, options) => {
+        if (options?.inPlace && !signal.aborted) this._noteInPlaceWrite(pin.id, nextConfig);
         await pinboardStore.updateConfig(pin.id, nextConfig);
       },
     };
+  }
+
+  /**
+   * Write down that the mounted pin has just written `config` and is already
+   * showing it, so the store's echo of it is not taken for a change. Recorded
+   * before the write goes out, because the echo can arrive before the write's
+   * promise settles.
+   * @param {string} pinId - The pin that wrote.
+   * @param {Record<string, unknown>} config - What it wrote.
+   * @private
+   */
+  _noteInPlaceWrite(pinId, config) {
+    if (this._pin?.id === pinId) {
+      this._pin = { ...this._pin, config };
+      const pending = this._inPlaceWrites.get(pinId) || [];
+      pending.push(canonicalConfig(config));
+      this._inPlaceWrites.set(pinId, pending);
+    }
+    const kept = this._retained.get(pinId);
+    if (kept) kept.pin = { ...kept.pin, config };
+  }
+
+  /**
+   * Whether `pin` is the store echoing one of the mounted pin's own in-place
+   * writes, consuming that write and every older one if so: writes are applied
+   * in order, so an echo of one means every earlier echo has been and gone.
+   * @param {Pin} pin - The pin as the store now has it.
+   * @returns {boolean} True when it is the pin's own config coming home.
+   * @private
+   */
+  _takeOwnEcho(pin) {
+    const pending = this._inPlaceWrites.get(pin.id);
+    if (!pending?.length) return false;
+    const at = pending.indexOf(canonicalConfig(pin.config));
+    if (at < 0) return false;
+    pending.splice(0, at + 1);
+    return true;
+  }
+
+  /**
+   * Ask a controller on its way out for whatever it wants back on its next
+   * mount. Best-effort, like every other call into an item type.
+   * @param {string} pinId - The pin being torn down.
+   * @param {import('juggler/pinboard-item-type').PinController|null} controller - Its controller.
+   * @private
+   */
+  _saveViewState(pinId, controller) {
+    if (typeof controller?.saveViewState !== 'function') return;
+    try {
+      const state = controller.saveViewState();
+      if (state === undefined) this._viewStates.delete(pinId);
+      else this._viewStates.set(pinId, state);
+    } catch (err) {
+      console.error('[Pinboard] Item type failed to save its view state:', err);
+    }
   }
 
   /**
@@ -2040,6 +2133,7 @@ class PinboardContent extends JugglerElement {
       // only that controller's, because a retained pin next to it is still
       // listening and its news is still wanted.
       this._dropNotifyFor(this._abort?.signal);
+      if (this._pin) this._saveViewState(this._pin.id, this._controller);
       try {
         this._abort?.abort();
       } catch (err) {
@@ -2053,6 +2147,7 @@ class PinboardContent extends JugglerElement {
       this._transientSlot?.remove();
       this._transientSlot = null;
     }
+    if (this._pin) this._inPlaceWrites.delete(this._pin.id);
     this._abort = null;
     this._controller = null;
     this._pin = null;

@@ -615,7 +615,21 @@ import { validateManifest } from './lib/manifest.js';
  * @property {PinActiveContext} active - Immutable active-context snapshot
  * @property {PinServices} services - Read-only host services
  * @property {AbortSignal} signal - Aborted when the pin is torn down; every fetch must honour it
- * @property {(nextConfig: Record<string, unknown>) => Promise<void>} updateConfig - Persist new config for this pin
+ * @property {(nextConfig: Record<string, unknown>, options?: PinConfigWriteOptions) => Promise<void>} updateConfig -
+ *   Persist new config for this pin. A changed config mounts the pin afresh, which is
+ *   what a pin wants when the change is a different thing to show; pass `inPlace`
+ *   when it is merely writing down where the reader has got to.
+ * @property {unknown} [viewState] - What this pin's controller returned from
+ *   `saveViewState()` the last time it was torn down in this viewer, or undefined.
+ *   Treat it as a stranger's input: the files it names may have gone since.
+ */
+
+/**
+ * How `updateConfig` writes.
+ * @typedef {object} PinConfigWriteOptions
+ * @property {boolean} [inPlace] - The pin is already showing this config — it has
+ *   just opened a folder, say, and is recording that — so the store's echo of it
+ *   must not rebuild the pin. A change made anywhere else still does.
  */
 
 /**
@@ -673,6 +687,14 @@ import { validateManifest } from './lib/manifest.js';
  *   whatever `hide()` put down, and re-read anything that may have moved on while
  *   nobody was looking: the news that arrived meanwhile was delivered, but a pin
  *   that stopped listening in `hide()` will not have heard it.
+ * @property {() => unknown} [saveViewState] - Called as the pin is torn down — the
+ *   user switched tabs, or the board was rebuilt — for whatever should put it back
+ *   where the reader left it: the scroll of a scroller of its own (the board
+ *   remembers only its body's), a selection. Handed back as `viewState` on the next
+ *   mount. Kept in memory by this viewer, never persisted and never shared, so it
+ *   is the place for state that changes on every scroll tick; what should survive
+ *   a reload belongs in config. Never called for a retained pin, which keeps its
+ *   state by never being torn down.
  * @property {() => PinAction[]} [getActions] - The actions the item toolbar offers for
  *   this pin. The host asks after `mount()` and after every `update()`, and at no
  *   other time — there is no channel for announcing that your actions changed, so

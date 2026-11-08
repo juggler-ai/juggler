@@ -16,7 +16,7 @@
  * @module unit-tests/key-shortcut-manager-test
  */
 
-import { assert, waitFor } from '../utilities/test-helpers.js';
+import { assert } from '../utilities/test-helpers.js';
 import { fetchJson } from '../../js/services/http.js';
 import { apiUrl } from '../../js/utils/api-url.js';
 import {
@@ -624,18 +624,27 @@ export async function runTests(_ctx) {
     assert(presses() === 1, 'the chord still bins when it isn\u2019t following an edit');
   }));
 
-  await run('holding the chord down to eat a draft never runs into the bin', () => withBinChord(async ({ presses, textarea }) => {
-    textarea.value = 'a draft being eaten word by word';
-    pressBinChord(textarea, true);
-    textarea.value = '';
-    // Wind the gesture back to just inside the window, then hold the key across
-    // the moment it would otherwise expire: each repeat carries the window along.
-    const woundBack = Date.now() - (EDIT_GESTURE_WINDOW_MS - 60);
-    keyShortcutManager._lastEditingUseAt.set('bin-conversation', woundBack);
-    pressBinChord(textarea, true);
-    await waitFor(() => Date.now() > woundBack + EDIT_GESTURE_WINDOW_MS,
-      'the wound-back gesture window to expire');
-    pressBinChord(textarea, true);
+  await run('holding the chord down to eat a draft never runs into the bin', () => withBinChord(({ presses, textarea }) => {
+    // The window is judged by Date.now(), so the clock is the test's: with the
+    // real one, any pause between two presses meant to land inside the window
+    // could carry the second outside it. Every press below is synchronous, so
+    // nothing else on the page reads the stand-in.
+    const realNow = Date.now;
+    let clock = realNow();
+    Date.now = () => clock;
+    try {
+      textarea.value = 'a draft being eaten word by word';
+      pressBinChord(textarea, true);
+      textarea.value = '';
+      // Hold the key across the moment the first press's window would expire:
+      // each repeat carries the window along.
+      clock += EDIT_GESTURE_WINDOW_MS - 60;
+      pressBinChord(textarea, true);
+      clock += 120;
+      pressBinChord(textarea, true);
+    } finally {
+      Date.now = realNow;
+    }
     assert(presses() === 0, 'auto-repeat extends the cooldown for as long as the key is held');
   }));
 

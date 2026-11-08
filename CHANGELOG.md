@@ -6,6 +6,9 @@ the current release). The project follows semantic versioning.
 
 ## [Unreleased]
 
+- Pinned or mentioned folders inside a gitignored directory no longer show as empty
+- Project files and pinned folders are a file browser: click to preview, sizes, git status, filter
+
 ## [0.8.0] - 2026-11-08
 
 - Total refactor of juggler's server/network stack - instead of running a server per session, there's a server per machine and this manages multiple sessions

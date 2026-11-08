@@ -12,6 +12,7 @@ import { debounce } from 'juggler/utils/debounce';
 import { fetchLiveFile, renderLiveFileBody } from '../lib/live-file.js';
 import { absoluteFilePinPath, filePinPath, normalizeFilePinParameters } from '../lib/file-pin-config.js';
 import { pathPinController } from '../lib/path-pin.js';
+import { browserFieldsOf, createFileBrowser, withBrowserConfig } from '../lib/file-browser.js';
 
 const t = translator('@juggler/core');
 
@@ -168,7 +169,10 @@ class FilePin extends PinboardItemType {
    * @returns {Record<string, unknown>|null} The normalized config, or null to reject it.
    */
   normalizeConfig(config) {
-    return normalizeFilePinParameters(config);
+    const base = normalizeFilePinParameters(config);
+    // A folder is shown in a file browser, whose arrangement is kept beside
+    // the path; a file has none to keep.
+    return base ? { ...base, ...browserFieldsOf(config) } : null;
   }
 
   /**
@@ -248,6 +252,45 @@ class FilePin extends PinboardItemType {
     // goes neither draws into it nor starts anything further.
     let tornDown = false;
     const live = () => !tornDown && !context.signal.aborted;
+
+    /**
+     * The browser a folder is shown in, and the folder: a folder is a tree to
+     * walk and preview, not a listing to read.
+     * @type {import('../lib/file-browser.js').FileBrowser|null}
+     */
+    let browser = null;
+    let browserRoot = '';
+    /** The board's view state is for the first browser this mount draws, not a later folder's. */
+    let viewState = context.viewState;
+
+    const dropBrowser = () => {
+      browser?.teardown();
+      browser = null;
+      browserRoot = '';
+    };
+
+    /**
+     * @param {string} path - The folder.
+     * @param {boolean} userInitiated - Whether the user named it, so it may be outside the project.
+     */
+    const showBrowser = (path, userInitiated) => {
+      dropBrowser();
+      browserRoot = path;
+      browser = createFileBrowser({
+        root: path,
+        config: context.pin.config,
+        viewState,
+        context: () => context,
+        userInitiated,
+        label: t('Folder contents'),
+        // In place: the browser already shows what it is writing down.
+        persist: (config) => {
+          void context.updateConfig(withBrowserConfig(context.pin.config, config), { inPlace: true });
+        },
+      });
+      viewState = undefined;
+      body.replaceChildren(browser.element);
+    };
 
     /**
      * Keep checking for a path that was not there. The watcher reports a file
@@ -345,10 +388,36 @@ class FilePin extends PinboardItemType {
       body.toggleAttribute('data-code-ref-absolute', !relative);
       const userInitiated = userMade(context.pin.config);
       if (!userInitiated && !insideProject(relative)) {
+        dropBrowser();
         body.replaceChildren(outsideNotice(context));
         return;
       }
-      body.replaceChildren(createElement('div', 'file-content-loading', t('Loading…')));
+      // A folder already in a browser is read again by the browser, which keeps
+      // the reader's place in it.
+      if (browser && browserRoot === path) {
+        browser.refresh();
+        return;
+      }
+      if (!browser) body.replaceChildren(createElement('div', 'file-content-loading', t('Loading…')));
+
+      // A pin that says it is of a folder is checked for one, and shown in a
+      // browser if it is there. One that does not say is read, and the read's
+      // own probe finds out — so a file pin asks the disk exactly what it always
+      // has, and a folder pinned without the flag still ends up browsable.
+      if (context.pin.config.isDirectory === true) {
+        let present = false;
+        try {
+          const metadata = await stat({ path, userInitiated });
+          present = metadata.exists !== false && metadata.isDirectory === true;
+        } catch {
+          // Whatever refused the stat will refuse the read too, and say why.
+        }
+        if (mine !== generation || !live()) return;
+        if (present) {
+          showBrowser(path, userInitiated);
+          return;
+        }
+      }
 
       const result = await fetchLiveFile(path, {
         signal: context.signal,
@@ -356,6 +425,11 @@ class FilePin extends PinboardItemType {
         userInitiated,
       });
       if (mine !== generation || !live()) return;
+      if (result.isDirectory && result.exists) {
+        showBrowser(path, userInitiated);
+        return;
+      }
+      dropBrowser();
 
       renderLiveFileBody(body, result, {
         absolutePath: path,
@@ -379,6 +453,8 @@ class FilePin extends PinboardItemType {
     const refresh = debounce(() => { void render(); }, REFRESH_DEBOUNCE_MS, { maxWait: REFRESH_MAX_WAIT_MS });
 
     const stopWatching = context.services.files.onChange((changes) => {
+      // A browser watches its own folders.
+      if (browser) return;
       const target = absoluteFilePinPath(context.pin.config, context.active);
       if (changes.some((change) => touches(change.path, target, context.pin.config.isDirectory === true))) {
         refresh();
@@ -387,7 +463,7 @@ class FilePin extends PinboardItemType {
 
     void render();
 
-    return pathPinController({
+    const controller = pathPinController({
       getContext: () => context,
       setContext: (next) => { context = next; },
       targetOf: (c) => absoluteFilePinPath(c.pin.config, c.active),
@@ -397,8 +473,14 @@ class FilePin extends PinboardItemType {
         refresh.cancel();
         stopArrival();
         stopWatching();
+        dropBrowser();
       },
     });
+    return {
+      ...controller,
+      focus: () => browser?.focus(),
+      saveViewState: () => browser?.saveViewState(),
+    };
   }
 }
 

@@ -357,14 +357,27 @@ function rootedArgs(signal, allowedPaths, workspaceId) {
  * Parameters for expandDirectory operation
  * @typedef {object} TreeExpandDirParams
  * @property {string} path - Directory path to expand
+ * @property {boolean} [detail] - Also describe each entry (every field below marked
+ *   "detail"): an lstat per entry and a capped read of each subdirectory
  */
 
 /**
  * Directory item in expandDirectory result
  * @typedef {object} TreeDirItem
  * @property {string} name - Item name
- * @property {boolean} isDir - Whether item is a directory
+ * @property {boolean} isDir - Whether item is a directory (a symlink to one is not; see `linkDir`)
  * @property {string} path - Full path to item
+ * @property {'file'|'dir'|'symlink'|'other'} [kind] - detail: what the entry itself is
+ * @property {number} [size] - detail: bytes, for a file
+ * @property {number} [modified] - detail: last modified, Unix ms
+ * @property {string} [mode] - detail: permissions, e.g. 'rwxr-xr-x'
+ * @property {boolean} [executable] - detail: a file with an execute bit set
+ * @property {boolean} [hidden] - detail: a dot-file
+ * @property {boolean} [ignored] - detail: gitignored (absent outside the project)
+ * @property {string} [target] - detail: where a symlink points, as written
+ * @property {boolean} [linkDir] - detail: a symlink whose target is a directory
+ * @property {number} [entries] - detail: how many entries a directory holds, capped at 1000
+ * @property {boolean} [entriesTruncated] - detail: it holds more than `entries`
  */
 
 /**

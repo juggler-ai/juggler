@@ -416,14 +416,17 @@ export async function runTests(ctx) {
     }
   });
 
-  await test('a pinned directory lists what is in it', async () => {
+  await test('a pinned directory is shown in a file browser', async () => {
     await writeFixture('dir/inside.txt', 'here');
     const mounted = mount({ path: `${base}_dir`, isDirectory: true });
+    const names = () => [...mounted.body.querySelectorAll('.file-browser__name')].map((el) => el.textContent);
     try {
-      const text = await settled(mounted.body);
-      assert(text.includes('inside.txt'), `a directory pin lists its entries, got "${text}"`);
+      await waitFor(() => names().includes('inside.txt'),
+        () => `a directory pin to list its entries as rows, got "${mounted.body.textContent}"`, 5000);
+      assert(!mounted.body.querySelector('.file-content-tree'),
+        'a folder is a tree to walk, not a text listing');
       assert(!mounted.body.querySelector('file-view'),
-        'a listing is not a file, so no viewer is asked to show one');
+        'and nothing is previewed until something is chosen');
     } finally {
       mounted.teardown();
     }

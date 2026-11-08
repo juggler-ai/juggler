@@ -36,6 +36,11 @@ import { isPseudoLocalized } from '../../../sdk/lib/i18n.js';
 const CORE_TEXT = [
   'No project', 'Project files', "The project's files appear here.", 'Reading…', 'Empty',
   "Couldn't read this folder. {error}", "Couldn't open that file. {error}", 'Refresh',
+  'Filter', 'Filter files by name', 'Hide hidden and ignored files', 'Close every folder',
+  'Show the preview pane (Space)', 'Resize the preview', 'Name', 'Size', 'Modified',
+  '{count, plural, one {{count} item} other {{count} items}}', 'Folder', 'Files',
+  'Select a file to see it here. Double-click or press Return to pin it as a tab.',
+  'Pin', 'Pin this folder as a tab of its own', 'Pin this file as a tab of its own (Return)',
 ];
 
 /**
@@ -52,6 +57,7 @@ const CORE_TEXT = [
  * @property {HTMLElement|null} list - The tree itself.
  * @property {any} controller - What mount returned.
  * @property {Record<string, any>[]} writes - Every config the pin persisted, in order.
+ * @property {any[]} writeOptions - The options each was written with, in the same order.
  * @property {() => Record<string, any>|null} saved - The most recent one.
  * @property {(changes: {path: string, event: string}[]) => void} fireChange - Deliver a file change.
  * @property {() => number} watchers - How many file-change listeners are live.
@@ -124,9 +130,11 @@ export async function runTests(ctx) {
    * Mount the pin on a root, with a file-change service the test drives.
    * @param {string} root - The project root to show.
    * @param {Record<string, any>} [config] - The stored config to mount against.
+   * @param {{viewState?: unknown, git?: any}} [extra] - The view state the board
+   *   kept, and a git service to hand the pin.
    * @returns {MountedPin} The mounted pin and its levers.
    */
-  function mount(root, config = {}) {
+  function mount(root, config = {}, extra = {}) {
     const body = document.createElement('div');
     body.style.cssText = 'position:fixed;left:-10000px;top:0;width:400px;height:300px';
     document.body.appendChild(body);
@@ -136,6 +144,8 @@ export async function runTests(ctx) {
     const listeners = [];
     /** @type {Record<string, any>[]} */
     const writes = [];
+    /** @type {any[]} */
+    const writeOptions = [];
 
     const controller = /** @type {any} */ (pin.mount(body, /** @type {any} */ ({
       pin: { id: 'pin_test', type: 'project-files', config: pin.normalizeConfig(config) },
@@ -154,16 +164,22 @@ export async function runTests(ctx) {
             };
           },
         },
+        ...(extra.git ? { git: extra.git } : {}),
       },
       signal: abort.signal,
-      updateConfig: async (/** @type {Record<string, any>} */ next) => { writes.push(next); },
+      viewState: extra.viewState,
+      updateConfig: async (/** @type {Record<string, any>} */ next, /** @type {any} */ options) => {
+        writes.push(next);
+        writeOptions.push(options);
+      },
     })));
 
     return {
       body,
-      list: body.querySelector('.project-files-pin__list'),
+      list: body.querySelector('.file-browser__list'),
       controller,
       writes,
+      writeOptions,
       saved: () => writes[writes.length - 1] || null,
       fireChange: (changes) => { for (const listener of [...listeners]) listener(changes); },
       watchers: () => listeners.length,
@@ -184,10 +200,10 @@ export async function runTests(ctx) {
    * @returns {{name: string, path: string, level: string, isDir: boolean, expanded: string|null}[]} The rows.
    */
   function rowsOf(body) {
-    return [...body.querySelectorAll('.project-files-pin__row')].map((el) => {
+    return [...body.querySelectorAll('.file-browser__row')].map((el) => {
       const row = /** @type {HTMLElement} */ (el);
       return {
-        name: row.querySelector('.project-files-pin__name')?.textContent || '',
+        name: row.querySelector('.file-browser__name')?.textContent || '',
         path: row.dataset.filePath || '',
         level: row.getAttribute('aria-level') || '',
         isDir: row.dataset.dir === '1',
@@ -222,9 +238,14 @@ export async function runTests(ctx) {
    */
   const settled = (body) => waitForPin(
     // Waiting for the absence of "Reading…" is not enough on its own: a read
-    // that beats the grace period never says it is reading, so an empty body
-    // and a finished one would look the same.
-    () => (body.textContent || '').trim() !== '' && !(body.textContent || '').includes('Reading…'),
+    // that beats the grace period never says it is reading, so an empty list
+    // and a finished one would look the same. The list, not the body: the
+    // toolbar and the preview have words in them from the first frame.
+    () => {
+      const list = body.querySelector('.file-browser__list');
+      const said = (list ? list.textContent : body.textContent) || '';
+      return said.trim() !== '' && !said.includes('Reading…');
+    },
     'the tree to finish reading',
     body
   );
@@ -321,7 +342,7 @@ export async function runTests(ctx) {
       // 'zed' sorts after 'apple.txt' by name, so this ordering can only come
       // from folders being put first rather than from the op's own order.
       assert(rows.map((r) => r.name).join(',') === 'zed,apple.txt',
-        `expected the folder first, got [${rows.map((r) => r.name).join(', ')}]`);
+        `expected the folder first, got [${rows.map((r) => r.name).join(', ')}] — the list said "${mounted.list?.textContent}"`);
       const [folder, file] = rows;
       if (!folder || !file) throw new Error('expected two rows');
       assert(folder.isDir && !file.isDir, 'the folder knows it is one and the file knows it is not');
@@ -342,7 +363,7 @@ export async function runTests(ctx) {
       assert(!namesOf(mounted.body).includes('inner.txt'),
         'the whole point of the pin is that it has not read the folder yet');
 
-      const folder = /** @type {HTMLElement} */ (mounted.body.querySelector('.project-files-pin__row'));
+      const folder = /** @type {HTMLElement} */ (mounted.body.querySelector('.file-browser__row'));
       folder.click();
       await waitForPin(() => namesOf(mounted.body).includes('inner.txt'),
         'the opened folder to show its contents', mounted.body);
@@ -368,7 +389,7 @@ export async function runTests(ctx) {
     const mounted = mount(root);
     try {
       await settled(mounted.body);
-      /** @type {HTMLElement} */ (mounted.body.querySelector('.project-files-pin__row')).click();
+      /** @type {HTMLElement} */ (mounted.body.querySelector('.file-browser__row')).click();
       // Checked synchronously, on the click itself: a local directory comes
       // back in about a millisecond, so a row announcing the read appears and
       // vanishes inside one frame — seen as a flicker, and it moves every row
@@ -377,23 +398,6 @@ export async function runTests(ctx) {
         `a folder opening has no children yet, and says nothing, got "${mounted.body.textContent}"`);
       await waitForPin(() => namesOf(mounted.body).includes('inner.txt'),
         'the children to arrive anyway', mounted.body);
-    } finally {
-      mounted.teardown();
-    }
-  });
-
-  await test('a row does not change height when its controls appear', async () => {
-    const root = await makeTree('steady', [], ['only.txt']);
-    const mounted = mount(root);
-    try {
-      await settled(mounted.body);
-      const row = /** @type {HTMLElement} */ (mounted.body.querySelector('.project-files-pin__row'));
-      const before = row.offsetHeight;
-      assert(before > 0, 'the row has to have been laid out for this to measure anything');
-
-      row.dispatchEvent(new Event('pointerenter'));
-      assert(row.offsetHeight === before,
-        `the buttons are taller than the text, so the row reserves their height rather than growing into it — was ${before}, became ${row.offsetHeight}`);
     } finally {
       mounted.teardown();
     }
@@ -412,12 +416,12 @@ export async function runTests(ctx) {
     try {
       await settled(mounted.body);
       replies.observe({ type: 'resource' });
-      /** @type {HTMLElement} */ (mounted.body.querySelector('.project-files-pin__row')).click();
+      /** @type {HTMLElement} */ (mounted.body.querySelector('.file-browser__row')).click();
       // Which half never happened: the click opening the row, or the listing
       // coming back. A read still out past the grace period draws "Reading…";
       // one that came back empty draws "Empty"; neither means it was never asked.
       await waitFor(() => (mounted.body.textContent || '').includes('Empty'), () => {
-        const notes = [...mounted.body.querySelectorAll('.project-files-pin__note')].map((n) => n.textContent);
+        const notes = [...mounted.body.querySelectorAll('.file-browser__note')].map((n) => n.textContent);
         return `the empty folder to say so — the row's aria-expanded=${rowsOf(mounted.body)[0]?.expanded ?? '(no row)'}, ` +
           `notes [${notes.join(', ')}], ${opsReplies} op repl${opsReplies === 1 ? 'y' : 'ies'} since the click ` +
           `(the listing is one), showed [${namesOf(mounted.body).join(', ')}]`;
@@ -467,14 +471,18 @@ export async function runTests(ctx) {
       await settled(mounted.body);
       assert(mounted.saved() === null, 'nothing is written for a tree nobody has touched');
 
-      /** @type {HTMLElement} */ (mounted.body.querySelector('.project-files-pin__row')).click();
+      /** @type {HTMLElement} */ (mounted.body.querySelector('.file-browser__row')).click();
       // Written on the click rather than after a pause: switching tabs tears the
       // pin down, so any wait at all is a window where the last thing the reader
       // did is the one thing that does not come back.
       assert(JSON.stringify(mounted.saved()?.expanded) === '["zed"]',
         `the open folder is stored relative to the root, got ${JSON.stringify(mounted.saved())}`);
+      // In place: the pin is already showing what it writes, and the board
+      // rebuilding it on the echo would lose the reader's place every time.
+      assert(mounted.writeOptions.at(-1)?.inPlace === true,
+        `the write asks not to be rebuilt by its own echo, got ${JSON.stringify(mounted.writeOptions.at(-1))}`);
 
-      /** @type {HTMLElement} */ (mounted.body.querySelector('.project-files-pin__row')).click();
+      /** @type {HTMLElement} */ (mounted.body.querySelector('.file-browser__row')).click();
       assert(JSON.stringify(mounted.saved()?.expanded) === '[]',
         `and closing it is written down too, got ${JSON.stringify(mounted.saved())}`);
     } finally {
@@ -492,9 +500,9 @@ export async function runTests(ctx) {
     const first = mount(root);
     try {
       await settled(first.body);
-      /** @type {HTMLElement} */ (first.body.querySelector('.project-files-pin__row')).click();
+      /** @type {HTMLElement} */ (first.body.querySelector('.file-browser__row')).click();
       await waitForPin(() => namesOf(first.body).includes('deep'), 'the folder to open', first.body);
-      const deep = [...first.body.querySelectorAll('.project-files-pin__row')]
+      const deep = [...first.body.querySelectorAll('.file-browser__row')]
         .find((row) => /** @type {HTMLElement} */ (row).dataset.filePath === native(`${root}/zed/deep`));
       /** @type {HTMLElement} */ (deep).click();
       await waitForPin(() => namesOf(first.body).includes('leaf.txt'), 'the inner folder to open', first.body);
@@ -540,7 +548,7 @@ export async function runTests(ctx) {
     const mounted = mount(root);
     try {
       await settled(mounted.body);
-      for (const row of [...mounted.body.querySelectorAll('.project-files-pin__row')]) {
+      for (const row of [...mounted.body.querySelectorAll('.file-browser__row')]) {
         /** @type {HTMLElement} */ (row).click();
       }
       await waitForPin(() => {
@@ -599,37 +607,13 @@ export async function runTests(ctx) {
   // Acting on a row
   // ========================================================================
 
-  await test('a row\'s controls are built when it is pointed at, and once', async () => {
-    const root = await makeTree('actions', [], ['only.txt']);
-    const mounted = mount(root);
-    try {
-      await settled(mounted.body);
-      const row = /** @type {HTMLElement} */ (mounted.body.querySelector('.project-files-pin__row'));
-      const slot = /** @type {HTMLElement} */ (row.querySelector('.project-files-pin__actions'));
-      assert(slot.childElementCount === 0,
-        'a resting tree pays for no controls at all');
-
-      row.dispatchEvent(new Event('pointerenter'));
-      assert(slot.childElementCount === 1, 'pointing at a row builds its controls');
-      const built = slot.firstElementChild;
-      assert(!!built?.querySelector('button'), 'which are the shared file controls, not a local imitation');
-
-      row.dispatchEvent(new Event('pointerenter'));
-      row.dispatchEvent(new Event('focusin'));
-      assert(slot.childElementCount === 1 && slot.firstElementChild === built,
-        'and pointing again reuses them rather than stacking another set');
-    } finally {
-      mounted.teardown();
-    }
-  });
-
   await test('double-clicking a file pins it, and a folder is left to its own clicks', async () => {
     const root = await makeTree('dblclick', ['zed'], ['apple.txt']);
     const mounted = mount(root);
     const board = stubBoard();
     try {
       await settled(mounted.body);
-      const rows = [...mounted.body.querySelectorAll('.project-files-pin__row')]
+      const rows = [...mounted.body.querySelectorAll('.file-browser__row')]
         .map((el) => /** @type {HTMLElement} */ (el));
       const folder = rows.find((row) => row.dataset.dir === '1');
       const file = rows.find((row) => row.dataset.dir !== '1');
@@ -666,6 +650,140 @@ export async function runTests(ctx) {
     }
   });
 
+  await test('a click on a file shows it in the preview and pins nothing', async () => {
+    const root = await makeTree('peek', [], ['look.txt']);
+    const mounted = mount(root);
+    const board = stubBoard();
+    try {
+      await settled(mounted.body);
+      /** @type {HTMLElement} */ (mounted.body.querySelector('.file-browser__row')).click();
+      const preview = /** @type {HTMLElement} */ (mounted.body.querySelector('.file-browser__preview-body'));
+      await waitForPin(() => (preview.textContent || '').includes('look.txt'),
+        `the file's contents to be previewed — the preview said "${preview.textContent}"`, mounted.body);
+      assert(mounted.body.querySelector('.file-browser__row')?.getAttribute('aria-selected') === 'true',
+        'the row being previewed is the selected one');
+      assert(board.pins.length === 0, `one click looks; it does not add a tab, got ${JSON.stringify(board.pins)}`);
+    } finally {
+      board.restore();
+      mounted.teardown();
+    }
+  });
+
+  await test('a row says what it is: a folder holds items, a file has a size', async () => {
+    const root = await makeTree('detail', ['box'], ['box/one.txt', 'box/two.txt', 'note.md']);
+    const mounted = mount(root);
+    try {
+      await settled(mounted.body);
+      const [folder, file] = [...mounted.body.querySelectorAll('.file-browser__row')];
+      const folderSize = folder?.querySelector('.file-browser__size')?.textContent || '';
+      const fileSize = file?.querySelector('.file-browser__size')?.textContent || '';
+      assert(/\b2\b/.test(folderSize) && folderSize.includes('item'), `a folder counts what it holds, got "${folderSize}"`);
+      assert(/\d/.test(fileSize) && fileSize.includes('B'), `a file gives its size, got "${fileSize}"`);
+      assert(folder?.querySelector('.file-icon')?.getAttribute('data-kind') === 'dir'
+        && file?.querySelector('.file-icon')?.getAttribute('data-kind') === 'doc',
+      "each row has its kind's icon, so a folder is told from a file at a glance");
+      assert(!!file?.querySelector('.file-browser__modified')?.textContent, 'and when it was last changed');
+    } finally {
+      mounted.teardown();
+    }
+  });
+
+  await test('hidden files are shown dimmed, and the toggle hides them and is remembered', async () => {
+    const root = await makeTree('dots', [], ['.secret', 'plain.txt']);
+    const mounted = mount(root);
+    try {
+      await settled(mounted.body);
+      const secret = [...mounted.body.querySelectorAll('.file-browser__row')]
+        .find((row) => row.querySelector('.file-browser__name')?.textContent === '.secret');
+      assert(!!secret && secret.classList.contains('is-hidden'), 'a dot-file is listed, and marked as hidden');
+
+      /** @type {HTMLElement} */ (mounted.body.querySelector('[data-act="hidden"]')).click();
+      assert(namesOf(mounted.body).join(',') === 'plain.txt', `hiding leaves the rest, got [${namesOf(mounted.body).join(', ')}]`);
+      assert(mounted.saved()?.hideHidden === true, `and is written down, got ${JSON.stringify(mounted.saved())}`);
+    } finally {
+      mounted.teardown();
+    }
+  });
+
+  await test('the filter finds a file in a folder nobody opened, and Escape gives the tree back', async () => {
+    const root = await makeTree('needle', ['hay', 'hay/stack'], ['hay/stack/Needle-file.txt', 'other.txt']);
+    const mounted = mount(root);
+    try {
+      await settled(mounted.body);
+      const input = /** @type {HTMLInputElement} */ (mounted.body.querySelector('.file-browser__filter'));
+      input.value = 'needle';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await waitForPin(() => namesOf(mounted.body).join(',') === 'Needle-file.txt',
+        'the match, whatever its case, and only the match', mounted.body);
+      const where = mounted.body.querySelector('.file-browser__where')?.textContent || '';
+      assert(where === 'hay/stack', `a match says where it is, got "${where}"`);
+
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await waitForPin(() => namesOf(mounted.body).join(',') === 'hay,other.txt', 'the tree to come back', mounted.body);
+    } finally {
+      mounted.teardown();
+    }
+  });
+
+  await test('where the reader was comes back through the view state', async () => {
+    const root = await makeTree('viewstate', ['zed'], ['zed/inner.txt', 'apple.txt']);
+    const first = mount(root, { expanded: ['zed'] });
+    /** @type {any} */
+    let saved = null;
+    try {
+      await waitForPin(() => namesOf(first.body).includes('inner.txt'), 'the folder to open', first.body);
+      const inner = [...first.body.querySelectorAll('.file-browser__row')]
+        .find((row) => row.querySelector('.file-browser__name')?.textContent === 'inner.txt');
+      /** @type {HTMLElement} */ (inner).click();
+      saved = first.controller.saveViewState();
+      assert(saved?.preview === native(`${root}/zed/inner.txt`), `the selection is in the view state, got ${JSON.stringify(saved)}`);
+    } finally {
+      first.teardown();
+    }
+
+    const second = mount(root, { expanded: ['zed'] }, { viewState: saved });
+    try {
+      await waitForPin(() => {
+        const selected = second.body.querySelector('.file-browser__row[aria-selected="true"]');
+        return selected?.querySelector('.file-browser__name')?.textContent === 'inner.txt';
+      }, 'the same row to be selected again once the tree is back', second.body);
+      const preview = /** @type {HTMLElement} */ (second.body.querySelector('.file-browser__preview-body'));
+      await waitForPin(() => (preview.textContent || '').includes('inner.txt'),
+        'and the same file to be previewed', second.body);
+    } finally {
+      second.teardown();
+    }
+  });
+
+  await test('git marks a changed file, and every folder above it', async () => {
+    const root = await makeTree('gitmarks', ['zed', 'zed/deep', 'calm'], ['zed/deep/edited.txt', 'calm/same.txt']);
+    /** @type {(() => void)[]} */
+    const gitListeners = [];
+    const git = {
+      status: () => ({
+        root,
+        repos: [{ path: '', files: [{ path: 'zed/deep/edited.txt', index: '.', worktree: 'M' }] }],
+      }),
+      onChange: (/** @type {() => void} */ listener) => { gitListeners.push(listener); return () => {}; },
+    };
+    const mounted = mount(root, { expanded: ['zed', 'zed/deep'] }, { git });
+    try {
+      await waitForPin(() => namesOf(mounted.body).includes('edited.txt'), 'the changed file to be shown', mounted.body);
+      /**
+       * @param {string} name - A row's name.
+       * @returns {string} What its git cell says.
+       */
+      const mark = (name) => [...mounted.body.querySelectorAll('.file-browser__row')]
+        .find((row) => row.querySelector('.file-browser__name')?.textContent === name)
+        ?.querySelector('.file-browser__git')?.textContent || '';
+      assert(mark('edited.txt') === 'M', `the file says how it changed, got "${mark('edited.txt')}"`);
+      assert(mark('zed') !== '' && mark('deep') !== '', 'each folder above it says something inside changed');
+      assert(mark('calm') === '', `a folder with nothing changed says nothing, got "${mark('calm')}"`);
+    } finally {
+      mounted.teardown();
+    }
+  });
+
   // ========================================================================
   // Walking it with the keyboard
   // ========================================================================
@@ -684,7 +802,7 @@ export async function runTests(ctx) {
        * @returns {string} Its name.
        */
       const active = () => rowsOf(mounted.body).find((r) => {
-        const el = [...mounted.body.querySelectorAll('.project-files-pin__row')]
+        const el = [...mounted.body.querySelectorAll('.file-browser__row')]
           .find((node) => /** @type {HTMLElement} */ (node).dataset.filePath === r.path);
         return /** @type {HTMLElement} */ (el)?.tabIndex === 0;
       })?.name || '';
@@ -805,26 +923,30 @@ export async function runTests(ctx) {
           const wait = (/** @type {() => boolean} */ check, /** @type {string} */ what) => waitFor(check,
             () => `${what}: "${mounted.body.textContent}"`);
           const rowOf = (/** @type {string} */ name) => /** @type {HTMLElement|undefined} */ (
-            [...mounted.body.querySelectorAll('.project-files-pin__row')]
-              .find((el) => el.querySelector('.project-files-pin__name')?.textContent === name));
+            [...mounted.body.querySelectorAll('.file-browser__row')]
+              .find((el) => el.querySelector('.file-browser__name')?.textContent === name));
           await wait(() => namesOf(mounted.body).length === 4, 'the root to be read');
           for (const name of ['2', '3', '4']) rowOf(name)?.click();
           // Waits until every note has spoken, however long the slow read
           // takes to cross the grace period.
-          await wait(() => mounted.body.querySelectorAll('.project-files-pin__note').length === 3, 'three note rows');
-          /** @type {HTMLElement} */ (rowOf('5')).click();
-          press(/** @type {HTMLElement} */ (mounted.list), 'Enter');
-          await wait(() => !!mounted.body.querySelector('.project-files-pin__status'), 'the open failure');
+          await wait(() => mounted.body.querySelectorAll('.file-browser__note').length === 3, 'three note rows');
+          // ⌘/Ctrl-click hands a file to its application.
+          /** @type {HTMLElement} */ (rowOf('5')).dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true }));
+          await wait(() => !!mounted.body.querySelector('.file-browser__status'), 'the open failure');
 
-          const notes = [...mounted.body.querySelectorAll('.project-files-pin__note')].map((el) => el.textContent || '');
+          const notes = [...mounted.body.querySelectorAll('.file-browser__note')].map((el) => el.textContent || '');
           assert(notes.some((s) => s.includes('9')), `the read failure keeps the op's error, got ${JSON.stringify(notes)}`);
-          const status = mounted.body.querySelector('.project-files-pin__status')?.textContent || '';
+          const status = mounted.body.querySelector('.file-browser__status')?.textContent || '';
           assert(status.includes('8'), `the open failure keeps the op's error, got "${status}"`);
-          // Names are data; a row's controls are the shared file actions,
-          // whose words are the core's and tested with them.
-          shownStrings(mounted.body, '.project-files-pin__name, .project-files-pin__actions').forEach((s, i) => { shown[`body ${i}`] = s; });
-          assert(Object.keys(shown).filter((k) => k.startsWith('body')).length === 5,
-            `the tree's name, three notes and the status are all drawn, got ${JSON.stringify(shown)}`);
+          // A row is data — a name, and its path as a tooltip — and so is the
+          // previewed entry's name; the file buttons are the shared ones, whose
+          // words are the core's and tested with them.
+          shownStrings(mounted.body, '.file-browser__row, .file-browser__preview-name, .properties-panel-filepath-actions')
+            .forEach((s, i) => { shown[`body ${i}`] = s; });
+          const drawn = Object.values(shown);
+          assert(mounted.body.querySelectorAll('.file-browser__note').length === 3, 'three notes are drawn');
+          assert(drawn.length >= 15,
+            `the toolbar, the headings, the notes, the status and the preview are all drawn, got ${JSON.stringify(shown)}`);
           shown['refresh action'] = String(mounted.controller.getActions()[0]?.label);
         } finally {
           hanging.forEach((go) => go());

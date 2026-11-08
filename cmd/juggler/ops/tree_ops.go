@@ -7,7 +7,9 @@ package ops
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -117,10 +119,19 @@ func (ops *TreeOperations) getTree(params map[string]any) (any, error) {
 	}
 
 	// Build a gitignore matcher unless opted out (nil = filtering off), rooted
-	// at the project root; relative paths are computed against it.
+	// at the project root; relative paths are computed against it. A directory
+	// that is itself ignored, or outside the project, is rooted at instead:
+	// naming it is asking to see it, and under the project's rules everything
+	// inside an ignored directory is ignored, so the listing would be empty.
+	matchRoot := ops.scope.Root()
+	if rel, relErr := filepath.Rel(matchRoot, absPath); relErr != nil || rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(filepath.Separator)) ||
+		gitignore.NewMatcher(matchRoot).Ignored(filepath.ToSlash(rel), true) {
+		matchRoot = absPath
+	}
 	var ign *gitignore.Matcher
 	if !noIgnore {
-		ign = gitignore.NewMatcher(ops.scope.Root())
+		ign = gitignore.NewMatcher(matchRoot)
 	}
 
 	// Build tree with token budget awareness
@@ -133,7 +144,7 @@ func (ops *TreeOperations) getTree(params map[string]any) (any, error) {
 		maxDepth:       depth,
 		showAll:        showAll,
 		ign:            ign,
-		workingDir:     ops.scope.Root(),
+		workingDir:     matchRoot,
 	}
 
 	stats := &treeStats{}
@@ -169,7 +180,7 @@ type buildContext struct {
 	truncated      bool
 	showAll        bool               // When true, include hidden files and ignore .gitignore
 	ign            *gitignore.Matcher // gitignore matcher (nil = filtering off)
-	workingDir     string             // Root working directory for relative path calculation
+	workingDir     string             // The matcher's root: paths given to ign are relative to it
 }
 
 // treeStats holds statistics about the tree
@@ -600,13 +611,23 @@ func (ops *TreeOperations) glob(ctx context.Context, params map[string]any) (any
 	}, nil
 }
 
-// expandDirectory expands a directory to show its contents
 // expandDirectoryParams are expandDirectory's params. Path is a pointer
 // because an empty one is a path (the working directory) and only a missing
-// one is an error.
+// one is an error. Detail asks for what a file browser shows beside each name
+// (see entryDetail); it costs an lstat per entry and a read of each
+// subdirectory, so the callers that only want names don't ask. UserInitiated
+// is a folder the user named themselves — a pin they made — which may be
+// outside the project, as getTree's and glob's may.
 type expandDirectoryParams struct {
-	Path *string `param:"path"`
+	Path          *string `param:"path"`
+	Detail        bool    `param:"detail,strict"`
+	UserInitiated bool    `param:"userInitiated,strict"`
 }
+
+// maxDirEntriesCounted caps how far a subdirectory is read to count what is in
+// it: a browser row says "1000+ items" as usefully as an exact count, and a
+// node_modules is not worth reading to the end to say so.
+const maxDirEntriesCounted = 1000
 
 func (ops *TreeOperations) expandDirectory(params map[string]any) (any, error) {
 	p, err := decodeParams[expandDirectoryParams](params)
@@ -620,30 +641,141 @@ func (ops *TreeOperations) expandDirectory(params map[string]any) (any, error) {
 
 	// Resolve and confirm the path stays within the working directory (or an
 	// allowed root), using the same containment check as the other
-	// read/search/tree ops.
-	validation, err := ops.scope.Resolve(path)
+	// read/search/tree ops, unless the user named it themselves.
+	absPath, err := ops.scope.ResolveRead(path, p.UserInitiated, false)
 	if err != nil {
 		return nil, err
 	}
-	absPath := validation.AbsPath
 
 	entries, err := os.ReadDir(absPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read directory: %w", err)
 	}
 
+	// Ignored entries are listed, never dropped (TestExpandDirectoryUnfiltered):
+	// with detail they are marked, and hiding them is the browser's choice.
+	var ign *gitignore.Matcher
+	var relDir string
+	if p.Detail {
+		if root, rel, ok := relativeToRoot(ops.scope.Root(), absPath); ok {
+			ign = gitignore.NewMatcher(root)
+			relDir = rel
+		}
+	}
+
 	var items []map[string]any
 	for _, entry := range entries {
-		items = append(items, map[string]any{
+		item := map[string]any{
 			"name":  entry.Name(),
 			"isDir": entry.IsDir(),
 			// POSIX-style path in results, even on Windows (filepath.Join → \).
 			"path": filepath.ToSlash(filepath.Join(path, entry.Name())),
-		})
+		}
+		if p.Detail {
+			entryDetail(item, absPath, entry)
+			if ign != nil {
+				rel := entry.Name()
+				if relDir != "." {
+					rel = relDir + "/" + rel
+				}
+				item["ignored"] = ign.Ignored(rel, entry.IsDir() || item["linkDir"] == true)
+			}
+		}
+		items = append(items, item)
 	}
 
 	return map[string]any{
 		"items": items,
 		"path":  path,
 	}, nil
+}
+
+// relativeToRoot says where abs is under root, as a slash path ("." for root
+// itself), and which spelling of root that was found under. A resolved path
+// has had its symlinks followed and root may not have — macOS's /var is
+// /private/var — so root is tried as written and then resolved.
+func relativeToRoot(root, abs string) (string, string, bool) {
+	candidates := []string{root}
+	if resolved, err := filepath.EvalSymlinks(root); err == nil && resolved != root {
+		candidates = append(candidates, resolved)
+	}
+	for _, r := range candidates {
+		rel, err := filepath.Rel(r, abs)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return r, filepath.ToSlash(rel), true
+		}
+	}
+	return "", "", false
+}
+
+// entryDetail adds to item what a file browser shows beside an entry's name:
+//
+//   - kind: "file", "dir", "symlink" or "other" (a device, socket or pipe)
+//   - size (bytes, files only) and modified (Unix ms), of the entry itself: a
+//     symlink is described as a link, by lstat, never as what it points at
+//   - mode ("rwxr-xr-x"), executable (any execute bit, files only), hidden (a
+//     dot-file)
+//   - target, for a symlink: where it points, as written. linkDir when that is a
+//     directory, so the browser can open it like one
+//   - entries, for a directory: how many entries it holds, counted no further
+//     than maxDirEntriesCounted, with entriesTruncated set when it holds more
+//
+// An entry that vanishes or can't be read between the listing and the lstat
+// keeps its name and gets only the fields that could be found.
+func entryDetail(item map[string]any, dir string, entry os.DirEntry) {
+	name := entry.Name()
+	full := filepath.Join(dir, name)
+	item["hidden"] = strings.HasPrefix(name, ".")
+
+	info, err := entry.Info()
+	if err != nil {
+		item["kind"] = "other"
+		return
+	}
+	mode := info.Mode()
+	item["modified"] = info.ModTime().UnixMilli()
+	item["mode"] = mode.Perm().String()[1:]
+
+	switch {
+	case mode&fs.ModeSymlink != 0:
+		item["kind"] = "symlink"
+		if target, err := os.Readlink(full); err == nil {
+			item["target"] = filepath.ToSlash(target)
+		}
+		if st, err := os.Stat(full); err == nil && st.IsDir() {
+			item["linkDir"] = true
+		}
+	case mode.IsDir():
+		item["kind"] = "dir"
+		if n, more, err := countEntries(full, maxDirEntriesCounted); err == nil {
+			item["entries"] = n
+			if more {
+				item["entriesTruncated"] = true
+			}
+		}
+	case mode.IsRegular():
+		item["kind"] = "file"
+		item["size"] = info.Size()
+		item["executable"] = mode.Perm()&0o111 != 0
+	default:
+		item["kind"] = "other"
+	}
+}
+
+// countEntries counts a directory's entries, reading no more than limit+1 names,
+// and says whether there were more than limit.
+func countEntries(dir string, limit int) (int, bool, error) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return 0, false, err
+	}
+	defer func() { _ = f.Close() }()
+	names, err := f.Readdirnames(limit + 1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return 0, false, err
+	}
+	if len(names) > limit {
+		return limit, true, nil
+	}
+	return len(names), false, nil
 }

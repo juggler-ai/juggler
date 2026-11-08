@@ -325,6 +325,7 @@ import { runTests as runReviewSendTests } from '../unit-tests/review-send-test.j
 import { runTests as runReviewPanelTests } from '../unit-tests/review-panel-test.js';
 import { runTests as runDiffViewerTests } from '../unit-tests/diff-viewer-test.js';
 import { runTests as runPinboardRetentionTests } from '../unit-tests/pinboard-retention-test.js';
+import { runTests as runPinboardViewStateTests } from '../unit-tests/pinboard-view-state-test.js';
 import { runTests as runWsListenerIsolationTests } from '../unit-tests/ws-listener-isolation-test.js';
 import { runTests as runIconsTests } from '../unit-tests/icons-test.js';
 import { runTests as runPinboardSatelliteTests } from '../unit-tests/pinboard-satellite-test.js';
@@ -959,6 +960,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:review-panel', run: runReviewPanelTests },
   { name: 'unit:diff-viewer', run: runDiffViewerTests },
   { name: 'unit:pinboard-retention', run: runPinboardRetentionTests },
+  { name: 'unit:pinboard-view-state', run: runPinboardViewStateTests },
   { name: 'unit:ws-listener-isolation', run: runWsListenerIsolationTests },
   { name: 'unit:icons', run: runIconsTests },
   // Exclusive: it puts the whole document into pinboard mode for the length of

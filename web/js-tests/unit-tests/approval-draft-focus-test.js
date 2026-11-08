@@ -33,6 +33,7 @@ import {
   waitFor,
   assert
 } from '../utilities/test-helpers.js';
+import { isolateFocus } from '../utilities/isolate-focus.js';
 import '../../js/components/conversation-tab.js';
 import '../../js/components/action-confirmation.js'; // registers <action-confirmation>
 
@@ -99,11 +100,12 @@ export async function runTests() {
    * have run — in the draft case, to have run and decided to do nothing. The
    * engage requests exactly one frame, synchronously, so it is the newest id.
    * @param {any} tab - The conversation-tab under test.
+   * @param {{force?: boolean}} [opts] - Passed to the engage.
    * @returns {Promise<void>} Resolves once the deferred engage has decided.
    */
-  const engageAndSettle = async (tab) => {
+  const engageAndSettle = async (tab, opts = {}) => {
     const before = nextFrameId;
-    tab._engageSelectedApproval();
+    tab._engageSelectedApproval(opts);
     assert(nextFrameId > before, 'the engage should defer onto a frame');
     const engageFrame = nextFrameId - 1;
     await waitFor(() => !pendingFrames.has(engageFrame), 'the deferred engage frame to run');
@@ -119,6 +121,8 @@ export async function runTests() {
   let conversation = null;
   /** @type {any} */
   let tab = null;
+  /** @type {ReturnType<typeof isolateFocus>|null} */
+  let focus = null;
 
   try {
     session = await createTestSession();
@@ -145,6 +149,13 @@ export async function runTests() {
     // real focus theft with a pass that has nothing to do with the guard.
     await waitFor(() => reassertTicksPending() === 0,
       () => `the post-rebuild focus re-assertion to drain (${reassertTicksPending()} tick(s) pending)`);
+
+    // Every lane is a frame of one window, so a sibling lane's focus() can stop
+    // a real focus() here from taking at all. Focus is kept lane-local from
+    // here on, and each case steals the window's real focus after its engage,
+    // as a sibling would, so an assertion that read the real focus would fail
+    // on every run rather than on an unlucky one.
+    focus = isolateFocus();
 
     const column = /** @type {any} */ (tab.querySelector('conversation-area'));
     assert(!!column, 'tab should have a conversation-area column');
@@ -196,7 +207,9 @@ export async function runTests() {
     );
 
     await engageAndSettle(tab);
+    focus.steal();
 
+    assert(!focus.asked(button), 'an approval must not ask for focus over a draft being typed');
     assert(
       document.activeElement === textarea,
       'an approval must not take the keyboard off a draft being typed, '
@@ -209,11 +222,8 @@ export async function runTests() {
     textarea.value = '';
     textarea.focus();
 
-    tab._engageSelectedApproval();
-    await waitFor(
-      () => document.activeElement === button,
-      { timeoutMs: 2000, description: 'approval to engage over an empty message box' }
-    ).catch(() => {});
+    await engageAndSettle(tab);
+    focus.steal();
 
     assert(
       document.activeElement === button,
@@ -227,11 +237,8 @@ export async function runTests() {
     textarea.value = 'still half written';
     textarea.focus();
 
-    tab._engageSelectedApproval({ force: true });
-    await waitFor(
-      () => document.activeElement === button,
-      { timeoutMs: 2000, description: 'jump-to-attention to engage the approval' }
-    ).catch(() => {});
+    await engageAndSettle(tab, { force: true });
+    focus.steal();
 
     assert(
       document.activeElement === button,
@@ -244,6 +251,7 @@ export async function runTests() {
     failed = 1;
     errors.push(e instanceof Error ? e.message : String(e));
   } finally {
+    focus?.restore();
     tab?.setHidden?.();
     container.remove();
     window.requestAnimationFrame = realRaf;

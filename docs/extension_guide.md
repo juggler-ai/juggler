@@ -1269,11 +1269,15 @@ file doesn't bloat Yjs).
 
 ### Seeded agents files and mentions freeze
 
-An `@`-mention (`data.frozen`) and the `CLAUDE.md` / `AGENTS.md` /
-`.cursorrules` a session seeds itself with (`session.js` `addAIAssistantFiles`,
-`data.seeded`, which implies frozen) are the same class, and they are **frozen**,
-not live: they snapshot once into `data.content` and serve that for the life of
-the conversation.
+An `@`-mention (`data.frozen`) and the `AGENTS.md` / `CLAUDE.md` /
+`.cursorrules` (and `.local` twins) a session seeds itself with — the user's
+global ones in `~/.juggler` and `~/.agents`, then the workspace root's
+(`conversation-seeder.js` `addAIAssistantFiles`, `data.seeded`, which implies
+frozen) — are the same class, and they are **frozen**, not live: they snapshot
+once into `data.content` and serve that for the life of the conversation. The
+instruction files of a folder *below* the root are not context items at all:
+they load the first time a read or edit touches that folder, inside that call's
+tool_result (`services/instruction-files.js`).
 
 Live would be the expensive default for both, for the same reason. The agent
 editing the file it was handed is *routine* — a file is mentioned so the agent can

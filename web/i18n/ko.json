@@ -687,6 +687,7 @@
   "Installed": "설치됨",
   "Installed — update available": "설치됨 — 업데이트 사용 가능",
   "Installing downloads & writes files — it never runs anything. A skill's text still enters the model's context, so review it below before trusting it.": "설치는 파일을 다운로드하고 기록할 뿐 아무것도 실행하지 않습니다. 그래도 스킬의 텍스트는 모델의 컨텍스트에 들어가므로, 신뢰하기 전에 아래에서 검토하세요.",
+  "Instructions loaded": "불러온 지침",
   "Internal error: this turn crashed and was stopped ({detail}). The conversation is safe to continue.": "내부 오류: 이 턴이 충돌하여 중지되었습니다({detail}). 대화는 안전하게 계속할 수 있습니다.",
   "Internal error: {detail}": "내부 오류: {detail}",
   "Invalid asset id": "잘못된 에셋 ID",

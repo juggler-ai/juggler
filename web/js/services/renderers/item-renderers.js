@@ -38,7 +38,7 @@ import { normalizeAttachments, formatAttachmentBytes } from '../../utils/attachm
 import { createImageThumb } from '../../utils/image-lightbox.js';
 import { renderTaskDeliveryControl } from '../../../sdk/lib/task-delivery-control.js';
 import apiService from '../../services/api.js';
-import { plain, plainRecord, yGet, yGetRecord } from '../../model/item-accessor.js';
+import { plain, plainList, plainRecord, yGet, yGetRecord } from '../../model/item-accessor.js';
 import { itemGoal } from '../../model/thread-alias.js';
 import { t, markForTranslation, formatDate } from '../../../sdk/lib/i18n.js';
 
@@ -665,6 +665,14 @@ export function renderToolAction(host, container, toolAction) {
     }
 
     wrapper.appendChild(resultSection);
+  }
+
+  const instructionsText = plainList(yGet(toolAction, 'instructions'))
+    .map((/** @type {any} */ f) => (typeof f?.path === 'string' ? f.path : ''))
+    .filter(Boolean)
+    .join('\n');
+  if (instructionsText) {
+    panelHelpers.addSubsection(wrapper, t('Instructions loaded'), instructionsText, 'properties-panel-text');
   }
 
   const hooksText = describeHookRecords(yGet(toolAction, 'hooks'));

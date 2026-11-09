@@ -87,7 +87,7 @@
       "item": [
         "type", "itemId", "content", "source", "summary", "timestamp", "toolUseId", "toolName", "toolInput",
         "state", "category", "approvalOptions", "displayData", "isError", "data", "cancelled", "result", "hooks",
-        "goal", "items", "boundedCompaction", "compactionPromptItemId", "contextSeeded", "sessionName", "aliasOf",
+        "instructions", "goal", "items", "boundedCompaction", "compactionPromptItemId", "contextSeeded", "sessionName", "aliasOf",
         "needsStrategyRun", "noAutoSelect", "noContextSeed", "forceTool", "handoffPromote", "foldedRuns",
         "preventUserDeletion", "isNew", "error", "runToolUseId", "runToolName", "runToolInput", "runGoal",
         "runStatus", "runResult", "continuation", "runItemId", "recoversError", "runResultFed", "transactionId",

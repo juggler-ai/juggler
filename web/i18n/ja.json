@@ -687,6 +687,7 @@
   "Installed": "インストール済み",
   "Installed — update available": "インストール済み — アップデートあり",
   "Installing downloads & writes files — it never runs anything. A skill's text still enters the model's context, so review it below before trusting it.": "インストールはファイルをダウンロードして書き込むだけで、何も実行しません。ただしスキルのテキストはモデルのコンテキストに入るため、信頼する前に以下で内容を確認してください。",
+  "Instructions loaded": "読み込んだ指示",
   "Internal error: this turn crashed and was stopped ({detail}). The conversation is safe to continue.": "内部エラー: このターンはクラッシュして停止しました（{detail}）。会話はそのまま続けても安全です。",
   "Internal error: {detail}": "内部エラー: {detail}",
   "Invalid asset id": "無効なアセット ID",

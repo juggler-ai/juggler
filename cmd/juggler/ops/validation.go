@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/text/encoding/unicode"
 
+	"juggler/internal/instructionfiles"
 	"juggler/internal/jlog"
 )
 
@@ -89,7 +90,16 @@ func (s PathScope) ProjectRoot() string {
 // NOT approval-gated, so the scope is the policy boundary and must self-enforce
 // containment (including the allowed-roots grant). Write/edit ops use Sanitize
 // instead — see the contrast below.
+//
+// One widening needs no grant: the user's global instruction files (their own
+// AGENTS.md in <ConfigDir> or ~/.agents), named exactly, so a conversation can
+// be seeded with them. Nothing else in those folders is admitted — <ConfigDir>
+// also holds credentials (instructionfiles.IsGlobalFile).
 func (s PathScope) Resolve(requestedPath string) (*PathValidationResult, error) {
+	if instructionfiles.IsGlobalFile(requestedPath) {
+		abs := filepath.Clean(requestedPath)
+		return &PathValidationResult{AbsPath: abs, RelPath: requestedPath, IsValid: true}, nil
+	}
 	return ValidateFilePathWithRoots(s.root, s.allowedRoots, requestedPath)
 }
 

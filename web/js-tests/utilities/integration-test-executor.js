@@ -63,6 +63,7 @@ import { runTests as runCacheBaselineAnchorTests } from '../unit-tests/cache-bas
 import { runTests as codeLinesTests } from '../unit-tests/code-lines-test.js';
 import { runTests as runCacheMissWarningTests } from '../unit-tests/cache-miss-warning-test.js';
 import { runTests as runFileContentFreezeTests } from '../unit-tests/file-content-freeze-test.js';
+import { runTests as runFolderInstructionsTests } from '../unit-tests/folder-instructions-test.js';
 import { runTests as runErrorRetryGateTests } from '../unit-tests/error-retry-gate-test.js';
 import { runTests as runAuthErrorActionTests } from '../unit-tests/auth-error-action-test.js';
 import { runTests as runAutoContinueErrorTests } from '../unit-tests/auto-continue-error-test.js';
@@ -657,6 +658,7 @@ const UNIT_TEST_SUITES = [
   { name: 'unit:code-lines', run: codeLinesTests },
   { name: 'unit:cache-miss-warning', run: runCacheMissWarningTests },
   { name: 'unit:file-content-freeze', run: runFileContentFreezeTests },
+  { name: 'unit:folder-instructions', run: runFolderInstructionsTests },
   { name: 'unit:error-retry-gate', run: runErrorRetryGateTests },
   { name: 'unit:auth-error-action', run: runAuthErrorActionTests },
   { name: 'unit:auto-continue-error', run: runAutoContinueErrorTests },

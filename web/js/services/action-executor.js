@@ -6,6 +6,7 @@ import { extractErrorInfo, extractErrorMessage } from '../../sdk/lib/error-utils
 import ContextItem from 'juggler/context-item';
 import { OpsError } from './ops-api.js';
 import wsService from './websocket.js';
+import { loadFolderInstructions } from './instruction-files.js';
 
 /**
  * Class names already warned about an empty success summary, so the advisory
@@ -52,6 +53,7 @@ function warnOnEmptySuccessSummary(rawSummary, className) {
  * @property {object} [result] - Result data (may exist on failure for partial results)
  * @property {number} [durationMs] - How long the action took in milliseconds
  * @property {import('./hook-runtime.js').HookRecord[]} [hookRecords] - What the afterTool hooks did (set by execute())
+ * @property {import('./instruction-files.js').LoadedInstructions[]} [instructions] - The folder instruction files the call brought with it (set by execute())
  */
 
 /**
@@ -318,6 +320,21 @@ class ActionExecutor {
       if (!actionResult.cancelled && !controller.signal.aborted
           && context.messageThread && context.toolUseId) {
         actionResult.hookRecords = await this._runAfterToolHooks(actionId, toolInput, context, actionResult, controller.signal);
+      }
+      // Step 5: the instruction files of a folder the call has just worked in
+      // for the first time, under the same rule as the hooks and for the same
+      // reason. Only a call that succeeded: a failed read touched nothing.
+      if (actionResult.success && !controller.signal.aborted
+          && context.messageThread && context.toolUseId) {
+        const instructions = await loadFolderInstructions({
+          conversation: context.conversation,
+          messageThread: context.messageThread,
+          toolUseId: context.toolUseId,
+          toolName: context.toolName || actionId,
+          toolInput,
+          signal: controller.signal,
+        });
+        if (instructions.length) actionResult.instructions = instructions;
       }
       return actionResult;
     } finally {

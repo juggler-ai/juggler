@@ -687,6 +687,7 @@
   "Installed": "[Îñšţåļļéð ···]",
   "Installed — update available": "[Îñšţåļļéð — ûþðåţé åṽåîļåƀļé ········]",
   "Installing downloads & writes files — it never runs anything. A skill's text still enters the model's context, so review it below before trusting it.": "[Îñšţåļļîñĝ ðöŵñļöåðš & ŵŕîţéš ƒîļéš — îţ ñéṽéŕ ŕûñš åñýţĥîñĝ. Å šķîļļ''š ţéẋţ šţîļļ éñţéŕš ţĥé ɱöðéļ''š çöñţéẋţ, šö ŕéṽîéŵ îţ ƀéļöŵ ƀéƒöŕé ţŕûšţîñĝ îţ. ·········································]",
+  "Instructions loaded": "[Îñšţŕûçţîöñš ļöåðéð ······]",
   "Internal error: this turn crashed and was stopped ({detail}). The conversation is safe to continue.": "[Îñţéŕñåļ éŕŕöŕ: ţĥîš ţûŕñ çŕåšĥéð åñð ŵåš šţöþþéð ({detail}). Ţĥé çöñṽéŕšåţîöñ îš šåƒé ţö çöñţîñûé. ·························]",
   "Internal error: {detail}": "[Îñţéŕñåļ éŕŕöŕ: {detail} ·····]",
   "Invalid asset id": "[Îñṽåļîð åššéţ îð ·····]",

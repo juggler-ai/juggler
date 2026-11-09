@@ -687,6 +687,7 @@
   "Installed": "Installé",
   "Installed — update available": "Installé — mise à jour disponible",
   "Installing downloads & writes files — it never runs anything. A skill's text still enters the model's context, so review it below before trusting it.": "L’installation télécharge et écrit des fichiers — elle n’exécute jamais rien. Le texte d’un skill entre tout de même dans le contexte du modèle ; relisez-le ci-dessous avant de lui faire confiance.",
+  "Instructions loaded": "Instructions chargées",
   "Internal error: this turn crashed and was stopped ({detail}). The conversation is safe to continue.": "Erreur interne : ce tour a planté et a été arrêté ({detail}). Vous pouvez poursuivre la conversation sans risque.",
   "Internal error: {detail}": "Erreur interne : {detail}",
   "Invalid asset id": "Identifiant de ressource non valide",

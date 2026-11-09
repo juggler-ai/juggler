@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"juggler/internal/atomicio"
+	"juggler/internal/instructionfiles"
 	"juggler/internal/jlog"
 	"juggler/internal/windowstate"
 )
@@ -40,6 +41,10 @@ type RuntimeInfo struct {
 	ProjectPath string `json:"projectPath"`
 	Platform    string `json:"platform"`
 	Home        string `json:"home"`
+	// InstructionDirs are the folders holding the user's global AGENTS.md,
+	// widest first (instructionfiles.Dirs). The read scope admits exactly the
+	// instruction files in them, so a conversation can be seeded with them.
+	InstructionDirs []string `json:"instructionDirs"`
 }
 
 // GetRuntimeInfo returns current runtime environment info
@@ -49,6 +54,8 @@ func GetRuntimeInfo(projectPath string) RuntimeInfo {
 		ProjectPath: projectPath,
 		Platform:    runtime.GOOS,
 		Home:        home,
+
+		InstructionDirs: instructionfiles.Dirs(),
 	}
 }
 

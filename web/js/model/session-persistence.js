@@ -54,6 +54,7 @@ import { takeDeepLinkConversationId } from '../utils/view-mode.js';
  * @property {boolean|undefined} projectHostsLocalProviders - Whether the project can host a provider Juggler spawns
  * @property {string} platform - darwin/linux/windows
  * @property {string} home - The backend user's home directory
+ * @property {string[]} instructionDirs - The folders holding the user's global instruction files
  * @property {HistoryMessage[]} messageHistory - The prompt history
  * @property {Record<string, unknown>} metadata - The frontend flags
  */
@@ -191,6 +192,7 @@ export default class SessionPersistence {
     const state = this._host.state();
     if (data.platform) state.platform = data.platform;
     if (data.home) state.home = data.home;
+    if (Array.isArray(data.instructionDirs)) state.instructionDirs = data.instructionDirs;
     state.messageHistory = Array.isArray(data.messageHistory)
       ? data.messageHistory.map(normalizeHistoryEntry)
       : [];

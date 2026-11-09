@@ -994,8 +994,9 @@ export default class MessageThread {
       // to avoid duplicating the refs.
       // The tool-hook record is item-level for the same reason: the worker
       // reads it beside the result (its notes ride inside the tool_result), and
-      // beforeTool hooks write it before there is a result at all.
-      const { attachments, hooks, ...resultRest } = /** @type {any} */ (result || {});
+      // beforeTool hooks write it before there is a result at all. The folder
+      // instructions a call brought with it are read beside the result too.
+      const { attachments, hooks, instructions, ...resultRest } = /** @type {any} */ (result || {});
       // displayData is by far the largest thing a tool-action carries: an edit's
       // diff holds the whole file both before and after. It reaches here twice —
       // once on the item, set by the approval flow, and again nested inside
@@ -1021,6 +1022,13 @@ export default class MessageThread {
           }
           if (Array.isArray(hooks)) {
             ymap.set('hooks', convertToYType(hooks));
+          }
+          if (Array.isArray(instructions) && instructions.length) {
+            ymap.set('instructions', convertToYType(instructions));
+          } else if (ymap.has('instructions')) {
+            // A re-run loads afresh; what an earlier run of the call loaded
+            // described that run.
+            ymap.delete('instructions');
           }
           // Promote it onto the YMap so the properties panel can render diffs for
           // auto-approved actions, where the approval flow never set the

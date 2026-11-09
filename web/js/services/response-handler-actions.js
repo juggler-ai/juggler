@@ -608,7 +608,8 @@ async function runActionAndComplete(rh, toolCall, actionId, toolInput, messageTh
       resultType: RESULT_TYPES.ACTION,
       fullResult,
       ...(attachments && attachments.length ? { attachments } : {}),
-      ...(hooks ? { hooks } : {})
+      ...(hooks ? { hooks } : {}),
+      ...(result.instructions?.length ? { instructions: result.instructions } : {})
     });
 
     // Determine result status

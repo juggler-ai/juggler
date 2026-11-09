@@ -687,6 +687,7 @@
   "Installed": "已安装",
   "Installed — update available": "已安装 —— 有可用更新",
   "Installing downloads & writes files — it never runs anything. A skill's text still enters the model's context, so review it below before trusting it.": "安装会下载并写入文件——它从不运行任何东西。技能文本仍会进入模型的上下文，因此在信任前请先阅读下方内容。",
+  "Instructions loaded": "已加载的指令",
   "Internal error: this turn crashed and was stopped ({detail}). The conversation is safe to continue.": "内部错误：本回合崩溃并已停止（{detail}）。对话可以安全继续。",
   "Internal error: {detail}": "内部错误：{detail}",
   "Invalid asset id": "无效的资源 ID",

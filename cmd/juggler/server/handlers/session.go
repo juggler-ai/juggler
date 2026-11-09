@@ -415,6 +415,7 @@ func (api *SessionAPI) HandleGetSession(w http.ResponseWriter, r *http.Request) 
 		"projectPath":          runtime.ProjectPath,
 		"platform":             runtime.Platform,
 		"home":                 runtime.Home,
+		"instructionDirs":      runtime.InstructionDirs,
 		"conversationOrder":    sess.ConversationOrder,
 		"conversationNames":    api.manager().ConvNames(),
 		"activeConversationId": sess.ActiveConversationID,

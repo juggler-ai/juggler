@@ -39,6 +39,7 @@ const (
 	keyCancelled              = "cancelled"
 	keyResult                 = "result"
 	keyHooks                  = "hooks"
+	keyInstructions           = "instructions"
 	keyGoal                   = "goal"
 	keyItems                  = "items"
 	keyBoundedCompaction      = "boundedCompaction"

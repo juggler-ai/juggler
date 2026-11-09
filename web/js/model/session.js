@@ -71,6 +71,7 @@ const RENAME_ERROR_CODES = new Map(/** @type {const} */ ([
  * @property {string[]} [conversationOrder] - Conversation IDs in order (v4 format with binary storage)
  * @property {string} activeConversationId - Active conversation ID
  * @property {string} [home] - Backend user-home directory (e.g. /Users/jules)
+ * @property {string[]} [instructionDirs] - Folders holding the user's global AGENTS.md, widest first
  * @property {ProviderInfo} providerInfo - Provider information
  * @property {Array<string|HistoryMessage>} [messageHistory] - Session-level message history for input navigation. Entries may be legacy bare strings until normalized.
  * @property {Record<string, unknown>} [metadata] - General-purpose key-value store for frontend flags
@@ -290,6 +291,14 @@ class Session {
      * @type {string}
      */
     this.home = '';
+
+    /**
+     * Folders holding the user's global agent instruction files, widest first
+     * (`instructionfiles.Dirs` on the server). Seeded into every conversation
+     * ahead of the project's own (`conversation-seeder.js`).
+     * @type {string[]}
+     */
+    this.instructionDirs = [];
 
     /**
      * Provider information (provider, model, contextWindow)

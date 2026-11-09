@@ -13,8 +13,9 @@
  *   default never retargets an existing conversation. They depend on nothing
  *   but the session's settings.
  * - **Auto items** ({@link seedConversationAutoItems}) put the always-present
- *   context items on a thread: the assistant files (CLAUDE.md, AGENTS.md, …)
- *   of the tree the conversation works in, and every `autoInstantiate`
+ *   context items on a thread: the assistant files (AGENTS.md, CLAUDE.md, …)
+ *   of the user's global folders and of the tree the conversation works in
+ *   (`services/instruction-files.js` names them), and every `autoInstantiate`
  *   context-item type (e.g. project memory). These are root-relative, so they
  *   are run when a conversation is bound to its tree
  *   (`Session.initialiseConversation`), when it moves to another
@@ -36,6 +37,7 @@ import { resolveDefaultStrategyId, BUILTIN_DEFAULT_STRATEGY_ID } from '../servic
 import { workspaceInstructionRoots } from '../services/workspace-provisioning.js';
 import { BUILTIN_DEFAULT_ID } from '../../sdk/lib/system-prompt-registry.js';
 import { reportFact } from '../services/guidance/facts.js';
+import { INSTRUCTION_FILE_NAMES, joinInstructionPath } from '../services/instruction-files.js';
 import { itemField } from '../../sdk/lib/message.js';
 
 /**
@@ -127,20 +129,11 @@ function seedDefaultStrategy(session, conversation) {
 }
 
 /**
- * AI assistant files to auto-detect
- * @type {string[]}
- */
-const AI_ASSISTANT_FILES = [
-  'CLAUDE.md',
-  '.claude.md',
-  '.cursorrules',
-  'AGENTS.md',
-  '.instructions'
-];
-
-/**
- * Add AI assistant files that exist in the probed tree, and in whatever wider
- * places its provider says also hold instructions for work done there.
+ * Add AI assistant files that exist in the user's global instruction folders,
+ * in the probed tree, and in whatever wider places its provider says also hold
+ * instructions for work done there. Folders below the tree's root are not
+ * probed here: their files load when the agent first works in them
+ * (`services/instruction-files.js`).
  * Checks each file exists before adding, prevents duplicates via FileContentContextItem.mergeOrReplace
  * @param {import('./session.js').default} session - The session whose preferences and workspaces apply
  * @param {import('./conversation.js').default} conversation - Conversation to add files to
@@ -179,18 +172,21 @@ async function addAIAssistantFiles(session, conversation, messageThread = null, 
   // the project itself, whose parent is the user's home directory — while the
   // list of names, the dedup and the skip below stay here.
   //
-  // Widest first, so a tree's own files are probed last and read closest. The
+  // Widest first, so a tree's own files are probed last and read closest: the
+  // user's global folders, then the places above the tree, then the tree. The
   // paths are absolute, which the scope allows: reads from a workspace are
-  // widened by the project (scope, in cmd/juggler/workspace/local.go), and a
+  // widened by the project (scope, in cmd/juggler/workspace/local.go), the
+  // global instruction files are admitted by name (ops/validation.go), and a
   // workspace-relative `../` would read as a file of the workspace's own,
   // both to the model and in the properties panel.
+  const global = Array.isArray(session?.instructionDirs) ? session.instructionDirs : [];
   const above = where ? workspaceInstructionRoots(session, session.getWorkspace(where)) : [];
+  const atDir = (/** @type {string} */ dir) => INSTRUCTION_FILE_NAMES.map(name => joinInstructionPath(dir, name));
+  const globalProbes = global.flatMap(atDir);
   const probes = [
-    ...above.flatMap(root => AI_ASSISTANT_FILES.map(
-      // In the separator the root arrived in: a Windows root joined with '/'
-      // is a path the user never sees written that way anywhere else.
-      name => `${root}${root.includes('\\') && !root.includes('/') ? '\\' : '/'}${name}`)),
-    ...AI_ASSISTANT_FILES
+    ...globalProbes,
+    ...above.flatMap(atDir),
+    ...INSTRUCTION_FILE_NAMES
   ];
 
   // Check all candidate files in parallel — sequential awaits on disk-read
@@ -212,8 +208,10 @@ async function addAIAssistantFiles(session, conversation, messageThread = null, 
 
   // What was found is a fact guidance may act on (a project with no
   // instruction file at all is offered help writing one); nothing else here
-  // knows or decides anything about that.
-  reportFact('instruction-files', conversation.id, candidates.filter(Boolean).length);
+  // knows or decides anything about that. The user's global files are not the
+  // project's, so they do not count.
+  reportFact('instruction-files', conversation.id,
+    candidates.slice(globalProbes.length).filter(Boolean).length);
 
   // Add discovered files sequentially so each executeContextItem sees a
   // stable thread state (avoids racing duplicate inserts of the same

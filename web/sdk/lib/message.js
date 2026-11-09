@@ -208,6 +208,7 @@ export const ACTION_STATES = Object.freeze({
  * @property {boolean} cancelled - Whether the tool was cancelled
  * @property {unknown} data - A context or error item's additional data
  * @property {unknown} hooks - The call's tool-hook records
+ * @property {unknown} instructions - The folder instruction files a tool call loaded, sent inside its result
  * @property {unknown} attachments - Image/binary asset refs
  * @property {unknown} heldAssets - Assets held for the item
  * @property {unknown} heldCall - A program's call held for approval
@@ -325,6 +326,7 @@ export const ACTION_STATES = Object.freeze({
  * @property {ActionFullResult} [fullResult] - Full result object for UI rendering (action tools)
  * @property {import('../../js/services/ops-api.js').AssetRef[]} [attachments] - Image/binary asset refs produced by the tool (e.g. an image read); split out and stored at the tool-action item level, not inside the result blob
  * @property {object[]} [hooks] - The call's tool-hook record (see services/hook-runtime.js HookRecord); split out and stored at the tool-action item level, where the worker reads each record's note into the tool_result
+ * @property {{path: string, content: string}[]} [instructions] - The instruction files of the folders the call touched (see services/instruction-files.js); split out and stored at the tool-action item level, where the worker renders them into the tool_result
  * @property {boolean} [cancelled] - Whether cancelled/rejected by user
  * @property {boolean} [interrupted] - Whether interrupted by page reload
  * @property {string} [task_id] - Background task ID for reconnection

@@ -21,6 +21,7 @@ import { t } from '../../sdk/lib/i18n.js';
  * @property {string} projectPath - Project root directory path
  * @property {string} [platform] - Platform (darwin/linux/windows)
  * @property {string} [home] - Backend user-home directory (e.g. /Users/jules)
+ * @property {string[]} [instructionDirs] - Folders holding the user's global AGENTS.md, widest first
  * @property {string[]} [conversationOrder] - Conversation IDs in order (v4 binary storage)
  * @property {string} activeConversationId - Active conversation ID
  * @property {{provider: string, model: string, contextWindow: number}} providerInfo - Provider information

@@ -7,7 +7,7 @@ the Juggler-native equivalent of the "saved memories" you may know from other
 assistants.
 
 Memory is **per project, private, and editable**. It is not a replacement for
-your agent instructions file (`CLAUDE.md` / `AGENTS.md`): that file is the
+your agent instructions file (`AGENTS.md` / `CLAUDE.md`): that file is the
 instructions *you* write for the assistant; memory is the notes the *assistant*
 keeps for itself.
 

@@ -1027,6 +1027,11 @@ type ConversationItem struct {
 	// the engine's hook runtime). Notes in it are part of what the model is sent:
 	// toolResultHookNotes renders them into the call's tool_result.
 	Hooks json.RawMessage `json:"hooks,omitempty"`
+	// Instructions are the instruction files of the folders this call worked
+	// in for the first time (written by the engine's
+	// services/instruction-files.js); toolResultInstructions renders them into
+	// the call's tool_result.
+	Instructions json.RawMessage `json:"instructions,omitempty"`
 	// Thread-specific fields
 	Goal                   string          `json:"goal,omitempty"`                   // Thread goal description
 	Items                  json.RawMessage `json:"items,omitempty"`                  // Nested items for thread messages (preserved for undo/redo)

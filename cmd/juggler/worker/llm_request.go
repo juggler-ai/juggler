@@ -381,8 +381,9 @@ func buildToolUseMap(item ConversationItem) map[string]any {
 }
 
 // buildToolResultMap returns a tool-result message map from the item's Result JSON,
-// followed by the changes a program tool made (programChangeReport) and any
-// hook notes. Returns nil if the result cannot be unmarshalled.
+// followed by the changes a program tool made (programChangeReport), the folder
+// instructions the call loaded, and any hook notes. Returns nil if the result
+// cannot be unmarshalled.
 func buildToolResultMap(item ConversationItem) map[string]any {
 	var result map[string]any
 	if err := json.Unmarshal(item.Result, &result); err != nil {
@@ -391,6 +392,7 @@ func buildToolResultMap(item ConversationItem) map[string]any {
 	content, _ := result[keyContent].(string)
 	isError, _ := result[keyIsError].(bool)
 	content += programChangeReport(item.DisplayData)
+	content += toolResultInstructions(item)
 	content += toolResultHookNotes(item)
 	m := map[string]any{
 		"type":      "tool-result",
@@ -439,6 +441,39 @@ func toolResultHookNotes(item ConversationItem) string {
 			continue
 		}
 		fmt.Fprintf(&b, "\n\n<hook-note source=%q>\n%s\n</hook-note>", r.ID, strings.TrimSpace(r.Note))
+	}
+	return b.String()
+}
+
+// loadedInstructions is one instruction file a call loaded for a folder it
+// worked in (see the `instructions` field the engine writes on a tool-action).
+type loadedInstructions struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+// toolResultInstructions renders the folder instruction files a call loaded as a
+// suffix to its tool_result content, one tagged block per file, outermost
+// folder first. Empty when the call loaded none.
+//
+// They ride inside the tool_result for the reason hook notes do
+// (toolResultHookNotes): anywhere after the batch reads to the claudecode
+// provider as the user interjecting. Inside, the request stays append-only and
+// the bytes are in the doc beside the result.
+func toolResultInstructions(item ConversationItem) string {
+	if len(item.Instructions) == 0 {
+		return ""
+	}
+	var files []loadedInstructions
+	if err := json.Unmarshal(item.Instructions, &files); err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, f := range files {
+		if strings.TrimSpace(f.Content) == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "\n\n<instructions path=%q>\n%s\n</instructions>", f.Path, strings.TrimSpace(f.Content))
 	}
 	return b.String()
 }

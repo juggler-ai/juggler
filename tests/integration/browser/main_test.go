@@ -121,10 +121,18 @@ func allPools() []*lanePool {
 // pool shutdown. Empty when unset (e.g. the -short path).
 var testLogDir string
 
-// keepTestLogs is set when a lane went silent with a suite in hand: the
-// subprocesses' logs are then the only record of what the lane was doing, so
-// shutdown leaves testLogDir in place and names it.
-var keepTestLogs atomic.Bool
+// keptLogsReason is why testLogDir outlives the run, nil while nothing has
+// asked. Each server's server.log there holds the jlog lines — every `[engine]`
+// line among them — which its stderr file never sees (a pool server has no
+// terminal), so for a silent lane, a dead server or an engine that never
+// connected it is the only record. Shutdown names the dir and the first reason.
+var keptLogsReason atomic.Pointer[string]
+
+// keepTestLogs keeps testLogDir past shutdown; the first reason given is the
+// one shutdown prints.
+func keepTestLogs(reason string) {
+	keptLogsReason.CompareAndSwap(nil, &reason)
+}
 
 // testConfigDir is a throwaway per-user config root inherited by every pool
 // subprocess. It isolates cache-backed convenience state such as recent models,
@@ -501,6 +509,7 @@ func awaitEngines(entries []testServerEntry) {
 	}
 	for range entries {
 		if o := <-done; o.err != nil {
+			keepTestLogs("an engine never connected")
 			fmt.Fprintf(os.Stderr, "pool subprocess %s: %v — its lanes will fail on their own deadline\n", o.addr, o.err)
 		}
 	}
@@ -533,8 +542,8 @@ func (p *poolHandle) shutdown() {
 			os.RemoveAll(e.fixture)
 		}
 		if testLogDir != "" {
-			if keepTestLogs.Load() {
-				fmt.Fprintf(os.Stderr, "a lane went silent: the pool's logs are kept in %s\n", testLogDir)
+			if reason := keptLogsReason.Load(); reason != nil {
+				fmt.Fprintf(os.Stderr, "%s: the pool's logs (each server's server.log) are kept in %s\n", *reason, testLogDir)
 			} else {
 				os.RemoveAll(testLogDir)
 			}

@@ -488,13 +488,16 @@ func runOneBrowserTest(t *testing.T, srv testServerEntry) (abandoned bool) {
 		}
 		// The machine reading is ours to take here: no result came back, so the
 		// lane never assembled a failure block to carry one of its own.
-		keepTestLogs.Store(true)
+		keepTestLogs("a lane went silent")
 		t.Errorf("waiting for test result: %v\n%s%s\n%s%s", err,
 			queueAudit(srv.addr, name), projectSize(srv.addr), laneReport(srv.addr), machineload.Line())
 		return true
 	}
 
 	if !result.Passed {
+		// The server's own account of the failure — fixture copies and deletes,
+		// engine reconnects — is in its server.log and nowhere else.
+		keepTestLogs("a test failed")
 		if len(result.Errors) > 0 {
 			for _, e := range result.Errors {
 				t.Error(e)
@@ -586,6 +589,7 @@ func poolDeath(srv testServerEntry) string {
 	if !first {
 		return fmt.Sprintf("POOL SERVER: already dead (pid %d) — see the first failure for the post-mortem.", p.pid)
 	}
+	keepTestLogs("a pool server died")
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "POOL SERVER DIED: pid %d %s after %s of the run — every lane lives in this one "+
@@ -632,9 +636,9 @@ const stallSampleMainThreadLines = 120
 
 // stallSampleReport quotes the main thread's call graph from the sample a
 // wedged pool server took of itself, and keeps the whole sample beside the
-// stderr logs. The sample is written into the pool's throwaway log dir, which
-// is deleted when the run ends — before CI's dump step, which prints every log
-// beside the stderr files and so prints the kept copy in full. The main thread
+// stderr logs. The sample is written into the pool's log dir (testLogDir),
+// which CI's dump step never reads: it prints every log beside the stderr
+// files, so the copy kept there is printed in full. The main thread
 // alone names where it is stuck; the other threads are what say who holds the
 // lock it waits on, which is why the whole file is kept.
 func stallSampleReport(samplePath string, p *poolProc) string {

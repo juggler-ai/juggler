@@ -17,6 +17,10 @@
  * broadcast and lands on these controls, but never over a URL the user is part-way
  * through typing — the field commits on blur, so an uncommitted value is still
  * theirs.
+ *
+ * The real server's own settings-changed broadcasts are held off every case: the
+ * fake backend is the server here, and a sibling lane's write to the shared
+ * settings.json would otherwise put the real proxy on the controls mid-case.
  * @module unit-tests/proxy-settings-test
  */
 
@@ -136,6 +140,14 @@ export async function runTests(_ctx) {
     // already done at boot, against the real server. Forget that read so this
     // case's backend is the one the panel sees.
     __resetPrefsForTests();
+    // The real server still broadcasts its own settings.json to this page, and
+    // every lane on a pool server shares that file, so a write anywhere on it
+    // lands here mid-case carrying the real proxy. The fake backend is the server
+    // for the length of the case, so its socket route is held shut too; the
+    // cases that test broadcasts emit theirs straight onto the service.
+    const routes = /** @type {any} */ (wsService.constructor).TYPED_MESSAGE_ROUTES;
+    const serverRoute = routes['settings-changed'];
+    routes['settings-changed'] = () => {};
     const el = /** @type {any} */ (document.createElement('settings-panel'));
     document.body.appendChild(el);
     try {
@@ -145,14 +157,28 @@ export async function runTests(_ctx) {
       await body(el, backend);
     } finally {
       el.remove();
+      routes['settings-changed'] = serverRoute;
       backend.restore();
     }
   };
 
   const modeSelect = (el) => el.querySelector('#proxy-mode');
 
+  /**
+   * The real server's broadcast of its own settings.json, as this lane receives
+   * it whenever anything on the shared test server writes that file — another
+   * lane's suite, or this page's own preference writes. Its proxy is the real
+   * file's, not the fake backend's.
+   * @returns {void}
+   */
+  const foreignBroadcast = () => {
+    wsService._handleMessageData(JSON.stringify({ type: 'settings-changed', settings: { network: { proxy: { mode: 'system' } } } }));
+  };
+
   await run('select reflects the loaded proxy mode from /api/settings', async () => {
     await withPanel({ mode: 'manual', url: 'http://127.0.0.1:7890' }, async (el) => {
+      // Delivered every run rather than left to a sibling lane's timing.
+      foreignBroadcast();
       const select = modeSelect(el);
       assert(select && [...select.options].length === 3, `three modes; got ${select && select.options.length}`);
       assert(select.value === 'manual', `manual is selected; got ${select.value}`);

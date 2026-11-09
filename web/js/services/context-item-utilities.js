@@ -122,21 +122,27 @@ export async function executeContextItem(mt, conv, itemTypeId, params, options =
     return { id: null, type: itemTypeId, created: false, error: errorMessage };
   }
 
-  // Add message to conversation if not already present
-  const alreadyHasMessage = mt.getMessages().some(
-    (/** @type {any} */ e) => e.get('itemId') === newItemId
-  );
-  if (!alreadyHasMessage) {
-    const itemJSON = contextItem.toJSON();
-    mt.addEvent(createContextItemMessage({
-      itemId: newItemId,
-      isNew: true,
-      itemType: contextItem.type,
-      data: itemJSON.data
-    }));
-  }
+  // One transaction, so the add is one update and one undo step. As two, the
+  // second is timed (sinceEditMs) after the first's synchronous render, which
+  // on a slow core lands it outside the worker's capture window: undo then
+  // reverts only the rewrite and leaves the item in place.
+  conv.atomicUpdate(() => {
+    // Add message to conversation if not already present
+    const alreadyHasMessage = mt.getMessages().some(
+      (/** @type {any} */ e) => e.get('itemId') === newItemId
+    );
+    if (!alreadyHasMessage) {
+      const itemJSON = contextItem.toJSON();
+      mt.addEvent(createContextItemMessage({
+        itemId: newItemId,
+        isNew: true,
+        itemType: contextItem.type,
+        data: itemJSON.data
+      }));
+    }
 
-  mt.addContextItem(contextItem);
+    mt.addContextItem(contextItem);
+  });
   return { id: newItemId, type: contextItem.type, created: true };
 }
 

@@ -13,3 +13,6 @@ type testPoolHooks struct{}
 
 // testLanesHold is false in a release build: it queues no browser tests.
 func (s *Server) testLanesHold() bool { return false }
+
+// noteTestEngineQuiet does nothing in a release build: no pool samples it.
+func (s *Server) noteTestEngineQuiet(bool) {}

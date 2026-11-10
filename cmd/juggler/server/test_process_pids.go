@@ -7,8 +7,13 @@
 package server
 
 import (
+	"os"
+	"path/filepath"
+	"runtime/pprof"
 	"sync/atomic"
 	"time"
+
+	"juggler/internal/jlog"
 )
 
 // testPoolHooks is what a test pool installs on its server: the pool window
@@ -27,6 +32,53 @@ type testPoolHooks struct {
 	// yet finished with it (see testLanesHold). Installed by
 	// RegisterTestRoutes; nil elsewhere.
 	lanesHold atomic.Pointer[func() bool]
+	// engineQuiet runs when an attached engine has been silent for half its
+	// liveness window (see SetTestEngineQuiet). Installed by the test-pool
+	// host; nil elsewhere.
+	engineQuiet atomic.Pointer[func()]
+	// engineQuietNoted is set while one quiet spell has been noted, so a spell
+	// is sampled once; cleared when the engine is heard from again.
+	engineQuietNoted atomic.Bool
+}
+
+// SetTestEngineQuiet installs what a test pool does when an attached engine
+// has gone quiet for half its liveness window — while its socket is still open
+// and before eviction changes anything: on macOS, sample the engine's WebKit
+// processes, whose stacks are the only record of what a realm that stopped
+// turning was doing. It runs on its own goroutine, so it may block.
+func (s *Server) SetTestEngineQuiet(fn func()) {
+	if fn == nil {
+		s.testPool.engineQuiet.Store(nil)
+		return
+	}
+	s.testPool.engineQuiet.Store(&fn)
+}
+
+// noteTestEngineQuiet is called on every supervision tick of a live engine,
+// with whether it has been quiet for half its window. The first tick of a
+// quiet spell dumps this server's goroutines beside its log — which says
+// whether the engine went quiet or this server stopped reading it — then runs
+// the hook SetTestEngineQuiet installed, if any.
+func (s *Server) noteTestEngineQuiet(quiet bool) {
+	if !quiet {
+		s.testPool.engineQuietNoted.Store(false)
+		return
+	}
+	if s.testPool.engineQuietNoted.Swap(true) {
+		return
+	}
+	jlog.Info("[engine] quiet for %v", s.engineSilence().Round(time.Second))
+	if logPath := jlog.FilePath(); logPath != "" {
+		path := filepath.Join(filepath.Dir(logPath), "engine-quiet-"+time.Now().Format("20060102-150405")+"-goroutines.log")
+		if f, err := os.Create(path); err == nil {
+			_ = pprof.Lookup("goroutine").WriteTo(f, 2)
+			_ = f.Close()
+			jlog.Info("[engine] quiet-engine goroutine dump: %s", path)
+		}
+	}
+	if fn := s.testPool.engineQuiet.Load(); fn != nil {
+		go (*fn)()
+	}
 }
 
 // testLanesHold reports whether a browser test queued on this server has yet

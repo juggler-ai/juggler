@@ -154,6 +154,9 @@ func (a *windowApp) startup() {
 	a.srv.SetTestProcessPIDs(func() []int {
 		return application.InvokeSyncWithResult(func() []int { return webProcessPIDs(win, engineWin) })
 	})
+	if engineWin != nil {
+		a.srv.SetTestEngineQuiet(func() { sampleQuietEngine(engineWin) })
+	}
 
 	// Test slot: keep the pool window hidden so it doesn't flash on screen on
 	// every `make test`. Custom-element paths that depend on first paint

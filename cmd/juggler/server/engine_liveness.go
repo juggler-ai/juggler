@@ -258,6 +258,7 @@ func (s *Server) superviseEngineAt(now time.Time) {
 			// Healthy: forget any eviction we were tracking.
 			s.engineEvictedAt.Store(0)
 			s.engineRecoveries.Store(0)
+			s.noteTestEngineQuiet(s.engineSilence() > s.livenessWindow()/2)
 			return
 		}
 		s.evictSilentEngine()

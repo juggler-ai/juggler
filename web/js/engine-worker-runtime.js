@@ -45,6 +45,7 @@ globalThis.JUGGLER_ENGINE = true;
 /**
  * Everything the host posts to this worker.
  * @typedef {EngineWorkerStartMessage
+ *   | {type: 'ping'}
  *   | ({type: 'sandbox-cap'} & import('./engine-worker-sandbox.js').SandboxCapMessage)
  *   | ({type: 'sandbox-result'} & import('./engine-worker-sandbox.js').SandboxResultMessage)
  *   | ({type: 'sandbox-console'} & import('./engine-worker-sandbox.js').SandboxConsoleMessage)} EngineWorkerInbound
@@ -94,6 +95,43 @@ function reportFault(kind, reason) {
   self.postMessage({ type: 'error', message: `${kind}: ${message}`, stack });
 }
 
+// ── Host watchdog feed ─────────────────────────────────────────────────────
+// The host (engine-worker-main.js) reports a worker that stops answering its
+// pings, with what the worker last had in flight. A worker that is the thing
+// that stopped cannot say so itself, so it tells the host as it goes: each
+// fetch as it starts and settles, and each console warning or error.
+let fetchSeq = 0;
+
+/**
+ * Tell the host about every fetch this realm makes, so a realm that stops with
+ * one outstanding leaves its URL with the host.
+ */
+function installFetchTracking() {
+  if (typeof globalThis.fetch !== 'function') return;
+  const origFetch = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = (input, init) => {
+    const id = ++fetchSeq;
+    const url = typeof input === 'string' ? input : ('url' in input ? input.url : String(input));
+    self.postMessage({ type: 'fetch-start', id, url, method: init?.method || 'GET' });
+    const settle = () => self.postMessage({ type: 'fetch-end', id });
+    const pending = origFetch(input, init);
+    pending.then(settle, settle);
+    return pending;
+  };
+}
+
+for (const level of /** @type {const} */ (['warn', 'error'])) {
+  const original = console[level].bind(console);
+  console[level] = (...args) => {
+    original(...args);
+    try {
+      self.postMessage({ type: 'log', level, args: args.map((a) => (a instanceof Error ? a.stack || a.message : String(a))) });
+    } catch { /* an unpostable argument costs the line, not the call */ }
+  };
+}
+
+installFetchTracking();
+
 self.addEventListener('unhandledrejection', (event) => {
   reportFault('unhandledrejection', event.reason);
 });
@@ -142,6 +180,10 @@ engineGlobals.__hostSandboxDelegate = sandbox.delegate;
 self.onmessage = (event) => {
   const data = /** @type {EngineWorkerInbound} */ (event.data || {});
 
+  if (data.type === 'ping') {
+    self.postMessage({ type: 'pong' });
+    return;
+  }
   if (data.type === 'sandbox-cap') {
     sandbox.handleCap(data);
     return;

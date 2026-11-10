@@ -22,6 +22,10 @@ func HandleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// engineHostReportMax bounds an engine-host report: twenty console lines of
+// 300 characters and a list of in-flight URLs, with room to spare.
+const engineHostReportMax = 12_000
+
 // HandleClientReport is the frontend → application-log bridge. The desktop app's
 // WebView console (and the engine's hidden worker WebView console) can't be read
 // in a shipped build, so a fault a real user hits would otherwise vanish — this
@@ -36,6 +40,10 @@ func HandleHealth(w http.ResponseWriter, r *http.Request) {
 //   - the engine's conversation loader (web/js/services/conversation-loader.js),
 //     which reports a conversation it failed to auto-load, tagged source
 //     "engine-autoload".
+//   - the engine page's main thread (web/js/engine-worker-main.js), which
+//     reports a worker that stopped answering it, with the fetches and console
+//     lines it had in flight, tagged source "engine-host". That report is the
+//     only one allowed to run long (engineHostReportMax).
 //
 // Body: {source?, event?, message?, stack?}. event "error" logs at Error,
 // "ready" at Info, anything else at Debug. Callers send only untoward events, so
@@ -72,8 +80,12 @@ func HandleClientReport(w http.ResponseWriter, r *http.Request) {
 	if len(source) > 32 {
 		source = source[:32]
 	}
-	if len(msg) > 500 {
-		msg = msg[:500]
+	maxMsg := 500
+	if source == "engine-host" {
+		maxMsg = engineHostReportMax
+	}
+	if len(msg) > maxMsg {
+		msg = msg[:maxMsg]
 	}
 	if body.Event == "error" {
 		jlog.Error("[%s] %s", source, msg)

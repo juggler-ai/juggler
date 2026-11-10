@@ -11,3 +11,6 @@ import "github.com/wailsapp/wails/v3/pkg/application"
 // webProcessPIDs reports nothing here. WebKitGTK and WebView2 start their
 // processes as descendants of this one, where the harness finds them itself.
 func webProcessPIDs(_ ...*application.WebviewWindow) []int { return nil }
+
+// sampleQuietEngine does nothing here: there is no sampler to run.
+func sampleQuietEngine(_ *application.WebviewWindow) {}

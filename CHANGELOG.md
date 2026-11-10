@@ -9,6 +9,7 @@ the current release). The project follows semantic versioning.
 - Reads AGENTS.md from subfolders as the agent works there, plus .local and global ones
 - Pinned or mentioned folders inside a gitignored directory no longer show as empty
 - Project files and pinned folders are a file browser: click to preview, sizes, git status, filter
+- A stalled engine whose reload fails is reloaded again, instead of staying dead
 
 ## [0.8.0] - 2026-11-08
 

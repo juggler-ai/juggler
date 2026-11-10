@@ -381,6 +381,30 @@ func TestEngineSupervisor_EscalatesToRecovery(t *testing.T) {
 	}
 }
 
+// TestEngineSupervisor_RetriesARecoveryThatBringsNothingBack: a reload is not a
+// cure, only an attempt. When the reloaded engine never connects, the next
+// grace must bring the next attempt, up to the cap, and then a line saying it
+// gave up — not silence for the rest of the session with no engine.
+func TestEngineSupervisor_RetriesARecoveryThatBringsNothingBack(t *testing.T) {
+	s := newTestServerState(t)
+
+	recovered := make(chan struct{}, maxEngineRecoveries+2)
+	s.SetEngineRecovery(func() { recovered <- struct{}{} })
+
+	at := time.Now()
+	s.engineEvictedAt.Store(at.UnixNano())
+	for i := 1; i <= maxEngineRecoveries+2; i++ {
+		// Nothing ever reconnects: each step is one more grace with no engine.
+		s.superviseEngineAt(at.Add(time.Duration(i) * (engineReconnectGrace + time.Second)))
+	}
+
+	if got := len(recovered); got != maxEngineRecoveries {
+		t.Fatalf("an engine that never came back was reloaded %d time(s); want %d — "+
+			"each reload that brings nothing back must be followed by another, up to the cap",
+			got, maxEngineRecoveries)
+	}
+}
+
 // TestEngineSupervisor_IgnoresAnEngineItNeverEvicted: an engine that has simply
 // never connected belongs to startEngineHost's boot check, and a disconnect
 // during shutdown belongs to nobody. The supervisor must only chase engines it

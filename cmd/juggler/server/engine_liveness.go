@@ -247,6 +247,12 @@ func (s *Server) startEngineSupervisor() {
 // superviseEngine is one supervision tick. Split out so a test can step it
 // without waiting on the ticker.
 func (s *Server) superviseEngine() {
+	s.superviseEngineAt(time.Now())
+}
+
+// superviseEngineAt is superviseEngine with the clock supplied, so a test can
+// lay out a reconnect grace without sleeping through one.
+func (s *Server) superviseEngineAt(now time.Time) {
 	if s.engineClient.Load() != nil {
 		if s.engineLive() {
 			// Healthy: forget any eviction we were tracking.
@@ -262,21 +268,27 @@ func (s *Server) superviseEngine() {
 	// connected is startEngineHost's business, and a normal disconnect during
 	// shutdown is nobody's.
 	evictedAt := s.engineEvictedAt.Load()
-	if evictedAt == 0 || time.Since(time.Unix(0, evictedAt)) < engineReconnectGrace {
+	if evictedAt == 0 || now.Sub(time.Unix(0, evictedAt)) < engineReconnectGrace {
 		return
 	}
-	s.engineEvictedAt.Store(0)
 
 	if n := s.engineRecoveries.Add(1); n > maxEngineRecoveries {
+		s.engineEvictedAt.Store(0)
 		jlog.Error("[engine] gave up reviving the engine after %d attempts — tools cannot run in this session", maxEngineRecoveries)
 		return
 	}
 	g := s.engineRecovery.Load()
 	if g == nil {
+		s.engineEvictedAt.Store(0)
 		jlog.Error("[engine] evicted engine did not reconnect within %v and no recovery hook is installed", engineReconnectGrace)
 		return
 	}
-	jlog.Info("[engine] evicted engine did not reconnect within %v — reloading it", engineReconnectGrace)
+	// Stays armed from the reload: one that brings nothing back is met with
+	// the next after the same grace, up to the cap. An engine that does return
+	// clears it on the first tick that finds it live.
+	s.engineEvictedAt.Store(now.UnixNano())
+	jlog.Info("[engine] engine did not reconnect within %v of its eviction or last reload — reloading it (attempt %d of %d)",
+		engineReconnectGrace, s.engineRecoveries.Load(), maxEngineRecoveries)
 	(*g)()
 }
 

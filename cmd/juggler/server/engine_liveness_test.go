@@ -405,6 +405,35 @@ func TestEngineSupervisor_RetriesARecoveryThatBringsNothingBack(t *testing.T) {
 	}
 }
 
+// TestEngineSupervisor_WaitsOutAReloadThatIsGettingSomewhere: a reload's boot
+// is as long as the machine is slow, so the grace before the next reload runs
+// from the reloaded engine's last step, not from the reload. Counted from the
+// reload, a slow core has each reload cut off the boot of the one before, and
+// the engine never returns.
+func TestEngineSupervisor_WaitsOutAReloadThatIsGettingSomewhere(t *testing.T) {
+	s := newTestServerState(t)
+
+	recovered := make(chan struct{}, maxEngineRecoveries+2)
+	s.SetEngineRecovery(func() { recovered <- struct{}{} })
+
+	now := time.Now()
+	// Reloaded longer than a grace ago, and the reloaded page is still booting:
+	// a first fetch, then one more step just now.
+	s.engineEvictedAt.Store(now.Add(-engineReconnectGrace - 5*time.Second).UnixNano())
+	s.noteEnginePage()
+	s.noteEngineFetch("/worker-module/a.js")
+	s.superviseEngineAt(now)
+	if got := len(recovered); got != 0 {
+		t.Fatalf("reloaded a booting engine %d time(s); a reload that is still getting further must be waited out", got)
+	}
+
+	// A boot that stops getting anywhere is reloaded after a grace.
+	s.superviseEngineAt(time.Now().Add(engineReconnectGrace + time.Second))
+	if got := len(recovered); got != 1 {
+		t.Fatalf("a boot stalled for a whole grace was reloaded %d time(s); want 1", got)
+	}
+}
+
 // TestEngineSupervisor_IgnoresAnEngineItNeverEvicted: an engine that has simply
 // never connected belongs to startEngineHost's boot check, and a disconnect
 // during shutdown belongs to nobody. The supervisor must only chase engines it

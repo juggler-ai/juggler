@@ -39,6 +39,9 @@ type engineBootState struct {
 	best int
 	// at is when best last grew; zero until the engine has fetched anything.
 	at time.Time
+	// stepAt is when the current boot last reached a fetch it had not made:
+	// progress within this boot, where at is progress beyond every boot.
+	stepAt time.Time
 }
 
 // note records a fetch, as the first of a new boot when newBoot is set.
@@ -51,7 +54,7 @@ func (b *engineBootProgress) note(url string, newBoot bool) {
 		} else if !newBoot && old.seen[url] {
 			return
 		}
-		next := &engineBootState{seen: map[string]bool{url: true}, best: old.best, at: old.at}
+		next := &engineBootState{seen: map[string]bool{url: true}, best: old.best, at: old.at, stepAt: time.Now()}
 		if !newBoot {
 			for u := range old.seen {
 				next.seen[u] = true
@@ -78,6 +81,18 @@ func (s *Server) noteEngineFetch(url string) { s.engineBoot.note(url, false) }
 func (s *Server) EngineBootProgressAt() time.Time {
 	if st := s.engineBoot.state.Load(); st != nil {
 		return st.at
+	}
+	return time.Time{}
+}
+
+// engineBootStepAt is when the current boot last made a fetch it had not made
+// before; zero if the engine has fetched nothing yet. Unlike
+// EngineBootProgressAt, a reload counts from its own start: it re-fetches what
+// the boot before it did, which is no progress towards a first connection but
+// is the reloaded engine getting somewhere.
+func (s *Server) engineBootStepAt() time.Time {
+	if st := s.engineBoot.state.Load(); st != nil {
+		return st.stepAt
 	}
 	return time.Time{}
 }

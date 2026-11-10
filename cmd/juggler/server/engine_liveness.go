@@ -268,8 +268,19 @@ func (s *Server) superviseEngineAt(now time.Time) {
 	// No engine attached. Only act on one WE evicted: an engine that has never
 	// connected is startEngineHost's business, and a normal disconnect during
 	// shutdown is nobody's.
+	// The grace runs from the eviction or last reload, or from the reloaded
+	// engine's last step further, whichever came last: a reload's boot is as
+	// long as the machine is slow, and a reload on a wall-time grace cuts off
+	// the boot of the one before it.
 	evictedAt := s.engineEvictedAt.Load()
-	if evictedAt == 0 || now.Sub(time.Unix(0, evictedAt)) < engineReconnectGrace {
+	if evictedAt == 0 {
+		return
+	}
+	quietSince := time.Unix(0, evictedAt)
+	if step := s.engineBootStepAt(); step.After(quietSince) {
+		quietSince = step
+	}
+	if now.Sub(quietSince) < engineReconnectGrace {
 		return
 	}
 
@@ -288,7 +299,7 @@ func (s *Server) superviseEngineAt(now time.Time) {
 	// the next after the same grace, up to the cap. An engine that does return
 	// clears it on the first tick that finds it live.
 	s.engineEvictedAt.Store(now.UnixNano())
-	jlog.Info("[engine] engine did not reconnect within %v of its eviction or last reload — reloading it (attempt %d of %d)",
+	jlog.Info("[engine] engine neither reconnected nor got further in its boot for %v since its eviction or last reload — reloading it (attempt %d of %d)",
 		engineReconnectGrace, s.engineRecoveries.Load(), maxEngineRecoveries)
 	(*g)()
 }
